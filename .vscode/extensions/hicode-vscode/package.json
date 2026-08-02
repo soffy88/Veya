@@ -1,0 +1,27 @@
+{
+    "name": "hicode-vscode",
+    "displayName": "Hicode for VS Code",
+    "description": "VS Code extension for Hicode",
+    "version": "0.1.0",
+    "publisher": "hicode",
+    "engines": {
+        "vscode": "^1.50.0"
+    },
+    "activationEvents": [
+        "onCommand:hicode.runAgent",
+        "onCommand:hicode.debugAgent"
+    ],
+    "main": "./extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "hicode.runAgent",
+                "title": "Run Hicode Agent"
+            },
+            {
+                "command": "hicode.debugAgent",
+                "title": "Debug Hicode Agent"
+            }
+        ]
+    }
+}

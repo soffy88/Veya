@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: hicode
+Version: 0.2.0
+Summary: hicode — AI coding agent (복제 + opencode/Claude Code 초월)
+Requires-Python: >=3.11
+Requires-Dist: pygments>=2.0
+Requires-Dist: anthropic>=0.20.0

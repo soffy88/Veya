@@ -1,0 +1,121 @@
+Here's a concise, professional `AGENTS.md` document tailored to the `hicode` project structure. It focuses on **agent architecture**, clarifies module responsibilities, identifies entry points, and reflects the observed design patterns — while gracefully handling noise (e.g., `Zone.Identifier`, `.pycache`, `.venv`, `.whl`, zips) as non-source artifacts.
+
+---
+
+# `AGENTS.md`: Agent Architecture Overview for `hicode`
+
+> **Version**: `hicode` v0.2.0  
+> **Purpose**: This document describes the agent-centric architecture of `hicode` — a modular, extensible AI orchestration framework designed for code-aware reasoning, research, planning, and execution.
+
+---
+
+## 🧭 Project Layout Summary
+
+The repository follows a clean, domain-driven package structure:
+
+```
+hicode/
+├── agents/            # Core agent implementations & base abstractions
+├── server/            # HTTP/SSE API layer + agent routing & coordination
+├── tools/             # Reusable, composable tool functions (e.g., search, file ops, LLM calls)
+├── commands/          # CLI command definitions (e.g., `hicode run`, `hicode serve`)
+├── hooks/             # Lifecycle event handlers (pre/post dispatch, auth, redaction, etc.)
+├── registries/        # Dynamic registration systems for tools, models, skills, plugins
+├── config/            # Configuration loading, schema validation, permission policies
+├── session/           # Session state management (context, history, persistence)
+├── streaming/         # Streaming utilities (SSE, async chunking, token-level response handling)
+├── cli/               # Headless CLI entry point(s)
+├── tests/             # Integration & smoke tests
+├── docs/              # Documentation assets (e.g., instruction packs)
+└── pyproject.toml   # Build, linting, and dependency configuration
+```
+
+*Note:* Files like `*.zip`, `*.whl`, `*.env`, `Zone.Identifier`, `.pycache/`, and `.venv/` are build artifacts, environment files, or system metadata — **not part of the source architecture**.
+
+---
+
+## 🤖 Key Agent Modules
+
+### `agents/` — The Agent Core
+This package defines the *what* and *how* of agent behavior.
+
+| Module | Role | Notes |
+|--------|------|-------|
+| `agents/_base.py` | Abstract base class (`BaseAgent`) defining required interfaces: `run()`, `validate()`, `stream()`, and lifecycle hooks. Enforces uniform input/output contracts and error handling. | Foundation for all concrete agents. |
+| `agents/plan.py` | **Planning Agent**: Decomposes high-level user requests into executable sub-tasks (e.g., “Build a Flask API that scrapes news” → [research frameworks, draft routes, write tests]). Uses LLM-guided decomposition + tool selection. | Primary entry for multi-step reasoning; often first in agent chains. |
+| `agents/research.py` | **Research Agent**: Executes information-gathering workflows using web search, document parsing, and knowledge synthesis tools. Integrates with `tools/search.py`, `tools/parse.py`. | Stateful — maintains context across queries; supports iterative refinement. |
+| `agents/build.py` | **Build/Execution Agent**: Translates plans into actionable code, runs validations (`run_validation.py`, `run_llm_validation.py`), and manages filesystem/codegen operations. | Tightly coupled with `tools/` and `session/` for safe, auditable code execution. |
+
+✅ All agents are **registry-aware**: discovered and instantiated via `registries/skills.py` and `registries/agents.py` (implied by pattern — though not explicitly listed, `agents/__init__.py` exports them for auto-registration).
+
+---
+
+## ⚙️ Agent Entry Points
+
+Agents are invoked through **three primary interfaces**, depending on usage mode:
+
+### 1. **HTTP API (Production / Web UI)**
+- **Entry**: `server/app.py` (FastAPI app)
+- **Routing**: `server/routes/agent.py` handles `/api/v1/agent/{name}` POST requests.
+- **Dispatch**: `server/coordinator.py` instantiates and orchestrates agents using:
+  - `session` state (via `session/`)
+  - `tools` (via `registries/tools.py`)
+  - `models` (via `registries/models.py`)
+- **Streaming**: Responses use Server-Sent Events (`server/sse.py`) for real-time token-by-token output.
+
+### 2. **CLI / Headless Mode**
+- **Entry**: `cli/headless.py` (primary CLI runner)
+- **Usage**: `hicode run --agent plan --input "..."`  
+  (also supports `research`, `build`, and custom agent names)
+- **Orchestration**: Uses `coordinator.py` (root-level) for local, synchronous agent execution — bypassing HTTP overhead.
+
+### 3. **Programmatic Python API**
+- **Entry**: Import and instantiate directly:
+  ```python
+  from agents.plan import PlanAgent
+  from session import Session
+  
+  session = Session()
+  agent = PlanAgent(session=session)
+  result = agent.run({"query": "Design a data pipeline"})
+  ```
+- **Flexibility**: Enables embedding `hicode` agents into other apps or notebooks.
+
+---
+
+## 🔗 Cross-Cutting Dependencies
+
+| Component | Used By | Purpose |
+|----------|---------|---------|
+| `registries/` | All agents, `server/`, `hooks/` | Dynamic discovery & injection of tools, models, permissions, and plugins. Enables hot-swapping LLM backends or toolsets. |
+| `hooks/` | `server/coordinator.py`, `agents/_base.py` | Intercepts agent lifecycle events (e.g., `pre_dispatch`, `post_result`, `permission`). Critical for security, auditing, and observability. |
+| `config/permissions.py` | `hooks/builtin/permission.py`, `server/routes/auth.py` | Enforces fine-grained access control per agent/tool — e.g., `"build"` requires `code_write` scope. |
+| `streaming/` | `agents/_base.py`, `server/sse.py` | Provides unified async streaming interface across agents and transport layers. |
+
+---
+
+## 🧪 Validation & Testing
+
+- **Validation logic**: Externalized into `run_validation.py` (static checks) and `run_llm_validation.py` (LLM-based correctness scoring).
+- **Smoke test**: `tests/test_smoke.py` verifies end-to-end agent chain (plan → research → build) with mocked tools.
+- Agents are **unit-testable** via their `run()` interface — no HTTP or session coupling required.
+
+---
+
+## 📌 Key Design Principles
+
+- **Modularity**: Agents, tools, and hooks are decoupled and discoverable via registries.
+- **Observability-first**: Hooks and streaming enable full traceability of agent decisions and outputs.
+- **Security-by-default**: Permission hooks gate sensitive actions (e.g., file writes, external API calls).
+- **Multi-mode**: Same agent logic works headlessly, over HTTP, or embedded — no duplication.
+
+---
+
+> ✅ **Next Steps for Contributors**  
+> - Add new agents: Implement `BaseAgent`, register in `agents/__init__.py`, add to `registries/skills.py`.  
+> - Extend tooling: Drop into `tools/`, import in `registries/tools.py`.  
+> - Customize behavior: Write hooks in `hooks/builtin/` and register in `hooks/registry.py`.
+
+--- 
+
+*Generated from repo structure as of `hicode` v0.2.0 • Last updated: 2024*

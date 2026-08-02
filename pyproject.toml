@@ -1,0 +1,57 @@
+[project]
+name = "hicode"
+version = "0.2.0"
+description = "hicode — AI 编码 agent layer4 实现"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "textual>=0.60.0",
+    "obase",
+    "oprim",
+    "oskill",
+    "omodul",
+    "oservi",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+hicode = "cli.main:main"
+hicode-headless = "cli.headless:main"
+
+[tool.uv.sources]
+obase  = { path = "../platform/3O/obase",  editable = true }
+oprim  = { path = "../platform/3O/oprim",  editable = true }
+oskill = { path = "../platform/3O/oskill", editable = true }
+omodul = { path = "../platform/3O/omodul", editable = true }
+oservi = { path = "../platform/3O/oservi", editable = true }
+
+[tool.uv]
+override-dependencies = [
+    "obase>=0.15.0",
+    "oprim>=3.10.0",
+    "oskill>=3.25.0",
+    "omodul>=1.29.0",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]

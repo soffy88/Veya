@@ -1,0 +1,15 @@
+version: 1.0
+
+workflows:
+  - name: CI/CD
+    on:
+      - push
+      - pull_request
+    jobs:
+      - name: build
+        steps:
+          - checkout
+          - setup_python
+          - install_dependencies
+          - run_tests
+          - build_and_deploy

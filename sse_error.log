@@ -1,0 +1,8 @@
+data: {"type": "session_start", "session_id": "s-verify-error"}
+
+data: {"type": "squad_start", "squad_id": "s1", "role": "execute"}
+
+data: {"type": "squad_done", "squad_id": "s1", "role": "execute", "status": "success", "cost_usd": 0.0}
+
+data: {"type": "cost_update", "total_cost": 0.0, "session_id": "s-verify-error"}
+

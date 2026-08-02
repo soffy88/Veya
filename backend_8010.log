@@ -1,0 +1,17 @@
+INFO:     Started server process [2990416]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8010 (Press CTRL+C to quit)
+INFO:     127.0.0.1:57526 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47956 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47968 - "POST /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47982 - "POST /session HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54282 - "POST /session HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54286 - "GET /session/5c094904-9e95-449f-97c9-379807fdb993 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54288 - "GET /sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54298 - "GET /models HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51456 - "POST /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51466 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53554 - "POST /session HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53556 - "GET /session/c118f5c8-3081-44b4-91cd-24d6877be4a5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53560 - "GET /sessions HTTP/1.1" 200 OK

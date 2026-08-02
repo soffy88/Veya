@@ -1,0 +1,2 @@
+[console_scripts]
+hicode = hicode_tui.repl:main
