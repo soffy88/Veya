@@ -54,3 +54,4 @@ artifacts/
 # Veya runtime caches & local secrets
 .veya_ast_cache.json
 .veya.env
+site/

@@ -11,7 +11,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass
@@ -39,6 +39,15 @@ class ImageProcessor:
     4. 图像编码（用于 LLM）
     """
 
+    MEDIA_TYPES: ClassVar[dict[str, str]] = {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "webp": "image/webp",
+        "bmp": "image/bmp",
+    }
+
     def __init__(self):
         self.supported_formats = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
@@ -56,6 +65,27 @@ class ImageProcessor:
         except Exception as e:
             print(f"[ImageProcessor] Failed to encode image: {e}")
             return None
+
+    def media_type(self, image_path: str) -> str:
+        """根据扩展名返回 MIME 类型（默认 image/png）"""
+        suffix = Path(image_path).suffix.lstrip(".").lower()
+        return self.MEDIA_TYPES.get(suffix, "image/png")
+
+    def to_content_block(self, image_path: str) -> dict[str, Any] | None:
+        """将图像编码为 OpenAI 风格 image_url 内容块（G12，供 provider 消费）。
+
+        返回 ``{"type": "image_url", "image_url": {"url": "data:<mime>;base64,..."}}``；
+        文件不存在或不支持时返回 None。
+        """
+        b64 = self.encode_image(image_path)
+        if b64 is None:
+            return None
+        return {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{self.media_type(image_path)};base64,{b64}",
+            },
+        }
 
     def extract_text_ocr(self, image_path: str) -> str:
         """OCR 提取文本（简化版，实际可接入 Tesseract/第三方 OCR）"""
@@ -275,12 +305,36 @@ class MultimodalProcessor:
             base64_image = self.image_processor.encode_image(file_path)
             return {
                 "type": "image",
-                "url": f"data:image/{Path(file_path).suffix.lstrip('.')};base64,{base64_image}",
+                "url": f"data:{self.image_processor.media_type(file_path)};base64,{base64_image}",
                 "text": result.text,
                 "description": result.description,
             }
         else:
             return {"type": "document", "text": result.text, "description": result.description}
+
+    def build_vision_messages(
+        self,
+        text: str,
+        image_paths: list[str],
+        *,
+        system: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """构建可直接发给 LLM provider 的视觉消息（G12）。
+
+        文本 + 图片 → OpenAI 风格 content blocks
+        （``text`` 块 + ``image_url`` data-URI 块）；缺失/不支持的图片自动跳过。
+        ``system`` 非空时置于首位。
+        """
+        blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
+        for path in image_paths:
+            block = self.image_processor.to_content_block(path)
+            if block is not None:
+                blocks.append(block)
+
+        messages: list[dict[str, Any]] = [{"role": "user", "content": blocks}]
+        if system:
+            messages.insert(0, {"role": "system", "content": system})
+        return messages
 
 
 # 便捷函数

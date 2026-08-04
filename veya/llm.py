@@ -200,6 +200,70 @@ async def _call_anthropic(
     )
 
 
+def prepare_messages_for_provider(messages: list, provider: str) -> list:
+    """Normalize OpenAI-style messages (plain text or content blocks) for a provider.
+
+    G12 multimodal: ``openai``/``dashscope`` accept content-block lists natively
+    (``[{"type": "text", ...}, {"type": "image_url", ...}]``) and pass through
+    unchanged. ``anthropic`` needs ``image_url`` blocks converted to its native
+    ``{"type": "image", "source": {...}}`` format and list content wrapped as
+    text blocks.
+    """
+    if provider != "anthropic":
+        return messages
+    out: list[dict] = []
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list) and msg.get("role") in ("user", "assistant"):
+            msg = dict(msg)
+            msg["content"] = _to_anthropic_content_blocks(content)
+        out.append(msg)
+    return out
+
+
+def _parse_image_url(url: str) -> tuple[str | None, str | None]:
+    """Split a data URI into ``(media_type, base64_data)``; plain URLs → (None, None)."""
+    if isinstance(url, str) and url.startswith("data:"):
+        header, _, payload = url.partition(",")
+        media_type = header[5:].split(";")[0] or "image/png"
+        return media_type, payload
+    return None, None
+
+
+def _to_anthropic_content_blocks(content: list) -> list[dict]:
+    """Convert OpenAI-style content blocks → Anthropic content blocks (G12).
+
+    - ``{"type": "text", ...}`` passes through
+    - ``{"type": "image_url", ...}`` → ``{"type": "image", "source": {...}}``
+      (data URI → base64; plain URL → url source)
+    - unknown blocks pass through untouched
+    """
+    blocks: list[dict] = []
+    for block in content:
+        if not isinstance(block, dict):
+            blocks.append({"type": "text", "text": str(block)})
+            continue
+        if block.get("type") == "text":
+            blocks.append({"type": "text", "text": block.get("text", "")})
+        elif block.get("type") == "image_url":
+            url = block.get("image_url") or {}
+            if isinstance(url, dict):
+                url = url.get("url", "")
+            media_type, data = _parse_image_url(str(url))
+            if data is not None:
+                blocks.append(
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": media_type, "data": data},
+                    }
+                )
+            else:
+                blocks.append({"type": "image", "source": {"type": "url", "url": str(url)}})
+        else:
+            blocks.append(block)
+    return blocks
+
+
 def _normalize_anthropic_response(data: dict) -> dict:
     """Normalize an Anthropic Messages response to OpenAI format."""
     content_text = ""
@@ -250,6 +314,7 @@ async def provider_call(
     if not api_key:
         raise ValueError(f"API key not set for provider '{provider}'")
     resolved_model = model or _DEFAULT_MODELS.get(provider, "default")
+    messages = prepare_messages_for_provider(messages, provider)
 
     if provider == "anthropic":
         resp = await _call_anthropic(
@@ -294,6 +359,7 @@ async def provider_stream(
     if not api_key:
         raise ValueError(f"API key not set for provider '{provider}'")
     resolved_model = model or _DEFAULT_MODELS.get(provider, "default")
+    messages = prepare_messages_for_provider(messages, provider)
 
     if provider == "anthropic":
         resp = await _call_anthropic(
