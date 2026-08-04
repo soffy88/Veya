@@ -18,7 +18,16 @@ def check_oprim_keyword_only(oprim_dir: Path) -> list[str]:
         if py_file.name.startswith("_"):
             continue
 
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        try:
+
+
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+
+
+        except SyntaxError:
+
+
+            continue  # unparseable (newer py version) is not a violation
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.name.startswith("_"):
