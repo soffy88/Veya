@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.autonomous_agent import create_autonomous_agent
+from veya.autonomous_agent import create_autonomous_agent
 
 router = APIRouter(prefix="/autonomous", tags=["autonomous"])
 
@@ -37,7 +37,7 @@ class ExecutePlanRequest(BaseModel):
 async def plan_goal(request: PlanGoalRequest) -> dict[str, Any]:
     """为目标制定规划"""
     try:
-        from hicode.autonomous_agent import AgentGoal
+        from veya.autonomous_agent import AgentGoal
 
         # 转换目标字符串为枚举
         goal_map = {

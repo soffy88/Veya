@@ -41,7 +41,7 @@ jobs:
         run: ruff check .
 
       - name: Ruff lint (core packages)
-        run: ruff check hicode/ server/ cli/ commands/ tools/ session/ streaming/ hooks/ config/ agents/ registries/ --no-cache
+        run: ruff check veya/ server/ cli/ commands/ tools/ session/ streaming/ hooks/ config/ agents/ registries/ --no-cache
 
       - name: 3O paradigm checks (附录 B)
         run: |
@@ -68,7 +68,7 @@ jobs:
 
       - name: Run mypy
         run: |
-          mypy --config-file pyproject.toml server/coordinator.py hicode/streaming.py hicode/sandbox.py hicode/intent.py hicode/obase/ hicode/llm.py hicode/errors.py hicode/compat.py hicode/utils.py
+          mypy --config-file pyproject.toml server/coordinator.py veya/streaming.py veya/sandbox.py veya/intent.py veya/obase/ veya/llm.py veya/errors.py veya/compat.py veya/utils.py
         # G7: 解锁集严格检查(coordinator/streaming/sandbox/intent + obase/llm/errors/compat/utils)。
         # 遗留代码暂不纳入,避免整库历史错误阻塞 CI。
 
@@ -95,7 +95,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest tests/ -v --cov=hicode --cov=server --cov=agents --cov=tools \
+          pytest tests/ -v --cov=veya --cov=server --cov=agents --cov=tools \
             --cov-report=xml --cov-report=term-missing --junitxml=junit.xml
 
       - name: Upload coverage to Codecov

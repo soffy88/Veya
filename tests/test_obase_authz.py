@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from hicode.obase.authz import (
+from veya.obase.authz import (
     InteractivePermissionGate,
     PermissionDecision,
     evaluate_permission,
@@ -147,7 +147,7 @@ def test_gate_on_pending_callback_notified():
 
 # ── compat 单源委托（§1.4 守卫） ──────────────────────────────────────
 def test_compat_permission_evaluate_delegates():
-    from hicode.compat import permission_evaluate
+    from veya.compat import permission_evaluate
 
     r = permission_evaluate("write", persona="plan")
     assert r["decision"] == PermissionDecision.DENY
@@ -156,7 +156,7 @@ def test_compat_permission_evaluate_delegates():
 
 
 def test_compat_match_delegates():
-    from hicode.compat import match_permission_rule as compat_match
+    from veya.compat import match_permission_rule as compat_match
 
     # 委托后：allow/ask 命中 → True；deny → False
     assert compat_match(["allow:*"], "read")

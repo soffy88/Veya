@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.agent_collaboration import AgentRole, create_agent_collaborator
+from veya.agent_collaboration import AgentRole, create_agent_collaborator
 
 router = APIRouter(prefix="/agent-collaboration", tags=["agent-collaboration"])
 

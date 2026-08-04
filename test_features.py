@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-测试hicode新功能
+测试veya新功能
 """
 
 import os
@@ -8,8 +8,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from hicode.ast import ASTAnalyzer
-from hicode.tools import code_completion_tool
+from veya.ast import ASTAnalyzer
+from veya.tools import code_completion_tool
 
 
 def test_code_completion():

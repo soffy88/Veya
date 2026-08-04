@@ -1,7 +1,7 @@
-# hicode CC 指令包 — 补完 layer4 并跑通
+# veya CC 指令包 — 补完 layer4 并跑通
 
-**目标**: 在 hicode 仓库(打平布局,import 根 = hicode/)补完 layer4 内部模块,接通已入库的五库+obase,跑通阶段 1。
-**布局**: `hicode/server/`、`hicode/cli/`、`hicode/agents/`、`hicode/hooks/`、`hicode/config/`、`hicode/registries/`(全打平,`from server.assembly import ...`)。
+**目标**: 在 veya 仓库(打平布局,import 根 = veya/)补完 layer4 内部模块,接通已入库的五库+obase,跑通阶段 1。
+**布局**: `veya/server/`、`veya/cli/`、`veya/agents/`、`veya/hooks/`、`veya/config/`、`veya/registries/`(全打平,`from server.assembly import ...`)。
 **已有**: `server/assembly.py`、`server/coordinator.py`、`cli/headless.py`(本包附带,import 已按打平布局)。
 **库已就绪**: oprim/oskill/omodul/oservi/obase 全部入库。
 
@@ -16,7 +16,7 @@
 
 **动作**:
 ```bash
-cd hicode
+cd veya
 python -c "from oservi import assemble, ServiceManifest; print('oservi ok')"
 python -c "from oprim import llm_call, file_read, bash_exec, ripgrep_search, glob_match, dir_list, file_write, file_read_range, apply_string_replace, compute_diff, http_fetch, web_search_query, diff_session_state, mcp_connect, mcp_call_tool, lsp_goto_definition, lsp_find_references, lsp_hover, lsp_document_symbol, lsp_workspace_symbol, lsp_goto_implementation, lsp_prepare_call_hierarchy, lsp_incoming_calls, lsp_outgoing_calls, lsp_diagnostics, todo_serialize, todo_deserialize; print('oprim ok')"
 python -c "from oskill import code_search; print('oskill ok')"
@@ -265,8 +265,8 @@ server/sse.py            SSE 推送(on_step → 前端;阶段 1 可桩)
 
 **动作**:
 ```bash
-cd hicode
-echo '{"text": "把 README.md 第一行改成 # hicode"}' | python -m cli.headless
+cd veya
+echo '{"text": "把 README.md 第一行改成 # veya"}' | python -m cli.headless
 ```
 
 **期望输出**:
@@ -282,7 +282,7 @@ echo '{"text": "把 README.md 第一行改成 # hicode"}' | python -m cli.headle
 
 **验收**:
 - 退出码 0
-- README.md 第一行变成 `# hicode`
+- README.md 第一行变成 `# veya`
 - 输出 JSON 含 diff
 - **跑通 = 库接口验证通过,进阶段 2(铺全引擎+全路由)**
 

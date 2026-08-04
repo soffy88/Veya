@@ -1,4 +1,4 @@
-# hicode 核心装配代码 — CC 落地说明
+# veya 核心装配代码 — CC 落地说明
 
 三个核心装配点的可跑代码骨架。CC 拿这个作为 layer4 阶段 1-3 的起点。
 
@@ -17,7 +17,7 @@ layer4/cli/headless.py        headless 协议:结构化进出,无 TTY
 **核对 import 能否解析。** 本代码按交付的 IMPL SPEC 签名写,但我无法验证它与已入库 manifest 完全一致。逐个确认:
 
 ```python
-# 在 hicode 环境跑,确认无 ImportError:
+# 在 veya 环境跑,确认无 ImportError:
 from oservi import assemble, ServiceManifest
 from oprim import llm_call, file_read, bash_exec, ...   # assembly.py 顶部全部
 from oskill import code_search
@@ -75,7 +75,7 @@ headless.main()
 补完上述 layer4 内部模块后:
 
 ```bash
-echo '{"text": "把 README.md 第一行改成 # hicode"}' | python -m layer4.cli.headless
+echo '{"text": "把 README.md 第一行改成 # veya"}' | python -m layer4.cli.headless
 # 期望:JSON 输出,status=success,output 含 diff,真实改了文件
 ```
 

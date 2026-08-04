@@ -3,9 +3,9 @@
 
 强制 §7.4 依赖方向：obase → 3O 任何层 ❌。
 
-检查 hicode/obase/ 内所有模块的 import：
-- 允许：标准库、第三方（site-packages）、hicode.errors、hicode.compat、hicode.obase 内部
-- 禁止：hicode.* 业务层（tools/tools 等）、server.*、agents.*、config.*、cli.*、commands.*
+检查 veya/obase/ 内所有模块的 import：
+- 允许：标准库、第三方（site-packages）、veya.errors、veya.compat、veya.obase 内部
+- 禁止：veya.* 业务层（tools/tools 等）、server.*、agents.*、config.*、cli.*、commands.*
         （§7.4 落地指引：类型归 obase、算法归 oprim；obase 反向 import = 违规）
 
 用法：python scripts/check_obase_no_reverse_dep.py [root]
@@ -40,28 +40,28 @@ def check_file(path: pathlib.Path) -> list[str]:
     return violations
 
 
-# hicode.* 业务层前缀（§7.4 禁止 obase → 3O/业务）
-_FORBIDDEN_HICODE = (
-    "hicode.tools",
-    "hicode.agent_collaboration",
-    "hicode.autonomous_agent",
-    "hicode.collaboration",
-    "hicode.context",
-    "hicode.cross_language",
-    "hicode.integrations",
-    "hicode.intent",
-    "hicode.multimodal",
-    "hicode.sandbox",
-    "hicode.semantic_search",
-    "hicode.visualization",
-    "hicode.advanced_visualization",
-    "hicode.streaming",
-    "hicode.cache",
-    "hicode.performance",
-    "hicode.ast",
-    "hicode.code_review",
-    "hicode.logging",
-    "hicode.utils",
+# veya.* 业务层前缀（§7.4 禁止 obase → 3O/业务）
+_FORBIDDEN_VEYA = (
+    "veya.tools",
+    "veya.agent_collaboration",
+    "veya.autonomous_agent",
+    "veya.collaboration",
+    "veya.context",
+    "veya.cross_language",
+    "veya.integrations",
+    "veya.intent",
+    "veya.multimodal",
+    "veya.sandbox",
+    "veya.semantic_search",
+    "veya.visualization",
+    "veya.advanced_visualization",
+    "veya.streaming",
+    "veya.cache",
+    "veya.performance",
+    "veya.ast",
+    "veya.code_review",
+    "veya.logging",
+    "veya.utils",
 )
 # 项目服务层 / 其他层
 _FORBIDDEN_TOPS = (
@@ -81,18 +81,18 @@ def _is_forbidden(import_name: str) -> bool:
     base = import_name.split(".")[0]
     if base in _FORBIDDEN_TOPS:
         return True
-    if import_name == "hicode" or import_name.startswith("hicode."):
-        if import_name in _FORBIDDEN_HICODE:
+    if import_name == "veya" or import_name.startswith("veya."):
+        if import_name in _FORBIDDEN_VEYA:
             return True
-        # hicode.errors / hicode.compat / hicode.obase / hicode.llm 允许
-        allowed = ("hicode.errors", "hicode.compat", "hicode.obase", "hicode.llm")
+        # veya.errors / veya.compat / veya.obase / veya.llm 允许
+        allowed = ("veya.errors", "veya.compat", "veya.obase", "veya.llm")
         if not any(import_name == a or import_name.startswith(a + ".") for a in allowed):
             return True
     return False
 
 
 def main(root: str = ".") -> int:
-    obase_dir = pathlib.Path(root) / "hicode" / "obase"
+    obase_dir = pathlib.Path(root) / "veya" / "obase"
     if not obase_dir.exists():
         print(f"[SKIP] {obase_dir} not found")
         return 0

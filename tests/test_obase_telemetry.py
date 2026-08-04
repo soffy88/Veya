@@ -10,7 +10,7 @@ import pathlib
 
 import pytest
 
-from hicode.obase import telemetry
+from veya.obase import telemetry
 
 
 # ── @traced 基础 ──────────────────────────────────────────────────────

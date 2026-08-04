@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.performance import create_incremental_computer, create_smart_cache
+from veya.performance import create_incremental_computer, create_smart_cache
 
 router = APIRouter(prefix="/performance", tags=["performance"])
 
@@ -47,7 +47,7 @@ class IncrementalSetValueRequest(BaseModel):
 async def cache_set(request: CacheSetRequest) -> dict[str, Any]:
     """设置缓存值"""
     try:
-        from hicode.performance import CacheStrategy
+        from veya.performance import CacheStrategy
 
         # 转换策略字符串
         strategy_map = {
@@ -193,7 +193,7 @@ async def get_dependency_graph() -> dict[str, Any]:
 async def analyze_memory_usage(objects: list[dict[str, Any]]) -> dict[str, Any]:
     """分析内存使用"""
     try:
-        from hicode.performance import create_resource_optimizer
+        from veya.performance import create_resource_optimizer
 
         optimizer = create_resource_optimizer()
 
@@ -210,7 +210,7 @@ async def analyze_memory_usage(objects: list[dict[str, Any]]) -> dict[str, Any]:
 async def analyze_cpu_usage(tasks: list[dict[str, Any]]) -> dict[str, Any]:
     """分析 CPU 使用"""
     try:
-        from hicode.performance import create_resource_optimizer
+        from veya.performance import create_resource_optimizer
 
         optimizer = create_resource_optimizer()
         stats = optimizer.optimize_cpu(tasks)

@@ -15,11 +15,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# 路径注入: layer4/layer4/session/__init__.py → hicode/
+# 路径注入: layer4/layer4/session/__init__.py → veya/
 _HERE = os.path.dirname(os.path.abspath(__file__))  # layer4/layer4/session/
 _LAYER4_PKG = os.path.dirname(_HERE)  # layer4/layer4/
 _LAYER4_ROOT = os.path.dirname(_LAYER4_PKG)  # layer4/
-_HICODE = os.path.dirname(_LAYER4_ROOT)  # hicode/
+_VEYA = os.path.dirname(_LAYER4_ROOT)  # veya/
 
 
 # ===========================================================================
@@ -106,12 +106,12 @@ class SessionSerializer:
 class SessionManager:
     """会话生命周期管理（创建/列出/恢复/删除）。
 
-    本地存储到 ~/.hicode/sessions/ 目录。
+    本地存储到 ~/.veya/sessions/ 目录。
     生产版可替换为 obase.persistence 后端。
     """
 
     def __init__(self, store_dir: str | Path | None = None) -> None:
-        self._dir = Path(store_dir or Path.home() / ".hicode" / "sessions")
+        self._dir = Path(store_dir or Path.home() / ".veya" / "sessions")
         self._dir.mkdir(parents=True, exist_ok=True)
         self._active: Session | None = None
 
@@ -328,7 +328,7 @@ class PermissionGate:
 
         # policy 规则（调 compat match_permission_rule）
         try:
-            from hicode.compat import match_permission_rule
+            from veya.compat import match_permission_rule
 
             decision = match_permission_rule(
                 tool_call,
@@ -375,9 +375,9 @@ class EffectiveConfig:
 
 
 class GlobalConfig:
-    """~/.config/hicode/settings.json 加载。"""
+    """~/.config/veya/settings.json 加载。"""
 
-    PATH = Path.home() / ".config" / "hicode" / "settings.json"
+    PATH = Path.home() / ".config" / "veya" / "settings.json"
 
     @classmethod
     def load(cls) -> dict:
@@ -388,13 +388,13 @@ class GlobalConfig:
 
 
 class ProjectConfig:
-    """.hicode/settings.json 加载（从 cwd 向上查找）。"""
+    """.veya/settings.json 加载（从 cwd 向上查找）。"""
 
     @classmethod
     def load(cls, cwd: str | Path = ".") -> dict:
         p = Path(cwd).resolve()
         while p != p.parent:
-            candidate = p / ".hicode" / "settings.json"
+            candidate = p / ".veya" / "settings.json"
             if candidate.exists():
                 try:
                     return json.loads(candidate.read_text())
@@ -410,7 +410,7 @@ class AgentsMdLoader:
     @classmethod
     def load(cls, cwd: str | Path = ".") -> dict:
         try:
-            from hicode.compat import resolve_memory_hierarchy
+            from veya.compat import resolve_memory_hierarchy
 
             agents_md = Path(cwd) / "AGENTS.md"
             result = resolve_memory_hierarchy(project=str(agents_md))
@@ -444,7 +444,7 @@ class ConfigLoader:
         a = AgentsMdLoader.load(cwd)
 
         try:
-            from hicode.compat import merge_config
+            from veya.compat import merge_config
 
             merged = merge_config(g, p, a)
         except ImportError:  # pragma: no cover

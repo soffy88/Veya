@@ -7,7 +7,7 @@ tools.py 委托一致（§1.4 守卫测试）。
 
 import pytest
 
-from hicode.sandbox import (
+from veya.sandbox import (
     SandboxConfig,
     is_dangerous_argv,
     is_dangerous_command,
@@ -43,12 +43,12 @@ def test_dangerous_argv_detection():
 # ── execute 拦截 ──────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_execute_blocks_dangerous_before_running():
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(config=SandboxConfig(time_limit=5))
     await executor.start()
     try:
-        result = await executor.execute("rm -rf /tmp/nonexistent-hicode-test")
+        result = await executor.execute("rm -rf /tmp/nonexistent-veya-test")
         assert result["exit_code"] == -3
         assert "rejected" in result["stderr"].lower()
     finally:
@@ -57,7 +57,7 @@ async def test_execute_blocks_dangerous_before_running():
 
 @pytest.mark.asyncio
 async def test_execute_allows_when_reject_dangerous_disabled():
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(
         config=SandboxConfig(time_limit=5, reject_dangerous=False, allow_write=True)
@@ -74,7 +74,7 @@ async def test_execute_allows_when_reject_dangerous_disabled():
 # ── execute_args 参数数组 ─────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_execute_args_runs_program():
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(config=SandboxConfig(time_limit=5))
     await executor.start()
@@ -89,7 +89,7 @@ async def test_execute_args_runs_program():
 @pytest.mark.asyncio
 async def test_execute_args_quoted_shell_metachars_are_literal():
     """参数含 shell 元字符时按字面传递，无注入（G4 核心断言）。"""
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(config=SandboxConfig(time_limit=5))
     await executor.start()
@@ -104,7 +104,7 @@ async def test_execute_args_quoted_shell_metachars_are_literal():
 
 @pytest.mark.asyncio
 async def test_execute_args_blocks_dangerous():
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(config=SandboxConfig(time_limit=5))
     await executor.start()
@@ -117,7 +117,7 @@ async def test_execute_args_blocks_dangerous():
 
 @pytest.mark.asyncio
 async def test_execute_args_empty_argv():
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(config=SandboxConfig(time_limit=5))
     await executor.start()
@@ -131,7 +131,7 @@ async def test_execute_args_empty_argv():
 # ── CPU 限制 ──────────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_cpu_limit_prefix_applied_to_child():
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(config=SandboxConfig(time_limit=10, cpu_limit=5))
     await executor.start()
@@ -146,7 +146,7 @@ async def test_cpu_limit_prefix_applied_to_child():
 
 @pytest.mark.asyncio
 async def test_memory_and_cpu_prefixes_combined():
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(
         config=SandboxConfig(time_limit=10, cpu_limit=3, memory_limit=64 * 1024 * 1024)
@@ -165,7 +165,7 @@ async def test_memory_and_cpu_prefixes_combined():
 # ── run_script 走参数数组 ─────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_run_script_uses_args_execution():
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor(config=SandboxConfig(time_limit=5))
     await executor.start()
@@ -179,7 +179,7 @@ async def test_run_script_uses_args_execution():
 
 # ── 单源守卫：tools.py 委托与 sandbox canonical 一致（§1.4） ─────────
 def test_tools_delegates_to_canonical_danger_check():
-    from hicode.tools import TerminalTool
+    from veya.tools import TerminalTool
 
     tool = TerminalTool()
     # 同一输入，两条路径行为一致（§1.4 守卫：改一份漏另一份的防漂移断言）

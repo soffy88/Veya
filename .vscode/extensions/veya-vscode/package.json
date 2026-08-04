@@ -1,0 +1,104 @@
+{
+    "name": "veya-vscode",
+    "displayName": "Hicode AI Agent",
+    "description": "Official Hicode AI agent integration for VS Code - Run agents, debug, and manage sessions",
+    "version": "1.0.0",
+    "publisher": "veya",
+    "author": {
+        "name": "Hicode Team"
+    },
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "Machine Learning",
+        "Other"
+    ],
+    "activationEvents": [
+        "onCommand:veya.runAgent",
+        "onCommand:veya.debugAgent",
+        "onCommand:veya.createSession",
+        "onCommand:veya.quickChat"
+    ],
+    "main": "./src/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "veya.runAgent",
+                "title": "Run Hicode Agent",
+                "icon": "$(rocket)"
+            },
+            {
+                "command": "veya.debugAgent",
+                "title": "Debug Hicode Agent",
+                "icon": "$(debug-alt)"
+            },
+            {
+                "command": "veya.createSession",
+                "title": "Create New Session",
+                "icon": "$(add)"
+            },
+            {
+                "command": "veya.quickChat",
+                "title": "Quick Chat with Hicode",
+                "icon": "$(chat)"
+            }
+        ],
+        "menus": {
+            "commandPalette": [
+                {
+                    "command": "veya.runAgent",
+                    "when": "true"
+                },
+                {
+                    "command": "veya.debugAgent",
+                    "when": "veya.sessionActive"
+                },
+                {
+                    "command": "veya.createSession",
+                    "when": "true"
+                },
+                {
+                    "command": "veya.quickChat",
+                    "when": "true"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "Hicode",
+            "properties": {
+                "veya.apiBaseUrl": {
+                    "type": "string",
+                    "default": "http://localhost:8000",
+                    "description": "Base URL of the Hicode API server"
+                },
+                "veya.defaultPersona": {
+                    "type": "string",
+                    "default": "build",
+                    "enum": ["plan", "research", "build", "execute"],
+                    "description": "Default agent persona to use"
+                }
+            }
+        },
+        "keybindings": [
+            {
+                "command": "veya.quickChat",
+                "key": "ctrl+shift+h",
+                "mac": "cmd+shift+h",
+                "when": "editorFocus"
+            }
+        ]
+    },
+    "scripts": {
+        "lint": "eslint src --ext js",
+        "package": "vsce package",
+        "publish": "vsce publish"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.75.0",
+        "eslint": "^8.0.0",
+        "vsce": "^2.0.0"
+    },
+    "dependencies": {}
+}

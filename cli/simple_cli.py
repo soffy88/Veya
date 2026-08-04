@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-简化版hicode命令行工具
+简化版veya命令行工具
 提供基本的代码生成和分析功能
 """
 
@@ -13,12 +13,12 @@ import sys
 # 添加项目路径以便导入
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 
-from hicode.agent_collaboration import create_agent_collaborator
+from veya.agent_collaboration import create_agent_collaborator
 
 
 def _maybe_confirm(action: str, resource: str, description: str, *, persona: str = "build") -> bool:
     """G5 交互式权限确认：规则 ALLOW/DENY 自动裁决，PENDING 时询问用户。"""
-    from hicode.obase.authz import InteractivePermissionGate
+    from veya.obase.authz import InteractivePermissionGate
 
     gate = InteractivePermissionGate()
     result = asyncio.run(gate.evaluate(action, resource=resource, persona=persona, wait=False))
@@ -38,7 +38,7 @@ def _maybe_confirm(action: str, resource: str, description: str, *, persona: str
 # Demo CLI: wire to real modules; graceful degradation if missing.
 def _load_completion_tool():
     try:
-        from hicode.semantic_search import SemanticSearch
+        from veya.semantic_search import SemanticSearch
 
         return SemanticSearch()
     except Exception:
@@ -47,7 +47,7 @@ def _load_completion_tool():
 
 def _load_analyzer():
     try:
-        from hicode.ast import create_ast_analyzer
+        from veya.ast import create_ast_analyzer
 
         return create_ast_analyzer()
     except Exception:
@@ -75,9 +75,9 @@ else:
 
 def setup_parser():
     """设置命令行参数解析器"""
-    parser = argparse.ArgumentParser(description="hicode - AI编程助手", prog="hicode")
+    parser = argparse.ArgumentParser(description="veya - AI编程助手", prog="veya")
 
-    parser.add_argument("--version", action="version", version="hicode 0.4.0")
+    parser.add_argument("--version", action="version", version="veya 0.5.0")
 
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
 

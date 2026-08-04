@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.tools import create_tool_executor
+from veya.tools import create_tool_executor
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
@@ -44,7 +44,7 @@ async def execute_tool(request: ToolExecuteRequest) -> dict[str, Any]:
             and result.status.value == "failed"
             and "unsafe" in result.error.lower()
         ):
-            from hicode.sandbox import SandboxConfig, create_safe_executor
+            from veya.sandbox import SandboxConfig, create_safe_executor
 
             config = SandboxConfig(
                 memory_limit=100 * 1024 * 1024, time_limit=30.0, network_blocked=True
@@ -150,7 +150,7 @@ async def get_tool_history(tool_name: str, limit: int = 10) -> dict[str, Any]:
 async def execute_in_sandbox(request: SandboxExecuteRequest) -> dict[str, Any]:
     """在沙箱中执行命令"""
     try:
-        from hicode.sandbox import SandboxConfig, create_safe_executor
+        from veya.sandbox import SandboxConfig, create_safe_executor
 
         config = SandboxConfig(
             memory_limit=request.memory_limit,

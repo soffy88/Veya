@@ -1,0 +1,9 @@
+
+> veya-web@0.1.0 dev
+> next dev -H 0.0.0.0 -p 3001 -H 0.0.0.0
+
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://0.0.0.0:3001
+- Environments: .env.local
+✓ Ready in 340ms

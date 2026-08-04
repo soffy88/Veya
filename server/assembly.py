@@ -36,7 +36,7 @@ from config.permissions import load_permission_rules
 # from obase.lsp import LspClientManager as LspManager
 # from obase.mq import MQPublisher as EventBus
 # ── layer4 内部 ───────────────────────────────────────────────────────
-from hicode.compat import (
+from veya.compat import (
     CostTracker,
     Engine,
     EventBus,
@@ -77,7 +77,7 @@ def ripgrep_search(pattern: str, *, root: str, glob: str | None = None) -> list:
 # 引擎调 llm_caller(messages=list, tools=list, config=dict)
 # 实际库签名不同;以下 adapter 做签名桥接,并标记 __module__ 通过 kind 校验
 
-_HICODE_ROOT = str(__import__("pathlib").Path(__file__).parent.parent)
+_VEYA_ROOT = str(__import__("pathlib").Path(__file__).parent.parent)
 
 
 def _make_turn_handler():
@@ -85,11 +85,11 @@ def _make_turn_handler():
         sys_msg = {
             "role": "system",
             "content": (
-                "You are hicode, an AI coding assistant. "
+                "You are veya, an AI coding assistant. "
                 "Use the provided tools to complete coding tasks. "
                 "To edit a file: call file_read to get current content, "
                 "then file_write to write the updated content. "
-                f"Current working directory: {_HICODE_ROOT}"
+                f"Current working directory: {_VEYA_ROOT}"
             ),
         }
         if not messages or messages[0].get("role") != "system":

@@ -1,1 +1,1 @@
-"""hicode CLI package."""
+"""veya CLI package."""

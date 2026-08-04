@@ -1,12 +1,12 @@
-from hicode.models import list_models
-from hicode.models.utils import MODELS_ROOT, list_versions
+from veya.models import list_models
+from veya.models.utils import MODELS_ROOT, list_versions
 
 # Global registry — loaded on import
 MODEL_REGISTRY = {}
 
 
 def load_models():
-    """Scan and register all models from hicode/models/"""
+    """Scan and register all models from veya/models/"""
     global MODEL_REGISTRY
     MODEL_REGISTRY.clear()
     for name in list_models():

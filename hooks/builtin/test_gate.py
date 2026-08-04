@@ -15,11 +15,11 @@ async def test_gate(inp: HookInput) -> HookOutput:
     """H4: run pytest after execute/build turn; block on failure.
 
     subprocess 在 to_thread 中运行,避免阻塞事件循环(SSE/interrupt 保活)。
-    设 ``HICODE_SKIP_TEST_GATE=1``(测试套件 conftest 自动设置)时跳过,
+    设 ``VEYA_SKIP_TEST_GATE=1``(测试套件 conftest 自动设置)时跳过,
     避免 agent 执行分队 → 测试门 → pytest → 再进执行分队的递归。
     """
-    if os.environ.get("HICODE_SKIP_TEST_GATE") == "1":
-        return HookOutput(decision="pass", reason="test gate skipped (HICODE_SKIP_TEST_GATE=1)")
+    if os.environ.get("VEYA_SKIP_TEST_GATE") == "1":
+        return HookOutput(decision="pass", reason="test gate skipped (VEYA_SKIP_TEST_GATE=1)")
 
     try:
         result = await asyncio.to_thread(

@@ -19,7 +19,7 @@ PLAN = Persona(
     name="plan",
     tool_names=_READ_ONLY,
     system_prompt=(
-        "你是 hicode 规划分队。你只能读取代码,不能写入或执行。"
+        "你是 veya 规划分队。你只能读取代码,不能写入或执行。"
         "分析代码库,制定详细实施方案,输出结构化规划报告。"
     ),
     mode="subagent",

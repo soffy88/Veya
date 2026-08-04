@@ -18,8 +18,8 @@ class InitRequest(BaseModel):
 
 @router.post("")
 async def init_project_route(req: InitRequest) -> dict[str, Any]:
-    from hicode.compat import init_project
     from server.assembly import _llm_caller_adapter
+    from veya.compat import init_project
 
     root = Path(req.repo).resolve()
     if not root.exists():

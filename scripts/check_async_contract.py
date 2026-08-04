@@ -3,7 +3,7 @@
 
 §5.6 / §8.8 执行模型由本性决定；async 元素须被正确 await。
 
-简化检查（hicode/obase 范围）：
+简化检查（veya/obase 范围）：
 1. obase 内 ``async def`` 的模块级函数若被本包其它模块 import 使用，
    调用点必须出现在 ``await`` / ``asyncio.gather`` / ``asyncio.create_task`` 上下文；
 2. 禁止在 obase 内 ``asyncio.run()`` 嵌套调用（会破坏既有 loop）。
@@ -79,7 +79,7 @@ def _parent(tree: ast.AST, target: ast.AST) -> ast.AST | None:
 
 
 def main(root: str = ".") -> int:
-    obase_dir = pathlib.Path(root) / "hicode" / "obase"
+    obase_dir = pathlib.Path(root) / "veya" / "obase"
     if not obase_dir.exists():
         print(f"[SKIP] {obase_dir} not found")
         return 0

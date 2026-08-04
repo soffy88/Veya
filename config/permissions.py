@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 try:
-    from hicode.compat import permission_evaluate  # type: ignore[attr-defined]
+    from veya.compat import permission_evaluate  # type: ignore[attr-defined]
 
     _HAS_PERMISSION_EVALUATE = True
 except (ImportError, AttributeError):
