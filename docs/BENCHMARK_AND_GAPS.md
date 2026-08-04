@@ -178,13 +178,20 @@ veya 目前只把"编排能力"做出来了。
 - `registries/plugins.py` 存在，但无插件打包/签名/安装流程、无公开 SDK 文档。
 - 修复：定 `PluginManifest`（兼容已有 `registries` 模式）+ 示例插件 + 文档页。
 
-**G11. 无文档站点与 API 参考**
-- 仅有 `docs/*.md`（英文+中文混合）；无 MkDocs/Sphinx 站点、无自动 API 参考生成。
-- 修复：`mkdocs.yml` + `mkdocstrings` 从 docstring 生成；CI 加 docs 构建 job。
+**G11. 无文档站点与 API 参考 → 已修复（MkDocs + mkdocstrings）**
+- 新增 `mkdocs.yml`（Material 主题、搜索、暗色模式）+ 站点：首页/快速开始/架构/
+  API 参考 7 页（llm/intent/sandbox/multimodal/obase-telemetry/obase-authz/errors，
+  全部由 mkdocstrings 从 docstring 自动生成）/开发者页。
+- `mkdocs build --strict` 零警告；CI 新增 **docs job**（install → build --strict）；
+  `site/` 已 gitignore；mkdocs 依赖已加入 dev extras。
 
-**G12. 多模态仅本地推理占位**
-- `veya/multimodal.py` 存在，但能力边界未与 LLM 集成（无视觉输入到模型）。
-- 修复：接入 G1 provider 的多模态消息格式（images → content blocks）。
+**G12. 多模态仅本地推理占位 → 已修复（接入 LLM provider）**
+- `veya/llm.py` 新增 `prepare_messages_for_provider()`：OpenAI 风格 content blocks
+  （text + image_url data-URI）→ Anthropic 原生 image block（base64/url source），
+  openai/dashscope 直通；provider_call/stream 已接线。
+- `veya/multimodal.py`：`ImageProcessor.to_content_block()`（媒体类型映射 + data-URI）+
+  `MultimodalProcessor.build_vision_messages()`（文本+多图 → 消息，自动跳过缺失文件）。
+- 新增 `tests/test_multimodal_g12.py` 15 例（真实 1x1 PNG + MockTransport 请求体断言）。
 
 **G13. 无断点恢复/Checkpoint 语义化**
 - `server/checkpoint.py` 已重写到 compat，但仅保存状态快照；无"从失败分队恢复"能力。
@@ -222,8 +229,11 @@ veya 目前只把"编排能力"做出来了。
 | 7 | **G7 mypy 解锁核心** | ✅ 已完成（coordinator/streaming/sandbox/intent 零错误，CI 阻塞） | — |
 | 8 | **G8 覆盖率门禁 50%** | ✅ 已完成（60.35% 实际）+ E2E 深度测试 | — |
 | 9 | **G9 惰性初始化** | ✅ 已完成（cached_property 16 子系统，重模块零加载） | — |
-| 10 | G10–G17 | 各 0.5–2 天 | 视产品方向 |
+| 10 | **G11 文档站点+API 参考** | ✅ 已完成（MkDocs Material + mkdocstrings 7 页 API，CI docs job） | — |
+| 11 | **G12 多模态接入 provider** | ✅ 已完成（content blocks 归一化 + vision 消息构建，15 测试） | G1 ✅ |
+| 12 | G10/G13–G17 | 各 0.5–2 天 | 视产品方向 |
 
-> 现状：G1–G9 全部完成，veya 已具备与标杆"同台竞技"的完整闭环
-> （真实模型 → LLM 意图分解 → 沙箱执行 → 流式返回 → 可观测 + 权限可控 + 编辑器闭环）。
+> 现状：G1–G9 + G11/G12 全部完成，veya 已具备与标杆"同台竞技"的完整闭环
+> （真实模型 → LLM 意图分解 → 沙箱执行 → 流式返回 → 可观测 + 权限可控 + 编辑器闭环
+>  + 文档站点 + 多模态视觉输入）。
 > 附带修复：泄露的 DASHSCOPE_API_KEY 已从仓库移除（旧 key 视为泄露，需轮换）。

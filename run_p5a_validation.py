@@ -40,9 +40,7 @@ r = subprocess.run([str(VENV / "bin" / "veya"), "--help"], capture_output=True, 
 check("veya --help exits 0", r.returncode == 0, r.stderr[:60])
 check("veya --help shows persona", "--persona" in r.stdout)
 
-r = subprocess.run(
-    [str(VENV / "bin" / "veya-headless"), "--help"], capture_output=True, text=True
-)
+r = subprocess.run([str(VENV / "bin" / "veya-headless"), "--help"], capture_output=True, text=True)
 check("veya-headless --help exits 0", r.returncode == 0, r.stderr[:60])
 
 # headless stdin mode
