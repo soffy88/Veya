@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy pytest pytest-asyncio pytest-cov
+          pip install "ruff==0.16.1" mypy pytest pytest-asyncio pytest-cov
           pip install -e ".[dev]"
 
       - name: Ruff format check
@@ -48,6 +48,9 @@ jobs:
           python scripts/check_obase_no_reverse_dep.py
           python scripts/check_manifest.py
           python scripts/check_async_contract.py
+
+      - name: 3O SPEC v3.0 Appendix B — 9-check suite
+        run: python .github/scripts/3o_lint/runner.py
 
       - name: G16 English-docstring gate (modern core)
         run: python scripts/check_docstring_language.py

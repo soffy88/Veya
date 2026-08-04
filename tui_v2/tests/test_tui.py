@@ -500,7 +500,7 @@ class TestStreamPrinter:
             yield SimpleNamespace(type="thinking", text="reasoning...")
             yield SimpleNamespace(type="stop", stop_reason="end_turn")
 
-        text, _ = run(printer.print_stream(stream()))
+        _text, _ = run(printer.print_stream(stream()))
 
     def test_set_interrupted(self):
         printer = StreamPrinter(no_color=True)
@@ -524,7 +524,7 @@ class TestLayoutManager:
         long = "word " * 30
         wrapped = LayoutManager.wrap(long)
         lines = wrapped.splitlines()
-        assert all(len(l) <= LayoutManager.width() + 2 for l in lines)
+        assert all(len(line) <= LayoutManager.width() + 2 for line in lines)
 
     def test_is_narrow_bool(self):
         assert isinstance(LayoutManager.is_narrow(), bool)
@@ -829,7 +829,7 @@ class TestPrintMode:
         ctx = make_ctx(tmp_path)
         pm = PrintMode(ctx)
         run(pm.run("hello"))
-        out = capsys.readouterr().out
+        capsys.readouterr()
         # stdout에 어떤 출력이 있거나 없어도 에러 없음
 
 
