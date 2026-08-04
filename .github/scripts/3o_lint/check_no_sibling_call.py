@@ -9,6 +9,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from _layers import resolve_layer_dirs
+
 
 def _get_imports(tree: ast.AST) -> dict[str, str]:
     """Extract the import map, e.g. 'other_oprim' -> 'oprim'."""
@@ -26,11 +28,12 @@ def _get_imports(tree: ast.AST) -> dict[str, str]:
 
 def check_no_sibling_call(root_dir: Path) -> list[str]:
     errors: list[str] = []
+    layers = resolve_layer_dirs(root_dir)
 
     # A. oprim & omodul: same-layer bare calls forbidden
     for layer in ["oprim", "omodul"]:
-        layer_dir = root_dir / layer
-        if not layer_dir.exists():
+        layer_dir = layers.get(layer)
+        if layer_dir is None:
             continue
 
         for py_file in layer_dir.glob("*.py"):
@@ -48,8 +51,8 @@ def check_no_sibling_call(root_dir: Path) -> list[str]:
                     )
 
     # B. oskill mutual-call constraints (depth <= 2 & docstring disclosure)
-    oskill_dir = root_dir / "oskill"
-    if oskill_dir.exists():
+    oskill_dir = layers.get("oskill")
+    if oskill_dir is not None:
         oskill_deps: dict[str, list[str]] = {}
 
         for py_file in oskill_dir.glob("*.py"):
