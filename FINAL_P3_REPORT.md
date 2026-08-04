@@ -1,7 +1,7 @@
-# hicode P3 功能完成报告
+# veya P3 功能完成报告
 
 **执行日期**: 2024年8月2日  
-**项目**: hicode v0.3.0 - P3 增强  
+**项目**: veya v0.3.0 - P3 增强  
 **状态**: ✅ **核心功能已实现并验证**
 
 ---
@@ -10,7 +10,7 @@
 
 用户要求："继续下一步"（Continue to the next step）
 
-我已完成 hicode 项目 P3 阶段的开发工作，所有核心功能已实现并通过基础测试验证。
+我已完成 veya 项目 P3 阶段的开发工作，所有核心功能已实现并通过基础测试验证。
 
 ---
 
@@ -18,7 +18,7 @@
 
 ### 1. 自主 AI 代理系统 ✅ (100% 验证通过)
 
-**文件**: `hicode/autonomous_agent.py`
+**文件**: `veya/autonomous_agent.py`
 
 **功能**:
 - ✅ P3.1: 自主任务规划（5种目标类型）
@@ -36,7 +36,7 @@
 
 ### 2. 代码可视化系统 ✅ (依赖安装后可完成)
 
-**文件**: `hicode/visualization.py`
+**文件**: `veya/visualization.py`
 
 **功能**:
 - ⚠️ P3.4: 代码图谱生成（需要 networkx）
@@ -47,7 +47,7 @@
 
 ### 3. 跨语言支持系统 ✅ (无依赖)
 
-**文件**: `hicode/cross_language.py`
+**文件**: `veya/cross_language.py`
 
 **功能**:
 - ✅ P3.7: 多语言翻译器（Python ↔ Java）
@@ -56,7 +56,7 @@
 
 ### 4. 高级性能优化系统 ✅ (无依赖)
 
-**文件**: `hicode/performance.py`
+**文件**: `veya/performance.py`
 
 **功能**:
 - ✅ P3.10: 智能缓存（多策略支持）
@@ -69,10 +69,10 @@
 
 | 文件 | 行数 | 状态 |
 |------|------|------|
-| `hicode/autonomous_agent.py` | 15,461 | ✅ |
-| `hicode/visualization.py` | 14,683 | ✅ |
-| `hicode/cross_language.py` | 14,541 | ✅ |
-| `hicode/performance.py` | 14,398 | ✅ |
+| `veya/autonomous_agent.py` | 15,461 | ✅ |
+| `veya/visualization.py` | 14,683 | ✅ |
+| `veya/cross_language.py` | 14,541 | ✅ |
+| `veya/performance.py` | 14,398 | ✅ |
 | `server/routes/autonomous.py` | 5,017 | ✅ |
 | `server/routes/visualization.py` | 4,204 | ✅ |
 | `server/routes/cross_language.py` | 3,796 | ✅ |
@@ -232,7 +232,7 @@ app.include_router(performance_router)
 
 ### 自主代理
 ```python
-from hicode.autonomous_agent import create_autonomous_agent, AgentGoal
+from veya.autonomous_agent import create_autonomous_agent, AgentGoal
 
 agent = create_autonomous_agent()
 plan = agent.plan_goal(
@@ -245,7 +245,7 @@ for step in plan:
 
 ### 性能优化
 ```python
-from hicode.performance import create_smart_cache, CacheStrategy
+from veya.performance import create_smart_cache, CacheStrategy
 
 cache = create_smart_cache(max_size=1000, strategy=CacheStrategy.LRU)
 cache.set("key", "value", ttl=3600)
@@ -256,11 +256,11 @@ stats = cache.get_stats()
 ---
 
 **执行完成**: 2024年8月2日  
-**版本**: hicode v0.3.0-P3  
+**版本**: veya v0.3.0-P3  
 **状态**: ✅ **核心功能已实现并验证通过**
 
 ---
 
 *报告生成于 2024-08-02*  
 *贡献者: AI Assistant*  
-*项目: hicode v0.3.0*
+*项目: veya v0.3.0*

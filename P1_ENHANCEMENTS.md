@@ -6,7 +6,7 @@ P1 优先级功能已全部实现，包含三大模块：
 
 ### 1. ✅ AST 代码理解增强
 
-**文件**: `hicode/ast.py`
+**文件**: `veya/ast.py`
 
 **功能**: 
 - 多文件 AST 解析（Python）
@@ -30,7 +30,7 @@ GET  /analysis/summary/{file_path}      # 文件代码摘要
 **使用示例**:
 ```bash
 # 分析项目
-curl "http://localhost:8000/analysis/project?project_path=./hicode"
+curl "http://localhost:8000/analysis/project?project_path=./veya"
 
 # 搜索函数签名
 curl -X POST http://localhost:8000/analysis/search \
@@ -45,7 +45,7 @@ curl http://localhost:8000/analysis/dependencies
 
 ### 2. ✅ 智能工具集成
 
-**文件**: `hicode/tools.py`
+**文件**: `veya/tools.py`
 
 **功能**:
 - 智能 Git 工具（命令建议、输出解析、安全检测）
@@ -86,7 +86,7 @@ curl -X POST http://localhost:8000/tools/sandbox/execute \
 
 ### 3. ✅ 安全沙箱
 
-**文件**: `hicode/sandbox.py`
+**文件**: `veya/sandbox.py`
 
 **功能**:
 - 资源限制（内存、CPU、时间、磁盘）
@@ -104,7 +104,7 @@ curl -X POST http://localhost:8000/tools/sandbox/execute \
 
 **使用示例**:
 ```python
-from hicode.sandbox import SandboxConfig, create_safe_executor
+from veya.sandbox import SandboxConfig, create_safe_executor
 
 config = SandboxConfig(
     memory_limit=100 * 1024 * 1024,  # 100MB
@@ -171,7 +171,7 @@ result = await coordinator.execute_tool("git", {"command": "status"})
 
 新增 `analyze_project` 方法：
 ```python
-result = await coordinator.analyze_project("./hicode")
+result = await coordinator.analyze_project("./veya")
 ```
 
 ---

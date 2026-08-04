@@ -39,9 +39,9 @@ _PERSONAS = ["build", "research", "plan", "execute"]
 
 
 class HicodeApp(App):
-    """hicode TUI — calls coordinator.handle() for all logic."""
+    """veya TUI — calls coordinator.handle() for all logic."""
 
-    TITLE = "hicode"
+    TITLE = "veya"
     SUB_TITLE = "AI coding agent"
     CSS = TCSS
 
@@ -75,12 +75,12 @@ class HicodeApp(App):
 
     def on_mount(self) -> None:
         chat = self.query_one("#chat-log", ChatLog)
-        chat.add_system("hicode ready — enter a coding task")
+        chat.add_system("veya ready — enter a coding task")
         chat.add_system("Ctrl+P = cycle persona | Ctrl+N = new session | Ctrl+Q = quit")
 
     # ── Input submit ──────────────────────────────────────────────────
 
-    def on_hicode_input_submit(self, event: HicodeInput.Submit) -> None:
+    def on_veya_input_submit(self, event: HicodeInput.Submit) -> None:
         """User submitted a command — kick off coordinator via worker."""
         text = event.text.strip()
         if not text:

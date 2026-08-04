@@ -1,5 +1,5 @@
 """
-layer4/server/coordinator.py — 协调器主循环(hicode 招牌)
+layer4/server/coordinator.py — 协调器主循环(veya 招牌)
 
 实现 "聊天窗口分发命令 → 各分队执行 → 结构化结果回传"。
 协调器拆任务 → 派角色分队(research/plan/execute)→ 分队 headless 执行
@@ -23,30 +23,30 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-import hicode.intent as hicode_intent
-from hicode.ast import create_ast_analyzer
-from hicode.autonomous_agent import create_autonomous_agent
-from hicode.cache import create_parallel_executor
-from hicode.context import SmartContextManager
-from hicode.cross_language import create_cross_language_translator
-from hicode.multimodal import create_multimodal_processor
-from hicode.performance import create_smart_cache
-from hicode.sandbox import create_safe_executor
-from hicode.semantic_search import create_semantic_search
-from hicode.streaming import StreamEventType, StreamingManager, TokenStreamer
-from hicode.tools import create_tool_executor
-from hicode.utils import CostTracker
+import veya.intent as veya_intent
 from hooks.registry import build_coordinator_hooks
 
 # 重模块(plotly/networkx/matplotlib 等)延迟到惰性 getter 首次访问时导入,
 # 避免 `import server.coordinator` 即拉满 ~56MB(G9 惰性初始化)。
-# from hicode.advanced_visualization import (...)  → _three_d_graph/_interactive_debugger/_architecture_visualizer
-# from hicode.agent_collaboration import ...          → _agent_collaborator
-# from hicode.collaboration import ...                → _collaboration_manager
-# from hicode.integrations import ...                 → _integration_hub
-# from hicode.visualization import create_code_graph  → _code_graph
+# from veya.advanced_visualization import (...)  → _three_d_graph/_interactive_debugger/_architecture_visualizer
+# from veya.agent_collaboration import ...          → _agent_collaborator
+# from veya.collaboration import ...                → _collaboration_manager
+# from veya.integrations import ...                 → _integration_hub
+# from veya.visualization import create_code_graph  → _code_graph
 from server.assembly import assemble_orchestrator
 from server.events import _on_step_ctx, fire_step
+from veya.ast import create_ast_analyzer
+from veya.autonomous_agent import create_autonomous_agent
+from veya.cache import create_parallel_executor
+from veya.context import SmartContextManager
+from veya.cross_language import create_cross_language_translator
+from veya.multimodal import create_multimodal_processor
+from veya.performance import create_smart_cache
+from veya.sandbox import create_safe_executor
+from veya.semantic_search import create_semantic_search
+from veya.streaming import StreamEventType, StreamingManager, TokenStreamer
+from veya.tools import create_tool_executor
+from veya.utils import CostTracker
 
 # =====================================================================
 # 数据结构
@@ -107,7 +107,7 @@ class Coordinator:
         self.enable_streaming = enable_streaming
 
         # LLM 意图分类器（替换关键词启发式路由；无 key 时自动回落启发式）
-        from hicode.intent import IntentClassifier
+        from veya.intent import IntentClassifier
 
         self._classifier = IntentClassifier(model=decompose_model)
 
@@ -144,13 +144,13 @@ class Coordinator:
 
     @functools.cached_property
     def integration_hub(self) -> Any:
-        from hicode.integrations import create_integration_hub  # 延迟: ~6MB
+        from veya.integrations import create_integration_hub  # 延迟: ~6MB
 
         return create_integration_hub()
 
     @functools.cached_property
     def collaboration_manager(self) -> Any:
-        from hicode.collaboration import create_collaboration_manager  # 延迟: ~3MB
+        from veya.collaboration import create_collaboration_manager  # 延迟: ~3MB
 
         return create_collaboration_manager()
 
@@ -164,7 +164,7 @@ class Coordinator:
 
     @functools.cached_property
     def code_graph(self) -> Any:
-        from hicode.visualization import create_code_graph  # 延迟: ~31MB
+        from veya.visualization import create_code_graph  # 延迟: ~31MB
 
         return create_code_graph()
 
@@ -178,13 +178,13 @@ class Coordinator:
 
     @functools.cached_property
     def three_d_graph(self) -> Any:
-        from hicode.advanced_visualization import create_three_d_graph  # 延迟: ~18MB
+        from veya.advanced_visualization import create_three_d_graph  # 延迟: ~18MB
 
         return create_three_d_graph()
 
     @functools.cached_property
     def interactive_debugger(self) -> Any:
-        from hicode.advanced_visualization import (
+        from veya.advanced_visualization import (
             create_interactive_debugger_enhanced,  # 延迟: ~18MB
         )
 
@@ -192,7 +192,7 @@ class Coordinator:
 
     @functools.cached_property
     def architecture_visualizer(self) -> Any:
-        from hicode.advanced_visualization import (
+        from veya.advanced_visualization import (
             create_architecture_visualizer_enhanced,  # 延迟: ~18MB
         )
 
@@ -200,7 +200,7 @@ class Coordinator:
 
     @functools.cached_property
     def agent_collaborator(self) -> Any:
-        from hicode.agent_collaboration import create_agent_collaborator
+        from veya.agent_collaboration import create_agent_collaborator
 
         return create_agent_collaborator()
 
@@ -354,7 +354,7 @@ class Coordinator:
     async def _decompose(self, command: dict, *, cost: CostTracker) -> SquadPlan:
         text = command.get("text", "")
         intent = await self._classifier.classify(text)
-        if intent is hicode_intent.Intent.SIMPLE:
+        if intent is veya_intent.Intent.SIMPLE:
             return SquadPlan(
                 squads=[SquadTask(squad_id="s1", role="execute", command=command)],
                 schedule="parallel",
@@ -392,8 +392,8 @@ class Coordinator:
         *,
         session_id: str,
     ) -> list[SquadResult]:
-        from hicode.compat import RunState
         from server.checkpoint import save_checkpoint
+        from veya.compat import RunState
 
         # 使用并行执行器(_execute_squad 的 session_id 为 keyword-only)
         tasks = [(self._execute_squad, (s,), {"session_id": session_id}) for s in squads]
@@ -431,8 +431,8 @@ class Coordinator:
         prior_outputs: dict[str, Any] | None = None,
     ) -> list[SquadResult]:
         """按 depends_on 拓扑串行;每分队完成后 checkpoint 落盘。"""
-        from hicode.compat import RunState
         from server.checkpoint import save_checkpoint
+        from veya.compat import RunState
 
         skip_completed = skip_completed or set()
         done: dict[str, SquadResult] = {}
@@ -615,9 +615,9 @@ class Coordinator:
                         from hooks.builtin.test_gate import test_gate
                         from hooks.types import HookInput
 
-                        hicode_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+                        veya_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
                         hook_out = await test_gate(
-                            HookInput(point="pre_result", persona=squad.role, cwd=hicode_root)
+                            HookInput(point="pre_result", persona=squad.role, cwd=veya_root)
                         )
                         if hook_out.decision == "block":
                             return {
@@ -686,9 +686,9 @@ class Coordinator:
                     from hooks.builtin.test_gate import test_gate
                     from hooks.types import HookInput
 
-                    hicode_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+                    veya_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
                     hook_out = await test_gate(
-                        HookInput(point="pre_result", persona=squad.role, cwd=hicode_root)
+                        HookInput(point="pre_result", persona=squad.role, cwd=veya_root)
                     )
                     if hook_out.decision == "block":
                         return {
@@ -950,7 +950,7 @@ class Coordinator:
                 # 从 AST 数据构建图谱
                 if "symbols" in ast_data:
                     for symbol in ast_data["symbols"]:
-                        from hicode.visualization import GraphNode  # 延迟导入(重模块)
+                        from veya.visualization import GraphNode  # 延迟导入(重模块)
 
                         node = GraphNode(
                             node_id=symbol.get("id", ""),
@@ -1028,7 +1028,7 @@ class Coordinator:
     ) -> dict:
         """创建协作任务"""
         try:
-            from hicode.agent_collaboration import AgentRole
+            from veya.agent_collaboration import AgentRole
 
             # Convert string role to enum
             role_map = {
@@ -1113,7 +1113,7 @@ class Coordinator:
     ) -> dict:
         """添加协作代理"""
         try:
-            from hicode.agent_collaboration import AgentRole
+            from veya.agent_collaboration import AgentRole
 
             # Convert string role to enum
             role_map = {
@@ -1199,7 +1199,7 @@ class Coordinator:
     ) -> dict:
         """自主规划任务"""
         try:
-            from hicode.autonomous_agent import AgentGoal
+            from veya.autonomous_agent import AgentGoal
 
             goal_map = {
                 "code_generation": AgentGoal.CODE_GENERATION,
@@ -1242,7 +1242,7 @@ class Coordinator:
             if ast_data and "symbols" in ast_data:
                 # 从 AST 数据构建图谱
                 for symbol in ast_data["symbols"]:
-                    from hicode.visualization import GraphNode
+                    from veya.visualization import GraphNode
 
                     node = GraphNode(
                         node_id=symbol.get("id", ""),
@@ -1271,7 +1271,7 @@ class Coordinator:
     async def translate_code(self, source_code: str, source_lang: str, target_lang: str) -> dict:
         """跨语言代码翻译"""
         try:
-            from hicode.cross_language import Language
+            from veya.cross_language import Language
 
             source_lang_enum = getattr(Language, source_lang.upper(), None)
             target_lang_enum = getattr(Language, target_lang.upper(), None)

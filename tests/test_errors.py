@@ -1,11 +1,11 @@
 """
-Tests for hicode.errors — structured error taxonomy.
+Tests for veya.errors — structured error taxonomy.
 
 Validates:
   - All concrete exceptions inherit from HicodeError
   - Code constants are unique and uppercase
   - to_dict() produces serialisable output
-  - hicode_error() factory works
+  - veya_error() factory works
   - Severity enum values are valid
 """
 
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from hicode.errors import (
+from veya.errors import (
     CheckpointError,
     ConfigLoadError,
     # Config
@@ -50,7 +50,7 @@ from hicode.errors import (
     ToolNotAvailableError,
     ToolValidationError,
     # Factory
-    hicode_error,
+    veya_error,
 )
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ ALL_ERRORS = [
 
 
 @pytest.mark.parametrize("cls", ALL_ERRORS)
-def test_all_errors_inherit_from_hicode_error(cls):
+def test_all_errors_inherit_from_veya_error(cls):
     assert issubclass(cls, HicodeError)
 
 
@@ -115,11 +115,11 @@ def test_error_codes_are_uppercase():
 # ---------------------------------------------------------------------------
 
 
-def test_hicode_error_defaults():
+def test_veya_error_defaults():
     err = HicodeError("something broke")
-    assert err.code == "HICODE_UNKNOWN"
+    assert err.code == "VEYA_UNKNOWN"
     assert err.severity == Severity.ERROR
-    assert err.component == "hicode"
+    assert err.component == "veya"
     assert err.message == "something broke"
     assert err.context == {}
 
@@ -173,8 +173,8 @@ def test_severity_from_string():
 # ---------------------------------------------------------------------------
 
 
-def test_hicode_error_factory():
-    err = hicode_error(
+def test_veya_error_factory():
+    err = veya_error(
         code="CUSTOM_CODE",
         message="custom message",
         severity="critical",

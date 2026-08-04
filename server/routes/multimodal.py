@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.multimodal import create_multimodal_processor
+from veya.multimodal import create_multimodal_processor
 
 router = APIRouter(prefix="/multimodal", tags=["multimodal"])
 

@@ -3,7 +3,7 @@
 
 import pytest
 
-from hicode.advanced_visualization import (
+from veya.advanced_visualization import (
     create_architecture_visualizer_enhanced,
     create_interactive_debugger_enhanced,
     create_three_d_graph,

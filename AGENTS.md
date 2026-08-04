@@ -1,11 +1,11 @@
-Here's a concise, professional `AGENTS.md` document tailored to the `hicode` project structure. It focuses on **agent architecture**, clarifies module responsibilities, identifies entry points, and reflects the observed design patterns — while gracefully handling noise (e.g., `Zone.Identifier`, `.pycache`, `.venv`, `.whl`, zips) as non-source artifacts.
+Here's a concise, professional `AGENTS.md` document tailored to the `veya` project structure. It focuses on **agent architecture**, clarifies module responsibilities, identifies entry points, and reflects the observed design patterns — while gracefully handling noise (e.g., `Zone.Identifier`, `.pycache`, `.venv`, `.whl`, zips) as non-source artifacts.
 
 ---
 
-# `AGENTS.md`: Agent Architecture Overview for `hicode`
+# `AGENTS.md`: Agent Architecture Overview for `veya`
 
-> **Version**: `hicode` v0.2.0  
-> **Purpose**: This document describes the agent-centric architecture of `hicode` — a modular, extensible AI orchestration framework designed for code-aware reasoning, research, planning, and execution.
+> **Version**: `veya` v0.2.0  
+> **Purpose**: This document describes the agent-centric architecture of `veya` — a modular, extensible AI orchestration framework designed for code-aware reasoning, research, planning, and execution.
 
 ---
 
@@ -14,11 +14,11 @@ Here's a concise, professional `AGENTS.md` document tailored to the `hicode` pro
 The repository follows a clean, domain-driven package structure:
 
 ```
-hicode/
+veya/
 ├── agents/            # Core agent implementations & base abstractions
 ├── server/            # HTTP/SSE API layer + agent routing & coordination
 ├── tools/             # Reusable, composable tool functions (e.g., search, file ops, LLM calls)
-├── commands/          # CLI command definitions (e.g., `hicode run`, `hicode serve`)
+├── commands/          # CLI command definitions (e.g., `veya run`, `veya serve`)
 ├── hooks/             # Lifecycle event handlers (pre/post dispatch, auth, redaction, etc.)
 ├── registries/        # Dynamic registration systems for tools, models, skills, plugins
 ├── config/            # Configuration loading, schema validation, permission policies
@@ -65,7 +65,7 @@ Agents are invoked through **three primary interfaces**, depending on usage mode
 
 ### 2. **CLI / Headless Mode**
 - **Entry**: `cli/headless.py` (primary CLI runner)
-- **Usage**: `hicode run --agent plan --input "..."`  
+- **Usage**: `veya run --agent plan --input "..."`  
   (also supports `research`, `build`, and custom agent names)
 - **Orchestration**: Uses `coordinator.py` (root-level) for local, synchronous agent execution — bypassing HTTP overhead.
 
@@ -79,7 +79,7 @@ Agents are invoked through **three primary interfaces**, depending on usage mode
   agent = PlanAgent(session=session)
   result = agent.run({"query": "Design a data pipeline"})
   ```
-- **Flexibility**: Enables embedding `hicode` agents into other apps or notebooks.
+- **Flexibility**: Enables embedding `veya` agents into other apps or notebooks.
 
 ---
 
@@ -118,4 +118,4 @@ Agents are invoked through **three primary interfaces**, depending on usage mode
 
 --- 
 
-*Generated from repo structure as of `hicode` v0.2.0 • Last updated: 2024*
+*Generated from repo structure as of `veya` v0.2.0 • Last updated: 2024*

@@ -1,7 +1,7 @@
 # P3 完成报告：增强 AI 代理能力、可视化分析、跨语言支持、性能优化
 
 **日期**: 2024年8月2日  
-**版本**: hicode v0.3.0  
+**版本**: veya v0.3.0  
 **状态**: ✅ 已完成
 
 ---
@@ -10,10 +10,10 @@
 
 | 模块 | 文件 | 功能 | 测试 |
 |------|------|------|------|
-| **autonomous_agent.py** | `hicode/autonomous_agent.py` | P3.1~P3.3: 自主规划、记忆系统、自我改进 | ✅ |
-| **visualization.py** | `hicode/visualization.py` | P3.4~P3.6: 代码图谱、架构图、交互式调试 | ✅ |
-| **cross_language.py** | `hicode/cross_language.py` | P3.7~P3.9: 多语言翻译、解析、分析 | ✅ |
-| **performance.py** | `hicode/performance.py` | P3.10~P3.12: 智能缓存、增量计算、分布式执行 | ✅ |
+| **autonomous_agent.py** | `veya/autonomous_agent.py` | P3.1~P3.3: 自主规划、记忆系统、自我改进 | ✅ |
+| **visualization.py** | `veya/visualization.py` | P3.4~P3.6: 代码图谱、架构图、交互式调试 | ✅ |
+| **cross_language.py** | `veya/cross_language.py` | P3.7~P3.9: 多语言翻译、解析、分析 | ✅ |
+| **performance.py** | `veya/performance.py` | P3.10~P3.12: 智能缓存、增量计算、分布式执行 | ✅ |
 | **autonomous.py** | `server/routes/autonomous.py` | P3.1~P3.3 API | ✅ |
 | **visualization.py** | `server/routes/visualization.py` | P3.4~P3.6 API | ✅ |
 | **cross_language.py** | `server/routes/cross_language.py` | P3.7~P3.9 API | ✅ |
@@ -148,8 +148,8 @@ pytest tests/test_p3_e2e.py -v --asyncio-mode=auto
 
 ## 📦 发布版本
 
-**当前版本**: hicode v0.2.0  
-**待发布**: hicode v0.3.0 (P3)
+**当前版本**: veya v0.2.0  
+**待发布**: veya v0.3.0 (P3)
 
 ### 更新日志
 - ✅ P3.1~P3.3: 自主 AI 代理系统
@@ -210,5 +210,5 @@ pytest tests/test_p3_e2e.py -v --asyncio-mode=auto
 ---
 
 *P3 完成报告生成于 2024-08-02*  
-*版本: hicode v0.3.0*  
+*版本: veya v0.3.0*  
 *贡献者: AI Assistant*

@@ -15,18 +15,18 @@ _DEFAULTS: dict[str, Any] = {
 
 
 def _load_dotenv(root: Path | None = None) -> None:
-    """Load .env and .hicode.env from project root into os.environ.
+    """Load .env and .veya.env from project root into os.environ.
 
     Priority (first-seen wins, os.environ already set is never overwritten):
       1. existing os.environ  — highest priority (shell export wins)
       2. .env                 — standard dotenv location (python-dotenv aware)
-      3. .hicode.env          — legacy hicode-specific file
+      3. .veya.env          — legacy veya-specific file
 
     Note: we use our own parser, NOT obase.config.Settings, so DASHSCOPE_API_KEY
     in .env is safe — pydantic-settings is never invoked here.
     """
     cwd = root or Path.cwd()
-    for filename in (".env", ".hicode.env"):
+    for filename in (".env", ".veya.env"):
         env_file = cwd / filename
         if not env_file.exists():
             continue
@@ -76,9 +76,9 @@ def load_config(path: str | None = None) -> dict[str, Any]:
     if api_key := os.environ.get("DASHSCOPE_API_KEY"):
         config.setdefault("providers", {})["dashscope"] = {"api_key": api_key}
 
-    if env_provider := os.environ.get("HICODE_LLM_PROVIDER"):
+    if env_provider := os.environ.get("VEYA_LLM_PROVIDER"):
         config.setdefault("llm", {})["provider"] = env_provider
-    if env_model := os.environ.get("HICODE_LLM_MODEL"):
+    if env_model := os.environ.get("VEYA_LLM_MODEL"):
         config.setdefault("llm", {})["model"] = env_model
 
     return config
@@ -86,9 +86,9 @@ def load_config(path: str | None = None) -> dict[str, Any]:
 
 def _default_paths() -> list[Path]:
     candidates = []
-    project = Path.cwd() / ".hicode.json"
+    project = Path.cwd() / ".veya.json"
     candidates.append(project)
-    home = Path.home() / ".hicode" / "config.json"
+    home = Path.home() / ".veya" / "config.json"
     candidates.append(home)
     return candidates
 

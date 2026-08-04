@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from hicode.obase.authz import InteractivePermissionGate
+from veya.obase.authz import InteractivePermissionGate
 
 router = APIRouter(prefix="/permission", tags=["permission"])
 

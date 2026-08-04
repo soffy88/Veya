@@ -8,8 +8,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-sys.path.insert(0, "/home/soffy/projects/hicode")
-os.chdir("/home/soffy/projects/hicode")
+sys.path.insert(0, "/home/soffy/projects/veya")
+os.chdir("/home/soffy/projects/veya")
 
 from config.loader import load_config
 

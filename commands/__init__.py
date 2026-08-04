@@ -91,7 +91,7 @@ class SlashRouter:
 
 async def _init_handler(args: str, **ctx) -> CommandResult:
     """→ initialize_project (legacy omodul; compat shim)."""
-    from hicode.compat import init_project
+    from veya.compat import init_project
 
     root = args.strip() or ctx.get("cwd", ".")  # pragma: no cover
     caller = ctx.get("caller")  # pragma: no cover
@@ -159,7 +159,7 @@ async def _redo_handler(args: str, **ctx) -> CommandResult:
 
 async def _compact_handler(args: str, **ctx) -> CommandResult:
     """→ compact_conversation (legacy omodul; compat shim)."""
-    from hicode.compat import compact_session
+    from veya.compat import compact_session
 
     session = ctx.get("session")  # pragma: no cover
     caller = ctx.get("caller")  # pragma: no cover
@@ -194,7 +194,7 @@ async def _tests_handler(args: str, **ctx) -> CommandResult:
 
 async def _checkpoint_handler(args: str, **ctx) -> CommandResult:
     """→ create_checkpoint (legacy omodul; compat shim)."""
-    from hicode.compat import RunState, make_checkpoint
+    from veya.compat import RunState, make_checkpoint
 
     session = ctx.get("session")  # pragma: no cover
     if not session:  # pragma: no cover
@@ -450,8 +450,8 @@ class HookDispatcher:
     async def __call__(self, event: str, payload: dict) -> dict:
         """评估 + 执行匹配的 hooks，返回聚合决策。"""
         try:
-            from hicode.compat import evaluate_hooks
-            from hicode.compat import run_hook as _run_hook
+            from veya.compat import evaluate_hooks
+            from veya.compat import run_hook as _run_hook
 
             hook_specs = [
                 {"event": h.event, "command": h.command, "matcher": h.matcher}
@@ -496,7 +496,7 @@ class SubagentLoader:
         result = []
         for md in self._dir.glob("*.md"):
             try:
-                from hicode.compat import read_skill_frontmatter
+                from veya.compat import read_skill_frontmatter
 
                 meta = read_skill_frontmatter(
                     str(md.parent / md.stem) if (md.parent / md.stem).is_dir() else str(md.parent)
@@ -536,7 +536,7 @@ class SubagentLoader:
             return None
 
         try:
-            from hicode.compat import SubagentDefinition, SubagentPermissions
+            from veya.compat import SubagentDefinition, SubagentPermissions
 
             content = source_md.read_text()
 
@@ -625,7 +625,7 @@ class WorkerAssembly:
 
     async def spawn(self, agent_name: str, task: str) -> dict:
         """spawn 一个 subagent，注入历史记忆，返回摘要。"""
-        from hicode.compat import (
+        from veya.compat import (
             SubagentInput,
             run_subagent,
         )

@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.visualization import create_code_graph
+from veya.visualization import create_code_graph
 
 router = APIRouter(prefix="/visualization", tags=["visualization"])
 
@@ -35,7 +35,7 @@ async def generate_code_graph(request: GenerateGraphRequest) -> dict[str, Any]:
         # 构建节点
         if "symbols" in request.ast_data:
             for symbol in request.ast_data["symbols"]:
-                from hicode.visualization import GraphNode
+                from veya.visualization import GraphNode
 
                 node = GraphNode(
                     node_id=symbol.get("id", ""),
@@ -78,7 +78,7 @@ async def get_graph_metrics() -> dict[str, Any]:
 async def generate_architecture_diagram(components: list[dict[str, Any]]) -> dict[str, Any]:
     """生成架构图"""
     try:
-        from hicode.visualization import create_architecture_visualizer
+        from veya.visualization import create_architecture_visualizer
 
         visualizer = create_architecture_visualizer()
         diagram = visualizer.generate_architecture_diagram(components)
@@ -92,7 +92,7 @@ async def generate_architecture_diagram(components: list[dict[str, Any]]) -> dic
 async def add_breakpoint(file_path: str, line: int, condition: str | None = None) -> dict[str, Any]:
     """添加调试断点"""
     try:
-        from hicode.visualization import create_interactive_debugger
+        from veya.visualization import create_interactive_debugger
 
         debugger = create_interactive_debugger()
         breakpoint_id = debugger.add_breakpoint(file_path, line, condition)
@@ -110,7 +110,7 @@ async def add_breakpoint(file_path: str, line: int, condition: str | None = None
 async def get_debugger_state() -> dict[str, Any]:
     """获取调试器状态"""
     try:
-        from hicode.visualization import create_interactive_debugger
+        from veya.visualization import create_interactive_debugger
 
         debugger = create_interactive_debugger()
         state = debugger.get_debug_state()

@@ -16,10 +16,10 @@ class ResearchRequest(BaseModel):
 
 
 async def _researcher(query: str, max_pages: int = 5) -> dict[str, Any]:
-    """hicode.compat-based researcher: web_search → http_fetch snippets."""
+    """veya.compat-based researcher: web_search → http_fetch snippets."""
     import inspect as _insp
 
-    from hicode.compat import http_fetch, web_search
+    from veya.compat import http_fetch, web_search
 
     try:
         raw = web_search(query=query, max_results=max_pages)
@@ -54,7 +54,7 @@ async def _researcher(query: str, max_pages: int = 5) -> dict[str, Any]:
 async def research_route(req: ResearchRequest) -> dict[str, Any]:
     import tempfile
 
-    from hicode.compat import web_search
+    from veya.compat import web_search
 
     with tempfile.TemporaryDirectory():
         # Use compat shim for web research

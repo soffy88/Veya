@@ -168,9 +168,9 @@ async def undo_session(session_id: str) -> dict[str, Any]:
 
 @router.post("/{session_id}/resume")
 async def resume_session(session_id: str) -> dict[str, Any]:
-    from hicode.compat import restore_from_checkpoint
     from server.checkpoint import load_checkpoint
     from server.coordinator import coordinator
+    from veya.compat import restore_from_checkpoint
 
     ckpt = await load_checkpoint(session_id)
     if not ckpt:
@@ -185,7 +185,7 @@ async def resume_session(session_id: str) -> dict[str, Any]:
 
 @router.get("/{session_id}/changes")
 async def get_session_changes(session_id: str) -> dict[str, Any]:
-    from hicode.compat import compute_diff
+    from veya.compat import compute_diff
 
     stacks = _undo_stacks.get(session_id, [])
     # Keep FIRST snapshot per path — captures state before any session writes
@@ -228,7 +228,7 @@ async def get_session_changes(session_id: str) -> dict[str, Any]:
 
 @router.post("/{session_id}/share")
 async def share_session(session_id: str) -> dict[str, Any]:
-    from hicode.compat import redact_share_secrets
+    from veya.compat import redact_share_secrets
 
     s = _sessions.get(session_id)
     if not s:

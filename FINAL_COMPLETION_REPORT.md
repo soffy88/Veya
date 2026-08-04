@@ -1,8 +1,8 @@
-# hicode 项目最终完成报告：P0-P5 全面增强
+# veya 项目最终完成报告：P0-P5 全面增强
 
 ## 🎯 项目概述
 
-hicode v0.4.0 项目已成功完成所有P0-P5阶段的增强功能开发。本报告总结了从基础能力到AI代理协作的所有核心功能实现，标志着项目达到了一个重要里程碑。
+veya v0.4.0 项目已成功完成所有P0-P5阶段的增强功能开发。本报告总结了从基础能力到AI代理协作的所有核心功能实现，标志着项目达到了一个重要里程碑。
 
 ## ✅ 已完成工作概览
 
@@ -28,7 +28,7 @@ hicode v0.4.0 项目已成功完成所有P0-P5阶段的增强功能开发。本�
 
 ### P0: 基础能力增强
 
-**核心模块**: `hicode/context.py`, `hicode/streaming.py`, `hicode/cache.py`
+**核心模块**: `veya/context.py`, `veya/streaming.py`, `veya/cache.py`
 
 **主要功能**:
 - 智能上下文压缩和相关文件加载
@@ -43,7 +43,7 @@ hicode v0.4.0 项目已成功完成所有P0-P5阶段的增强功能开发。本�
 
 ### P1: 代码理解增强
 
-**核心模块**: `hicode/ast.py`, `hicode/tools.py`, `hicode/sandbox.py`
+**核心模块**: `veya/ast.py`, `veya/tools.py`, `veya/sandbox.py`
 
 **主要功能**:
 - AST解析和符号索引构建
@@ -58,7 +58,7 @@ hicode v0.4.0 项目已成功完成所有P0-P5阶段的增强功能开发。本�
 
 ### P2: 生态扩展增强
 
-**核心模块**: `hicode/multimodal.py`, `hicode/integrations.py`, `hicode/collaboration.py`, `hicode/semantic_search.py`
+**核心模块**: `veya/multimodal.py`, `veya/integrations.py`, `veya/collaboration.py`, `veya/semantic_search.py`
 
 **主要功能**:
 - 图像OCR和文档解析多模态支持
@@ -73,7 +73,7 @@ hicode v0.4.0 项目已成功完成所有P0-P5阶段的增强功能开发。本�
 
 ### P3: 自主智能增强
 
-**核心模块**: `hicode/autonomous_agent.py`, `hicode/visualization.py`, `hicode/cross_language.py`, `hicode/performance.py`
+**核心模块**: `veya/autonomous_agent.py`, `veya/visualization.py`, `veya/cross_language.py`, `veya/performance.py`
 
 **主要功能**:
 - 自主规划和记忆系统
@@ -88,7 +88,7 @@ hicode v0.4.0 项目已成功完成所有P0-P5阶段的增强功能开发。本�
 
 ### P4: 高级可视化增强
 
-**核心模块**: `hicode/advanced_visualization.py`
+**核心模块**: `veya/advanced_visualization.py`
 
 **主要功能**:
 - 3D代码图谱交互式浏览
@@ -103,7 +103,7 @@ hicode v0.4.0 项目已成功完成所有P0-P5阶段的增强功能开发。本�
 
 ### P5: AI代理协作增强
 
-**核心模块**: `hicode/agent_collaboration.py`
+**核心模块**: `veya/agent_collaboration.py`
 
 **主要功能**:
 - 多代理角色系统（PLANNER/EXECUTOR/REVIEWER/COORDINATOR）
@@ -145,7 +145,7 @@ collected 100+ items
 
 ```bash
 # 启动服务
-cd /data/soffy/projects/hicode
+cd /data/soffy/projects/veya
 PYTHONPATH=. venv/bin/uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
 
 # 运行测试
@@ -296,7 +296,7 @@ print(f"Completed {summary['summary']['completed_tasks']} tasks")
 
 ## 🎉 总结
 
-hicode v0.4.0 的成功发布标志着项目已经具备了完整的**AI编码助手能力**。从基础的上下文管理和流式输出，到高级的3D可视化和AI代理协作，系统现在可以支持复杂的软件开发全流程。
+veya v0.4.0 的成功发布标志着项目已经具备了完整的**AI编码助手能力**。从基础的上下文管理和流式输出，到高级的3D可视化和AI代理协作，系统现在可以支持复杂的软件开发全流程。
 
 所有P0-P5阶段的功能都已整合到一个统一的平台中，为开发者提供了一个强大、灵活、可扩展的AI辅助编程环境。
 
@@ -304,6 +304,6 @@ hicode v0.4.0 的成功发布标志着项目已经具备了完整的**AI编码�
 
 ---
 
-**版本**: hicode v0.4.0  
+**版本**: veya v0.4.0  
 **状态**: ✅ **所有P0-P5能力已实现并验证**  
 **准备就绪**: 生产部署

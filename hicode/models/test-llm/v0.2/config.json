@@ -1,6 +1,0 @@
-{
-  "name": "test-llm",
-  "description": "Mock LLM for hicode model registry testing",
-  "author": "hicode",
-  "default_version": "v0.2"
-}

@@ -30,7 +30,7 @@ class StatusBar(Widget):
         self._persona = "build"
         self._cost = 0.0
         self._session_id = ""
-        self._provider = os.environ.get("HICODE_LLM_PROVIDER", "dashscope")
+        self._provider = os.environ.get("VEYA_LLM_PROVIDER", "dashscope")
 
     def compose(self) -> ComposeResult:
         yield Static(self._render_persona(), id="sb-persona", markup=True, classes="sb-item")

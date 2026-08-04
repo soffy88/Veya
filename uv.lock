@@ -760,7 +760,7 @@ wheels = [
 ]
 
 [[package]]
-name = "hicode"
+name = "veya"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [

@@ -1,5 +1,5 @@
 
-> hicode-web@0.1.0 dev
+> veya-web@0.1.0 dev
 > next dev -H 0.0.0.0 -p 3001 -H 0.0.0.0
 
 ▲ Next.js 16.2.9 (Turbopack)

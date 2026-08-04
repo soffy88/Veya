@@ -1,4 +1,4 @@
-# Security policy for hicode
+# Security policy for veya
 default_permissions:
   - read_files
   - execute_code
@@ -22,7 +22,7 @@ whitelist:
     - "127.0.0.1"
     - "::1"
   allowed_paths:
-    - "/data/soffy/projects/hicode/"
+    - "/data/soffy/projects/veya/"
     - "/tmp/"
 
 blacklist:

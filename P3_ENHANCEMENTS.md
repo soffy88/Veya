@@ -1,6 +1,6 @@
 # P3 ENHANCEMENTS: 自主 AI 代理、代码可视化、跨语言支持、性能优化
 
-> **Version**: `hicode` v0.3.0  
+> **Version**: `veya` v0.3.0  
 > **Status**: ✅ Implemented  
 > **Release Date**: 2024  
 > **Summary**: 完成 P3 核心能力 —— 自主 AI 代理、代码可视化、多语言支持、高级性能优化
@@ -11,10 +11,10 @@
 
 | 模块 | 功能 | 文件 | 状态 |
 |------|------|------|------|
-| **Autonomous Agent** | 自主规划、记忆系统、自我改进 | `hicode/autonomous_agent.py` | ✅ |
-| **Visualization** | 代码图谱、架构图、交互式调试 | `hicode/visualization.py` | ✅ |
-| **Cross-Language** | 多语言翻译、解析、分析 | `hicode/cross_language.py` | ✅ |
-| **Performance** | 智能缓存、增量计算、资源优化 | `hicode/performance.py` | ✅ |
+| **Autonomous Agent** | 自主规划、记忆系统、自我改进 | `veya/autonomous_agent.py` | ✅ |
+| **Visualization** | 代码图谱、架构图、交互式调试 | `veya/visualization.py` | ✅ |
+| **Cross-Language** | 多语言翻译、解析、分析 | `veya/cross_language.py` | ✅ |
+| **Performance** | 智能缓存、增量计算、资源优化 | `veya/performance.py` | ✅ |
 
 ---
 
@@ -30,7 +30,7 @@
 
 **示例**:
 ```python
-from hicode.autonomous_agent import create_autonomous_agent, AgentGoal
+from veya.autonomous_agent import create_autonomous_agent, AgentGoal
 
 agent = create_autonomous_agent()
 plan = agent.plan_goal(
@@ -105,7 +105,7 @@ print(f"Suggestions: {evaluation.improvement_suggestions}")
 
 **API**:
 ```python
-from hicode.visualization import create_code_graph
+from veya.visualization import create_code_graph
 
 graph = create_code_graph()
 # 从 AST 数据构建图谱
@@ -124,7 +124,7 @@ image_base64 = graph.generate_image()
 
 **架构图示例**:
 ```python
-from hicode.visualization import create_architecture_visualizer
+from veya.visualization import create_architecture_visualizer
 
 visualizer = create_architecture_visualizer()
 components = [
@@ -144,7 +144,7 @@ diagram = visualizer.generate_architecture_diagram(components)
 
 **调试器示例**:
 ```python
-from hicode.visualization import create_interactive_debugger
+from veya.visualization import create_interactive_debugger
 
 debugger = create_interactive_debugger()
 bp_id = debugger.add_breakpoint("main.py", 42, "x > 10")
@@ -184,7 +184,7 @@ state = debugger.get_debug_state()
 
 **翻译示例**:
 ```python
-from hicode.cross_language import create_cross_language_translator, Language
+from veya.cross_language import create_cross_language_translator, Language
 
 translator = create_cross_language_translator()
 result = translator.translate(python_code, Language.PYTHON, Language.JAVA)
@@ -199,7 +199,7 @@ print(f"Warnings: {result.warnings}")
 
 **解析器示例**:
 ```python
-from hicode.cross_language import PythonParser
+from veya.cross_language import PythonParser
 
 parser = PythonParser()
 code = "def calculate(x, y): return x + y"
@@ -248,7 +248,7 @@ for lang, data in stats.items():
 
 **缓存示例**:
 ```python
-from hicode.performance import create_smart_cache, CacheStrategy
+from veya.performance import create_smart_cache, CacheStrategy
 
 cache = create_smart_cache(max_size=1000, strategy=CacheStrategy.LRU)
 cache.set("key", "value", ttl=3600)  # 1小时TTL
@@ -264,7 +264,7 @@ stats = cache.get_stats()
 
 **增量计算示例**:
 ```python
-from hicode.performance import create_incremental_computer
+from veya.performance import create_incremental_computer
 
 computer = create_incremental_computer()
 computer.register("sum", lambda a, b: a + b, ["a", "b"])
@@ -285,7 +285,7 @@ result = computer.get_value("product")  # (10+20)*3 = 90
 
 **分布式执行示例**:
 ```python
-from hicode.performance import create_distributed_executor
+from veya.performance import create_distributed_executor
 import asyncio
 
 executor = create_distributed_executor(max_workers=4)
@@ -435,5 +435,5 @@ pytest tests/test_p3_*.py -v --asyncio-mode=auto
 
 ---
 
-*P3 实现完成于 hicode v0.3.0 | 贡献者: AI Assistant*  
+*P3 实现完成于 veya v0.3.0 | 贡献者: AI Assistant*  
 *Documentation generated from repository structure*

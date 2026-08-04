@@ -6,7 +6,7 @@ coordinator 集成（simple → 并行单 squad / complex → DAG 三 squad）�
 
 import pytest
 
-from hicode.intent import Intent, IntentClassifier, classify_intent
+from veya.intent import Intent, IntentClassifier, classify_intent
 
 
 def _llm_response(content: str) -> dict:
@@ -19,13 +19,13 @@ def _llm_response(content: str) -> dict:
 @pytest.fixture
 def no_key(monkeypatch):
     """无 API key 环境 → 走启发式路径（不调用 LLM）。"""
-    monkeypatch.setattr("hicode.llm.get_api_key", lambda *a, **k: "")
+    monkeypatch.setattr("veya.llm.get_api_key", lambda *a, **k: "")
 
 
 @pytest.fixture
 def with_key(monkeypatch):
     """有 API key + 可控 llm_call。"""
-    monkeypatch.setattr("hicode.llm.get_api_key", lambda *a, **k: "test-key")
+    monkeypatch.setattr("veya.llm.get_api_key", lambda *a, **k: "test-key")
     calls: list[list[dict]] = []
 
     async def fake_llm_call(messages, **kwargs):
@@ -33,7 +33,7 @@ def with_key(monkeypatch):
         content = kwargs.get("default_content") or '{"intent": "simple", "reason": "mock"}'
         return _llm_response(content)
 
-    monkeypatch.setattr("hicode.llm.llm_call", fake_llm_call)
+    monkeypatch.setattr("veya.llm.llm_call", fake_llm_call)
     return calls
 
 
@@ -71,7 +71,7 @@ async def test_empty_text(no_key):
 @pytest.mark.asyncio
 async def test_llm_classifies_complex(with_key):
     """LLM 返回 complex → 走 DAG 分解路径（提示词注入验证）。"""
-    from hicode.intent import _llm as intent_llm_module
+    from veya.intent import _llm as intent_llm_module
 
     calls: list[list[dict]] = []
 
@@ -95,7 +95,7 @@ async def test_llm_classifies_complex(with_key):
 
 @pytest.mark.asyncio
 async def test_llm_markdown_fenced_json(with_key):
-    from hicode.intent import _llm as intent_llm_module
+    from veya.intent import _llm as intent_llm_module
 
     async def fake_llm_call(messages, **kwargs):
         return _llm_response('```json\n{"intent": "simple", "reason": "x"}\n```')
@@ -112,7 +112,7 @@ async def test_llm_markdown_fenced_json(with_key):
 
 @pytest.mark.asyncio
 async def test_llm_garbage_falls_back_to_heuristic(with_key):
-    from hicode.intent import _llm as intent_llm_module
+    from veya.intent import _llm as intent_llm_module
 
     async def fake_llm_call(messages, **kwargs):
         return _llm_response("这个请求有点意思但我说不清")
@@ -130,7 +130,7 @@ async def test_llm_garbage_falls_back_to_heuristic(with_key):
 
 @pytest.mark.asyncio
 async def test_llm_exception_falls_back(with_key):
-    from hicode.intent import _llm as intent_llm_module
+    from veya.intent import _llm as intent_llm_module
 
     async def fake_llm_call(messages, **kwargs):
         raise RuntimeError("provider down")
@@ -148,7 +148,7 @@ async def test_llm_exception_falls_back(with_key):
 # ── 缓存 ──────────────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_cache_avoids_repeated_llm_calls(with_key):
-    from hicode.intent import _llm as intent_llm_module
+    from veya.intent import _llm as intent_llm_module
 
     call_count = 0
 
@@ -201,8 +201,8 @@ async def test_coordinator_decompose_complex(no_key):
 @pytest.mark.asyncio
 async def test_coordinator_uses_llm_when_key_present(with_key):
     """有 key 时 coordinator 的分类器走 LLM（mock 返回 complex）。"""
-    from hicode.intent import _llm as intent_llm_module
     from server.coordinator import Coordinator
+    from veya.intent import _llm as intent_llm_module
 
     async def fake_llm_call(messages, **kwargs):
         return _llm_response('{"intent": "complex", "reason": "mock"}')

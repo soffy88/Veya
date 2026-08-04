@@ -2,9 +2,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from hicode.context import SmartContextManager
-from hicode.streaming import StreamEventType, StreamingManager
 from server.coordinator import Coordinator
+from veya.context import SmartContextManager
+from veya.streaming import StreamEventType, StreamingManager
 
 
 @pytest.mark.asyncio

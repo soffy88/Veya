@@ -32,7 +32,7 @@ async def test_multimodal_integration():
 @pytest.mark.asyncio
 async def test_integration_hub():
     """测试生态集成中心"""
-    from hicode.integrations import create_integration_hub
+    from veya.integrations import create_integration_hub
 
     hub = create_integration_hub()
 
@@ -63,7 +63,7 @@ async def test_integration_hub():
 @pytest.mark.asyncio
 async def test_collaboration_integration():
     """测试协作功能集成"""
-    from hicode.collaboration import create_collaboration_manager
+    from veya.collaboration import create_collaboration_manager
 
     manager = create_collaboration_manager()
 
@@ -94,7 +94,7 @@ async def test_collaboration_integration():
 @pytest.mark.asyncio
 async def test_semantic_search_integration():
     """测试语义搜索集成"""
-    from hicode.semantic_search import create_semantic_search
+    from veya.semantic_search import create_semantic_search
 
     search = create_semantic_search()
 
@@ -159,7 +159,7 @@ async def test_coordinator_p2_integration():
         assert session_resp["session_id"]
 
         # 通过 manager 直接操作 session（协调器返回结构化 dict，不暴露 session 对象）
-        from hicode.collaboration import CollaborationManager
+        from veya.collaboration import CollaborationManager
 
         manager: CollaborationManager = coordinator.collaboration_manager
         session = await manager.create_session("user1", "Coordinator P2 Test 2")

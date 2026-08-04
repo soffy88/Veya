@@ -1,4 +1,4 @@
-"""hicode TUI theme — TCSS and color constants."""
+"""veya TUI theme — TCSS and color constants."""
 
 TCSS = """
 /* ── Global ─────────────────────────────────────── */

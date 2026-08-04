@@ -49,8 +49,8 @@ class LoadModelResponse(BaseModel):
 async def list_models():
     """List all available models"""
     try:
-        from hicode.models import list_models as get_models
-        from hicode.models.utils import MODELS_ROOT
+        from veya.models import list_models as get_models
+        from veya.models.utils import MODELS_ROOT
 
         models = []
         for name in get_models():
@@ -90,7 +90,7 @@ async def list_models():
 async def list_versions(model_name: str):
     """List all versions of a specific model"""
     try:
-        from hicode.models import list_versions
+        from veya.models import list_versions
 
         versions = list_versions(model_name)
         if not versions:
@@ -106,7 +106,7 @@ async def list_versions(model_name: str):
 async def load_model(req: LoadModelRequest):
     """Load a specific model version"""
     try:
-        from hicode.models import load_model
+        from veya.models import load_model
 
         result = load_model(req.name, req.version)
         return LoadModelResponse(
@@ -153,7 +153,7 @@ async def register_model(name: str, path: str, versions: list[str]):
             config = {
                 "name": name,
                 "description": f"Registered model: {name}",
-                "author": "hicode",
+                "author": "veya",
                 "default_version": versions[0] if versions else "",
             }
             with open(config_file, "w") as f:

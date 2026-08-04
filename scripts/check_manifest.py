@@ -3,7 +3,7 @@
 
 §2.5: 主库必须暴露 __manifest__（元素清单 + 签名 + 版本）。
 
-检查 hicode/obase/__init__.py：
+检查 veya/obase/__init__.py：
 1. 必须定义 __manifest__ dict；
 2. 每个清单项 name 形如 "<module>.<attr>"，须能实际 import；
 3. 至少 1 项。
@@ -20,19 +20,19 @@ import sys
 
 
 def main(root: str = ".") -> int:
-    init = pathlib.Path(root) / "hicode" / "obase" / "__init__.py"
+    init = pathlib.Path(root) / "veya" / "obase" / "__init__.py"
     if not init.exists():
         print(f"[FAIL] {init} not found")
         return 1
     sys.path.insert(0, str(pathlib.Path(root).resolve()))
     try:
-        pkg = importlib.import_module("hicode.obase")
+        pkg = importlib.import_module("veya.obase")
     except Exception as exc:  # noqa: BLE001, RUF100
-        print(f"[FAIL] cannot import hicode.obase: {exc}")
+        print(f"[FAIL] cannot import veya.obase: {exc}")
         return 1
     manifest = getattr(pkg, "__manifest__", None)
     if not isinstance(manifest, dict):
-        print("[FAIL] hicode/obase/__init__.py missing dict __manifest__ (§2.5)")
+        print("[FAIL] veya/obase/__init__.py missing dict __manifest__ (§2.5)")
         return 1
     if not manifest:
         print("[FAIL] __manifest__ is empty")
@@ -44,7 +44,7 @@ def main(root: str = ".") -> int:
             continue
         mod_name, attr = name.split(".", 1)
         try:
-            mod = importlib.import_module(f"hicode.obase.{mod_name}")
+            mod = importlib.import_module(f"veya.obase.{mod_name}")
         except Exception as exc:  # noqa: BLE001, RUF100
             errors.append(f"manifest '{name}': cannot import module: {exc}")
             continue

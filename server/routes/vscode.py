@@ -1,5 +1,5 @@
 """
-VS Code Integration API - Support for hicode VS Code extension
+VS Code Integration API - Support for veya VS Code extension
 """
 
 from __future__ import annotations
@@ -169,7 +169,7 @@ async def start_debug_session(session_id: str):
             session_id=session_id,
             breakpoints=[],
             variables={"session_id": session_id, "status": "debugging", "frame": 0},
-            stack_trace=[{"file": "hicode/agents/plan.py", "line": 42, "function": "run"}],
+            stack_trace=[{"file": "veya/agents/plan.py", "line": 42, "function": "run"}],
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start debug: {e!s}")
@@ -199,7 +199,7 @@ async def list_vscode_projects():
         # Scan common project locations
         project_dirs = []
         home = Path.home()
-        workspace = os.environ.get("HICODE_WORKSPACE", home / "projects")
+        workspace = os.environ.get("VEYA_WORKSPACE", home / "projects")
 
         if workspace.exists():
             for item in workspace.iterdir():

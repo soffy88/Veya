@@ -25,41 +25,32 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
-
 # Node.js (keep existing Next.js entries)
 .next/
 out/
-build/
 node_modules/
 .env.local
 .env
-
 # System
 .DS_Store
 Thumbs.db
-
 # Logs
 logs
 *.log
-
-# hicode specific
-.hicode/
+# veya specific
+.veya/
 checkpoints/
 artifacts/
 # Veya runtime caches & local secrets
-.hicode_ast_cache.json
 .veya_ast_cache.json
-.hicode.env
 .veya.env

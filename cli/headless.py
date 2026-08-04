@@ -2,7 +2,7 @@
 layer4/cli/headless.py — headless 模式(无回帖,机器对机器)
 
 结构化进 → 结构化出,无 TTY,无人类可读渲染。
-协调器/分队的机器对机器接口 —— hicode 区别于聊天 Claude 的核心:
+协调器/分队的机器对机器接口 —— veya 区别于聊天 Claude 的核心:
 分队吃结构化命令、吐结构化结果(给协调器消费),省掉 "写成人类可读回帖" 那层。
 
 同一套引擎,两种出口:
@@ -120,7 +120,7 @@ def _write_output(args, result: dict[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="hicode-headless", description="hicode headless: 结构化进出,无 TTY"
+        prog="veya-headless", description="veya headless: 结构化进出,无 TTY"
     )
     parser.add_argument("--input", help="命令 JSON 文件(缺省读 stdin)")
     parser.add_argument("--output", help="结果 JSON 文件(缺省写 stdout)")

@@ -1,0 +1,6 @@
+{
+  "name": "test-llm",
+  "description": "Mock LLM for veya model registry testing",
+  "author": "veya",
+  "default_version": "v0.2"
+}

@@ -1,12 +1,12 @@
 """
-server/providers.py — backward-compatible re-export of hicode.llm
+server/providers.py — backward-compatible re-export of veya.llm
 
-The canonical multi-provider LLM client lives in ``hicode/llm.py``. This module
+The canonical multi-provider LLM client lives in ``veya/llm.py``. This module
 keeps the historical import path (``from server.providers import provider_call``)
 working for ``server/assembly.py`` and validation scripts without duplicating logic.
 """
 
-from hicode.llm import (  # noqa: F401
+from veya.llm import (  # noqa: F401
     _DEFAULT_MODELS,
     _ENDPOINTS,
     _PRICING,

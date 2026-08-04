@@ -33,7 +33,7 @@ class MCPCallRequest(BaseModel):
 
 @router.post("/connect")
 async def mcp_connect_route(req: MCPConnectRequest) -> dict[str, Any]:
-    from hicode.compat import mcp_connect
+    from veya.compat import mcp_connect
 
     try:
         session = await mcp_connect(req.url, timeout=req.timeout)
@@ -45,7 +45,7 @@ async def mcp_connect_route(req: MCPConnectRequest) -> dict[str, Any]:
 
 @router.post("/call")
 async def mcp_call_route(req: MCPCallRequest) -> dict[str, Any]:
-    from hicode.compat import mcp_call_tool
+    from veya.compat import mcp_call_tool
 
     entry = _registered.get(req.server)
     if not entry:

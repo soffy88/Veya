@@ -117,7 +117,7 @@ async def _call(adapter: ToolAdapter, inp: dict) -> Any:
 
 
 def _make_file_read() -> ToolAdapter:
-    from hicode.compat import file_read
+    from veya.compat import file_read
 
     async def fn(inp: dict) -> dict:
         try:
@@ -149,7 +149,7 @@ def _make_file_read() -> ToolAdapter:
 
 
 def _make_file_write() -> ToolAdapter:
-    from hicode.compat import file_write
+    from veya.compat import file_write
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
@@ -176,7 +176,7 @@ def _make_file_write() -> ToolAdapter:
 
 
 def _make_glob_match() -> ToolAdapter:
-    from hicode.compat import glob_match
+    from veya.compat import glob_match
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
@@ -207,7 +207,7 @@ def _make_glob_match() -> ToolAdapter:
 
 
 def _make_bash_exec(*, permission_gate=None) -> ToolAdapter:
-    from hicode.compat import bash_exec
+    from veya.compat import bash_exec
 
     async def fn(inp: dict) -> dict:
         cmd = inp.get("command", "")  # pragma: no cover
@@ -251,7 +251,7 @@ def _make_bash_exec(*, permission_gate=None) -> ToolAdapter:
 def _make_ripgrep() -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
-            from hicode.compat import bash_exec  # pragma: no cover
+            from veya.compat import bash_exec  # pragma: no cover
 
             pattern = inp["pattern"]  # pragma: no cover
             root = inp.get("root", ".")  # pragma: no cover
@@ -303,7 +303,7 @@ def _make_ripgrep() -> ToolAdapter:
 
 
 def _make_git_status() -> ToolAdapter:
-    from hicode.compat import git_status
+    from veya.compat import git_status
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
@@ -331,7 +331,7 @@ def _make_git_status() -> ToolAdapter:
 
 
 def _make_git_diff() -> ToolAdapter:
-    from hicode.compat import git_diff
+    from veya.compat import git_diff
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
@@ -369,7 +369,7 @@ def _make_git_diff() -> ToolAdapter:
 def _make_web_fetch() -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
-            from hicode.compat import http_fetch  # pragma: no cover
+            from veya.compat import http_fetch  # pragma: no cover
 
             resp = await http_fetch(  # pragma: no cover
                 inp["url"],
@@ -406,7 +406,7 @@ def _make_web_search() -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
             # web_search: fallback to bash curl/lynx
-            from hicode.compat import bash_exec  # pragma: no cover
+            from veya.compat import bash_exec  # pragma: no cover
 
             q = inp["query"].replace("'", "")  # pragma: no cover
             r = bash_exec(
@@ -455,7 +455,7 @@ def _make_lsp_diagnostics(server_factory=None) -> ToolAdapter:
         if server_factory is None:  # pragma: no cover
             return {"diagnostics": [], "note": "LSP server not configured"}  # pragma: no cover
         try:  # pragma: no cover
-            from hicode.compat import lsp_diagnostics  # pragma: no cover
+            from veya.compat import lsp_diagnostics  # pragma: no cover
 
             server = server_factory(inp.get("path", ""))  # pragma: no cover
             diags = await lsp_diagnostics(inp["path"], server=server)  # pragma: no cover
@@ -498,7 +498,7 @@ def make_mcp_tool_adapter(tool_spec: dict, mcp_client: Any) -> ToolAdapter:
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
-            from hicode.compat import mcp_call_tool  # pragma: no cover
+            from veya.compat import mcp_call_tool  # pragma: no cover
 
             result = await mcp_call_tool(
                 tool_name, arguments=inp, client=mcp_client
@@ -525,7 +525,7 @@ def make_mcp_tool_adapter(tool_spec: dict, mcp_client: Any) -> ToolAdapter:
 def _make_todo_write(todo_tracker=None) -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
-            from hicode.compat import plan_to_todos  # pragma: no cover
+            from veya.compat import plan_to_todos  # pragma: no cover
 
             todos = plan_to_todos(inp.get("todos", []))  # pragma: no cover
             if todo_tracker:  # pragma: no cover
@@ -583,7 +583,7 @@ def _make_subagent(subagent_loader=None) -> ToolAdapter:
         if not subagent_loader:  # pragma: no cover
             return {"error": "subagent_loader not configured"}  # pragma: no cover
         try:  # pragma: no cover
-            from hicode.compat import (  # pragma: no cover
+            from veya.compat import (  # pragma: no cover
                 SubagentInput,
                 run_subagent,
             )

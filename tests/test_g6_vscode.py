@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-os.environ.setdefault("HICODE_SKIP_TEST_GATE", "1")
+os.environ.setdefault("VEYA_SKIP_TEST_GATE", "1")
 
 
 @pytest.fixture(scope="module")

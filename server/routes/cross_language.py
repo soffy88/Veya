@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.cross_language import create_cross_language_translator
+from veya.cross_language import create_cross_language_translator
 
 router = APIRouter(prefix="/cross-language", tags=["cross-language"])
 
@@ -33,7 +33,7 @@ class AnalyzeProjectRequest(BaseModel):
 async def translate_code(request: TranslateRequest) -> dict[str, Any]:
     """翻译代码"""
     try:
-        from hicode.cross_language import Language
+        from veya.cross_language import Language
 
         # 转换语言字符串为枚举
         source_lang = getattr(Language, request.source_language.upper(), None)
@@ -69,7 +69,7 @@ async def analyze_project(request: AnalyzeProjectRequest) -> dict[str, Any]:
 async def parse_file(file_path: str, language: str) -> dict[str, Any]:
     """解析文件"""
     try:
-        from hicode.cross_language import Language
+        from veya.cross_language import Language
 
         lang = getattr(Language, language.upper(), None)
         if not lang:
@@ -77,11 +77,11 @@ async def parse_file(file_path: str, language: str) -> dict[str, Any]:
 
         # 根据语言选择解析器
         if lang == Language.PYTHON:
-            from hicode.cross_language import PythonParser
+            from veya.cross_language import PythonParser
 
             parser = PythonParser()
         elif lang == Language.JAVA:
-            from hicode.cross_language import JavaParser
+            from veya.cross_language import JavaParser
 
             parser = JavaParser()
         else:
@@ -97,7 +97,7 @@ async def parse_file(file_path: str, language: str) -> dict[str, Any]:
 async def list_supported_languages() -> dict[str, Any]:
     """列出支持的语言"""
     try:
-        from hicode.cross_language import Language
+        from veya.cross_language import Language
 
         languages = [
             {

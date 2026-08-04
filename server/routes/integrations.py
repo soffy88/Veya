@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.integrations import create_integration_hub
+from veya.integrations import create_integration_hub
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 

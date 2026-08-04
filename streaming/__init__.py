@@ -283,11 +283,11 @@ class ThinkingRenderer:
 class CredentialStore:
     """安全存储 API key 到 env 文件 / keychain（调 obase.secrets）。"""
 
-    ENV_FILE = Path.home() / ".hicode" / ".env"
+    ENV_FILE = Path.home() / ".veya" / ".env"
 
     @classmethod
     def save(cls, key: str, value: str) -> None:
-        """写入 ~/.hicode/.env（简单实现；生产版接 obase.secrets / keychain）。"""
+        """写入 ~/.veya/.env（简单实现；生产版接 obase.secrets / keychain）。"""
         cls.ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
         lines = []
         found = False
@@ -353,20 +353,20 @@ class OAuthFlow:
     async def start(self, provider: str) -> dict:
         """启动 device-flow，返回 {device_code, user_code, verification_uri}。"""
         try:  # pragma: no cover
-            from hicode.compat import auth  # type: ignore  # pragma: no cover
+            from veya.compat import auth  # type: ignore  # pragma: no cover
 
             return await auth.device_flow_start(provider)  # pragma: no cover
         except ImportError:  # pragma: no cover
             return {  # pragma: no cover
                 "error": "obase.auth not available",
                 "verification_uri": f"https://{provider}.com/oauth/device",
-                "user_code": "HICODE-XXXX",
+                "user_code": "VEYA-XXXX",
             }
 
     async def poll(self, provider: str, device_code: str) -> str | None:
         """轮询获取 access token。返回 token 或 None（待续）。"""
         try:  # pragma: no cover
-            from hicode.compat import auth  # type: ignore  # pragma: no cover
+            from veya.compat import auth  # type: ignore  # pragma: no cover
 
             return await auth.device_flow_poll(provider, device_code)  # pragma: no cover
         except ImportError:  # pragma: no cover

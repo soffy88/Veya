@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.semantic_search import create_semantic_search
+from veya.semantic_search import create_semantic_search
 
 router = APIRouter(prefix="/search", tags=["search"])
 

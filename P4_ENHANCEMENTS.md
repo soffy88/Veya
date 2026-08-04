@@ -1,6 +1,6 @@
 # P4 ENHANCEMENTS: 高级可视化、增强调试、架构扩展
 
-> **Version**: `hicode` v0.4.0  
+> **Version**: `veya` v0.4.0  
 > **Status**: ✅ Implemented  
 > **Release Date**: 2024  
 > **Summary**: 完成 P4 核心能力 —— 3D 图谱、交互式调试增强、架构图扩展
@@ -11,7 +11,7 @@
 
 | 模块 | 功能 | 文件 | 状态 |
 |------|------|------|------|
-| **Advanced Visualization** | 3D 图谱、交互式调试、架构扩展 | `hicode/advanced_visualization.py` | ✅ |
+| **Advanced Visualization** | 3D 图谱、交互式调试、架构扩展 | `veya/advanced_visualization.py` | ✅ |
 | **API Routes** | 3D 图谱、调试 API、架构 API | `server/routes/advanced_visualization.py` | ✅ |
 | **Coordinator Integration** | 新增 P4 方法 | `server/coordinator.py` | ✅ |
 
@@ -167,5 +167,5 @@ pytest tests/test_p4_e2e.py -v --asyncio-mode=auto
 
 ---
 
-*P4 实现完成于 hicode v0.4.0 | 贡献者: AI Assistant*  
+*P4 实现完成于 veya v0.4.0 | 贡献者: AI Assistant*  
 *Documentation generated from repository structure*

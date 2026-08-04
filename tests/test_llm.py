@@ -1,4 +1,4 @@
-"""G1 — tests for the canonical LLM provider layer (hicode/llm.py).
+"""G1 — tests for the canonical LLM provider layer (veya/llm.py).
 
 Covers:
 - config resolution (explicit > env > defaults)
@@ -7,7 +7,7 @@ Covers:
 - streaming (OpenAI SSE + Anthropic SSE) via mocked transport
 - cost calculation
 - stub fallback when no API key is configured
-- backward-compat delegation from hicode.compat
+- backward-compat delegation from veya.compat
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import json
 import httpx
 import pytest
 
-from hicode import llm as hllm
+from veya import llm as hllm
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,7 +52,7 @@ def _make_anthropic_tool_use() -> dict:
                 "type": "tool_use",
                 "id": "toolu_1",
                 "name": "search",
-                "input": {"query": "hicode"},
+                "input": {"query": "veya"},
             },
         ],
         "usage": {"input_tokens": 20, "output_tokens": 15},
@@ -79,8 +79,8 @@ def _client_with(handler) -> httpx.AsyncClient:
 
 
 def test_get_provider_config_explicit_wins(monkeypatch):
-    monkeypatch.delenv("HICODE_LLM_PROVIDER", raising=False)
-    monkeypatch.delenv("HICODE_LLM_MODEL", raising=False)
+    monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
     provider, model = hllm.get_provider_config(
         {"provider": "openai", "model": "gpt-4o"}, provider="anthropic"
     )
@@ -89,13 +89,13 @@ def test_get_provider_config_explicit_wins(monkeypatch):
 
 
 def test_get_provider_config_env_and_defaults(monkeypatch):
-    monkeypatch.setenv("HICODE_LLM_PROVIDER", "openai")
-    monkeypatch.delenv("HICODE_LLM_MODEL", raising=False)
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
+    monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
     provider, model = hllm.get_provider_config(None)
     assert provider == "openai"
     assert model == hllm._DEFAULT_MODELS["openai"]
 
-    monkeypatch.delenv("HICODE_LLM_PROVIDER")
+    monkeypatch.delenv("VEYA_LLM_PROVIDER")
     provider, _ = hllm.get_provider_config(None)
     assert provider == hllm._DEFAULT_PROVIDER == "dashscope"
 
@@ -168,7 +168,7 @@ async def test_provider_call_anthropic_tool_use():
             client,
             "anthropic",
             model="claude-haiku-4-5-20251001",
-            messages=[{"role": "user", "content": "search hicode"}],
+            messages=[{"role": "user", "content": "search veya"}],
             tools=[
                 {
                     "function": {
@@ -181,7 +181,7 @@ async def test_provider_call_anthropic_tool_use():
         )
     msg = data["choices"][0]["message"]
     assert msg["tool_calls"][0]["function"]["name"] == "search"
-    assert json.loads(msg["tool_calls"][0]["function"]["arguments"]) == {"query": "hicode"}
+    assert json.loads(msg["tool_calls"][0]["function"]["arguments"]) == {"query": "veya"}
 
 
 @pytest.mark.asyncio
@@ -278,7 +278,7 @@ async def test_llm_call_stub_fallback(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("HICODE_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
     result = await hllm.llm_call([{"role": "user", "content": "hi"}])
     assert "shim response" in result["choices"][0]["message"]["content"]
     assert result["usage"]["total_tokens"] == 0
@@ -287,7 +287,7 @@ async def test_llm_call_stub_fallback(monkeypatch):
 @pytest.mark.asyncio
 async def test_llm_call_real_path(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-123")
-    monkeypatch.setenv("HICODE_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
     original_client = httpx.AsyncClient
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -307,7 +307,7 @@ async def test_llm_stream_stub_fallback(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("HICODE_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
     events = [ev async for ev in hllm.llm_stream([{"role": "user", "content": "hi"}])]
     text = "".join(ev["choices"][0]["delta"].get("content", "") for ev in events)
     assert "shim" in text
@@ -317,7 +317,7 @@ async def test_llm_stream_stub_fallback(monkeypatch):
 @pytest.mark.asyncio
 async def test_llm_stream_real_path(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-123")
-    monkeypatch.setenv("HICODE_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
     sse = (
         'data: {"choices":[{"delta":{"content":"streamed "},"finish_reason":null}]}\n\n'
         "data: [DONE]\n\n"
@@ -359,18 +359,18 @@ def test_calc_cost():
 
 
 # ---------------------------------------------------------------------------
-# Backward compat delegation (hicode.compat.llm_call / llm_stream)
+# Backward compat delegation (veya.compat.llm_call / llm_stream)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_compat_llm_call_delegates(monkeypatch):
-    from hicode import compat
+    from veya import compat
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("HICODE_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
     result = await compat.llm_call(
         [{"role": "user", "content": "hi"}], default_content="custom fallback"
     )
@@ -379,12 +379,12 @@ async def test_compat_llm_call_delegates(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_compat_llm_stream_delegates(monkeypatch):
-    from hicode import compat
+    from veya import compat
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("HICODE_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
     events = [
         ev
         async for ev in compat.llm_stream(

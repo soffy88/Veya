@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from hicode.collaboration import create_collaboration_manager
+from veya.collaboration import create_collaboration_manager
 
 router = APIRouter(prefix="/collaboration", tags=["collaboration"])
 

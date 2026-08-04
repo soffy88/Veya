@@ -1,1 +1,1 @@
-"""hicode TUI widgets."""
+"""veya TUI widgets."""
