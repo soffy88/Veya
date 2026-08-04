@@ -1,4 +1,5 @@
 """Session management routes: create, fork, share, compact, undo."""
+
 from __future__ import annotations
 
 import copy
@@ -54,6 +55,7 @@ def open_undo_turn(session_id: str) -> None:
 @router.post("")
 async def create_session(req: SessionCreateRequest) -> dict[str, Any]:
     import datetime
+
     sid = str(uuid.uuid4())
     now = datetime.datetime.utcnow().isoformat() + "Z"
     _sessions[sid] = {
@@ -110,14 +112,11 @@ async def compact_session(session_id: str) -> dict[str, Any]:
     old_token_estimate = sum(len(m.get("content", "")) for m in old_msgs)
     summary_text = (
         f"[Compacted: {len(old_msgs)} earlier messages, ~{old_token_estimate} chars] "
-        + " / ".join(
-            (m.get("content") or "")[:60].replace("\n", " ")
-            for m in old_msgs[:3]
-        )
+        + " / ".join((m.get("content") or "")[:60].replace("\n", " ") for m in old_msgs[:3])
     )
 
     summary_msg = {"role": "assistant", "content": summary_text}
-    s["messages"] = [summary_msg] + msgs[-_KEEP_RECENT:]
+    s["messages"] = [summary_msg, *msgs[-_KEEP_RECENT:]]
     s["compacted"] = True
 
     return {
@@ -169,22 +168,24 @@ async def undo_session(session_id: str) -> dict[str, Any]:
 
 @router.post("/{session_id}/resume")
 async def resume_session(session_id: str) -> dict[str, Any]:
+    from hicode.compat import restore_from_checkpoint
     from server.checkpoint import load_checkpoint
-    from oprim import restore_from_checkpoint
     from server.coordinator import coordinator
 
     ckpt = await load_checkpoint(session_id)
     if not ckpt:
-        raise HTTPException(status_code=404, detail=f"No checkpoint found for session '{session_id}'")
+        raise HTTPException(
+            status_code=404, detail=f"No checkpoint found for session '{session_id}'"
+        )
 
-    run_state = restore_from_checkpoint(ckpt)
+    run_state = restore_from_checkpoint(session_id)
     result = await coordinator.resume(run_state)
     return result
 
 
 @router.get("/{session_id}/changes")
 async def get_session_changes(session_id: str) -> dict[str, Any]:
-    from oprim import compute_diff
+    from hicode.compat import compute_diff
 
     stacks = _undo_stacks.get(session_id, [])
     # Keep FIRST snapshot per path — captures state before any session writes
@@ -204,24 +205,30 @@ async def get_session_changes(session_id: str) -> dict[str, Any]:
             status = "deleted"
 
         diff = compute_diff(before, after, path=path)
-        additions = sum(1 for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
-        deletions = sum(1 for ln in diff.splitlines() if ln.startswith("-") and not ln.startswith("---"))
+        additions = sum(
+            1 for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")
+        )
+        deletions = sum(
+            1 for ln in diff.splitlines() if ln.startswith("-") and not ln.startswith("---")
+        )
         if additions == 0 and deletions == 0:
             continue
-        changes.append({
-            "path": path,
-            "additions": additions,
-            "deletions": deletions,
-            "status": status,
-            "diff": diff,
-        })
+        changes.append(
+            {
+                "path": path,
+                "additions": additions,
+                "deletions": deletions,
+                "status": status,
+                "diff": diff,
+            }
+        )
 
     return {"session_id": session_id, "changes": changes}
 
 
 @router.post("/{session_id}/share")
 async def share_session(session_id: str) -> dict[str, Any]:
-    from oprim import redact_share_secrets
+    from hicode.compat import redact_share_secrets
 
     s = _sessions.get(session_id)
     if not s:

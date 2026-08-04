@@ -1,4 +1,5 @@
 """Agent management route: persona switching and one-shot agent invocation."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -21,6 +22,7 @@ class AgentInvokeRequest(BaseModel):
 @router.post("/invoke")
 async def invoke_agent(req: AgentInvokeRequest) -> dict[str, Any]:
     from server.assembly import assemble_main_agent
+
     try:
         resolve_persona(req.persona)  # validates persona
     except Exception:
@@ -40,6 +42,7 @@ async def invoke_agent(req: AgentInvokeRequest) -> dict[str, Any]:
 @router.get("/personas")
 async def list_personas() -> dict[str, Any]:
     from agents import resolve_persona as _rp
+
     personas = []
     for name in ("build", "plan", "research"):
         p = _rp(name)

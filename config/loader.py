@@ -8,6 +8,7 @@ from typing import Any
 _DEFAULTS: dict[str, Any] = {
     "providers": {},
     "lsp": {},
+    "llm": {"provider": "dashscope", "model": None},
     "max_turns": 50,
     "persona": "build",
 }
@@ -32,6 +33,7 @@ def _load_dotenv(root: Path | None = None) -> None:
         try:
             # Use python-dotenv when available for full .env syntax support
             from dotenv import dotenv_values
+
             for key, value in dotenv_values(env_file).items():
                 if key and key not in os.environ and value is not None:
                     os.environ[key] = value
@@ -73,6 +75,11 @@ def load_config(path: str | None = None) -> dict[str, Any]:
         config.setdefault("providers", {})["openai"] = {"api_key": api_key}
     if api_key := os.environ.get("DASHSCOPE_API_KEY"):
         config.setdefault("providers", {})["dashscope"] = {"api_key": api_key}
+
+    if env_provider := os.environ.get("HICODE_LLM_PROVIDER"):
+        config.setdefault("llm", {})["provider"] = env_provider
+    if env_model := os.environ.get("HICODE_LLM_MODEL"):
+        config.setdefault("llm", {})["model"] = env_model
 
     return config
 

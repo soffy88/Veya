@@ -1,4 +1,5 @@
 """Auth route: API key setup and provider login."""
+
 from __future__ import annotations
 
 import os
@@ -16,8 +17,8 @@ class SetKeyRequest(BaseModel):
 
 _KEY_ENV_NAMES = {
     "dashscope": "DASHSCOPE_API_KEY",
-    "anthropic":  "ANTHROPIC_API_KEY",
-    "openai":     "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
 }
 
 

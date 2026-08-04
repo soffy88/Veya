@@ -7,28 +7,20 @@ InjectionKind=layer4（§8.3 SPEC v2.1）：
   这一层是 oservice 引擎的注入点实现，不入 3O 主库。
   每个 Adapter 包装一个 oprim/oskill，持有 callable + JSON schema。
 """
+
 from __future__ import annotations
 
-import json
-import sys
-import os
-from dataclasses import dataclass
-from pathlib import Path
 import asyncio
 import inspect
-from typing import Any, Callable
-
-# 路径注入（layer4 依赖 oprim/oskill/omodul）
-_BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-for _pkg in ["oprim", "oskill", "omodul"]:
-    _p = os.path.join(_BASE, _pkg)
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # ToolAdapter — 单个工具适配器
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ToolAdapter:
@@ -37,12 +29,13 @@ class ToolAdapter:
     readonly=True 的工具在 plan 模式下可用。
     callable 接受 dict 返回 Any（可 async）。
     """
+
     name: str
     description: str
     input_schema: dict
     callable: Callable
     readonly: bool = False
-    category: str = "general"   # "file" | "shell" | "git" | "web" | "lsp" | "mcp" | "agent"
+    category: str = "general"  # "file" | "shell" | "git" | "web" | "lsp" | "mcp" | "agent"
 
     def to_llm_schema(self) -> dict:
         """转成 LLM tools 参数格式。"""
@@ -56,6 +49,7 @@ class ToolAdapter:
 # ---------------------------------------------------------------------------
 # ToolRegistry
 # ---------------------------------------------------------------------------
+
 
 class ToolRegistry:
     """工具注册表：注册/查找/按模式过滤。"""
@@ -78,9 +72,11 @@ class ToolRegistry:
     def by_category(self, category: str) -> list[ToolAdapter]:
         return [t for t in self._tools.values() if t.category == category]
 
-    def filter(self, *, allowed: list[str] | None = None,
-               denied: list[str] | None = None) -> list[ToolAdapter]:
+    def filter(
+        self, *, allowed: list[str] | None = None, denied: list[str] | None = None
+    ) -> list[ToolAdapter]:
         import fnmatch
+
         result = []
         for t in self._tools.values():
             if denied and any(fnmatch.fnmatch(t.name, p) for p in denied):
@@ -107,6 +103,7 @@ def build_tool_schemas(tools: list[ToolAdapter]) -> list[dict]:
 # 内部工具调用工厂
 # ---------------------------------------------------------------------------
 
+
 async def _call(adapter: ToolAdapter, inp: dict) -> Any:
     """统一调用 adapter.callable，支持 sync/async。"""
     if inspect.iscoroutinefunction(adapter.callable):  # pragma: no cover
@@ -118,23 +115,18 @@ async def _call(adapter: ToolAdapter, inp: dict) -> Any:
 # File Adapters
 # ---------------------------------------------------------------------------
 
+
 def _make_file_read() -> ToolAdapter:
-    try:
-        from oprim.fs import file_read
-        from oprim._exceptions import FileOprimError
-    except ImportError:  # pragma: no cover
-        def file_read(p, **kw): return Path(p).read_text(errors="replace")  # type: ignore  # pragma: no cover
-        class FileOprimError(Exception):  # type: ignore  # pragma: no cover
-            pass  # pragma: no cover
+    from hicode.compat import file_read
 
     async def fn(inp: dict) -> dict:
         try:
-            content = file_read(
+            content = await file_read(
                 inp["path"],
                 start=inp.get("start_line"),
                 end=inp.get("end_line"),
             )
-            return {"content": content, "path": inp["path"]}
+            return {"content": content.get("content", ""), "path": inp["path"]}
         except Exception as e:  # pragma: no cover
             return {"error": str(e)}  # pragma: no cover
 
@@ -157,12 +149,7 @@ def _make_file_read() -> ToolAdapter:
 
 
 def _make_file_write() -> ToolAdapter:
-    try:
-        from oprim.fs import file_write
-    except ImportError:  # pragma: no cover
-        def file_write(p, *, content, **kw):  # type: ignore  # pragma: no cover
-            Path(p).write_text(content)  # pragma: no cover
-            return Path(p)  # pragma: no cover
+    from hicode.compat import file_write
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
@@ -189,17 +176,13 @@ def _make_file_write() -> ToolAdapter:
 
 
 def _make_glob_match() -> ToolAdapter:
-    try:
-        from oprim.fs import glob_match
-    except ImportError:  # pragma: no cover
-        def glob_match(pat, *, root, **kw): return list(Path(root).glob(pat))  # type: ignore  # pragma: no cover
+    from hicode.compat import glob_match
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
             matches = glob_match(  # pragma: no cover
                 inp["pattern"],
                 root=inp.get("root", "."),
-                respect_gitignore=inp.get("respect_gitignore", True),
             )
             return {"matches": [str(p) for p in matches[:200]]}  # pragma: no cover
         except Exception as e:  # pragma: no cover
@@ -224,15 +207,7 @@ def _make_glob_match() -> ToolAdapter:
 
 
 def _make_bash_exec(*, permission_gate=None) -> ToolAdapter:
-    try:
-        from oprim.shell import bash_exec
-    except ImportError:  # pragma: no cover
-        class bash_exec:  # type: ignore  # pragma: no cover
-            def __init__(self, cmd, **kw):  # pragma: no cover
-                self.stdout = ""  # pragma: no cover
-                self.stderr = "bash not available"  # pragma: no cover
-                self.code = 1  # pragma: no cover
-                self.ok = False  # pragma: no cover
+    from hicode.compat import bash_exec
 
     async def fn(inp: dict) -> dict:
         cmd = inp.get("command", "")  # pragma: no cover
@@ -241,7 +216,7 @@ def _make_bash_exec(*, permission_gate=None) -> ToolAdapter:
             if decision == "deny":  # pragma: no cover
                 return {"error": "bash_exec denied by permission policy"}  # pragma: no cover
         try:  # pragma: no cover
-            result = bash_exec(  # pragma: no cover
+            result = await bash_exec(  # pragma: no cover
                 cmd,
                 cwd=inp.get("cwd"),
                 timeout=inp.get("timeout", 120),
@@ -276,7 +251,8 @@ def _make_bash_exec(*, permission_gate=None) -> ToolAdapter:
 def _make_ripgrep() -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
-            from oprim.shell import bash_exec  # pragma: no cover
+            from hicode.compat import bash_exec  # pragma: no cover
+
             pattern = inp["pattern"]  # pragma: no cover
             root = inp.get("root", ".")  # pragma: no cover
             glob = inp.get("glob", "")  # pragma: no cover
@@ -290,11 +266,13 @@ def _make_ripgrep() -> ToolAdapter:
                     obj = json.loads(line)  # pragma: no cover
                     if obj.get("type") == "match":  # pragma: no cover
                         d = obj["data"]  # pragma: no cover
-                        matches.append({  # pragma: no cover
-                            "path": d["path"]["text"],
-                            "line": d["line_number"],
-                            "text": d["lines"]["text"].rstrip(),
-                        })
+                        matches.append(
+                            {  # pragma: no cover
+                                "path": d["path"]["text"],
+                                "line": d["line_number"],
+                                "text": d["lines"]["text"].rstrip(),
+                            }
+                        )
                 except Exception:  # pragma: no cover
                     pass  # pragma: no cover
             return {"matches": matches, "count": len(matches)}  # pragma: no cover
@@ -323,17 +301,19 @@ def _make_ripgrep() -> ToolAdapter:
 # Git Adapters
 # ---------------------------------------------------------------------------
 
+
 def _make_git_status() -> ToolAdapter:
-    try:
-        from oprim.git import git_status
-    except ImportError:  # pragma: no cover
-        def git_status(*, repo): return []  # type: ignore  # pragma: no cover
+    from hicode.compat import git_status
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
             statuses = git_status(repo=inp.get("repo", "."))  # pragma: no cover
-            return {"files": [{"path": s.path, "index": s.index, "worktree": s.worktree}  # pragma: no cover
-                               for s in statuses]}
+            return {
+                "files": [
+                    {"path": s.path, "index": s.index, "worktree": s.worktree}  # pragma: no cover
+                    for s in statuses
+                ]
+            }
         except Exception as e:  # pragma: no cover
             return {"error": str(e)}  # pragma: no cover
 
@@ -344,15 +324,14 @@ def _make_git_status() -> ToolAdapter:
             "type": "object",
             "properties": {"repo": {"type": "string", "description": "Repo root (default: cwd)"}},
         },
-        callable=fn, readonly=True, category="git",
+        callable=fn,
+        readonly=True,
+        category="git",
     )
 
 
 def _make_git_diff() -> ToolAdapter:
-    try:
-        from oprim.git import git_diff
-    except ImportError:  # pragma: no cover
-        def git_diff(*, repo, **kw): return ""  # type: ignore  # pragma: no cover
+    from hicode.compat import git_diff
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
@@ -376,7 +355,9 @@ def _make_git_diff() -> ToolAdapter:
                 "paths": {"type": "array", "items": {"type": "string"}},
             },
         },
-        callable=fn, readonly=True, category="git",
+        callable=fn,
+        readonly=True,
+        category="git",
     )
 
 
@@ -384,16 +365,22 @@ def _make_git_diff() -> ToolAdapter:
 # Web Adapters
 # ---------------------------------------------------------------------------
 
+
 def _make_web_fetch() -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
-            from oprim.network import http_fetch  # pragma: no cover
+            from hicode.compat import http_fetch  # pragma: no cover
+
             resp = await http_fetch(  # pragma: no cover
                 inp["url"],
                 method=inp.get("method", "GET"),
                 timeout=inp.get("timeout", 30),
             )
-            return {"status_code": resp.status_code, "text": resp.text[:16000], "ok": resp.ok}  # pragma: no cover
+            return {
+                "status_code": resp.status_code,
+                "text": resp.text[:16000],
+                "ok": resp.ok,
+            }  # pragma: no cover
         except Exception as e:  # pragma: no cover
             return {"error": str(e)}  # pragma: no cover
 
@@ -409,7 +396,9 @@ def _make_web_fetch() -> ToolAdapter:
             },
             "required": ["url"],
         },
-        callable=fn, readonly=True, category="web",
+        callable=fn,
+        readonly=True,
+        category="web",
     )
 
 
@@ -417,13 +406,23 @@ def _make_web_search() -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
             # web_search: fallback to bash curl/lynx
-            from oprim.shell import bash_exec  # pragma: no cover
+            from hicode.compat import bash_exec  # pragma: no cover
+
             q = inp["query"].replace("'", "")  # pragma: no cover
-            r = bash_exec(f"curl -s 'https://api.duckduckgo.com/?q={q}&format=json' 2>/dev/null")  # pragma: no cover
+            r = bash_exec(
+                f"curl -s 'https://api.duckduckgo.com/?q={q}&format=json' 2>/dev/null"
+            )  # pragma: no cover
             if r.ok and r.stdout:  # pragma: no cover
                 data = json.loads(r.stdout)  # pragma: no cover
-                results = [{"title": t.get("Text",""), "url": t.get("FirstURL",""), "snippet": ""}  # pragma: no cover
-                           for t in data.get("RelatedTopics", [])[:5] if isinstance(t, dict)]
+                results = [
+                    {
+                        "title": t.get("Text", ""),
+                        "url": t.get("FirstURL", ""),
+                        "snippet": "",
+                    }  # pragma: no cover
+                    for t in data.get("RelatedTopics", [])[:5]
+                    if isinstance(t, dict)
+                ]
                 return {"results": results}  # pragma: no cover
             return {"results": [], "note": "web search unavailable"}  # pragma: no cover
         except Exception as e:  # pragma: no cover
@@ -440,7 +439,9 @@ def _make_web_search() -> ToolAdapter:
             },
             "required": ["query"],
         },
-        callable=fn, readonly=True, category="web",
+        callable=fn,
+        readonly=True,
+        category="web",
     )
 
 
@@ -448,19 +449,27 @@ def _make_web_search() -> ToolAdapter:
 # LSP Adapter (dynamic — requires live server handle)
 # ---------------------------------------------------------------------------
 
+
 def _make_lsp_diagnostics(server_factory=None) -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         if server_factory is None:  # pragma: no cover
             return {"diagnostics": [], "note": "LSP server not configured"}  # pragma: no cover
         try:  # pragma: no cover
-            from oprim.lsp import lsp_diagnostics  # pragma: no cover
+            from hicode.compat import lsp_diagnostics  # pragma: no cover
+
             server = server_factory(inp.get("path", ""))  # pragma: no cover
             diags = await lsp_diagnostics(inp["path"], server=server)  # pragma: no cover
-            return {"diagnostics": [  # pragma: no cover
-                {"line": d.line, "severity": d.severity_name,
-                 "message": d.message, "source": d.source}
-                for d in diags
-            ]}
+            return {
+                "diagnostics": [  # pragma: no cover
+                    {
+                        "line": d.line,
+                        "severity": d.severity_name,
+                        "message": d.message,
+                        "source": d.source,
+                    }
+                    for d in diags
+                ]
+            }
         except Exception as e:  # pragma: no cover
             return {"error": str(e)}  # pragma: no cover
 
@@ -472,7 +481,9 @@ def _make_lsp_diagnostics(server_factory=None) -> ToolAdapter:
             "properties": {"path": {"type": "string", "description": "File path"}},
             "required": ["path"],
         },
-        callable=fn, readonly=True, category="lsp",
+        callable=fn,
+        readonly=True,
+        category="lsp",
     )
 
 
@@ -480,14 +491,18 @@ def _make_lsp_diagnostics(server_factory=None) -> ToolAdapter:
 # MCP Adapter (dynamic — wraps mcp_call_tool for each discovered tool)
 # ---------------------------------------------------------------------------
 
+
 def make_mcp_tool_adapter(tool_spec: dict, mcp_client: Any) -> ToolAdapter:
     """为单个 MCP 工具动态创建 ToolAdapter。"""
     tool_name = tool_spec.get("name", "mcp_tool")
 
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
-            from oprim.mcp import mcp_call_tool  # pragma: no cover
-            result = await mcp_call_tool(tool_name, arguments=inp, client=mcp_client)  # pragma: no cover
+            from hicode.compat import mcp_call_tool  # pragma: no cover
+
+            result = await mcp_call_tool(
+                tool_name, arguments=inp, client=mcp_client
+            )  # pragma: no cover
             return result  # pragma: no cover
         except Exception as e:  # pragma: no cover
             return {"error": str(e)}  # pragma: no cover
@@ -506,16 +521,26 @@ def make_mcp_tool_adapter(tool_spec: dict, mcp_client: Any) -> ToolAdapter:
 # TodoWrite Adapter
 # ---------------------------------------------------------------------------
 
+
 def _make_todo_write(todo_tracker=None) -> ToolAdapter:
     async def fn(inp: dict) -> dict:
         try:  # pragma: no cover
-            from oskill.tooling import plan_to_todos  # pragma: no cover
+            from hicode.compat import plan_to_todos  # pragma: no cover
+
             todos = plan_to_todos(inp.get("todos", []))  # pragma: no cover
             if todo_tracker:  # pragma: no cover
                 todo_tracker(todos)  # pragma: no cover
-            return {"todos": [{"id": t.id, "content": t.content,  # pragma: no cover
-                                "status": t.status, "priority": t.priority}
-                               for t in todos]}
+            return {
+                "todos": [
+                    {
+                        "id": t.id,
+                        "content": t.content,  # pragma: no cover
+                        "status": t.status,
+                        "priority": t.priority,
+                    }
+                    for t in todos
+                ]
+            }
         except Exception as e:  # pragma: no cover
             return {"error": str(e)}  # pragma: no cover
 
@@ -540,13 +565,16 @@ def _make_todo_write(todo_tracker=None) -> ToolAdapter:
             },
             "required": ["todos"],
         },
-        callable=fn, readonly=False, category="general",
+        callable=fn,
+        readonly=False,
+        category="general",
     )
 
 
 # ---------------------------------------------------------------------------
 # SubagentAdapter
 # ---------------------------------------------------------------------------
+
 
 def _make_subagent(subagent_loader=None) -> ToolAdapter:
     async def fn(inp: dict) -> dict:
@@ -555,18 +583,20 @@ def _make_subagent(subagent_loader=None) -> ToolAdapter:
         if not subagent_loader:  # pragma: no cover
             return {"error": "subagent_loader not configured"}  # pragma: no cover
         try:  # pragma: no cover
-            from omodul.run_subagent import (  # pragma: no cover
-                SubagentConfig, SubagentInput, run_subagent,
+            from hicode.compat import (  # pragma: no cover
+                SubagentInput,
+                run_subagent,
             )
-            import tempfile  # pragma: no cover
+
             defn = subagent_loader(name)  # pragma: no cover
             if defn is None:  # pragma: no cover
                 return {"error": f"subagent '{name}' not found"}  # pragma: no cover
-            cfg = SubagentConfig()  # pragma: no cover
-            si = SubagentInput(task=task, subagent_def=defn,  # pragma: no cover
-                               caller=inp.get("_caller"))
-            result = await run_subagent(cfg, si, Path(tempfile.mkdtemp()))  # pragma: no cover
-            return {"summary": result.get("summary", ""), "status": result["status"]}  # pragma: no cover
+            si = SubagentInput(prompt=task)
+            result = await run_subagent(si)
+            return {
+                "summary": result.get("summary", ""),
+                "status": result["status"],
+            }  # pragma: no cover
         except Exception as e:  # pragma: no cover
             return {"error": str(e)}  # pragma: no cover
 
@@ -581,13 +611,16 @@ def _make_subagent(subagent_loader=None) -> ToolAdapter:
             },
             "required": ["name", "task"],
         },
-        callable=fn, readonly=False, category="agent",
+        callable=fn,
+        readonly=False,
+        category="agent",
     )
 
 
 # ---------------------------------------------------------------------------
 # Registry factory — 默认工具集
 # ---------------------------------------------------------------------------
+
 
 def build_default_registry(
     *,

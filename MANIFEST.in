@@ -1,0 +1,12 @@
+exclude venv/*
+exclude .venv/*
+exclude __pycache__/*
+exclude *.pyc
+exclude .git/*
+exclude tests/*
+exclude *.md
+recursive-exclude venv *
+recursive-exclude .venv *
+recursive-exclude __pycache__ *
+recursive-exclude .git *
+recursive-exclude tests *

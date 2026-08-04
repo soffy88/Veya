@@ -4,6 +4,7 @@ hicode_tui.repl — F. 주 REPL 루프 + G. -p/print 모드
 F: HicodeREPL / LoopOrchestrator / AgentLoopAdapter / SessionContext
 G: PrintMode / PipeFriendly
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,30 +21,44 @@ for _pkg in ["oprim", "oskill", "omodul", "layer4"]:
         sys.path.insert(0, str(_p))
 
 from hicode_tui.input import (  # noqa: E402
-    CliArgs, ArgParser, EnvLoader, StartupBanner, PromptInput,
+    ArgParser,
+    CliArgs,
+    EnvLoader,
+    PromptInput,
+    StartupBanner,
 )
 from hicode_tui.render import (  # noqa: E402
-    MarkdownRenderer, ToolCallRenderer, ToolResultRenderer,
-    StreamPrinter, StatusBar, SpinnerAnimation,
-    DividerLine, InterruptHandler, ExitHandler, YesNoPrompt, dim, red,
+    DividerLine,
+    ExitHandler,
+    InterruptHandler,
+    MarkdownRenderer,
+    SpinnerAnimation,
+    StatusBar,
+    StreamPrinter,
+    ToolCallRenderer,
+    ToolResultRenderer,
+    YesNoPrompt,
+    dim,
+    red,
 )
-
 
 # ===========================================================================
 # F. 세션 컨텍스트
 # ===========================================================================
 
+
 @dataclass
 class SessionContext:
     """REPL이 보유하는 전역 컨텍스트."""
+
     args: CliArgs
-    caller: Any                  # LLMCaller Protocol
-    session: Any                 # layer4.Session
-    session_manager: Any         # layer4.SessionManager
-    registry: Any                # layer4.ToolRegistry
-    slash_router: Any            # layer4.SlashRouter
-    permission_gate: Any         # layer4.PermissionGate
-    hook_manager: Any = None     # layer4.HookManager
+    caller: Any  # LLMCaller Protocol
+    session: Any  # layer4.Session
+    session_manager: Any  # layer4.SessionManager
+    registry: Any  # layer4.ToolRegistry
+    slash_router: Any  # layer4.SlashRouter
+    permission_gate: Any  # layer4.PermissionGate
+    hook_manager: Any = None  # layer4.HookManager
     subagent_loader: Any = None  # layer4.SubagentLoader
     status_bar: StatusBar = field(default_factory=StatusBar)
     spinner: SpinnerAnimation = field(default_factory=SpinnerAnimation)
@@ -59,9 +74,14 @@ class SessionContext:
 def build_session_context(args: CliArgs) -> SessionContext:
     """CliArgs로부터 전체 컨텍스트를 조립."""
     from layer4 import (  # pragma: no cover
-        SessionManager, build_default_registry, build_default_router,
-        PermissionGate, PermissionPolicy, ApprovalHistory,
-        HookManager, SubagentLoader,
+        ApprovalHistory,
+        HookManager,
+        PermissionGate,
+        PermissionPolicy,
+        SessionManager,
+        SubagentLoader,
+        build_default_registry,
+        build_default_router,
     )
 
     # caller 생성
@@ -75,13 +95,17 @@ def build_session_context(args: CliArgs) -> SessionContext:
             args.session_id = sessions[0]["id"]  # pragma: no cover
 
     if args.session_id:  # pragma: no cover
-        session = mgr.load(args.session_id) or mgr.create(mode=args.mode, cwd=args.cwd)  # pragma: no cover
+        session = mgr.load(args.session_id) or mgr.create(
+            mode=args.mode, cwd=args.cwd
+        )  # pragma: no cover
     else:
         session = mgr.create(mode=args.mode, cwd=args.cwd)  # pragma: no cover
 
     # permission gate
-    _prompt = YesNoPrompt(no_color=args.no_color,  # pragma: no cover  # noqa: F841
-                          auto="allow" if args.mode == "bypass" else None)
+    _prompt = YesNoPrompt(
+        no_color=args.no_color,  # pragma: no cover
+        auto="allow" if args.mode == "bypass" else None,
+    )
     gate = PermissionGate(  # pragma: no cover
         policy=PermissionPolicy({"mode": args.mode}),
         history=ApprovalHistory(),
@@ -124,6 +148,7 @@ def build_session_context(args: CliArgs) -> SessionContext:
 # F. AgentLoopAdapter
 # ===========================================================================
 
+
 class AgentLoopAdapter:
     """
     oservice.agentic_loop을 REPL 친화적 async 인터페이스로 래핑.
@@ -150,11 +175,13 @@ class AgentLoopAdapter:
 
         # oservice.agentic_loop 시도
         try:
-            from oservice.agentic_loop import AgenticLoop  # type: ignore  # noqa: F401
+            from oservice.agentic_loop import AgenticLoop  # type: ignore
             # from layer4 import build_tool_schemas  # pragma: no cover
 
             mode = ctx.session.mode  # pragma: no cover
-            tools = ctx.registry.readonly_only() if mode == "plan" else ctx.registry.all()  # pragma: no cover
+            tools = (
+                ctx.registry.readonly_only() if mode == "plan" else ctx.registry.all()
+            )  # pragma: no cover
 
             loop = AgenticLoop(  # pragma: no cover
                 caller=ctx.caller,
@@ -169,9 +196,13 @@ class AgentLoopAdapter:
             pass
 
         # agentic_loop 없으면 llm_stream 직접 호출
-        return await self._direct_llm(task, on_tool_call=on_tool_call,
-                                       on_tool_result=on_tool_result,
-                                       on_thinking=on_thinking, on_text=on_text)
+        return await self._direct_llm(
+            task,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+            on_thinking=on_thinking,
+            on_text=on_text,
+        )
 
     async def _direct_llm(self, task: str, **callbacks) -> dict:
         """oservice 없을 때 단순 LLM 호출 (도구 루프 없음)."""
@@ -183,8 +214,9 @@ class AgentLoopAdapter:
 
         # system prompt 빌드
         try:
-            tools = (ctx.registry.readonly_only() if ctx.session.mode == "plan"
-                     else ctx.registry.all())
+            tools = (
+                ctx.registry.readonly_only() if ctx.session.mode == "plan" else ctx.registry.all()
+            )
             tool_summary = "\n".join(f"- {t.name}: {t.description}" for t in tools[:20])
         except Exception:  # pragma: no cover
             tool_summary = ""  # pragma: no cover
@@ -195,8 +227,8 @@ class AgentLoopAdapter:
                 caller=ctx.caller,
                 model=ctx.args.model,
                 system=f"You are hicode, an AI coding agent in {ctx.session.mode.upper()} mode.\n"
-                        f"CWD: {ctx.args.cwd}\n"
-                        f"{'Tools: ' + tool_summary if tool_summary else ''}",
+                f"CWD: {ctx.args.cwd}\n"
+                f"{'Tools: ' + tool_summary if tool_summary else ''}",
             )
             return {
                 "text": resp.text,
@@ -207,13 +239,19 @@ class AgentLoopAdapter:
                 "status": "completed",
             }
         except Exception as e:
-            return {"text": "", "error": str(e), "status": "failed",
-                    "cost_usd": 0.0, "tool_calls": []}
+            return {
+                "text": "",
+                "error": str(e),
+                "status": "failed",
+                "cost_usd": 0.0,
+                "tool_calls": [],
+            }
 
 
 # ===========================================================================
 # F. LoopOrchestrator
 # ===========================================================================
+
 
 class LoopOrchestrator:
     """
@@ -316,8 +354,13 @@ class LoopOrchestrator:
         if text:  # pragma: no cover
             ctx.session.messages.append({"role": "assistant", "content": text})  # pragma: no cover
         ctx.session.cost_usd += cost  # pragma: no cover
-        ctx.status_bar.update(cost=cost, in_tok=in_tok, out_tok=out_tok,  # pragma: no cover
-                               mode=ctx.session.mode, session_id=ctx.session.id)
+        ctx.status_bar.update(
+            cost=cost,
+            in_tok=in_tok,
+            out_tok=out_tok,  # pragma: no cover
+            mode=ctx.session.mode,
+            session_id=ctx.session.id,
+        )
         ctx.session_manager.save(ctx.session)  # pragma: no cover
 
         # 상태표시줄 갱신
@@ -328,6 +371,7 @@ class LoopOrchestrator:
 # ===========================================================================
 # F. HicodeREPL — 주 루프
 # ===========================================================================
+
 
 class HicodeREPL:
     """
@@ -394,6 +438,7 @@ class HicodeREPL:
 # G. -p / Print 모드
 # ===========================================================================
 
+
 class PipeFriendly:
     """stdout=결과, stderr=로그, ANSI 없음, exit code 전파."""
 
@@ -436,7 +481,7 @@ class PrintMode:
 
         PipeFriendly.print_log(
             f"hicode: done  cost=${cost:.4f}  "
-            f"tokens={result.get('input_tokens',0)+result.get('output_tokens',0)}"
+            f"tokens={result.get('input_tokens', 0) + result.get('output_tokens', 0)}"
         )
         return 0
 
@@ -444,6 +489,7 @@ class PrintMode:
 # ===========================================================================
 # 메인 진입점
 # ===========================================================================
+
 
 def main(argv: list[str] | None = None) -> int:
     """hicode CLI 메인. setup.py console_scripts 등록점."""
@@ -454,9 +500,14 @@ def main(argv: list[str] | None = None) -> int:
     # API key 检查：根据模型自动选择 provider  # pragma: no cover
     provider = EnvLoader.detect_provider(args.model)  # pragma: no cover
     if not EnvLoader.check_api_key(provider):  # pragma: no cover
-        key_name = {"deepseek": "DEEPSEEK_API_KEY"}.get(provider, "ANTHROPIC_API_KEY")  # pragma: no cover
-        print(f"hicode: {key_name} not set.\n"  # pragma: no cover
-              f"  Run: export {key_name}=<your-key>", file=sys.stderr)  # pragma: no cover
+        key_name = {"deepseek": "DEEPSEEK_API_KEY"}.get(
+            provider, "ANTHROPIC_API_KEY"
+        )  # pragma: no cover
+        print(
+            f"hicode: {key_name} not set.\n"  # pragma: no cover
+            f"  Run: export {key_name}=<your-key>",
+            file=sys.stderr,
+        )  # pragma: no cover
         return 1  # pragma: no cover
 
     ctx = build_session_context(args)  # pragma: no cover

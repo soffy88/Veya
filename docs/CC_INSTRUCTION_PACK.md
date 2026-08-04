@@ -50,16 +50,20 @@ config/permissions.py   load_permission_rules(persona: str) -> list[Callable]
 # config/permissions.py 骨架
 from oskill import permission_evaluate
 
+
 def load_permission_rules(persona: str) -> list:
     rules = _RULES_BY_PERSONA.get(persona, _RULES_BY_PERSONA["build"])
+
     def filter_fn(tool_call):
         return permission_evaluate(tool_call, rules=rules, persona=persona)
+
     return [filter_fn]
 
+
 _RULES_BY_PERSONA = {
-    "build":    [...],   # 全 allow,bash ask
-    "plan":     [...],   # 写操作 deny(只读)
-    "research": [...],   # 写操作 deny
+    "build": [...],  # 全 allow,bash ask
+    "plan": [...],  # 写操作 deny(只读)
+    "research": [...],  # 写操作 deny
 }
 ```
 
@@ -88,12 +92,14 @@ agents/research.py      研究分队:只读探索
 # agents/_base.py
 from dataclasses import dataclass
 
+
 @dataclass
 class Persona:
     name: str
     tool_names: list[str]
     system_prompt: str
-    mode: str   # "primary" | "subagent"
+    mode: str  # "primary" | "subagent"
+
 
 # agents/__init__.py
 from agents.build import BUILD
@@ -102,6 +108,7 @@ from agents.research import RESEARCH
 
 _PERSONAS = {"build": BUILD, "plan": PLAN, "research": RESEARCH}
 
+
 def resolve_persona(name: str) -> "Persona":
     return _PERSONAS.get(name, BUILD)
 ```
@@ -109,9 +116,21 @@ def resolve_persona(name: str) -> "Persona":
 ```python
 # agents/research.py 示例
 from agents._base import Persona
-READ_ONLY = ["read", "read_range", "grep", "glob", "list",
-             "lsp_definition", "lsp_references", "lsp_hover",
-             "lsp_doc_symbol", "lsp_ws_symbol", "lsp_diagnostics", "todo_read"]
+
+READ_ONLY = [
+    "read",
+    "read_range",
+    "grep",
+    "glob",
+    "list",
+    "lsp_definition",
+    "lsp_references",
+    "lsp_hover",
+    "lsp_doc_symbol",
+    "lsp_ws_symbol",
+    "lsp_diagnostics",
+    "todo_read",
+]
 RESEARCH = Persona("research", READ_ONLY, "探索代码库,只读,产出发现摘要", "subagent")
 ```
 
@@ -147,6 +166,7 @@ hooks/builtin/redact.py       H3: 脱敏(调 oprim redact_secret)
 from oprim import bash_exec
 from hooks.types import HookInput, HookOutput
 
+
 async def test_gate(inp: HookInput) -> HookOutput:
     res = await bash_exec("pytest -x -q", cwd=inp.cwd, timeout=300)
     if res.exit_code != 0:
@@ -160,13 +180,15 @@ from hooks.builtin.permission import permission_hook
 from hooks.builtin.redact import redact_hook
 from hooks.builtin.test_gate import test_gate
 
+
 def build_hook_chain(point: str, persona: str) -> list:
     chains = {
-        "pre_tool":   [permission_hook],
-        "post_tool":  [redact_hook],
+        "pre_tool": [permission_hook],
+        "post_tool": [redact_hook],
         "pre_result": [test_gate] if persona == "execute" else [],
     }
     return chains.get(point, [])
+
 
 def build_coordinator_hooks() -> dict:
     # 协调级:H1 PreDispatch / H4 PreResult

@@ -1,4 +1,5 @@
 """H6 SquadStop — cleanup on squad termination (success or failure)."""
+
 from __future__ import annotations
 
 from hooks.types import HookInput, HookOutput

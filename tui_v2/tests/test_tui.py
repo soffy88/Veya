@@ -4,15 +4,12 @@ hicode_tui 테스트 슈트
 30개 컴포넌트, 각 ≥5 테스트.
 외부 의존성(anthropic API, oservice) 전부 mock.
 """
+
 from __future__ import annotations
 
 import asyncio
 import io
-import json
-import os
 import sys
-import tempfile
-import threading
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -22,20 +19,43 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hicode_tui import (
-    ArgParser, CliArgs, AtMentionCompleter, CopyHint,
-    DividerLine, EnvLoader, ExitHandler, HistoryManager,
-    InterruptHandler, LayoutManager, MarkdownRenderer, CodeBlockRenderer,
-    MultilineInput, PagerView, PromptInput, SlashCompleter,
-    SpinnerAnimation, StartupBanner, StatusBar, StreamPrinter,
-    ThinkingBlock, ToolCallRenderer, ToolResultRenderer,
-    VERSION, YesNoPrompt,
+    VERSION,
+    ArgParser,
+    AtMentionCompleter,
+    CliArgs,
+    CodeBlockRenderer,
+    CopyHint,
+    DividerLine,
+    EnvLoader,
+    ExitHandler,
+    HistoryManager,
+    InterruptHandler,
+    LayoutManager,
+    MarkdownRenderer,
+    MultilineInput,
+    PagerView,
+    SlashCompleter,
+    SpinnerAnimation,
+    StartupBanner,
+    StatusBar,
+    StreamPrinter,
+    ThinkingBlock,
+    ToolCallRenderer,
+    ToolResultRenderer,
+    YesNoPrompt,
 )
 from hicode_tui.render import (
-    bold, dim, gray, green, cyan, yellow, red, _ansi,
+    _ansi,
+    bold,
+    dim,
+    gray,
 )
 from hicode_tui.repl import (
-    AgentLoopAdapter, HicodeREPL, LoopOrchestrator, PipeFriendly,
-    PrintMode, SessionContext,
+    AgentLoopAdapter,
+    LoopOrchestrator,
+    PipeFriendly,
+    PrintMode,
+    SessionContext,
 )
 
 
@@ -44,6 +64,7 @@ def run(coro):
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
+
 
 def make_args(**kw) -> CliArgs:
     args = CliArgs()
@@ -59,12 +80,14 @@ def make_caller(text: str = "Hello!") -> AsyncMock:
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
+
     return caller
 
 
 def make_ctx(tmp_path, **kw) -> SessionContext:
     """의존성이 mock된 SessionContext를 생성."""
     from unittest.mock import MagicMock
+
     args = make_args(cwd=str(tmp_path), **kw)
     session = MagicMock()
     session.id = "sess_test"
@@ -103,6 +126,7 @@ def make_ctx(tmp_path, **kw) -> SessionContext:
 # ===========================================================================
 # A. CLI 入口
 # ===========================================================================
+
 
 class TestArgParser:
     def test_default_args(self):
@@ -163,8 +187,14 @@ class TestEnvLoader:
         assert EnvLoader.check_api_key("anthropic")
 
     def test_get_caller_no_sdk(self, monkeypatch):
-        monkeypatch.setattr("builtins.__import__", lambda n, *a, **kw:
-            (_ for _ in ()).throw(ImportError()) if n in ("obase", "anthropic") else __import__(n, *a, **kw))
+        monkeypatch.setattr(
+            "builtins.__import__",
+            lambda n, *a, **kw: (
+                (_ for _ in ()).throw(ImportError())
+                if n in ("obase", "anthropic")
+                else __import__(n, *a, **kw)
+            ),
+        )
         # caller가 None이거나 callable인지만 확인
         result = EnvLoader.get_caller()
         assert result is None or callable(result)
@@ -181,15 +211,13 @@ class TestStartupBanner:
         assert capsys.readouterr().out == ""
 
     def test_prints_version(self, capsys):
-        args = make_args(model="claude-sonnet-4-6", mode="build",
-                         cwd="/tmp", print_mode=False)
+        args = make_args(model="claude-sonnet-4-6", mode="build", cwd="/tmp", print_mode=False)
         StartupBanner.print(args)
         out = capsys.readouterr().out
         assert VERSION in out
 
     def test_prints_model(self, capsys):
-        args = make_args(model="claude-opus-4-6", mode="build",
-                         cwd="/tmp", print_mode=False)
+        args = make_args(model="claude-opus-4-6", mode="build", cwd="/tmp", print_mode=False)
         StartupBanner.print(args)
         assert "claude-opus-4-6" in capsys.readouterr().out
 
@@ -207,6 +235,7 @@ class TestStartupBanner:
 # ===========================================================================
 # B. Prompt 입력박스
 # ===========================================================================
+
 
 class TestHistoryManager:
     def test_setup_creates_dir(self, tmp_path, monkeypatch):
@@ -234,6 +263,7 @@ class TestAtMentionCompleter:
 
     def test_complete_no_at(self, tmp_path, monkeypatch):
         import readline
+
         monkeypatch.setattr(readline, "get_line_buffer", lambda: "no at sign here")
         c = AtMentionCompleter(cwd=str(tmp_path))
         assert c.complete("", 0) is None
@@ -242,24 +272,28 @@ class TestAtMentionCompleter:
 class TestSlashCompleter:
     def test_complete_init(self, monkeypatch):
         import readline
+
         monkeypatch.setattr(readline, "get_line_buffer", lambda: "/init")
         c = SlashCompleter()
         assert c.complete("/init", 0) == "/init"
 
     def test_complete_no_slash(self, monkeypatch):
         import readline
+
         monkeypatch.setattr(readline, "get_line_buffer", lambda: "hello")
         c = SlashCompleter()
         assert c.complete("hello", 0) is None
 
     def test_custom_commands(self, monkeypatch):
         import readline
+
         monkeypatch.setattr(readline, "get_line_buffer", lambda: "/custom")
         c = SlashCompleter(commands=["/custom_cmd"])
         assert c.complete("/custom", 0) == "/custom_cmd"
 
     def test_no_match(self, monkeypatch):
         import readline
+
         monkeypatch.setattr(readline, "get_line_buffer", lambda: "/zzz")
         c = SlashCompleter()
         assert c.complete("/zzz", 0) is None
@@ -279,6 +313,7 @@ class TestMultilineInput:
     def test_ctrl_c_returns_none(self, monkeypatch):
         def raise_kbd(p=""):
             raise KeyboardInterrupt
+
         monkeypatch.setattr("builtins.input", raise_kbd)
         result = MultilineInput.read()
         assert result is None
@@ -286,6 +321,7 @@ class TestMultilineInput:
     def test_ctrl_d_raises(self, monkeypatch):
         def raise_eof(p=""):
             raise EOFError
+
         monkeypatch.setattr("builtins.input", raise_eof)
         with pytest.raises(EOFError):
             MultilineInput.read()
@@ -300,6 +336,7 @@ class TestMultilineInput:
 # ===========================================================================
 # C. 출력 렌더러
 # ===========================================================================
+
 
 class TestMarkdownRenderer:
     def test_bold(self):
@@ -475,6 +512,7 @@ class TestStreamPrinter:
 # D. 상태표시줄 & 레이아웃
 # ===========================================================================
 
+
 class TestLayoutManager:
     def test_width_positive(self):
         assert LayoutManager.width() > 0
@@ -570,6 +608,7 @@ class TestStatusBar:
 # E. 인터랙션 컨트롤
 # ===========================================================================
 
+
 class TestInterruptHandler:
     def test_register_and_callback(self):
         h = InterruptHandler()
@@ -605,6 +644,7 @@ class TestExitHandler:
     def test_eof_exits(self, monkeypatch):
         def raise_eof(p=""):
             raise EOFError
+
         monkeypatch.setattr("builtins.input", raise_eof)
         h = ExitHandler()
         assert h.handle() is True
@@ -644,6 +684,7 @@ class TestYesNoPrompt:
     def test_eof_denies(self, monkeypatch):
         def raise_eof(p=""):
             raise EOFError
+
         monkeypatch.setattr("builtins.input", raise_eof)
         p = YesNoPrompt(no_color=True)
         result = run(p.ask("t", {}))
@@ -682,6 +723,7 @@ class TestCopyHint:
 # F. 주 REPL 루프
 # ===========================================================================
 
+
 class TestAgentLoopAdapter:
     def test_direct_llm_call(self, tmp_path):
         ctx = make_ctx(tmp_path)
@@ -692,8 +734,10 @@ class TestAgentLoopAdapter:
 
     def test_error_handled(self, tmp_path):
         ctx = make_ctx(tmp_path)
+
         async def bad_caller(**kw):
             raise RuntimeError("api error")
+
         ctx.caller = bad_caller
         adapter = AgentLoopAdapter(ctx)
         result = run(adapter._direct_llm("task"))
@@ -731,8 +775,10 @@ class TestLoopOrchestrator:
         orch = LoopOrchestrator(ctx)
         # _run_agent를 mock
         called = []
+
         async def mock_run(task):
             called.append(task)
+
         orch._run_agent = mock_run
         run(orch.handle("fix the bug"))
         assert "fix the bug" in called
@@ -770,7 +816,10 @@ class TestPrintMode:
 
     def test_error_returns_1(self, tmp_path):
         ctx = make_ctx(tmp_path)
-        async def bad(**kw): raise RuntimeError("fail")
+
+        async def bad(**kw):
+            raise RuntimeError("fail")
+
         ctx.caller = bad
         pm = PrintMode(ctx)
         code = run(pm.run("task"))
@@ -787,6 +836,7 @@ class TestPrintMode:
 # ===========================================================================
 # 색상 유틸
 # ===========================================================================
+
 
 class TestColorUtils:
     def test_bold(self):
@@ -809,53 +859,64 @@ class TestColorUtils:
 # providers.py — DeepSeek / OpenAI 兼容适配器
 # ===========================================================================
 
+
 class TestProviders:
     def test_detect_deepseek(self):
         from hicode_tui.providers import detect_provider
+
         assert detect_provider("deepseek-chat") == "deepseek"
         assert detect_provider("deepseek-reasoner") == "deepseek"
 
     def test_detect_anthropic(self):
         from hicode_tui.providers import detect_provider
+
         assert detect_provider("claude-sonnet-4-6") == "anthropic"
         assert detect_provider("claude-opus-4-6") == "anthropic"
 
     def test_detect_unknown_is_unknown(self):
         from hicode_tui.providers import detect_provider
+
         assert detect_provider("gpt-4o") == "unknown"
 
     def test_make_deepseek_caller_no_key_raises(self, monkeypatch):
         from hicode_tui.providers import make_deepseek_caller
+
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
             make_deepseek_caller("deepseek-chat")
 
     def test_make_deepseek_caller_with_key(self, monkeypatch):
         from hicode_tui.providers import make_deepseek_caller
+
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-key")
         caller = make_deepseek_caller("deepseek-chat")
         assert callable(caller)
 
     def test_caller_has_provider_meta(self, monkeypatch):
         from hicode_tui.providers import make_deepseek_caller
+
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
         caller = make_deepseek_caller("deepseek-chat")
         assert getattr(caller, "_provider", None) == "deepseek"
         assert getattr(caller, "_model", None) == "deepseek-chat"
 
     def test_openai_resp_to_anthropic_text(self):
-        from hicode_tui.providers import _openai_resp_to_anthropic
         from types import SimpleNamespace
+
+        from hicode_tui.providers import _openai_resp_to_anthropic
+
         resp = SimpleNamespace(
-            choices=[SimpleNamespace(
-                message=SimpleNamespace(
-                    content="Hello!", tool_calls=None,
-                    reasoning_content=None
-                ),
-                finish_reason="stop"
-            )],
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="Hello!", tool_calls=None, reasoning_content=None
+                    ),
+                    finish_reason="stop",
+                )
+            ],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
-            model="deepseek-chat", id="chatcmpl-123"
+            model="deepseek-chat",
+            id="chatcmpl-123",
         )
         result = _openai_resp_to_anthropic(resp)
         assert result["content"][0]["type"] == "text"
@@ -865,20 +926,23 @@ class TestProviders:
         assert result["usage"]["output_tokens"] == 5
 
     def test_openai_resp_to_anthropic_tool_call(self):
-        from hicode_tui.providers import _openai_resp_to_anthropic
-        import json
         from types import SimpleNamespace
+
+        from hicode_tui.providers import _openai_resp_to_anthropic
+
         tc = SimpleNamespace(
-            id="call_abc",
-            function=SimpleNamespace(name="bash_exec", arguments='{"command":"ls"}')
+            id="call_abc", function=SimpleNamespace(name="bash_exec", arguments='{"command":"ls"}')
         )
         resp = SimpleNamespace(
-            choices=[SimpleNamespace(
-                message=SimpleNamespace(content=None, tool_calls=[tc], reasoning_content=None),
-                finish_reason="tool_calls"
-            )],
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=None, tool_calls=[tc], reasoning_content=None),
+                    finish_reason="tool_calls",
+                )
+            ],
             usage=SimpleNamespace(prompt_tokens=20, completion_tokens=10),
-            model="deepseek-chat", id="id"
+            model="deepseek-chat",
+            id="id",
         )
         result = _openai_resp_to_anthropic(resp)
         tool_block = next(b for b in result["content"] if b["type"] == "tool_use")
@@ -888,19 +952,24 @@ class TestProviders:
 
     def test_openai_resp_with_reasoning(self):
         """DeepSeek-R1 的 reasoning_content 映射为 thinking block。"""
-        from hicode_tui.providers import _openai_resp_to_anthropic
         from types import SimpleNamespace
+
+        from hicode_tui.providers import _openai_resp_to_anthropic
+
         resp = SimpleNamespace(
-            choices=[SimpleNamespace(
-                message=SimpleNamespace(
-                    content="The answer is 42.",
-                    tool_calls=None,
-                    reasoning_content="Let me think... 6×7=42"
-                ),
-                finish_reason="stop"
-            )],
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="The answer is 42.",
+                        tool_calls=None,
+                        reasoning_content="Let me think... 6×7=42",
+                    ),
+                    finish_reason="stop",
+                )
+            ],
             usage=SimpleNamespace(prompt_tokens=30, completion_tokens=15),
-            model="deepseek-reasoner", id="id"
+            model="deepseek-reasoner",
+            id="id",
         )
         result = _openai_resp_to_anthropic(resp)
         # thinking block 应在最前
@@ -910,14 +979,15 @@ class TestProviders:
 
     def test_anthropic_tool_to_openai(self):
         from hicode_tui.providers import _anthropic_tool_to_openai
+
         tool = {
             "name": "bash_exec",
             "description": "Execute bash",
             "input_schema": {
                 "type": "object",
                 "properties": {"command": {"type": "string"}},
-                "required": ["command"]
-            }
+                "required": ["command"],
+            },
         }
         result = _anthropic_tool_to_openai(tool)
         assert result["type"] == "function"
@@ -926,12 +996,14 @@ class TestProviders:
 
     def test_get_caller_deepseek(self, monkeypatch):
         from hicode_tui.providers import get_caller
+
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
         caller = get_caller("deepseek-chat")
         assert callable(caller)
 
     def test_get_caller_unknown_provider_raises(self, monkeypatch):
         from hicode_tui.providers import get_caller
+
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         with pytest.raises((ValueError, ImportError)):
@@ -939,11 +1011,13 @@ class TestProviders:
 
     def test_env_loader_detects_deepseek(self):
         from hicode_tui.input import EnvLoader
+
         assert EnvLoader.detect_provider("deepseek-chat") == "deepseek"
         assert EnvLoader.detect_provider("claude-sonnet-4-6") == "anthropic"
 
     def test_env_loader_check_deepseek_key(self, monkeypatch):
         from hicode_tui.input import EnvLoader
+
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
         assert EnvLoader.check_api_key("deepseek")
         monkeypatch.delenv("DEEPSEEK_API_KEY")

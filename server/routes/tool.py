@@ -1,4 +1,5 @@
 """Tool execution route: POST /tool"""
+
 from __future__ import annotations
 
 import asyncio
@@ -24,8 +25,8 @@ class ToolRequest(BaseModel):
 
 @router.post("")
 async def execute_tool_route(req: ToolRequest) -> dict[str, Any]:
-    from hooks.types import HookInput
     from hooks.registry import run_hook_chain
+    from hooks.types import HookInput
 
     fn = _ALL_TOOLS.get(req.name)
     if fn is None:
@@ -44,6 +45,7 @@ async def execute_tool_route(req: ToolRequest) -> dict[str, Any]:
     # Snapshot files before write/edit operations so undo can restore them
     if req.session_id and req.name in _WRITE_TOOLS:
         from server.routes.session import open_undo_turn, push_file_snapshot
+
         open_undo_turn(req.session_id)
         path = req.args.get("path")
         if path:

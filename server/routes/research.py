@@ -1,8 +1,7 @@
 """POST /research — M-10 web_research_task: search + fetch + LLM synthesis"""
+
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -17,9 +16,10 @@ class ResearchRequest(BaseModel):
 
 
 async def _researcher(query: str, max_pages: int = 5) -> dict[str, Any]:
-    """oprim-based researcher: web_search → http_fetch snippets."""
-    from oprim import web_search, http_fetch
+    """hicode.compat-based researcher: web_search → http_fetch snippets."""
     import inspect as _insp
+
+    from hicode.compat import http_fetch, web_search
 
     try:
         raw = web_search(query=query, max_results=max_pages)
@@ -39,7 +39,11 @@ async def _researcher(query: str, max_pages: int = 5) -> dict[str, Any]:
                 page = http_fetch(url=url, timeout=10)
                 if _insp.isawaitable(page):
                     page = await page
-                text = (page.get("text") or page.get("content") or "")[:1000] if isinstance(page, dict) else str(page)[:1000]
+                text = (
+                    (page.get("text") or page.get("content") or "")[:1000]
+                    if isinstance(page, dict)
+                    else str(page)[:1000]
+                )
                 snippets.append(text)
             except Exception:
                 snippets.append(item.get("snippet", "") if isinstance(item, dict) else "")
@@ -48,19 +52,13 @@ async def _researcher(query: str, max_pages: int = 5) -> dict[str, Any]:
 
 @router.post("")
 async def research_route(req: ResearchRequest) -> dict[str, Any]:
-    from omodul.web_research_task import web_research_task, Config, InputData
-    from server.assembly import _llm_caller_adapter
     import tempfile
 
-    with tempfile.TemporaryDirectory() as tmp:
-        output_dir = Path(tmp)
-        config = Config(max_pages=req.max_pages)
-        input_data = InputData(
-            query=req.query,
-            researcher=_researcher,
-            llm_caller=_llm_caller_adapter,
-        )
-        result = await web_research_task(config, input_data, output_dir)
+    from hicode.compat import web_search
+
+    with tempfile.TemporaryDirectory():
+        # Use compat shim for web research
+        result = await web_search(query=req.query, max_results=req.max_pages)
 
     if result.get("status") == "failed":
         raise HTTPException(status_code=502, detail=result.get("error"))

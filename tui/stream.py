@@ -13,9 +13,11 @@ Event types fired by coordinator/assembly:
   text_delta     — {"type": "text_delta", "squad_id": str, "text": str}
   cost_update    — {"type": "cost_update", "total_cost": float, "session_id": str}
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable, TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tui.app import HicodeApp
@@ -24,7 +26,7 @@ if TYPE_CHECKING:
 class StreamAdapter:
     """Creates the on_step callback that routes events to TUI widgets."""
 
-    def __init__(self, app: "HicodeApp") -> None:
+    def __init__(self, app: HicodeApp) -> None:
         self._app = app
 
     def make_on_step(self) -> Callable[[dict], None]:
@@ -49,9 +51,7 @@ class StreamAdapter:
                 tool_name = event.get("tool_name", "")
                 tool_args = event.get("tool_args", {})
                 # Show brief args (first key=value)
-                brief = ", ".join(
-                    f"{k}={str(v)[:30]!r}" for k, v in list(tool_args.items())[:2]
-                )
+                brief = ", ".join(f"{k}={str(v)[:30]!r}" for k, v in list(tool_args.items())[:2])
                 squads = app.query_one("#squads-panel")
                 squads.update_squad(squad_id, f"→ {tool_name}")
                 chat = app.query_one("#chat-log")

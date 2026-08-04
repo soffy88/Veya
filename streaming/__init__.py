@@ -3,25 +3,30 @@ layer4.streaming — Event Pipe & Renderers
 layer4.auth      — Provider Login UI
 layer4.mode      — Mode Controller
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
-import sys
 import os
+import sys
 import time
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, AsyncIterator
-from layer4.tools import ToolRegistry, ToolAdapter
+from typing import Any, ClassVar
 
+from tools import ToolAdapter, ToolRegistry
 
 # ===========================================================================
 # E. Streaming & Event Pipe
 # ===========================================================================
 
+
 @dataclass
 class HicodeEvent:
     """统一的内部事件结构。"""
+
     event: str
     data: dict = field(default_factory=dict)
     ts: float = field(default_factory=time.time)
@@ -44,24 +49,22 @@ class EventBus:
     def emit(self, event: str, data: dict | None = None, session_id: str = "") -> None:
         e = HicodeEvent(event=event, data=data or {}, session_id=session_id)
         for sub in self._subscribers:
-            try:
+            with contextlib.suppress(Exception):
                 sub(e)
-            except Exception:
-                pass
 
     async def emit_async(self, event: str, data: dict | None = None) -> None:
         self.emit(event, data)
         e = HicodeEvent(event=event, data=data or {})
         for sub in self._async_subscribers:
-            try:  # pragma: no cover
+            with contextlib.suppress(Exception):  # pragma: no cover
                 await sub(e)  # pragma: no cover
-            except Exception:  # pragma: no cover
-                pass  # pragma: no cover
 
     def as_on_step(self) -> Callable[[dict], None]:
         """返回兼容 omodul on_step 签名的回调。"""
+
         def on_step(event_dict: dict) -> None:
             self.emit(event_dict.get("event", "unknown"), event_dict)
+
         return on_step
 
 
@@ -112,6 +115,7 @@ class SSEEmitter:
     def as_on_step(self) -> Callable[[dict], None]:
         def on_step(event_dict: dict) -> None:
             self.emit(event_dict.get("event", "step"), event_dict)
+
         return on_step
 
 
@@ -130,8 +134,7 @@ class StdoutRenderer:
             print(f"[result] {preview}", file=self._file)  # pragma: no cover
         elif event in ("session_done", "completed"):
             cost = event_dict.get("cost_usd", 0)
-            print(f"[done] status={event_dict.get('status','')} cost=${cost:.4f}",
-                  file=self._file)
+            print(f"[done] status={event_dict.get('status', '')} cost=${cost:.4f}", file=self._file)
 
     def print_result(self, text: str) -> None:
         print(text, file=self._file)  # pragma: no cover
@@ -168,13 +171,13 @@ class DiffRenderer:
 class TodoRenderer:
     """TodoItem 列表渲染（进度条样式）。"""
 
-    STATUS_ICONS = {
+    STATUS_ICONS: ClassVar[dict[str, str]] = {
         "pending": "○",
         "in_progress": "●",
         "done": "✅",
         "cancelled": "✗",
     }
-    PRIORITY_COLORS = {
+    PRIORITY_COLORS: ClassVar[dict[str, str]] = {
         "high": "\033[31m",
         "medium": "\033[33m",
         "low": "\033[32m",
@@ -187,8 +190,9 @@ class TodoRenderer:
             return "No todos."
         _out = file or sys.stdout  # used later if file provided
         lines = []
-        done = sum(1 for t in todos
-                   if (t.status if hasattr(t, "status") else t.get("status")) == "done")
+        done = sum(
+            1 for t in todos if (t.status if hasattr(t, "status") else t.get("status")) == "done"
+        )
         total = len(todos)
         pct = int(done / total * 100) if total else 0
         bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
@@ -227,9 +231,11 @@ class CostStatusline:
         self.out_tokens += out_tok
 
     def render(self) -> str:
-        return (f"[{self.model}] "
-                f"in={self.in_tokens:,} out={self.out_tokens:,} "
-                f"cost=${self.total_cost:.4f}")
+        return (
+            f"[{self.model}] "
+            f"in={self.in_tokens:,} out={self.out_tokens:,} "
+            f"cost=${self.total_cost:.4f}"
+        )
 
     def print(self) -> None:
         print(f"\r{self.render()}", end="", file=self._file, flush=True)
@@ -248,8 +254,9 @@ class ThinkingRenderer:
     RESET = "\033[0m"
 
     @classmethod
-    def render(cls, thinking: str, *, collapsed: bool = True,
-               color: bool = True, file=None) -> None:
+    def render(
+        cls, thinking: str, *, collapsed: bool = True, color: bool = True, file=None
+    ) -> None:
         out = file or sys.stdout
         if not thinking:
             return
@@ -261,7 +268,9 @@ class ThinkingRenderer:
                 print(f"[thinking] {preview}…", file=out)  # pragma: no cover
         else:
             if color:  # pragma: no cover
-                print(f"{cls.GRAY}💭 Thinking:\n{thinking}\n{cls.RESET}", file=out)  # pragma: no cover
+                print(
+                    f"{cls.GRAY}💭 Thinking:\n{thinking}\n{cls.RESET}", file=out
+                )  # pragma: no cover
             else:
                 print(f"[thinking]\n{thinking}", file=out)  # pragma: no cover
 
@@ -269,6 +278,7 @@ class ThinkingRenderer:
 # ===========================================================================
 # I. Provider Login UI
 # ===========================================================================
+
 
 class CredentialStore:
     """安全存储 API key 到 env 文件 / keychain（调 obase.secrets）。"""
@@ -301,7 +311,7 @@ class CredentialStore:
         if cls.ENV_FILE.exists():
             for line in cls.ENV_FILE.read_text().splitlines():
                 if line.startswith(f"{key}="):
-                    return line[len(key) + 1:]
+                    return line[len(key) + 1 :]
         return None
 
 
@@ -316,6 +326,7 @@ class ApiKeyPrompt:
             return self._auto
         try:  # pragma: no cover
             import getpass  # pragma: no cover
+
             key = getpass.getpass(f"Enter API key for {provider}: ")  # pragma: no cover
             return key.strip()  # pragma: no cover
         except (EOFError, KeyboardInterrupt):  # pragma: no cover
@@ -342,7 +353,8 @@ class OAuthFlow:
     async def start(self, provider: str) -> dict:
         """启动 device-flow，返回 {device_code, user_code, verification_uri}。"""
         try:  # pragma: no cover
-            from obase import auth  # type: ignore  # pragma: no cover
+            from hicode.compat import auth  # type: ignore  # pragma: no cover
+
             return await auth.device_flow_start(provider)  # pragma: no cover
         except ImportError:  # pragma: no cover
             return {  # pragma: no cover
@@ -354,7 +366,8 @@ class OAuthFlow:
     async def poll(self, provider: str, device_code: str) -> str | None:
         """轮询获取 access token。返回 token 或 None（待续）。"""
         try:  # pragma: no cover
-            from obase import auth  # type: ignore  # pragma: no cover
+            from hicode.compat import auth  # type: ignore  # pragma: no cover
+
             return await auth.device_flow_poll(provider, device_code)  # pragma: no cover
         except ImportError:  # pragma: no cover
             return None  # pragma: no cover
@@ -410,8 +423,7 @@ class BuildToolSet:
 class ModeToggle:
     """模式切换时重新装配 agentic_loop 的工具集。"""
 
-    def __init__(self, registry: ToolRegistry,
-                 controller: ModeController) -> None:
+    def __init__(self, registry: ToolRegistry, controller: ModeController) -> None:
         self.registry = registry
         self.controller = controller
 

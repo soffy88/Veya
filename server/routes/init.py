@@ -1,7 +1,7 @@
 """POST /init — M-04 init_project: scan repo + LLM → AGENTS.md"""
+
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,7 @@ class InitRequest(BaseModel):
 
 @router.post("")
 async def init_project_route(req: InitRequest) -> dict[str, Any]:
-    from omodul.init_project import init_project, Config, InputData
+    from hicode.compat import init_project
     from server.assembly import _llm_caller_adapter
 
     root = Path(req.repo).resolve()
@@ -28,11 +28,11 @@ async def init_project_route(req: InitRequest) -> dict[str, Any]:
     # Write AGENTS.md to project root, trail artefacts to temp dir
     output_dir = root
 
-    config = Config(max_files=req.max_files)
-    input_data = InputData(
-        root_path=str(root),
-        llm_caller=_llm_caller_adapter,
-    )
+    config = {"max_files": req.max_files}
+    input_data = {
+        "root_path": str(root),
+        "llm_caller": _llm_caller_adapter,
+    }
 
     result = await init_project(config, input_data, output_dir)
     if result.get("status") != "completed":

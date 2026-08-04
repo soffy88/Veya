@@ -1,10 +1,10 @@
 """tui/widgets/statusbar.py — Status bar: persona / cost / session_id / provider."""
+
 from __future__ import annotations
 
 import os
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
 from textual.widget import Widget
 from textual.widgets import Static
 
@@ -33,14 +33,12 @@ class StatusBar(Widget):
         self._provider = os.environ.get("HICODE_LLM_PROVIDER", "dashscope")
 
     def compose(self) -> ComposeResult:
-        yield Static(self._render_persona(), id="sb-persona", markup=True,
-                     classes="sb-item")
-        yield Static(self._render_cost(), id="sb-cost", markup=True,
-                     classes="sb-item sb-cost")
-        yield Static(self._render_session(), id="sb-session", markup=True,
-                     classes="sb-item sb-session")
-        yield Static(f"provider:{self._provider}", id="sb-provider", markup=True,
-                     classes="sb-item")
+        yield Static(self._render_persona(), id="sb-persona", markup=True, classes="sb-item")
+        yield Static(self._render_cost(), id="sb-cost", markup=True, classes="sb-item sb-cost")
+        yield Static(
+            self._render_session(), id="sb-session", markup=True, classes="sb-item sb-session"
+        )
+        yield Static(f"provider:{self._provider}", id="sb-provider", markup=True, classes="sb-item")
 
     def _render_persona(self) -> str:
         return f"[bold]persona:[/bold]{self._persona}"

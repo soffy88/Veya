@@ -7,6 +7,7 @@ hicode_tui.providers — LLM Provider 适配器
 
 扩展点：任何 OpenAI 兼容 API 都可以用 make_openai_compat_caller() 接入。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -15,9 +16,9 @@ from typing import Any
 
 # DeepSeek 模型列表
 DEEPSEEK_MODELS = {
-    "deepseek-chat":      "deepseek-chat",          # DeepSeek-V3，最强通用
-    "deepseek-reasoner":  "deepseek-reasoner",       # DeepSeek-R1，含思维链
-    "deepseek-coder":     "deepseek-chat",           # alias → V3（V3 已包含代码）
+    "deepseek-chat": "deepseek-chat",  # DeepSeek-V3，最强通用
+    "deepseek-reasoner": "deepseek-reasoner",  # DeepSeek-R1，含思维链
+    "deepseek-coder": "deepseek-chat",  # alias → V3（V3 已包含代码）
 }
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -67,8 +68,7 @@ def make_deepseek_caller(
     key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
     if not key:
         raise ValueError(
-            "DEEPSEEK_API_KEY not set. "
-            "Get your key at https://platform.deepseek.com/api_keys"
+            "DEEPSEEK_API_KEY not set. Get your key at https://platform.deepseek.com/api_keys"
         )
 
     # DeepSeek 使用 OpenAI 兼容接口
@@ -155,17 +155,20 @@ def _openai_resp_to_anthropic(resp: Any) -> dict:
         # tool_calls → Anthropic tool_use 格式
         if msg.tool_calls:
             import json
+
             for tc in msg.tool_calls:
                 try:
                     inp = json.loads(tc.function.arguments or "{}")
                 except Exception:  # pragma: no cover
                     inp = {}  # pragma: no cover
-                content.append({
-                    "type": "tool_use",
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "input": inp,
-                })
+                content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "input": inp,
+                    }
+                )
 
         # reasoning_content（DeepSeek-R1 思维链）→ thinking block
         reasoning = getattr(msg, "reasoning_content", None)
@@ -260,29 +263,40 @@ def get_caller(
 
             client = anthropic.Anthropic()  # pragma: no cover
 
-            async def anthropic_caller(*, messages, tools=None,  # pragma: no cover
-                                        max_tokens=4096, system=None, **kw):
+            async def anthropic_caller(
+                *,
+                messages,
+                tools=None,  # pragma: no cover
+                max_tokens=4096,
+                system=None,
+                **kw,
+            ):
                 def _call():  # pragma: no cover
-                    kw2: dict = dict(model=model, messages=messages,  # pragma: no cover
-                                     max_tokens=max_tokens)
+                    kw2: dict = dict(
+                        model=model,
+                        messages=messages,  # pragma: no cover
+                        max_tokens=max_tokens,
+                    )
                     if system:  # pragma: no cover
                         kw2["system"] = system  # pragma: no cover
                     if tools:  # pragma: no cover
                         kw2["tools"] = tools  # pragma: no cover
                     return client.messages.create(**kw2)  # pragma: no cover
+
                 msg = await asyncio.to_thread(_call)  # pragma: no cover
                 return {  # pragma: no cover
-                    "content": [{"type": b.type, "text": getattr(b, "text", "")}
-                                  for b in msg.content],
+                    "content": [
+                        {"type": b.type, "text": getattr(b, "text", "")} for b in msg.content
+                    ],
                     "stop_reason": msg.stop_reason,
-                    "usage": {"input_tokens": msg.usage.input_tokens,
-                               "output_tokens": msg.usage.output_tokens},
+                    "usage": {
+                        "input_tokens": msg.usage.input_tokens,
+                        "output_tokens": msg.usage.output_tokens,
+                    },
                 }
+
             return anthropic_caller  # pragma: no cover
         except ImportError as e:  # pragma: no cover
             raise ImportError("pip install anthropic") from e  # pragma: no cover
 
-    raise ValueError(
-        f"Unknown provider '{p}' for model '{model}'. "
-        f"Supported: anthropic, deepseek"
-    )
+    raise ValueError(f"Unknown provider '{p}' for model '{model}'. Supported: anthropic, deepseek")

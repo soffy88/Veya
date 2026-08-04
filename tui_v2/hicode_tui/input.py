@@ -5,6 +5,7 @@ A: hicode_cli / ArgParser / EnvLoader / StartupBanner
 B: PromptInput / HistoryManager / AtMentionCompleter
    SlashCompleter / MultilineInput
 """
+
 from __future__ import annotations
 
 import os
@@ -14,7 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # A. CLI 入口
 # ---------------------------------------------------------------------------
@@ -22,12 +22,12 @@ from typing import Any
 VERSION = "0.1.0"
 
 BANNER_COLORS = {
-    "green":  "\033[32m",
-    "cyan":   "\033[36m",
+    "green": "\033[32m",
+    "cyan": "\033[36m",
     "yellow": "\033[33m",
-    "bold":   "\033[1m",
-    "dim":    "\033[2m",
-    "reset":  "\033[0m",
+    "bold": "\033[1m",
+    "dim": "\033[2m",
+    "reset": "\033[0m",
 }
 
 
@@ -40,13 +40,14 @@ def _c(color: str, text: str, *, no_color: bool = False) -> str:
 @dataclass
 class CliArgs:
     """파싱된 CLI 인수."""
+
     task: str = ""
     model: str = "claude-sonnet-4-6"
     mode: str = "build"
     cwd: str = ""
     session_id: str = ""
     no_color: bool = False
-    print_mode: bool = False        # -p / --print
+    print_mode: bool = False  # -p / --print
     continue_session: bool = False  # -c / --continue
     verbose: bool = False
     version: bool = False
@@ -55,7 +56,7 @@ class CliArgs:
 class ArgParser:
     """
     경량 CLI 인수 파서 (Click 불필요, 직접 sys.argv 파싱).
-    
+
     사용법:
       hicode [task]
       hicode -p 'fix the tests'
@@ -63,8 +64,8 @@ class ArgParser:
       hicode --session sess_abc123 --continue
     """
 
-    HELP = """\
-hicode — AI 编码 agent  v{version}
+    HELP = f"""\
+hicode — AI 编码 agent  v{VERSION}
 
 使用方式:
   hicode [TASK]              交互式 REPL（task 可选，作为首条消息）
@@ -82,7 +83,7 @@ hicode — AI 编码 agent  v{version}
   -v, --verbose              详细日志
   --version                  显示版本
   -h, --help                 显示帮助
-""".format(version=VERSION)
+"""
 
     @classmethod
     def parse(cls, argv: list[str] | None = None) -> CliArgs:
@@ -159,7 +160,9 @@ class EnvLoader:
                         os.environ[k] = v.strip()  # pragma: no cover
                         loaded[k] = v.strip()  # pragma: no cover
                         if verbose:  # pragma: no cover
-                            print(f"  loaded {k} from ~/.hicode/.env", file=sys.stderr)  # pragma: no cover
+                            print(
+                                f"  loaded {k} from ~/.hicode/.env", file=sys.stderr
+                            )  # pragma: no cover
 
         return loaded
 
@@ -168,7 +171,7 @@ class EnvLoader:
         """检查对应 provider 的 API key 是否已设置。"""
         key_map = {
             "anthropic": "ANTHROPIC_API_KEY",
-            "deepseek":  "DEEPSEEK_API_KEY",
+            "deepseek": "DEEPSEEK_API_KEY",
         }
         key_name = key_map.get(provider, f"{provider.upper()}_API_KEY")
         return bool(os.environ.get(key_name))
@@ -187,9 +190,11 @@ class EnvLoader:
         """根据模型名自动选择 provider，构造 LLMCaller。"""
         try:
             from hicode_tui.providers import get_caller  # pragma: no cover
+
             return get_caller(model)  # pragma: no cover
         except Exception:
             return None
+
 
 class StartupBanner:
     """버전 + 모델 + 모드 배너 출력."""
@@ -204,15 +209,17 @@ class StartupBanner:
         mode_icon = "🔨" if args.mode == "build" else "📋"
 
         print()
-        print(_c("bold", f"  hicode {VERSION}", no_color=nc) +
-              "  " + _c("dim", "AI coding agent", no_color=nc))
+        print(
+            _c("bold", f"  hicode {VERSION}", no_color=nc)
+            + "  "
+            + _c("dim", "AI coding agent", no_color=nc)
+        )
         print()
         print(f"  model  {_c('green', args.model, no_color=nc)}")
         print(f"  mode   {mode_icon} {_c(mode_color, args.mode.upper(), no_color=nc)}")
         print(f"  cwd    {_c('dim', args.cwd, no_color=nc)}")
         print()
-        print(_c("dim", "  /help for commands · Ctrl+C to interrupt · Ctrl+D to exit",
-                  no_color=nc))
+        print(_c("dim", "  /help for commands · Ctrl+C to interrupt · Ctrl+D to exit", no_color=nc))
         print()
 
 
@@ -221,9 +228,22 @@ class StartupBanner:
 # ---------------------------------------------------------------------------
 
 SLASH_COMMANDS = [
-    "/init", "/plan", "/build", "/undo", "/redo", "/compact",
-    "/review", "/tests", "/checkpoint", "/rewind", "/agents",
-    "/plugin", "/hooks", "/sessions", "/help", "/exit",
+    "/init",
+    "/plan",
+    "/build",
+    "/undo",
+    "/redo",
+    "/compact",
+    "/review",
+    "/tests",
+    "/checkpoint",
+    "/rewind",
+    "/agents",
+    "/plugin",
+    "/hooks",
+    "/sessions",
+    "/help",
+    "/exit",
 ]
 
 
@@ -281,7 +301,7 @@ class AtMentionCompleter:
         at_idx = line.rfind("@")
         if at_idx == -1:
             return None
-        after_at = line[at_idx + 1:]  # pragma: no cover
+        after_at = line[at_idx + 1 :]  # pragma: no cover
         candidates = self._candidates(after_at)  # pragma: no cover
         if state < len(candidates):  # pragma: no cover
             return candidates[state]  # pragma: no cover
@@ -321,10 +341,10 @@ class MultilineInput:
                 line = input(cont_prompt)
             except KeyboardInterrupt:
                 print()
-                return None   # Ctrl+C → 취소
+                return None  # Ctrl+C → 취소
             except EOFError:
                 print()
-                raise          # Ctrl+D → 호출자에서 처리
+                raise  # Ctrl+D → 호출자에서 처리
 
             first = False
             if line.endswith("\\"):
@@ -354,6 +374,7 @@ class PromptInput:
 
     def _setup_readline(self) -> None:
         """readline 보완 통합 등록."""
+
         def completer(text: str, state: int) -> str | None:  # pragma: no cover
             line = readline.get_line_buffer()  # pragma: no cover
             if line.startswith("/"):  # pragma: no cover

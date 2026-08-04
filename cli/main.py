@@ -6,10 +6,12 @@ cli/main.py — hicode 交互入口(readline-based interactive loop)
     hicode --help               # 帮助
     echo "改 foo.py" | hicode   # stdin 单次执行
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import sys
 from typing import Any
 
@@ -19,31 +21,32 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="hicode",
         description="hicode — AI coding agent (interactive mode)",
     )
-    p.add_argument("--persona", default="build",
-                   choices=["build", "research", "plan", "execute"],
-                   help="Agent persona (default: build)")
+    p.add_argument(
+        "--persona",
+        default="build",
+        choices=["build", "research", "plan", "execute"],
+        help="Agent persona (default: build)",
+    )
     p.add_argument("--config", default=None, help="Config file path")
-    p.add_argument("--resume", metavar="SESSION_ID",
-                   help="Resume a checkpointed session")
-    p.add_argument("--version", action="version", version="hicode 0.2.0")
+    p.add_argument("--resume", metavar="SESSION_ID", help="Resume a checkpointed session")
+    p.add_argument("--version", action="version", version="hicode 0.4.0")
     return p
 
 
 async def _run_once(text: str, *, persona: str) -> dict[str, Any]:
     from server.coordinator import coordinator
+
     return await coordinator.handle({"text": text, "persona": persona})
 
 
 async def _interactive_loop(persona: str) -> None:
     from server.coordinator import coordinator
 
-    print(f"hicode 0.2.0 | persona={persona} | Ctrl-D or 'exit' to quit", file=sys.stderr)
+    print(f"hicode 0.4.0 | persona={persona} | Ctrl-D or 'exit' to quit", file=sys.stderr)
     session_id: str | None = None
 
-    try:
+    with contextlib.suppress(ImportError):
         import readline  # noqa: F401 — enables arrow-key editing on supported platforms
-    except ImportError:
-        pass
 
     while True:
         try:
@@ -70,6 +73,7 @@ async def _interactive_loop(persona: str) -> None:
         output = result.get("output") or result.get("squads")
         if output:
             import json
+
             if isinstance(output, str):
                 print(output)
             else:
@@ -78,8 +82,8 @@ async def _interactive_loop(persona: str) -> None:
 
 
 async def _resume(session_id: str, persona: str) -> None:
+    from hicode.compat import restore_from_checkpoint
     from server.checkpoint import load_checkpoint
-    from oprim import restore_from_checkpoint
 
     ckpt = await load_checkpoint(session_id)
     if not ckpt:
@@ -87,12 +91,16 @@ async def _resume(session_id: str, persona: str) -> None:
         sys.exit(1)
 
     state = restore_from_checkpoint(ckpt)
-    print(f"Resuming session {session_id} from step {state.step}, "
-          f"completed: {state.completed_steps}", file=sys.stderr)
+    print(
+        f"Resuming session {session_id} from step {state.step}, completed: {state.completed_steps}",
+        file=sys.stderr,
+    )
 
     from server.coordinator import coordinator
+
     result = await coordinator.resume(state)
     import json
+
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
@@ -113,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         if text:
             result = asyncio.run(_run_once(text, persona=args.persona))
             import json
+
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result.get("status") == "success" else 1
         return 0
@@ -120,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     # Launch TUI if in a TTY
     try:
         from tui.app import run_tui
+
         run_tui()
     except Exception:
         # Fallback to readline loop if TUI fails

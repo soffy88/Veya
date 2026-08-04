@@ -1,4 +1,5 @@
 """GET /sessions — session list with optional ?project= filter."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -20,15 +21,17 @@ async def list_sessions(project: str | None = None) -> dict[str, Any]:
 
         msgs = s.get("messages", [])
         title = _title_from_messages(msgs)
-        result.append({
-            "id": s["id"],
-            "project": s_project,
-            "persona": s.get("persona", "build"),
-            "title": title,
-            "cost_usd": s.get("cost_usd", 0.0),
-            "message_count": len(msgs),
-            "updated_at": s.get("updated_at", s.get("created_at", "2024-01-01T00:00:00Z")),
-        })
+        result.append(
+            {
+                "id": s["id"],
+                "project": s_project,
+                "persona": s.get("persona", "build"),
+                "title": title,
+                "cost_usd": s.get("cost_usd", 0.0),
+                "message_count": len(msgs),
+                "updated_at": s.get("updated_at", s.get("created_at", "2024-01-01T00:00:00Z")),
+            }
+        )
 
     return {"sessions": result, "total": len(result)}
 

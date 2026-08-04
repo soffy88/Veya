@@ -1,4 +1,5 @@
 """H7 SessionStart — initialise per-session context (cwd, cost baseline)."""
+
 from __future__ import annotations
 
 import os

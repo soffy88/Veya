@@ -1,4 +1,5 @@
 """tui/widgets/diff.py — Diff viewer panel (shows compute_diff output inline)."""
+
 from __future__ import annotations
 
 from textual.app import ComposeResult
