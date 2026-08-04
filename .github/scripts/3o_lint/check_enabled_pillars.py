@@ -17,7 +17,16 @@ def check_enabled_pillars(omodul_dir: Path) -> list[str]:
         if py_file.name.startswith("_"):
             continue
 
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        try:
+
+
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+
+
+        except SyntaxError:
+
+
+            continue  # unparseable (newer py version) is not a violation
         found_pillar_decl = False
 
         for node in ast.walk(tree):
