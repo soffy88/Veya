@@ -1,0 +1,8 @@
+{
+  "name": "greet",
+  "version": "0.1.0",
+  "description": "Registers a greeting tool and a pre_dispatch hook.",
+  "author": "veya-team",
+  "entry": "plugin:activate",
+  "hooks": ["pre_dispatch"]
+}

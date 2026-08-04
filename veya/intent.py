@@ -1,13 +1,16 @@
-"""LLM 意图分类器。
+"""LLM-backed intent classifier.
 
-将用户请求分类为 ``simple``（直接执行）或 ``complex``（需要
-research → plan → execute 多智能体分解）。
+Classifies a user request as ``simple`` (run directly) or ``complex`` (needs
+research → plan → execute multi-agent decomposition).
 
-设计原则：
-- **确定性快速路径优先**：长度 / 关键词启发式先裁决明确案例，避免无谓的 LLM 调用。
-- **LLM 只裁决中间地带**：配置了 API key 时，用 LLM 判断模糊请求；未配置时
-  完全回落启发式（离线 / 测试环境行为与旧版 ``_is_simple`` 一致）。
-- **结果缓存**：相同文本只调用一次 LLM（``functools.lru_cache`` 语义的字典缓存）。
+Design principles:
+- **Deterministic fast paths first**: length/keyword heuristics decide clear cases,
+  avoiding needless LLM calls.
+- **LLM arbitrates only the middle ground**: with an API key configured, the LLM
+  judges ambiguous requests; without one, it falls back to heuristics entirely
+  (offline/test behavior matches the legacy ``_is_simple``).
+- **Result caching**: the same text triggers at most one LLM call (dict cache with
+  functools.lru_cache semantics).
 """
 
 from __future__ import annotations
@@ -35,14 +38,14 @@ _SYSTEM_PROMPT = (
 
 
 class Intent(StrEnum):
-    """任务复杂度意图。"""
+    """Task complexity intent (SIMPLE vs COMPLEX)."""
 
     SIMPLE = "simple"
     COMPLEX = "complex"
 
 
 class IntentClassifier:
-    """文本 → Intent 分类器（LLM + 启发式双层）。"""
+    """Text → Intent classifier (LLM + heuristic two-layer)."""
 
     def __init__(
         self,
@@ -58,7 +61,7 @@ class IntentClassifier:
 
     # ── 公开接口 ──────────────────────────────────────────────────────
     async def classify(self, text: str | None) -> Intent:
-        """分类：确定性快速路径 → LLM 裁决 → 启发式回落。"""
+        """Classify: deterministic fast path → LLM arbitration → heuristic fallback."""
         text = (text or "").strip()
         if not text:
             return Intent.SIMPLE
@@ -87,7 +90,7 @@ class IntentClassifier:
 
     # ── 内部实现 ──────────────────────────────────────────────────────
     async def _llm_classify(self, text: str) -> Intent | None:
-        """调用 LLM 返回意图；无 key / 解析失败返回 None（调用方回落）。"""
+        """Ask the LLM for the intent; returns None on missing key / parse failure (caller falls back)."""
         provider, _model = _llm.get_provider_config(self.config, model=self.model)
         if not _llm.get_api_key(provider, self.config):
             return None
@@ -135,7 +138,7 @@ class IntentClassifier:
 
 
 def _extract_content(resp: dict[str, Any]) -> str:
-    """从归一化 OpenAI 响应中提取 assistant 文本。"""
+    """Extract assistant text from a normalized OpenAI response."""
     try:
         msg = resp["choices"][0]["message"]
         content = msg.get("content", "")
@@ -145,7 +148,7 @@ def _extract_content(resp: dict[str, Any]) -> str:
 
 
 def _parse_intent_json(content: str) -> Intent | None:
-    """解析 ``{"intent": "simple"|"complex"}``；容忍 markdown 围栏与前后缀噪声。"""
+    """Parse ``{"intent": "simple"|"complex"}``, tolerating markdown fences and surrounding noise."""
     import json
 
     cleaned = content.strip()
@@ -176,5 +179,5 @@ async def classify_intent(
     model: str | None = None,
     config: dict[str, Any] | None = None,
 ) -> Intent:
-    """模块级便捷分类（每次新建分类器，不共享缓存）。"""
+    """Module-level convenience classifier (new instance per call; no shared cache)."""
     return await IntentClassifier(model=model, config=config).classify(text)

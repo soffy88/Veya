@@ -8,3 +8,15 @@ def get_registered_tools() -> dict[str, Callable]:
     from server.assembly import _ALL_TOOLS
 
     return dict(_ALL_TOOLS)
+
+
+def register_tool(name: str, fn: Callable) -> None:
+    """Register a tool into the canonical tool map (G10 plugin SDK)."""
+    from server.assembly import _ALL_TOOLS
+
+    _ALL_TOOLS[name] = fn
+
+
+def list_tools() -> list[str]:
+    """List currently registered tool names."""
+    return list(get_registered_tools())

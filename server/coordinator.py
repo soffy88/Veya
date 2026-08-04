@@ -53,6 +53,16 @@ from veya.utils import CostTracker
 # =====================================================================
 
 
+def _squad_to_dict(s: SquadTask) -> dict[str, Any]:
+    """Serialize a SquadTask for checkpoint storage (G13 resume)."""
+    return {
+        "squad_id": s.squad_id,
+        "role": s.role,
+        "command": s.command,
+        "depends_on": list(s.depends_on),
+    }
+
+
 @dataclass
 class SquadTask:
     """派给单个分队的任务。"""
@@ -69,6 +79,7 @@ class SquadPlan:
 
     squads: list[SquadTask]
     schedule: str = "parallel"  # "parallel" | "sequential" | "dag"
+    resume_from: set[str] = field(default_factory=set)  # G13: 断点续跑时已完成的 squad_id
 
 
 @dataclass
@@ -280,6 +291,26 @@ class Coordinator:
             # 1. 拆解任务 → SquadPlan
             plan = await self._decompose(command, cost=cost)
 
+            # 初始 checkpoint:保存原始 command + 完整 squad 计划,
+            # 保证 resume 可确定性地重建(不依赖 LLM 重拆解)(G13)
+            with contextlib.suppress(Exception):
+                from server.checkpoint import save_checkpoint
+                from veya.compat import RunState
+
+                await save_checkpoint(
+                    sid,
+                    RunState(
+                        session_id=sid,
+                        step=0,
+                        data={
+                            "outputs": {},
+                            "command": command,
+                            "squads": [_squad_to_dict(s) for s in plan.squads],
+                        },
+                        completed_steps=[],
+                    ),
+                )
+
             # 2. 装配 orchestrator
             orchestrator = assemble_orchestrator(
                 scheduler=self._make_scheduler(plan.schedule),
@@ -288,7 +319,7 @@ class Coordinator:
             )
 
             # 3. 派分队(checkpoint 在 _run_dag / _run_parallel 内落盘)
-            results = await self._run_squads(orchestrator, plan, session_id=sid)
+            results = await self._run_squads(orchestrator, plan, session_id=sid, command=command)
 
             # 4. 汇总
             total_cost = sum(r.cost_usd for r in results)
@@ -319,18 +350,25 @@ class Coordinator:
         """从 checkpoint 的 RunState 续跑未完成的分队。
 
         run_state.completed_steps 列出已完成的 squad_id;
-        run_state.data 含已完成分队的 output。
+        run_state.data 含已完成分队的 output。优先使用 checkpoint 中保存的
+        完整 squad 计划(确定性重建);旧格式 checkpoint 回退为重新拆解。
         """
         session_id = run_state.session_id
         completed = set(run_state.completed_steps)
         saved_outputs: dict[str, Any] = run_state.data.get("outputs", {})
+        saved_squads = run_state.data.get("squads")
 
-        # 重建分队计划(使用保存的 command)
-        command = run_state.data.get("command", {})
-        plan = await self._decompose(command, cost=CostTracker())
-
-        # 跳过已完成的分队,从断点继续
         cost = CostTracker()
+        if isinstance(saved_squads, list) and saved_squads:
+            # 新格式:从 checkpoint 重建计划(无需 LLM,确定性)
+            squads = [SquadTask(**dict(s)) for s in saved_squads]
+            plan = SquadPlan(squads=squads, schedule="dag", resume_from=completed)
+        else:
+            # 旧格式回退:重建分队计划(使用保存的 command)
+            command = run_state.data.get("command", {})
+            plan = await self._decompose(command, cost=cost)
+            plan.resume_from = completed
+
         orchestrator = assemble_orchestrator(
             scheduler=self._make_scheduler(plan.schedule),
             cost_tracker=cost,
@@ -342,12 +380,14 @@ class Coordinator:
             session_id=session_id,
             skip_completed=completed,
             prior_outputs=saved_outputs,
+            original_command=run_state.data.get("command"),
         )
 
         total_cost = sum(r.cost_usd for r in results)
         result = self._aggregate(results, total_cost=total_cost)
         result["session_id"] = session_id
         result["resumed_from_step"] = run_state.step
+        result["resumed_squads"] = [r.squad_id for r in results if r.squad_id not in completed]
         return result
 
     # ── 任务拆解 ──────────────────────────────────────────────────────
@@ -380,10 +420,15 @@ class Coordinator:
         plan: SquadPlan,
         *,
         session_id: str,
+        command: dict[str, Any] | None = None,
     ) -> list[SquadResult]:
         if plan.schedule == "parallel":
-            return await self._run_parallel(orchestrator, plan.squads, session_id=session_id)
-        return await self._run_dag(orchestrator, plan.squads, session_id=session_id)
+            return await self._run_parallel(
+                orchestrator, plan.squads, session_id=session_id, original_command=command
+            )
+        return await self._run_dag(
+            orchestrator, plan.squads, session_id=session_id, original_command=command
+        )
 
     async def _run_parallel(
         self,
@@ -391,6 +436,7 @@ class Coordinator:
         squads: list[SquadTask],
         *,
         session_id: str,
+        original_command: dict[str, Any] | None = None,
     ) -> list[SquadResult]:
         from server.checkpoint import save_checkpoint
         from veya.compat import RunState
@@ -413,7 +459,13 @@ class Coordinator:
         run_state = RunState(
             session_id=session_id,
             step=len(results),
-            data={"outputs": outputs, "command": squads[0].command if squads else {}},
+            data={
+                "outputs": outputs,
+                "command": original_command
+                if original_command is not None
+                else (squads[0].command if squads else {}),
+                "squads": [_squad_to_dict(s) for s in squads],
+            },
             completed_steps=completed_ids,
         )
         with contextlib.suppress(Exception):
@@ -429,6 +481,7 @@ class Coordinator:
         session_id: str,
         skip_completed: set[str] | None = None,
         prior_outputs: dict[str, Any] | None = None,
+        original_command: dict[str, Any] | None = None,
     ) -> list[SquadResult]:
         """按 depends_on 拓扑串行;每分队完成后 checkpoint 落盘。"""
         from server.checkpoint import save_checkpoint
@@ -473,12 +526,10 @@ class Coordinator:
             if group_completed:
                 continue
 
-            # 执行组内任务
+            # 执行组内任务(仅未完成分队;skip_completed 成员已由 prior_outputs 预填)
+            pending = [s for s in group if s.squad_id not in skip_completed]
             tasks = []
-            for s in group:
-                if s.squad_id in skip_completed:
-                    continue
-
+            for s in pending:
                 ctx = {dep: done[dep].output for dep in s.depends_on if dep in done}
                 cmd = {**s.command, "_upstream": ctx}
                 tasks.append(
@@ -502,24 +553,27 @@ class Coordinator:
             # 使用并行执行器
             results_raw = await self.parallel_executor.execute_all(tasks)
 
-            # 处理结果
-            for _i, (squad, result) in enumerate(zip(group, results_raw, strict=False)):
-                if squad.squad_id in skip_completed:
-                    continue
-
+            # 处理结果(与 pending 对齐,completed 分队由 prior_outputs 提供)
+            for _i, (squad, result) in enumerate(zip(pending, results_raw, strict=False)):
                 if isinstance(result, Exception):
                     res = self._to_result(squad, {"status": "failed", "error": str(result)})
                 else:
                     res = self._to_result(squad, result)
                 done[squad.squad_id] = res
 
-                # 检查点
-                completed_ids = list(done.keys())
-                outputs_so_far = {sid: r.output for sid, r in done.items()}
+                # 检查点(失败分队不计入 completed,保证 resume 会重跑它)(G13)
+                completed_ids = [sid for sid, r in done.items() if r.status == "success"]
+                outputs_so_far = {sid: r.output for sid, r in done.items() if r.status == "success"}
                 run_state = RunState(
                     session_id=session_id,
                     step=step_idx + 1,
-                    data={"outputs": outputs_so_far, "command": squad.command},
+                    data={
+                        "outputs": outputs_so_far,
+                        "command": original_command
+                        if original_command is not None
+                        else squad.command,
+                        "squads": [_squad_to_dict(s) for s in squads],
+                    },
                     completed_steps=completed_ids,
                 )
                 with contextlib.suppress(Exception):

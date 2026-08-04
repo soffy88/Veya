@@ -1,6 +1,6 @@
 [project]
 name = "veya"
-version = "0.5.0"
+version = "0.5.1"
 description = "veya — AI 编码 agent layer4 实现"
 requires-python = ">=3.11"
 dependencies = [
@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.28.1",
     "aiohttp>=3.14.3",
     "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.9",  # G17: FastAPI 表单/文件上传支持
     "textual>=0.60.0",
     "networkx>=3.6.1",
     "matplotlib>=3.11.1",
@@ -21,6 +22,13 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "mkdocs-material>=9.5.0",
     "mkdocstrings[python]>=0.26.0",
+]
+# G17: 按需可选依赖(不默认安装,避免无用依赖膨胀)
+interactive = [
+    "prompt-toolkit>=3.0.0",  # 增强交互式 CLI(行编辑/补全/历史)
+]
+settings = [
+    "pydantic-settings>=2.0.0",  # 若接入 pydantic 配置管理(现用自研 loader)
 ]
 
 [project.scripts]

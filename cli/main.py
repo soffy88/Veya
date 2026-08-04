@@ -29,7 +29,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--config", default=None, help="Config file path")
     p.add_argument("--resume", metavar="SESSION_ID", help="Resume a checkpointed session")
-    p.add_argument("--version", action="version", version="veya 0.5.0")
+    p.add_argument("--version", action="version", version="veya 0.5.1")
     return p
 
 
@@ -42,7 +42,7 @@ async def _run_once(text: str, *, persona: str) -> dict[str, Any]:
 async def _interactive_loop(persona: str) -> None:
     from server.coordinator import coordinator
 
-    print(f"veya 0.5.0 | persona={persona} | Ctrl-D or 'exit' to quit", file=sys.stderr)
+    print(f"veya 0.5.1 | persona={persona} | Ctrl-D or 'exit' to quit", file=sys.stderr)
     session_id: str | None = None
 
     with contextlib.suppress(ImportError):
@@ -83,14 +83,14 @@ async def _interactive_loop(persona: str) -> None:
 
 async def _resume(session_id: str, persona: str) -> None:
     from server.checkpoint import load_checkpoint
-    from veya.compat import restore_from_checkpoint
+    from veya.compat import checkpoint_to_run_state
 
     ckpt = await load_checkpoint(session_id)
     if not ckpt:
         print(f"No checkpoint found for session '{session_id}'", file=sys.stderr)
         sys.exit(1)
 
-    state = restore_from_checkpoint(ckpt)
+    state = checkpoint_to_run_state(ckpt)
     print(
         f"Resuming session {session_id} from step {state.step}, completed: {state.completed_steps}",
         file=sys.stderr,

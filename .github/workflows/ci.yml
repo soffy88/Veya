@@ -49,6 +49,9 @@ jobs:
           python scripts/check_manifest.py
           python scripts/check_async_contract.py
 
+      - name: G16 English-docstring gate (modern core)
+        run: python scripts/check_docstring_language.py
+
   typecheck:
     name: Type Check (mypy)
     runs-on: ubuntu-latest

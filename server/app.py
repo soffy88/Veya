@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="veya", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="veya", version="0.5.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -89,4 +89,4 @@ app.include_router(sse_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.5.0"}
+    return {"status": "ok", "version": "0.5.1"}

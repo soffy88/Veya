@@ -1,15 +1,17 @@
-"""obase.telemetry — JSONL 追踪/遥测（3O §7 obase 横切关注点）。
+"""obase.telemetry — JSONL tracing/telemetry (3O §7, an obase cross-cutting concern).
 
-要点（§5.6 C1 铁律 — asyncio ContextVar 共享可变对象）：
-- 每个 Task 持有独立 context 副本（PEP 567），子 Task 内 ``.set()`` 的新值
-  不回传父 context。
-- 因此 ``TraceContext`` 是**共享可变对象**：顶层 ``begin_trace`` 只 set 一次引用，
-  所有下游（含并发子 Task）只 ``.get()`` 拿到同一对象并在对象上累加
-  （``add_step`` 而非新建对象）。
+Key point (§5.6 C1 iron rule — asyncio ContextVar with shared mutable objects):
+- Every Task holds its own context copy (PEP 567); a ``.set()`` inside a child task
+  never propagates back to the parent context.
+- Hence ``TraceContext`` is a **shared mutable object**: top-level ``begin_trace``
+  binds the reference once; all downstream code (including concurrent child tasks)
+  only ``.get()`` the same object and accumulate onto it (``add_step`` rather than
+  creating new objects).
 
-与 on_step 通道集成（依赖方向：服务层 → obase）：
-- 本模块不 import ``server.events``（§7.4 禁止反向依赖）；
-- 服务层用 ``set_emitter(fire_step_wrapper)`` 把回调注入，emit 时写 trace 并转发。
+Integration with the on_step channel (dependency direction: service layer → obase):
+- This module never imports ``server.events`` (§7.4 forbids reverse dependencies);
+- The service layer injects the callback via ``set_emitter(fire_step_wrapper)``;
+  emit() writes the trace and forwards the event.
 """
 
 from __future__ import annotations
@@ -48,7 +50,7 @@ _emitter_ctx: contextvars.ContextVar[Callable[[dict], None] | None] = contextvar
 
 @dataclasses.dataclass
 class TraceContext:
-    """共享可变 trace 对象（ContextVar 持有引用；并发子 Task 累加同一对象）。"""
+    """Shared mutable trace object (ContextVar holds a reference; concurrent child tasks accumulate into the same object)."""
 
     name: str
     trace_id: str
@@ -61,7 +63,7 @@ class TraceContext:
     _token: contextvars.Token | None = dataclasses.field(default=None, init=False, repr=False)
 
     def add_step(self, event: dict[str, Any]) -> None:
-        """追加事件（list.append 而非 set —— C1 铁律的 decision_trail 同款）。"""
+        """Append an event (list.append, not set — same as the C1 iron-rule decision_trail)."""
         step = dict(event)
         step.setdefault("ts", time.time())
         step.setdefault("trace_id", self.trace_id)
@@ -100,7 +102,7 @@ class TraceContext:
 
 
 def current_trace() -> TraceContext | None:
-    """当前 context 的 trace（无则 None；只 get 不 set）。"""
+    """The trace bound to the current context (None if absent; get-only, never set)."""
     return _current.get()
 
 
@@ -112,7 +114,7 @@ def begin_trace(
     parent_id: str | None = None,
     meta: dict[str, Any] | None = None,
 ) -> TraceContext:
-    """顶层开启 trace（在 context 中 set 引用；结束后须 ``end_trace``/``close``）。"""
+    """Begin a top-level trace (binds the reference in the context; must ``end_trace``/``close`` when done)."""
     parent = current_trace()
     trace = TraceContext(
         name=name,
@@ -124,7 +126,7 @@ def begin_trace(
 
 
 def end_trace(trace: TraceContext, *, status: str = "completed") -> TraceContext:
-    """关闭 trace 并 emit 终结事件（须先 emit 再改 status —— StreamingManager 同款）。"""
+    """Close the trace and emit a terminal event (emit before mutating status — same as StreamingManager)."""
     emit(
         {
             "span": trace.name,
@@ -138,7 +140,7 @@ def end_trace(trace: TraceContext, *, status: str = "completed") -> TraceContext
 
 
 def emit(event: dict[str, Any]) -> None:
-    """写当前 trace 的 steps 并转发给注入的 emitter（不 raise，与 on_step 语义一致）。"""
+    """Write the current trace steps and forward them to the injected emitter (never raises, matching on_step semantics)."""
     trace = _current.get()
     if trace is not None:
         trace.add_step(event)
@@ -149,16 +151,17 @@ def emit(event: dict[str, Any]) -> None:
 
 
 def set_emitter(cb: Callable[[dict], None] | None) -> contextvars.Token:
-    """服务层注入 on_step 回调（如 ``server.events.fire_step``）。返回 reset token。"""
+    """Service layer injects an on_step callback (e.g. ``server.events.fire_step``). Returns a reset token."""
     return _emitter_ctx.set(cb)
 
 
 # ── @traced 装饰器 ────────────────────────────────────────────────────
 def traced(name: str | None = None) -> Callable:
-    """Sync/async 通用 span 装饰器：自动记 enter/exit/error + duration。
+    """Sync/async universal span decorator: records enter/exit/error + duration automatically.
 
-    执行模型由本性决定（§0.2）：async def → await 包装；sync def → 同步包装。
-    异常不吞（记录 status=failed 后重新 raise）；CancelledError 记 cancelled 后重抛。
+    Execution model follows the callable kind (§0.2): async def → awaited wrapper;
+    sync def → synchronous wrapper. Exceptions are never swallowed (status=failed is
+    recorded, then re-raised); CancelledError is recorded as cancelled and re-raised.
     """
 
     def decorator(func: Callable) -> Callable:
@@ -231,7 +234,7 @@ def traced(name: str | None = None) -> Callable:
 
 
 def _args_summary(args: tuple, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """参数摘要（防 PII/大对象泄漏进 trace，§5.5.1 精神）。"""
+    """Argument summary (prevents PII/large objects from leaking into traces, §5.5.1 spirit)."""
     summary: dict[str, Any] = {}
     for i, a in enumerate(args[:2]):  # 最多前 2 个位置参数
         summary[f"arg{i}"] = _safe_repr(a)
@@ -258,7 +261,7 @@ def _elapsed_ms(start: float) -> float:
 
 # ── JSONL 汇出 ────────────────────────────────────────────────────────
 def jsonl_write(trace: TraceContext, *, path: Path) -> Path:
-    """追加一行 JSON（事件顺序可复现）。单源：读取复用 compat.jsonl_latest。"""
+    """Append one JSON line (reproducible event order). Single source: reads reuse compat.jsonl_latest."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(trace.as_dict(), ensure_ascii=False, default=str)
@@ -268,7 +271,7 @@ def jsonl_write(trace: TraceContext, *, path: Path) -> Path:
 
 
 def latest_trace(*, path: Path) -> dict | None:
-    """读取最新一条 trace（委托 compat.jsonl_latest —— §1.4 单源，不重复实现）。"""
+    """Read the latest trace (delegates to compat.jsonl_latest — §1.4 single source, no reimplementation)."""
     from veya.compat import jsonl_latest  # 委托，非复制
 
     return jsonl_latest(path=Path(path), by_key="trace_id")

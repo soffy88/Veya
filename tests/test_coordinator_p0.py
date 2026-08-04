@@ -74,7 +74,7 @@ async def test_coordinator_streaming():
     command = {"text": "Test command", "model": "test-model"}
 
     # 重写 squad 执行以避免实际 LLM 调用
-    async def mock_run_squads(orchestrator, plan, *, session_id=None):
+    async def mock_run_squads(orchestrator, plan, *, session_id=None, command=None):
         return [
             SquadResult(
                 squad_id="test",

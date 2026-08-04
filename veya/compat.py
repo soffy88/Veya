@@ -83,6 +83,17 @@ def restore_from_checkpoint(session_id: str) -> CheckpointData | None:
     )
 
 
+def checkpoint_to_run_state(ckpt: CheckpointData) -> RunState:
+    """Convert CheckpointData → RunState for resume (G13)."""
+    payload = ckpt.payload or {}
+    return RunState(
+        session_id=ckpt.session_id,
+        step=ckpt.version,
+        data=payload.get("data", {}),
+        completed_steps=list(payload.get("completed_steps", [])),
+    )
+
+
 def compute_diff(before: dict, after: dict) -> dict[str, Any]:
     """Simple dict diff — returns keys added/changed/removed."""
     added = {k: after[k] for k in set(after) - set(before)}
