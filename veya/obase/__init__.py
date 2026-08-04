@@ -1,16 +1,19 @@
-"""veya/obase — 3O 基础设施层落地包（§3/§7，与业务层平行）。
+"""veya/obase — the 3O infrastructure layer (§3/§7, orthogonal to the business layers).
 
-obase 与 3O 三层（oprim/oskill/omodul）平行：3O 三层关注"业务怎么算/编排/产出"，
-obase 关注"怎么调外部 LLM/算成本/限流/取凭据/鉴权/遥测/沙箱"——职责正交。
+obase runs parallel to the three 3O layers (oprim/oskill/omodul): those layers own
+how business computes/orchestrates/produces, while obase owns how we call external
+LLMs / compute cost / rate-limit / fetch credentials / authorize / telemetry / sandbox.
 
-依赖方向（§7.4，MUST）：
-    ✅ omodul/oskill/oprim/服务层 → obase
-    ❌ obase → 3O 任何层 / 项目业务层（veya.tools、server、agents、config…）
+Dependency direction (§7.4, MUST):
+    ✅ omodul/oskill/oprim/service layers → obase
+    ❌ obase → any 3O layer or project business layer (veya.tools, server, agents, config...)
 
-本包仅允许 import：标准库、第三方库、``veya.errors``、``veya.compat``、
-``veya.obase`` 内部模块（由 ``scripts/check_obase_no_reverse_dep.py`` 强制）。
+This package may only import: stdlib, third-party libraries, ``veya.errors``,
+``veya.compat`` and internal ``veya.obase`` modules (enforced by
+``scripts/check_obase_no_reverse_dep.py``).
 
-§2.5: 主库暴露 ``__manifest__``（元素清单 + 签名 + 版本），供 catalog 查询与复用决策。
+§2.5: the library exposes ``__manifest__`` (element list + signature + version) for
+catalog queries and reuse decisions.
 """
 
 from __future__ import annotations

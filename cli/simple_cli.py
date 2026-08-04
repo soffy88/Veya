@@ -77,7 +77,7 @@ def setup_parser():
     """设置命令行参数解析器"""
     parser = argparse.ArgumentParser(description="veya - AI编程助手", prog="veya")
 
-    parser.add_argument("--version", action="version", version="veya 0.5.0")
+    parser.add_argument("--version", action="version", version="veya 0.5.1")
 
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
 

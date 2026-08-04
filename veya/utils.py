@@ -37,7 +37,7 @@ class CostTracker:
         return self.operations
 
     def record(self, *, tokens: int = 0, cost_usd: float = 0.0) -> None:
-        """compat 兼容方法:按 token/成本记录(§1.4 单源——compat.CostTracker 别名本类)。"""
+        """compat-compatible method: record token/cost (§1.4 single source — compat.CostTracker aliases this class)."""
         self.total_cost += cost_usd
         self.operations.append(
             {
@@ -49,7 +49,7 @@ class CostTracker:
         )
 
     def to_dict(self) -> dict:
-        """compat 兼容方法:序列化视图。"""
+        """compat-compatible method: serializable view."""
         return {
             "total_usd": self.total_cost,
             "total_tokens": sum(op.get("tokens", 0) for op in self.operations),

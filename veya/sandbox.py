@@ -1,6 +1,6 @@
 """
-安全沙箱模块 - P1 核心能力
-功能：资源限制、操作审计、自动回滚、隔离执行
+Secure sandbox module — P1 core capability.
+Features: resource limits, operation audit, automatic rollback, isolated execution.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ _DANGEROUS_SUBSTRINGS: tuple[str, ...] = (
 
 
 def is_dangerous_command(command: str) -> bool:
-    """危险命令检测（canonical 单源，§1.4：tools.py 委托本函数）。"""
+    """Dangerous-command detection (canonical single source, §1.4: tools.py delegates here)."""
     lowered = (command or "").lower()
     return any(re.search(pattern, lowered) for pattern in _DANGEROUS_PATTERNS) or any(
         marker in lowered for marker in _DANGEROUS_SUBSTRINGS
@@ -52,12 +52,12 @@ def is_dangerous_command(command: str) -> bool:
 
 
 def is_dangerous_argv(argv: list[str]) -> bool:
-    """参数数组形态的危险检测（重建为带引号字符串后复用 canonical 检查）。"""
+    """Dangerous detection for argv form (rebuilds a quoted string, then reuses the canonical check)."""
     return is_dangerous_command(" ".join(shlex.quote(a) for a in argv))
 
 
 class SandboxStatus(StrEnum):
-    """沙箱状态枚举"""
+    """Sandbox status enum."""
 
     IDLE = "idle"
     RUNNING = "running"
@@ -69,7 +69,7 @@ class SandboxStatus(StrEnum):
 
 
 class ResourceType(StrEnum):
-    """资源类型"""
+    """Resource type."""
 
     MEMORY = "memory"
     CPU = "cpu"
@@ -80,7 +80,7 @@ class ResourceType(StrEnum):
 
 @dataclass
 class ResourceLimit:
-    """资源限制定义"""
+    """Resource limit definition."""
 
     type: ResourceType
     limit: int | float
@@ -94,7 +94,7 @@ class ResourceLimit:
 
 @dataclass
 class AuditLog:
-    """审计日志条目"""
+    """Audit log entry."""
 
     timestamp: float = field(default_factory=time.time)
     action: str = ""
@@ -118,7 +118,7 @@ class AuditLog:
 
 @dataclass
 class SandboxConfig:
-    """沙箱配置"""
+    """Sandbox configuration."""
 
     memory_limit: int | None = None  # in bytes
     cpu_limit: float | None = None  # in CPU seconds (RLIMIT_CPU, soft)
@@ -145,13 +145,13 @@ class SandboxConfig:
 
 class Sandbox(ABC):
     """
-    沙箱抽象基类
+    Sandbox abstract base class.
 
-    功能：
-    1. 资源限制与监控
-    2. 操作审计
-    3. 自动回滚
-    4. 执行环境隔离
+    Features:
+    1. Resource limiting and monitoring
+    2. Operation audit
+    3. Automatic rollback
+    4. Execution environment isolation
     """
 
     def __init__(self, config: SandboxConfig):
@@ -173,26 +173,26 @@ class Sandbox(ABC):
 
     @abstractmethod
     async def execute(self, command: str, **kwargs: Any) -> dict[str, Any]:
-        """执行命令"""
+        """Execute a command."""
         pass
 
     @abstractmethod
     async def execute_args(self, argv: list[str], **kwargs: Any) -> dict[str, Any]:
-        """参数数组执行（无 shell 注入面，G4）"""
+        """Execute an argv array (no shell injection surface, G4)."""
         pass
 
     @abstractmethod
     async def run_script(self, script: str, **kwargs: Any) -> dict[str, Any]:
-        """运行脚本"""
+        """Run a script."""
         pass
 
     @abstractmethod
     async def cancel(self) -> None:
-        """取消执行"""
+        """Cancel execution."""
         pass
 
     def setup_environment(self) -> None:
-        """设置执行环境"""
+        """Set up the execution environment."""
         # 创建临时工作目录
         self.temp_dir = tempfile.mkdtemp(prefix="veya_sandbox_")
         if self.config.working_dir:
@@ -205,7 +205,7 @@ class Sandbox(ABC):
         self._audit_log("sandbox_start", "Sandbox started", status="started")
 
     def cleanup_environment(self) -> None:
-        """清理执行环境"""
+        """Tear down the execution environment."""
         # 清理临时目录
         if self.temp_dir and os.path.exists(self.temp_dir):
             try:
@@ -261,7 +261,7 @@ class Sandbox(ABC):
     def _audit_log(
         self, action: str, resource: str, status: str = "success", **details: Any
     ) -> None:
-        """记录审计日志"""
+        """Record an audit log entry."""
         if not self.config.audit_enabled:
             return
 
@@ -280,7 +280,7 @@ class Sandbox(ABC):
             self._save_audit_log()
 
     def _save_audit_log(self) -> None:
-        """保存审计日志到文件"""
+        """Persist the audit log to disk."""
         if not self.config.audit_enabled or not self.audit_log:
             return
 
@@ -290,7 +290,7 @@ class Sandbox(ABC):
             json.dump([log.to_dict() for log in self.audit_log], f, indent=2)
 
     def get_audit_report(self) -> dict[str, Any]:
-        """获取审计报告"""
+        """Get the audit report."""
         log = self.audit_log
         return {
             "total_entries": len(log),
@@ -311,7 +311,7 @@ class Sandbox(ABC):
         }
 
     def get_resource_usage(self) -> dict[str, Any]:
-        """获取资源使用情况"""
+        """Get resource usage."""
         return {
             "memory": self.resource_usage[ResourceType.MEMORY],
             "cpu": self.resource_usage[ResourceType.CPU],
@@ -325,9 +325,9 @@ class Sandbox(ABC):
 
 class ProcessSandbox(Sandbox):
     """
-    进程沙箱实现
+    Process sandbox implementation.
 
-    通过子进程执行命令，提供基础隔离和资源限制
+    Executes commands in a subprocess with basic isolation and resource limits.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -336,20 +336,21 @@ class ProcessSandbox(Sandbox):
         self.timeout_task: asyncio.Task | None = None
 
     async def execute(self, command: str, **kwargs: Any) -> dict[str, Any]:
-        """执行命令（shell 语义，向后兼容；执行前拦截危险命令）。
+        """Execute a command (shell semantics, backward compatible; dangerous commands are rejected first).
 
-        注：字符串命令走 shell（支持管道/&&），仅用于受信内部调用；
-        不可信输入请用 :meth:`execute_args`（参数数组，无 shell 注入面）。
+        Note: string commands go through the shell (pipelines/``&&`` supported) and are
+        only meant for trusted internal calls; for untrusted input use
+        :meth:`execute_args` (argv array, no shell injection surface).
         """
         if self.config.reject_dangerous and is_dangerous_command(command):
             return self._rejected_result(command)
         return await self._run_process(command, use_shell=True)
 
     async def execute_args(self, argv: list[str], **kwargs: Any) -> dict[str, Any]:
-        """参数数组执行：用户参数原样传递，不经 shell 解析（G4 防注入）。
+        """Execute an argv array: user arguments pass through verbatim, never shell-parsed (G4 anti-injection).
 
-        资源限制通过固定 wrapper（``bash -c '…ulimit…; exec "$@"'``）实现，
-        wrapper 本身可信、不含用户输入。
+        Resource limits are enforced via a fixed wrapper (``bash -c '…ulimit…; exec "$@"'``);
+        the wrapper is trusted and never contains user input.
         """
         if not argv:
             return {
@@ -379,7 +380,7 @@ class ProcessSandbox(Sandbox):
         }
 
     async def _run_process(self, command: str | list[str], *, use_shell: bool) -> dict[str, Any]:
-        """共享执行核心：shell 或参数数组两种形态统一处理超时/输出/审计。"""
+        """Shared execution core: unified timeout/output/audit handling for both shell and argv forms."""
         display = command if isinstance(command, str) else " ".join(shlex.quote(a) for a in command)
         self.status = SandboxStatus.RUNNING
         self.start_time = time.time()
@@ -475,7 +476,7 @@ class ProcessSandbox(Sandbox):
             self.cleanup_environment()
 
     async def run_script(self, script: str, **kwargs: Any) -> dict[str, Any]:
-        """运行脚本（走参数数组执行，无 shell 拼接）"""
+        """Run a script (via argv execution, no shell concatenation)."""
         # Ensure environment is set up before writing the script file
         if not self.temp_dir:
             self.setup_environment()
@@ -490,7 +491,7 @@ class ProcessSandbox(Sandbox):
         return await self.execute_args([sys.executable, script_path])
 
     async def cancel(self) -> None:
-        """取消执行"""
+        """Cancel execution."""
         if self.process and self.process.returncode is None:
             self.process.terminate()
             await self.process.wait()
@@ -500,7 +501,7 @@ class ProcessSandbox(Sandbox):
             )
 
     async def _timeout_handler(self) -> None:
-        """超时处理程序"""
+        """Timeout handler."""
         assert self.config.time_limit is not None
         await asyncio.sleep(self.config.time_limit)
         if self.process and self.process.returncode is None:
@@ -508,7 +509,7 @@ class ProcessSandbox(Sandbox):
             self._audit_log("execution_timeout", "Time limit exceeded", status="failed")
 
     def _prepare_env(self) -> dict[str, str]:
-        """准备环境变量"""
+        """Prepare environment variables."""
         env = os.environ.copy()
         if self.config.network_blocked:
             # 模拟网络限制
@@ -523,9 +524,9 @@ class ProcessSandbox(Sandbox):
 
 class FileSystemSandbox(Sandbox):
     """
-    文件系统沙箱
+    File-system sandbox.
 
-    通过文件系统快照提供回滚能力
+    Provides rollback via file-system snapshots.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -557,7 +558,7 @@ class FileSystemSandbox(Sandbox):
                             self.original_files[rel_path] = f.read()
 
     async def execute(self, command: str, **kwargs: Any) -> dict[str, Any]:
-        """执行命令"""
+        """Execute a command."""
         self.status = SandboxStatus.RUNNING
         self.start_time = time.time()
 
@@ -586,7 +587,7 @@ class FileSystemSandbox(Sandbox):
             self.status = SandboxStatus.COMPLETED
 
     async def run_script(self, script: str, **kwargs: Any) -> dict[str, Any]:
-        """运行脚本"""
+        """Run a script."""
         # Ensure environment is set up before writing the script file
         if not self.temp_dir:
             self.setup_environment()
@@ -601,7 +602,7 @@ class FileSystemSandbox(Sandbox):
         return await self.execute(f"{sys.executable} {script_path}", **kwargs)
 
     async def execute_args(self, argv: list[str], **kwargs: Any) -> dict[str, Any]:
-        """参数数组执行（委托 ProcessSandbox 的 execute_args，无 shell 拼接）"""
+        """Execute an argv array (delegates to ProcessSandbox.execute_args, no shell concatenation)."""
         self.status = SandboxStatus.RUNNING
         self.start_time = time.time()
         try:
@@ -620,12 +621,12 @@ class FileSystemSandbox(Sandbox):
             self.status = SandboxStatus.COMPLETED
 
     async def cancel(self) -> None:
-        """取消执行"""
+        """Cancel execution."""
         # 不需要额外处理
         pass
 
     async def rollback(self) -> bool:
-        """回滚到初始状态"""
+        """Roll back to the initial state."""
         if self.status in [
             SandboxStatus.CANCELLED,
             SandboxStatus.FAILED,
@@ -660,13 +661,13 @@ class FileSystemSandbox(Sandbox):
 
 class SafeExecutor:
     """
-    安全执行器 - 使用沙箱安全执行代码
+    Safe executor - executes code safely through a sandbox.
 
-    功能：
-    1. 自动选择合适的沙箱
-    2. 资源限制应用
-    3. 操作审计
-    4. 失败回滚
+    Features:
+    1. Picks an appropriate sandbox automatically
+    2. Applies resource limits
+    3. Audits operations
+    4. Rolls back on failure
     """
 
     def __init__(self, config: SandboxConfig | None = None):
@@ -675,16 +676,16 @@ class SafeExecutor:
         self.active = False
 
     async def __aenter__(self) -> SafeExecutor:
-        """上下文管理器入口"""
+        """Context-manager entry."""
         await self.start()
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """上下文管理器出口"""
+        """Context-manager exit."""
         await self.stop()
 
     async def start(self) -> None:
-        """启动执行器"""
+        """Start the executor."""
         if self.active:
             return
 
@@ -697,7 +698,7 @@ class SafeExecutor:
         self.active = True
 
     async def stop(self) -> None:
-        """停止执行器"""
+        """Stop the executor."""
         if not self.active:
             return
 
@@ -708,7 +709,7 @@ class SafeExecutor:
         self.sandbox = None
 
     async def execute(self, command: str, **kwargs: Any) -> dict[str, Any]:
-        """执行命令（shell 语义，兼容）"""
+        """Execute a command (shell semantics, compatible)."""
         if not self.active:
             await self.start()
 
@@ -718,7 +719,7 @@ class SafeExecutor:
         return await self.sandbox.execute(command, **kwargs)
 
     async def execute_args(self, argv: list[str], **kwargs: Any) -> dict[str, Any]:
-        """参数数组执行（无 shell 注入面，G4 推荐路径）"""
+        """Execute an argv array (no shell injection surface; G4 recommended path)."""
         if not self.active:
             await self.start()
 
@@ -728,7 +729,7 @@ class SafeExecutor:
         return await self.sandbox.execute_args(argv, **kwargs)
 
     async def run_script(self, script: str, **kwargs: Any) -> dict[str, Any]:
-        """运行脚本"""
+        """Run a script."""
         if not self.active:
             await self.start()
 
@@ -738,18 +739,18 @@ class SafeExecutor:
         return await self.sandbox.run_script(script, **kwargs)
 
     async def cancel(self) -> None:
-        """取消执行"""
+        """Cancel execution."""
         if self.sandbox:
             await self.sandbox.cancel()
 
     def get_audit_report(self) -> dict[str, Any]:
-        """获取审计报告"""
+        """Get the audit report."""
         if self.sandbox:
             return self.sandbox.get_audit_report()
         return {}
 
     def get_resource_usage(self) -> dict[str, Any]:
-        """获取资源使用情况"""
+        """Get resource usage."""
         if self.sandbox:
             return self.sandbox.get_resource_usage()
         return {}
@@ -760,9 +761,9 @@ class SafeExecutor:
 
 class SecureTool:
     """
-    安全工具包装器
+    Secure tool wrapper.
 
-    为现有工具添加安全沙箱执行能力
+    Adds safe sandbox execution to existing tools.
     """
 
     def __init__(self, tool: Any, config: SandboxConfig | None = None):
@@ -771,7 +772,7 @@ class SecureTool:
         self.executor = SafeExecutor(self.config)
 
     async def execute(self, **kwargs: Any) -> dict[str, Any]:
-        """安全执行工具"""
+        """Execute a tool safely."""
         # 准备命令
         command = self._prepare_command(**kwargs)
 
@@ -790,7 +791,7 @@ class SecureTool:
                 }
 
     def _prepare_command(self, **kwargs: Any) -> str:
-        """准备要执行的命令"""
+        """Prepare the command to execute."""
         # 具体实现取决于工具类型
         if hasattr(self.tool, "metadata") and hasattr(self.tool.metadata, "name"):
             tool_name = self.tool.metadata.name
@@ -802,20 +803,20 @@ class SecureTool:
         return str(kwargs)
 
     def _parse_output(self, output: str) -> dict[str, Any]:
-        """解析输出"""
+        """Parse the output."""
         return {"status": "success", "output": output}
 
 
 # 便捷函数
 def create_sandbox(config: SandboxConfig | None = None) -> Sandbox:
-    """创建沙箱实例"""
+    """Create a sandbox instance."""
     if not config:
         config = SandboxConfig()
     return ProcessSandbox(config)
 
 
 def create_safe_executor(config: SandboxConfig | None = None) -> SafeExecutor:
-    """创建安全执行器"""
+    """Create a safe executor."""
     return SafeExecutor(config)
 
 

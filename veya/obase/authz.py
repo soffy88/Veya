@@ -1,14 +1,17 @@
-"""obase.authz — 权限评估与交互式确认（3O §7 obase 横切关注点）。
+"""obase.authz — permission evaluation and interactive confirmation (3O §7, an obase
+cross-cutting concern).
 
-G5：把"规则化 callable 恒 allow"升级为真正的 决策状态机：
-    ALLOW（规则显式允许）→ DENY（规则显式拒绝）→ PENDING（ask: 规则 / 无匹配 → 人工确认）。
+G5: upgrades "rule-based callable always allows" into a real decision state machine:
+    ALLOW (rule explicitly allows) → DENY (rule explicitly denies) → PENDING
+    (ask: rule / no match → human confirmation).
 
-本模块是权限规则的 **canonical 单源**（§1.4）：
-    - ``veya.compat.permission_evaluate`` / ``match_permission_rule`` 委托本模块；
-    - 项目服务层（CLI/HTTP）调用 ``InteractivePermissionGate`` 做交互确认。
+This module is the **canonical single source** of permission rules (§1.4):
+    - ``veya.compat.permission_evaluate`` / ``match_permission_rule`` delegate here;
+    - the project service layer (CLI/HTTP) drives confirmation via
+      ``InteractivePermissionGate``.
 
-规则语法（与既有 ``_RULES_BY_PERSONA`` 一致）：
-    ``allow:<action>`` / ``deny:<action>`` / ``ask:<action>`` / ``allow:*`` 通配。
+Rule syntax (consistent with the existing ``_RULES_BY_PERSONA``):
+    ``allow:<action>`` / ``deny:<action>`` / ``ask:<action>`` / ``allow:*`` wildcard.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ class PermissionDecision(StrEnum):
 
 @dataclasses.dataclass
 class PermissionRequest:
-    """一次待确认/已决权限请求。"""
+    """A single permission request (pending or decided)."""
 
     request_id: str
     action: str
@@ -58,9 +61,9 @@ class PermissionRequest:
 
 # ── 规则匹配（canonical） ─────────────────────────────────────────────
 def match_permission_rule(rules: list[str], action: str, resource: str | None = None) -> str | None:
-    """按顺序匹配 ``allow:``/``deny:``/``ask:`` 规则；返回命中规则的 verb 或 None。
+    """Match ``allow:``/``deny:``/``ask:`` rules in order; return the matched verb or None.
 
-    通配 ``allow:*`` 匹配任意 action。规则顺序优先（先匹配先生效）。
+    A wildcard ``allow:*`` matches any action. Rule order wins (first match takes effect).
     """
     for rule in rules:
         rule = rule.strip()
@@ -80,9 +83,9 @@ def evaluate_permission(
     persona: str = "build",
     rules: list[str] | None = None,
 ) -> dict[str, Any]:
-    """评估权限 → 决策 dict（ALLOw/DENY/PENDING 三态）。
+    """Evaluate a permission → decision dict (ALLOW/DENY/PENDING three states).
 
-    返回结构（omodul 风格 status/error 字段，§5.3）：
+    Return shape (omodul-style status/error fields, §5.3):
         {"decision": "allow|deny|pending", "action": ..., "resource": ...,
          "persona": ..., "matched_rule": ...|None, "status": "decided"|"pending",
          "error": None}
@@ -111,7 +114,7 @@ def evaluate_permission(
 
 
 def _default_rules(persona: str) -> list[str]:
-    """persona 默认规则（与 config/permissions.py 的 _RULES_BY_PERSONA 对齐）。"""
+    """Per-persona default rules (aligned with config/permissions.py _RULES_BY_PERSONA)."""
     if persona == "build":
         # ask 优先于 allow:* —— 否则 allow:* 会吞掉 ask:bash（规则顺序先匹配先生效）
         return ["ask:bash", "allow:*"]
@@ -122,12 +125,12 @@ def _default_rules(persona: str) -> list[str]:
 
 # ── 交互式确认门（G5） ────────────────────────────────────────────────
 class InteractivePermissionGate:
-    """把 PENDING 挂起为可 approve/deny 的请求，支持同步/异步等待。
+    """Suspend PENDING requests into approve/deny-able requests with sync/async waiting.
 
-    - 规则决定 ALLOW/DENY → 直接返回，不打扰用户。
-    - 规则 PENDING（ask: 或无匹配）→ 生成 ``PermissionRequest`` 挂起，
-      经 ``on_pending`` 回调通知（CLI → input()；HTTP → SSE/轮询），
-      调用方 ``await_decision`` 阻塞到 approve/deny 或超时。
+    - Rules yielding ALLOW/DENY return immediately without disturbing the user.
+    - Rules yielding PENDING (ask: or no match) create a suspended ``PermissionRequest``,
+      notified via the ``on_pending`` callback (CLI → input(); HTTP → SSE/polling);
+      the caller blocks on ``await_decision`` until approve/deny or timeout.
     """
 
     def __init__(
@@ -155,7 +158,7 @@ class InteractivePermissionGate:
         rules: list[str] | None = None,
         wait: bool = True,
     ) -> dict[str, Any]:
-        """评估并在必要时交互确认。``wait=False`` 时 PENDING 直接返回（挂起）。"""
+        """Evaluate and interactively confirm when needed. With ``wait=False`` a PENDING decision returns directly (suspended)."""
         result = evaluate_permission(action, resource=resource, persona=persona, rules=rules)
         if result["decision"] != PermissionDecision.PENDING:
             return result
@@ -195,7 +198,7 @@ class InteractivePermissionGate:
         return self._pending.get(request_id) or self._resolved.get(request_id)
 
     def approve(self, request_id: str, *, note: str = "approved by user") -> bool:
-        """人工批准（同步，供 CLI/HTTP 回调）。"""
+        """Human approval (synchronous; for CLI/HTTP callbacks)."""
         request = self._pending.get(request_id)
         if request is None or request.decision != PermissionDecision.PENDING:
             return False
@@ -212,7 +215,7 @@ class InteractivePermissionGate:
         return True
 
     def reject_stale(self, *, max_age_seconds: float | None = None) -> int:
-        """超时未决请求自动 DENY（安全默认）。返回处理数。"""
+        """Auto-DENY stale pending requests (safe default). Returns the number processed."""
         stale = [
             r
             for r in self._pending.values()
@@ -226,7 +229,7 @@ class InteractivePermissionGate:
     async def await_decision(
         self, request_id: str, *, timeout: float | None = None
     ) -> dict[str, Any]:
-        """阻塞到 approve/deny 或超时（超时 → DENY，安全默认）。"""
+        """Block until approve/deny or timeout (timeout → DENY, the safe default)."""
         request = self._pending.get(request_id)
         if request is None:
             return {"decision": PermissionDecision.DENY, "error": "unknown request_id"}
