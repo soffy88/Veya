@@ -63,4 +63,5 @@ nav:
       - veya.errors (异常): api/errors.md
   - 开发者:
       - 3O 范式检查: dev/3o-checks.md
+      - 3O 装配图: dev/veya-3o-assembly.md
       - 插件 SDK: dev/plugins.md

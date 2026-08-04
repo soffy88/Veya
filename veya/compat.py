@@ -611,32 +611,63 @@ def diff_session_state(session_a: dict, session_b: dict, **kwargs: Any) -> dict:
 
 
 # ===================================================================
-# Provider registry shim (replace obase.ProviderRegistry)
+# Provider registry adapter (single-source → obase.ProviderRegistry)
 # ===================================================================
 
 
 class ProviderRegistry:
-    """Stub provider registry."""
+    """Adapter over ``obase.ProviderRegistry`` (§1.4 single source).
 
+    Veya's historical shim is replaced by a thin adapter so the canonical
+    registry from the obase main library is the single implementation.
+    The veya-facing API (``get()``/``get(name)``/``register``/``list``) is kept
+    stable; lookups are routed to the main-library registry categories.
+    """
+
+    _delegate: Any = None
     _instance: ProviderRegistry | None = None
 
-    def __init__(self) -> None:
-        self._providers: dict[str, Any] = {}
+    @classmethod
+    def _d(cls) -> Any:
+        """Lazily resolve the obase singleton (never pay for it at import time)."""
+        if cls._delegate is None:
+            from veya.platform import load as _load
+
+            cls._delegate = _load("obase").ProviderRegistry.get()
+        return cls._delegate
 
     @classmethod
     def get(cls, name: str | None = None) -> ProviderRegistry | Any:
-        """Get singleton instance, or a registered provider if ``name`` given."""
+        """Get the singleton adapter instance, or a provider if ``name`` given."""
         if cls._instance is None:
             cls._instance = cls()
-        if name is not None:
-            return cls._instance._providers.get(name)
-        return cls._instance
+        if name is None:
+            return cls._instance
+        d = cls._d()
+        for lookup in (d.llm, d.vlm, d.image_gen):
+            try:
+                found = lookup(name)
+            except Exception:
+                found = None
+            if found is not None:
+                return found
+        try:
+            return d.generic("generic", name)
+        except Exception:
+            return None
 
     def register(self, name: str, provider: Any) -> None:
-        self._providers[name] = provider
+        """Register under the generic category, overwriting any existing entry."""
+        d = self._d()
+        d.register_generic("generic", name, provider, replace=True)
 
     def list(self) -> list[str]:
-        return list(self._providers.keys())
+        """List registered provider names (all categories)."""
+        d = self._d()
+        try:
+            return [p for _, p in d.list_providers()]
+        except Exception:
+            return []
 
 
 class LspManager:

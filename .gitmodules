@@ -1,0 +1,15 @@
+[submodule "platform/3O/oprim"]
+	path = platform/3O/oprim
+	url = https://github.com/helios-plat/oprim.git
+[submodule "platform/3O/oskill"]
+	path = platform/3O/oskill
+	url = https://github.com/helios-plat/oskill.git
+[submodule "platform/3O/omodul"]
+	path = platform/3O/omodul
+	url = https://github.com/helios-plat/omodul.git
+[submodule "platform/3O/obase"]
+	path = platform/3O/obase
+	url = https://github.com/helios-plat/obase.git
+[submodule "platform/3O/oservi"]
+	path = platform/3O/oservi
+	url = https://github.com/helios-plat/oservice.git

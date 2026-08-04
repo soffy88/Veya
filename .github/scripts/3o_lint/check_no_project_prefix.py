@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from _layers import resolve_layer_dirs
+
 # Extendable banned-prefix set (project/vendor bound names).
 BANNED_PREFIXES = ("aegis_", "finance_", "veya_", "vendor_", "proj_")
 TARGET_LAYERS = ["oprim", "oskill", "omodul", "oservi"]
@@ -12,9 +14,10 @@ TARGET_LAYERS = ["oprim", "oskill", "omodul", "oservi"]
 
 def check_no_project_prefix(root_dir: Path) -> list[str]:
     errors: list[str] = []
+    layers = resolve_layer_dirs(root_dir)
     for layer in TARGET_LAYERS:
-        layer_dir = root_dir / layer
-        if not layer_dir.exists():
+        layer_dir = layers.get(layer)
+        if layer_dir is None:
             continue
 
         for py_file in layer_dir.glob("*.py"):
