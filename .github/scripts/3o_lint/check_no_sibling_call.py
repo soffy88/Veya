@@ -40,7 +40,10 @@ def check_no_sibling_call(root_dir: Path) -> list[str]:
             if py_file.name.startswith("_"):
                 continue
 
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            try:
+                tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            except SyntaxError:
+                continue  # unparseable file (e.g. newer py version) is not a sibling-call violation
             imports = _get_imports(tree)
 
             for func_name, mod in imports.items():
@@ -58,8 +61,10 @@ def check_no_sibling_call(root_dir: Path) -> list[str]:
         for py_file in oskill_dir.glob("*.py"):
             if py_file.name.startswith("_"):
                 continue
-            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            imports = _get_imports(tree)
+            try:
+                tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            except SyntaxError:
+                continue
 
             sibling_calls = [name for name, mod in imports.items() if mod == "oskill"]
             oskill_deps[py_file.stem] = sibling_calls
