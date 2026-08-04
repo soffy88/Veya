@@ -14,7 +14,7 @@ dependencies = [
     "networkx>=3.6.1",
     "matplotlib>=3.11.1",
     "plotly>=6.9.0",
-]
+    "structlog>=24.0",  # 3O obase 主库 core 依赖(轻量, 装配通道 veya.platform 所需)
 
 [project.optional-dependencies]
 dev = [
@@ -29,7 +29,6 @@ interactive = [
 ]
 settings = [
     "pydantic-settings>=2.0.0",  # 若接入 pydantic 配置管理(现用自研 loader)
-    "structlog>=24.0",  # 3O obase 主库 core 依赖(轻量, 装配通道 veya.platform 所需)
 ]
 
 [project.scripts]
