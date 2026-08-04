@@ -52,11 +52,7 @@ def _validate_file_path(file_path: str, config: dict) -> bool:
             return False
 
         # Check if path is within allowed directories
-        for allowed_path in allowed_paths:
-            if str(path_obj).startswith(allowed_path):
-                return True
-
-        return False
+        return any(str(path_obj).startswith(allowed_path) for allowed_path in allowed_paths)
     except Exception:
         return False
 
@@ -69,11 +65,8 @@ def _validate_api_call(api_endpoint: str, config: dict) -> bool:
     parsed = urlparse(api_endpoint)
     host = parsed.hostname or parsed.netloc
 
-    if host in allowed_hosts:
-        return True
-
     # Block if not in whitelist
-    return False
+    return host in allowed_hosts
 
 
 def _validate_network_host(host: str, config: dict) -> bool:

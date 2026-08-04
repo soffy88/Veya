@@ -99,6 +99,10 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["veya", "server", "agents", "tools", "cli", "hooks", "registries", "config", "session", "streaming"]
 
+[tool.ruff.lint.per-file-ignores]
+# 独立验证脚本（P4/P5 回归）：先 chdir 到仓库根再 import 项目模块，属有意为之。
+"run_*.py" = ["E402"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

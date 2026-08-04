@@ -37,9 +37,11 @@ r = client.post(
         "persona": "build",
     },
 )
-first = open("README.md").readline().strip()
+with open("README.md") as f:
+    first = f.readline().strip()
 check("/tool write disk", first == "# veya via /tool", first)
-open("README.md", "w").write("# veya\nveya — AI 编码 agent。\n")
+with open("README.md", "w") as f:
+    f.write("# veya\nveya — AI 编码 agent。\n")
 
 r = client.post(
     "/tool",

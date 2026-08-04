@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import readline
 import sys
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -256,18 +257,14 @@ class HistoryManager:
     @classmethod
     def setup(cls) -> None:
         cls.HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        try:
+        with suppress(FileNotFoundError):
             readline.read_history_file(str(cls.HISTORY_FILE))
-        except FileNotFoundError:
-            pass
         readline.set_history_length(cls.MAX_ENTRIES)
 
     @classmethod
     def save(cls) -> None:
-        try:
-            readline.write_history_file(str(cls.HISTORY_FILE))
-        except Exception:  # pragma: no cover
-            pass  # pragma: no cover
+        with suppress(Exception):  # pragma: no cover
+            readline.write_history_file(str(cls.HISTORY_FILE))  # pragma: no cover
 
     @classmethod
     def add(cls, entry: str) -> None:
@@ -385,10 +382,8 @@ class PromptInput:
 
         readline.set_completer(completer)  # pragma: no cover
         readline.set_completer_delims(" \t\n")  # pragma: no cover
-        try:  # pragma: no cover
+        with suppress(Exception):  # pragma: no cover
             readline.parse_and_bind("tab: complete")  # pragma: no cover
-        except Exception:  # pragma: no cover
-            pass  # pragma: no cover
 
     def prompt_str(self) -> str:
         if self.no_color:  # pragma: no cover

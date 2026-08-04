@@ -25,7 +25,12 @@ class AuditLogger:
         return logger
 
     def log_action(
-        self, user: str, action: str, resource: str, success: bool, details: dict[str, Any] = None
+        self,
+        user: str,
+        action: str,
+        resource: str,
+        success: bool,
+        details: dict[str, Any] | None = None,
     ):
         """Log security-relevant actions"""
         status = "SUCCESS" if success else "FAILED"

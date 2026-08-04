@@ -18,8 +18,8 @@ import textwrap
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
-from typing import Any
+from contextlib import contextmanager, suppress
+from typing import Any, ClassVar
 
 # ---------------------------------------------------------------------------
 # 색상 유틸
@@ -156,7 +156,7 @@ class CodeBlockRenderer:
     """코드 블록 구문 하이라이팅 (pygments fallback)."""
 
     # 최소 ANSI 키워드 색상 (pygments 없을 때)
-    _KEYWORDS = {
+    _KEYWORDS: ClassVar[dict[str, list[str]]] = {
         "python": [
             "def",
             "class",
@@ -202,7 +202,7 @@ class CodeBlockRenderer:
         if self.nc:
             header = f"  [{lang}]" if lang else ""
             lines = ["  " + ln for ln in code.splitlines()]
-            return "\n".join([header] + lines) if header else "\n".join(lines)
+            return "\n".join([header, *lines]) if header else "\n".join(lines)
 
         # pygments 시도
         try:
@@ -597,10 +597,8 @@ class InterruptHandler:
         self._last_time = now
 
         for cb in self._callbacks:
-            try:
-                cb()
-            except Exception:  # pragma: no cover
-                pass  # pragma: no cover
+            with suppress(Exception):  # pragma: no cover
+                cb()  # pragma: no cover
 
         if self._count >= 2:
             print("\n  Ctrl+C pressed twice — exiting.", file=sys.stderr)

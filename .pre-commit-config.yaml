@@ -1,0 +1,12 @@
+# 3O Paradigm SPEC v3.0 — pre-commit hooks (stdlib-only, no install needed).
+# Install: pip install pre-commit && pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: 3o-lint-suite
+        name: 3O Paradigm SPEC v3.0 Appendix B (9 checks)
+        entry: python .github/scripts/3o_lint/runner.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        description: Flat namespace / no project prefix / sibling calls / oprim + omodul signatures / pillars / obase reverse deps / oservi DI / async contract drift.
