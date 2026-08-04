@@ -5,6 +5,7 @@ NOTE: ④ 待外部環境 — requires a live MCP server (HTTP/SSE or stdio).
       Interface: oprim.mcp_connect(server_url, *, timeout) → McpSession
                  oprim.mcp_call_tool(name, *, arguments, client) → dict
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -32,7 +33,8 @@ class MCPCallRequest(BaseModel):
 
 @router.post("/connect")
 async def mcp_connect_route(req: MCPConnectRequest) -> dict[str, Any]:
-    from oprim import mcp_connect
+    from hicode.compat import mcp_connect
+
     try:
         session = await mcp_connect(req.url, timeout=req.timeout)
         _registered[req.name] = {"url": req.url, "session": session}
@@ -43,10 +45,14 @@ async def mcp_connect_route(req: MCPConnectRequest) -> dict[str, Any]:
 
 @router.post("/call")
 async def mcp_call_route(req: MCPCallRequest) -> dict[str, Any]:
-    from oprim import mcp_call_tool
+    from hicode.compat import mcp_call_tool
+
     entry = _registered.get(req.server)
     if not entry:
-        raise HTTPException(status_code=404, detail=f"MCP server '{req.server}' not registered. Call /mcp/connect first.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"MCP server '{req.server}' not registered. Call /mcp/connect first.",
+        )
     try:
         result = await mcp_call_tool(
             req.tool,

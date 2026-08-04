@@ -1,0 +1,7 @@
+{"timestamp": "2026-08-02T02:23:21.338076", "user": "test_user", "action": "READ_FILE", "resource": "/data/soffy/projects/hicode/test.txt", "success": true, "details": {"size": 1024}}
+{"timestamp": "2026-08-02T02:23:21.338175", "user": "test_user", "action": "CHECK_PERMISSION_WRITE_FILES", "resource": "SYSTEM", "success": false, "details": {"context": "file_write_attempt"}}
+{"timestamp": "2026-08-02T02:40:31.271202", "user": "test_user", "action": "PRE_SECURITY_CHECK_READ_FILE", "resource": "SYSTEM", "success": true, "details": {}}
+{"timestamp": "2026-08-02T02:40:31.275319", "user": "test_user", "action": "PRE_SECURITY_CHECK_READ_FILE", "resource": "SYSTEM", "success": true, "details": {}}
+{"timestamp": "2026-08-02T02:40:31.276127", "user": "test_user", "action": "ACCESS", "resource": "../../../etc/passwd", "success": false, "details": {}}
+{"timestamp": "2026-08-02T02:40:31.277031", "user": "test_user", "action": "PRE_SECURITY_CHECK_CALL_API", "resource": "SYSTEM", "success": true, "details": {}}
+{"timestamp": "2026-08-02T02:40:31.277863", "user": "test_user", "action": "API_POST", "resource": "http://evil.com/api", "success": false, "details": {}}

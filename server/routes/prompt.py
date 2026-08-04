@@ -24,7 +24,7 @@ class PromptRequest(BaseModel):
 async def handle_prompt(req: PromptRequest) -> dict[str, Any]:
     # 提取 session_id,若无则由 coordinator 生成
     sid = req.session_id
-    
+
     # 绑定 SSE 队列回调
     on_step = None
     if sid:
@@ -37,9 +37,9 @@ async def handle_prompt(req: PromptRequest) -> dict[str, Any]:
         "persona": req.persona,
         "model": req.model,
         "provider": req.provider,
-        **req.extra
+        **req.extra,
     }
-    
+
     # 执行(coordinator 会 fire_step 触发 SSE)
     result = await coordinator.handle(command, session_id=sid, on_step=on_step)
     return result

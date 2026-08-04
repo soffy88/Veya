@@ -1,7 +1,6 @@
 """H5 PostResult — audit/filter before aggregated result leaves coordinator."""
-from __future__ import annotations
 
-import json
+from __future__ import annotations
 
 from hooks.types import HookInput, HookOutput
 

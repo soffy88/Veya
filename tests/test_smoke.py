@@ -1,4 +1,5 @@
 """Phase 2a smoke tests — import sanity + README edit verification."""
+
 from pathlib import Path
 
 
@@ -14,12 +15,14 @@ def test_readme_first_line():
 
 def test_config_imports():
     from config.loader import load_config
+
     cfg = load_config()
     assert isinstance(cfg, dict)
 
 
 def test_agents_imports():
     from agents import resolve_persona
+
     p = resolve_persona("build")
     assert p.name == "build"
 

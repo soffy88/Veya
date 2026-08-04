@@ -1,2 +1,65 @@
-hicode-web/node_modules/@next/swc-linux-x64-gnu/next-swc.linux-x64-gnu.node
-hicode-web/node_modules/@next/swc-linux-x64-musl/next-swc.linux-x64-musl.node
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Node.js (keep existing Next.js entries)
+.next/
+out/
+build/
+node_modules/
+.env.local
+.env
+
+# System
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# hicode specific
+.hicode/
+checkpoints/
+artifacts/
+# Veya runtime caches & local secrets
+.hicode_ast_cache.json
+.veya_ast_cache.json
+.hicode.env
+.veya.env

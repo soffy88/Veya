@@ -6,6 +6,7 @@ C: MarkdownRenderer / CodeBlockRenderer / ToolCallRenderer /
 D: StatusBar / LayoutManager / SpinnerAnimation / DividerLine
 E: InterruptHandler / ExitHandler / YesNoPrompt / PagerView / CopyHint
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,29 +17,51 @@ import sys
 import textwrap
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # 색상 유틸
 # ---------------------------------------------------------------------------
 
+
 def _ansi(code: str, text: str, *, nc: bool = False) -> str:
     return text if nc else f"\033[{code}m{text}\033[0m"
 
-def bold(t: str, *, nc: bool = False) -> str:   return _ansi("1", t, nc=nc)
-def dim(t: str, *, nc: bool = False) -> str:    return _ansi("2", t, nc=nc)
-def green(t: str, *, nc: bool = False) -> str:  return _ansi("32", t, nc=nc)
-def cyan(t: str, *, nc: bool = False) -> str:   return _ansi("36", t, nc=nc)
-def yellow(t: str, *, nc: bool = False) -> str: return _ansi("33", t, nc=nc)
-def red(t: str, *, nc: bool = False) -> str:    return _ansi("31", t, nc=nc)
-def gray(t: str, *, nc: bool = False) -> str:   return _ansi("90", t, nc=nc)
+
+def bold(t: str, *, nc: bool = False) -> str:
+    return _ansi("1", t, nc=nc)
+
+
+def dim(t: str, *, nc: bool = False) -> str:
+    return _ansi("2", t, nc=nc)
+
+
+def green(t: str, *, nc: bool = False) -> str:
+    return _ansi("32", t, nc=nc)
+
+
+def cyan(t: str, *, nc: bool = False) -> str:
+    return _ansi("36", t, nc=nc)
+
+
+def yellow(t: str, *, nc: bool = False) -> str:
+    return _ansi("33", t, nc=nc)
+
+
+def red(t: str, *, nc: bool = False) -> str:
+    return _ansi("31", t, nc=nc)
+
+
+def gray(t: str, *, nc: bool = False) -> str:
+    return _ansi("90", t, nc=nc)
 
 
 # ===========================================================================
 # C. 출력 렌더러
 # ===========================================================================
+
 
 class MarkdownRenderer:
     """LLM 텍스트 Markdown → 터미널 풍부한 텍스트 (bold/코드블록/목록)."""
@@ -101,25 +124,28 @@ class MarkdownRenderer:
 
         # 닫히지 않은 코드 블록
         if in_code and code_lines:
-            out.append(CodeBlockRenderer(no_color=self.nc).render(  # pragma: no cover
-                "\n".join(code_lines), lang=code_lang
-            ))
+            out.append(
+                CodeBlockRenderer(no_color=self.nc).render(  # pragma: no cover
+                    "\n".join(code_lines), lang=code_lang
+                )
+            )
 
         return "\n".join(out)
 
     def _inline(self, text: str) -> str:
         """인라인 마크다운 (bold/italic/code) 처리."""
         import re
+
         # `code`
-        text = re.sub(r'`([^`]+)`',
-                      lambda m: _ansi("7", m.group(1), nc=self.nc) if not self.nc
-                      else f'`{m.group(1)}`', text)
+        text = re.sub(
+            r"`([^`]+)`",
+            lambda m: _ansi("7", m.group(1), nc=self.nc) if not self.nc else f"`{m.group(1)}`",
+            text,
+        )
         # **bold**
-        text = re.sub(r'\*\*([^*]+)\*\*',
-                      lambda m: bold(m.group(1), nc=self.nc), text)
+        text = re.sub(r"\*\*([^*]+)\*\*", lambda m: bold(m.group(1), nc=self.nc), text)
         # *italic*
-        text = re.sub(r'\*([^*]+)\*',
-                      lambda m: _ansi("3", m.group(1), nc=self.nc), text)
+        text = re.sub(r"\*([^*]+)\*", lambda m: _ansi("3", m.group(1), nc=self.nc), text)
         return text
 
     def print(self, text: str) -> None:
@@ -131,11 +157,41 @@ class CodeBlockRenderer:
 
     # 최소 ANSI 키워드 색상 (pygments 없을 때)
     _KEYWORDS = {
-        "python": ["def", "class", "import", "from", "return", "if", "else",
-                   "elif", "for", "while", "try", "except", "with", "as",
-                   "async", "await", "True", "False", "None"],
-        "javascript": ["function", "const", "let", "var", "return", "if",
-                        "else", "for", "while", "class", "import", "export"],
+        "python": [
+            "def",
+            "class",
+            "import",
+            "from",
+            "return",
+            "if",
+            "else",
+            "elif",
+            "for",
+            "while",
+            "try",
+            "except",
+            "with",
+            "as",
+            "async",
+            "await",
+            "True",
+            "False",
+            "None",
+        ],
+        "javascript": [
+            "function",
+            "const",
+            "let",
+            "var",
+            "return",
+            "if",
+            "else",
+            "for",
+            "while",
+            "class",
+            "import",
+            "export",
+        ],
     }
 
     def __init__(self, *, no_color: bool = False) -> None:
@@ -146,17 +202,19 @@ class CodeBlockRenderer:
         if self.nc:
             header = f"  [{lang}]" if lang else ""
             lines = ["  " + ln for ln in code.splitlines()]
-            return ("\n".join([header] + lines) if header else "\n".join(lines))
+            return "\n".join([header] + lines) if header else "\n".join(lines)
 
         # pygments 시도
         try:
             from pygments import highlight
-            from pygments.lexers import get_lexer_by_name, guess_lexer
             from pygments.formatters import Terminal256Formatter
+            from pygments.lexers import get_lexer_by_name, guess_lexer
+
             try:
                 lexer = get_lexer_by_name(lang) if lang else guess_lexer(code)
             except Exception:  # pragma: no cover
                 from pygments.lexers import TextLexer  # pragma: no cover
+
                 lexer = TextLexer()  # pragma: no cover
             highlighted = highlight(code, lexer, Terminal256Formatter(style="monokai"))
             header = gray(f"  ╭─ {lang} ", nc=False) if lang else gray("  ╭─", nc=False)
@@ -173,7 +231,9 @@ class CodeBlockRenderer:
             for kw in kws:  # pragma: no cover
                 line = line.replace(kw, _ansi("35", kw))  # pragma: no cover
             lines.append("  │ " + line)  # pragma: no cover
-        header = gray(f"  ╭─ {lang}", nc=False) if lang else gray("  ╭─", nc=False)  # pragma: no cover
+        header = (
+            gray(f"  ╭─ {lang}", nc=False) if lang else gray("  ╭─", nc=False)
+        )  # pragma: no cover
         footer = gray("  ╰─", nc=False)  # pragma: no cover
         return header + "\n" + "\n".join(lines) + "\n" + footer  # pragma: no cover
 
@@ -214,9 +274,14 @@ class ToolResultRenderer:
             if "error" in result:
                 return red(f"  ✗ {result['error']}", nc=self.nc)
             # 주요 필드 추출
-            text = (result.get("content") or result.get("stdout") or
-                    result.get("diff") or result.get("matches") or
-                    result.get("summary") or str(result))
+            text = (
+                result.get("content")
+                or result.get("stdout")
+                or result.get("diff")
+                or result.get("matches")
+                or result.get("summary")
+                or str(result)
+            )
         else:
             text = str(result)
 
@@ -228,10 +293,10 @@ class ToolResultRenderer:
 
         truncated = False
         if len(lines) > self.MAX_LINES:
-            lines = lines[:self.MAX_LINES]
+            lines = lines[: self.MAX_LINES]
             truncated = True
         if len(text) > self.MAX_CHARS:
-            text = text[:self.MAX_CHARS]  # pragma: no cover
+            text = text[: self.MAX_CHARS]  # pragma: no cover
             truncated = True  # pragma: no cover
             lines = text.splitlines()  # pragma: no cover
 
@@ -304,20 +369,29 @@ class StreamPrinter:
                     print(dim("\n  [interrupted]", nc=self.nc), file=self._file)  # pragma: no cover
                     break  # pragma: no cover
 
-                dtype = getattr(delta, "type", delta.get("type", "")) \
-                    if isinstance(delta, dict) else getattr(delta, "type", "")
+                dtype = (
+                    getattr(delta, "type", delta.get("type", ""))
+                    if isinstance(delta, dict)
+                    else getattr(delta, "type", "")
+                )
 
                 if dtype == "thinking":
-                    t = getattr(delta, "text", delta.get("thinking", "")) \
-                        if isinstance(delta, dict) else getattr(delta, "text", "")
+                    t = (
+                        getattr(delta, "text", delta.get("thinking", ""))
+                        if isinstance(delta, dict)
+                        else getattr(delta, "text", "")
+                    )
                     thinking_buf += t
                     if not showed_thinking:
                         thinking_renderer.print(thinking_buf)
                         showed_thinking = True
 
                 elif dtype == "text":
-                    t = getattr(delta, "text", delta.get("text", "")) \
-                        if isinstance(delta, dict) else getattr(delta, "text", "")
+                    t = (
+                        getattr(delta, "text", delta.get("text", ""))
+                        if isinstance(delta, dict)
+                        else getattr(delta, "text", "")
+                    )
                     print(t, end="", flush=True, file=self._file)
                     full_text += t
 
@@ -334,6 +408,7 @@ class StreamPrinter:
 # ===========================================================================
 # D. 상태표시줄 & 레이아웃
 # ===========================================================================
+
 
 class LayoutManager:
     """터미널 너비 자동 조정 (좁은 터미널 폴백 일반 텍스트)."""
@@ -355,9 +430,9 @@ class LayoutManager:
     @staticmethod
     def wrap(text: str, indent: int = 2) -> str:
         w = LayoutManager.width() - indent
-        return textwrap.fill(text, width=max(w, 40),
-                              initial_indent=" " * indent,
-                              subsequent_indent=" " * indent)
+        return textwrap.fill(
+            text, width=max(w, 40), initial_indent=" " * indent, subsequent_indent=" " * indent
+        )
 
 
 class SpinnerAnimation:
@@ -365,8 +440,7 @@ class SpinnerAnimation:
 
     FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
-    def __init__(self, *, label: str = "thinking", no_color: bool = False,
-                 file=None) -> None:
+    def __init__(self, *, label: str = "thinking", no_color: bool = False, file=None) -> None:
         self.label = label
         self.nc = no_color
         self._file = file or sys.stderr
@@ -438,9 +512,16 @@ class StatusBar:
         self.out_tokens = 0
         self.session_id = ""
 
-    def update(self, *, mode: str | None = None, model: str | None = None,
-               cost: float = 0.0, in_tok: int = 0, out_tok: int = 0,
-               session_id: str | None = None) -> None:
+    def update(
+        self,
+        *,
+        mode: str | None = None,
+        model: str | None = None,
+        cost: float = 0.0,
+        in_tok: int = 0,
+        out_tok: int = 0,
+        session_id: str | None = None,
+    ) -> None:
         if mode:
             self.mode = mode
         if model:
@@ -482,6 +563,7 @@ class StatusBar:
 # ===========================================================================
 # E. 인터랙션 컨트롤
 # ===========================================================================
+
 
 class InterruptHandler:
     """
@@ -550,10 +632,9 @@ class ExitHandler:
 class YesNoPrompt:
     """permission gate의 y/n/always 터미널 인터랙션."""
 
-    def __init__(self, *, no_color: bool = False,
-                 auto: str | None = None) -> None:
+    def __init__(self, *, no_color: bool = False, auto: str | None = None) -> None:
         self.nc = no_color
-        self._auto = auto   # "allow" | "deny" | None
+        self._auto = auto  # "allow" | "deny" | None
 
     async def ask(self, tool_name: str, tool_input: dict) -> str:
         """'allow' | 'always' | 'deny' | 'deny_always' 반환."""
@@ -563,6 +644,7 @@ class YesNoPrompt:
             return "deny"
 
         import json
+
         print()
         print(yellow(f"  ⚠  {tool_name}", nc=self.nc))
         preview = json.dumps(tool_input, ensure_ascii=False)[:120]
@@ -575,10 +657,14 @@ class YesNoPrompt:
             resp = "n"
 
         return {
-            "y": "allow", "yes": "allow",
-            "a": "always", "always": "always",
-            "n": "deny", "no": "deny",
-            "d": "deny_always", "no-always": "deny_always",
+            "y": "allow",
+            "yes": "allow",
+            "a": "always",
+            "always": "always",
+            "n": "deny",
+            "no": "deny",
+            "d": "deny_always",
+            "no-always": "deny_always",
         }.get(resp, "deny")
 
 
@@ -595,7 +681,7 @@ class PagerView:
             return
         i = 0
         while i < len(lines):
-            chunk = "\n".join(lines[i:i + self._lpp])
+            chunk = "\n".join(lines[i : i + self._lpp])
             print(chunk)
             i += self._lpp
             if i < len(lines):
@@ -614,6 +700,7 @@ class CopyHint:
     def copy_to_clipboard(text: str) -> bool:
         """터미널 OSC 52를 통해 클립보드에 복사. 성공 여부 반환."""
         import base64
+
         try:
             encoded = base64.b64encode(text.encode()).decode()
             sys.stdout.write(f"\033]52;c;{encoded}\a")

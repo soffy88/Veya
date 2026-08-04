@@ -19,19 +19,20 @@ Layout:
 Architecture rule: TUI never calls oprim/omodul/engine directly.
 All logic flows through coordinator.handle() — same as headless.
 """
+
 from __future__ import annotations
 
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Header, Footer
+from textual.widgets import Footer, Header
 
 from tui.theme import TCSS
 from tui.widgets.chat import ChatLog
-from tui.widgets.squads import SquadsPanel
 from tui.widgets.diff import DiffViewer
 from tui.widgets.input import HicodeInput
+from tui.widgets.squads import SquadsPanel
 from tui.widgets.statusbar import StatusBar
 
 _PERSONAS = ["build", "research", "plan", "execute"]
@@ -184,5 +185,6 @@ def run_tui() -> None:
     """Entry point for TUI mode."""
     from config.loader import load_config
     from server.assembly import Infra
+
     Infra.init(load_config())
     HicodeApp().run()

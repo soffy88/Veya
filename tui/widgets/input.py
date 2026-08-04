@@ -1,4 +1,5 @@
 """tui/widgets/input.py — Input widget with submit / persona switch support."""
+
 from __future__ import annotations
 
 from textual.app import ComposeResult
@@ -41,6 +42,7 @@ class HicodeInput(Widget):
 
     class Submit(Message):
         """Fired when the user submits a command."""
+
         def __init__(self, text: str) -> None:
             super().__init__()
             self.text = text

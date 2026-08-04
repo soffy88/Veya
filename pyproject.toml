@@ -1,19 +1,18 @@
 [project]
 name = "hicode"
-version = "0.2.0"
+version = "0.4.0"
 description = "hicode — AI 编码 agent layer4 实现"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.111.0",
-    "uvicorn[standard]>=0.29.0",
-    "httpx>=0.27.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "httpx>=0.28.1",
+    "aiohttp>=3.14.3",
     "python-dotenv>=1.0.0",
     "textual>=0.60.0",
-    "obase",
-    "oprim",
-    "oskill",
-    "omodul",
-    "oservi",
+    "networkx>=3.6.1",
+    "matplotlib>=3.11.1",
+    "plotly>=6.9.0",
 ]
 
 [project.optional-dependencies]
@@ -25,21 +24,11 @@ dev = [
 [project.scripts]
 hicode = "cli.main:main"
 hicode-headless = "cli.headless:main"
+hicode-simple = "cli.simple_cli:main"
 
-[tool.uv.sources]
-obase  = { path = "../platform/3O/obase",  editable = true }
-oprim  = { path = "../platform/3O/oprim",  editable = true }
-oskill = { path = "../platform/3O/oskill", editable = true }
-omodul = { path = "../platform/3O/omodul", editable = true }
-oservi = { path = "../platform/3O/oservi", editable = true }
+# Removed legacy obase/oprim/oskill/omodul/oservi dependencies
 
-[tool.uv]
-override-dependencies = [
-    "obase>=0.15.0",
-    "oprim>=3.10.0",
-    "oskill>=3.25.0",
-    "omodul>=1.29.0",
-]
+# Removed legacy dependency overrides
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -48,10 +37,115 @@ allow-direct-references = true
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "venv/",
+  ".venv/",
+  "__pycache__/",
+  "*.pyc",
+  ".git/",
+  "tests/",
+  "*.md",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["."]
+exclude = [
+  "venv/",
+  ".venv/",
+  "__pycache__/",
+  "*.pyc",
+  ".git/",
+  "tests/",
+  "*.md",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = "--strict-markers -v"
+
+# ---------------------------------------------------------------------------
+# Ruff (lint + format)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",     # line length handled by formatter
+    "B008",     # do not perform function calls in argument defaults (fastapi pattern)
+    "B904",     # raise-without-from: existing HTTPException pattern embeds err in detail message
+    # Bilingual codebase: Chinese docstrings/comments contain full-width punctuation.
+    "RUF001",   # ambiguous unicode in strings
+    "RUF002",   # ambiguous unicode in docstrings
+    "RUF003",   # ambiguous unicode in comments
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hicode", "server", "agents", "tools", "cli", "hooks", "registries", "config", "session", "streaming"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"   # numpy/plotly stubs 用 3.12 语法;代码 3.11 兼容由独立 AST 检查把关
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_optional = true
+disallow_untyped_defs = false    # increment to true over time
+disallow_incomplete_defs = false # increment to true over time
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "hicode.errors",  # already fully typed
+    "hicode.sandbox",
+    "hicode.obase",
+    "hicode.obase.*",
+]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["textual.*", "plotly.*", "networkx.*", "matplotlib.*"]
+ignore_missing_imports = true
+
+# numpy stubs 使用 3.12 语法(PEP 695),在 python_version=3.11 下报 syntax;
+# 其类型信息对本项目非关键,整体忽略。
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+ignore_errors = true
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["hicode", "server", "agents", "tools"]
+omit = [
+    "tests/*",
+    "**/__pycache__/*",
+    "**/.venv/*",
+    "venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__",
+    "raise NotImplementedError",
+    "pass",
+]
+# Coverage gate: 40% baseline (CI measures the full suite; currently at ~54%).
+fail_under = 50   # G8: 58% achieved → gate raised from 40
+show_missing = true

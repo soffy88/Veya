@@ -1,4 +1,5 @@
 """H1 PreDispatch — coordinator-level pre-flight checks."""
+
 from __future__ import annotations
 
 from hooks.types import HookInput, HookOutput

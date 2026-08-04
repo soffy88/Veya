@@ -1,9 +1,17 @@
 from agents._base import Persona
 
 _READ_ONLY = [
-    "read", "read_range", "grep", "glob", "list",
-    "lsp_definition", "lsp_references", "lsp_hover",
-    "lsp_doc_symbol", "lsp_ws_symbol", "lsp_diagnostics",
+    "read",
+    "read_range",
+    "grep",
+    "glob",
+    "list",
+    "lsp_definition",
+    "lsp_references",
+    "lsp_hover",
+    "lsp_doc_symbol",
+    "lsp_ws_symbol",
+    "lsp_diagnostics",
     "todo_read",
 ]
 

@@ -5,10 +5,10 @@ import re
 from hooks.types import HookInput, HookOutput
 
 _SECRET_PATTERNS = [
-    re.compile(r'(sk-[A-Za-z0-9]{20,})', re.IGNORECASE),
-    re.compile(r'(AKIA[A-Z0-9]{16})', re.IGNORECASE),
-    re.compile(r'(ghp_[A-Za-z0-9]{36})', re.IGNORECASE),
-    re.compile(r'([A-Za-z0-9+/]{40,}=*)', re.IGNORECASE),   # base64-ish
+    re.compile(r"(sk-[A-Za-z0-9]{20,})", re.IGNORECASE),
+    re.compile(r"(AKIA[A-Z0-9]{16})", re.IGNORECASE),
+    re.compile(r"(ghp_[A-Za-z0-9]{36})", re.IGNORECASE),
+    re.compile(r"([A-Za-z0-9+/]{40,}=*)", re.IGNORECASE),  # base64-ish
 ]
 
 
