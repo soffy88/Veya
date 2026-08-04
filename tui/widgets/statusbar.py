@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 
 from textual.app import ComposeResult
 from textual.widget import Widget
@@ -52,21 +53,15 @@ class StatusBar(Widget):
 
     def update_persona(self, persona: str) -> None:
         self._persona = persona
-        try:
+        with suppress(Exception):
             self.query_one("#sb-persona", Static).update(self._render_persona())
-        except Exception:
-            pass
 
     def update_cost(self, cost: float) -> None:
         self._cost = cost
-        try:
+        with suppress(Exception):
             self.query_one("#sb-cost", Static).update(self._render_cost())
-        except Exception:
-            pass
 
     def update_session(self, session_id: str) -> None:
         self._session_id = session_id
-        try:
+        with suppress(Exception):
             self.query_one("#sb-session", Static).update(self._render_session())
-        except Exception:
-            pass

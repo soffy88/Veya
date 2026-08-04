@@ -22,6 +22,8 @@ All logic flows through coordinator.handle() — same as headless.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -45,7 +47,7 @@ class HicodeApp(App):
     SUB_TITLE = "AI coding agent"
     CSS = TCSS
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+x", "quit", "Quit", show=False, priority=True),
         Binding("ctrl+p", "cycle_persona", "Persona", show=True),

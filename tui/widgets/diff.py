@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
+
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import RichLog, Static
@@ -52,7 +54,5 @@ class DiffViewer(Widget):
 
     def hide(self) -> None:
         self.remove_class("visible")
-        try:
+        with suppress(Exception):
             self.query_one("#diff-log", RichLog).clear()
-        except Exception:
-            pass
