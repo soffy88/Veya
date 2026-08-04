@@ -1,0 +1,72 @@
+{
+    "name": "hicode-vscode",
+    "displayName": "hicode - AI编程助手",
+    "description": "基于hicode的AI编程助手，提供代码生成、补全和分析功能",
+    "version": "0.1.0",
+    "engines": {
+        "vscode": "^1.70.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onLanguage:python",
+        "onLanguage:javascript",
+        "onLanguage:typescript",
+        "onCommand:hicode.generateCode",
+        "onCommand:hicode.completeCode",
+        "onCommand:hicode.analyzeCode"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "hicode.generateCode",
+                "title": "hicode: 生成代码"
+            },
+            {
+                "command": "hicode.completeCode",
+                "title": "hicode: 代码补全"
+            },
+            {
+                "command": "hicode.analyzeCode",
+                "title": "hicode: 分析代码"
+            },
+            {
+                "command": "hicode.collaborateTask",
+                "title": "hicode: 协作任务"
+            }
+        ],
+        "menus": {
+            "editor/context": [
+                {
+                    "command": "hicode.generateCode",
+                    "when": "editorHasSelection",
+                    "group": "navigation"
+                },
+                {
+                    "command": "hicode.completeCode",
+                    "when": "editorTextFocus",
+                    "group": "navigation"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "postinstall": "node ./node_modules/vscode/bin/install"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.70.0",
+        "@types/glob": "^7.2.0",
+        "@types/node": "^16.11.7",
+        "typescript": "^4.4.4",
+        "vscode": "^1.1.37",
+        "vscode-test": "^1.5.2"
+    },
+    "dependencies": {
+        "vscode": "^1.1.37"
+    }
+}

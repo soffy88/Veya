@@ -13,6 +13,7 @@ layer4/cli/headless.py — headless 模式(无回帖,机器对机器)
     echo '{"text": "把 foo.py 的 X 改成 Y"}' | python -m cli.headless
     python -m cli.headless --input cmd.json --output result.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,14 +22,14 @@ import json
 import sys
 from typing import Any
 
+from config.loader import load_config
 from server.assembly import Infra
 from server.coordinator import coordinator
-from config.loader import load_config
-
 
 # =====================================================================
 # headless 核心
 # =====================================================================
+
 
 async def headless_run(command: dict[str, Any]) -> dict[str, Any]:
     """结构化命令 → 结构化结果。无渲染。
@@ -66,9 +67,8 @@ def _extract_output(result: dict) -> Any:
 # 单分队 headless(orchestrator 内部调用分队时用)
 # =====================================================================
 
-async def run_squad_headless(
-    *, role: str, command: dict[str, Any], cost_tracker
-) -> dict[str, Any]:
+
+async def run_squad_headless(*, role: str, command: dict[str, Any], cost_tracker) -> dict[str, Any]:
     """单个分队的 headless 执行 —— 装配对应 persona 的 agentic_loop 跑一轮任务。
 
     被 orchestrator 调用(协调器 → orchestrator → 本函数 → agentic_loop)。
@@ -99,6 +99,7 @@ async def run_squad_headless(
 # CLI 入口
 # =====================================================================
 
+
 def _read_input(args) -> dict[str, Any]:
     if args.input:
         with open(args.input) as f:
@@ -118,8 +119,9 @@ def _write_output(args, result: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="hicode-headless",
-                                     description="hicode headless: 结构化进出,无 TTY")
+    parser = argparse.ArgumentParser(
+        prog="hicode-headless", description="hicode headless: 结构化进出,无 TTY"
+    )
     parser.add_argument("--input", help="命令 JSON 文件(缺省读 stdin)")
     parser.add_argument("--output", help="结果 JSON 文件(缺省写 stdout)")
     parser.add_argument("--config", help="配置文件路径")

@@ -1,4 +1,5 @@
 """GET /projects — project list; POST /projects — create project."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -42,13 +43,15 @@ async def list_projects() -> dict[str, Any]:
             p["session_count"] = session_counts.get(pid, 0)
             projects.append(p)
         else:
-            projects.append({
-                "id": pid,
-                "name": pid.replace("-", " ").replace("_", " ").title(),
-                "icon": pid[0].upper(),
-                "color": _PROJECT_COLORS[i % len(_PROJECT_COLORS)],
-                "session_count": session_counts.get(pid, 0),
-            })
+            projects.append(
+                {
+                    "id": pid,
+                    "name": pid.replace("-", " ").replace("_", " ").title(),
+                    "icon": pid[0].upper(),
+                    "color": _PROJECT_COLORS[i % len(_PROJECT_COLORS)],
+                    "session_count": session_counts.get(pid, 0),
+                }
+            )
 
     return {"projects": projects}
 
@@ -56,6 +59,7 @@ async def list_projects() -> dict[str, Any]:
 @router.post("")
 async def create_project(req: ProjectCreateRequest) -> dict[str, Any]:
     import uuid
+
     pid = str(uuid.uuid4())[:8]
     icon = req.icon or req.name[0].upper() if req.name else "P"
     idx = len(_projects)

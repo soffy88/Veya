@@ -1,7 +1,9 @@
 """tui/widgets/chat.py — Chat log widget (conversation history + tool calls)."""
+
 from __future__ import annotations
 
 from textual.widgets import RichLog
+
 from tui.theme import COLORS
 
 

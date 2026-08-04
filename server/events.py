@@ -15,10 +15,13 @@ Usage:
     from server.events import fire_step
     fire_step({"type": "tool_call", "tool_name": "write"})
 """
+
 from __future__ import annotations
 
+import contextlib
 import contextvars
-from typing import Callable, Any
+from collections.abc import Callable
+from typing import Any
 
 _on_step_ctx: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
     "on_step", default=None
@@ -29,7 +32,5 @@ def fire_step(event: dict[str, Any]) -> None:
     """Fire an on_step event to the current context's callback (if any)."""
     cb = _on_step_ctx.get()
     if cb is not None:
-        try:
-            cb(event)
-        except Exception:
-            pass  # on_step errors must never abort the main flow
+        with contextlib.suppress(Exception):
+            cb(event)  # on_step errors must never abort the main flow

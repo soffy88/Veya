@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 try:
-    from oskill import permission_evaluate  # type: ignore[attr-defined]
+    from hicode.compat import permission_evaluate  # type: ignore[attr-defined]
+
     _HAS_PERMISSION_EVALUATE = True
 except (ImportError, AttributeError):
     _HAS_PERMISSION_EVALUATE = False
 
 
 _RULES_BY_PERSONA: dict[str, list[str]] = {
-    "build":    ["allow:*", "ask:bash"],
-    "plan":     ["deny:write", "deny:edit", "deny:bash", "allow:*"],
+    "build": ["allow:*", "ask:bash"],
+    "plan": ["deny:write", "deny:edit", "deny:bash", "allow:*"],
     "research": ["deny:write", "deny:edit", "deny:bash", "allow:*"],
 }
 

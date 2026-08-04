@@ -3,8 +3,9 @@ from __future__ import annotations
 from hooks.types import HookInput, HookOutput
 
 try:
-    from oskill import permission_evaluate as _pe  # type: ignore[attr-defined]
-    _HAS_PERM = callable(_pe)   # guard: oskill lazy-loader may return module, not fn
+    from hicode.compat import permission_evaluate as _pe  # type: ignore[attr-defined]
+
+    _HAS_PERM = callable(_pe)  # guard: lazy-loader may return module, not fn
     permission_evaluate = _pe if _HAS_PERM else None
 except (ImportError, AttributeError):
     _HAS_PERM = False

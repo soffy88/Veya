@@ -3,34 +3,33 @@ layer4.commands — Slash Command Router
 layer4.hooks    — Hook Manager
 layer4.subagent — Subagent Loader
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
-import sys
 import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-for _pkg in ["oprim", "oskill", "omodul"]:
-    _p = os.path.join(_BASE, _pkg)
-    if _p not in sys.path:
-        sys.path.insert(0, _p)  # pragma: no cover
 
 
 # ===========================================================================
 # D. Slash Command Router
 # ===========================================================================
 
+
 @dataclass
 class CommandResult:
     text: str = ""
     messages: list[dict] = field(default_factory=list)
     error: str | None = None
-    redirect_to_loop: bool = False   # True → 把 text 作为任务传给 agentic_loop
+    redirect_to_loop: bool = False  # True → 把 text 作为任务传给 agentic_loop
 
 
 @dataclass
@@ -80,29 +79,35 @@ class SlashRouter:
             if cmd.name in seen:
                 continue
             seen.add(cmd.name)
-            aliases = f" (aliases: {', '.join('/' + a for a in cmd.aliases)})" if cmd.aliases else ""
+            aliases = (
+                f" (aliases: {', '.join('/' + a for a in cmd.aliases)})" if cmd.aliases else ""
+            )
             lines.append(f"  /{cmd.name}{aliases}  — {cmd.description}")
         return "\n".join(lines)
 
 
 # --- Command implementations ------------------------------------------------
 
+
 async def _init_handler(args: str, **ctx) -> CommandResult:
-    """→ initialize_project omodul。"""
-    import tempfile  # pragma: no cover
-    from omodul.light import InitProjectConfig, InitProjectInput, initialize_project  # pragma: no cover
+    """→ initialize_project (legacy omodul; compat shim)."""
+    from hicode.compat import init_project
+
     root = args.strip() or ctx.get("cwd", ".")  # pragma: no cover
     caller = ctx.get("caller")  # pragma: no cover
     if not caller:  # pragma: no cover
         return CommandResult(error="/init requires a configured LLM caller")  # pragma: no cover
-    out = Path(tempfile.mkdtemp())  # pragma: no cover
-    result = await initialize_project(  # pragma: no cover
-        InitProjectConfig(), InitProjectInput(root_path=root, caller=caller), out,
-        on_step=lambda e: None,
+    result = await init_project(
+        {"max_files": 500},
+        {"root_path": root, "llm_caller": caller},
     )
-    if result["status"] == "completed":  # pragma: no cover
-        return CommandResult(text=f"✅ AGENTS.md written to {result.get('agents_md_path')}")  # pragma: no cover
-    return CommandResult(error=result.get("error", {}).get("message", "init failed"))  # pragma: no cover
+    if result.get("status") == "completed":  # pragma: no cover
+        return CommandResult(
+            text=f"✅ AGENTS.md written to {result.get('agents_md_path')}"
+        )  # pragma: no cover
+    return CommandResult(
+        error=result.get("error", {}).get("message", "init failed")
+    )  # pragma: no cover
 
 
 async def _plan_handler(args: str, **ctx) -> CommandResult:
@@ -110,8 +115,11 @@ async def _plan_handler(args: str, **ctx) -> CommandResult:
     session = ctx.get("session")
     if session:
         session.mode = "plan"
-    return CommandResult(text=args, redirect_to_loop=True) if args else \
-           CommandResult(text="Switched to PLAN mode (read-only tools).")
+    return (
+        CommandResult(text=args, redirect_to_loop=True)
+        if args
+        else CommandResult(text="Switched to PLAN mode (read-only tools).")
+    )
 
 
 async def _build_handler(args: str, **ctx) -> CommandResult:
@@ -119,8 +127,11 @@ async def _build_handler(args: str, **ctx) -> CommandResult:
     session = ctx.get("session")
     if session:
         session.mode = "build"
-    return CommandResult(text=args, redirect_to_loop=True) if args else \
-           CommandResult(text="Switched to BUILD mode (full tools).")
+    return (
+        CommandResult(text=args, redirect_to_loop=True)
+        if args
+        else CommandResult(text="Switched to BUILD mode (full tools).")
+    )
 
 
 async def _undo_handler(args: str, **ctx) -> CommandResult:
@@ -128,105 +139,80 @@ async def _undo_handler(args: str, **ctx) -> CommandResult:
     versionstore = ctx.get("versionstore")  # pragma: no cover
     if not versionstore:  # pragma: no cover
         return CommandResult(error="No versionstore available for undo")  # pragma: no cover
-    revs = versionstore.list_revs() if hasattr(versionstore, "list_revs") else []  # pragma: no cover
+    revs = (
+        versionstore.list_revs() if hasattr(versionstore, "list_revs") else []
+    )  # pragma: no cover
     if not revs:  # pragma: no cover
         return CommandResult(error="Nothing to undo")  # pragma: no cover
     rev = revs[-1]  # pragma: no cover
     restored = versionstore.restore(rev)  # pragma: no cover
-    return CommandResult(text=f"↩  Restored {len(restored)} file(s) from snapshot {rev}")  # pragma: no cover
+    return CommandResult(
+        text=f"↩  Restored {len(restored)} file(s) from snapshot {rev}"
+    )  # pragma: no cover
 
 
 async def _redo_handler(args: str, **ctx) -> CommandResult:
-    return CommandResult(text="redo: not yet implemented (requires forward-snapshot stack)")  # pragma: no cover
+    return CommandResult(
+        text="redo: not yet implemented (requires forward-snapshot stack)"
+    )  # pragma: no cover
 
 
 async def _compact_handler(args: str, **ctx) -> CommandResult:
-    """→ compact_conversation omodul。"""
-    import tempfile  # pragma: no cover
-    from omodul.complex import CompactConversationConfig, CompactConversationInput, compact_conversation  # pragma: no cover
+    """→ compact_conversation (legacy omodul; compat shim)."""
+    from hicode.compat import compact_session
+
     session = ctx.get("session")  # pragma: no cover
     caller = ctx.get("caller")  # pragma: no cover
     if not session or not caller:  # pragma: no cover
         return CommandResult(error="/compact requires active session + caller")  # pragma: no cover
-    cfg = CompactConversationConfig()  # pragma: no cover
-    inp = CompactConversationInput(messages=session.messages, caller=caller,  # pragma: no cover
-                                   session_id=session.id)
-    result = await compact_conversation(cfg, inp, Path(tempfile.mkdtemp()))  # pragma: no cover
-    if result["status"] == "completed":  # pragma: no cover
+    result = await compact_session(session.messages)
+    if result.get("compacted"):  # pragma: no cover
         session.messages = result["messages"]  # pragma: no cover
-        before = result.get("decision_trail", {}).get("steps", 0)  # pragma: no cover
-        return CommandResult(text=f"🗜  Compacted: {before} → {len(session.messages)} messages")  # pragma: no cover
+        before = len(session.messages)  # pragma: no cover
+        return CommandResult(
+            text=f"🗜  Compacted: {before} → {len(session.messages)} messages"
+        )  # pragma: no cover
     return CommandResult(error="compact failed")  # pragma: no cover
 
 
 async def _review_handler(args: str, **ctx) -> CommandResult:
-    """→ code_review omodul。"""
-    import tempfile  # pragma: no cover
-    from omodul.reports import CodeReviewConfig, CodeReviewInput, code_review  # pragma: no cover
-    paths = [p.strip() for p in args.split() if p.strip()] if args else []  # pragma: no cover
-    caller = ctx.get("caller")  # pragma: no cover
-    if not caller:  # pragma: no cover
-        return CommandResult(error="/review requires a configured LLM caller")  # pragma: no cover
-    cfg = CodeReviewConfig()  # pragma: no cover
-    inp = CodeReviewInput(paths=paths, caller=caller)  # pragma: no cover
-    result = await code_review(cfg, inp, Path(tempfile.mkdtemp()))  # pragma: no cover
-    if result["status"] == "completed":  # pragma: no cover
-        return CommandResult(text=f"📋 Review complete → {result.get('report_path')}")  # pragma: no cover
-    return CommandResult(error="review failed")  # pragma: no cover
+    """→ code_review (legacy omodul; unavailable)."""
+    return CommandResult(
+        error="/review requires the legacy omodul.reports module, which is not installed"
+    )  # pragma: no cover
 
 
 async def _tests_handler(args: str, **ctx) -> CommandResult:
-    """→ generate_tests omodul。"""
-    import tempfile  # pragma: no cover
-    from omodul.reports import GenerateTestsConfig, GenerateTestsInput, generate_tests  # pragma: no cover
+    """→ generate_tests (legacy omodul; unavailable)."""
     target = args.strip()  # pragma: no cover
     if not target:  # pragma: no cover
         return CommandResult(error="/tests <file_path>")  # pragma: no cover
-    caller = ctx.get("caller")  # pragma: no cover
-    if not caller:  # pragma: no cover
-        return CommandResult(error="/tests requires a configured LLM caller")  # pragma: no cover
-    cfg = GenerateTestsConfig()  # pragma: no cover
-    inp = GenerateTestsInput(target_path=target, caller=caller)  # pragma: no cover
-    result = await generate_tests(cfg, inp, Path(tempfile.mkdtemp()))  # pragma: no cover
-    if result["status"] == "completed":  # pragma: no cover
-        return CommandResult(text=f"🧪 Tests generated → {result.get('test_file_path')}")  # pragma: no cover
-    return CommandResult(error="generate_tests failed")  # pragma: no cover
+    return CommandResult(
+        error="/tests requires the legacy omodul.reports module, which is not installed"
+    )  # pragma: no cover
 
 
 async def _checkpoint_handler(args: str, **ctx) -> CommandResult:
-    """→ create_checkpoint omodul。"""
-    import tempfile  # pragma: no cover
-    from omodul.complex import CreateCheckpointConfig, CreateCheckpointInput, create_checkpoint  # pragma: no cover
+    """→ create_checkpoint (legacy omodul; compat shim)."""
+    from hicode.compat import RunState, make_checkpoint
+
     session = ctx.get("session")  # pragma: no cover
     if not session:  # pragma: no cover
         return CommandResult(error="/checkpoint requires active session")  # pragma: no cover
-    cfg = CreateCheckpointConfig()  # pragma: no cover
-    inp = CreateCheckpointInput(messages=session.messages, session_id=session.id)  # pragma: no cover
-    result = await create_checkpoint(cfg, inp, Path(tempfile.mkdtemp()))  # pragma: no cover
-    if result["status"] == "completed":  # pragma: no cover
-        return CommandResult(text=f"📍 Checkpoint {result['checkpoint_id']} saved "  # pragma: no cover
-                                  f"({result['message_count']} messages)")
-    return CommandResult(error="checkpoint failed")  # pragma: no cover
+    ckpt = make_checkpoint(RunState(session_id=session.id, data={"messages": session.messages}))
+    return CommandResult(
+        text=f"📍 Checkpoint {ckpt.session_id} saved ({len(session.messages)} messages)"
+    )  # pragma: no cover
 
 
 async def _rewind_handler(args: str, **ctx) -> CommandResult:
-    """→ rewind_to_checkpoint omodul。"""
-    import tempfile  # pragma: no cover
-    from omodul.complex import RewindConfig, RewindInput, rewind_to_checkpoint  # pragma: no cover
+    """→ rewind_to_checkpoint (legacy omodul; unavailable)."""
     ckpt_id = args.strip()  # pragma: no cover
     if not ckpt_id:  # pragma: no cover
         return CommandResult(error="/rewind <checkpoint_id>")  # pragma: no cover
-    ckpt_path = ctx.get("checkpoint_path", "")  # pragma: no cover
-    cfg = RewindConfig()  # pragma: no cover
-    inp = RewindInput(checkpoint_id=ckpt_id, checkpoint_path=ckpt_path,  # pragma: no cover
-                      store=ctx.get("store"))
-    result = await rewind_to_checkpoint(cfg, inp, Path(tempfile.mkdtemp()))  # pragma: no cover
-    if result["status"] == "completed":  # pragma: no cover
-        session = ctx.get("session")  # pragma: no cover
-        if session:  # pragma: no cover
-            session.messages = result["messages"]  # pragma: no cover
-        return CommandResult(text=f"⏪ Rewound to {ckpt_id} ({result['message_count']} messages)")  # pragma: no cover
-    return CommandResult(error=f"rewind failed: {result.get('error', {}).get('message', '')}")  # pragma: no cover
+    return CommandResult(
+        error="/rewind requires the legacy omodul.complex module, which is not installed"
+    )  # pragma: no cover
 
 
 async def _agents_handler(args: str, **ctx) -> CommandResult:
@@ -243,22 +229,17 @@ async def _agents_handler(args: str, **ctx) -> CommandResult:
 
 
 async def _plugin_handler(args: str, **ctx) -> CommandResult:
-    """→ install_plugin omodul。"""
-    import tempfile  # pragma: no cover
-    from omodul.complex import InstallPluginConfig, InstallPluginInput, install_plugin  # pragma: no cover
+    """→ install_plugin (legacy omodul; unavailable)."""
     if not args.strip():  # pragma: no cover
         return CommandResult(error="/plugin <bundle_json_path>")  # pragma: no cover
     try:  # pragma: no cover
-        bundle = json.loads(Path(args.strip()).read_text())  # pragma: no cover
+        # Validate the bundle parses as JSON (module itself is unavailable)
+        json.loads(Path(args.strip()).read_text())  # pragma: no cover
     except Exception as e:  # pragma: no cover
         return CommandResult(error=f"Cannot load plugin bundle: {e}")  # pragma: no cover
-    install_dir = ctx.get("plugin_dir", str(Path.home() / ".hicode" / "plugins"))  # pragma: no cover
-    cfg = InstallPluginConfig()  # pragma: no cover
-    inp = InstallPluginInput(plugin_bundle=bundle, install_dir=install_dir)  # pragma: no cover
-    result = await install_plugin(cfg, inp, Path(tempfile.mkdtemp()))  # pragma: no cover
-    if result["status"] == "completed":  # pragma: no cover
-        return CommandResult(text=f"🔌 Plugin '{result['plugin_name']}' installed")  # pragma: no cover
-    return CommandResult(error="install_plugin failed")  # pragma: no cover
+    return CommandResult(
+        error="/plugin requires the legacy omodul.complex module, which is not installed"
+    )  # pragma: no cover
 
 
 async def _hooks_handler(args: str, **ctx) -> CommandResult:
@@ -276,9 +257,11 @@ async def _hooks_handler(args: str, **ctx) -> CommandResult:
 
 async def _custom_handler_factory(name: str, content: str) -> Callable:
     """从 .claude/commands/*.md 动态创建命令 handler。"""
+
     async def handler(args: str, **ctx) -> CommandResult:  # pragma: no cover
         prompt = content.replace("$ARGUMENTS", args).replace("{args}", args)  # pragma: no cover
         return CommandResult(text=prompt, redirect_to_loop=True)  # pragma: no cover
+
     handler.__name__ = name  # pragma: no cover
     return handler  # pragma: no cover
 
@@ -295,15 +278,21 @@ def build_default_router(*, custom_commands_dir: str | Path | None = None) -> Sl
         SlashCommand("compact", "Compact conversation history", _compact_handler),
         SlashCommand("review", "Code review file(s)", _review_handler, usage="/review [files...]"),
         SlashCommand("tests", "Generate tests for a file", _tests_handler, usage="/tests <file>"),
-        SlashCommand("checkpoint", "Save conversation checkpoint", _checkpoint_handler, aliases=["ckpt"]),
+        SlashCommand(
+            "checkpoint", "Save conversation checkpoint", _checkpoint_handler, aliases=["ckpt"]
+        ),
         SlashCommand("rewind", "Rewind to a checkpoint", _rewind_handler),
         SlashCommand("agents", "List available subagents", _agents_handler),
         SlashCommand("plugin", "Install a plugin bundle", _plugin_handler),
         SlashCommand("hooks", "View/manage hooks", _hooks_handler),
-        SlashCommand("help", "Show available commands",
-                     lambda args, **ctx: _help_handler(args, router=router, **ctx)),
-        SlashCommand("sessions", "Manage sessions",
-                     lambda args, **ctx: _sessions_handler(args, **ctx)),
+        SlashCommand(
+            "help",
+            "Show available commands",
+            lambda args, **ctx: _help_handler(args, router=router, **ctx),
+        ),
+        SlashCommand(
+            "sessions", "Manage sessions", lambda args, **ctx: _sessions_handler(args, **ctx)
+        ),
     ]
     for cmd in commands:
         router.register(cmd)
@@ -323,7 +312,8 @@ async def _sessions_handler(args: str, **ctx) -> CommandResult:
     multi_router = ctx.get("multi_session_router")  # pragma: no cover
     if not multi_router:  # pragma: no cover
         return CommandResult(error="Session manager not configured")  # pragma: no cover
-    from layer4.session import MultiSessionRouter  # pragma: no cover
+    from session import MultiSessionRouter  # pragma: no cover
+
     if not isinstance(multi_router, MultiSessionRouter):  # pragma: no cover
         return CommandResult(error="Invalid session router")  # pragma: no cover
     parts = args.split() if args else []  # pragma: no cover
@@ -338,18 +328,24 @@ def _load_custom_commands(router: SlashRouter, commands_dir: Path) -> None:
         try:  # pragma: no cover
             content = md_file.read_text()  # pragma: no cover
             # 提取第一行作为描述
-            first_line = content.splitlines()[0].lstrip("#").strip() if content else name  # pragma: no cover
+            first_line = (
+                content.splitlines()[0].lstrip("#").strip() if content else name
+            )  # pragma: no cover
 
             async def make_handler(c=content, n=name):  # pragma: no cover
                 async def h(args: str, **ctx) -> CommandResult:  # pragma: no cover
                     prompt = c.replace("$ARGUMENTS", args)  # pragma: no cover
                     return CommandResult(text=prompt, redirect_to_loop=True)  # pragma: no cover
+
                 return h  # pragma: no cover
+
             # create directly  # pragma: no cover
             _content = content  # pragma: no cover
+
             async def _h(args: str, _c=_content, **ctx) -> CommandResult:  # pragma: no cover
                 prompt = _c.replace("$ARGUMENTS", args)  # pragma: no cover
                 return CommandResult(text=prompt, redirect_to_loop=True)  # pragma: no cover
+
             router.register(SlashCommand(name, first_line, _h))  # pragma: no cover
         except Exception:  # pragma: no cover
             pass  # pragma: no cover
@@ -359,8 +355,10 @@ def _load_custom_commands(router: SlashRouter, commands_dir: Path) -> None:
 # G. Hook Manager
 # ===========================================================================
 
-class HookEventNames(str, Enum):
+
+class HookEventNames(StrEnum):
     """25 个 hook 生命周期点。"""
+
     USER_PROMPT_SUBMIT = "UserPromptSubmit"
     PRE_TOOL_USE = "PreToolUse"
     POST_TOOL_USE = "PostToolUse"
@@ -393,11 +391,15 @@ class HookConfig:
     event: str
     command: str
     matcher: str | None = None
-    scope: str = "global"   # "global" | "project" | "plugin" | "skill"
+    scope: str = "global"  # "global" | "project" | "plugin" | "skill"
 
     def to_dict(self) -> dict:
-        return {"event": self.event, "command": self.command,
-                "matcher": self.matcher, "scope": self.scope}
+        return {
+            "event": self.event,
+            "command": self.command,
+            "matcher": self.matcher,
+            "scope": self.scope,
+        }
 
 
 class HookManager:
@@ -411,8 +413,7 @@ class HookManager:
 
     def remove(self, event: str, command: str) -> bool:
         before = len(self._hooks)
-        self._hooks = [h for h in self._hooks
-                       if not (h.event == event and h.command == command)]
+        self._hooks = [h for h in self._hooks if not (h.event == event and h.command == command)]
         return len(self._hooks) < before
 
     def list_hooks(self) -> list[dict]:
@@ -422,16 +423,18 @@ class HookManager:
         return [h for h in self._hooks if h.event == event]
 
     @classmethod
-    def from_config(cls, settings: dict) -> "HookManager":
+    def from_config(cls, settings: dict) -> HookManager:
         configs = []
         for raw in settings.get("hooks", []):
             if isinstance(raw, dict):
-                configs.append(HookConfig(
-                    event=raw.get("event", ""),
-                    command=raw.get("command", ""),
-                    matcher=raw.get("matcher"),
-                    scope=raw.get("scope", "global"),
-                ))
+                configs.append(
+                    HookConfig(
+                        event=raw.get("event", ""),
+                        command=raw.get("command", ""),
+                        matcher=raw.get("matcher"),
+                        scope=raw.get("scope", "global"),
+                    )
+                )
         return cls(configs)
 
 
@@ -447,34 +450,38 @@ class HookDispatcher:
     async def __call__(self, event: str, payload: dict) -> dict:
         """评估 + 执行匹配的 hooks，返回聚合决策。"""
         try:
-            from oskill.tooling import evaluate_hooks
-            hook_specs = [{"event": h.event, "command": h.command, "matcher": h.matcher}
-                          for h in self.manager.hooks_for(event)]
+            from hicode.compat import evaluate_hooks
+            from hicode.compat import run_hook as _run_hook
+
+            hook_specs = [
+                {"event": h.event, "command": h.command, "matcher": h.matcher}
+                for h in self.manager.hooks_for(event)
+            ]
             if not hook_specs:
                 return {"decision": "allow", "modified_payload": payload}
 
             cmds = evaluate_hooks(event, payload, hook_specs=hook_specs)  # pragma: no cover
+            results = []  # pragma: no cover
+            for cmd in cmds:  # pragma: no cover
+                result = await _run_hook(
+                    cmd.command, event_json={"event": event, **payload}
+                )  # pragma: no cover
+                results.append(result)  # pragma: no cover
+
+            # 任一 block → block
+            for r in results:  # pragma: no cover
+                if r.decision == "block":  # pragma: no cover
+                    return {"decision": "block", "modified_payload": payload}  # pragma: no cover
+
+            return {"decision": "allow", "modified_payload": payload}  # pragma: no cover
         except ImportError:  # pragma: no cover
             return {"decision": "allow", "modified_payload": payload}  # pragma: no cover
-
-        from oprim.hooks_image_skill import run_hook as _run_hook  # pragma: no cover
-
-        results = []  # pragma: no cover
-        for cmd in cmds:  # pragma: no cover
-            result = await _run_hook(cmd.command, event_json={"event": event, **payload})  # pragma: no cover
-            results.append(result)  # pragma: no cover
-
-        # 任一 block → block
-        for r in results:  # pragma: no cover
-            if r.decision == "block":  # pragma: no cover
-                return {"decision": "block", "modified_payload": payload}  # pragma: no cover
-
-        return {"decision": "allow", "modified_payload": payload}  # pragma: no cover
 
 
 # ===========================================================================
 # H. Subagent Loader
 # ===========================================================================
+
 
 class SubagentLoader:
     """.claude/agents/*.md 解析 → SubagentDefinition 列表。"""
@@ -489,12 +496,18 @@ class SubagentLoader:
         result = []
         for md in self._dir.glob("*.md"):
             try:
-                from oprim.hooks_image_skill import read_skill_frontmatter
-                meta = read_skill_frontmatter(str(md.parent / md.stem)
-                                               if (md.parent / md.stem).is_dir()
-                                               else str(md.parent))
-                result.append({"name": meta.name, "description": meta.description,  # pragma: no cover
-                                "tools": meta.tools})
+                from hicode.compat import read_skill_frontmatter
+
+                meta = read_skill_frontmatter(
+                    str(md.parent / md.stem) if (md.parent / md.stem).is_dir() else str(md.parent)
+                )
+                result.append(
+                    {
+                        "name": meta.name,
+                        "description": meta.description,  # pragma: no cover
+                        "tools": meta.tools,
+                    }
+                )
             except Exception:
                 # frontmatter 可能不在子目录，直接解析 md 文件
                 try:
@@ -523,7 +536,8 @@ class SubagentLoader:
             return None
 
         try:
-            from omodul.run_subagent import SubagentDefinition, SubagentPermissions
+            from hicode.compat import SubagentDefinition, SubagentPermissions
+
             content = source_md.read_text()
 
             system_prompt = content
@@ -531,11 +545,12 @@ class SubagentLoader:
             perms = SubagentPermissions(mode="default")
 
             import re as _re
-            fm_m = _re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, _re.DOTALL)
+
+            fm_m = _re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", content, _re.DOTALL)
             if fm_m:
                 fm_text = fm_m.group(1)  # pragma: no cover
                 system_prompt = fm_m.group(2).strip()  # pragma: no cover
-                mode_m = _re.search(r'^mode:\s*(\w+)', fm_text, _re.MULTILINE)  # pragma: no cover
+                mode_m = _re.search(r"^mode:\s*(\w+)", fm_text, _re.MULTILINE)  # pragma: no cover
                 if mode_m:  # pragma: no cover
                     perms = SubagentPermissions(mode=mode_m.group(1))  # pragma: no cover
 
@@ -571,10 +586,8 @@ class AgentMemoryStore:
             return ""
         parts = []
         for f in sorted(d.glob("*.md")):
-            try:
+            with contextlib.suppress(Exception):  # pragma: no cover
                 parts.append(f.read_text())
-            except Exception:  # pragma: no cover
-                pass  # pragma: no cover
         return "\n\n".join(parts)
 
     def write(self, agent_name: str, content: str, *, filename: str = "memory.md") -> Path:
@@ -600,16 +613,22 @@ class WorkerAssembly:
     骨架不直接访问 memory，全部通过此类。
     """
 
-    def __init__(self, loader: SubagentLoader, memory: AgentMemoryStore,
-                 caller_factory: Callable | None = None) -> None:
+    def __init__(
+        self,
+        loader: SubagentLoader,
+        memory: AgentMemoryStore,
+        caller_factory: Callable | None = None,
+    ) -> None:
         self.loader = loader  # pragma: no cover
         self.memory = memory  # pragma: no cover
         self.caller_factory = caller_factory  # pragma: no cover
 
     async def spawn(self, agent_name: str, task: str) -> dict:
         """spawn 一个 subagent，注入历史记忆，返回摘要。"""
-        import tempfile  # pragma: no cover
-        from omodul.run_subagent import SubagentConfig, SubagentInput, run_subagent  # pragma: no cover
+        from hicode.compat import (
+            SubagentInput,
+            run_subagent,
+        )
 
         defn = self.loader.load(agent_name)  # pragma: no cover
         if defn is None:  # pragma: no cover
@@ -618,15 +637,17 @@ class WorkerAssembly:
         # 注入历史记忆
         memory_text = self.memory.read(agent_name)  # pragma: no cover
         if memory_text:  # pragma: no cover
-            defn.system_prompt = defn.system_prompt + f"\n\n## Historical Memory\n{memory_text}"  # pragma: no cover
+            defn.system_prompt = (
+                defn.system_prompt + f"\n\n## Historical Memory\n{memory_text}"
+            )  # pragma: no cover
 
-        caller = self.caller_factory() if self.caller_factory else None  # pragma: no cover
-        cfg = SubagentConfig()  # pragma: no cover
-        inp = SubagentInput(task=task, subagent_def=defn, caller=caller)  # pragma: no cover
-        result = await run_subagent(cfg, inp, Path(tempfile.mkdtemp()))  # pragma: no cover
+        inp = SubagentInput(prompt=task)  # pragma: no cover
+        result = await run_subagent(inp)  # pragma: no cover
 
         # 写回记忆
         if result.get("status") == "completed" and result.get("summary"):  # pragma: no cover
-            self.memory.append(agent_name, f"## Task: {task}\n{result['summary']}")  # pragma: no cover
+            self.memory.append(
+                agent_name, f"## Task: {task}\n{result['summary']}"
+            )  # pragma: no cover
 
         return result  # pragma: no cover

@@ -3,11 +3,13 @@ layer4/server/sse.py — Server-Sent Events streaming
 
 Converts coordinator on_step callbacks → SSE stream for frontend consumption.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
-from typing import AsyncIterator, Any
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
