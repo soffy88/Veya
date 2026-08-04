@@ -3,7 +3,7 @@ Unit tests for P5: AI Agent Collaboration
 Tests core functionality of agent_collaboration.py
 """
 
-from hicode.agent_collaboration import (
+from veya.agent_collaboration import (
     AgentMessage,
     AgentRole,
     AgentTask,

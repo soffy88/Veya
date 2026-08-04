@@ -6,7 +6,7 @@ P2 优先级功能已全部实现，包含四大模块：
 
 ### 1. ✅ 多模态支持
 
-**文件**: `hicode/multimodal.py` + `server/routes/multimodal.py`
+**文件**: `veya/multimodal.py` + `server/routes/multimodal.py`
 
 **功能**: 
 - 图像理解（OCR、代码截图识别）
@@ -41,7 +41,7 @@ curl -X POST http://localhost:8000/multimodal/prepare-for-llm \
 
 ### 2. ✅ 生态系统集成
 
-**文件**: `hicode/integrations.py` + `server/routes/integrations.py`
+**文件**: `veya/integrations.py` + `server/routes/integrations.py`
 
 **功能**:
 - GitHub 集成（Issue、PR、评论、CI 状态）
@@ -67,7 +67,7 @@ curl -X POST http://localhost:8000/integrations/send-to \
 # 发送 Slack 消息
 curl -X POST http://localhost:8000/integrations/send-to \
   -H "Content-Type: application/json" \
-  -d '{"platform": "slack", "event": "success", "data": {"message": "hicode test notification"}}'
+  -d '{"platform": "slack", "event": "success", "data": {"message": "veya test notification"}}'
 
 # 发送通知到所有平台
 curl -X POST http://localhost:8000/integrations/notify \
@@ -79,7 +79,7 @@ curl -X POST http://localhost:8000/integrations/notify \
 
 ### 3. ✅ 协作功能
 
-**文件**: `hicode/collaboration.py` + `server/routes/collaboration.py`
+**文件**: `veya/collaboration.py` + `server/routes/collaboration.py`
 
 **功能**:
 - 多用户会话管理
@@ -125,7 +125,7 @@ curl -X POST http://localhost:8000/collaboration/add-message \
 
 ### 4. ✅ 语义搜索
 
-**文件**: `hicode/semantic_search.py` + `server/routes/semantic_search.py`
+**文件**: `veya/semantic_search.py` + `server/routes/semantic_search.py`
 
 **功能**:
 - 基于 embedding 的代码语义搜索
@@ -264,4 +264,4 @@ P3 优先级计划：
 3. **跨语言支持** - 支持 Java、C++、Rust 等更多语言
 4. **性能优化** - 更智能的缓存、增量计算、分布式执行
 
-P0 + P1 + P2 已经为 hicode 打造了一个完整且强大的 AI 编程助手框架，具备了与主流产品竞争的核心能力！
+P0 + P1 + P2 已经为 veya 打造了一个完整且强大的 AI 编程助手框架，具备了与主流产品竞争的核心能力！

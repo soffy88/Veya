@@ -1,10 +1,10 @@
 """
-cli/main.py — hicode 交互入口(readline-based interactive loop)
+cli/main.py — veya 交互入口(readline-based interactive loop)
 
 用法:
-    hicode                      # 交互模式
-    hicode --help               # 帮助
-    echo "改 foo.py" | hicode   # stdin 单次执行
+    veya                      # 交互模式
+    veya --help               # 帮助
+    echo "改 foo.py" | veya   # stdin 单次执行
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from typing import Any
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="hicode",
-        description="hicode — AI coding agent (interactive mode)",
+        prog="veya",
+        description="veya — AI coding agent (interactive mode)",
     )
     p.add_argument(
         "--persona",
@@ -29,7 +29,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--config", default=None, help="Config file path")
     p.add_argument("--resume", metavar="SESSION_ID", help="Resume a checkpointed session")
-    p.add_argument("--version", action="version", version="hicode 0.4.0")
+    p.add_argument("--version", action="version", version="veya 0.5.0")
     return p
 
 
@@ -42,7 +42,7 @@ async def _run_once(text: str, *, persona: str) -> dict[str, Any]:
 async def _interactive_loop(persona: str) -> None:
     from server.coordinator import coordinator
 
-    print(f"hicode 0.4.0 | persona={persona} | Ctrl-D or 'exit' to quit", file=sys.stderr)
+    print(f"veya 0.5.0 | persona={persona} | Ctrl-D or 'exit' to quit", file=sys.stderr)
     session_id: str | None = None
 
     with contextlib.suppress(ImportError):
@@ -50,7 +50,7 @@ async def _interactive_loop(persona: str) -> None:
 
     while True:
         try:
-            line = input("hicode> ").strip()
+            line = input("veya> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nBye.", file=sys.stderr)
             break
@@ -82,8 +82,8 @@ async def _interactive_loop(persona: str) -> None:
 
 
 async def _resume(session_id: str, persona: str) -> None:
-    from hicode.compat import restore_from_checkpoint
     from server.checkpoint import load_checkpoint
+    from veya.compat import restore_from_checkpoint
 
     ckpt = await load_checkpoint(session_id)
     if not ckpt:

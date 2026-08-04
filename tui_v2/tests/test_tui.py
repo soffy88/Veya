@@ -1,5 +1,5 @@
 """
-hicode_tui 테스트 슈트
+veya_tui 테스트 슈트
 ======================
 30개 컴포넌트, 각 ≥5 테스트.
 외부 의존성(anthropic API, oservice) 전부 mock.
@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hicode_tui import (
+from veya_tui import (
     VERSION,
     ArgParser,
     AtMentionCompleter,
@@ -44,13 +44,13 @@ from hicode_tui import (
     ToolResultRenderer,
     YesNoPrompt,
 )
-from hicode_tui.render import (
+from veya_tui.render import (
     _ansi,
     bold,
     dim,
     gray,
 )
-from hicode_tui.repl import (
+from veya_tui.repl import (
     AgentLoopAdapter,
     LoopOrchestrator,
     PipeFriendly,
@@ -562,7 +562,7 @@ class TestDividerLine:
 
     def test_assistant_prefix(self):
         p = DividerLine.assistant_prefix(no_color=True)
-        assert "hicode" in p
+        assert "veya" in p
 
     def test_no_color_no_ansi(self):
         p = DividerLine.user_prefix(no_color=True)
@@ -862,38 +862,38 @@ class TestColorUtils:
 
 class TestProviders:
     def test_detect_deepseek(self):
-        from hicode_tui.providers import detect_provider
+        from veya_tui.providers import detect_provider
 
         assert detect_provider("deepseek-chat") == "deepseek"
         assert detect_provider("deepseek-reasoner") == "deepseek"
 
     def test_detect_anthropic(self):
-        from hicode_tui.providers import detect_provider
+        from veya_tui.providers import detect_provider
 
         assert detect_provider("claude-sonnet-4-6") == "anthropic"
         assert detect_provider("claude-opus-4-6") == "anthropic"
 
     def test_detect_unknown_is_unknown(self):
-        from hicode_tui.providers import detect_provider
+        from veya_tui.providers import detect_provider
 
         assert detect_provider("gpt-4o") == "unknown"
 
     def test_make_deepseek_caller_no_key_raises(self, monkeypatch):
-        from hicode_tui.providers import make_deepseek_caller
+        from veya_tui.providers import make_deepseek_caller
 
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
             make_deepseek_caller("deepseek-chat")
 
     def test_make_deepseek_caller_with_key(self, monkeypatch):
-        from hicode_tui.providers import make_deepseek_caller
+        from veya_tui.providers import make_deepseek_caller
 
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-key")
         caller = make_deepseek_caller("deepseek-chat")
         assert callable(caller)
 
     def test_caller_has_provider_meta(self, monkeypatch):
-        from hicode_tui.providers import make_deepseek_caller
+        from veya_tui.providers import make_deepseek_caller
 
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
         caller = make_deepseek_caller("deepseek-chat")
@@ -903,7 +903,7 @@ class TestProviders:
     def test_openai_resp_to_anthropic_text(self):
         from types import SimpleNamespace
 
-        from hicode_tui.providers import _openai_resp_to_anthropic
+        from veya_tui.providers import _openai_resp_to_anthropic
 
         resp = SimpleNamespace(
             choices=[
@@ -928,7 +928,7 @@ class TestProviders:
     def test_openai_resp_to_anthropic_tool_call(self):
         from types import SimpleNamespace
 
-        from hicode_tui.providers import _openai_resp_to_anthropic
+        from veya_tui.providers import _openai_resp_to_anthropic
 
         tc = SimpleNamespace(
             id="call_abc", function=SimpleNamespace(name="bash_exec", arguments='{"command":"ls"}')
@@ -954,7 +954,7 @@ class TestProviders:
         """DeepSeek-R1 的 reasoning_content 映射为 thinking block。"""
         from types import SimpleNamespace
 
-        from hicode_tui.providers import _openai_resp_to_anthropic
+        from veya_tui.providers import _openai_resp_to_anthropic
 
         resp = SimpleNamespace(
             choices=[
@@ -978,7 +978,7 @@ class TestProviders:
         assert result["content"][1]["type"] == "text"
 
     def test_anthropic_tool_to_openai(self):
-        from hicode_tui.providers import _anthropic_tool_to_openai
+        from veya_tui.providers import _anthropic_tool_to_openai
 
         tool = {
             "name": "bash_exec",
@@ -995,14 +995,14 @@ class TestProviders:
         assert "command" in result["function"]["parameters"]["properties"]
 
     def test_get_caller_deepseek(self, monkeypatch):
-        from hicode_tui.providers import get_caller
+        from veya_tui.providers import get_caller
 
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
         caller = get_caller("deepseek-chat")
         assert callable(caller)
 
     def test_get_caller_unknown_provider_raises(self, monkeypatch):
-        from hicode_tui.providers import get_caller
+        from veya_tui.providers import get_caller
 
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
@@ -1010,13 +1010,13 @@ class TestProviders:
             get_caller("some-unknown-model-xyz")
 
     def test_env_loader_detects_deepseek(self):
-        from hicode_tui.input import EnvLoader
+        from veya_tui.input import EnvLoader
 
         assert EnvLoader.detect_provider("deepseek-chat") == "deepseek"
         assert EnvLoader.detect_provider("claude-sonnet-4-6") == "anthropic"
 
     def test_env_loader_check_deepseek_key(self, monkeypatch):
-        from hicode_tui.input import EnvLoader
+        from veya_tui.input import EnvLoader
 
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
         assert EnvLoader.check_api_key("deepseek")

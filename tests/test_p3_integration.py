@@ -27,7 +27,7 @@ class TestAutonomousAgent:
 
     def test_plan_code_generation(self):
         """测试代码生成规划"""
-        from hicode.autonomous_agent import AgentGoal, create_autonomous_agent
+        from veya.autonomous_agent import AgentGoal, create_autonomous_agent
 
         agent = create_autonomous_agent("test_agent")
 
@@ -49,7 +49,7 @@ class TestAutonomousAgent:
 
     def test_plan_problem_solving(self):
         """测试问题解决规划"""
-        from hicode.autonomous_agent import AgentGoal, create_autonomous_agent
+        from veya.autonomous_agent import AgentGoal, create_autonomous_agent
 
         agent = create_autonomous_agent()
 
@@ -65,7 +65,7 @@ class TestAutonomousAgent:
 
     def test_memory_storage_and_retrieval(self):
         """测试记忆存储和检索"""
-        from hicode.autonomous_agent import create_autonomous_agent
+        from veya.autonomous_agent import create_autonomous_agent
 
         agent = create_autonomous_agent()
 
@@ -85,7 +85,7 @@ class TestAutonomousAgent:
 
     def test_self_evaluation(self):
         """测试自我评估"""
-        from hicode.autonomous_agent import create_autonomous_agent
+        from veya.autonomous_agent import create_autonomous_agent
 
         agent = create_autonomous_agent()
 
@@ -100,7 +100,7 @@ class TestAutonomousAgent:
 
     def test_learning_from_experience(self):
         """测试从经验中学习"""
-        from hicode.autonomous_agent import create_autonomous_agent
+        from veya.autonomous_agent import create_autonomous_agent
 
         agent = create_autonomous_agent()
 
@@ -125,7 +125,7 @@ class TestVisualization:
 
     def test_code_graph_creation(self):
         """测试代码图谱创建"""
-        from hicode.visualization import GraphEdge, GraphNode, create_code_graph
+        from veya.visualization import GraphEdge, GraphNode, create_code_graph
 
         graph = create_code_graph()
 
@@ -147,7 +147,7 @@ class TestVisualization:
 
     def test_cytoscape_export(self):
         """测试 Cytoscape 格式导出"""
-        from hicode.visualization import GraphEdge, GraphNode, create_code_graph
+        from veya.visualization import GraphEdge, GraphNode, create_code_graph
 
         graph = create_code_graph()
 
@@ -168,7 +168,7 @@ class TestVisualization:
 
     def test_architecture_diagram(self):
         """测试架构图生成"""
-        from hicode.visualization import create_architecture_visualizer
+        from veya.visualization import create_architecture_visualizer
 
         visualizer = create_architecture_visualizer()
 
@@ -198,7 +198,7 @@ class TestVisualization:
 
     def test_interactive_debugger(self):
         """测试交互式调试器"""
-        from hicode.visualization import create_interactive_debugger
+        from veya.visualization import create_interactive_debugger
 
         debugger = create_interactive_debugger()
 
@@ -227,7 +227,7 @@ class TestCrossLanguage:
 
     def test_python_to_java_translation(self):
         """测试 Python 到 Java 翻译"""
-        from hicode.cross_language import Language, create_cross_language_translator
+        from veya.cross_language import Language, create_cross_language_translator
 
         translator = create_cross_language_translator()
 
@@ -254,7 +254,7 @@ class Person:
 
     def test_java_to_python_translation(self):
         """测试 Java 到 Python 翻译"""
-        from hicode.cross_language import Language, create_cross_language_translator
+        from veya.cross_language import Language, create_cross_language_translator
 
         translator = create_cross_language_translator()
 
@@ -276,13 +276,13 @@ public class Calculator {
 
     def test_language_detection(self):
         """测试语言检测"""
-        from hicode.cross_language import create_cross_language_translator
+        from veya.cross_language import create_cross_language_translator
 
         translator = create_cross_language_translator()
 
         # 分析项目
-        hicode_root = Path(__file__).parent.parent
-        stats = translator.analyze_project(str(hicode_root))
+        veya_root = Path(__file__).parent.parent
+        stats = translator.analyze_project(str(veya_root))
 
         assert stats is not None
         assert len(stats) >= 1  # 至少检测到一种语言
@@ -291,7 +291,7 @@ public class Calculator {
 
     def test_python_parser(self):
         """测试 Python 解析器"""
-        from hicode.cross_language import PythonParser
+        from veya.cross_language import PythonParser
 
         parser = PythonParser()
 
@@ -330,7 +330,7 @@ class TestPerformance:
 
     def test_smart_cache_lru(self):
         """测试 LRU 缓存策略"""
-        from hicode.performance import CacheStrategy, create_smart_cache
+        from veya.performance import CacheStrategy, create_smart_cache
 
         cache = create_smart_cache(max_size=3, strategy=CacheStrategy.LRU)
 
@@ -356,7 +356,7 @@ class TestPerformance:
         """测试 TTL 缓存过期"""
         import time as time_module
 
-        from hicode.performance import CacheStrategy, create_smart_cache
+        from veya.performance import CacheStrategy, create_smart_cache
 
         cache = create_smart_cache(max_size=100, strategy=CacheStrategy.TTL)
 
@@ -376,7 +376,7 @@ class TestPerformance:
 
     def test_incremental_computation(self):
         """测试增量计算"""
-        from hicode.performance import create_incremental_computer
+        from veya.performance import create_incremental_computer
 
         computer = create_incremental_computer()
 
@@ -403,7 +403,7 @@ class TestPerformance:
 
     def test_distributed_execution(self):
         """测试分布式执行"""
-        from hicode.performance import create_distributed_executor
+        from veya.performance import create_distributed_executor
 
         async def test():
             executor = create_distributed_executor(max_workers=2)
@@ -441,16 +441,16 @@ class TestIntegration:
     def test_all_modules_loaded(self):
         """测试所有 P3 模块加载"""
         # 检查模块是否存在
-        import hicode.autonomous_agent
-        import hicode.cross_language
-        import hicode.performance
-        import hicode.visualization
+        import veya.autonomous_agent
+        import veya.cross_language
+        import veya.performance
+        import veya.visualization
 
         # 检查函数存在
-        assert hasattr(hicode.autonomous_agent, "create_autonomous_agent")
-        assert hasattr(hicode.visualization, "create_code_graph")
-        assert hasattr(hicode.cross_language, "create_cross_language_translator")
-        assert hasattr(hicode.performance, "create_smart_cache")
+        assert hasattr(veya.autonomous_agent, "create_autonomous_agent")
+        assert hasattr(veya.visualization, "create_code_graph")
+        assert hasattr(veya.cross_language, "create_cross_language_translator")
+        assert hasattr(veya.performance, "create_smart_cache")
 
         print("✓ All P3 modules loaded successfully")
 

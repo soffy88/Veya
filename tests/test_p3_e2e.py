@@ -12,7 +12,7 @@ import pytest
 async def test_autonomous_workflow():
     """测试自主工作流"""
     # 1. 计划任务
-    from hicode.autonomous_agent import AgentGoal, create_autonomous_agent
+    from veya.autonomous_agent import AgentGoal, create_autonomous_agent
 
     agent = create_autonomous_agent("e2e_test")
 
@@ -44,7 +44,7 @@ async def test_autonomous_workflow():
 async def test_visualization_workflow():
     """测试可视化工作流"""
     # 1. 创建代码图谱
-    from hicode.visualization import GraphEdge, GraphNode, create_code_graph
+    from veya.visualization import GraphEdge, GraphNode, create_code_graph
 
     graph = create_code_graph()
 
@@ -79,7 +79,7 @@ async def test_visualization_workflow():
     assert len(cytoscape_data["elements"]) >= 5
 
     # 4. 生成架构图
-    from hicode.visualization import create_architecture_visualizer
+    from veya.visualization import create_architecture_visualizer
 
     visualizer = create_architecture_visualizer()
 
@@ -115,7 +115,7 @@ async def test_visualization_workflow():
 async def test_cross_language_workflow():
     """测试跨语言工作流"""
     # 1. 翻译代码
-    from hicode.cross_language import Language, create_cross_language_translator
+    from veya.cross_language import Language, create_cross_language_translator
 
     translator = create_cross_language_translator()
 
@@ -134,8 +134,8 @@ class Calculator:
     assert len(result.target_code) > 0
 
     # 2. 分析项目语言分布
-    hicode_root = Path(__file__).parent.parent
-    stats = translator.analyze_project(str(hicode_root))
+    veya_root = Path(__file__).parent.parent
+    stats = translator.analyze_project(str(veya_root))
     assert len(stats) >= 1
 
     # 3. 识别代码模式
@@ -149,7 +149,7 @@ class Calculator:
 async def test_performance_optimization_workflow():
     """测试性能优化工作流"""
     # 1. 智能缓存
-    from hicode.performance import CacheStrategy, create_smart_cache
+    from veya.performance import CacheStrategy, create_smart_cache
 
     cache = create_smart_cache(max_size=100, strategy=CacheStrategy.LRU)
 
@@ -162,7 +162,7 @@ async def test_performance_optimization_workflow():
     assert stats.size <= 100  # 未超过最大大小
 
     # 2. 增量计算
-    from hicode.performance import create_incremental_computer
+    from veya.performance import create_incremental_computer
 
     computer = create_incremental_computer()
 
@@ -179,7 +179,7 @@ async def test_performance_optimization_workflow():
     assert result == 11  # 5 * 2 + 1
 
     # 3. 资源优化
-    from hicode.performance import create_resource_optimizer
+    from veya.performance import create_resource_optimizer
 
     optimizer = create_resource_optimizer()
 
@@ -199,8 +199,8 @@ async def test_end_to_end_autonomous_and_collaborative_workflow():
 
     # 步骤 1: 初始化自主代理和协作协调器
     from config.settings import load_settings
-    from hicode.autonomous_agent import AgentGoal, create_autonomous_agent
     from server.coordinator import Coordinator
+    from veya.autonomous_agent import AgentGoal, create_autonomous_agent
 
     # 创建自主代理
     agent = create_autonomous_agent("e2e_complete")
@@ -381,8 +381,8 @@ def process_data(data):
         print(f"✓ Translated code with confidence: {result['translation']['confidence']}")
 
         # 测试项目分析
-        hicode_root = Path(__file__).parent.parent
-        lang_result = await coordinator.analyze_language_project(str(hicode_root))
+        veya_root = Path(__file__).parent.parent
+        lang_result = await coordinator.analyze_language_project(str(veya_root))
 
         assert lang_result["status"] == "success"
         assert "language_stats" in lang_result

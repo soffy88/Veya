@@ -7,8 +7,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-sys.path.insert(0, "/home/soffy/projects/hicode")
-os.chdir("/home/soffy/projects/hicode")
+sys.path.insert(0, "/home/soffy/projects/veya")
+os.chdir("/home/soffy/projects/veya")
 
 from config.loader import load_config
 
@@ -33,13 +33,13 @@ r = client.post(
     "/tool",
     json={
         "name": "write",
-        "args": {"path": "README.md", "content": "# hicode via /tool\nhicode.\n"},
+        "args": {"path": "README.md", "content": "# veya via /tool\nveya.\n"},
         "persona": "build",
     },
 )
 first = open("README.md").readline().strip()
-check("/tool write disk", first == "# hicode via /tool", first)
-open("README.md", "w").write("# hicode\nhicode — AI 编码 agent。\n")
+check("/tool write disk", first == "# veya via /tool", first)
+open("README.md", "w").write("# veya\nveya — AI 编码 agent。\n")
 
 r = client.post(
     "/tool",

@@ -9,8 +9,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-sys.path.insert(0, "/home/soffy/projects/hicode")
-os.chdir("/home/soffy/projects/hicode")
+sys.path.insert(0, "/home/soffy/projects/veya")
+os.chdir("/home/soffy/projects/veya")
 
 from config.loader import load_config
 
@@ -47,7 +47,7 @@ from server.routes.session import _sessions, _shares
 
 _sessions[sid]["messages"] = [
     {"role": "user", "content": "my key is sk-c1a49b21757040e5abba2a578634f6c0"},
-    {"role": "assistant", "content": "file saved to /home/soffy/projects/hicode/.env"},
+    {"role": "assistant", "content": "file saved to /home/soffy/projects/veya/.env"},
 ]
 
 # Call share
@@ -87,7 +87,7 @@ sid2 = r.json()["session_id"]
 
 # Record original file content
 original_content = pathlib.Path("README.md").read_text()
-check("/undo: README original exists", "# hicode" in original_content)
+check("/undo: README original exists", "# veya" in original_content)
 
 # Write via /tool WITH session_id (so snapshot is saved)
 r = client.post(

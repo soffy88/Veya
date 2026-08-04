@@ -1,7 +1,7 @@
-# hicode 项目增强功能文档
+# veya 项目增强功能文档
 
-> **版本**: `hicode` v0.4.0  
-> **目的**: 本文档详细描述了 `hicode` 项目从 P0 到 P5 的所有增强功能，包括智能上下文管理、流式输出、性能优化、AST代码理解、智能工具集成、安全沙箱、多模态支持、生态集成、协作功能、语义搜索、自主AI代理、代码可视化、跨语言支持、高级可视化和AI代理协作等核心能力。
+> **版本**: `veya` v0.4.0  
+> **目的**: 本文档详细描述了 `veya` 项目从 P0 到 P5 的所有增强功能，包括智能上下文管理、流式输出、性能优化、AST代码理解、智能工具集成、安全沙箱、多模态支持、生态集成、协作功能、语义搜索、自主AI代理、代码可视化、跨语言支持、高级可视化和AI代理协作等核心能力。
 
 ---
 
@@ -20,19 +20,19 @@
 
 ## 🎯 P0: 基础能力增强
 
-### 智能上下文管理 (`hicode/context.py`)
+### 智能上下文管理 (`veya/context.py`)
 - 自动压缩和相关文件加载
 - 上下文token预估
 - 动态调整上下文窗口
 - 支持多种上下文策略
 
-### 流式输出引擎 (`hicode/streaming.py`)
+### 流式输出引擎 (`veya/streaming.py`)
 - 实时token输出
 - 进度指示器
 - 中断支持
 - SSE协议集成
 
-### 性能优化层 (`hicode/cache.py`)
+### 性能优化层 (`veya/cache.py`)
 - 响应缓存
 - 并行工具调用
 - 预加载机制
@@ -42,19 +42,19 @@
 
 ## 🎯 P1: 代码理解增强
 
-### AST解析与代码理解 (`hicode/ast.py`)
+### AST解析与代码理解 (`veya/ast.py`)
 - 符号索引构建
 - 依赖图生成
 - 引用查找
 - 代码摘要生成
 
-### 智能工具集成 (`hicode/tools.py`)
+### 智能工具集成 (`veya/tools.py`)
 - Git/终端/文件系统工具
 - 智能建议系统
 - 输出解析器
 - 工具链组合
 
-### 安全沙箱 (`hicode/sandbox.py`)
+### 安全沙箱 (`veya/sandbox.py`)
 - 资源限制（CPU/内存/时间）
 - 操作审计日志
 - 自动回滚机制
@@ -64,25 +64,25 @@
 
 ## 🎯 P2: 生态扩展增强
 
-### 多模态处理 (`hicode/multimodal.py`)
+### 多模态处理 (`veya/multimodal.py`)
 - 图像OCR识别
 - 文档解析
 - base64编码处理
 - 多格式支持
 
-### 生态集成 (`hicode/integrations.py`)
+### 生态集成 (`veya/integrations.py`)
 - GitHub API集成
 - Slack消息通知
 - Jira问题跟踪
 - 统一集成中心
 
-### 协作功能 (`hicode/collaboration.py`)
+### 协作功能 (`veya/collaboration.py`)
 - 多用户会话支持
 - 实时同步机制
 - 版本控制集成
 - 权限管理
 
-### 语义搜索 (`hicode/semantic_search.py`)
+### 语义搜索 (`veya/semantic_search.py`)
 - 基于embedding的搜索
 - 混合搜索模式
 - 代码推荐系统
@@ -92,25 +92,25 @@
 
 ## 🎯 P3: 自主智能增强
 
-### 自主AI代理系统 (`hicode/autonomous_agent.py`)
+### 自主AI代理系统 (`veya/autonomous_agent.py`)
 - 自主规划能力
 - 记忆存储系统
 - 自我改进机制
 - 目标导向执行
 
-### 代码可视化系统 (`hicode/visualization.py`)
+### 代码可视化系统 (`veya/visualization.py`)
 - 代码图谱生成
 - 架构图绘制
 - 依赖关系可视化
 - 交互式探索
 
-### 跨语言支持系统 (`hicode/cross_language.py`)
+### 跨语言支持系统 (`veya/cross_language.py`)
 - Java/C++/Rust支持
 - 代码翻译引擎
 - 语法转换规则
 - 语义保持
 
-### 性能优化系统 (`hicode/performance.py`)
+### 性能优化系统 (`veya/performance.py`)
 - 智能缓存策略
 - 增量计算
 - 分布式执行
@@ -120,19 +120,19 @@
 
 ## 🎯 P4: 高级可视化增强
 
-### 3D图谱系统 (`hicode/advanced_visualization.py`)
+### 3D图谱系统 (`veya/advanced_visualization.py`)
 - 三维节点布局
 - 交互式旋转/缩放
 - 节点属性显示
 - 多视图支持
 
-### 增强调试系统 (`hicode/advanced_visualization.py`)
+### 增强调试系统 (`veya/advanced_visualization.py`)
 - 变量编辑功能
 - 表达式求值
 - 步进/步过/步入
 - 断点管理
 
-### 架构扩展系统 (`hicode/advanced_visualization.py`)
+### 架构扩展系统 (`veya/advanced_visualization.py`)
 - 部署拓扑图
 - 数据流图
 - 微服务架构
@@ -142,7 +142,7 @@
 
 ## 🎯 P5: AI代理协作增强
 
-### 多代理规划协调 (`hicode/agent_collaboration.py`)
+### 多代理规划协调 (`veya/agent_collaboration.py`)
 - Agent角色系统（PLANNER/EXECUTOR/REVIEWER/COORDINATOR）
 - 任务分解与分配
 - 依赖管理
@@ -176,7 +176,7 @@
 
 ### 启动服务
 ```bash
-cd /data/soffy/projects/hicode
+cd /data/soffy/projects/veya
 PYTHONPATH=. venv/bin/uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -239,4 +239,4 @@ curl http://localhost:8000/api/v1/agent-collaboration/summary
 
 ---
 
-**状态**: ✅ **hicode v0.4.0 - 所有P0-P5能力已实现**
+**状态**: ✅ **veya v0.4.0 - 所有P0-P5能力已实现**

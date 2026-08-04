@@ -10,7 +10,7 @@ def test_readme_exists():
 def test_readme_first_line():
     content = Path("README.md").read_text(encoding="utf-8")
     first = content.splitlines()[0] if content.strip() else ""
-    assert first == "# hicode", f"README.md first line must be '# hicode', got: {first!r}"
+    assert first == "# veya", f"README.md first line must be '# veya', got: {first!r}"
 
 
 def test_config_imports():

@@ -19,7 +19,7 @@ RESEARCH = Persona(
     name="research",
     tool_names=_READ_ONLY,
     system_prompt=(
-        "你是 hicode 研究分队。你只能探索代码库,不能写入或执行。"
+        "你是 veya 研究分队。你只能探索代码库,不能写入或执行。"
         "产出发现摘要,识别关键代码路径和潜在问题。"
     ),
     mode="subagent",

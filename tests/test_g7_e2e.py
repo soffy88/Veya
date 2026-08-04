@@ -3,7 +3,7 @@
 覆盖:
 - Engine.run_turn 真实实现(无 API key 时 stub 回落,不崩溃)
 - coordinator.handle 端到端(简单意图 → execute 分队 → 结构化结果)
-- test_gate 在 HICODE_SKIP_TEST_GATE=1 时跳过(不递归启动 pytest)
+- test_gate 在 VEYA_SKIP_TEST_GATE=1 时跳过(不递归启动 pytest)
 - G9 惰性初始化:轻量子系统延迟到首次访问
 """
 
@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-os.environ.setdefault("HICODE_SKIP_TEST_GATE", "1")
+os.environ.setdefault("VEYA_SKIP_TEST_GATE", "1")
 
 
 @pytest.mark.asyncio
@@ -67,11 +67,11 @@ def test_lazy_init_does_not_construct_heavy_subsystems():
 
 
 def test_test_gate_skipped_via_env():
-    """HICODE_SKIP_TEST_GATE=1 时 test_gate 直接 pass 不 spawn pytest。"""
+    """VEYA_SKIP_TEST_GATE=1 时 test_gate 直接 pass 不 spawn pytest。"""
     from hooks.builtin.test_gate import test_gate
     from hooks.types import HookInput
 
-    os.environ["HICODE_SKIP_TEST_GATE"] = "1"
+    os.environ["VEYA_SKIP_TEST_GATE"] = "1"
     out = asyncio.run(test_gate(HookInput(point="pre_result", persona="build", cwd=".")))
     assert out.decision == "pass"
 

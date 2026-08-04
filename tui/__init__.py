@@ -1,1 +1,1 @@
-"""hicode TUI — Textual-based terminal interface."""
+"""veya TUI — Textual-based terminal interface."""

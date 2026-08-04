@@ -1,4 +1,4 @@
-"""tui/widgets/squads.py — Squad status panel (hicode 招牌多分队可视化)."""
+"""tui/widgets/squads.py — Squad status panel (veya 招牌多分队可视化)."""
 
 from __future__ import annotations
 

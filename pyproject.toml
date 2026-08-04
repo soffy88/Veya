@@ -1,7 +1,7 @@
 [project]
-name = "hicode"
-version = "0.4.0"
-description = "hicode — AI 编码 agent layer4 实现"
+name = "veya"
+version = "0.5.0"
+description = "veya — AI 编码 agent layer4 实现"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
@@ -22,9 +22,9 @@ dev = [
 ]
 
 [project.scripts]
-hicode = "cli.main:main"
-hicode-headless = "cli.headless:main"
-hicode-simple = "cli.simple_cli:main"
+veya = "cli.main:main"
+veya-headless = "cli.headless:main"
+veya-simple = "cli.simple_cli:main"
 
 # Removed legacy obase/oprim/oskill/omodul/oservi dependencies
 
@@ -87,7 +87,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["hicode", "server", "agents", "tools", "cli", "hooks", "registries", "config", "session", "streaming"]
+known-first-party = ["veya", "server", "agents", "tools", "cli", "hooks", "registries", "config", "session", "streaming"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -110,10 +110,10 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [
-    "hicode.errors",  # already fully typed
-    "hicode.sandbox",
-    "hicode.obase",
-    "hicode.obase.*",
+    "veya.errors",  # already fully typed
+    "veya.sandbox",
+    "veya.obase",
+    "veya.obase.*",
 ]
 disallow_untyped_defs = true
 
@@ -131,7 +131,7 @@ ignore_errors = true
 # Coverage
 # ---------------------------------------------------------------------------
 [tool.coverage.run]
-source = ["hicode", "server", "agents", "tools"]
+source = ["veya", "server", "agents", "tools"]
 omit = [
     "tests/*",
     "**/__pycache__/*",

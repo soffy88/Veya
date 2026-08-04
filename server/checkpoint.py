@@ -1,15 +1,15 @@
 """
 server/checkpoint.py — checkpoint 落盘 / 恢复
 
-落盘路径: ~/.hicode/checkpoints/{session_id}.jsonl
-使用 hicode.compat 提供的基础函数 (替代已移除的 oprim/obase)。
+落盘路径: ~/.veya/checkpoints/{session_id}.jsonl
+使用 veya.compat 提供的基础函数 (替代已移除的 oprim/obase)。
 """
 
 from __future__ import annotations
 
 import pathlib
 
-from hicode.compat import (
+from veya.compat import (
     _CHECKPOINT_DIR,
     CheckpointData,
     RunState,

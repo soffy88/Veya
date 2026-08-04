@@ -2,13 +2,13 @@
 
 ## Overview
 
-P5 represents the **AI Agent Collaboration** capability in hicode v0.4.0. This implementation enables multi-agent planning coordination, intelligent communication, and collaborative task management across different specialized agents.
+P5 represents the **AI Agent Collaboration** capability in veya v0.4.0. This implementation enables multi-agent planning coordination, intelligent communication, and collaborative task management across different specialized agents.
 
 ## Core Features
 
 ### 1. Multi-Agent Planning Coordination
 
-The `hicode/agent_collaboration.py` module provides:
+The `veya/agent_collaboration.py` module provides:
 
 - **AgentRole System**: Define specialized roles for different agents:
   - `PLANNER`: Decomposes complex problems into subtasks
@@ -94,7 +94,7 @@ All P5 collaboration features are exposed via RESTful APIs:
 
 ```python
 from server.coordinator import coordinator
-from hicode.agent_collaboration import AgentRole
+from veya.agent_collaboration import AgentRole
 
 # Create planner task
 planner_task_id = await coordinator.create_collaboration_task(
@@ -125,7 +125,7 @@ summary = await coordinator.get_collaboration_summary()
 
 ```bash
 # Start server
-cd /data/soffy/projects/hicode
+cd /data/soffy/projects/veya
 PYTHONPATH=. venv/bin/python -m uvicorn server.app:app --reload
 
 # Test API endpoints
@@ -202,7 +202,7 @@ pytest tests/test_p3_e2e.py::test_autonomous_workflow -v
 ## File Structure
 
 ```
-hicode/
+veya/
 ├── agent_collaboration.py    # Core collaboration engine
 └── utils.py                  # CostTracker utility (replaces obase)
 
@@ -214,6 +214,6 @@ server/
 
 ---
 
-**Version**: hicode v0.4.0  
+**Version**: veya v0.4.0  
 **Status**: ✅ All P0-P5 capabilities implemented  
 **Next**: Production deployment preparation

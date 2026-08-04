@@ -9,8 +9,8 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-sys.path.insert(0, "/home/soffy/projects/hicode")
-os.chdir("/home/soffy/projects/hicode")
+sys.path.insert(0, "/home/soffy/projects/veya")
+os.chdir("/home/soffy/projects/veya")
 
 from config.loader import load_config
 
@@ -30,31 +30,31 @@ def check(name, cond, detail=""):
 # ─────────────────────────────────────────────
 print("=== ① 打包 ===")
 
-VENV = pathlib.Path("/home/soffy/projects/hicode/.venv")
-check("hicode script installed", (VENV / "bin" / "hicode").exists())
-check("hicode-headless script installed", (VENV / "bin" / "hicode-headless").exists())
+VENV = pathlib.Path("/home/soffy/projects/veya/.venv")
+check("veya script installed", (VENV / "bin" / "veya").exists())
+check("veya-headless script installed", (VENV / "bin" / "veya-headless").exists())
 
 import subprocess
 
-r = subprocess.run([str(VENV / "bin" / "hicode"), "--help"], capture_output=True, text=True)
-check("hicode --help exits 0", r.returncode == 0, r.stderr[:60])
-check("hicode --help shows persona", "--persona" in r.stdout)
+r = subprocess.run([str(VENV / "bin" / "veya"), "--help"], capture_output=True, text=True)
+check("veya --help exits 0", r.returncode == 0, r.stderr[:60])
+check("veya --help shows persona", "--persona" in r.stdout)
 
 r = subprocess.run(
-    [str(VENV / "bin" / "hicode-headless"), "--help"], capture_output=True, text=True
+    [str(VENV / "bin" / "veya-headless"), "--help"], capture_output=True, text=True
 )
-check("hicode-headless --help exits 0", r.returncode == 0, r.stderr[:60])
+check("veya-headless --help exits 0", r.returncode == 0, r.stderr[:60])
 
 # headless stdin mode
 r = subprocess.run(
-    [str(VENV / "bin" / "hicode-headless")],
+    [str(VENV / "bin" / "veya-headless")],
     input='{"text": "echo hello_via_headless", "persona": "build"}',
     capture_output=True,
     text=True,
     timeout=120,
 )
 check(
-    "hicode-headless stdin runs",
+    "veya-headless stdin runs",
     r.returncode in (0, 1),
     f"rc={r.returncode} stderr={r.stderr[:80]}",
 )
@@ -62,9 +62,9 @@ import json as _json
 
 try:
     out = _json.loads(r.stdout)
-    check("hicode-headless json output", "status" in out, str(out)[:80])
+    check("veya-headless json output", "status" in out, str(out)[:80])
 except Exception as e:
-    check("hicode-headless json output", False, f"parse error: {e}; stdout={r.stdout[:80]}")
+    check("veya-headless json output", False, f"parse error: {e}; stdout={r.stdout[:80]}")
 
 # ─────────────────────────────────────────────
 # ② Checkpoint
@@ -72,13 +72,13 @@ except Exception as e:
 print("\n=== ② Checkpoint ===")
 
 # T2-0: obase.versionstore available
-from hicode.compat import jsonl_append, jsonl_latest
+from veya.compat import jsonl_append, jsonl_latest
 
 check("obase.versionstore: jsonl_append", callable(jsonl_append))
 check("obase.versionstore: jsonl_latest", callable(jsonl_latest))
 
 # oprim make/restore round-trip (pure functions, no IO)
-from hicode.compat import RunState, make_checkpoint, restore_from_checkpoint
+from veya.compat import RunState, make_checkpoint, restore_from_checkpoint
 
 state_in = RunState(
     session_id="test-ckpt-001",
@@ -183,7 +183,7 @@ ckpt_path(COORD_SID).unlink(missing_ok=True)
 # ─────────────────────────────────────────────
 print("\n=== ③ Retry ===")
 
-from hicode.compat import retry_with_backoff
+from veya.compat import retry_with_backoff
 
 # Test 1: retryable exception → retries to success
 calls = {"n": 0}

@@ -44,7 +44,7 @@ async def test_tool_execution_integration():
 @pytest.mark.asyncio
 async def test_sandbox_execution_integration():
     """测试沙箱执行集成"""
-    from hicode.sandbox import SafeExecutor
+    from veya.sandbox import SafeExecutor
 
     executor = SafeExecutor()
     await executor.start()
@@ -80,7 +80,7 @@ async def test_sandbox_rlimit_restored_after_capped_execution():
     """
     import resource
 
-    from hicode.sandbox import SafeExecutor, SandboxConfig
+    from veya.sandbox import SafeExecutor, SandboxConfig
 
     before = resource.getrlimit(resource.RLIMIT_AS)
     executor = SafeExecutor(config=SandboxConfig(memory_limit=100 * 1024 * 1024))
@@ -111,7 +111,7 @@ async def test_sandbox_host_rlimit_never_lowered():
     import resource
     import time
 
-    from hicode.sandbox import SafeExecutor, SandboxConfig
+    from veya.sandbox import SafeExecutor, SandboxConfig
 
     before = resource.getrlimit(resource.RLIMIT_AS)
     executor = SafeExecutor(config=SandboxConfig(memory_limit=64 * 1024 * 1024))
@@ -131,7 +131,7 @@ async def test_sandbox_host_rlimit_never_lowered():
 @pytest.mark.asyncio
 async def test_sandbox_child_memory_limit_enforced():
     """The child process must observe the configured memory limit."""
-    from hicode.sandbox import SafeExecutor, SandboxConfig
+    from veya.sandbox import SafeExecutor, SandboxConfig
 
     executor = SafeExecutor(config=SandboxConfig(memory_limit=100 * 1024 * 1024))
     await executor.start()
@@ -147,7 +147,7 @@ async def test_sandbox_child_memory_limit_enforced():
 @pytest.mark.asyncio
 async def test_ast_analyzer():
     """测试 AST 分析器"""
-    from hicode.ast import create_ast_analyzer
+    from veya.ast import create_ast_analyzer
 
     analyzer = create_ast_analyzer()
     stats = analyzer.analyze_project(".")
@@ -174,7 +174,7 @@ async def test_ast_analyzer():
 @pytest.mark.asyncio
 async def test_smart_tools():
     """测试智能工具"""
-    from hicode.tools import create_tool_executor
+    from veya.tools import create_tool_executor
 
     executor = create_tool_executor()
 
@@ -204,7 +204,7 @@ async def test_smart_tools():
 @pytest.mark.asyncio
 async def test_sandbox_resource_limits():
     """测试沙箱资源限制"""
-    from hicode.sandbox import SandboxConfig, create_safe_executor
+    from veya.sandbox import SandboxConfig, create_safe_executor
 
     config = SandboxConfig(
         memory_limit=50 * 1024 * 1024,  # 50MB
@@ -227,8 +227,8 @@ async def test_sandbox_resource_limits():
 @pytest.mark.asyncio
 async def test_context_and_streaming_with_p1():
     """测试 P0 + P1 集成"""
-    from hicode.context import SmartContextManager
-    from hicode.streaming import StreamEventType, create_stream_manager
+    from veya.context import SmartContextManager
+    from veya.streaming import StreamEventType, create_stream_manager
 
     # 创建上下文和流
     ctx = SmartContextManager(max_tokens=10000)
