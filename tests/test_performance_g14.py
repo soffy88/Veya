@@ -41,6 +41,7 @@ def test_lru_cache_hit_avoids_recompute():
 
     def slow(x: int) -> int:
         calls["n"] += 1
+        time.sleep(0.001)  # 模拟真实计算/LLM 延迟,使对比统计显著(避免 CI 计时抖动)
         return x * 2
 
     cache.set("a", 1)
