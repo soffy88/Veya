@@ -29,6 +29,7 @@ interactive = [
 ]
 settings = [
     "pydantic-settings>=2.0.0",  # 若接入 pydantic 配置管理(现用自研 loader)
+    "structlog>=24.0",  # 3O obase 主库 core 依赖(轻量, 装配通道 veya.platform 所需)
 ]
 
 [project.scripts]
@@ -56,6 +57,7 @@ exclude = [
   ".git/",
   "tests/",
   "*.md",
+  "platform/3O/",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -68,6 +70,7 @@ exclude = [
   ".git/",
   "tests/",
   "*.md",
+  "platform/3O/",
 ]
 
 [tool.pytest.ini_options]
@@ -83,6 +86,8 @@ addopts = "--strict-markers -v"
 target-version = "py311"
 line-length = 100
 src = ["."]
+# 3O 主库 submodule: 外部 repo 代码, 不在 Veya lint 范围 (主库自带 SELF_CHECK)
+extend-exclude = ["platform/3O/**", "platform/3O"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]

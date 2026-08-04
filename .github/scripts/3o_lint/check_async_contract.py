@@ -12,15 +12,18 @@ import ast
 import json
 from pathlib import Path
 
+from _layers import resolve_layer_dirs
+
 TARGET_LAYERS = ["oprim", "oskill", "omodul"]
 
 
 def collect_async_contracts(root_dir: Path) -> dict[str, bool]:
     """Collect async status for every exported top-level function."""
     contracts: dict[str, bool] = {}
+    layers = resolve_layer_dirs(root_dir)
     for layer in TARGET_LAYERS:
-        layer_dir = root_dir / layer
-        if not layer_dir.exists():
+        layer_dir = layers.get(layer)
+        if layer_dir is None:
             continue
 
         for py_file in layer_dir.glob("*.py"):

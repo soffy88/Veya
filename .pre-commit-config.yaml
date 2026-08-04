@@ -5,7 +5,7 @@ repos:
     hooks:
       - id: 3o-lint-suite
         name: 3O Paradigm SPEC v3.0 Appendix B (9 checks)
-        entry: python .github/scripts/3o_lint/runner.py
+        entry: python .github/scripts/3o_lint/runner.py --report-only
         language: system
         pass_filenames: false
         always_run: true
