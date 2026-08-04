@@ -1,6 +1,6 @@
 """
-多模态处理模块 - P2 核心能力
-功能：图像理解、OCR、文档解析（PDF/Word/图片）
+Multimodal processing module — P2 core capability.
+Features: image understanding, OCR, document parsing (PDF/Word/images).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 
 @dataclass
 class MultimodalResult:
-    """多模态处理结果"""
+    """Multimodal processing result."""
 
     source_type: str  # image, document, audio
     source_path: str
@@ -30,13 +30,13 @@ class MultimodalResult:
 
 class ImageProcessor:
     """
-    图像处理器
+    Image processor.
 
-    功能：
-    1. OCR 文本提取
-    2. 代码截图识别
-    3. 图像描述生成
-    4. 图像编码（用于 LLM）
+    Features:
+    1. OCR text extraction
+    2. Code-screenshot recognition
+    3. Image description generation
+    4. Image encoding (for LLMs)
     """
 
     MEDIA_TYPES: ClassVar[dict[str, str]] = {
@@ -52,11 +52,11 @@ class ImageProcessor:
         self.supported_formats = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
     def _is_supported(self, path: str) -> bool:
-        """检查图像格式是否支持"""
+        """Check whether the image format is supported."""
         return Path(path).suffix.lower() in self.supported_formats
 
     def encode_image(self, image_path: str) -> str | None:
-        """将图像编码为 base64"""
+        """Encode an image as base64."""
         if not self._is_supported(image_path):
             return None
         try:
@@ -67,15 +67,15 @@ class ImageProcessor:
             return None
 
     def media_type(self, image_path: str) -> str:
-        """根据扩展名返回 MIME 类型（默认 image/png）"""
+        """Return the MIME type for a file extension (defaults to image/png)."""
         suffix = Path(image_path).suffix.lstrip(".").lower()
         return self.MEDIA_TYPES.get(suffix, "image/png")
 
     def to_content_block(self, image_path: str) -> dict[str, Any] | None:
-        """将图像编码为 OpenAI 风格 image_url 内容块（G12，供 provider 消费）。
+        """Encode an image as an OpenAI-style ``image_url`` content block (G12, consumed by providers).
 
-        返回 ``{"type": "image_url", "image_url": {"url": "data:<mime>;base64,..."}}``；
-        文件不存在或不支持时返回 None。
+        Returns ``{"type": "image_url", "image_url": {"url": "data:<mime>;base64,..."}}``,
+        or None when the file is missing or unsupported.
         """
         b64 = self.encode_image(image_path)
         if b64 is None:
@@ -88,7 +88,7 @@ class ImageProcessor:
         }
 
     def extract_text_ocr(self, image_path: str) -> str:
-        """OCR 提取文本（简化版，实际可接入 Tesseract/第三方 OCR）"""
+        """Extract text via OCR (simplified; Tesseract/third-party OCR can be plugged in)."""
         if not self._is_supported(image_path):
             return ""
 
@@ -97,7 +97,7 @@ class ImageProcessor:
         return f"[OCR placeholder for {image_path}]"
 
     def is_code_screenshot(self, image_path: str) -> bool:
-        """判断图像是否为代码截图"""
+        """Determine whether the image is a code screenshot."""
         text = self.extract_text_ocr(image_path)
         code_indicators = [
             "def ",
@@ -114,7 +114,7 @@ class ImageProcessor:
         return any(indicator in text for indicator in code_indicators)
 
     def parse_code_from_image(self, image_path: str) -> str | None:
-        """从代码截图中提取代码"""
+        """Extract code from a code screenshot."""
         if not self.is_code_screenshot(image_path):
             return None
 
@@ -135,7 +135,7 @@ class ImageProcessor:
         return "\n".join(cleaned_lines)
 
     def analyze(self, image_path: str) -> MultimodalResult:
-        """分析图像"""
+        """Analyze an image."""
         try:
             if not os.path.exists(image_path):
                 return MultimodalResult(
@@ -173,20 +173,20 @@ class ImageProcessor:
 
 class DocumentProcessor:
     """
-    文档处理器
+    Document processor.
 
-    功能：
-    1. PDF 文本提取
-    2. Word 文档解析
-    3. 文档分段
-    4. 元数据提取
+    Features:
+    1. PDF text extraction
+    2. Word document parsing
+    3. Document segmentation
+    4. Metadata extraction
     """
 
     def __init__(self):
         self.supported_formats = {".pdf", ".docx", ".doc", ".txt", ".md"}
 
     def extract_pdf(self, doc_path: str) -> str:
-        """提取 PDF 文本"""
+        """Extract PDF text."""
         try:
             # 简化版：实际应使用 PyPDF2 / pdfplumber
             # 这里仅作为接口示例
@@ -195,7 +195,7 @@ class DocumentProcessor:
             return f"[PDF extraction error: {e!s}]"
 
     def extract_docx(self, doc_path: str) -> str:
-        """提取 Word 文档文本"""
+        """Extract Word document text."""
         try:
             # 简化版：实际应使用 python-docx
             return f"[DOCX text placeholder for {doc_path}]"
@@ -203,7 +203,7 @@ class DocumentProcessor:
             return f"[DOCX extraction error: {e!s}]"
 
     def extract_text(self, doc_path: str) -> str:
-        """通用文本提取"""
+        """Extract text generically."""
         suffix = Path(doc_path).suffix.lower()
 
         if suffix == ".pdf":
@@ -219,7 +219,7 @@ class DocumentProcessor:
     def segment_document(
         self, doc_path: str, chunk_size: int = 1000, overlap: int = 100
     ) -> list[dict[str, Any]]:
-        """将文档分段"""
+        """Segment a document into chunks."""
         text = self.extract_text(doc_path)
         chunks = []
 
@@ -233,7 +233,7 @@ class DocumentProcessor:
         return chunks
 
     def analyze(self, doc_path: str) -> MultimodalResult:
-        """分析文档"""
+        """Analyze a document."""
         try:
             if not os.path.exists(doc_path):
                 return MultimodalResult(
@@ -265,9 +265,9 @@ class DocumentProcessor:
 
 class MultimodalProcessor:
     """
-    多模态处理器
+    Multimodal processor.
 
-    统一处理图像、文档、音频等多种输入
+    Handles images, documents, audio and other inputs uniformly.
     """
 
     def __init__(self):
@@ -275,7 +275,7 @@ class MultimodalProcessor:
         self.document_processor = DocumentProcessor()
 
     def process(self, file_path: str) -> MultimodalResult:
-        """处理任意支持的文件"""
+        """Process any supported file."""
         suffix = Path(file_path).suffix.lower()
 
         if suffix in self.image_processor.supported_formats:
@@ -291,11 +291,11 @@ class MultimodalProcessor:
             )
 
     def process_batch(self, file_paths: list[str]) -> list[MultimodalResult]:
-        """批量处理文件"""
+        """Process files in batch."""
         return [self.process(path) for path in file_paths]
 
     def prepare_for_llm(self, file_path: str) -> dict[str, Any] | None:
-        """准备文件供 LLM 使用"""
+        """Prepare a file for LLM consumption."""
         result = self.process(file_path)
 
         if not result.success:
@@ -319,11 +319,11 @@ class MultimodalProcessor:
         *,
         system: str | None = None,
     ) -> list[dict[str, Any]]:
-        """构建可直接发给 LLM provider 的视觉消息（G12）。
+        """Build vision messages ready for an LLM provider (G12).
 
-        文本 + 图片 → OpenAI 风格 content blocks
-        （``text`` 块 + ``image_url`` data-URI 块）；缺失/不支持的图片自动跳过。
-        ``system`` 非空时置于首位。
+        Text + images → OpenAI-style content blocks (``text`` blocks + ``image_url``
+        data-URI blocks); missing/unsupported images are skipped automatically.
+        A non-empty ``system`` prompt is placed first.
         """
         blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
         for path in image_paths:
@@ -339,7 +339,7 @@ class MultimodalProcessor:
 
 # 便捷函数
 def create_multimodal_processor() -> MultimodalProcessor:
-    """创建多模态处理器"""
+    """Create a multimodal processor."""
     return MultimodalProcessor()
 
 

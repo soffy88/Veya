@@ -174,9 +174,12 @@ veya 目前只把"编排能力"做出来了。
 
 ### 🟡 P2 — 中优先（8 项）
 
-**G10. 无插件市场/扩展 SDK**
-- `registries/plugins.py` 存在，但无插件打包/签名/安装流程、无公开 SDK 文档。
-- 修复：定 `PluginManifest`（兼容已有 `registries` 模式）+ 示例插件 + 文档页。
+**G10. 无插件市场/扩展 SDK → 已修复（PluginManifest + SDK）**
+- `registries/plugins.py` 重写：`PluginManifest`（manifest.json 校验）、`install_plugin`（拷贝入
+  `~/.veya/plugins/`）、`discover_plugins`（目录扫描激活）、`PluginContext` SDK
+  （register_tool → 全局工具表可被 agent 调用；register_hook + run_plugin_hooks 分发）。
+- 参考插件 `examples/plugins/greet-plugin/`；文档页 `docs/dev/plugins.md` 已入 mkdocs nav；
+  遗留 register_plugin/get_plugin API 保留。`tests/test_plugins_g10.py` 13 例。
 
 **G11. 无文档站点与 API 参考 → 已修复（MkDocs + mkdocstrings）**
 - 新增 `mkdocs.yml`（Material 主题、搜索、暗色模式）+ 站点：首页/快速开始/架构/
@@ -193,26 +196,37 @@ veya 目前只把"编排能力"做出来了。
   `MultimodalProcessor.build_vision_messages()`（文本+多图 → 消息，自动跳过缺失文件）。
 - 新增 `tests/test_multimodal_g12.py` 15 例（真实 1x1 PNG + MockTransport 请求体断言）。
 
-**G13. 无断点恢复/Checkpoint 语义化**
-- `server/checkpoint.py` 已重写到 compat，但仅保存状态快照；无"从失败分队恢复"能力。
-- 修复：`SquadPlan` 增加 `resume_from` 字段 + coordinator 恢复入口。
+**G13. 无断点恢复/Checkpoint 语义化 → 已修复（从失败分队恢复）**
+- `SquadPlan` 新增 `resume_from` 字段；`handle()` 落初始 checkpoint（原始 command + 完整
+  squad 计划）；checkpoint 保存 squad 序列化 → `resume()` 确定性重建（不重调 LLM），
+  旧格式自动回退重新拆解。
+- 修复 3 个真实 bug：失败分队不再计入 completed_steps；`_run_dag` zip 错位
+  （pending 过滤）；cli `_resume` 误把 CheckpointData 当 session_id
+  （新增 `checkpoint_to_run_state`）。`tests/test_g13_resume.py` 6 例（含失败→恢复端到端）。
 
-**G14. 缓存/性能模块缺少真实受益验证**
-- `veya/cache.py`、`performance.py`、`server/routes/performance.py` 功能完整，
-  但无基准测试证明其对 LLM 调用的实际收益。
-- 修复：用 G1 的 provider 接入后做 1 组 mock 延迟对比测试。
+**G14. 缓存/性能模块缺少真实受益验证 → 已修复（mock 延迟基准）**
+- `tests/test_performance_g14.py` 8 例：LRU/SmartCache/`@cached`/IncrementalComputer
+  对慢 LLM 调用（mock 0.15s）的加速断言——命中 < 冷启动×10、底层函数零重算、
+  增量计算依赖不变不重算、10 次同 prompt 缓存 < 未缓存×0.4。
+- 🎁 挖出并修复 **LRUCache 死锁 bug**（get 持锁后再调 _update_access 二次加锁）。
 
-**G15. CI 未覆盖 docs 构建与打包发布**
-- 已有 build step；无 wheels 发布（PyPI/GitHub Releases）、无版本自动递增。
-- 修复：`release.yml`（tag 触发 → build → gh release upload）。
+**G15. CI 未覆盖 docs 构建与打包发布 → 已修复（release 流水线）**
+- docs 构建 job 已在 G11 接入；新增 `.github/workflows/release.yml`：tag v* 触发 →
+  build sdist+wheel → **tag 与 pyproject 版本一致性校验** → GitHub Release 资产
+  （含 release notes）→ PyPI 发布（配 PYPI_TOKEN 后启用，未配置跳过）。
+- `scripts/bump_version.py`：patch/minor/major 一键同步 pyproject + cli/main +
+  cli/simple_cli + server/app 四处（实测 0.5.0 → 0.5.1）。
 
-**G16. 国际化混杂**
-- 中文 docstring + 英文注释混排，`RUF001-003` 全量忽略；对国际贡献者不友好。
-- 修复：新代码强制英文 docstring（CI 规则），存量逐步迁移（低优先级）。
+**G16. 国际化混杂 → 已修复（现代核心强制英文 docstring）**
+- `scripts/check_docstring_language.py` 门禁（CI Lint job）：veya/obase + llm/intent/
+  sandbox/multimodal/errors/utils 9 文件 docstring 必须 ASCII；legacy（compat/streaming）
+  增量迁移。
+- 存量：`scripts/migrate_docstrings_g16.py` 一次性翻译 100+ 条中文 docstring → 英文
+  （AST 锚定精确替换、幂等），现已全绿。
 
-**G17. 依赖清单过窄**
-- 无 `python-multipart`（表单上传）、无 `prompt-toolkit`（交互）、无 `pydantic-settings`。
-- 修复：按 G1/G5 落地需求补依赖并锁版本。
+**G17. 依赖清单过窄 → 已修复**
+- 主依赖补 `python-multipart`（FastAPI 表单）；新增可选 extras：`[interactive]`
+  prompt-toolkit、`[settings]` pydantic-settings（按需安装不膨胀）。
 
 ---
 
@@ -231,9 +245,15 @@ veya 目前只把"编排能力"做出来了。
 | 9 | **G9 惰性初始化** | ✅ 已完成（cached_property 16 子系统，重模块零加载） | — |
 | 10 | **G11 文档站点+API 参考** | ✅ 已完成（MkDocs Material + mkdocstrings 7 页 API，CI docs job） | — |
 | 11 | **G12 多模态接入 provider** | ✅ 已完成（content blocks 归一化 + vision 消息构建，15 测试） | G1 ✅ |
-| 12 | G10/G13–G17 | 各 0.5–2 天 | 视产品方向 |
+| 12 | **G10 插件 SDK** | ✅ 已完成（manifest/install/discover + PluginContext，13 测试） | — |
+| 13 | **G13 Checkpoint 断点恢复** | ✅ 已完成（确定性重建 + 失败分队重跑，6 测试） | — |
+| 14 | **G14 缓存收益基准** | ✅ 已完成（mock 延迟对比 + 挖出 LRUCache 死锁） | — |
+| 15 | **G15 Release 流水线** | ✅ 已完成（tag 触发 build + Release 资产 + 版本一致性校验） | — |
+| 16 | **G16 英文 docstring 门禁** | ✅ 已完成（9 文件 ASCII 门禁 + 100+ 条存量翻译） | — |
+| 17 | **G17 依赖清单** | ✅ 已完成（python-multipart + interactive/settings extras） | — |
 
-> 现状：G1–G9 + G11/G12 全部完成，veya 已具备与标杆"同台竞技"的完整闭环
+> 现状：**G1–G17 全部完成**，veya 已具备与标杆"同台竞技"的完整闭环
 > （真实模型 → LLM 意图分解 → 沙箱执行 → 流式返回 → 可观测 + 权限可控 + 编辑器闭环
->  + 文档站点 + 多模态视觉输入）。
+>  + 文档站点 + 多模态视觉输入 + 插件 SDK + 断点恢复 + 发布流水线 + 质量门禁全覆盖）。
+> 251 测试全绿 / 覆盖率 61.86% / mypy 解锁集零错 / 3O + G16 门禁全过。
 > 附带修复：泄露的 DASHSCOPE_API_KEY 已从仓库移除（旧 key 视为泄露，需轮换）。

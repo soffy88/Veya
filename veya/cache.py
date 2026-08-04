@@ -29,17 +29,16 @@ class LRUCache:
         self._lock = threading.Lock()
 
     def _update_access(self, key: str):
-        """更新访问顺序"""
-        with self._lock:
-            if key in self._access_order:
-                self._access_order.remove(key)
-            self._access_order.append(key)
+        """更新访问顺序(调用方必须持有 self._lock)。"""
+        if key in self._access_order:
+            self._access_order.remove(key)
+        self._access_order.append(key)
 
-            # 清理超出大小的项目
-            while len(self._access_order) > self.max_size:
-                oldest_key = self._access_order.pop(0)
-                if oldest_key in self._cache:
-                    del self._cache[oldest_key]
+        # 清理超出大小的项目
+        while len(self._access_order) > self.max_size:
+            oldest_key = self._access_order.pop(0)
+            if oldest_key in self._cache:
+                del self._cache[oldest_key]
 
     def get(self, key: str) -> Any | None:
         """获取缓存值"""
