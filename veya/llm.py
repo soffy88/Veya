@@ -19,6 +19,7 @@ API keys are read from ``{PROVIDER}_API_KEY`` env vars (or ``config["providers"]
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
@@ -486,19 +487,30 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     )
     # 专属 Key 注入: config["providers"][provider] 优先于环境变量(Genesis 物理隔离)
     api_key = get_api_key(provider, config)
+    retries = int(kwargs.get("retries", 2))
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
-            return await provider_call(
-                client,
-                provider,
-                model=model,
-                messages=messages,
-                tools=tools,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                endpoint=endpoint,
-                api_key=api_key,
-            )
+            last_exc: Exception | None = None
+            for attempt in range(retries + 1):
+                try:
+                    return await provider_call(
+                        client,
+                        provider,
+                        model=model,
+                        messages=messages,
+                        tools=tools,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        endpoint=endpoint,
+                        api_key=api_key,
+                    )
+                except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout,
+                        httpx.RemoteProtocolError, httpx.ReadError) as exc:
+                    # 瞬时网络抖动(如 NIM 连接重置) — 指数退避重试
+                    last_exc = exc
+                    if attempt < retries:
+                        await asyncio.sleep(1.5 * (2 ** attempt))
+            raise last_exc if last_exc else RuntimeError("llm_call retry exhausted")
         except ValueError as exc:
             # Missing key etc. — degrade to stub rather than crashing the caller.
             content = kwargs.get("default_content", f"{_STUB_CONTENT} ({exc})")
