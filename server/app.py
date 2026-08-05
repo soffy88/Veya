@@ -14,6 +14,7 @@ from server.routes.analysis import router as analysis_router
 from server.routes.auth import router as auth_router
 from server.routes.automata import router as automata_router
 from server.routes.automata import webhook_router
+from server.routes.compat import router as compat_router
 from server.routes.autonomous import router as autonomous_router
 from server.routes.chat import router as chat_router
 from server.routes.collaboration import router as collaboration_router
@@ -78,6 +79,7 @@ app.include_router(chat_router)
 app.include_router(master_router)
 app.include_router(automata_router)
 app.include_router(webhook_router)
+app.include_router(compat_router)
 app.include_router(flow_router)
 app.include_router(notifications_router)
 app.include_router(omni_router)
