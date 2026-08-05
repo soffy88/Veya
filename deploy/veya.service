@@ -1,0 +1,17 @@
+[Unit]
+Description=veya Production Server
+After=network.target
+
+[Service]
+Type=simple
+User=soffy
+WorkingDirectory=/data/soffy/projects/veya
+ExecStart=/usr/bin/python3 /data/soffy/projects/veya/veya/server/prod_server.py --port 8080
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/veya.log
+StandardError=append:/var/log/veya-error.log
+Environment=PYTHONPATH=/data/soffy/projects/veya:/data/soffy/projects/veya/platform/3O/oservi:/data/soffy/projects/veya/platform/3O/oservi/oservi
+
+[Install]
+WantedBy=multi-user.target

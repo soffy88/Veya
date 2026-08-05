@@ -1,0 +1,33 @@
+{
+  "name": "@veya/ui",
+  "version": "0.1.0",
+  "description": "Veya Layer 4 shared UI kit — Svelte 5 (Runes) decision-trail components + POST-SSE client, reused 100% by desktop (Tauri) and web (SvelteKit).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "svelte": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./theme.css": "./src/theme.css"
+  },
+  "svelte": "./src/index.ts",
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "peerDependencies": {
+    "lucide-svelte": "^1.0.0",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "lucide-svelte": "^1.0.1",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.6.2",
+    "vite": "^8.0.16"
+  }
+}

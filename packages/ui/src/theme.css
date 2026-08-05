@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* Scan the UI kit sources for utility candidates (monorepo sibling). */
+@source "../..";
+
+@theme {
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-terminal-bg: #0b0f17;
+  --color-terminal-panel: #111827;
+  --color-terminal-edge: #1f2937;
+  --color-terminal-fg: #e5e7eb;
+  --color-terminal-dim: #6b7280;
+
+  --color-status-success: #34d399;
+  --color-status-error: #fb7185;
+  --color-status-running: #fbbf24;
+  --color-status-pending: #6b7280;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-terminal-bg text-terminal-fg font-sans antialiased;
+}
+
+/* Thin scrollbars for the console feel */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #374151 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}

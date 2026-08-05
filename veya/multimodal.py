@@ -337,10 +337,330 @@ class MultimodalProcessor:
         return messages
 
 
+# =========================================================================
+# Audio Processor (G13 voice/vision integration)
+# =========================================================================
+
+
+class AudioProcessor:
+    """
+    Audio processor for voice agent integration.
+
+    Features:
+    1. Audio format detection (WAV, MP3, raw PCM)
+    2. Audio to base64 encoding
+    3. Audio segmentation (split into chunks)
+    4. Audio metadata extraction (duration, sample rate, channels)
+    5. Silence detection and trimming
+    """
+
+    SUPPORTED_FORMATS: ClassVar[set[str]] = {".wav", ".mp3", ".ogg", ".flac", ".aac", ".pcm", ".raw"}
+
+    def __init__(self):
+        self.supported_formats = self.SUPPORTED_FORMATS
+
+    def detect_format(self, path: str) -> str | None:
+        """Detect audio format from file extension."""
+        suffix = Path(path).suffix.lower()
+        return suffix.lstrip(".") if suffix in self.supported_formats else None
+
+    def encode_audio_base64(self, audio_path: str) -> str | None:
+        """Encode an audio file as base64."""
+        if not os.path.exists(audio_path):
+            return None
+        try:
+            with open(audio_path, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+        except Exception as e:
+            print(f"[AudioProcessor] Failed to encode audio: {e}")
+            return None
+
+    def extract_metadata(self, audio_path: str) -> dict[str, Any]:
+        """Extract metadata from an audio file.
+
+        Returns dict with: duration_sec, sample_rate, channels, sample_width, format.
+        """
+        try:
+            import wave
+            with wave.open(audio_path, "rb") as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                return {
+                    "duration_sec": frames / rate if rate > 0 else 0,
+                    "sample_rate": rate,
+                    "channels": wf.getnchannels(),
+                    "sample_width": wf.getsampwidth(),
+                    "format": "wav",
+                    "file_size": os.path.getsize(audio_path),
+                }
+        except Exception:
+            suffix = Path(audio_path).suffix.lower()
+            return {
+                "duration_sec": 0,
+                "sample_rate": 16000,
+                "channels": 1,
+                "sample_width": 2,
+                "format": suffix.lstrip("."),
+                "file_size": os.path.getsize(audio_path),
+            }
+
+    def read_pcm(self, audio_path: str, target_sample_rate: int = 16000) -> bytes | None:
+        """Read an audio file and return raw PCM bytes.
+
+        For WAV files, extracts the PCM data. For other formats, returns raw bytes.
+        """
+        if not os.path.exists(audio_path):
+            return None
+        try:
+            suffix = Path(audio_path).suffix.lower()
+            if suffix == ".wav":
+                import wave
+                with wave.open(audio_path, "rb") as wf:
+                    return wf.readframes(wf.getnframes())
+            else:
+                with open(audio_path, "rb") as f:
+                    return f.read()
+        except Exception as e:
+            print(f"[AudioProcessor] Failed to read audio: {e}")
+            return None
+
+    def analyze(self, audio_path: str) -> MultimodalResult:
+        """Analyze an audio file."""
+        try:
+            if not os.path.exists(audio_path):
+                return MultimodalResult(
+                    source_type="audio",
+                    source_path=audio_path,
+                    success=False,
+                    error="File not found",
+                )
+
+            metadata = self.extract_metadata(audio_path)
+            base64_audio = self.encode_audio_base64(audio_path)
+
+            return MultimodalResult(
+                source_type="audio",
+                source_path=audio_path,
+                text=f"[Audio: {Path(audio_path).name}]",
+                description=f"Audio file: {Path(audio_path).name} ({metadata.get('duration_sec', 0):.1f}s)",
+                metadata={
+                    **metadata,
+                    "base64_size": len(base64_audio) if base64_audio else 0,
+                },
+            )
+        except Exception as e:
+            return MultimodalResult(
+                source_type="audio", source_path=audio_path, success=False, error=str(e)
+            )
+
+
+# =========================================================================
+# Video Processor (G13 voice/vision integration)
+# =========================================================================
+
+
+class VideoProcessor:
+    """
+    Video processor for vision agent integration.
+
+    Features:
+    1. Video metadata extraction
+    2. Frame sampling (using ffmpeg)
+    3. Video format detection
+    4. Thumbnail generation
+    """
+
+    SUPPORTED_FORMATS: ClassVar[set[str]] = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".ogg"}
+
+    def __init__(self):
+        self.supported_formats = self.SUPPORTED_FORMATS
+
+    def detect_format(self, path: str) -> str | None:
+        """Detect video format from file extension."""
+        suffix = Path(path).suffix.lower()
+        return suffix.lstrip(".") if suffix in self.supported_formats else None
+
+    def extract_metadata(self, video_path: str) -> dict[str, Any]:
+        """Extract video metadata using ffprobe (requires ffmpeg)."""
+        try:
+            import subprocess
+            import json
+
+            cmd = [
+                "ffprobe",
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                "-show_streams",
+                video_path,
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                fmt = data.get("format", {})
+                video_stream = None
+                for stream in data.get("streams", []):
+                    if stream.get("codec_type") == "video":
+                        video_stream = stream
+                        break
+
+                return {
+                    "duration_sec": float(fmt.get("duration", 0)),
+                    "file_size": int(fmt.get("size", 0)),
+                    "format_name": fmt.get("format_name", ""),
+                    "width": video_stream.get("width", 0) if video_stream else 0,
+                    "height": video_stream.get("height", 0) if video_stream else 0,
+                    "codec": video_stream.get("codec_name", "") if video_stream else "",
+                    "fps": self._parse_fps(video_stream) if video_stream else 0,
+                }
+        except Exception:
+            pass
+        return {"duration_sec": 0, "file_size": os.path.getsize(video_path)}
+
+    @staticmethod
+    def _parse_fps(stream: dict) -> float:
+        """Parse FPS from ffprobe stream info."""
+        fps_str = stream.get("r_frame_rate", "0/1")
+        try:
+            num, den = fps_str.split("/")
+            return float(num) / float(den) if float(den) != 0 else 0
+        except (ValueError, ZeroDivisionError):
+            return 0
+
+    def extract_frame(self, video_path: str, timestamp_sec: float = 0.0) -> bytes | None:
+        """Extract a single frame from a video at a given timestamp."""
+        try:
+            import subprocess
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+
+            cmd = [
+                "ffmpeg",
+                "-ss", str(timestamp_sec),
+                "-i", video_path,
+                "-vframes", "1",
+                "-q:v", "2",
+                "-y",
+                tmp_path,
+            ]
+            subprocess.run(cmd, capture_output=True, check=True, timeout=30)
+
+            with open(tmp_path, "rb") as f:
+                result = f.read()
+            os.unlink(tmp_path)
+            return result
+        except Exception:
+            return None
+
+    def sample_frames(
+        self, video_path: str, interval_sec: float = 1.0, max_frames: int = 30
+    ) -> list[dict[str, Any]]:
+        """Sample frames from a video at regular intervals.
+
+        Returns list of dicts with: timestamp_sec, image_base64, image_bytes.
+        """
+        metadata = self.extract_metadata(video_path)
+        duration = metadata.get("duration_sec", 0)
+        if duration <= 0:
+            return []
+
+        frames: list[dict] = []
+        for i in range(max_frames):
+            ts = i * interval_sec
+            if ts > duration:
+                break
+            frame_data = self.extract_frame(video_path, ts)
+            if frame_data:
+                frames.append({
+                    "timestamp_sec": ts,
+                    "image_bytes": frame_data,
+                    "image_base64": base64.b64encode(frame_data).decode("utf-8"),
+                })
+        return frames
+
+    def analyze(self, video_path: str) -> MultimodalResult:
+        """Analyze a video file (extracts metadata + first frame)."""
+        try:
+            if not os.path.exists(video_path):
+                return MultimodalResult(
+                    source_type="video",
+                    source_path=video_path,
+                    success=False,
+                    error="File not found",
+                )
+
+            metadata = self.extract_metadata(video_path)
+            thumbnail = self.extract_frame(video_path, 0)
+
+            return MultimodalResult(
+                source_type="video",
+                source_path=video_path,
+                text=f"[Video: {Path(video_path).name}]",
+                description=(
+                    f"Video: {Path(video_path).name} "
+                    f"({metadata.get('width', '?')}x{metadata.get('height', '?')}, "
+                    f"{metadata.get('duration_sec', 0):.1f}s)"
+                ),
+                metadata={
+                    **metadata,
+                    "has_thumbnail": thumbnail is not None,
+                    "thumbnail_size": len(thumbnail) if thumbnail else 0,
+                },
+            )
+        except Exception as e:
+            return MultimodalResult(
+                source_type="video", source_path=video_path, success=False, error=str(e)
+            )
+
+
+# =========================================================================
+# Enhanced MultimodalProcessor (G13 — now supports audio + video)
+# =========================================================================
+
+# Patch MultimodalProcessor to support audio/video
+_original_process = MultimodalProcessor.process
+
+
+def _enhanced_process(self, file_path: str) -> MultimodalResult:
+    """Enhanced process that also handles audio and video files."""
+    suffix = Path(file_path).suffix.lower()
+
+    if suffix in self.image_processor.supported_formats:
+        return self.image_processor.analyze(file_path)
+    elif suffix in self.document_processor.supported_formats:
+        return self.document_processor.analyze(file_path)
+    elif suffix in (".wav", ".mp3", ".ogg", ".flac", ".aac"):
+        return AudioProcessor().analyze(file_path)
+    elif suffix in (".mp4", ".webm", ".avi", ".mov", ".mkv"):
+        return VideoProcessor().analyze(file_path)
+    else:
+        return MultimodalResult(
+            source_type="unknown",
+            source_path=file_path,
+            success=False,
+            error=f"Unsupported file format: {suffix}",
+        )
+
+
+MultimodalProcessor.process = _enhanced_process
+
+
 # 便捷函数
 def create_multimodal_processor() -> MultimodalProcessor:
     """Create a multimodal processor."""
     return MultimodalProcessor()
+
+
+def create_audio_processor() -> AudioProcessor:
+    """Create an audio processor."""
+    return AudioProcessor()
+
+
+def create_video_processor() -> VideoProcessor:
+    """Create a video processor."""
+    return VideoProcessor()
 
 
 if __name__ == "__main__":

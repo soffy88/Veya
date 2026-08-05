@@ -55,3 +55,7 @@ artifacts/
 .veya_ast_cache.json
 .veya.env
 site/
+
+# Node / pnpm workspace
+node_modules/
+.pnpm-store/
