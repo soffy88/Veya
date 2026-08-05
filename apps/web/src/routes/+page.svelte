@@ -50,8 +50,8 @@
 
 <main class="flex h-screen overflow-hidden">
 	<!-- ── sidebar ────────────────────────────────────────────────── -->
-	<aside class="flex w-60 shrink-0 flex-col border-r border-terminal-edge bg-terminal-panel">
-		<div class="flex items-center gap-2 border-b border-terminal-edge px-4 py-3.5">
+	<aside class="flex w-60 shrink-0 flex-col border-r border-white/5 bg-[#0a0a0a]">
+		<div class="flex items-center gap-2 px-4 py-4">
 			<span class="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-violet-600 font-mono text-sm font-bold text-white">V</span>
 			<div>
 				<h1 class="text-sm font-semibold leading-tight tracking-tight">Veya</h1>
@@ -62,7 +62,7 @@
 		<button
 			type="button"
 			onclick={newChat}
-			class="mx-2.5 mt-2.5 flex items-center justify-center gap-1.5 rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2 text-sm text-terminal-fg transition hover:border-sky-500/40"
+			class="mx-2.5 mt-1 flex items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/20"
 		>
 			<Plus class="size-4" />
 			新对话
@@ -109,7 +109,7 @@
 			<div class="flex-1"></div>
 		{/if}
 
-		<nav class="flex flex-col gap-0.5 border-t border-terminal-edge p-2.5">
+		<nav class="flex flex-col gap-0.5 p-2.5">
 			{#each NAV as [id, label, Icon] (id)}
 				<button
 					type="button"
@@ -124,7 +124,7 @@
 			{/each}
 		</nav>
 
-		<div class="border-t border-terminal-edge p-2.5">
+		<div class="border-t border-white/5 p-2.5">
 			<div class="flex flex-col gap-1 text-xs text-terminal-dim">
 				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-sky-500"></span>Master Brain :9120</span>
 				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-violet-500"></span>Genesis 3O 施工</span>
@@ -134,7 +134,7 @@
 
 	<!-- ── main ───────────────────────────────────────────────────── -->
 	<section class="flex min-w-0 flex-1 flex-col overflow-hidden">
-		<header class="flex shrink-0 items-center gap-4 border-b border-terminal-edge bg-terminal-panel px-6 py-2.5">
+		<header class="flex shrink-0 items-center gap-4 px-6 py-3">
 			<div class="flex items-center gap-2">
 				<Cpu class="size-4 text-sky-400" />
 				<span class="text-sm font-semibold text-terminal-fg">Veya Workspace</span>

@@ -7,15 +7,15 @@
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  --color-terminal-bg: #0b0f17;
-  --color-terminal-panel: #111827;
-  --color-terminal-edge: #1f2937;
-  --color-terminal-fg: #e5e7eb;
-  --color-terminal-dim: #6b7280;
+  --color-terminal-bg: #000000;
+  --color-terminal-panel: #0a0a0a;
+  --color-terminal-edge: rgba(255, 255, 255, 0.08);
+  --color-terminal-fg: #f5f5f5;
+  --color-terminal-dim: #8b8b8b;
 
-  --color-status-success: #34d399;
-  --color-status-error: #fb7185;
-  --color-status-running: #fbbf24;
+  --color-status-success: #22c55e;
+  --color-status-error: #ef4444;
+  --color-status-running: #f59e0b;
   --color-status-pending: #6b7280;
 }
 
@@ -31,14 +31,14 @@ body {
 /* Thin scrollbars for the console feel */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #374151 transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: rgba(255, 255, 255, 0.18);
   border-radius: 4px;
 }
 *::-webkit-scrollbar-track {
