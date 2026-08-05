@@ -20,10 +20,19 @@ from server.sse import get_or_create_queue
 _stream_tasks: set[asyncio.Task] = set()
 
 
-async def new_agent_stream_events(text: str, session_id: str | None = None) -> AsyncIterator[str]:
+async def new_agent_stream_events(
+    text: str,
+    session_id: str | None = None,
+    *,
+    config: dict | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    endpoint: str | None = None,
+) -> AsyncIterator[str]:
     """主脑 SSE 事件泵: 消费事件队列 → SSE 帧。
 
     text_delta / tool_call / master_done 事件流实时推送, 末尾 [DONE]。
+    config/provider/model/endpoint 为请求级 LLM 覆盖(前端传入的 user key)。
     """
     sid = session_id or "chat_stream"
     queue = get_or_create_queue(sid)
@@ -32,7 +41,15 @@ async def new_agent_stream_events(text: str, session_id: str | None = None) -> A
     token = _on_step_ctx.set(queue.on_step)
     try:
         chat_task = asyncio.create_task(
-            master_coordinator.chat_stream(text, session_id=sid, max_rounds=3)
+            master_coordinator.chat_stream(
+                text,
+                session_id=sid,
+                max_rounds=3,
+                config=config,
+                provider=provider,
+                model=model,
+                endpoint=endpoint,
+            )
         )
 
         async def _finish() -> None:
