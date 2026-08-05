@@ -34,8 +34,28 @@ export const POST: RequestHandler = async ({ request }) => {
     error(502, `veya gateway upstream error: HTTP ${upstream.status}`);
   }
 
-  // Pipe the upstream SSE stream through unchanged.
-  return new Response(upstream.body, {
+  // adapter-node doesn't flush response headers until the first body chunk is
+  // written, so an idle upstream leaves the client hanging with no headers at
+  // all. Enqueue a leading SSE comment (ignored by EventSource) to force an
+  // immediate flush, then pipe the upstream stream through unchanged.
+  const reader = upstream.body.getReader();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(": connected\n\n"));
+    },
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(value);
+    },
+    cancel() {
+      reader.cancel();
+    },
+  });
+  return new Response(stream, {
     status: upstream.status,
     headers: {
       "content-type": "text/event-stream; charset=utf-8",

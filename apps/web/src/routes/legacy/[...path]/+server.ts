@@ -25,8 +25,31 @@ async function forward(event: Parameters<RequestHandler>[0]): Promise<Response> 
 
   // SSE (e.g. GET /stream/{session_id}) must be piped live, not buffered —
   // coordinator.handle() fires steps into the queue as it runs.
+  //
+  // adapter-node doesn't flush response headers until the first body chunk
+  // is written, so an idle upstream (no event yet) leaves the client's
+  // EventSource hanging with no headers at all. Enqueue a leading SSE
+  // comment (blank per spec, ignored by EventSource) to force an immediate
+  // flush, then pipe the upstream stream through unchanged.
   if (contentType.startsWith("text/event-stream") && upstream.body) {
-    return new Response(upstream.body, {
+    const reader = upstream.body.getReader();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(": connected\n\n"));
+      },
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      },
+      cancel() {
+        reader.cancel();
+      },
+    });
+    return new Response(stream, {
       status: upstream.status,
       headers: {
         "content-type": "text/event-stream; charset=utf-8",
