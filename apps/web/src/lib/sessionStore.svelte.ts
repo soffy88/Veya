@@ -1,0 +1,99 @@
+/**
+ * sessionStore — multi-session chat persistence (Claude-style).
+ *
+ * Sessions live in localStorage so history survives reloads; the backend
+ * history endpoint (/api/v1/agent/history/{sid}) is reserved for future
+ * cross-device sync. Each session auto-titles from its first user message.
+ */
+
+import type { ChatMessage } from "./chatTypes";
+
+export interface ChatSession {
+	sid: string;
+	title: string;
+	ts: number;
+	cost: number;
+	messages: ChatMessage[];
+}
+
+const LS_KEY = "veya.sessions.v2";
+const MAX_SESSIONS = 50;
+
+function load(): ChatSession[] {
+	try {
+		const raw = localStorage.getItem(LS_KEY);
+		if (!raw) return [];
+		const parsed = JSON.parse(raw) as ChatSession[];
+		return Array.isArray(parsed) ? parsed : [];
+	} catch {
+		return [];
+	}
+}
+
+function save(list: ChatSession[]) {
+	try {
+		localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, MAX_SESSIONS)));
+	} catch {
+		/* storage full — ignore */
+	}
+}
+
+class SessionManager {
+	sessions = $state<ChatSession[]>(load());
+	activeSid = $state<string>("");
+
+	/** 新建(或切换到)一个会话; 返回 sid */
+	newSession(): string {
+		const sid = crypto.randomUUID();
+		this.sessions = [{ sid, title: "新对话", ts: Date.now(), cost: 0, messages: [] }, ...this.sessions];
+		this.activeSid = sid;
+		this.persist();
+		return sid;
+	}
+
+	open(sid: string) {
+		this.activeSid = sid;
+	}
+
+	/** 追加消息并自动持久化; 若首条用户消息则生成标题 */
+	append(sid: string, msg: ChatMessage) {
+		const s = this.sessions.find((x) => x.sid === sid);
+		if (!s) return;
+		s.messages = [...s.messages, msg];
+		if (msg.role === "user" && s.title === "新对话") {
+			s.title = msg.text.replace(/\s+/g, " ").slice(0, 40) || "新对话";
+		}
+		s.ts = Date.now();
+		s.cost += msg.cost ?? 0;
+		this.persist();
+	}
+
+	/** 流式更新最后一条助手消息(原地替换, 不闪屏) */
+	patchLast(sid: string, patch: Partial<ChatMessage>) {
+		const s = this.sessions.find((x) => x.sid === sid);
+		if (!s || s.messages.length === 0) return;
+		const last = s.messages[s.messages.length - 1];
+		if (last.role !== "assistant") return;
+		Object.assign(last, patch);
+		this.persist();
+	}
+
+	remove(sid: string) {
+		this.sessions = this.sessions.filter((s) => s.sid !== sid);
+		if (this.activeSid === sid) this.activeSid = "";
+		this.persist();
+	}
+
+	rename(sid: string, title: string) {
+		const s = this.sessions.find((x) => x.sid === sid);
+		if (!s) return;
+		s.title = title || s.title;
+		this.persist();
+	}
+
+	persist() {
+		save(this.sessions);
+	}
+}
+
+export const sessionStore = new SessionManager();
