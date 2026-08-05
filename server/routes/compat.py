@@ -25,6 +25,9 @@ router = APIRouter(prefix="/api/v1", tags=["compat"])
 # 看板内存持久(进程级; 生产可换 SQLite)
 _kanban_boards: dict[str, Any] = {}
 
+# 后台任务引用集(防 GC 回收进行中的流式任务)
+_stream_tasks: set[asyncio.Task] = set()
+
 class VerifyRequest(BaseModel):
     statement: str = ""
 
@@ -87,25 +90,50 @@ async def agent_run(req: RunRequest) -> dict[str, Any]:
 
 @router.post("/agent/stream")
 async def agent_stream(req: StreamRequest):
-    """SSE 流式对话(桥接主脑事件流)。"""
+    """SSE 流式对话(桥接主脑事件流: text_delta / tool_call / master_done)。"""
     sid = req.session_id or "compat_stream"
     queue = get_or_create_queue(sid)
 
     async def _stream_events():
-        token = None
         from server.events import _on_step_ctx
 
         token = _on_step_ctx.set(queue.on_step)
         try:
-            result = await master_coordinator.chat_stream(req.text, session_id=sid, max_rounds=3)
-            final = result.get("final_answer", "") or result.get("error", "")
-            # 最终回答作为 text_delta 推送
-            if final:
-                queue.on_step({"type": "text_delta", "squad_id": "master", "delta": final})
-            queue.on_step({"type": "master_done", "session_id": sid, "final": final, "status": result.get("status")})
+            chat_task = asyncio.create_task(
+                master_coordinator.chat_stream(req.text, session_id=sid, max_rounds=3)
+            )
+
+            async def _finish():
+                """主脑结束后: 补发最终回答事件 + 关闭队列(唤醒消费循环)。"""
+                result = await chat_task
+                final = result.get("final_answer") or result.get("error", "")
+                if final:
+                    queue.on_step(
+                        {"type": "text_delta", "squad_id": "master", "delta": final}
+                    )
+                queue.on_step(
+                    {
+                        "type": "master_done",
+                        "session_id": sid,
+                        "status": result.get("status"),
+                    }
+                )
+                queue.close()
+
+            # 主脑结束后: 补发最终回答 + 关闭队列(保留引用防 GC)
+            _finish_task = asyncio.create_task(_finish())
+            _stream_tasks.add(_finish_task)
+            _finish_task.add_done_callback(_stream_tasks.discard)
+
+            # 消费事件队列 → SSE 帧(主脑事件流实时推送)
+            while True:
+                item = await queue._q.get()
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
         finally:
             _on_step_ctx.reset(token)
-            queue.close()
 
     return StreamingResponse(_stream_events(), media_type="text/event-stream")
 

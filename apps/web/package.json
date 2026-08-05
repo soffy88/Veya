@@ -25,6 +25,8 @@
 	},
 	"dependencies": {
 		"@veya/ui": "workspace:*",
-		"lucide-svelte": "^1.0.1"
+		"highlight.js": "^11.11.1",
+		"lucide-svelte": "^1.0.1",
+		"marked": "^18.0.9"
 	}
 }
