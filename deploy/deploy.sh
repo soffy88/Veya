@@ -84,19 +84,11 @@ deploy_docker() {
 }
 
 # ── Local (non-Docker) Deploy ─────────────────────────────
+# Actual production deploy is systemd-managed: see deploy/veya-web.service
+# (SvelteKit apps/web) and deploy/veya-gateway.service (L4 gateway).
 deploy_local() {
-    log "Starting local deployment..."
-
-    # Start production server (frontend + backend proxy)
-    log "Starting veya production server on :8080..."
-    cd "$PROJECT_DIR"
-    nohup python3 veya/server/prod_server.py --port 8080 > /tmp/veya-prod.log 2>&1 &
-    echo $! > /tmp/veya-prod.pid
-
-    sleep 3
-    log "Services started:"
-    log "  SPA Dashboard → http://localhost:8080"
-    log "  Logs: prod=/tmp/veya-prod.log"
+    warn "local deploy target is retired — see deploy/veya-web.service and deploy/veya-gateway.service"
+    exit 1
 }
 
 # ── Stop ──────────────────────────────────────────────────
