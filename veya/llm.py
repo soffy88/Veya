@@ -35,24 +35,40 @@ _PRICING: dict[str, tuple[float, float]] = {
     "dashscope": (0.4, 1.2),
     "anthropic": (3.0, 15.0),
     "openai": (0.5, 1.5),
+    "deepseek": (0.27, 1.1),
+    "openrouter": (0.15, 0.6),
+    "moonshot": (0.2, 2.0),
+    "zhipu": (0.1, 0.1),
 }
 
 _DEFAULT_MODELS: dict[str, str] = {
     "dashscope": "qwen-plus",
     "anthropic": "claude-haiku-4-5-20251001",
     "openai": "gpt-4o-mini",
+    "deepseek": "deepseek-chat",
+    "openrouter": "openai/gpt-4o-mini",
+    "moonshot": "moonshot-v1-8k",
+    "zhipu": "glm-4-flash",
 }
 
 _ENDPOINTS: dict[str, str] = {
     "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     "openai": "https://api.openai.com/v1/chat/completions",
     "anthropic": "https://api.anthropic.com/v1/messages",
+    "deepseek": "https://api.deepseek.com/v1/chat/completions",
+    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+    "moonshot": "https://api.moonshot.cn/v1/chat/completions",
+    "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
 }
 
 _API_KEY_ENV: dict[str, str] = {
     "dashscope": "DASHSCOPE_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "moonshot": "MOONSHOT_API_KEY",
+    "zhipu": "ZHIPU_API_KEY",
 }
 
 _DEFAULT_PROVIDER = "dashscope"
@@ -485,6 +501,29 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         except ValueError as exc:
             # Missing key etc. — degrade to stub rather than crashing the caller.
             content = kwargs.get("default_content", f"{_STUB_CONTENT} ({exc})")
+            return {
+                "choices": [{"message": {"role": "assistant", "content": content}}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+        except httpx.HTTPStatusError as exc:
+            # Provider rejected the request (bad key, rate limit, unknown model, ...) —
+            # surface the status + body instead of a raw 500 with no explanation.
+            status = exc.response.status_code
+            detail = exc.response.text.strip()[:300]
+            content = kwargs.get(
+                "default_content",
+                f"{provider} rejected the request (HTTP {status}): {detail or 'no detail returned'}",
+            )
+            return {
+                "choices": [{"message": {"role": "assistant", "content": content}}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+        except httpx.HTTPError as exc:
+            # Network/timeout/connect errors talking to the provider endpoint.
+            content = kwargs.get(
+                "default_content",
+                f"could not reach {provider} ({endpoint or 'default endpoint'}): {exc}",
+            )
             return {
                 "choices": [{"message": {"role": "assistant", "content": content}}],
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
