@@ -241,49 +241,96 @@
 	}
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-	<!-- ── 消息流 ─────────────────────────────────────────────────── -->
-	<div bind:this={listEl} class="flex-1 overflow-y-auto px-4 py-6 md:px-6">
-		<div class="mx-auto flex max-w-3xl flex-col gap-6">
-			{#if messages.length === 0}
-				<div class="flex flex-col items-center gap-6 py-16">
-					<div class="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-violet-600 font-mono text-lg font-bold text-white">
-						V
-					</div>
-					<div class="text-center">
-						<h2 class="text-lg font-semibold text-terminal-fg">和 Veya 主脑对话</h2>
-						<p class="mt-1 text-sm text-terminal-dim">直接描述任务，主脑会实时调用工具并流式返回结果</p>
-					</div>
-					<div class="flex w-full max-w-md flex-col gap-2">
-						{#each SUGGESTIONS as s (s)}
-							<button
-								type="button"
-								onclick={() => void send(s)}
-								class="rounded-xl border border-terminal-edge bg-terminal-panel px-4 py-3 text-left text-sm text-terminal-dim transition hover:border-sky-500/40 hover:text-terminal-fg"
-							>
-								{s}
-							</button>
-						{/each}
-					</div>
-				</div>
+{#snippet composer()}
+	<div class="mx-auto w-full max-w-2xl">
+		<div class="flex items-end gap-2 rounded-2xl border border-white/10 bg-[#0d0d0d] p-2 transition focus-within:border-white/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.05)]">
+			<textarea
+				bind:this={textareaEl}
+				bind:value={input}
+				rows="1"
+				placeholder="问 Veya 任何事…"
+				disabled={busy}
+				onkeydown={onKeydown}
+				oninput={onTextareaInput}
+				class="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] text-terminal-fg outline-none placeholder:text-white/30 disabled:opacity-50"
+			></textarea>
+			{#if busy}
+				<button
+					type="button"
+					onclick={stop}
+					title="停止生成 (Esc)"
+					class="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
+				>
+					<Square class="size-4 fill-current" />
+				</button>
 			{:else}
+				<button
+					type="button"
+					onclick={() => void send()}
+					disabled={!input.trim()}
+					title="发送 (Enter)"
+					class="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white text-black transition hover:bg-white/85 disabled:opacity-30"
+				>
+					<Send class="size-4" />
+				</button>
+			{/if}
+		</div>
+		<div class="mt-1.5 flex items-center gap-3 px-1 font-mono text-[10px] text-white/25">
+			<span class="flex items-center gap-1.5">
+				<span class="size-1.5 rounded-full {apiKeyStore.api_key ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
+				{apiKeyStore.current.label} · {apiKeyStore.model.trim() || apiKeyStore.current.defaultModel || "未设置模型"}
+			</span>
+			<span class="flex-1"></span>
+			<span class="hidden md:inline">Enter 发送 · Shift+Enter 换行 · ↑ 编辑{ busy ? " · Esc 停止" : "" }</span>
+		</div>
+	</div>
+{/snippet}
+
+<div class="flex min-h-0 flex-1 flex-col">
+	{#if messages.length === 0}
+		<!-- 空状态: 整个页面垂直居中, 输入框在窗口中间 (Claude 式) -->
+		<div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-6 pb-10">
+			<div class="flex flex-col items-center gap-4">
+				<div class="flex size-12 items-center justify-center rounded-2xl bg-white font-mono text-lg font-bold text-black">V</div>
+				<div class="text-center">
+					<h2 class="text-xl font-medium text-terminal-fg">和 Veya 主脑对话</h2>
+					<p class="mt-1 text-sm text-white/40">直接描述任务，主脑会实时调用工具并流式返回结果</p>
+				</div>
+				<div class="flex flex-wrap items-center justify-center gap-2">
+					{#each SUGGESTIONS as s (s)}
+						<button
+							type="button"
+							onclick={() => void send(s)}
+							class="rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 transition hover:border-white/30 hover:text-white"
+						>
+							{s}
+						</button>
+					{/each}
+				</div>
+			</div>
+			{@render composer()}
+		</div>
+	{:else}
+		<!-- 聊天中: 内容向上滚动, 输入框固定在窗口最下不动 (Claude 式) -->
+		<div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-6 md:px-6">
+			<div class="mx-auto flex max-w-2xl flex-col gap-7">
 				{#each messages as msg, i (i)}
 					<div class="flex items-start gap-3 {msg.role === 'user' ? 'flex-row-reverse' : ''}">
 						<span
-							class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border {msg.role === 'user'
-								? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
-								: 'border-violet-500/40 bg-violet-500/10 text-violet-300'}"
+							class="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full {msg.role === 'user'
+								? 'bg-white/10 text-white'
+								: 'bg-white text-black'}"
 						>
 							{#if msg.role === "user"}
-								<User class="size-4" />
+								<User class="size-3.5" />
 							{:else}
-								<Bot class="size-4" />
+								<Bot class="size-3.5" />
 							{/if}
 						</span>
 
-						<div class="min-w-0 max-w-[85%] flex-1 {msg.role === 'user' ? 'max-w-[70%]' : ''}">
+						<div class="min-w-0 flex-1 {msg.role === 'user' ? 'max-w-[70%]' : 'max-w-[85%]'}">
 							{#if msg.role === "user"}
-								<div class="w-fit max-w-full rounded-2xl rounded-tr-sm bg-terminal-panel px-4 py-2.5 text-sm text-terminal-fg">
+								<div class="w-fit max-w-full rounded-2xl rounded-tr-sm bg-white/10 px-4 py-2.5 text-[15px] leading-relaxed text-terminal-fg">
 									{msg.text}
 								</div>
 							{:else}
@@ -296,12 +343,12 @@
 												<button
 													type="button"
 													onclick={() => toggleStep(si)}
-													class="flex w-fit max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left font-mono text-[11px] {meta.cls}"
+													class="flex w-fit max-w-full items-center gap-2 rounded-lg border px-2.5 py-1 font-mono text-[11px] {meta.cls}"
 												>
 													<Icon class="size-3.5 shrink-0" />
 													<span class="font-semibold">{meta.label}</span>
 													{#if stepDetail(ev)}
-														<span class="max-w-[300px] truncate opacity-80">
+														<span class="max-w-[280px] truncate opacity-80">
 															{expandedSteps.has(si) ? stepDetail(ev) : stepDetail(ev).slice(0, 60) + "…"}
 														</span>
 													{/if}
@@ -310,10 +357,10 @@
 										</div>
 									{/if}
 
-									<div class="rounded-2xl rounded-tl-sm border border-terminal-edge bg-terminal-panel px-4 py-3">
+									<div class="text-[15px] leading-relaxed text-terminal-fg">
 										{#if msg.status === "streaming" && !msg.text}
-											<div class="flex items-center gap-2 text-sm text-terminal-dim">
-												<Loader2 class="size-4 animate-spin text-sky-400" />
+											<div class="flex items-center gap-2 text-sm text-white/40">
+												<Loader2 class="size-4 animate-spin text-white/60" />
 												正在思考…
 											</div>
 										{:else if msg.text}
@@ -321,11 +368,11 @@
 										{/if}
 
 										{#if msg.status === "streaming" && msg.text}
-											<span class="mt-1 inline-block size-2 bg-sky-400 align-middle [animation:blink_1s_steps(1)_infinite]"></span>
+											<span class="mt-1 inline-block size-2 rounded-full bg-white align-middle [animation:blink_1s_steps(1)_infinite]"></span>
 										{/if}
 
 										{#if msg.status === "error"}
-											<div class="mt-2 flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/5 p-2.5 text-sm text-rose-300">
+											<div class="mt-2 flex items-start gap-2 rounded-lg bg-red-500/10 p-2.5 text-sm text-red-400">
 												<CircleAlert class="mt-0.5 size-4 shrink-0" />
 												<span class="min-w-0 break-words">{msg.error}</span>
 											</div>
@@ -333,36 +380,24 @@
 												<button
 													type="button"
 													onclick={retryLast}
-													class="flex items-center gap-1.5 rounded-lg border border-terminal-edge px-3 py-1.5 font-mono text-xs text-terminal-dim transition hover:border-sky-500/40 hover:text-terminal-fg"
+													class="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 font-mono text-xs text-white/60 transition hover:border-white/30 hover:text-white"
 												>
 													<RotateCcw class="size-3.5" />
 													重试
 												</button>
-												<button
-													type="button"
-													onclick={() => copyMessage(msg.error ?? "")}
-													class="flex items-center gap-1.5 rounded-lg border border-terminal-edge px-3 py-1.5 font-mono text-xs text-terminal-dim transition hover:border-sky-500/40 hover:text-terminal-fg"
-												>
-													<Copy class="size-3.5" />
-													复制
-												</button>
 											</div>
 										{:else if msg.status === "stopped"}
-											<div class="mt-2 font-mono text-xs text-amber-400">已停止</div>
+											<div class="mt-2 font-mono text-xs text-white/40">已停止</div>
 										{:else if msg.status === "done" && msg.text}
 											<div class="mt-2 flex items-center gap-2">
 												<button
 													type="button"
 													onclick={() => copyMessage(msg.text)}
-													class="flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[11px] text-terminal-dim transition hover:bg-white/5 hover:text-terminal-fg"
+													class="flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[11px] text-white/30 transition hover:bg-white/5 hover:text-white/70"
 													title="复制回答"
 												>
 													<Copy class="size-3" />
-													复制
 												</button>
-												{#if typeof msg.cost === "number" && msg.cost > 0}
-													<span class="ml-auto font-mono text-[10px] text-terminal-dim/70">cost ${msg.cost.toFixed(6)}</span>
-												{/if}
 											</div>
 										{/if}
 									</div>
@@ -371,60 +406,13 @@
 						</div>
 					</div>
 				{/each}
-			{/if}
-		</div>
-	</div>
-
-	<!-- ── composer ────────────────────────────────────────────────── -->
-	<div class="shrink-0 border-t border-terminal-edge bg-terminal-panel/60 px-4 py-4 md:px-6">
-		<div class="mx-auto flex max-w-3xl flex-col gap-2">
-			<div class="flex items-end gap-2 rounded-2xl border border-terminal-edge bg-terminal-bg p-2 transition focus-within:border-sky-500/60 focus-within:shadow-[0_0_0_3px_rgba(56,189,248,0.1)]">
-				<textarea
-					bind:this={textareaEl}
-					bind:value={input}
-					rows="1"
-					placeholder="告诉主脑你想做什么…（Enter 发送 · Shift+Enter 换行 · ↑ 编辑上一条）"
-					disabled={busy}
-					onkeydown={onKeydown}
-					oninput={onTextareaInput}
-					class="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 disabled:opacity-50"
-				></textarea>
-				{#if busy}
-					<button
-						type="button"
-						onclick={stop}
-						title="停止生成 (Esc)"
-						class="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 text-rose-400 transition hover:bg-rose-500/30"
-					>
-						<Square class="size-4 fill-current" />
-					</button>
-				{:else}
-					<button
-						type="button"
-						onclick={() => void send()}
-						disabled={!input.trim()}
-						title="发送 (Enter)"
-						class="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-sky-500 to-violet-600 text-white transition hover:brightness-110 disabled:opacity-40"
-					>
-						<Send class="size-4" />
-					</button>
-				{/if}
-			</div>
-			<div class="flex items-center gap-3 px-1 font-mono text-[11px] text-terminal-dim/70">
-				<span class="flex items-center gap-1.5">
-					<span class="size-1.5 rounded-full {apiKeyStore.api_key ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
-					{apiKeyStore.current.label} · {apiKeyStore.model.trim() || apiKeyStore.current.defaultModel || "未设置模型"}
-				</span>
-				<span class="flex-1"></span>
-				<span class="hidden md:inline"><kbd class="rounded border border-terminal-edge px-1">Enter</kbd> 发送</span>
-				<span class="hidden md:inline"><kbd class="rounded border border-terminal-edge px-1">Shift+Enter</kbd> 换行</span>
-				<span class="hidden md:inline"><kbd class="rounded border border-terminal-edge px-1">↑</kbd> 编辑</span>
-				{#if busy}
-					<span class="hidden md:inline"><kbd class="rounded border border-terminal-edge px-1">Esc</kbd> 停止</span>
-				{/if}
 			</div>
 		</div>
-	</div>
+		<!-- 输入框固定贴底, 与页面一体(无分隔线/无独立背景) -->
+		<div class="shrink-0 px-4 pb-4 pt-1 md:px-6">
+			{@render composer()}
+		</div>
+	{/if}
 </div>
 
 <style>
