@@ -16,8 +16,6 @@ import hmac
 import json
 import logging
 import os
-import time
-from typing import Any
 
 try:
     from fastapi import APIRouter, HTTPException, Request, Response
@@ -31,7 +29,10 @@ except ImportError:
 
 from veya.im.pseudo import anonymize_user_id
 
-logger = logging.getLogger("veya.im.discord")
+logger = logging.getLogger
+
+_bg_tasks: set = set()
+("veya.im.discord")
 
 # ---------------------------------------------------------------------------
 # Discord API constants
@@ -88,7 +89,6 @@ class DiscordGateway:
 
         try:
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-            from cryptography.exceptions import InvalidSignature
 
             key_bytes = bytes.fromhex(self.public_key)
             public_key_obj = Ed25519PublicKey.from_public_bytes(key_bytes)
@@ -121,7 +121,6 @@ class DiscordGateway:
         # Type 2: APPLICATION_COMMAND
         if interaction_type == 2:
             data = payload.get("data", {})
-            command_name = data.get("name", "ask")
 
             # Extract user info
             user = payload.get("member", {}).get("user", {}) or payload.get("user", {})
@@ -143,9 +142,10 @@ class DiscordGateway:
 
             if self._runner and prompt:
                 # Background task: run agent and reply
-                asyncio.create_task(self._run_and_reply(
+                _task_ref = asyncio.create_task(self._run_and_reply(
                     channel_id, prompt, pseudo_id, user_name
                 ))
+                _bg_tasks.add(_task_ref)
 
             # Return deferred response
             return {
@@ -170,7 +170,7 @@ class DiscordGateway:
         """Run the agentic loop and post the result to Discord."""
         try:
             result = await self._runner(prompt, user_ref=pseudo_id)
-            reply_text = self._format_result(result, user_name)
+            reply_text = self._format_result(result, user_name, prompt)
             await self._send_message(channel_id, reply_text)
         except Exception as e:
             logger.error(f"Discord agent run failed: {e}")
@@ -179,7 +179,7 @@ class DiscordGateway:
                 f"❌ Sorry {user_name}, I encountered an error: {str(e)[:200]}",
             )
 
-    def _format_result(self, result: dict, user_name: str) -> str:
+    def _format_result(self, result: dict, user_name: str, prompt: str = "") -> str:
         """Format agent result for Discord message."""
         status = result.get("status", "completed")
         content = result.get("result", "") or result.get("turn_result", {}).get("content", "")
@@ -192,7 +192,7 @@ class DiscordGateway:
 
         text = str(content)[:1900]  # Discord message limit
         if status == "completed":
-            return f"**{user_name}** asked:\n> {prompt if 'prompt' in dir() else '...'}\n\n{text}"
+            return f"**{user_name}** asked:\n> {prompt or '...'}\n\n{text}"
         else:
             return f"❌ Task failed ({status}): {text[:500]}"
 
@@ -235,20 +235,19 @@ def make_discord_router(
 
     Mount it in your app:  app.include_router(make_discord_router(), prefix="/im/discord")
     """
-    from veya.server.manifests import assemble_agentic_loop, new_session_id
+    from server.coordinator_master import master_coordinator
 
     async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
-        engine = assemble_agentic_loop()
-        engine.run()
         try:
-            result = await engine.invoke({
-                "goal": prompt,
-                "session_id": new_session_id(),
+            result = await master_coordinator.chat_stream(prompt, session_id=None, max_rounds=3)
+            return {
+                "status": result.get("status", "failed"),
+                "content": result.get("final_answer") or result.get("error", ""),
+                "cost_usd": result.get("cost_usd", 0.0),
                 "user_ref": user_ref,
-            })
-            return result
-        finally:
-            engine.stop()
+            }
+        except Exception as exc:
+            return {"status": "failed", "content": f"IM runner error: {exc}", "user_ref": user_ref}
 
     gateway = DiscordGateway(
         bot_token=bot_token,
@@ -267,9 +266,8 @@ def make_discord_router(
         # Verify signature
         signature = request.headers.get("X-Signature-Ed25519", "")
         timestamp = request.headers.get("X-Signature-Timestamp", "")
-        if signature and timestamp and gateway.public_key:
-            if not await gateway.verify_signature(body, signature, timestamp):
-                raise HTTPException(status_code=401, detail="Invalid signature")
+        if signature and timestamp and gateway.public_key and not await gateway.verify_signature(body, signature, timestamp):
+            raise HTTPException(status_code=401, detail="Invalid signature")
 
         try:
             payload = json.loads(body)

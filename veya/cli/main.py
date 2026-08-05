@@ -23,20 +23,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from veya.server.manifests import (
-    assemble_agentic_loop,
-    build_agentic_loop_manifest,
-    load_decision_trail,
-    manifest_summary,
-    save_decision_trail,
-    validate_manifest,
-)
+from veya.server.manifests import load_decision_trail, save_decision_trail
 
 # Optional rich dependency (pyproject interactive extras) — degrade to print.
 try:  # pragma: no cover - exercised in real terminal
     from rich.console import Console
     from rich.panel import Panel
-    from rich.table import Table
 
     _HAS_RICH = True
 except Exception:  # pragma: no cover - fallback path
@@ -114,19 +106,15 @@ async def run_task(
     on_step: Any | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a task through the assembled agentic loop engine.
+    """Execute a task through the Agent OS master brain.
 
-    Returns the engine result dict (result / status / cost / session_id /
-    events).  In ``dry_run`` mode it returns the manifest plan without
-    executing anything.
+    Returns {result / status / cost / session_id / events}. In ``dry_run``
+    mode returns a plan stub without executing anything.
     """
-    manifest = build_agentic_loop_manifest(config)
-    validate_manifest(manifest)
-
     if dry_run:
-        return {"status": "dry_run", "plan": manifest_summary(manifest), "session_id": session_id}
+        return {"status": "dry_run", "plan": "Agent OS master brain (dry run)", "session_id": session_id}
 
-    # memory restore (long_task_memory_workflow) — resume path
+    # memory restore (decision trail) — resume path
     if resume:
         steps = load_decision_trail(resume)
         if steps:
@@ -134,28 +122,27 @@ async def run_task(
                 f"◆ Resumed session {resume}: {len(steps)} decision steps loaded", file=sys.stderr
             )
 
-    engine = assemble_agentic_loop(config)
-    engine.run()
+    from server.coordinator_master import master_coordinator
 
     if on_step is None:
         on_step = make_on_step(_get_console())
 
-    on_step({"event": "session_start", "session_id": engine.session_id, "ts": time.time()})
+    on_step({"event": "session_start", "session_id": session_id or "cli", "ts": time.time()})
 
-    result = await engine.invoke({"goal": task, "session_id": session_id or engine.session_id})
+    result = await master_coordinator.chat_stream(task, session_id=session_id, max_rounds=3)
 
-    events = [{"event": "session_done", "session_id": engine.session_id, "ts": time.time()}]
+    events = [{"event": "session_done", "session_id": result.get("session_id", "cli"), "ts": time.time()}]
     on_step(events[0])
 
     # persist decision trail
-    sid = session_id or engine.session_id
+    sid = result.get("session_id") or session_id or "cli"
     trail = load_decision_trail(sid)
     trail.extend(events)
     save_decision_trail(sid, trail)
 
     return {
-        "result": result.get("turn_result", result),
-        "status": result.get("status", "completed"),
+        "result": result.get("final_answer") or result.get("error", ""),
+        "status": result.get("status", "failed"),
         "cost_usd": result.get("cost_usd", 0.0),
         "session_id": sid,
         "events": events,
@@ -222,16 +209,9 @@ def main(argv: list[str] | None = None) -> int:
             plan = result["plan"]
             console = _get_console()
             if console is not None:
-                table = Table(title=f"ServiceManifest: {plan['name']} ({plan['skeleton']})")
-                table.add_column("injection point")
-                table.add_column("resolved element")
-                for k, v in plan["inject"].items():
-                    table.add_row(k, v)
-                console.print(table)
-                console.print(f"trigger: {plan['trigger']}")
-                console.print(f"config keys: {', '.join(plan['config_keys'])}")
+                console.print(Panel(str(plan), title="Agent OS master brain (dry run)"))
             else:
-                print(json.dumps(plan, ensure_ascii=False, indent=2))
+                print(str(plan))
             print("dry-run: OK — nothing executed")
             return 0
 
