@@ -4,15 +4,20 @@
 	 * Genesis's own element-forging calls never see this key — they use the
 	 * server-side GENESIS_API_KEY (server/agents/genesis_agent.py), physically isolated.
 	 */
-	import { KeyRound, Plus, Trash2, X } from "lucide-svelte";
+	import { Check, KeyRound, Plus, Trash2, X } from "lucide-svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
 
 	let addingProvider = $state(false);
 	let newLabel = $state("");
 	let newEndpoint = $state("");
+	let justSaved = $state(false);
+	let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
-	function onChange() {
+	function saveKey() {
 		apiKeyStore.save();
+		justSaved = true;
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => (justSaved = false), 2000);
 	}
 
 	function startAdd() {
@@ -46,7 +51,7 @@
 			<select
 				id="provider-select"
 				bind:value={apiKeyStore.provider}
-				onchange={onChange}
+				onchange={() => apiKeyStore.save()}
 				class="min-w-0 flex-1 rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2 text-sm text-terminal-fg outline-none focus:border-sky-500/60"
 			>
 				{#each apiKeyStore.all as p (p.id)}
@@ -110,7 +115,6 @@
 			type="password"
 			value={apiKeyStore.api_key}
 			oninput={(e) => { apiKeyStore.api_key = e.currentTarget.value; }}
-			onchange={onChange}
 			placeholder="sk-..."
 			class="rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60"
 		/>
@@ -123,9 +127,23 @@
 			type="text"
 			value={apiKeyStore.model}
 			oninput={(e) => { apiKeyStore.model = e.currentTarget.value; }}
-			onchange={onChange}
 			placeholder="例如 qwen-max / claude-sonnet-5 / deepseek-chat"
 			class="rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60"
 		/>
+	</div>
+
+	<div class="flex items-center gap-3">
+		<button
+			type="button"
+			onclick={saveKey}
+			class="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-sky-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+		>
+			保存
+		</button>
+		{#if justSaved}
+			<span class="flex items-center gap-1 text-sm text-emerald-400">
+				<Check class="size-4" /> 已保存
+			</span>
+		{/if}
 	</div>
 </div>
