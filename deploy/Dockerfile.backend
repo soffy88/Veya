@@ -1,24 +1,28 @@
-# veya Backend Dockerfile
+# veya Backend Dockerfile — Agent OS 后端(9 大能力 + 3O 主库)
 FROM python:3.14-slim
 
 WORKDIR /app
 
-# Install system deps
+# Install system deps (rg 供 grep 工具; git 供推库; playwright 浏览器可选)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ripgrep ffmpeg nodejs npm \
+    git curl ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps
-COPY pyproject.toml .
-RUN pip install --no-cache-dir fastapi uvicorn[standard] httpx aiohttp \
-    python-dotenv python-multipart structlog pydantic
-
-# Copy source
+# Python 依赖(从 pyproject 全量安装, 含 apscheduler/pandas/numpy/pyarrow/scipy/cryptography)
+COPY pyproject.toml README.md ./
 COPY veya/ ./veya/
+COPY server/ ./server/
 COPY platform/ ./platform/
+COPY tests/ ./tests/
+RUN pip install --no-cache-dir .
 
-ENV PYTHONPATH=/app:/app/platform/3O/oservi:/app/platform/3O/oservi/oservi
+# 3O 主库装配通道
+ENV PYTHONPATH=/app:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi
+ENV VEYA_WORKSPACE=/app
 
 EXPOSE 8765
 
-CMD ["python", "-m", "veya.server.app", "--host", "0.0.0.0", "--port", "8765"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -sf http://localhost:8765/health || exit 1
+
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8765"]
