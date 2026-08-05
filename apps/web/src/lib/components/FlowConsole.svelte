@@ -322,9 +322,13 @@
 					{/if}
 				</button>
 			</div>
-			{#if sessionId}
-				<span class="font-mono text-xs text-terminal-dim/70">session {sessionId.slice(0, 8)}</span>
-			{/if}
+			<div class="flex items-center gap-2 font-mono text-xs text-terminal-dim/70">
+				<span class="size-1.5 rounded-full {apiKeyStore.api_key ? 'bg-emerald-500' : 'bg-terminal-dim'}"></span>
+				{apiKeyStore.current.label} · {apiKeyStore.model.trim() || apiKeyStore.current.defaultModel || "未设置模型"}
+				{#if sessionId}
+					<span>· session {sessionId.slice(0, 8)}</span>
+				{/if}
+			</div>
 		</div>
 	</div>
 </div>

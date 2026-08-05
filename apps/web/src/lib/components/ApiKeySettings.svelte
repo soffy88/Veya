@@ -121,15 +121,27 @@
 	</div>
 
 	<div class="flex flex-col gap-2">
-		<label class="text-xs text-terminal-dim" for="model-input">模型名（可选，留空用默认）</label>
+		<label class="text-xs" class:text-terminal-dim={!apiKeyStore.current.custom} class:text-amber-400={apiKeyStore.current.custom} for="model-input">
+			{#if apiKeyStore.current.custom}
+				模型名（自定义服务商必填，没有默认值）
+			{:else}
+				模型名（可选，留空用默认 · {apiKeyStore.current.defaultModel}）
+			{/if}
+		</label>
 		<input
 			id="model-input"
 			type="text"
 			value={apiKeyStore.model}
 			oninput={(e) => { apiKeyStore.model = e.currentTarget.value; }}
-			placeholder="例如 qwen-max / claude-sonnet-5 / deepseek-chat"
-			class="rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60"
+			placeholder={apiKeyStore.current.custom ? "例如 gpt-4o-mini" : apiKeyStore.current.defaultModel}
+			class="rounded-lg border bg-terminal-bg px-3 py-2 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60 {apiKeyStore.current.custom && !apiKeyStore.model.trim() ? 'border-amber-500/50' : 'border-terminal-edge'}"
 		/>
+	</div>
+
+	<div class="flex items-center gap-2 rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2 text-xs text-terminal-dim">
+		<span class="size-1.5 shrink-0 rounded-full bg-emerald-500"></span>
+		当前使用：<span class="font-medium text-terminal-fg">{apiKeyStore.current.label}</span>
+		· <span class="font-mono">{apiKeyStore.model.trim() || apiKeyStore.current.defaultModel || "(未设置模型)"}</span>
 	</div>
 
 	<div class="flex items-center gap-3">
