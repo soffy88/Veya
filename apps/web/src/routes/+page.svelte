@@ -1,15 +1,31 @@
 <script lang="ts">
 	/**
 	 * Veya Web — Coordinator → approval → Genesis HITL flow (Claude-Code/OpenCode style).
-	 * Single-flow console: sidebar (branding + new chat) + FlowConsole taking the full page.
+	 * Sidebar: 新对话 (chat) / 插件 / 自动化 — three persistent views, one main pane.
 	 * Backend: /legacy/flow/phase1 → phase2 → phase3, progress over /legacy/stream/{sid} SSE.
 	 */
-	import { Cpu, Settings } from "lucide-svelte";
+	import { Cpu, MessageSquare, Package, Clock, Settings } from "lucide-svelte";
 	import FlowConsole from "$lib/components/FlowConsole.svelte";
+	import PluginPanel from "$lib/components/PluginPanel.svelte";
+	import AutomationPanel from "$lib/components/AutomationPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+
+	type View = "chat" | "plugins" | "automation";
 
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
+	let view = $state<View>("chat");
+
+	const NAV: [View, string, typeof MessageSquare][] = [
+		["chat", "新对话", MessageSquare],
+		["plugins", "插件", Package],
+		["automation", "自动化", Clock],
+	];
+
+	function selectNav(v: View) {
+		view = v;
+		if (v === "chat") flowConsole?.newFlow();
+	}
 </script>
 
 <main class="flex h-screen overflow-hidden">
@@ -23,15 +39,20 @@
 			</div>
 		</div>
 
-		<div class="p-2.5">
-			<button
-				type="button"
-				onclick={() => flowConsole?.newFlow()}
-				class="w-full rounded-lg border border-terminal-edge px-3 py-2 text-left text-sm text-terminal-dim transition hover:border-sky-500/40 hover:text-terminal-fg"
-			>
-				＋ 新对话
-			</button>
-		</div>
+		<nav class="flex flex-col gap-0.5 p-2.5">
+			{#each NAV as [id, label, Icon] (id)}
+				<button
+					type="button"
+					onclick={() => selectNav(id)}
+					class="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition {view === id
+						? 'bg-white/10 text-terminal-fg'
+						: 'text-terminal-dim hover:bg-white/5 hover:text-terminal-fg'}"
+				>
+					<Icon class="size-4" />
+					{label}
+				</button>
+			{/each}
+		</nav>
 
 		<div class="flex-1"></div>
 
@@ -57,11 +78,18 @@
 				class="flex items-center gap-1.5 rounded-lg border border-terminal-edge px-3 py-1.5 text-sm text-terminal-dim transition hover:border-sky-500/40 hover:text-terminal-fg"
 			>
 				<Settings class="size-4" />
-				设置
+				模型
 			</button>
 		</header>
 
-		<FlowConsole bind:this={flowConsole} />
+		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "chat"}>
+			<FlowConsole bind:this={flowConsole} />
+		</div>
+		{#if view === "plugins"}
+			<div class="flex-1 overflow-y-auto p-6"><PluginPanel /></div>
+		{:else if view === "automation"}
+			<div class="flex-1 overflow-y-auto p-6"><AutomationPanel /></div>
+		{/if}
 	</section>
 </main>
 

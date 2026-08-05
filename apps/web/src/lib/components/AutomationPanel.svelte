@@ -40,7 +40,7 @@
 
 	async function toggle(s: Schedule) {
 		busy = s.id;
-		await api("gateway", "api/v1/scheduler", { body: { action: "toggle", id: s.id } });
+		await api("gateway", "api/v1/scheduler", { body: { action: "toggle", id: s.id, enabled: !s.enabled } });
 		await refresh();
 		busy = null;
 	}
