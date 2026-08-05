@@ -456,7 +456,7 @@ def create_app() -> FastAPI:
             result = await master_coordinator.chat_stream(
                 req.text,
                 session_id=req.session_id or None,
-                max_rounds=3,
+                max_rounds=5,
                 config=req.config or None,
                 provider=req.provider,
                 model=req.model,
@@ -488,7 +488,7 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             req.task,
             session_id=session_id,
-            max_rounds=3,
+            max_rounds=5,
             config=req.config or None,
             provider=req.provider,
             model=req.model,
@@ -647,7 +647,7 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"[media {req.mode}] 请分析以下语音转写并给出回应: {text}",
             session_id=None,
-            max_rounds=2,
+            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
@@ -672,7 +672,7 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"请验证以下自然语言命题的真伪, 给出结论与简要推理: {req.statement}",
             session_id=None,
-            max_rounds=2,
+            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
@@ -700,7 +700,7 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"对以下决策轨迹做根因分析(定位失败原因 + 反事实建议):\n{trail_summary}",
             session_id=None,
-            max_rounds=2,
+            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
@@ -744,7 +744,7 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"对以下代码文件做依赖与影响分析, 回答: {req.query or '这些文件之间的依赖关系与修改影响'}\n文件: {paths}",
             session_id=None,
-            max_rounds=2,
+            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
@@ -763,7 +763,7 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"设计一个新 Agent 的完整规格(角色/技能/系统提示词): {req.task}",
             session_id=None,
-            max_rounds=2,
+            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
