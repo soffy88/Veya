@@ -20,8 +20,7 @@
 
 <NotificationCenter />
 {#if artifactStore.activeArtifact}
-	<!-- global overlay so a notification toast's "查看图表" works from any section,
-	     not just when ArtifactChat.svelte's own split pane is on screen -->
+	<!-- global overlay so a notification toast's "查看图表" works from any section -->
 	<div class="fixed inset-y-0 right-0 z-40 w-full max-w-2xl shadow-2xl">
 		<ArtifactRenderer />
 	</div>
