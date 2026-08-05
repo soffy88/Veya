@@ -1,0 +1,19 @@
+[Unit]
+Description=Veya Web Frontend (SvelteKit adapter-node, veya.aiinote.com)
+After=network.target
+
+[Service]
+Type=simple
+User=soffy
+WorkingDirectory=/data/soffy/projects/veya/apps/web
+ExecStart=/home/soffy/.nvm/versions/node/v26.4.0/bin/node build/index.js
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/veya-web.log
+StandardError=append:/var/log/veya-web-error.log
+Environment=PORT=3105
+Environment=VEYA_GATEWAY=http://127.0.0.1:8765
+Environment=VEYA_LEGACY=http://127.0.0.1:8010
+
+[Install]
+WantedBy=multi-user.target
