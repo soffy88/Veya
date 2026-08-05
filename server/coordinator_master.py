@@ -122,13 +122,26 @@ class MasterCoordinator:
 
     # ── 宿主注入 ─────────────────────────────────────────────────────
     def _bound_llm(self, messages: list, **kwargs: Any) -> Any:
-        """把用户 key/endpoint 装配进 LLM 调用。"""
+        """把用户 key/endpoint 装配进 LLM 调用(支持请求级覆盖)。
+
+        请求级 config/model/provider/endpoint(如前端传入的 user API key)
+        优先于实例配置, 未提供则回落实例/环境默认。
+        """
+        req_cfg = kwargs.pop("config", None) or {}
+        req_model = kwargs.pop("model", None)
+        req_provider = kwargs.pop("provider", None)
+        req_endpoint = kwargs.pop("endpoint", None)
+        merged_cfg = {**self._llm_config, **req_cfg}
+        if req_cfg.get("providers"):
+            merged_cfg["providers"] = {**self._llm_config.get("providers", {}), **req_cfg["providers"]}
+        if req_cfg.get("endpoints"):
+            merged_cfg["endpoints"] = {**self._llm_config.get("endpoints", {}), **req_cfg["endpoints"]}
         return self._llm_fn(
             messages,
-            config=self._llm_config,
-            model=self.model,
-            provider=self.provider,
-            endpoint=self.endpoint,
+            config=merged_cfg,
+            model=req_model or self.model,
+            provider=req_provider or self.provider,
+            endpoint=req_endpoint or self.endpoint,
             **kwargs,
         )
 
@@ -186,15 +199,32 @@ class MasterCoordinator:
         session_id: str | None = None,
         on_step: Callable | None = None,
         max_rounds: int | None = None,
+        config: dict | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        endpoint: str | None = None,
     ) -> dict[str, Any]:
         """主脑主入口(委托主库 ReAct 循环)。
 
         on_step 经 contextvar 桥接: 主库 notify=fire_step 会自动命中。
+        config/provider/model/endpoint 为请求级 LLM 覆盖(前端传入的 user key)。
         """
+        llm_kwargs = {}
+        if config:
+            llm_kwargs["config"] = config
+        if provider:
+            llm_kwargs["provider"] = provider
+        if model:
+            llm_kwargs["model"] = model
+        if endpoint:
+            llm_kwargs["endpoint"] = endpoint
         token = _on_step_ctx.set(on_step)
         try:
             return await self._agent.chat_stream(
-                user_prompt, session_id=session_id, max_rounds=max_rounds
+                user_prompt,
+                session_id=session_id,
+                max_rounds=max_rounds,
+                llm_kwargs=llm_kwargs or None,
             )
         finally:
             _on_step_ctx.reset(token)

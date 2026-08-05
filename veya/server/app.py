@@ -49,6 +49,8 @@ class AgentRunRequest(BaseModel):
 
     task: str | None = Field(None, description="Task description (legacy contract)")
     text: str | None = Field(None, description="Chat prompt (new Agent OS contract)")
+    provider: str | None = Field(None, description="LLM provider id (frontend model settings)")
+    model: str | None = Field(None, description="LLM model name (frontend model settings)")
     student_id: str | None = Field(None, description="Pseudonymized in flight")
     user_id: str | None = Field(None, description="Pseudonymized in flight")
     session_id: str | None = None
@@ -452,7 +454,12 @@ def create_app() -> FastAPI:
             from server.coordinator_master import master_coordinator
 
             result = await master_coordinator.chat_stream(
-                req.text, session_id=req.session_id or None, max_rounds=3
+                req.text,
+                session_id=req.session_id or None,
+                max_rounds=3,
+                config=req.config or None,
+                provider=req.provider,
+                model=req.model,
             )
             return AgentRunResponse(
                 session_id=result.get("session_id") or req.session_id or new_session_id(),
@@ -479,7 +486,12 @@ def create_app() -> FastAPI:
         from server.coordinator_master import master_coordinator
 
         result = await master_coordinator.chat_stream(
-            req.task, session_id=session_id, max_rounds=3
+            req.task,
+            session_id=session_id,
+            max_rounds=3,
+            config=req.config or None,
+            provider=req.provider,
+            model=req.model,
         )
         cost = float(result.get("cost_usd", 0.0))
         save_decision_trail(
@@ -513,7 +525,13 @@ def create_app() -> FastAPI:
         # 新 Agent OS 契约: text → 主脑 SSE 事件流(text_delta / tool_call / master_done)
         if req.text is not None:
             return StreamingResponse(
-                new_agent_stream_events(req.text, req.session_id),
+                new_agent_stream_events(
+                    req.text,
+                    req.session_id,
+                    config=req.config or None,
+                    provider=req.provider,
+                    model=req.model,
+                ),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -525,7 +543,13 @@ def create_app() -> FastAPI:
         # legacy task contract → same master-brain SSE stream
         session_id = req.session_id or new_session_id()
         return StreamingResponse(
-            new_agent_stream_events(req.task, session_id),
+            new_agent_stream_events(
+                req.task,
+                session_id,
+                config=req.config or None,
+                provider=req.provider,
+                model=req.model,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
