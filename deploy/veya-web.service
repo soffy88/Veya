@@ -12,8 +12,8 @@ RestartSec=5
 StandardOutput=append:/var/log/veya-web.log
 StandardError=append:/var/log/veya-web-error.log
 Environment=PORT=3105
-Environment=VEYA_GATEWAY=http://127.0.0.1:8765
-Environment=VEYA_LEGACY=http://127.0.0.1:8010
+Environment=VEYA_GATEWAY=http://127.0.0.1:8768
+Environment=VEYA_LEGACY=http://127.0.0.1:9120
 
 [Install]
 WantedBy=multi-user.target

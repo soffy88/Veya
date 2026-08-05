@@ -51,13 +51,13 @@
 				<span class={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border ${s.cls}`}>
 					<Icon class="size-3.5 {s.spin ? 'animate-spin' : ''}" />
 				</span>
-				<div class="min-w-0 flex-1 font-mono text-[12px] leading-relaxed">
+				<div class="min-w-0 flex-1 font-mono text-sm leading-relaxed">
 					<span class="font-semibold text-terminal-fg">{el.layer}</span>
 					<span class="text-terminal-dim">/{el.name}</span>
 					{#if el.status === "failed" && el.error}
-						<div class="mt-0.5 break-words text-[11px] text-rose-300">{el.error}</div>
+						<div class="mt-0.5 break-words text-xs text-rose-300">{el.error}</div>
 					{:else if el.status === "success" && el.response}
-						<div class="mt-0.5 break-words text-[11px] text-terminal-dim">{el.response}</div>
+						<div class="mt-0.5 break-words text-xs text-terminal-dim">{el.response}</div>
 					{/if}
 				</div>
 			</li>

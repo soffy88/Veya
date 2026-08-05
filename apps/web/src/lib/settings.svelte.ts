@@ -13,30 +13,33 @@ const STORAGE_KEY = "veya.flow.apiKey";
 interface StoredApiKey {
 	provider: Provider;
 	api_key: string;
+	model: string;
 }
 
 function load(): StoredApiKey {
-	if (typeof localStorage === "undefined") return { provider: "dashscope", api_key: "" };
+	if (typeof localStorage === "undefined") return { provider: "dashscope", api_key: "", model: "" };
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw);
-			if (parsed && typeof parsed.api_key === "string") return parsed;
+			if (parsed && typeof parsed.api_key === "string") return { model: "", ...parsed };
 		}
 	} catch {
 		/* ignore malformed storage */
 	}
-	return { provider: "dashscope", api_key: "" };
+	return { provider: "dashscope", api_key: "", model: "" };
 }
 
 class ApiKeyStore {
 	#initial = load();
 	provider = $state<Provider>(this.#initial.provider);
 	api_key = $state(this.#initial.api_key);
+	/** optional model override, e.g. "qwen-max" / "claude-sonnet-5" / "gpt-4o" — falls back to the provider's server-side default when empty */
+	model = $state(this.#initial.model);
 
 	save() {
 		if (typeof localStorage === "undefined") return;
-		localStorage.setItem(STORAGE_KEY, JSON.stringify({ provider: this.provider, api_key: this.api_key }));
+		localStorage.setItem(STORAGE_KEY, JSON.stringify({ provider: this.provider, api_key: this.api_key, model: this.model }));
 	}
 
 	/** shape expected by server/routes/flow.py's Phase1/2/3 request bodies (`config.providers.<provider>.api_key`) */

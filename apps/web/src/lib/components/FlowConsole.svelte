@@ -135,7 +135,13 @@
 		phase = "phase1_running";
 
 		const res = await api("legacy", "flow/phase1", {
-			body: { prompt, session_id: sessionId, config: apiKeyStore.asConfig() },
+			body: {
+				prompt,
+				session_id: sessionId,
+				provider: apiKeyStore.provider,
+				model: apiKeyStore.model.trim() || undefined,
+				config: apiKeyStore.asConfig(),
+			},
 		});
 		const data = res.data as Record<string, unknown>;
 		if (!res.ok || data?.status !== "success") {
@@ -157,7 +163,13 @@
 		if (!requirementDoc) return;
 		phase = "phase2_running";
 		const res = await api("legacy", "flow/phase2", {
-			body: { doc: requirementDoc, session_id: sessionId, config: apiKeyStore.asConfig() },
+			body: {
+				doc: requirementDoc,
+				session_id: sessionId,
+				provider: apiKeyStore.provider,
+				model: apiKeyStore.model.trim() || undefined,
+				config: apiKeyStore.asConfig(),
+			},
 		});
 		const data = res.data as Record<string, unknown>;
 		if (!res.ok) {
@@ -198,14 +210,14 @@
 
 			{#if submittedPrompt}
 				<div class="flex justify-end">
-					<div class="max-w-xl rounded-2xl rounded-tr-sm bg-terminal-panel px-4 py-2.5 font-mono text-[13px] text-terminal-fg">
+					<div class="max-w-xl rounded-2xl rounded-tr-sm bg-terminal-panel px-4 py-2.5 text-sm text-terminal-fg">
 						{submittedPrompt}
 					</div>
 				</div>
 			{/if}
 
 			{#if phase === "phase1_running"}
-				<div class="flex items-center gap-2 font-mono text-[12px] text-terminal-dim">
+				<div class="flex items-center gap-2 text-sm text-terminal-dim">
 					<Search class="size-4 animate-pulse" />
 					主模型正在调研并生成需求文档…
 				</div>
@@ -214,7 +226,7 @@
 			{#if researchTrail.length > 0}
 				<ol class="flex flex-col gap-1 border-b border-terminal-edge/60 pb-3">
 					{#each researchTrail as ev, i (i)}
-						<li class="flex items-start gap-2 font-mono text-[11px] text-terminal-dim">
+						<li class="flex items-start gap-2 font-mono text-xs text-terminal-dim">
 							<Bot class="mt-0.5 size-3 shrink-0" />
 							<span>{ev.type}{ev.phase ? ` · ${ev.phase}` : ""}</span>
 						</li>
@@ -228,17 +240,17 @@
 
 			{#if manifest && (phase === "phase2_review" || phase === "phase3_running" || phase === "done")}
 				<div class="flex w-full flex-col gap-2 rounded-xl border border-terminal-edge bg-terminal-panel p-4">
-					<div class="font-mono text-xs font-semibold text-terminal-fg">3O 施工蓝图 · {manifest.mission_id}</div>
+					<div class="text-sm font-semibold text-terminal-fg">3O 施工蓝图 · {manifest.mission_id}</div>
 					<ul class="flex flex-col gap-1">
 						{#each manifest.elements as el, i (i)}
-							<li class="font-mono text-[11px] text-terminal-dim">{el.layer}/{el.name} — {el.specs}</li>
+							<li class="font-mono text-xs text-terminal-dim">{el.layer}/{el.name} — {el.specs}</li>
 						{/each}
 					</ul>
 					{#if phase === "phase2_review"}
 						<button
 							type="button"
 							onclick={approveManifest}
-							class="mt-1 flex w-fit items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 font-mono text-xs font-semibold text-white transition hover:bg-emerald-500"
+							class="mt-1 flex w-fit items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
 						>
 							确认蓝图，开始施工
 						</button>
@@ -252,13 +264,13 @@
 
 			{#if phase === "done" && assemblyCode}
 				<div class="flex w-full flex-col gap-2 rounded-xl border border-terminal-edge bg-terminal-panel p-4">
-					<div class="font-mono text-xs font-semibold text-terminal-fg">最终组装代码</div>
-					<pre class="overflow-x-auto whitespace-pre-wrap font-mono text-[12px] text-terminal-fg">{assemblyCode}</pre>
+					<div class="text-sm font-semibold text-terminal-fg">最终组装代码</div>
+					<pre class="overflow-x-auto whitespace-pre-wrap font-mono text-sm text-terminal-fg">{assemblyCode}</pre>
 				</div>
 			{/if}
 
 			{#if phase === "error"}
-				<div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3 font-mono text-[12px] text-rose-300">
+				<div class="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3 text-sm text-rose-300">
 					{errorMessage}
 				</div>
 			{/if}
@@ -274,7 +286,7 @@
 					rows="2"
 					placeholder="描述你想要的功能，例如：写一个基于 MACD 的风险控制拦截器"
 					disabled={phase !== "idle"}
-					class="min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 font-mono text-[13px] text-terminal-fg outline-none placeholder:text-terminal-dim/60 disabled:opacity-50"
+					class="min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 disabled:opacity-50"
 				></textarea>
 				<button
 					type="button"
@@ -290,7 +302,7 @@
 				</button>
 			</div>
 			{#if sessionId}
-				<span class="font-mono text-[10px] text-terminal-dim/70">session {sessionId.slice(0, 8)}</span>
+				<span class="font-mono text-xs text-terminal-dim/70">session {sessionId.slice(0, 8)}</span>
 			{/if}
 		</div>
 	</div>
