@@ -1,0 +1,16 @@
+[Unit]
+Description=Veya L4 Gateway (veya.server.app, veya.aiinote.com /api /ws /im /mcp /mobile)
+After=network.target
+
+[Service]
+Type=simple
+User=soffy
+WorkingDirectory=/data/soffy/projects/veya
+ExecStart=/data/soffy/projects/veya/venv/bin/python3 -m veya.server.app --host 0.0.0.0 --port 8767
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/veya-gateway.log
+StandardError=append:/var/log/veya-gateway-error.log
+
+[Install]
+WantedBy=multi-user.target

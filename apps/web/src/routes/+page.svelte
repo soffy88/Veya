@@ -37,7 +37,7 @@
 
 		<div class="border-t border-terminal-edge p-2.5">
 			<div class="flex flex-col gap-1 text-xs text-terminal-dim">
-				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-sky-500"></span>gateway :8768</span>
+				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-sky-500"></span>gateway :8767</span>
 				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-violet-500"></span>legacy :9120</span>
 			</div>
 		</div>
