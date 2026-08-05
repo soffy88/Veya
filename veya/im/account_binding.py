@@ -14,13 +14,12 @@ and loaded per-session based on the pseudo-anonymized user ID.
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from veya.im.pseudo import PseudoAnonymizer, anonymize_user_id
+from veya.im.pseudo import anonymize_user_id
 
 # ---------------------------------------------------------------------------
 # Types
@@ -51,7 +50,7 @@ class AccountBinding:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AccountBinding":
+    def from_dict(cls, data: dict) -> AccountBinding:
         return cls(
             platform=data.get("platform", ""),
             user_id=data.get("user_id", ""),

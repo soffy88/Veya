@@ -19,6 +19,8 @@ import httpx
 
 from veya.im.pseudo import anonymize_user_id
 
+_bg_tasks: set = set()
+
 DEFAULT_WEBHOOK_ENDPOINT = "/im/feishu/webhook"
 DEFAULT_BOT_API = "https://open.feishu.cn/open-apis/im/v1/messages"
 MAX_CHUNK = 1900  # Feishu message text limit is generous; keep segments sane
@@ -88,7 +90,7 @@ class FeishuGateway:
         if self._reply_fn is None:
             self._reply_fn = self._default_reply(parsed["chat_id"])
 
-        task = asyncio.create_task(self._dispatch(parsed["text"], user_ref, parsed["chat_id"]))
+        task = _task_ref = asyncio.create_task(self._dispatch(parsed["text"], user_ref, parsed["chat_id"]))
         self._pending[user_ref] = task
         return {"ok": True, "user_ref": user_ref, "chat_id": parsed["chat_id"]}
 
@@ -172,16 +174,13 @@ def _default_runner():
     """Async generator driving the assembled agentic loop engine."""
 
     async def runner(text: str, user_ref: str):
-        from veya.server.manifests import assemble_agentic_loop
+        from server.coordinator_master import master_coordinator
 
-        engine = assemble_agentic_loop({})
-        engine.run()
+        result = await master_coordinator.chat_stream(text, session_id=None, max_rounds=3)
+        turn = result.get("final_answer") or result.get("error", "")
         yield {"event": "session_start", "user_ref": user_ref, "ts": time.time()}
-        result = await engine.invoke({"goal": text, "user_ref": user_ref})
-        turn = result.get("turn_result") or {}
-        content = turn.get("content") or str(turn) if isinstance(turn, dict) else str(turn)
+        yield {"event": "result", "content": turn, "cost": result.get("cost_usd", 0.0)}
         yield {"event": "session_done", "user_ref": user_ref, "ts": time.time()}
-        yield {"event": "result", "content": content, "cost": result.get("cost_usd", 0.0)}
 
     return runner
 
