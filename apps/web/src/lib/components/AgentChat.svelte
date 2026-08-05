@@ -8,7 +8,8 @@
 	 * 同一 sessionId 贯穿整个会话（coordinator 按 session_id 保留上下文），
 	 * EventSource 只开一条，跨多轮复用。
 	 */
-	import { Bot, Brain, CheckCircle2, CircleAlert, Loader2, RotateCcw, Send, Terminal, User, Wrench } from "lucide-svelte";
+	import { Bot, Brain, CheckCircle2, CircleAlert, Code2, Loader2, RotateCcw, Send, Terminal, User, Wrench } from "lucide-svelte";
+	import { artifactStore } from "$lib/artifacts.svelte";
 
 	interface StepEvent {
 		type: string;
@@ -195,7 +196,8 @@
 			</div>
 		{:else}
 			{#each turns as turn (turn.id)}
-				<div class="flex items-start gap-2.5 {turn.role === 'user' ? 'flex-row-reverse' : ''}">
+			{@const parsed = artifactStore.parseArtifactsFromText(turn.text)}
+			<div class="flex items-start gap-2.5 {turn.role === 'user' ? 'flex-row-reverse' : ''}">
 					<span
 						class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border {turn.role === 'user'
 							? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
@@ -230,8 +232,28 @@
 						{/if}
 
 						<p class="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-terminal-fg">
-							{turn.text}
+							{parsed.pureText}
 						</p>
+
+						{#if turn.role === "assistant" && parsed.artifacts.length > 0}
+							<div class="mt-2 flex flex-col gap-2">
+								{#each parsed.artifacts as art (art.id)}
+									<button
+										type="button"
+										onclick={() => artifactStore.setActive(art)}
+										class="group flex items-center gap-3 rounded-lg border border-emerald-900/50 bg-emerald-950/30 p-2.5 text-left transition hover:bg-emerald-900/40"
+									>
+										<span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-900/50 group-hover:bg-emerald-800/80">
+											<Code2 class="size-4 text-emerald-400" />
+										</span>
+										<span class="min-w-0">
+											<span class="block text-sm font-bold text-emerald-100">{art.title || "React Artifact"}</span>
+											<span class="block text-xs text-emerald-500/70">Click to run in Sandbox</span>
+										</span>
+									</button>
+								{/each}
+							</div>
+						{/if}
 
 						{#if turn.status === "streaming"}
 							<div class="mt-1.5 flex items-center gap-1.5 text-terminal-dim">
