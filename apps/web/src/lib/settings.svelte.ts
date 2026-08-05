@@ -19,17 +19,19 @@ export interface ProviderDef {
 	label: string;
 	/** omitted for the original 3 built-ins — backend already has a default endpoint for them */
 	endpoint?: string;
+	/** what veya/llm.py's _DEFAULT_MODELS falls back to when the model field is left blank */
+	defaultModel?: string;
 	custom?: boolean;
 }
 
 export const BUILTIN_PROVIDERS: ProviderDef[] = [
-	{ id: "dashscope", label: "DashScope · Qwen" },
-	{ id: "anthropic", label: "Anthropic · Claude" },
-	{ id: "openai", label: "OpenAI · GPT" },
-	{ id: "deepseek", label: "DeepSeek", endpoint: "https://api.deepseek.com/v1/chat/completions" },
-	{ id: "openrouter", label: "OpenRouter", endpoint: "https://openrouter.ai/api/v1/chat/completions" },
-	{ id: "moonshot", label: "Moonshot · Kimi", endpoint: "https://api.moonshot.cn/v1/chat/completions" },
-	{ id: "zhipu", label: "智谱 · GLM", endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions" },
+	{ id: "dashscope", label: "DashScope · Qwen", defaultModel: "qwen-plus" },
+	{ id: "anthropic", label: "Anthropic · Claude", defaultModel: "claude-haiku-4-5-20251001" },
+	{ id: "openai", label: "OpenAI · GPT", defaultModel: "gpt-4o-mini" },
+	{ id: "deepseek", label: "DeepSeek", endpoint: "https://api.deepseek.com/v1/chat/completions", defaultModel: "deepseek-chat" },
+	{ id: "openrouter", label: "OpenRouter", endpoint: "https://openrouter.ai/api/v1/chat/completions", defaultModel: "openai/gpt-4o-mini" },
+	{ id: "moonshot", label: "Moonshot · Kimi", endpoint: "https://api.moonshot.cn/v1/chat/completions", defaultModel: "moonshot-v1-8k" },
+	{ id: "zhipu", label: "智谱 · GLM", endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions", defaultModel: "glm-4-flash" },
 ];
 
 interface Credential {
