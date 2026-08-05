@@ -1,45 +1,115 @@
 <script lang="ts">
 	/**
-	 * Veya Web — Coordinator → approval → Genesis HITL flow (Claude-Code/OpenCode style).
-	 * Sidebar: 新对话 (chat) / 插件 / 自动化 — three persistent views, one main pane.
-	 * Backend: /legacy/flow/phase1 → phase2 → phase3, progress over /legacy/stream/{sid} SSE.
+	 * Veya Web — human chat + Genesis construction + plugins + automation.
+	 *
+	 * Four views:
+	 *   chat     → ChatConsole  (human ⇄ Master Brain, streaming, multi-session)
+	 *   genesis  → FlowConsole  (master-model → Genesis 施工通道, 非人机对话)
+	 *   plugins  → PluginPanel
+	 *   automation → AutomationPanel
 	 */
-	import { Cpu, MessageSquare, Package, Clock, Settings } from "lucide-svelte";
+	import { Bot, Cpu, Hammer, MessageSquare, Package, Clock, Settings, Trash2, Plus } from "lucide-svelte";
+	import ChatConsole from "$lib/components/ChatConsole.svelte";
 	import FlowConsole from "$lib/components/FlowConsole.svelte";
 	import PluginPanel from "$lib/components/PluginPanel.svelte";
 	import AutomationPanel from "$lib/components/AutomationPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+	import { sessionStore } from "$lib/sessionStore.svelte";
 
-	type View = "chat" | "plugins" | "automation";
+	type View = "chat" | "genesis" | "plugins" | "automation";
 
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
 	let view = $state<View>("chat");
 
 	const NAV: [View, string, typeof MessageSquare][] = [
-		["chat", "新对话", MessageSquare],
+		["chat", "对话", MessageSquare],
+		["genesis", "Genesis 施工", Hammer],
 		["plugins", "插件", Package],
 		["automation", "自动化", Clock],
 	];
 
 	function selectNav(v: View) {
 		view = v;
-		if (v === "chat") flowConsole?.newFlow();
+		if (v === "genesis") flowConsole?.newFlow();
+	}
+
+	function newChat() {
+		sessionStore.newSession();
+		view = "chat";
+	}
+
+	function sessionTime(ts: number): string {
+		const d = new Date(ts);
+		const now = new Date();
+		const sameDay = d.toDateString() === now.toDateString();
+		if (sameDay) return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+		return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 	}
 </script>
 
 <main class="flex h-screen overflow-hidden">
 	<!-- ── sidebar ────────────────────────────────────────────────── -->
-	<aside class="flex w-56 shrink-0 flex-col border-r border-terminal-edge bg-terminal-panel">
+	<aside class="flex w-60 shrink-0 flex-col border-r border-terminal-edge bg-terminal-panel">
 		<div class="flex items-center gap-2 border-b border-terminal-edge px-4 py-3.5">
 			<span class="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-violet-600 font-mono text-sm font-bold text-white">V</span>
 			<div>
-				<h1 class="text-sm font-semibold leading-tight tracking-tight">Veya Workspace</h1>
-				<p class="text-xs text-terminal-dim">Coordinator · Genesis</p>
+				<h1 class="text-sm font-semibold leading-tight tracking-tight">Veya</h1>
+				<p class="text-xs text-terminal-dim">Agent OS</p>
 			</div>
 		</div>
 
-		<nav class="flex flex-col gap-0.5 p-2.5">
+		<button
+			type="button"
+			onclick={newChat}
+			class="mx-2.5 mt-2.5 flex items-center justify-center gap-1.5 rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2 text-sm text-terminal-fg transition hover:border-sky-500/40"
+		>
+			<Plus class="size-4" />
+			新对话
+		</button>
+
+		{#if view === "chat"}
+			<div class="flex min-h-0 flex-1 flex-col">
+				<div class="px-4 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wider text-terminal-dim/60">会话</div>
+				<div class="flex-1 overflow-y-auto px-2 pb-2">
+					{#if sessionStore.sessions.length === 0}
+						<p class="px-2 py-3 font-mono text-xs text-terminal-dim/60">暂无历史会话</p>
+					{:else}
+						{#each sessionStore.sessions as s (s.sid)}
+							<div
+								class="group relative flex cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2 transition {s.sid === sessionStore.activeSid
+									? 'bg-white/10'
+									: 'hover:bg-white/5'}"
+								onclick={() => sessionStore.open(s.sid)}
+							>
+								<span class="truncate pr-6 text-[13px] text-terminal-fg">{s.title}</span>
+								<span class="flex items-center justify-between font-mono text-[10px] text-terminal-dim/70">
+									<span>{sessionTime(s.ts)}</span>
+									{#if s.cost > 0}
+										<span>${s.cost.toFixed(4)}</span>
+									{/if}
+								</span>
+								<button
+									type="button"
+									title="删除会话"
+									onclick={(e) => {
+										e.stopPropagation();
+										sessionStore.remove(s.sid);
+									}}
+									class="absolute right-1.5 top-1.5 hidden rounded-md p-1 text-terminal-dim transition hover:bg-rose-500/20 hover:text-rose-400 group-hover:block"
+								>
+									<Trash2 class="size-3.5" />
+								</button>
+							</div>
+						{/each}
+					{/if}
+				</div>
+			</div>
+		{:else}
+			<div class="flex-1"></div>
+		{/if}
+
+		<nav class="flex flex-col gap-0.5 border-t border-terminal-edge p-2.5">
 			{#each NAV as [id, label, Icon] (id)}
 				<button
 					type="button"
@@ -54,12 +124,10 @@
 			{/each}
 		</nav>
 
-		<div class="flex-1"></div>
-
 		<div class="border-t border-terminal-edge p-2.5">
 			<div class="flex flex-col gap-1 text-xs text-terminal-dim">
-				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-sky-500"></span>gateway :8767</span>
-				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-violet-500"></span>legacy :9120</span>
+				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-sky-500"></span>Master Brain :9120</span>
+				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-violet-500"></span>Genesis 3O 施工</span>
 			</div>
 		</div>
 	</aside>
@@ -83,6 +151,9 @@
 		</header>
 
 		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "chat"}>
+			<ChatConsole />
+		</div>
+		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "genesis"}>
 			<FlowConsole bind:this={flowConsole} />
 		</div>
 		{#if view === "plugins"}
