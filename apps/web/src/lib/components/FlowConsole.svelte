@@ -16,8 +16,9 @@
 	 * (manifest / genesis_element_start / genesis_element_done / assembly_done / flow_error,
 	 * see server/sse.py emit()).
 	 */
-	import { Bot, Loader2, Search, Sparkles } from "lucide-svelte";
+	import { Bot, Code2, Loader2, Search, Sparkles } from "lucide-svelte";
 	import { api } from "$lib/api";
+	import { artifactStore } from "$lib/artifacts.svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
 	import RequirementCard from "./RequirementCard.svelte";
 	import GenesisProgressList, { type ElementStatus } from "./GenesisProgressList.svelte";
@@ -263,9 +264,29 @@
 			{/if}
 
 			{#if phase === "done" && assemblyCode}
+				{@const parsed = artifactStore.parseArtifactsFromText(assemblyCode)}
 				<div class="flex w-full flex-col gap-2 rounded-xl border border-terminal-edge bg-terminal-panel p-4">
 					<div class="text-sm font-semibold text-terminal-fg">最终组装代码</div>
-					<pre class="overflow-x-auto whitespace-pre-wrap font-mono text-sm text-terminal-fg">{assemblyCode}</pre>
+					{#if parsed.artifacts.length > 0}
+						<div class="flex flex-col gap-2">
+							{#each parsed.artifacts as art (art.id)}
+								<button
+									type="button"
+									onclick={() => artifactStore.setActive(art)}
+									class="group flex items-center gap-3 rounded-lg border border-emerald-900/50 bg-emerald-950/30 p-2.5 text-left transition hover:bg-emerald-900/40"
+								>
+									<span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-900/50 group-hover:bg-emerald-800/80">
+										<Code2 class="size-4 text-emerald-400" />
+									</span>
+									<span class="min-w-0">
+										<span class="block text-sm font-bold text-emerald-100">{art.title || "React Artifact"}</span>
+										<span class="block text-xs text-emerald-500/70">Click to run in Sandbox</span>
+									</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
+					<pre class="overflow-x-auto whitespace-pre-wrap font-mono text-sm text-terminal-fg">{parsed.pureText}</pre>
 				</div>
 			{/if}
 
