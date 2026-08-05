@@ -482,6 +482,7 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         kwargs.get("endpoint")
         or (config.get("endpoints") or {}).get(provider)
         or config.get("base_url")
+        or os.environ.get("VEYA_LLM_ENDPOINT")
     )
     # 专属 Key 注入: config["providers"][provider] 优先于环境变量(Genesis 物理隔离)
     api_key = get_api_key(provider, config)
