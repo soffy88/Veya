@@ -111,6 +111,7 @@ async def _call_openai_compat(
     tools: list | None,
     max_tokens: int = 4096,
     stream: bool = False,
+    temperature: float | None = None,
 ) -> httpx.Response:
     body: dict[str, Any] = {
         "model": model,
@@ -118,6 +119,8 @@ async def _call_openai_compat(
         "max_tokens": max_tokens,
         "stream": stream,
     }
+    if temperature is not None:
+        body["temperature"] = temperature
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
@@ -137,6 +140,7 @@ async def _call_anthropic(
     tools: list | None,
     max_tokens: int = 4096,
     stream: bool = False,
+    temperature: float | None = None,
 ) -> httpx.Response:
     system_msgs = [m for m in messages if m.get("role") == "system"]
     other_msgs = [m for m in messages if m.get("role") != "system"]
@@ -176,6 +180,8 @@ async def _call_anthropic(
             ant_msgs.append({"role": role, "content": m.get("content", "")})
 
     body: dict[str, Any] = {"model": model, "messages": ant_msgs, "max_tokens": max_tokens}
+    if temperature is not None:
+        body["temperature"] = temperature
     if system_text:
         body["system"] = system_text
     if tools:
@@ -308,15 +314,23 @@ async def provider_call(
     messages: list,
     tools: list | None = None,
     max_tokens: int = 4096,
+    temperature: float | None = None,
+    endpoint: str | None = None,
+    api_key: str | None = None,
 ) -> dict[str, Any]:
-    """Single non-streaming completion. Returns an OpenAI-format response dict."""
-    api_key = get_api_key(provider)
+    """Single non-streaming completion. Returns an OpenAI-format response dict.
+
+    ``endpoint`` overrides the built-in provider endpoint (e.g. NVIDIA NIM's
+    OpenAI-compatible ``https://integrate.api.nvidia.com/v1/chat/completions``).
+    ``api_key`` overrides the env lookup (Genesis 专属 Key 注入用, 物理隔离).
+    """
+    api_key = api_key or get_api_key(provider)
     if not api_key:
         raise ValueError(f"API key not set for provider '{provider}'")
     resolved_model = model or _DEFAULT_MODELS.get(provider, "default")
     messages = prepare_messages_for_provider(messages, provider)
 
-    if provider == "anthropic":
+    if provider == "anthropic" and not endpoint:
         resp = await _call_anthropic(
             client,
             api_key,
@@ -324,11 +338,12 @@ async def provider_call(
             messages=messages,
             tools=tools,
             max_tokens=max_tokens,
+            temperature=temperature,
         )
         resp.raise_for_status()
         return _normalize_anthropic_response(resp.json())
 
-    endpoint = _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
+    endpoint = endpoint or _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
     resp = await _call_openai_compat(
         client,
         endpoint,
@@ -337,6 +352,7 @@ async def provider_call(
         messages=messages,
         tools=tools,
         max_tokens=max_tokens,
+        temperature=temperature,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -443,6 +459,16 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     timeout = kwargs.get("timeout", 120.0)
     tools = kwargs.get("tools")
     max_tokens = kwargs.get("max_tokens", 4096)
+    temperature = kwargs.get("temperature")
+    config = kwargs.get("config") or {}
+    # 自定义 endpoint: 顶层 kwarg > config["endpoints"][provider] > config["base_url"](NVIDIA NIM 等)
+    endpoint = (
+        kwargs.get("endpoint")
+        or (config.get("endpoints") or {}).get(provider)
+        or config.get("base_url")
+    )
+    # 专属 Key 注入: config["providers"][provider] 优先于环境变量(Genesis 物理隔离)
+    api_key = get_api_key(provider, config)
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             return await provider_call(
@@ -452,6 +478,9 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
                 messages=messages,
                 tools=tools,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                endpoint=endpoint,
+                api_key=api_key,
             )
         except ValueError as exc:
             # Missing key etc. — degrade to stub rather than crashing the caller.

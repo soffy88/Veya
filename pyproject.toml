@@ -15,6 +15,10 @@ dependencies = [
     "matplotlib>=3.11.1",
     "plotly>=6.9.0",
     "structlog>=24.0",  # 3O obase 主库 core 依赖(轻量, 装配通道 veya.platform 所需)
+    "apscheduler>=3.10,<4",  # Veya Automata: 后台定时/事件调度(Agent OS)
+    "pandas>=2.0",  # Quant Coprocessor: 海量行情数据处理(控制面/数据面分离)
+    "numpy>=1.26",  # Quant Coprocessor: 向量化指标计算
+    "pyarrow>=15.0",  # Quant Coprocessor: parquet 高速 I/O
 ]
 
 [project.optional-dependencies]

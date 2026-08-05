@@ -552,6 +552,61 @@ class ASTAnalyzer:
 
 
 # 便捷函数
+
+def _def_signature(node: ast.AST) -> str:
+    """函数/方法 → 单行签名(上下文压缩核心)。"""
+    try:
+        args = ast.unparse(node.args)
+    except Exception:
+        args = "..."
+    ret = ""
+    if getattr(node, "returns", None) is not None:
+        try:
+            ret = f" -> {ast.unparse(node.returns)}"
+        except Exception:
+            ret = ""
+    doc = ast.get_docstring(node) or ""
+    first_line = doc.splitlines()[0][:80] if doc else ""
+    sig = (
+        f"def {node.name}({args}){ret}  # L{node.lineno}-{getattr(node, 'end_lineno', node.lineno)}"
+    )
+    return f'{sig}  """{first_line}"""' if first_line else sig
+
+
+def extract_skeleton(source: str, filepath: str, max_chars: int = 8000) -> str:
+    """上下文压缩: 只返回 AST 骨架(签名/行号/docstring 首行),防止 Token 爆炸。
+
+    Master Tool Registry 的 read_file_ast / 认知引擎的 read_skeleton 共用此实现。
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return f"# {filepath}: SYNTAX ERROR {exc}"
+
+    lines = [f"# skeleton: {filepath}"]
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            lines.append(_def_signature(node))
+        elif isinstance(node, ast.ClassDef):
+            bases = ""
+            if node.bases:
+                try:
+                    bases = f"({', '.join(ast.unparse(b) for b in node.bases)}"
+                except Exception:
+                    bases = ""
+            doc = ast.get_docstring(node) or ""
+            head = f"class {node.name}{bases}  # L{node.lineno}-{getattr(node, 'end_lineno', node.lineno)}"
+            lines.append(f'{head}  """{doc.splitlines()[0][:80]}"""' if doc else head)
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    lines.append("    " + _def_signature(item))
+        elif isinstance(node, ast.Assign) and node.targets:
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if names:
+                lines.append(f"{', '.join(names)} = ...")
+    return "\n".join(lines)[:max_chars]
+
+
 def create_ast_analyzer() -> ASTAnalyzer:
     """创建 AST 分析器"""
     return ASTAnalyzer()

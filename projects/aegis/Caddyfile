@@ -1,0 +1,26 @@
+# ==============================================================================
+# Veya Web Client (veya.aiinote.com)
+# 包含自动 HTTPS 证书、SvelteKit Node 服务反向代理与 SSE 流式零缓冲支持
+# ==============================================================================
+veya.aiinote.com {
+    # 开启 gzip/zstd 压缩（Caddy 会自动对 text/event-stream 跳过压缩）
+    encode zstd gzip
+
+    # 1. 针对 SSE 决策轨迹接口的零缓冲与长连接透传
+    handle /api/stream* {
+        reverse_proxy 127.0.0.1:3000 {
+            # 禁用响应缓冲，保障打字机流式输出的毫秒级响应
+            flush_interval -1
+        }
+    }
+
+    # 2. 静态资源与普通页面请求反向代理至 SvelteKit (Node 监听 3000)
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+
+    # 日志记录 (可选)
+    log {
+        output file /var/log/caddy/veya_access.log
+    }
+}
