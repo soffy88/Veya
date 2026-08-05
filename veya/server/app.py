@@ -42,9 +42,14 @@ from veya.server.sse import stream_agent_run
 
 
 class AgentRunRequest(BaseModel):
-    """User task request.  ``student_id`` / ``user_id`` are pseudonymized."""
+    """User task request.  ``student_id`` / ``user_id`` are pseudonymized.
 
-    task: str = Field(..., min_length=1, description="Task description")
+    ``text`` (new Agent OS chat contract) routes to the master brain; ``task``
+    (legacy contract) keeps the original engine path.
+    """
+
+    task: str | None = Field(None, description="Task description (legacy contract)")
+    text: str | None = Field(None, description="Chat prompt (new Agent OS contract)")
     student_id: str | None = Field(None, description="Pseudonymized in flight")
     user_id: str | None = Field(None, description="Pseudonymized in flight")
     session_id: str | None = None
@@ -444,6 +449,20 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     @api.post("/api/v1/agent/run", response_model=AgentRunResponse)
     async def agent_run(req: AgentRunRequest) -> AgentRunResponse:
+        # 新 Agent OS 契约: text → 主脑 ReAct(同进程委托, 无网络跳转)
+        if req.text is not None:
+            from server.coordinator_master import master_coordinator
+
+            result = await master_coordinator.chat_stream(
+                req.text, session_id=req.session_id or None, max_rounds=3
+            )
+            return AgentRunResponse(
+                session_id=result.get("session_id") or req.session_id or new_session_id(),
+                status=result.get("status", "failed"),
+                result=result.get("final_answer") or result.get("error", ""),
+                cost_usd=result.get("cost_usd", 0.0),
+            )
+
         session_id = req.session_id or new_session_id()
         user_ref = None
         raw_uid = req.student_id or req.user_id
@@ -518,6 +537,20 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     @api.post("/api/v1/agent/stream")
     async def agent_stream(req: AgentRunRequest, request: Request) -> StreamingResponse:
+        # 新 Agent OS 契约: text → 主脑 SSE 事件流(text_delta / tool_call / master_done)
+        if req.text is not None:
+            from server.routes.compat import _new_agent_stream_events
+
+            return StreamingResponse(
+                _new_agent_stream_events(req.text, req.session_id),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive",
+                },
+            )
+
         session_id = req.session_id or new_session_id()
         user_ref = None
         raw_uid = req.student_id or req.user_id
