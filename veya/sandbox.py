@@ -6,6 +6,7 @@ Features: resource limits, operation audit, automatic rollback, isolated executi
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import tempfile
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -129,6 +131,7 @@ class SandboxConfig:
     allow_write: bool = False
     audit_enabled: bool = True
     reject_dangerous: bool = True  # G4: 危险命令执行前拦截
+    env_extra: dict[str, str] | None = None  # 注入子进程的额外环境变量(如 OPENBLAS_NUM_THREADS=1)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -140,6 +143,7 @@ class SandboxConfig:
             "working_dir": self.working_dir,
             "allow_write": self.allow_write,
             "audit_enabled": self.audit_enabled,
+            "env_extra": self.env_extra,
         }
 
 
@@ -511,6 +515,9 @@ class ProcessSandbox(Sandbox):
     def _prepare_env(self) -> dict[str, str]:
         """Prepare environment variables."""
         env = os.environ.copy()
+        if self.config.env_extra:
+            # 注入额外环境(如 OPENBLAS_NUM_THREADS=1 规避 RLIMIT_AS 下 OpenBLAS 启动失败)
+            env.update(self.config.env_extra)
         if self.config.network_blocked:
             # 模拟网络限制
             env["NO_PROXY"] = "*"  # 阻止所有代理
@@ -668,12 +675,16 @@ class SafeExecutor:
     2. Applies resource limits
     3. Audits operations
     4. Rolls back on failure
+    5. Thread-pool isolation for CPU-bound tasks (G14)
+    6. Per-task thread isolation with configurable pool size
     """
 
-    def __init__(self, config: SandboxConfig | None = None):
+    def __init__(self, config: SandboxConfig | None = None, *, max_workers: int = 4):
         self.config = config or SandboxConfig()
         self.sandbox: Sandbox | None = None
         self.active = False
+        self.max_workers = max_workers
+        self._thread_pool: concurrent.futures.ThreadPoolExecutor | None = None
 
     async def __aenter__(self) -> SafeExecutor:
         """Context-manager entry."""
@@ -685,9 +696,11 @@ class SafeExecutor:
         await self.stop()
 
     async def start(self) -> None:
-        """Start the executor."""
+        """Start the executor and thread pool."""
         if self.active:
             return
+
+        import concurrent.futures
 
         # 选择合适的沙箱实现
         if self.config.allow_write:
@@ -695,18 +708,46 @@ class SafeExecutor:
         else:
             self.sandbox = ProcessSandbox(self.config)
 
+        # Start thread pool for CPU-bound isolation
+        self._thread_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="veya-sandbox-",
+        )
+
         self.active = True
 
     async def stop(self) -> None:
-        """Stop the executor."""
-        if not self.active:
-            return
-
+        """Stop the executor and thread pool."""
         if self.sandbox:
-            self.sandbox.cleanup_environment()
+            clean = getattr(self.sandbox, "cleanup", None) or getattr(self.sandbox, "cleanup_environment", None)
+            if clean:
+                clean()
+
+        if self._thread_pool:
+            self._thread_pool.shutdown(wait=False, cancel_futures=True)
+            self._thread_pool = None
 
         self.active = False
-        self.sandbox = None
+
+    async def run_in_thread(self, func: Callable, *args: Any, **kwargs: Any) -> Any:
+        """Run a CPU-bound function in an isolated thread.
+
+        Args:
+            func: The function to run.
+            *args: Positional arguments.
+            **kwargs: Keyword arguments.
+
+        Returns:
+            The function's return value.
+        """
+        if not self._thread_pool:
+            await self.start()
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._thread_pool,
+            lambda: func(*args, **kwargs),
+        )
 
     async def execute(self, command: str, **kwargs: Any) -> dict[str, Any]:
         """Execute a command (shell semantics, compatible)."""

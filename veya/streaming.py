@@ -249,10 +249,138 @@ class TokenStreamer:
         )
 
 
+class VoiceStreamManager:
+    """Voice streaming manager — combines audio input, transcription, LLM,
+    and TTS output into a unified streaming pipeline.
+
+    Builds on top of StreamingManager to add audio-specific event types:
+    - ``audio_chunk``: raw audio byte chunks (input or output)
+    - ``transcript_partial``: interim STT results
+    - ``transcript_final``: final STT result
+    - ``tts_chunk``: TTS audio output chunk
+    - ``turn_start`` / ``turn_end``: conversation turn boundaries
+
+    Usage::
+
+        vstream = VoiceStreamManager()
+        await vstream.start()
+        await vstream.push_audio_input(pcm_chunk)
+        # events flow: audio_chunk → transcript_partial → transcript_final →
+        #              thinking → tts_chunk → turn_end
+    """
+
+    def __init__(self, stream_id: str | None = None):
+        self.manager = StreamingManager(stream_id)
+
+        # Voice-specific state
+        self.audio_buffer: list[bytes] = []
+        self.current_transcript = ""
+        self.tts_buffer: list[bytes] = []
+        self.is_user_speaking = False
+        self.is_agent_speaking = False
+
+    async def start(self):
+        """Start the voice stream."""
+        await self.manager.emit(StreamEventType.START, {"mode": "voice"})
+
+    async def stop(self):
+        """Stop the voice stream."""
+        await self.manager.emit(StreamEventType.COMPLETE, {"mode": "voice"})
+
+    async def push_audio_input(self, chunk: bytes, timestamp_ms: float = 0.0):
+        """Push an audio input chunk (raw PCM bytes)."""
+        self.audio_buffer.append(chunk)
+        await self.manager.emit(
+            StreamEventType.TOKEN,
+            {"type": "audio_chunk", "size": len(chunk), "timestamp_ms": timestamp_ms},
+        )
+
+    async def push_transcript_partial(self, text: str):
+        """Push a partial (interim) transcription result."""
+        self.current_transcript = text
+        await self.manager.emit(
+            StreamEventType.TOKEN,
+            {"type": "transcript_partial", "text": text},
+        )
+
+    async def push_transcript_final(self, text: str):
+        """Push a final transcription result."""
+        self.current_transcript = text
+        await self.manager.emit(
+            StreamEventType.PROGRESS,
+            {"type": "transcript_final", "text": text},
+        )
+
+    async def push_agent_thinking(self):
+        """Signal that the agent is thinking."""
+        await self.manager.emit(
+            StreamEventType.THOUGHT,
+            {"type": "thinking", "text": "Agent is processing..."},
+        )
+
+    async def push_tts_chunk(self, chunk: bytes):
+        """Push a TTS audio output chunk."""
+        self.tts_buffer.append(chunk)
+        await self.manager.emit(
+            StreamEventType.TOKEN,
+            {"type": "tts_chunk", "size": len(chunk)},
+        )
+
+    async def push_turn_end(self):
+        """Signal the end of a conversation turn."""
+        await self.manager.emit(
+            StreamEventType.PROGRESS, {"type": "turn_end"}
+        )
+
+    async def push_error(self, error: str):
+        """Push an error event."""
+        await self.manager.emit(
+            StreamEventType.ERROR, {"type": "error", "message": error}
+        )
+
+    def clear_audio_buffer(self) -> bytes:
+        """Clear and return the accumulated audio input buffer."""
+        data = b"".join(self.audio_buffer)
+        self.audio_buffer.clear()
+        return data
+
+    def clear_tts_buffer(self) -> bytes:
+        """Clear and return the accumulated TTS output buffer."""
+        data = b"".join(self.tts_buffer)
+        self.tts_buffer.clear()
+        return data
+
+    async def get_events(self) -> AsyncGenerator[StreamEvent, None]:
+        """Get the event stream (for SSE)."""
+        async for event in self.manager.get_events():
+            yield event
+
+    async def interrupt(self):
+        """Interrupt the voice stream."""
+        await self.manager.interrupt()
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get voice stream statistics."""
+        base_stats = self.manager.get_stats()
+        base_stats.update({
+            "audio_chunks": len(self.audio_buffer),
+            "audio_bytes": sum(len(c) for c in self.audio_buffer),
+            "tts_chunks": len(self.tts_buffer),
+            "tts_bytes": sum(len(c) for c in self.tts_buffer),
+            "current_transcript": self.current_transcript[:100],
+        })
+        return base_stats
+
+
 # 便捷函数
 def create_stream_manager(stream_id: str | None = None) -> StreamingManager:
     """创建流管理器"""
     return StreamingManager(stream_id)
+
+
+def create_voice_stream_manager(stream_id: str | None = None) -> VoiceStreamManager:
+    """创建语音流管理器"""
+    return VoiceStreamManager(stream_id)
 
 
 if __name__ == "__main__":

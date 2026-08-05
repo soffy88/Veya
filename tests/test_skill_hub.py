@@ -1,0 +1,410 @@
+"""Veya SkillHub 测试 — 技能扫描 / 动态加载 / 热重载 / 主脑闭环。"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from server.coordinator_master import MasterCoordinator
+from server.skill_hub import VeyaSkillHub, create_skill_package
+from server.tool_registry import ToolExecutionError
+
+
+def _write_skill(
+    skills_dir: Path,
+    name: str,
+    *,
+    code: str,
+    description: str = "Test skill",
+    parameters: dict | None = None,
+    entrypoint: str = "run.py",
+) -> Path:
+    pkg = skills_dir / name
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": name,
+                "description": description,
+                "type": "python",
+                "entrypoint": entrypoint,
+                "parameters": parameters
+                or {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                    "required": ["x"],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (pkg / entrypoint).write_text(code, encoding="utf-8")
+    return pkg
+
+
+# ---------------------------------------------------------------------------
+# 1. 技能加载与执行
+# ---------------------------------------------------------------------------
+
+
+def test_hub_loads_python_skill(tmp_path):
+    """扫描目录 → 解析 manifest → 挂载执行器 → schema 可见。"""
+    _write_skill(
+        tmp_path,
+        "greeter",
+        code="def main(x):\n    return {'hello': x}\n",
+        description="Greet a user by name",
+    )
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+
+    assert hub.list_skills() == ["greeter"]
+    schemas = hub.get_all_schemas()
+    assert schemas[0]["function"]["name"] == "greeter"
+    assert schemas[0]["function"]["description"] == "Greet a user by name"
+    assert schemas[0]["function"]["parameters"]["required"] == ["x"]
+    assert hub.get_stats()["loaded"] == 1
+
+
+@pytest.mark.asyncio
+async def test_hub_executes_python_skill(tmp_path):
+    _write_skill(tmp_path, "adder", code="def main(a, b):\n    return a + b\n")
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+
+    out = await hub.execute("adder", {"a": 2, "b": 3})
+    assert out == "5"
+
+
+@pytest.mark.asyncio
+async def test_hub_executes_async_skill(tmp_path):
+    _write_skill(
+        tmp_path,
+        "async_skill",
+        code="import asyncio\nasync def main(x):\n    await asyncio.sleep(0)\n    return {'x': x * 2}\n",
+    )
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    out = await hub.execute("async_skill", {"x": 21})
+    assert json.loads(out) == {"x": 42}
+
+
+@pytest.mark.asyncio
+async def test_hub_skill_errors(tmp_path):
+    # 缺失 main 函数
+    _write_skill(tmp_path, "no_main", code="def helper():\n    return 1\n")
+    # 入口文件缺失: manifest 指向不存在的 run.py
+    pkg = tmp_path / "no_file"
+    pkg.mkdir()
+    (pkg / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": "no_file",
+                "description": "d",
+                "type": "python",
+                "entrypoint": "missing.py",
+                "parameters": {"type": "object", "properties": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    # 技能内部抛异常
+    _write_skill(tmp_path, "boom", code="def main():\n    raise ValueError('skill exploded')\n")
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+
+    with pytest.raises(ToolExecutionError, match="main"):
+        await hub.execute("no_main", {})
+    with pytest.raises(ToolExecutionError, match="missing"):
+        await hub.execute("no_file", {})
+    with pytest.raises(ToolExecutionError, match="skill exploded"):
+        await hub.execute("boom", {})
+
+    with pytest.raises(ToolExecutionError, match="not loaded"):
+        await hub.execute("ghost", {})
+
+
+def test_hub_skips_invalid_manifests(tmp_path):
+    # 无 manifest 的目录 → 跳过
+    (tmp_path / "no_manifest").mkdir()
+    # 非法 JSON
+    pkg = tmp_path / "bad_json"
+    pkg.mkdir()
+    (pkg / "manifest.json").write_text("{not json", encoding="utf-8")
+    # 未知 type
+    pkg2 = tmp_path / "bad_type"
+    pkg2.mkdir()
+    (pkg2 / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": "bad_type",
+                "description": "d",
+                "type": "docker",
+                "parameters": {"type": "object", "properties": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    # MCP 缺 endpoint
+    pkg3 = tmp_path / "mcp_no_ep"
+    pkg3.mkdir()
+    (pkg3 / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": "mcp_no_ep",
+                "description": "d",
+                "type": "mcp",
+                "parameters": {"type": "object", "properties": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    assert hub.list_skills() == []
+    assert hub.get_stats()["loaded"] == 0  # 全部非法包被跳过
+
+
+def test_hub_duplicate_name_last_wins(tmp_path):
+    _write_skill(tmp_path, "dup", code="def main():\n    return 'v1'\n")
+    _write_skill(tmp_path, "dup2", code="def main():\n    return 'v2'\n")
+    # 制造重名: 两个技能目录同名不可能, 直接用 manifest name 碰撞
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": "dup",
+                "description": "second",
+                "type": "python",
+                "entrypoint": "run.py",
+                "parameters": {"type": "object", "properties": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "other" / "run.py").write_text("def main():\n    return 'override'\n", encoding="utf-8")
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    assert hub.has("dup")
+    schemas = hub.get_all_schemas()
+    assert len(schemas) == 2  # dup(被覆盖) + dup2
+    dup_schema = next(s for s in schemas if s["function"]["name"] == "dup")
+    assert dup_schema["function"]["description"] == "second"  # 后加载者覆盖生效
+
+
+# ---------------------------------------------------------------------------
+# 2. 热重载 (Hot Reload)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hot_reload_add_and_remove(tmp_path):
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    assert hub.list_skills() == []
+
+    # 新技能包落地(模拟 Genesis 交付) → 热重载 → 秒学会
+    _write_skill(tmp_path, "btc_price", code="def main():\n    return {'btc': 97000}\n")
+    stats = hub.reload_skills()
+    assert stats["loaded"] == 1
+    assert hub.has("btc_price")
+    assert "btc_price" in hub.describe("btc_price")
+    out = await hub.execute("btc_price", {})
+    assert "97000" in out
+
+    # 删除技能包 → 热重载 → 消失
+    import shutil
+
+    shutil.rmtree(tmp_path / "btc_price")
+    hub.reload_skills()
+    assert not hub.has("btc_price")
+
+
+def test_create_skill_package_helper(tmp_path):
+    """create_skill_package: Genesis 写技能的统一交付规范。"""
+    pkg = create_skill_package(
+        "crypto_tracker",
+        "Fetch real-time BTC price",
+        {"type": "object", "properties": {"currency": {"type": "string"}}, "required": ["currency"]},
+        skills_dir=tmp_path,
+        code="def main(currency='usd'):\n    return {'currency': currency}\n",
+    )
+    assert (pkg / "manifest.json").exists()
+    assert (pkg / "run.py").exists()
+
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    assert hub.has("crypto_tracker")
+
+
+# ---------------------------------------------------------------------------
+# 3. MCP 技能桥接
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mcp_skill_http_bridge(tmp_path, monkeypatch):
+    """MCP 技能: HTTP 桥接调用外部服务。"""
+    pkg = tmp_path / "jira_mcp"
+    pkg.mkdir()
+    (pkg / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": "jira_mcp",
+                "description": "Query internal JIRA",
+                "type": "mcp",
+                "endpoint": "http://127.0.0.1:9999",
+                "parameters": {"type": "object", "properties": {"issue": {"type": "string"}}, "required": ["issue"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    assert hub.get_stats()["types"]["mcp"] == 1
+
+    import httpx
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"key": "PROJ-1"}'
+
+        def raise_for_status(self):
+            pass
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None):
+            captured["url"] = url
+            captured["body"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: FakeClient())
+    out = await hub.execute("jira_mcp", {"issue": "PROJ-1"})
+    assert captured["url"] == "http://127.0.0.1:9999/v1/tools/jira_mcp/execute"
+    assert captured["body"] == {"issue": "PROJ-1"}
+    assert "PROJ-1" in out
+
+
+@pytest.mark.asyncio
+async def test_mcp_skill_unreachable(tmp_path, monkeypatch):
+    pkg = tmp_path / "down_mcp"
+    pkg.mkdir()
+    (pkg / "manifest.json").write_text(
+        json.dumps(
+            {
+                "name": "down_mcp",
+                "description": "d",
+                "type": "mcp",
+                "endpoint": "http://127.0.0.1:1",
+                "parameters": {"type": "object", "properties": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    with pytest.raises(ToolExecutionError, match=r"不可达|HTTP"):
+        await hub.execute("down_mcp", {})
+
+
+# ---------------------------------------------------------------------------
+# 4. 主脑闭环: 系统热重载 + 动态技能调用
+# ---------------------------------------------------------------------------
+
+
+def _tool_response(name: str, args: dict, content: str = "", tc_id: str = "call_1") -> dict:
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": content,
+                    "tool_calls": [
+                        {
+                            "id": tc_id,
+                            "type": "function",
+                            "function": {"name": name, "arguments": json.dumps(args)},
+                        }
+                    ],
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+
+
+def _text_response(content: str) -> dict:
+    return {"choices": [{"message": {"role": "assistant", "content": content}}], "usage": {}}
+
+
+@pytest.mark.asyncio
+async def test_master_system_reload_tool(tmp_path):
+    """主脑拦截 system_reload_skills → 热重载 → 新技能立即可用。"""
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    calls = []
+    tools_seen = []
+
+    async def fake_llm(messages, **kwargs):
+        calls.append(list(messages))
+        tools_seen.append(kwargs["tools"])
+        turn = len(calls)
+        # 第一轮: 模型决定先热重载
+        if turn == 1:
+            return _tool_response("system_reload_skills", {})
+        # 第二轮: 新技能已可见, 模型调用它
+        if turn == 2:
+            return _tool_response("btc_price", {})
+        return _text_response("比特币价格查询完成: 97000 USD")
+
+    # 技能包在 reload 前写入磁盘(模拟 Genesis 交付)
+    _write_skill(tmp_path, "btc_price", code="def main():\n    return {'btc': 97000, 'usd': 97000}\n")
+
+    coord = MasterCoordinator(llm_fn=fake_llm, skill_hub=hub, max_rounds=4)
+    result = await coord.chat_stream("查一下比特币价格", session_id="s1")
+
+    assert result["status"] == "success"
+    assert result["rounds"] == 3
+    assert result["tool_calls"] == [
+        {"tool": "system_reload_skills", "status": "success"},
+        {"tool": "btc_price", "status": "success"},
+    ]
+    # 热重载结果回喂
+    assert "reloaded successfully" in calls[1][-1]["content"]
+    assert "Now tracking 1 dynamic skills" in calls[1][-1]["content"]
+    # 技能执行结果回喂
+    assert "97000" in calls[2][-1]["content"]
+    # 第二轮起, 动态技能 schema 出现在喂给模型的 tools 中
+    tool_names = {t["function"]["name"] for t in tools_seen[1]}
+    assert "btc_price" in tool_names
+    assert "system_reload_skills" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_master_routes_to_skill_hub(tmp_path):
+    """动态技能执行失败 → FAILED 回喂 → 主脑反思。"""
+    _write_skill(tmp_path, "flaky", code="def main(x):\n    raise RuntimeError(f'bad input {x}')\n")
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    calls = []
+
+    async def fake_llm(messages, **kwargs):
+        calls.append(list(messages))
+        if len(calls) == 1:
+            return _tool_response("flaky", {"x": 1})
+        return _text_response("技能报错了, 我换一个方案。")
+
+    coord = MasterCoordinator(llm_fn=fake_llm, skill_hub=hub, max_rounds=3)
+    result = await coord.chat_stream("测试", session_id="s2")
+    assert result["status"] == "success"
+    assert result["tool_calls"][0] == {"tool": "flaky", "status": "failed", "error": "Skill 'flaky' main() failed: bad input 1"}
+    assert "[Tool flaky FAILED]" in calls[1][-1]["content"]
+
+
+def test_master_inventory_includes_skills(tmp_path):
+    _write_skill(tmp_path, "greeter", code="def main(x):\n    return x\n")
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    coord = MasterCoordinator(skill_hub=hub)
+    prompt = coord.get_system_prompt()
+    assert "- greeter —" in prompt
+    assert "- system_reload_skills —" in prompt

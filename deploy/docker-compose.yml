@@ -1,0 +1,48 @@
+# veya Production Docker Compose
+# Deploy: docker compose up -d --build
+# Domain: veya.aiinote.com
+version: '3.8'
+
+services:
+  # ── Nginx Reverse Proxy ─────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: veya-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - veya-net
+
+  # ── FastAPI Backend (veya server) ───────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+    container_name: veya-backend
+    environment:
+      - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-anthropic}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:-veya-dev-secret}
+    volumes:
+      - veya-data:/root/.veya
+      - ./veya:/app/veya:ro
+      - ./platform:/app/platform:ro
+    restart: unless-stopped
+    networks:
+      - veya-net
+
+volumes:
+  veya-data:
+
+networks:
+  veya-net:
+    driver: bridge

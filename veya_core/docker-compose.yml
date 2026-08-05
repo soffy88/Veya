@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  veya_engine:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: veya_core_engine
+    depends_on:
+      - mqtt_broker
+    shm_size: '2gb'
+    ports:
+      - "8000:8000"
+    environment:
+      - MQTT_BROKER_HOST=mqtt_broker
+      - MQTT_BROKER_PORT=1883
+    volumes:
+      - /tmp/veya_workspace:/tmp/veya_workspace
+    command: uvicorn api_server:app --host 0.0.0.0 --port 8000
+
+  mqtt_broker:
+    image: eclipse-mosquitto:2.0
+    container_name: veya_mqtt_broker
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
