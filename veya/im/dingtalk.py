@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import time
-from typing import Any
 from urllib.parse import quote_plus
 
 try:
@@ -31,7 +30,10 @@ except ImportError:
 
 from veya.im.pseudo import anonymize_user_id
 
-logger = logging.getLogger("veya.im.dingtalk")
+logger = logging.getLogger
+
+_bg_tasks: set = set()
+("veya.im.dingtalk")
 
 # ---------------------------------------------------------------------------
 # DingTalk API constants
@@ -145,9 +147,10 @@ class DingTalkGateway:
 
         if self._runner and text_content:
             # Background: run agent and reply
-            asyncio.create_task(self._run_and_reply(
+            _task_ref = asyncio.create_task(self._run_and_reply(
                 text_content, session_webhook, pseudo_id, sender_id,
             ))
+            _bg_tasks.add(_task_ref)
 
         return {
             "msgtype": "text",
@@ -220,7 +223,7 @@ class DingTalkGateway:
             full_url = f"{self.webhook_url}&timestamp={timestamp}&sign={sign}"
 
             async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
+                await client.post(
                     full_url,
                     json={
                         "msgtype": "text",
@@ -247,19 +250,14 @@ def make_dingtalk_router(
 
     Mount:  app.include_router(make_dingtalk_router(), prefix="/im/dingtalk")
     """
-    from veya.server.manifests import assemble_agentic_loop, new_session_id
+    from server.coordinator_master import master_coordinator
 
     async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
-        engine = assemble_agentic_loop()
-        engine.run()
         try:
-            return await engine.invoke({
-                "goal": prompt,
-                "session_id": new_session_id(),
-                "user_ref": user_ref,
-            })
-        finally:
-            engine.stop()
+            result = await master_coordinator.chat_stream(prompt, session_id=None, max_rounds=3)
+            return {"status": result.get("status", "failed"), "content": result.get("final_answer") or result.get("error", ""), "cost_usd": result.get("cost_usd", 0.0), "user_ref": user_ref}
+        except Exception as exc:
+            return {"status": "failed", "content": f"IM runner error: {exc}", "user_ref": user_ref}
 
     gateway = DingTalkGateway(
         app_key=app_key, app_secret=app_secret,
@@ -277,9 +275,8 @@ def make_dingtalk_router(
         # Verify group chat bot signature
         timestamp = request.headers.get("timestamp", "")
         sign = request.headers.get("sign", "")
-        if timestamp and sign and gateway.webhook_secret:
-            if not gateway.verify_signature(timestamp, sign):
-                raise HTTPException(status_code=401, detail="Invalid signature")
+        if timestamp and sign and gateway.webhook_secret and not gateway.verify_signature(timestamp, sign):
+            raise HTTPException(status_code=401, detail="Invalid signature")
 
         try:
             payload = json.loads(body)

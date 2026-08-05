@@ -15,12 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 import os
 import time
 import xml.etree.ElementTree as ET
-from typing import Any
 
 try:
     from fastapi import APIRouter, HTTPException, Request, Response
@@ -34,7 +32,10 @@ except ImportError:
 
 from veya.im.pseudo import anonymize_user_id
 
-logger = logging.getLogger("veya.im.wechat")
+logger = logging.getLogger
+
+_bg_tasks: set = set()
+("veya.im.wechat")
 
 # ---------------------------------------------------------------------------
 # WeChat API constants
@@ -142,9 +143,10 @@ class WeChatGateway:
 
         if msg_type == "text" and self._runner and content:
             # Background: run agent and reply
-            asyncio.create_task(self._run_and_reply(
+            _task_ref = asyncio.create_task(self._run_and_reply(
                 from_user, to_user, content, pseudo_id,
             ))
+            _bg_tasks.add(_task_ref)
 
         return self._text_reply(
             from_user, to_user, f"收到消息，正在处理: _{content[:50]}..._"
@@ -156,7 +158,6 @@ class WeChatGateway:
         """Run agent and send reply via WeChat customer service API."""
         try:
             result = await self._runner(prompt, user_ref=pseudo_id)
-            status = result.get("status", "completed")
             content = result.get("result", "")
             if isinstance(content, list):
                 text_parts = [b.get("text", "") for b in content if b.get("type") == "text"]
@@ -215,19 +216,14 @@ def make_wechat_router(
 
     Mount:  app.include_router(make_wechat_router(), prefix="/im/wechat")
     """
-    from veya.server.manifests import assemble_agentic_loop, new_session_id
+    from server.coordinator_master import master_coordinator
 
     async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
-        engine = assemble_agentic_loop()
-        engine.run()
         try:
-            return await engine.invoke({
-                "goal": prompt,
-                "session_id": new_session_id(),
-                "user_ref": user_ref,
-            })
-        finally:
-            engine.stop()
+            result = await master_coordinator.chat_stream(prompt, session_id=None, max_rounds=3)
+            return {"status": result.get("status", "failed"), "content": result.get("final_answer") or result.get("error", ""), "cost_usd": result.get("cost_usd", 0.0), "user_ref": user_ref}
+        except Exception as exc:
+            return {"status": "failed", "content": f"IM runner error: {exc}", "user_ref": user_ref}
 
     gateway = WeChatGateway(
         app_id=app_id, app_secret=app_secret, token=token,

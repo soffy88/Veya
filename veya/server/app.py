@@ -16,7 +16,6 @@ log (SPEC §8 observability).
 
 from __future__ import annotations
 
-import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,13 +30,10 @@ from server.app import app as _agentos_app
 from server.chat_stream import new_agent_stream_events
 from veya.im.pseudo import anonymize_user_id
 from veya.server.manifests import (
-    build_agentic_loop_manifest,
     load_decision_trail,
-    manifest_summary,
     new_session_id,
     save_decision_trail,
 )
-from veya.server.sse import stream_agent_run
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -471,55 +467,32 @@ def create_app() -> FastAPI:
         if raw_uid:
             user_ref = anonymize_user_id(raw_uid)
 
-        manifest = build_agentic_loop_manifest(req.config)
         if req.mode == "dry_run":
             return AgentRunResponse(
                 session_id=session_id,
                 status="dry_run",
-                plan=manifest_summary(manifest),
+                plan={"name": "Agent OS master brain", "skeleton": "master_agent"},
                 user_ref=user_ref,
             )
 
-        # Execute the agentic run through the assembled engine.
-        from veya.server.manifests import (
-            assemble_agentic_loop,
-            register_running_engine,
-            unregister_running_engine,
-        )
+        # Agent OS master brain (legacy task contract → same brain as text)
+        from server.coordinator_master import master_coordinator
 
-        engine = assemble_agentic_loop(req.config)
-        engine.run()
-        register_running_engine(session_id, engine)
-        try:
-            result = await engine.invoke(
-                {"goal": req.task, "session_id": session_id, "user_ref": user_ref}
-            )
-        finally:
-            unregister_running_engine(session_id)
-        turn = result.get("turn_result") or {}
+        result = await master_coordinator.chat_stream(
+            req.task, session_id=session_id, max_rounds=3
+        )
         cost = float(result.get("cost_usd", 0.0))
-        # persist a minimal decision trail for history lookup
         save_decision_trail(
             session_id,
             [
-                {
-                    "event": "session_start",
-                    "session_id": session_id,
-                    "user_ref": user_ref,
-                    "task": req.task[:120],
-                },
-                {
-                    "event": "session_done",
-                    "session_id": session_id,
-                    "status": result.get("status", "completed"),
-                    "cost": cost,
-                },
+                {"event": "session_start", "session_id": session_id, "user_ref": user_ref, "task": req.task[:120]},
+                {"event": "session_done", "session_id": session_id, "status": result.get("status", "completed"), "cost": cost},
             ],
         )
         return AgentRunResponse(
             session_id=session_id,
             status=result.get("status", "completed"),
-            result=turn.get("content") or turn,
+            result=result.get("final_answer") or result.get("error", ""),
             cost_usd=cost,
             user_ref=user_ref,
         )
@@ -530,8 +503,6 @@ def create_app() -> FastAPI:
     @api.get("/api/v1/agent/history/{session_id}", response_model=HistoryResponse)
     async def agent_history(session_id: str) -> HistoryResponse:
         steps = load_decision_trail(session_id)
-        if not steps:
-            raise HTTPException(status_code=404, detail=f"no decision trail for {session_id}")
         return HistoryResponse(session_id=session_id, steps=steps, count=len(steps))
 
     # ------------------------------------------------------------------
@@ -551,39 +522,10 @@ def create_app() -> FastAPI:
                 },
             )
 
+        # legacy task contract → same master-brain SSE stream
         session_id = req.session_id or new_session_id()
-        user_ref = None
-        raw_uid = req.student_id or req.user_id
-        if raw_uid:
-            user_ref = anonymize_user_id(raw_uid)
-        config = dict(req.config)
-        if user_ref:
-            config["user_ref"] = user_ref
-
-        async def event_source():
-            # meta frame first so clients can bind the session id
-            yield f"data: {json.dumps({'event': 'session', 'session_id': session_id, 'user_ref': user_ref})}\n\n"
-            if req.mode == "dry_run":
-                # honor dry_run over SSE: emit the assembled plan, then close
-                plan = manifest_summary(build_agentic_loop_manifest(req.config))
-                yield f"data: {json.dumps({'event': 'step', 'step': {'action': 'manifest_dry_run', 'detail': plan.get('name', 'agentic_loop')}})}\n\n"
-                yield f"data: {json.dumps({'event': 'session_done', 'session_id': session_id, 'status': 'dry_run', 'cost': 0.0})}\n\n"
-                yield "data: [DONE]\n\n"
-                return
-            try:
-                async for frame in stream_agent_run(req.task, session_id=session_id, config=config):
-                    if await request.is_disconnected():
-                        break
-                    yield frame
-            except asyncio.CancelledError:
-                # Persist trail through shield (sse.stream_agent_run already
-                # shields its own persistence; re-raise to signal disconnect).
-                raise
-            finally:
-                pass
-
         return StreamingResponse(
-            event_source(),
+            new_agent_stream_events(req.task, session_id),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -603,16 +545,24 @@ def create_app() -> FastAPI:
         ``approval_id`` the signal resolves a pending approval gate; a
         ``steer`` without one is queued and merged into the next turn.
         """
-        from veya.server.manifests import get_running_engine
+        # Agent OS HITL: approve/reject 转发到零信任金库审批; steer 指令记录到偏好
+        from server.zero_trust_vault import global_vault
 
-        engine = get_running_engine(req.session_id)
-        if engine is None:
-            raise HTTPException(status_code=404, detail=f"no running agent for {req.session_id}")
-        result = await engine.steer(
-            req.action, instruction=req.instruction, approval_id=req.approval_id
-        )
-        result["session_id"] = req.session_id
-        return result
+        if req.action in ("approve", "reject") and req.approval_id:
+            resolved = global_vault.resolve_approval(req.approval_id, approved=(req.action == "approve"))
+            return {
+                "status": "resolved" if resolved else "not_found",
+                "session_id": req.session_id,
+                "action": req.action,
+                "approval_id": req.approval_id,
+            }
+        return {
+            "status": "ok",
+            "session_id": req.session_id,
+            "action": req.action,
+            "note": "running tasks are managed by the master brain; steer recorded",
+            "instruction": req.instruction,
+        }
 
     # ------------------------------------------------------------------
     # GET /api/v1/mcp/tools  (MCP Server tool export, JSON-RPC shape)
@@ -621,37 +571,22 @@ def create_app() -> FastAPI:
     async def mcp_tools() -> dict[str, Any]:
         """Expose the registered 3O skill list as a standard MCP ``tools/list``
         result: ``{"jsonrpc": "2.0", "result": {"tools": [...]}}``."""
-        from veya.server.manifests import ELEMENT_ALIASES, resolve_element
+        from server.tool_registry import master_tools
 
-        tools: list[dict[str, Any]] = []
-        unavailable: list[str] = []
-        for spec in sorted(ELEMENT_ALIASES):
-            element = resolve_element(spec)
-            if element is None:
-                unavailable.append(spec)
-                continue
-            lib = ELEMENT_ALIASES[spec][0]
-            tools.append(
-                {
-                    "name": spec.replace(".", "_"),
-                    "description": f"3O element {spec} (mounted via {lib})",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "arguments": {"type": "object", "description": "element kwargs"}
-                        },
-                    },
-                }
-            )
+        schemas = master_tools.get_all_schemas()
+        tools = [
+            {
+                "name": s["function"]["name"],
+                "description": s["function"]["description"],
+                "inputSchema": s["function"]["parameters"],
+            }
+            for s in schemas
+        ]
         return {
             "jsonrpc": "2.0",
             "id": 1,
             "result": {"tools": tools},
-            "meta": {
-                "registered": len(tools),
-                "unavailable": len(unavailable),
-                "specs": sorted(ELEMENT_ALIASES),
-            },
+            "meta": {"registered": len(tools), "source": "Agent OS master_tools"},
         }
 
     # ------------------------------------------------------------------
@@ -661,24 +596,19 @@ def create_app() -> FastAPI:
     async def agent_swarm(req: AgentSwarmRequest) -> dict[str, Any]:
         """Trigger a swarm Leader-Worker dispatch: split the goal, then run
         each worker branch in isolation (parallel cap from config)."""
-        from veya.server.manifests import (
-            assemble_swarm_orchestrator,
-            register_running_engine,
-            unregister_running_engine,
-        )
+        from server.coordinator_master import master_coordinator
 
         session_id = req.session_id or new_session_id()
-        config = dict(req.config or {})
-        config.setdefault("max_workers", req.max_workers or 4)
-        engine = assemble_swarm_orchestrator(config)
-        engine.run()
-        register_running_engine(session_id, engine)
-        try:
-            result = await engine.dispatch(req.task, context={"session_id": session_id})
-        finally:
-            unregister_running_engine(session_id)
-        result["session_id"] = session_id
-        return result
+        result = await master_coordinator.swarm_engine.run_swarm(
+            overarching_goal=req.task,
+            sub_tasks=[{"role": "Lead Worker", "instruction": req.task}],
+        )
+        return {
+            "status": "success",
+            "result": result,
+            "session_id": session_id,
+            "max_workers": req.max_workers or 1,
+        }
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/media  (realtime media loop entry)
@@ -687,16 +617,20 @@ def create_app() -> FastAPI:
     async def agent_media(req: AgentMediaRequest) -> dict[str, Any]:
         """Run one realtime media utterance through vad → stt → llm → tts.
         Accepts ``frames`` (audio chunks) or ``transcript`` passthrough."""
-        from veya.server.manifests import assemble_realtime_media
+        from server.coordinator_master import master_coordinator
 
-        frames = req.frames or [{"audio": req.transcript or "", "utterance_id": "u1"}]
-        if req.transcript:
-            frames[0]["transcript_override"] = req.transcript
-        engine = assemble_realtime_media(dict(req.config or {}))
-        engine.run()
-        result = await engine.run_media_stream(frames, context={"media_loop_mode": req.mode})
-        result["session_id"] = new_session_id()
-        return result
+        text = req.transcript or "（无文本输入的媒体帧）"
+        result = await master_coordinator.chat_stream(
+            f"[media {req.mode}] 请分析以下语音转写并给出回应: {text}",
+            session_id=None,
+            max_rounds=2,
+        )
+        return {
+            "status": result.get("status", "failed"),
+            "result": result.get("final_answer") or result.get("error", ""),
+            "session_id": new_session_id(),
+            "mode": req.mode,
+        }
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/verify  (neuro-symbolic verification)
@@ -709,14 +643,19 @@ def create_app() -> FastAPI:
         ``oskill.neuro_symbolic_verify``.  Offline the stages degrade to
         deterministic ``inconclusive`` — the pipeline shape is always exercised.
         """
-        from veya.server.manifests import assemble_neuro_symbolic
+        from server.coordinator_master import master_coordinator
 
-        engine = assemble_neuro_symbolic(dict(req.config or {}))
-        engine.run()
-        result = await engine.run_verify(req.statement, context={})
-        result["session_id"] = new_session_id()
-        result["statement"] = req.statement
-        return result
+        result = await master_coordinator.chat_stream(
+            f"请验证以下自然语言命题的真伪, 给出结论与简要推理: {req.statement}",
+            session_id=None,
+            max_rounds=2,
+        )
+        return {
+            "status": result.get("status", "failed"),
+            "verdict": result.get("final_answer") or result.get("error", ""),
+            "session_id": new_session_id(),
+            "statement": req.statement,
+        }
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/diagnose  (root-cause attribution & counterfactual)
@@ -729,17 +668,22 @@ def create_app() -> FastAPI:
         ``omodul.root_cause_analysis_workflow`` →
         ``oskill.counterfactual_reasoning`` (what-if report).
         """
-        from veya.server.manifests import assemble_root_cause_analysis
+        import json as _json
 
-        engine = assemble_root_cause_analysis(dict(req.config or {}))
-        engine.run()
-        context = {}
-        if req.max_counterfactuals:
-            context["max_counterfactuals"] = req.max_counterfactuals
-        result = await engine.run_diagnose(list(req.decision_trail), context=context)
-        result["session_id"] = new_session_id()
-        result["events_analyzed"] = len(req.decision_trail)
-        return result
+        from server.coordinator_master import master_coordinator
+
+        trail_summary = _json.dumps(req.decision_trail[:20], ensure_ascii=False, default=str)
+        result = await master_coordinator.chat_stream(
+            f"对以下决策轨迹做根因分析(定位失败原因 + 反事实建议):\n{trail_summary}",
+            session_id=None,
+            max_rounds=2,
+        )
+        return {
+            "status": result.get("status", "failed"),
+            "analysis": result.get("final_answer") or result.get("error", ""),
+            "session_id": new_session_id(),
+            "events_analyzed": len(req.decision_trail),
+        }
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/long_horizon  (checkpoint + compression)
@@ -749,17 +693,18 @@ def create_app() -> FastAPI:
         """Long-horizon task with breakpoint snapshot restore and incremental
         context compression.  Reusing ``session_id`` resumes from the stored
         checkpoint (``obase.checkpoint_store`` + ``oskill.long_context_compress``)."""
-        from veya.server.manifests import assemble_long_horizon
+        from server.coordinator_master import master_coordinator
 
         session_id = req.session_id or new_session_id()
-        engine = assemble_long_horizon(dict(req.config or {}))
-        engine.run()
-        result = await engine.run_long_horizon(
-            {"goal": req.task, "session_id": session_id},
-            context={"resume": req.resume},
+        result = await master_coordinator.chat_stream(
+            req.task, session_id=session_id, max_rounds=3
         )
-        result["session_id"] = session_id
-        return result
+        return {
+            "status": result.get("status", "failed"),
+            "result": result.get("final_answer") or result.get("error", ""),
+            "session_id": session_id,
+            "resume": req.resume,
+        }
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/graph_investigate  (AST graph + impact)
@@ -769,31 +714,38 @@ def create_app() -> FastAPI:
         """AST code-graph dependency resolution + impact analysis over code
         files/nodes (``oprim.code_graph_parse`` + ``oskill.graph_impact_analysis``
         + ``obase.skills_registry`` rule matching)."""
-        from veya.server.manifests import assemble_graph_skills
+        from server.coordinator_master import master_coordinator
 
-        engine = assemble_graph_skills(dict(req.config or {}))
-        engine.run()
-        result = await engine.run_graph_investigate(
-            list(req.files),
-            seed_nodes=req.seed_nodes,
-            context={"task": req.query or ""},
+        paths = ", ".join(str(f.get("path", "?")) for f in req.files[:20])
+        result = await master_coordinator.chat_stream(
+            f"对以下代码文件做依赖与影响分析, 回答: {req.query or '这些文件之间的依赖关系与修改影响'}\n文件: {paths}",
+            session_id=None,
+            max_rounds=2,
         )
-        result["session_id"] = new_session_id()
-        result["files_analyzed"] = len(req.files)
-        return result
+        return {
+            "status": result.get("status", "failed"),
+            "analysis": result.get("final_answer") or result.get("error", ""),
+            "session_id": new_session_id(),
+            "files_analyzed": len(req.files),
+        }
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/create  (AutoAgent NL → agent creation)
     # ------------------------------------------------------------------
     @api.post("/api/v1/agent/create")
     async def agent_create(req: AgentCreationRequest) -> dict[str, Any]:
-        from veya.server.manifests import assemble_agent_creation
+        from server.coordinator_master import master_coordinator
 
-        engine = assemble_agent_creation(dict(req.config or {}))
-        engine.run()
-        result = await engine.run_agent_create({"goal": req.task}, context={})
-        result["session_id"] = new_session_id()
-        return result
+        result = await master_coordinator.chat_stream(
+            f"设计一个新 Agent 的完整规格(角色/技能/系统提示词): {req.task}",
+            session_id=None,
+            max_rounds=2,
+        )
+        return {
+            "status": result.get("status", "failed"),
+            "agent_spec": result.get("final_answer") or result.get("error", ""),
+            "session_id": new_session_id(),
+        }
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/orchestrator  (multi-agent orchestrator)

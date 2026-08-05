@@ -13,8 +13,6 @@ import asyncio
 import json
 import logging
 import os
-import time
-from typing import Any
 
 try:
     from fastapi import APIRouter, HTTPException, Request, Response
@@ -28,7 +26,10 @@ except ImportError:
 
 from veya.im.pseudo import anonymize_user_id
 
-logger = logging.getLogger("veya.im.telegram")
+logger = logging.getLogger
+
+_bg_tasks: set = set()
+("veya.im.telegram")
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
 
@@ -159,9 +160,10 @@ class TelegramGateway:
 
         # Regular message — run agent
         if self._runner:
-            asyncio.create_task(self._process_message(
+            _task_ref = asyncio.create_task(self._process_message(
                 chat_id, text, pseudo_id, username,
             ))
+            _bg_tasks.add(_task_ref)
 
         return None
 
@@ -173,7 +175,6 @@ class TelegramGateway:
 
         try:
             result = await self._runner(text, user_ref=pseudo_id)
-            status = result.get("status", "completed")
             content = result.get("result", "")
 
             if isinstance(content, list):
@@ -214,7 +215,7 @@ class TelegramGateway:
         """Start long-polling for Telegram updates."""
         if self._polling_task:
             return
-        self._polling_task = asyncio.create_task(self._poll_loop(interval_sec))
+        self._polling_task = _task_ref = asyncio.create_task(self._poll_loop(interval_sec))
 
     async def stop_polling(self):
         if self._polling_task:
@@ -260,19 +261,14 @@ def make_telegram_router(
 
     Mount:  app.include_router(make_telegram_router(), prefix="/im/telegram")
     """
-    from veya.server.manifests import assemble_agentic_loop, new_session_id
+    from server.coordinator_master import master_coordinator
 
     async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
-        engine = assemble_agentic_loop()
-        engine.run()
         try:
-            return await engine.invoke({
-                "goal": prompt,
-                "session_id": new_session_id(),
-                "user_ref": user_ref,
-            })
-        finally:
-            engine.stop()
+            result = await master_coordinator.chat_stream(prompt, session_id=None, max_rounds=3)
+            return {"status": result.get("status", "failed"), "content": result.get("final_answer") or result.get("error", ""), "cost_usd": result.get("cost_usd", 0.0), "user_ref": user_ref}
+        except Exception as exc:
+            return {"status": "failed", "content": f"IM runner error: {exc}", "user_ref": user_ref}
 
     gateway = TelegramGateway(
         bot_token=bot_token, webhook_url=webhook_url,

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 __version__ = "0.2.0"
 
-from veya.im.pseudo import PseudoAnonymizer, anonymize_user_id, resolve_anonymizer
 from veya.im.account_binding import (
     AccountBinding,
     BindingStore,
@@ -33,12 +32,13 @@ from veya.im.account_binding import (
     list_user_bindings,
     unbind_account,
 )
+from veya.im.pseudo import PseudoAnonymizer, anonymize_user_id, resolve_anonymizer
 
 __all__ = [
-    "PseudoAnonymizer",
-    "__version__",
     "AccountBinding",
     "BindingStore",
+    "PseudoAnonymizer",
+    "__version__",
     "anonymize_user_id",
     "bind_account",
     "get_binding_store",
