@@ -19,13 +19,16 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+# ── Agent OS 单进程合并: 根 server.app(主脑/自动化/蜂群/金库/RAG/量化/防火墙/状态机) ──
+from server.app import app as _agentos_app
+from server.chat_stream import new_agent_stream_events
 from veya.im.pseudo import anonymize_user_id
 from veya.server.manifests import (
     build_agentic_loop_manifest,
@@ -383,22 +386,14 @@ async def lifespan(_: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(
-        title="veya Layer 4 gateway",
-        version="0.2.0",
-        description="ServiceManifest-assembled 3O agentic engines over REST + SSE",
-        lifespan=lifespan,
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Agent OS 单进程: 根 server.app 实例(含 lifespan: Infra + Automata 启停)
+    app = _agentos_app
+    # CORS 已由根 app 配置; 旧网关端点(IM/MCP/agent_*/spawn/vision/voice...)注册到同一实例
 
     # ── Static files + SPA frontend ──────────────────────────────
-    from fastapi.staticfiles import StaticFiles
     from pathlib import Path as _Path
+
+    from fastapi.staticfiles import StaticFiles
     _web_dir = _Path(__file__).parent.parent / "web"
     if _web_dir.exists():
         app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
@@ -416,32 +411,39 @@ def create_app() -> FastAPI:
     try:
         from veya.im.feishu import make_feishu_router
         app.include_router(make_feishu_router(), prefix="/im/feishu", tags=["IM"])
-    except Exception: pass
+    except Exception:
+        pass
     try:
         from veya.im.slack import make_slack_router
         app.include_router(make_slack_router(), prefix="/im/slack", tags=["IM"])
-    except Exception: pass
+    except Exception:
+        pass
     try:
         from veya.im.discord import make_discord_router
         app.include_router(make_discord_router(), prefix="/im/discord", tags=["IM"])
-    except Exception: pass
+    except Exception:
+        pass
     try:
         from veya.im.dingtalk import make_dingtalk_router
         app.include_router(make_dingtalk_router(), prefix="/im/dingtalk", tags=["IM"])
-    except Exception: pass
+    except Exception:
+        pass
     try:
         from veya.im.wechat import make_wechat_router
         app.include_router(make_wechat_router(), prefix="/im/wechat", tags=["IM"])
-    except Exception: pass
+    except Exception:
+        pass
     try:
         from veya.im.telegram import make_telegram_router
         app.include_router(make_telegram_router(), prefix="/im/telegram", tags=["IM"])
-    except Exception: pass
+    except Exception:
+        pass
     try:
         from veya.mcp_server import create_mcp_server
         mcp = create_mcp_server()
         app.include_router(mcp.as_fastapi_router(), prefix="/mcp", tags=["MCP"])
-    except Exception: pass
+    except Exception:
+        pass
     api = app  # single app instance; routers registered inline below
 
     # ------------------------------------------------------------------
@@ -539,10 +541,8 @@ def create_app() -> FastAPI:
     async def agent_stream(req: AgentRunRequest, request: Request) -> StreamingResponse:
         # 新 Agent OS 契约: text → 主脑 SSE 事件流(text_delta / tool_call / master_done)
         if req.text is not None:
-            from server.routes.compat import _new_agent_stream_events
-
             return StreamingResponse(
-                _new_agent_stream_events(req.text, req.session_id),
+                new_agent_stream_events(req.text, req.session_id),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -1093,7 +1093,8 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     @api.post("/api/v1/plugin/manage")
     async def plugin_manage(req: PluginActionRequest) -> dict[str, Any]:
-        from veya.platform import load; load("obase")
+        from veya.platform import load as _load_3o
+        _load_3o("obase")
         from obase.plugin_registry import PluginRegistry
         reg = PluginRegistry()
         if req.action == "install":
@@ -1224,9 +1225,9 @@ def create_app() -> FastAPI:
         """Run a complete voice agent conversation session."""
         import base64
         from pathlib import Path
-
-        from veya.omodul.voice_agent import VoiceSessionConfig, run_voice_conversation
         from types import SimpleNamespace
+
+        from veya.omodul.voice_agent import run_voice_conversation
 
         audio_bytes = base64.b64decode(req.audio_base64)
 
@@ -1253,9 +1254,9 @@ def create_app() -> FastAPI:
     async def agent_vision(req: VisionAgentSessionRequest) -> dict[str, Any]:
         """Run a vision agent analysis session."""
         from pathlib import Path
-
-        from veya.omodul.vision_agent import VisionSessionConfig, run_vision_analysis
         from types import SimpleNamespace
+
+        from veya.omodul.vision_agent import run_vision_analysis
 
         config = SimpleNamespace(
             provider=req.provider,
@@ -1316,7 +1317,8 @@ def create_app() -> FastAPI:
         """Execute a browser automation task using Playwright."""
         from pathlib import Path
         from types import SimpleNamespace
-        from veya.omodul.browser_agent import BrowserTaskConfig, run_browser_automation
+
+        from veya.omodul.browser_agent import run_browser_automation
 
         config = SimpleNamespace(
             headless=req.headless,
@@ -1336,7 +1338,9 @@ def create_app() -> FastAPI:
     async def browser_status() -> dict[str, Any]:
         """Check browser automation availability."""
         try:
-            from veya.oskill.browser import BrowserSession
+            import importlib.util as _ilu  # noqa: F401
+
+            from veya.oskill.browser import BrowserSession  # noqa: F401
         except ImportError:
             return {"status": "unavailable", "reason": "playwright not installed"}
 
@@ -1362,6 +1366,7 @@ def create_app() -> FastAPI:
     async def spawn_run(req: SpawnRunRequest) -> dict[str, Any]:
         """Spawn an external AI coding agent to execute a task."""
         from pathlib import Path
+
         from veya.oskill.spawn import AgentSpawner
 
         spawner = AgentSpawner()
@@ -1427,7 +1432,7 @@ def create_app() -> FastAPI:
     @api.post("/api/v1/kanban")
     async def kanban_ops(req: KanbanRequest) -> dict[str, Any]:
         """Kanban board operations."""
-        from veya.kanban import KanbanBoard, KanbanCard, CardStatus
+        from veya.kanban import CardStatus, KanbanBoard, KanbanCard
 
         board_path = Path.home() / ".veya" / "kanban" / f"{req.board_id or 'default'}.json"
         board_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1494,7 +1499,7 @@ def create_app() -> FastAPI:
     @api.post("/api/v1/templates")
     async def templates_ops(req: TemplateRequest) -> dict[str, Any]:
         """Project template operations."""
-        from veya.kanban import list_templates, get_template, apply_template
+        from veya.kanban import apply_template, get_template, list_templates
 
         if req.action == "list":
             return {"templates": list_templates()}
@@ -1585,15 +1590,17 @@ def create_app() -> FastAPI:
     @api.get("/mobile/shell")
     async def mobile_shell():
         """Mobile PWA shell HTML."""
-        from veya.oprim.mobile import build_mobile_shell_html
         from fastapi.responses import HTMLResponse
+
+        from veya.oprim.mobile import build_mobile_shell_html
         return HTMLResponse(content=build_mobile_shell_html())
 
     @api.get("/mobile/sw.js")
     async def mobile_service_worker():
         """PWA service worker."""
-        from veya.oprim.mobile import build_service_worker_js
         from fastapi.responses import Response
+
+        from veya.oprim.mobile import build_service_worker_js
         return Response(content=build_service_worker_js(), media_type="application/javascript")
 
     @api.get("/api/v1/mobile/devices")
