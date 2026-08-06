@@ -79,6 +79,24 @@ veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=te
 - **veya_loop 装配补漏**：`CheckpointStore`（obase）进 `_ELEMENT_MAP`；
   CLI selftest + P1 测试修正假绿（bids 必填 + `alloc.pairs` 断言）
 
+### 5.3 P2/P3 行为测试矩阵（2026-08-06，231 → 256）
+
+- **test_phase2_behavior.py（11 项）**：根因召回与候选确定性、单父图干预方向
+  （delta>0 且 after<观测）、诊断确定性（同输入同输出）、反事实 rollout、
+  信念边界（不越界 [0,1]/阈值恰等/未知状态报错）、蜜罐探测面（网络外发/超时取证）
+- **test_phase3_behavior.py（14 项）**：期望效用精确公式 U=ΔP−λC−ρ·risk、
+  λ/ρ 权衡、并列 tiebreak 确定性、drop_negative u==0 边界、空/全负列表、
+  Dirichlet 平滑不落 0/1、EMA 收敛（交替序列相位稳态 0.4737/0.5263）、
+  strength 语义、version 单调、审计 trace 隔离/replay 确定性/Memory-Jsonl 一致、
+  派发链路事件序（decide→execute、denied 只 decide、nonce 对应）
+- **主库安全修复（obase a0ccd79）**：蜜罐 sandbox 超时场景 hostile 漏报 ——
+  connect 挂起拖到超时 → payload 丢弃 → network_attempt 丢失。
+  修复：audit hook 立即 print NETWORK_ATTEMPT，超时分支扫描取证；
+  veya_loop 侧 test_honeypot_network_timeout_forensics 防回归
+- **行为语义勘误（记入测试注释）**：平行双因图干预效应结构对称（delta 无法分根因，
+  区分靠 failure_log）；EMA 随机序列统计噪声 σ≈0.15（断言需 ≥ 噪声）；
+  dispatch action 命名规范为 `前缀:目标`（`do:reboot` 匹配 `do:*`）
+
 ## 6. 已知待办/风险
 
 1. **claude/codex 引擎 403/refused** — 宿主账号侧，与代码无关；排查宿主 `claude -p` / `codex exec`
