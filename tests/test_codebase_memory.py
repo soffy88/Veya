@@ -145,3 +145,60 @@ async def test_missing_bin_degrades():
     assert not c.ready
     with pytest.raises(CodebaseMemoryError):
         await c.search_symbols("x")              # 未就绪调用必须报错
+
+
+# =========================================================================
+# 主脑工具面接线 + 每日增量索引 cron
+# =========================================================================
+
+@pytest.mark.asyncio
+async def test_wire_master_tools_idempotent(connector):
+    from server.codebase_memory import wire_master_tools
+    from server.tool_registry import master_tools
+
+    added = await wire_master_tools(connector)
+    assert added >= 8                                    # 8 个 mcp_codebase_*
+    assert master_tools.has("mcp_codebase_search_graph")
+    assert master_tools.has("mcp_codebase_trace_path")
+    # 幂等: 二次调用零新增
+    assert await wire_master_tools() == 0
+
+
+@pytest.mark.asyncio
+async def test_schedule_daily_reindex_job(connector):
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    from server.codebase_memory import schedule_daily_reindex
+
+    sched = AsyncIOScheduler()
+    sched.start()
+    try:
+        job_id = schedule_daily_reindex(sched, hour=3, minute=17)
+        assert sched.get_job(job_id) is not None
+        assert job_id == "cbm_daily_reindex"
+        # 幂等: 重复注册返回同 id, 不新增
+        assert schedule_daily_reindex(sched) == job_id
+        jobs = [j for j in sched.get_jobs() if j.id == job_id]
+        assert len(jobs) == 1
+    finally:
+        sched.shutdown(wait=False)
+
+
+@pytest.mark.asyncio
+async def test_daily_reindex_job_runs_incremental(connector):
+    """触发 cron job 本身 → 增量索引执行不炸 (依赖已索引状态)。"""
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    from server.codebase_memory import schedule_daily_reindex
+
+    await connector.ensure_indexed(force=True)
+    sched = AsyncIOScheduler()
+    sched.start()
+    try:
+        schedule_daily_reindex(sched)
+        job = sched.get_job("cbm_daily_reindex")
+        assert job is not None
+        await job.func()                                 # 手动触发一次
+        assert connector._project                        # 索引状态保持
+    finally:
+        sched.shutdown(wait=False)
