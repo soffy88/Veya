@@ -69,7 +69,18 @@ veya_loop/tests/test_video_reliability_loop.py
 | `FILE_TOO_LARGE` | 超过 `max_size_mb` |
 | `PROBE_FAILED` | ffprobe 失败 |
 
-v2 可选 (本阶段非必须): 黑帧比例 / 响度 / OCR 违禁 / 美学分 —— 同一 `issues` 扩展。
+### v2 质量规则 (spec.quality 开关, 缺省全关 = v1 兼容)
+```json
+"quality": {
+  "max_black_ratio": 0.1,        // ffmpeg blackdetect → BLACK_FRAMES_TOO_MANY
+  "min_loudness_lkfs": -25,       // ebur128 Integrated → LOUDNESS_TOO_LOW
+  "max_loudness_lkfs": -14,       // → LOUDNESS_TOO_HIGH
+  "ocr_require_text": ["标题"],   // 抽样帧 tesseract (chi_sim+eng) → OCR_TEXT_MISSING
+  "ocr_forbidden": ["违禁词"]    // → OCR_FORBIDDEN_FOUND
+}
+```
+签名映射: BLACK_FRAMES_*→FORMAT/ADJUST_PROMPT, LOUDNESS_*→AUDIO/REGENERATE,
+OCR_*→POLICY/CLARIFY。
 
 ## 3. 控制面 (video_reliability_loop)
 
@@ -91,6 +102,13 @@ CLARIFY | ABORT) / `run_video_reliability_loop`。
 硬规则: `repairs_used >= max_repairs → ABORT`; 规格矛盾 (`min>max`) → CLARIFY;
 沙箱挂 (`SANDBOX_ERROR`) → ENV 签名, 不崩主进程。
 
+SWITCH_PROVIDER 实现: 同 fingerprint 二次失败且属生成质量类 (FORMAT/AUDIO)
+→ 签名自动升级 SWITCH_PROVIDER (换生成器优于继续改提示词);
+`run_veya_video_agent(comfyui=ComfyUIProvider())` 时切换真实 AI 视频
+provider (ComfyUI/MiniMax H3, 需 ≥24GB 显存, 见 templates/video_services/
+comfyui_provider.py — 切换前做契约检查: 显存/端点/加速 API, 不满足抛
+ProviderContractError → 闭环转 ENV 签名 CLARIFY/ABORT, 不烧返工预算)。
+
 ## 4. 生成函数约定
 
 ```python
@@ -101,7 +119,19 @@ def generate_fn(task, signature, parent_artifact) -> VideoArtifact:
     """
 ```
 
-先 stub (第一次短视频、第二次合格) 验证闭环, 再接 hevi 出片路径。
+**真实 hevi 接入** (`templates/video_services/hevi_client.py`):
+
+```python
+client = HeviGenerateClient(base_url="http://127.0.0.1:8000")   # hevi API
+path = client.generate(prompt, spec, failure_context)            # → Path (MP4)
+```
+
+- hevi 侧: `POST /api/lite/generate` 同步端点 (hevi/pipeline_lite/oapp/lite_router.py,
+  复用 run_lite_pipeline, 失败返回 LiteAssembleResult(status="failed"), 不抛 5xx);
+- veya 侧: HeviGenerateClient 把 VideoSpec + FailureSignature 合成为 Lite 输入
+  (cue 拆分/分辨率注入/时长提示), 同机 dev 直用宿主路径, 远端走下载;
+- 默认路径: `run_veya_video_agent(generate_with_hevi=None)` 自动用 HeviGenerateClient;
+  自定义生成函数 (可灵/即梦/本地管线) 仍可注入, 契约不变。
 
 ## 5. 验收
 

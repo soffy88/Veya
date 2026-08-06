@@ -7,6 +7,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-eng \
  && rm -rf /var/lib/apt/lists/* \
  && useradd -m -u 10001 sandbox \
  && pip install --no-cache-dir orjson

@@ -12,6 +12,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from comfyui_provider import ComfyUIProvider
+from hevi_client import DEFAULT_BASE_URL as DEFAULT_HEVI_BASE_URL
+from hevi_client import HeviGenerateClient
 from veya_loop.omodul.video_reliability_loop import (
     FailureSignature,
     VideoArtifact,
@@ -24,11 +27,57 @@ from veya_loop.omodul.video_reliability_loop import (
 from video_sandbox_client import LocalVideoEvaluator, make_eval_fn
 
 
+def _hevi_generate_fn(
+    client: HeviGenerateClient,
+    comfyui: ComfyUIProvider | None = None,
+) -> VideoGenerateFn:
+    """把 hevi HTTP 客户端适配成 generate_fn 契约 (真实出片路径)。
+
+    SWITCH_PROVIDER 签名 → 切 ComfyUI (MiniMax H3) provider;
+    其余轮次仍走 hevi-lite (带失败上下文)。ComfyUI 契约检查失败抛
+    ProviderContractError → 闭环转 ENV 签名 (CLARIFY/ABORT, 不烧预算)。
+    """
+
+    def _generate(
+        task: VideoTask,
+        signature: FailureSignature | None,
+        parent: VideoArtifact | None,
+    ) -> VideoArtifact:
+        failure_context: dict[str, Any] = {}
+        if signature is not None:
+            failure_context = {
+                "kind": signature.kind.value,
+                "summary": signature.summary,
+                "preferred_action": signature.preferred_action,
+                "fingerprint": signature.fingerprint,
+            }
+        adjusted_prompt = _adjusted_prompt(task, failure_context)
+        provider = "hevi"
+        if (failure_context.get("preferred_action") == "SWITCH_PROVIDER"
+                and comfyui is not None):
+            provider = "comfyui"
+            path = comfyui.generate(adjusted_prompt, task.spec, failure_context)
+        else:
+            path = client.generate(adjusted_prompt, task.spec, failure_context)
+        return VideoArtifact(
+            video_id=_next_video_id(task.task_id, failure_context),
+            video_path=str(path),
+            parent_id=parent.video_id if parent else None,
+            provider=provider,
+            note=failure_context.get("summary", ""),
+            failure_context=failure_context,
+        )
+
+    return _generate
+
+
 def run_veya_video_agent(
     *,
     prompt: str,
     platform_spec: dict[str, Any],
-    generate_with_hevi: Callable[..., Path],
+    generate_with_hevi: Callable[..., Path] | None = None,
+    hevi_base_url: str = DEFAULT_HEVI_BASE_URL,
+    comfyui: ComfyUIProvider | None = None,
     max_repairs: int = 3,
     task_id: str = "veya_video_1",
     workspace: dict[str, str] | None = None,
@@ -36,8 +85,8 @@ def run_veya_video_agent(
 ) -> Any:
     """视频生产 Agent 入口: hevi 出片 → 沙箱质检 → 有限次返工。
 
-    generate_with_hevi(prompt, task, signature, parent) -> Path (本地视频路径)
-    先 stub 后接真实 hevi 出片路径 (见 adapt_hevi)。
+    generate_with_hevi: 自定义生成函数 (prompt, failure_context) -> Path;
+    缺省走 HeviGenerateClient 真实 hevi Lite 管线 (POST /api/lite/generate)。
     """
     task = VideoTask(
         task_id=task_id,
@@ -63,9 +112,17 @@ def run_veya_video_agent(
         except Exception:
             eval_fn = make_eval_fn(LocalVideoEvaluator())
 
+    if generate_with_hevi is not None:
+        generate_fn = adapt_hevi(generate_with_hevi)
+    else:
+        generate_fn = _hevi_generate_fn(
+            HeviGenerateClient(base_url=hevi_base_url or DEFAULT_HEVI_BASE_URL),
+            comfyui=comfyui,
+        )
+
     return run_video_reliability_loop(
         task,
-        generate_fn=adapt_hevi(generate_with_hevi),
+        generate_fn=generate_fn,
         evaluate_fn=eval_fn,
     )
 
