@@ -48,39 +48,79 @@ def test_engines_endpoint():
 
 
 # ---------------------------------------------------------------------------
-# 容器环境: 只允许 master (挂载宿主 CLI 也不执行 → 520/502 根治)
+# 容器环境: master + pi 精确探测 (claude/codex 账号侧 403 未修 → 禁用)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_container_blocks_external_engines(monkeypatch):
-    """容器内 (VEYA_WORKSPACE 或 /.dockerenv): 非 master 引擎被拒绝。"""
+async def test_container_blocks_claude_codex(monkeypatch):
+    """容器内: claude/codex 被拒绝 (账号侧 403 未修, 诚实声明不可用)。"""
     import server.engine_runner as er
 
     monkeypatch.setattr(er, "_IN_CONTAINER", True)
+    monkeypatch.setattr(er, "_container_pi_usable", lambda: True)
 
-    # 探测: 只有 master
     engines = er.available_engines()
-    assert set(engines) == {"master"}
+    assert set(engines) == {"master", "pi"}          # pi 凭据齐全 → 放行
+    assert "claude" not in engines and "codex" not in engines
 
-    # stream 契约: engine_error
     events = [evt async for evt in er.stream_engine("claude", "hi", timeout_s=10)]
     assert events[0]["type"] == "engine_error"
     assert "容器环境" in events[0]["error"]
 
-    # run 契约: ok=False
     result = await er.run_engine("codex", "hi", timeout_s=10)
     assert result["ok"] is False
     assert "容器环境" in result["error"]
 
 
+@pytest.mark.asyncio
+async def test_container_pi_requires_credentials(monkeypatch):
+    """容器内 pi 精确探测: 凭据缺失 → 拒绝 (挂载 ≠ 可用)。"""
+    import server.engine_runner as er
+
+    monkeypatch.setattr(er, "_IN_CONTAINER", True)
+    monkeypatch.setattr(er, "_container_pi_usable", lambda: False)
+
+    assert set(er.available_engines()) == {"master"}
+    result = await er.run_engine("pi", "hi", timeout_s=10)
+    assert result["ok"] is False
+    assert "容器环境" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_container_pi_usable_detection(monkeypatch, tmp_path):
+    """_container_pi_usable 三条件: ~/.pi + auth.json + PATH 二进制。"""
+    import server.engine_runner as er
+
+    monkeypatch.setattr(er, "_IN_CONTAINER", True)
+    monkeypatch.setenv("HOME", str(tmp_path))          # expanduser 读 HOME
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: "/bin/pi" if name == "pi" else None)
+
+    # 无 ~/.pi → 不可用
+    assert er._container_pi_usable() is False
+    # 目录 + agent/auth.json → 可用 (pi 认证位置)
+    (tmp_path / ".pi" / "agent").mkdir(parents=True)
+    (tmp_path / ".pi" / "agent" / "auth.json").write_text("{}")
+    assert er._container_pi_usable() is True
+    # auth.json 缺失 → 不可用
+    (tmp_path / ".pi" / "agent" / "auth.json").unlink()
+    (tmp_path / ".pi" / "agent" / "settings.json").write_text("{}")
+    assert er._container_pi_usable() is False
+
+
 def test_engines_endpoint_in_container(monkeypatch):
-    """容器内 /api/v1/engines 只返回 master (前端据此禁用其余引擎)。"""
+    """容器内 /api/v1/engines: 无 pi 凭据 → 只 master; 有 → master+pi。"""
     from fastapi.testclient import TestClient
 
     import server.engine_runner as er
     from server.app import app
 
     monkeypatch.setattr(er, "_IN_CONTAINER", True)
+    monkeypatch.setattr(er, "_container_pi_usable", lambda: False)
     res = TestClient(app).get("/api/v1/engines")
     assert res.status_code == 200
     assert set(res.json()["engines"]) == {"master"}
+
+    monkeypatch.setattr(er, "_container_pi_usable", lambda: True)
+    res2 = TestClient(app).get("/api/v1/engines")
+    assert set(res2.json()["engines"]) == {"master", "pi"}
