@@ -74,6 +74,51 @@ def _container_proxy_env() -> dict[str, str]:
     }
 
 
+def _ensure_container_opencodex() -> bool:
+    """容器内确保 opencodex 代理活着 (探测 → 无则 spawn, 幂等)。
+
+    opencodex 是 codex 引擎的本地翻译层 (ChatGPT oauth → OpenAI 兼容);
+    容器内实例需代理 env (模型目录同步 chatgpt.com)。
+    """
+    if not _IN_CONTAINER:
+        return True
+    import subprocess
+    import time
+    import urllib.request
+
+    def _healthz() -> bool:
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:10100/healthz", timeout=0.5) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    if _healthz():
+        return True
+    bun = ("/home/soffy/.nvm/versions/node/v26.4.0/lib/node_modules/"
+           "@bitkyc08/opencodex/node_modules/bun/bin/bun.exe")
+    cli = ("/home/soffy/.nvm/versions/node/v26.4.0/lib/node_modules/"
+           "@bitkyc08/opencodex/src/cli/index.ts")
+    if not (os.path.isfile(bun) and os.path.isfile(cli)):
+        return False
+    gw = _container_gateway_ip() or "192.168.16.1"
+    env = {
+        **os.environ,
+        "HTTPS_PROXY": f"http://{gw}:17890",
+        "HTTP_PROXY": f"http://{gw}:17890",
+        "NO_PROXY": "localhost,127.0.0.1",
+        "no_proxy": "localhost,127.0.0.1",
+    }
+    subprocess.Popen([bun, cli, "start", "--port", "10100"], env=env,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    for _ in range(20):
+        time.sleep(0.5)
+        if _healthz():
+            return True
+    return False
+
+
 def _container_pi_usable() -> bool:
     """容器内 pi 精确探测: 凭据目录 + agent/auth.json + 二进制 PATH 全在。"""
     if not _IN_CONTAINER:
@@ -105,10 +150,10 @@ def _container_claude_usable() -> bool:
 
 
 def _container_codex_usable() -> bool:
-    """容器内 codex 精确探测: 配置 + 二进制 + 端点可达。
+    """容器内 codex 精确探测: 配置 + 二进制 + opencodex 自举可达。
 
-    codex 依赖宿主 opencodex 代理 (127.0.0.1:10100, 本机绑定) — 容器内经
-    socat/自定义桥 (0.0.0.0:10101 → 宿主 10100) 可达时放行, 否则诚实拒绝。
+    codex 依赖 opencodex 代理 (ChatGPT oauth 翻译层) — 容器内自举实例
+    (带代理 env), 探测失败时诚实拒绝。
     """
     if not _IN_CONTAINER:
         return True
@@ -117,44 +162,15 @@ def _container_codex_usable() -> bool:
             and os.path.isfile(os.path.join(home, ".codex", "auth.json"))
             and shutil.which("codex") is not None):
         return False
-    return _container_codex_base_url() is not None
+    return _ensure_container_opencodex()
 
 
 def _container_codex_base_url() -> str | None:
-    """容器内 codex 应使用的 opencodex 端点 (探测可达桥)。
-
-    优先级: 宿主网关 192.168.16.1 / 172.18.0.1 / 本机 127.0.0.1。
-    探测带 Authorization (与 codex CLI 一致), 避免 403 误判。
-    """
+    """容器内 codex 应使用的 opencodex 端点 (容器内自举实例, loopback 直连)。"""
     if not _IN_CONTAINER:
         return None
-    auth = None
-    try:
-        import json
-
-        auth_path = os.path.expanduser("~/.codex/auth.json")
-        if os.path.isfile(auth_path):
-            with open(auth_path, encoding="utf-8") as f:
-                auth = json.loads(f.read()).get("OPENAI_API_KEY")
-    except Exception:
-        pass
-    import urllib.error
-    import urllib.request
-
-    for base in ("http://192.168.16.1:10101/v1", "http://172.18.0.1:10101/v1",
-                 "http://127.0.0.1:10100/v1"):
-        try:
-            req = urllib.request.Request(base + "/models")
-            if auth:
-                req.add_header("Authorization", f"Bearer {auth}")
-            with urllib.request.urlopen(req, timeout=0.8) as resp:
-                if resp.status == 200:
-                    return base
-        except urllib.error.HTTPError as exc:
-            if exc.code == 200:
-                return base
-        except Exception:
-            continue
+    if _ensure_container_opencodex():
+        return "http://127.0.0.1:10100/v1"
     return None
 
 
