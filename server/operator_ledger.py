@@ -41,6 +41,39 @@ _LEDGER: dict[str, dict[str, str]] = {
 
 
 # =========================================================================
+# 运行时立项账本 (三框架集成: prime-agent / pi / agentscope)
+# PRD: docs/prd/AGENT_RUNTIMES_PRD.md — 状态 pending (待确认后实施 L1→L3)
+# =========================================================================
+
+RUNTIME_LEDGER: dict[str, dict[str, str]] = {
+    "prime_agent_runtime": {
+        "layer": "内核运行时 (L1)",
+        "desc": "prime-agent RLM 适配器: AgentRuntime 协议, 持久内核 + checkpoint/cognitive 自我优化",
+        "status": "pending",
+    },
+    "pi_bridge": {
+        "layer": "工具链桥 (L2)",
+        "desc": "pi CLI subprocess 桥: plugin_tool 包装 + provider 平级路由 + code_sandbox 隔离",
+        "status": "pending",
+    },
+    "agentscope_bridge": {
+        "layer": "平台编排桥 (L3)",
+        "desc": "agentscope 双向翻译: Event Bus / 中间件↔hooks / MCP 互注册 / Skill Hub 同步",
+        "status": "pending",
+    },
+}
+
+
+def runtime_ledger_summary() -> list[dict[str, Any]]:
+    """运行时立项全貌 (立档查询)。"""
+    return [
+        {"name": name, "layer": meta["layer"], "status": meta["status"],
+         "description": meta["desc"]}
+        for name, meta in RUNTIME_LEDGER.items()
+    ]
+
+
+# =========================================================================
 # 算子实现 (薄适配: 技能包/连接器 → 账本)
 # =========================================================================
 
