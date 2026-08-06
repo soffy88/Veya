@@ -24,11 +24,13 @@ export interface ProviderDef {
 	custom?: boolean;
 }
 
-/** 快捷选择器 (cindy 风格): 顶部 provider 按钮 → 模型列表 */
-export const PICKER_QUICK = [
-	{ provider: "anthropic", label: "Claude" },
-	{ provider: "openai", label: "Codex" },
-	{ provider: "pi", label: "Pi" },
+/** 执行引擎 (谁执行任务, 不只是 LLM provider):
+ *  master = 主脑 ReAct; claude/codex/pi = 对应引擎 CLI */
+export const ENGINES = [
+	{ id: "master", label: "Master" },
+	{ id: "claude", label: "Claude" },
+	{ id: "codex", label: "Codex" },
+	{ id: "pi", label: "Pi" },
 ] as const;
 
 /** 各 provider 的常用模型清单 (点选即用; 仍可手动输入任意模型名) */
@@ -102,6 +104,7 @@ function load(): StoredState {
 class ApiKeyStore {
 	#initial = load();
 	provider = $state(this.#initial.provider);
+	engine = $state("master");
 	customProviders = $state<ProviderDef[]>(this.#initial.customProviders);
 	#creds = $state<Record<string, Credential>>(this.#initial.creds);
 

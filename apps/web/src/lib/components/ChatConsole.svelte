@@ -134,6 +134,7 @@ import ModelPicker from "./ModelPicker.svelte";
 					session_id: sid,
 					provider: apiKeyStore.provider,
 					model: apiKeyStore.model.trim() || undefined,
+					engine: apiKeyStore.engine,
 					config: apiKeyStore.asConfig(),
 				}),
 				signal,
