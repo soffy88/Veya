@@ -26,6 +26,7 @@
 		Wrench,
 	} from "lucide-svelte";
 	import MarkdownBlock from "./MarkdownBlock.svelte";
+import ModelPicker from "./ModelPicker.svelte";
 	import { artifactStore } from "$lib/artifacts.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
@@ -280,7 +281,7 @@
 		<div class="mt-1.5 flex items-center gap-3 px-1 font-mono text-[10px] text-white/25">
 			<span class="flex items-center gap-1.5">
 				<span class="size-1.5 rounded-full {apiKeyStore.api_key ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
-				{apiKeyStore.current.label} · {apiKeyStore.model.trim() || apiKeyStore.current.defaultModel || "未设置模型"}
+				<ModelPicker />
 			</span>
 			<span class="flex-1"></span>
 			<span class="hidden md:inline">Enter 发送 · Shift+Enter 换行 · ↑ 编辑{ busy ? " · Esc 停止" : "" }</span>
