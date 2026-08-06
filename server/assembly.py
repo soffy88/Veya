@@ -576,3 +576,11 @@ class Infra:
             cls.operator_ledger = register_operators()
         except Exception as e:
             cls.operator_ledger = {"registered": [], "skipped": [], "error": str(e)}
+
+        # 三框架运行时适配器注册 (L1 prime-agent / L2 pi / L3 agentscope, 幂等)
+        from server.runtimes import register_all_runtimes
+
+        try:
+            cls.runtime_ledger = register_all_runtimes()
+        except Exception as e:
+            cls.runtime_ledger = {"registered": [], "skipped": [], "error": str(e)}

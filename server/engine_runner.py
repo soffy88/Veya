@@ -38,6 +38,7 @@ def _container_gateway_ip() -> str | None:
     """容器 → 宿主网关 IP (探测可达网段)。"""
     if not _IN_CONTAINER:
         return None
+    import urllib.error
     import urllib.request
 
     for gw in ("192.168.16.1", "172.18.0.1", "172.17.0.1"):
@@ -45,6 +46,9 @@ def _container_gateway_ip() -> str | None:
             with urllib.request.urlopen(f"http://{gw}:10101/v1/models", timeout=0.5) as resp:
                 if resp.status in (200, 401, 403):
                     return gw
+        except urllib.error.HTTPError as exc:
+            if exc.code in (200, 401, 403):   # urlopen 对非 2xx 抛 HTTPError
+                return gw
         except Exception:
             continue
     return None
@@ -134,6 +138,7 @@ def _container_codex_base_url() -> str | None:
                 auth = json.loads(f.read()).get("OPENAI_API_KEY")
     except Exception:
         pass
+    import urllib.error
     import urllib.request
 
     for base in ("http://192.168.16.1:10101/v1", "http://172.18.0.1:10101/v1",
@@ -145,6 +150,9 @@ def _container_codex_base_url() -> str | None:
             with urllib.request.urlopen(req, timeout=0.8) as resp:
                 if resp.status == 200:
                     return base
+        except urllib.error.HTTPError as exc:
+            if exc.code == 200:
+                return base
         except Exception:
             continue
     return None

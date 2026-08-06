@@ -112,7 +112,7 @@ def test_runtime_ledger_registered():
     assert set(RUNTIME_LEDGER) == {
         "prime_agent_runtime", "pi_bridge", "agentscope_bridge"}
     summary = runtime_ledger_summary()
-    assert all(s["status"] == "pending" for s in summary)
+    assert all(s["status"] == "registered" for s in summary)  # L1-L3 已实施
     # 层归属
     layers = {s["layer"] for s in summary}
     assert layers == {"内核运行时 (L1)", "工具链桥 (L2)", "平台编排桥 (L3)"}
