@@ -7,6 +7,7 @@
  */
 import { error } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
+import { gatewayGuideResponse, probeGateway } from "$lib/upstreamProbe";
 
 const BASE = (process.env.VEYA_GATEWAY ?? "http://127.0.0.1:8765").replace(/\/+$/, "");
 
@@ -19,7 +20,23 @@ async function forward(event: Parameters<RequestHandler>[0]): Promise<Response> 
     const ct = event.request.headers.get("content-type");
     if (ct) (init.headers as Record<string, string>)["content-type"] = ct;
   }
-  const upstream = await fetch(target, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, init);
+  } catch (e) {
+    // 连接失败 (服务未启动 / 端口错误) → 直接给引导, 不透明 500
+    return gatewayGuideResponse(
+      BASE,
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+  // 上游 404/502: 探活确认目标是不是 veya —— 不是则替换为引导错误
+  if (upstream.status === 404 || upstream.status === 502) {
+    const probe = await probeGateway(BASE);
+    if (!probe.ok) {
+      return gatewayGuideResponse(BASE, probe.detail);
+    }
+  }
   const text = await upstream.text();
   const headers: Record<string, string> = {
     "content-type": upstream.headers.get("content-type") ?? "application/json",

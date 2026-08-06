@@ -23,6 +23,8 @@ services:
       - veya-data:/home/soffy/.veya
       - ../veya:/app/veya:ro
       - ../platform:/app/platform:ro
+      - ../server:/app/server:ro
+      - ../veya_loop:/app/veya_loop:ro
       # 多引擎 CLI (node 生态 + claude 版本) 与凭据目录
       - /home/soffy/.nvm:/home/soffy/.nvm:ro
       - /home/soffy/.local:/home/soffy/.local:ro

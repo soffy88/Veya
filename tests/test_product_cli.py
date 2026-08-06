@@ -189,3 +189,20 @@ def test_llm_remote_without_key_still_stubs():
 def test_providers_catalog_complete():
     assert set(PROVIDERS) == {"openai", "anthropic", "dashscope", "deepseek", "ollama"}
     assert PROVIDERS["ollama"]["env"] == ""     # 本地模型无 key env
+
+
+# ---------------------------------------------------------------------------
+# veya start 端口自动避让
+# ---------------------------------------------------------------------------
+
+def test_find_free_port_avoids_busy(monkeypatch):
+    """8765 被外部服务占用时, start 自动避让到下一个空闲端口。"""
+    from cli.product import _find_free_port
+
+    busy = {8765, 8766, 8767}
+    monkeypatch.setattr("cli.product._port_in_use", lambda port: port in busy)
+    assert _find_free_port(8765) == 8768
+    assert _find_free_port(9000) == 9000   # 空闲直接使用
+    # 全部被占 → 回退起始端口 (uvicorn 会给出 bind 错误, 但逻辑不崩)
+    monkeypatch.setattr("cli.product._port_in_use", lambda port: True)
+    assert _find_free_port(8765) == 8765

@@ -249,8 +249,20 @@ def run_init(argv: list[str]) -> int:
 # veya start
 # ---------------------------------------------------------------------------
 
+def _find_free_port(start: int, *, tries: int = 20) -> int:
+    """从 start 起探测第一个空闲端口 (8765 被外部服务占用时自动避让)。"""
+    for port in range(start, start + tries):
+        if not _port_in_use(port):
+            return port
+    return start
+
+
 def run_start(argv: list[str]) -> int:
-    """veya start — 一键启动本地服务 (HTTP + SSE) 并打开浏览器。"""
+    """veya start — 一键启动本地服务 (HTTP + SSE) 并打开浏览器。
+
+    端口自动避让: 默认 8765 被占用时自动 +1 探测 (最多 20 个), 并提示
+    前端设置 VEYA_GATEWAY 指向实际端口。
+    """
     import argparse
 
     p = argparse.ArgumentParser(prog="veya start", description="一键启动本地服务")
@@ -260,9 +272,14 @@ def run_start(argv: list[str]) -> int:
     p.add_argument("--open", action="store_true", help="显式打开浏览器 (默认自动)")
     args = p.parse_args(argv)
 
-    url = f"http://{args.host}:{args.port}"
+    port = _find_free_port(args.port)
+    if port != args.port:
+        print(f"⚠  端口 {args.port} 被占用, 自动避让 → {port}")
+    url = f"http://{args.host}:{port}"
     print(f"veya 服务启动中 → {url}  (Ctrl-C 停止)")
-    print(f"  API: {url}/api/v1/agent/stream (SSE)  健康检查: {url}/healthz")
+    print(f"  API: {url}/api/v1/agent/stream (SSE)  健康检查: {url}/api/v1/mcp/health")
+    if port != 8765:
+        print(f"  前端接入: 在 apps/web/.env 设置 VEYA_GATEWAY={url} 后重启前端")
 
     open_browser = not args.no_browser and sys.stdin.isatty()
     if args.open:
@@ -279,7 +296,7 @@ def run_start(argv: list[str]) -> int:
 
     from veya.server.app import app
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(app, host=args.host, port=port, log_level="info")
     return 0
 
 
