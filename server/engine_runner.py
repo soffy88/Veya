@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 from collections.abc import AsyncIterator
 
@@ -25,9 +26,16 @@ ENGINE_ALIASES = {
     "master": "master",
 }
 
+# 容器环境检测 (docker 镜像设 VEYA_WORKSPACE=/app; /.dockerenv 兜底)
+# 容器里即使挂载了宿主 CLI 二进制 (~/.local 等), 在容器内执行外部 CLI 引擎
+# 也不可靠 (凭据/网络/运行时差异) → 只允许 master 主脑
+_IN_CONTAINER: bool = bool(os.environ.get("VEYA_WORKSPACE")) or os.path.exists("/.dockerenv")
+
 
 def available_engines() -> dict[str, str]:
-    """本机可用的引擎及版本 (探测 which)。"""
+    """本机可用的引擎及版本 (探测 which)。容器环境只返回 master。"""
+    if _IN_CONTAINER:
+        return {"master": "builtin"}
     out: dict[str, str] = {}
     for eng, bin_name in ENGINE_ALIASES.items():
         if eng == "master":
@@ -37,6 +45,13 @@ def available_engines() -> dict[str, str]:
         if path:
             out[eng] = path
     return out
+
+
+def _container_engine_block(engine: str) -> str | None:
+    """容器内非 master 引擎 → 返回拒绝原因, 否则 None。"""
+    if _IN_CONTAINER and engine != "master":
+        return f"容器环境不支持外部 CLI 引擎 '{engine}' (仅 master 可用)"
+    return None
 
 
 def build_argv(engine: str, prompt: str, *,
@@ -80,6 +95,8 @@ async def run_engine(
     """聚合执行: 引擎跑完返回全文 (run 契约)。"""
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
+    if reason := _container_engine_block(engine):
+        return {"ok": False, "error": reason}
     if shutil.which(engine) is None:
         return {"ok": False, "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})"}
     argv = build_argv(engine, prompt, model=model, streaming=False)
@@ -118,6 +135,9 @@ async def stream_engine(
     """
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
+    if reason := _container_engine_block(engine):
+        yield {"type": "engine_error", "engine": engine, "error": reason}
+        return
     # CLI 缺失 → 结构化错误事件 (而非 subprocess 抛异常 → 500/520)
     if shutil.which(engine) is None:
         yield {
