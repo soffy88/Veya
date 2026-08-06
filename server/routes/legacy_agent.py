@@ -13,10 +13,22 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse  # noqa: F401
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["legacy-agent"])
+
+
+@router.get("/api/v1/engines")
+async def list_engines() -> dict:
+    """本机可用的执行引擎 (master 恒可用; 其余需对应 CLI 已安装)。
+
+    前端据此禁用不可用引擎, 避免选到后 520/500。
+    """
+    from server.engine_runner import available_engines
+
+    return {"engines": available_engines()}
+
 
 
 class LegacyAgentRunRequest(BaseModel):

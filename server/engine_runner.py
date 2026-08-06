@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-from typing import AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
 
 ENGINE_ALIASES = {
     "claude": "claude",
@@ -26,9 +26,9 @@ ENGINE_ALIASES = {
 }
 
 
-def available_engines() -> Dict[str, str]:
+def available_engines() -> dict[str, str]:
     """本机可用的引擎及版本 (探测 which)。"""
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for eng, bin_name in ENGINE_ALIASES.items():
         if eng == "master":
             out[eng] = "builtin"
@@ -40,8 +40,8 @@ def available_engines() -> Dict[str, str]:
 
 
 def build_argv(engine: str, prompt: str, *,
-                model: Optional[str] = None,
-                streaming: bool = False) -> List[str]:
+                model: str | None = None,
+                streaming: bool = False) -> list[str]:
     """构造引擎 CLI 非交互 argv (无 shell, 无注入面)。
 
     streaming=True 时 claude 用 stream-json (逐事件解析); run 聚合模式用普通文本输出。
@@ -73,13 +73,15 @@ async def run_engine(
     engine: str,
     prompt: str,
     *,
-    model: Optional[str] = None,
+    model: str | None = None,
     cwd: str | None = None,
     timeout_s: float = 600.0,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """聚合执行: 引擎跑完返回全文 (run 契约)。"""
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
+    if shutil.which(engine) is None:
+        return {"ok": False, "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})"}
     argv = build_argv(engine, prompt, model=model, streaming=False)
     proc = await asyncio.create_subprocess_exec(
         *argv,
@@ -106,16 +108,24 @@ async def stream_engine(
     engine: str,
     prompt: str,
     *,
-    model: Optional[str] = None,
+    model: str | None = None,
     cwd: str | None = None,
     timeout_s: float = 600.0,
-) -> AsyncIterator[Dict[str, object]]:
+) -> AsyncIterator[dict[str, object]]:
     """流式执行: 逐行产出 {type: text_delta|engine_done|engine_error, ...}。
 
     claude stream-json 输出逐行 JSON, 提取 text 块; 其余引擎按行透传。
     """
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
+    # CLI 缺失 → 结构化错误事件 (而非 subprocess 抛异常 → 500/520)
+    if shutil.which(engine) is None:
+        yield {
+            "type": "engine_error",
+            "engine": engine,
+            "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})",
+        }
+        return
     argv = build_argv(engine, prompt, model=model, streaming=True)
     proc = await asyncio.create_subprocess_exec(
         *argv,
