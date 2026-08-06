@@ -286,15 +286,16 @@ class CodebaseMemoryConnector:
 
         out = []
         for spec in await self._client.list_tools():
-            name = f"mcp_codebase_{spec['name']}"
+            adapter = make_mcp_tool_adapter(spec, self._client)
             params = (spec.get("inputSchema") or {}).get("properties", {})
             required = (spec.get("inputSchema") or {}).get("required", [])
             out.append(
                 {
-                    "name": name,
-                    "description": spec.get("description", ""),
-                    "parameters": {"type": "object", "properties": params, "required": required},
-                    "func": make_mcp_tool_adapter(spec, self._client),
+                    "name": f"mcp_codebase_{spec['name']}",   # 统一命名空间
+                    "description": adapter.description,
+                    "parameters": {"type": "object", "properties": params,
+                                    "required": required},
+                    "func": adapter.callable,                  # ToolAdapter.callable
                 }
             )
         return out
@@ -338,4 +339,62 @@ def get_connector(workspace_root: str | Path | None = None) -> CodebaseMemoryCon
     return _connector
 
 
-__all__ = ["CodebaseMemoryConnector", "CodebaseMemoryError", "get_connector"]
+async def wire_master_tools(connector: CodebaseMemoryConnector | None = None) -> int:
+    """把 MCP 工具批量注册进 master_tools (主脑 LLM 工具面)。
+
+    幂等: 已注册的工具跳过 (重复 register 会 ValueError)。
+    返回本次新注册数量。
+    """
+    from server.tool_registry import master_tools
+
+    connector = connector or get_connector()
+    adapters = await connector.tool_adapters()
+    added = 0
+    for a in adapters:
+        if master_tools.has(a["name"]):
+            continue
+        master_tools.register(
+            a["name"], a["description"], a["parameters"], a["func"],
+            max_result_chars=16000,   # 代码图谱结果可能较大, 放宽截断
+        )
+        added += 1
+    return added
+
+
+def schedule_daily_reindex(scheduler: Any, *, hour: int = 3, minute: int = 17) -> str:
+    """注册每日增量索引任务 (APScheduler). 返回 job id。
+
+    已存在同 id job → replace (幂等)。增量模式: 已索引后 ensure_indexed 自动走
+    mode=incremental。索引失败只记日志, 不炸调度器。
+    """
+    import logging
+
+    log = logging.getLogger("codebase_memory")
+    job_id = "cbm_daily_reindex"
+    if scheduler.get_job(job_id):
+        return job_id
+
+    async def _reindex_job() -> None:
+        try:
+            connector = get_connector()
+            if not connector.ready:
+                await connector.start()
+            state = await connector.ensure_indexed()
+            log.info("codebase-memory 每日增量索引完成: %s", state)
+        except Exception as exc:
+            log.warning("codebase-memory 每日索引失败: %s", exc)
+
+    scheduler.add_job(
+        _reindex_job,
+        trigger="cron",
+        hour=hour,
+        minute=minute,
+        id=job_id,
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    return job_id
+
+
+__all__ = ["CodebaseMemoryConnector", "CodebaseMemoryError", "get_connector",
+           "schedule_daily_reindex", "wire_master_tools"]

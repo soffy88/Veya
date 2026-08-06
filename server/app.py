@@ -68,10 +68,12 @@ async def lifespan(app: FastAPI):
     automata = get_automata()
     # codebase-memory-mcp sidecar (二进制缺失时优雅降级, 不阻塞启动)
     try:
-        from server.codebase_memory import get_connector
+        from server.codebase_memory import get_connector, schedule_daily_reindex, wire_master_tools
 
         connector = get_connector()
         await connector.start()
+        await wire_master_tools()                       # mcp_codebase_* → 主脑工具面
+        schedule_daily_reindex(automata.scheduler)      # 每日 03:17 增量索引
     except Exception:
         pass
     yield
