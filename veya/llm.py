@@ -234,6 +234,7 @@ def prepare_messages_for_provider(messages: list, provider: str) -> list:
     ``{"type": "image", "source": {...}}`` format and list content wrapped as
     text blocks.
     """
+    messages = _strip_empty_tool_calls(messages)
     if provider != "anthropic":
         return messages
     out: list[dict] = []
@@ -242,6 +243,21 @@ def prepare_messages_for_provider(messages: list, provider: str) -> list:
         if isinstance(content, list) and msg.get("role") in ("user", "assistant"):
             msg = dict(msg)
             msg["content"] = _to_anthropic_content_blocks(content)
+        out.append(msg)
+    return out
+
+
+def _strip_empty_tool_calls(messages: list) -> list:
+    """删除 ``tool_calls: []`` 空数组键 (所有 provider 统一兜底)。
+
+    DeepSeek 等 openai 兼容 API 拒绝空数组: ``messages[i].tool_calls: []`` →
+    HTTP 400 invalid_request_error。历史消息构造方 (coordinator/assembly) 可能
+    写入空数组 (``message.get("tool_calls") or []``), 发送前必须剥掉该键。
+    """
+    out: list = []
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("tool_calls") == []:
+            msg = {k: v for k, v in msg.items() if k != "tool_calls"}
         out.append(msg)
     return out
 
