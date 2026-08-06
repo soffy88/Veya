@@ -11,7 +11,7 @@ services:
       dockerfile: deploy/Dockerfile.backend
     container_name: veya-backend
     ports:
-      - "8765:8765"
+      - "8767:8765"
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-anthropic}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
