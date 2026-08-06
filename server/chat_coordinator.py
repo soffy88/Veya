@@ -203,9 +203,11 @@ async def chat(
         _persist_chat(session_id)
         return {"content": content, "cost_usd": round(total_cost, 6)}
 
-    history.append(
-        {"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls}
-    )
+    # 空 tool_calls 不写字段 (DeepSeek 等拒绝 tool_calls: []) — llm.py 发送前另有兜底
+    turn: dict = {"role": "assistant", "content": message.get("content") or ""}
+    if tool_calls:
+        turn["tool_calls"] = tool_calls
+    history.append(turn)
     _persist_chat(session_id)
     for tool_call in tool_calls:
         fn = tool_call.get("function") or {}
