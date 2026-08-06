@@ -20,9 +20,16 @@ services:
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:-veya-dev-secret}
     volumes:
-      - veya-data:/root/.veya
+      - veya-data:/home/soffy/.veya
       - ../veya:/app/veya:ro
       - ../platform:/app/platform:ro
+      # 多引擎 CLI (node 生态 + claude 版本) 与凭据目录
+      - /home/soffy/.nvm:/home/soffy/.nvm:ro
+      - /home/soffy/.local:/home/soffy/.local:ro
+      - /home/soffy/.claude:/home/soffy/.claude:rw
+      - /home/soffy/.claude.json:/home/soffy/.claude.json:ro
+      - /home/soffy/.codex:/home/soffy/.codex:rw
+      - /home/soffy/.pi:/home/soffy/.pi:rw
     restart: unless-stopped
     networks:
       - veya-net
