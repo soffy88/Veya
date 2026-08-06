@@ -10,6 +10,7 @@ from server.assembly import Infra
 from server.routes.advanced_visualization import router as advanced_visualization_router
 from server.routes.agent import router as agent_router
 from server.routes.agent_collaboration import router as agent_collaboration_router
+from server.routes.adversarial import router as adversarial_router
 from server.routes.analysis import router as analysis_router
 from server.routes.auth import router as auth_router
 from server.routes.automata import router as automata_router
@@ -43,6 +44,14 @@ from server.routes.vault import compat_router as vault_compat_router
 from server.routes.vault import router as vault_router
 from server.routes.visualization import router as visualization_router
 from server.routes.vscode import router as vscode_router
+from server.routes.static_invariant import router as static_invariant_router
+from server.routes.evolution import router as evolution_router
+from server.routes.neuro_symbolic import router as neuro_symbolic_router
+from server.routes.operator import router as operator_router
+from server.routes.observer import router as observer_router
+from server.routes.closed_loop import router as closed_loop_router
+from server.routes.threat_model import router as threat_model_router
+from server.routes.audit import router as audit_router
 from server.sse import router as sse_router
 
 
@@ -109,6 +118,15 @@ app.include_router(research_router)
 app.include_router(resilient_router)
 app.include_router(sessions_router)
 app.include_router(projects_router)
+app.include_router(static_invariant_router)
+app.include_router(adversarial_router)
+app.include_router(evolution_router)
+app.include_router(neuro_symbolic_router)
+app.include_router(operator_router)
+app.include_router(observer_router)
+app.include_router(closed_loop_router)
+app.include_router(threat_model_router)
+app.include_router(audit_router)
 app.include_router(sse_router)
 
 

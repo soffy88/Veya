@@ -319,3 +319,191 @@ def test_vault_routes_reachable(tmp_path, monkeypatch):
     resp = client.post("/api/v1/tasks/ghost/approve", json={"approved": True})
     assert resp.status_code == 404
     client.close()
+
+
+# =========================================================================
+# 三、HITL 闭环修复: 事件送达悬浮窗 → 审批按钮 → 协程唤醒 → 密钥注入
+# =========================================================================
+
+
+@pytest.mark.asyncio
+async def test_hitl_toast_approve_resolves_vault_task(vault, monkeypatch):
+    """断点1/2/3 修复: vault_hitl → 通知中心 HITL_REQUIRED 悬浮窗 →
+    approve 端点 → resolve_approval 唤醒挂起协程 → 密钥隐式注入物理回调。"""
+    from server.notification_center import global_notifier
+    from server.routes.notifications import ApproveRequest, approve_notification
+
+    # 审批端点经 server.zero_trust_vault.global_vault 解析 — 测试注入独立实例
+    monkeypatch.setattr("server.zero_trust_vault.global_vault", vault)
+
+    vault.set_secret("binance_prod_key", "BINANCE_REAL_KEY_12345!@#")
+    captured = {}
+
+    async def fake_binance(**kwargs):
+        captured["secret"] = kwargs.pop("_injected_secret")
+        return "ORDER_FILLED"
+
+    q = global_notifier.connect()
+    try:
+        task = asyncio.create_task(
+            vault.execute_secure_tool(
+                tool_name="binance_place_order",
+                intent_args={"symbol": "BTCUSDT", "qty": 0.1},
+                required_vault_id="binance_prod_key",
+                physical_tool_callback=fake_binance,
+            )
+        )
+
+        # 1. 断点1/2: 悬浮窗送达全局通知中心(所有 tab 可见, 带 task_id)
+        notif = await asyncio.wait_for(q.get(), timeout=5)
+        assert notif["type"] == "HITL_REQUIRED"
+        assert "请求动用生产密钥" in notif["title"]
+        task_id = notif["payload"]["task_id"]
+        assert task_id
+        assert notif["payload"]["action"] == "binance_place_order"
+
+        # 2. 断点3: 前端按钮 → 通知中心审批端点 → 唤醒挂起协程
+        resp = await approve_notification(notif["id"], ApproveRequest(approved=True))
+        assert resp["status"] == "ok"
+        assert resp["vault_task_resolved"] is True
+
+        # 3. 协程恢复: 真实密钥隐式注入, 大模型全程瞎眼
+        result = await asyncio.wait_for(task, timeout=5)
+        assert "授权执行完毕" in result
+        assert captured["secret"] == "BINANCE_REAL_KEY_12345!@#"
+
+        # 4. vault_resolved 事件 → 悬浮窗自动 dismiss
+        frame = await asyncio.wait_for(q.get(), timeout=5)
+        assert frame["type"] == "DISMISS"
+        assert frame["payload"]["id"] == notif["id"]
+    finally:
+        global_notifier.disconnect(q)
+
+
+@pytest.mark.asyncio
+async def test_hitl_toast_reject_via_endpoint(vault, monkeypatch):
+    """断点3 拒绝路径: Reject 按钮同样唤醒协程, 物理层绝不执行。"""
+    from server.notification_center import global_notifier
+    from server.routes.notifications import ApproveRequest, approve_notification
+
+    monkeypatch.setattr("server.zero_trust_vault.global_vault", vault)
+    vault.set_secret("k", "s")
+
+    async def fake(**kwargs):
+        raise AssertionError("被拒绝的调用不应执行物理层")
+
+    q = global_notifier.connect()
+    try:
+        task = asyncio.create_task(
+            vault.execute_secure_tool(
+                tool_name="x", intent_args={}, required_vault_id="k", physical_tool_callback=fake
+            )
+        )
+        notif = await asyncio.wait_for(q.get(), timeout=5)
+        resp = await approve_notification(notif["id"], ApproveRequest(approved=False))
+        assert resp["vault_task_resolved"] is True
+        result = await asyncio.wait_for(task, timeout=5)
+        assert "拒绝授权" in result
+    finally:
+        global_notifier.disconnect(q)
+
+
+@pytest.mark.asyncio
+async def test_hitl_toast_timeout_auto_dismiss(tmp_path):
+    """审批超时 → 自动拒绝 + 悬浮窗自动关闭(不留陈旧审批卡片)。"""
+    from server.notification_center import global_notifier
+
+    vault = VeyaVault(vault_dir=tmp_path / "vault", approval_timeout=0.2)
+    vault.set_secret("k", "s")
+
+    async def fake(**kwargs):
+        return "ok"
+
+    q = global_notifier.connect()
+    try:
+        result = await vault.execute_secure_tool(
+            tool_name="x", intent_args={}, required_vault_id="k", physical_tool_callback=fake
+        )
+        assert "审批超时" in result
+
+        notif = await asyncio.wait_for(q.get(), timeout=5)
+        assert notif["type"] == "HITL_REQUIRED"
+        frame = await asyncio.wait_for(q.get(), timeout=5)
+        assert frame["type"] == "DISMISS"
+        assert frame["payload"]["id"] == notif["id"]
+    finally:
+        global_notifier.disconnect(q)
+
+
+# =========================================================================
+# 四、物理工具接线(缺口修复): 金库注册真实物理回调
+# =========================================================================
+
+
+def test_vault_physical_tools_registered():
+    """缺口修复: 宿主接线把 feishu_webhook / binance_signed_request 注册进主脑金库。"""
+    coord = MasterCoordinator(llm_fn=lambda **kw: {})
+    callbacks = coord._agent._vault_tool_callbacks
+    assert "feishu_webhook" in callbacks
+    assert "binance_signed_request" in callbacks
+
+
+@pytest.mark.asyncio
+async def test_feishu_physical_callback_injects_secret(monkeypatch):
+    """飞书 webhook 物理推送: webhook URL 经 _injected_secret 隐式注入。"""
+    from server.vault_physical_tools import _feishu_webhook_callback
+
+    captured = {}
+
+    class FakeAdapter:
+        def __init__(self, webhook_url):
+            captured["url"] = webhook_url
+
+        async def push(self, content, payload=None):
+            captured["content"] = content
+            return "✅ 已成功分发至飞书群组。"
+
+    monkeypatch.setattr("server.channels.adapters.FeishuAdapter", FakeAdapter)
+    result = await _feishu_webhook_callback(
+        content="研报", title="回测日报", _injected_secret="https://open.feishu.cn/hook/SECRET"
+    )
+    assert captured["url"] == "https://open.feishu.cn/hook/SECRET"
+    assert captured["content"] == "研报"
+    assert "飞书" in result
+
+
+@pytest.mark.asyncio
+async def test_binance_physical_callback_signed_request(monkeypatch):
+    """Binance 私有接口: HMAC-SHA256 签名 + API key 头, 密钥绝不外泄。"""
+    from server.vault_physical_tools import _binance_signed_request_callback
+
+    captured = {}
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        text = '{"balances":[]}'
+
+    class FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def request(self, method, url, headers=None):
+            captured.update(method=method, url=url, headers=headers)
+            return FakeResp()
+
+    monkeypatch.setattr("httpx.AsyncClient", FakeClient)
+    out = await _binance_signed_request_callback(
+        path="/api/v3/account", query="", _injected_secret="MY_API_KEY:MY_SECRET"
+    )
+    assert captured["headers"]["X-MBX-APIKEY"] == "MY_API_KEY"
+    assert "timestamp=" in captured["url"]
+    assert "signature=" in captured["url"]
+    assert "MY_SECRET" not in out  # 签名用后即弃, 明文永不外泄
