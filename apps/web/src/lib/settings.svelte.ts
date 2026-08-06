@@ -24,6 +24,25 @@ export interface ProviderDef {
 	custom?: boolean;
 }
 
+/** 快捷选择器 (cindy 风格): 顶部 provider 按钮 → 模型列表 */
+export const PICKER_QUICK = [
+	{ provider: "anthropic", label: "Claude" },
+	{ provider: "openai", label: "Codex" },
+	{ provider: "pi", label: "Pi" },
+] as const;
+
+/** 各 provider 的常用模型清单 (点选即用; 仍可手动输入任意模型名) */
+export const MODEL_PRESETS: Record<string, string[]> = {
+	anthropic: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+	openai: ["gpt-5.1-codex", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"],
+	dashscope: ["qwen-plus", "qwen-max", "qwen-turbo"],
+	deepseek: ["deepseek-chat", "deepseek-reasoner"],
+	openrouter: ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.1-8b"],
+	moonshot: ["moonshot-v1-8k", "moonshot-v1-32k"],
+	zhipu: ["glm-4-flash", "glm-4-plus"],
+	pi: ["llama3.1-8b", "qwen2.5-7b", "deepseek-r1-7b"],
+};
+
 export const BUILTIN_PROVIDERS: ProviderDef[] = [
 	{ id: "dashscope", label: "DashScope · Qwen", defaultModel: "qwen-plus" },
 	{ id: "anthropic", label: "Anthropic · Claude", defaultModel: "claude-haiku-4-5-20251001" },
