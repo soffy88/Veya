@@ -78,7 +78,12 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://172.23.229.195:3000",
+        # Tauri 桌面版 WebView origin (Linux/macOS/Windows)
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
     ],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

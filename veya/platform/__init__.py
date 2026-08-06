@@ -33,10 +33,39 @@ _3O_ROOT = _PROJECT_ROOT / "platform" / "3O"
 _injected: set[str] = set()
 
 
+def _candidate_3o_roots() -> list[Path]:
+    """主库挂载根的候选位置 (正常仓库 / PyInstaller 打包产物)。"""
+    roots: list[Path] = []
+    # 1. 源码仓库: <repo>/platform/3O
+    roots.append(_3O_ROOT)
+    # 2. PyInstaller onedir: __file__ 在归档内不可用 → sys._MEIPASS 下的 datas 布局
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        roots.append(Path(meipass) / "veya" / "platform" / "3O")
+        roots.append(Path(meipass) / "platform" / "3O")
+    # 去重保序
+    seen: set[str] = set()
+    out: list[Path] = []
+    for p in roots:
+        key = str(p)
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
+
+
+def _resolve_3o_root() -> Path:
+    for root in _candidate_3o_roots():
+        if (root / "obase").is_dir():
+            return root
+    return _3O_ROOT
+
+
 def _ensure_paths() -> None:
     """Idempotently add each main-library package dir to sys.path."""
+    base = _resolve_3o_root()
     for lib in _MAINLIBS:
-        pkg = _3O_ROOT / lib
+        pkg = base / lib
         if pkg.is_dir() and str(pkg) not in sys.path and str(pkg) not in _injected:
             sys.path.insert(0, str(pkg))
             _injected.add(str(pkg))
@@ -44,12 +73,12 @@ def _ensure_paths() -> None:
 
 def available(lib: str = "obase") -> bool:
     """True if the given main library is mounted (submodule present)."""
-    return (_3O_ROOT / lib).is_dir()
+    return (_resolve_3o_root() / lib).is_dir()
 
 
 def root(lib: str = "obase") -> Path:
     """Absolute path to a mounted main library, or raise a clear error."""
-    p = _3O_ROOT / lib
+    p = _resolve_3o_root() / lib
     if not p.is_dir():
         raise RuntimeError(
             f"3O main library '{lib}' is not mounted. Clone with "
