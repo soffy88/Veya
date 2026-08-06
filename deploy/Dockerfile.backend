@@ -45,6 +45,12 @@ RUN pip install --no-cache-dir . && pip install --no-cache-dir -e ./veya_loop \
 ENV PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi
 ENV VEYA_WORKSPACE=/app
 
+# 多引擎执行: 与宿主 uid 对齐 (挂载的 CLI 凭据可写), 非 root 运行
+RUN useradd -m -u 1000 soffy && mkdir -p /home/soffy && chown soffy:soffy /home/soffy
+USER soffy
+ENV HOME=/home/soffy \
+    PATH=/usr/local/bin:/usr/bin:/bin:/home/soffy/.nvm/versions/node/v26.4.0/bin:/home/soffy/.local/bin
+
 EXPOSE 8765
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
