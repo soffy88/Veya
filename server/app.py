@@ -52,6 +52,7 @@ from server.routes.observer import router as observer_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.threat_model import router as threat_model_router
 from server.routes.audit import router as audit_router
+from server.routes.legacy_agent import router as legacy_agent_router
 from server.sse import router as sse_router
 
 
@@ -127,6 +128,7 @@ app.include_router(observer_router)
 app.include_router(closed_loop_router)
 app.include_router(threat_model_router)
 app.include_router(audit_router)
+app.include_router(legacy_agent_router)
 app.include_router(sse_router)
 
 
