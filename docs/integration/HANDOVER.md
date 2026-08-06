@@ -42,7 +42,30 @@ veya_loop (装配包)        veya_loop/src/veya_loop/{__init__,hardened,executio
 - **引擎挂载**：容器 USER soffy(uid 1000)，挂载 `~/.nvm` `~/.local` `~/.claude` `~/.claude.json` `~/.codex` `~/.pi`，veya-data 卷已 chown 1000
 - **引擎实测**：pi ✅（`1+1=2`）；claude/codex 链路通但 API 403/refused（宿主账号侧）
 - **域名** `veya.aiinote.com` → Caddy → 容器；`/api/v1/agent/*` 旧协议兼容路由在 `server/routes/legacy_agent.py`
-- **端口占用警示**：8765=无关服务(勿动)、8010=aegis(勿动)、systemd veya-gateway 已 dead（建议 root 执行 `sudo systemctl disable veya-gateway && sudo rm -f /etc/systemd/system/veya-gateway.service`）
+- **端口占用警示**：8765=无关服务(勿动)、8010=aegis(勿动)、
+  **veya-gateway.service 已失效但未停**（11:36 起循环 exit 3，建议 root 执行
+  `sudo systemctl disable --now veya-gateway && sudo rm -f /etc/systemd/system/veya-gateway.service`）
+
+### 4.1 生产事故修复记录（2026-08-06 520/524）
+
+- **现象**：veya.aiinote.com 报 HTTP 520/524（CF 错误码）；任务返回 "LLM provider not
+  configured — shim response"
+- **链路真相**：域名 → CF 边缘 → **aegis-cloudflared**（ingressRule=15）→
+  **aegis-caddy:8093** → `172.18.0.1:8767`（宿主）—— 不是 HANDOVER 早先推断的 Caddy 文件
+- **根因 1（网络丢失）**：veya-backend 容器 `NetworkSettings.Networks={}`（端口 publish 全丢）——
+  rootless docker 网络驱动故障；宿主 veya-gateway（Restart=always、无 API key 环境）顶替 8767 →
+  master 引擎全 shim
+- **根因 2（隧道抖动）**：11:20-11:23 CF 边缘/cloudflared 连接重建窗口 → 520/524（6h 内 96 次
+  proxy 错误，集中在 10:21/11:22 两个窗口）
+- **修复（无 sudo，docker 组权限）**：`kill -9` 宿主 veya-gateway 进程 → 立即
+  `docker network connect deploy_veya-net veya-backend`（端口重新 publish 8767/9120）→
+  systemd 拉回失败进入循环（无害，需 sudo 收尾）
+- **验证**：公网 `engine=pi` 全链路真响应（1+1=2）；首页 200
+- **遗留（宿主账号侧）**：容器 `ANTHROPIC/OPENAI/DASHSCOPE_API_KEY` 全空（deploy/.env 不存在，
+  compose `${VAR:-}` 解析空）；ALIYUN_MAAS_API_KEY 对 dashscope 无效（invalid_api_key）。
+  master 引擎仍 shim —— 需真实 key 写入 deploy/.env 后
+  `docker compose -f deploy/docker-compose.yml up -d --force-recreate backend`；
+  前端默认 engine=master（settings.svelte.ts）且无引擎选择 UI
 
 ## 5. 测试基线
 
