@@ -152,6 +152,17 @@ async def knowledge_ep(req: KnowledgeRequest) -> dict[str, Any]:
 
 
 # =========================================================================
+# GET /api/v1/operators — 3O 算子账本 (delegate_to_genesis 固化查询)
+# =========================================================================
+
+@router.get("/api/v1/operators")
+async def operators_ledger() -> dict[str, Any]:
+    from server.operator_ledger import ledger_summary
+
+    return {"operators": ledger_summary()}
+
+
+# =========================================================================
 # POST /api/v1/browser/run — 浏览器自动化 (engine 选择 + 回退)
 #   engine=browser_use (默认): 自然语言目标; 未装/失败回退 omodul (playwright)
 # =========================================================================
