@@ -49,17 +49,17 @@ RUNTIME_LEDGER: dict[str, dict[str, str]] = {
     "prime_agent_runtime": {
         "layer": "内核运行时 (L1)",
         "desc": "prime-agent RLM 适配器: AgentRuntime 协议, 持久内核 + checkpoint/cognitive 自我优化",
-        "status": "pending",
+        "status": "registered",
     },
     "pi_bridge": {
         "layer": "工具链桥 (L2)",
         "desc": "pi CLI subprocess 桥: plugin_tool 包装 + provider 平级路由 + code_sandbox 隔离",
-        "status": "pending",
+        "status": "registered",
     },
     "agentscope_bridge": {
         "layer": "平台编排桥 (L3)",
         "desc": "agentscope 双向翻译: Event Bus / 中间件↔hooks / MCP 互注册 / Skill Hub 同步",
-        "status": "pending",
+        "status": "registered",
     },
 }
 

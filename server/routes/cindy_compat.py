@@ -158,8 +158,18 @@ async def knowledge_ep(req: KnowledgeRequest) -> dict[str, Any]:
 @router.get("/api/v1/operators")
 async def operators_ledger() -> dict[str, Any]:
     from server.operator_ledger import ledger_summary, runtime_ledger_summary
+    from server.runtimes import ALL_RUNTIMES
 
-    return {"operators": ledger_summary(), "runtimes": runtime_ledger_summary()}
+    healths = []
+    for rt in ALL_RUNTIMES:
+        try:
+            healths.append(await rt.health())
+        except Exception as e:
+            healths.append({"name": rt.name, "ok": False, "error": str(e)[:200]})
+
+    return {"operators": ledger_summary(),
+            "runtimes": runtime_ledger_summary(),
+            "runtime_health": healths}
 
 
 # =========================================================================
