@@ -41,7 +41,8 @@ python3.11 -m venv /tmp/veya-pack-venv
   httpx aiohttp python-dotenv python-multipart networkx structlog apscheduler \
   pandas numpy pyarrow pgmpy scipy pyyaml plotly matplotlib textual chardet \
   cryptography rapidfuzz argon2-cffi asyncpg tree-sitter tree-sitter-python \
-  anthropic openai mcp
+  anthropic openai mcp playwright
+/tmp/veya-pack-venv/bin/python -m playwright install chromium   # 浏览器进产物 (datas)
 /tmp/veya-pack-venv/bin/pyinstaller scripts/pyinstaller/veya_backend.spec \
   --noconfirm --distpath dist-backend --workpath build-pyinstaller
 # 产物: dist-backend/veya-backend/veya-backend (自包含, 无需系统 Python)

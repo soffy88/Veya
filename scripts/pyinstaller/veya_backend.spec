@@ -42,6 +42,11 @@ hiddenimports = [
     "anthropic",
     "openai",
     "mcp",
+    # 浏览器抓取通道 (playwright + 惰性子模块)
+    "playwright",
+    "playwright.async_api",
+    "playwright.sync_api",
+    "playwright.driver",
 ]
 
 a = Analysis(
@@ -50,11 +55,16 @@ a = Analysis(
     binaries=[],
     # veya.platform 按 <root>/platform/3O/<lib> 相对结构检查并注入 sys.path →
     # 把主库目录原样复制进产物 _internal/veya/platform/3O
-    datas=[(os.path.join(ROOT, "platform", "3O"), "veya/platform/3O")],
+    datas=[
+        (os.path.join(ROOT, "platform", "3O"), "veya/platform/3O"),
+        # Playwright 浏览器二进制: 打包前执行
+        #   PLAYWRIGHT_BROWSERS_PATH=$PW_PACK_DIR python -m playwright install chromium
+        (os.environ.get("PW_PACK_DIR", os.path.expanduser("~/.cache/ms-playwright")), "ms-playwright"),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[os.path.join(SPECPATH, "rthook_playwright.py")],
     excludes=["tkinter", "matplotlib.tests", "pandas.tests"],
     noarchive=False,
 )
