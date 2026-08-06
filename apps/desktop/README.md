@@ -1,60 +1,79 @@
-# Veya Desktop — Tauri 2.0 桌面壳
+# Veya Desktop — Tauri 2.0 桌面版
 
-极致的 Layer 4 桌面工程：Svelte 5 Runes（`$state`/`$derived`/`$effect`）驱动 UI，无
-Virtual DOM；通过 SSE/HTTP 直连 Veya Layer 4 Python 网关（3O 装配后端）。
+> 与网页版（`apps/web`）**同一份前端代码 + 同一份后端代码**，能力完全对齐：
+> 桌面窗口 = Tauri 壳 + 网页版静态构建（adapter-static）+ 内嵌启动的 Python 后端。
 
-UI 组件与 SSE 客户端 **100% 复用**自 monorepo 共享包 `@veya/ui`（`packages/ui`），
-与网页端（`apps/web`）共用同一份 `DecisionTrailView.svelte` 与 `stream.ts`。
-
-## 技术栈
-
-| 层 | 选型 |
-|----|------|
-| 桌面壳 | Tauri 2.0（Rust，`src-tauri/`） |
-| 构建 | Vite 6（`vite.config.ts`，集成 `@tailwindcss/vite`） |
-| UI | Svelte 5（Runes 响应式）+ TypeScript（strict） |
-| 样式 | Tailwind CSS v4（主题来自 `@veya/ui/theme.css`） |
-| 图标 | lucide-svelte |
-| 共享代码 | `@veya/ui`（workspace 链接） |
-
-## 目录
+## 架构
 
 ```
-src/
-├── app.css                        # 仅 @import "@veya/ui/theme.css"
-└── routes/
-    └── +page.svelte               # 控制台壳（任务输入/运行/停止/清空）
+┌────────────────────────────────────────────────┐
+│ Tauri 壳 (Rust, src-tauri/)                     │
+│  ├─ 启动时拉起后端:                             │
+│  │   1. resources/backend/veya-backend (PyInstaller, 下载即用) │
+│  │   2. <repo>/venv/bin/python -m veya.server.app (开发)       │
+│  │   3. python3 -m veya.server.app             │
+│  ├─ 健康检查: GET /api/v1/mcp/health (90s 超时) │
+│  └─ WebView 加载静态前端 (frontendDist)         │
+├─ 静态前端: apps/web/build-desktop/              │
+│   (apps/web 源码 adapter-static 构建,           │
+│    VITE_VEYA_ENDPOINT=http://127.0.0.1:8767 注入) │
+└─ 后端: veya L4 gateway (veya.server.app, 端口 8767) │
 ```
 
-共享组件与客户端位于 `packages/ui/src/`（`DecisionTrailView.svelte`、
-`stream.ts`、`index.ts`、`theme.css`）。
+- **退出清理**：窗口关闭 → 后端子进程 SIGTERM
+- **CORS**：后端已放行 `tauri://localhost` / `http(s)://tauri.localhost`（server/app.py）
+- **端口**：`VEYA_BACKEND_PORT` 可覆盖（默认 8767）
 
-## 开发
+## 构建
+
+### 1. 静态前端（网页版同一源码）
 
 ```bash
-# 1) 启动 Veya Layer 4 网关（默认 127.0.0.1:8765）
-cd ../../ && ./venv/bin/python -m veya.server.app
-#    若 8765 被占用：./venv/bin/python -m veya.server.app --port 8767
-
-# 2) 桌面开发（桌面壳 + Live Reload，依赖 Rust + webkit2gtk-4.1）
-pnpm tauri dev
-#    或仅前端（无 Rust 环境时）：
-VITE_VEYA_ENDPOINT="http://127.0.0.1:8767/api/v1/agent/stream" pnpm dev
+bash scripts/build-desktop-web.sh     # → apps/web/build-desktop/
+# 构建期间临时移走 +server.ts 路由 (adapter-static 不允许 server 路由), 结束后自动恢复
 ```
 
-`VITE_VEYA_ENDPOINT` 可覆盖网关地址（生产默认
-`http://127.0.0.1:8765/api/v1/agent/stream`）。
-
-## 校验
+### 2. 后端打包（PyInstaller，Linux 已验证）
 
 ```bash
-pnpm check    # svelte-check：0 errors / 0 warnings
-pnpm build    # adapter-static 产物 → build/
+python3.11 -m venv /tmp/veya-pack-venv
+/tmp/veya-pack-venv/bin/pip install pyinstaller fastapi "uvicorn[standard]" \
+  httpx aiohttp python-dotenv python-multipart networkx structlog apscheduler \
+  pandas numpy pyarrow pgmpy scipy pyyaml plotly matplotlib textual chardet \
+  cryptography rapidfuzz argon2-cffi asyncpg tree-sitter tree-sitter-python \
+  anthropic openai mcp
+/tmp/veya-pack-venv/bin/pyinstaller scripts/pyinstaller/veya_backend.spec \
+  --noconfirm --distpath dist-backend --workpath build-pyinstaller
+# 产物: dist-backend/veya-backend/veya-backend (自包含, 无需系统 Python)
+cp -r dist-backend/veya-backend/* apps/desktop/resources/backend/
 ```
 
-## 环境说明（本沙箱）
+> PyInstaller 要点（spec 已处理）：`pathex` 必须含仓库根（`import veya`）；
+> `datas` 复制 `platform/3O` 到 `veya/platform/3O`（veya.platform 按相对结构检查）；
+> hiddenimports 补主库惰性导入的第三方（cryptography/rapidfuzz/asyncpg/...）。
+> Python 3.14 与 PyInstaller 6.21 不兼容（dataclasses 循环导入）→ 用 3.11 打包。
 
-本机缺少 Rust 工具链（rustc/cargo）与 `webkit2gtk-4.1`/`rsvg2` 系统库，且 8765 端口
-被其他服务占用，故完整 `pnpm tauri dev`（原生窗口编译）无法在本沙箱执行；前端全链路
-（Vite Live Reload、SSE 决策轨迹渲染、run/stop/clear 交互）已通过 headless Chromium
-端到端验证。在具备上述依赖的开发机上运行 `pnpm tauri dev` 即可打开原生桌面窗口。
+### 3. Tauri 壳（Rust，需 cargo；CI 已配置三平台矩阵）
+
+```bash
+cd apps/desktop
+pnpm install
+pnpm tauri build     # beforeBuildCommand 自动执行 scripts/build-desktop-web.sh
+# 产物: apps/desktop/src-tauri/target/release/bundle/{AppImage,dmg,nsis}/...
+```
+
+## CI 发布（GitHub Actions）
+
+`.github/workflows/desktop.yml`：打 tag（`v*`）或手动触发 → 三平台（Ubuntu AppImage /
+macOS dmg / Windows nsis）→ 静态前端 + PyInstaller 后端 + Tauri 构建 →
+产物上传 artifact 并附加到 GitHub Release → 用户下载即用。
+
+## 开发调试
+
+```bash
+# 无头冒烟 (前后端健康检查, 不建窗口): 由 CI 冒烟使用
+# 后端单独跑 (开发):
+./venv/bin/python -m veya.server.app --host 127.0.0.1 --port 8767
+# 静态前端单独预览:
+cd apps/web && npx vite preview --outDir build-desktop --port 4173
+```
