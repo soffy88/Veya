@@ -157,9 +157,9 @@ async def knowledge_ep(req: KnowledgeRequest) -> dict[str, Any]:
 
 @router.get("/api/v1/operators")
 async def operators_ledger() -> dict[str, Any]:
-    from server.operator_ledger import ledger_summary
+    from server.operator_ledger import ledger_summary, runtime_ledger_summary
 
-    return {"operators": ledger_summary()}
+    return {"operators": ledger_summary(), "runtimes": runtime_ledger_summary()}
 
 
 # =========================================================================

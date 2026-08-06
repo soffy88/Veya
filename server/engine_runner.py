@@ -27,19 +27,51 @@ ENGINE_ALIASES = {
 }
 
 # 容器环境检测 (docker 镜像设 VEYA_WORKSPACE=/app; /.dockerenv 兜底)
-# 容器里即使挂载了宿主 CLI 二进制 (~/.local 等), 在容器内执行外部 CLI 引擎
-# 也不可靠 (凭据/网络/运行时差异) → 默认只允许 master 主脑;
-# pi 引擎例外: ~/.pi 凭据 + auth.json + 二进制全部挂载可达时放行 (精确探测)。
+# 容器里执行外部 CLI 引擎的前提 = 凭据 + 端点/出口双可达, 逐个精确探测:
+#   pi     → ~/.pi/agent/auth.json + 二进制
+#   claude → 凭据 + 二进制 + 出口代理可达 (Anthropic 拒容器直连 IP, 需宿主代理桥)
+#   codex  → ~/.codex + 二进制 + 端点可达 (宿主本地代理需桥接)
 _IN_CONTAINER: bool = bool(os.environ.get("VEYA_WORKSPACE")) or os.path.exists("/.dockerenv")
 
 
-def _container_pi_usable() -> bool:
-    """容器内 pi 精确探测: 凭据目录 + agent/auth.json + 二进制 PATH 全在。
+def _container_gateway_ip() -> str | None:
+    """容器 → 宿主网关 IP (探测可达网段)。"""
+    if not _IN_CONTAINER:
+        return None
+    import urllib.request
 
-    挂载 ≠ 可用: 仅二进制存在不算 (可能无凭据/路径语义错);
-    pi 认证在 ~/.pi/agent/auth.json (宿主实测 pi -p 可用);
-    三者齐全才算真可用。
+    for gw in ("192.168.16.1", "172.18.0.1", "172.17.0.1"):
+        try:
+            with urllib.request.urlopen(f"http://{gw}:10101/v1/models", timeout=0.5) as resp:
+                if resp.status in (200, 401, 403):
+                    return gw
+        except Exception:
+            continue
+    return None
+
+
+def _container_proxy_env() -> dict[str, str]:
+    """容器内外部引擎的代理 env: 宿主代理桥 (17890→7890) 经网关可达。
+
+    Anthropic 拒绝容器直连出口 IP (403 Request not allowed) — 宿主 claude
+    经本地代理 127.0.0.1:7890 成功; 容器内经桥 17890 走同一代理。
+    NO_PROXY 排除本地 (opencodex 桥/内部服务不走代理, ws 不会被破坏)。
     """
+    gw = _container_gateway_ip()
+    if not gw:
+        return {}
+    return {
+        "HTTP_PROXY": f"http://{gw}:17890",
+        "HTTPS_PROXY": f"http://{gw}:17890",
+        "http_proxy": f"http://{gw}:17890",
+        "https_proxy": f"http://{gw}:17890",
+        "NO_PROXY": "localhost,127.0.0.1,::1,.local,192.168.16.0/24,172.18.0.0/16",
+        "no_proxy": "localhost,127.0.0.1,::1,.local,192.168.16.0/24,172.18.0.0/16",
+    }
+
+
+def _container_pi_usable() -> bool:
+    """容器内 pi 精确探测: 凭据目录 + agent/auth.json + 二进制 PATH 全在。"""
     if not _IN_CONTAINER:
         return True
     pi_dir = os.path.expanduser("~/.pi")
@@ -51,16 +83,85 @@ def _container_pi_usable() -> bool:
     )
 
 
-def available_engines() -> dict[str, str]:
-    """本机可用的引擎及版本 (探测 which)。
+def _container_claude_usable() -> bool:
+    """容器内 claude 精确探测: 凭据 + 全局配置 + 二进制 + 代理桥可达。
 
-    容器环境: master + pi (凭据/二进制齐全时) — claude/codex 账号侧 403
-    未修, 容器内禁用 (诚实声明: 挂载物理层 ≠ 运行层可用)。
+    Anthropic 拒容器直连出口 IP (403) — 需宿主代理桥 (17890) 经网关可达;
+    桥不可达时诚实拒绝 (探测 _container_gateway_ip)。
+    """
+    if not _IN_CONTAINER:
+        return True
+    home = os.path.expanduser("~")
+    return (
+        os.path.isfile(os.path.join(home, ".claude", ".credentials.json"))
+        and os.path.isfile(os.path.join(home, ".claude.json"))
+        and shutil.which("claude") is not None
+        and _container_gateway_ip() is not None
+    )
+
+
+def _container_codex_usable() -> bool:
+    """容器内 codex 精确探测: 配置 + 二进制 + 端点可达。
+
+    codex 依赖宿主 opencodex 代理 (127.0.0.1:10100, 本机绑定) — 容器内经
+    socat/自定义桥 (0.0.0.0:10101 → 宿主 10100) 可达时放行, 否则诚实拒绝。
+    """
+    if not _IN_CONTAINER:
+        return True
+    home = os.path.expanduser("~")
+    if not (os.path.isfile(os.path.join(home, ".codex", "config.toml"))
+            and os.path.isfile(os.path.join(home, ".codex", "auth.json"))
+            and shutil.which("codex") is not None):
+        return False
+    return _container_codex_base_url() is not None
+
+
+def _container_codex_base_url() -> str | None:
+    """容器内 codex 应使用的 opencodex 端点 (探测可达桥)。
+
+    优先级: 宿主网关 192.168.16.1 / 172.18.0.1 / 本机 127.0.0.1。
+    探测带 Authorization (与 codex CLI 一致), 避免 403 误判。
+    """
+    if not _IN_CONTAINER:
+        return None
+    auth = None
+    try:
+        import json
+
+        auth_path = os.path.expanduser("~/.codex/auth.json")
+        if os.path.isfile(auth_path):
+            with open(auth_path, encoding="utf-8") as f:
+                auth = json.loads(f.read()).get("OPENAI_API_KEY")
+    except Exception:
+        pass
+    import urllib.request
+
+    for base in ("http://192.168.16.1:10101/v1", "http://172.18.0.1:10101/v1",
+                 "http://127.0.0.1:10100/v1"):
+        try:
+            req = urllib.request.Request(base + "/models")
+            if auth:
+                req.add_header("Authorization", f"Bearer {auth}")
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                if resp.status == 200:
+                    return base
+        except Exception:
+            continue
+    return None
+
+
+def available_engines() -> dict[str, str]:
+    """本机可用的引擎及版本 (探测 which + 凭据/端点)。
+
+    容器环境: master + 逐个精确探测 (pi/claude/codex 凭据+端点齐全才放行)。
     """
     if _IN_CONTAINER:
         out = {"master": "builtin"}
-        if _container_pi_usable():
-            out["pi"] = shutil.which("pi")
+        for eng, probe in (("pi", _container_pi_usable),
+                           ("claude", _container_claude_usable),
+                           ("codex", _container_codex_usable)):
+            if probe():
+                out[eng] = shutil.which(eng)
         return out
     out: dict[str, str] = {}
     for eng, bin_name in ENGINE_ALIASES.items():
@@ -74,14 +175,15 @@ def available_engines() -> dict[str, str]:
 
 
 def _container_engine_block(engine: str) -> str | None:
-    """容器内非 master 引擎 → 返回拒绝原因, 否则 None。
-
-    pi 例外: 凭据/二进制齐全时放行; 否则拒绝。
-    """
+    """容器内非 master 引擎 → 按精确探测返回拒绝原因, 否则 None。"""
     if _IN_CONTAINER and engine != "master":
-        if engine == "pi" and _container_pi_usable():
+        probes = {"pi": _container_pi_usable,
+                  "claude": _container_claude_usable,
+                  "codex": _container_codex_usable}
+        probe = probes.get(engine)
+        if probe and probe():
             return None
-        return f"容器环境不支持外部 CLI 引擎 '{engine}' (仅 master 可用)"
+        return f"容器环境不支持外部 CLI 引擎 '{engine}' (凭据/端点未就绪, 仅 master 可用)"
     return None
 
 
@@ -102,10 +204,15 @@ def build_argv(engine: str, prompt: str, *,
             argv += ["--model", model]
         return argv
     if engine == "codex":
-        # 非 git 仓库跳过信任检查 + 全自动(非交互不等待确认)
-        argv = ["codex", "exec", "--skip-git-repo-check", "--full-auto", prompt]
+        # 非 git 仓库跳过信任检查 + workspace-write 沙箱 (--full-auto 已弃用)
+        argv = ["codex", "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", prompt]
         if model:
             argv += ["-m", model]
+        if _IN_CONTAINER:
+            # 容器内覆盖 opencodex 端点 (宿主桥 10101, config.toml 写死 127.0.0.1 不可达)
+            base = _container_codex_base_url()
+            if base:
+                argv += ["-c", f"openai_base_url={base}"]
         return argv
     if engine == "pi":
         argv = ["pi", "-p", prompt]
@@ -134,6 +241,7 @@ async def run_engine(
     proc = await asyncio.create_subprocess_exec(
         *argv,
         cwd=cwd,
+        env={**os.environ, **(_container_proxy_env() if _IN_CONTAINER else {})},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -181,6 +289,7 @@ async def stream_engine(
     proc = await asyncio.create_subprocess_exec(
         *argv,
         cwd=cwd,
+        env={**os.environ, **(_container_proxy_env() if _IN_CONTAINER else {})},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
