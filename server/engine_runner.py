@@ -28,14 +28,40 @@ ENGINE_ALIASES = {
 
 # 容器环境检测 (docker 镜像设 VEYA_WORKSPACE=/app; /.dockerenv 兜底)
 # 容器里即使挂载了宿主 CLI 二进制 (~/.local 等), 在容器内执行外部 CLI 引擎
-# 也不可靠 (凭据/网络/运行时差异) → 只允许 master 主脑
+# 也不可靠 (凭据/网络/运行时差异) → 默认只允许 master 主脑;
+# pi 引擎例外: ~/.pi 凭据 + auth.json + 二进制全部挂载可达时放行 (精确探测)。
 _IN_CONTAINER: bool = bool(os.environ.get("VEYA_WORKSPACE")) or os.path.exists("/.dockerenv")
 
 
+def _container_pi_usable() -> bool:
+    """容器内 pi 精确探测: 凭据目录 + agent/auth.json + 二进制 PATH 全在。
+
+    挂载 ≠ 可用: 仅二进制存在不算 (可能无凭据/路径语义错);
+    pi 认证在 ~/.pi/agent/auth.json (宿主实测 pi -p 可用);
+    三者齐全才算真可用。
+    """
+    if not _IN_CONTAINER:
+        return True
+    pi_dir = os.path.expanduser("~/.pi")
+    creds = os.path.join(pi_dir, "agent", "auth.json")
+    return (
+        os.path.isdir(pi_dir)
+        and os.path.isfile(creds)
+        and shutil.which("pi") is not None
+    )
+
+
 def available_engines() -> dict[str, str]:
-    """本机可用的引擎及版本 (探测 which)。容器环境只返回 master。"""
+    """本机可用的引擎及版本 (探测 which)。
+
+    容器环境: master + pi (凭据/二进制齐全时) — claude/codex 账号侧 403
+    未修, 容器内禁用 (诚实声明: 挂载物理层 ≠ 运行层可用)。
+    """
     if _IN_CONTAINER:
-        return {"master": "builtin"}
+        out = {"master": "builtin"}
+        if _container_pi_usable():
+            out["pi"] = shutil.which("pi")
+        return out
     out: dict[str, str] = {}
     for eng, bin_name in ENGINE_ALIASES.items():
         if eng == "master":
@@ -48,8 +74,13 @@ def available_engines() -> dict[str, str]:
 
 
 def _container_engine_block(engine: str) -> str | None:
-    """容器内非 master 引擎 → 返回拒绝原因, 否则 None。"""
+    """容器内非 master 引擎 → 返回拒绝原因, 否则 None。
+
+    pi 例外: 凭据/二进制齐全时放行; 否则拒绝。
+    """
     if _IN_CONTAINER and engine != "master":
+        if engine == "pi" and _container_pi_usable():
+            return None
         return f"容器环境不支持外部 CLI 引擎 '{engine}' (仅 master 可用)"
     return None
 
