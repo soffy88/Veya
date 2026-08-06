@@ -59,3 +59,11 @@ site/
 # Node / pnpm workspace
 node_modules/
 .pnpm-store/
+
+# Product hygiene — never track runtime/OS noise
+*.log
+*.zip
+*Zone.Identifier
+.coverage
+.veya_ast_cache.json
+.next_log*

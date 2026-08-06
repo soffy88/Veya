@@ -5,19 +5,44 @@ WORKDIR /app
 
 # Install system deps (rg 供 grep 工具; git 供推库; playwright 浏览器可选)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ripgrep \
+    git curl ripgrep build-essential python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 依赖(从 pyproject 全量安装, 含 apscheduler/pandas/numpy/pyarrow/scipy/cryptography)
-COPY pyproject.toml README.md ./
 COPY veya/ ./veya/
 COPY server/ ./server/
 COPY platform/ ./platform/
 COPY tests/ ./tests/
-RUN pip install --no-cache-dir .
+COPY services/ ./services/
+COPY infra/ ./infra/
+COPY veya_loop/ ./veya_loop/
+# Agent OS 顶层包 — 逐目录 COPY (多源目录 COPY 会摊平文件到根, 遮蔽 stdlib)
+COPY agents/ ./agents/
+COPY auth/ ./auth/
+COPY cli/ ./cli/
+COPY commands/ ./commands/
+COPY config/ ./config/
+COPY hooks/ ./hooks/
+COPY mode/ ./mode/
+COPY permission/ ./permission/
+COPY projects/ ./projects/
+COPY registries/ ./registries/
+COPY security/ ./security/
+COPY session/ ./session/
+COPY streaming/ ./streaming/
+COPY subagent/ ./subagent/
+COPY tools/ ./tools/
+COPY tui/ ./tui/
+COPY pyproject.toml README.md ./
+# 3O 主库 heavy-SDK 依赖 (oprim eager 导出 / omodul eager 装配所需)
+# 运行时依赖全量 (含 3O 主库 heavy-SDK: tree-sitter/pgmpy/rapidfuzz/chardet 等)
+COPY deploy/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir . && pip install --no-cache-dir -e ./veya_loop \
+    && python -c "import types, chardet, server.app; print('[build] server.app imports OK')"
 
 # 3O 主库装配通道
-ENV PYTHONPATH=/app:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi
+ENV PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi
 ENV VEYA_WORKSPACE=/app
 
 EXPOSE 8765

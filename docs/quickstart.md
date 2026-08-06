@@ -1,60 +1,69 @@
-# 快速开始
+# 5 分钟快速开始
 
-## 1. 配置 LLM Provider
+从安装到完成第一个真实任务，全程 5 分钟。
 
-支持三种 provider，通过环境变量或 `config/loader.py` 配置：
+---
 
-```bash
-# DashScope（默认，qwen-plus）
-export DASHSCOPE_API_KEY=sk-xxx
-# 或 OpenAI
-export OPENAI_API_KEY=sk-xxx
-export VEYA_LLM_PROVIDER=openai
-export VEYA_LLM_MODEL=gpt-4o-mini
-# 或 Anthropic
-export ANTHROPIC_API_KEY=sk-ant-xxx
-export VEYA_LLM_PROVIDER=anthropic
-```
-
-没有 API key 时自动降级为 stub 响应（离线开发/测试友好）。
-
-## 2. CLI
+## 第 1 步：安装（1 分钟）
 
 ```bash
-veya                          # 交互式（默认 persona=build）
-veya --persona research       # 指定智能体
-veya --resume <session_id>    # 从 checkpoint 恢复
-veya-headless --agent plan --input "..."   # 无头
-veya-simple                   # 轻量交互（含权限确认）
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/soffy88/Veya/main/install.sh | bash
+
+# 或 pip / pipx
+pip install veya
 ```
 
-## 3. HTTP 服务
+> 需要 Python ≥ 3.11。安装脚本会自动选择 pipx 或 venv，装完 `veya` 命令即可用。
+
+## 第 2 步：接入模型（1 分钟）
 
 ```bash
-veya serve
+veya init
 ```
 
-主要端点（无 `/api/v1` 前缀）：
+跟着向导走：
 
-| 端点 | 说明 |
-|------|------|
-| `POST /agent/{name}` | 执行 agent（plan/research/build） |
-| `POST /vscode/run-stream` | 后台执行 + 返回 SSE session |
-| `GET /stream/{session_id}` | SSE 事件流 |
-| `POST /permission/evaluate` | 权限评估（可能返回 pending） |
-| `POST /permission/{id}/approve` | 批准权限请求 |
+1. **选模型**：OpenAI / Anthropic / DashScope / DeepSeek，或本地 **Ollama**（自动探测，免 Key）
+2. **粘贴 API Key**：输入为空则进入离线 stub 模式（先体验流程，之后随时 `veya init` 补）
+3. **选工作目录**：Agent 的文件读写与命令执行范围
 
-## 4. 多模态（G12）
+完成后自动生成：
+- `~/.veya/config.json` — 主配置
+- `~/.veya/.env` — Key（权限 600）
+- 工作区 `.veya/security.yaml` — 安全策略（危险操作默认受限）
 
-```python
-from veya.multimodal import MultimodalProcessor
-from veya import llm as hllm
+验证：`veya doctor` — 全 ✔ 即可开工。
 
-messages = MultimodalProcessor().build_vision_messages(
-    "这是什么截图？", ["/tmp/shot.png"], system="你是视觉助手"
-)
-resp = await hllm.llm_call(messages, provider="dashscope", model="qwen-vl-max")
+## 第 3 步：跑第一个真实任务（2 分钟）
+
+```bash
+# 进入你的工作目录
+cd ~/my-project
+
+# 方式 A：交互式（推荐）
+veya "帮我审查这个目录的代码，指出 3 个最值得修的问题"
+
+# 方式 B：无头单次任务（适合脚本/CI）
+veya-headless --agent plan --text "为这个项目写一个 README 的快速开始章节"
+
+# 方式 C：本地服务 + 浏览器
+veya start
+# 打开 http://127.0.0.1:8765 后即可在 Web UI 对话
 ```
 
-图片以 OpenAI 风格 content blocks（`image_url` data-URI）发送；
-Anthropic provider 自动转换为原生 `image` block。
+## 第 4 步：常见问题
+
+| 问题 | 解决 |
+|---|---|
+| `veya doctor` 显示模型未配置 | `veya init` 重新选择并粘贴 Key |
+| 想用本地 Ollama | 先 `ollama pull qwen2.5:7b`，再 `veya init` 选 Ollama |
+| 任务需要写文件/执行危险命令 | 默认受限 — 在对话中确认，或编辑工作区 `.veya/security.yaml` |
+| 端口 8765 被占用 | `veya start --port 9000` |
+| 中断后继续 | `veya --resume <session_id>`（checkpoint 恢复） |
+
+## 下一步
+
+- 读 [落地页](index.md) 了解全部能力（量化协处理 / 零信任金库 / 因果诊断 / 反脆弱闭环…）
+- 读 [路线图](roadmap.md) 了解产品化演进
+- 开发者：见 [架构说明](architecture.md)，测试：`./venv/bin/python -m pytest tests/ -q`

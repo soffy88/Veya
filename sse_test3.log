@@ -1,14 +1,0 @@
-* Uses proxy env variable no_proxy == 'localhost,127.0.0.1,::1,172.16.0.0/12,10.0.0.0/8,100.64.0.0/10,*.uex.hk,*.local'
-* Host localhost:8003 was resolved.
-* IPv6: ::1
-* IPv4: 127.0.0.1
-  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0*   Trying [::1]:8003...
-* connect to ::1 port 8003 from ::1 port 51264 failed: Connection refused
-*   Trying 127.0.0.1:8003...
-* connect to 127.0.0.1 port 8003 from 127.0.0.1 port 32794 failed: Connection refused
-* Failed to connect to localhost port 8003 after 0 ms: Could not connect to server
-
-* closing connection #0
-curl: (7) Failed to connect to localhost port 8003 after 0 ms: Could not connect to server

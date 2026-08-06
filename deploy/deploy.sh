@@ -60,8 +60,15 @@ deploy_docker() {
     log "Building and starting containers..."
     cd "$PROJECT_DIR"
 
+    # 端口冲突防御: 旧 systemd 网关 (veya.server.app) 占用 8765 时必须先停
+    if systemctl is-active --quiet veya-gateway 2>/dev/null; then
+        warn "检测到旧 systemd 服务 veya-gateway 占用 8765, 停止并禁用..."
+        sudo systemctl stop veya-gateway || warn "停止 veya-gateway 失败(需要 root), 请手动: sudo systemctl stop veya-gateway"
+        sudo systemctl disable veya-gateway 2>/dev/null || true
+    fi
+
     $DOCKER_COMPOSE -f deploy/docker-compose.yml build --no-cache
-    $DOCKER_COMPOSE -f deploy/docker-compose.yml up -d
+    $DOCKER_COMPOSE -f deploy/docker-compose.yml up -d --force-recreate
 
     log "Waiting for services..."
     sleep 5

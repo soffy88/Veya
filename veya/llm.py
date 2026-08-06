@@ -471,7 +471,21 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     provider, model = get_provider_config(
         kwargs.get("config"), provider=kwargs.get("provider"), model=kwargs.get("model")
     )
-    if not get_api_key(provider, kwargs.get("config")):
+    config = kwargs.get("config") or {}
+    # 自定义 endpoint: 顶层 kwarg > config["endpoints"][provider] > config["base_url"](NVIDIA NIM 等)
+    endpoint = (
+        kwargs.get("endpoint")
+        or (config.get("endpoints") or {}).get(provider)
+        or config.get("base_url")
+        or os.environ.get("VEYA_LLM_ENDPOINT")
+    )
+    # 本地模型 (Ollama 等) 无需 API Key —— 有本地 endpoint 时跳过 key 检查
+    local_endpoint = bool(endpoint) and (
+        endpoint.startswith("http://localhost")
+        or endpoint.startswith("http://127.0.0.1")
+        or endpoint.startswith("http://0.0.0.0")
+    )
+    if not get_api_key(provider, kwargs.get("config")) and not local_endpoint:
         content = kwargs.get("default_content", _STUB_CONTENT)
         return {
             "choices": [{"message": {"role": "assistant", "content": content}}],
@@ -483,14 +497,6 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     max_tokens = kwargs.get("max_tokens", 4096)
     temperature = kwargs.get("temperature")
     tool_choice = kwargs.get("tool_choice")
-    config = kwargs.get("config") or {}
-    # 自定义 endpoint: 顶层 kwarg > config["endpoints"][provider] > config["base_url"](NVIDIA NIM 等)
-    endpoint = (
-        kwargs.get("endpoint")
-        or (config.get("endpoints") or {}).get(provider)
-        or config.get("base_url")
-        or os.environ.get("VEYA_LLM_ENDPOINT")
-    )
     # 专属 Key 注入: config["providers"][provider] 优先于环境变量(Genesis 物理隔离)
     api_key = get_api_key(provider, config)
     retries = int(kwargs.get("retries", 2))
