@@ -125,12 +125,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input", help="命令 JSON 文件(缺省读 stdin)")
     parser.add_argument("--output", help="结果 JSON 文件(缺省写 stdout)")
     parser.add_argument("--config", help="配置文件路径")
+    # 文本任务快捷入口 (产品化): veya-headless --agent plan --text "任务"
+    parser.add_argument("--agent", choices=["plan", "research", "build", "execute"],
+                        help="Agent persona (与 --text 配合的自然语言任务入口)")
+    parser.add_argument("--text", help="自然语言任务描述 (与 --agent 配合)")
     args = parser.parse_args(argv)
 
     # 初始化基础设施
     Infra.init(load_config(args.config))
 
-    command = _read_input(args)
+    if args.agent or args.text:
+        # 文本模式: 包装为结构化命令
+        if not args.agent:
+            parser.error("--text 需要与 --agent 一起使用")
+        if not args.text:
+            parser.error("--agent 需要 --text 任务描述")
+        command: dict[str, Any] = {"text": args.text, "persona": args.agent}
+    else:
+        command = _read_input(args)
     result = asyncio.run(headless_run(command))
     _write_output(args, result)
 
