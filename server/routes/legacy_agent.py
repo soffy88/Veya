@@ -67,11 +67,20 @@ async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse
         )
 
     session_id = req.session_id or _new_session_id()
+    user_ref = None
+    raw_uid = req.student_id or req.user_id
+    if raw_uid:
+        try:
+            from veya.im.pseudo import anonymize_user_id
+            user_ref = anonymize_user_id(raw_uid)
+        except Exception:
+            user_ref = f"u_{abs(hash(raw_uid)) % 10 ** 8:08d}"
     if req.mode == "dry_run":
         return LegacyAgentRunResponse(
             session_id=session_id,
             status="dry_run",
             plan={"name": "Agent OS master brain", "skeleton": "master_agent"},
+            user_ref=user_ref,
         )
 
     result = await master_coordinator.chat_stream(
