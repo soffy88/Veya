@@ -180,6 +180,16 @@ _ELEMENT_MAP: dict[str, tuple[str, str]] = {
     "from_diagnosis_report": ("oprim", "from_diagnosis_report"),
     # ── 审计补漏: 复合 sink ──────────────────────────────────────────
     "CompositeSink": ("oprim", "CompositeSink"),
+    # ── 多目标效用优化循环 (train 搜索 + OOS 硬门禁 + 缓存) ──────────
+    "optimize_loop": ("oprim", "optimize_loop"),
+    "EvalWindow": ("oprim", "EvalWindow"),
+    "EvalCache": ("oprim", "EvalCache"),
+    "MultiObjectiveConfig": ("oprim", "MultiObjectiveConfig"),
+    "RiskGateConfig": ("oprim", "RiskGateConfig"),
+    "OptimizeLoopResult": ("oprim", "OptimizeLoopResult"),
+    "multi_objective_utility": ("oprim", "multi_objective_utility"),
+    "fingerprint_eval": ("oprim", "fingerprint_eval"),
+    "DEFAULT_UTILITY_WEIGHTS": ("oprim", "DEFAULT_UTILITY_WEIGHTS"),
 }
 
 __all__ = [
