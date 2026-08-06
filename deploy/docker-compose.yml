@@ -32,6 +32,8 @@ services:
       - /home/soffy/.claude.json:/home/soffy/.claude.json:ro
       - /home/soffy/.codex:/home/soffy/.codex:rw
       - /home/soffy/.pi:/home/soffy/.pi:rw
+    # Chromium 无头浏览器 /dev/shm 需求 (抓取通道)
+    shm_size: "1gb"
     restart: unless-stopped
     networks:
       - veya-net

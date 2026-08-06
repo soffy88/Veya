@@ -104,9 +104,14 @@ class BrowserSession:
         self._playwright = await async_playwright().start()
 
         browser_launcher = getattr(self._playwright, self._browser_type)
-        self._browser = await browser_launcher.launch(
-            headless=self._config["headless"],
-        )
+        launch_kwargs: dict[str, Any] = {"headless": self._config["headless"]}
+        # 容器/打包/CI 环境 (无 user namespace 或 /dev/shm 受限):
+        # Chromium 自身 sandbox 会报 "Failed to move to new namespace" /
+        # "cannot write to /dev/shm" → 显式关闭并禁用 dev-shm
+        if os.environ.get("VEYA_BROWSER_NO_SANDBOX"):
+            launch_kwargs["chromium_sandbox"] = False
+            launch_kwargs["args"] = ["--no-sandbox", "--disable-dev-shm-usage"]
+        self._browser = await browser_launcher.launch(**launch_kwargs)
 
         context_kwargs = {
             "viewport": self._config["viewport"],
