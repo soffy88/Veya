@@ -318,7 +318,8 @@ async def test_chat_stream_hitl_after_max_rounds():
     coord = MasterCoordinator(llm_fn=looping_llm, max_rounds=2)
     result = await coord.chat_stream("循环任务", session_id="m4")
     assert result["status"] == "failed"
-    assert "HITL" in result["error"]
+    # HITL 语义已移除: 不报"陷入循环请求人工介入", 只说明未产出回答
+    assert "HITL" not in result["error"]
     assert result["rounds"] == 2
     assert len(result["last_messages"]) == 3
 
@@ -350,3 +351,117 @@ def test_master_router_endpoints_reachable():
     assert "delegate_to_genesis" in names
     assert "read_file_ast" in names
     client.close()
+
+
+# =========================================================================
+# 连续对话历史 (session_id 持久化)
+# =========================================================================
+
+def test_conversation_history_persists_across_turns():
+    """同 session 第二轮: 模型应看到第一轮的对话 (含 assistant 回答)。"""
+    import asyncio
+
+    from veya_loop import _assembly
+
+    oservi = _assembly.load("oservi")
+    MasterAgent = oservi.MasterAgent
+
+    class Tools:
+        def get_all_tool_schemas(self):
+            return []
+
+        def get_all_schemas(self):
+            return []
+
+        def list_tools(self):
+            return []
+
+        def describe(self, name):
+            return ""
+
+        def has(self, name):
+            return False
+
+        async def execute(self, name, args=None):
+            return ""
+
+    class SkillHub:
+        def list_skills(self):
+            return []
+
+        def get_all_schemas(self):
+            return []
+
+        def describe(self, name):
+            return ""
+
+    class Memory:
+        def inject_subconscious(self):
+            return ""
+
+    seen_messages = []
+
+    async def llm(messages, **kwargs):
+        seen_messages.append(list(messages))
+        return {"choices": [{"message": {"role": "assistant", "content": "first reply"}}],
+                "usage": {}}
+
+    agent = MasterAgent(
+        llm_caller=llm, tools=Tools(), skill_hub=SkillHub(), memory=Memory(),
+        swarm=None, vault=None, max_rounds=8, notify=lambda _e: None,
+    )
+
+    r1 = asyncio.run(agent.chat_stream("你好", session_id="conv1"))
+    assert r1["status"] == "success" and r1["final_answer"] == "first reply"
+
+    r2 = asyncio.run(agent.chat_stream("还记得我上句说了什么吗", session_id="conv1"))
+    assert r2["status"] == "success"
+    # 第二轮模型看到的 messages 含第一轮的 user + assistant
+    msgs2 = seen_messages[1]
+    roles = [(m.get("role"), m.get("content")) for m in msgs2]
+    assert ("user", "你好") in roles                 # 第一轮 user 仍在
+    assert ("assistant", "first reply") in roles     # 第一轮 assistant 仍在
+    assert msgs2[0]["role"] == "system"              # system 常驻首位
+    assert roles[-1] == ("user", "还记得我上句说了什么吗")
+
+
+def test_conversation_history_scoped_by_session():
+    """不同 session_id 历史隔离; 新会话从 system 起步。"""
+    import asyncio
+
+    from veya_loop import _assembly
+
+    oservi = _assembly.load("oservi")
+    MasterAgent = oservi.MasterAgent
+
+    class Tools:
+        def get_all_tool_schemas(self): return []
+        def get_all_schemas(self): return []
+        def list_tools(self): return []
+        def describe(self, name): return ""
+        def has(self, name): return False
+        async def execute(self, name, args=None): return ""
+
+    class SkillHub:
+        def list_skills(self): return []
+        def get_all_schemas(self): return []
+        def describe(self, name): return ""
+
+    class Memory:
+        def inject_subconscious(self): return ""
+
+    seen = []
+
+    async def llm(messages, **kwargs):
+        seen.append(list(messages))
+        return {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}}
+
+    agent = MasterAgent(llm_caller=llm, tools=Tools(), skill_hub=SkillHub(),
+                        memory=Memory(), swarm=None, vault=None,
+                        max_rounds=8, notify=lambda _e: None)
+    asyncio.run(agent.chat_stream("A 会话", session_id="sa"))
+    asyncio.run(agent.chat_stream("B 会话", session_id="sb"))
+    asyncio.run(agent.chat_stream("A 又来了", session_id="sa"))
+
+    assert ("user", "A 会话") in [(m.get("role"), m.get("content")) for m in seen[2]]
+    assert ("user", "B 会话") not in [(m.get("role"), m.get("content")) for m in seen[2]]
