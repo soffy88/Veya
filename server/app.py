@@ -18,6 +18,7 @@ from server.routes.automata import router as automata_router
 from server.routes.automata import webhook_router
 from server.routes.autonomous import router as autonomous_router
 from server.routes.chat import router as chat_router
+from server.routes.board import router as board_router
 from server.routes.cindy_compat import router as cindy_compat_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
@@ -134,6 +135,7 @@ app.include_router(observer_router)
 app.include_router(closed_loop_router)
 app.include_router(threat_model_router)
 app.include_router(audit_router)
+app.include_router(board_router)
 app.include_router(legacy_agent_router)
 app.include_router(cindy_compat_router)
 app.include_router(sse_router)

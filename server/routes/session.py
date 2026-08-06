@@ -108,6 +108,42 @@ async def get_session(session_id: str) -> dict[str, Any]:
     return s
 
 
+@router.get("/{session_id}/lineage")
+async def session_lineage(session_id: str) -> dict[str, Any]:
+    """SessionLineage: 任务/子任务派生谱系 (祖先链 + 直接子任务)。
+
+    对标 Cline SessionLineage —— 支撑多 Agent 协作时追踪任务来源。
+    """
+    s = _sessions.get(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # 祖先链: 沿 forked_from 上溯 (最远在前)
+    ancestors: list[dict[str, Any]] = []
+    cur_id = s.get("forked_from")
+    seen: set[str] = set()
+    while cur_id and cur_id not in seen:
+        seen.add(cur_id)
+        p = _sessions.get(cur_id)
+        if not p:
+            break
+        ancestors.append(p)
+        cur_id = p.get("forked_from")
+    ancestors.reverse()
+
+    # 直接子任务
+    descendants = [
+        d for d in _sessions.values() if d.get("forked_from") == session_id
+    ]
+    return {
+        "session_id": session_id,
+        "depth": len(ancestors),
+        "ancestors": ancestors,
+        "descendants": descendants,
+        "forked_from": s.get("forked_from"),
+    }
+
+
 @router.post("/{session_id}/fork")
 async def fork_session(session_id: str, req: SessionForkRequest) -> dict[str, Any]:
     s = _sessions.get(session_id)

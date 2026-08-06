@@ -134,6 +134,36 @@ async def get_registry():
         raise HTTPException(status_code=500, detail=f"Failed to get registry: {e!s}")
 
 
+@router.get("/catalog")
+async def models_catalog() -> dict[str, Any]:
+    """ProviderCatalog: 动态模型目录 (对标 Cline ProviderCatalog/ProviderModel)。
+
+    返回所有内置 provider + 默认模型 + Key 配置状态, 供前端模型选择器数据驱动。
+    """
+    import os as _os
+
+    from veya.llm import _API_KEY_ENV, _DEFAULT_MODELS
+
+    providers: list[dict[str, Any]] = []
+    for pid, env in _API_KEY_ENV.items():
+        providers.append({
+            "id": pid,
+            "env": env,
+            "default_model": _DEFAULT_MODELS.get(pid, ""),
+            "configured": bool(_os.environ.get(env)),
+            "local": False,
+        })
+    # 本地模型 (Ollama 等, 免 Key)
+    providers.append({
+        "id": "ollama",
+        "env": "",
+        "default_model": "qwen2.5:7b",
+        "configured": True,
+        "local": True,
+    })
+    return {"providers": providers}
+
+
 @router.post("/register")
 async def register_model(name: str, path: str, versions: list[str]):
     """Register a new model manually"""
