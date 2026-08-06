@@ -18,9 +18,10 @@
 from __future__ import annotations
 
 import asyncio
-import itertools
+import contextlib
 import json
 import logging
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -171,12 +172,92 @@ print(json.dumps({{"status": "success", "sharpe": sharpe, "total_return": total_
 """
 
 
-class QuantCoprocessor:
-    """量化协处理器: 沙箱中执行策略, 只回传浓缩指标与图表数据。"""
+def _grid_pool_worker(
+    strategy_code: str,
+    asset_id: str,
+    data_dir: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """ProcessPool 物理层 worker: 在独立 CPU 进程中为单组参数跑一次沙箱回测.
 
-    def __init__(self, data_dir: str | Path | None = None):
+    由 ``functools.partial`` 携带上下文 (strategy_code/asset_id/data_dir) 提交进池;
+    每组参数仍走 veya 隔离沙箱 (独立孙进程 + 内存/时间限制 + 网络封锁),
+    进程池只负责并发上限与进度编排 — 安全边界不因多核化而妥协.
+
+    Returns:
+        {"params": params, "sharpe": ..., "total_return": ...} 或
+        {"params": params, "error": ...}
+    """
+    config = SandboxConfig(
+        time_limit=_COPROCESSOR_TIMEOUT,
+        memory_limit=_COPROCESSOR_MEMORY,
+        network_blocked=True,  # 策略代码绝不能联网
+        audit_enabled=True,
+        env_extra={"OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"},
+    )
+    script = _build_grid_script(strategy_code, asset_id, params, data_dir)
+    executor = create_safe_executor(config)
+
+    async def _run() -> dict[str, Any]:
+        async with executor:
+            return await executor.run_script(script)
+
+    result = asyncio.run(_run())
+    stdout = (result.get("stdout") or "").strip()
+    stderr = (result.get("stderr") or "").strip()
+    if result.get("exit_code") != 0:
+        return {"params": params, "error": f"协处理器异常退出 (exit={result.get('exit_code')}): {stderr or stdout}"}
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError:
+        return {"params": params, "error": f"could not parse result: {stdout[:500] or stderr[:500]}"}
+    if payload.get("status") != "success":
+        return {"params": params, "error": payload.get("traceback", "unknown error")}
+    return {
+        "params": params,
+        "sharpe": payload["sharpe"],
+        "total_return": payload["total_return"],
+    }
+
+
+def _threadsafe_progress(
+    callback: Callable[[int, int, dict[str, Any]], None] | None,
+    loop: asyncio.AbstractEventLoop,
+) -> Callable[[int, int, dict[str, Any]], None] | None:
+    """把进程池编排线程触发的进度回调跳回宿主事件循环 (SSE/通知线程安全)."""
+    if callback is None:
+        return None
+
+    async def _invoke(done: int, total: int, latest: dict[str, Any]) -> None:
+        callback(done, total, latest)
+
+    def _hop(done: int, total: int, latest: dict[str, Any]) -> None:
+        with contextlib.suppress(RuntimeError):  # 宿主 loop 已关闭: 进度播报静默丢弃, 不阻塞物理层
+            asyncio.run_coroutine_threadsafe(_invoke(done, total, latest), loop)
+
+    return _hop
+
+
+class QuantCoprocessor:
+    """量化协处理器: 沙箱中执行策略, 只回传浓缩指标与图表数据。
+
+    Grid Search 多核化: 参数组合经 3O 主库 oprim._grid_search 机制
+    (ProcessPool Map) 分发到 ``pool_size`` 个物理核心并发执行,
+    每个组合仍在隔离沙箱子进程中运行。
+    """
+
+    def __init__(
+        self,
+        data_dir: str | Path | None = None,
+        pool_size: int | None = None,
+        pool_worker: Callable | None = None,
+    ):
         self.data_dir = resolve_data_dir(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        # 进程池大小: 缺省 = CPU 核数 (上限 32, 防止网格组合数巨大时进程爆炸)
+        self.pool_size = pool_size or max(1, min(32, os.cpu_count() or 1))
+        # 进程池物理层 worker (业务注入缝; 测试可换假 worker, 缺省沙箱 worker)
+        self._pool_worker = pool_worker or _grid_pool_worker
 
     async def execute_strategy(
         self,
@@ -246,58 +327,48 @@ class QuantCoprocessor:
         param_grid: dict[str, list[Any]],
         progress_callback: Callable[[int, int, dict[str, Any]], None] | None = None,
     ) -> list[dict[str, Any]]:
-        """Expand param_grid (dict of lists) into every combination and run each
-        concurrently, each in its own sandboxed subprocess. run_script() is itself
-        async (asyncio.create_subprocess_exec under the hood), so concurrency here
-        is a plain asyncio.as_completed over fresh executors — no ProcessPoolExecutor,
-        no thread bridging. progress_callback runs on the same event loop (no
-        cross-thread notifier calls needed)."""
+        """多核暴走: 展开参数网格 → ProcessPool Map 并发回测 → 进度播报。
+
+        架构 (Fire-and-Forget 的物理层):
+        1. 参数空间由 3O 主库 ``oprim._grid_search.expand_param_grid`` 笛卡尔展开;
+        2. ``oprim.run_grid_search`` 将全部组合提交到 ProcessPoolExecutor
+           (并发上限 = pool_size, 多进程绕过 GIL 榨干物理核);
+        3. 本方法自身经 ``loop.run_in_executor`` 扔进线程池 → 绝不阻塞事件循环;
+        4. 进度回调由编排线程触发, 经 ``_threadsafe_progress`` 跳回事件循环
+           (SSE/通知中心线程安全).
+
+        每组参数仍在隔离沙箱 (网络封锁 + 内存/时间限制 + 审计) 中执行。
+        """
+        from functools import partial
+
+        from veya.platform import oprim as _load_oprim
+
+        _oprim = _load_oprim()
         data_path = self.data_dir / f"{asset_id}.parquet"
         if not data_path.exists():
             raise FileNotFoundError(f"行情数据不存在: {data_path}")
 
-        keys = list(param_grid.keys())
-        combos = [
-            dict(zip(keys, values, strict=True))
-            for values in itertools.product(*param_grid.values())
-        ]
-
-        config = SandboxConfig(
-            time_limit=_COPROCESSOR_TIMEOUT,
-            memory_limit=_COPROCESSOR_MEMORY,
-            network_blocked=True,
-            audit_enabled=True,
-            env_extra={"OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"},
+        combos = _oprim.expand_param_grid(param_grid)
+        loop = asyncio.get_running_loop()
+        ts_cb = _threadsafe_progress(progress_callback, loop)
+        # 上下文经 partial 封进任务 (picklable: 顶层函数 + kwargs)
+        worker = partial(
+            self._pool_worker,
+            strategy_code,
+            asset_id,
+            str(self.data_dir),
         )
 
-        async def run_one(params: dict[str, Any]) -> dict[str, Any]:
-            script = _build_grid_script(strategy_code, asset_id, params, str(self.data_dir))
-            executor = create_safe_executor(config)
-            async with executor:
-                result = await executor.run_script(script)
+        def _sync_run() -> list[dict[str, Any]]:
+            return _oprim.run_grid_search(
+                worker,
+                combos,
+                max_workers=self.pool_size,
+                progress_callback=ts_cb,
+            )
 
-            stdout = (result.get("stdout") or "").strip()
-            if result.get("exit_code") != 0:
-                return {"params": params, "error": (result.get("stderr") or stdout)[-2000:]}
-            try:
-                payload = json.loads(stdout)
-            except json.JSONDecodeError:
-                return {"params": params, "error": f"could not parse result: {stdout[:500]}"}
-            if payload.get("status") != "success":
-                return {"params": params, "error": payload.get("traceback", "unknown error")}
-            return {
-                "params": params,
-                "sharpe": payload["sharpe"],
-                "total_return": payload["total_return"],
-            }
-
-        results: list[dict[str, Any]] = []
-        for coro in asyncio.as_completed([run_one(p) for p in combos]):
-            res = await coro
-            results.append(res)
-            if progress_callback:
-                progress_callback(len(results), len(combos), res)
-        return results
+        # 沉重的 CPU 任务交给默认线程池, 主线程/事件循环立即释放
+        return await loop.run_in_executor(None, _sync_run)
 
     def get_data_dir(self) -> str:
         return str(self.data_dir)

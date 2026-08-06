@@ -129,6 +129,7 @@ async def _call_openai_compat(
     max_tokens: int = 4096,
     stream: bool = False,
     temperature: float | None = None,
+    tool_choice: str | None = None,
 ) -> httpx.Response:
     body: dict[str, Any] = {
         "model": model,
@@ -140,7 +141,7 @@ async def _call_openai_compat(
         body["temperature"] = temperature
     if tools:
         body["tools"] = tools
-        body["tool_choice"] = "auto"
+        body["tool_choice"] = tool_choice or "auto"
     return await client.post(
         endpoint,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -158,6 +159,7 @@ async def _call_anthropic(
     max_tokens: int = 4096,
     stream: bool = False,
     temperature: float | None = None,
+    tool_choice: str | None = None,
 ) -> httpx.Response:
     system_msgs = [m for m in messages if m.get("role") == "system"]
     other_msgs = [m for m in messages if m.get("role") != "system"]
@@ -334,6 +336,7 @@ async def provider_call(
     temperature: float | None = None,
     endpoint: str | None = None,
     api_key: str | None = None,
+    tool_choice: str | None = None,
 ) -> dict[str, Any]:
     """Single non-streaming completion. Returns an OpenAI-format response dict.
 
@@ -356,6 +359,7 @@ async def provider_call(
             tools=tools,
             max_tokens=max_tokens,
             temperature=temperature,
+            tool_choice=tool_choice,
         )
         resp.raise_for_status()
         return _normalize_anthropic_response(resp.json())
@@ -370,6 +374,7 @@ async def provider_call(
         tools=tools,
         max_tokens=max_tokens,
         temperature=temperature,
+        tool_choice=tool_choice,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -477,6 +482,7 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     tools = kwargs.get("tools")
     max_tokens = kwargs.get("max_tokens", 4096)
     temperature = kwargs.get("temperature")
+    tool_choice = kwargs.get("tool_choice")
     config = kwargs.get("config") or {}
     # 自定义 endpoint: 顶层 kwarg > config["endpoints"][provider] > config["base_url"](NVIDIA NIM 等)
     endpoint = (
@@ -503,6 +509,7 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
                         temperature=temperature,
                         endpoint=endpoint,
                         api_key=api_key,
+                        tool_choice=tool_choice,
                     )
                 except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout,
                         httpx.RemoteProtocolError, httpx.ReadError) as exc:

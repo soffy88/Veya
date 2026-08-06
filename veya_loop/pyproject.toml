@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "veya-loop"
+version = "0.5.0"
+description = "Veya Loop Engine / 维亚闭环引擎 — 因果闭环控制基板 (Phase 2/3/4)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Veya Loop Team" }]
+keywords = ["causal", "closed-loop", "do-calculus", "bayesian", "audit", "honeypot"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+]
+
+# 3O 主库元素 (oprim/oskill/omodul/obase) 是独立主数据包 —— 通过自身发行渠道安装,
+# 或经 _assembly 装配器挂载 git submodule 路径 (见 README「接线」一节)。
+dependencies = [
+    "numpy>=1.26",
+    "networkx>=3.2",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+# [all]: 完整能力面 (求解器 + 数据面)
+all = [
+    "z3-solver>=4.12",
+    "pandas>=2.0",
+]
+# 开发/测试
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+veya-loop = "veya_loop.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/veya_loop"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/veya_loop", "README.md", "docs"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -4,7 +4,9 @@
 (基于 oprim._fernet_vault 加密原语 + obase.secrets_store 资源)。
 本层职责:
 1. 把主库 EventBus 的 vault_hitl 事件桥接到 Veya 的 fire_step(SSE 管道);
-2. 保留既有 API(VeyaVault / execute_secure_tool / resolve_approval ...)。
+2. 同步把 HITL_REQUIRED 悬浮窗推送进全局通知中心(所有 tab 可见, 带审批按钮),
+   并在 vault_resolved 事件时 dismiss 悬浮窗 — 完成人类审批闭环;
+3. 保留既有 API(VeyaVault / execute_secure_tool / resolve_approval ...)。
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from server.events import fire_step
+from server.notification_center import global_notifier
 from veya.platform import obase as _load_obase
 from veya.platform import oskill as _load_oskill
 
@@ -25,9 +28,15 @@ _oskill = _load_oskill()
 _DEFAULT_VAULT_DIR = str(Path.home() / ".veya" / "vault")
 _DEFAULT_APPROVAL_TIMEOUT = 300.0
 
+# task_id -> 悬浮窗 notification_id (vault_resolved 时据此 dismiss)
+_hitl_toasts: dict[str, str] = {}
+
 
 def _bridge_vault_hitl(event: Any) -> None:
-    """主库事件总线 → Veya SSE 管道(fire_step)。"""
+    """主库事件总线 → Veya 双通道:
+    1. fire_step(当前请求的 SSE 流, 聊天内可见性);
+    2. 全局通知中心 HITL_REQUIRED 悬浮窗(所有 tab, 带 Approve/Reject 按钮)。
+    """
     p = event.payload
     fire_step(
         {
@@ -42,17 +51,40 @@ def _bridge_vault_hitl(event: Any) -> None:
             },
         }
     )
+    # 断点修复: 事件必须送达审批 UI — 全局通知中心悬浮窗(前端零改动)
+    notif_id = global_notifier.push(
+        "HITL_REQUIRED",
+        p.get("title", "⚠️ 请求动用生产密钥"),
+        p.get("content", ""),
+        {
+            "task_id": p.get("task_id"),
+            "action": p.get("action"),
+            "vault_id": p.get("vault_id"),
+        },
+    )
+    task_id = p.get("task_id")
+    if task_id:
+        _hitl_toasts[task_id] = notif_id
+
+
+def _bridge_vault_resolved(event: Any) -> None:
+    """审批终止(通过/拒绝/超时) → dismiss 对应悬浮窗, 避免陈旧审批卡片残留。"""
+    p = event.payload
+    notif_id = _hitl_toasts.pop(p.get("task_id"), None)
+    if notif_id:
+        global_notifier.dismiss(notif_id)
 
 
 _bridge_registered = False
 
 
 def _ensure_event_bridge() -> None:
-    """把 vault_hitl 桥接订阅注册到主库默认事件总线(幂等)。"""
+    """把 vault_hitl / vault_resolved 桥接订阅注册到主库默认事件总线(幂等)。"""
     global _bridge_registered
     if _bridge_registered:
         return
     _obase.event_bus.default_event_bus.subscribe("vault_hitl", _bridge_vault_hitl)
+    _obase.event_bus.default_event_bus.subscribe("vault_resolved", _bridge_vault_resolved)
     _bridge_registered = True
 
 

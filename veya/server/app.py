@@ -456,7 +456,7 @@ def create_app() -> FastAPI:
             result = await master_coordinator.chat_stream(
                 req.text,
                 session_id=req.session_id or None,
-                max_rounds=5,
+                max_rounds=8,
                 config=req.config or None,
                 provider=req.provider,
                 model=req.model,
@@ -488,7 +488,7 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             req.task,
             session_id=session_id,
-            max_rounds=5,
+            max_rounds=8,
             config=req.config or None,
             provider=req.provider,
             model=req.model,

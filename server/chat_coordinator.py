@@ -9,14 +9,11 @@ RequirementDoc via a forced tool call.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any
 
-from server.notification_center import global_notifier
 from server.omni_gateway import DISPATCH_TOOL_NAME, omni_gateway
-from server.quant_coprocessor import quant_coprocessor
 from veya.llm import calc_cost, get_provider_config, llm_call
 
 logger = logging.getLogger("chat_coordinator")
@@ -59,9 +56,9 @@ CHAT_SYSTEM_PROMPT = (
 _sessions: dict[str, list[dict[str, Any]]] = {}
 
 # asyncio only holds a weak reference to a bare create_task() result — without a strong
-# reference kept somewhere, the task can be GC'd mid-execution (same bug/fix as
-# server/routes/flow.py's flow_phase3).
-_background_tasks: set[asyncio.Task] = set()
+# reference kept somewhere, the task can be GC'd mid-execution. Grid-search background
+# tasks are now owned by the Automata daemon (start_grid_search_task), which keeps its
+# own strong refs; nothing left here.
 
 
 def _cost_of(response: dict[str, Any], *, config, provider, model) -> float:
@@ -122,65 +119,20 @@ def _grid_search_tool_schema() -> dict[str, Any]:
     }
 
 
-async def _run_grid_search_background(
-    asset_id: str, strategy_code: str, param_grid: dict[str, Any], session_id: str
-) -> None:
-    def on_progress(done: int, total: int, latest: dict[str, Any]) -> None:
-        detail = (
-            f"最新 Sharpe: {latest['sharpe']:.2f}"
-            if "sharpe" in latest
-            else f"失败: {str(latest.get('error', ''))[:100]}"
-        )
-        global_notifier.push(
-            "INFO", f"网格搜索进行中 ({done}/{total})", detail, {"session_id": session_id}
-        )
-
-    try:
-        results = await quant_coprocessor.execute_grid_search(
-            strategy_code, asset_id, param_grid, progress_callback=on_progress
-        )
-    except Exception as exc:
-        logger.warning("[chat_coordinator] grid search failed: %s", exc)
-        global_notifier.push("ERROR", "网格搜索崩溃", str(exc), {"session_id": session_id})
-        return
-
-    valid = [r for r in results if "sharpe" in r]
-    if not valid:
-        global_notifier.push(
-            "ERROR", "网格搜索失败", "所有参数组合均报错", {"session_id": session_id}
-        )
-        return
-
-    best = max(valid, key=lambda r: r["sharpe"])
-    synthesis_prompt = (
-        f"[SYSTEM] Grid search for {asset_id} complete. Best params {best['params']} -> "
-        f"Sharpe {best['sharpe']:.2f}. All {len(results)} results: "
-        f"{json.dumps(results, ensure_ascii=False)}. Summarize this for the user, then "
-        "output a <veya-artifact> with an ECharts bar chart comparing each parameter "
-        "combination's Sharpe ratio."
-    )
-    synthesis = await chat(synthesis_prompt, session_id=session_id)
-
-    global_notifier.push(
-        "SUCCESS",
-        "🎯 网格搜索完成",
-        f"最优参数 {best['params']}，Sharpe: {best['sharpe']:.2f}",
-        {"session_id": session_id, "content": synthesis["content"]},
-    )
-
-
 def _submit_grid_search(tool_args: dict[str, Any], session_id: str) -> str:
-    task = asyncio.create_task(
-        _run_grid_search_background(
-            tool_args.get("asset_id") or "",
-            tool_args.get("strategy_code") or "",
-            tool_args.get("param_grid") or {},
-            session_id,
-        )
+    """主脑异步脱壳 (Fire-and-Forget): 工单扔给 Automata, 立即返回。"""
+    from server.automata import get_automata
+
+    task_id = get_automata().start_grid_search_task(
+        tool_args.get("asset_id") or "",
+        tool_args.get("strategy_code") or "",
+        tool_args.get("param_grid") or {},
+        session_id=session_id,
     )
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    return "已提交至后台计算集群，进度与结果将通过系统通知播报，无需等待。"
+    return (
+        f"已提交至后台计算集群 (工单 {task_id})。任务在 Automata 守护进程中运行，"
+        "进度与结果将通过系统弹窗实时播报，您无需等待，可继续其他工作。"
+    )
 
 
 async def chat(

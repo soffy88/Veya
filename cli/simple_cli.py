@@ -97,6 +97,10 @@ def setup_parser():
     generate_parser.add_argument("description", help="代码描述")
     generate_parser.add_argument("--language", default="python", help="编程语言")
     generate_parser.add_argument("--output", help="输出文件路径")
+    generate_parser.add_argument("--tests", action="append", default=[],
+                                 help="测试节点 (如 test_solve); 多次传入")
+    generate_parser.add_argument("--reliable", action="store_true",
+                                 help="走代码可靠性闭环 (CODE_RELIABILITY_LOOP=1 时默认开启)")
 
     # 协作任务命令
     collaborate_parser = subparsers.add_parser("collaborate", help="协作任务")
@@ -155,8 +159,69 @@ def handle_analyze(args):
         print(f"分析错误: {e}")
 
 
+def _sample_generate(spec, workspace=None, failure_context=None, tests=None):
+    """演示用生成器 (可被可靠性闭环注入; 真实 LLM 生成可替换本函数)。"""
+    if failure_context is not None:
+        # 修复轮: 按失败上下文给出"修对"的示例 (演示语义)
+        return {
+            "main.py": "def solve():\n    return 42\n",
+            "tests/test_main.py":
+                "from main import solve\n\n"
+                "def test_solve():\n    assert solve() == 42\n",
+        }
+    return {
+        "main.py": "def solve():\n    return 0\n",
+        "tests/test_main.py":
+            "from main import solve\n\n"
+            "def test_solve():\n    assert solve() == 42\n",
+    }
+
+
+def _generate_with_reliability(args):
+    """可靠性闭环路径 (方案 A+C): generate → sandbox test → 修复轮 ≤ max_repairs。"""
+    from services.code_agent_reliability import run_veya_code_agent
+
+    print("=== 代码生成 (可靠性闭环) ===")
+    result = run_veya_code_agent(
+        spec=args.description,
+        tests=list(args.tests) or ["test_solve"],
+        workspace={},
+        veya_generate=_sample_generate,
+        max_repairs=int(os.environ.get("CODE_RELIABILITY_MAX_REPAIRS", "3")),
+        audit_path=os.environ.get("CODE_RELIABILITY_AUDIT"),
+    )
+    if result.status == "merged_candidate":
+        print(f"[ok] merged_candidate  patch={result.patch.patch_id}  "
+              f"修复轮数={result.repairs_used}")
+        for a in result.action_trace:
+            print(f"  - {a['action']} (passed={a.get('passed')})")
+        if args.output:
+            out_files = dict(result.patch.files)
+            main = out_files.get("main.py")
+            if main and _maybe_confirm("write", args.output, f"写入文件 {args.output}"):
+                with open(args.output, "w", encoding="utf-8") as f:
+                    f.write(main)
+                print(f"代码已保存到: {args.output}")
+        return True
+    if result.status == "clarify":
+        print(f"[clarify] {result.clarify_message}")
+        return False
+    print(f"[aborted] {result.signature.summary if result.signature else '未知'} "
+          f"fingerprint={result.signature.fingerprint if result.signature else '-'}")
+    for a in result.action_trace:
+        print(f"  - {a['action']} (passed={a.get('passed')})")
+    return False
+
+
 def handle_generate(args):
     """处理代码生成命令"""
+    # 回滚开关: CODE_RELIABILITY_LOOP=1 或 --reliable → 走可靠性闭环;
+    # 否则走旧 generate-only 路径 (规格 §9 回滚)。
+    use_loop = args.reliable or os.environ.get("CODE_RELIABILITY_LOOP", "0") == "1"
+    if use_loop:
+        _generate_with_reliability(args)
+        return
+
     print("=== 代码生成 ===")
     print(f"描述: {args.description}")
     print(f"语言: {args.language}")

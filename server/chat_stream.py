@@ -44,7 +44,7 @@ async def new_agent_stream_events(
             master_coordinator.chat_stream(
                 text,
                 session_id=sid,
-                max_rounds=5,
+                max_rounds=8,
                 config=config,
                 provider=provider,
                 model=model,
