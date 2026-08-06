@@ -115,6 +115,24 @@ veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=te
   负效用必须配默认 `minimize=True`，否则反向寻谷（曾找到 utility=-0.024 的谷底）；
   重复点返回缓存值而非 -1e9 极端惩罚（会污染 GP 后验带偏 EI）
 
+### 5.5 优化工程化 + Walk-forward + 生命周期（2026-08-06，283 → 306）
+
+- **主库 oprim c7929ba**：
+  - `ParamSpec(low, high, kind=continuous|integer|log)`：log 空间 BO + exp 还原、integer 取整；
+    `(low,high)` 元组向后兼容
+  - `bayesian_optimize`/`optimize_loop` 透传 `early_stop_rounds`/`ei_stop`（连续 N 轮无改进 /
+    最大 EI < 阈值 → 提前停止），`OptimizeLoopResult.early_stopped` 标记
+  - `eval_meta`（data_version/engine_version）进 fingerprint → 升级自动打穿缓存
+  - `walk_forward(folds, ...)` → `WalkForwardResult`：每折独立 optimize_loop（seed+1000*i）
+    共享 cache；聚合 accept_rate / OOS 效用 mean·std / 指标 p25·p50·p75
+  - `StrategyLifecycle`：research→candidate→paper→degraded→retired；
+    apply_optimize_result 升降级（通过升 candidate/degraded 恢复；连续失败降级→退休）；
+    promote_to_paper/retire/snapshot 审计事件留痕
+- **测试 `tests/test_walk_forward_lifecycle.py`（15 项）**：ParamSpec 整数/对数解码与校验、
+  整数+对数寻峰、eval_meta 打穿缓存（v2 全重评/同版零新增）、早停标记与评价数、
+  walk_forward 聚合（分位数单调/拒绝率/共享缓存）、生命周期全链路（候选晋升/降级恢复/退休/审计）
+- **测试基线 306 passed**（283 → 306，含 shim 守护自动覆盖）
+
 ## 6. 已知待办/风险
 
 1. **claude/codex 引擎 403/refused** — 宿主账号侧，与代码无关；排查宿主 `claude -p` / `codex exec`
