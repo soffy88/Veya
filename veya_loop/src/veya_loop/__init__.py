@@ -190,6 +190,14 @@ _ELEMENT_MAP: dict[str, tuple[str, str]] = {
     "multi_objective_utility": ("oprim", "multi_objective_utility"),
     "fingerprint_eval": ("oprim", "fingerprint_eval"),
     "DEFAULT_UTILITY_WEIGHTS": ("oprim", "DEFAULT_UTILITY_WEIGHTS"),
+    "ParamSpec": ("oprim", "ParamSpec"),
+    "walk_forward": ("oprim", "walk_forward"),
+    "WalkForwardResult": ("oprim", "WalkForwardResult"),
+    "FoldResult": ("oprim", "FoldResult"),
+    "StrategyLifecycle": ("oprim", "StrategyLifecycle"),
+    "LifecycleEvent": ("oprim", "LifecycleEvent"),
+    "LifecycleRecord": ("oprim", "LifecycleRecord"),
+    "PHASES": ("oprim", "PHASES"),
 }
 
 __all__ = [
