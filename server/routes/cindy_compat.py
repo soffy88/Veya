@@ -152,6 +152,72 @@ async def knowledge_ep(req: KnowledgeRequest) -> dict[str, Any]:
 
 
 # =========================================================================
+# POST /api/v1/browser/run — 浏览器自动化 (engine 选择 + 回退)
+#   engine=browser_use (默认): 自然语言目标; 未装/失败回退 omodul (playwright)
+# =========================================================================
+
+class BrowserRunCompatRequest(BaseModel):
+    url: str = ""
+    instruction: str = Field(..., min_length=1)
+    headless: bool = True
+    timeout_ms: int = 30000
+    max_steps: int = 20
+    extract_schema: dict[str, Any] | None = None
+    engine: Literal["browser_use", "omodul"] = "browser_use"
+
+
+@router.post("/api/v1/browser/run")
+async def browser_run_compat(req: BrowserRunCompatRequest) -> dict[str, Any]:
+    if req.engine == "browser_use":
+        try:
+            from browser_use import Agent
+        except ImportError:
+            pass  # 未装 → 回退 omodul
+        else:
+            try:
+                import asyncio as _asyncio
+                import os as _os
+
+                from langchain_openai import ChatOpenAI
+
+                endpoint = _os.environ.get("VEYA_LLM_ENDPOINT", "")
+                model = _os.environ.get("VEYA_LLM_MODEL", "gpt-4o-mini")
+                llm = (ChatOpenAI(model=model, base_url=endpoint, api_key="local")
+                       if endpoint else ChatOpenAI(model=model))
+
+                async def _run_bu() -> dict[str, Any]:
+                    agent = Agent(task=req.instruction, llm=llm,
+                                  max_steps=req.max_steps, headless=req.headless)
+                    result = await agent.run()
+                    return {"engine": "browser_use", "status": "success",
+                            "steps": len(getattr(result, "history", [])),
+                            "output": str(getattr(result, "final_result", ""))[:4000]}
+
+                return await _asyncio.run(_run_bu())
+            except Exception as exc:
+                fallback = await _omodul_browser(req)
+                return {"engine": "browser_use", "status": "fallback",
+                        "reason": f"browser_use 执行失败, 回退 omodul: {exc}", **fallback}
+
+    return await _omodul_browser(req)
+
+
+async def _omodul_browser(req: BrowserRunCompatRequest) -> dict[str, Any]:
+    from pathlib import Path as _Path
+    from types import SimpleNamespace as _NS
+
+    from veya.omodul.browser_agent import run_browser_automation
+
+    config = _NS(headless=req.headless, timeout_ms=req.timeout_ms,
+                 max_steps=req.max_steps)
+    input_data = _NS(url=req.url, instruction=req.instruction,
+                     extract_schema=req.extract_schema)
+    result = await run_browser_automation(config, input_data, _Path("/tmp/veya/browser"))
+    result["engine"] = "omodul"
+    return result
+
+
+# =========================================================================
 # GET /api/v1/models/catalog — ProviderCatalog (动态模型目录)
 # =========================================================================
 
