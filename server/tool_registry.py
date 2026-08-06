@@ -203,7 +203,8 @@ async def _tool_browser_run(
     session = BrowserSession(headless=True)
     try:
         await session.start()
-        navigate = await session.execute_sequence([action_navigate(url)])
+        navigate = await session.execute_sequence(
+            [action_navigate(url, wait_until="domcontentloaded")])
         if not navigate or not getattr(navigate[-1], "success", True):
             raise ToolExecutionError(f"browser_run: 导航失败 {url}")
         actions = {
@@ -298,6 +299,9 @@ def _tool_read_file_ast(filepath: str) -> str:
     from veya.ast import extract_skeleton
 
     path = _resolve_path(filepath)
+    if path.is_dir():
+        raise ToolExecutionError(
+            f"path '{filepath}' 是目录不是文件 — 请指定具体 .py 文件路径")
     source = path.read_text(encoding="utf-8", errors="replace")
     return extract_skeleton(source, filepath)
 

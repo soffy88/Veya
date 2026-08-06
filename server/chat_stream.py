@@ -73,8 +73,15 @@ async def new_agent_stream_events(
         finish_task.add_done_callback(_stream_tasks.discard)
 
         # 消费事件队列 → SSE 帧(主脑事件流实时推送)
+        # 心跳: 队列静默 >20s 时发 SSE 注释行 (: ping) — 前端 EventSource 规范忽略,
+        # 但响应体持续流动 → 防止 Cloudflare Tunnel 100s 无数据掐断 (HTTP 524)。
+        _HEARTBEAT_S = 20.0
         while True:
-            item = await queue._q.get()
+            try:
+                item = await asyncio.wait_for(queue._q.get(), timeout=_HEARTBEAT_S)
+            except TimeoutError:
+                yield ": ping\n\n"
+                continue
             if item is None:
                 break
             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
