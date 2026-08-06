@@ -7,9 +7,11 @@ services:
   # ── FastAPI Backend (veya server) ───────────────────
   backend:
     build:
-      context: .
+      context: ..
       dockerfile: deploy/Dockerfile.backend
     container_name: veya-backend
+    ports:
+      - "8765:8765"
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-anthropic}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -18,8 +20,8 @@ services:
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:-veya-dev-secret}
     volumes:
       - veya-data:/root/.veya
-      - ./veya:/app/veya:ro
-      - ./platform:/app/platform:ro
+      - ../veya:/app/veya:ro
+      - ../platform:/app/platform:ro
     restart: unless-stopped
     networks:
       - veya-net

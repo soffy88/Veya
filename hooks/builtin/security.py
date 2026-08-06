@@ -8,13 +8,24 @@ from security.validator import validate_input
 
 
 def load_security_config():
-    """Load security config from YAML file"""
-    config_path = Path(__file__).parent.parent.parent / "config" / "security.yaml"
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+    """Load security config from YAML file (user config wins, repo default fallback).
+
+    优先级: ~/.veya/security.yaml (veya init 生成, 用户级)
+            > 工作区 .veya/security.yaml (init 生成, 项目级)
+            > 仓库默认 config/security.yaml
+    """
+    candidates = [
+        Path.home() / ".veya" / "security.yaml",
+        Path.cwd() / ".veya" / "security.yaml",
+        Path(__file__).parent.parent.parent / "config" / "security.yaml",
+    ]
+    for config_path in candidates:
+        if config_path.exists():
+            with open(config_path) as f:
+                return yaml.safe_load(f)
+    raise FileNotFoundError("no security config found")
 
 
-# Global security state
 SECURITY_STATE = {"active_permissions": set(), "rate_limits": {}, "last_activity": {}}
 
 

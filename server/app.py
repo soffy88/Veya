@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
     automata.shutdown()
 
 
-app = FastAPI(title="veya", version="0.5.1", lifespan=lifespan)
+app = FastAPI(title="veya", version="0.6.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
