@@ -1,0 +1,15 @@
+{
+  "name": "agent_reach",
+  "description": "多平台内容读取 (YouTube 字幕/推特/Reddit/B站/小红书/雪球等), 桥接 agent-reach MCP sidecar (http://127.0.0.1:8899)。",
+  "type": "mcp",
+  "endpoint": "http://127.0.0.1:8899",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "channel": {"type": "string", "description": "渠道: youtube_transcript | twitter_timeline | reddit | bilibili_comments | xiaohongshu | xueqiu" },
+      "url": {"type": "string", "description": "目标 URL" },
+      "limit": {"type": "integer", "default": 20}
+    },
+    "required": ["channel", "url"]
+  }
+}

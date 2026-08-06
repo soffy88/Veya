@@ -1,0 +1,15 @@
+{
+  "name": "browser_use",
+  "description": "自然语言驱动浏览器执行目标 (browser-use Agent)。注意: 消耗 LLM token 且需要真实网络, 不运行在沙箱内。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "goal": {"type": "string", "description": "自然语言目标, 如 '在 GitHub 搜索 veya 并打开第一个仓库'" },
+      "url": {"type": "string", "description": "起始 URL (可选)" },
+      "max_steps": {"type": "integer", "default": 10}
+    },
+    "required": ["goal"]
+  }
+}
