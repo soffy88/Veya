@@ -176,6 +176,15 @@ veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=te
   trace_path 注意点：`mode="calls"` 且**不传 direction**（显式 direction 反而返回空）
 - **测试 `tests/test_codebase_memory.py`（11 项）**：可用性/索引/符号命中/跨文件调用链/
   blast_radius 聚合/Cypher/双通道 graph 优先+vector fallback/工具批量适配/单例/缺失降级
+- **工具面接线 + cron（2026-08-06，14 项）**：
+  - `wire_master_tools(connector)`：8 个 `mcp_codebase_*` 注册进 **master_tools**（主脑
+    coordinator_master 静态工具面，LLM 直接可调）；幂等；注意 `make_mcp_tool_adapter`
+    返回 **ToolAdapter 对象**（`.callable` 才是 func）
+  - `schedule_daily_reindex(automata.scheduler)`：APScheduler cron 每日 03:17 增量索引
+    （automata.scheduler 是 AsyncIOScheduler，纯函数任务不走 LLM；misfire_grace 1h；幂等）
+  - app.py lifespan：start → wire → schedule 三连接线
+  - **生产验证**（容器重启后）：`/master/tools` 17 工具含 8 codebase；
+    `/automata/jobs` 显示 cbm_daily_reindex next_run 2026-08-07T03:17Z
 
 ## 6. 已知待办/风险
 
