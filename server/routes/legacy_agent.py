@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse  # noqa: F401
 from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["legacy-agent"])
@@ -118,7 +118,6 @@ async def legacy_agent_stream(req: LegacyAgentRunRequest, request: Request) -> S
     from server.chat_stream import new_agent_stream_events
 
     if req.engine != "master":
-        from fastapi.responses import StreamingResponse
         from server.engine_runner import stream_engine
 
         async def _engine_events():
