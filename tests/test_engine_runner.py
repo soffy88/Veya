@@ -45,3 +45,42 @@ def test_engines_endpoint():
     data = res.json()
     assert "engines" in data
     assert data["engines"]["master"] == "builtin"
+
+
+# ---------------------------------------------------------------------------
+# 容器环境: 只允许 master (挂载宿主 CLI 也不执行 → 520/502 根治)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_container_blocks_external_engines(monkeypatch):
+    """容器内 (VEYA_WORKSPACE 或 /.dockerenv): 非 master 引擎被拒绝。"""
+    import server.engine_runner as er
+
+    monkeypatch.setattr(er, "_IN_CONTAINER", True)
+
+    # 探测: 只有 master
+    engines = er.available_engines()
+    assert set(engines) == {"master"}
+
+    # stream 契约: engine_error
+    events = [evt async for evt in er.stream_engine("claude", "hi", timeout_s=10)]
+    assert events[0]["type"] == "engine_error"
+    assert "容器环境" in events[0]["error"]
+
+    # run 契约: ok=False
+    result = await er.run_engine("codex", "hi", timeout_s=10)
+    assert result["ok"] is False
+    assert "容器环境" in result["error"]
+
+
+def test_engines_endpoint_in_container(monkeypatch):
+    """容器内 /api/v1/engines 只返回 master (前端据此禁用其余引擎)。"""
+    from fastapi.testclient import TestClient
+
+    import server.engine_runner as er
+    from server.app import app
+
+    monkeypatch.setattr(er, "_IN_CONTAINER", True)
+    res = TestClient(app).get("/api/v1/engines")
+    assert res.status_code == 200
+    assert set(res.json()["engines"]) == {"master"}
