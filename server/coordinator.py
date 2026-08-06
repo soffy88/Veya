@@ -1845,8 +1845,31 @@ class Coordinator:
             return {"status": "failed", "error": str(e)}
 
     async def semantic_search_query(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
-        """语义搜索(原 semantic_search 方法被实例属性遮蔽,已改名避免与惰性属性冲突)。"""
+        """语义搜索(原 semantic_search 方法被实例属性遮蔽,已改名避免与惰性属性冲突)。
+
+        双通道: codebase-memory-mcp 图谱优先 (符号级精确命中), SemanticSearch 向量 fallback。
+        """
         try:
+            from server.codebase_memory import get_connector
+
+            connector = get_connector()
+            if connector.ready:
+                def _vec(q: str, top_k: int = top_k) -> list[dict]:
+                    return [
+                        {
+                            "id": r.id,
+                            "text": r.text,
+                            "file_path": r.file_path,
+                            "score": r.score,
+                            "start_line": r.start_line,
+                            "end_line": r.end_line,
+                        }
+                        for r in self.semantic_search.search(q, top_k=top_k)
+                    ]
+
+                res = await connector.search(query, top_k=top_k, fallback=_vec)
+                if res["source"] in ("graph", "vector"):
+                    return res["results"]
             results = self.semantic_search.search(query, top_k=top_k)
             return [
                 {

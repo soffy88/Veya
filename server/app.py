@@ -66,7 +66,21 @@ async def lifespan(app: FastAPI):
     from server.automata import get_automata
 
     automata = get_automata()
+    # codebase-memory-mcp sidecar (二进制缺失时优雅降级, 不阻塞启动)
+    try:
+        from server.codebase_memory import get_connector
+
+        connector = get_connector()
+        await connector.start()
+    except Exception:
+        pass
     yield
+    try:
+        from server.codebase_memory import get_connector
+
+        await get_connector().close()
+    except Exception:
+        pass
     automata.shutdown()
 
 
