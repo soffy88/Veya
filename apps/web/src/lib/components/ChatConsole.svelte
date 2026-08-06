@@ -15,6 +15,7 @@
 		Brain,
 		CheckCircle2,
 		CircleAlert,
+		Code2,
 		Copy,
 		Loader2,
 		RotateCcw,
@@ -25,6 +26,7 @@
 		Wrench,
 	} from "lucide-svelte";
 	import MarkdownBlock from "./MarkdownBlock.svelte";
+	import { artifactStore } from "$lib/artifacts.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
@@ -334,6 +336,7 @@
 									{msg.text}
 								</div>
 							{:else}
+								{@const parsed = artifactStore.parseArtifactsFromText(msg.text)}
 								<div class="flex flex-col gap-2">
 									{#if msg.steps.length > 0}
 										<div class="flex flex-col gap-1">
@@ -363,8 +366,8 @@
 												<Loader2 class="size-4 animate-spin text-white/60" />
 												正在思考…
 											</div>
-										{:else if msg.text}
-											<MarkdownBlock content={msg.text} />
+										{:else if parsed.pureText.trim()}
+											<MarkdownBlock content={parsed.pureText.replace(/\[ARTIFACT_PLACEHOLDER:[^\]]+\]/g, "")} />
 										{/if}
 
 										{#if msg.status === "streaming" && msg.text}
@@ -401,6 +404,26 @@
 											</div>
 										{/if}
 									</div>
+
+									{#if parsed.artifacts.length > 0}
+										<div class="flex flex-col gap-2">
+											{#each parsed.artifacts as art (art.id)}
+												<button
+													type="button"
+													onclick={() => artifactStore.setActive(art)}
+													class="group flex items-center gap-3 rounded-lg border border-emerald-900/50 bg-emerald-950/30 p-2.5 text-left transition hover:bg-emerald-900/40"
+												>
+													<span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-900/50 group-hover:bg-emerald-800/80">
+														<Code2 class="size-4 text-emerald-400" />
+													</span>
+													<span class="min-w-0">
+														<span class="block text-sm font-bold text-emerald-100">{art.title || "React Artifact"}</span>
+														<span class="block text-xs text-emerald-500/70">Click to run in Sandbox</span>
+													</span>
+												</button>
+											{/each}
+										</div>
+									{/if}
 								</div>
 							{/if}
 						</div>

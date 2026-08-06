@@ -22,6 +22,8 @@ class NotificationCenter:
 
     def __init__(self) -> None:
         self._clients: list[asyncio.Queue[dict | None]] = []
+        # 已广播消息注册表: id -> message (供 HITL 审批端点回查 payload, 如 vault task_id)
+        self._messages: dict[str, dict[str, Any]] = {}
 
     def connect(self) -> asyncio.Queue[dict | None]:
         q: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -38,9 +40,11 @@ class NotificationCenter:
         title: str,
         content: str,
         payload: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> str:
         """Synchronous — safe to call from anywhere already inside the event loop
-        (matches server/events.py's fire_step calling convention)."""
+        (matches server/events.py's fire_step calling convention). Returns the
+        message id so callers can later dismiss or resolve it (e.g. vault HITL
+        toasts map task_id -> notification_id)."""
         message = {
             "id": uuid.uuid4().hex,
             "type": type,
@@ -48,12 +52,19 @@ class NotificationCenter:
             "content": content,
             "payload": payload or {},
         }
+        self._messages[message["id"]] = message
         for q in list(self._clients):
             q.put_nowait(message)
+        return message["id"]
+
+    def get(self, notification_id: str) -> dict[str, Any] | None:
+        """回查已广播的消息(含 payload) — HITL 审批端点据此解析任务引用。"""
+        return self._messages.get(notification_id)
 
     def dismiss(self, notification_id: str) -> None:
         """Broadcast a control frame telling every connected tab to drop this toast
         (e.g. after one tab approves/rejects a HITL_REQUIRED notification)."""
+        self._messages.pop(notification_id, None)
         frame = {"type": "DISMISS", "payload": {"id": notification_id}}
         for q in list(self._clients):
             q.put_nowait(frame)

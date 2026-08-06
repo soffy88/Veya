@@ -56,8 +56,9 @@ class MasterCoordinator:
         swarm_engine: SwarmOrchestrator | None = None,
         rag_engine: Any | None = None,
         vault: Any | None = None,
+        omni_gateway: Any | None = None,
         llm_fn: Callable | None = None,
-        max_rounds: int = 5,
+        max_rounds: int = 8,
         temperature: float = 0.2,
     ):
         """初始化主脑(装配 veya 组件 → 委托主库引擎)。
@@ -72,6 +73,7 @@ class MasterCoordinator:
             swarm_engine: 蜂群引擎(默认全局单例; 测试注入独立实例)。
             rag_engine: 工作区语义检索引擎(默认全局单例; 测试注入独立实例)。
             vault: 零信任密钥金库(默认全局单例; 测试注入独立实例)。
+            omni_gateway: 全渠道分发网关(默认全局单例; 测试注入独立实例)。
             llm_fn: LLM 调用函数(默认 veya.llm.llm_call; 测试注入用)。
         """
         self.api_key = user_api_key or ""
@@ -91,6 +93,13 @@ class MasterCoordinator:
             from server.zero_trust_vault import global_vault
 
             self.vault = global_vault
+        # 全渠道分发网关(宿主注入 → 主脑 system_dispatch_omni_channel)
+        if omni_gateway is not None:
+            self.omni_gateway = omni_gateway
+        else:
+            from server.omni_gateway import omni_gateway as _default_omni_gateway
+
+            self.omni_gateway = _default_omni_gateway
         self._llm_fn = llm_fn or llm_call
         self.max_rounds = max_rounds
         self.temperature = temperature
@@ -114,11 +123,18 @@ class MasterCoordinator:
             vault=self.vault,
             automata_factory=lambda: self.automata,
             rag_factory=lambda: self.rag_engine,
+            omni_gateway=self.omni_gateway,
             notify=fire_step,
             max_rounds=max_rounds,
             temperature=temperature,
             cost_calculator=self._cost_calculator,
         )
+
+        # 零信任金库物理工具接线: 大模型只传 vault_id + 意图, 审批通过后
+        # 真实密钥经 _injected_secret 隐式注入物理回调(feishu_webhook 等)。
+        from server.vault_physical_tools import register_vault_physical_tools
+
+        register_vault_physical_tools(self)
 
     # ── 宿主注入 ─────────────────────────────────────────────────────
     def _bound_llm(self, messages: list, **kwargs: Any) -> Any:

@@ -414,7 +414,24 @@ def _tool_get_market_data_schema(asset_id: str) -> str:
 async def _tool_run_backtest_coprocessor(
     strategy_code: str, asset_id: str, start_date: str, end_date: str
 ) -> str:
-    """时序协处理器: 在隔离沙箱中对海量数据执行策略, 只返回浓缩指标 + 图表 JSON。"""
+    """时序协处理器: 在隔离沙箱中对海量数据执行策略, 只返回浓缩指标 + 图表 JSON。
+
+    前置防线: 静态不变量校验 (oprim._lookahead_scan AST 硬扫描) —
+    未来函数/未来行索引等硬违规 (verdict=block) 直接拦截, 不进沙箱。
+    """
+    from server.static_invariant import VeyaStaticInvariant
+
+    gate = VeyaStaticInvariant.check(strategy_code, filename=f"{asset_id}_strategy")
+    if gate["verdict"] == "block":
+        return json.dumps(
+            {
+                "status": "blocked",
+                "reason": "静态不变量校验拦截 (look-ahead/leakage)",
+                "violations": gate["violations"],
+            },
+            ensure_ascii=False,
+        )
+
     from server.quant_coprocessor import QuantCoprocessor
 
     coprocessor = QuantCoprocessor()
