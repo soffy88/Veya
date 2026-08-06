@@ -156,6 +156,27 @@ veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=te
   walk_forward 聚合（分位数单调/拒绝率/共享缓存）、生命周期全链路（候选晋升/降级恢复/退休/审计）
 - **测试基线 306 passed**（283 → 306，含 shim 守护自动覆盖）
 
+### 5.6 codebase-memory-mcp 集成（2026-08-06，代码智能精度层）
+
+- **定位**：Genesis 账本确认 Veya 无 LSP 调用链/blast radius/Cypher——此集成补精度层
+- **主库 obase 343a908**：`mcp_stdio.py` — StdioMcpClient（stdio transport MCP 客户端，
+  JSON-RPC 2.0 + LSP 帧；spawn 任意 stdio MCP 二进制；McpClientHandle 协议兼容；
+  崩溃检测/超时/stderr 留存）
+- **主仓装配 `server/codebase_memory.py`**（3O 铁律：机制主库，装配主仓）：
+  - `CodebaseMemoryConnector`：spawn 二进制 → `McpClientRegistry.register("codebase_memory")`；
+    索引 full/incremental 持久化 `~/.veya/codebase-memory-index`（project.json 恢复）；
+    8 工具批量 `make_mcp_tool_adapter`（mcp_codebase_*）；二进制缺失优雅降级
+  - `blast_radius(symbols)`：trace_path(mode=calls) 聚合影响面（pre_dispatch 门禁用）
+  - 双通道 `search()`：search_graph 符号级优先 → SemanticSearch 向量 fallback
+- **接线**：app.py lifespan 启动/关闭 sidecar；`hooks/builtin/pre_dispatch.py` 新增
+  `blast_radius_gate_hook`（build/execute + 文件写意图 → 影响面 >20 阻断，未就绪降级放行）；
+  `coordinator.semantic_search_query` 双通道升级
+- **二进制**：DeusData/codebase-memory-mcp v0.9.0 → `~/.local/bin/`（270MB portable）
+- **实测**：主仓根索引 38,042 nodes / 208,070 edges；blast_radius 真实调用链；
+  trace_path 注意点：`mode="calls"` 且**不传 direction**（显式 direction 反而返回空）
+- **测试 `tests/test_codebase_memory.py`（11 项）**：可用性/索引/符号命中/跨文件调用链/
+  blast_radius 聚合/Cypher/双通道 graph 优先+vector fallback/工具批量适配/单例/缺失降级
+
 ## 6. 已知待办/风险
 
 1. **claude/codex 引擎 403/refused** — 宿主账号侧，与代码无关；排查宿主 `claude -p` / `codex exec`
