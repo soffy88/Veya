@@ -42,10 +42,10 @@ COPY pyproject.toml README.md ./
 # 运行时依赖全量 (含 3O 主库 heavy-SDK: tree-sitter/pgmpy/rapidfuzz/chardet 等)
 COPY deploy/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-# Playwright 浏览器二进制 (全局路径, 容器内 uid 1000 可读)
+# Playwright 浏览器二进制 (随构建 context 分发, 免 CDN 网络下载)
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN python -m playwright install chromium \
-    && chmod -R a+rX /opt/ms-playwright
+COPY deploy/ms-playwright/ /opt/ms-playwright/
+RUN chmod -R a+rX /opt/ms-playwright
 RUN pip install --no-cache-dir . && pip install --no-cache-dir -e ./veya_loop \
     && python -c "import types, chardet, server.app; print('[build] server.app imports OK')"
 

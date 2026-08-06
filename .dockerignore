@@ -1,0 +1,34 @@
+# Docker build context — 只发源码, 不发运行时产物 (context 从 2GB+ 降到 ~150MB)
+venv/
+.venv/
+**/__pycache__/
+**/*.pyc
+
+# 前端/桌面 (容器不需要; 单独构建)
+apps/
+packages/
+desktop/
+
+# 运行时产物与缓存
+build/
+site/
+dist/
+dist-backend/
+build-pyinstaller/
+*.log
+*.zip
+*Zone.Identifier
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.veya_ast_cache.json
+
+# VCS
+.git/
+.gitmodules
+docs/dev/archive/
+
+# 本地配置
+.env
+.veya/
