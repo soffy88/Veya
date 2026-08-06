@@ -73,7 +73,8 @@ def _problem() -> v.Problem:
     return v.Problem(
         tasks=[v.Task("t1", {"s1": 1.0}), v.Task("t2", {"s1": 1.0})],
         workers=[v.Worker("a", {"s1": 5.0}), v.Worker("b", {"s1": 4.0})],
-        bids=[],
+        bids=[v.Bid("a", "t1", 0.2), v.Bid("a", "t2", 0.2),
+              v.Bid("b", "t1", 0.25), v.Bid("b", "t2", 0.25)],
     )
 
 
@@ -81,6 +82,8 @@ def test_allocate_vcg_welfare() -> None:
     p = _problem()
     alloc = v.assign_one_to_one(p)
     assert alloc is not None
+    assert alloc.pairs, "分配结果为空 (检查 bids 报价构造)"
+    assert len(alloc.pairs) == 2
     assert v.welfare(p, alloc) > 0.0
     pay = v.vcg(p, alloc)
     assert pay is not None
@@ -91,8 +94,9 @@ def test_allocate_vcg_welfare() -> None:
 def test_vcg_strategyproof_check() -> None:
     p = _problem()
     alloc = v.assign_one_to_one(p)
-    report = v.check_strategyproof(p, alloc, allocator=v.assign_one_to_one)
+    report = v.check_strategyproof(p, v.vcg, allocator=v.assign_one_to_one)
     assert report is not None
+    assert report.manipulable is False  # VCG 下真实报价是弱占优
 
 
 # ---------------------------------------------------------------------------

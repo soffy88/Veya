@@ -15,6 +15,7 @@ from typing import Any
 
 from server.omni_gateway import DISPATCH_TOOL_NAME, omni_gateway
 from veya.llm import calc_cost, get_provider_config, llm_call
+from veya.platform import obase as _load_obase
 
 logger = logging.getLogger("chat_coordinator")
 
@@ -54,6 +55,35 @@ CHAT_SYSTEM_PROMPT = (
 
 # In-memory per-session history — same pattern as server/routes/session.py's _sessions.
 _sessions: dict[str, list[dict[str, Any]]] = {}
+
+# ── 会话历史持久化: obase.CheckpointStore (与 /session 路由同库, key 前缀 chat_) ──
+_obase = _load_obase()
+_chat_store = _obase.CheckpointStore()
+
+
+def _chat_key(sid: str) -> str:
+    # CheckpointStore._safe 会把 ':' 替换成 '_', 前缀直接用 chat_ 保持一致
+    return f"chat_{sid}"
+
+
+def _persist_chat(sid: str) -> None:
+    """写盘 chat 历史 (SQLite WAL 原子提交)。"""
+    history = _sessions.get(sid)
+    if history is not None:
+        _chat_store.save(_chat_key(sid), {"messages": history})
+
+
+def _hydrate_chat() -> None:
+    """重启恢复 chat 会话历史 (容器重启不丢)。"""
+    for key in _chat_store.keys():  # noqa: SIM118 — CheckpointStore 非 dict
+        if not key.startswith("chat_"):
+            continue
+        s = _chat_store.load(key)
+        if isinstance(s, dict) and isinstance(s.get("messages"), list):
+            _sessions[key[len("chat_") :]] = s["messages"]
+
+
+_hydrate_chat()
 
 # asyncio only holds a weak reference to a bare create_task() result — without a strong
 # reference kept somewhere, the task can be GC'd mid-execution. Grid-search background
@@ -151,6 +181,7 @@ async def chat(
     """
     history = _sessions.setdefault(session_id, [])
     history.append({"role": "user", "content": text})
+    _persist_chat(session_id)
 
     messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}, *history]
     response = await llm_call(
@@ -169,11 +200,13 @@ async def chat(
     if not tool_calls:
         content = message.get("content") or ""
         history.append({"role": "assistant", "content": content})
+        _persist_chat(session_id)
         return {"content": content, "cost_usd": round(total_cost, 6)}
 
     history.append(
         {"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls}
     )
+    _persist_chat(session_id)
     for tool_call in tool_calls:
         fn = tool_call.get("function") or {}
         tool_name = fn.get("name", "")
@@ -206,4 +239,5 @@ async def chat(
     content = ((response2.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
 
     history.append({"role": "assistant", "content": content})
+    _persist_chat(session_id)
     return {"content": content, "cost_usd": round(total_cost, 6)}

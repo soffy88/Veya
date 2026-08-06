@@ -10,10 +10,38 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from veya.platform import obase as _load_obase
+
 router = APIRouter(prefix="/session", tags=["session"])
 
-# In-memory session store (replace with obase persistence in P5)
+# ---------------------------------------------------------------------------
+# 会话持久化: obase.CheckpointStore (SQLite WAL, ~/.veya/checkpoints)
+# 3O 铁律 §1.4 — 机制在主库 obase, 本路由只装配。容器内 ~/.veya 落在
+# veya-data 卷, 重启后 hydration 恢复全部会话。
+# ---------------------------------------------------------------------------
+_obase = _load_obase()
+_store = _obase.CheckpointStore()
+
+# In-memory session store (persisted via _store; hydrate on boot)
 _sessions: dict[str, dict] = {}
+
+
+def _persist(sid: str) -> None:
+    """写盘当前会话 (全量快照, SQLite WAL 原子提交)。"""
+    s = _sessions.get(sid)
+    if s is not None:
+        _store.save(sid, s)
+
+
+def _hydrate() -> None:
+    """启动/导入时从 checkpoint 库恢复全部会话 (重启不丢历史)。"""
+    for key in _store.keys():  # noqa: SIM118 — CheckpointStore 非 dict, 无 __iter__
+        s = _store.load(key)
+        if isinstance(s, dict) and s.get("id"):
+            _sessions[key] = s
+
+
+_hydrate()
 
 # Redacted share payloads keyed by share_token
 _shares: dict[str, dict] = {}
@@ -68,6 +96,7 @@ async def create_session(req: SessionCreateRequest) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
     }
+    _persist(sid)
     return {"id": sid, "status": "created", "project": req.project}
 
 
@@ -86,6 +115,7 @@ async def fork_session(session_id: str, req: SessionForkRequest) -> dict[str, An
         raise HTTPException(status_code=404, detail="Session not found")
     new_id = str(uuid.uuid4())
     _sessions[new_id] = {**copy.deepcopy(s), "id": new_id, "label": req.label}
+    _persist(new_id)
     return {"session_id": new_id, "forked_from": session_id}
 
 
@@ -118,6 +148,7 @@ async def compact_session(session_id: str) -> dict[str, Any]:
     summary_msg = {"role": "assistant", "content": summary_text}
     s["messages"] = [summary_msg, *msgs[-_KEEP_RECENT:]]
     s["compacted"] = True
+    _persist(session_id)
 
     return {
         "session_id": session_id,
@@ -156,6 +187,7 @@ async def undo_session(session_id: str) -> dict[str, Any]:
     if msgs:
         s["messages"] = msgs[:-2]
         removed_msgs = min(2, len(msgs))
+    _persist(session_id)
 
     return {
         "session_id": session_id,

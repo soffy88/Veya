@@ -66,15 +66,17 @@ def cmd_selftest(_: argparse.Namespace) -> None:
         assert feas.status == "sat", f"可满足性判定异常: {feas.status}"
     check("gate:validate→compile→feasible", gate_chain)
 
-    # ── 关键链路 2: 分配 + VCG 支付 (2 工人 2 任务, 纯数值) ──
+    # ── 关键链路 2: 分配 + VCG 支付 (2 工人 2 任务, 带报价) ──
     def vcg_chain() -> None:
         p = v.Problem(
             tasks=[v.Task("t1", {"s1": 1.0}), v.Task("t2", {"s1": 1.0})],
             workers=[v.Worker("a", {"s1": 5.0}), v.Worker("b", {"s1": 4.0})],
-            bids=[],
+            bids=[v.Bid("a", "t1", 0.2), v.Bid("a", "t2", 0.2),
+                  v.Bid("b", "t1", 0.25), v.Bid("b", "t2", 0.25)],
         )
         alloc = v.assign_one_to_one(p)
-        assert alloc is not None
+        assert alloc is not None and alloc.pairs, "分配结果为空"
+        assert v.welfare(p, alloc) > 0.0
         pay = v.vcg(p, alloc)
         assert pay is not None
     check("gate:vcg", vcg_chain)

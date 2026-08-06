@@ -102,6 +102,7 @@ _ELEMENT_MAP: dict[str, tuple[str, str]] = {
     "MemorySink": ("oprim", "MemorySink"),
     "update_cpd_from_repair": ("omodul", "update_cpd_from_repair"),
     "get_runtime_causal_store": ("obase", "get_runtime_causal_store"),
+    "CheckpointStore": ("obase", "CheckpointStore"),
     "get_intervention_cache": ("oprim", "get_intervention_cache"),
     "InferenceCache": ("oprim", "InferenceCache"),
     "graph_fingerprint": ("oprim", "graph_fingerprint"),

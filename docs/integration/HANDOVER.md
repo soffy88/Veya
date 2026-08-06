@@ -68,11 +68,25 @@ veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=te
   `tests/test_p1_neuro_symbolic.py`（P1 行为 12 项）；ruff 全干净
 - **测试基线**：78 → 230 passed（零告警）
 
+### 5.2 主仓 P1 API + 会话持久化（2026-08-06）
+
+- **P1 业务路由**：`server/routes/neuro_symbolic.py` 新增 3 端点（机制全在主库 oprim，只装配）：
+  - `POST /neurosymbolic/allocate` — 技能报价自动生成 + 匈牙利分配 + VCG 支付 + 策略证明
+    （注意 `check_strategyproof(p, vcg_fn, allocator=...)` 传**函数**不是结果对象；
+    bids 必填——无报价格子 = unassigned_penalty）
+  - `POST /neurosymbolic/deadlock` — 等待图环 + 新边预检 + victim 建议
+  - `POST /neurosymbolic/game` — 纯纳什 / 帕累托 / 主导策略（label 化输出）
+- **veya_loop 装配补漏**：`CheckpointStore`（obase）进 `_ELEMENT_MAP`；
+  CLI selftest + P1 测试修正假绿（bids 必填 + `alloc.pairs` 断言）
+
 ## 6. 已知待办/风险
 
 1. **claude/codex 引擎 403/refused** — 宿主账号侧，与代码无关；排查宿主 `claude -p` / `codex exec`
 2. **前端新 build 需 sudo restart veya-web** 才生效（当前域名前端可能是旧 build 走旧协议——已兼容）
-3. **会话历史为进程内内存** — 容器重启丢历史；要持久化接 obase store
+3. **会话历史已持久化（2026-08-06 闭环）** — `server/routes/session.py` + `server/chat_coordinator.py`
+   装配 obase.CheckpointStore (SQLite WAL, ~/.veya/checkpoints 落 veya-data 卷)；
+   写点 create/fork/compact/undo + chat 每轮后落盘，启动 hydration 恢复；
+   chat key 前缀 `chat_`（注意 CheckpointStore._safe 把 `:`→`_`）
 4. **Caddy 配置不可读**（/etc/caddy/Caddyfile 缺失，进程内存配置）— 域名转发规则未审计
 5. **未 push** — 主仓 26+ commits 待 `git push`；3O 子模块各自 commit 未 push
 6. **多租户/量化接线/非线性收缩** — 明确非目标
