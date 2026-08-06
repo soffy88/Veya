@@ -152,6 +152,17 @@ async def knowledge_ep(req: KnowledgeRequest) -> dict[str, Any]:
 
 
 # =========================================================================
+# GET /api/v1/models/catalog — ProviderCatalog (动态模型目录)
+# =========================================================================
+
+@router.get("/api/v1/models/catalog")
+async def models_catalog_api() -> dict[str, Any]:
+    from server.routes.models import models_catalog
+
+    return await models_catalog()
+
+
+# =========================================================================
 # GET /api/v1/mcp/health — veya 服务探活 (前端 upstreamProbe 依赖此路径)
 # =========================================================================
 
