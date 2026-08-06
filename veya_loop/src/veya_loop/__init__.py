@@ -103,6 +103,8 @@ _ELEMENT_MAP: dict[str, tuple[str, str]] = {
     "update_cpd_from_repair": ("omodul", "update_cpd_from_repair"),
     "get_runtime_causal_store": ("obase", "get_runtime_causal_store"),
     "CheckpointStore": ("obase", "CheckpointStore"),
+    "StdioMcpClient": ("obase", "StdioMcpClient"),
+    "StdioMcpError": ("obase", "StdioMcpError"),
     "get_intervention_cache": ("oprim", "get_intervention_cache"),
     "InferenceCache": ("oprim", "InferenceCache"),
     "graph_fingerprint": ("oprim", "graph_fingerprint"),
