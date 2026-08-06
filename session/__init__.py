@@ -43,6 +43,9 @@ class Session:
     title: str = ""
     model: str = "claude-sonnet-4-6"
     cwd: str = ""
+    # SessionLineage (对标 Cline): 任务/子任务的派生谱系
+    parent_id: str | None = None
+    lineage: list[str] = field(default_factory=list)  # 祖先链 [root, ..., immediate parent]
 
     def touch(self) -> None:
         self.updated_at = time.time()
@@ -55,6 +58,8 @@ class Session:
             "cost_usd": round(self.cost_usd, 4),
             "mode": self.mode,
             "created_at": self.created_at,
+            "parent_id": self.parent_id,
+            "lineage": self.lineage,
         }
 
 
@@ -76,6 +81,8 @@ class SessionSerializer:
             "title": session.title,
             "model": session.model,
             "cwd": session.cwd,
+            "parent_id": session.parent_id,
+            "lineage": session.lineage,
         }
 
     @staticmethod
@@ -92,6 +99,8 @@ class SessionSerializer:
         s.title = data.get("title", "")
         s.model = data.get("model", "claude-sonnet-4-6")
         s.cwd = data.get("cwd", "")
+        s.parent_id = data.get("parent_id")
+        s.lineage = data.get("lineage", [])
         return s
 
     @staticmethod
@@ -116,9 +125,15 @@ class SessionManager:
         self._active: Session | None = None
 
     def create(
-        self, *, mode: str = "build", model: str = "claude-sonnet-4-6", cwd: str = ""
+        self, *, mode: str = "build", model: str = "claude-sonnet-4-6", cwd: str = "",
+        parent_id: str | None = None,
     ) -> Session:
         sess = Session(mode=mode, model=model, cwd=cwd)
+        if parent_id:
+            parent = self.load(parent_id)
+            if parent:
+                sess.parent_id = parent.id
+                sess.lineage = [*parent.lineage, parent.id]
         self._save(sess)
         self._active = sess
         return sess
