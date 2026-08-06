@@ -437,3 +437,35 @@ class monkeypatch_env:
             os.environ[self.key] = self._old
         else:
             os.environ.pop(self.key, None)
+
+
+# ---------------------------------------------------------------------------
+# 空 tool_calls 清洗 (DeepSeek 400: messages[i].tool_calls 不能是空数组)
+# ---------------------------------------------------------------------------
+
+def test_prepare_messages_strips_empty_tool_calls():
+    from veya.llm import prepare_messages_for_provider
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "thinking", "tool_calls": []},   # ← 400 源头
+        {"role": "tool", "tool_call_id": "c1", "content": "result"},
+    ]
+    for provider in ("deepseek", "openai", "dashscope", "anthropic"):
+        out = prepare_messages_for_provider(msgs, provider)
+        assert all(m.get("tool_calls") != [] for m in out), f"{provider}: 空数组残留"
+        assert out[1] == {"role": "assistant", "content": "thinking"}     # 键被剥除
+        # 非空 tool_calls 必须保留
+        msgs2 = [{"role": "assistant", "content": "x",
+                  "tool_calls": [{"id": "c1", "function": {"name": "f", "arguments": "{}"}}]}]
+        out2 = prepare_messages_for_provider(msgs2, provider)
+        assert out2[0]["tool_calls"], f"{provider}: 有效 tool_calls 被误删"
+
+
+def test_prepare_messages_does_not_mutate_input():
+    from veya.llm import prepare_messages_for_provider
+
+    msgs = [{"role": "assistant", "content": "x", "tool_calls": []}]
+    snapshot = list(msgs)
+    prepare_messages_for_provider(msgs, "deepseek")
+    assert msgs == snapshot, "输入消息不得被原地修改"

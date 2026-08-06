@@ -448,7 +448,12 @@ class VeyaCoordinator:
             message = choice.get("message") or {}
             content = message.get("content") or ""
             tool_calls = message.get("tool_calls") or []
-            messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+            # 空 tool_calls 不写字段 (DeepSeek 等拒绝 tool_calls: []) —
+            # llm.py 发送前另有兜底清洗, 此处从源头杜绝
+            turn: dict = {"role": "assistant", "content": content}
+            if tool_calls:
+                turn["tool_calls"] = tool_calls
+            messages.append(turn)
 
             # 2. 模型认为任务已完成 (无工具调用) → 直接退出循环
             if not tool_calls:
