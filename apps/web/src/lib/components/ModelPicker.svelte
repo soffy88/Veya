@@ -7,9 +7,39 @@
 	 * 选择写入 apiKeyStore (localStorage 持久化), 请求经 engine/model 字段透传。
 	 */
 	import { ChevronDown, Cpu, KeyRound, Sparkles } from "lucide-svelte";
+	import { onMount } from "svelte";
+	import { API_BASE } from "$lib/api";
 	import { ENGINES, MODEL_PRESETS, apiKeyStore } from "$lib/settings.svelte";
 
 	let open = $state(false);
+	let rootEl = $state<HTMLDivElement | null>(null);
+	// null = 未加载/后端不可达 → 不禁用 (保守); Set = 后端可用引擎 id
+	let available = $state<Set<string> | null>(null);
+
+	// 点击外部关闭菜单 (体验: 不再只能点按钮收回)
+	$effect(() => {
+		if (!open) return;
+		function onDown(e: PointerEvent) {
+			if (rootEl && !rootEl.contains(e.target as Node)) open = false;
+		}
+		document.addEventListener("pointerdown", onDown, true);
+		return () => document.removeEventListener("pointerdown", onDown, true);
+	});
+
+	// 引擎可用性: 后端 /api/v1/engines (非 master 需本机装 CLI)
+	onMount(() => {
+		void (async () => {
+			try {
+				const res = await fetch(`${API_BASE}/api/v1/engines`);
+				if (res.ok) {
+					const data = (await res.json()) as { engines?: Record<string, string> };
+					available = new Set(Object.keys(data.engines ?? {}));
+				}
+			} catch {
+				/* 后端不可达: 保持 null */
+			}
+		})();
+	});
 
 	function selectEngine(id: string) {
 		apiKeyStore.engine = id;
@@ -26,7 +56,7 @@
 	const modelLabel = $derived(apiKeyStore.model.trim() || apiKeyStore.current.defaultModel || "默认");
 </script>
 
-<div class="relative">
+<div class="relative" bind:this={rootEl}>
 	<button
 		type="button"
 		onclick={() => (open = !open)}
@@ -43,13 +73,18 @@
 			<!-- 顶部: 执行引擎选择 -->
 			<div class="flex gap-1 border-b border-terminal-edge p-2">
 				{#each ENGINES as eng (eng.id)}
+					{@const unavailable = eng.id !== "master" && available !== null && !available.has(eng.id)}
 					<button
 						type="button"
 						onclick={() => selectEngine(eng.id)}
+						disabled={unavailable}
+						title={unavailable ? "后端未安装该引擎 CLI (仅 master 可用)" : ""}
 						class="flex-1 rounded-lg px-1.5 py-1.5 font-mono text-[10px] font-medium transition
-							{apiKeyStore.engine === eng.id
-								? 'bg-white text-black'
-								: 'bg-white/5 text-white/60 hover:bg-white/15 hover:text-white'}"
+							{unavailable
+								? 'cursor-not-allowed text-white/25'
+								: apiKeyStore.engine === eng.id
+									? 'bg-white text-black'
+									: 'bg-white/5 text-white/60 hover:bg-white/15 hover:text-white'}"
 					>
 						{eng.label}
 					</button>
