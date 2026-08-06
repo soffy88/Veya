@@ -1,0 +1,21 @@
+{
+  "name": "officecli",
+  "description": "Office 交付物生产 (docx/xlsx/pptx 创建/编辑/读取/渲染/合并)。写操作 (add/edit/merge/batch) 需路径白名单 (仅 workspace 与 ~/.veya/templates/); 读操作 (read/dump/convert) 免审批。语法见 cheat_sheet.md。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "op": {
+        "type": "string",
+        "enum": ["add", "edit", "read", "convert", "merge", "dump", "batch", "render", "watch"],
+        "description": "操作: add=新建, edit=修改, read=读取, convert=格式转换, merge=合并, dump=导出内容, batch=批量, render=渲染 HTML/PNG, watch=监听"
+      },
+      "input": {"type": "string", "description": "输入文件路径或源内容"},
+      "output": {"type": "string", "description": "输出文件路径 (写操作必须位于白名单目录)"},
+      "data_json": {"type": "string", "description": "结构化数据 JSON 字符串 (add/batch 用)"},
+      "options": {"type": "object", "description": "额外选项, 如 {\"type\":\"slide\",\"prop\":{\"title\":\"...\"}}"}
+    },
+    "required": ["op"]
+  }
+}

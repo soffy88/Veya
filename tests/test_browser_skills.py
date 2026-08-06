@@ -31,9 +31,9 @@ def test_skill_hub_loads_both_packs():
 
     hub = VeyaSkillHub(skills_dir=str(SKILLS_DIR))
     result = hub.reload_skills()
-    assert result["loaded"] == 2
+    assert result["loaded"] >= 3  # browser_use + agent_reach + officecli
     assert result["errors"] == 0
-    assert set(hub.list_skills()) == {"browser_use", "agent_reach"}
+    assert {"browser_use", "agent_reach", "officecli"} <= set(hub.list_skills())
 
     names = {s["function"]["name"] for s in hub.get_all_schemas()}
     assert {"browser_use", "agent_reach"} <= names

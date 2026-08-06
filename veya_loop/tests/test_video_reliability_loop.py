@@ -110,8 +110,8 @@ def test_signature_mapping_audio():
     r = run_video_reliability_loop(task, gen, evl)
     assert r.status == "aborted"
     assert r.signature.kind == FailureKind.AUDIO
-    assert r.signature.preferred_action == "REGENERATE"
-    assert actions[1] == "REGENERATE"
+    assert actions[1] == "REGENERATE"          # 首轮映射表语义
+    assert r.signature.preferred_action == "SWITCH_PROVIDER"  # 二次升级 (abort 前)
 
 
 def test_sandbox_crash_is_env_signature():
@@ -174,3 +174,113 @@ def test_passed_after_one_repair():
     assert r.status == "merged_candidate"
     assert r.success is True
     assert r.repairs_used == 1
+
+
+# ── v2 质量规则 (evaluate.py 的 spec.quality 开关) ─────────────────────
+
+def test_black_frames_too_many_maps_to_format():
+    """黑帧过多 → FailureKind.FORMAT → ADJUST_PROMPT。"""
+    task = VideoTask(task_id="v8", prompt="x",
+                     spec=VideoSpec(min_duration_s=5.0), max_repairs=1)
+
+    sigs = []
+
+    def gen(task_, sig, parent):
+        sigs.append(sig)
+        return _artifact()
+
+    def evl(task_, artifact):
+        return _eval(False, issues=[{"code": "BLACK_FRAMES_TOO_MANY",
+                                     "message": "黑帧 60% > 10%",
+                                     "severity": "high"}])
+
+    r = run_video_reliability_loop(task, gen, evl)
+    assert sigs[1].kind == FailureKind.FORMAT                 # 首轮映射
+    assert sigs[1].preferred_action == "ADJUST_PROMPT"
+    assert r.signature.preferred_action == "SWITCH_PROVIDER"  # 二次升级
+
+
+def test_loudness_low_maps_to_audio():
+    """响度过低 → FailureKind.AUDIO → REGENERATE。"""
+    task = VideoTask(task_id="v9", prompt="x",
+                     spec=VideoSpec(require_audio=True), max_repairs=1)
+
+    sigs = []
+
+    def gen(task_, sig, parent):
+        sigs.append(sig)
+        return _artifact()
+
+    def evl(task_, artifact):
+        return _eval(False, issues=[{"code": "LOUDNESS_TOO_LOW",
+                                     "message": "-30 LUFS < -25",
+                                     "severity": "high"}])
+
+    r = run_video_reliability_loop(task, gen, evl)
+    assert sigs[1].kind == FailureKind.AUDIO
+    assert sigs[1].preferred_action == "REGENERATE"
+    assert r.signature.preferred_action == "SWITCH_PROVIDER"
+
+
+def test_ocr_forbidden_maps_to_policy():
+    """OCR 违禁词 → FailureKind.POLICY → CLARIFY。"""
+    task = VideoTask(task_id="v10", prompt="x",
+                     spec=VideoSpec(min_duration_s=5.0), max_repairs=1)
+
+    sigs = []
+
+    def gen(task_, sig, parent):
+        sigs.append(sig)
+        return _artifact()
+
+    def evl(task_, artifact):
+        return _eval(False, issues=[{"code": "OCR_FORBIDDEN_FOUND",
+                                     "message": "检出违禁词",
+                                     "severity": "high"}])
+
+    r = run_video_reliability_loop(task, gen, evl)
+    assert sigs[1].kind == FailureKind.POLICY                 # POLICY 不升级
+    assert sigs[1].preferred_action == "CLARIFY"
+    assert r.signature.preferred_action == "CLARIFY"
+
+
+# ── SWITCH_PROVIDER: 同类失败二次 → 升级换 provider (参考调研落地) ─────
+
+def test_same_failure_twice_upgrades_to_switch_provider():
+    """同 fingerprint 二次失败 (FORMAT/AUDIO) → 签名升级 SWITCH_PROVIDER。"""
+    task = VideoTask(task_id="v11", prompt="x",
+                     spec=VideoSpec(min_duration_s=5.0), max_repairs=2)
+    actions = []
+
+    def gen(task_, sig, parent):
+        actions.append(sig.preferred_action if sig else None)
+        return _artifact()
+
+    def evl(task_, artifact):
+        return _eval(False, issues=[{"code": "ASPECT_NOT_ALLOWED",
+                                     "message": "比例 4:3 不在白名单",
+                                     "severity": "high"}])
+
+    r = run_video_reliability_loop(task, gen, evl)
+    assert r.status == "aborted"
+    assert actions == [None, "ADJUST_PROMPT", "SWITCH_PROVIDER"]
+    assert r.signature.evidence.get("upgraded_to_switch_provider") is True
+
+
+def test_env_failure_never_upgrades():
+    """ENV/CLARIFY 类 (PROBE_FAILED) 不升级 SWITCH_PROVIDER (保持 CLARIFY)。"""
+    task = VideoTask(task_id="v12", prompt="x",
+                     spec=VideoSpec(min_duration_s=5.0), max_repairs=2)
+    actions = []
+
+    def gen(task_, sig, parent):
+        actions.append(sig.preferred_action if sig else None)
+        return _artifact()
+
+    def evl(task_, artifact):
+        return _eval(False, issues=[{"code": "PROBE_FAILED",
+                                     "message": "ffprobe 崩", "severity": "high"}])
+
+    run_video_reliability_loop(task, gen, evl)
+    assert actions[1] == "CLARIFY"
+    assert actions[2] == "CLARIFY"

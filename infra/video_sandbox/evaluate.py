@@ -15,11 +15,16 @@ PROBE_FAILED。v2 扩展 (黑帧/响度/OCR) 走同一 issues 数组。
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+_FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 
 
 def _probe(video_path: str) -> dict:
@@ -37,11 +42,75 @@ def _probe(video_path: str) -> dict:
     return data
 
 
+def _black_frame_ratio(video_path: str, duration_s: float) -> float:
+    """黑帧比例: ffmpeg blackdetect 累积黑帧时长 / 视频时长。
+
+    失败返回 0.0 (不误判); 无时长信息返回 0.0。
+    """
+    if duration_s <= 0:
+        return 0.0
+    cmd = [
+        _FFMPEG, "-v", "info", "-i", video_path,
+        "-vf", "blackdetect=d=0.4:pix_th=0.10",
+        "-f", "null", "-",
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except Exception:
+        return 0.0
+    black_s = 0.0
+    for match in re.finditer(
+        r"black_start:([\d.]+) black_end:([\d.]+)", proc.stderr
+    ):
+        start, end = float(match.group(1)), float(match.group(2))
+        black_s += max(0.0, end - start)
+    return min(1.0, black_s / duration_s)
+
+
+def _loudness_lkfs(video_path: str) -> float | None:
+    """整体响度 (Integrated LUFS, ebur128)。无音轨/解析失败 → None。"""
+    cmd = [_FFMPEG, "-i", video_path, "-af", "ebur128", "-f", "null", "-"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except Exception:
+        return None
+    # ebur128 stderr 末行摘要: "I: -18.2 LUFS"
+    for line in reversed(proc.stderr.splitlines()):
+        match = re.search(r"I:\s*(-?\d+(?:\.\d+)?)\s*LUFS", line)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def _ocr_frame_texts(video_path: str, duration_s: float) -> list[str]:
+    """抽样帧 OCR 文本 (25%/50%/75% 三帧)。tesseract 缺失 → 空 (不判)。"""
+    tess = shutil.which("tesseract")
+    if tess is None:
+        return []
+    texts: list[str] = []
+    for frac in (0.25, 0.50, 0.75):
+        t = duration_s * frac
+        try:
+            frame = subprocess.run(
+                [_FFMPEG, "-v", "quiet", "-ss", f"{t:.3f}", "-i", video_path,
+                 "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+                capture_output=True, timeout=60,
+            )
+            if frame.returncode != 0 or not frame.stdout:
+                continue
+            ocr = subprocess.run(
+                [tess, "-", "-", "-l", "chi_sim+eng", "--psm", "6"],
+                input=frame.stdout, capture_output=True, timeout=60,
+            )
+            texts.append((ocr.stdout or b"").decode("utf-8", errors="replace").strip())
+        except Exception:
+            continue
+    return [t for t in texts if t]
+
+
 def _aspect_ratio(width: int, height: int) -> str:
     if width <= 0 or height <= 0:
         return "0:0"
-    import math
-
     g = math.gcd(width, height)
     return f"{width // g}:{height // g}"
 
@@ -156,6 +225,55 @@ def evaluate(request: dict) -> dict:
     metrics = {"duration_s": round(duration_s, 3), "width": width, "height": height,
                "fps": round(fps, 3), "has_audio": audio_stream is not None,
                "size_mb": round(size_mb, 3), "ratio": ratio}
+
+    # ── v2 质量规则 (spec.quality 开关, 缺省全关 = v1 兼容) ────────────
+    quality = spec.get("quality") or {}
+
+    # 黑帧比例
+    max_black = quality.get("max_black_ratio")
+    if max_black is not None and duration_s > 0:
+        black_ratio = _black_frame_ratio(video_path, duration_s)
+        metrics["black_ratio"] = round(black_ratio, 4)
+        if black_ratio > float(max_black):
+            issues.append({"code": "BLACK_FRAMES_TOO_MANY",
+                           "message": f"黑帧比例 {black_ratio:.2%} > 上限 {max_black:.0%}",
+                           "severity": "high"})
+
+    # 响度 (整体 LUFS)
+    min_loud = quality.get("min_loudness_lkfs")
+    max_loud = quality.get("max_loudness_lkfs")
+    if (min_loud is not None or max_loud is not None) and audio_stream is not None:
+        lkfs = _loudness_lkfs(video_path)
+        if lkfs is not None:
+            metrics["loudness_lkfs"] = round(lkfs, 2)
+            if min_loud is not None and lkfs < float(min_loud):
+                issues.append({"code": "LOUDNESS_TOO_LOW",
+                               "message": f"响度 {lkfs:.1f} LUFS < 下限 {min_loud}",
+                               "severity": "high"})
+            if max_loud is not None and lkfs > float(max_loud):
+                issues.append({"code": "LOUDNESS_TOO_HIGH",
+                               "message": f"响度 {lkfs:.1f} LUFS > 上限 {max_loud}",
+                               "severity": "high"})
+
+    # OCR 帧文本 (require_text 缺一不可; forbidden 任一即违禁)
+    require_text = quality.get("ocr_require_text") or []
+    forbidden = quality.get("ocr_forbidden") or []
+    if require_text or forbidden:
+        frame_texts = _ocr_frame_texts(video_path, duration_s)
+        joined = "\n".join(frame_texts)
+        metrics["ocr_frames"] = len(frame_texts)
+        if require_text:
+            missing = [w for w in require_text if w not in joined]
+            if missing:
+                issues.append({"code": "OCR_TEXT_MISSING",
+                               "message": f"OCR 未检出: {missing}",
+                               "severity": "high"})
+        if forbidden:
+            hits = [w for w in forbidden if w in joined]
+            if hits:
+                issues.append({"code": "OCR_FORBIDDEN_FOUND",
+                               "message": f"OCR 检出违禁词: {hits}",
+                               "severity": "high"})
 
     return _result(not issues, duration_s=duration_s, width=width, height=height,
                    fps=fps, has_audio=audio_stream is not None, size_mb=size_mb,
