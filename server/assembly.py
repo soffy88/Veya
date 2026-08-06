@@ -569,3 +569,10 @@ class Infra:
         cls.provider_registry = ProviderRegistry.get()  # singleton
         cls.lsp_manager = LspManager  # class itself as manager
         cls.event_bus = None  # MQPublisher 需 url,阶段1 不初始化
+        # 3O 算子账本固化 (delegate_to_genesis, 幂等)
+        from server.operator_ledger import register_operators
+
+        try:
+            cls.operator_ledger = register_operators()
+        except Exception as e:
+            cls.operator_ledger = {"registered": [], "skipped": [], "error": str(e)}
