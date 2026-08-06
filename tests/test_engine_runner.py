@@ -98,15 +98,15 @@ async def test_container_engine_probes_respect_credentials(monkeypatch, tmp_path
     (tmp_path / ".codex").mkdir()
     (tmp_path / ".codex" / "config.toml").write_text("model = \"gpt-5\"")
     (tmp_path / ".codex" / "auth.json").write_text("{}")
-    monkeypatch.setattr(er, "_container_codex_base_url", lambda: None)
-    assert er._container_codex_usable() is False      # 端点不可达 → 拒绝
-    monkeypatch.setattr(er, "_container_codex_base_url", lambda: "http://192.168.16.1:10101/v1")
-    assert er._container_codex_usable() is True       # 端点可达 → 放行
+    monkeypatch.setattr(er, "_ensure_container_opencodex", lambda: False)
+    assert er._container_codex_usable() is False      # opencodex 不可达 → 拒绝
+    monkeypatch.setattr(er, "_ensure_container_opencodex", lambda: True)
+    assert er._container_codex_usable() is True       # 自举可达 → 放行
 
-    # build_argv: 容器内 codex 覆盖 base_url
-    monkeypatch.setattr(er, "_container_codex_base_url", lambda: "http://192.168.16.1:10101/v1")
+    # build_argv: 容器内 codex 覆盖 base_url (loopback 自举实例)
+    monkeypatch.setattr(er, "_container_codex_base_url", lambda: "http://127.0.0.1:10100/v1")
     argv = er.build_argv("codex", "hi")
-    assert "-c" in argv and "openai_base_url=http://192.168.16.1:10101/v1" in argv
+    assert "-c" in argv and "openai_base_url=http://127.0.0.1:10100/v1" in argv
 
     # 宿主 (非容器): 无需端点覆盖
     monkeypatch.setattr(er, "_IN_CONTAINER", False)
