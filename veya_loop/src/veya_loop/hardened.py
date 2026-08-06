@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import time
 import uuid
@@ -117,10 +118,10 @@ class PermissionDecision:
 
 def _rule_matches(pattern: str, action: str, resource: str | None) -> bool:
     """glob 匹配: "do*" 匹配 "do(mode=healthy)"; "danger*" 匹配 "danger:drop_table"。
-    规则另有 resource 字段时精确匹配资源段。"""
-    import fnmatch
-
-    return bool(pattern) and fnmatch.fnmatch(action, pattern)
+    规则另有 resource 字段时精确/glob 匹配资源段。"""
+    if not pattern:
+        return False
+    return fnmatch.fnmatch(action, pattern)
 
 
 class PermissionContract:
@@ -149,7 +150,7 @@ class PermissionContract:
         for rule in self.rules:
             if rule.get("actor") and actor and rule["actor"] != actor:
                 continue
-            if rule.get("resource") and resource and rule["resource"] != resource:
+            if rule.get("resource") and (not resource or not fnmatch.fnmatch(resource, rule["resource"])):
                 continue
             if _rule_matches(str(rule["action"]), action, resource):
                 allowed = bool(rule.get("allow", True))

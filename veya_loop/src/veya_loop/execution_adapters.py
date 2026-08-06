@@ -110,7 +110,8 @@ def dispatch_via_adapter(
     argv = adapter.build_argv(target, **params)
     notes = adapter.describe(target)
 
-    if (probe_first and isinstance(adapter, RestartAdapter) and executor is not None
+    if (probe_first and executor is not None
+            and hasattr(adapter, "probe") and hasattr(adapter, "probe_argv")
             and not adapter.probe(target, executor, timeout_s=probe_timeout_s)):
         if emitter is not None:
             emitter.decide(decision={"chosen_strategy": action,
