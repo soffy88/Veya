@@ -99,3 +99,20 @@ async def test_codebase_memory_operator_graceful():
     result = await codebase_memory_graph("find", kind="call_graph")
     assert isinstance(result, dict)
     assert "ok" in result
+
+
+# =========================================================================
+# 三框架运行时立项账本
+# =========================================================================
+
+def test_runtime_ledger_registered():
+    """三框架立项: prime-agent / pi / agentscope, 状态 pending。"""
+    from server.operator_ledger import RUNTIME_LEDGER, runtime_ledger_summary
+
+    assert set(RUNTIME_LEDGER) == {
+        "prime_agent_runtime", "pi_bridge", "agentscope_bridge"}
+    summary = runtime_ledger_summary()
+    assert all(s["status"] == "pending" for s in summary)
+    # 层归属
+    layers = {s["layer"] for s in summary}
+    assert layers == {"内核运行时 (L1)", "工具链桥 (L2)", "平台编排桥 (L3)"}
