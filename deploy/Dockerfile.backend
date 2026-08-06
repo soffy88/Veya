@@ -6,6 +6,10 @@ WORKDIR /app
 # Install system deps (rg 供 grep 工具; git 供推库; playwright 浏览器可选)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ripgrep build-essential python3-dev \
+    # Playwright Chromium 运行库 (无头浏览器抓取通道)
+    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+    libasound2 libpango-1.0-0 libcairo2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 依赖(从 pyproject 全量安装, 含 apscheduler/pandas/numpy/pyarrow/scipy/cryptography)
@@ -38,12 +42,18 @@ COPY pyproject.toml README.md ./
 # 运行时依赖全量 (含 3O 主库 heavy-SDK: tree-sitter/pgmpy/rapidfuzz/chardet 等)
 COPY deploy/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+# Playwright 浏览器二进制 (全局路径, 容器内 uid 1000 可读)
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN python -m playwright install chromium \
+    && chmod -R a+rX /opt/ms-playwright
 RUN pip install --no-cache-dir . && pip install --no-cache-dir -e ./veya_loop \
     && python -c "import types, chardet, server.app; print('[build] server.app imports OK')"
 
 # 3O 主库装配通道
 ENV PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi
 ENV VEYA_WORKSPACE=/app
+# 容器内无 user namespace: Chromium 自身 sandbox 关闭 (见 veya/oskill/browser.py)
+ENV VEYA_BROWSER_NO_SANDBOX=1
 
 # 多引擎执行: 与宿主 uid 对齐 (挂载的 CLI 凭据可写), 非 root 运行
 RUN useradd -m -u 1000 soffy && mkdir -p /home/soffy && chown soffy:soffy /home/soffy

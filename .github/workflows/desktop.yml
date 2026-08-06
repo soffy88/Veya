@@ -79,6 +79,9 @@ jobs:
 
       - name: PyInstaller backend
         run: |
+          # 浏览器抓取通道: playwright + chromium 二进制进产物
+          /tmp/veya-pack-venv/bin/pip install playwright
+          /tmp/veya-pack-venv/bin/python -m playwright install chromium
           /tmp/veya-pack-venv/bin/pyinstaller scripts/pyinstaller/veya_backend.spec \
             --noconfirm --distpath dist-backend --workpath build-pyinstaller
           mkdir -p apps/desktop/resources/backend
