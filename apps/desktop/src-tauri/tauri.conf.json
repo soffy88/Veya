@@ -6,15 +6,15 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../build"
+    "beforeBuildCommand": "bash ../../scripts/build-desktop-web.sh",
+    "frontendDist": "../../web/build-desktop"
   },
   "app": {
     "windows": [
       {
-        "title": "Veya Desktop",
-        "width": 1100,
-        "height": 760,
+        "title": "Veya — AI 编码 Agent",
+        "width": 1360,
+        "height": 860,
         "minWidth": 760,
         "minHeight": 520
       }
@@ -32,6 +32,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../resources/backend/veya-backend": "backend/veya-backend"
+    }
   }
 }

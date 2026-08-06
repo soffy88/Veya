@@ -12,6 +12,12 @@
 
 export type Upstream = "gateway" | "legacy";
 
+/**
+ * API 基址: 同源模式为空串; 桌面静态版/独立部署用构建时注入的绝对基址
+ * (VITE_VEYA_ENDPOINT, 例如 http://127.0.0.1:8767)。
+ */
+export const API_BASE: string = (import.meta.env.VITE_VEYA_ENDPOINT as string | undefined) ?? "";
+
 export interface ApiResult {
   ok: boolean;
   status: number;
@@ -34,7 +40,7 @@ export async function api(
     if (v !== undefined && v !== "") q.set(k, String(v));
   }
   const qs = q.size ? `?${q.toString()}` : "";
-  const prefix = upstream === "legacy" ? "/legacy/" : "/";
+  const prefix = upstream === "legacy" ? `${API_BASE}/legacy/` : `${API_BASE}/`;
   const res = await fetch(`${prefix}${path.replace(/^\/+/, "")}${qs}`, {
     method: opts.method ?? "POST",
     headers: opts.body !== undefined ? { "content-type": "application/json" } : undefined,

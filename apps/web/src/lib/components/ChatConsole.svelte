@@ -30,6 +30,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	import { artifactStore } from "$lib/artifacts.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
+	import { API_BASE } from "$lib/api";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
 
 	const SUGGESTIONS = [
@@ -126,7 +127,7 @@ import ModelPicker from "./ModelPicker.svelte";
 		const signal = aborter.signal;
 
 		try {
-			const res = await fetch("/api/v1/agent/stream", {
+			const res = await fetch(`${API_BASE}/api/v1/agent/stream`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({

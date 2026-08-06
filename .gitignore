@@ -67,3 +67,9 @@ node_modules/
 .coverage
 .veya_ast_cache.json
 .next_log*
+# Desktop build artifacts
+dist-backend/
+build-pyinstaller/
+apps/web/build-desktop/
+apps/desktop/resources/
+apps/desktop/src-tauri/target/

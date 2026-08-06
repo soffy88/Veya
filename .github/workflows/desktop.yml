@@ -1,0 +1,103 @@
+name: Desktop Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            target: AppImage
+            pkg: veya-desktop_*_amd64.AppImage
+          - platform: macos-latest
+            target: dmg
+            pkg: Veya_*.dmg
+          - platform: windows-latest
+            target: nsis
+            pkg: Veya_*.exe
+    runs-on: ${{ matrix.platform }}
+    env:
+      PYTHON_VERSION: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Rust (Tauri)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux system deps (Tauri + PyInstaller)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: macOS system deps
+        if: runner.os == 'macOS'
+        run: |
+          brew install webkit2gtk 2>/dev/null || true
+
+      - name: Backend venv + deps
+        run: |
+          python -m venv /tmp/veya-pack-venv
+          /tmp/veya-pack-venv/bin/pip install --upgrade pip
+          /tmp/veya-pack-venv/bin/pip install pyinstaller \
+            fastapi "uvicorn[standard]" httpx aiohttp python-dotenv python-multipart \
+            networkx structlog apscheduler pandas numpy pyarrow pgmpy scipy pyyaml \
+            plotly matplotlib textual chardet \
+            cryptography rapidfuzz argon2-cffi asyncpg tree-sitter tree-sitter-python \
+            anthropic openai mcp
+
+      - name: Static web build (desktop)
+        run: |
+          cd apps/web
+          npm install -g pnpm 2>/dev/null || true
+          pnpm install --no-frozen-lockfile
+          cd ../.. && bash scripts/build-desktop-web.sh
+
+      - name: PyInstaller backend
+        run: |
+          /tmp/veya-pack-venv/bin/pyinstaller scripts/pyinstaller/veya_backend.spec \
+            --noconfirm --distpath dist-backend --workpath build-pyinstaller
+          mkdir -p apps/desktop/resources/backend
+          cp -r dist-backend/veya-backend/* apps/desktop/resources/backend/
+
+      - name: Tauri build
+        run: |
+          cd apps/desktop
+          pnpm install --no-frozen-lockfile
+          pnpm tauri build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: veya-desktop-${{ matrix.target }}
+          path: apps/desktop/src-tauri/target/release/bundle/${{ matrix.target }}/${{ matrix.pkg }}
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/desktop/src-tauri/target/release/bundle/${{ matrix.target }}/${{ matrix.pkg }}
