@@ -93,7 +93,7 @@ def test_allocate_vcg_welfare() -> None:
 
 def test_vcg_strategyproof_check() -> None:
     p = _problem()
-    alloc = v.assign_one_to_one(p)
+    v.assign_one_to_one(p)
     report = v.check_strategyproof(p, v.vcg, allocator=v.assign_one_to_one)
     assert report is not None
     assert report.manipulable is False  # VCG 下真实报价是弱占优
