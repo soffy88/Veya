@@ -198,6 +198,24 @@ veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=te
 5. **未 push** — 主仓 26+ commits 待 `git push`；3O 子模块各自 commit 未 push
 6. **多租户/量化接线/非线性收缩** — 明确非目标
 
+### 6.1 引擎账号修复记录（2026-08-06，四引擎容器内全通）
+
+- **诊断结论**：claude/codex 账号本身正常（宿主实测通过）；容器内不可用是**网络架构**问题：
+  - claude 403 "Request not allowed" = Anthropic 拒容器直连出口 IP；宿主经本地代理
+    `127.0.0.1:7890`（clash）成功
+  - codex 依赖 opencodex 代理（127.0.0.1:10100，**Host 必须 loopback** 校验）→ 容器内自举
+- **修复（engine_runner 79063f29）**：
+  - `_container_gateway_ip`（HTTPError 403 也算可达——urlopen 非 2xx 抛异常，易误判）
+  - `_container_proxy_env`：容器内 subprocess 注入代理 env（claude 出口走桥 17890）
+  - `_ensure_container_opencodex`：容器内自举 opencodex（bun + 代理 env，模型目录同步 chatgpt.com），幂等
+  - codex argv：`--sandbox workspace-write`（`--full-auto` 已弃用）+ 容器内 `-c openai_base_url=127.0.0.1:10100`
+- **宿主桥**：用户级 systemd `veya-codex-bridge`（`~/.local/bin/veya_codex_bridge.py`）：
+  `0.0.0.0:10101→127.0.0.1:10100`（opencodex 备用）+ `0.0.0.0:17890→127.0.0.1:7890`（HTTP 代理）
+- **注意**：容器重启后 opencodex 由 engine_runner 首次调用时自动自举（探测 127.0.0.1:10100
+  healthz 失败 → spawn）；bridge systemd 服务需宿主保留（重启宿主后 `systemctl --user enable`
+  已持久化）
+- **实测**：四引擎容器内全通（master/pi/claude/codex）；公网 claude 全链路 OK
+
 ## 7. 常用命令
 
 ```bash
