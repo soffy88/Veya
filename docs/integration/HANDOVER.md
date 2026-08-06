@@ -97,6 +97,24 @@ veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=te
   区分靠 failure_log）；EMA 随机序列统计噪声 σ≈0.15（断言需 ≥ 噪声）；
   dispatch action 命名规范为 `前缀:目标`（`do:reboot` 匹配 `do:*`）
 
+### 5.4 多目标效用优化循环 optimize_loop（2026-08-06，256 → 283）
+
+- **新机制（主库 oprim 399c68e）**：`oprim/_optimize_loop.py` —— train 搜索 + OOS 硬门禁 + 评价缓存
+  - `MultiObjectiveConfig`/`multi_objective_utility`：默认权重 sharpe 1.0 · total_return 0.25 ·
+    max_drawdown -1.0 · turnover -0.05 · cost_drag -0.5（可覆盖，缺指标按 0）
+  - `EvalWindow(start,end,label)`：ISO 区间 · `fingerprint_eval`：params+window+meta → sha256[:16]
+  - `EvalCache`：内存 + disk_path JSONL 跨进程持久化，hit/miss 统计
+  - `RiskGateConfig(min_sharpe/max_drawdown/min_trades/max_turnover/max_cost_drag)`：
+    缺指标 fail-closed（安全默认），None 跳过该项
+  - `optimize_loop`：BO 内核复用主库 `bayesian_optimize`（RBF-GP+EI），`gate_on="train"` 无 OOS 降级
+- **veya_loop 装配**：shim `veya_loop/oprim/_optimize_loop.py` + `_ELEMENT_MAP` 8 符号
+- **测试 `tests/test_optimize_loop.py`（17 项）**：效用数值/权重覆盖/缺指标按 0、指纹稳定·键序无关·
+  区间 meta 敏感、缓存 hit 跳过 evaluate·磁盘持久化、gate 过/拒/缺指标/可选检查、
+  BO 寻峰（凸函数峰点误差 <10%）、OOS 拒绝·放宽接受（同参数仅门禁不同）、gate_on=train、缓存复用
+- **排坑记录**：`bayesian_optimize(minimize=False)` 语义 = 最大化**传入的** objective ——
+  负效用必须配默认 `minimize=True`，否则反向寻谷（曾找到 utility=-0.024 的谷底）；
+  重复点返回缓存值而非 -1e9 极端惩罚（会污染 GP 后验带偏 EI）
+
 ## 6. 已知待办/风险
 
 1. **claude/codex 引擎 403/refused** — 宿主账号侧，与代码无关；排查宿主 `claude -p` / `codex exec`
