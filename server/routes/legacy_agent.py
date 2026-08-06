@@ -29,6 +29,7 @@ class LegacyAgentRunRequest(BaseModel):
     session_id: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     mode: Literal["run", "dry_run"] = "run"
+    engine: str = Field("master", description="执行引擎: master|claude|codex|pi")
 
 
 class LegacyAgentRunResponse(BaseModel):
@@ -49,6 +50,18 @@ def _new_session_id() -> str:
 async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse:
     """旧协议入口 → 新主脑 (同进程委托, 无网络跳转)。"""
     from server.coordinator_master import master_coordinator
+
+    if req.engine != "master":
+        from server.engine_runner import run_engine
+
+        res = await run_engine(req.engine, req.text or req.task or "",
+                               model=req.model, timeout_s=600.0)
+        return LegacyAgentRunResponse(
+            session_id=req.session_id or _new_session_id(),
+            status="success" if res["ok"] else "failed",
+            result=res.get("output") or res.get("error") or "",
+            cost_usd=0.0,
+        )
 
     if req.text is not None:
         result = await master_coordinator.chat_stream(
@@ -103,6 +116,21 @@ async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse
 async def legacy_agent_stream(req: LegacyAgentRunRequest, request: Request) -> StreamingResponse:
     """旧协议 SSE 流 → 新主脑事件流 (text_delta / tool_call / master_done)。"""
     from server.chat_stream import new_agent_stream_events
+
+    if req.engine != "master":
+        from fastapi.responses import StreamingResponse
+        from server.engine_runner import stream_engine
+
+        async def _engine_events():
+            async for evt in stream_engine(req.engine, req.text or req.task or "",
+                                           model=req.model, timeout_s=600.0):
+                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            _engine_events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     prompt = req.text if req.text is not None else (req.task or "")
     session_id = req.session_id or _new_session_id()
