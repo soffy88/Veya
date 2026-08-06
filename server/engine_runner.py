@@ -39,16 +39,25 @@ def available_engines() -> Dict[str, str]:
     return out
 
 
-def build_argv(engine: str, prompt: str, *, model: Optional[str] = None) -> List[str]:
-    """构造引擎 CLI 非交互 argv (无 shell, 无注入面)。"""
+def build_argv(engine: str, prompt: str, *,
+                model: Optional[str] = None,
+                streaming: bool = False) -> List[str]:
+    """构造引擎 CLI 非交互 argv (无 shell, 无注入面)。
+
+    streaming=True 时 claude 用 stream-json (逐事件解析); run 聚合模式用普通文本输出。
+    """
     engine = ENGINE_ALIASES.get(engine, engine)
     if engine == "claude":
-        argv = ["claude", "-p", prompt, "--output-format", "stream-json"]
+        argv = ["claude", "-p", prompt]
+        if streaming:
+            # stream-json 在 --print 模式下要求 --verbose
+            argv += ["--output-format", "stream-json", "--verbose"]
         if model:
             argv += ["--model", model]
         return argv
     if engine == "codex":
-        argv = ["codex", "exec", prompt]
+        # 非 git 仓库跳过信任检查 + 全自动(非交互不等待确认)
+        argv = ["codex", "exec", "--skip-git-repo-check", "--full-auto", prompt]
         if model:
             argv += ["-m", model]
         return argv
@@ -71,7 +80,7 @@ async def run_engine(
     """聚合执行: 引擎跑完返回全文 (run 契约)。"""
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
-    argv = build_argv(engine, prompt, model=model)
+    argv = build_argv(engine, prompt, model=model, streaming=False)
     proc = await asyncio.create_subprocess_exec(
         *argv,
         cwd=cwd,
@@ -107,7 +116,7 @@ async def stream_engine(
     """
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
-    argv = build_argv(engine, prompt, model=model)
+    argv = build_argv(engine, prompt, model=model, streaming=True)
     proc = await asyncio.create_subprocess_exec(
         *argv,
         cwd=cwd,
