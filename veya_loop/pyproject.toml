@@ -48,3 +48,7 @@ include = ["src/veya_loop", "README.md", "docs"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    # pgmpy 上游弃用通知 (主库导入链触发, 与本包无关)
+    "ignore:.*StructureScore.*:FutureWarning",
+]

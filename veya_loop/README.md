@@ -12,16 +12,37 @@
 
 ---
 
-## 能力面（Phase 2 / 3 / 4）
+## 能力面（P1 神经符号 / Phase 2 / 3 / 4）
 
 | Phase | 能力 | 导出 |
 |---|---|---|
+| P1 | 神经符号四闸门（IR 校验 / Z3 编译 / MaxSMT 可满足 / 回译） | `PlanIR` `parse_ir` `validate` `compile_ir` `check_feasible` `optimize` `diff_all` |
+| P1 | 不可满足核 + 解释（MUS） | `shrink_to_mus` `explain` |
+| P1 | 组合优化分配 + VCG 支付 + 策略证明 | `assign_one_to_one` `assign_with_capacity` `vcg` `check_strategyproof` `welfare` |
+| P1 | 死锁检测（租约 / 资源序 / 等待图预检） | `LeaseManager` `ResourceOrder` `WaitForGraph` |
+| P1 | 博弈论（纯纳什 / 帕累托 / 主导策略） | `Game` `pure_nash` `pareto_optimal` `dominant_strategies` |
+| P1 | 拍卖账本（任务 / 工人 / 出价） | `Ledger` `Problem` `Task` `Worker` `Bid` |
+| P1 | 沙箱推演（快照 / 稠密奖励 / PUCT / lookahead） | `SnapshotStore` `run_probes` `MCTS` `puct` `lookahead` |
+| P1 | 动作执行面（计划应用 / 可逆性 / 补偿链） | `ActionPlan` `Applier` `Reversibility` `compensation_chain` `gate` |
+| P1 | 隔离沙箱（命名空间 / 预热池） | `LocalSandbox` `SandboxPool` |
 | 2 | 因果测谎仪（do-calculus 诊断 + 反事实干预） | `CausalGraphStore` `causal_fault_diagnose` `build_binary_failure_cpd_map` |
 | 2 | 贝叶斯意图雷达 + 蜜罐反间谍 | `BayesianBeliefUpdater` `adversarial_honeypot_observe` |
-| 3 | 反脆弱闭环（期望效用选择 + 在线 CPD 更新） | `closed_loop_intervene` `select_intervention` `CategoricalCPD` `update_cpd` |
-| 3 | 威胁模型演化 + 决策审计统一写出口 | `threat_model_evolve` `AuditEmitter` `JsonlSink` |
+| 3 | 反脆弱闭环（期望效用选择 + 在线 CPD 更新） | `closed_loop_intervene` `select_intervention` `expected_utility` `CategoricalCPD` `update_cpd` |
+| 3 | 威胁模型演化 + 决策审计统一写出口 | `threat_model_evolve` `AuditEmitter` `JsonlSink` `CompositeSink` |
 | 4 | 长视距反事实规划 + 策略自演化 | `multi_step_plan` `counterfactual_rollout` `StrategyEvolver` |
+| L3 | 显式噪声 SCM / Cholesky 流 / Hybrid SCM / BO 规划 | `StructuralSCM` `CholeskyMechanism` `HybridSCM` `bayesian_optimize` `fit_deep_scm` |
+| 可靠 | 代码可靠性闭环（沙箱 + 修复迭代） | `run_code_reliability_loop` `CodeTask` `CodeLoopResult` |
 | 自有 | 硬化执行 / 授权契约 / 干预派发 | `HardenedExecutor` `PermissionContract` `dispatch_intervention` |
+| 自有 | 执行适配器模板（probe + 派发三合一） | `ExecutionAdapter` `RestartAdapter` `dispatch_via_adapter` |
+
+## 命令行（veya-loop）
+
+```bash
+veya-loop --version           # 版本
+veya-loop selftest            # 冒烟: 装配面 + 关键机制链路 (22 项)
+veya-loop plan --json '{"failure_log": "..."}'       # 多步规划
+veya-loop diagnose --json '{"failure_log": "..."}'   # 因果诊断
+```
 
 ## 安装
 

@@ -47,9 +47,26 @@ veya_loop (装配包)        veya_loop/src/veya_loop/{__init__,hardened,executio
 ## 5. 测试基线
 
 ```
-veya_loop/tests   ~78 passed  (cd veya_loop && ../venv/bin/python -m pytest tests/ -q)
+veya_loop/tests   230 passed  (cd veya_loop && ../venv/bin/python -m pytest tests/ -q)
 veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=tests/guardians)
 ```
+
+### 5.1 veya_loop 优化记录（2026-08-06 起）
+
+- **P1 神经符号能力面装配补全**：四闸门(validate/compile_ir/check_feasible/optimize/diff_all)、
+  MUS(shrink_to_mus/explain)、分配+VCG(assign_one_to_one/vcg/check_strategyproof)、
+  死锁(LeaseManager/WaitForGraph)、博弈(Game/pure_nash)、账本(Ledger/Problem/Task/Worker/Bid)、
+  快照(SnapshotStore)、奖励(run_probes)、PUCT(MCTS/puct/best_path)、lookahead、
+  actions(ActionPlan/Applier/compensation_chain)、SandboxPool/LocalSandbox ——
+  全部进 `_ELEMENT_MAP`（现 134 exports）
+- **cli.py 修复**：pyproject 声明 `veya-loop` entry point 但文件缺失（打包缺陷）→ 已补全
+  `veya-loop {--version|selftest|plan|diagnose}`；selftest 22 项冒烟（装配面+四闸门/VCG/死锁/期望效用/审计）
+- **质量修复**：`PermissionContract` resource 规则现支持 glob 匹配（原半实现）；
+  `dispatch_via_adapter` probe 改 duck-typing（不再硬编码 RestartAdapter）；
+  消除 PytestCollectionWarning（TestResult 误收集，conftest 豁免）
+- **守护测试**：`tests/test_shim_consistency.py`（装配漂移防回归，~141 项 parametrized）+
+  `tests/test_p1_neuro_symbolic.py`（P1 行为 12 项）；ruff 全干净
+- **测试基线**：78 → 230 passed（零告警）
 
 ## 6. 已知待办/风险
 
