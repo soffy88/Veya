@@ -34,7 +34,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../resources/backend/veya-backend": "backend/veya-backend"
+      "../resources/backend/": "backend/"
     }
   }
 }
