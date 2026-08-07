@@ -46,6 +46,8 @@ export const MODEL_PRESETS: Record<string, string[]> = {
 };
 
 export const BUILTIN_PROVIDERS: ProviderDef[] = [
+	// veya1.1: 智能路由别名 (后端按任务类型路由: 文本→deepseek-v4-flash, 视觉→qwen3.7-flash)
+	{ id: "veya1.1", label: "Veya 1.1 (智能路由)", defaultModel: "veya1.1" },
 	{ id: "dashscope", label: "DashScope · Qwen", defaultModel: "qwen-plus" },
 	{ id: "anthropic", label: "Anthropic · Claude", defaultModel: "claude-haiku-4-5-20251001" },
 	{ id: "openai", label: "OpenAI · GPT", defaultModel: "gpt-4o-mini" },
@@ -103,7 +105,7 @@ function load(): StoredState {
 
 class ApiKeyStore {
 	#initial = load();
-	provider = $state(this.#initial.provider);
+	provider = $state(this.#initial.provider || "veya1.1");
 	engine = $state("master");
 	customProviders = $state<ProviderDef[]>(this.#initial.customProviders);
 	#creds = $state<Record<string, Credential>>(this.#initial.creds);
