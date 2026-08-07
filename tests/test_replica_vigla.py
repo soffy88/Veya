@@ -222,4 +222,4 @@ def test_replica_ledger_phase_one_registered():
     g3 = next(s for s in summary if s["name"] == "G3_mission_supervisor")
     assert g3["status"] == "registered"
     g1 = next(s for s in summary if s["name"] == "G1_artifact_preview")
-    assert g1["status"] == "pending"
+    assert g1["status"] == "registered"  # 二期已实施
