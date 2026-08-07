@@ -88,6 +88,13 @@ async def lifespan(app: FastAPI):
         hevi = get_hevi()
         await hevi.start()
         await wire_hevi(hevi)                           # mcp_hevi_* → 主脑工具面
+        # Open Design MCP (设计/渲染层; daemon 不可达/无 token 时优雅降级)
+        from server.open_design import get_open_design
+        from server.open_design import wire_master_tools as wire_od
+
+        od = get_open_design()
+        await od.start()
+        await wire_od(od)                               # mcp_od_* → 主脑工具面
     except Exception:
         pass
     yield
