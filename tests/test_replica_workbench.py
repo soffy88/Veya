@@ -152,5 +152,5 @@ def test_replica_ledger_phase_two_registered():
     statuses = {s["name"]: s["status"] for s in summary}
     assert statuses["G1_artifact_preview"] == "registered"
     assert statuses["G2_agent_team_monitor"] == "registered"
-    # 三期仍 pending
-    assert statuses["G7_skill_crystallize"] == "pending"
+    # 三期已实施
+    assert statuses["G7_skill_crystallize"] == "registered"

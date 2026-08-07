@@ -213,10 +213,10 @@ REPLICA_LEDGER: dict[str, dict[str, str]] = {
                               "status": "registered"},
     "G7_skill_crystallize": {"layer": "omodul", "phase": "三(KiroCrew)",
                              "desc": "教训→技能结晶入库 (查重+审计)",
-                             "status": "pending"},
+                             "status": "registered"},
     "G8_trigger_register": {"layer": "oservi", "phase": "三(KiroCrew)",
                             "desc": "cron/webhook/事件触发器统一注册",
-                            "status": "pending"},
+                            "status": "registered"},
 }
 
 
