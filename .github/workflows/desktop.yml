@@ -23,11 +23,11 @@ jobs:
           - platform: macos-latest
             target: dmg
             dir: dmg
-            pkg: Veya_*.dmg
+            pkg: veya-desktop_*.dmg
           - platform: windows-latest
             target: nsis
             dir: nsis
-            pkg: Veya_*.exe
+            pkg: veya-desktop_*.exe
     runs-on: ${{ matrix.platform }}
     env:
       PYTHON_VERSION: "3.11"
