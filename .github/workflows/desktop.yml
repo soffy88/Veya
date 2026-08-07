@@ -65,13 +65,13 @@ jobs:
           set -euo pipefail
           VENV_DIR="$RUNNER_TEMP/veya-pack-venv"
           if [ "$RUNNER_OS" = "Windows" ]; then
-            VENV_PIP="$VENV_DIR/Scripts/pip.exe"; VENV_PY="$VENV_DIR/Scripts/python.exe"
+            VENV_PY="$VENV_DIR/Scripts/python.exe"
           else
-            VENV_PIP="$VENV_DIR/bin/pip"; VENV_PY="$VENV_DIR/bin/python"
+            VENV_PY="$VENV_DIR/bin/python"
           fi
           python -m venv "$VENV_DIR"
-          "$VENV_PIP" install --upgrade pip
-          "$VENV_PIP" install pyinstaller \
+          "$VENV_PY" -m pip install --upgrade pip
+          "$VENV_PY" -m pip install pyinstaller \
             fastapi "uvicorn[standard]" httpx aiohttp python-dotenv python-multipart \
             networkx structlog apscheduler pandas numpy pyarrow pgmpy scipy pyyaml \
             plotly matplotlib textual chardet \
@@ -80,7 +80,7 @@ jobs:
           # 浏览器抓取通道: playwright + headless shell 进产物 (跨平台路径统一)
           export PLAYWRIGHT_BROWSERS_PATH="$(pwd)/.ms-playwright"
           export PW_PACK_DIR="$(pwd)/.ms-playwright"
-          "$VENV_PIP" install playwright
+          "$VENV_PY" -m pip install playwright
           "$VENV_PY" -m playwright install chromium
           "$VENV_PY" -m pyinstaller scripts/pyinstaller/veya_backend.spec \
             --noconfirm --distpath dist-backend --workpath build-pyinstaller
