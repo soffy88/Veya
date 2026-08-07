@@ -469,3 +469,29 @@ def test_prepare_messages_does_not_mutate_input():
     snapshot = list(msgs)
     prepare_messages_for_provider(msgs, "deepseek")
     assert msgs == snapshot, "输入消息不得被原地修改"
+
+
+# ---------------------------------------------------------------------------
+# endpoint 归一化 (custom provider base URL → /chat/completions)
+# ---------------------------------------------------------------------------
+
+def test_normalize_chat_endpoint():
+    from veya.llm import _normalize_chat_endpoint
+
+    # base URL 形态 → 补 /chat/completions
+    assert _normalize_chat_endpoint("https://token.example.com/v1", "custom") == \
+        "https://token.example.com/v1/chat/completions"
+    assert _normalize_chat_endpoint("https://host.example.com", "custom") == \
+        "https://host.example.com/chat/completions"
+    # 完整 URL (内置形态) → 原样
+    assert _normalize_chat_endpoint(
+        "https://api.deepseek.com/v1/chat/completions", "deepseek") == \
+        "https://api.deepseek.com/v1/chat/completions"
+    assert _normalize_chat_endpoint(
+        "https://open.bigmodel.cn/api/paas/v4/chat/completions", "zhipu") == \
+        "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    # 非法 URL → 明确报错 (不再 httpx 相对 URL 404 迷惑)
+    with pytest.raises(ValueError, match="完整 URL"):
+        _normalize_chat_endpoint("/v1", "custom")
+    with pytest.raises(ValueError, match="未配置"):
+        _normalize_chat_endpoint("", "custom")
