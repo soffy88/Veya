@@ -185,3 +185,46 @@ __all__ = [
     "officecli_doc_engine",
     "register_operators",
 ]
+
+
+# =========================================================================
+# 三平台复刻算子账本 (pi-workbench / KiroCrew / Vigla 能力 3O 化)
+# PRD: PRD-3O-2026-REPLICA-TRIO — 一期 (Vigla G3-G6) 已实施, 二/三期待动工
+# =========================================================================
+
+REPLICA_LEDGER: dict[str, dict[str, str]] = {
+    "G3_mission_supervisor": {"layer": "omodul", "phase": "一(Vigla)",
+                              "desc": "Merge 前审计: 秘钥/路径/禁止操作三通道, verdict+审计",
+                              "status": "registered"},
+    "G4_mission_revert": {"layer": "omodul", "phase": "一(Vigla)",
+                          "desc": "多 Worker 工作区级一键回滚 + 坏改动隔离",
+                          "status": "registered"},
+    "G5_canonical_event_ingest": {"layer": "oprim", "phase": "一(Vigla)",
+                                  "desc": "vendor 原始字节 → 规范事件 + 指纹 + 回放",
+                                  "status": "registered"},
+    "G6_agent_bench_harness": {"layer": "oservi", "phase": "一(Vigla)",
+                               "desc": "确定性 mock 基准评测 (completion/pass/cost)",
+                               "status": "registered"},
+    "G1_artifact_preview": {"layer": "omodul", "phase": "二(workbench)",
+                            "desc": "Artifact 独立渲染+消毒+快照",
+                            "status": "pending"},
+    "G2_agent_team_monitor": {"layer": "oservi", "phase": "二(workbench)",
+                              "desc": "事件溯源团队实时监督",
+                              "status": "pending"},
+    "G7_skill_crystallize": {"layer": "omodul", "phase": "三(KiroCrew)",
+                             "desc": "教训→技能结晶入库 (查重+审计)",
+                             "status": "pending"},
+    "G8_trigger_register": {"layer": "oservi", "phase": "三(KiroCrew)",
+                            "desc": "cron/webhook/事件触发器统一注册",
+                            "status": "pending"},
+}
+
+
+def replica_ledger_summary() -> list[dict[str, Any]]:
+    """三平台复刻账本全貌。"""
+    return [
+        {"name": name, "layer": meta["layer"], "phase": meta["phase"],
+         "status": meta["status"], "description": meta["desc"]}
+        for name, meta in REPLICA_LEDGER.items()
+    ]
+
