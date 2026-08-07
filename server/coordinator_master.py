@@ -60,6 +60,7 @@ class MasterCoordinator:
         llm_fn: Callable | None = None,
         max_rounds: int = 8,
         temperature: float = 0.2,
+        long_task_factory: Callable[[], Any] | None = None,
     ):
         """初始化主脑(装配 veya 组件 → 委托主库引擎)。
 
@@ -75,6 +76,8 @@ class MasterCoordinator:
             vault: 零信任密钥金库(默认全局单例; 测试注入独立实例)。
             omni_gateway: 全渠道分发网关(默认全局单例; 测试注入独立实例)。
             llm_fn: LLM 调用函数(默认 veya.llm.llm_call; 测试注入用)。
+            long_task_factory: 可选长程任务驱动工厂(每次 chat_stream 调用时
+                惰性创建; 默认 None = 长程能力关闭, 线上行为零变化)。
         """
         self.api_key = user_api_key or ""
         self.model = model
@@ -103,6 +106,7 @@ class MasterCoordinator:
         self._llm_fn = llm_fn or llm_call
         self.max_rounds = max_rounds
         self.temperature = temperature
+        self._long_task_factory = long_task_factory
 
         # 用户侧 Key 只注入本实例 config,不影响全局环境
         self._llm_config: dict[str, Any] = {}
@@ -149,9 +153,15 @@ class MasterCoordinator:
         req_endpoint = kwargs.pop("endpoint", None)
         merged_cfg = {**self._llm_config, **req_cfg}
         if req_cfg.get("providers"):
-            merged_cfg["providers"] = {**self._llm_config.get("providers", {}), **req_cfg["providers"]}
+            merged_cfg["providers"] = {
+                **self._llm_config.get("providers", {}),
+                **req_cfg["providers"],
+            }
         if req_cfg.get("endpoints"):
-            merged_cfg["endpoints"] = {**self._llm_config.get("endpoints", {}), **req_cfg["endpoints"]}
+            merged_cfg["endpoints"] = {
+                **self._llm_config.get("endpoints", {}),
+                **req_cfg["endpoints"],
+            }
         return self._llm_fn(
             messages,
             config=merged_cfg,
@@ -236,11 +246,15 @@ class MasterCoordinator:
             llm_kwargs["endpoint"] = endpoint
         token = _on_step_ctx.set(on_step)
         try:
+            lt = None
+            if self._long_task_factory is not None:
+                lt = self._long_task_factory()
             return await self._agent.chat_stream(
                 user_prompt,
                 session_id=session_id,
                 max_rounds=max_rounds,
                 llm_kwargs=llm_kwargs or None,
+                long_task=lt,
             )
         finally:
             _on_step_ctx.reset(token)
