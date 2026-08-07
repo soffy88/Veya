@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 ENGINE_ALIASES = {
     "claude": "claude",
@@ -166,6 +167,30 @@ def _container_codex_usable() -> bool:
     return _ensure_container_opencodex()
 
 
+def _container_opencode_bin() -> str | None:
+    """opencode 二进制绝对路径 (容器 PATH 无 ~/.opencode/bin → 显式定位)。"""
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, ".opencode", "bin", "opencode"),
+        shutil.which("opencode") or "",
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+
+def _container_opencode_usable() -> bool:
+    """容器内 opencode 探测: 二进制 (绝对路径) + opencode-go 凭据齐全。"""
+    if not _IN_CONTAINER:
+        return True
+    home = os.path.expanduser("~")
+    auth = os.path.join(home, ".local", "share", "opencode", "auth.json")
+    return (_container_opencode_bin() is not None
+            and os.path.isfile(auth)
+            and "opencode-go" in Path(auth).read_text(encoding="utf-8", errors="ignore"))
+
+
 def _container_codex_base_url() -> str | None:
     """容器内 codex 应使用的 opencodex 端点 (容器内自举实例, loopback 直连)。"""
     if not _IN_CONTAINER:
@@ -184,7 +209,8 @@ def available_engines() -> dict[str, str]:
         out = {"master": "builtin"}
         for eng, probe in (("pi", _container_pi_usable),
                            ("claude", _container_claude_usable),
-                           ("codex", _container_codex_usable)):
+                           ("codex", _container_codex_usable),
+                           ("opencode", _container_opencode_usable)):
             if probe():
                 out[eng] = shutil.which(eng)
         return out
@@ -204,12 +230,21 @@ def _container_engine_block(engine: str) -> str | None:
     if _IN_CONTAINER and engine != "master":
         probes = {"pi": _container_pi_usable,
                   "claude": _container_claude_usable,
-                  "codex": _container_codex_usable}
+                  "codex": _container_codex_usable,
+                  "opencode": _container_opencode_usable}
         probe = probes.get(engine)
         if probe and probe():
             return None
         return f"容器环境不支持外部 CLI 引擎 '{engine}' (凭据/端点未就绪, 仅 master 可用)"
     return None
+
+
+
+def _engine_bin_available(engine: str) -> bool:
+    """引擎二进制可用性: opencode 容器内用绝对路径, 其余 which。"""
+    if engine == "opencode" and _IN_CONTAINER:
+        return _container_opencode_bin() is not None
+    return shutil.which(engine) is not None
 
 
 def build_argv(engine: str, prompt: str, *,
@@ -245,8 +280,9 @@ def build_argv(engine: str, prompt: str, *,
             argv += ["--model", model]
         return argv
     if engine == "opencode":
-        # opencode-go 网关模型 (系统内已有凭据)
-        argv = ["opencode", "run", prompt,
+        # opencode-go 网关模型 (系统内已有凭据); argv[0] 用绝对路径 (容器 PATH 无)
+        oc_bin = _container_opencode_bin() if _IN_CONTAINER else shutil.which("opencode") or "opencode"
+        argv = [oc_bin, "run", prompt,
                 "--model", model or "opencode-go/deepseek-v4-flash"]
         return argv
     raise ValueError(f"未知引擎: {engine!r}; 可选 {sorted(ENGINE_ALIASES)}")
@@ -265,7 +301,7 @@ async def run_engine(
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
     if reason := _container_engine_block(engine):
         return {"ok": False, "error": reason}
-    if shutil.which(engine) is None:
+    if not _engine_bin_available(engine):
         return {"ok": False, "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})"}
     argv = build_argv(engine, prompt, model=model, streaming=False)
     proc = await asyncio.create_subprocess_exec(
@@ -308,7 +344,7 @@ async def stream_engine(
         yield {"type": "engine_error", "engine": engine, "error": reason}
         return
     # CLI 缺失 → 结构化错误事件 (而非 subprocess 抛异常 → 500/520)
-    if shutil.which(engine) is None:
+    if not _engine_bin_available(engine):
         yield {
             "type": "engine_error",
             "engine": engine,
