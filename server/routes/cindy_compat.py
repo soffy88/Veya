@@ -179,6 +179,72 @@ async def operators_ledger() -> dict[str, Any]:
 
 
 # =========================================================================
+# Goal-Driven 长程编排 API: /goal-driven (while 循环: 工作→验证→续跑)
+# =========================================================================
+
+class GoalDrivenRequest(BaseModel):
+    goal_id: str = Field(..., min_length=1)
+    step: bool = False           # True=单步 (外部驱动), False=连续循环
+
+
+@router.post("/api/v1/goal-driven/run")
+async def goal_driven_run_ep(req: GoalDrivenRequest) -> dict[str, Any]:
+    """启动 Goal-Driven 循环 (连续或单步)。引擎调用由装配层注入 (stub 兼容)。"""
+    from pathlib import Path as _P
+
+    from omodul.long_task_driver import open_long_task
+
+    from veya.llm import llm_call
+
+    loop_dir = _P.home() / ".veya" / "loops"
+    driver = open_long_task(loop_dir, goal_id=req.goal_id, budget_usd=5.0)
+
+    async def _engine(prompt_suffix: str) -> dict[str, Any]:
+        result = await llm_call(
+            [{"role": "user", "content": f"继续长程任务: {prompt_suffix}"}],
+            provider="veya1.1", model="veya1.1", timeout=120)
+        content = ""
+        try:
+            content = str(result["choices"][0]["message"].get("content", ""))
+        except (KeyError, IndexError):
+            pass
+        return {"ok": bool(content), "output": content or "", "cost_usd": 0.0}
+
+    if req.step:
+        outcome = await driver.run_round(_engine)
+        return {"mode": "step", **outcome}
+    return {"mode": "loop", "note": "连续循环请使用单步驱动 (automata cron 唤醒), 或注入长驻执行器"}
+
+
+@router.get("/api/v1/goal-driven/status")
+async def goal_driven_status_ep(goal_id: str = "") -> dict[str, Any]:
+    """Goal 投影状态 (跨进程可查)。"""
+    from pathlib import Path as _P
+
+    from omodul.long_task_goal import GoalKernel
+
+    if not goal_id:
+        return {"ok": False, "error": "goal_id 必填"}
+    kernel = GoalKernel(
+        __import__("obase.loop_event_store", fromlist=["AppendOnlyEventStore"]).AppendOnlyEventStore(
+            str(_P.home() / ".veya" / "loops" / f"{goal_id}.jsonl")),
+        goal_id=goal_id,
+    ).rebuild()
+    goal = kernel.goal
+    if goal is None:
+        return {"ok": False, "error": "goal 不存在"}
+    return {
+        "ok": True, "goal_id": goal.id, "title": goal.title,
+        "status": goal.status,
+        "todos_open": len(goal.open_todos()),
+        "gates_pending": len(goal.pending_gates()),
+        "complete": goal.is_complete(),
+        "quota_remaining_usd": goal.quota.remaining_usd,
+        "evidence_count": len(goal.evidence),
+    }
+
+
+# =========================================================================
 # Spec 可执行化 API (spec-kit 内化): /spec/execute + /spec/presets
 # =========================================================================
 
