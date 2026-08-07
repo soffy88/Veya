@@ -54,8 +54,11 @@ def test_dispatch_via_adapter_authorized_and_audited(tmp_path):
 
     with HardenedExecutor(isolation="netns", base_dir=str(tmp_path / "pool")) as ex:
         result = dispatch_via_adapter(
-            adapter, "api_service",
-            contract=contract, executor=ex, emitter=emitter,
+            adapter,
+            "api_service",
+            contract=contract,
+            executor=ex,
+            emitter=emitter,
             actor="operator",
         )
     assert result.status == "approved_executed"
@@ -73,13 +76,15 @@ def test_dispatch_via_adapter_authorized_and_audited(tmp_path):
 
 def test_dispatch_via_adapter_denied_without_rule():
     """无规则 → deny-by-default; 审计记录拒绝。"""
-    contract = PermissionContract()                  # 无规则
+    contract = PermissionContract()  # 无规则
     emitter = AuditEmitter(sink=MemorySink())
     adapter = RestartAdapter()
 
     result = dispatch_via_adapter(
-        adapter, "db",
-        contract=contract, emitter=emitter,
+        adapter,
+        "db",
+        contract=contract,
+        emitter=emitter,
     )
     assert result.status == "denied"
     assert result.outcome is None
@@ -98,8 +103,11 @@ def test_dispatch_via_adapter_probe_first_blocks(tmp_path):
 
     with HardenedExecutor(isolation="netns", base_dir=str(tmp_path / "pool")) as ex:
         result = dispatch_via_adapter(
-            adapter, "ghost_service_xyz",
-            contract=contract, executor=ex, emitter=emitter,
+            adapter,
+            "ghost_service_xyz",
+            contract=contract,
+            executor=ex,
+            emitter=emitter,
             probe_first=True,
         )
     assert result.status == "denied"
@@ -108,6 +116,35 @@ def test_dispatch_via_adapter_probe_first_blocks(tmp_path):
     # 审计: decide(denied) — 未走到 execute
     assert [e["event_type"] for e in chain] == ["decide"]
     assert chain[0]["decision"]["denied"] is True
+
+
+def test_hardened_executor_env_injected(tmp_path):
+    """HardenedExecutor(env=...) 真正注入自定义环境到沙箱 (清空宿主环境 + 按需注入)。"""
+    with HardenedExecutor(
+        isolation="none",
+        base_dir=str(tmp_path / "pool"),
+        env={"PATH": "/usr/bin:/bin", "VEYA_MARKER": "42"},
+    ) as ex:
+        assert ex.env == {"PATH": "/usr/bin:/bin", "VEYA_MARKER": "42"}
+        out = ex.execute(["printenv", "VEYA_MARKER"])
+    assert out.ok, out.stderr
+    assert out.stdout.strip() == "42"
+
+
+def test_hardened_executor_default_env_frozen(tmp_path):
+    """未给 env → 冻结的确定性默认环境 (PYTHONHASHSEED=0), 且不泄漏宿主自定义变量。"""
+    import os
+
+    os.environ["VEYA_HOST_SECRET"] = "leak_me"
+    try:
+        with HardenedExecutor(isolation="none", base_dir=str(tmp_path / "pool2")) as ex:
+            assert ex.env is None
+            seed = ex.execute(["printenv", "PYTHONHASHSEED"])
+            leaked = ex.execute(["printenv", "VEYA_HOST_SECRET"])
+        assert seed.stdout.strip() == "0"
+        assert leaked.stdout.strip() == ""  # 宿主变量未泄入沙箱
+    finally:
+        del os.environ["VEYA_HOST_SECRET"]
 
 
 def test_dispatch_via_adapter_without_executor_dispatches_only():

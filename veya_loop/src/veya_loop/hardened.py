@@ -30,6 +30,7 @@ _oprim = _load_oprim()
 # HardenedExecutor — 硬化执行器
 # =========================================================================
 
+
 @dataclass
 class ExecOutcome:
     argv: list[str]
@@ -65,9 +66,16 @@ class HardenedExecutor:
     ):
         self.isolation = isolation
         self.timeout_s = timeout_s
-        self._pool = _oprim.SandboxPool(size=max(1, pool_size),
-                                        base_dir=base_dir,
-                                        isolation=isolation)
+        # env 提供时: 用自定义环境的沙箱工厂 (清空宿主环境 + 按需注入 env);
+        # 未提供时用池默认工厂 (冻结的确定性默认环境, 见 oprim._sandbox)。
+        self.env = dict(env) if env is not None else None
+        factory = None
+        if self.env is not None:
+            _env = self.env
+            factory = lambda: _oprim.LocalSandbox(base_dir, isolation, env=_env)  # noqa: E731
+        self._pool = _oprim.SandboxPool(
+            size=max(1, pool_size), base_dir=base_dir, isolation=isolation, factory=factory
+        )
 
     def __enter__(self) -> HardenedExecutor:
         self._pool.prewarm()
@@ -82,8 +90,9 @@ class HardenedExecutor:
         sb = self._pool.acquire()
         try:
             r = sb.run(list(argv), timeout_s=timeout_s or self.timeout_s)
-            return ExecOutcome(list(argv), r.exit_code, r.ok, r.stdout, r.stderr,
-                               r.duration_ms, r.timed_out)
+            return ExecOutcome(
+                list(argv), r.exit_code, r.ok, r.stdout, r.stderr, r.duration_ms, r.timed_out
+            )
         finally:
             self._pool.release(sb)
 
@@ -92,15 +101,18 @@ class HardenedExecutor:
 
     @property
     def stats(self) -> dict[str, Any]:
-        return {"created": self._pool.stats.created,
-                "acquires": self._pool.stats.acquires,
-                "avg_acquire_ms": round(self._pool.stats.avg_wait_ms, 2),
-                "isolation": self.isolation}
+        return {
+            "created": self._pool.stats.created,
+            "acquires": self._pool.stats.acquires,
+            "avg_acquire_ms": round(self._pool.stats.avg_wait_ms, 2),
+            "isolation": self.isolation,
+        }
 
 
 # =========================================================================
 # PermissionContract — 授权契约
 # =========================================================================
+
 
 @dataclass
 class PermissionDecision:
@@ -112,13 +124,19 @@ class PermissionDecision:
     actor: str = ""
 
     def as_dict(self) -> dict[str, Any]:
-        return {"allowed": self.allowed, "reason": self.reason, "nonce": self.nonce,
-                "action": self.action, "resource": self.resource, "actor": self.actor}
+        return {
+            "allowed": self.allowed,
+            "reason": self.reason,
+            "nonce": self.nonce,
+            "action": self.action,
+            "resource": self.resource,
+            "actor": self.actor,
+        }
 
 
-def _rule_matches(pattern: str, action: str, resource: str | None) -> bool:
-    """glob 匹配: "do*" 匹配 "do(mode=healthy)"; "danger*" 匹配 "danger:drop_table"。
-    规则另有 resource 字段时精确/glob 匹配资源段。"""
+def _rule_matches(pattern: str, action: str) -> bool:
+    """glob 匹配动作段: "do*" 匹配 "do(mode=healthy)"; "danger*" 匹配 "danger:drop_table"。
+    资源段匹配由 evaluate() 单独处理 (rule["resource"])。"""
     if not pattern:
         return False
     return fnmatch.fnmatch(action, pattern)
@@ -138,35 +156,51 @@ class PermissionContract:
         self.decisions: list[PermissionDecision] = []
 
     # ── 规则 ─────────────────────────────────────────────────────────
-    def grant(self, action: str, *, allow: bool = True, actor: str | None = None,
-              resource: str | None = None) -> None:
-        self.rules.append({"action": action, "allow": allow,
-                           "actor": actor, "resource": resource})
+    def grant(
+        self,
+        action: str,
+        *,
+        allow: bool = True,
+        actor: str | None = None,
+        resource: str | None = None,
+    ) -> None:
+        self.rules.append({"action": action, "allow": allow, "actor": actor, "resource": resource})
 
     # ── 评估 ─────────────────────────────────────────────────────────
-    def evaluate(self, action: str, *, resource: str | None = None,
-                 actor: str | None = None) -> PermissionDecision:
+    def evaluate(
+        self, action: str, *, resource: str | None = None, actor: str | None = None
+    ) -> PermissionDecision:
         """规则评估: 命中即决 (首条命中优先), 否则 deny-by-default。"""
         for rule in self.rules:
             if rule.get("actor") and actor and rule["actor"] != actor:
                 continue
-            if rule.get("resource") and (not resource or not fnmatch.fnmatch(resource, rule["resource"])):
+            if rule.get("resource") and (
+                not resource or not fnmatch.fnmatch(resource, rule["resource"])
+            ):
                 continue
-            if _rule_matches(str(rule["action"]), action, resource):
+            if _rule_matches(str(rule["action"]), action):
                 allowed = bool(rule.get("allow", True))
-                return self._decide(allowed, f"规则命中: {rule['action']}",
-                                    action, resource or "", actor or "")
-        return self._decide(False, "无规则命中, deny-by-default",
-                            action, resource or "", actor or "")
+                return self._decide(
+                    allowed, f"规则命中: {rule['action']}", action, resource or "", actor or ""
+                )
+        return self._decide(
+            False, "无规则命中, deny-by-default", action, resource or "", actor or ""
+        )
 
     # ── nonce (谁授权的可追溯凭证) ──────────────────────────────────
     def issue_nonce(self, action: str, *, resource: str = "", actor: str = "") -> str:
         """为已授权的干预签发 nonce (cap_ 前缀, 自描述 + 注册表)。"""
-        digest = hashlib.sha256(f"{self.issuer}|{action}|{resource}|{actor}".encode()
-                                ).hexdigest()[:12]
+        digest = hashlib.sha256(f"{self.issuer}|{action}|{resource}|{actor}".encode()).hexdigest()[
+            :12
+        ]
         nonce = f"cap_{digest}_{uuid.uuid4().hex[:8]}"
-        self._nonces[nonce] = {"action": action, "resource": resource,
-                               "actor": actor, "ts": time.time(), "used": False}
+        self._nonces[nonce] = {
+            "action": action,
+            "resource": resource,
+            "actor": actor,
+            "ts": time.time(),
+            "used": False,
+        }
         return nonce
 
     def verify_nonce(self, nonce: str) -> bool:
@@ -181,10 +215,12 @@ class PermissionContract:
         return self._nonces.get(nonce)
 
     # ── 内部 ─────────────────────────────────────────────────────────
-    def _decide(self, allowed: bool, reason: str, action: str, resource: str,
-                actor: str) -> PermissionDecision:
-        d = PermissionDecision(allowed=allowed, reason=reason,
-                               action=action, resource=resource, actor=actor)
+    def _decide(
+        self, allowed: bool, reason: str, action: str, resource: str, actor: str
+    ) -> PermissionDecision:
+        d = PermissionDecision(
+            allowed=allowed, reason=reason, action=action, resource=resource, actor=actor
+        )
         self.decisions.append(d)
         return d
 
@@ -196,9 +232,10 @@ class PermissionContract:
 # dispatch_intervention — 干预派发 (最小闭环入口)
 # =========================================================================
 
+
 @dataclass
 class DispatchResult:
-    status: str                 # approved_executed | approved_failed | denied
+    status: str  # approved_executed | approved_failed | denied
     action: str
     outcome: ExecOutcome | None = None
     nonce: str | None = None
@@ -206,11 +243,15 @@ class DispatchResult:
     audit_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {"status": self.status, "action": self.action,
-                "nonce": self.nonce, "reason": self.reason,
-                "audit_id": self.audit_id,
-                "exit_code": self.outcome.exit_code if self.outcome else None,
-                "output": self.outcome.summary() if self.outcome else None}
+        return {
+            "status": self.status,
+            "action": self.action,
+            "nonce": self.nonce,
+            "reason": self.reason,
+            "audit_id": self.audit_id,
+            "exit_code": self.outcome.exit_code if self.outcome else None,
+            "output": self.outcome.summary() if self.outcome else None,
+        }
 
 
 def dispatch_intervention(
@@ -219,7 +260,7 @@ def dispatch_intervention(
     *,
     contract: PermissionContract,
     executor: HardenedExecutor | None = None,
-    emitter: Any | None = None,          # oprim.AuditEmitter (可选)
+    emitter: Any | None = None,  # oprim.AuditEmitter (可选)
     resource: str = "",
     actor: str = "",
     notes: str = "",
@@ -234,40 +275,51 @@ def dispatch_intervention(
     decision = contract.evaluate(action, resource=resource, actor=actor)
     if not decision.allowed:
         if emitter is not None:
-            emitter.decide(decision={"chosen_strategy": action,
-                                     "denied": True, "reason": decision.reason},
-                           context={"notes": notes})
+            emitter.decide(
+                decision={"chosen_strategy": action, "denied": True, "reason": decision.reason},
+                context={"notes": notes},
+            )
         return DispatchResult("denied", action, reason=decision.reason)
 
     nonce = contract.issue_nonce(action, resource=resource, actor=actor)
 
     if emitter is not None:
-        emitter.decide(decision={"chosen_strategy": action, "denied": False},
-                       context={"notes": notes})
+        emitter.decide(
+            decision={"chosen_strategy": action, "denied": False}, context={"notes": notes}
+        )
 
     if executor is None:
         # 无执行器 → 仅授权派发 (调用方自行执行), 状态 approved
         if emitter is not None:
-            emitter.execute(execution={"primitive": action, "status": "dispatched",
-                                       "capability_nonce": nonce})
+            emitter.execute(
+                execution={"primitive": action, "status": "dispatched", "capability_nonce": nonce}
+            )
         return DispatchResult("approved_dispatched", action, nonce=nonce)
 
     outcome = executor.execute(argv, timeout_s=timeout_s)
     if emitter is not None:
         audit_id = emitter.execute(
-            execution={"primitive": action, "status": "ok" if outcome.ok else "failed",
-                       "capability_nonce": nonce,
-                       "exit_code": outcome.exit_code,
-                       "output": outcome.summary(200)},
+            execution={
+                "primitive": action,
+                "status": "ok" if outcome.ok else "failed",
+                "capability_nonce": nonce,
+                "exit_code": outcome.exit_code,
+                "output": outcome.summary(200),
+            },
             context={"notes": notes},
         )
     else:
         audit_id = None
 
     status = "approved_executed" if outcome.ok else "approved_failed"
-    return DispatchResult(status, action, outcome=outcome, nonce=nonce,
-                          audit_id=audit_id)
+    return DispatchResult(status, action, outcome=outcome, nonce=nonce, audit_id=audit_id)
 
 
-__all__ = ["DispatchResult", "ExecOutcome", "HardenedExecutor",
-           "PermissionContract", "PermissionDecision", "dispatch_intervention"]
+__all__ = [
+    "DispatchResult",
+    "ExecOutcome",
+    "HardenedExecutor",
+    "PermissionContract",
+    "PermissionDecision",
+    "dispatch_intervention",
+]

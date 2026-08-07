@@ -42,8 +42,14 @@
 ```bash
 veya-loop --version           # 版本
 veya-loop selftest            # 冒烟: 装配面 + 关键机制链路 (31 项)
-veya-loop plan --json '{"failure_log": "..."}'       # 多步规划
-veya-loop diagnose --json '{"failure_log": "..."}'   # 因果诊断
+
+# 多步规划 / 因果诊断: 用 "graph" 字段传入因果拓扑 (nodes 可带 p_fail)
+veya-loop diagnose --json '{
+  "failure_log": "db timeout after api gateway 5xx",
+  "graph": {"nodes": [{"name": "db", "p_fail": 0.3}, {"name": "api", "p_fail": 0.1},
+                       "task_outcome"],
+            "edges": [["db", "api"], ["api", "task_outcome"]]}}'
+veya-loop plan --json '{"failure_log": "...", "graph": {"nodes": [...], "edges": [...]}}'
 ```
 
 ## 安装
