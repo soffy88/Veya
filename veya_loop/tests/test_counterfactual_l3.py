@@ -35,7 +35,9 @@ _T_EXT, _T_DB = 0.9, 0.5
 
 
 def _p_task_fault(api_fault: bool, db_fault: bool) -> float:
-    return 1.0 - (1.0 - _TASK_BASE) * (1.0 - _T_EXT * int(api_fault)) * (1.0 - _T_DB * int(db_fault))
+    return 1.0 - (1.0 - _TASK_BASE) * (1.0 - _T_EXT * int(api_fault)) * (
+        1.0 - _T_DB * int(db_fault)
+    )
 
 
 def _build_store() -> CausalGraphStore:
@@ -52,22 +54,30 @@ def _custom_cpds(dag) -> dict:
     """手构 CPD: 根 1-D 表 + task_outcome 多维表 (last axis = db)。"""
     cpds = {
         "external_api": TabularCPD(
-            "external_api", 2, [[1 - _EXT_P], [_EXT_P]],
-            state_names={"external_api": ["ok", "fault"]}),
-        "db": TabularCPD(
-            "db", 2, [[1 - _DB_P], [_DB_P]],
-            state_names={"db": ["ok", "fault"]}),
+            "external_api",
+            2,
+            [[1 - _EXT_P], [_EXT_P]],
+            state_names={"external_api": ["ok", "fault"]},
+        ),
+        "db": TabularCPD("db", 2, [[1 - _DB_P], [_DB_P]], state_names={"db": ["ok", "fault"]}),
     }
-    vals = np.zeros((2, 4))                       # 2D: 行=变量状态, 列=父组合 (api 慢变)
+    vals = np.zeros((2, 4))  # 2D: 行=变量状态, 列=父组合 (api 慢变)
     for a in (0, 1):
         for d in (0, 1):
             vals[1, a * 2 + d] = _p_task_fault(bool(a), bool(d))
             vals[0, a * 2 + d] = 1.0 - vals[1, a * 2 + d]
     cpds["task_outcome"] = TabularCPD(
-        "task_outcome", 2, vals,
-        evidence=["external_api", "db"], evidence_card=[2, 2],
-        state_names={"task_outcome": ["ok", "fault"],
-                     "external_api": ["ok", "fault"], "db": ["ok", "fault"]})
+        "task_outcome",
+        2,
+        vals,
+        evidence=["external_api", "db"],
+        evidence_card=[2, 2],
+        state_names={
+            "task_outcome": ["ok", "fault"],
+            "external_api": ["ok", "fault"],
+            "db": ["ok", "fault"],
+        },
+    )
     return cpds
 
 
@@ -80,6 +90,7 @@ def _scm():
 # =========================================================================
 # 一、SCM 构造与参数恢复
 # =========================================================================
+
 
 def test_scm_construction_and_noisy_or_recovery():
     scm, _ = _scm()
@@ -104,15 +115,18 @@ def test_deterministic_propagation_and_consistency():
     state2 = scm.fault_state({"external_api": True, "db": False, "task_outcome": False})
     assert state2["external_api"] is True and state2["task_outcome"] is True
     # 相容性判定
-    assert scm.consistent({"external_api": True, "db": False, "task_outcome": False},
-                          {"task_outcome": "fault"})
-    assert not scm.consistent({"external_api": True, "db": False, "task_outcome": False},
-                              {"task_outcome": "ok"})
+    assert scm.consistent(
+        {"external_api": True, "db": False, "task_outcome": False}, {"task_outcome": "fault"}
+    )
+    assert not scm.consistent(
+        {"external_api": True, "db": False, "task_outcome": False}, {"task_outcome": "ok"}
+    )
 
 
 # =========================================================================
-# 二、Abduction: 均值场/边际 MAP
+# 二、Abduction: 精确边际溯因 (twin-network 枚举, 捕捉 explaining-away)
 # =========================================================================
+
 
 def test_abduction_root_fault_pinpoints_noise():
     store = CausalGraphStore()
@@ -125,14 +139,18 @@ def test_abduction_root_fault_pinpoints_noise():
 def test_abduction_parent_fault_explains_child():
     scm, _ = _scm()
     u = scm.abduct({"task_outcome": "fault", "external_api": "fault"}, sweeps=5)
-    assert u["external_api"] == 1.0            # 观测到的根故障必然是其噪声
-    assert u["task_outcome"] == pytest.approx(_TASK_BASE, abs=1e-6)
-    assert u["db"] == pytest.approx(_DB_P, abs=1e-6)   # 无证据 → 保持先验
+    assert u["external_api"] == 1.0  # 观测到的根故障必然是其噪声
+    # 精确溯因捕捉 explaining-away: task=fault 已被 external_api 传染解释,
+    # 故 task 自身 leak 后验 ≈ 先验但略高 (0.0530 vs 0.05);
+    # db 后验也略高于先验 (0.8081 vs 0.8) —— 均值场近似会误判成"保持先验"。
+    assert u["task_outcome"] == pytest.approx(0.053022, abs=1e-4)
+    assert u["db"] == pytest.approx(0.808059, abs=1e-4)
 
 
 # =========================================================================
 # 三、L3 vs L2: 识别**本次**真凶
 # =========================================================================
+
 
 def test_l3_identifies_this_failure_culprit():
     """证据: task=fault + external_api=fault (本次由 external_api 引起)。
@@ -154,7 +172,7 @@ def test_l3_identifies_this_failure_culprit():
     # L3 口径: 本次修 db 几乎压不住 (external_api 仍故障)
     assert l3_db > 0.8
     assert l3_api < 0.5
-    assert (1.0 - l3_api) > (1.0 - l3_db) + 0.2   # L3 判定与 L2 相反
+    assert (1.0 - l3_api) > (1.0 - l3_db) + 0.2  # L3 判定与 L2 相反
 
 
 def test_counterfactual_diagnose_ranking_and_reports():
@@ -166,7 +184,7 @@ def test_counterfactual_diagnose_ranking_and_reports():
         cpd_map=_custom_cpds(store.get_graph()),
     )
     assert isinstance(diag, CounterfactualDiagnosisReport)
-    assert diag.ranking[0] == "external_api"    # 本次真凶排第一
+    assert diag.ranking[0] == "external_api"  # 本次真凶排第一
     assert set(diag.ranking) == {"external_api", "db"}
 
     # reports 与 ranking 同序, 三层对照齐全
@@ -183,14 +201,18 @@ def test_counterfactual_diagnose_ranking_and_reports():
 def test_counterfactual_diagnose_deterministic():
     store = _build_store()
     cpd = _custom_cpds(store.get_graph())
-    d1 = counterfactual_diagnose(store=store, failure_node="task_outcome",
-                                 factual_evidence={"task_outcome": "fault",
-                                                   "external_api": "fault"},
-                                 cpd_map=cpd)
-    d2 = counterfactual_diagnose(store=store, failure_node="task_outcome",
-                                 factual_evidence={"task_outcome": "fault",
-                                                   "external_api": "fault"},
-                                 cpd_map=cpd)
+    d1 = counterfactual_diagnose(
+        store=store,
+        failure_node="task_outcome",
+        factual_evidence={"task_outcome": "fault", "external_api": "fault"},
+        cpd_map=cpd,
+    )
+    d2 = counterfactual_diagnose(
+        store=store,
+        failure_node="task_outcome",
+        factual_evidence={"task_outcome": "fault", "external_api": "fault"},
+        cpd_map=cpd,
+    )
     assert d1.ranking == d2.ranking
     assert [r.as_dict() for r in d1.reports] == [r.as_dict() for r in d2.reports]
 
@@ -204,5 +226,43 @@ def test_l3_delta_zero_for_irrelevant_candidate():
         cpd_map=_custom_cpds(store.get_graph()),
     )
     db_report = next(r for r in diag.reports if r.node == "db")
-    assert db_report.l3_delta < 0.2             # 本次修 db 几乎无效果
+    assert db_report.l3_delta < 0.2  # 本次修 db 几乎无效果
     assert db_report.l2_delta > db_report.l3_delta  # 但平均口径下它显得有用
+
+
+# =========================================================================
+# 四、精确推断验证: reconvergent diamond 上 == pgmpy, 且严格优于均值场
+# =========================================================================
+
+
+def test_exact_inference_matches_pgmpy_and_beats_meanfield_on_diamond():
+    """diamond (x→a,x→b,a→y,b→y): a,b 经 x 相关。
+
+    精确 twin-network 枚举必须 == pgmpy VE 精确观测边际;
+    而均值场乘积式 (假设 a⊥b) 在此 reconvergent DAG 上可测量地偏 ——
+    证明这次"近似→精确"升级确有其效。
+    """
+    import networkx as nx
+    from pgmpy.inference import VariableElimination
+    from pgmpy.models import DiscreteBayesianNetwork
+
+    from veya_loop import build_binary_failure_cpd_map
+
+    g = nx.DiGraph()
+    g.add_edges_from([("x", "a"), ("x", "b"), ("a", "y"), ("b", "y")])
+    cpds = build_binary_failure_cpd_map(g, fault_prior=0.3, transmission=0.6, base_failure=0.05)
+    scm = StructuralSCM.from_graph(g, cpds)
+
+    exact = scm.exact_intervene({}, [], "y")  # 精确枚举 P(y=fault) (无干预/无证据)
+
+    model = DiscreteBayesianNetwork(list(g.edges()))
+    for c in cpds.values():
+        model.add_cpds(c)
+    q = VariableElimination(model).query(["y"], show_progress=False)
+    states = list(q.state_names["y"])
+    p_pgmpy = float(q.values.ravel()[states.index("fault")])
+
+    meanfield = scm.propagate({n: nd.base for n, nd in scm.nodes.items()})["y"]
+
+    assert exact == pytest.approx(p_pgmpy, abs=1e-9)  # 精确枚举 == pgmpy 金标准
+    assert abs(meanfield - p_pgmpy) > 1e-4  # 均值场确实偏 (升级有意义)
