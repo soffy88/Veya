@@ -341,6 +341,25 @@ def _normalize_anthropic_response(data: dict) -> dict:
     }
 
 
+def _normalize_chat_endpoint(endpoint: str, provider: str) -> str:
+    """归一化 openai 兼容 chat completions 端点。
+
+    用户配置常给 base URL 形态 (``https://host/v1``), 而请求必须打到
+    ``.../chat/completions`` — 否则出现 ``Invalid URL (POST /v1)`` 404。
+    完整 URL (内置 _ENDPOINTS 均以 /chat/completions 结尾) 原样返回;
+    相对/空 URL 明确报错 (避免 httpx 相对 URL 404 迷惑)。
+    """
+    e = (endpoint or "").strip()
+    if not e:
+        raise ValueError(f"provider {provider!r} 未配置有效 endpoint")
+    if not e.startswith(("http://", "https://")):
+        raise ValueError(
+            f"provider {provider!r} endpoint 必须是完整 URL (http/https), 收到 {e!r}")
+    if not e.rstrip("/").endswith("/chat/completions"):
+        e = e.rstrip("/") + "/chat/completions"
+    return e
+
+
 async def provider_call(
     client: httpx.AsyncClient,
     provider: str,
@@ -381,6 +400,7 @@ async def provider_call(
         return _normalize_anthropic_response(resp.json())
 
     endpoint = endpoint or _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
+    endpoint = _normalize_chat_endpoint(endpoint, provider)
     resp = await _call_openai_compat(
         client,
         endpoint,
@@ -439,6 +459,7 @@ async def provider_stream(
         return
 
     endpoint = _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
+    endpoint = _normalize_chat_endpoint(endpoint, provider)
     resp = await _call_openai_compat(
         client,
         endpoint,
