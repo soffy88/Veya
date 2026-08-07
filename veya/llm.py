@@ -543,7 +543,11 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             default_content=kwargs.get("default_content"),
         )
 
-    result = await router.call_aliased(messages, _single, tools=kwargs.get("tools"))
+    result = await router.call_aliased(
+        messages, _single, tools=kwargs.get("tools"),
+        priority=str(kwargs.get("priority", "normal")),
+        budget=kwargs.get("budget"),
+    )
     # 并行分派 → 聚合文本; 单发 → 原 llm_call 结构
     if result.get("parallel"):
         content = str(result.get("aggregated") or result.get("output") or "")
