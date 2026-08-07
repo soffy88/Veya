@@ -34,7 +34,7 @@ def test_skill_crystallize_threshold(tmp_path, monkeypatch):
     sc = importlib.import_module("omodul.skill_crystallize")
 
     monkeypatch.setattr(sc, "LESSONS_FILE", tmp_path / "lessons.json")
-    monkeypatch.setattr(sc, "SKILLS_DIR", tmp_path / "skills" / "crystallized")
+    monkeypatch.setattr(sc, "SKILLS_DIR", tmp_path / "skills")
 
     lesson = {"trigger_type": "verify_failed",
               "evidence": {"test": "test_login"},
@@ -63,10 +63,10 @@ def test_skill_crystallize_dedup(tmp_path, monkeypatch):
     sc = importlib.import_module("omodul.skill_crystallize")
 
     monkeypatch.setattr(sc, "LESSONS_FILE", tmp_path / "lessons.json")
-    monkeypatch.setattr(sc, "SKILLS_DIR", tmp_path / "skills" / "crystallized")
+    monkeypatch.setattr(sc, "SKILLS_DIR", tmp_path / "skills")
 
-    # 预置同名技能
-    (tmp_path / "skills" / "crystallized" / "dupe_skill").mkdir(parents=True)
+    # 预置同名技能 (一级技能库)
+    (tmp_path / "skills" / "dupe_skill").mkdir(parents=True)
 
     lesson = {"trigger_type": "retrieval_miss", "evidence": {"q": "x"},
               "subject_ref": "kb", "lesson": "检索未命中"}
