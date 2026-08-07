@@ -21,6 +21,8 @@ services:
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:-veya-dev-secret}
       - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
       - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
+      - OD_API_TOKEN=${OD_API_TOKEN:-}
+      - OD_DAEMON_URL=${OD_DAEMON_URL:-http://192.168.16.1:17456}
     volumes:
       - veya-data:/home/soffy/.veya
       - ../veya:/app/veya:ro
@@ -30,6 +32,8 @@ services:
       # 多引擎 CLI (node 生态 + claude 版本) 与凭据目录
       - /home/soffy/.nvm:/home/soffy/.nvm:ro
       - /home/soffy/.local:/home/soffy/.local:ro
+      # Open Design daemon (od mcp stdio 客户端依赖)
+      - /home/soffy/opendesign:/home/soffy/opendesign:ro
       - /home/soffy/.claude:/home/soffy/.claude:rw
       - /home/soffy/.claude.json:/home/soffy/.claude.json:ro
       - /home/soffy/.codex:/home/soffy/.codex:rw
