@@ -241,8 +241,8 @@ def test_route_frontier_on_security_keywords():
 
     d = route_decision([{"role": "user", "content": "对这段代码做安全审计, 找 RCE 漏洞"}])
     assert d["route"] == "frontier"
-    assert d["provider"] == "opencode"
-    assert d["model"] == "opencode-go/deepseek-v4-pro"
+    assert d["provider"] == "openai"
+    assert d["model"] == "gpt-5.6-luna"
 
 
 def test_route_high_priority_complex_goes_frontier():
@@ -296,7 +296,7 @@ def test_call_aliased_gate_upgrade_retry():
         [{"role": "user", "content": "你好"}], caller))
     assert len(calls) == 2                      # 升级重试 1 次
     assert calls[0]["model"] == "opencode-go/deepseek-v4-flash"
-    assert calls[1]["model"] == "opencode-go/deepseek-v4-pro"
+    assert calls[1]["model"] == "gpt-5.6-luna"
     assert r["gate"]["reason"] == "upgraded"
 
 
@@ -336,3 +336,49 @@ def test_trace_analysis_identifies_fixed_flow(tmp_path):
     cand = data["fixed_flow_candidates"]
     assert any(c["route"] == "text" and "deepseek" in c["provider_model"]
                for c in cand)
+
+
+def test_dispatch_long_planner_chain():
+    """长程任务深度规划链: 强模型规划 → flash 并行执行 → 强模型聚合。"""
+    import importlib
+
+    mod = importlib.import_module("oskill.llm_router")
+    router = mod.LLMRouter()
+
+    calls: list[dict] = []
+
+    async def caller(payload):
+        calls.append(payload)
+        if "gpt-5.6-luna" in payload["model"]:
+            content = ("1. 分析需求\n2. 设计方案\n" if "任务拆解" in payload["messages"][0]["content"]
+                       else "综合回答: 方案已确认")
+        else:
+            content = f"执行片段 {len(calls)}"
+        return {"choices": [{"message": {"role": "assistant", "content": content}}],
+                "usage": {}}
+
+    async def planner(text, phase):
+        res = await caller({"provider": "openai", "model": "gpt-5.6-luna",
+                            "messages": [{"role": "user",
+                                          "content": ("任务拆解规划:\n" if phase == "plan"
+                                                      else "综合:\n") + text}],
+                            "tools": None})
+        content = res["choices"][0]["message"]["content"]
+        return {"ok": bool(content), "output": content}
+
+    async def chunk_caller(chunk, idx):
+        res = await caller({"provider": "opencode", "model": "opencode-go/deepseek-v4-flash",
+                            "messages": [{"role": "user", "content": chunk}], "tools": None})
+        content = res["choices"][0]["message"]["content"]
+        return {"ok": bool(content), "output": content}
+
+    long = "\n\n".join("内容" * 3000 for _ in range(8))
+    r = asyncio.run(router.dispatch_long(long, chunk_caller, planner=planner,
+                                         max_parallel=4))
+    assert r["parallel"] is True
+    assert r.get("planner") is True                     # 深度规划链
+    assert len(r.get("plan", [])) >= 2                  # 强模型规划产出任务列表
+    assert "综合回答" in r["output"]                     # 强模型聚合结果
+    strong = [c for c in calls if "gpt-5.6-luna" in c["model"]]
+    flash = [c for c in calls if "deepseek-v4-flash" in c["model"]]
+    assert len(strong) >= 2 and len(flash) >= 1
