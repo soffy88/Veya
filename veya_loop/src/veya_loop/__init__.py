@@ -105,6 +105,8 @@ _ELEMENT_MAP: dict[str, tuple[str, str]] = {
     "CheckpointStore": ("obase", "CheckpointStore"),
     "StdioMcpClient": ("obase", "StdioMcpClient"),
     "StdioMcpError": ("obase", "StdioMcpError"),
+    "StreamableHttpMcpClient": ("obase", "StreamableHttpMcpClient"),
+    "HttpMcpError": ("obase", "HttpMcpError"),
     "get_intervention_cache": ("oprim", "get_intervention_cache"),
     "InferenceCache": ("oprim", "InferenceCache"),
     "graph_fingerprint": ("oprim", "graph_fingerprint"),
