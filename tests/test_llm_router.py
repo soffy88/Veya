@@ -29,13 +29,13 @@ def test_route_vision_to_dashscope():
     assert d["model"] == "qwen3.7-flash"
 
 
-def test_route_text_to_deepseek_flash():
+def test_route_text_to_opencode_flash():
     from oprim._llm_router import route_decision
 
     d = route_decision([{"role": "user", "content": "你好"}])
     assert d["route"] == "quick"          # <300 tokens
-    assert d["provider"] == "deepseek"
-    assert d["model"] == "deepseek-v4-flash"
+    assert d["provider"] == "opencode"
+    assert d["model"] == "opencode-go/deepseek-v4-flash"
 
 
 def test_route_long():
@@ -62,9 +62,9 @@ def test_route_fallback_on_bad_matrix(tmp_path):
     bad = tmp_path / "llm-router.json"
     bad.write_text("{not json")
     m = load_matrix(str(bad))
-    assert m["fallback"]["model"] == "deepseek-v4-flash"   # 损坏 → 默认
+    assert m["fallback"]["model"] == "opencode-go/deepseek-v4-flash"   # 损坏 → 默认
     d = route_decision([{"role": "user", "content": "x"}], matrix=m)
-    assert d["provider"] == "deepseek"
+    assert d["provider"] == "opencode"
 
 
 def test_matrix_hot_reload(tmp_path):
@@ -159,8 +159,8 @@ def test_call_aliased_short_single_call():
     r = asyncio.run(router.call_aliased(
         [{"role": "user", "content": "hi"}], caller))
     assert len(calls) == 1
-    assert calls[0]["provider"] == "deepseek"
-    assert calls[0]["model"] == "deepseek-v4-flash"
+    assert calls[0]["provider"] == "opencode"
+    assert calls[0]["model"] == "opencode-go/deepseek-v4-flash"
     assert r["route"] == "quick"
 
 
@@ -188,26 +188,25 @@ def test_call_aliased_long_parallel():
 # veya/llm.py 别名接线 (mock provider_call)
 # =========================================================================
 
-def test_llm_call_veya11_alias_routes_to_deepseek(monkeypatch):
-    """llm_call(model=veya1.1) → 路由到 deepseek-v4-flash (mock provider_call 断言)。"""
+def test_llm_call_veya11_alias_routes_to_opencode(monkeypatch):
+    """llm_call(model=veya1.1) → opencode 档 (mock engine_runner.run_engine)。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
 
-    async def fake_provider_call(client, provider, **kw):
-        seen.append({"provider": provider, "model": kw["model"]})
-        return {"choices": [{"message": {"content": "routed-ok"}}], "usage": {}}
+    async def fake_run_engine(engine, prompt, model=None, **kw):
+        seen.append({"engine": engine, "model": model})
+        return {"ok": True, "output": "routed-ok"}
 
-    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ,
-                                       "DEEPSEEK_API_KEY": "sk-test"})
+    import server.engine_runner as er
+    monkeypatch.setattr(er, "run_engine", fake_run_engine)
 
     result = asyncio.run(hllm.llm_call(
         [{"role": "user", "content": "你好"}],
         provider="veya1.1", model="veya1.1",
     ))
-    assert seen and seen[0]["provider"] == "deepseek"
-    assert seen[0]["model"] == "deepseek-v4-flash"
+    assert seen and seen[0]["engine"] == "opencode"
+    assert seen[0]["model"] == "opencode-go/deepseek-v4-flash"
     assert result["choices"][0]["message"]["content"] == "routed-ok"
 
 
@@ -242,7 +241,8 @@ def test_route_frontier_on_security_keywords():
 
     d = route_decision([{"role": "user", "content": "对这段代码做安全审计, 找 RCE 漏洞"}])
     assert d["route"] == "frontier"
-    assert d["model"] == "deepseek-reasoner"
+    assert d["provider"] == "opencode"
+    assert d["model"] == "opencode-go/deepseek-v4-pro"
 
 
 def test_route_high_priority_complex_goes_frontier():
@@ -295,8 +295,8 @@ def test_call_aliased_gate_upgrade_retry():
     r = asyncio.run(router.call_aliased(
         [{"role": "user", "content": "你好"}], caller))
     assert len(calls) == 2                      # 升级重试 1 次
-    assert calls[0]["model"] == "deepseek-v4-flash"
-    assert calls[1]["model"] == "deepseek-reasoner"
+    assert calls[0]["model"] == "opencode-go/deepseek-v4-flash"
+    assert calls[1]["model"] == "opencode-go/deepseek-v4-pro"
     assert r["gate"]["reason"] == "upgraded"
 
 

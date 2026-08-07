@@ -20,7 +20,7 @@ from server.acp_client import ACPBackend, ACPError
 
 BACKEND_KINDS = ("builtin", "cli", "acp")
 
-CLI_BACKENDS = {"claude": "claude", "codex": "codex", "pi": "pi"}
+CLI_BACKENDS = {"claude": "claude", "codex": "codex", "pi": "pi", "opencode": "opencode"}
 
 
 @dataclass
