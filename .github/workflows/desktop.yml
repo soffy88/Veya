@@ -17,9 +17,9 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-latest
-            target: AppImage
-            dir: appimage
-            pkg: veya-desktop_*_amd64.AppImage
+            target: deb
+            dir: deb
+            pkg: veya-desktop_*_amd64.deb
           - platform: macos-latest
             target: dmg
             dir: dmg
