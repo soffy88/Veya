@@ -49,6 +49,21 @@ hiddenimports = [
     "playwright.driver",
 ]
 
+
+def _playwright_datas() -> list:
+    """收集 headless shell + ffmpeg (裸二进制, 无 .app 结构问题)。"""
+    import glob
+
+    pw_root = os.environ.get("PW_PACK_DIR", os.path.expanduser("~/.cache/ms-playwright"))
+    out = []
+    for prefix in ("chromium_headless_shell", "ffmpeg"):
+        matches = glob.glob(os.path.join(pw_root, prefix + "-*"))
+        if matches:
+            d = matches[0]
+            out.append((d, "ms-playwright/" + os.path.basename(d)))
+    return out
+
+
 a = Analysis(
     [os.path.join(SPECPATH, "backend_launcher.py")],
     pathex=PATHS,
@@ -57,9 +72,10 @@ a = Analysis(
     # 把主库目录原样复制进产物 _internal/veya/platform/3O
     datas=[
         (os.path.join(ROOT, "platform", "3O"), "veya/platform/3O"),
-        # Playwright 浏览器二进制: 打包前执行
-        #   PLAYWRIGHT_BROWSERS_PATH=$PW_PACK_DIR python -m playwright install chromium
-        (os.environ.get("PW_PACK_DIR", os.path.expanduser("~/.cache/ms-playwright")), "ms-playwright"),
+        # Playwright 浏览器二进制 (headless shell 裸二进制, 跨平台一致;
+        # 完整 chromium 在 macOS 为 .app 结构 PyInstaller 无法处理):
+        # 打包前执行  PLAYWRIGHT_BROWSERS_PATH=$PW_PACK_DIR python -m playwright install chromium
+        *_playwright_datas(),
     ],
     hiddenimports=hiddenimports,
     hookspath=[],
