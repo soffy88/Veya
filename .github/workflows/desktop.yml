@@ -90,7 +90,7 @@ jobs:
       - name: Static web build (desktop)
         run: |
           cd apps/web
-          npm install -g pnpm 2>/dev/null || true
+          npm install -g pnpm 2>&1 || true
           pnpm install --no-frozen-lockfile
           cd ../.. && bash scripts/build-desktop-web.sh
 
