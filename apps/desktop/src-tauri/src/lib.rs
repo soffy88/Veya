@@ -32,9 +32,15 @@ fn find_backend() -> (String, Vec<String>, String) {
     // 1. 打包产物: resources/backend/veya-backend
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let bundled = dir.join("resources").join("backend").join("veya-backend");
-            if bundled.exists() {
-                return (bundled.to_string_lossy().into_owned(), vec![], "bundled".into());
+            // PyInstaller onedir: resources/backend/veya-backend/veya-backend
+            let candidates = [
+                dir.join("resources").join("backend").join("veya-backend").join("veya-backend"),
+                dir.join("resources").join("backend").join("veya-backend"),
+            ];
+            for bundled in candidates {
+                if bundled.exists() {
+                    return (bundled.to_string_lossy().into_owned(), vec![], "bundled".into());
+                }
             }
         }
     }
