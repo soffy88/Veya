@@ -74,6 +74,13 @@ async def lifespan(app: FastAPI):
         await connector.start()
         await wire_master_tools()                       # mcp_codebase_* → 主脑工具面
         schedule_daily_reindex(automata.scheduler)      # 每日 03:17 增量索引
+        # Stratum 知识库 MCP (同 docker 网络, 不可达时优雅降级)
+        from server.stratum_memory import get_stratum
+        from server.stratum_memory import wire_master_tools as wire_stratum
+
+        stratum = get_stratum()
+        await stratum.start()
+        await wire_stratum(stratum)                     # mcp_stratum_* → 主脑工具面
     except Exception:
         pass
     yield
