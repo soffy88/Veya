@@ -12,9 +12,8 @@ Agent OS 主 app (server/app.py) 的 Caddy 反代把 /api/v1/* 打到本 app —
 
 from __future__ import annotations
 
-from typing import Any, Literal
-
 import contextlib
+from typing import Any, Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
