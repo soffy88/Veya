@@ -516,6 +516,17 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         or config.get("base_url")
         or os.environ.get("VEYA_LLM_ENDPOINT")
     )
+    # 归一化到完整 chat/completions URL (base URL 形态自动补全) —
+    # 提前到本作用域: 错误信息/重试看到的是真实请求 URL
+    if endpoint:
+        try:
+            endpoint = _normalize_chat_endpoint(endpoint, provider)
+        except ValueError as exc:
+            content = kwargs.get("default_content", f"{_STUB_CONTENT} ({exc})")
+            return {
+                "choices": [{"message": {"role": "assistant", "content": content}}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
     # 本地模型 (Ollama 等) 无需 API Key —— 有本地 endpoint 时跳过 key 检查
     local_endpoint = bool(endpoint) and (
         endpoint.startswith("http://localhost")
