@@ -28,9 +28,6 @@ jobs:
     runs-on: ${{ matrix.platform }}
     env:
       PYTHON_VERSION: "3.11"
-      # 跨平台统一 playwright 浏览器路径 (PyInstaller spec datas 读取)
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
-      PW_PACK_DIR: ${{ runner.temp }}/ms-playwright
 
     steps:
       - uses: actions/checkout@v4
@@ -82,6 +79,9 @@ jobs:
 
       - name: PyInstaller backend
         run: |
+          # 跨平台统一 playwright 浏览器路径 (spec datas 读取 PW_PACK_DIR)
+          export PLAYWRIGHT_BROWSERS_PATH="$(pwd)/.ms-playwright"
+          export PW_PACK_DIR="$(pwd)/.ms-playwright"
           # 浏览器抓取通道: playwright + chromium 二进制进产物
           /tmp/veya-pack-venv/bin/pip install playwright
           /tmp/veya-pack-venv/bin/python -m playwright install chromium
