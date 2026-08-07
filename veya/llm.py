@@ -540,7 +540,8 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             prompt = " ".join(
                 str(m.get("content", "")) for m in payload["messages"]
                 if isinstance(m.get("content"), str))
-            r = await run_engine("opencode", prompt, model=payload.get("model"))
+            r = await run_engine("opencode", prompt, model=payload.get("model"),
+                                 timeout_s=kwargs.get("timeout", 30.0))
             content = str(r.get("output", "") or "")
             if r.get("ok") and content:
                 return {"choices": [{"message": {"role": "assistant", "content": content}}],
