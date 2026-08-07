@@ -16,9 +16,8 @@ Veya 业务项目通过依赖本包接入因果闭环能力。
   Phase 4 长视距规划: multi_step_plan / counterfactual_rollout / StrategyEvolver
   L3 反事实: StructuralSCM / CholeskyMechanism / HybridSCM /
              bayesian_optimize / fit_deep_scm / counterfactual_diagnose
-             ⚠ StructuralSCM.propagate/abduct 是均值场/乘积式**近似**
-               (仅 polytree 精确; reconvergent DAG 上为近似, explaining-away 欠捕捉)。
-               需要精确干预分布时走 causal_fault_diagnose 的 do-calculus (pgmpy VE) 路径。
+             StructuralSCM 默认走**精确** twin-network 枚举 (reconvergent DAG 亦精确,
+             正确捕捉 explaining-away); 外生变量 > max_vars(20) 时回落均值场近似。
   代码可靠性: run_code_reliability_loop / CodeTask / CodeLoopResult
   Veya Loop 自有组件: HardenedExecutor / PermissionContract /
                       dispatch_intervention / ExecutionAdapter / veya-loop CLI

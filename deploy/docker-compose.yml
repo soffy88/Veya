@@ -42,6 +42,8 @@ services:
       - /home/soffy/.codex:/home/soffy/.codex:rw
       - /home/soffy/.pi:/home/soffy/.pi:rw
       - /home/soffy/.opencode:/home/soffy/.opencode:ro
+      # skill_hub 技能库 (宿主实时同步, 只读)
+      - /home/soffy/.veya/skills:/home/soffy/.veya/skills:ro
     # Chromium 无头浏览器 /dev/shm 需求 (抓取通道)
     shm_size: "1gb"
     restart: unless-stopped
