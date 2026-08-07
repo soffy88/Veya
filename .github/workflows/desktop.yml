@@ -18,12 +18,15 @@ jobs:
         include:
           - platform: ubuntu-latest
             target: AppImage
+            dir: appimage
             pkg: veya-desktop_*_amd64.AppImage
           - platform: macos-latest
             target: dmg
+            dir: dmg
             pkg: Veya_*.dmg
           - platform: windows-latest
             target: nsis
+            dir: nsis
             pkg: Veya_*.exe
     runs-on: ${{ matrix.platform }}
     env:
@@ -104,10 +107,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: veya-desktop-${{ matrix.target }}
-          path: apps/desktop/src-tauri/target/release/bundle/${{ matrix.target }}/${{ matrix.pkg }}
+          path: apps/desktop/src-tauri/target/release/bundle/${{ matrix.dir }}/${{ matrix.pkg }}
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/desktop/src-tauri/target/release/bundle/${{ matrix.target }}/${{ matrix.pkg }}
+          files: apps/desktop/src-tauri/target/release/bundle/${{ matrix.dir }}/${{ matrix.pkg }}
