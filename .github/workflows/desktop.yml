@@ -28,6 +28,9 @@ jobs:
     runs-on: ${{ matrix.platform }}
     env:
       PYTHON_VERSION: "3.11"
+      # 跨平台统一 playwright 浏览器路径 (PyInstaller spec datas 读取)
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+      PW_PACK_DIR: ${{ runner.temp }}/ms-playwright
 
     steps:
       - uses: actions/checkout@v4
