@@ -341,6 +341,32 @@ def _normalize_anthropic_response(data: dict) -> dict:
     }
 
 
+def _in_container() -> bool:
+    """容器环境检测 (与 engine_runner 一致)。"""
+    return bool(os.environ.get("VEYA_WORKSPACE")) or os.path.exists("/.dockerenv")
+
+
+def _custom_proxy_url(provider: str) -> str | None:
+    """自定义 provider (非内置) 在容器内的代理兜底 URL。
+
+    内置 provider (dashscope/openai/... 国内/官方直连) 返回 None;
+    容器内经桥 17890 可达宿主代理 (7890, clash) 时返回代理 URL —
+    海外自定义端点被 GFW 间歇重置 (could not reach) 时自动兜底。
+    """
+    if provider in _ENDPOINTS or not _in_container():
+        return None
+    import urllib.request
+
+    for gw in ("192.168.16.1", "172.18.0.1"):
+        try:
+            with urllib.request.urlopen(f"http://{gw}:17890/", timeout=0.5) as resp:
+                if resp.status == 200:
+                    return f"http://{gw}:17890"
+        except Exception:
+            continue
+    return None
+
+
 def _normalize_chat_endpoint(endpoint: str, provider: str) -> str:
     """归一化 openai 兼容 chat completions 端点。
 
@@ -548,60 +574,70 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     # 专属 Key 注入: config["providers"][provider] 优先于环境变量(Genesis 物理隔离)
     api_key = get_api_key(provider, config)
     retries = int(kwargs.get("retries", 2))
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            last_exc: Exception | None = None
-            for attempt in range(retries + 1):
-                try:
-                    return await provider_call(
-                        client,
-                        provider,
-                        model=model,
-                        messages=messages,
-                        tools=tools,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        endpoint=endpoint,
-                        api_key=api_key,
-                        tool_choice=tool_choice,
-                    )
-                except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout,
-                        httpx.RemoteProtocolError, httpx.ReadError) as exc:
-                    # 瞬时网络抖动(如 NIM 连接重置) — 指数退避重试
-                    last_exc = exc
-                    if attempt < retries:
-                        await asyncio.sleep(1.5 * (2 ** attempt))
-            raise last_exc if last_exc else RuntimeError("llm_call retry exhausted")
-        except ValueError as exc:
-            # Missing key etc. — degrade to stub rather than crashing the caller.
-            content = kwargs.get("default_content", f"{_STUB_CONTENT} ({exc})")
-            return {
-                "choices": [{"message": {"role": "assistant", "content": content}}],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            }
-        except httpx.HTTPStatusError as exc:
-            # Provider rejected the request (bad key, rate limit, unknown model, ...) —
-            # surface the status + body instead of a raw 500 with no explanation.
-            status = exc.response.status_code
-            detail = exc.response.text.strip()[:300]
-            content = kwargs.get(
-                "default_content",
-                f"{provider} rejected the request (HTTP {status}): {detail or 'no detail returned'}",
-            )
-            return {
-                "choices": [{"message": {"role": "assistant", "content": content}}],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            }
-        except httpx.HTTPError as exc:
-            # Network/timeout/connect errors talking to the provider endpoint.
-            content = kwargs.get(
-                "default_content",
-                f"could not reach {provider} ({endpoint or 'default endpoint'}): {exc}",
-            )
-            return {
-                "choices": [{"message": {"role": "assistant", "content": content}}],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            }
+
+    # 双通道客户端: 直连 + 代理兜底 (自定义海外端点被 GFW 间歇重置时)
+    # 内置 provider (dashscope 等国内直连) 不走代理; 容器内经桥 17890 → 宿主 7890。
+    proxy = _custom_proxy_url(provider)
+    # 双通道客户端: 直连 + 代理兜底 (自定义海外端点被 GFW 间歇重置时)
+    # 内置 provider (dashscope 等国内直连) 不走代理; 容器内经桥 17890 → 宿主 7890。
+    proxy = _custom_proxy_url(provider)
+    clients: list[httpx.AsyncClient] = [httpx.AsyncClient(timeout=timeout)]
+    if proxy:
+        clients.append(httpx.AsyncClient(timeout=timeout, proxy=proxy))
+    try:
+        last_exc: Exception | None = None
+        for attempt in range(retries + 1):
+            client = clients[attempt % len(clients)]
+            try:
+                return await provider_call(
+                    client,
+                    provider,
+                    model=model,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    endpoint=endpoint,
+                    api_key=api_key,
+                    tool_choice=tool_choice,
+                )
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout,
+                    httpx.RemoteProtocolError, httpx.ReadError) as exc:
+                # 瞬时网络抖动(如 NIM 连接重置) — 指数退避重试 (直连/代理双通道交替)
+                last_exc = exc
+                if attempt < retries:
+                    await asyncio.sleep(1.5 * (2 ** attempt))
+        raise last_exc if last_exc else RuntimeError("llm_call retry exhausted")
+    except ValueError as exc:
+        # Missing key etc. — degrade to stub rather than crashing the caller.
+        content = kwargs.get("default_content", f"{_STUB_CONTENT} ({exc})")
+        return {
+            "choices": [{"message": {"role": "assistant", "content": content}}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+    except httpx.HTTPStatusError as exc:
+        # Provider rejected the request (bad key, rate limit, unknown model, ...) —
+        # surface the status + body instead of a raw 500 with no explanation.
+        status = exc.response.status_code
+        detail = exc.response.text.strip()[:300]
+        content = kwargs.get(
+            "default_content",
+            f"{provider} rejected the request (HTTP {status}): {detail or 'no detail returned'}",
+        )
+        return {
+            "choices": [{"message": {"role": "assistant", "content": content}}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+    except httpx.HTTPError as exc:
+        # Network/timeout/connect errors talking to the provider endpoint.
+        content = kwargs.get(
+            "default_content",
+            f"could not reach {provider} ({endpoint or 'default endpoint'}): {exc}",
+        )
+        return {
+            "choices": [{"message": {"role": "assistant", "content": content}}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
 
 
 async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]:

@@ -495,3 +495,39 @@ def test_normalize_chat_endpoint():
         _normalize_chat_endpoint("/v1", "custom")
     with pytest.raises(ValueError, match="未配置"):
         _normalize_chat_endpoint("", "custom")
+
+
+# ---------------------------------------------------------------------------
+# 双通道: 自定义 provider 代理兜底
+# ---------------------------------------------------------------------------
+
+def test_custom_proxy_url_internal_providers_none(monkeypatch):
+    from veya.llm import _custom_proxy_url
+
+    monkeypatch.setattr("veya.llm._in_container", lambda: True)
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout=0.5: (_ for _ in ()).throw(OSError()))
+    # 内置 provider 不走代理
+    assert _custom_proxy_url("dashscope") is None
+    assert _custom_proxy_url("openai") is None
+
+
+def test_custom_proxy_url_bridge_detected(monkeypatch):
+    from veya.llm import _custom_proxy_url
+
+    class _Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr("veya.llm._in_container", lambda: True)
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout=0.5: _Resp())
+    assert _custom_proxy_url("custom-tokenrouter") == "http://192.168.16.1:17890"
+    # 宿主 (非容器) 不走代理
+    monkeypatch.setattr("veya.llm._in_container", lambda: False)
+    assert _custom_proxy_url("custom-tokenrouter") is None
