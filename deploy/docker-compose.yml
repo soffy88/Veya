@@ -19,6 +19,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:-veya-dev-secret}
+      - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
+      - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
     volumes:
       - veya-data:/home/soffy/.veya
       - ../veya:/app/veya:ro

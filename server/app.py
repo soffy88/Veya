@@ -81,6 +81,13 @@ async def lifespan(app: FastAPI):
         stratum = get_stratum()
         await stratum.start()
         await wire_stratum(stratum)                     # mcp_stratum_* → 主脑工具面
+        # hevi 视频管线 MCP (同 docker 网络, 不可达/密钥缺失时优雅降级)
+        from server.hevi_memory import get_hevi
+        from server.hevi_memory import wire_master_tools as wire_hevi
+
+        hevi = get_hevi()
+        await hevi.start()
+        await wire_hevi(hevi)                           # mcp_hevi_* → 主脑工具面
     except Exception:
         pass
     yield
