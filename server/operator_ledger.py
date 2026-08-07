@@ -259,3 +259,18 @@ def code_review_ledger_summary() -> list[dict[str, Any]]:
         for name, meta in CODE_REVIEW_LEDGER.items()
     ]
 
+# Goal-Driven 长程编排算子
+GOAL_DRIVEN_LEDGER: dict[str, dict[str, str]] = {
+    "goal_driven_loop": {"layer": "oservi", "phase": "长程编排",
+                         "desc": "Goal-Driven while 循环: 子代理工作 → gate 验证 → 失活重启 → 达标停机",
+                         "status": "registered"},
+}
+
+
+def goal_driven_ledger_summary() -> list[dict[str, Any]]:
+    return [
+        {"name": name, "layer": meta["layer"], "phase": meta["phase"],
+         "status": meta["status"], "description": meta["desc"]}
+        for name, meta in GOAL_DRIVEN_LEDGER.items()
+    ]
+
