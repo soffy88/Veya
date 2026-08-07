@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 # Make the 3O package tree importable (single-layer: platform/3O/<lib>)
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,19 +19,16 @@ load("omodul")
 load("oprim")
 load("oskill")
 
+from obase.causal_graph_store import CausalGraphStore
+from omodul.adversarial_honeypot_observe import (
+    adversarial_honeypot_observe,
+)
+from omodul.causal_fault_diagnose import causal_fault_diagnose
+from oprim._do_calculus_intervention import _do_calculus_intervention
 from oskill._bayesian_belief_update import (
     _bayesian_belief_update,
     sequential_update,
-    DEFAULT_HYPOTHESES,
 )
-from omodul.adversarial_honeypot_observe import (
-    adversarial_honeypot_observe,
-    DEFAULT_HONEYPOT_ENV,
-)
-from obase.causal_graph_store import CausalGraphStore
-from oprim._do_calculus_intervention import _do_calculus_intervention
-from omodul.causal_fault_diagnose import causal_fault_diagnose
-
 
 # ---------------------------------------------------------------------------
 # 1. Bayesian belief update – malicious intent must exceed 0.9 after 3 signals

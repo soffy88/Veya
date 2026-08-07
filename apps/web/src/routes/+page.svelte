@@ -2,21 +2,23 @@
 	/**
 	 * Veya Web — human chat + Genesis construction + plugins + automation.
 	 *
-	 * Four views:
+	 * Five views:
 	 *   chat     → ChatConsole  (human ⇄ Master Brain, streaming, multi-session)
 	 *   genesis  → FlowConsole  (master-model → Genesis 施工通道, 非人机对话)
 	 *   plugins  → PluginPanel
 	 *   automation → AutomationPanel
+	 *   board    → KanbanPanel  (多 Agent 编排看板: worktree 隔离 + 依赖链)
 	 */
-	import { Bot, Cpu, Hammer, MessageSquare, Package, Clock, Settings, Trash2, Plus } from "lucide-svelte";
+	import { Bot, Cpu, Hammer, MessageSquare, Package, Clock, Settings, Trash2, Plus, Columns3 } from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
 	import FlowConsole from "$lib/components/FlowConsole.svelte";
 	import PluginPanel from "$lib/components/PluginPanel.svelte";
 	import AutomationPanel from "$lib/components/AutomationPanel.svelte";
+	import KanbanPanel from "$lib/components/KanbanPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 
-	type View = "chat" | "genesis" | "plugins" | "automation";
+	type View = "chat" | "genesis" | "plugins" | "automation" | "board";
 
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
@@ -27,6 +29,7 @@
 		["genesis", "Genesis 施工", Hammer],
 		["plugins", "插件", Package],
 		["automation", "自动化", Clock],
+		["board", "看板", Columns3],
 	];
 
 	function selectNav(v: View) {
@@ -160,6 +163,7 @@
 			<div class="flex-1 overflow-y-auto p-6"><PluginPanel /></div>
 		{:else if view === "automation"}
 			<div class="flex-1 overflow-y-auto p-6"><AutomationPanel /></div>
+			<div class="flex-1 overflow-y-auto"><KanbanPanel /></div>
 		{/if}
 	</section>
 </main>

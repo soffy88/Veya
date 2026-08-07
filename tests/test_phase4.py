@@ -20,6 +20,7 @@ load("oprim")
 load("oskill")
 
 from obase.causal_graph_store import CausalGraphStore
+from omodul.multi_step_plan import multi_step_plan, update_cpd_from_repair
 from oprim._counterfactual_rollout import OBSERVE_ACTION, counterfactual_rollout
 from oprim._do_calculus_intervention import build_binary_failure_cpd_map
 from oskill._strategy_evolve import (
@@ -27,7 +28,6 @@ from oskill._strategy_evolve import (
     STRATEGY_PARAMS,
     StrategyEvolver,
 )
-from omodul.multi_step_plan import multi_step_plan, update_cpd_from_repair
 
 
 def _build_diagnosis_graph() -> CausalGraphStore:
