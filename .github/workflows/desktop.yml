@@ -59,16 +59,33 @@ jobs:
         run: |
           brew install webkit2gtk 2>/dev/null || true
 
-      - name: Backend venv + deps
+      - name: Backend venv + deps + PyInstaller (跨平台)
+        shell: bash
         run: |
-          python -m venv /tmp/veya-pack-venv
-          /tmp/veya-pack-venv/bin/pip install --upgrade pip
-          /tmp/veya-pack-venv/bin/pip install pyinstaller \
+          set -euo pipefail
+          VENV_DIR="$RUNNER_TEMP/veya-pack-venv"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            VENV_PIP="$VENV_DIR/Scripts/pip.exe"; VENV_PY="$VENV_DIR/Scripts/python.exe"
+          else
+            VENV_PIP="$VENV_DIR/bin/pip"; VENV_PY="$VENV_DIR/bin/python"
+          fi
+          python -m venv "$VENV_DIR"
+          "$VENV_PIP" install --upgrade pip
+          "$VENV_PIP" install pyinstaller \
             fastapi "uvicorn[standard]" httpx aiohttp python-dotenv python-multipart \
             networkx structlog apscheduler pandas numpy pyarrow pgmpy scipy pyyaml \
             plotly matplotlib textual chardet \
             cryptography rapidfuzz argon2-cffi asyncpg tree-sitter tree-sitter-python \
             anthropic openai mcp
+          # 浏览器抓取通道: playwright + headless shell 进产物 (跨平台路径统一)
+          export PLAYWRIGHT_BROWSERS_PATH="$(pwd)/.ms-playwright"
+          export PW_PACK_DIR="$(pwd)/.ms-playwright"
+          "$VENV_PIP" install playwright
+          "$VENV_PY" -m playwright install chromium
+          "$VENV_PY" -m pyinstaller scripts/pyinstaller/veya_backend.spec \
+            --noconfirm --distpath dist-backend --workpath build-pyinstaller
+          mkdir -p apps/desktop/resources/backend
+          cp -r dist-backend/veya-backend/* apps/desktop/resources/backend/
 
       - name: Static web build (desktop)
         run: |
@@ -76,19 +93,6 @@ jobs:
           npm install -g pnpm 2>/dev/null || true
           pnpm install --no-frozen-lockfile
           cd ../.. && bash scripts/build-desktop-web.sh
-
-      - name: PyInstaller backend
-        run: |
-          # 跨平台统一 playwright 浏览器路径 (spec datas 读取 PW_PACK_DIR)
-          export PLAYWRIGHT_BROWSERS_PATH="$(pwd)/.ms-playwright"
-          export PW_PACK_DIR="$(pwd)/.ms-playwright"
-          # 浏览器抓取通道: playwright + chromium 二进制进产物
-          /tmp/veya-pack-venv/bin/pip install playwright
-          /tmp/veya-pack-venv/bin/python -m playwright install chromium
-          /tmp/veya-pack-venv/bin/pyinstaller scripts/pyinstaller/veya_backend.spec \
-            --noconfirm --distpath dist-backend --workpath build-pyinstaller
-          mkdir -p apps/desktop/resources/backend
-          cp -r dist-backend/veya-backend/* apps/desktop/resources/backend/
 
       - name: Tauri build
         run: |
