@@ -1,39 +1,31 @@
-"""server/runtimes/__init__.py — 三框架运行时适配器装配。
+"""server.runtimes — 三框架运行时装配 (shim 层)。
 
-注册: agent_registry runtime 类型 (L1/L2/L3 全量, 幂等)。
-状态: RUNTIME_LEDGER pending → registered (装配期, operator_ledger)。
+3O 单一来源: 协议与适配器在主库 oservi.runtime_bridge; 本层只做:
+  1. re-export (兼容既有引用)
+  2. 装配注册 (Infra.init → agent_registry runtime 类型)
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from obase.agent_registry import AgentRegistry
+from veya.platform import load as _load
 
-from server.runtimes.agentscope_bridge import agentscope_bridge
-from server.runtimes.base import AgentRuntime, register_runtime
-from server.runtimes.pi_bridge import pi_bridge
-from server.runtimes.prime_agent import prime_agent_runtime
+_oservi = _load("oservi")
+from oservi.runtime_bridge import (  # noqa: E402
+    ALL_RUNTIMES,
+    AgentRuntime,
+    agentscope_bridge,
+    pi_bridge,
+    prime_agent_runtime,
+    register_all_runtimes,
+)
 
-ALL_RUNTIMES: list[AgentRuntime] = [
-    prime_agent_runtime,   # L1 内核
-    pi_bridge,             # L2 工具链
-    agentscope_bridge,     # L3 平台
-]
-
-
-def register_all_runtimes(registry: AgentRegistry | None = None) -> dict[str, Any]:
-    """注册全部适配器 (幂等)。"""
-    registered: list[str] = []
-    skipped: list[str] = []
-    for rt in ALL_RUNTIMES:
-        out = register_runtime(rt, registry)
-        (registered if "registered" in out else skipped).append(rt.name)
-    return {"registered": registered, "skipped": skipped}
+from server.runtimes.base import register_runtime  # noqa: E402
 
 
 def runtime_status() -> list[dict[str, Any]]:
-    """各适配器健康 (探测, 不初始化)。"""
+    """各适配器健康 (同步探测: 无 loop 场景; async 端点请直接 await health)。"""
     import asyncio
 
     out = []
@@ -48,9 +40,11 @@ def runtime_status() -> list[dict[str, Any]]:
 
 __all__ = [
     "ALL_RUNTIMES",
+    "AgentRuntime",
     "agentscope_bridge",
     "pi_bridge",
     "prime_agent_runtime",
     "register_all_runtimes",
+    "register_runtime",
     "runtime_status",
 ]
