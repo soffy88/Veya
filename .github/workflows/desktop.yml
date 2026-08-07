@@ -98,6 +98,7 @@ jobs:
           cd ../.. && bash scripts/build-desktop-web.sh
 
       - name: Tauri build
+        shell: bash
         run: |
           # AppImage 打包需要 linuxdeploy 自解压 (CI 无 fuse)
           if [ "$RUNNER_OS" = "Linux" ]; then export APPIMAGE_EXTRACT_AND_RUN=1; fi
