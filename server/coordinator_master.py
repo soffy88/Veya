@@ -31,6 +31,59 @@ _oservi = _load_oservi()
 MASTER_SYSTEM_PROMPT = _oservi.MASTER_SYSTEM_PROMPT
 
 
+def _github_readme(url: str, max_chars: int = 6000) -> str | None:
+    """抓 GitHub 仓库 README (raw.githubusercontent, HEAD 分支), 截断防爆。"""
+    import re
+
+    m = re.match(r"https?://github\.com/([^/]+)/([^/?#]+)", url)
+    if not m:
+        return None
+    owner, repo = m.group(1), m.group(2)
+    raw = f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md"
+    try:
+        import requests
+
+        r = requests.get(raw, timeout=6)
+        if r.status_code != 200:
+            return None
+        return r.text[:max_chars]
+    except Exception:
+        return None
+
+
+def _gather_url_context(user_prompt: str) -> str:
+    """提取 prompt 中 github URL → 抓 README → 拼接上下文 (轻量单轮可分析)。"""
+    import re
+
+    urls = re.findall(r"https?://github\.com/[^\s,，]+", user_prompt)
+    blocks = []
+    for u in urls:
+        u = u.rstrip(".,;!?)")
+        md = _github_readme(u)
+        if md:
+            blocks.append(f"[{u}]\n{md}")
+    return "\n\n---\n\n".join(blocks)
+
+
+def _is_quick_query(user_prompt: str, config: dict | None) -> bool:
+    """quick 档判定: 短文本 (<quick_tokens) 且无工具/代码/推理意图 → 轻量路径。
+
+    复用 oprim 路由分类 (系统消息判定逻辑一致)。
+    """
+    try:
+        from veya.platform import load as _load
+
+        oprim = _load("oprim")
+        decision = oprim.route_decision(
+            [{"role": "user", "content": user_prompt}],
+            tools=None,
+            matrix=oprim.load_matrix(),
+        )
+        return decision.get("route") == "quick"
+    except Exception:
+        return False
+
+
 class MasterCoordinator:
     """主脑: 把用户请求路由到后端工具 / 子 Agent (Genesis),汇总最终回答。
 
@@ -218,6 +271,7 @@ class MasterCoordinator:
     async def handle_tool_call(self, tool_name: str, tool_args: dict) -> str:
         return await self._agent.handle_tool_call(tool_name, tool_args)
 
+
     async def chat_stream(
         self,
         user_prompt: str,
@@ -246,6 +300,37 @@ class MasterCoordinator:
             llm_kwargs["endpoint"] = endpoint
         token = _on_step_ctx.set(on_step)
         try:
+            # 轻量快速路径: 简单问答 (quick 档) → 单轮无工具 (无 20 工具 schema/无主循环)
+            # 省去工具 schema 注入与多轮开销 → 感知速度显著提升
+            # 仅生产默认 llm (测试注入 mock 时走原路径, 保持工具循环语义)
+            if _is_quick_query(user_prompt, config) and self._llm_fn is llm_call:
+                try:
+                    # 快速联网路径: 抓 github README → 单轮分析 (不走 ReAct 多轮)
+                    ctx = _gather_url_context(user_prompt)
+                    prompt = (
+                        f"{user_prompt}\n\n参考内容(已抓取):\n{ctx}"
+                        if ctx else user_prompt
+                    )
+                    result = await self._agent.chat(
+                        prompt, llm_kwargs=llm_kwargs or None)
+                    if on_step is not None:
+                        on_step({"type": "text_delta", "squad_id": "master",
+                                 "delta": result.get("final_answer", "")})
+                    return result
+                except Exception:
+                    # 网关超时/失败 → 换备用模型重试一次
+                    try:
+                        retry_kw = dict(llm_kwargs or {})
+                        retry_kw.setdefault("timeout", 45.0)
+                        retry_kw["model"] = "opencode-go/mimo-v2.5"
+                        result = await self._agent.chat(
+                            prompt, llm_kwargs=retry_kw or None)
+                        if on_step is not None:
+                            on_step({"type": "text_delta", "squad_id": "master",
+                                     "delta": result.get("final_answer", "")})
+                        return result
+                    except Exception:
+                        pass
             lt = None
             if self._long_task_factory is not None:
                 lt = self._long_task_factory()
