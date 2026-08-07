@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import time
 from pathlib import Path
@@ -152,7 +153,7 @@ def test_call_aliased_short_single_call():
 
     async def caller(payload):
         calls.append(payload)
-        return {"choices": [{"message": {"role": "assistant", "content": "ok"}}],
+        return {"choices": [{"message": {"role": "assistant", "content": "正常回复内容"}}],
                 "usage": {}}
 
     r = asyncio.run(router.call_aliased(
@@ -230,3 +231,108 @@ def test_llm_call_veya11_vision_routes_to_dashscope(monkeypatch):
     ))
     assert seen and seen[0]["provider"] == "dashscope"
     assert seen[0]["model"] == "qwen3.7-flash"
+
+
+# =========================================================================
+# 分层路由 v2 — 动态成本阈值 / Frontier 档 / 质量闸门 / traces 分析
+# =========================================================================
+
+def test_route_frontier_on_security_keywords():
+    from oprim._llm_router import route_decision
+
+    d = route_decision([{"role": "user", "content": "对这段代码做安全审计, 找 RCE 漏洞"}])
+    assert d["route"] == "frontier"
+    assert d["model"] == "deepseek-reasoner"
+
+
+def test_route_high_priority_complex_goes_frontier():
+    from oprim._llm_router import route_decision
+
+    d = route_decision([{"role": "user", "content": "证明费马小定理"}],
+                       priority="high")
+    assert d["route"] == "frontier"          # high + reason → frontier
+
+
+def test_route_low_priority_locks_cheap():
+    from oprim._llm_router import route_decision
+
+    d = route_decision([{"role": "user", "content": "def foo():\n    return 1"}],
+                       priority="low")
+    assert d["route"] == "text"              # low 价值 → 锁廉价档
+
+
+def test_route_budget_cap_downgrades():
+    from oprim._llm_router import route_decision
+
+    d = route_decision([{"role": "user", "content": "证明欧拉公式"}],
+                       priority="normal", budget=0.001)
+    assert d["route"] == "text"              # reason 成本超预算 → 降档
+
+
+def test_quality_gate_detects_low_quality():
+    from oprim._quality_gate import quality_check
+
+    assert quality_check({"choices": [{"message": {"content": ""}}]})["ok"] is False
+    assert quality_check({"choices": [{"message": {"content": "LLM provider not configured"}}]})["ok"] is False
+    assert quality_check({"choices": [{"message": {"content": "好的回答内容"}}]})["ok"] is True
+
+
+def test_call_aliased_gate_upgrade_retry():
+    """质量闸门: 低质量 → 升级重试 1 次 (flash → reasoner)。"""
+    from oskill.llm_router import LLMRouter
+
+    calls: list[dict] = []
+    router = LLMRouter()
+
+    async def caller(payload):
+        calls.append(payload)
+        if len(calls) == 1:
+            return {"choices": [{"message": {"role": "assistant", "content": "shim response"}}],
+                    "usage": {}}
+        return {"choices": [{"message": {"role": "assistant", "content": "高质量回答"}}],
+                "usage": {}}
+
+    r = asyncio.run(router.call_aliased(
+        [{"role": "user", "content": "你好"}], caller))
+    assert len(calls) == 2                      # 升级重试 1 次
+    assert calls[0]["model"] == "deepseek-v4-flash"
+    assert calls[1]["model"] == "deepseek-reasoner"
+    assert r["gate"]["reason"] == "upgraded"
+
+
+def test_call_aliased_gate_pass_no_retry():
+    from oskill.llm_router import LLMRouter
+
+    calls: list[dict] = []
+    router = LLMRouter()
+
+    async def caller(payload):
+        calls.append(payload)
+        return {"choices": [{"message": {"role": "assistant", "content": "正常回答"}}],
+                "usage": {}}
+
+    r = asyncio.run(router.call_aliased(
+        [{"role": "user", "content": "你好"}], caller))
+    assert len(calls) == 1
+    assert r["gate"]["ok"] is True
+
+
+def test_trace_analysis_identifies_fixed_flow(tmp_path):
+    """traces 分析: 合成审计日志 → 固定流程候选识别。"""
+    import subprocess
+
+    audit = tmp_path / "llm-router.jsonl"
+    lines = ['{"route": "text", "provider": "deepseek", "model": "deepseek-v4-flash", "ts": 1}'
+             ] * 6 + ['{"action": "gate_upgrade", "route": "text", "ts": 2}',
+                      '{"route": "vision", "provider": "dashscope", "model": "qwen3.7-flash", "ts": 3}']
+    audit.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    r = subprocess.run(
+        [sys.executable, "scripts/analyze_router_traces.py", str(audit), "--json"],
+        capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    assert data["entries"] == 8          # 6 路由 + 1 动作 + 1 vision
+    assert data["gate_upgrades"] == 1
+    cand = data["fixed_flow_candidates"]
+    assert any(c["route"] == "text" and "deepseek" in c["provider_model"]
+               for c in cand)
