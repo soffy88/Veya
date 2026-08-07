@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+import contextlib
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
@@ -175,6 +177,45 @@ async def operators_ledger() -> dict[str, Any]:
             "runtimes": runtime_ledger_summary(),
             "runtime_health": healths,
             "replica": replica_ledger_summary()}
+
+
+# =========================================================================
+# Spec 可执行化 API (spec-kit 内化): /spec/execute + /spec/presets
+# =========================================================================
+
+class SpecExecuteRequest(BaseModel):
+    spec: str = Field(..., min_length=20, description="markdown spec (目标/验收标准/约束/测试门)")
+    preset: str = ""
+    variables: dict[str, str] = Field(default_factory=dict)
+    async_impl: bool = False
+
+
+@router.post("/api/v1/spec/execute")
+async def spec_execute_ep(req: SpecExecuteRequest) -> dict[str, Any]:
+    from oskill.spec_execute import SpecExecutor, render_preset
+
+    text = req.spec
+    if req.preset:
+        text = render_preset(req.preset, req.variables)
+    executor = SpecExecutor()
+    # 装配层注入: implementer 用主脑 llm_call (stub 兼容)
+    from veya.llm import llm_call
+
+    async def _implementer(task: str, idx: int) -> dict[str, Any]:
+        result = await llm_call([{"role": "user", "content": task}])
+        content = ""
+        with contextlib.suppress(KeyError, IndexError):
+            content = result["choices"][0]["message"].get("content", "")
+        return {"ok": bool(content), "output": content[:2000]}
+
+    return await executor.execute(text, implementer=_implementer)
+
+
+@router.get("/api/v1/spec/presets")
+async def spec_presets() -> dict[str, Any]:
+    from oskill.spec_execute import PRESETS
+
+    return {"presets": list(PRESETS), "templates": PRESETS}
 
 
 # =========================================================================
