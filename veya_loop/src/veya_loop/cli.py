@@ -48,7 +48,9 @@ def cmd_selftest(_: argparse.Namespace) -> None:
                 "MCTS", "puct", "SnapshotStore", "ActionPlan",
                 "SandboxPool", "closed_loop_intervene",
                 "multi_step_plan", "causal_fault_diagnose",
-                "StructuralSCM", "run_code_reliability_loop"):
+                "StructuralSCM", "run_code_reliability_loop",
+                "AppendOnlyEventStore", "QuotaTracker", "GoalKernel",
+                "Todo", "Gate", "Goal", "QuotaView", "IntegrityResult"):
         check(f"export:{sym}", lambda s=sym: getattr(v, s))
 
     # ── 关键链路 1: 四闸门 O1 校验 (parse_ir → validate → compile → feasible) ──
@@ -107,6 +109,33 @@ def cmd_selftest(_: argparse.Namespace) -> None:
         em.decide(decision={"chosen_strategy": "selftest"})
         assert len(sink.events) >= 1
     check("audit:emitter", audit_chain)
+
+    # ── 关键链路 6: 长程状态内核 (事件溯源: goal → todo → 重建 → 续跑) ──
+    def long_task_chain() -> None:
+        import asyncio
+        import tempfile
+        from pathlib import Path
+
+        async def run() -> None:
+            store = v.AppendOnlyEventStore(
+                Path(tempfile.mkdtemp()) / "selftest.jsonl"
+            )
+            kernel = v.GoalKernel(store, goal_id="g-self")
+            await kernel.add_goal("selftest", budget_usd=1.0)
+            await kernel.update_todo("t1", title="写实现", status="done")
+            await kernel.update_todo("t2", title="写测试")
+            # 跨实例重建 (跨天恢复的根基)
+            fresh = v.GoalKernel(store, goal_id="g-self").rebuild()
+            assert fresh.goal.todos["t1"].status == "done"
+            assert fresh.next_action().id == "t2"
+            assert fresh.check_integrity().ok
+            # 配额记账写入同一事件流
+            quota = v.QuotaTracker(budget_usd=1.0, goal_id="g-self", store=store)
+            await quota.record_usage(0.3)
+            assert store.verify().ok
+
+        asyncio.run(run())
+    check("long_task:event_sourced_state", long_task_chain)
 
     failed = [c for c in checks if not c["ok"]]
     _json_out({"ok": not failed, "version": __version__,

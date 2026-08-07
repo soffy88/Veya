@@ -32,12 +32,16 @@ services:
       # 多引擎 CLI (node 生态 + claude 版本) 与凭据目录
       - /home/soffy/.nvm:/home/soffy/.nvm:ro
       - /home/soffy/.local:/home/soffy/.local:ro
+      # opencode 数据目录 rw (DB/log 写入); 凭据 auth.json 单独回 ro
+      - /home/soffy/.local/share/opencode:/home/soffy/.local/share/opencode:rw
+      - /home/soffy/.local/share/opencode/auth.json:/home/soffy/.local/share/opencode/auth.json:ro
       # Open Design daemon (od mcp stdio 客户端依赖)
       - /home/soffy/opendesign:/home/soffy/opendesign:ro
       - /home/soffy/.claude:/home/soffy/.claude:rw
       - /home/soffy/.claude.json:/home/soffy/.claude.json:ro
       - /home/soffy/.codex:/home/soffy/.codex:rw
       - /home/soffy/.pi:/home/soffy/.pi:rw
+      - /home/soffy/.opencode:/home/soffy/.opencode:ro
     # Chromium 无头浏览器 /dev/shm 需求 (抓取通道)
     shm_size: "1gb"
     restart: unless-stopped

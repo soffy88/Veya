@@ -32,6 +32,8 @@
 | 4 | 长视距反事实规划 + 策略自演化 | `multi_step_plan` `counterfactual_rollout` `StrategyEvolver` |
 | L3 | 显式噪声 SCM / Cholesky 流 / Hybrid SCM / BO 规划 | `StructuralSCM` `CholeskyMechanism` `HybridSCM` `bayesian_optimize` `fit_deep_scm` |
 | 可靠 | 代码可靠性闭环（沙箱 + 修复迭代） | `run_code_reliability_loop` `CodeTask` `CodeLoopResult` |
+| 长程 | 事件溯源状态内核（goal/todo/gate/evidence + 链式校验 + 并发安全 + 迁移） | `AppendOnlyEventStore` `VerifyResult` |
+| 长程 | 投影状态机 + 配额治理（跨天恢复 / 人工闸门 / 预算暂停恢复） | `GoalKernel` `Todo` `Gate` `Goal` `QuotaView` `QuotaTracker` |
 | 自有 | 硬化执行 / 授权契约 / 干预派发 | `HardenedExecutor` `PermissionContract` `dispatch_intervention` |
 | 自有 | 执行适配器模板（probe + 派发三合一） | `ExecutionAdapter` `RestartAdapter` `dispatch_via_adapter` |
 
@@ -39,7 +41,7 @@
 
 ```bash
 veya-loop --version           # 版本
-veya-loop selftest            # 冒烟: 装配面 + 关键机制链路 (22 项)
+veya-loop selftest            # 冒烟: 装配面 + 关键机制链路 (31 项)
 veya-loop plan --json '{"failure_log": "..."}'       # 多步规划
 veya-loop diagnose --json '{"failure_log": "..."}'   # 因果诊断
 ```
