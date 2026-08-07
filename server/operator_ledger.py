@@ -244,3 +244,18 @@ def router_ledger_summary() -> list[dict[str, Any]]:
         for name, meta in ROUTER_LEDGER.items()
     ]
 
+# 代码审查知识图谱算子 (CRG 3O 复刻)
+CODE_REVIEW_LEDGER: dict[str, dict[str, str]] = {
+    "code_review_graph": {"layer": "oprim+oskill", "phase": "代码智能",
+                          "desc": "CRG 知识图谱: 调用链/影响面/死代码/社区结构 (变更审查前置)",
+                          "status": "registered"},
+}
+
+
+def code_review_ledger_summary() -> list[dict[str, Any]]:
+    return [
+        {"name": name, "layer": meta["layer"], "phase": meta["phase"],
+         "status": meta["status"], "description": meta["desc"]}
+        for name, meta in CODE_REVIEW_LEDGER.items()
+    ]
+

@@ -1,0 +1,20 @@
+{
+  "name": "code_review_graph",
+  "description": "代码审查知识图谱 (code-review-graph): 调用链/影响面/死代码/测试覆盖/社区结构查询。变更审查前先 query 影响面再动手。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["query", "impact", "dead_code", "communities", "status", "ensure"],
+        "description": "操作: query=图谱查询, impact=影响面, dead_code=死代码, communities=社区结构, status=统计, ensure=懒构建"
+      },
+      "query_type": {"type": "string", "description": "query 用: callers_of/callees_of/imports_of/tests_for/inheritors_of 等"},
+      "target": {"type": "string", "description": "查询目标: 节点名/限定名/文件路径"},
+      "repo_path": {"type": "string", "description": "仓库路径 (懒构建时用)"}
+    },
+    "required": ["action"]
+  }
+}
