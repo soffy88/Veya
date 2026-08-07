@@ -109,6 +109,20 @@ _ELEMENT_MAP: dict[str, tuple[str, str]] = {
     "HttpMcpError": ("obase", "HttpMcpError"),
     "get_intervention_cache": ("oprim", "get_intervention_cache"),
     "InferenceCache": ("oprim", "InferenceCache"),
+    # ── 长程任务状态内核 (事件溯源: goal/todo/gate/evidence/quota) ──
+    "AppendOnlyEventStore": ("obase", "AppendOnlyEventStore"),
+    "QuotaTracker": ("obase", "QuotaTracker"),
+    "VerifyResult": ("obase", "VerifyResult"),
+    "LoopStoreError": ("obase", "LoopStoreError"),
+    "GoalKernel": ("omodul", "GoalKernel"),
+    "GoalKernelError": ("omodul", "GoalKernelError"),
+    "Todo": ("omodul", "Todo"),
+    "Gate": ("omodul", "Gate"),
+    "Goal": ("omodul", "Goal"),
+    "Evidence": ("omodul", "Evidence"),
+    "Handoff": ("omodul", "Handoff"),
+    "QuotaView": ("omodul", "QuotaView"),
+    "IntegrityResult": ("omodul", "IntegrityResult"),
     "graph_fingerprint": ("oprim", "graph_fingerprint"),
     "path_frequency_counts": ("oprim", "path_frequency_counts"),
     "count_simple_paths_dag": ("oprim", "count_simple_paths_dag"),
@@ -207,8 +221,12 @@ _ELEMENT_MAP: dict[str, tuple[str, str]] = {
 __all__ = [
     "__version__",
     # Veya Loop 自有组件
-    "DispatchResult", "ExecOutcome", "HardenedExecutor",
-    "PermissionContract", "PermissionDecision", "dispatch_intervention",
+    "DispatchResult",
+    "ExecOutcome",
+    "HardenedExecutor",
+    "PermissionContract",
+    "PermissionDecision",
+    "dispatch_intervention",
     # 3O 主库元素
     *sorted(_ELEMENT_MAP),
 ]
@@ -222,5 +240,5 @@ def __getattr__(name: str) -> Any:
     lib, symbol = _ELEMENT_MAP[name]
     mod = _assembly.load(lib)
     value = getattr(mod, symbol)
-    globals()[name] = value          # 缓存: 后续直接命中
+    globals()[name] = value  # 缓存: 后续直接命中
     return value
