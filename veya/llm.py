@@ -524,6 +524,43 @@ async def provider_stream(
 _STUB_CONTENT = "LLM provider not configured — this is a shim response."
 
 
+async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
+    """veya1.1 别名路由: 决策 → 单发 (short/text/tool/code/reason/vision) 或
+    并行分派 (long) → 归一为 llm_call 返回格式。"""
+    from veya.platform import load as _load_oskill
+
+    oskill = _load_oskill("oskill")
+    router = oskill.LLMRouter()
+
+    async def _single(payload: dict) -> dict:
+        return await llm_call(
+            payload["messages"],
+            config=kwargs.get("config"),
+            provider=payload["provider"],
+            model=payload["model"],
+            tools=payload.get("tools"),
+            endpoint=kwargs.get("endpoint"),
+            default_content=kwargs.get("default_content"),
+        )
+
+    result = await router.call_aliased(messages, _single, tools=kwargs.get("tools"))
+    # 并行分派 → 聚合文本; 单发 → 原 llm_call 结构
+    if result.get("parallel"):
+        content = str(result.get("aggregated") or result.get("output") or "")
+        return {
+            "choices": [{"message": {"role": "assistant", "content": content}}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "router": {"parallel": True, "chunks": result.get("chunks"),
+                       "elapsed_s": result.get("elapsed_s")},
+        }
+    result.setdefault("usage", {})
+    result["router"] = {"route": result.get("route"), "alias": result.get("alias")}
+    return result
+
+
+
+
+
 async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     """Non-streaming chat completion.
 
@@ -534,6 +571,10 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     provider, model = get_provider_config(
         kwargs.get("config"), provider=kwargs.get("provider"), model=kwargs.get("model")
     )
+    # veya1.1 智能路由别名: 按任务类型路由 (deepseek-v4-flash / qwen3.7-flash),
+    # 长输入并行分派快速回答 (RouteLLM 3O 内化, 见 docs/prd/LLM_ROUTER_PRD.md)
+    if model in ("veya1.1", "veya-1.1") or provider == "veya1.1":
+        return await _aliased_llm_call(messages, kwargs)
     config = kwargs.get("config") or {}
     # 自定义 endpoint: 顶层 kwarg > config["endpoints"][provider] > config["base_url"](NVIDIA NIM 等)
     endpoint = (
