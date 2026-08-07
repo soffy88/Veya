@@ -82,7 +82,7 @@ jobs:
           export PW_PACK_DIR="$(pwd)/.ms-playwright"
           "$VENV_PY" -m pip install playwright
           "$VENV_PY" -m playwright install chromium
-          "$VENV_PY" -m pyinstaller scripts/pyinstaller/veya_backend.spec \
+          "$VENV_PY" -m PyInstaller scripts/pyinstaller/veya_backend.spec \
             --noconfirm --distpath dist-backend --workpath build-pyinstaller
           mkdir -p apps/desktop/resources/backend
           cp -r dist-backend/veya-backend/* apps/desktop/resources/backend/
