@@ -533,6 +533,21 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
     router = oskill.LLMRouter()
 
     async def _single(payload: dict) -> dict:
+        if payload["provider"] == "opencode":
+            # opencode-go 网关: 经 opencode CLI (系统内凭据), 非 OpenAI 补全
+            from server.engine_runner import run_engine
+
+            prompt = " ".join(
+                str(m.get("content", "")) for m in payload["messages"]
+                if isinstance(m.get("content"), str))
+            r = await run_engine("opencode", prompt, model=payload.get("model"))
+            content = str(r.get("output", "") or "")
+            if r.get("ok") and content:
+                return {"choices": [{"message": {"role": "assistant", "content": content}}],
+                        "usage": {}, "opencode": True}
+            return {"choices": [{"message": {"role": "assistant",
+                                             "content": str(r.get("error", "opencode 执行失败"))}}],
+                    "usage": {}, "opencode": True}
         return await llm_call(
             payload["messages"],
             config=kwargs.get("config"),
@@ -548,6 +563,9 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
         priority=str(kwargs.get("priority", "normal")),
         budget=kwargs.get("budget"),
     )
+    # opencode-go 档: provider_call 不认识 opencode → 已由 _single 特判返回
+    if result.get("opencode"):
+        return result
     # 并行分派 → 聚合文本; 单发 → 原 llm_call 结构
     if result.get("parallel"):
         content = str(result.get("aggregated") or result.get("output") or "")

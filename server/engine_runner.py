@@ -23,6 +23,7 @@ ENGINE_ALIASES = {
     "claude": "claude",
     "codex": "codex",
     "pi": "pi",
+    "opencode": "opencode",
     "master": "master",
 }
 
@@ -242,6 +243,11 @@ def build_argv(engine: str, prompt: str, *,
         argv = ["pi", "-p", prompt]
         if model:
             argv += ["--model", model]
+        return argv
+    if engine == "opencode":
+        # opencode-go 网关模型 (系统内已有凭据)
+        argv = ["opencode", "run", prompt,
+                "--model", model or "opencode-go/deepseek-v4-flash"]
         return argv
     raise ValueError(f"未知引擎: {engine!r}; 可选 {sorted(ENGINE_ALIASES)}")
 
