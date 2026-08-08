@@ -534,14 +534,21 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
 
     async def _single(payload: dict) -> dict:
         if payload["provider"] == "opencode":
-            # opencode-go 网关: 经 opencode CLI (系统内凭据), 非 OpenAI 补全
+            # opencode-go 网关: 经 opencode serve 常驻会话 (系统内凭据), 非 OpenAI 补全
             from server.engine_runner import run_engine
 
             prompt = " ".join(
                 str(m.get("content", "")) for m in payload["messages"]
-                if isinstance(m.get("content"), str))
+                if isinstance(m.get("content"), str)
+                and m.get("role") != "system")
+            # veya 身份/能力 system prompt 一并注入 (否则模型自报 opencode 人格)
+            system_text = "\n".join(
+                str(m.get("content", "")) for m in payload["messages"]
+                if m.get("role") == "system"
+                and isinstance(m.get("content"), str)) or None
             r = await run_engine("opencode", prompt, model=payload.get("model"),
-                                 timeout_s=kwargs.get("timeout", 30.0))
+                                 timeout_s=kwargs.get("timeout", 30.0),
+                                 system=system_text)
             content = str(r.get("output", "") or "")
             if r.get("ok") and content:
                 return {"choices": [{"message": {"role": "assistant", "content": content}}],
