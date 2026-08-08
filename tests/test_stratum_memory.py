@@ -56,7 +56,9 @@ async def test_tools_list(connector):
 @pytest.mark.asyncio
 async def test_search_knowledge_call(connector):
     res = await connector.search_knowledge("test", top_k=3)
-    assert isinstance(res, list)      # 结果可能为空 (无库), 但调用链路通
+    # MCP call_tool 返回信封 dict (content[].text = JSON 字符串)
+    assert isinstance(res, dict) and "content" in res
+    assert res.get("isError") is False
 
 
 @pytest.mark.asyncio

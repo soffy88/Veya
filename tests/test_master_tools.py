@@ -488,3 +488,42 @@ def test_conversation_history_scoped_by_session():
 
     assert ("user", "A 会话") in [(m.get("role"), m.get("content")) for m in seen[2]]
     assert ("user", "B 会话") not in [(m.get("role"), m.get("content")) for m in seen[2]]
+
+
+class TestLayerToolsRecall:
+    """_layer_tools 分层召回: stratum 知识关键词必须召回 mcp_stratum_*。"""
+
+    def _tools(self):
+        def mk(name):
+            return {"type": "function", "function": {"name": name}}
+        return [
+            mk("mcp_stratum_search_knowledge"),
+            mk("mcp_stratum_get_note"),
+            mk("mcp_hevi_generate_longvideo"),
+            mk("mcp_od_create_project"),
+            mk("system_ping"),
+        ]
+
+    def test_knowledge_query_recalls_stratum(self):
+        from server.coordinator_master import MasterCoordinator
+
+        tools = self._tools()
+        msgs = [{"role": "user", "content": "帮我检索一下知识库里关于量子计算的文章"}]
+        out = MasterCoordinator._layer_tools(tools, msgs)
+        names = {t["function"]["name"] for t in out}
+        assert "mcp_stratum_search_knowledge" in names
+        assert "mcp_stratum_get_note" in names
+        # 知识请求不召回视频/设计工具
+        assert "mcp_hevi_generate_longvideo" not in names
+        assert "mcp_od_create_project" not in names
+        assert "system_ping" in names
+
+    def test_video_query_does_not_recall_stratum(self):
+        from server.coordinator_master import MasterCoordinator
+
+        tools = self._tools()
+        msgs = [{"role": "user", "content": "生成一个草船借箭的2分钟动画视频"}]
+        out = MasterCoordinator._layer_tools(tools, msgs)
+        names = {t["function"]["name"] for t in out}
+        assert "mcp_hevi_generate_longvideo" in names
+        assert "mcp_stratum_search_knowledge" not in names

@@ -370,7 +370,7 @@ class MasterCoordinator:
                 keep.append(s)
                 continue
             if n.startswith("mcp_"):
-                if (n.startswith("mcp_hevi_") and want_video) or (n.startswith("mcp_od_") and (want_video or want_design)) or (n.startswith("mcp_codebase_") and (want_code or want_video)) or (n.startswith("mcp_stratum_") and (want_knowledge or want_code or want_video)):
+                if (n.startswith("mcp_hevi_") and want_video) or (n.startswith("mcp_od_") and (want_video or want_design)) or (n.startswith("mcp_codebase_") and (want_code or want_video)) or (n.startswith("mcp_stratum_") and (want_knowledge or want_code)):
                     keep.append(s)
                 continue
             # 技能/ecc 专家: 显式技能意图才召回 (全量注入会撑爆 opencode 免费池)
