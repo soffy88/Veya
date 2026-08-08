@@ -35,6 +35,7 @@ KNOWN_SYMBOLS: dict[str, str] = {
     # --- project-layer symbols with documented contract differences ---
     "CostTracker": "lightweight accumulator; contract differs from obase.cost_tracker.CostTracker (pricing-table driven)",
     "ExecResult": "execution-runtime lifecycle result (Cloudflare WorkspaceRuntimeResult); contract differs from oprim._sandbox.ExecResult (sandbox command result)",
+    "SkillMeta": "veya Agent 定义的技能路由元数据 (name/description/path, vercel/eve 机制内化); contract differs from oprim _*.py 模板文件的 SkillMeta (skill frontmatter 解析: name/description/version/tools/hooks/tags/raw/skill_dir)",
     # --- pending per-item contract audit (legacy inline implementations) ---
     "CheckpointData": "pending audit",
     "Message": "pending audit",
