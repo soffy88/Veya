@@ -89,6 +89,7 @@ def test_get_provider_config_explicit_wins(monkeypatch):
 
 
 def test_get_provider_config_env_and_defaults(monkeypatch):
+    monkeypatch.setattr(hllm, "_user_llm_config", lambda: {})  # 隔离宿主用户配置
     monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
     monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
     provider, model = hllm.get_provider_config(None)
@@ -275,6 +276,7 @@ async def test_provider_stream_anthropic_sse():
 
 @pytest.mark.asyncio
 async def test_llm_call_stub_fallback(monkeypatch):
+    monkeypatch.setattr(hllm, "_user_llm_config", lambda: {})  # 隔离宿主用户配置
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -367,6 +369,7 @@ def test_calc_cost():
 async def test_compat_llm_call_delegates(monkeypatch):
     from veya import compat
 
+    monkeypatch.setattr(hllm, "_user_llm_config", lambda: {})  # 隔离宿主用户配置
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
