@@ -158,4 +158,4 @@ docker ps | grep veya-backend                              # docker 侧
 # 验证端点矩阵: scheduler / plugin/manage / knowledge / agent/stream
 ```
 
-详细版运维手册: `docs/ops/ONLINE_DEPLOYMENT.md`
+详细版运维手册: `docs/ops/ONLINE_DEPLOYMENT.md`；工具链用户级安装（typst/xelatex/drawio/pdftoppm，免 root）: `docs/ops/TOOLCHAIN_SETUP.md`
