@@ -170,10 +170,14 @@ class Sandbox(ABC):
         self._saved_rlimits: dict[int, tuple[int, int]] = {}
         self.logger = logging.getLogger(f"sandbox.{id(self)}")
 
-        # 确保审计日志目录存在
+        # 确保审计日志目录存在 (cwd 不可写时 — 如容器 /app 只读 — fallback 到系统临时目录)
         if self.config.audit_enabled:
             self.audit_dir = Path(".veya/audit")
-            self.audit_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                self.audit_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                self.audit_dir = Path(tempfile.gettempdir()) / "veya_audit"
+                self.audit_dir.mkdir(parents=True, exist_ok=True)
 
     @abstractmethod
     async def execute(self, command: str, **kwargs: Any) -> dict[str, Any]:
