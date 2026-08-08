@@ -17,6 +17,15 @@ import pytest
 os.environ.setdefault("VEYA_SKIP_TEST_GATE", "1")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_llm_config(monkeypatch):
+    """隔离宿主 ~/.veya/config.json: config.json 兜底后无参 llm_call 会走真实
+    alias 路由 (依赖网络); 本模块测试假设无用户配置环境 → stub 回落。"""
+    from veya import llm as hllm
+
+    monkeypatch.setattr(hllm, "_user_llm_config", lambda: {})
+
+
 @pytest.mark.asyncio
 async def test_engine_run_turn_stub_fallback():
     """run_turn 无 API key 时走 stub 回落,返回结构化 dict 不崩溃。"""
