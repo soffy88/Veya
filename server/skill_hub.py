@@ -258,6 +258,24 @@ class VeyaSkillHub:
             ],
         }
 
+    def capabilities(self) -> dict:
+        """Discovery-First 能力发现 (md2wechat capabilities 语义内化)。
+
+        返回已挂载技能的聚合视图: 类型/计数/路由元数据。主脑面对不确定时
+        先调本方法再决策, 不猜。只暴露 name + description (渐进披露),
+        详情按需 describe()。
+        """
+        return {
+            "skills_dir": str(self.skills_dir),
+            "loaded": len(self._schemas),
+            "skills": [
+                {"name": s["function"]["name"],
+                 "description": s["function"]["description"],
+                 "parameters": s["function"].get("parameters", {})}
+                for s in self._schemas
+            ],
+        }
+
     def get_stats(self) -> dict:
         return {
             "skills_dir": str(self.skills_dir),
