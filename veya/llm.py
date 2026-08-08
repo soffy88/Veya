@@ -23,6 +23,7 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -76,20 +77,38 @@ _API_KEY_ENV: dict[str, str] = {
 _DEFAULT_PROVIDER = "dashscope"
 
 
+def _user_llm_config() -> dict[str, str]:
+    """用户主脑默认配置兜底: ~/.veya/config.json 的 llm 段。
+
+    宿主与容器 (veya-data volume) 均可能配置; 无文件/损坏 → 空 dict。
+    """
+    try:
+        p = Path.home() / ".veya" / "config.json"
+        if not p.is_file():
+            return {}
+        data = json.loads(p.read_text(encoding="utf-8"))
+        llm = data.get("llm") or {}
+        return {"provider": str(llm.get("provider") or "").lower(),
+                "model": str(llm.get("model") or "")}
+    except Exception:
+        return {}
+
+
 def get_provider_config(
     config: dict | None = None,
     *,
     provider: str | None = None,
     model: str | None = None,
 ) -> tuple[str, str]:
-    """Resolve (provider, model) from explicit args → config → env → defaults."""
+    """Resolve (provider, model) from explicit args → config → env → user config.json → defaults."""
     p = provider or (config or {}).get("provider")
     if not p:
         p = os.environ.get("VEYA_LLM_PROVIDER", _DEFAULT_PROVIDER)
     p = str(p).lower()
     m = model or (config or {}).get("model") or os.environ.get("VEYA_LLM_MODEL")
     if not m:
-        m = _DEFAULT_MODELS.get(p, "default")
+        # 用户主脑默认兜底 (config.json llm 段) — 否则无参调用落 anthropic/dashscope stub
+        m = _user_llm_config().get("model") or _DEFAULT_MODELS.get(p, "default")
     return p, str(m)
 
 
