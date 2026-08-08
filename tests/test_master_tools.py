@@ -340,11 +340,11 @@ async def test_chat_stream_hitl_after_max_rounds():
 
     coord = MasterCoordinator(llm_fn=looping_llm, max_rounds=2)
     result = await coord.chat_stream("循环任务", session_id="m4")
-    assert result["status"] == "failed"
-    # HITL 语义已移除: 不报"陷入循环请求人工介入", 只说明未产出回答
-    assert "HITL" not in result["error"]
+    # 行为变更 (oservi a90e91d): 轮次用尽但有工具执行 → 摘要 success (不静默 failed)
+    assert result["status"] == "success"
+    assert "已执行" in result["final_answer"]
+    assert "list_files" in result["final_answer"]
     assert result["rounds"] == 2
-    assert len(result["last_messages"]) == 3
 
 
 @pytest.mark.asyncio
