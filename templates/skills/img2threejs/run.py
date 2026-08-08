@@ -231,7 +231,7 @@ def _html(workdir: str | None) -> dict[str, Any]:
     if not ts.is_file():
         return {"ok": False, "error": f"factory 不存在: {ts} (先 run build-current-pass)"}
     js = _strip_types(ts.read_text(encoding="utf-8")) if ts.suffix == ".ts" else ts.read_text(encoding="utf-8")
-    html = _WRAPPER.format(model_js=js)
+    html = _WRAPPER.replace("__MODEL_JS__", js)
     out = work / "index.html"
     out.write_text(html, encoding="utf-8")
     return {"ok": True, "htmlPath": str(out), "html": html}
@@ -256,8 +256,8 @@ _WRAPPER = """<!DOCTYPE html>
 </head>
 <body>
 <div id="info">img2threejs — 拖拽旋转 / 滚轮缩放</div>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"><\\/script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"><\\/script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 1000);
@@ -268,11 +268,11 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(5, 8, 4); scene.add(key);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 const root = new THREE.Group();
-try {{ {model_js} }} catch (e) {{ document.getElementById('info').textContent = 'factory error: ' + e.message; }}
-if (window.sculptModel) {{ root.add(window.sculptModel); }}
+try { __MODEL_JS__ } catch (e) { document.getElementById('info').textContent = 'factory error: ' + e.message; }
+if (window.sculptModel) { root.add(window.sculptModel); }
 scene.add(root);
-(function loop() {{ requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); }})();
-<\\/script>
+(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+</script>
 </body>
 </html>"""
 

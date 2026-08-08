@@ -70,6 +70,16 @@
 - **结论**：同名不同契约（一个描述执行生命周期、一个描述一次性命令执行），
   非同一段逻辑；保留 Veya 版为项目层资产。
 
+### 3.4 SkillMeta（📄 契约差异，非双实现）
+
+- `veya.agent_project.SkillMeta`：Agent 定义（vercel/eve 机制内化）的技能路由
+  元数据，字段 `name / description / path`——渐进披露第一步只暴露 description。
+- `oprim._*.py`（`_load_image` / `_read_skill_frontmatter` / `_run_hook` 等模板
+  文件）的 `SkillMeta`：skill frontmatter 解析结果，字段 `name / description /
+  version / tools / hooks / tags / raw / skill_dir`。
+- **结论**：同名但契约不同（一个面向 Agent 目录索引/路由、一个面向 skill
+  frontmatter 解析）；保留 Veya 版为项目层资产。
+
 ## 4. 待逐项审计清单（39 项）
 
 > 每个符号出现在 `tests/guardians/test_single_source.py::KNOWN_SYMBOLS`，原因
