@@ -112,3 +112,116 @@ def test_ledger_registered():
     s = code_review_ledger_summary()
     assert s[0]["name"] == "code_review_graph"
     assert s[0]["status"] == "registered"
+
+
+# =========================================================================
+# 语义搜索原语 (graph_search / graph_semantic_search)
+# =========================================================================
+
+def test_graph_search_args_and_normalize(monkeypatch):
+    """search: query + kind/limit 透传 CLI; 输出含 results。"""
+    captured: list[list[str]] = []
+
+    def fake_run(args, **kw):
+        captured.append(args)
+        return {"ok": True, "status": "ok", "search_mode": "fts",
+                "summary": "Found 3", "results": [
+                    {"name": "llm_call", "qualified_name": "veya/llm.py::llm_call",
+                     "kind": "Function", "file_path": "veya/llm.py",
+                     "line_start": 157, "line_end": 167}]}
+
+    monkeypatch.setattr(crg, "_run", fake_run)
+    r = crg.graph_search("llm_call", kind="Function", limit=5)
+    assert captured == [["search", "llm_call", "--kind", "Function", "--limit", "5"]]
+    assert r["results"][0]["qualified_name"] == "veya/llm.py::llm_call"
+
+
+def test_graph_search_empty_query():
+    r = crg.graph_search("   ")
+    assert r["ok"] is False and "不能为空" in r["error"]
+
+
+def test_graph_search_no_limit(monkeypatch):
+    captured: list[list[str]] = []
+
+    def fake_run(args, **kw):
+        captured.append(args)
+        return {"ok": True, "results": []}
+
+    monkeypatch.setattr(crg, "_run", fake_run)
+    crg.graph_search("query", kind=None, limit=None)
+    assert captured == [["search", "query"]]
+
+
+def test_graph_semantic_search_ensures_and_searches(monkeypatch):
+    """语义搜索: ensure 图就绪 → search; ensure_embed 时先 embed。"""
+    calls: list[str] = []
+
+    def fake_ensure(cwd=""):
+        calls.append("ensure")
+        return {"ok": True, "ready": True}
+
+    def fake_search(query, *, kind=None, limit=None, cwd=""):
+        calls.append(f"search:{query}")
+        return {"ok": True, "results": [{"name": "x"}]}
+
+    def fake_embed(*, cwd="", provider="local"):
+        calls.append("embed")
+        return {"ok": True}
+
+    monkeypatch.setattr(crg, "graph_ensure", fake_ensure)
+    monkeypatch.setattr(crg, "graph_search", fake_search)
+    monkeypatch.setattr(crg, "graph_embed", fake_embed)
+
+    r = crg.graph_semantic_search("路由", ensure_embed=True)
+    assert r["ok"] is True
+    assert calls == ["ensure", "embed", "search:路由"]
+
+
+def test_graph_semantic_search_skips_embed_by_default(monkeypatch):
+    calls: list[str] = []
+
+    def fake_ensure(cwd=""):
+        calls.append("ensure")
+        return {"ok": True, "ready": True}
+
+    def fake_search(query, *, kind=None, limit=None, cwd=""):
+        calls.append("search")
+        return {"ok": True, "results": []}
+
+    monkeypatch.setattr(crg, "graph_ensure", fake_ensure)
+    monkeypatch.setattr(crg, "graph_search", fake_search)
+
+    crg.graph_semantic_search("路由")
+    assert calls == ["ensure", "search"]
+
+
+def test_graph_semantic_search_ensure_failure(monkeypatch):
+    def fake_ensure(cwd=""):
+        return {"ok": False, "error": "图谱未构建"}
+
+    monkeypatch.setattr(crg, "graph_ensure", fake_ensure)
+    r = crg.graph_semantic_search("路由")
+    assert r["ok"] is False and "未就绪" in r["error"]
+
+
+def test_graph_embed_failure_does_not_block_search(monkeypatch):
+    """embed 失败(缺依赖) → 语义搜索回退 FTS 不阻断。"""
+    calls: list[str] = []
+
+    def fake_ensure(cwd=""):
+        return {"ok": True, "ready": True}
+
+    def fake_embed(*, cwd="", provider="local"):
+        return {"ok": False, "error": "embeddings 依赖未安装"}
+
+    def fake_search(query, *, kind=None, limit=None, cwd=""):
+        calls.append("search")
+        return {"ok": True, "results": []}
+
+    monkeypatch.setattr(crg, "graph_ensure", fake_ensure)
+    monkeypatch.setattr(crg, "graph_embed", fake_embed)
+    monkeypatch.setattr(crg, "graph_search", fake_search)
+
+    r = crg.graph_semantic_search("路由", ensure_embed=True)
+    assert r["ok"] is True and calls == ["search"]
