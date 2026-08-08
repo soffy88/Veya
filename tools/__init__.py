@@ -496,13 +496,15 @@ def make_mcp_tool_adapter(tool_spec: dict, mcp_client: Any) -> ToolAdapter:
     """为单个 MCP 工具动态创建 ToolAdapter。"""
     tool_name = tool_spec.get("name", "mcp_tool")
 
-    async def fn(inp: dict) -> dict:
+    async def fn(inp: dict | None = None, **kwargs: Any) -> dict:
+        # 直连真实 MCP 客户端 (主库 obase StdioMcpClient / StreamableHttpMcpClient),
+        # 不经过 veya.compat shim — 否则永远 "unavailable — shim layer"。
+        args = dict(inp or {})
+        args.update(kwargs)
+        if mcp_client is None:
+            return {"error": f"MCP tool '{tool_name}' unavailable (client not connected)"}
         try:  # pragma: no cover
-            from veya.compat import mcp_call_tool  # pragma: no cover
-
-            result = await mcp_call_tool(
-                tool_name, arguments=inp, client=mcp_client
-            )  # pragma: no cover
+            result = await mcp_client.call_tool(tool_name, args)  # pragma: no cover
             return result  # pragma: no cover
         except Exception as e:  # pragma: no cover
             return {"error": str(e)}  # pragma: no cover

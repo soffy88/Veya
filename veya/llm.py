@@ -603,7 +603,14 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                 content = (
                     (resp.get("choices") or [{}])[0].get("message") or {}
                 ).get("content") or ""
-                if not content.strip() or content.strip().lower() in ("none", "null"):
+                tool_calls = (
+                    (resp.get("choices") or [{}])[0].get("message") or {}
+                ).get("tool_calls") or []
+                # 有 tool_calls 的响应 content 为空是合法的 (opencode 模型把
+                # 输出放 reasoning_content + tool_calls) — 不可误判为无效。
+                if (not content.strip() and not tool_calls) or (
+                    content.strip().lower() in ("none", "null")
+                ):
                     last_err = f"opencode-go {cand_bare} 返回无效内容: {content!r}"
                     continue
                 return resp

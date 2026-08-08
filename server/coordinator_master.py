@@ -27,6 +27,38 @@ from veya.platform import oservi as _load_oservi
 
 _oservi = _load_oservi()
 
+
+# 宿主能力段 (追加在主库 MASTER_SYSTEM_PROMPT 之后): 视频生产 (hevi + Open Design)。
+# 3O 铁律: 机制在主库, 此处仅装配层语境 — 主脑需知道 hevi 是视频生成专家、
+# 动画视频该走 mcp_hevi_* 管线 + mcp_od_* 项目承载, 而非自编 HTML/Three.js。
+_HOST_SOP_APPEND = r"""
+# VIDEO PRODUCTION (hevi + Open Design) — CRITICAL:
+You have TWO dedicated production systems integrated for video/animation work:
+1. **hevi** — the VIDEO GENERATION EXPERT (mcp_hevi_* tools). It owns the full
+   pipeline: story prediction, storyboard generation, multi-angle shots,
+   long-video generation, transitions, character consistency, comic-to-animation,
+   element editing (subtitles/particles/sfx), canvas execution. Do NOT hand-write
+   HTML/Three.js/React to fake a video — hevi is the real production surface.
+2. **Open Design** (mcp_od_* tools) — the project/deliverable carrier for
+   design & rendering work. Projects hold the script, scenes, assets and renders.
+
+# VIDEO ROUTING RULES (CRITICAL):
+1. [Any animation / video / film request — 动画/视频/影视]: treat it as a real
+   production job. First call `mcp_od_create_project` (or reuse an existing one
+   via `mcp_od_get_active_context`) to create a project that will carry the
+   deliverable. Then drive the hevi pipeline with `mcp_hevi_*` tools.
+2. Start by inspecting hevi capabilities (`mcp_hevi_hevi_list_capabilities`)
+   and the active project context, then pick the fitting tools — e.g.
+   `mcp_hevi_hevi_gen_storyboard` for shot planning, `mcp_hevi_hevi_generate_longvideo`
+   for the final render, `mcp_hevi_hevi_edit_video_elements` for subtitles /
+   particle effects / sound design.
+3. If the user names a style (水墨/ink-wash, 国风/Chinese-classical), a runtime
+   (精确 2 分钟), or specific elements (字幕/箭雨粒子/战鼓音效/播放控制), fold
+   them into the project brief, the storyboard and the hevi generation calls.
+4. Report progress through tool results; do not claim the video exists until a
+   hevi/od tool actually produced it.
+"""
+
 # 主库 SOP 常量 re-export(兼容既有 import)
 MASTER_SYSTEM_PROMPT = _oservi.MASTER_SYSTEM_PROMPT
 
@@ -69,7 +101,16 @@ def _is_quick_query(user_prompt: str, config: dict | None) -> bool:
     """quick 档判定: 短文本 (<quick_tokens) 且无工具/代码/推理意图 → 轻量路径。
 
     复用 oprim 路由分类 (系统消息判定逻辑一致)。
+    创作/生产任务 (视频/动画/项目/设计/生成 XX) 一律否决 → 走工具循环。
     """
+    lowered = user_prompt.lower()
+    if any(k in user_prompt for k in ("视频", "动画", "影片", "短片", "影视",
+                                      "分镜", "字幕", "配音", "海报", "渲染",
+                                      "生成一个", "制作")) or any(
+        k in lowered for k in ("video", "animation", "film", "movie",
+                               "storyboard", "design", "project", "render")
+    ):
+        return False
     try:
         from veya.platform import load as _load
 
@@ -185,6 +226,7 @@ class MasterCoordinator:
             max_rounds=max_rounds,
             temperature=temperature,
             cost_calculator=self._cost_calculator,
+            system_prompt=_oservi.MASTER_SYSTEM_PROMPT + _HOST_SOP_APPEND,
         )
 
         # 零信任金库物理工具接线: 大模型只传 vault_id + 意图, 审批通过后
@@ -199,11 +241,20 @@ class MasterCoordinator:
 
         请求级 config/model/provider/endpoint(如前端传入的 user API key)
         优先于实例配置, 未提供则回落实例/环境默认。
+
+        同时按任务类型分层瘦身 tools (opencode 免费池 context 有限,
+        72 技能 + 44 mcp 全量注入会超载 → 模型返回 'None'/空):
+        - 系统/基础工具恒保留 (执行面完整, handle_tool_call 仍可调全部);
+        - mcp_* 按用户消息关键词召入 (视频/动画 → hevi+od; 代码 → codebase);
+        - 技能/ecc 专家默认剔除, 消息含技能意图关键词时召回部分。
         """
         req_cfg = kwargs.pop("config", None) or {}
         req_model = kwargs.pop("model", None)
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
+        tools = kwargs.pop("tools", None)
+        if tools:
+            tools = self._layer_tools(tools, messages)
         merged_cfg = {**self._llm_config, **req_cfg}
         if req_cfg.get("providers"):
             merged_cfg["providers"] = {
@@ -221,8 +272,48 @@ class MasterCoordinator:
             model=req_model or self.model,
             provider=req_provider or self.provider,
             endpoint=req_endpoint or self.endpoint,
+            tools=tools,
             **kwargs,
         )
+
+    @staticmethod
+    def _layer_tools(tools: list, messages: list) -> list:
+        """工具 schema 分层瘦身: 保持执行面完整, 只裁 LLM 可见面。"""
+
+        def _name(s: dict) -> str:
+            return (s.get("function") or {}).get("name", "")
+
+        user_text = " ".join(
+            str(m.get("content", "")) for m in messages if m.get("role") == "user"
+        ).lower()
+        want_video = any(k in user_text for k in ("视频", "动画", "影片", "短片",
+                                                  "影视", "hevi", "分镜",
+                                                  "配音", "字幕"))
+        want_design = any(k in user_text for k in ("设计", "项目", "od_", "海报",
+                                                   "画", "渲染", "资产"))
+        want_code = any(k in user_text for k in ("代码", "审查", "review", "重构",
+                                                 "测试", "bug", "构建", "build",
+                                                 "报错"))
+
+        keep: list[dict] = []
+        for s in tools:
+            n = _name(s)
+            # 系统级 + 基础静态工具恒保留
+            if n.startswith("system_") or (
+                not n.startswith("ecc_") and not n.startswith("skill_")
+                and not n.startswith("mcp_")
+            ):
+                keep.append(s)
+                continue
+            if n.startswith("mcp_"):
+                if (n.startswith("mcp_hevi_") and want_video) or (n.startswith("mcp_od_") and (want_video or want_design)) or (n.startswith("mcp_codebase_") and (want_code or want_video)) or (n.startswith("mcp_stratum_") and (want_code or want_design)):
+                    keep.append(s)
+                continue
+            # 技能/ecc 专家: 显式技能意图才召回 (全量注入会撑爆 opencode 免费池)
+            if (n.startswith("ecc_") and want_code) or (n.startswith("skill_") and (want_code or want_video)):
+                keep.append(s)
+        return keep
+
 
     def _cost_calculator(self, response: dict) -> float:
         usage = response.get("usage") or {}
