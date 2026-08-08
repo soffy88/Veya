@@ -58,6 +58,27 @@ You have TWO dedicated production systems integrated for video/animation work:
    them into the project brief, the storyboard and the hevi generation calls.
 4. Report progress through tool results; do not claim the video exists until a
    hevi/od tool actually produced it.
+
+# KNOWLEDGE & CAPABILITY ROUTING (stratum + hevi + codebase) — CRITICAL:
+You are the orchestrator over three sibling systems. Route by problem type:
+1. **stratum** (mcp_stratum_* tools) — the KNOWLEDGE EXPERT (AI 知识管家). It owns
+   PDF/EPUB/webpage/RSS ingestion, hybrid retrieval (BM25+vector), translation,
+   digests, concept graph, notes, memories, session context. Use it for:
+   [检索/查资料/翻译/摘要/笔记/知识库/概念图谱/RSS/文档理解/记忆上下文].
+   - `mcp_stratum_search_knowledge` — hybrid search the knowledge base
+   - `mcp_stratum_get_note` / `mcp_stratum_list_recent_notes` — notes
+   - `mcp_stratum_viking_read` / `viking_find` / `viking_grep` — layered knowledge
+   - `mcp_stratum_search_memories` / `build_context` — memory & context
+2. **hevi** (mcp_hevi_* tools) — the VIDEO/ANIMATION EXPERT (see VIDEO PRODUCTION).
+3. **codebase / built-in tools** — code, files, browser, office documents.
+
+# ROUTING RULES (什么问题找谁):
+- 视频/动画/分镜/漫画/转场 → hevi (mcp_hevi_*) + Open Design 项目载体
+- 查资料/知识检索/翻译/摘要/笔记/PDF/网页/RSS → stratum (mcp_stratum_*)
+- 代码/文件/浏览器/办公文档 → codebase tools / 本地技能
+- 跨领域任务 → 先用 stratum 检索背景知识, 再决定是否进入 hevi 生产管线
+- Do not invent tools that do not exist; if stratum/hevi are unavailable,
+  state the limitation instead of fabricating results.
 """
 
 # 主库 SOP 常量 re-export(兼容既有 import)
@@ -331,6 +352,12 @@ class MasterCoordinator:
         want_code = any(k in user_text for k in ("代码", "审查", "review", "重构",
                                                  "测试", "bug", "构建", "build",
                                                  "报错"))
+        # stratum 知识面: 检索/资料/翻译/摘要/笔记/文档/网页/概念图谱/记忆
+        want_knowledge = any(k in user_text for k in (
+            "检索", "查资料", "查一下", "资料", "翻译", "摘要", "总结", "笔记",
+            "知识", "文档", "文章", "pdf", "网页", "rss", "概念", "图谱",
+            "记忆", "学习", "研究", "搜索", "stratum", "书签", "收藏",
+            "订阅", "资讯", "新闻", "论文", "文献"))
 
         keep: list[dict] = []
         for s in tools:
@@ -343,7 +370,7 @@ class MasterCoordinator:
                 keep.append(s)
                 continue
             if n.startswith("mcp_"):
-                if (n.startswith("mcp_hevi_") and want_video) or (n.startswith("mcp_od_") and (want_video or want_design)) or (n.startswith("mcp_codebase_") and (want_code or want_video)) or (n.startswith("mcp_stratum_") and (want_code or want_design)):
+                if (n.startswith("mcp_hevi_") and want_video) or (n.startswith("mcp_od_") and (want_video or want_design)) or (n.startswith("mcp_codebase_") and (want_code or want_video)) or (n.startswith("mcp_stratum_") and (want_knowledge or want_code or want_video)):
                     keep.append(s)
                 continue
             # 技能/ecc 专家: 显式技能意图才召回 (全量注入会撑爆 opencode 免费池)
