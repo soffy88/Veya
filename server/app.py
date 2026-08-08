@@ -62,6 +62,9 @@ from server.sse import router as sse_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Infra.init(load_config())
+    import logging
+
+    _lg = logging.getLogger("veya.lifespan")
     # 启动 Automata 后台守护进程(Agent OS 的"手脚")
     from server.automata import get_automata
 
@@ -119,6 +122,16 @@ async def lifespan(app: FastAPI):
     except Exception:
         import logging
         logging.getLogger("veya.lifespan").exception("hp wire failed")
+    try:
+        from server.tool_registry import master_tools
+
+        _mcp = [n for n in master_tools._functions if n.startswith("mcp_")]
+        _lg.warning(
+            "wire 汇总: master_tools=%d mcp_*= %d %s",
+            len(master_tools._functions), len(_mcp), sorted(_mcp)[:6],
+        )
+    except Exception:
+        _lg.exception("wire 汇总日志失败")
     yield
     try:
         from server.codebase_memory import get_connector

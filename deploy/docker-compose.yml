@@ -25,6 +25,7 @@ services:
       - HEVI_MCP_ENDPOINT=${HEVI_MCP_ENDPOINT:-http://192.168.16.1:8201/mcp/mcp}
       - OD_API_TOKEN=${OD_API_TOKEN:-}
       - OD_DAEMON_URL=${OD_DAEMON_URL:-http://192.168.16.1:17456}
+      - VEYA_FRONTIER_ENDPOINT=${VEYA_FRONTIER_ENDPOINT:-http://192.168.16.1:10101/v1}
       # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) 临时装容器可写层; 镜像重建后由
       # requirements.txt 提供, 此路径仅容器层存在, 镜像层无则静默跳过
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps

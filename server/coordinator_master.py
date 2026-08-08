@@ -11,6 +11,7 @@ oservi.master_agent.MasterAgent(SOP/系统工具/路由/循环)。
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -123,6 +124,22 @@ def _is_quick_query(user_prompt: str, config: dict | None) -> bool:
         return decision.get("route") == "quick"
     except Exception:
         return False
+
+
+def _is_creative(user_prompt: str) -> bool:
+    """创作/生产任务判定 (与 _is_quick_query 的否决词同一来源)。
+
+    这类任务需要稳定工具编排 + 收尾总结 → 装配 frontier 档。
+    """
+    lowered = user_prompt.lower()
+    return bool(
+        any(k in user_prompt for k in ("视频", "动画", "影片", "短片", "影视",
+                                       "分镜", "字幕", "配音", "海报", "渲染",
+                                       "生成一个", "制作", "设计", "项目"))
+        or any(k in lowered for k in ("video", "animation", "film", "movie",
+                                      "storyboard", "subtitle", "voice", "poster",
+                                      "render", "design", "project"))
+    )
 
 
 class MasterCoordinator:
@@ -247,6 +264,11 @@ class MasterCoordinator:
         - 系统/基础工具恒保留 (执行面完整, handle_tool_call 仍可调全部);
         - mcp_* 按用户消息关键词召入 (视频/动画 → hevi+od; 代码 → codebase);
         - 技能/ecc 专家默认剔除, 消息含技能意图关键词时召回部分。
+
+        创作/生产任务 (视频/动画/项目等, _is_quick_query 否决词) 直接
+        装配 frontier 档 (本地 opencodex gpt-5.6-luna@127.0.0.1:10100):
+        免费池模型多轮 ReAct 工具循环质量不稳 (乱调工具/收尾 'None'),
+        创作任务需要稳定的工具编排与收尾总结。
         """
         req_cfg = kwargs.pop("config", None) or {}
         req_model = kwargs.pop("model", None)
@@ -255,6 +277,21 @@ class MasterCoordinator:
         tools = kwargs.pop("tools", None)
         if tools:
             tools = self._layer_tools(tools, messages)
+        # 创作/生产任务 → frontier 档 (用户显式指定 provider 时尊重用户选择)
+        if not req_provider and not self.provider:
+            user_text = " ".join(
+                str(m.get("content", "")) for m in messages if m.get("role") == "user"
+            )
+            if _is_creative(user_text):
+                req_provider = "openai"
+                req_model = req_model or "gpt-5.6-luna"
+                # 容器内 127.0.0.1 是容器自己 — frontier (opencodex) 跑在宿主,
+                # 容器经网关 192.168.16.1 访问; 宿主本地开发默认 127.0.0.1
+                req_endpoint = req_endpoint or os.environ.get(
+                    "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
+                )
+                # 创作生产流程 (建项目→分镜→一致性→成片) 工具调用链长:
+                # 免费池 6-8 轮容易轮次用尽 → frontier 档配长链轮次
         merged_cfg = {**self._llm_config, **req_cfg}
         if req_cfg.get("providers"):
             merged_cfg["providers"] = {
@@ -425,10 +462,15 @@ class MasterCoordinator:
             lt = None
             if self._long_task_factory is not None:
                 lt = self._long_task_factory()
+            effective_rounds = max_rounds
+            # 创作/生产任务 (视频/动画/项目) 工具调用链长: 建项目→分镜→
+            # 一致性→成片, 默认 8 轮容易轮次用尽 → 提高预算
+            if effective_rounds is None and _is_creative(user_prompt):
+                effective_rounds = 14
             return await self._agent.chat_stream(
                 user_prompt,
                 session_id=session_id,
-                max_rounds=max_rounds,
+                max_rounds=effective_rounds,
                 llm_kwargs=llm_kwargs or None,
                 long_task=lt,
             )
