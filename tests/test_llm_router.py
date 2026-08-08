@@ -429,3 +429,64 @@ def test_get_provider_config_no_user_config(monkeypatch):
     monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
     p, m = hllm.get_provider_config()
     assert p == hllm._DEFAULT_PROVIDER and m  # 默认档位正常
+
+
+def test_llm_call_veya11_opencode_none_content_retries_and_errors(monkeypatch):
+    """opencode-go 返回字面量 'None'/空 (网关抖动) → 换模型重试 → 全失败给明确错误。
+
+    回归: 用户"不回复"根因 — 网关对部分输入 75% 返回 'None', 链路原静默 success。
+    """
+    from veya import llm as hllm
+
+    calls: list[str] = []
+
+    async def flaky_provider_call(client, provider, **kw):
+        calls.append(kw["model"])
+        # 所有模型都返回无效内容
+        return {"choices": [{"message": {"role": "assistant",
+                                           "content": "None"}}],
+                "usage": {}}
+
+    monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
+    monkeypatch.setattr("os.environ", {**__import__("os").environ,
+                                       "OPENCODE_API_KEY": "sk-test"})
+
+    result = asyncio.run(hllm.llm_call(
+        [{"role": "user", "content": "以动画形式生成草船借箭的2分钟视频"}],
+        provider="veya1.1", model="veya1.1",
+    ))
+    # 重试了备用模型 (deepseek → mimo → deepseek 三候选)
+    assert calls == ["deepseek-v4-flash", "mimo-v2.5"]
+    content = result["choices"][0]["message"]["content"]
+    assert "opencode-go 调用失败" in content
+    assert "无效内容" in content
+    assert result.get("error") is True
+
+
+def test_llm_call_veya11_opencode_none_then_good_returns_good(monkeypatch):
+    """首个模型返回 'None' → 换备用模型返回正常内容 → 采用正常内容。"""
+    from veya import llm as hllm
+
+    calls: list[str] = []
+
+    async def flaky_provider_call(client, provider, **kw):
+        calls.append(kw["model"])
+        if kw["model"] == "deepseek-v4-flash":
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "None"}}],
+                    "usage": {}}
+        return {"choices": [{"message": {"role": "assistant",
+                                           "content": "备用模型正常回复"}}],
+                "usage": {}}
+
+    monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
+    monkeypatch.setattr("os.environ", {**__import__("os").environ,
+                                       "OPENCODE_API_KEY": "sk-test"})
+
+    result = asyncio.run(hllm.llm_call(
+        [{"role": "user", "content": "你好"}],
+        provider="veya1.1", model="veya1.1",
+    ))
+    assert calls == ["deepseek-v4-flash", "mimo-v2.5"]
+    assert result["choices"][0]["message"]["content"] == "备用模型正常回复"
+    assert not result.get("error")

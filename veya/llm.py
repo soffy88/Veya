@@ -578,21 +578,43 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             model = str(payload.get("model") or "opencode-go/deepseek-v4-flash")
             _, _, bare = model.partition("/")
             bare = bare or model
-            try:
-                return await llm_call(
-                    payload["messages"],
-                    config=kwargs.get("config"),
-                    provider="opencode-go",
-                    model=bare,
-                    endpoint="https://opencode.ai/zen/go/v1",
-                    tools=payload.get("tools"),
-                    default_content=(kwargs.get("default_content")
-                                     or "opencode-go 调用失败"),
-                )
-            except Exception as exc:  # 网络/鉴权失败 → 结构化错误消息 (error 标记跳过质量闸门)
-                return {"choices": [{"message": {"role": "assistant",
-                                                 "content": f"opencode-go 调用失败: {exc}"}}],
-                        "usage": {}, "opencode": True, "error": True}
+            # 网关对部分输入会返回字面量 'None'/空 (抖动) → 换模型重试,
+            # 全失败 → 结构化错误消息 (error 标记跳过质量闸门), 绝不静默。
+            alt_models = ["opencode-go/mimo-v2.5", "opencode-go/deepseek-v4-flash"]
+            candidates = [model] + [m for m in alt_models if m != model]
+            last_err = ""
+            for cand in candidates:
+                _, _, cand_bare = cand.partition("/")
+                cand_bare = cand_bare or cand
+                try:
+                    resp = await llm_call(
+                        payload["messages"],
+                        config=kwargs.get("config"),
+                        provider="opencode-go",
+                        model=cand_bare,
+                        endpoint="https://opencode.ai/zen/go/v1",
+                        tools=payload.get("tools"),
+                        default_content=(kwargs.get("default_content")
+                                         or "opencode-go 调用失败"),
+                    )
+                except Exception as exc:  # 网络/鉴权失败 → 换模型重试
+                    last_err = str(exc)
+                    continue
+                content = (
+                    (resp.get("choices") or [{}])[0].get("message") or {}
+                ).get("content") or ""
+                if not content.strip() or content.strip().lower() in ("none", "null"):
+                    last_err = f"opencode-go {cand_bare} 返回无效内容: {content!r}"
+                    continue
+                return resp
+            return {
+                "choices": [{"message": {"role": "assistant",
+                                          "content": (
+                                              f"opencode-go 调用失败: "
+                                              f"{last_err or '所有模型均失败'}")
+                                          }}],
+                "usage": {}, "opencode": True, "error": True,
+            }
         return await llm_call(
             payload["messages"],
             config=kwargs.get("config"),
