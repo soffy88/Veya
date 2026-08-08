@@ -109,6 +109,32 @@ Agents are invoked through **three primary interfaces**, depending on usage mode
 - **Security-by-default**: Permission hooks gate sensitive actions (e.g., file writes, external API calls).
 - **Multi-mode**: Same agent logic works headlessly, over HTTP, or embedded — no duplication.
 
+## 🧭 Agent 开发规范（Cypress CLAUDE.md 吸收，2026-08）
+
+> 来源: cypress-io/cypress CLAUDE.md 工程规范，适用于 veya 仓库内任何代码改动。
+
+### 1. Plan Mode Default
+- 任何非平凡任务（3+ 步或架构决策）先进入 plan：写清目标/改动面/验收标准再动手。
+- 跑偏立即 STOP 重新计划，不要硬推。
+- 验证步骤也走 plan（不只构建）。
+
+### 2. Subagent Strategy
+- 大量使用 subagent 保持主上下文干净。
+- 研究/探索/并行分析下放 subagent，一个任务一个 subagent。
+
+### 3. Self-Improvement Loop
+- 用户/评审纠正后：更新最近的 AGENTS.md/相关文档，写防再犯规则。
+
+### 4. Verification Before Done
+- 未证明能工作就不算完成：跑相关测试、看日志、演示正确性。
+- 自问：“staff engineer 会 approve 这个吗？”
+- 对比 main 与改动的行为差异。
+
+### 5. Demand Elegance（平衡）
+- 非平凡改动先问“有没有更优雅的方式”。
+- 修复若显 hacky：知道一切后再实现优雅方案。
+- 简单/明显的修复跳过——不过度工程。
+
 ---
 
 > ✅ **Next Steps for Contributors**  
