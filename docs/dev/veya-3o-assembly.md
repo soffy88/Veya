@@ -60,6 +60,16 @@
 - **结论**：同名不同契约，非同一段逻辑；保留 Veya 版为项目层资产。若主库
   未来提供轻量累加 API，再切换 re-export。
 
+### 3.3 ExecResult（📄 契约差异，非双实现）
+
+- `veya.execution.ExecResult`：执行路由生命周期结果（Cloudflare
+  WorkspaceRuntimeResult 对应），字段 `status / exit_code / stdout / stderr /
+  value / sync / started_at / finished_at`，`ok` = 完成且退出码 0。
+- `oprim._sandbox.ExecResult`：sandbox 命令执行结果，字段 `argv / exit_code /
+  stdout / stderr / duration_ms / timed_out`（`ok` 额外排除超时）。
+- **结论**：同名不同契约（一个描述执行生命周期、一个描述一次性命令执行），
+  非同一段逻辑；保留 Veya 版为项目层资产。
+
 ## 4. 待逐项审计清单（39 项）
 
 > 每个符号出现在 `tests/guardians/test_single_source.py::KNOWN_SYMBOLS`，原因
