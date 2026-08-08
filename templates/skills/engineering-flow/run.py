@@ -24,6 +24,8 @@ from veya_loop import (
     pipeline_transition,
     record_interview_answers,
     review_diff,
+    select_rulebooks,
+    standards_rules,
     ticket_set_status,
     tickets_check_cycles,
     workflow_from_dict,
@@ -176,10 +178,12 @@ def main(
                 "payload": {"ticket_id": getattr(nxt.payload, "id", None)}}
 
     if action == "review":
-        report = review_diff(diff)
+        baseline = standards_rules(task=state.idea or "code review", top_k=2)
+        report = review_diff(diff, standards_rules=str(baseline))
         return {"ok": report.ok, "stage": state.stage,
                 "fail": [f.rule for f in report.fails()],
                 "warn": [f.rule for f in report.warns()],
+                "rulebooks": baseline["books"],
                 "findings": [{"axis": f.axis, "severity": f.severity,
                               "rule": f.rule, "detail": f.detail} for f in report.findings]}
 
