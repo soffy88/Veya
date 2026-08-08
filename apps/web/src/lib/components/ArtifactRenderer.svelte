@@ -15,6 +15,12 @@
 	let sandboxHTML = $derived.by(() => {
 		if (!active) return "";
 
+		// html / threejs artifact: code 是完整自包含页面 (img2threejs 预览页含
+		// three.js CDN + OrbitControls), 直接原样 srcdoc 渲染, 不套 babel 模板
+		if (active.type === "html" || active.type === "threejs") {
+			return active.code;
+		}
+
 		return `
 <!DOCTYPE html>
 <html>

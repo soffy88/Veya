@@ -1,0 +1,22 @@
+{
+  "name": "img2threejs",
+  "description": "把参考图片中的物体/角色重建为纯代码 procedural Three.js 3D 模型 (reconstruction-by-code, 非网格提取)。分阶段雕刻管线 (blockout→structure→form→material→surface→lighting→interaction→optimization) + 确定性视觉门 (silhouette IoU/比例/颜色) + VLM 采样共识 + 纠错循环硬停止。action=init 初始化状态机; status 查看当前步骤/下一步; run 执行当前步骤的确定性脚本; gate 跑像素级视觉门; review 跑 VLM 共识门; html 产出浏览器可预览的 three.js 页面。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "reference": {"type": "string", "description": "参考图片路径 (绝对路径或 ~ 展开)"},
+      "goal": {"type": "string", "description": "重建目标描述, 如 '重建这把刀为 Three.js 模型, 保持比例/角度/颜色'"},
+      "action": {
+        "type": "string",
+        "enum": ["init", "status", "run", "gate", "review", "html", "mark"],
+        "default": "status",
+        "description": "init=初始化状态机; status=当前状态+下一步; run=执行当前步骤确定性脚本; gate=像素级视觉门; review=VLM 共识门; html=产出可预览页面; mark=标记步骤完成"
+      },
+      "profile": {"type": "string", "enum": ["generic", "character", "cs2"], "default": "generic"},
+      "workdir": {"type": "string", "description": "工作目录 (状态文件 .img2threejs/state.json 所在), 默认技能内"}
+    },
+    "required": ["reference", "goal"]
+  }
+}

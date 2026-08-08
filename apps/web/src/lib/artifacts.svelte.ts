@@ -8,7 +8,7 @@
 export interface Artifact {
 	id: string;
 	title: string;
-	type: "react" | "html";
+	type: "react" | "html" | "threejs";
 	code: string;
 }
 
@@ -27,7 +27,7 @@ class ArtifactManager {
 			const id = crypto.randomUUID();
 			artifacts.push({
 				id,
-				type: match[1] as "react" | "html",
+				type: match[1] as "react" | "html" | "threejs",
 				title: match[2],
 				code: match[3].trim(),
 			});
