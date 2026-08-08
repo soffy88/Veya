@@ -95,6 +95,10 @@ async def lifespan(app: FastAPI):
         od = get_open_design()
         await od.start()
         await wire_od(od)                               # mcp_od_* → 主脑工具面
+        # Agentic HPO 参数优化工具 (3O _hp_search 装配层, 零外部依赖)
+        from server.hp_optimizer import wire_master_tools as wire_hp
+
+        await wire_hp()                                 # optimize_parameters → 主脑工具面
     except Exception:
         pass
     yield
