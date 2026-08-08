@@ -15,10 +15,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
+
+from server import opencode_client
+
+logger = logging.getLogger(__name__)
 
 ENGINE_ALIASES = {
     "claude": "claude",
@@ -301,6 +306,14 @@ async def run_engine(
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
     if reason := _container_engine_block(engine):
         return {"ok": False, "error": reason}
+    # opencode 引擎: 优先 HTTP 常驻会话 (免每次 spawn CLI), 失败回退 CLI
+    if engine == "opencode":
+        try:
+            return await opencode_client.send_message(
+                prompt, model or "opencode-go/deepseek-v4-flash",
+                timeout_s=timeout_s)
+        except Exception as exc:
+            logger.info("opencode serve 不可用, 回退 CLI spawn: %s", exc)
     if not _engine_bin_available(engine):
         return {"ok": False, "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})"}
     argv = build_argv(engine, prompt, model=model, streaming=False)
@@ -343,6 +356,17 @@ async def stream_engine(
     if reason := _container_engine_block(engine):
         yield {"type": "engine_error", "engine": engine, "error": reason}
         return
+    # opencode 引擎: 优先 SSE 真流式 (HTTP 常驻会话), 失败回退 CLI 行级流
+    if engine == "opencode":
+        try:
+            async for delta in opencode_client.stream_send(
+                prompt, model or "opencode-go/deepseek-v4-flash",
+                timeout_s=timeout_s):
+                yield {"type": "text_delta", "engine": engine, "delta": delta}
+            yield {"type": "engine_done", "engine": engine, "status": "success"}
+            return
+        except Exception as exc:
+            logger.info("opencode SSE 流不可用, 回退 CLI spawn: %s", exc)
     # CLI 缺失 → 结构化错误事件 (而非 subprocess 抛异常 → 500/520)
     if not _engine_bin_available(engine):
         yield {
