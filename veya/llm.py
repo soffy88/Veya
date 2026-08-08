@@ -180,9 +180,25 @@ async def _call_openai_compat(
     if tools:
         body["tools"] = tools
         body["tool_choice"] = tool_choice or "auto"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    # 私网 endpoint (容器经 docker0 网关访问宿主桥) — 目标服务按 Host 头校验
+    # 本机回环 (opencodex origin_rejected): 补 Host=127.0.0.1 让桥转发后放行。
+    if _is_local_or_private(endpoint) and not endpoint.startswith(
+        ("http://localhost", "http://127.0.0.1", "http://0.0.0.0")
+    ):
+        try:
+            from urllib.parse import urlparse
+
+            _port = urlparse(endpoint).port or 80
+            headers["Host"] = f"127.0.0.1:{_port}"
+        except Exception:
+            pass
     return await client.post(
         endpoint,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        headers=headers,
         json=body,
     )
 
@@ -384,6 +400,26 @@ def _in_container() -> bool:
     return bool(os.environ.get("VEYA_WORKSPACE")) or os.path.exists("/.dockerenv")
 
 
+def _is_local_or_private(endpoint: str | None) -> bool:
+    """本地/内网 OpenAI 兼容端点 (Ollama / opencodex / 局域网网关) 无需 API Key。
+
+    容器内经 docker0 网关 (如 192.168.16.1) 访问宿主回环服务时,
+    endpoint 是私网 IP 而非 localhost — 同样免 key。
+    """
+    if not endpoint:
+        return False
+    if endpoint.startswith(("http://localhost", "http://127.0.0.1", "http://0.0.0.0")):
+        return True
+    if endpoint.startswith(("http://192.168.", "http://10.", "http://172.16.",
+                            "http://172.17.", "http://172.18.", "http://172.19.",
+                            "http://172.20.", "http://172.21.", "http://172.22.",
+                            "http://172.23.", "http://172.24.", "http://172.25.",
+                            "http://172.26.", "http://172.27.", "http://172.28.",
+                            "http://172.29.", "http://172.30.", "http://172.31.")):
+        return True
+    return False
+
+
 def _custom_proxy_url(provider: str) -> str | None:
     """自定义 provider (非内置) 在容器内的代理兜底 URL。
 
@@ -445,7 +481,13 @@ async def provider_call(
     """
     api_key = api_key or get_api_key(provider)
     if not api_key:
-        raise ValueError(f"API key not set for provider '{provider}'")
+        # 本地模型 (Ollama / opencodex 127.0.0.1) 无需 API Key — 与 llm_call
+        # 的 local_endpoint 免 key 语义一致 (此前 provider_call 无条件拦 →
+        # 本地 endpoint 也被降级成 stub)
+        local = _is_local_or_private(endpoint)
+        if not local:
+            raise ValueError(f"API key not set for provider '{provider}'")
+        api_key = "local"
     resolved_model = model or _DEFAULT_MODELS.get(provider, "default")
     messages = prepare_messages_for_provider(messages, provider)
 
@@ -628,7 +670,7 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             provider=payload["provider"],
             model=payload["model"],
             tools=payload.get("tools"),
-            endpoint=kwargs.get("endpoint"),
+            endpoint=payload.get("endpoint") or kwargs.get("endpoint"),
             default_content=kwargs.get("default_content"),
         )
 
@@ -690,12 +732,8 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
                 "choices": [{"message": {"role": "assistant", "content": content}}],
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             }
-    # 本地模型 (Ollama 等) 无需 API Key —— 有本地 endpoint 时跳过 key 检查
-    local_endpoint = bool(endpoint) and (
-        endpoint.startswith("http://localhost")
-        or endpoint.startswith("http://127.0.0.1")
-        or endpoint.startswith("http://0.0.0.0")
-    )
+    # 本地/内网模型 (Ollama / opencodex / 网关桥) 无需 API Key
+    local_endpoint = _is_local_or_private(endpoint)
     if not get_api_key(provider, kwargs.get("config")) and not local_endpoint:
         content = kwargs.get("default_content", _STUB_CONTENT)
         return {
