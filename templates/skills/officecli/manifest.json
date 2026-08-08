@@ -1,6 +1,6 @@
 {
   "name": "officecli",
-  "description": "Office 交付物生产 (docx/xlsx/pptx 创建/编辑/读取/渲染/合并)。写操作 (add/edit/merge/batch) 需路径白名单 (仅 workspace 与 ~/.veya/templates/); 读操作 (read/dump/convert) 免审批。语法见 cheat_sheet.md。",
+  "description": "Office 交付物生产 (docx/xlsx/pptx 创建/编辑/读取/渲染/合并)。L1/L2/L3 分层: read/dump/convert/render=读层, add/edit/merge/batch=DOM 编辑层, raw XML 经 options 兜底。help=动态 schema 发现 (Help-First, 缓存 7 天)。写操作需路径白名单; 读操作免审批。语法见 cheat_sheet.md。",
   "type": "python",
   "entrypoint": "run.py",
   "parameters": {
@@ -8,14 +8,39 @@
     "properties": {
       "op": {
         "type": "string",
-        "enum": ["add", "edit", "read", "convert", "merge", "dump", "batch", "render", "watch"],
-        "description": "操作: add=新建, edit=修改, read=读取, convert=格式转换, merge=合并, dump=导出内容, batch=批量, render=渲染 HTML/PNG, watch=监听"
+        "enum": [
+          "add",
+          "edit",
+          "read",
+          "convert",
+          "merge",
+          "dump",
+          "batch",
+          "render",
+          "watch",
+          "help"
+        ],
+        "description": "操作: add=新建, edit=修改, read=读取, convert=转换, merge=合并, dump=导出, batch=批量, render=渲染, watch=监听, help=动态 schema 发现 (options.format/element)"
       },
-      "input": {"type": "string", "description": "输入文件路径或源内容"},
-      "output": {"type": "string", "description": "输出文件路径 (写操作必须位于白名单目录)"},
-      "data_json": {"type": "string", "description": "结构化数据 JSON 字符串 (add/batch 用)"},
-      "options": {"type": "object", "description": "额外选项, 如 {\"type\":\"slide\",\"prop\":{\"title\":\"...\"}}"}
+      "input": {
+        "type": "string",
+        "description": "输入文件路径或源内容"
+      },
+      "output": {
+        "type": "string",
+        "description": "输出文件路径 (写操作必须位于白名单目录)"
+      },
+      "data_json": {
+        "type": "string",
+        "description": "结构化数据 JSON 字符串 (add/batch 用)"
+      },
+      "options": {
+        "type": "object",
+        "description": "额外选项, 如 {\"type\":\"slide\",\"prop\":{\"title\":\"...\"}}"
+      }
     },
-    "required": ["op"]
+    "required": [
+      "op"
+    ]
   }
 }

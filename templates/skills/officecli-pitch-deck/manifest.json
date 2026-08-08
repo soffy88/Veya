@@ -1,0 +1,34 @@
+{
+  "name": "officecli-pitch-deck",
+  "description": "融资路演 PPT (pitch deck) (场景层, 继承 officecli 基座)。触发: pitch deck / investor deck / Series A/B/C / fundraising deck / term sheet。写操作路径白名单与审计同基座。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "op": {
+        "type": "string",
+        "description": "同基座 officecli op"
+      },
+      "input": {
+        "type": "string",
+        "description": "输入文件"
+      },
+      "output": {
+        "type": "string",
+        "description": "输出文件"
+      },
+      "data_json": {
+        "type": "string",
+        "description": "结构化数据 JSON"
+      },
+      "options": {
+        "type": "object",
+        "description": "额外选项"
+      }
+    },
+    "required": [
+      "op"
+    ]
+  }
+}
