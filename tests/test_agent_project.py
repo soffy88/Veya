@@ -158,3 +158,36 @@ def json_dumps(data: dict) -> str:
     import json
 
     return json.dumps(data, ensure_ascii=False)
+
+
+# ── skill_hub capabilities (Discovery-First) ─────────────────────────
+
+def test_skill_hub_capabilities(tmp_path: Path):
+    """VeyaSkillHub.capabilities: 能力发现聚合视图 (md2wechat 语义)。"""
+    from server.skill_hub import VeyaSkillHub
+
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    hub = VeyaSkillHub(skills_dir)
+    # 造一个 python 技能包
+    pkg = skills_dir / "weather"
+    pkg.mkdir()
+    (pkg / "manifest.json").write_text(
+        '{"name": "weather", "description": "查天气", "type": "python", '
+        '"entrypoint": "run.py", "parameters": {"type": "object", "properties": {}}}',
+        encoding="utf-8",
+    )
+    (pkg / "run.py").write_text(
+        "def main(**kwargs):\n    return 'sunny'\n", encoding="utf-8"
+    )
+    hub.reload_skills()
+
+    caps = hub.capabilities()
+    assert caps["loaded"] == 1
+    assert caps["skills"][0]["name"] == "weather"
+    assert "description" in caps["skills"][0]
+    assert "parameters" in caps["skills"][0]  # 路由元数据完整
+
+    # 兼容原 to_dict
+    d = hub.to_dict()
+    assert d["skills"][0]["name"] == "weather"
