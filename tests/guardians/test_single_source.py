@@ -34,6 +34,7 @@ KNOWN_SYMBOLS: dict[str, str] = {
     "ProviderRegistry": "adapter over obase.ProviderRegistry (get/register/list route to the obase singleton)",
     # --- project-layer symbols with documented contract differences ---
     "CostTracker": "lightweight accumulator; contract differs from obase.cost_tracker.CostTracker (pricing-table driven)",
+    "ExecResult": "execution-runtime lifecycle result (Cloudflare WorkspaceRuntimeResult); contract differs from oprim._sandbox.ExecResult (sandbox command result)",
     # --- pending per-item contract audit (legacy inline implementations) ---
     "CheckpointData": "pending audit",
     "Message": "pending audit",
