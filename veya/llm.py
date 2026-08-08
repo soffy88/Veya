@@ -758,3 +758,119 @@ async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]
         except ValueError as exc:
             yield {"choices": [{"delta": {"content": f"{_STUB_CONTENT} ({exc}) "}}]}
             yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+
+
+# ---------------------------------------------------------------------------
+# 路由调用 (freellmapi 机制内化: 统一模型 fallover / 用量跟踪 / 粘性 / 工具救援)
+# ---------------------------------------------------------------------------
+
+from veya.model_routing import (  # noqa: E402
+    StickySession,
+    UsageLedger,
+    get_route,
+    rescue_tool_calls,
+)
+
+# 逻辑模型 → 各 provider 的实际模型名 (未列出则同名)
+_PROVIDER_MODEL_ALIAS: dict[tuple[str, str], str] = {
+    ("deepseek-chat", "openrouter"): "deepseek/deepseek-chat",
+    ("gpt-4o-mini", "openrouter"): "openai/gpt-4o-mini",
+}
+
+
+def _provider_model(logical_model: str, provider: str) -> str:
+    """逻辑模型 → provider 实际模型名。"""
+    return _PROVIDER_MODEL_ALIAS.get((logical_model, provider), logical_model)
+
+
+async def llm_call_routed(
+    messages: list[dict],
+    *,
+    logical_model: str | None = None,
+    session_id: str | None = None,
+    config: dict | None = None,
+    ledger: UsageLedger | None = None,
+    sticky: StickySession | None = None,
+    max_attempts: int = 3,
+    **kwargs: Any,
+) -> dict:
+    """路由版 llm_call: 统一模型 → provider 组 fallover + 用量跟踪 + 粘性 + 工具救援。
+
+    Args:
+        messages: 对话消息。
+        logical_model: 逻辑模型名; None 用 kwargs["model"] 或默认 provider 模型。
+            注册过路由 (register_route) 则走组内 fallover, 否则单 provider 直调。
+        session_id: 粘性会话 id; 提供后同会话 TTL 内锁定逻辑模型。
+        config / ledger / sticky: 可注入共享实例 (默认新建)。
+        max_attempts: 组内最大尝试次数 (每 provider 一次)。
+        **kwargs: 透传 llm_call (tools/max_tokens/temperature...)。
+
+    Returns:
+        OpenAI 格式响应; 若模型输出文本 tool call 则自动救援为结构化
+        tool_calls (附带 ``_rescue: true`` 标记)。
+    """
+    ledger = ledger or UsageLedger()
+    sticky = sticky or StickySession()
+
+    # 粘性锁定: 已锁则用锁定模型
+    if session_id:
+        locked = sticky.get(session_id)
+        if locked:
+            logical_model = locked
+    if logical_model is None:
+        _, logical_model = get_provider_config(config, model=kwargs.get("model"))
+    if session_id:
+        sticky.lock(session_id, logical_model)
+
+    providers = get_route(logical_model) or [
+        get_provider_config(config, model=logical_model)[0]
+    ]
+    attempts: list[dict[str, Any]] = []
+    last_error = "no provider succeeded"
+
+    for provider in providers[:max_attempts]:
+        model = _provider_model(logical_model, provider)
+        # 用量门禁: 已超限的 provider 跳过
+        ok, view = ledger.check(provider, model)
+        if not ok:
+            attempts.append({"provider": provider, "model": model, "error": "quota exceeded", "over": view["over"]})
+            continue
+        try:
+            response = await llm_call(
+                messages,
+                config=config,
+                provider=provider,
+                model=model,
+                **{k: v for k, v in kwargs.items() if k not in ("config", "provider", "model")},
+            )
+        except Exception as exc:  # 网络/超时/provider 异常 → 学习限额 + 下一位
+            ledger.learn_limit(provider, model, error_body=str(exc))
+            attempts.append({"provider": provider, "model": model, "error": f"{exc.__class__.__name__}: {exc}"})
+            last_error = str(exc)
+            continue
+
+        # 用量记录 (成功才算)
+        usage = response.get("usage") or {}
+        ledger.record(
+            provider, model,
+            prompt_tokens=usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0) or 0,
+            completion_tokens=usage.get("completion_tokens", 0) or usage.get("output_tokens", 0) or 0,
+        )
+        response["_routed"] = {"provider": provider, "model": model, "attempts": attempts}
+        # 工具调用救援: 文本 tool call → 结构化
+        content = (response.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        if isinstance(content, str) and not response.get("choices", [{}])[0].get("message", {}).get("tool_calls"):
+            rescued = rescue_tool_calls(content)
+            if rescued:
+                response["choices"][0]["message"]["tool_calls"] = rescued
+                response["_rescue"] = True
+        return response
+
+    # 全组失败: 返回结构化错误 (保留尝试轨迹)
+    return {
+        "_error": True,
+        "error": last_error,
+        "attempts": attempts,
+        "logical_model": logical_model,
+        "providers": providers,
+    }
