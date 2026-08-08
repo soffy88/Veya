@@ -51,6 +51,8 @@ git pull                              # 必须已 push 到 origin/main
 sudo systemctl stop veya-gateway 2>/dev/null; sudo systemctl disable veya-gateway 2>/dev/null
 # server/ 与 veya_loop/ 已挂载进容器 → 免 build, 直接重建容器
 docker compose -f deploy/docker-compose.yml up -d backend
+# 同步主脑 LLM 配置 (config.json / llm-router.json → veya-data volume)
+./scripts/sync-veya-config.sh
 # 验证矩阵
 curl -s -X POST http://127.0.0.1:8767/api/v1/scheduler -H 'Content-Type: application/json' -d '{"action":"list"}'
 curl -s -X POST http://127.0.0.1:8767/api/v1/plugin/manage -H 'Content-Type: application/json' -d '{"action":"marketplace"}'
@@ -59,6 +61,34 @@ curl -s http://127.0.0.1:8767/api/v1/mcp/health
 
 > 若采用 systemd 形态（veya-gateway.service，veya.server.app）：
 > `git pull && sudo systemctl restart veya-gateway`，并确保前端 VEYA_GATEWAY 指向 8767。
+
+## 4.1 主脑 LLM 配置固化（重建后必读）
+
+主脑默认回答链路（无参调用 → veya1.1 别名路由）依赖两份用户配置：
+
+| 文件 | 作用 | 消费方 |
+|---|---|---|
+| `~/.veya/config.json` 的 `llm` 段 | 无参调用兜底默认 `provider/model`（当前 `veya1.1`） | `veya/llm.py get_provider_config` |
+| `~/.veya/llm-router.json` | 路由矩阵（quick/text/tool/code/long → opencode key 直连；reason/frontier/planner → openai@10100） | `oprim/_llm_router.py load_matrix`（mtime 热重载） |
+
+**位置**：容器内 `/home/soffy/.veya` 挂载自 named volume `deploy_veya-data`（`/data/docker/volumes/deploy_veya-data/_data`）——`docker cp` 进 volume 即持久，**容器重建不丢**。
+
+**同步命令**（宿主改配置后执行）：
+
+```bash
+./scripts/sync-veya-config.sh
+```
+
+**重建 volume 恢复步骤**（`docker volume rm deploy_veya-data` 后）：
+
+```bash
+cd /data/soffy/projects/veya
+# 先起容器 (空 volume 自动创建)
+docker compose -f deploy/docker-compose.yml up -d backend
+./scripts/sync-veya-config.sh   # 恢复 config.json + llm-router.json
+```
+
+> ⚠ 配置缺失症状：`coordinator.chat()` 返回 `LLM provider not configured`（stub）或回答人格异常——先查 `docker exec veya-backend ls /home/soffy/.veya/`。
 
 ## 5. 故障排查矩阵（按症状定位）
 
