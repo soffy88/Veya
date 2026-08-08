@@ -1,0 +1,26 @@
+{
+  "name": "engineering-flow",
+  "description": "工程工作流编排 (mattpocock idea→ship 内化): grill→spec→tickets→implement→review 阶段机。状态持久化到 ~/.veya/loops/<flow_id>.json。next=下一步动作, advance=阶段迁移, ticket_done=置票完成, review=双轴审查 diff, status=流程视图。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["start", "next", "advance", "ticket_done", "review", "status"],
+        "description": "操作: start=初始化流程, next=当前阶段下一步, advance=阶段迁移, ticket_done=票完成, review=双轴审查, status=状态视图"
+      },
+      "flow_id": {"type": "string", "description": "流程 id (状态持久化键, 默认 idea 的 slug)"},
+      "idea": {"type": "string", "description": "start 用: 原始想法"},
+      "event": {"type": "string", "description": "advance 用: interview_done/spec_written/tickets_split/review_done"},
+      "spec": {"type": "string", "description": "advance spec_written 用: spec 文本"},
+      "tickets_json": {"type": "string", "description": "advance tickets_split 用: [{id,title,blocked_by}] JSON"},
+      "ticket_id": {"type": "string", "description": "ticket_done 用"},
+      "diff": {"type": "string", "description": "review 用: unified diff"},
+      "interview_questions_json": {"type": "string", "description": "advance run_interview 后注入访谈问题: [{id,title,body,options,recommended,depends_on,facts_needed}] JSON"},
+      "answers_json": {"type": "string", "description": "记录访谈答案: {qid: answer} JSON"}
+    },
+    "required": ["action"]
+  }
+}
