@@ -248,6 +248,12 @@ _ELEMENT_MAP: dict[str, tuple[str, str]] = {
     "tickets_next_runnable": ("oskill", "tickets_next_runnable"),
     "workflow_to_dict": ("oskill", "workflow_to_dict"),
     "workflow_from_dict": ("oskill", "workflow_from_dict"),
+    # ── 规则书库 (agent-rules-books 3O 内化, oskill v4.18.0) ─────────
+    "list_rulebooks": ("oskill", "list_rulebooks"),
+    "get_rulebook": ("oskill", "get_rulebook"),
+    "rules_sections": ("oskill", "rules_sections"),
+    "select_rulebooks": ("oskill", "select_rulebooks"),
+    "standards_rules": ("oskill", "standards_rules"),
 }
 
 __all__ = [
