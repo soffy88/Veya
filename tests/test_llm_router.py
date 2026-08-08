@@ -189,25 +189,49 @@ def test_call_aliased_long_parallel():
 # =========================================================================
 
 def test_llm_call_veya11_alias_routes_to_opencode(monkeypatch):
-    """llm_call(model=veya1.1) → opencode 档 (mock engine_runner.run_engine)。"""
+    """llm_call(model=veya1.1) → opencode 档 key 直连 (mock provider_call)。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
 
-    async def fake_run_engine(engine, prompt, model=None, **kw):
-        seen.append({"engine": engine, "model": model})
-        return {"ok": True, "output": "routed-ok"}
+    async def fake_provider_call(client, provider, **kw):
+        seen.append({"provider": provider, "model": kw["model"],
+                     "endpoint": kw.get("endpoint")})
+        return {"choices": [{"message": {"role": "assistant",
+                                           "content": "routed-ok"}}],
+                "usage": {}}
 
-    import server.engine_runner as er
-    monkeypatch.setattr(er, "run_engine", fake_run_engine)
+    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
+    monkeypatch.setattr("os.environ", {**__import__("os").environ,
+                                       "OPENCODE_API_KEY": "sk-test"})
 
     result = asyncio.run(hllm.llm_call(
         [{"role": "user", "content": "你好"}],
         provider="veya1.1", model="veya1.1",
     ))
-    assert seen and seen[0]["engine"] == "opencode"
-    assert seen[0]["model"] == "opencode-go/deepseek-v4-flash"
+    assert seen and seen[0]["provider"] == "opencode-go"
+    assert seen[0]["model"] == "deepseek-v4-flash"   # 裸 ID (API 不接受前缀)
+    assert seen[0]["endpoint"] == "https://opencode.ai/zen/go/v1/chat/completions"
     assert result["choices"][0]["message"]["content"] == "routed-ok"
+
+
+def test_llm_call_veya11_opencode_failure_returns_error(monkeypatch):
+    """opencode-go 调用异常 → 结构化错误消息 (不裸抛)。"""
+    from veya import llm as hllm
+
+    async def boom(client, provider, **kw):
+        raise RuntimeError("网络抖动")
+
+    monkeypatch.setattr(hllm, "provider_call", boom)
+    monkeypatch.setattr("os.environ", {**__import__("os").environ,
+                                       "OPENCODE_API_KEY": "sk-test"})
+
+    result = asyncio.run(hllm.llm_call(
+        [{"role": "user", "content": "你好"}],
+        provider="veya1.1", model="veya1.1",
+    ))
+    content = result["choices"][0]["message"]["content"]
+    assert "opencode-go 调用失败" in content
 
 
 def test_llm_call_veya11_vision_routes_to_dashscope(monkeypatch):

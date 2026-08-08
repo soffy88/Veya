@@ -70,6 +70,7 @@ _API_KEY_ENV: dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
     "zhipu": "ZHIPU_API_KEY",
+    "opencode-go": "OPENCODE_API_KEY",
 }
 
 _DEFAULT_PROVIDER = "dashscope"
@@ -92,6 +93,21 @@ def get_provider_config(
     return p, str(m)
 
 
+def _opencode_go_key_from_auth() -> str:
+    """opencode-go key 兜底: 读 opencode 本地凭据 (auth.json)。
+
+    宿主侧通常无 OPENCODE_API_KEY env; opencode CLI 装过即有此文件。
+    """
+    try:
+        path = os.path.expanduser("~/.local/share/opencode/auth.json")
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        ent = data.get("opencode-go") or {}
+        return str(ent.get("key") or "")
+    except Exception:
+        return ""
+
+
 def get_api_key(provider: str, config: dict | None = None) -> str:
     """Return the API key for a provider (env var > config dict)."""
     providers_cfg = (config or {}).get("providers") or {}
@@ -102,7 +118,10 @@ def get_api_key(provider: str, config: dict | None = None) -> str:
         if key:
             return str(key)
     env_name = _API_KEY_ENV.get(provider, f"{provider.upper()}_API_KEY")
-    return os.environ.get(env_name, "")
+    key = os.environ.get(env_name, "")
+    if not key and provider == "opencode-go":
+        key = _opencode_go_key_from_auth()
+    return key
 
 
 def calc_cost(provider: str, usage: dict) -> float:
@@ -534,28 +553,27 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
 
     async def _single(payload: dict) -> dict:
         if payload["provider"] == "opencode":
-            # opencode-go 网关: 经 opencode serve 常驻会话 (系统内凭据), 非 OpenAI 补全
-            from server.engine_runner import run_engine
-
-            prompt = " ".join(
-                str(m.get("content", "")) for m in payload["messages"]
-                if isinstance(m.get("content"), str)
-                and m.get("role") != "system")
-            # veya 身份/能力 system prompt 一并注入 (否则模型自报 opencode 人格)
-            system_text = "\n".join(
-                str(m.get("content", "")) for m in payload["messages"]
-                if m.get("role") == "system"
-                and isinstance(m.get("content"), str)) or None
-            r = await run_engine("opencode", prompt, model=payload.get("model"),
-                                 timeout_s=kwargs.get("timeout", 30.0),
-                                 system=system_text)
-            content = str(r.get("output", "") or "")
-            if r.get("ok") and content:
-                return {"choices": [{"message": {"role": "assistant", "content": content}}],
-                        "usage": {}, "opencode": True}
-            return {"choices": [{"message": {"role": "assistant",
-                                             "content": str(r.get("error", "opencode 执行失败"))}}],
-                    "usage": {}, "opencode": True}
+            # opencode-go 网关 key 直连 (OpenAI 兼容端点 /zen/go/v1) — 非 CLI
+            # agent 模式: 主脑 system prompt 完整生效, 模型不裹 opencode 人格。
+            # 矩阵 model 形如 opencode-go/deepseek-v4-flash → API 只认裸 ID。
+            model = str(payload.get("model") or "opencode-go/deepseek-v4-flash")
+            _, _, bare = model.partition("/")
+            bare = bare or model
+            try:
+                return await llm_call(
+                    payload["messages"],
+                    config=kwargs.get("config"),
+                    provider="opencode-go",
+                    model=bare,
+                    endpoint="https://opencode.ai/zen/go/v1",
+                    tools=payload.get("tools"),
+                    default_content=(kwargs.get("default_content")
+                                     or "opencode-go 调用失败"),
+                )
+            except Exception as exc:  # 网络/鉴权失败 → 结构化错误消息 (error 标记跳过质量闸门)
+                return {"choices": [{"message": {"role": "assistant",
+                                                 "content": f"opencode-go 调用失败: {exc}"}}],
+                        "usage": {}, "opencode": True, "error": True}
         return await llm_call(
             payload["messages"],
             config=kwargs.get("config"),
