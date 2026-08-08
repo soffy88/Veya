@@ -310,6 +310,29 @@ async def test_chat_stream_no_tool_direct_answer():
 
 
 @pytest.mark.asyncio
+async def test_lightweight_chat_injects_system_prompt():
+    """轻量单轮 chat() 必须注入主脑 system prompt — 否则模型自报本体人格。"""
+    from oservi.master_agent import MasterAgent
+
+    seen: list[list] = []
+
+    async def fake_llm(messages, **kwargs):
+        seen.append(list(messages))
+        return _text_response("我是 Veya。")
+
+    agent = MasterAgent(llm_caller=fake_llm, max_rounds=1, temperature=0.3,
+                        tools={}, skill_hub=None, memory=None, swarm=None,
+                        vault=None)
+    agent.get_system_prompt = lambda: "你是 Veya 主脑。"
+    result = await agent.chat("你是谁")
+    assert result["final_answer"] == "我是 Veya。"
+    # 首条必须是 system (非 system 前缀 = 人格丢失回归)
+    assert seen and seen[0][0]["role"] == "system"
+    assert "Veya 主脑" in seen[0][0]["content"]
+    assert seen[0][1]["role"] == "user"
+
+
+@pytest.mark.asyncio
 async def test_chat_stream_hitl_after_max_rounds():
     """模型循环调工具 → 超过最大轮次 → HITL。"""
     async def looping_llm(messages, **kwargs):
