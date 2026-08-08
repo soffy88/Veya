@@ -364,6 +364,17 @@ def run_doctor(argv: list[str]) -> int:
     port_busy = _port_in_use(8765)
     add("端口 8765", not port_busy, "空闲" if not port_busy else "被占用 (veya start 可用 --port 换端口)")
 
+    # 工具链段 (oskill.env_doctor — 3O 主库; 独立收集, 不阻塞产品结论)
+    toolchain_checks: list[dict[str, Any]] = []
+
+    def add_tc(name: str, passed: bool, detail: str = "") -> None:
+        toolchain_checks.append({"name": name, "ok": bool(passed), "detail": detail})
+
+    _add_toolchain_checks(add_tc, cfg)
+    if (cfg.get("doctor") or {}).get("fail_on_toolchain"):
+        ok = ok and all(c["ok"] for c in toolchain_checks)
+    checks.extend(toolchain_checks)
+
     if args.json:
         print(json.dumps({"ok": ok, "checks": checks}, ensure_ascii=False, indent=2))
         return 0 if ok else 1
@@ -387,6 +398,97 @@ def _port_in_use(port: int) -> bool:
             return False
         except OSError:
             return True
+
+
+# ---------------------------------------------------------------------------
+# 工具链自检 (oskill.env_doctor 集成)
+# ---------------------------------------------------------------------------
+
+# 可选文档工具链 (缺失不阻塞, 供 veya 生态 skill 使用)
+_OPTIONAL_TOOLCHAIN: list[dict[str, Any]] = [
+    {"name": "typst", "kind": "cmd", "check": "typst",
+     "purpose": "Typst 排版 (论文/文档编译)", "required": False,
+     "installs": {"mac": ["brew install typst"],
+                  "linux-apt": ["snap install typst"],
+                  "linux-pacman": ["pacman -S typst"],
+                  "windows": ["winget install Typst.Typst"],
+                  "all": ["cargo install --locked typst-cli"]}},
+    {"name": "xelatex", "kind": "cmd", "check": "xelatex",
+     "purpose": "LaTeX 排版 (中文论文必需)", "required": False,
+     "installs": {"mac": ["brew install --cask mactex"],
+                  "linux-apt": ["sudo apt install texlive-xetex texlive-lang-chinese"],
+                  "linux-dnf": ["sudo dnf install texlive-scheme-full"],
+                  "windows": ["winget install MiKTeX.MiKTeX"]}},
+    {"name": "drawio", "kind": "cmd", "check": "drawio",
+     "purpose": "DrawIO 图示导出 PDF", "required": False,
+     "installs": {"mac": ["brew install --cask drawio"],
+                  "linux": ["snap install drawio"],
+                  "windows": ["winget install JGraph.Draw"]}},
+    {"name": "pdftoppm", "kind": "cmd", "check": "pdftoppm",
+     "purpose": "PDF 转 PNG (验收视觉检查)", "required": False,
+     "installs": {"mac": ["brew install poppler"],
+                  "linux-apt": ["sudo apt install poppler-utils"],
+                  "linux-dnf": ["sudo dnf install poppler-utils"],
+                  "windows": ["winget install oschwartz10612.poppler"]}},
+]
+
+
+def _toolchain_extra_specs(env_doctor: Any, cfg: dict[str, Any]) -> list[Any]:
+    """构造工具链 DepSpec: 内置可选清单 + ~/.veya/config.json 自定义追加。
+
+    自定义格式 (doctor.toolchain 数组, 每项为 dict):
+        {"name": "git", "kind": "cmd", "check": "git",
+         "required": true, "purpose": "版本管理",
+         "installs": {"mac": ["brew install git"]}}
+    """
+    specs: list[Any] = []
+    for item in _OPTIONAL_TOOLCHAIN:
+        specs.append(env_doctor.DepSpec(**item))
+    raw = (cfg.get("doctor") or {}).get("toolchain") or []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict) and item.get("name") and item.get("check"):
+                specs.append(env_doctor.DepSpec(**item))
+    return specs
+
+
+def _add_toolchain_checks(add: Any, cfg: dict[str, Any]) -> None:
+    """工具链依赖自检 — 复用 oskill.env_doctor (3O 主库)。
+
+    主库未装配或 env_doctor 不可用时优雅降级: 提示跳过, 不判失败。
+    结果通过 add(name, ok, detail) 回传, 阻塞语义由调用方决定。
+    """
+    try:
+        from veya.platform import oskill as _oskill_fn
+        _oskill = _oskill_fn()  # 懒装配: sys.path 注入 + import oskill
+    except Exception as exc:
+        add("工具链 (oskill)", True,
+            f"3O 主库未装配 ({exc.__class__.__name__}), 工具链检查跳过 — git clone --recursive 后可用")
+        return
+    try:
+        env_doctor = _oskill.env_doctor
+    except AttributeError as exc:
+        add("工具链 (oskill)", True, f"oskill.env_doctor 不可用: {exc}")
+        return
+
+    specs = list(env_doctor.DEFAULT_SPECS) + _toolchain_extra_specs(env_doctor, cfg)
+    try:
+        report = env_doctor.run_doctor(specs)
+    except Exception as exc:
+        add("工具链检查", False, f"oskill.env_doctor 执行失败: {exc.__class__.__name__}: {exc}")
+        return
+
+    for r in report.results:
+        if r.status == "ok":
+            add(f"工具链 {r.name}", True, r.detail or "就绪")
+        elif r.required:
+            add(f"工具链 {r.name}", False, "缺失")
+        else:
+            add(f"工具链 {r.name}", False, "缺失(可选)")
+    if report.missing_required:
+        add("工具链就绪", False, "必须项缺失: " + ", ".join(report.missing_required))
+    else:
+        add("工具链就绪", True, "必须项全部就绪 (可选项缺失见上)")
 
 
 __all__ = ["PROVIDERS", "probe_ollama", "run_doctor", "run_init", "run_start"]

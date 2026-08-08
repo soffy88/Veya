@@ -206,3 +206,87 @@ def test_find_free_port_avoids_busy(monkeypatch):
     # 全部被占 → 回退起始端口 (uvicorn 会给出 bind 错误, 但逻辑不崩)
     monkeypatch.setattr("cli.product._port_in_use", lambda port: True)
     assert _find_free_port(8765) == 8765
+
+
+# ---------------------------------------------------------------------------
+# veya doctor 工具链段 (oskill.env_doctor 集成)
+# ---------------------------------------------------------------------------
+
+def test_doctor_toolchain_degrades_when_3o_missing(monkeypatch, tmp_path, capsys):
+    """3O 主库不可装配时: 工具链段降级提示, 不判失败。"""
+    monkeypatch.setattr("cli.product._HOME_DIR", tmp_path / "home")
+    monkeypatch.setattr("cli.product._CONFIG_PATH", tmp_path / "home" / "config.json")
+    monkeypatch.setattr("cli.product.probe_ollama", lambda: None)
+
+    def _raise():
+        raise RuntimeError("submodule not mounted")
+
+    monkeypatch.setattr("veya.platform.oskill", _raise)
+    run_doctor(["--json"])
+    data = json.loads(capsys.readouterr().out)
+    toolchain = [c for c in data["checks"] if "工具链" in c["name"]]
+    assert toolchain, "工具链段应存在"
+    assert toolchain[0]["ok"] is True        # 降级不判失败
+    assert "跳过" in toolchain[0]["detail"]
+
+
+def test_doctor_toolchain_checks_do_not_block_product(monkeypatch, tmp_path, capsys):
+    """工具链 required 缺失不影响产品结论 (默认 fail_on_toolchain=false)。"""
+    monkeypatch.setattr("cli.product._HOME_DIR", tmp_path / "home")
+    monkeypatch.setattr("cli.product._CONFIG_PATH", tmp_path / "home" / "config.json")
+    monkeypatch.setattr("cli.product._ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr("cli.product.probe_ollama", lambda: None)
+    monkeypatch.setattr("cli.product._port_in_use", lambda port: False)
+
+    ws = tmp_path / "work"
+    ws.mkdir()
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.json").write_text(json.dumps({
+        "llm": {"provider": "deepseek", "model": "deepseek-chat"},
+        "providers": {"deepseek": {"api_key": "sk-x"}},
+        "workspace": str(ws),
+    }))
+
+    def fake_toolchain(add, cfg):
+        add("工具链 python3", False, "缺失")       # required 缺失
+        add("工具链就绪", False, "必须项缺失: python3")
+
+    monkeypatch.setattr("cli.product._add_toolchain_checks", fake_toolchain)
+    rc = run_doctor(["--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is True                   # 产品段全绿 → 整体绿
+    assert rc == 0
+    names = [c["name"] for c in data["checks"]]
+    assert "工具链 python3" in names
+    assert "工具链就绪" in names
+
+
+def test_doctor_fail_on_toolchain(monkeypatch, tmp_path, capsys):
+    """doctor.fail_on_toolchain=true 时 required 缺失使整体失败。"""
+    monkeypatch.setattr("cli.product._HOME_DIR", tmp_path / "home")
+    monkeypatch.setattr("cli.product._CONFIG_PATH", tmp_path / "home" / "config.json")
+    monkeypatch.setattr("cli.product._ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr("cli.product.probe_ollama", lambda: None)
+    monkeypatch.setattr("cli.product._port_in_use", lambda port: False)
+
+    ws = tmp_path / "work"
+    ws.mkdir()
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "config.json").write_text(json.dumps({
+        "llm": {"provider": "deepseek", "model": "deepseek-chat"},
+        "providers": {"deepseek": {"api_key": "sk-x"}},
+        "workspace": str(ws),
+        "doctor": {"fail_on_toolchain": True},
+    }))
+
+    def fake_toolchain(add, cfg):
+        add("工具链 python3", False, "缺失")
+        add("工具链就绪", False, "必须项缺失: python3")
+
+    monkeypatch.setattr("cli.product._add_toolchain_checks", fake_toolchain)
+    rc = run_doctor(["--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is False
+    assert rc == 1
