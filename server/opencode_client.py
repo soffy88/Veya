@@ -157,19 +157,23 @@ async def get_or_create_session(client: httpx.AsyncClient, model: str) -> str:
 
 
 # ── 消息发送 (非流式: 阻塞到完成) ─────────────────────────────────────────
-def _message_body(prompt: str, model: str) -> dict[str, Any]:
+def _message_body(prompt: str, model: str, *, system: str | None = None) -> dict[str, Any]:
     provider_id, _, model_id = model.partition("/")
     if not model_id:
         model_id = model
         provider_id = "opencode-go"
-    return {
+    body: dict[str, Any] = {
         "parts": [{"type": "text", "text": prompt}],
         "model": {"providerID": provider_id, "modelID": model_id},
     }
+    if system:
+        body["system"] = system  # MessageCreate.system: 每条消息可带独立 system
+    return body
 
 
 async def send_message(
-    prompt: str, model: str, *, timeout_s: float = 30.0
+    prompt: str, model: str, *, timeout_s: float = 30.0,
+    system: str | None = None,
 ) -> dict[str, Any]:
     """HTTP 常驻会话发送 → 完整回复文本 (阻塞到完成)。失败抛异常。"""
     if not ensure_server():
@@ -178,13 +182,15 @@ async def send_message(
         sid = await get_or_create_session(client, model)
         try:
             r = await client.post(
-                f"/session/{sid}/message", json=_message_body(prompt, model))
+                f"/session/{sid}/message",
+                json=_message_body(prompt, model, system=system))
             r.raise_for_status()
         except Exception:
             _cache_drop(model)
             sid = await get_or_create_session(client, model)
             r = await client.post(
-                f"/session/{sid}/message", json=_message_body(prompt, model))
+                f"/session/{sid}/message",
+                json=_message_body(prompt, model, system=system))
             r.raise_for_status()
         data = r.json()
         text = _assistant_text(data)
@@ -214,7 +220,8 @@ def _parse_sse_data(line: str) -> dict[str, Any] | None:
 
 
 async def stream_send(
-    prompt: str, model: str, *, timeout_s: float = 30.0
+    prompt: str, model: str, *, timeout_s: float = 30.0,
+    system: str | None = None,
 ) -> AsyncIterator[str]:
     """SSE 真流式: 逐 token delta。POST 与 /event 并行, session.idle 终止。
 
@@ -226,7 +233,9 @@ async def stream_send(
         sid = await get_or_create_session(client, model)
 
         post_task = asyncio.create_task(
-            client.post(f"/session/{sid}/message", json=_message_body(prompt, model)))
+            client.post(
+                f"/session/{sid}/message",
+                json=_message_body(prompt, model, system=system)))
 
         saw_idle = False
         yielded = False

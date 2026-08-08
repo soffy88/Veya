@@ -300,8 +300,9 @@ async def run_engine(
     model: str | None = None,
     cwd: str | None = None,
     timeout_s: float = 600.0,
+    system: str | None = None,
 ) -> dict[str, object]:
-    """聚合执行: 引擎跑完返回全文 (run 契约)。"""
+    """聚合执行: 引擎跑完返回全文 (run 契约)。system 仅供 opencode 常驻会话注入。"""
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
     if reason := _container_engine_block(engine):
@@ -311,7 +312,7 @@ async def run_engine(
         try:
             return await opencode_client.send_message(
                 prompt, model or "opencode-go/deepseek-v4-flash",
-                timeout_s=timeout_s)
+                timeout_s=timeout_s, system=system)
         except Exception as exc:
             logger.info("opencode serve 不可用, 回退 CLI spawn: %s", exc)
     if not _engine_bin_available(engine):
@@ -346,10 +347,12 @@ async def stream_engine(
     model: str | None = None,
     cwd: str | None = None,
     timeout_s: float = 600.0,
+    system: str | None = None,
 ) -> AsyncIterator[dict[str, object]]:
     """流式执行: 逐行产出 {type: text_delta|engine_done|engine_error, ...}。
 
     claude stream-json 输出逐行 JSON, 提取 text 块; 其余引擎按行透传。
+    system 仅供 opencode 常驻会话注入。
     """
     if engine == "master":
         raise ValueError("master 引擎走主脑 chat_stream, 不经 engine_runner")
@@ -361,7 +364,7 @@ async def stream_engine(
         try:
             async for delta in opencode_client.stream_send(
                 prompt, model or "opencode-go/deepseek-v4-flash",
-                timeout_s=timeout_s):
+                timeout_s=timeout_s, system=system):
                 yield {"type": "text_delta", "engine": engine, "delta": delta}
             yield {"type": "engine_done", "engine": engine, "status": "success"}
             return

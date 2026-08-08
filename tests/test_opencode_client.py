@@ -263,3 +263,91 @@ async def test_stream_send_falls_back_to_full_response(monkeypatch):
                                       timeout_s=5):
             got.append(d)
     assert "".join(got) == "兜底完整回复"
+
+
+# ── system prompt 注入 (veya 身份) ────────────────────────────────────────
+
+
+def test_message_body_carries_system():
+    body = oc._message_body("你好", "opencode-go/deepseek-v4-flash",
+                            system="你是 Veya")
+    assert body["system"] == "你是 Veya"
+    assert body["parts"] == [{"type": "text", "text": "你好"}]
+
+
+def test_message_body_omits_system_when_empty():
+    body = oc._message_body("你好", "opencode-go/deepseek-v4-flash",
+                            system=None)
+    assert "system" not in body
+    body2 = oc._message_body("你好", "opencode-go/deepseek-v4-flash",
+                             system="")
+    assert "system" not in body2
+
+
+@pytest.mark.asyncio
+async def test_send_message_passes_system(monkeypatch):
+    captured: list[dict] = []
+
+    class FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            if url == "/session":
+                return MagicMock(json=MagicMock(return_value={"id": "ses_sys"}))
+            captured.append(kw.get("json") or {})
+            return MagicMock(json=MagicMock(return_value={"parts": [
+                {"type": "text", "text": "我是 Veya"}]}))
+
+    monkeypatch.setattr(oc, "ensure_server", lambda timeout_s=10.0: True)
+    with patch("httpx.AsyncClient", FakeClient):
+        r = await oc.send_message("你是谁", "opencode-go/deepseek-v4-flash",
+                                  system="你是 Veya，一个全栈 AI 开发平台")
+    assert captured and captured[0]["system"] == "你是 Veya，一个全栈 AI 开发平台"
+    assert r["output"] == "我是 Veya"
+
+
+@pytest.mark.asyncio
+async def test_stream_send_passes_system(monkeypatch):
+    captured: list[dict] = []
+    sid = "ses_sys2"
+
+    class FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            if url == "/session":
+                return MagicMock(json=MagicMock(return_value={"id": sid}))
+            captured.append(kw.get("json") or {})
+            return MagicMock(json=MagicMock(return_value={"parts": [
+                {"type": "text", "text": "我是 Veya"}]}))
+
+        def stream(self, method, url):
+            resp = AsyncMock()
+            resp.status_code = 200
+            resp.raise_for_status = MagicMock()
+            resp.aiter_lines = lambda: _fake_stream([])
+            return AsyncMock(__aenter__=AsyncMock(return_value=resp),
+                             __aexit__=AsyncMock(return_value=False))
+
+    monkeypatch.setattr(oc, "ensure_server", lambda timeout_s=10.0: True)
+    with patch("httpx.AsyncClient", FakeClient):
+        got = []
+        async for d in oc.stream_send("你是谁", "opencode-go/deepseek-v4-flash",
+                                      timeout_s=5, system="你是 Veya"):
+            got.append(d)
+    assert captured and captured[0]["system"] == "你是 Veya"
+    assert "".join(got) == "我是 Veya"
