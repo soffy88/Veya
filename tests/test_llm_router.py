@@ -406,3 +406,26 @@ def test_dispatch_long_planner_chain():
     strong = [c for c in calls if "gpt-5.6-luna" in c["model"]]
     flash = [c for c in calls if "deepseek-v4-flash" in c["model"]]
     assert len(strong) >= 2 and len(flash) >= 1
+
+
+def test_get_provider_config_user_config_fallback(monkeypatch):
+    """无显式参数时 model 兜底读 ~/.veya/config.json llm 段 (主脑默认 veya1.1)。"""
+    from veya import llm as hllm
+
+    monkeypatch.setattr(hllm, "_user_llm_config",
+                        lambda: {"provider": "veya1.1", "model": "veya1.1"})
+    monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
+    monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
+    p, m = hllm.get_provider_config()
+    assert m == "veya1.1"          # config.json 兜底生效
+
+
+def test_get_provider_config_no_user_config(monkeypatch):
+    """无 config.json → 回落 env/默认 (不崩)。"""
+    from veya import llm as hllm
+
+    monkeypatch.setattr(hllm, "_user_llm_config", lambda: {})
+    monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
+    monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
+    p, m = hllm.get_provider_config()
+    assert p == hllm._DEFAULT_PROVIDER and m  # 默认档位正常
