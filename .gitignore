@@ -75,3 +75,4 @@ apps/desktop/resources/
 apps/desktop/src-tauri/target/
 deploy/ms-playwright/
 deploy/ms-playwright.tar.gz
+deploy/hevi_deps/

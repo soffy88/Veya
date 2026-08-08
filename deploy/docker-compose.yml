@@ -22,10 +22,19 @@ services:
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:-veya-dev-secret}
       - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
       - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
+      - HEVI_MCP_ENDPOINT=${HEVI_MCP_ENDPOINT:-http://192.168.16.1:8201/mcp/mcp}
       - OD_API_TOKEN=${OD_API_TOKEN:-}
       - OD_DAEMON_URL=${OD_DAEMON_URL:-http://192.168.16.1:17456}
+      # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) 临时装容器可写层; 镜像重建后由
+      # requirements.txt 提供, 此路径仅容器层存在, 镜像层无则静默跳过
+      - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
     volumes:
       - veya-data:/home/soffy/.veya
+      # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) — 镜像重建后由 requirements.txt
+      # 提供; 当前阶段从宿主 deploy/hevi_deps 挂载 (容器层不可写, 镜像未含)
+      - ../deploy/hevi_deps:/home/soffy/hevi_deps:ro
+      # tools/ 是镜像 COPY 目录 (无挂载则不实时) — 挂载宿主便于热更适配器
+      - ../tools:/app/tools:ro
       - ../veya:/app/veya:ro
       - ../platform:/app/platform:ro
       - ../server:/app/server:ro
