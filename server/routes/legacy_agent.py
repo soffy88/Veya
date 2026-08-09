@@ -161,3 +161,22 @@ async def legacy_agent_stream(req: LegacyAgentRunRequest, request: Request) -> S
             "Connection": "keep-alive",
         },
     )
+
+
+class LegacyAgentStopRequest(BaseModel):
+    session_id: str | None = Field(None, description="SSE 会话 id (stream 请求的 session_id)")
+
+
+@router.post("/api/v1/agent/stop")
+async def legacy_agent_stop(req: LegacyAgentStopRequest) -> dict:
+    """真正停止一个进行中的流式会话 (前端 Stop 按钮)。
+
+    - 正在运行的 Reasonix 任务 → serve POST /cancel 真正中断 turn (不只断 SSE);
+    - 排队中的任务 → 直接取消;
+    - 主脑 chat_task → cancel (SSE 结束)。
+    """
+    from server.coordinator_master import cancel_session
+
+    if not req.session_id:
+        return {"cancelled": "none", "error": "session_id required"}
+    return await cancel_session(req.session_id)

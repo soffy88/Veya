@@ -312,17 +312,19 @@ def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
 
 # ── 工具实现 ──────────────────────────────────────────────────────────
 
-async def reasonix_run(task: str, workspace: str | None = None,
-                       max_steps: int = 0, timeout_sec: int = 0,
-                       session_id: str | None = None,
-                       continue_: bool = False,
-                       on_event: Callable[[dict], None] | None = None) -> str:
-    """执行一个真正的编程任务 (Reasonix 编码执行器)。返回执行摘要。
+async def _execute_reasonix_core(
+    task: str, workspace: str | None = None,
+    max_steps: int = 0, timeout_sec: int = 0,
+    session_id: str | None = None,
+    continue_: bool = False,
+    on_event: Callable[[dict], None] | None = None,
+) -> str:
+    """真正执行一个 reasonix 编程任务 (serve 优先, CLI 兜底)。
 
     continue_=True → --continue (接着上次未完成会话); session_id 指定 →
     --resume=<machine id> (恢复历史会话, 见 reasonix_sessions)。任务前自动
     打 git 快照 (checkpoint) → 可用 reasonix_rollback 回滚。
-    on_event 用于实时进度回调 (前置路由桥接 SSE)。
+    on_event 用于实时进度回调。
     """
     # 新编程任务 → 优先 reasonix serve (独立 oservi, HTTP+SSE 进度回流);
     # serve 不可达/失败 → 回退 CLI (功能等价, 含 checkpoint/续做/回滚)。
@@ -460,6 +462,73 @@ async def reasonix_rollback(workspace: str | None = None,
         return f"回滚失败: {e}"
 
 
+# ── 会话感知 (供 Stop 端点定位当前会话的 reasonix 任务) ──────────────
+
+def _current_sid() -> str | None:
+    """从 contextvar 读当前 SSE 会话 id (on_step 是 SSEQueue 的 bound method)。"""
+    try:
+        from server.events import _on_step_ctx
+
+        cb = _on_step_ctx.get()
+        q = getattr(cb, "__self__", None)
+        return getattr(q, "sid", None) or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _register_session_task(tid: str) -> None:
+    """把任务 id 关联到当前会话 (Stop 端点据此真正停止)。"""
+    sid = _current_sid()
+    if sid:
+        try:
+            from server.coordinator_master import _session_task
+
+            _session_task[sid] = tid
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def reasonix_run(task: str, workspace: str | None = None,
+                       max_steps: int = 0, timeout_sec: int = 0,
+                       session_id: str | None = None,
+                       continue_: bool = False,
+                       on_event: Callable[[dict], None] | None = None) -> str:
+    """执行一个真正的编程任务 (Reasonix 编码执行器)。返回执行摘要。
+
+    新任务 → 后台任务队列 (可停止/断线不丢, 结果留在队列可查);
+    续做 (continue_=True) / 恢复 (session_id) → 直接 CLI 执行。
+    on_event 用于实时进度回调。
+    """
+    # 续做/恢复: 会话状态在 workspace, 走 CLI 同步执行 (低频管理操作)
+    if continue_ or session_id:
+        return await _execute_reasonix_core(
+            task, workspace=workspace, max_steps=max_steps,
+            timeout_sec=timeout_sec, session_id=session_id,
+            continue_=continue_, on_event=on_event,
+        )
+    # 新任务 → 后台队列: 并发提交/串行执行/可停止/断线不丢
+    from server.reasonix_queue import reasonix_task_queue
+
+    tid = await reasonix_task_queue.submit(
+        task, workspace=workspace,
+        meta={"timeout_sec": timeout_sec or 900, "sid": _current_sid()},
+    )
+    _register_session_task(tid)
+    try:
+        rec = await reasonix_task_queue.wait(tid, on_progress=on_event)
+    except asyncio.CancelledError:
+        # 会话断开/被 Stop → 等待被打断, 但 worker 继续后台执行 (不丢)
+        return (
+            f"已提交后台任务 #{tid} (继续后台执行中)。"
+            f"可查看 reasonix_tasks 或说「停止任务 #{tid}」中断。"
+        )
+    if rec.status == "cancelled":
+        return f"任务 #{tid} 已停止 ({rec.error or 'user stop'})。"
+    if rec.status == "failed":
+        return f"任务 #{tid} 失败: {rec.error or '未知错误'}"
+    return rec.summary or f"任务 #{tid} 已完成 (无摘要)。"
+
+
 async def reasonix_sessions(limit: int = 8) -> str:
     """列出最近 reasonix 会话 (可续做 / 查看 checkpoint)。"""
     try:
@@ -506,6 +575,86 @@ async def reasonix_status() -> str:
         )
     except ReasonixUnavailable as e:
         return f"reasonix 不可用: {e}"
+
+
+# ── AI 代码评审 (CLI review 子命令) ────────────────────────────────
+
+async def reasonix_review(base: str = "HEAD", commit: str = "",
+                          instructions: str = "",
+                          workspace: str | None = None,
+                          timeout_sec: int = 300) -> str:
+    """对 reasonix 工作区最近改动做 AI 代码评审 (Reasonix review 子代理)。
+
+    base: 对比基准 ref (默认 HEAD = 评审未提交的 working-tree 改动);
+    commit: 评审指定 commit 引入的改动 (与 base 互斥);
+    instructions: 附加评审重点 (如「重点看并发与内存泄漏」)。
+    返回评审结论纯文本 (问题列表 / 风险 / 建议)。
+    """
+    try:
+        ws = _resolve_workspace(workspace)
+        bin_path = _resolve_bin()
+    except (ValueError, ReasonixUnavailable) as e:
+        return f"错误: {e}"
+    ws.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    _ensure_local_proxy()
+    cmd = [bin_path, "review", "--model", DEFAULT_MODEL]
+    if commit:
+        cmd += ["--commit", commit]
+    elif base and base != "HEAD":
+        cmd += ["--base", base]
+    if instructions:
+        cmd += ["--instructions", instructions]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, cwd=str(ws), stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, env=env,
+        )
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
+        text = out.decode("utf-8", "replace").strip()
+        err_txt = err.decode("utf-8", "replace").strip()
+        if proc.returncode != 0 or not text:
+            detail = err_txt or text or f"exit {proc.returncode}"
+            return f"评审失败: {detail[:300]}"
+        return text
+    except asyncio.TimeoutError:
+        return f"评审超时 ({timeout_sec}s), 可加大 timeout_sec 重试"
+    except Exception as exc:  # noqa: BLE001
+        return f"评审失败: {exc}"
+
+
+async def reasonix_tasks(limit: int = 12) -> str:
+    """列出 Reasonix 后台任务队列 (排队/执行中/完成/取消)。
+
+    编程任务入队后立即返回 task id; 用本工具查看进度与结果。
+    用户说「任务停掉/别跑了」时用 reasonix_stop 停止指定任务。
+    """
+    from server.reasonix_queue import reasonix_task_queue
+
+    tasks = reasonix_task_queue.list(limit=limit)
+    if not tasks:
+        return "Reasonix 任务队列为空 (暂无后台任务)。"
+    lines = []
+    for t in tasks:
+        lines.append(
+            f"#{t['id']} [{t['status']}] 提交={t['created_at']:.0f} "
+            f"{t['summary'][:60] if t['summary'] else ''}"
+        )
+    return "\n".join(lines)
+
+
+async def reasonix_stop(task_id: str) -> str:
+    """停止一个 Reasonix 后台任务 (真正中断执行, 不只断前端)。
+
+    执行中任务 → serve /cancel 中断当前 turn; 排队中 → 直接取消。
+    """
+    from server.reasonix_queue import reasonix_task_queue
+
+    ok = await reasonix_task_queue.stop(task_id)
+    if not ok:
+        return f"未找到任务 #{task_id} (可能已完成)。"
+    rec = reasonix_task_queue.get(task_id)
+    return f"已请求停止 #{task_id} (状态: {rec.status if rec else '?'})。"
 
 
 # ── 注册 ──────────────────────────────────────────────────────────────
@@ -558,6 +707,34 @@ async def wire_master_tools() -> int:
             {"type": "object", "properties": {}},
             reasonix_status,
             2000,
+        ),
+        (
+            "reasonix_review",
+            "对 reasonix 工作区最近改动做 AI 代码评审（读 diff + 子代理评审，输出问题/风险/建议）。"
+            "编程任务完成后、或用户要求「评审/审查一下代码」时调用。",
+            {"type": "object", "properties": {
+                "base": {"type": "string", "description": "可选。对比基准 ref，默认 HEAD（评审未提交的改动）。"},
+                "commit": {"type": "string", "description": "可选。评审指定 commit 引入的改动（与 base 互斥）。"},
+                "instructions": {"type": "string", "description": "可选。附加评审重点，如「重点看并发安全与内存泄漏」。"},
+                "timeout_sec": {"type": "integer", "description": "可选。超时秒数，默认 300。"},
+            }},
+            reasonix_review,
+            6000,
+        ),
+        (
+            "reasonix_tasks",
+            "列出 Reasonix 后台任务队列（排队/执行中/完成/取消）及摘要。编程任务入队后立即返回 task id，用本工具查询进度/结果。",
+            {"type": "object", "properties": {"limit": {"type": "integer", "description": "可选。返回条数，默认 12。"}}},
+            reasonix_tasks,
+            4000,
+        ),
+        (
+            "reasonix_stop",
+            "停止一个 Reasonix 后台任务（真正中断执行，不只断前端连接）。用户说「任务停掉/别跑了/取消」时调用。",
+            {"type": "object", "properties": {"task_id": {"type": "string", "description": "任务 id（reasonix_tasks 列出的 #id）。"}},
+            "required": ["task_id"]},
+            reasonix_stop,
+            1000,
         ),
     ]
     for name, desc, params, func, limit in tools:

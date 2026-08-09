@@ -497,5 +497,34 @@ def _default_swarm_engine() -> SwarmOrchestrator:
     return _swarm_engine
 
 
+# ── Stop 支持 (基础设施, 不影响模型自主路由) ─────────────────────────
+# 活跃流会话注册 (供 Stop 端点 cancel chat_task) + 会话→reasonix 任务映射
+_active_streams: dict[str, asyncio.Task] = {}
+_session_task: dict[str, str] = {}
+
+
+async def cancel_session(session_id: str) -> dict:
+    """停止一个流式会话: 真正中断 reasonix 任务 (serve /cancel) + 取消主脑。
+
+    前端 Stop 按钮 → POST /api/v1/agent/stop {session_id} → 本函数。
+    返回被停止的项目列表。
+    """
+    stopped: list[str] = []
+    tid = _session_task.get(session_id)
+    if tid:
+        try:
+            from server.reasonix_queue import reasonix_task_queue
+
+            if await reasonix_task_queue.stop(tid):
+                stopped.append(f"reasonix_task:{tid}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cancel_session: 停 reasonix 任务失败: %s", exc)
+    task = _active_streams.get(session_id)
+    if task is not None and not task.done():
+        task.cancel()
+        stopped.append("chat_stream")
+    return {"cancelled": stopped or ["none"]}
+
+
 # 模块级单例(server 复用)
 master_coordinator = MasterCoordinator()
