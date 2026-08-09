@@ -67,10 +67,9 @@ class AgentRunResponse(BaseModel):
     plan: dict[str, Any] | None = None
 
 
-
-
 class TeamRequest(BaseModel):
     """Team lifecycle request (ClawTeam swarm)."""
+
     team_name: str = Field(..., min_length=1)
     goal: str = ""
     members: list[dict[str, Any]] = Field(default_factory=list)
@@ -79,6 +78,7 @@ class TeamRequest(BaseModel):
 
 class SetupRequest(BaseModel):
     """Agent setup/bootstrap request (DeerFlow interactive wizard)."""
+
     agent_name: str = Field(..., min_length=1)
     description: str = ""
     soul: str = ""
@@ -88,18 +88,21 @@ class SetupRequest(BaseModel):
 
 class SupportBundleRequest(BaseModel):
     """Support bundle generation request."""
+
     include_doctor: bool = True
     config: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReplayRequest(BaseModel):
     """Replay session request."""
+
     thread_id: str = Field(..., min_length=1)
     max_steps: int = 1000
 
 
 class EvolveRequest(BaseModel):
     """Agent self-evolution request."""
+
     agent_name: str = Field(..., min_length=1)
     current_soul: str = ""
     execution_feedback: str = ""
@@ -108,12 +111,14 @@ class EvolveRequest(BaseModel):
 
 class SkillTeachRequest(BaseModel):
     """Skill teaching request."""
+
     description: str = Field(..., min_length=1)
     config: dict[str, Any] = Field(default_factory=dict)
 
 
 class SchedulerRequest(BaseModel):
     """Scheduler management request."""
+
     action: Literal["create", "list", "toggle", "delete"] = "list"
     id: str = ""
     name: str = ""
@@ -125,6 +130,7 @@ class SchedulerRequest(BaseModel):
 
 class KnowledgeRequest(BaseModel):
     """Knowledge store request."""
+
     action: Literal["read", "write", "list", "stale", "delete", "skeleton"] = "list"
     id: str = ""
     type: str = "module"
@@ -133,7 +139,9 @@ class KnowledgeRequest(BaseModel):
 
 
 class PluginActionRequest(BaseModel):
-    action: Literal["install", "uninstall", "list", "toggle", "configure", "publish", "marketplace"] = "list"
+    action: Literal[
+        "install", "uninstall", "list", "toggle", "configure", "publish", "marketplace"
+    ] = "list"
     name: str = ""
     version: str = "1.0.0"
     capabilities: list[str] = Field(default_factory=list)
@@ -144,14 +152,17 @@ class PluginActionRequest(BaseModel):
     author: str = ""
     tags: list[str] = Field(default_factory=list)
 
+
 class AgentCreationRequest(BaseModel):
     """NL agent creation request (AutoAgent zero-code)."""
+
     task: str = Field(..., min_length=1, description="Natural-language agent description")
     config: dict[str, Any] = Field(default_factory=dict)
 
 
 class OrchestratorRequest(BaseModel):
     """Multi-agent orchestrator creation request."""
+
     agent_name: str = Field(..., min_length=1)
     description: str = ""
     sub_agents: list[dict[str, Any]] = Field(default_factory=list)
@@ -162,6 +173,7 @@ class OrchestratorRequest(BaseModel):
 
 class WorkflowRunRequest(BaseModel):
     """Event workflow execution request."""
+
     system_input: dict[str, Any] = Field(default_factory=dict)
     events: list[dict[str, Any]] | None = None
     config: dict[str, Any] = Field(default_factory=dict)
@@ -169,11 +181,13 @@ class WorkflowRunRequest(BaseModel):
 
 class MemoryRequest(BaseModel):
     """Vector memory query/add request."""
+
     action: Literal["query", "add", "peek", "count", "reset"] = "query"
     query_texts: list[str] | None = None
     result: str | None = None
     collection: str = "default"
     n_results: int = 5
+
 
 class AgentStopRequest(BaseModel):
     """Stop a running stream session (Stop 按钮)."""
@@ -368,6 +382,8 @@ class HistoryResponse(BaseModel):
     session_id: str
     steps: list[dict[str, Any]]
     count: int
+    # P3 跨设备: 会话对话消息 (来自 P1 持久层), 供前端换设备时 hydrate。
+    messages: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SandboxRunRequest(BaseModel):
@@ -399,6 +415,7 @@ def create_app() -> FastAPI:
     from pathlib import Path as _Path
 
     from fastapi.staticfiles import StaticFiles
+
     _web_dir = _Path(__file__).parent.parent / "web"
     if _web_dir.exists():
         app.mount("/static", StaticFiles(directory=str(_web_dir)), name="static")
@@ -407,44 +424,54 @@ def create_app() -> FastAPI:
     async def root():
         """Serve the veya control panel SPA."""
         from fastapi.responses import HTMLResponse
+
         index_path = _web_dir / "index.html"
         if index_path.exists():
             return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
-        return HTMLResponse(content="<h1>veya Gateway</h1><p>Frontend not found. API available at /api/v1/</p>")
+        return HTMLResponse(
+            content="<h1>veya Gateway</h1><p>Frontend not found. API available at /api/v1/</p>"
+        )
 
     # ── Mount IM routers ─────────────────────────────────────────
     try:
         from veya.im.feishu import make_feishu_router
+
         app.include_router(make_feishu_router(), prefix="/im/feishu", tags=["IM"])
     except Exception:
         pass
     try:
         from veya.im.slack import make_slack_router
+
         app.include_router(make_slack_router(), prefix="/im/slack", tags=["IM"])
     except Exception:
         pass
     try:
         from veya.im.discord import make_discord_router
+
         app.include_router(make_discord_router(), prefix="/im/discord", tags=["IM"])
     except Exception:
         pass
     try:
         from veya.im.dingtalk import make_dingtalk_router
+
         app.include_router(make_dingtalk_router(), prefix="/im/dingtalk", tags=["IM"])
     except Exception:
         pass
     try:
         from veya.im.wechat import make_wechat_router
+
         app.include_router(make_wechat_router(), prefix="/im/wechat", tags=["IM"])
     except Exception:
         pass
     try:
         from veya.im.telegram import make_telegram_router
+
         app.include_router(make_telegram_router(), prefix="/im/telegram", tags=["IM"])
     except Exception:
         pass
     try:
         from veya.mcp_server import create_mcp_server
+
         mcp = create_mcp_server()
         app.include_router(mcp.as_fastapi_router(), prefix="/mcp", tags=["MCP"])
     except Exception:
@@ -504,8 +531,18 @@ def create_app() -> FastAPI:
         save_decision_trail(
             session_id,
             [
-                {"event": "session_start", "session_id": session_id, "user_ref": user_ref, "task": req.task[:120]},
-                {"event": "session_done", "session_id": session_id, "status": result.get("status", "completed"), "cost": cost},
+                {
+                    "event": "session_start",
+                    "session_id": session_id,
+                    "user_ref": user_ref,
+                    "task": req.task[:120],
+                },
+                {
+                    "event": "session_done",
+                    "session_id": session_id,
+                    "status": result.get("status", "completed"),
+                    "cost": cost,
+                },
             ],
         )
         return AgentRunResponse(
@@ -522,7 +559,17 @@ def create_app() -> FastAPI:
     @api.get("/api/v1/agent/history/{session_id}", response_model=HistoryResponse)
     async def agent_history(session_id: str) -> HistoryResponse:
         steps = load_decision_trail(session_id)
-        return HistoryResponse(session_id=session_id, steps=steps, count=len(steps))
+        # P3 跨设备: 附带 P1 持久化的会话消息 (换设备时前端可 hydrate)
+        messages: list[dict[str, Any]] = []
+        try:
+            from veya.history_store import default_history_store
+
+            messages = await default_history_store().load(session_id)
+        except Exception:  # 历史取用故障不影响 trail 返回
+            messages = []
+        return HistoryResponse(
+            session_id=session_id, steps=steps, count=len(steps), messages=messages
+        )
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/stream  (SSE)
@@ -597,7 +644,9 @@ def create_app() -> FastAPI:
         from server.zero_trust_vault import global_vault
 
         if req.action in ("approve", "reject") and req.approval_id:
-            resolved = global_vault.resolve_approval(req.approval_id, approved=(req.action == "approve"))
+            resolved = global_vault.resolve_approval(
+                req.approval_id, approved=(req.action == "approve")
+            )
             return {
                 "status": "resolved" if resolved else "not_found",
                 "session_id": req.session_id,
@@ -744,9 +793,7 @@ def create_app() -> FastAPI:
         from server.coordinator_master import master_coordinator
 
         session_id = req.session_id or new_session_id()
-        result = await master_coordinator.chat_stream(
-            req.task, session_id=session_id, max_rounds=3
-        )
+        result = await master_coordinator.chat_stream(req.task, session_id=session_id, max_rounds=3)
         return {
             "status": result.get("status", "failed"),
             "result": result.get("final_answer") or result.get("error", ""),
@@ -803,6 +850,7 @@ def create_app() -> FastAPI:
         from pathlib import Path
 
         from veya.platform import load
+
         load("omodul")
 
         from omodul.orchestrator_creation_workflow import orchestrator_creation_workflow
@@ -836,12 +884,18 @@ def create_app() -> FastAPI:
         ]
         for ev in events:
             eng.make_event(name=ev.get("name"), func=None)
+
             # register the body as async function
             @eng.make_event(name=ev.get("name"))
             async def _fn(event_input, global_ctx, body=ev.get("body", "pass")):
                 locs = {}
-                exec(f"async def _inner(event_input, global_ctx):\n    {body.replace(chr(10), chr(10)+'    ')}", globals(), locs)
+                exec(
+                    f"async def _inner(event_input, global_ctx):\n    {body.replace(chr(10), chr(10) + '    ')}",
+                    globals(),
+                    locs,
+                )
                 return await locs["_inner"](event_input, global_ctx)
+
         eng.listen_start(events[0]["name"])
         for i in range(len(events) - 1):
             sid = eng.get_event(events[i]["name"])
@@ -860,6 +914,7 @@ def create_app() -> FastAPI:
     async def agent_registry_list(type: str = "") -> dict[str, Any]:
         try:
             from obase.agent_registry import registry
+
             entries = registry.list(type or None)
         except Exception:
             entries = []
@@ -874,7 +929,9 @@ def create_app() -> FastAPI:
 
         mem = VectorMemory()
         if req.action == "add":
-            rid = mem.add_query(req.query_texts[0] if req.query_texts else "", req.result or "", req.collection)
+            rid = mem.add_query(
+                req.query_texts[0] if req.query_texts else "", req.result or "", req.collection
+            )
             return {"status": "added", "record_id": rid}
         elif req.action == "peek":
             return {"records": mem.peek(req.collection or None, req.n_results)}
@@ -896,6 +953,7 @@ def create_app() -> FastAPI:
         from pathlib import Path
 
         from veya.platform import load
+
         load("omodul")  # inject sys.path for submodule import
         from omodul.team_lifecycle_workflow import team_lifecycle_workflow
 
@@ -922,7 +980,12 @@ def create_app() -> FastAPI:
 
         result = agent_setup_workflow(
             dict(req.config or {}),
-            {"agent_name": req.agent_name, "description": req.description, "soul": req.soul, "skills": req.skills},
+            {
+                "agent_name": req.agent_name,
+                "description": req.description,
+                "soul": req.soul,
+                "skills": req.skills,
+            },
             Path.home() / ".veya" / "runs",
         )
         result["session_id"] = new_session_id()
@@ -960,9 +1023,13 @@ def create_app() -> FastAPI:
         from obase.debounced_memory_queue import DebouncedMemoryQueue
         from oskill.soul_self_evolution import soul_self_evolution
 
-        result = soul_self_evolution(req.agent_name, req.current_soul, dict(req.config or {}), req.execution_feedback)
+        result = soul_self_evolution(
+            req.agent_name, req.current_soul, dict(req.config or {}), req.execution_feedback
+        )
         queue = DebouncedMemoryQueue()
-        queue.enqueue(f"agent:{req.agent_name}", {"last_evolution": result, "ts": __import__("time").time()})
+        queue.enqueue(
+            f"agent:{req.agent_name}", {"last_evolution": result, "ts": __import__("time").time()}
+        )
         result["session_id"] = new_session_id()
         return result
 
@@ -974,7 +1041,9 @@ def create_app() -> FastAPI:
         """Branching deep research with citation tracing & structured report."""
         from oskill.deep_research_tree import deep_research_tree
 
-        result = deep_research_tree(req.task, context={"max_depth": 3, "max_branches": 5, **(req.config or {})})
+        result = deep_research_tree(
+            req.task, context={"max_depth": 3, "max_branches": 5, **(req.config or {})}
+        )
         result["session_id"] = new_session_id()
         return result
 
@@ -984,8 +1053,10 @@ def create_app() -> FastAPI:
     @api.post("/api/v1/agent/skill/teach")
     async def skill_teach_ep(req: SkillTeachRequest) -> dict[str, Any]:
         from veya.platform import load
+
         load("oskill")
         from oskill.skill_teach import skill_teach
+
         result = skill_teach(req.description)
         result["session_id"] = new_session_id()
         return result
@@ -996,8 +1067,10 @@ def create_app() -> FastAPI:
     @api.get("/api/v1/agent/skill/list")
     async def skill_list_ep() -> dict[str, Any]:
         from veya.platform import load
+
         load("oskill")
         from oskill.skill_teach import skill_list
+
         return {"skills": skill_list(), "count": len(skill_list())}
 
     # ------------------------------------------------------------------
@@ -1042,11 +1115,29 @@ def create_app() -> FastAPI:
     @api.post("/api/v1/scheduler")
     async def scheduler_ep(req: SchedulerRequest) -> dict[str, Any]:
         from oskill.recurring_scheduler import RecurringScheduler
+
         sched = RecurringScheduler()
         if req.action == "list":
-            return {"schedules": [{"id": s.id, "name": s.name, "enabled": s.enabled, "phase": s.phase, "run_count": s.run_count} for s in sched.list_all()]}
+            return {
+                "schedules": [
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "enabled": s.enabled,
+                        "phase": s.phase,
+                        "run_count": s.run_count,
+                    }
+                    for s in sched.list_all()
+                ]
+            }
         elif req.action == "create":
-            s = sched.create(req.id or f"sched_{len(sched.list_all())}", req.name or req.id, req.prompt, req.cron, req.interval_ms)
+            s = sched.create(
+                req.id or f"sched_{len(sched.list_all())}",
+                req.name or req.id,
+                req.prompt,
+                req.cron,
+                req.interval_ms,
+            )
             return {"status": "created", "id": s.id}
         elif req.action == "toggle":
             ok = sched.update(req.id, enabled=req.enabled) is not None
@@ -1061,9 +1152,13 @@ def create_app() -> FastAPI:
     @api.post("/api/v1/knowledge")
     async def knowledge_ep(req: KnowledgeRequest) -> dict[str, Any]:
         from obase.knowledge_store import KnowledgeStore
+
         store = KnowledgeStore()
         if req.action == "list":
-            return {"entries": store.list_all(req.type or None), "count": len(store.list_all(req.type or None))}
+            return {
+                "entries": store.list_all(req.type or None),
+                "count": len(store.list_all(req.type or None)),
+            }
         elif req.action == "read":
             doc = store.read(req.id)
             return doc if doc else {"status": "not_found", "id": req.id}
@@ -1084,6 +1179,7 @@ def create_app() -> FastAPI:
     @api.get("/api/v1/mcp/categories")
     async def mcp_categories_ep() -> dict[str, Any]:
         from omodul.cindy_mcp_server import build_memory_mcp_server, build_scheduler_mcp_server
+
         mem = build_memory_mcp_server()
         sch = build_scheduler_mcp_server()
         return {"servers": {"cindy_memory": mem.categories(), "cindy_scheduler": sch.categories()}}
@@ -1094,8 +1190,10 @@ def create_app() -> FastAPI:
     @api.post("/api/v1/plugin/manage")
     async def plugin_manage(req: PluginActionRequest) -> dict[str, Any]:
         from veya.platform import load as _load_3o
+
         _load_3o("obase")
         from obase.plugin_registry import PluginRegistry
+
         reg = PluginRegistry()
         if req.action == "install":
             return reg.install(req.name, req.version, req.capabilities, req.source)
@@ -1141,20 +1239,25 @@ def create_app() -> FastAPI:
 
         if req.audio_path:
             result = await transcribe_file(
-                req.audio_path, provider=req.provider, language=req.language,
+                req.audio_path,
+                provider=req.provider,
+                language=req.language,
             )
         elif req.audio_base64:
             audio_bytes = base64.b64decode(req.audio_base64)
             result = await speech_to_text(
-                audio_bytes, provider=req.provider, language=req.language,
+                audio_bytes,
+                provider=req.provider,
+                language=req.language,
             )
         else:
             raise HTTPException(status_code=400, detail="audio_base64 or audio_path required")
 
         return {
             "text": result.text,
-            "words": [{"text": w.text, "start_ms": w.start_ms, "end_ms": w.end_ms}
-                      for w in result.words],
+            "words": [
+                {"text": w.text, "start_ms": w.start_ms, "end_ms": w.end_ms} for w in result.words
+            ],
             "language": result.language,
             "confidence": result.confidence,
             "duration_ms": result.duration_ms,
@@ -1199,12 +1302,18 @@ def create_app() -> FastAPI:
 
         if req.image_path:
             result = await analyze_image_file(
-                req.image_path, provider=req.provider, prompt=req.prompt, model=req.model,
+                req.image_path,
+                provider=req.provider,
+                prompt=req.prompt,
+                model=req.model,
             )
         elif req.image_base64:
             image_bytes = base64.b64decode(req.image_base64)
             result = await analyze_image(
-                image_bytes, provider=req.provider, prompt=req.prompt, model=req.model,
+                image_bytes,
+                provider=req.provider,
+                prompt=req.prompt,
+                model=req.model,
             )
         else:
             raise HTTPException(status_code=400, detail="image_base64 or image_path required")
@@ -1273,6 +1382,7 @@ def create_app() -> FastAPI:
             input_data.image_path = req.image_paths[0]
         elif req.image_base64_list:
             import base64
+
             input_data.image_data = base64.b64decode(req.image_base64_list[0])
 
         result = await run_vision_analysis(config, input_data, Path("/tmp/veya/vision"))
@@ -1400,7 +1510,10 @@ def create_app() -> FastAPI:
 
         try:
             import subprocess
-            result = subprocess.run(["playwright", "--version"], capture_output=True, text=True, timeout=5)
+
+            result = subprocess.run(
+                ["playwright", "--version"], capture_output=True, text=True, timeout=5
+            )
             version = result.stdout.strip() or "installed"
         except Exception:
             version = "unknown"
@@ -1414,6 +1527,7 @@ def create_app() -> FastAPI:
     async def spawn_list_agents() -> dict[str, Any]:
         """List all registered external agents and their availability."""
         from veya.oskill.spawn import list_agents
+
         return {"agents": list_agents()}
 
     @api.post("/api/v1/spawn/run")
@@ -1470,12 +1584,14 @@ def create_app() -> FastAPI:
     async def account_list(user_id: str) -> dict[str, Any]:
         """List a user's account bindings (no credentials exposed)."""
         from veya.im.account_binding import list_user_bindings
+
         return {"bindings": list_user_bindings(user_id)}
 
     @api.delete("/api/v1/account/unbind")
     async def account_unbind(user_id: str, platform: str) -> dict[str, Any]:
         """Remove a user's account binding."""
         from veya.im.account_binding import unbind_account
+
         success = unbind_account(user_id, platform)
         return {"status": "unbound" if success else "not_found"}
 
@@ -1527,6 +1643,7 @@ def create_app() -> FastAPI:
     async def kanban_graph(board_id: str = "default") -> dict[str, Any]:
         """Get kanban dependency graph."""
         from veya.kanban import KanbanBoard
+
         board_path = Path.home() / ".veya" / "kanban" / f"{board_id}.json"
         if not board_path.exists():
             return {"error": "Board not found"}
@@ -1582,6 +1699,7 @@ def create_app() -> FastAPI:
     @api.get("/api/v1/mcp/health")
     async def mcp_health():
         from veya.mcp_server import create_mcp_server
+
         server = create_mcp_server()
         return {
             "status": "ok",
@@ -1617,7 +1735,12 @@ def create_app() -> FastAPI:
 
         tm = ToolManager()
         result = tm.install(tool_name)
-        return {"name": result.name, "success": result.success, "message": result.message, "error": result.error}
+        return {
+            "name": result.name,
+            "success": result.success,
+            "message": result.message,
+            "error": result.error,
+        }
 
     @api.get("/api/v1/tools/required")
     async def tools_required(capability: str = "veya.core") -> dict[str, Any]:
@@ -1628,7 +1751,9 @@ def create_app() -> FastAPI:
         statuses = tm.check_required_by(capability)
         return {
             "capability": capability,
-            "tools": [{"name": s.name, "installed": s.installed, "version": s.version} for s in statuses],
+            "tools": [
+                {"name": s.name, "installed": s.installed, "version": s.version} for s in statuses
+            ],
         }
 
     # ==================================================================
@@ -1639,6 +1764,7 @@ def create_app() -> FastAPI:
     async def mobile_manifest():
         """PWA manifest for mobile shell."""
         from veya.oprim.mobile import build_pwa_manifest
+
         return build_pwa_manifest()
 
     @api.get("/mobile/shell")
@@ -1647,6 +1773,7 @@ def create_app() -> FastAPI:
         from fastapi.responses import HTMLResponse
 
         from veya.oprim.mobile import build_mobile_shell_html
+
         return HTMLResponse(content=build_mobile_shell_html())
 
     @api.get("/mobile/sw.js")
@@ -1655,14 +1782,25 @@ def create_app() -> FastAPI:
         from fastapi.responses import Response
 
         from veya.oprim.mobile import build_service_worker_js
+
         return Response(content=build_service_worker_js(), media_type="application/javascript")
 
     @api.get("/api/v1/mobile/devices")
     async def mobile_devices():
         """List connected mobile devices."""
         from veya.oskill.mobile import MobileBridge
+
         bridge = MobileBridge()
-        return {"devices": [{"id": d.device_id, "ua": d.user_agent[:100], "screen": f"{d.screen_width}x{d.screen_height}"} for d in bridge.list_devices()]}
+        return {
+            "devices": [
+                {
+                    "id": d.device_id,
+                    "ua": d.user_agent[:100],
+                    "screen": f"{d.screen_width}x{d.screen_height}",
+                }
+                for d in bridge.list_devices()
+            ]
+        }
 
     return app
 

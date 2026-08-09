@@ -1,11 +1,13 @@
 /**
  * sessionStore — multi-session chat persistence (Claude-style).
  *
- * Sessions live in localStorage so history survives reloads; the backend
- * history endpoint (/api/v1/agent/history/{sid}) is reserved for future
- * cross-device sync. Each session auto-titles from its first user message.
+ * Sessions live in localStorage so history survives reloads. P3 cross-device:
+ * when local has no messages for a sid, hydrate() pulls them from the backend
+ * history endpoint (/api/v1/agent/history/{sid}, backed by P1 SQLite store).
+ * Each session auto-titles from its first user message.
  */
 
+import { API_BASE } from "./api";
 import type { ChatMessage } from "./chatTypes";
 
 export interface ChatSession {
@@ -53,6 +55,36 @@ class SessionManager {
 
 	open(sid: string) {
 		this.activeSid = sid;
+		void this.hydrate(sid); // P3 跨设备: 后台补齐本地缺失的历史 (本地有则无操作)
+	}
+
+	/** P3 跨设备: 本地无此会话消息时, 从后端 hydrate (换设备/清缓存后恢复) */
+	async hydrate(sid: string): Promise<void> {
+		const existing = this.sessions.find((x) => x.sid === sid);
+		if (existing && existing.messages.length > 0) return; // 本地已有 → 不覆盖
+		try {
+			const res = await fetch(`${API_BASE}/api/v1/agent/history/${sid}`);
+			if (!res.ok) return;
+			const data = await res.json();
+			const msgs = ((data.messages ?? []) as Array<{ role: string; content?: string }>)
+				.filter((m) => m.role === "user" || m.role === "assistant")
+				.map(
+					(m) =>
+						({ role: m.role, text: String(m.content ?? ""), status: "done", steps: [] }) as ChatMessage,
+				);
+			if (msgs.length === 0) return;
+			if (existing) {
+				existing.messages = msgs;
+			} else {
+				this.sessions = [
+					{ sid, title: msgs[0].text.slice(0, 40) || "恢复的会话", ts: Date.now(), cost: 0, messages: msgs },
+					...this.sessions,
+				];
+			}
+			this.persist();
+		} catch {
+			/* 网络/后端不可用 → 保持本地 */
+		}
 	}
 
 	/** 追加消息并自动持久化; 若首条用户消息则生成标题 */
