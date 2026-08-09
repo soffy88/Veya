@@ -72,6 +72,27 @@
   `tool_registry.py`、漏看 system 层，故误判"半实现"。**主 LLM 分派给子 LLM = 端到端已通。**
 - **文档三重人格**：`AGENTS.md`（空壳 agents/）、`docs/architecture.md`（旧 DAG）、`ARCHITECTURE_STABLE.md`（权威）互相矛盾 → 见 [`graveyard.md`](graveyard.md)。
 
+## 端点双写调查（Batch D 剩余项 · 2026-08-09）
+
+**已确认（静态事实，可信）：**
+1. **cindy 系端点真·双写**：`/api/v1/scheduler` `/api/v1/knowledge` `/api/v1/plugin/manage`
+   `/api/v1/agent/skills-inject` 在两处各实现一份 —— `server/routes/cindy_compat.py`（13 条路由）
+   与 `veya/server/app.py` 的 `create_app()` inline（scheduler_ep/knowledge_ep/plugin_manage/
+   skills_inject_ep）。两份逻辑独立维护 → 漂移风险，即 AGENTS.md「两头都要写」的根源。
+2. **`create_app()` 非幂等**：`veya/server/app.py:1670 app = create_app()` 直接变异共享的
+   `_agentos_app`（root app 对象）；重复调用会把 L4 端点重复注册到同一 app。code smell。
+
+**未完成（诚实说明——本地环境无法安全验证）：**
+- 本地 venv 依赖不全 → `import server.app` 的路由表**非确定**（实测 6 vs 55 路由不一致），
+  无法代表线上 docker(`server.app:app`) 的真实装配。**因此"哪份 cindy 实现在线上实际生效"
+  从本环境无法可靠判定**，盲目 dedup 会有打断 online/desktop 路由的风险（违反质量为王）。
+
+**推荐的安全修法（需在生产同等依赖环境执行 + 验证）：**
+- 让 L4 create_app 的 inline cindy 端点**委托** cindy_compat 的 handler 函数（import 复用同一
+  逻辑），而非各写一份 —— 路由注册面不变（两处仍各自注册路径，两种部署行为都不变），只把
+  **逻辑收敛到单一来源**，消除漂移。附带修 create_app 幂等（`if getattr(app,"_veya_l4_wired",False): return app`）。
+- 前置：在装全依赖的环境跑 `import server.app` 确认 55 路由稳定、cindy 命中，再动手。
+
 ## 验证基线
 
 - `tests/`（77 文件）+ `veya doctor --json` + 线上 `curl /api/v1/mcp/health`。
