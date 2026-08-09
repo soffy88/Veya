@@ -71,6 +71,11 @@ workspace). ROUTE any task that needs actual code changes here:
   blast-radius). Use them to scope a task, but hand the actual editing to reasonix.
 - `reasonix_run` is a long task (may take minutes). It returns the execution
   summary + cost. `reasonix_status` checks availability first if unsure.
+- Cross-turn: user says 「继续上次/接着做」→ `reasonix_run(continue_=true)` resumes
+  the previous session. `reasonix_sessions` lists history (machine ids);
+  `reasonix_run(session_id=<id>)` resumes a specific one.
+- Rollback: user asks 「回滚/撤销最近一次」→ `reasonix_rollback()` restores the
+  workspace to the pre-task git snapshot (auto-created before each run).
 - If reasonix is unavailable, state the limitation instead of faking edits.
 You are the orchestrator over three sibling systems. Route by problem type:
 1. **stratum** (mcp_stratum_* tools) — the KNOWLEDGE EXPERT (AI 知识管家). It owns
@@ -198,6 +203,20 @@ def _is_code_execution_task(user_prompt: str) -> bool:
     if any(k in t for k in _CODE_EXCLUDE):
         return False
     return any(k in t for k in _CODE_STRONG)
+
+
+# 续做信号 (跨轮): 用户说「继续上次」→ reasonix --continue (接着上次会话)。
+_RESUME_HINT = ("继续", "接着", "续做", "上次", "未完", "没做完", "接着做",
+                "接着写", "接着改", "继续完成", "resume", "continue")
+# 续做必须带编码/任务语境, 否则「继续刚才的话题」不触发。
+_RESUME_CTX = ("代码", "项目", "脚本", "文件", "任务", "修", "写", "实现",
+               "bug", "测试", "重构", "功能", "接口", "模块")
+
+
+def _is_resume_request(user_prompt: str) -> bool:
+    """续做信号判定 → reasonix --continue。"""
+    t = user_prompt.lower()
+    return any(k in t for k in _RESUME_HINT) and any(k in t for k in _RESUME_CTX)
 
 
 class MasterCoordinator:
@@ -490,23 +509,51 @@ class MasterCoordinator:
             llm_kwargs["model"] = model
         if endpoint:
             llm_kwargs["endpoint"] = endpoint
-        token = _on_step_ctx.set(on_step)
+        # on_step 经 contextvar 桥接: 主库 notify=fire_step 会自动命中。
+        # SSE 链路 (new_agent_stream_events) 已 set(queue.on_step) 且不传参数
+        # on_step → 参数为 None 时保留外层 contextvar, 否则覆盖 (master/chat 直调)。
+        token = _on_step_ctx.set(on_step if on_step is not None else _on_step_ctx.get())
         try:
             # ── reasonix 确定性前置路由: 编程任务直接执行, 不赌工具循环 ──
             # 必须早于 quick 判定 (短编程指令可能被 oprim 误判为 quick 单轮)
             # 与 _agent.chat_stream (free 池全量工具面下常把 tool call 写文本)。
-            if _is_code_execution_task(user_prompt) and self._llm_fn is llm_call:
-                from server.reasonix_agent import reasonix_run
+            _is_rollback_req = any(
+                k in user_prompt.lower()
+                for k in ("回滚", "撤销", "还原", "undo", "rollback")
+            )
+            if (_is_code_execution_task(user_prompt) or _is_rollback_req) \
+                    and self._llm_fn is llm_call:
+                from server.reasonix_agent import reasonix_run, reasonix_rollback
+
+                # 回滚信号 → reasonix_rollback (独立于编码强词判定)
+                if _is_rollback_req:
+                    try:
+                        rb = await reasonix_rollback()
+                    except Exception as exc:  # noqa: BLE001
+                        rb = f"回滚异常: {exc}"
+                    if on_step is not None:
+                        fire_step({"type": "text_delta", "squad_id": "master",
+                                   "delta": rb})
+                    result = {"status": "success", "final_answer": rb,
+                              "tool_calls": [], "reasonix_rollback": True}
+                    return result
+                resume = _is_resume_request(user_prompt)
+
+                def _prog(ev: dict) -> None:
+                    """reasonix 流式进度 → SSE reasonix_progress 事件。"""
+                    fire_step({"type": "reasonix_progress",
+                               "squad_id": "master", **ev})
 
                 try:
                     exec_summary = await reasonix_run(
-                        user_prompt, timeout_sec=900
+                        user_prompt, timeout_sec=900, continue_=resume,
+                        on_event=_prog,
                     )
                 except Exception as exc:  # noqa: BLE001 — 前置路由兜底
                     exec_summary = f"reasonix 执行异常: {exc}"
                 if on_step is not None:
-                    on_step({"type": "text_delta", "squad_id": "master",
-                             "delta": exec_summary})
+                    fire_step({"type": "text_delta", "squad_id": "master",
+                               "delta": exec_summary})
                 try:
                     result = await self._agent.chat(
                         f"{user_prompt}\n\n[host] 上述编程任务已由 reasonix "
