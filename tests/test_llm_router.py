@@ -455,8 +455,8 @@ def test_llm_call_veya11_opencode_none_content_retries_and_errors(monkeypatch):
         [{"role": "user", "content": "以动画形式生成草船借箭的2分钟视频"}],
         provider="veya1.1", model="veya1.1",
     ))
-    # 重试了备用模型 (deepseek → mimo → deepseek 三候选)
-    assert calls == ["deepseek-v4-flash", "mimo-v2.5"]
+    # 重试了备用模型 (deepseek → mimo → deepseek 三候选) + gpt-5.6-luna 兜底
+    assert calls == ["deepseek-v4-flash", "mimo-v2.5", "gpt-5.6-luna"]
     content = result["choices"][0]["message"]["content"]
     assert "opencode-go 调用失败" in content
     assert "无效内容" in content
