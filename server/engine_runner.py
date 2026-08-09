@@ -421,17 +421,30 @@ async def stream_engine(
         while line:
             text = line.decode(errors="replace").rstrip("\n")
             if engine in ("claude", "grok") and text.strip().startswith("{"):
-                # stream-json (claude) / streaming-messages-json (grok, Anthropic
-                # wire format): 都是 {"type":"content_block_delta",
-                # "delta":{"text":...}} 结构
+                # claude stream-json / grok streaming-messages-json (Anthropic 系):
+                #  - content_block_delta (流式逐 token, grok)
+                #  - assistant (claude 整条消息: message.content[].text)
+                #  - content_block_start + tool_use → 工具轨迹
                 try:
                     evt = json.loads(text)
-                    if evt.get("type") == "content_block_delta":
+                    t = evt.get("type")
+                    if t == "content_block_delta":
                         delta = (evt.get("delta") or {}).get("text", "")
                         if delta:
                             yield {"type": "text_delta", "engine": engine, "delta": delta}
-                    elif evt.get("type") == "content_block_start":
-                        # 工具轨迹: content_block_start + tool_use
+                    elif t == "assistant":
+                        msg = evt.get("message") or {}
+                        for block in msg.get("content") or []:
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") == "text" and block.get("text"):
+                                yield {"type": "text_delta", "engine": engine,
+                                       "delta": block["text"]}
+                            elif block.get("type") == "tool_use":
+                                yield {"type": "tool_call", "engine": engine,
+                                       "tool_name": block.get("name", "tool"),
+                                       "tool_args": block.get("input", {})}
+                    elif t == "content_block_start":
                         cb = evt.get("content_block") or {}
                         if cb.get("type") == "tool_use":
                             yield {"type": "tool_call", "engine": engine,
