@@ -51,13 +51,35 @@ async def new_agent_stream_events(
                 endpoint=endpoint,
             )
         )
+        # Stop 支持: 注册到 master (前端 Stop → cancel_session → 真正中断)
+        from server.coordinator_master import _active_streams
+
+        _active_streams[sid] = chat_task
+
+        def _unregister(_t: asyncio.Task) -> None:
+            _active_streams.pop(sid, None)
+
+        chat_task.add_done_callback(_unregister)
 
         async def _finish() -> None:
             """主脑结束后: 补发最终回答事件 + 关闭队列(唤醒消费循环)。
 
             绝不静默: 主脑返回空/'None' 时也发可见提示帧, 前端不会留空白气泡。
             """
-            result = await chat_task
+            try:
+                result = await chat_task
+            except asyncio.CancelledError:
+                # 用户点 Stop → chat_task 被 cancel_session 取消 → 明确告知
+                queue.on_step(
+                    {"type": "text_delta", "squad_id": "master",
+                     "delta": "⏹ 已停止。后台 Reasonix 任务也已真正中断。"}
+                )
+                queue.on_step(
+                    {"type": "master_done", "session_id": sid,
+                     "status": "cancelled"}
+                )
+                queue.close()
+                return
             final = str(result.get("final_answer") or result.get("error") or "").strip()
             if not final or final.lower() in ("none", "null"):
                 final = (

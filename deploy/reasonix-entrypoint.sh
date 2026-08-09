@@ -9,8 +9,15 @@ mkdir -p /home/soffy/.reasonix
 echo "OPENCODE_API_KEY=${OPENCODE_API_KEY}" > /home/soffy/.reasonix/.env
 
 cd /home/soffy/.veya/reasonix-workspace
-# shell 后台运行 serve; 日志可 docker logs 查看 (/tmp 在容器层)
-(reasonix serve --addr 0.0.0.0:8768 --auth none --model opencode-go \
-  > /tmp/reasonix-serve.log 2>&1 &)
+# reasonix serve 守护循环: 被杀/崩溃自动重启 (veya 硬停止依赖此机制),
+# 日志可 docker logs 查看 (/tmp 在容器层)
+(
+  while true; do
+    reasonix serve --addr 0.0.0.0:8768 --auth none --model opencode-go \
+      >> /tmp/reasonix-serve.log 2>&1
+    echo "[entrypoint] reasonix serve 退出 (rc=$?), 1s 后重启" >> /tmp/reasonix-serve.log
+    sleep 1
+  done
+) &
 
 exec uvicorn server.app:app --host 0.0.0.0 --port 8765

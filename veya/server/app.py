@@ -175,6 +175,12 @@ class MemoryRequest(BaseModel):
     collection: str = "default"
     n_results: int = 5
 
+class AgentStopRequest(BaseModel):
+    """Stop a running stream session (Stop 按钮)."""
+
+    session_id: str = Field(..., description="Running stream session id")
+
+
 class AgentSteerRequest(BaseModel):
     """HITL interrupt control for a running agent session."""
 
@@ -558,6 +564,23 @@ def create_app() -> FastAPI:
                 "Connection": "keep-alive",
             },
         )
+
+    # ------------------------------------------------------------------
+    # POST /api/v1/agent/stop  (Stop 按钮: 真正中断 reasonix + 主脑)
+    # ------------------------------------------------------------------
+    @api.post("/api/v1/agent/stop")
+    async def agent_stop(req: AgentStopRequest) -> dict[str, Any]:
+        """真正停止进行中的流式会话 (与根 app /api/v1/agent/stop 能力面一致)。
+
+        正在运行的 Reasonix 任务 → serve /cancel 真正中断; 排队中 → 取消;
+        主脑 chat_task → cancel (SSE 结束)。
+        """
+        from server.coordinator_master import cancel_session
+
+        sid = req.session_id
+        if not sid:
+            return {"cancelled": "none", "error": "session_id required"}
+        return await cancel_session(sid)
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/steer  (HITL interrupt control)

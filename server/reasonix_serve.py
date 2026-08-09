@@ -55,7 +55,34 @@ class ReasonixServeClient:
         await self._post("/submit", {"input": spec, "format": "json_object"})
 
     async def cancel(self) -> None:
+        """软中断: 请求 serve 停当前 turn。
+
+        注意: 对运行中的模型调用 (如 opencode-go 云端) 不保证立即生效,
+        turn 可能继续跑到本轮结束。硬停止用 restart_serve。
+        """
         await self._post("/cancel")
+
+    async def restart_serve(self, wait_s: float = 40.0) -> bool:
+        """硬停止: kill serve 进程 (守护循环自动重启), 等待恢复健康。
+
+        真正中断运行中的 turn (模型调用随之断开)。重启 ~2s (守护循环)。
+        返回是否恢复健康。
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pkill", "-f", "reasonix serve",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("restart_serve: pkill 失败: %s", exc)
+        deadline = asyncio.get_event_loop().time() + wait_s
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(1.5)
+            if await self.health():
+                return True
+        return False
 
     async def approve(self, approval_id: str, allow: bool = True) -> None:
         await self._post(
