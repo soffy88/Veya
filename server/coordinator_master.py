@@ -289,15 +289,18 @@ class MasterCoordinator:
         register_vault_physical_tools(self)
 
     # ── 宿主注入 ─────────────────────────────────────────────────────
-    def _bound_llm(self, messages: list, **kwargs: Any) -> Any:
+    async def _bound_llm(self, messages: list, **kwargs: Any) -> Any:
         """把用户 key/endpoint 装配进 LLM 调用(支持请求级覆盖)。
 
         请求级 config/model/provider/endpoint(如前端传入的 user API key)
         优先于实例配置, 未提供则回落实例/环境默认。
 
         原生智能优先: 工具面全量透传 (不按关键词裁藏) — 模型自主决定
-        调哪个工具。这是"让大模型自己路由"的核心里程碑; 若免费池模型
-        返回 'None'/空, 由 veya.llm 别名层换模型重试 + 收尾兜底承接。
+        调哪个工具。这是"让大模型自己路由"的核心里程碑。
+
+        绝不静默 (LLM 边界最后一环): opencode-go free 池网关间歇性返回
+        空/'None' (veya.llm 别名层并非总能拦住) → 带温和原生提示重试一次;
+        仍空则返回可见提示, 由 oservi/coordinator/SSE/前端各层继续兜底。
         """
         req_cfg = kwargs.pop("config", None) or {}
         req_model = kwargs.pop("model", None)
@@ -315,15 +318,48 @@ class MasterCoordinator:
                 **self._llm_config.get("endpoints", {}),
                 **req_cfg["endpoints"],
             }
-        return self._llm_fn(
-            messages,
-            config=merged_cfg,
-            model=req_model or self.model,
-            provider=req_provider or self.provider,
-            endpoint=req_endpoint or self.endpoint,
-            tools=tools,
-            **kwargs,
-        )
+
+        async def _call(msgs: list) -> Any:
+            return await self._llm_fn(
+                msgs,
+                config=merged_cfg,
+                model=req_model or self.model,
+                provider=req_provider or self.provider,
+                endpoint=req_endpoint or self.endpoint,
+                tools=tools,
+                **kwargs,
+            )
+
+        if self._llm_fn is llm_call:
+            # 生产默认 llm: 空/'None' 且无 tool_calls → 温和重试一次
+            for attempt in (1, 2):
+                resp = await _call(messages)
+                msg = ((resp.get("choices") or [{}])[0].get("message") or {})
+                content = msg.get("content") or ""
+                if msg.get("tool_calls") or (
+                    content.strip()
+                    and content.strip().lower() not in ("none", "null")
+                ):
+                    return resp
+                if attempt == 1:
+                    # 不污染会话历史: 仅本次调用附加温和提示
+                    messages = messages + [{
+                        "role": "user",
+                        "content": (
+                            "(系统提示: 你刚才返回了空/无效内容。请直接用中文"
+                            "回答用户, 或调用你判断需要的工具; 不要输出 "
+                            "None/空/null。)"
+                        ),
+                    }]
+                    continue
+            return {
+                "choices": [{"message": {"role": "assistant", "content": (
+                    "⚠ 模型连续两次返回空内容 (网关抖动)。请重试, "
+                    "或在上方更换模型。"
+                )}}],
+                "usage": {},
+            }
+        return await _call(messages)
 
     def _cost_calculator(self, response: dict) -> float:
         usage = response.get("usage") or {}
