@@ -26,7 +26,9 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -175,56 +177,153 @@ async def _run_reasonix(
     *,
     workspace: Path,
     timeout: int,
+    on_event: Callable[[dict], None] | None = None,
+    continue_: bool = False,
+    resume_id: str | None = None,
 ) -> dict[str, Any]:
-    """执行一次 reasonix 子进程, 解析 --output-format json 的最终结果对象。
+    """执行一次 reasonix 子进程, 流式解析 stream-json 事件, 返回最终结果对象。
 
-    合并 stdout/stderr 逐行扫描, 取最后一个 {"type":"result" 开头的 JSON 行
-    (reasonix 可能把 skill warning 打到 stdout, 必须跳过)。
+    --output-format stream-json 每行一个 JSON: 中间是 kind 事件 (turn_started /
+    tool_dispatch / tool_result / usage), 结尾是 {"type":"result", ...}。
+    中间事件逐行实时回调 on_event (→ SSE 进度); 不脱敏, 含真实工具名/参数。
+    stdout 逐行读 (不缓冲), stderr 并发收集仅作报错尾部。
     """
     bin_path = _resolve_bin()
     workspace.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     _ensure_local_proxy()
     time.sleep(0.3)  # 代理首次启动等待
-    cmd = [bin_path, "run", *args, "--output-format", "json", "--model", DEFAULT_MODEL,
-           "--auto", "--dir", str(workspace)]
+    cmd = [bin_path, "run", *args, "--output-format", "stream-json",
+           "--model", DEFAULT_MODEL, "--auto", "--dir", str(workspace)]
+    if continue_:
+        cmd.append("--continue")
+    if resume_id:
+        cmd.append(f"--resume={resume_id}")
     logger.info("reasonix cmd: %s", " ".join(cmd[:6]) + " ...")
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=str(workspace), stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE, env=env,
     )
+    stderr_lines: list[str] = []
+
+    async def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        while True:
+            line = await proc.stderr.readline()
+            if not line:
+                break
+            stderr_lines.append(line.decode("utf-8", "replace"))
+
+    stderr_task = asyncio.create_task(_drain_stderr())
+    result: dict[str, Any] | None = None
     try:
-        out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        assert proc.stdout is not None
+        while True:
+            line = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
+            if not line:
+                break
+            text = line.decode("utf-8", "replace").strip()
+            if not text:
+                continue
+            try:
+                ev = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if ev.get("type") == "result":
+                result = ev
+                break
+            _emit_event(ev, on_event)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
         raise ReasonixUnavailable(
             f"reasonix 执行超过 {timeout}s 被终止 (可调 timeout_sec / max_steps)。"
         )
-    text = (out_b or b"").decode("utf-8", "replace") + "\n" + (err_b or b"").decode(
-        "utf-8", "replace"
-    )
-    result: dict[str, Any] | None = None
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith('{"type":"result"'):
-            try:
-                result = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+    finally:
+        stderr_task.cancel()
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
     if result is None:
-        tail = text[-1500:]
+        tail = "".join(stderr_lines)[-1500:] or "(无 stderr)"
         raise ReasonixUnavailable(
             f"reasonix 无结构化结果 (exit={proc.returncode}):\n{tail}"
         )
     return result
 
 
+def _tool_brief(name: str, args: dict) -> str:
+    """工具调用摘要 (进度徽章用, 截断防 SSE 帧膨胀)。"""
+    try:
+        if name in ("write_file", "create_file", "edit_file", "patch"):
+            p = args.get("path") or args.get("file_path") or ""
+            fn = Path(p).name or p
+            content = args.get("content") or ""
+            return f"写入 {fn}" + (f" ({len(str(content))}B)" if content else "")
+        if name in ("bash", "terminal", "run_command", "run"):
+            return f"运行: {str(args.get('command') or args.get('cmd') or '')[:80]}"
+        if name in ("search", "grep", "glob"):
+            return f"搜索: {str(args.get('query') or args.get('pattern') or args.get('path') or '')[:60]}"
+        if name in ("read", "read_file"):
+            return f"读 {Path(str(args.get('path') or '')).name}"
+        if name in ("ls", "list_dir", "list_directory"):
+            return f"列表: {str(args.get('path') or '.')[:60]}"
+        brief = json.dumps(args, ensure_ascii=False)
+        return f"{name}: {brief[:80]}"
+    except Exception:
+        return name
+
+
+def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
+    """stream-json 中间事件 → 精简进度事件 (→ SSE reasonix_progress)。"""
+    if on_event is None:
+        return
+    kind = ev.get("kind")
+    if kind == "turn_started":
+        on_event({"stage": "planning", "tool": None,
+                  "detail": "Reasonix 规划中…"})
+    elif kind == "tool_dispatch":
+        tool = ev.get("tool") or {}
+        # partial=true 的 dispatch 只是意图预告 (args 为空) — 等完整 args 事件
+        if tool.get("partial"):
+            return
+        name = str(tool.get("name") or "tool")
+        args = tool.get("args") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                args = {"_raw": args[:60]}
+        on_event({"stage": "executing", "tool": name,
+                  "detail": _tool_brief(name, args)})
+    elif kind == "tool_result":
+        tool = ev.get("tool") or {}
+        name = str(tool.get("name") or "tool")
+        ms = tool.get("durationMs")
+        on_event({"stage": "executing", "tool": name,
+                  "detail": f"{name} 完成" + (f" ({ms}ms)" if ms else "")})
+    elif kind == "usage":
+        u = ev.get("usage") or {}
+        pt, ct = u.get("promptTokens"), u.get("completionTokens")
+        if pt or ct:
+            on_event({"stage": "stats", "tool": None,
+                      "detail": f"tokens: in={pt} out={ct}"})
+
+
 # ── 工具实现 ──────────────────────────────────────────────────────────
 
 async def reasonix_run(task: str, workspace: str | None = None,
-                       max_steps: int = 0, timeout_sec: int = 0) -> str:
-    """执行一个真正的编程任务 (Reasonix 编码执行器)。返回执行摘要。"""
+                       max_steps: int = 0, timeout_sec: int = 0,
+                       session_id: str | None = None,
+                       continue_: bool = False,
+                       on_event: Callable[[dict], None] | None = None) -> str:
+    """执行一个真正的编程任务 (Reasonix 编码执行器)。返回执行摘要。
+
+    continue_=True → --continue (接着上次未完成会话); session_id 指定 →
+    --resume=<machine id> (恢复历史会话, 见 reasonix_sessions)。任务前自动
+    打 git 快照 (checkpoint) → 可用 reasonix_rollback 回滚。
+    on_event 用于实时进度回调 (前置路由桥接 SSE)。
+    """
     try:
         ws = _resolve_workspace(workspace)
     except ValueError as e:
@@ -239,8 +338,12 @@ async def reasonix_run(task: str, workspace: str | None = None,
     if workspace:
         args += ["--add-dir", str(ws)]
     args.append(task)
+    # 任务前 git 快照 (checkpoint) — 失败不阻塞执行 (无 git 时回滚不可用)
+    checkpoint = _snapshot_workspace(ws, task)
     try:
-        r = await _run_reasonix(args, workspace=ws, timeout=timeout)
+        r = await _run_reasonix(args, workspace=ws, timeout=timeout,
+                                on_event=on_event, continue_=continue_,
+                                resume_id=session_id)
     except ReasonixUnavailable as e:
         return f"reasonix 执行失败: {e}"
     except Exception as e:  # noqa: BLE001 — 工具边界兜底, 回喂主脑
@@ -264,10 +367,101 @@ async def reasonix_run(task: str, workspace: str | None = None,
     if r.get("session_id"):
         extra.append(f"session={r['session_id']}")
     meta = f" ({', '.join(extra)})" if extra else ""
-    return f"{head}{meta} @ {ws}\n{subtype}: {body[:8000]}" + (
-        f"\n\n[截断, 完整输出见 reasonix session {r.get('session_id')}]"
-        if len(body) > 8000 else ""
+    summary = f"{head}{meta} @ {ws}\n{subtype}: {body[:8000]}"
+    if len(body) > 8000:
+        summary += f"\n\n[截断, 完整输出见 reasonix session {r.get('session_id')}]"
+    if checkpoint:
+        summary += f"\n\n🛟 checkpoint: {checkpoint[:12]} (任务前快照; 回滚: 对我说「回滚最近一次」或 reasonix_rollback)"
+    if continue_ or session_id:
+        summary += "\n[本次为续做/恢复会话]"
+    return summary
+
+
+def _git(ws: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(ws), *args],
+        capture_output=True, text=True, timeout=60,
     )
+
+
+def _snapshot_workspace(ws: Path, task: str) -> str | None:
+    """任务前 git 快照 (懒 init)。返回 commit hash; 失败返回 None (不阻塞)。"""
+    try:
+        if not (ws / ".git").exists():
+            _git(ws, "init", "-q")
+        _git(ws, "add", "-A")
+        # 临时 git 身份 (容器/CI 无 user 配置时 commit 也能成功, 不污染全局)
+        r = _git(ws, "-c", "user.name=veya-reasonix",
+                 "-c", "user.email=veya@local",
+                 "commit", "-q", "-m", f"pre-task: {task[:80]}")
+        if r.returncode != 0 and "nothing to commit" not in (r.stdout + r.stderr):
+            logger.warning("snapshot commit failed: %s",
+                           (r.stdout + r.stderr)[-200:])
+            return None
+        r2 = _git(ws, "rev-parse", "HEAD")
+        if r2.returncode != 0:
+            return None
+        return r2.stdout.strip() or None
+    except Exception:  # noqa: BLE001 — 快照失败不阻塞执行
+        logger.warning("snapshot failed for %s: git 不可用?", ws, exc_info=True)
+        return None
+
+
+async def reasonix_rollback(workspace: str | None = None,
+                            ref: str | None = None) -> str:
+    """回滚工作区到最近一次任务前快照 (或指定 ref)。
+
+    每次 reasonix_run 前自动打 git 快照 (pre-task commit)。默认回滚最近
+    一次 (HEAD~1); ref 可指定 commit/hash (见 reasonix_sessions 的 checkpoint)。
+    """
+    try:
+        ws = _resolve_workspace(workspace)
+    except ValueError as e:
+        return f"错误: {e}"
+    try:
+        if not (ws / ".git").exists():
+            return "工作区还没有 git 快照 (没有执行过任务)。"
+        target = ref or "HEAD~1"
+        r = _git(ws, "rev-parse", "--verify", target)
+        if r.returncode != 0:
+            return f"找不到回滚目标 {target!r}。"
+        target_hash = r.stdout.strip()
+        before = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
+        _git(ws, "reset", "--hard", target_hash)
+        after = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
+        return (f"✅ 已回滚 {ws} 到 {target_hash[:12]} (此前 HEAD={before}).\n"
+                f"工作区文件已恢复到任务前状态。")
+    except Exception as e:  # noqa: BLE001
+        return f"回滚失败: {e}"
+
+
+async def reasonix_sessions(limit: int = 8) -> str:
+    """列出最近 reasonix 会话 (可续做 / 查看 checkpoint)。"""
+    try:
+        bin_path = _resolve_bin()
+        ws = _workspace_root()
+        ws.mkdir(parents=True, exist_ok=True)
+        proc = await asyncio.create_subprocess_exec(
+            bin_path, "session", "list", "--json",
+            cwd=str(ws),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=30)
+        data = json.loads((out_b or b"").decode("utf-8", "replace") or "{}")
+    except Exception as e:  # noqa: BLE001
+        return f"无法列出会话: {e}"
+    sessions = data.get("sessions", [])
+    if not sessions:
+        return "暂无 reasonix 会话 (执行过编程任务后会有; 对我说「继续上次」可续做)。"
+    lines = [f"最近 {min(limit, len(sessions))} 个 reasonix 会话:"]
+    for s in sessions[:limit]:
+        updated = (s.get("updated_at") or "")[:19].replace("T", " ")
+        lines.append(
+            f"- {s.get('id')}  turns={s.get('turns')} state={s.get('state')} "
+            f"updated={updated}"
+        )
+    lines.append("续做: 对我说「继续上次」; 指定会话: reasonix_run(session_id=<id>)。")
+    return "\n".join(lines)
 
 
 async def reasonix_status() -> str:
@@ -311,11 +505,27 @@ async def wire_master_tools() -> int:
                     "workspace": {"type": "string", "description": f"可选。工作子目录名或绝对路径（必须位于 {_workspace_root()} 内）。缺省用根工作区。"},
                     "max_steps": {"type": "integer", "description": "可选。工具调用轮次上限，0=自动（默认）。"},
                     "timeout_sec": {"type": "integer", "description": "可选。超时秒数，默认 1800。"},
+                    "session_id": {"type": "string", "description": "可选。恢复指定历史会话（reasonix_sessions 列出的 machine id）。与 continue_ 互斥。"},
+                    "continue_": {"type": "boolean", "description": "可选。true = 接着上次未完成的会话继续做（跨轮续做）。"},
                 },
                 "required": ["task"],
             },
             reasonix_run,
             20000,
+        ),
+        (
+            "reasonix_sessions",
+            "列出最近的 reasonix 编码会话（id/轮次/状态/更新时间）。跨轮续做或查看历史执行记录时调用；用户说「继续上次」时配合 reasonix_run(continue_=true) 使用。",
+            {"type": "object", "properties": {"limit": {"type": "integer", "description": "可选。返回条数，默认 8。"}}},
+            reasonix_sessions,
+            4000,
+        ),
+        (
+            "reasonix_rollback",
+            "回滚 reasonix 工作区到最近一次任务前快照（或指定 commit）。每次 reasonix_run 前自动打 git 快照；用户说「回滚/撤销最近一次改动」时调用。",
+            {"type": "object", "properties": {"workspace": {"type": "string", "description": f"可选。工作目录（必须位于 {_workspace_root()} 内）。"},"ref": {"type": "string", "description": "可选。回滚目标 commit/ref，默认 HEAD~1（最近一次任务前快照）。"}}},
+            reasonix_rollback,
+            2000,
         ),
         (
             "reasonix_status",

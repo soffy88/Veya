@@ -85,6 +85,16 @@ import ModelPicker from "./ModelPicker.svelte";
 				return { Icon: Wrench, cls: "text-amber-400 bg-amber-400/10 border-amber-400/30", label: `$ ${String(ev.tool_name ?? "tool")}` };
 			case "tool_error":
 				return { Icon: CircleAlert, cls: "text-rose-400 bg-rose-400/10 border-rose-400/30", label: `✗ ${String(ev.tool_name ?? "tool")}` };
+			case "reasonix_progress": {
+				const stage = String(ev.stage ?? "");
+				if (stage === "planning")
+					return { Icon: Brain, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "Reasonix 规划中" };
+				if (stage === "executing")
+					return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: `Reasonix: ${String(ev.tool ?? "执行中")}` };
+				if (stage === "done")
+					return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "Reasonix 完成" };
+				return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "Reasonix" };
+			}
 			case "master_round":
 				return { Icon: Brain, cls: "text-violet-400 bg-violet-400/10 border-violet-400/30", label: "思考…" };
 			case "master_start":
@@ -95,6 +105,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	}
 
 	function stepDetail(ev: ToolStep): string {
+		if (ev.type === "reasonix_progress" && typeof ev.detail === "string") return ev.detail.slice(0, 200);
 		if (ev.type === "tool_call" && ev.tool_args != null) {
 			try {
 				return JSON.stringify(ev.tool_args).slice(0, 200);
@@ -164,6 +175,12 @@ import ModelPicker from "./ModelPicker.svelte";
 				} else if (kind === "tool_call" || kind === "tool_error" || kind === "master_round" || kind === "master_start") {
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 					if (last) last.steps = [...last.steps, ev as ToolStep];
+				} else if (kind === "reasonix_progress") {
+					// Reasonix 编码执行器实时进度: 跳过 token 统计噪音, 其余进轨迹
+					if (ev.stage !== "stats") {
+						const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
+						if (last) last.steps = [...last.steps, ev as ToolStep];
+					}
 				} else if (kind === "error") {
 					throw new Error(typeof ev.error === "string" ? ev.error : "agent error");
 				}
