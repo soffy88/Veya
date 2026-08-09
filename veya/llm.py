@@ -420,6 +420,29 @@ def _is_local_or_private(endpoint: str | None) -> bool:
     return False
 
 
+def _core_tool_schemas(tools: list | None) -> list | None:
+    """全量工具面 → 核心执行子集 (本地兜底模型上下文有限)。
+
+    本地 gpt-5.6-luna 的上下文小于云端 free 池: 全量 173 工具 + 50KB
+    system prompt 会超限 → 空回复。降级兜底时只传核心执行工具面,
+    保「能回复」优先 (fetch/reasonix/browser/sandbox/system/代码工具)。
+    """
+    if not tools:
+        return None
+    _CORE = {
+        "fetch_url", "browser_run", "run_in_sandbox", "grep",
+        "list_files", "read_file_ast", "delegate_to_genesis",
+        "search_genesis_ledger", "get_market_data_schema",
+        "run_backtest_coprocessor",
+    }
+    core: list = []
+    for s in tools:
+        name = ((s.get("function") or {}).get("name") or "")
+        if name.startswith(("system_", "reasonix_")) or name in _CORE:
+            core.append(s)
+    return core or None
+
+
 def _custom_proxy_url(provider: str) -> str | None:
     """自定义 provider (非内置) 在容器内的代理兜底 URL。
 
@@ -670,7 +693,8 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                     provider="openai",
                     model="gpt-5.6-luna",
                     endpoint=frontier_endpoint,
-                    tools=payload.get("tools"),
+                    # 本地模型上下文有限: 兜底时裁剪为核心工具面 (保回复优先)
+                    tools=_core_tool_schemas(payload.get("tools")),
                     default_content="gpt-5.6-luna 兜底失败",
                 )
                 content = (
@@ -719,6 +743,33 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
         }
     result.setdefault("usage", {})
     result["router"] = {"route": result.get("route"), "alias": result.get("alias")}
+    # 外环兜底 (绝不静默): 无论内部哪个路径 (opencode 空 / quality gate 升级
+    # 到全量工具超限等) 漏出空回复, 最后用本地 gpt-5.6-luna + 核心工具面
+    # 兜一次。兜底是可靠性, 不是路由判断 — 模型决策不受影响。
+    msg = ((result.get("choices") or [{}])[0].get("message") or {})
+    content = (msg.get("content") or "")
+    if ((not content.strip() or content.strip().lower() in ("none", "null"))
+            and not msg.get("tool_calls")):
+        try:
+            frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
+                "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
+            )
+            resp = await llm_call(
+                messages,
+                config=kwargs.get("config"),
+                provider="openai",
+                model="gpt-5.6-luna",
+                endpoint=frontier_endpoint,
+                tools=_core_tool_schemas(kwargs.get("tools")),
+                default_content="gpt-5.6-luna 兜底失败",
+            )
+            c2 = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+            if c2.strip() and c2.strip().lower() not in ("none", "null"):
+                resp["router"] = {"route": "frontier_fallback",
+                                  "reason": "empty → gpt-5.6-luna"}
+                return resp
+        except Exception:  # noqa: BLE001 — 兜底失败仍返回原结果 (后续各层继续兜底)
+            pass
     return result
 
 
