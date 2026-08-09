@@ -21,7 +21,6 @@
 		RotateCcw,
 		Send,
 		Square,
-		Terminal,
 		User,
 		Wrench,
 	} from "lucide-svelte";
@@ -79,6 +78,8 @@ import ModelPicker from "./ModelPicker.svelte";
 	}
 
 	// ── 工具轨迹图标/文案 ───────────────────────────────────────────
+	// master_start / master_round (任务开始/思考…) 是过程噪音, 不展示 —
+	// 只保留真正有用的执行轨迹: 工具调用/失败/Reasonix 进度。
 	function stepMeta(ev: ToolStep) {
 		switch (ev.type) {
 			case "tool_call":
@@ -95,12 +96,9 @@ import ModelPicker from "./ModelPicker.svelte";
 					return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "Reasonix 完成" };
 				return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "Reasonix" };
 			}
-			case "master_round":
-				return { Icon: Brain, cls: "text-violet-400 bg-violet-400/10 border-violet-400/30", label: "思考…" };
-			case "master_start":
-				return { Icon: Terminal, cls: "text-sky-400 bg-sky-400/10 border-sky-400/30", label: "任务开始" };
 			default:
-				return { Icon: Terminal, cls: "text-sky-400 bg-sky-400/10 border-sky-400/30", label: String(ev.type) };
+				// master_start / master_round (任务开始/思考…) 一律不展示
+				return null;
 		}
 	}
 
@@ -179,7 +177,9 @@ import ModelPicker from "./ModelPicker.svelte";
 							? undefined
 							: "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。",
 					});
-				} else if (kind === "tool_call" || kind === "tool_error" || kind === "master_round" || kind === "master_start") {
+				} else if (kind === "tool_call" || kind === "tool_error") {
+					// 只记录真实执行轨迹 (工具调用/失败); master_start/master_round
+					// (任务开始/思考…) 是过程噪音, 不展示
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 					if (last) last.steps = [...last.steps, ev as ToolStep];
 				} else if (kind === "reasonix_progress") {
@@ -376,20 +376,22 @@ import ModelPicker from "./ModelPicker.svelte";
 										<div class="flex flex-col gap-1">
 											{#each msg.steps as ev, si (si)}
 												{@const meta = stepMeta(ev)}
-												{@const Icon = meta.Icon}
-												<button
-													type="button"
-													onclick={() => toggleStep(si)}
-													class="flex w-fit max-w-full items-center gap-2 rounded-lg border px-2.5 py-1 font-mono text-[11px] {meta.cls}"
-												>
-													<Icon class="size-3.5 shrink-0" />
-													<span class="font-semibold">{meta.label}</span>
-													{#if stepDetail(ev)}
-														<span class="max-w-[280px] truncate opacity-80">
-															{expandedSteps.has(si) ? stepDetail(ev) : stepDetail(ev).slice(0, 60) + "…"}
-														</span>
-													{/if}
-												</button>
+												{#if meta}
+													{@const Icon = meta.Icon}
+													<button
+														type="button"
+														onclick={() => toggleStep(si)}
+														class="flex w-fit max-w-full items-center gap-2 rounded-lg border px-2.5 py-1 font-mono text-[11px] {meta.cls}"
+													>
+														<Icon class="size-3.5 shrink-0" />
+														<span class="font-semibold">{meta.label}</span>
+														{#if stepDetail(ev)}
+															<span class="max-w-[280px] truncate opacity-80">
+																{expandedSteps.has(si) ? stepDetail(ev) : stepDetail(ev).slice(0, 60) + "…"}
+															</span>
+														{/if}
+													</button>
+												{/if}
 											{/each}
 										</div>
 									{/if}
