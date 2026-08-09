@@ -1,11 +1,12 @@
-Here's a concise, professional `AGENTS.md` document tailored to the `veya` project structure. It focuses on **agent architecture**, clarifies module responsibilities, identifies entry points, and reflects the observed design patterns — while gracefully handling noise (e.g., `Zone.Identifier`, `.pycache`, `.venv`, `.whl`, zips) as non-source artifacts.
-
----
-
 # `AGENTS.md`: Agent Architecture Overview for `veya`
 
-> **Version**: `veya` v0.2.0  
-> **Purpose**: This document describes the agent-centric architecture of `veya` — a modular, extensible AI orchestration framework designed for code-aware reasoning, research, planning, and execution.
+> ⚠️ **权威架构以 [`docs/ARCHITECTURE_STABLE.md`](docs/ARCHITECTURE_STABLE.md) 为准。**
+> 本文档从这里到「🚀 线上部署与运维」之间的**上半部分是早期设想/历史叙述**
+> （描述了 `agents/plan.py`/`research.py`/`build.py` 与 Coordinator→Squad→Engine DAG）——
+> **这套设想架构从未按叙述实现**（真实 `agents/` 是空壳），且其中的意图分类/程序化路由
+> 已被冻结架构明确判定为踩坑并废弃。详见 [`docs/graveyard.md`](docs/graveyard.md)。
+> **真实主链路**: 单一大模型（`server/coordinator_master.py` → `oservi.MasterAgent`）编排，
+> 编程任务分派给 Reasonix。下半部分「🚀 线上部署与运维」「🧊 冻结架构」是当前有效内容。
 
 ---
 

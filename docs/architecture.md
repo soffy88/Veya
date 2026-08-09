@@ -1,5 +1,10 @@
 # 架构
 
+> ⚠️ **本文描述的是 legacy 执行路径（Coordinator → Squad → Engine + 意图分类 DAG）。**
+> 该路径当前仅残留在 CLI / IM / automata / flow 渠道，正由整改批次 C 统一到单一大模型
+> 主链路。**当前权威架构见 [`ARCHITECTURE_STABLE.md`](ARCHITECTURE_STABLE.md)**（单 LLM 零程序判断），
+> 退役说明见 [`graveyard.md`](graveyard.md)。下文保留仅供理解旧渠道行为。
+
 ## 执行模型：Coordinator → Squad → Engine
 
 ```
