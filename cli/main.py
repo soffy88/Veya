@@ -39,16 +39,19 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+# 整改批次 C: CLI 统一到主脑单一大模型 (与 Web 同一 coordinator_master),
+# 消灭「Web=单 LLM / CLI=旧 DAG」双头脑。persona 在主脑下无意义 (无分类/无分队),
+# 保留参数仅为兼容旧命令行, 不再影响行为。
 async def _run_once(text: str, *, persona: str) -> dict[str, Any]:
-    from server.coordinator import coordinator
+    from server.coordinator_master import master_coordinator
 
-    return await coordinator.handle({"text": text, "persona": persona})
+    return await master_coordinator.chat_stream(text)
 
 
 async def _interactive_loop(persona: str) -> None:
-    from server.coordinator import coordinator
+    from server.coordinator_master import master_coordinator
 
-    print(f"veya 0.5.1 | persona={persona} | Ctrl-D or 'exit' to quit", file=sys.stderr)
+    print(f"veya {_VERSION} | 主脑单一大模型 | Ctrl-D or 'exit' to quit", file=sys.stderr)
     session_id: str | None = None
 
     with contextlib.suppress(ImportError):
@@ -66,28 +69,21 @@ async def _interactive_loop(persona: str) -> None:
         if line.lower() in ("exit", "quit", "q"):
             break
 
-        result = await coordinator.handle(
-            {"text": line, "persona": persona},
-            session_id=session_id,
-        )
+        result = await master_coordinator.chat_stream(line, session_id=session_id)
         session_id = result.get("session_id") or session_id
 
-        status = result.get("status", "?")
-        cost = result.get("cost_usd", 0.0)
-        print(f"\n[{status}] cost=${cost:.6f}")
-
-        output = result.get("output") or result.get("squads")
-        if output:
-            import json
-
-            if isinstance(output, str):
-                print(output)
-            else:
-                print(json.dumps(output, ensure_ascii=False, indent=2))
+        answer = result.get("final_answer") or ""
+        print(f"\n{answer}")
+        cost = result.get("cost_usd") or result.get("cost") or 0.0
+        if cost:
+            print(f"[cost=${cost:.6f}]", file=sys.stderr)
         print()
 
 
 async def _resume(session_id: str, persona: str) -> None:
+    # 遗留路径 (batch C 未完): --resume 仍走旧 DAG checkpoint 恢复。主脑下「恢复」
+    # 是会话连续性 (chat_stream(session_id=...) 带新输入), 语义不同 — 待与用户确认
+    # 交互后再迁移。coordinator.py 目前仍被 IM/automata/flow 使用, 尚不能退役。
     from server.checkpoint import load_checkpoint
     from veya.compat import checkpoint_to_run_state
 
@@ -139,10 +135,9 @@ def main(argv: list[str] | None = None) -> int:
         text = sys.stdin.read().strip()
         if text:
             result = asyncio.run(_run_once(text, persona=args.persona))
-            import json
-
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-            return 0 if result.get("status") == "success" else 1
+            answer = result.get("final_answer") or ""
+            print(answer)
+            return 0 if answer else 1
         return 0
 
     # Launch TUI if in a TTY
