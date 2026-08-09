@@ -355,7 +355,7 @@ async def run_engine(
     )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
-    except asyncio.TimeoutExpired:
+    except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
         return {"ok": False, "error": f"引擎 {engine} 超时 ({timeout_s:.0f}s)",
@@ -448,7 +448,7 @@ async def stream_engine(
             yield evt
         code = await proc.wait()
         yield {"type": "engine_done", "engine": engine, "status": "success" if code == 0 else "failed"}
-    except asyncio.TimeoutExpired:
+    except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
         yield {"type": "engine_error", "engine": engine, "error": f"引擎超时 ({timeout_s:.0f}s)"}
