@@ -467,6 +467,13 @@ class MasterCoordinator:
                         if _ctx and not _ctx.startswith(
                             ("抓取失败", "错误:", "GitHub 仓库")
                         ):
+                            # 清洗 HTML + 收紧容量: free 池网关上下文在临界
+                            # (system 50KB + 164 工具 schema), 预抓内容过大会
+                            # 触发空响应 (quality-gate 误判 → 升级 → 仍空)。
+                            # 干净的 2500 字足够模型直接概括, 深挖仍可自主调工具。
+                            from server.tool_registry import _html_to_text
+
+                            _ctx = _html_to_text(_ctx, 2500)
                             user_prompt = (
                                 f"{user_prompt}\n\n[URL 内容已预抓, 可直接使用; "
                                 f"如需更深入仍可自主调用 fetch_url/browser_run]\n"
