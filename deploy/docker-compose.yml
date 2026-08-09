@@ -13,6 +13,8 @@ services:
     ports:
       - "8767:8765"      # gateway 通道 (VEYA_GATEWAY)
       - "9120:8765"      # legacy 通道 (VEYA_LEGACY, 前端主脑/工具代理)
+      - "8768:8768"      # reasonix serve (独立 oservi: submit/events/cancel/approve/plan/goal)
+    command: ["sh", "/app/reasonix-entrypoint.sh"]
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.1}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -59,7 +61,9 @@ services:
       # skill_hub 技能库 (宿主实时同步, 只读)
       - /home/soffy/.veya/skills:/home/soffy/.veya/skills:ro
       # Reasonix 编码执行器配置 (容器内 base_url=宿主网关 192.168.16.1:10101)
-      - ../deploy/reasonix-container:/home/soffy/.reasonix:ro
+      # 单文件 ro 挂载 → ~/.reasonix/.env (容器层可写, 启动脚本写入 key)
+      - ../deploy/reasonix-container/config.toml:/home/soffy/.reasonix/config.toml:ro
+      - ../deploy/reasonix-entrypoint.sh:/app/reasonix-entrypoint.sh:ro
     # Chromium 无头浏览器 /dev/shm 需求 (抓取通道)
     shm_size: "1gb"
     restart: unless-stopped

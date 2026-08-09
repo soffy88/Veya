@@ -15,6 +15,16 @@ model       = "gpt-5.6-luna"
 api_key_env = "REASONIX_LOCAL_KEY"
 context_window = 1000000
 
+# opencode-go 云端 (与 veya 免费池同源; 独立可用, 不依赖本地网关/反代)
+# key 由启动脚本写入 ~/.reasonix/.env (容器层), 不入 git
+[[providers]]
+name        = "opencode-go"
+kind        = "openai"
+base_url    = "https://opencode.ai/zen/go/v1"
+model       = "deepseek-v4-flash"
+api_key_env = "OPENCODE_API_KEY"
+context_window = 1000000
+
 [environment]
 enabled = true
 
