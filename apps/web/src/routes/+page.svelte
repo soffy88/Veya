@@ -9,16 +9,17 @@
 	 *   automation → AutomationPanel
 	 *   board    → KanbanPanel  (多 Agent 编排看板: worktree 隔离 + 依赖链)
 	 */
-	import { Bot, Cpu, Hammer, MessageSquare, Package, Clock, Settings, Trash2, Plus, Columns3, Menu, X } from "lucide-svelte";
+	import { Bot, Cpu, Hammer, LayoutDashboard, MessageSquare, Package, Clock, Settings, Trash2, Plus, Columns3, Menu, X } from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
 	import FlowConsole from "$lib/components/FlowConsole.svelte";
+	import Dashboard from "$lib/components/Dashboard.svelte";
 	import PluginPanel from "$lib/components/PluginPanel.svelte";
 	import AutomationPanel from "$lib/components/AutomationPanel.svelte";
 	import KanbanPanel from "$lib/components/KanbanPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 
-	type View = "chat" | "genesis" | "plugins" | "automation" | "board";
+	type View = "chat" | "dashboard" | "genesis" | "plugins" | "automation" | "board";
 
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
@@ -31,6 +32,7 @@
 
 	const NAV: [View, string, typeof MessageSquare][] = [
 		["chat", "对话", MessageSquare],
+		["dashboard", "Dashboard", LayoutDashboard],
 		["genesis", "Genesis 施工", Hammer],
 		["plugins", "插件", Package],
 		["automation", "自动化", Clock],
@@ -190,6 +192,9 @@
 
 		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "chat"}>
 			<ChatConsole />
+		</div>
+		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "dashboard"}>
+			<Dashboard />
 		</div>
 		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "genesis"}>
 			<FlowConsole bind:this={flowConsole} />

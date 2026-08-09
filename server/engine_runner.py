@@ -1,10 +1,11 @@
-"""server/engine_runner.py — 多引擎执行路由 (Claude Code / Codex / Pi)。
+"""server/engine_runner.py — 多引擎执行路由 (Claude Code / Codex / Grok Build / Pi)。
 
 聊天框选择引擎 = 选择"谁执行任务", 不只是换 LLM provider:
 
     engine=master  → 现有主脑 (ReAct + 工具 + 记忆)
     engine=claude  → claude CLI (Claude Code, 非交互 -p)
     engine=codex   → codex CLI (OpenAI Codex, exec)
+    engine=grok    → grok CLI (Grok Build TUI, 单轮 / streaming-messages-json)
     engine=pi      → pi CLI (pi-coding-agent, -p)
 
 执行契约: 引擎 CLI 为可信本机工具, 直接 subprocess 执行 (argv 传参, 无 shell);
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 ENGINE_ALIASES = {
     "claude": "claude",
     "codex": "codex",
+    "grok": "grok",
     "pi": "pi",
     "opencode": "opencode",
     "master": "master",
@@ -284,6 +286,14 @@ def build_argv(engine: str, prompt: str, *,
         if model:
             argv += ["--model", model]
         return argv
+    if engine == "grok":
+        # Grok Build TUI 单轮模式; 流式用 Anthropic wire format NDJSON
+        argv = ["grok", prompt]
+        if streaming:
+            argv += ["--output-format", "streaming-messages-json"]
+        if model:
+            argv += ["--model", model]
+        return argv
     if engine == "opencode":
         # opencode-go 网关模型 (系统内已有凭据); argv[0] 用绝对路径 (容器 PATH 无)
         oc_bin = _container_opencode_bin() if _IN_CONTAINER else shutil.which("opencode") or "opencode"
@@ -392,14 +402,23 @@ async def stream_engine(
         line = await proc.stdout.readline()
         while line:
             text = line.decode(errors="replace").rstrip("\n")
-            if engine == "claude" and text.strip().startswith("{"):
-                # stream-json: {"type":"content_block_delta","delta":{"text":...}}
+            if engine in ("claude", "grok") and text.strip().startswith("{"):
+                # stream-json (claude) / streaming-messages-json (grok, Anthropic
+                # wire format): 都是 {"type":"content_block_delta",
+                # "delta":{"text":...}} 结构
                 try:
                     evt = json.loads(text)
                     if evt.get("type") == "content_block_delta":
                         delta = (evt.get("delta") or {}).get("text", "")
                         if delta:
                             yield {"type": "text_delta", "engine": engine, "delta": delta}
+                    elif evt.get("type") == "content_block_start":
+                        # 工具轨迹: content_block_start + tool_use
+                        cb = evt.get("content_block") or {}
+                        if cb.get("type") == "tool_use":
+                            yield {"type": "tool_call", "engine": engine,
+                                   "tool_name": cb.get("name", "tool"),
+                                   "tool_args": cb.get("input", {})}
                 except json.JSONDecodeError:
                     yield {"type": "text_delta", "engine": engine, "delta": text}
             else:
