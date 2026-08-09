@@ -6,14 +6,15 @@
 ## 目标架构（用户确认）
 
 主 LLM = 唯一入口编排器：接收问题/任务 → 分析分解 → 自解 **或** 分派给工具/子 LLM。
-编程任务 = 专用 Agent（Reasonix，独立进程 + 独立 workspace/checkpoint + **应独立 key**）。
+编程任务 = 专用 Agent（Reasonix，独立进程 + 独立 workspace/checkpoint；**沿用主 LLM 同一 key**，
+其"独立"= 进程/工作区隔离 + 接收主 LLM 下发的结构化编码指令，非 key 隔离）。
 
 ## 审计发现 → 整改批次
 
 | 批次 | 内容 | 触及冻结主链路 | 状态 |
 |---|---|---|---|
 | **A** | 认知债清零（纯文档，不改行为） | 否 | ✅ 完成 (AGENTS.md/architecture.md/BENCHMARK 加历史横幅 + graveyard.md + 本文) |
-| **B** | 编程 Agent key 独立化 + 收敛 Reasonix 双配置 | 是（LLM/部署层）| ✅ 完成 (REASONIX_OPENCODE_API_KEY + 回落; 云端为主/本地 luna 兜底已注释固化; sh 展开三态已验证) |
+| **B** | ~~编程 Agent key 独立化~~ → **沿用主 LLM 同一 key**（用户澄清 2026-08-09: 设计如此）| — | ✅ 定论 · 本轮误引入的独立 key 机制已撤除, deploy 回原状; reasonix 与主 LLM 共用 `OPENCODE_API_KEY`, 独立性体现在进程隔离 + 接收主 LLM 的结构化指令 |
 | **C** | 统一会话入口到 `coordinator_master`（消灭会话双头脑）| 是（路由架构）| ✅ **核心达成** · 会话链路(Web/IM/automata/**CLI 本次**)全在主脑 · 专用/次级路径(prompt/vscode/backends/headless/flow/resume)按决策记录冻结保留, coordinator.py 整体退役降级为未来独立事项 |
 | **D** | 补齐子 LLM(swarm) 分派为一等工具 or 明确内部触发；端点定义单源化（去双写）| 是（工具面/端点）| ⏸ 可选 · 建议后续 |
 | **E** | 环境抽象：硬编码 host/port 收进单一配置层 | 部分 | ⏸ 可选 · 建议后续 |
@@ -60,8 +61,10 @@
 - **双头脑（复审修正——比初判轻）**：会话链路（Web / IM / automata / CLI）已全部在主脑；
   旧 `coordinator.py` 剩余用户多为**结构化/专用子系统**（headless 机器 I/F、flow HITL、
   backends 抽象）或**次级端点**（prompt / vscode），并非一律可 swap。见上表分类。
-- **编程 Agent 非独立 key**：`deploy/reasonix-entrypoint.sh:9` 写入的是主 LLM 同一把 `OPENCODE_API_KEY`（`deploy/.env:18` / `veya/llm.py:74`）。
-- **Reasonix 双配置**：`reasonix_agent.py:48 REASONIX_MODEL=luna`（本地 subprocess）vs `reasonix-entrypoint.sh --model opencode-go`（云端 serve :8768）。
+- **编程 Agent 沿用主 key（设计如此，非缺陷）**：reasonix 与主 LLM 共用 `OPENCODE_API_KEY`
+  （`deploy/reasonix-entrypoint.sh:9`）；其独立性在于进程隔离 + 接收主 LLM 下发的结构化编码
+  指令，非 key 隔离。用户 2026-08-09 澄清确认。
+- **Reasonix 双配置**：`reasonix_agent.py:48 REASONIX_MODEL=luna`（本地 subprocess）vs `reasonix-entrypoint.sh --model opencode-go`（云端 serve :8768）。云端为主 / 本地兜底。
 - **子 LLM 分派半实现**：swarm 注入 MasterAgent（`coordinator_master.py:266`）但未在 `tool_registry.py` 注册为工具。
 - **文档三重人格**：`AGENTS.md`（空壳 agents/）、`docs/architecture.md`（旧 DAG）、`ARCHITECTURE_STABLE.md`（权威）互相矛盾 → 见 [`graveyard.md`](graveyard.md)。
 
