@@ -234,26 +234,28 @@ def test_llm_call_veya11_opencode_failure_returns_error(monkeypatch):
     assert "opencode-go 调用失败" in content
 
 
-def test_llm_call_veya11_vision_routes_to_dashscope(monkeypatch):
+def test_llm_call_veya11_direct_opencode(monkeypatch):
+    """用户要求 (2026-08): veya1.1 直接用 opencode-go API — 不做多模态路由。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
 
     async def fake_provider_call(client, provider, **kw):
         seen.append({"provider": provider, "model": kw["model"]})
-        return {"choices": [{"message": {"content": "vision-ok"}}], "usage": {}}
+        return {"choices": [{"message": {"content": "opencode-ok"}}], "usage": {}}
 
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
     monkeypatch.setattr("os.environ", {**__import__("os").environ,
-                                       "DASHSCOPE_API_KEY": "sk-test"})
+                                       "OPENCODE_API_KEY": "sk-test"})
 
-    asyncio.run(hllm.llm_call(
-        [{"role": "user", "content": [{"type": "image_url",
-                                       "image_url": {"url": "data:image/png;base64,xx"}}]}],
+    resp = asyncio.run(hllm.llm_call(
+        [{"role": "user", "content": "你是谁你能做什么"}],
         provider="veya1.1", model="veya1.1",
     ))
-    assert seen and seen[0]["provider"] == "dashscope"
-    assert seen[0]["model"] == "qwen3.7-flash"
+    # 直连 opencode-go (不再路由到 dashscope/其他模型)
+    assert seen and seen[0]["provider"] == "opencode-go"
+    assert seen[0]["model"] == "deepseek-v4-flash"
+    assert ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") == "opencode-ok"
 
 
 # =========================================================================
