@@ -54,6 +54,9 @@ class VeyaSkillHub:
         self._executors: dict[str, Callable] = {}
         self._descriptions: dict[str, str] = {}
         self._skills: dict[str, dict] = {}  # name → manifest 原始信息
+        # ②-A 静态收口: dispatcher 模式下 N 个 per-skill 工具收成 2 个
+        # (list_skills + run_skill), 主脑工具面 93→~23; VEYA_SKILL_DISPATCHER=0 回退。
+        self._dispatcher = os.environ.get("VEYA_SKILL_DISPATCHER", "1") != "0"
 
         # 启动时自动扫描挂载
         self.reload_skills()
@@ -219,30 +222,98 @@ class VeyaSkillHub:
                     f"MCP Service '{name}' HTTP {exc.response.status_code}: {exc.response.text[:300]}"
                 ) from exc
             except httpx.HTTPError as exc:
-                raise ToolExecutionError(f"MCP Service '{name}' 不可达 ({endpoint}): {exc}") from exc
+                raise ToolExecutionError(
+                    f"MCP Service '{name}' 不可达 ({endpoint}): {exc}"
+                ) from exc
 
         return executor
 
     # ── 供主脑调用的接口 ─────────────────────────────────────────────
+    def _all_skill_names(self) -> list[str]:
+        """真实技能名 (供 stats/错误提示; 不受 dispatcher 影响)。"""
+        return sorted(self._executors)
+
+    def _dispatcher_schemas(self) -> list[dict]:
+        """②-A: N 个 per-skill 工具收成 2 个 —— 技能目录进 run_skill 的 description
+        (走 tools 参数, 不进 system 提示), 模型据此选 skill_name 调用。"""
+        catalog = "\n".join(
+            f"- {n}: {self._descriptions.get(n, '')[:80]}" for n in self._all_skill_names()
+        )
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_skills",
+                    "description": "List all available dynamic skills (name + description). Call this to discover what skills exist before run_skill.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "run_skill",
+                    "description": (
+                        "Run one dynamic skill by name. Pick skill_name from the catalog below "
+                        "and pass its arguments in `args`.\n# SKILL CATALOG:\n" + catalog
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "skill_name": {
+                                "type": "string",
+                                "description": "Skill to run (from catalog).",
+                            },
+                            "args": {"type": "object", "description": "Arguments for the skill."},
+                        },
+                        "required": ["skill_name"],
+                    },
+                },
+            },
+        ]
+
     def get_all_schemas(self) -> list[dict]:
-        """返回所有技能的 JSON Schema, 直接喂给 LLM 的 tools 参数。"""
+        """返回喂给 LLM tools 参数的 schema。dispatcher 模式收成 2 个 (否则逐 skill)。"""
+        if self._dispatcher and self._executors:
+            return self._dispatcher_schemas()
         return list(self._schemas)
 
     def describe(self, name: str) -> str:
         return f"{name} — {self._descriptions.get(name, '')}"
 
     def list_skills(self) -> list[str]:
+        # dispatcher 模式返回空 → oservi 提示渲染 (master_agent:312) 不再逐 skill 列,
+        # 发现改走 run_skill 的 catalog。真实名用 _all_skill_names()。
+        if self._dispatcher:
+            return []
         return sorted(self._executors)
 
     def has(self, name: str) -> bool:
         return name in self._executors
 
     async def execute(self, tool_name: str, kwargs: dict) -> str:
-        """主脑决定调用工具时,路由到这里执行。"""
+        """主脑决定调用工具时,路由到这里执行。dispatcher 模式解包 run_skill/list_skills。"""
+        if self._dispatcher and tool_name == "list_skills":
+            return json.dumps(
+                [
+                    {"name": n, "description": self._descriptions.get(n, "")}
+                    for n in self._all_skill_names()
+                ],
+                ensure_ascii=False,
+            )
+        if self._dispatcher and tool_name == "run_skill":
+            skill_name = kwargs.get("skill_name") or ""
+            args = kwargs.get("args") or {}
+            executor = self._executors.get(skill_name)
+            if executor is None:
+                raise ToolExecutionError(
+                    f"run_skill: skill '{skill_name}' not found. Available: {', '.join(self._all_skill_names())}"
+                )
+            raw = executor(**args)
+            return await raw if inspect.isawaitable(raw) else raw
         executor = self._executors.get(tool_name)
         if executor is None:
             raise ToolExecutionError(
-                f"Dynamic skill '{tool_name}' is not loaded. Available: {', '.join(self.list_skills())}"
+                f"Dynamic skill '{tool_name}' is not loaded. Available: {', '.join(self._all_skill_names())}"
             )
         raw = executor(**kwargs)
         if inspect.isawaitable(raw):
@@ -269,9 +340,11 @@ class VeyaSkillHub:
             "skills_dir": str(self.skills_dir),
             "loaded": len(self._schemas),
             "skills": [
-                {"name": s["function"]["name"],
-                 "description": s["function"]["description"],
-                 "parameters": s["function"].get("parameters", {})}
+                {
+                    "name": s["function"]["name"],
+                    "description": s["function"]["description"],
+                    "parameters": s["function"].get("parameters", {}),
+                }
                 for s in self._schemas
             ],
         }
@@ -280,7 +353,7 @@ class VeyaSkillHub:
         return {
             "skills_dir": str(self.skills_dir),
             "loaded": len(self._schemas),
-            "skills": self.list_skills(),
+            "skills": self._all_skill_names(),
             "types": {
                 t: sum(1 for s in self._skills.values() if s["type"] == t)
                 for t in {"python", "mcp"}
@@ -324,7 +397,9 @@ def create_skill_package(
     }
     if skill_type == "mcp":
         manifest["endpoint"] = endpoint
-    (pkg / _MANIFEST_NAME).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    (pkg / _MANIFEST_NAME).write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     if code and skill_type == "python":
         (pkg / entrypoint).write_text(code, encoding="utf-8")
