@@ -490,22 +490,78 @@ def test_conversation_history_scoped_by_session():
     assert ("user", "B 会话") not in [(m.get("role"), m.get("content")) for m in seen[2]]
 
 
-class TestFullToolSurface:
-    """原生智能优先 (2026-08 架构回归): 工具面全量透传, 不再按关键词裁藏。
+class TestToolSurfaceLayering:
+    """原生智能优先 (2026-08) 的工具面分层: 路由决策权在模型,
+    但工具面做「诱惑管理」— free 池模型在全量 173 工具下会被领域工具
+    带偏 (设计任务去查行情 → 死循环 → 空回复)。
 
-    旧版 _layer_tools 按消息关键词藏 mcp/技能 → 模型需要的工具经常被藏 →
-    做不了 → 返回 'None'/空 (用户感知「不回复」)。已删除: 全量工具面交给
-    模型, 由大模型自主决定路由到哪个工具 (产品要求: 少约束大模型)。
+    核心执行工具恒保留; mcp/技能按领域意图召入; 量化数据工具仅**操作**
+    意图召回 (指标名 MACD 等不触发 — 设计任务不该被带进查行情)。
     """
 
-    def test_layer_tools_removed(self):
+    def _tools(self):
+        def mk(name):
+            return {"type": "function", "function": {"name": name}}
+        return [
+            mk("fetch_url"),
+            mk("browser_run"),
+            mk("reasonix_run"),
+            mk("run_in_sandbox"),
+            mk("get_market_data_schema"),
+            mk("run_backtest_coprocessor"),
+            mk("mcp_stratum_search_knowledge"),
+            mk("mcp_hevi_generate_longvideo"),
+            mk("mcp_codebase_search_code"),
+            mk("system_ping"),
+            mk("ecc_code_reviewer"),
+        ]
+
+    @staticmethod
+    def _layered(tools, user_text):
         from server.coordinator_master import MasterCoordinator
 
-        assert not hasattr(MasterCoordinator, "_layer_tools"), (
-            "关键词裁藏已删除 — 模型必须看到全量工具面自主路由"
-        )
+        return MasterCoordinator._layer_tools(
+            tools, [{"role": "user", "content": user_text}])
 
-    def test_bound_llm_passes_full_tool_surface_untouched(self):
+    def test_design_task_excludes_quant_tools(self):
+        """设计任务 (含 MACD 指标名) 不召回行情数据工具 — 防乱调死循环。"""
+        names = {t["function"]["name"] for t in self._layered(
+            self._tools(), "写一个基于 MACD 的风险控制拦截器设计")}
+        assert "fetch_url" in names and "browser_run" in names  # 核心恒在
+        assert "system_ping" in names
+        assert "get_market_data_schema" not in names, "设计任务不该看到行情工具"
+        assert "run_backtest_coprocessor" not in names
+
+    def test_quant_operation_recalls_data_tools(self):
+        """真实回测操作 (明确操作词) 才召回行情数据工具。"""
+        names = {t["function"]["name"] for t in self._layered(
+            self._tools(), "用 MACD 回测 BTCUSDT 并输出回测指标")}
+        assert "get_market_data_schema" in names
+        assert "run_backtest_coprocessor" in names
+
+    def test_domain_recall_by_intent(self):
+        """领域工具按意图召入: 知识→stratum, 视频→hevi, 代码→codebase。"""
+        know = {t["function"]["name"] for t in self._layered(
+            self._tools(), "帮我检索知识库里的文章")}
+        assert "mcp_stratum_search_knowledge" in know
+        assert "mcp_hevi_generate_longvideo" not in know
+        vid = {t["function"]["name"] for t in self._layered(
+            self._tools(), "生成一个动画视频")}
+        assert "mcp_hevi_generate_longvideo" in vid
+        code = {t["function"]["name"] for t in self._layered(
+            self._tools(), "帮我审查这段代码")}
+        assert "mcp_codebase_search_code" in code
+        assert "ecc_code_reviewer" in code
+
+    def test_core_tools_always_present(self):
+        """核心执行工具 (fetch/reasonix/browser/sandbox) 任何任务恒可见。"""
+        names = {t["function"]["name"] for t in self._layered(
+            self._tools(), "你好")}
+        assert {"fetch_url", "browser_run", "reasonix_run",
+                "run_in_sandbox", "system_ping"} <= names
+
+    def test_bound_llm_applies_layering(self):
+        """_bound_llm 对工具面做分层 (非全量透传)。"""
         import asyncio
 
         from server.coordinator_master import MasterCoordinator
@@ -518,15 +574,12 @@ class TestFullToolSurface:
                     "usage": {}}
 
         coord = MasterCoordinator(llm_fn=fake_llm)
-        tool_schemas = [
-            {"type": "function", "function": {"name": "mcp_stratum_search_knowledge"}},
-            {"type": "function", "function": {"name": "mcp_hevi_generate_longvideo"}},
-            {"type": "function", "function": {"name": "system_ping"}},
-        ]
         asyncio.run(coord._bound_llm(
-            [{"role": "user", "content": "帮我检索知识库"}], tools=tool_schemas))
-        # 全量透传: 知识请求同样能看到视频工具 — 模型自主决定, 而非关键词决定
-        assert captured["tools"] == tool_schemas
+            [{"role": "user", "content": "写一个基于 MACD 的风险控制拦截器设计"}],
+            tools=self._tools()))
+        names = {(t.get("function") or {}).get("name") for t in captured["tools"]}
+        assert "get_market_data_schema" not in names, "设计任务不该看到行情工具"
+        assert "fetch_url" in names
 
     def test_bound_llm_no_retry_for_mock_llm(self):
         """非生产 llm (mock) 不走重试分支 — 测试注入语义保持。"""
