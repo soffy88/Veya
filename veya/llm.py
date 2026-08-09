@@ -724,25 +724,21 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             default_content=kwargs.get("default_content"),
         )
 
-    result = await router.call_aliased(
-        messages, _single, tools=kwargs.get("tools"),
-        priority=str(kwargs.get("priority", "normal")),
-        budget=kwargs.get("budget"),
-    )
+    # 用户要求 (2026-08): 大模型直接用 opencode-go API — 不走 oskill
+    # 复杂别名路由器 (quality-gate 升级/模型切换/并行分派把链路搞复杂,
+    # 是空回复的诱因)。直连: 候选模型重试 + 空回复 gpt-5.6-luna 兜底
+    # (逻辑在 _single 的 opencode 分支)。
+    result = await _single({
+        "provider": "opencode",
+        "model": "opencode-go/deepseek-v4-flash",
+        "messages": messages,
+        "tools": kwargs.get("tools"),
+    })
     # opencode-go 档: provider_call 不认识 opencode → 已由 _single 特判返回
     if result.get("opencode"):
         return result
-    # 并行分派 → 聚合文本; 单发 → 原 llm_call 结构
-    if result.get("parallel"):
-        content = str(result.get("aggregated") or result.get("output") or "")
-        return {
-            "choices": [{"message": {"role": "assistant", "content": content}}],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "router": {"parallel": True, "chunks": result.get("chunks"),
-                       "elapsed_s": result.get("elapsed_s")},
-        }
     result.setdefault("usage", {})
-    result["router"] = {"route": result.get("route"), "alias": result.get("alias")}
+    result["router"] = {"route": "opencode-direct", "alias": "veya1.1"}
     # 外环兜底 (绝不静默): 无论内部哪个路径 (opencode 空 / quality gate 升级
     # 到全量工具超限等) 漏出空回复, 最后用本地 gpt-5.6-luna + 核心工具面
     # 兜一次。兜底是可靠性, 不是路由判断 — 模型决策不受影响。
