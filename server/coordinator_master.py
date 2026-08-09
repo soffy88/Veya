@@ -35,6 +35,20 @@ from veya.platform import oservi as _load_oservi
 _oservi = _load_oservi()
 
 
+def _slim_master_prompt(text: str) -> str:
+    """① 去自吹: 移除污染回答的身份夸耀 (模型会把「工业级系统/量化研究核心」
+    夹进答复 = 用户不满的"回答夹带系统介绍")。只删纯自我标榜, 全部功能性指令保留。
+    veya 层过滤 (不改 3O 子库); 匹配不到则原样返回 (子库措辞变动不崩)。
+    """
+    puffery = {
+        "You are the Veya Master Coordinator, an elite AI orchestrator.": "You are the Veya Master Coordinator.",
+        "You are the Master Coordinator of Veya OS, an industrial-grade Agentic system and quantitative research core.": "You are the Master Coordinator of Veya OS.",
+    }
+    for old, new in puffery.items():
+        text = text.replace(old, new)
+    return text
+
+
 # 宿主能力段 (追加在主库 MASTER_SYSTEM_PROMPT 之后): 视频生产 (hevi + Open Design)。
 # 3O 铁律: 机制在主库, 此处仅装配层语境 — 主脑需知道 hevi 是视频生成专家、
 # 动画视频该走 mcp_hevi_* 管线 + mcp_od_* 项目承载, 而非自编 HTML/Three.js。
@@ -303,7 +317,7 @@ class MasterCoordinator:
             max_rounds=max_rounds,
             temperature=temperature,
             cost_calculator=self._cost_calculator,
-            system_prompt=_oservi.MASTER_SYSTEM_PROMPT + _HOST_SOP_APPEND,
+            system_prompt=_slim_master_prompt(_oservi.MASTER_SYSTEM_PROMPT) + _HOST_SOP_APPEND,
         )
 
         # 零信任金库物理工具接线: 大模型只传 vault_id + 意图, 审批通过后
