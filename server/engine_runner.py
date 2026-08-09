@@ -305,8 +305,8 @@ def build_argv(engine: str, prompt: str, *,
             argv += ["--model", model]
         return argv
     if engine == "grok":
-        # Grok Build TUI 单轮模式; 流式用 Anthropic wire format NDJSON
-        argv = ["grok", prompt]
+        # Grok Build: -p/--single 单轮模式; 流式用 Anthropic wire format NDJSON
+        argv = ["grok", "-p", prompt]
         if streaming:
             argv += ["--output-format", "streaming-messages-json"]
         if model:
