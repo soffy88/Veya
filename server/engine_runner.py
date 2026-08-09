@@ -198,6 +198,22 @@ def _container_opencode_usable() -> bool:
             and "opencode-go" in Path(auth).read_text(encoding="utf-8", errors="ignore"))
 
 
+def _container_grok_usable() -> bool:
+    """容器 grok 可用性: ~/.grok/bin/grok 二进制 + auth.json 凭据。
+
+    宿主 grok 装在 ~/.grok/bin/grok (~/.local/bin 里只是符号链接); 容器要
+    可用需 docker-compose 挂载 /home/soffy/.grok → 容器 (含凭据)。
+    """
+    if not _IN_CONTAINER:
+        return True
+    bin_path = os.path.expanduser("~/.grok/bin/grok")
+    return (
+        os.path.isfile(bin_path)
+        and os.access(bin_path, os.X_OK)
+        and os.path.isfile(os.path.expanduser("~/.grok/auth.json"))
+    )
+
+
 def _container_codex_base_url() -> str | None:
     """容器内 codex 应使用的 opencodex 端点 (容器内自举实例, loopback 直连)。"""
     if not _IN_CONTAINER:
@@ -217,9 +233,10 @@ def available_engines() -> dict[str, str]:
         for eng, probe in (("pi", _container_pi_usable),
                            ("claude", _container_claude_usable),
                            ("codex", _container_codex_usable),
+                           ("grok", _container_grok_usable),
                            ("opencode", _container_opencode_usable)):
             if probe():
-                out[eng] = shutil.which(eng)
+                out[eng] = shutil.which(eng) or f"{eng}"
         return out
     out: dict[str, str] = {}
     for eng, bin_name in ENGINE_ALIASES.items():
@@ -238,6 +255,7 @@ def _container_engine_block(engine: str) -> str | None:
         probes = {"pi": _container_pi_usable,
                   "claude": _container_claude_usable,
                   "codex": _container_codex_usable,
+                  "grok": _container_grok_usable,
                   "opencode": _container_opencode_usable}
         probe = probes.get(engine)
         if probe and probe():
