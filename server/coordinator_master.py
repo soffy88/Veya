@@ -120,6 +120,23 @@ it. Do NOT refuse, truncate, or "need a tool" just because input is long.
   directly from native knowledge when the question is conceptual.
 - NEVER output "None"/empty. If a tool fails, read the error natively and adapt.
   If you truly cannot complete, say so in Chinese with the reason + a suggestion.
+
+# TOOL DISCIPLINE (工具纪律 — 原生判断, 非规则) — CRITICAL:
+You decide whether tools are needed. These are the cases where they are NOT:
+- Design / plan / writing / explanation / conceptual / architecture tasks
+  (设计/方案/写作/解释/概念/架构/规划): answer DIRECTLY with ZERO tool calls.
+  You do not need market data to design a strategy, nor a file listing to
+  explain a concept. A design request gets a design, not a data fetch.
+- Before ANY tool call, ask: "Do I need real physical data that ONLY a tool
+  can provide (live prices, web content, code files, running code)?"
+  If native knowledge suffices → answer directly.
+- A tool that fails ONCE → do NOT retry it with different arguments. One failed
+  tool call (e.g. missing data file) means: switch tool or answer from what you
+  have. Retrying the same failing tool wastes turns and produces empty replies.
+- After 2 failed tool calls in a row, stop calling tools entirely and answer
+  from the information you already have.
+- Tools are hands, not reflexes: the fewer tools you see, the more native
+  intelligence is expected of you. Never call a tool just because it exists.
 You are the orchestrator over three sibling systems. Route by problem type:
 1. **stratum** (mcp_stratum_* tools) — the KNOWLEDGE EXPERT (AI 知识管家). It owns
    PDF/EPUB/webpage/RSS ingestion, hybrid retrieval (BM25+vector), translation,
@@ -296,18 +313,22 @@ class MasterCoordinator:
         请求级 config/model/provider/endpoint(如前端传入的 user API key)
         优先于实例配置, 未提供则回落实例/环境默认。
 
-        原生智能优先: 工具面全量透传 (不按关键词裁藏) — 模型自主决定
-        调哪个工具。这是"让大模型自己路由"的核心里程碑。
+        原生智能优先: 路由决策权在模型 — 但工具面对 free 池模型做
+        「诱惑管理」: 全量 173 工具会让它被领域工具带偏 (设计任务去查
+        行情 → 死循环 → 空回复)。_layer_tools 按任务领域召入工具面
+        (非路由判断, 只是可见性管理): 核心执行工具恒在, mcp/技能按
+        领域意图召回, 量化数据工具仅真实操作意图召回。
 
         绝不静默 (LLM 边界最后一环): opencode-go free 池网关间歇性返回
-        空/'None' (veya.llm 别名层并非总能拦住) → 带温和原生提示重试一次;
-        仍空则返回可见提示, 由 oservi/coordinator/SSE/前端各层继续兜底。
+        空/'None' → 带温和原生提示退避重试; 仍空则返回可见提示。
         """
         req_cfg = kwargs.pop("config", None) or {}
         req_model = kwargs.pop("model", None)
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
         tools = kwargs.pop("tools", None)
+        if tools:
+            tools = self._layer_tools(tools, messages)
         merged_cfg = {**self._llm_config, **req_cfg}
         if req_cfg.get("providers"):
             merged_cfg["providers"] = {
@@ -364,6 +385,91 @@ class MasterCoordinator:
                 "usage": {},
             }
         return await _call(messages)
+
+    @staticmethod
+    def _layer_tools(tools: list, messages: list) -> list:
+        """工具 schema 分层 (诱惑管理, 非路由判断): 只裁 LLM 可见面。
+
+        路由决策权在模型; 但 free 池模型在全量 173 工具下会被领域工具
+        带偏 (设计任务去查行情 → 失败重试 → 空回复)。分层后模型看到
+        「核心执行工具 + 当前任务领域工具」:
+        - 系统级 + 基础执行工具 (fetch_url/reasonix/browser/sandbox/...) 恒保留;
+        - mcp_* 按领域意图召入 (视频/设计 → hevi+od, 代码 → codebase,
+          知识 → stratum);
+        - 量化数据工具 (get_market_data_schema/run_backtest_coprocessor)
+          仅**操作意图**召回 (回测/行情数据/实盘/策略验证) — 指标名
+          (MACD/均线/RSI) 不触发, 否则「设计一个 MACD 拦截器」会被
+          带进查行情的死胡同;
+        - 技能/ecc 专家默认剔除, 显式技能/代码意图才召回。
+        """
+
+        def _name(s: dict) -> str:
+            return (s.get("function") or {}).get("name", "")
+
+        user_text = " ".join(
+            str(m.get("content", "")) for m in messages if m.get("role") == "user"
+        ).lower()
+        want_video = any(k in user_text for k in ("视频", "动画", "影片", "短片",
+                                                  "影视", "hevi", "分镜",
+                                                  "配音", "字幕"))
+        want_design = any(k in user_text for k in ("设计", "项目", "od_", "海报",
+                                                   "画", "渲染", "资产",
+                                                   "方案", "架构", "规划"))
+        want_code = any(k in user_text for k in ("代码", "审查", "review", "重构",
+                                                 "测试", "bug", "构建", "build",
+                                                 "报错", "写一个", "写个", "实现",
+                                                 "修复", "编程", "函数", "脚本",
+                                                 "开发", "code", "coding",
+                                                 "compile", "error"))
+        # 量化**操作**意图 (指标名 MACD/均线/RSI 不触发 — 设计任务含指标名
+        # 不代表要查行情; 只有真实操作词才召回数据工具)
+        want_quant = any(k in user_text for k in ("回测", "行情数据", "实盘",
+                                                  "策略验证", "量化分析",
+                                                  "backtest", "market data",
+                                                  "run_backtest", "获取行情",
+                                                  "交易信号", "下单", "k线数据",
+                                                  "数据文件", "parquet"))
+        want_knowledge = any(k in user_text for k in (
+            "检索", "查资料", "查一下", "资料", "翻译", "摘要", "总结", "笔记",
+            "知识", "文档", "文章", "pdf", "网页", "rss", "概念", "图谱",
+            "记忆", "学习", "研究", "搜索", "stratum", "书签", "收藏",
+            "订阅", "资讯", "新闻", "论文", "文献"))
+        want_skill = any(k in user_text for k in ("技能", "skill", "专家",
+                                                  "审查", "review", "代码审查",
+                                                  "code review", "架构师"))
+
+        keep: list[dict] = []
+        for s in tools:
+            n = _name(s)
+            # 系统级 + 基础静态执行工具恒保留
+            if n.startswith("system_") or (
+                not n.startswith("ecc_") and not n.startswith("skill_")
+                and not n.startswith("mcp_")
+                and n not in ("get_market_data_schema",
+                              "run_backtest_coprocessor")
+            ):
+                keep.append(s)
+                continue
+            if n.startswith("mcp_"):
+                if ((n.startswith("mcp_hevi_") or n.startswith("mcp_od_"))
+                        and (want_video or want_design)) or (
+                    n.startswith("mcp_codebase_") and (want_code or want_video)
+                ) or (
+                    n.startswith("mcp_stratum_") and (want_knowledge or want_code)
+                ):
+                    keep.append(s)
+                continue
+            # 量化数据依赖工具: 仅真实操作意图 (指标名不触发)
+            if n in ("get_market_data_schema", "run_backtest_coprocessor"):
+                if want_quant:
+                    keep.append(s)
+                continue
+            # 技能/ecc 专家: 显式技能/代码意图才召回 (全量注入撑爆免费池)
+            if (n.startswith("ecc_") and (want_code or want_skill)) or (
+                n.startswith("skill_") and (want_code or want_skill or want_video)
+            ):
+                keep.append(s)
+        return keep
 
     def _cost_calculator(self, response: dict) -> float:
         usage = response.get("usage") or {}
