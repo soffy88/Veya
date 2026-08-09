@@ -549,3 +549,31 @@ class TestFullToolSurface:
         assert "原生理解并回答" in r["final_answer"]
         # 工具面仍然注入 (模型可自主选择), 只是没有被强制 preempt
         assert seen and seen[0].get("tools") is not None
+
+    def test_code_task_empty_result_hands_to_reasonix(self, monkeypatch):
+        """收尾兜底 (非前置拦截): 编程强信号 + 模型空回复/未调 reasonix_run
+        → 自动交 reasonix 执行, 保证任务不落空。"""
+        import asyncio
+
+        from server import reasonix_agent as ra_mod
+        from server.coordinator_master import MasterCoordinator
+
+        captured: dict = {}
+
+        async def fake_reasonix(task, **kw):
+            captured["task"] = task
+            captured["on_event"] = kw.get("on_event")
+            return "FAKE_EXEC: hello.py 已写入并运行通过"
+
+        monkeypatch.setattr(ra_mod, "reasonix_run", fake_reasonix)
+
+        async def empty_llm(messages, **kw):
+            return {"choices": [{"message": {"role": "assistant", "content": ""}}],
+                    "usage": {}}
+
+        coord = MasterCoordinator(llm_fn=empty_llm, max_rounds=2)
+        r = asyncio.run(coord.chat_stream("写一个 python 脚本读取 csv", session_id="s-fb"))
+        assert "FAKE_EXEC" in r["final_answer"]
+        assert r.get("reasonix_execution")
+        assert captured["task"] == "写一个 python 脚本读取 csv"
+        assert captured["on_event"] is not None  # 进度事件桥接 SSE
