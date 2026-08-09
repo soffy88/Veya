@@ -444,11 +444,12 @@ async def stream_engine(
             line = await proc.stdout.readline()
 
     try:
-        async for evt in asyncio.wait_for(_read(), timeout=timeout_s):
-            yield evt
+        async with asyncio.timeout(timeout_s):
+            async for evt in _read():
+                yield evt
         code = await proc.wait()
         yield {"type": "engine_done", "engine": engine, "status": "success" if code == 0 else "failed"}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         yield {"type": "engine_error", "engine": engine, "error": f"引擎超时 ({timeout_s:.0f}s)"}
