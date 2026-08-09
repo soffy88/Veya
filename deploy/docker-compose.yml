@@ -57,6 +57,7 @@ services:
       - /home/soffy/.claude.json:/home/soffy/.claude.json:ro
       - /home/soffy/.codex:/home/soffy/.codex:rw
       - /home/soffy/.pi:/home/soffy/.pi:rw
+      - /home/soffy/.grok:/home/soffy/.grok:rw
       - /home/soffy/.opencode:/home/soffy/.opencode:ro
       # skill_hub 技能库 (宿主实时同步, 只读)
       - /home/soffy/.veya/skills:/home/soffy/.veya/skills:ro
