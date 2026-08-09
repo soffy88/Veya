@@ -11,10 +11,37 @@ oservi.master_agent.MasterAgent(SOP/系统工具/路由/循环)。
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
+logger = logging.getLogger("coordinator.master")
+
 from server.events import _on_step_ctx, fire_step
+
+
+# ── 编程任务强信号判定 (收尾兜底用, 非前置路由) ────────────────────────
+# 模型自主路由优先; 此处仅用于「模型没动手且结果无代码」时收尾交给 reasonix。
+_CODE_STRONG = (
+    "写一个", "写一段", "写个", "写代码", "编写", "实现", "创建", "新建",
+    "修复", "修一下", "修个", "重构", "改成", "改一下", "跑测试", "运行测试",
+    "跑一下", "编译", "调试", "加个功能", "新增功能", "搭一个", "构建",
+    "写个脚本", "写个程序", "python 脚本", "写个函数",
+)
+_CODE_EXCLUDE = (
+    "解释", "讲解", "为什么", "是什么", "啥是", "区别", "对比", "教程",
+    "原理", "怎么理解", "说说", "分析一下原因", "帮我看看这段", "帮我看看这个",
+)
+
+
+def _is_code_execution_task(user_prompt: str) -> bool:
+    """强编码意图判定 (排除纯解释类)。"""
+    t = user_prompt.lower()
+    if any(k in t for k in _CODE_EXCLUDE):
+        return False
+    return any(k in t for k in _CODE_STRONG)
+
+
 from server.memory_bank import VeyaMemoryBank
 from server.memory_bank import memory_bank as _default_memory_bank
 from server.skill_hub import VeyaSkillHub
@@ -393,6 +420,32 @@ class MasterCoordinator:
                 llm_kwargs=llm_kwargs or None,
                 long_task=lt,
             )
+            # ── 编程任务收尾兜底 (原生智能的护栏, 非前置拦截) ──
+            # 模型自主路由优先; 但若编程强信号任务模型没调 reasonix_run 且
+            # 结果为空/无代码块 → 收尾直接交给 Reasonix 执行器 (serve),
+            # 保证「veya 理解 → 规范指令 → reasonix 执行」不落空。
+            if _is_code_execution_task(user_prompt):
+                _done = {t.get("tool", "") for t in (result.get("tool_calls") or [])}
+                final0 = str(result.get("final_answer") or "").strip()
+                if "reasonix_run" not in _done \
+                        and (not final0 or "```" not in final0):
+                    from server.reasonix_agent import reasonix_run
+
+                    def _prog(ev: dict) -> None:
+                        fire_step({"type": "reasonix_progress",
+                                   "squad_id": "master", **ev})
+
+                    try:
+                        exec_summary = await reasonix_run(
+                            user_prompt, timeout_sec=900, on_event=_prog,
+                        )
+                        result["reasonix_execution"] = exec_summary
+                        result["final_answer"] = (
+                            exec_summary
+                            + "\n\n(主脑已将此编程任务交给 Reasonix 编码执行器完成)"
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("reasonix 兜底执行失败: %s", exc)
             # 绝不静默: 模型返回空/'None' 且无工具执行 → 可见兜底话术
             final = str(result.get("final_answer") or "").strip()
             if not final or final.lower() in ("none", "null"):
