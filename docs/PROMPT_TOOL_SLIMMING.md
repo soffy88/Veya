@@ -28,7 +28,21 @@
 > 工具面 + oservi 提示渲染(行 312), **只有真实 skills/mcp 跑起来才能验证"收口后模型仍
 > 正确调工具"**。盲改 = 拿线上工具调用赌博, 不做。
 
-### ②-A skills 72 → 2 (dispatcher)
+### ②-A skills 72 → 2 (dispatcher) ✅ 已完成·真实容器验证
+
+**实测(veya-backend 容器, 真实 72 skills):**
+- 主脑工具面 **93 → 23**(10 核心 + 11 system + 2 skill dispatcher)。
+- 系统提示 **39,161 → 18,814 字节(腰斩)** —— skills 不再逐条进 system(`list_skills()`
+  dispatcher 模式返回空 → oservi:312 不渲染), 发现改走 run_skill 的 catalog。
+- `run_skill` 正确路由到真实 executor; `list_skills` 返回 72 条目录; `VEYA_SKILL_DISPATCHER=0`
+  一键回退到 93/39KB, 实测无误。
+- 实现: `_dispatcher` flag(默认 ON) + `_dispatcher_schemas()` + `execute()` 解包 run_skill/
+  list_skills + `list_skills()` 空返回 + `_all_skill_names()` 供 stats。**未改 3O 子库**
+  (靠 master_agent:600 的 `skill_hub.execute` fallback 路由)。
+- ⚠️ 待生产观察: 模型是否稳定用 list→run(机制已验; 异常即 `VEYA_SKILL_DISPATCHER=0` 回退)。
+
+---
+原始设计(供参考):
 
 - 文件: `server/skill_hub.py`(veya 层, 非子库)。
 - `get_all_schemas()`: 有 skills 时返回 2 个 dispatcher schema —
