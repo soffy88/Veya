@@ -9,7 +9,7 @@
 	 *   automation → AutomationPanel
 	 *   board    → KanbanPanel  (多 Agent 编排看板: worktree 隔离 + 依赖链)
 	 */
-	import { Bot, Cpu, Hammer, MessageSquare, Package, Clock, Settings, Trash2, Plus, Columns3 } from "lucide-svelte";
+	import { Bot, Cpu, Hammer, MessageSquare, Package, Clock, Settings, Trash2, Plus, Columns3, Menu, X } from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
 	import FlowConsole from "$lib/components/FlowConsole.svelte";
 	import PluginPanel from "$lib/components/PluginPanel.svelte";
@@ -23,6 +23,11 @@
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
 	let view = $state<View>("chat");
+	let sidebarOpen = $state(false); // mobile drawer
+
+	function closeSidebar() {
+		sidebarOpen = false;
+	}
 
 	const NAV: [View, string, typeof MessageSquare][] = [
 		["chat", "对话", MessageSquare],
@@ -35,6 +40,7 @@
 	function selectNav(v: View) {
 		view = v;
 		if (v === "genesis") flowConsole?.newFlow();
+		closeSidebar();
 	}
 
 	function newChat() {
@@ -52,14 +58,35 @@
 </script>
 
 <main class="flex h-screen overflow-hidden">
-	<!-- ── sidebar ────────────────────────────────────────────────── -->
-	<aside class="flex w-60 shrink-0 flex-col border-r border-white/5 bg-[#0a0a0a]">
+	<!-- ── mobile backdrop ────────────────────────────────────────── -->
+	{#if sidebarOpen}
+		<div
+			class="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+			role="presentation"
+			onclick={closeSidebar}
+		></div>
+	{/if}
+
+	<!-- ── sidebar (drawer on mobile, static on desktop) ──────────── -->
+	<aside
+		class="fixed inset-y-0 left-0 z-50 flex w-60 shrink-0 flex-col border-r border-white/5 bg-[#0a0a0a] transition-transform duration-200 ease-out md:static md:translate-x-0 {sidebarOpen
+			? 'translate-x-0'
+			: '-translate-x-full'}"
+	>
 		<div class="flex items-center gap-2 px-4 py-4">
 			<span class="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-violet-600 font-mono text-sm font-bold text-white">V</span>
-			<div>
+			<div class="flex-1">
 				<h1 class="text-sm font-semibold leading-tight tracking-tight">Veya</h1>
 				<p class="text-xs text-terminal-dim">Agent OS</p>
 			</div>
+			<button
+				type="button"
+				title="关闭菜单"
+				onclick={closeSidebar}
+				class="rounded-md p-1.5 text-terminal-dim transition hover:bg-white/10 hover:text-terminal-fg md:hidden"
+			>
+				<X class="size-5" />
+			</button>
 		</div>
 
 		<button
@@ -138,6 +165,14 @@
 	<!-- ── main ───────────────────────────────────────────────────── -->
 	<section class="flex min-w-0 flex-1 flex-col overflow-hidden">
 		<header class="flex shrink-0 items-center gap-4 px-6 py-3">
+			<button
+				type="button"
+				title="打开菜单"
+				onclick={() => (sidebarOpen = true)}
+				class="rounded-lg border border-terminal-edge p-2 text-terminal-dim transition hover:border-sky-500/40 hover:text-terminal-fg md:hidden"
+			>
+				<Menu class="size-5" />
+			</button>
 			<div class="flex items-center gap-2">
 				<Cpu class="size-4 text-sky-400" />
 				<span class="text-sm font-semibold text-terminal-fg">Veya Workspace</span>
