@@ -424,7 +424,10 @@ class MasterCoordinator:
             # 模型自主路由优先; 但若编程强信号任务模型没调 reasonix_run 且
             # 结果为空/无代码块 → 收尾直接交给 Reasonix 执行器 (serve),
             # 保证「veya 理解 → 规范指令 → reasonix 执行」不落空。
-            if _is_code_execution_task(user_prompt):
+            # 配额暂停/失败等**有意结果**一律尊重, 绝不覆盖 (否则会绕过
+            # 长任务配额护栏, 造成意外成本)。
+            if (_is_code_execution_task(user_prompt)
+                    and result.get("status") not in ("paused_by_quota", "failed")):
                 _done = {t.get("tool", "") for t in (result.get("tool_calls") or [])}
                 final0 = str(result.get("final_answer") or "").strip()
                 if "reasonix_run" not in _done \
