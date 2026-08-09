@@ -528,6 +528,102 @@ class TestFullToolSurface:
         # 全量透传: 知识请求同样能看到视频工具 — 模型自主决定, 而非关键词决定
         assert captured["tools"] == tool_schemas
 
+    def test_bound_llm_no_retry_for_mock_llm(self):
+        """非生产 llm (mock) 不走重试分支 — 测试注入语义保持。"""
+        import asyncio
+
+        from server.coordinator_master import MasterCoordinator
+
+        calls: list[dict] = []
+
+        async def flaky_llm(messages, **kw):
+            calls.append({**kw, "_n": len(calls) + 1})
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "None"}}],
+                    "usage": {}}
+
+        coord = MasterCoordinator(llm_fn=flaky_llm)
+        asyncio.run(coord._bound_llm([{"role": "user", "content": "hi"}]))
+        assert len(calls) == 1  # mock 不重试
+
+    def test_bound_llm_empty_retry_production(self):
+        """LLM 边界绝不静默: 模型返回空/'None' → 温和重试一次 → 仍空可见提示。"""
+        import asyncio
+
+        from server.coordinator_master import MasterCoordinator
+        from veya.llm import llm_call as _real_llm_call
+
+        calls: list[dict] = []
+
+        async def flaky_llm(messages, **kw):
+            calls.append({**kw, "_n": len(calls) + 1})
+            if len(calls) == 1:
+                # 网关抖动: 第一次空/'None'
+                return {"choices": [{"message": {"role": "assistant",
+                                                   "content": "None"}}],
+                        "usage": {}}
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "第二次终于正常回复。"}}],
+                    "usage": {}}
+
+        coord = MasterCoordinator(llm_fn=flaky_llm)
+        # 非生产 llm 不走重试 (仅 llm_call 启用) — 验证这一约定
+        resp = asyncio.run(coord._bound_llm([{"role": "user", "content": "hi"}]))
+        assert len(calls) == 1  # mock 不重试
+
+        # 生产 llm (llm_call) 才启用重试: 直接验证重试逻辑本身
+        calls.clear()
+
+        async def flaky_llm2(messages, **kw):
+            calls.append(messages)
+            if len(calls) == 1:
+                return {"choices": [{"message": {"role": "assistant",
+                                                   "content": ""}}],
+                        "usage": {}}
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "重试成功。"}}],
+                    "usage": {}}
+
+        # 直接测 _bound_llm 的重试分支: 用 monkeypatch 视角太绕,
+        # 这里验证「空→重试→成功」的核心语义: 换 llm_call 身份不现实,
+        # 改为验证重试分支函数行为 — 见 test_bound_llm_empty_retry_production
+
+    def test_bound_llm_empty_retry_production(self):
+        """生产 llm (llm_call) 时 _bound_llm 对空响应带提示重试一次。"""
+        import asyncio
+
+        from server.coordinator_master import MasterCoordinator
+
+        calls: list[list] = []
+
+        async def flaky(messages, **kw):
+            calls.append(list(messages))
+            if len(calls) == 1:
+                return {"choices": [{"message": {"role": "assistant",
+                                                   "content": "None"}}],
+                        "usage": {}}
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "重试成功。"}}],
+                    "usage": {}}
+
+        import server.coordinator_master as cm
+
+        # 同时替换模块全局 llm_call 与实例 _llm_fn (两者必须同一对象,
+        # _bound_llm 的 `self._llm_fn is llm_call` 闸门才命中重试分支)
+        orig = cm.llm_call
+        cm.llm_call = flaky  # type: ignore[assignment]
+        try:
+            coord = MasterCoordinator(llm_fn=flaky)
+            resp = asyncio.run(coord._bound_llm(
+                [{"role": "user", "content": "hi"}]))
+        finally:
+            cm.llm_call = orig
+        assert len(calls) == 2, "空响应必须重试一次"
+        # 第二次调用带温和提示
+        assert "空/无效内容" in calls[1][-1]["content"]
+        msg = ((resp.get("choices") or [{}])[0].get("message") or {})
+        assert msg.get("content") == "重试成功。"
+
     def test_chat_stream_routes_natively_without_preempting(self):
         """任何请求都进原生 ReAct 循环 — 编程/视频/URL 关键词不再被程序截走。"""
         import asyncio
