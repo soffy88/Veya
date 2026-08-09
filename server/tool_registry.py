@@ -179,6 +179,77 @@ def _resolve_path(filepath: str, *, must_exist: bool = True) -> Path:
 
 
 # ── 1. 外部世界感知 (浏览器自动化, Playwright 真实接入) ─────────────
+def _html_to_text(html: str, max_chars: int = 12000) -> str:
+    """HTML → 纯文本 (去 script/style/标签, 压空白), 截断防爆。"""
+    import re
+
+    html = re.sub(r"(?is)<(script|style|noscript|svg|template)[^>]*>.*?</\1>", " ", html)
+    html = re.sub(r"(?s)<!--.*?-->", " ", html)
+    text = re.sub(r"(?i)<br\s*/?>|<p[^>]*>|</p>|</div>|<div[^>]*>|<li[^>]*>|</li>|<h[1-6][^>]*>|</h[1-6]>", "\n", html)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n", text)
+    return text.strip()[:max_chars]
+
+
+async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
+    """原生 URL 阅读工具 (httpx, 免 playwright): 抓任意网页/文档为纯文本。
+
+    GitHub 仓库链接自动走 raw README 快速通道; 其余 URL 浏览器 UA 直抓,
+    HTML 剥壳为纯文本。失败返回可读错误 (模型读到后自行调整)。
+    """
+    import re
+
+    import httpx
+
+    url = url.strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return f"错误: 无效 URL {url!r} (需要 http/https 开头)。"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,text/markdown,text/plain,*/*;q=0.8",
+    }
+    # GitHub 仓库/子路径 → raw README 快速通道 (无 JS, 最可靠)
+    m = re.match(r"https?://github\.com/([^/]+)/([^/?#]+)", url)
+    if m:
+        owner, repo = m.group(1), m.group(2)
+        for branch in ("HEAD", "main", "master"):
+            raw = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/README.md"
+            try:
+                async with httpx.AsyncClient(
+                    timeout=12.0, follow_redirects=True
+                ) as client:
+                    r = await client.get(raw, headers=headers)
+                if r.status_code == 200:
+                    return (
+                        f"[GitHub {owner}/{repo} README (branch={branch})]\n"
+                        + r.text[:max_chars]
+                    )
+            except Exception:
+                continue
+        return (
+            f"GitHub 仓库 {owner}/{repo} 无法直接读取 README (raw 通道失败)。"
+            "可尝试 browser_run 交互抓取, 或访问仓库页面链接。"
+        )
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            r = await client.get(url, headers=headers)
+    except Exception as exc:  # noqa: BLE001
+        return f"抓取失败: {type(exc).__name__}: {exc}"
+    if r.status_code >= 400:
+        return f"抓取失败: HTTP {r.status_code} @ {url}"
+    ctype = (r.headers.get("content-type") or "").lower()
+    text = r.text or ""
+    if "html" in ctype:
+        text = _html_to_text(text, max_chars)
+    else:
+        text = text.strip()[:max_chars]
+    return text or "(页面无文本内容)"
+
+
 async def _tool_browser_run(
     url: str,
     action: str = "extract_text",
@@ -448,6 +519,26 @@ async def _tool_run_backtest_coprocessor(
 
 
 # ================= 挂载 =================
+master_tools.register(
+    name="fetch_url",
+    description=(
+        "Read any URL (web page / article / docs / GitHub repo) as plain text. "
+        "Use this when the user pastes a link or asks about something on the web — "
+        "GitHub repo links auto-read the README. Lightweight httpx fetch (no browser); "
+        "use browser_run only when you need interaction (click / login / JS pages)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "目标 URL (http/https)"},
+            "max_chars": {"type": "integer", "description": "可选, 返回文本上限 (默认 12000)"},
+        },
+        "required": ["url"],
+    },
+    func=_tool_fetch_url,
+    max_result_chars=16000,
+)
+
 master_tools.register(
     name="browser_run",
     description=(

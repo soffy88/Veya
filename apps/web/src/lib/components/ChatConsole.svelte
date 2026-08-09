@@ -168,9 +168,16 @@ import ModelPicker from "./ModelPicker.svelte";
 				if (kind === "text_delta" && typeof ev.delta === "string") {
 					sessionStore.patchLast(sid, { text: (sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)?.text ?? "") + ev.delta });
 				} else if (kind === "master_done") {
+					const accumulated = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)?.text ?? "";
+					const final = typeof ev.final === "string" && ev.final.trim() ? ev.final : "";
+					const text = accumulated || final;
+					// 绝不静默空白: 主脑无输出时置 error 态 → 显示重试按钮而非空白气泡
 					sessionStore.patchLast(sid, {
-						status: "done",
-						text: (sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)?.text ?? "") || (typeof ev.final === "string" ? ev.final : ""),
+						status: text.trim() ? "done" : "error",
+						text,
+						error: text.trim()
+							? undefined
+							: "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。",
 					});
 				} else if (kind === "tool_call" || kind === "tool_error" || kind === "master_round" || kind === "master_start") {
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
@@ -199,7 +206,14 @@ import ModelPicker from "./ModelPicker.svelte";
 					}
 				}
 			}
-			sessionStore.patchLast(sid, { status: "done" });
+			// 流正常结束但一直没收到有效文本 → 同样标记 error, 不留空白气泡
+			const lastText = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)?.text ?? "";
+			sessionStore.patchLast(
+				sid,
+				lastText.trim()
+					? { status: "done" }
+					: { status: "error", error: "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。" },
+			);
 		} catch (e) {
 			const aborted = aborter?.signal.aborted;
 			sessionStore.patchLast(sid, {
