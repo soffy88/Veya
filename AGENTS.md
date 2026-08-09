@@ -185,3 +185,36 @@ docker ps | grep veya-backend                              # docker 侧
 ```
 
 详细版运维手册: `docs/ops/ONLINE_DEPLOYMENT.md`；工具链用户级安装（typst/xelatex/drawio/pdftoppm，免 root）: `docs/ops/TOOLCHAIN_SETUP.md`
+
+## 🧊 冻结架构（用户确认 2026-08-09，禁止未经同意改动）
+
+> **当前主链路已由用户确认稳定。任何改动必须先向用户说明并获得同意，再动手。**
+
+### 主链路（唯一入口 = 大模型）
+
+```
+用户输入 → 大模型（ReAct 循环，全量工具面 ~171）→ 模型自主决定：
+           直接回答 or 调哪个工具（reasonix_run / fetch_url / browser_run / mcp_*）
+```
+
+**已固化的设计决策（不要"优化"回去）：**
+1. **入口只有一个大模型，零程序判断**：无前置路由、无工具面分层/裁藏、无 URL 预抓、
+   无 reasonix 关键词兜底。长任务/工具选择全由模型自主判断。
+2. **LLM 层 = opencode-go 直连**：`veya1.1` 直接调
+   `https://opencode.ai/zen/go/v1`（用户自己的 `OPENCODE_API_KEY`），
+   候选重试（deepseek-v4-flash / mimo-v2.5）+ 空回复降级本地
+   `gpt-5.6-luna`（宿主桥 192.168.16.1:10101，**裁剪为核心工具面**）+ 结构化错误。
+   **禁止**重新引入 oskill 复杂路由器（quality-gate 升级/模型切换/并行分派）。
+3. **可靠性护栏（非判断，保留）**：轮次上限（防死循环）、空回复可见提示、
+   前端 error 态（绝不静默空白）、"任务开始/思考…"徽章不展示。
+4. **前端交互**：只显示真实执行轨迹（tool_call / tool_error / reasonix_progress）。
+
+### 变更审批规则
+
+- **主链路任何改动**（模型路由 / 工具面 / LLM 层 / 兜底逻辑 / 前端交互 / 默认
+  provider-model）→ **必须先向用户说明改动内容与理由，获同意后才可实施**。
+- **禁止**未获同意就：改默认模型、加程序化判断、裁藏工具、改徽章/提示、换路由架构。
+- 纯文档/测试补充（不改变行为）可做，但 commit 后立即向用户说明。
+- 线上紧急故障可先恢复服务，但恢复动作之外的一切改动仍需先征得同意。
+
+详细架构记录: `docs/ARCHITECTURE_STABLE.md`
