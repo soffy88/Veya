@@ -1,5 +1,11 @@
 # veya 对标报告：与 Claude Code / Cursor / Copilot CLI 差距清单
 
+> ⚠️ **历史复评（v0.4.0）——部分结论已被后续冻结架构否定。**
+> 本报告 G2「LLM 意图分类」及 Coordinator→Squad→Engine DAG 分解，已在
+> [`ARCHITECTURE_STABLE.md`](ARCHITECTURE_STABLE.md) §2.1 被判定为踩坑并废弃
+> （主链路改为单 LLM 零程序判断）。阅读时以权威架构为准，退役详情见
+> [`graveyard.md`](graveyard.md)。
+
 > 版本：veya v0.4.0（Sprint 1–3 完成后复评）
 > 日期：2025
 > 基线：GitHub Actions CI ✅ · 112 tests ✅ · ruff/mypy 核心包清零 ✅ · 遗留 o* 依赖全部替换 ✅
