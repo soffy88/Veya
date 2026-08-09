@@ -56,7 +56,9 @@ ENV VEYA_WORKSPACE=/app
 ENV VEYA_BROWSER_NO_SANDBOX=1
 
 # 多引擎执行: 与宿主 uid 对齐 (挂载的 CLI 凭据可写), 非 root 运行
-RUN useradd -m -u 1000 soffy && mkdir -p /home/soffy && chown soffy:soffy /home/soffy
+RUN useradd -m -u 1000 soffy && mkdir -p /home/soffy && chown soffy:soffy /home/soffy \
+    # reasonix 独立 oservi: ~/.reasonix 容器层可写 (entrypoint 写入 .env key)
+    && mkdir -p /home/soffy/.reasonix && chown soffy:soffy /home/soffy/.reasonix
 USER soffy
 ENV HOME=/home/soffy \
     PATH=/usr/local/bin:/usr/bin:/bin:/home/soffy/.nvm/versions/node/v26.4.0/bin:/home/soffy/.local/bin
