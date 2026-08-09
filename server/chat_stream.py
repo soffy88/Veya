@@ -53,11 +53,18 @@ async def new_agent_stream_events(
         )
 
         async def _finish() -> None:
-            """主脑结束后: 补发最终回答事件 + 关闭队列(唤醒消费循环)。"""
+            """主脑结束后: 补发最终回答事件 + 关闭队列(唤醒消费循环)。
+
+            绝不静默: 主脑返回空/'None' 时也发可见提示帧, 前端不会留空白气泡。
+            """
             result = await chat_task
-            final = result.get("final_answer") or result.get("error", "")
-            if final:
-                queue.on_step({"type": "text_delta", "squad_id": "master", "delta": final})
+            final = str(result.get("final_answer") or result.get("error") or "").strip()
+            if not final or final.lower() in ("none", "null"):
+                final = (
+                    "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。"
+                    "请重试, 或在上方更换模型/引擎。"
+                )
+            queue.on_step({"type": "text_delta", "squad_id": "master", "delta": final})
             queue.on_step(
                 {
                     "type": "master_done",

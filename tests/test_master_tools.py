@@ -490,40 +490,62 @@ def test_conversation_history_scoped_by_session():
     assert ("user", "B 会话") not in [(m.get("role"), m.get("content")) for m in seen[2]]
 
 
-class TestLayerToolsRecall:
-    """_layer_tools 分层召回: stratum 知识关键词必须召回 mcp_stratum_*。"""
+class TestFullToolSurface:
+    """原生智能优先 (2026-08 架构回归): 工具面全量透传, 不再按关键词裁藏。
 
-    def _tools(self):
-        def mk(name):
-            return {"type": "function", "function": {"name": name}}
-        return [
-            mk("mcp_stratum_search_knowledge"),
-            mk("mcp_stratum_get_note"),
-            mk("mcp_hevi_generate_longvideo"),
-            mk("mcp_od_create_project"),
-            mk("system_ping"),
+    旧版 _layer_tools 按消息关键词藏 mcp/技能 → 模型需要的工具经常被藏 →
+    做不了 → 返回 'None'/空 (用户感知「不回复」)。已删除: 全量工具面交给
+    模型, 由大模型自主决定路由到哪个工具 (产品要求: 少约束大模型)。
+    """
+
+    def test_layer_tools_removed(self):
+        from server.coordinator_master import MasterCoordinator
+
+        assert not hasattr(MasterCoordinator, "_layer_tools"), (
+            "关键词裁藏已删除 — 模型必须看到全量工具面自主路由"
+        )
+
+    def test_bound_llm_passes_full_tool_surface_untouched(self):
+        import asyncio
+
+        from server.coordinator_master import MasterCoordinator
+
+        captured: dict = {}
+
+        async def fake_llm(messages, **kwargs):
+            captured["tools"] = kwargs.get("tools")
+            return {"choices": [{"message": {"role": "assistant", "content": "ok"}}],
+                    "usage": {}}
+
+        coord = MasterCoordinator(llm_fn=fake_llm)
+        tool_schemas = [
+            {"type": "function", "function": {"name": "mcp_stratum_search_knowledge"}},
+            {"type": "function", "function": {"name": "mcp_hevi_generate_longvideo"}},
+            {"type": "function", "function": {"name": "system_ping"}},
         ]
+        asyncio.run(coord._bound_llm(
+            [{"role": "user", "content": "帮我检索知识库"}], tools=tool_schemas))
+        # 全量透传: 知识请求同样能看到视频工具 — 模型自主决定, 而非关键词决定
+        assert captured["tools"] == tool_schemas
 
-    def test_knowledge_query_recalls_stratum(self):
+    def test_chat_stream_routes_natively_without_preempting(self):
+        """任何请求都进原生 ReAct 循环 — 编程/视频/URL 关键词不再被程序截走。"""
+        import asyncio
+
         from server.coordinator_master import MasterCoordinator
 
-        tools = self._tools()
-        msgs = [{"role": "user", "content": "帮我检索一下知识库里关于量子计算的文章"}]
-        out = MasterCoordinator._layer_tools(tools, msgs)
-        names = {t["function"]["name"] for t in out}
-        assert "mcp_stratum_search_knowledge" in names
-        assert "mcp_stratum_get_note" in names
-        # 知识请求不召回视频/设计工具
-        assert "mcp_hevi_generate_longvideo" not in names
-        assert "mcp_od_create_project" not in names
-        assert "system_ping" in names
+        seen: list[dict] = []
 
-    def test_video_query_does_not_recall_stratum(self):
-        from server.coordinator_master import MasterCoordinator
+        async def fake_llm(messages, **kwargs):
+            seen.append(kwargs)
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "已原生理解并回答。"}}],
+                    "usage": {}}
 
-        tools = self._tools()
-        msgs = [{"role": "user", "content": "生成一个草船借箭的2分钟动画视频"}]
-        out = MasterCoordinator._layer_tools(tools, msgs)
-        names = {t["function"]["name"] for t in out}
-        assert "mcp_hevi_generate_longvideo" in names
-        assert "mcp_stratum_search_knowledge" not in names
+        coord = MasterCoordinator(llm_fn=fake_llm, max_rounds=3)
+        r = asyncio.run(coord.chat_stream(
+            "https://github.com/user/repo 帮我看看这个项目实现"))
+        assert r["status"] == "success"
+        assert "原生理解并回答" in r["final_answer"]
+        # 工具面仍然注入 (模型可自主选择), 只是没有被强制 preempt
+        assert seen and seen[0].get("tools") is not None
