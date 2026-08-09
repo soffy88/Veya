@@ -546,50 +546,8 @@ class TestFullToolSurface:
         asyncio.run(coord._bound_llm([{"role": "user", "content": "hi"}]))
         assert len(calls) == 1  # mock 不重试
 
-    def test_bound_llm_empty_retry_production(self):
-        """LLM 边界绝不静默: 模型返回空/'None' → 温和重试一次 → 仍空可见提示。"""
-        import asyncio
-
-        from server.coordinator_master import MasterCoordinator
-        from veya.llm import llm_call as _real_llm_call
-
-        calls: list[dict] = []
-
-        async def flaky_llm(messages, **kw):
-            calls.append({**kw, "_n": len(calls) + 1})
-            if len(calls) == 1:
-                # 网关抖动: 第一次空/'None'
-                return {"choices": [{"message": {"role": "assistant",
-                                                   "content": "None"}}],
-                        "usage": {}}
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "第二次终于正常回复。"}}],
-                    "usage": {}}
-
-        coord = MasterCoordinator(llm_fn=flaky_llm)
-        # 非生产 llm 不走重试 (仅 llm_call 启用) — 验证这一约定
-        resp = asyncio.run(coord._bound_llm([{"role": "user", "content": "hi"}]))
-        assert len(calls) == 1  # mock 不重试
-
-        # 生产 llm (llm_call) 才启用重试: 直接验证重试逻辑本身
-        calls.clear()
-
-        async def flaky_llm2(messages, **kw):
-            calls.append(messages)
-            if len(calls) == 1:
-                return {"choices": [{"message": {"role": "assistant",
-                                                   "content": ""}}],
-                        "usage": {}}
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "重试成功。"}}],
-                    "usage": {}}
-
-        # 直接测 _bound_llm 的重试分支: 用 monkeypatch 视角太绕,
-        # 这里验证「空→重试→成功」的核心语义: 换 llm_call 身份不现实,
-        # 改为验证重试分支函数行为 — 见 test_bound_llm_empty_retry_production
-
-    def test_bound_llm_empty_retry_production(self):
-        """生产 llm (llm_call) 时 _bound_llm 对空响应带提示重试一次。"""
+    def test_bound_llm_empty_retry_production(self, monkeypatch):
+        """生产 llm (llm_call) 时 _bound_llm 对空响应带提示重试 (退避后 3 次)。"""
         import asyncio
 
         from server.coordinator_master import MasterCoordinator
@@ -606,6 +564,10 @@ class TestFullToolSurface:
                                                "content": "重试成功。"}}],
                     "usage": {}}
 
+        async def _no_sleep(_: float) -> None:
+            return None
+
+        monkeypatch.setattr(asyncio, "sleep", _no_sleep)  # 免退避等待
         import server.coordinator_master as cm
 
         # 同时替换模块全局 llm_call 与实例 _llm_fn (两者必须同一对象,
@@ -618,11 +580,44 @@ class TestFullToolSurface:
                 [{"role": "user", "content": "hi"}]))
         finally:
             cm.llm_call = orig
-        assert len(calls) == 2, "空响应必须重试一次"
-        # 第二次调用带温和提示
+        assert len(calls) == 2, "空响应必须重试 (1 次空 + 1 次成功)"
+        # 重试调用带温和提示
         assert "空/无效内容" in calls[1][-1]["content"]
         msg = ((resp.get("choices") or [{}])[0].get("message") or {})
         assert msg.get("content") == "重试成功。"
+
+    def test_bound_llm_persistent_empty_returns_visible(self, monkeypatch):
+        """连续空响应 (3 次全空) → 返回可见提示而非空白。"""
+        import asyncio
+
+        from server.coordinator_master import MasterCoordinator
+
+        calls: list[int] = []
+
+        async def always_empty(messages, **kw):
+            calls.append(1)
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": ""}}],
+                    "usage": {}}
+
+        async def _no_sleep(_: float) -> None:
+            return None
+
+        monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+        import server.coordinator_master as cm
+
+        orig = cm.llm_call
+        cm.llm_call = always_empty  # type: ignore[assignment]
+        try:
+            coord = MasterCoordinator(llm_fn=always_empty)
+            resp = asyncio.run(coord._bound_llm(
+                [{"role": "user", "content": "hi"}]))
+        finally:
+            cm.llm_call = orig
+        assert len(calls) == 3, "3 次退避重试后放弃"
+        msg = ((resp.get("choices") or [{}])[0].get("message") or {})
+        assert "网关抖动" in (msg.get("content") or "")
+        assert (msg.get("content") or "").strip()
 
     def test_chat_stream_routes_natively_without_preempting(self):
         """任何请求都进原生 ReAct 循环 — 编程/视频/URL 关键词不再被程序截走。"""
@@ -667,8 +662,18 @@ class TestFullToolSurface:
             return {"choices": [{"message": {"role": "assistant", "content": ""}}],
                     "usage": {}}
 
-        coord = MasterCoordinator(llm_fn=empty_llm, max_rounds=2)
-        r = asyncio.run(coord.chat_stream("写一个 python 脚本读取 csv", session_id="s-fb"))
+        import server.coordinator_master as cm
+
+        # 模拟生产身份: 模块全局 llm_call 与实例 _llm_fn 同一对象,
+        # 收尾兜底仅生产默认 llm 启用 (mock 注入时保持工具循环语义)
+        orig = cm.llm_call
+        cm.llm_call = empty_llm  # type: ignore[assignment]
+        try:
+            coord = MasterCoordinator(llm_fn=empty_llm, max_rounds=2)
+            r = asyncio.run(coord.chat_stream(
+                "写一个 python 脚本读取 csv", session_id="s-fb"))
+        finally:
+            cm.llm_call = orig
         assert "FAKE_EXEC" in r["final_answer"]
         assert r.get("reasonix_execution")
         assert captured["task"] == "写一个 python 脚本读取 csv"
