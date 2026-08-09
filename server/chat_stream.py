@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from collections.abc import AsyncIterator
 
 from server.coordinator_master import master_coordinator
@@ -34,7 +35,8 @@ async def new_agent_stream_events(
     text_delta / tool_call / master_done 事件流实时推送, 末尾 [DONE]。
     config/provider/model/endpoint 为请求级 LLM 覆盖(前端传入的 user key)。
     """
-    sid = session_id or "chat_stream"
+    # P3: 无 sid 时生成独立 id (旧默认 "chat_stream" 是公共桶, 会跨会话/跨用户串味)
+    sid = session_id or uuid.uuid4().hex
     queue = get_or_create_queue(sid)
     from server.events import _on_step_ctx
 
@@ -71,13 +73,13 @@ async def new_agent_stream_events(
             except asyncio.CancelledError:
                 # 用户点 Stop → chat_task 被 cancel_session 取消 → 明确告知
                 queue.on_step(
-                    {"type": "text_delta", "squad_id": "master",
-                     "delta": "⏹ 已停止。后台 Reasonix 任务也已真正中断。"}
+                    {
+                        "type": "text_delta",
+                        "squad_id": "master",
+                        "delta": "⏹ 已停止。后台 Reasonix 任务也已真正中断。",
+                    }
                 )
-                queue.on_step(
-                    {"type": "master_done", "session_id": sid,
-                     "status": "cancelled"}
-                )
+                queue.on_step({"type": "master_done", "session_id": sid, "status": "cancelled"})
                 queue.close()
                 return
             final = str(result.get("final_answer") or result.get("error") or "").strip()
