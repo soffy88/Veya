@@ -1,0 +1,24 @@
+# Reasonix — veya 容器内配置
+# 容器内 127.0.0.1 是容器自己; 宿主模型网关经 docker bridge 网关 192.168.16.1:10101 访问。
+# 状态目录由 REASONIX_STATE_HOME 指向 veya-data volume (配置目录只读挂载)。
+
+[agent]
+reasoning_language = "auto"
+tool_result_snip_ratio = 0.6
+compact_ratio = 0.8
+
+[[providers]]
+name        = "luna"
+kind        = "openai"
+base_url    = "http://127.0.0.1:10103/v1"   # 经容器内反代 (改 Host 头)
+model       = "gpt-5.6-luna"
+api_key_env = "REASONIX_LOCAL_KEY"
+context_window = 1000000
+
+[environment]
+enabled = true
+
+# 容器内核禁非特权 user namespace → bwrap 不可用; 容器本身就是隔离边界,
+# 显式关闭 OS 沙箱 (Reasonix 文档: bash="off" = 恢复非受限 shell, 显式选择)。
+[sandbox]
+bash = "off"
