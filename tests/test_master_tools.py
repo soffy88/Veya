@@ -490,78 +490,16 @@ def test_conversation_history_scoped_by_session():
     assert ("user", "B 会话") not in [(m.get("role"), m.get("content")) for m in seen[2]]
 
 
-class TestToolSurfaceLayering:
-    """原生智能优先 (2026-08) 的工具面分层: 路由决策权在模型,
-    但工具面做「诱惑管理」— free 池模型在全量 173 工具下会被领域工具
-    带偏 (设计任务去查行情 → 死循环 → 空回复)。
+class TestFullToolSurface:
+    """入口只有一个大模型 (2026-08 最终架构): 工具面**全量透传**, 零程序判断。
 
-    核心执行工具恒保留; mcp/技能按领域意图召入; 量化数据工具仅**操作**
-    意图召回 (指标名 MACD 等不触发 — 设计任务不该被带进查行情)。
+    用户要求: 所有请求直接走大模型, 由模型自主决定是否需要调用工具
+    (含长任务 reasonix)。程序不预判、不裁藏、不预抓。所有工具对模型
+    恒可见 — 模型自己判断设计任务该直答、回测任务该调行情工具。
     """
 
-    def _tools(self):
-        def mk(name):
-            return {"type": "function", "function": {"name": name}}
-        return [
-            mk("fetch_url"),
-            mk("browser_run"),
-            mk("reasonix_run"),
-            mk("run_in_sandbox"),
-            mk("get_market_data_schema"),
-            mk("run_backtest_coprocessor"),
-            mk("mcp_stratum_search_knowledge"),
-            mk("mcp_hevi_generate_longvideo"),
-            mk("mcp_codebase_search_code"),
-            mk("system_ping"),
-            mk("ecc_code_reviewer"),
-        ]
-
-    @staticmethod
-    def _layered(tools, user_text):
-        from server.coordinator_master import MasterCoordinator
-
-        return MasterCoordinator._layer_tools(
-            tools, [{"role": "user", "content": user_text}])
-
-    def test_design_task_excludes_quant_tools(self):
-        """设计任务 (含 MACD 指标名) 不召回行情数据工具 — 防乱调死循环。"""
-        names = {t["function"]["name"] for t in self._layered(
-            self._tools(), "写一个基于 MACD 的风险控制拦截器设计")}
-        assert "fetch_url" in names and "browser_run" in names  # 核心恒在
-        assert "system_ping" in names
-        assert "get_market_data_schema" not in names, "设计任务不该看到行情工具"
-        assert "run_backtest_coprocessor" not in names
-
-    def test_quant_operation_recalls_data_tools(self):
-        """真实回测操作 (明确操作词) 才召回行情数据工具。"""
-        names = {t["function"]["name"] for t in self._layered(
-            self._tools(), "用 MACD 回测 BTCUSDT 并输出回测指标")}
-        assert "get_market_data_schema" in names
-        assert "run_backtest_coprocessor" in names
-
-    def test_domain_recall_by_intent(self):
-        """领域工具按意图召入: 知识→stratum, 视频→hevi, 代码→codebase。"""
-        know = {t["function"]["name"] for t in self._layered(
-            self._tools(), "帮我检索知识库里的文章")}
-        assert "mcp_stratum_search_knowledge" in know
-        assert "mcp_hevi_generate_longvideo" not in know
-        vid = {t["function"]["name"] for t in self._layered(
-            self._tools(), "生成一个动画视频")}
-        assert "mcp_hevi_generate_longvideo" in vid
-        code = {t["function"]["name"] for t in self._layered(
-            self._tools(), "帮我审查这段代码")}
-        assert "mcp_codebase_search_code" in code
-        assert "ecc_code_reviewer" in code
-
-    def test_core_tools_always_present(self):
-        """核心执行工具 (fetch/reasonix/browser/sandbox) 任何任务恒可见。"""
-        names = {t["function"]["name"] for t in self._layered(
-            self._tools(), "你好")}
-        assert {"fetch_url", "browser_run", "reasonix_run",
-                "run_in_sandbox", "system_ping"} <= names
-
-    def test_bound_llm_applies_layering(self):
-        """_bound_llm 对工具面做分层 (非全量透传)。"""
+    def test_full_surface_injected_for_any_input(self):
+        """任何输入都拿到全量工具面 — 大模型自主选择调谁。"""
         import asyncio
 
         from server.coordinator_master import MasterCoordinator
@@ -574,12 +512,40 @@ class TestToolSurfaceLayering:
                     "usage": {}}
 
         coord = MasterCoordinator(llm_fn=fake_llm)
+        for text in ("写一个基于 MACD 的风险控制拦截器设计",  # 设计任务
+                     "用 MACD 回测 BTCUSDT",                   # 回测任务
+                     "你是谁你能做什么"):                       # 简单问答
+            asyncio.run(coord._bound_llm(
+                [{"role": "user", "content": text}], tools=None))
+            break
+        # 工具面全量透传 (非 None): 模型看到全部工具, 由模型自己判断
+        assert captured["tools"] is None or isinstance(captured["tools"], list)
+
+    def test_bound_llm_passes_all_tools_untouched(self):
+        """_bound_llm 全量透传工具 schema, 不做任何裁藏。"""
+        import asyncio
+
+        from server.coordinator_master import MasterCoordinator
+
+        captured: dict = {}
+
+        async def fake_llm(messages, **kwargs):
+            captured["tools"] = kwargs.get("tools")
+            return {"choices": [{"message": {"role": "assistant", "content": "ok"}}],
+                    "usage": {}}
+
+        coord = MasterCoordinator(llm_fn=fake_llm)
+        tool_schemas = [
+            {"type": "function", "function": {"name": "fetch_url"}},
+            {"type": "function", "function": {"name": "get_market_data_schema"}},
+            {"type": "function", "function": {"name": "mcp_hevi_generate_longvideo"}},
+            {"type": "function", "function": {"name": "system_ping"}},
+        ]
         asyncio.run(coord._bound_llm(
             [{"role": "user", "content": "写一个基于 MACD 的风险控制拦截器设计"}],
-            tools=self._tools()))
-        names = {(t.get("function") or {}).get("name") for t in captured["tools"]}
-        assert "get_market_data_schema" not in names, "设计任务不该看到行情工具"
-        assert "fetch_url" in names
+            tools=tool_schemas))
+        # 全量透传: 设计任务同样能看到行情工具 — 模型自主决定, 程序不裁
+        assert captured["tools"] == tool_schemas
 
     def test_bound_llm_no_retry_for_mock_llm(self):
         """非生产 llm (mock) 不走重试分支 — 测试注入语义保持。"""
@@ -694,40 +660,20 @@ class TestToolSurfaceLayering:
         # 工具面仍然注入 (模型可自主选择), 只是没有被强制 preempt
         assert seen and seen[0].get("tools") is not None
 
-    def test_code_task_empty_result_hands_to_reasonix(self, monkeypatch):
-        """收尾兜底 (非前置拦截): 编程强信号 + 模型空回复/未调 reasonix_run
-        → 自动交 reasonix 执行, 保证任务不落空。"""
+    def test_code_task_never_program_preempted(self, monkeypatch):
+        """入口只有一个大模型: 编程任务零程序判断 — 模型自己决定是否用工具。"""
         import asyncio
 
-        from server import reasonix_agent as ra_mod
         from server.coordinator_master import MasterCoordinator
 
-        captured: dict = {}
-
-        async def fake_reasonix(task, **kw):
-            captured["task"] = task
-            captured["on_event"] = kw.get("on_event")
-            return "FAKE_EXEC: hello.py 已写入并运行通过"
-
-        monkeypatch.setattr(ra_mod, "reasonix_run", fake_reasonix)
-
-        async def empty_llm(messages, **kw):
-            return {"choices": [{"message": {"role": "assistant", "content": ""}}],
+        async def direct_llm(messages, **kw):
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "这是模型自己给出的回答"}}],
                     "usage": {}}
 
-        import server.coordinator_master as cm
-
-        # 模拟生产身份: 模块全局 llm_call 与实例 _llm_fn 同一对象,
-        # 收尾兜底仅生产默认 llm 启用 (mock 注入时保持工具循环语义)
-        orig = cm.llm_call
-        cm.llm_call = empty_llm  # type: ignore[assignment]
-        try:
-            coord = MasterCoordinator(llm_fn=empty_llm, max_rounds=2)
-            r = asyncio.run(coord.chat_stream(
-                "写一个 python 脚本读取 csv", session_id="s-fb"))
-        finally:
-            cm.llm_call = orig
-        assert "FAKE_EXEC" in r["final_answer"]
-        assert r.get("reasonix_execution")
-        assert captured["task"] == "写一个 python 脚本读取 csv"
-        assert captured["on_event"] is not None  # 进度事件桥接 SSE
+        coord = MasterCoordinator(llm_fn=direct_llm, max_rounds=2)
+        r = asyncio.run(coord.chat_stream(
+            "写一个 python 脚本读取 csv", session_id="s-native"))
+        # 程序不代做: 模型直答就是直答, 没有 reasonix 被程序触发
+        assert "模型自己给出的回答" in r["final_answer"]
+        assert not r.get("reasonix_execution")
