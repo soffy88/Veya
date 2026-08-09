@@ -11,7 +11,6 @@ oservi.master_agent.MasterAgent(SOP/系统工具/路由/循环)。
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -77,6 +76,22 @@ workspace). ROUTE any task that needs actual code changes here:
 - Rollback: user asks 「回滚/撤销最近一次」→ `reasonix_rollback()` restores the
   workspace to the pre-task git snapshot (auto-created before each run).
 - If reasonix is unavailable, state the limitation instead of faking edits.
+
+# NATIVE INTELLIGENCE FIRST (长文本 / URL / 直接回答) — CRITICAL:
+You have native long-text understanding and native tool-routing judgment. Rely on
+it. Do NOT refuse, truncate, or "need a tool" just because input is long.
+- Long text: READ it fully yourself and answer with your native intelligence.
+  Long input does NOT require a tool and must NEVER be dropped.
+- URLs (GitHub / docs / web pages): call `fetch_url` to read the page content
+  yourself, or `browser_run` when you need interaction (click/login). GitHub
+  repo links: `fetch_url` reads the README automatically. NEVER claim you cannot
+  access a URL — you have the tools.
+- You decide which tool to call — you are NOT limited by any keyword list.
+  Every tool in AVAILABLE TOOLS is yours. Call a tool only when you need real
+  physical action (fetch a page, read a file, run code, change code); answer
+  directly from native knowledge when the question is conceptual.
+- NEVER output "None"/empty. If a tool fails, read the error natively and adapt.
+  If you truly cannot complete, say so in Chinese with the reason + a suggestion.
 You are the orchestrator over three sibling systems. Route by problem type:
 1. **stratum** (mcp_stratum_* tools) — the KNOWLEDGE EXPERT (AI 知识管家). It owns
    PDF/EPUB/webpage/RSS ingestion, hybrid retrieval (BM25+vector), translation,
@@ -104,119 +119,36 @@ You are the orchestrator over three sibling systems. Route by problem type:
 MASTER_SYSTEM_PROMPT = _oservi.MASTER_SYSTEM_PROMPT
 
 
-def _github_readme(url: str, max_chars: int = 6000) -> str | None:
-    """抓 GitHub 仓库 README (raw.githubusercontent, HEAD 分支), 截断防爆。"""
-    import re
+def _build_reasonix_spec(user_prompt: str) -> str:
+    """规范指令生成: 主脑理解用户话术 → 结构化任务书 (Reasonix 纯执行)。
 
-    m = re.match(r"https?://github\.com/([^/]+)/([^/?#]+)", url)
-    if not m:
-        return None
-    owner, repo = m.group(1), m.group(2)
-    raw = f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md"
-    try:
-        import requests
-
-        r = requests.get(raw, timeout=6)
-        if r.status_code != 200:
-            return None
-        return r.text[:max_chars]
-    except Exception:
-        return None
-
-
-def _gather_url_context(user_prompt: str) -> str:
-    """提取 prompt 中 github URL → 抓 README → 拼接上下文 (轻量单轮可分析)。"""
-    import re
-
-    urls = re.findall(r"https?://github\.com/[^\s,，]+", user_prompt)
-    blocks = []
-    for u in urls:
-        u = u.rstrip(".,;!?)")
-        md = _github_readme(u)
-        if md:
-            blocks.append(f"[{u}]\n{md}")
-    return "\n\n---\n\n".join(blocks)
-
-
-def _is_quick_query(user_prompt: str, config: dict | None) -> bool:
-    """quick 档判定: 短文本 (<quick_tokens) 且无工具/代码/推理意图 → 轻量路径。
-
-    复用 oprim 路由分类 (系统消息判定逻辑一致)。
-    创作/生产任务 (视频/动画/项目/设计/生成 XX) 一律否决 → 走工具循环。
+    模板含目标 + 执行规范 (最小改动/可运行/运行验证/报告), 让执行器有
+    明确验收契约而不必猜测用户意图。
     """
-    lowered = user_prompt.lower()
-    if any(k in user_prompt for k in ("视频", "动画", "影片", "短片", "影视",
-                                      "分镜", "字幕", "配音", "海报", "渲染",
-                                      "生成一个", "制作")) or any(
-        k in lowered for k in ("video", "animation", "film", "movie",
-                               "storyboard", "design", "project", "render")
-    ):
-        return False
-    try:
-        from veya.platform import load as _load
-
-        oprim = _load("oprim")
-        decision = oprim.route_decision(
-            [{"role": "user", "content": user_prompt}],
-            tools=None,
-            matrix=oprim.load_matrix(),
-        )
-        return decision.get("route") == "quick"
-    except Exception:
-        return False
-
-
-def _is_creative(user_prompt: str) -> bool:
-    """创作/生产任务判定 (与 _is_quick_query 的否决词同一来源)。
-
-    这类任务需要稳定工具编排 + 收尾总结 → 装配 frontier 档。
-    """
-    lowered = user_prompt.lower()
-    return bool(
-        any(k in user_prompt for k in ("视频", "动画", "影片", "短片", "影视",
-                                       "分镜", "字幕", "配音", "海报", "渲染",
-                                       "生成一个", "制作", "设计", "项目"))
-        or any(k in lowered for k in ("video", "animation", "film", "movie",
-                                      "storyboard", "subtitle", "voice", "poster",
-                                      "render", "design", "project"))
+    return (
+        "# 任务\n"
+        f"{user_prompt.strip()}\n\n"
+        "# 执行规范\n"
+        "1. 在隔离工作区完成, 只改动完成任务所需的最小文件集。\n"
+        "2. 优先交付可运行代码; 写完后必须实际运行验证, 不能只写不跑。\n"
+        "3. 完成后报告: 改了哪些文件、运行了什么命令、验证输出是什么。\n"
+        "4. 若任务有歧义, 选最合理实现并在报告中说明假设。\n"
     )
 
 
-# ── reasonix 确定性前置路由 ────────────────────────────────────────────
-# 编程任务不赌模型工具循环 (free 池在全量工具面下常把 tool call 写成文本):
-# 检测到强编码信号 → 直接执行 reasonix_run, 结果交给主脑单轮总结。
-_CODE_STRONG = (
-    "写一个", "写一段", "写个", "写代码", "编写", "实现", "创建", "新建",
-    "修复", "修一下", "修个", "重构", "改成", "改一下", "跑测试", "运行测试",
-    "跑一下", "编译", "调试", "加个功能", "新增功能", "搭一个", "构建",
-    "写个脚本", "写个程序", "python 脚本", "写个函数",
-)
-_CODE_EXCLUDE = (
-    "解释", "讲解", "为什么", "是什么", "啥是", "区别", "对比", "教程",
-    "原理", "怎么理解", "说说", "分析一下原因", "帮我看看这段", "帮我看看这个",
-)
-
-
-def _is_code_execution_task(user_prompt: str) -> bool:
-    """强编码意图判定 → reasonix 确定性前置执行 (排除纯解释类)。"""
-    t = user_prompt.lower()
-    if any(k in t for k in _CODE_EXCLUDE):
-        return False
-    return any(k in t for k in _CODE_STRONG)
-
-
-# 续做信号 (跨轮): 用户说「继续上次」→ reasonix --continue (接着上次会话)。
-_RESUME_HINT = ("继续", "接着", "续做", "上次", "未完", "没做完", "接着做",
-                "接着写", "接着改", "继续完成", "resume", "continue")
-# 续做必须带编码/任务语境, 否则「继续刚才的话题」不触发。
-_RESUME_CTX = ("代码", "项目", "脚本", "文件", "任务", "修", "写", "实现",
-               "bug", "测试", "重构", "功能", "接口", "模块")
-
-
-def _is_resume_request(user_prompt: str) -> bool:
-    """续做信号判定 → reasonix --continue。"""
-    t = user_prompt.lower()
-    return any(k in t for k in _RESUME_HINT) and any(k in t for k in _RESUME_CTX)
+def _format_reasonix_result(res: dict) -> str:
+    """serve 执行结果 → 主脑可读摘要。"""
+    if res.get("status") == "error":
+        return f"⚠ reasonix 执行失败: {res.get('error')}"
+    result = (res.get("result") or "").strip()
+    turns = res.get("turns") or 0
+    tools = res.get("tool_calls") or []
+    usage = res.get("usage") or {}
+    head = f"✅ reasonix 执行完成 (轮次={turns}, 工具调用={len(tools)})"
+    if usage.get("promptTokens") or usage.get("completionTokens"):
+        head += (f", in={usage.get('promptTokens', 0)} "
+                 f"out={usage.get('completionTokens', 0)}")
+    return f"{head}\n{result[:8000]}"
 
 
 class MasterCoordinator:
@@ -246,7 +178,7 @@ class MasterCoordinator:
         vault: Any | None = None,
         omni_gateway: Any | None = None,
         llm_fn: Callable | None = None,
-        max_rounds: int = 8,
+        max_rounds: int = 10,
         temperature: float = 0.2,
         long_task_factory: Callable[[], Any] | None = None,
     ):
@@ -336,39 +268,15 @@ class MasterCoordinator:
         请求级 config/model/provider/endpoint(如前端传入的 user API key)
         优先于实例配置, 未提供则回落实例/环境默认。
 
-        同时按任务类型分层瘦身 tools (opencode 免费池 context 有限,
-        72 技能 + 44 mcp 全量注入会超载 → 模型返回 'None'/空):
-        - 系统/基础工具恒保留 (执行面完整, handle_tool_call 仍可调全部);
-        - mcp_* 按用户消息关键词召入 (视频/动画 → hevi+od; 代码 → codebase);
-        - 技能/ecc 专家默认剔除, 消息含技能意图关键词时召回部分。
-
-        创作/生产任务 (视频/动画/项目等, _is_quick_query 否决词) 直接
-        装配 frontier 档 (本地 opencodex gpt-5.6-luna@127.0.0.1:10100):
-        免费池模型多轮 ReAct 工具循环质量不稳 (乱调工具/收尾 'None'),
-        创作任务需要稳定的工具编排与收尾总结。
+        原生智能优先: 工具面全量透传 (不按关键词裁藏) — 模型自主决定
+        调哪个工具。这是"让大模型自己路由"的核心里程碑; 若免费池模型
+        返回 'None'/空, 由 veya.llm 别名层换模型重试 + 收尾兜底承接。
         """
         req_cfg = kwargs.pop("config", None) or {}
         req_model = kwargs.pop("model", None)
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
         tools = kwargs.pop("tools", None)
-        if tools:
-            tools = self._layer_tools(tools, messages)
-        # 创作/生产任务 → frontier 档 (用户显式指定 provider 时尊重用户选择)
-        if not req_provider and not self.provider:
-            user_text = " ".join(
-                str(m.get("content", "")) for m in messages if m.get("role") == "user"
-            )
-            if _is_creative(user_text):
-                req_provider = "openai"
-                req_model = req_model or "gpt-5.6-luna"
-                # 容器内 127.0.0.1 是容器自己 — frontier (opencodex) 跑在宿主,
-                # 容器经网关 192.168.16.1 访问; 宿主本地开发默认 127.0.0.1
-                req_endpoint = req_endpoint or os.environ.get(
-                    "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
-                )
-                # 创作生产流程 (建项目→分镜→一致性→成片) 工具调用链长:
-                # 免费池 6-8 轮容易轮次用尽 → frontier 档配长链轮次
         merged_cfg = {**self._llm_config, **req_cfg}
         if req_cfg.get("providers"):
             merged_cfg["providers"] = {
@@ -389,51 +297,6 @@ class MasterCoordinator:
             tools=tools,
             **kwargs,
         )
-
-    @staticmethod
-    def _layer_tools(tools: list, messages: list) -> list:
-        """工具 schema 分层瘦身: 保持执行面完整, 只裁 LLM 可见面。"""
-
-        def _name(s: dict) -> str:
-            return (s.get("function") or {}).get("name", "")
-
-        user_text = " ".join(
-            str(m.get("content", "")) for m in messages if m.get("role") == "user"
-        ).lower()
-        want_video = any(k in user_text for k in ("视频", "动画", "影片", "短片",
-                                                  "影视", "hevi", "分镜",
-                                                  "配音", "字幕"))
-        want_design = any(k in user_text for k in ("设计", "项目", "od_", "海报",
-                                                   "画", "渲染", "资产"))
-        want_code = any(k in user_text for k in ("代码", "审查", "review", "重构",
-                                                 "测试", "bug", "构建", "build",
-                                                 "报错"))
-        # stratum 知识面: 检索/资料/翻译/摘要/笔记/文档/网页/概念图谱/记忆
-        want_knowledge = any(k in user_text for k in (
-            "检索", "查资料", "查一下", "资料", "翻译", "摘要", "总结", "笔记",
-            "知识", "文档", "文章", "pdf", "网页", "rss", "概念", "图谱",
-            "记忆", "学习", "研究", "搜索", "stratum", "书签", "收藏",
-            "订阅", "资讯", "新闻", "论文", "文献"))
-
-        keep: list[dict] = []
-        for s in tools:
-            n = _name(s)
-            # 系统级 + 基础静态工具恒保留
-            if n.startswith("system_") or (
-                not n.startswith("ecc_") and not n.startswith("skill_")
-                and not n.startswith("mcp_")
-            ):
-                keep.append(s)
-                continue
-            if n.startswith("mcp_"):
-                if (n.startswith("mcp_hevi_") and want_video) or (n.startswith("mcp_od_") and (want_video or want_design)) or (n.startswith("mcp_codebase_") and (want_code or want_video)) or (n.startswith("mcp_stratum_") and (want_knowledge or want_code)):
-                    keep.append(s)
-                continue
-            # 技能/ecc 专家: 显式技能意图才召回 (全量注入会撑爆 opencode 免费池)
-            if (n.startswith("ecc_") and want_code) or (n.startswith("skill_") and (want_code or want_video)):
-                keep.append(s)
-        return keep
-
 
     def _cost_calculator(self, response: dict) -> float:
         usage = response.get("usage") or {}
@@ -514,109 +377,52 @@ class MasterCoordinator:
         # on_step → 参数为 None 时保留外层 contextvar, 否则覆盖 (master/chat 直调)。
         token = _on_step_ctx.set(on_step if on_step is not None else _on_step_ctx.get())
         try:
-            # ── reasonix 确定性前置路由: 编程任务直接执行, 不赌工具循环 ──
-            # 必须早于 quick 判定 (短编程指令可能被 oprim 误判为 quick 单轮)
-            # 与 _agent.chat_stream (free 池全量工具面下常把 tool call 写文本)。
-            _is_rollback_req = any(
-                k in user_prompt.lower()
-                for k in ("回滚", "撤销", "还原", "undo", "rollback")
-            )
-            if (_is_code_execution_task(user_prompt) or _is_rollback_req) \
-                    and self._llm_fn is llm_call:
-                from server.reasonix_agent import reasonix_run, reasonix_rollback
-
-                # 回滚信号 → reasonix_rollback (独立于编码强词判定)
-                if _is_rollback_req:
-                    try:
-                        rb = await reasonix_rollback()
-                    except Exception as exc:  # noqa: BLE001
-                        rb = f"回滚异常: {exc}"
-                    if on_step is not None:
-                        fire_step({"type": "text_delta", "squad_id": "master",
-                                   "delta": rb})
-                    result = {"status": "success", "final_answer": rb,
-                              "tool_calls": [], "reasonix_rollback": True}
-                    return result
-                resume = _is_resume_request(user_prompt)
-
-                def _prog(ev: dict) -> None:
-                    """reasonix 流式进度 → SSE reasonix_progress 事件。"""
-                    fire_step({"type": "reasonix_progress",
-                               "squad_id": "master", **ev})
-
-                try:
-                    exec_summary = await reasonix_run(
-                        user_prompt, timeout_sec=900, continue_=resume,
-                        on_event=_prog,
-                    )
-                except Exception as exc:  # noqa: BLE001 — 前置路由兜底
-                    exec_summary = f"reasonix 执行异常: {exc}"
-                if on_step is not None:
-                    fire_step({"type": "text_delta", "squad_id": "master",
-                               "delta": exec_summary})
-                try:
-                    result = await self._agent.chat(
-                        f"{user_prompt}\n\n[host] 上述编程任务已由 reasonix "
-                        f"编码执行器完成, 执行结果如下:\n{exec_summary}\n"
-                        f"请据此给用户简洁的中文总结 (不要调用任何工具)。",
-                        llm_kwargs=llm_kwargs or None,
-                    )
-                except Exception:  # noqa: BLE001 — 总结失败仍返回执行摘要
-                    result = {"status": "success",
-                              "final_answer": exec_summary, "tool_calls": []}
-                result["reasonix_execution"] = exec_summary
-                return result
-            # 轻量快速路径: 简单问答 (quick 档) → 单轮无工具 (无 20 工具 schema/无主循环)
-            # 省去工具 schema 注入与多轮开销 → 感知速度显著提升
-            # 仅生产默认 llm (测试注入 mock 时走原路径, 保持工具循环语义)
-            if _is_quick_query(user_prompt, config) and self._llm_fn is llm_call:
-                try:
-                    # 快速联网路径: 抓 github README → 单轮分析 (不走 ReAct 多轮)
-                    ctx = _gather_url_context(user_prompt)
-                    prompt = (
-                        f"{user_prompt}\n\n参考内容(已抓取):\n{ctx}"
-                        if ctx else user_prompt
-                    )
-                    result = await self._agent.chat(
-                        prompt, llm_kwargs=llm_kwargs or None)
-                    if on_step is not None:
-                        on_step({"type": "text_delta", "squad_id": "master",
-                                 "delta": result.get("final_answer", "")})
-                    return result
-                except Exception:
-                    # 网关超时/失败 → 换备用模型重试一次
-                    try:
-                        retry_kw = dict(llm_kwargs or {})
-                        retry_kw.setdefault("timeout", 45.0)
-                        retry_kw["model"] = "opencode-go/mimo-v2.5"
-                        result = await self._agent.chat(
-                            prompt, llm_kwargs=retry_kw or None)
-                        if on_step is not None:
-                            on_step({"type": "text_delta", "squad_id": "master",
-                                     "delta": result.get("final_answer", "")})
-                        return result
-                    except Exception:
-                        pass
+            # ── 原生智能优先: 不设任何程序化前置路由 ──
+            # 长文本 / URL / 编程 / 视频 / 知识检索……全部交给大模型原生理解,
+            # 由模型自主决定: 直接回答, 或调用哪个工具 (reasonix_run /
+            # fetch_url / browser_run / mcp_* 都是模型可自主选择的工具面)。
+            # 唯一保留的护栏是轮次上限 (防物理死循环, 不限制智能)。
             lt = None
             if self._long_task_factory is not None:
                 lt = self._long_task_factory()
-            effective_rounds = max_rounds
-            # 创作/生产任务 (视频/动画/项目) 工具调用链长: 建项目→分镜→
-            # 一致性→成片, 默认 8 轮容易轮次用尽 → 提高预算
-            if effective_rounds is None and _is_creative(user_prompt):
-                effective_rounds = 14
-            return await self._agent.chat_stream(
+            effective_rounds = max_rounds or self.max_rounds
+            result = await self._agent.chat_stream(
                 user_prompt,
                 session_id=session_id,
                 max_rounds=effective_rounds,
                 llm_kwargs=llm_kwargs or None,
                 long_task=lt,
             )
+            # 绝不静默: 模型返回空/'None' 且无工具执行 → 可见兜底话术
+            final = str(result.get("final_answer") or "").strip()
+            if not final or final.lower() in ("none", "null"):
+                if result.get("tool_calls"):
+                    done = ", ".join(
+                        t.get("tool", "?") for t in result["tool_calls"]
+                    )
+                    result["final_answer"] = (
+                        f"已执行工具: {done}。但收尾总结生成失败 (模型返回空内容), "
+                        f"以上为实际执行结果; 可对我说「继续」让我接着整理。"
+                    )
+                else:
+                    result["final_answer"] = (
+                        "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。"
+                        "请重试, 或在上方更换模型/引擎。"
+                    )
+            return result
         finally:
             _on_step_ctx.reset(token)
 
     async def chat(self, user_prompt: str, **kwargs: Any) -> dict[str, Any]:
-        return await self._agent.chat(user_prompt, **kwargs)
+        result = await self._agent.chat(user_prompt, **kwargs)
+        # 绝不静默: 模型返回空/'None' → 换成可见兜底话术 (空白 = 用户感知「不回复」)
+        final = str(result.get("final_answer") or "").strip()
+        if not final or final.lower() in ("none", "null"):
+            result["final_answer"] = (
+                "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。"
+                "请重试, 或在上方更换模型/引擎。"
+            )
+        return result
 
 
 # 蜂群引擎全局单例(构造无副作用, eager 安全)

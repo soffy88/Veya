@@ -324,6 +324,31 @@ async def reasonix_run(task: str, workspace: str | None = None,
     打 git 快照 (checkpoint) → 可用 reasonix_rollback 回滚。
     on_event 用于实时进度回调 (前置路由桥接 SSE)。
     """
+    # 新编程任务 → 优先 reasonix serve (独立 oservi, HTTP+SSE 进度回流);
+    # serve 不可达/失败 → 回退 CLI (功能等价, 含 checkpoint/续做/回滚)。
+    # 续做/恢复仍走 CLI (会话状态在 workspace)。
+    if not continue_ and not session_id:
+        try:
+            from server.coordinator_master import (
+                _build_reasonix_spec,
+                _format_reasonix_result,
+            )
+            from server.reasonix_serve import get_serve_client
+
+            client = get_serve_client()
+            if await client.health():
+                ws0 = _resolve_workspace(workspace)
+                _snapshot_workspace(ws0, task)  # checkpoint (回滚可用)
+                res = await client.run_task(
+                    _build_reasonix_spec(task), on_event=on_event,
+                    timeout=timeout_sec or 900,
+                )
+                if res.get("status") != "error":
+                    return _format_reasonix_result(res)
+        except Exception as exc:  # noqa: BLE001 — serve 路径失败 → CLI 兜底
+            logger.info("reasonix serve 不可用, 回退 CLI: %s", exc)
+
+    # ── CLI 路径 (续做 / serve 不可达时的兜底) ──
     try:
         ws = _resolve_workspace(workspace)
     except ValueError as e:
