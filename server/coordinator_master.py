@@ -60,6 +60,18 @@ You have TWO dedicated production systems integrated for video/animation work:
    hevi/od tool actually produced it.
 
 # KNOWLEDGE & CAPABILITY ROUTING (stratum + hevi + codebase) — CRITICAL:
+# CODE EXECUTION (reasonix) — CRITICAL:
+`reasonix_run` is the REAL CODE EXECUTOR (Reasonix — a dedicated coding agent
+with its own planner/executor/sandbox/checkpoints, working in an isolated
+workspace). ROUTE any task that needs actual code changes here:
+[写代码/实现功能/修改代码/修 bug/跑测试/重构/搭项目/读代码库并动手改].
+- If the task will touch or create code files, call `reasonix_run` directly with
+  a clear task + acceptance criteria. Do NOT hand-write code in chat.
+- `mcp_codebase_*` tools are for UNDERSTANDING code (index/search/call-graph/
+  blast-radius). Use them to scope a task, but hand the actual editing to reasonix.
+- `reasonix_run` is a long task (may take minutes). It returns the execution
+  summary + cost. `reasonix_status` checks availability first if unsure.
+- If reasonix is unavailable, state the limitation instead of faking edits.
 You are the orchestrator over three sibling systems. Route by problem type:
 1. **stratum** (mcp_stratum_* tools) — the KNOWLEDGE EXPERT (AI 知识管家). It owns
    PDF/EPUB/webpage/RSS ingestion, hybrid retrieval (BM25+vector), translation,
@@ -71,11 +83,13 @@ You are the orchestrator over three sibling systems. Route by problem type:
    - `mcp_stratum_search_memories` / `build_context` — memory & context
 2. **hevi** (mcp_hevi_* tools) — the VIDEO/ANIMATION EXPERT (see VIDEO PRODUCTION).
 3. **codebase / built-in tools** — code, files, browser, office documents.
+4. **reasonix** (reasonix_run) — the CODE EXECUTOR (writes/edits/runs code).
 
 # ROUTING RULES (什么问题找谁):
 - 视频/动画/分镜/漫画/转场 → hevi (mcp_hevi_*) + Open Design 项目载体
 - 查资料/知识检索/翻译/摘要/笔记/PDF/网页/RSS → stratum (mcp_stratum_*)
-- 代码/文件/浏览器/办公文档 → codebase tools / 本地技能
+- 代码/文件/浏览器/办公文档 → codebase tools / 本地技能 (理解代码: mcp_codebase_*)
+- 需要实际写/改代码 → reasonix_run (编码执行器, 在隔离工作区动手)
 - 跨领域任务 → 先用 stratum 检索背景知识, 再决定是否进入 hevi 生产管线
 - Do not invent tools that do not exist; if stratum/hevi are unavailable,
   state the limitation instead of fabricating results.
@@ -161,6 +175,29 @@ def _is_creative(user_prompt: str) -> bool:
                                       "storyboard", "subtitle", "voice", "poster",
                                       "render", "design", "project"))
     )
+
+
+# ── reasonix 确定性前置路由 ────────────────────────────────────────────
+# 编程任务不赌模型工具循环 (free 池在全量工具面下常把 tool call 写成文本):
+# 检测到强编码信号 → 直接执行 reasonix_run, 结果交给主脑单轮总结。
+_CODE_STRONG = (
+    "写一个", "写一段", "写个", "写代码", "编写", "实现", "创建", "新建",
+    "修复", "修一下", "修个", "重构", "改成", "改一下", "跑测试", "运行测试",
+    "跑一下", "编译", "调试", "加个功能", "新增功能", "搭一个", "构建",
+    "写个脚本", "写个程序", "python 脚本", "写个函数",
+)
+_CODE_EXCLUDE = (
+    "解释", "讲解", "为什么", "是什么", "啥是", "区别", "对比", "教程",
+    "原理", "怎么理解", "说说", "分析一下原因", "帮我看看这段", "帮我看看这个",
+)
+
+
+def _is_code_execution_task(user_prompt: str) -> bool:
+    """强编码意图判定 → reasonix 确定性前置执行 (排除纯解释类)。"""
+    t = user_prompt.lower()
+    if any(k in t for k in _CODE_EXCLUDE):
+        return False
+    return any(k in t for k in _CODE_STRONG)
 
 
 class MasterCoordinator:
@@ -455,6 +492,33 @@ class MasterCoordinator:
             llm_kwargs["endpoint"] = endpoint
         token = _on_step_ctx.set(on_step)
         try:
+            # ── reasonix 确定性前置路由: 编程任务直接执行, 不赌工具循环 ──
+            # 必须早于 quick 判定 (短编程指令可能被 oprim 误判为 quick 单轮)
+            # 与 _agent.chat_stream (free 池全量工具面下常把 tool call 写文本)。
+            if _is_code_execution_task(user_prompt) and self._llm_fn is llm_call:
+                from server.reasonix_agent import reasonix_run
+
+                try:
+                    exec_summary = await reasonix_run(
+                        user_prompt, timeout_sec=900
+                    )
+                except Exception as exc:  # noqa: BLE001 — 前置路由兜底
+                    exec_summary = f"reasonix 执行异常: {exc}"
+                if on_step is not None:
+                    on_step({"type": "text_delta", "squad_id": "master",
+                             "delta": exec_summary})
+                try:
+                    result = await self._agent.chat(
+                        f"{user_prompt}\n\n[host] 上述编程任务已由 reasonix "
+                        f"编码执行器完成, 执行结果如下:\n{exec_summary}\n"
+                        f"请据此给用户简洁的中文总结 (不要调用任何工具)。",
+                        llm_kwargs=llm_kwargs or None,
+                    )
+                except Exception:  # noqa: BLE001 — 总结失败仍返回执行摘要
+                    result = {"status": "success",
+                              "final_answer": exec_summary, "tool_calls": []}
+                result["reasonix_execution"] = exec_summary
+                return result
             # 轻量快速路径: 简单问答 (quick 档) → 单轮无工具 (无 20 工具 schema/无主循环)
             # 省去工具 schema 注入与多轮开销 → 感知速度显著提升
             # 仅生产默认 llm (测试注入 mock 时走原路径, 保持工具循环语义)
