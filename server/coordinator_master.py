@@ -12,12 +12,13 @@ oservi.master_agent.MasterAgent(SOP/系统工具/路由/循环)。
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import uuid
 from collections.abc import Callable
 from typing import Any
 
 from server.events import _on_step_ctx, fire_step
-
-
 from server.memory_bank import VeyaMemoryBank
 from server.memory_bank import memory_bank as _default_memory_bank
 from server.skill_hub import VeyaSkillHub
@@ -25,7 +26,10 @@ from server.skill_hub import skill_hub as _default_skill_hub
 from server.swarm_manager import SwarmOrchestrator
 from server.tool_registry import master_tools
 from server.workspace_rag import get_rag_engine as _default_rag_factory
+from veya.history_store import default_history_store
 from veya.llm import get_provider_config, llm_call
+from veya.memory_distill import distill as _distill_conversation
+from veya.memory_store import default_memory_store, format_memory_block
 from veya.platform import oservi as _load_oservi
 
 _oservi = _load_oservi()
@@ -112,6 +116,23 @@ You decide whether tools are needed. These are the cases where they are NOT:
   from the information you already have.
 - Tools are hands, not reflexes: the fewer tools you see, the more native
   intelligence is expected of you. Never call a tool just because it exists.
+
+# UNDERSTAND-FIRST GATE (理解优先门 — 时机纪律) — CRITICAL:
+Before you have UNDERSTOOD the user's message together with the conversation
+context you ALREADY have, do NOT call external tools (MCP / status scans /
+memory lookups). Comprehension comes FIRST, from what is in front of you.
+Tools are permitted in exactly two moments:
+1. **Understanding-with-missing-material**: reading THIS message genuinely
+   requires external content you do not yet have (a URL/repo the user pasted,
+   a file they reference). Fetch that, then understand.
+2. **Execution**: you have understood and formed a plan — now tools are hands.
+"Scan sessions / list automations / search memories" is NOT case 1: the
+context you need for a follow-up like 「按你建议执行 / 继续」 is the PREVIOUS
+turn in THIS conversation — read it, do not go hunting external stores. If the
+user refers to your own earlier proposal, it is in the conversation history;
+act on it. Never answer "no target found / not persisted" when the target is
+one message above.
+
 You are the orchestrator over three sibling systems. Route by problem type:
 1. **stratum** (mcp_stratum_* tools) — the KNOWLEDGE EXPERT (AI 知识管家). It owns
    PDF/EPUB/webpage/RSS ingestion, hybrid retrieval (BM25+vector), translation,
@@ -166,8 +187,7 @@ def _format_reasonix_result(res: dict) -> str:
     usage = res.get("usage") or {}
     head = f"✅ reasonix 执行完成 (轮次={turns}, 工具调用={len(tools)})"
     if usage.get("promptTokens") or usage.get("completionTokens"):
-        head += (f", in={usage.get('promptTokens', 0)} "
-                 f"out={usage.get('completionTokens', 0)}")
+        head += f", in={usage.get('promptTokens', 0)} out={usage.get('completionTokens', 0)}"
     return f"{head}\n{result[:8000]}"
 
 
@@ -201,6 +221,8 @@ class MasterCoordinator:
         max_rounds: int = 10,
         temperature: float = 0.2,
         long_task_factory: Callable[[], Any] | None = None,
+        history_store: Any | None = None,
+        memory_store: Any | None = None,
     ):
         """初始化主脑(装配 veya 组件 → 委托主库引擎)。
 
@@ -247,6 +269,15 @@ class MasterCoordinator:
         self.max_rounds = max_rounds
         self.temperature = temperature
         self._long_task_factory = long_task_factory
+        # P1 强上下文: 对话历史持久层 (进程无关, 重启/换设备不丢)。
+        # 进程内 _histories 为热缓存, 本 store 为权威源。
+        self._history_store = (
+            history_store if history_store is not None else default_history_store()
+        )
+        # P4 个人记忆: 蒸馏记忆存储 + 检索注入 (kill-switch: VEYA_MEMORY=0 关闭)。
+        self._memory_store = memory_store if memory_store is not None else default_memory_store()
+        self._memory_enabled = os.environ.get("VEYA_MEMORY", "1") != "0"
+        self._bg_tasks: set[asyncio.Task] = set()  # 持有后台蒸馏任务, 防被 GC
 
         # 用户侧 Key 只注入本实例 config,不影响全局环境
         self._llm_config: dict[str, Any] = {}
@@ -332,28 +363,35 @@ class MasterCoordinator:
                 if delay:
                     await asyncio.sleep(delay)
                 resp = await _call(messages)
-                msg = ((resp.get("choices") or [{}])[0].get("message") or {})
+                msg = (resp.get("choices") or [{}])[0].get("message") or {}
                 content = msg.get("content") or ""
                 if msg.get("tool_calls") or (
-                    content.strip()
-                    and content.strip().lower() not in ("none", "null")
+                    content.strip() and content.strip().lower() not in ("none", "null")
                 ):
                     return resp
                 if attempt < len(backoffs):
                     # 不污染会话历史: 仅本次调用附加温和提示
-                    messages = messages + [{
-                        "role": "user",
-                        "content": (
-                            "(系统提示: 你刚才返回了空/无效内容。请直接用中文"
-                            "回答用户, 或调用你判断需要的工具; 不要输出 "
-                            "None/空/null。)"
-                        ),
-                    }]
+                    messages = messages + [
+                        {
+                            "role": "user",
+                            "content": (
+                                "(系统提示: 你刚才返回了空/无效内容。请直接用中文"
+                                "回答用户, 或调用你判断需要的工具; 不要输出 "
+                                "None/空/null。)"
+                            ),
+                        }
+                    ]
             return {
-                "choices": [{"message": {"role": "assistant", "content": (
-                    "⚠ 模型连续返回空内容 (网关抖动)。请重试, "
-                    "或在上方更换模型。"
-                )}}],
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "⚠ 模型连续返回空内容 (网关抖动)。请重试, 或在上方更换模型。"
+                            ),
+                        }
+                    }
+                ],
                 "usage": {},
             }
         return await _call(messages)
@@ -405,7 +443,6 @@ class MasterCoordinator:
     async def handle_tool_call(self, tool_name: str, tool_args: dict) -> str:
         return await self._agent.handle_tool_call(tool_name, tool_args)
 
-
     async def chat_stream(
         self,
         user_prompt: str,
@@ -447,20 +484,27 @@ class MasterCoordinator:
             if self._long_task_factory is not None:
                 lt = self._long_task_factory()
             effective_rounds = max_rounds or self.max_rounds
+            # P1 强上下文: 稳定 sid + 冷启动从持久层恢复历史 (重启/换进程不失忆)
+            sid = session_id or uuid.uuid4().hex
+            await self._restore_history(sid)
+            # P4: 检索相关长期记忆并注入 (空则无操作, 行为不变)
+            await self._inject_memory(sid, user_prompt)
             result = await self._agent.chat_stream(
                 user_prompt,
-                session_id=session_id,
+                session_id=sid,
                 max_rounds=effective_rounds,
                 llm_kwargs=llm_kwargs or None,
                 long_task=lt,
             )
+            # P1: 本轮结束落盘 (进程无关持久)
+            await self._persist_history(sid)
+            # P4: 后台蒸馏本轮对话为长期记忆 (不阻塞回答)
+            self._schedule_distill(sid)
             # 绝不静默: 模型返回空/'None' 且无工具执行 → 可见兜底话术
             final = str(result.get("final_answer") or "").strip()
             if not final or final.lower() in ("none", "null"):
                 if result.get("tool_calls"):
-                    done = ", ".join(
-                        t.get("tool", "?") for t in result["tool_calls"]
-                    )
+                    done = ", ".join(t.get("tool", "?") for t in result["tool_calls"])
                     result["final_answer"] = (
                         f"已执行工具: {done}。但收尾总结生成失败 (模型返回空内容), "
                         f"以上为实际执行结果; 可对我说「继续」让我接着整理。"
@@ -474,14 +518,110 @@ class MasterCoordinator:
         finally:
             _on_step_ctx.reset(token)
 
+    async def _restore_history(self, sid: str) -> None:
+        """冷启动: 若进程内热缓存无此 sid, 从持久层恢复对话历史。
+
+        主库 MasterAgent 以 `_histories[sid]` (首条恒为 system) 持有历史; 恢复时用
+        当前版本 system prompt + 存下的非 system 消息重建, 避免注入过期提示词。
+        getattr 守卫: 若主库结构变动 (无 _histories), 静默回退纯内存 (不崩)。
+        """
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None or sid in hist:
+            return  # 主库无此结构, 或热缓存已有 → 跳过
+        restored: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):  # 持久层故障绝不拖垮对话
+            restored = await self._history_store.load(sid)
+        if restored:
+            system = {"role": "system", "content": self._agent.get_system_prompt()}
+            hist[sid] = [system, *restored]
+
+    async def _persist_history(self, sid: str) -> None:
+        """本轮结束: 把进程内历史 (剔除 system) 落盘为权威源。"""
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None:
+            return
+        msgs = hist.get(sid) or []
+        # 落盘故障绝不拖垮对话
+        with contextlib.suppress(Exception):
+            await self._history_store.save(sid, [m for m in msgs if m.get("role") != "system"])
+
+    # ── P4 个人记忆 (蒸馏 → 检索 → 注入) ─────────────────────────────
+    _MEM_PREFIX = "# MEMORY (关于用户"
+
+    def _memory_user_id(self) -> str:
+        """记忆归属 (跨会话)。当前单用户本地部署用 'default'; 多用户可后扩。"""
+        return "default"
+
+    async def _inject_memory(self, sid: str, query: str) -> None:
+        """检索相关长期记忆, 作为可刷新的 system 消息注入 (system 不入持久化)。
+
+        空记忆 → 完全无操作 (行为不变)。每轮先清旧记忆块再插新块, 不累积。
+        """
+        if not self._memory_enabled:
+            return
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None:
+            return
+        mems: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):  # 记忆故障绝不拖垮对话
+            mems = await self._memory_store.retrieve(self._memory_user_id(), query, top_k=5)
+        block = format_memory_block(mems)
+        msgs = hist.get(sid)
+        if msgs is None:  # 新会话: 先按主库约定建 [system]
+            msgs = [{"role": "system", "content": self._agent.get_system_prompt()}]
+            hist[sid] = msgs
+        # 清旧记忆块 (按内容前缀识别, 不给消息加非标准字段)
+        msgs[:] = [
+            m
+            for m in msgs
+            if not (
+                m.get("role") == "system" and str(m.get("content", "")).startswith(self._MEM_PREFIX)
+            )
+        ]
+        if block:
+            msgs.insert(1, {"role": "system", "content": block})
+
+    def _schedule_distill(self, sid: str) -> None:
+        """后台蒸馏本轮对话 (fire-and-forget, 不阻塞回答)。"""
+        if not self._memory_enabled:
+            return
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None:
+            return
+        msgs = [
+            m
+            for m in (hist.get(sid) or [])
+            if not (
+                m.get("role") == "system" and str(m.get("content", "")).startswith(self._MEM_PREFIX)
+            )
+        ]
+        if len(msgs) < 3:  # 太短不值得蒸馏
+            return
+        with contextlib.suppress(RuntimeError):  # 无运行 loop (同步上下文) → 跳过
+            task = asyncio.ensure_future(self._distill_and_store(sid, msgs))
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
+
+    async def _distill_and_store(self, sid: str, msgs: list[dict[str, Any]]) -> None:
+        """蒸馏 → 落记忆。质量依赖真实模型, 失败静默。"""
+        with contextlib.suppress(Exception):
+            result = await _distill_conversation(msgs, self._bound_llm)
+            uid = self._memory_user_id()
+            for fact in result.get("facts", []):
+                await self._memory_store.add(uid, "fact", fact, salience=0.6, source_sid=sid)
+            for pref in result.get("preferences", []):
+                await self._memory_store.add(uid, "preference", pref, salience=0.7, source_sid=sid)
+            summary = result.get("summary")
+            if summary:
+                await self._memory_store.add(uid, "summary", summary, salience=0.4, source_sid=sid)
+
     async def chat(self, user_prompt: str, **kwargs: Any) -> dict[str, Any]:
         result = await self._agent.chat(user_prompt, **kwargs)
         # 绝不静默: 模型返回空/'None' → 换成可见兜底话术 (空白 = 用户感知「不回复」)
         final = str(result.get("final_answer") or "").strip()
         if not final or final.lower() in ("none", "null"):
             result["final_answer"] = (
-                "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。"
-                "请重试, 或在上方更换模型/引擎。"
+                "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。请重试, 或在上方更换模型/引擎。"
             )
         return result
 
