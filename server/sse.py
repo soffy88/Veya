@@ -20,7 +20,8 @@ router = APIRouter(prefix="/stream", tags=["sse"])
 class SSEQueue:
     """Per-session async queue bridging on_step callbacks → SSE."""
 
-    def __init__(self) -> None:
+    def __init__(self, session_id: str = "") -> None:
+        self.sid = session_id
         self._q: asyncio.Queue[dict | None] = asyncio.Queue()
 
     def on_step(self, event_dict: dict) -> None:
@@ -46,7 +47,7 @@ _queues: dict[str, SSEQueue] = {}
 
 def get_or_create_queue(session_id: str) -> SSEQueue:
     if session_id not in _queues:
-        _queues[session_id] = SSEQueue()
+        _queues[session_id] = SSEQueue(session_id)
     return _queues[session_id]
 
 

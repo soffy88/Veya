@@ -227,6 +227,16 @@ import ModelPicker from "./ModelPicker.svelte";
 	}
 
 	function stop() {
+		// 先通知后端真正中断 (reasonix 任务 → serve /cancel; 排队中 → 取消),
+		// 再断前端 SSE — 不再「只断连接、子进程继续烧 token」。
+		const sid = sessionStore.activeSid;
+		if (sid) {
+			fetch(`${API_BASE}/api/v1/agent/stop`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ session_id: sid }),
+			}).catch(() => {});
+		}
 		aborter?.abort();
 	}
 
