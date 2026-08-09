@@ -16,7 +16,7 @@
 | **A** | 认知债清零（纯文档，不改行为） | 否 | ✅ 完成 (AGENTS.md/architecture.md/BENCHMARK 加历史横幅 + graveyard.md + 本文) |
 | **B** | ~~编程 Agent key 独立化~~ → **沿用主 LLM 同一 key**（用户澄清 2026-08-09: 设计如此）| — | ✅ 定论 · 本轮误引入的独立 key 机制已撤除, deploy 回原状; reasonix 与主 LLM 共用 `OPENCODE_API_KEY`, 独立性体现在进程隔离 + 接收主 LLM 的结构化指令 |
 | **C** | 统一会话入口到 `coordinator_master`（消灭会话双头脑）| 是（路由架构）| ✅ **核心达成** · 会话链路(Web/IM/automata/**CLI 本次**)全在主脑 · 专用/次级路径(prompt/vscode/backends/headless/flow/resume)按决策记录冻结保留, coordinator.py 整体退役降级为未来独立事项 |
-| **D** | 补齐子 LLM(swarm) 分派为一等工具 or 明确内部触发；端点定义单源化（去双写）| 是（工具面/端点）| ⏸ 可选 · 建议后续 |
+| **D** | ~~补齐子 LLM(swarm) 分派~~ **已实现(复审修正)**；仅剩端点定义单源化（去双写）| 端点 | ✅ 子 LLM 分派确认为一等能力(`system_spawn_swarm`) · ⏸ 端点单源为可选小项 |
 | **E** | 环境抽象：硬编码 host/port 收进单一配置层 | 部分 | ⏸ 可选 · 建议后续 |
 
 ## 决策记录（用户授权 · 按四原则「长期主义 / 质量为王 / 功能之上 / 体验最优」自定 2026-08-09）
@@ -65,7 +65,11 @@
   （`deploy/reasonix-entrypoint.sh:9`）；其独立性在于进程隔离 + 接收主 LLM 下发的结构化编码
   指令，非 key 隔离。用户 2026-08-09 澄清确认。
 - **Reasonix 双配置**：`reasonix_agent.py:48 REASONIX_MODEL=luna`（本地 subprocess）vs `reasonix-entrypoint.sh --model opencode-go`（云端 serve :8768）。云端为主 / 本地兜底。
-- **子 LLM 分派半实现**：swarm 注入 MasterAgent（`coordinator_master.py:266`）但未在 `tool_registry.py` 注册为工具。
+- **子 LLM 分派已实现（复审修正——初判有误）**：`system_spawn_swarm` 是 oservi MasterAgent
+  的一等 host 系统工具（`platform/3O/oservi/oservi/master_agent.py:427`，无条件进 system schema）；
+  SOP 指示模型 decompose→spawn（:155），handler 派发到 `self.swarm.run_swarm`（:569）→ veya
+  `SwarmOrchestrator`→omodul 引擎→oskill `SubAgent`（各为一个 LLM）。初判只看 app 层
+  `tool_registry.py`、漏看 system 层，故误判"半实现"。**主 LLM 分派给子 LLM = 端到端已通。**
 - **文档三重人格**：`AGENTS.md`（空壳 agents/）、`docs/architecture.md`（旧 DAG）、`ARCHITECTURE_STABLE.md`（权威）互相矛盾 → 见 [`graveyard.md`](graveyard.md)。
 
 ## 验证基线
