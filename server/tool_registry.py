@@ -192,11 +192,34 @@ def _html_to_text(html: str, max_chars: int = 12000) -> str:
     return text.strip()[:max_chars]
 
 
+def _proxy_url() -> str | None:
+    """容器内 → 宿主代理 (17890 → clash 7890) 兜底 (GFW 海外站点)。
+
+    与 veya.llm._custom_proxy_url 同源探活: 容器桥网关可达宿主 python
+    代理端口时返回代理 URL, 否则 None (直连)。
+    """
+    import os
+
+    if os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"):
+        return None  # 已有系统代理, 不叠加
+    import urllib.request
+
+    for gw in ("192.168.16.1", "172.18.0.1"):
+        try:
+            with urllib.request.urlopen(f"http://{gw}:17890/", timeout=0.5) as resp:
+                if resp.status == 200:
+                    return f"http://{gw}:17890"
+        except Exception:
+            continue
+    return None
+
+
 async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     """原生 URL 阅读工具 (httpx, 免 playwright): 抓任意网页/文档为纯文本。
 
     GitHub 仓库链接自动走 raw README 快速通道; 其余 URL 浏览器 UA 直抓,
-    HTML 剥壳为纯文本。失败返回可读错误 (模型读到后自行调整)。
+    HTML 剥壳为纯文本。容器内经宿主代理 (GFW) 兜底。失败返回可读错误
+    (模型读到后自行调整)。
     """
     import re
 
@@ -212,30 +235,36 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
         ),
         "Accept": "text/html,application/xhtml+xml,text/markdown,text/plain,*/*;q=0.8",
     }
+    proxy = _proxy_url()
+
+    def _client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=20.0, follow_redirects=True, proxy=proxy
+        )
+
     # GitHub 仓库/子路径 → raw README 快速通道 (无 JS, 最可靠)
     m = re.match(r"https?://github\.com/([^/]+)/([^/?#]+)", url)
     if m:
         owner, repo = m.group(1), m.group(2)
         for branch in ("HEAD", "main", "master"):
-            raw = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/README.md"
-            try:
-                async with httpx.AsyncClient(
-                    timeout=12.0, follow_redirects=True
-                ) as client:
-                    r = await client.get(raw, headers=headers)
-                if r.status_code == 200:
-                    return (
-                        f"[GitHub {owner}/{repo} README (branch={branch})]\n"
-                        + r.text[:max_chars]
-                    )
-            except Exception:
-                continue
+            for readme in ("README.md", "Readme.md", "readme.md"):
+                raw = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{readme}"
+                try:
+                    async with _client() as client:
+                        r = await client.get(raw, headers=headers)
+                    if r.status_code == 200:
+                        return (
+                            f"[GitHub {owner}/{repo} README (branch={branch})]\n"
+                            + r.text[:max_chars]
+                        )
+                except Exception:
+                    continue
         return (
             f"GitHub 仓库 {owner}/{repo} 无法直接读取 README (raw 通道失败)。"
             "可尝试 browser_run 交互抓取, 或访问仓库页面链接。"
         )
     try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        async with _client() as client:
             r = await client.get(url, headers=headers)
     except Exception as exc:  # noqa: BLE001
         return f"抓取失败: {type(exc).__name__}: {exc}"

@@ -11,6 +11,7 @@ oservi.master_agent.MasterAgent(SOP/系统工具/路由/循环)。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -331,8 +332,12 @@ class MasterCoordinator:
             )
 
         if self._llm_fn is llm_call:
-            # 生产默认 llm: 空/'None' 且无 tool_calls → 温和重试一次
-            for attempt in (1, 2):
+            # 生产默认 llm: 空/'None' 且无 tool_calls → 带温和提示重试
+            # (带短退避 — free 池网关空响应多为瞬时抖动, 1-3 秒后自愈)
+            backoffs = (0.0, 1.5, 3.0)
+            for attempt, delay in enumerate(backoffs, start=1):
+                if delay:
+                    await asyncio.sleep(delay)
                 resp = await _call(messages)
                 msg = ((resp.get("choices") or [{}])[0].get("message") or {})
                 content = msg.get("content") or ""
@@ -341,7 +346,7 @@ class MasterCoordinator:
                     and content.strip().lower() not in ("none", "null")
                 ):
                     return resp
-                if attempt == 1:
+                if attempt < len(backoffs):
                     # 不污染会话历史: 仅本次调用附加温和提示
                     messages = messages + [{
                         "role": "user",
@@ -351,10 +356,9 @@ class MasterCoordinator:
                             "None/空/null。)"
                         ),
                     }]
-                    continue
             return {
                 "choices": [{"message": {"role": "assistant", "content": (
-                    "⚠ 模型连续两次返回空内容 (网关抖动)。请重试, "
+                    "⚠ 模型连续返回空内容 (网关抖动)。请重试, "
                     "或在上方更换模型。"
                 )}}],
                 "usage": {},
@@ -445,6 +449,31 @@ class MasterCoordinator:
             # 由模型自主决定: 直接回答, 或调用哪个工具 (reasonix_run /
             # fetch_url / browser_run / mcp_* 都是模型可自主选择的工具面)。
             # 唯一保留的护栏是轮次上限 (防物理死循环, 不限制智能)。
+            #
+            # URL 原生上下文供给 (可靠性辅助, 非路由判断): 用户消息含 URL
+            # 时预抓内容注入上下文 — 模型可直接原生回答, 也可继续自主调用
+            # fetch_url/browser_run 深入。修复「发 GitHub 地址不回复」:
+            # 内容已在上下文里, 不再依赖工具轮次的网关稳定性。
+            if self._llm_fn is llm_call:
+                try:
+                    import re as _re
+
+                    _urls = _re.findall(r"https?://[^\s,，]+", user_prompt)
+                    if _urls:
+                        from server.tool_registry import _tool_fetch_url
+
+                        _u = _urls[0].rstrip(".,;!?)")
+                        _ctx = await _tool_fetch_url(_u, 6000)
+                        if _ctx and not _ctx.startswith(
+                            ("抓取失败", "错误:", "GitHub 仓库")
+                        ):
+                            user_prompt = (
+                                f"{user_prompt}\n\n[URL 内容已预抓, 可直接使用; "
+                                f"如需更深入仍可自主调用 fetch_url/browser_run]\n"
+                                f"{_ctx}"
+                            )
+                except Exception:  # noqa: BLE001 — 预抓失败不阻塞, 模型仍可自主调用工具
+                    pass
             lt = None
             if self._long_task_factory is not None:
                 lt = self._long_task_factory()
@@ -458,16 +487,24 @@ class MasterCoordinator:
             )
             # ── 编程任务收尾兜底 (原生智能的护栏, 非前置拦截) ──
             # 模型自主路由优先; 但若编程强信号任务模型没调 reasonix_run 且
-            # 结果为空/无代码块 → 收尾直接交给 Reasonix 执行器 (serve),
-            # 保证「veya 理解 → 规范指令 → reasonix 执行」不落空。
-            # 配额暂停/失败等**有意结果**一律尊重, 绝不覆盖 (否则会绕过
-            # 长任务配额护栏, 造成意外成本)。
+            # 没做实质工作 (只调了探索类工具/空回复/手写代码未执行) → 收尾
+            # 直接交给 Reasonix 执行器 (serve), 保证任务不落空。
+            # 配额暂停/失败等**有意结果**一律尊重; 模型已用其他工具做过
+            # 实质工作 (如蜂群/沙箱) 也绝不覆盖。仅生产默认 llm 启用
+            # (测试注入 mock 时保持工具循环语义, 不触发真实执行器)。
+            _EXPLORE_ONLY = {
+                "reasonix_status", "reasonix_sessions", "list_files",
+                "grep", "read_file_ast", "search_genesis_ledger",
+                "system_workspace_search", "mcp_codebase_search_code",
+                "mcp_codebase_get_graph_schema",
+            }
             if (_is_code_execution_task(user_prompt)
+                    and self._llm_fn is llm_call
                     and result.get("status") not in ("paused_by_quota", "failed")):
                 _done = {t.get("tool", "") for t in (result.get("tool_calls") or [])}
                 final0 = str(result.get("final_answer") or "").strip()
-                if "reasonix_run" not in _done \
-                        and (not final0 or "```" not in final0):
+                _real_work = _done - _EXPLORE_ONLY - {"reasonix_run"}
+                if not _real_work and (not final0 or "```" not in final0):
                     from server.reasonix_agent import reasonix_run
 
                     def _prog(ev: dict) -> None:
