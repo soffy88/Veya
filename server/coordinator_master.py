@@ -12,35 +12,10 @@ oservi.master_agent.MasterAgent(SOP/系统工具/路由/循环)。
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Callable
 from typing import Any
 
-logger = logging.getLogger("coordinator.master")
-
 from server.events import _on_step_ctx, fire_step
-
-
-# ── 编程任务强信号判定 (收尾兜底用, 非前置路由) ────────────────────────
-# 模型自主路由优先; 此处仅用于「模型没动手且结果无代码」时收尾交给 reasonix。
-_CODE_STRONG = (
-    "写一个", "写一段", "写个", "写代码", "编写", "实现", "创建", "新建",
-    "修复", "修一下", "修个", "重构", "改成", "改一下", "跑测试", "运行测试",
-    "跑一下", "编译", "调试", "加个功能", "新增功能", "搭一个", "构建",
-    "写个脚本", "写个程序", "python 脚本", "写个函数",
-)
-_CODE_EXCLUDE = (
-    "解释", "讲解", "为什么", "是什么", "啥是", "区别", "对比", "教程",
-    "原理", "怎么理解", "说说", "分析一下原因", "帮我看看这段", "帮我看看这个",
-)
-
-
-def _is_code_execution_task(user_prompt: str) -> bool:
-    """强编码意图判定 (排除纯解释类)。"""
-    t = user_prompt.lower()
-    if any(k in t for k in _CODE_EXCLUDE):
-        return False
-    return any(k in t for k in _CODE_STRONG)
 
 
 from server.memory_bank import VeyaMemoryBank
@@ -313,22 +288,19 @@ class MasterCoordinator:
         请求级 config/model/provider/endpoint(如前端传入的 user API key)
         优先于实例配置, 未提供则回落实例/环境默认。
 
-        原生智能优先: 路由决策权在模型 — 但工具面对 free 池模型做
-        「诱惑管理」: 全量 173 工具会让它被领域工具带偏 (设计任务去查
-        行情 → 死循环 → 空回复)。_layer_tools 按任务领域召入工具面
-        (非路由判断, 只是可见性管理): 核心执行工具恒在, mcp/技能按
-        领域意图召回, 量化数据工具仅真实操作意图召回。
+        入口只有一个大模型: 工具面**全量透传**, 不做任何程序判断/裁藏 —
+        大模型看到全部工具, 自主决定直答或调用哪个 (reasonix_run /
+        fetch_url / browser_run / mcp_* 都是模型自己的选择)。
 
-        绝不静默 (LLM 边界最后一环): opencode-go free 池网关间歇性返回
-        空/'None' → 带温和原生提示退避重试; 仍空则返回可见提示。
+        绝不静默 (LLM 边界最后一环): 模型返回空/'None' → 带温和原生
+        提示退避重试; 仍空则返回可见提示 (opencode 网关抖动已被
+        veya.llm 别名层的 gpt-5.6-luna 本地兜底承接)。
         """
         req_cfg = kwargs.pop("config", None) or {}
         req_model = kwargs.pop("model", None)
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
         tools = kwargs.pop("tools", None)
-        if tools:
-            tools = self._layer_tools(tools, messages)
         merged_cfg = {**self._llm_config, **req_cfg}
         if req_cfg.get("providers"):
             merged_cfg["providers"] = {
@@ -385,91 +357,6 @@ class MasterCoordinator:
                 "usage": {},
             }
         return await _call(messages)
-
-    @staticmethod
-    def _layer_tools(tools: list, messages: list) -> list:
-        """工具 schema 分层 (诱惑管理, 非路由判断): 只裁 LLM 可见面。
-
-        路由决策权在模型; 但 free 池模型在全量 173 工具下会被领域工具
-        带偏 (设计任务去查行情 → 失败重试 → 空回复)。分层后模型看到
-        「核心执行工具 + 当前任务领域工具」:
-        - 系统级 + 基础执行工具 (fetch_url/reasonix/browser/sandbox/...) 恒保留;
-        - mcp_* 按领域意图召入 (视频/设计 → hevi+od, 代码 → codebase,
-          知识 → stratum);
-        - 量化数据工具 (get_market_data_schema/run_backtest_coprocessor)
-          仅**操作意图**召回 (回测/行情数据/实盘/策略验证) — 指标名
-          (MACD/均线/RSI) 不触发, 否则「设计一个 MACD 拦截器」会被
-          带进查行情的死胡同;
-        - 技能/ecc 专家默认剔除, 显式技能/代码意图才召回。
-        """
-
-        def _name(s: dict) -> str:
-            return (s.get("function") or {}).get("name", "")
-
-        user_text = " ".join(
-            str(m.get("content", "")) for m in messages if m.get("role") == "user"
-        ).lower()
-        want_video = any(k in user_text for k in ("视频", "动画", "影片", "短片",
-                                                  "影视", "hevi", "分镜",
-                                                  "配音", "字幕"))
-        want_design = any(k in user_text for k in ("设计", "项目", "od_", "海报",
-                                                   "画", "渲染", "资产",
-                                                   "方案", "架构", "规划"))
-        want_code = any(k in user_text for k in ("代码", "审查", "review", "重构",
-                                                 "测试", "bug", "构建", "build",
-                                                 "报错", "写一个", "写个", "实现",
-                                                 "修复", "编程", "函数", "脚本",
-                                                 "开发", "code", "coding",
-                                                 "compile", "error"))
-        # 量化**操作**意图 (指标名 MACD/均线/RSI 不触发 — 设计任务含指标名
-        # 不代表要查行情; 只有真实操作词才召回数据工具)
-        want_quant = any(k in user_text for k in ("回测", "行情数据", "实盘",
-                                                  "策略验证", "量化分析",
-                                                  "backtest", "market data",
-                                                  "run_backtest", "获取行情",
-                                                  "交易信号", "下单", "k线数据",
-                                                  "数据文件", "parquet"))
-        want_knowledge = any(k in user_text for k in (
-            "检索", "查资料", "查一下", "资料", "翻译", "摘要", "总结", "笔记",
-            "知识", "文档", "文章", "pdf", "网页", "rss", "概念", "图谱",
-            "记忆", "学习", "研究", "搜索", "stratum", "书签", "收藏",
-            "订阅", "资讯", "新闻", "论文", "文献"))
-        want_skill = any(k in user_text for k in ("技能", "skill", "专家",
-                                                  "审查", "review", "代码审查",
-                                                  "code review", "架构师"))
-
-        keep: list[dict] = []
-        for s in tools:
-            n = _name(s)
-            # 系统级 + 基础静态执行工具恒保留
-            if n.startswith("system_") or (
-                not n.startswith("ecc_") and not n.startswith("skill_")
-                and not n.startswith("mcp_")
-                and n not in ("get_market_data_schema",
-                              "run_backtest_coprocessor")
-            ):
-                keep.append(s)
-                continue
-            if n.startswith("mcp_"):
-                if ((n.startswith("mcp_hevi_") or n.startswith("mcp_od_"))
-                        and (want_video or want_design)) or (
-                    n.startswith("mcp_codebase_") and (want_code or want_video)
-                ) or (
-                    n.startswith("mcp_stratum_") and (want_knowledge or want_code)
-                ):
-                    keep.append(s)
-                continue
-            # 量化数据依赖工具: 仅真实操作意图 (指标名不触发)
-            if n in ("get_market_data_schema", "run_backtest_coprocessor"):
-                if want_quant:
-                    keep.append(s)
-                continue
-            # 技能/ecc 专家: 显式技能/代码意图才召回 (全量注入撑爆免费池)
-            if (n.startswith("ecc_") and (want_code or want_skill)) or (
-                n.startswith("skill_") and (want_code or want_skill or want_video)
-            ):
-                keep.append(s)
-        return keep
 
     def _cost_calculator(self, response: dict) -> float:
         usage = response.get("usage") or {}
@@ -550,43 +437,12 @@ class MasterCoordinator:
         # on_step → 参数为 None 时保留外层 contextvar, 否则覆盖 (master/chat 直调)。
         token = _on_step_ctx.set(on_step if on_step is not None else _on_step_ctx.get())
         try:
-            # ── 原生智能优先: 不设任何程序化前置路由 ──
-            # 长文本 / URL / 编程 / 视频 / 知识检索……全部交给大模型原生理解,
-            # 由模型自主决定: 直接回答, 或调用哪个工具 (reasonix_run /
-            # fetch_url / browser_run / mcp_* 都是模型可自主选择的工具面)。
-            # 唯一保留的护栏是轮次上限 (防物理死循环, 不限制智能)。
-            #
-            # URL 原生上下文供给 (可靠性辅助, 非路由判断): 用户消息含 URL
-            # 时预抓内容注入上下文 — 模型可直接原生回答, 也可继续自主调用
-            # fetch_url/browser_run 深入。修复「发 GitHub 地址不回复」:
-            # 内容已在上下文里, 不再依赖工具轮次的网关稳定性。
-            if self._llm_fn is llm_call:
-                try:
-                    import re as _re
-
-                    _urls = _re.findall(r"https?://[^\s,，]+", user_prompt)
-                    if _urls:
-                        from server.tool_registry import _tool_fetch_url
-
-                        _u = _urls[0].rstrip(".,;!?)")
-                        _ctx = await _tool_fetch_url(_u, 6000)
-                        if _ctx and not _ctx.startswith(
-                            ("抓取失败", "错误:", "GitHub 仓库")
-                        ):
-                            # 清洗 HTML + 收紧容量: free 池网关上下文在临界
-                            # (system 50KB + 164 工具 schema), 预抓内容过大会
-                            # 触发空响应 (quality-gate 误判 → 升级 → 仍空)。
-                            # 干净的 2500 字足够模型直接概括, 深挖仍可自主调工具。
-                            from server.tool_registry import _html_to_text
-
-                            _ctx = _html_to_text(_ctx, 2500)
-                            user_prompt = (
-                                f"{user_prompt}\n\n[URL 内容已预抓, 可直接使用; "
-                                f"如需更深入仍可自主调用 fetch_url/browser_run]\n"
-                                f"{_ctx}"
-                            )
-                except Exception:  # noqa: BLE001 — 预抓失败不阻塞, 模型仍可自主调用工具
-                    pass
+            # ── 入口只有一个大模型: 零程序判断 ──
+            # 所有请求 (长文本/URL/编程/视频/知识/设计…) 原样交给大模型,
+            # 工具面全量透传 — 模型自主决定: 直接回答, 或调用哪个工具
+            # (reasonix_run / fetch_url / browser_run / mcp_* 都是模型
+            # 自己的选择)。程序不预判、不裁藏、不预抓、不代做长任务。
+            # 唯一保留的是轮次上限 (防物理死循环, 不限制智能)。
             lt = None
             if self._long_task_factory is not None:
                 lt = self._long_task_factory()
@@ -598,43 +454,6 @@ class MasterCoordinator:
                 llm_kwargs=llm_kwargs or None,
                 long_task=lt,
             )
-            # ── 编程任务收尾兜底 (原生智能的护栏, 非前置拦截) ──
-            # 模型自主路由优先; 但若编程强信号任务模型没调 reasonix_run 且
-            # 没做实质工作 (只调了探索类工具/空回复/手写代码未执行) → 收尾
-            # 直接交给 Reasonix 执行器 (serve), 保证任务不落空。
-            # 配额暂停/失败等**有意结果**一律尊重; 模型已用其他工具做过
-            # 实质工作 (如蜂群/沙箱) 也绝不覆盖。仅生产默认 llm 启用
-            # (测试注入 mock 时保持工具循环语义, 不触发真实执行器)。
-            _EXPLORE_ONLY = {
-                "reasonix_status", "reasonix_sessions", "list_files",
-                "grep", "read_file_ast", "search_genesis_ledger",
-                "system_workspace_search", "mcp_codebase_search_code",
-                "mcp_codebase_get_graph_schema",
-            }
-            if (_is_code_execution_task(user_prompt)
-                    and self._llm_fn is llm_call
-                    and result.get("status") not in ("paused_by_quota", "failed")):
-                _done = {t.get("tool", "") for t in (result.get("tool_calls") or [])}
-                final0 = str(result.get("final_answer") or "").strip()
-                _real_work = _done - _EXPLORE_ONLY - {"reasonix_run"}
-                if not _real_work and (not final0 or "```" not in final0):
-                    from server.reasonix_agent import reasonix_run
-
-                    def _prog(ev: dict) -> None:
-                        fire_step({"type": "reasonix_progress",
-                                   "squad_id": "master", **ev})
-
-                    try:
-                        exec_summary = await reasonix_run(
-                            user_prompt, timeout_sec=900, on_event=_prog,
-                        )
-                        result["reasonix_execution"] = exec_summary
-                        result["final_answer"] = (
-                            exec_summary
-                            + "\n\n(主脑已将此编程任务交给 Reasonix 编码执行器完成)"
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("reasonix 兜底执行失败: %s", exc)
             # 绝不静默: 模型返回空/'None' 且无工具执行 → 可见兜底话术
             final = str(result.get("final_answer") or "").strip()
             if not final or final.lower() in ("none", "null"):
