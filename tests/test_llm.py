@@ -534,3 +534,53 @@ def test_custom_proxy_url_bridge_detected(monkeypatch):
     # 宿主 (非容器) 不走代理
     monkeypatch.setattr("veya.llm._in_container", lambda: False)
     assert _custom_proxy_url("custom-tokenrouter") is None
+
+
+# ── veya1.1 别名: opencode-go 空回复 → gpt-5.6-luna 本地兜底 ─────────
+
+
+def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
+    """opencode-go 返回空/'None' 时自动降级本地 frontier, 绝不静默。"""
+    import asyncio
+    import os
+
+    from veya import llm as hllm
+
+    calls: list[str] = []
+    monkeypatch.setattr("os.environ", {**os.environ, "OPENCODE_API_KEY": "sk-test"})
+
+    async def flaky_provider(client, provider, **kw):
+        # 底层网络层: opencode-go 持续空回复, openai (gpt-5.6-luna) 正常
+        calls.append(kw.get("model") or "?")
+        if provider == "opencode-go":
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "None"}}],
+                    "usage": {}}
+        if provider == "openai":
+            return {"choices": [{"message": {"role": "assistant",
+                                               "content": "兜底成功回复"}}],
+                    "usage": {}}
+        raise AssertionError(f"unexpected provider {provider}")
+
+    monkeypatch.setattr(hllm, "provider_call", flaky_provider)
+    resp = asyncio.run(hllm.llm_call(
+        [{"role": "user", "content": "你是谁你能做什么"}],
+        provider="veya1.1", model="veya1.1"))
+    # 先走 free 池候选 (deepseek/mimo), 空回复后落到 gpt-5.6-luna 兜底
+    assert calls[-1] == "gpt-5.6-luna", f"最后必须兜底到 gpt-5.6-luna, 实际 {calls}"
+    msg = ((resp.get("choices") or [{}])[0].get("message") or {})
+    assert msg.get("content") == "兜底成功回复"
+
+    # 绝不静默: 兜底 (gpt-5.6-luna) 也失败时返回结构化错误而非空白
+    async def all_empty(client, provider, **kw):
+        calls.append(kw.get("model") or "?")
+        return {"choices": [{"message": {"role": "assistant", "content": ""}}],
+                "usage": {}}
+
+    monkeypatch.setattr(hllm, "provider_call", all_empty)
+    resp2 = asyncio.run(hllm.llm_call(
+        [{"role": "user", "content": "你是谁你能做什么"}],
+        provider="veya1.1", model="veya1.1"))
+    assert resp2.get("error") is True
+    assert str(((resp2.get("choices") or [{}])[0].get("message") or {})
+               .get("content") or "").strip()

@@ -656,6 +656,32 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                     last_err = f"opencode-go {cand_bare} 返回无效内容: {content!r}"
                     continue
                 return resp
+            # 全部候选空/失败 → 本地 frontier (gpt-5.6-luna) 兜底: free 池
+            # 网关间歇性空回复 (可能持续数秒), 本地模型零网络抖动, 保证
+            # 「绝不静默」在模型层彻底闭环。容器内走宿主桥 192.168.16.1
+            # (Host 头重写已放行); 宿主默认 127.0.0.1:10100。
+            try:
+                frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
+                    "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
+                )
+                resp = await llm_call(
+                    payload["messages"],
+                    config=kwargs.get("config"),
+                    provider="openai",
+                    model="gpt-5.6-luna",
+                    endpoint=frontier_endpoint,
+                    tools=payload.get("tools"),
+                    default_content="gpt-5.6-luna 兜底失败",
+                )
+                content = (
+                    (resp.get("choices") or [{}])[0].get("message") or {}
+                ).get("content") or ""
+                if content.strip() and content.strip().lower() not in ("none", "null"):
+                    resp["router"] = {"route": "frontier_fallback",
+                                      "reason": "opencode-go empty → gpt-5.6-luna"}
+                    return resp
+            except Exception as exc:  # noqa: BLE001 — 兜底失败也绝不静默
+                last_err = f"gpt-5.6-luna 兜底失败: {exc}"
             return {
                 "choices": [{"message": {"role": "assistant",
                                           "content": (
