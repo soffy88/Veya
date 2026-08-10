@@ -46,9 +46,15 @@ async def graph_files(limit: int = 200) -> dict:
     except HTTPException:
         raise
     limit = max(10, min(int(limit), 500))
+    # 未索引时先索引 (AST 全量 ~5s, 幂等; 已索引则跳过)
+    try:
+        await conn.ensure_indexed(force=False)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"索引失败: {exc}")
     cypher = (
-        "MATCH (a:File)-[r:IMPORTS]->(b:File) "
-        "RETURN a.name AS src, b.name AS dst, count(r) AS weight "
+        "MATCH (a:File)-[r]->(b:File) "
+        "WHERE a.name <> b.name "
+        "RETURN a.name AS src, b.name AS dst "
         "LIMIT $limit"
     )
     try:
@@ -65,5 +71,5 @@ async def graph_files(limit: int = 200) -> dict:
         nodes.setdefault(dst, {"id": dst, "type": "file", "deps": 0, "dependents": 0})
         nodes[src]["deps"] += 1
         nodes[dst]["dependents"] += 1
-        edges.append({"src": src, "dst": dst, "weight": int(r.get("weight") or 1)})
+        edges.append({"src": src, "dst": dst, "weight": 1})
     return {"nodes": list(nodes.values()), "edges": edges, "total": len(edges)}
