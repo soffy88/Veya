@@ -97,8 +97,9 @@ async def test_wire_master_tools_idempotent(connector):
     from server.tool_registry import master_tools
 
     added = await wire_master_tools(connector)
-    assert added >= 10
-    assert master_tools.has("mcp_hevi_hevi_generate_longvideo")
+    # ②-B 网关: 每服务 1 个 mcp_<server> 网关 (全量顺序下可能已 wire → added=0)
+    assert added >= 0
+    assert master_tools.has("mcp_hevi")
     assert await wire_master_tools(connector) == 0     # 幂等
 
 

@@ -159,8 +159,8 @@ async def test_wire_master_tools_idempotent(connector):
     added = await wire_master_tools(connector)
     # 全量测试顺序下可能已被先前用例 wire (幂等) → added=0; 功能断言为准
     assert added >= 0
-    assert master_tools.has("mcp_codebase_search_graph")
-    assert master_tools.has("mcp_codebase_trace_path")
+    # ②-B mcp 网关收口: 每服务 1 个 mcp_<server>(action, args)
+    assert master_tools.has("mcp_codebase")
     # 幂等: 二次调用零新增
     assert await wire_master_tools() == 0
 
