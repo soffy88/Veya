@@ -113,18 +113,32 @@ async def fs_tree(path: str = "", depth: int = _MAX_DEPTH) -> dict:
 
 @router.get("/api/v1/fs/read")
 async def fs_read(path: str, max_chars: int = 12000) -> dict:
-    """读工作区内文件内容 (UTF-8, 截断防爆)。"""
-    rp = _resolve(path)
+    """读工作区内文件内容 (UTF-8, 截断防爆)。uploads/ 前缀 → ~/.veya/uploads (上传目录)。"""
+    if str(path).startswith("uploads/"):
+        # 上传目录在 ~/.veya/uploads (veya-data rw), 非工作区根
+        root = Path.home() / ".veya"
+        rp = (root / path).resolve()
+        if root not in rp.parents and rp != root:
+            raise HTTPException(status_code=403, detail=f"路径在工作区外: {path}")
+    else:
+        rp = _resolve(path)
     if not rp.is_file():
         raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+    # PDF → 提取文本 (pypdf, 轻量; 不受 200KB 二进制限制 — 提取时截断)
+    if rp.suffix.lower() == ".pdf":
+        try:
+            size = rp.stat().st_size
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"stat 失败: {exc}")
+        text = _extract_pdf_text(rp, max_chars)
+        return {"path": str(rp), "content": text, "truncated": len(text) >= max_chars,
+                "size": size, "kind": "pdf"}
     try:
         size = rp.stat().st_size
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"stat 失败: {exc}")
     if size > _MAX_READ:
         raise HTTPException(status_code=413, detail=f"文件过大 ({size} bytes), 上限 {_MAX_READ}")
-    # PDF → 提取文本 (pypdf, 轻量)
-    if rp.suffix.lower() == ".pdf":
         text = _extract_pdf_text(rp, max_chars)
         return {"path": str(rp), "content": text, "truncated": len(text) >= max_chars,
                 "size": size, "kind": "pdf"}
