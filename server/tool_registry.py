@@ -928,6 +928,8 @@ from server.graph_engineer import graph_cycle
 master_tools.register(
     name="system_graph_cycle",
     description=(
+        "【触发条件】用户要求复杂功能多轮打磨/代码审查后再交付/重构/高风险任务 "
+        "(auth/支付/删除/并发) 时优先考虑本工具; 一般简单任务直接回答或轻量工具即可。"
         "在计划的未完成 todo 上跑「实现→质量门→批判→仲裁→修复→验证」自纠正循环, "
         "不同引擎分离角色 — 实现引擎写代码, 批判引擎只读审查 (不让写的人自评)。"
         "完整机制 (graph-engineer 式): PRE-FLIGHT 安全检查 (workdir git clean/分支), "
@@ -966,6 +968,8 @@ from server.graph_engineer import graph_review
 master_tools.register(
     name="system_graph_review",
     description=(
+        "【触发条件】用户要求审查/评估/检查现有实现、上线前复核、接手陌生代码时 "
+        "优先考虑本工具 (比 graph_cycle 轻量, 只读不写)。"
         "Review-only 模式: 只读审查计划中的实现, 不写代码不修 bug, 输出审查报告 "
         "(功能/边界问题 + 安全隐患 + 建议) 写入 todo evidence, todo 标 reviewed。"
         "绝不调用实现引擎、绝不修改任何文件 (read-only 硬保证)。"
