@@ -1,15 +1,15 @@
-"""server.reasonix_serve — Reasonix 独立 oservi (HTTP+SSE) 客户端。
+"""server.hicode_serve — Hicode 独立 oservi (HTTP+SSE) 客户端。
 
-veya 编程任务主流流程: 主脑理解 → 规范指令 → 本客户端 → reasonix serve
+veya 编程任务主流流程: 主脑理解 → 规范指令 → 本客户端 → hicode serve
 (独立进程, 容器内 :8768 / 宿主 :8768, opencode-go 云端 key, 与 veya 网关解耦)。
 
-serve 是 Reasonix 的完整交互会话 (浏览器 UI 后端):
+serve 是 Hicode 的完整交互会话 (浏览器 UI 后端):
   POST /submit /cancel /approve /plan /goal /rewind /fork /compact /new
   GET  /events (SSE: turn_started / tool_dispatch / tool_result / message /
                  usage / phase / approval_request / turn_done 终态)
 
 约束: serve 单会话 → 本客户端用 asyncio.Lock 串行化任务 (编程任务低频, 可接受)。
-事件映射复用 reasonix_progress 前端格式 (stage/tool/detail)。
+事件映射复用 hicode_progress 前端格式 (stage/tool/detail)。
 """
 
 from __future__ import annotations
@@ -24,18 +24,18 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("reasonix.serve")
+logger = logging.getLogger("hicode.serve")
 
-SERVE_BASE = os.environ.get("REASONIX_SERVE_BASE", "http://127.0.0.1:8768")
-SERVE_TASK_TIMEOUT = float(os.environ.get("REASONIX_SERVE_TIMEOUT", "1800"))
+SERVE_BASE = os.environ.get("HICODE_SERVE_BASE", "http://127.0.0.1:8768")
+SERVE_TASK_TIMEOUT = float(os.environ.get("HICODE_SERVE_TIMEOUT", "1800"))
 
 
-class ReasonixServeError(RuntimeError):
+class HicodeServeError(RuntimeError):
     """serve 端点错误 / 协议异常 (主脑应看到可操作提示)。"""
 
 
-class ReasonixServeClient:
-    """reasonix serve 独立 oservi 客户端 (单会话 → 任务串行锁)。"""
+class HicodeServeClient:
+    """hicode serve 独立 oservi 客户端 (单会话 → 任务串行锁)。"""
 
     def __init__(self, base: str = SERVE_BASE) -> None:
         self.base = base.rstrip("/")
@@ -46,7 +46,7 @@ class ReasonixServeClient:
         async with httpx.AsyncClient(timeout=30) as c:
             r = await c.post(f"{self.base}{path}", json=payload or {})
             if r.status_code >= 400:
-                raise ReasonixServeError(
+                raise HicodeServeError(
                     f"POST {path} → {r.status_code}: {r.text[:200]}"
                 )
             return r
@@ -70,7 +70,7 @@ class ReasonixServeClient:
         """
         try:
             proc = await asyncio.create_subprocess_exec(
-                "pkill", "-f", "reasonix serve",
+                "pkill", "-f", "hicode serve",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -116,7 +116,7 @@ class ReasonixServeClient:
         async with httpx.AsyncClient(timeout=None) as c:
             async with c.stream("GET", f"{self.base}/events") as r:
                 if r.status_code != 200:
-                    raise ReasonixServeError(f"GET /events → {r.status_code}")
+                    raise HicodeServeError(f"GET /events → {r.status_code}")
                 buf = ""
                 async for chunk in r.aiter_text():
                     buf += chunk
@@ -146,14 +146,14 @@ class ReasonixServeClient:
         """串行执行一次编程任务: new → auto 审批 → submit → 订阅到 turn_done。
 
         返回 {status, result, turns, tool_calls, usage, error}。
-        on_event 回调收到 reasonix_progress 格式的进度事件。
+        on_event 回调收到 hicode_progress 格式的进度事件。
         """
         if not await self.health():
             return {
                 "status": "error",
                 "error": (
-                    "reasonix serve 不可达 (127.0.0.1:8768)。容器内由启动脚本拉起, "
-                    "宿主需 `nohup reasonix serve --addr 127.0.0.1:8768 --auth none "
+                    "hicode serve 不可达 (127.0.0.1:8768)。容器内由启动脚本拉起, "
+                    "宿主需 `nohup hicode serve --addr 127.0.0.1:8768 --auth none "
                     "--model opencode-go &` 启动。"
                 ),
             }
@@ -162,7 +162,7 @@ class ReasonixServeClient:
             await self.set_approval_mode("auto" if approve_all else "ask")
             if on_event is not None:
                 on_event({"stage": "planning", "tool": None,
-                          "detail": "Reasonix oservi 已就绪, 提交任务…"})
+                          "detail": "Hicode oservi 已就绪, 提交任务…"})
 
             q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
@@ -228,7 +228,7 @@ class ReasonixServeClient:
                                 usage_total[k] = usage_total.get(k, 0) + u[k]
                 return {
                     "status": "error",
-                    "error": "reasonix 会话意外结束 (未收到 turn_done)",
+                    "error": "hicode 会话意外结束 (未收到 turn_done)",
                     "result": "".join(text_parts).strip() or None,
                     "turns": turns,
                 }
@@ -237,12 +237,12 @@ class ReasonixServeClient:
 
 
 def _bridge_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
-    """serve 事件 → reasonix_progress 前端格式 (stage/tool/detail)。"""
+    """serve 事件 → hicode_progress 前端格式 (stage/tool/detail)。"""
     if on_event is None:
         return
     kind = ev.get("kind")
     if kind == "turn_started":
-        on_event({"stage": "planning", "tool": None, "detail": "Reasonix 规划中…"})
+        on_event({"stage": "planning", "tool": None, "detail": "Hicode 规划中…"})
     elif kind == "phase":
         label = str(ev.get("text") or ev.get("label") or "交接")
         on_event({"stage": "planning", "tool": None, "detail": f"阶段: {label}"})
@@ -303,11 +303,11 @@ def _tool_brief(name: str, args: dict) -> str:
 
 
 # 单例客户端 (服务级复用)
-_serve_client: ReasonixServeClient | None = None
+_serve_client: HicodeServeClient | None = None
 
 
-def get_serve_client() -> ReasonixServeClient:
+def get_serve_client() -> HicodeServeClient:
     global _serve_client
     if _serve_client is None:
-        _serve_client = ReasonixServeClient()
+        _serve_client = HicodeServeClient()
     return _serve_client

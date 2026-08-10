@@ -1,4 +1,4 @@
-# Reasonix — veya 容器内配置
+# hicode (reasonix CLI) — veya 容器内配置
 # 容器内 127.0.0.1 是容器自己; 宿主模型网关经 docker bridge 网关 192.168.16.1:10101 访问。
 # 状态目录由 REASONIX_STATE_HOME 指向 veya-data volume (配置目录只读挂载)。
 
