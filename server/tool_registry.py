@@ -862,3 +862,62 @@ master_tools.register(
     },
     func=gate_check,
 )
+
+# ================= 状态内核 Phase 2+3 (Spend / Terminal Gate / 边界扫描) ====
+from server.state_kernel import boundary_scan, quota_spend_slot, terminal_gate_check
+
+master_tools.register(
+    name="system_quota_spend_slot",
+    description=(
+        "验证后记账 (spend): 为一次『已完成的控制面推进』记一笔 (幂等, effect_id "
+        "唯一不双扣)。spend = 有效推进的账, 不是『模型被唤醒过』的计数器 — "
+        "dry-run / 只读 / 静默轮询不要调用。完成一个 todo (update_todo done + "
+        "验证) 后调用, effect_id 填执行回执/验证摘要 hash。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "plan_id": {"type": "string", "description": "计划 id。"},
+            "todo_id": {"type": "string", "description": "已 done 的 todo id。"},
+            "effect_id": {"type": "string", "description": "本次执行效果唯一标识 (如验证摘要/产物 hash)。"},
+            "note": {"type": "string", "description": "可选。记账说明。"},
+        },
+        "required": ["plan_id", "todo_id", "effect_id"],
+    },
+    func=quota_spend_slot,
+)
+
+master_tools.register(
+    name="system_terminal_gate_check",
+    description=(
+        "检查动作是否属 terminal (不可逆/发布/部署/删除/合并/推送) — 若属则须"
+        "人工审批, 不可自行执行 (返回 requires_approval=true)。可传 plan_id+scope "
+        "同时检查 plan gate。执行任何不可逆/对外生效动作前先调用本工具。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "要执行的动作描述 (如 'git push 到 main' / '发布到生产')。"},
+            "plan_id": {"type": "string", "description": "可选。关联计划 id (同时检查 plan gate)。"},
+            "scope": {"type": "string", "description": "可选。gate scope 关键词。"},
+        },
+        "required": ["action"],
+    },
+    func=terminal_gate_check,
+)
+
+master_tools.register(
+    name="system_boundary_scan",
+    description=(
+        "文件级公私边界扫描: 检查目录内 git-tracked 文件 (即公开面) 是否含敏感"
+        "内容 (api key/secret/token/私钥/密码/.env)。公开仓库只放 schema/示例/消毒"
+        "文档; 真实状态与凭据只放 git-ignored 目录。提交/发布前先扫描防泄露。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "可选。要扫描的目录 (默认当前工作区)。"},
+        },
+    },
+    func=boundary_scan,
+)
