@@ -1,0 +1,106 @@
+"""File tree REST — 工作区文件树 (P3, 借鉴 ccgui 文件树)。
+
+只读端点, 工作区边界 = 容器工作目录 (VEYA_WORKSPACE 或 cwd), 防逃逸。
+主脑零改动; 前端 FileTree 点击文件 → 注入 @path → 主脑 read_file 读。
+
+deny-by-default: 只读浏览 + 读文件; 写入走 hicode (隔离执行器)。
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
+
+router = APIRouter(tags=["file-tree"])
+
+_SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".loopx",
+              ".svelte-kit", "venv", "dist", "build", ".ruff_cache",
+              ".pytest_cache", "site"}
+
+_MAX_DEPTH = 4
+_MAX_ENTRIES = 300
+_MAX_READ = 200_000  # 200KB 读上限
+
+
+def _workspace_root() -> Path:
+    root = os.environ.get("VEYA_WORKSPACE") or os.getcwd()
+    return Path(root).resolve()
+
+
+def _resolve(rel: str) -> Path:
+    """工作区内路径解析 (防逃逸: 必须位于根内)。"""
+    root = _workspace_root()
+    p = Path(rel).expanduser()
+    if not p.is_absolute():
+        p = root / p
+    rp = p.resolve()
+    if rp != root and root not in rp.parents:
+        raise HTTPException(status_code=403, detail=f"路径在工作区外: {rel}")
+    return rp
+
+
+@router.get("/api/v1/fs/tree")
+async def fs_tree(path: str = "", depth: int = _MAX_DEPTH) -> dict:
+    """工作区目录树 (受限深度/条目, 噪声目录剔除)。"""
+    try:
+        root = _resolve(path or ".")
+    except HTTPException:
+        raise
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail=f"目录不存在: {path}")
+    depth = max(1, min(int(depth), _MAX_DEPTH))
+
+    def _walk(dirp: Path, d: int) -> list[dict]:
+        out: list[dict] = []
+        try:
+            entries = sorted(dirp.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        except OSError:
+            return out
+        for e in entries:
+            if len(out) >= _MAX_ENTRIES:
+                break
+            if e.name.startswith(".") and e.name not in (".github",):
+                continue
+            if e.is_dir():
+                if e.name in _SKIP_DIRS:
+                    continue
+                node: dict = {"name": e.name, "type": "dir", "path": str(e.relative_to(_workspace_root()))}
+                if d > 0:
+                    node["children"] = _walk(e, d - 1)
+                out.append(node)
+            elif e.is_file():
+                try:
+                    size = e.stat().st_size
+                except OSError:
+                    continue
+                if size > 5_000_000:
+                    continue  # >5MB 文件不列 (避免大文件/二进制噪音)
+                out.append({"name": e.name, "type": "file",
+                            "path": str(e.relative_to(_workspace_root())),
+                            "size": size})
+        return out
+
+    return {"root": str(_workspace_root()), "entries": _walk(root, depth - 1)}
+
+
+@router.get("/api/v1/fs/read")
+async def fs_read(path: str, max_chars: int = 12000) -> dict:
+    """读工作区内文件内容 (UTF-8, 截断防爆)。"""
+    rp = _resolve(path)
+    if not rp.is_file():
+        raise HTTPException(status_code=404, detail=f"文件不存在: {path}")
+    try:
+        size = rp.stat().st_size
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"stat 失败: {exc}")
+    if size > _MAX_READ:
+        raise HTTPException(status_code=413, detail=f"文件过大 ({size} bytes), 上限 {_MAX_READ}")
+    try:
+        text = rp.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"读取失败: {exc}")
+    truncated = len(text) > max_chars
+    return {"path": str(rp), "content": text[:max_chars], "truncated": truncated,
+            "size": size}
