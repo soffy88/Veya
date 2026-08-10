@@ -65,6 +65,8 @@ services:
       # 单文件 ro 挂载 → ~/.reasonix/.env (容器层可写, 启动脚本写入 key)
       - ../deploy/hicode-container/config.toml:/home/soffy/.reasonix/config.toml:ro
       - ../deploy/hicode-entrypoint.sh:/app/hicode-entrypoint.sh:ro
+      # Git 面板工作区: 宿主 veya 仓库根 (git status/diff/commit 操作真实仓库)
+      - /data/soffy/projects/veya:/repo:rw
     # Chromium 无头浏览器 /dev/shm 需求 (抓取通道)
     shm_size: "1gb"
     restart: unless-stopped

@@ -19,7 +19,11 @@ _GIT_TIMEOUT = 15
 
 
 def _workspace() -> Path:
-    return Path(os.environ.get("VEYA_WORKSPACE") or os.getcwd()).resolve()
+    """Git 面板工作区: 优先 /repo (宿主 veya 仓库挂载点), 否则 VEYA_WORKSPACE/cwd。"""
+    for candidate in ("/repo", os.environ.get("VEYA_WORKSPACE"), os.getcwd()):
+        if candidate and Path(candidate).is_dir():
+            return Path(candidate).resolve()
+    return Path.cwd().resolve()
 
 
 def _git(*args: str, timeout: int = _GIT_TIMEOUT) -> str:
