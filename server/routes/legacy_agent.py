@@ -13,9 +13,11 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from server import auth as auth_mod
 
 router = APIRouter(tags=["legacy-agent"])
 
@@ -126,7 +128,11 @@ async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse
 
 
 @router.post("/api/v1/agent/stream")
-async def legacy_agent_stream(req: LegacyAgentRunRequest, request: Request) -> StreamingResponse:
+async def legacy_agent_stream(
+    req: LegacyAgentRunRequest,
+    request: Request,
+    user: dict = Depends(auth_mod.get_current_user),
+) -> StreamingResponse:
     """旧协议 SSE 流 → 新主脑事件流 (text_delta / tool_call / master_done)。"""
     from server.chat_stream import new_agent_stream_events
 
@@ -153,6 +159,7 @@ async def legacy_agent_stream(req: LegacyAgentRunRequest, request: Request) -> S
             config=req.config or None,
             provider=req.provider,
             model=req.model,
+            user=user,
         ),
         media_type="text/event-stream",
         headers={

@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from server.notification_center import global_notifier
 
 logger = logging.getLogger("notifications")
@@ -21,9 +22,11 @@ class ApproveRequest(BaseModel):
 
 
 @router.get("/stream")
-async def notifications_stream() -> StreamingResponse:
+async def notifications_stream(
+    user: dict = Depends(auth_mod.get_current_user),
+) -> StreamingResponse:
     return StreamingResponse(
-        global_notifier.stream(),
+        global_notifier.stream(user["user_id"]),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

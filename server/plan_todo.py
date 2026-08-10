@@ -23,7 +23,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-_PLANS_DIR = Path.home() / ".veya" / "plans"
+_PLANS_ROOT = Path.home() / ".veya" / "plans"
 
 _VALID_STATUS = {"open", "in_progress", "done", "blocked"}
 
@@ -31,8 +31,16 @@ _VALID_STATUS = {"open", "in_progress", "done", "blocked"}
 # ── 存储 ──────────────────────────────────────────────────────────────
 
 def _plans_dir() -> Path:
-    _PLANS_DIR.mkdir(parents=True, exist_ok=True)
-    return _PLANS_DIR
+    """按用户隔离: ~/.veya/plans/{user_id}/ (登录用户各自目录, 匿名共用 anonymous)。"""
+    try:
+        from server.auth import current_user
+
+        uid = current_user()["user_id"] or "anonymous"
+    except Exception:  # noqa: BLE001
+        uid = "anonymous"
+    d = _PLANS_ROOT / uid
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _path(plan_id: str) -> Path:
