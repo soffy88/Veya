@@ -40,19 +40,39 @@ class SqliteHistoryStore:
         with self._lock, self._connect() as conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS turns ("
+                "  user_id TEXT NOT NULL DEFAULT 'anonymous',"
                 "  sid TEXT NOT NULL,"
                 "  idx INTEGER NOT NULL,"
                 "  msg_json TEXT NOT NULL,"
                 "  ts INTEGER NOT NULL,"
-                "  PRIMARY KEY (sid, idx)"
+                "  PRIMARY KEY (user_id, sid, idx)"
                 ")"
             )
+            # 旧库迁移: 补 user_id 列 (幂等)
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(turns)").fetchall()]
+            if "user_id" not in cols:
+                conn.execute("ALTER TABLE turns ADD COLUMN user_id TEXT DEFAULT 'anonymous'")
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_turns_uid_sid ON turns(user_id, sid, idx)"
+                )
 
     # ── sync core ────────────────────────────────────────────────────
-    def load_sync(self, sid: str) -> list[dict[str, Any]]:
+    @staticmethod
+    def _uid() -> str:
+        """当前请求用户 (auth contextvar); 无请求上下文时回落 anonymous。"""
+        try:
+            from server.auth import current_user
+
+            return current_user()["user_id"]
+        except Exception:  # noqa: BLE001
+            return "anonymous"
+
+    def load_sync(self, sid: str, user_id: str | None = None) -> list[dict[str, Any]]:
+        uid = user_id or self._uid()
         with self._lock, self._connect() as conn:
             rows = conn.execute(
-                "SELECT msg_json FROM turns WHERE sid=? ORDER BY idx", (sid,)
+                "SELECT msg_json FROM turns WHERE user_id=? AND sid=? ORDER BY idx",
+                (uid, sid),
             ).fetchall()
         out: list[dict[str, Any]] = []
         for (raw,) in rows:
@@ -62,24 +82,25 @@ class SqliteHistoryStore:
                 continue  # 单条损坏不拖垮整段历史
         return out
 
-    def save_sync(self, sid: str, messages: list[dict[str, Any]]) -> None:
+    def save_sync(self, sid: str, messages: list[dict[str, Any]], user_id: str | None = None) -> None:
+        uid = user_id or self._uid()
         now = int(time.time())
         with self._lock, self._connect() as conn:
-            conn.execute("DELETE FROM turns WHERE sid=?", (sid,))
+            conn.execute("DELETE FROM turns WHERE user_id=? AND sid=?", (uid, sid))
             conn.executemany(
-                "INSERT INTO turns (sid, idx, msg_json, ts) VALUES (?,?,?,?)",
+                "INSERT INTO turns (user_id, sid, idx, msg_json, ts) VALUES (?,?,?,?,?)",
                 [
-                    (sid, i, json.dumps(m, ensure_ascii=False, default=str), now)
+                    (uid, sid, i, json.dumps(m, ensure_ascii=False, default=str), now)
                     for i, m in enumerate(messages)
                 ],
             )
 
     # ── async wrappers (不阻塞事件循环) ──────────────────────────────
-    async def load(self, sid: str) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(self.load_sync, sid)
+    async def load(self, sid: str, user_id: str | None = None) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self.load_sync, sid, user_id)
 
-    async def save(self, sid: str, messages: list[dict[str, Any]]) -> None:
-        await asyncio.to_thread(self.save_sync, sid, messages)
+    async def save(self, sid: str, messages: list[dict[str, Any]], user_id: str | None = None) -> None:
+        await asyncio.to_thread(self.save_sync, sid, messages, user_id)
 
 
 _default_store: SqliteHistoryStore | None = None

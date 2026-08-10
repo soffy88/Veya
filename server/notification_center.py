@@ -18,21 +18,25 @@ NotificationType = Literal["INFO", "SUCCESS", "ERROR", "HITL_REQUIRED"]
 
 
 class NotificationCenter:
-    """In-memory broadcaster: one asyncio.Queue per connected client."""
+    """In-memory broadcaster: one asyncio.Queue per connected client.
+
+    支持按用户过滤: 客户端连接时声明 user_id, 只收到 ``user_id`` 匹配或
+    全局 (user_id 为空) 的消息 — 多用户分离 + 多端同步 (手机发命令,
+    电脑端同用户实时收到通知/审批)。
+    """
 
     def __init__(self) -> None:
-        self._clients: list[asyncio.Queue[dict | None]] = []
+        self._clients: list[tuple[asyncio.Queue[dict | None], str]] = []
         # 已广播消息注册表: id -> message (供 HITL 审批端点回查 payload, 如 vault task_id)
         self._messages: dict[str, dict[str, Any]] = {}
 
-    def connect(self) -> asyncio.Queue[dict | None]:
+    def connect(self, user_id: str = "") -> asyncio.Queue[dict | None]:
         q: asyncio.Queue[dict | None] = asyncio.Queue()
-        self._clients.append(q)
+        self._clients.append((q, user_id))
         return q
 
     def disconnect(self, q: asyncio.Queue[dict | None]) -> None:
-        if q in self._clients:
-            self._clients.remove(q)
+        self._clients = [(cq, uid) for (cq, uid) in self._clients if cq is not q]
 
     def push(
         self,
@@ -40,20 +44,24 @@ class NotificationCenter:
         title: str,
         content: str,
         payload: dict[str, Any] | None = None,
+        user_id: str = "",
     ) -> str:
         """Synchronous — safe to call from anywhere already inside the event loop
         (matches server/events.py's fire_step calling convention). Returns the
         message id so callers can later dismiss or resolve it (e.g. vault HITL
-        toasts map task_id -> notification_id)."""
+        toasts map task_id -> notification_id). user_id="" → 全局广播。"""
         message = {
             "id": uuid.uuid4().hex,
             "type": type,
             "title": title,
             "content": content,
             "payload": payload or {},
+            "user_id": user_id,
         }
         self._messages[message["id"]] = message
-        for q in list(self._clients):
+        for q, uid in list(self._clients):
+            if user_id and uid != user_id:
+                continue  # 用户级消息只推给所属用户; 匿名/其他用户只收全局
             q.put_nowait(message)
         return message["id"]
 
@@ -69,8 +77,8 @@ class NotificationCenter:
         for q in list(self._clients):
             q.put_nowait(frame)
 
-    async def stream(self) -> AsyncIterator[str]:
-        q = self.connect()
+    async def stream(self, user_id: str = "") -> AsyncIterator[str]:
+        q = self.connect(user_id)
         try:
             while True:
                 message = await q.get()
