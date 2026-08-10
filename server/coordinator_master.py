@@ -370,6 +370,18 @@ class MasterCoordinator:
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
         tools = kwargs.pop("tools", None)
+        # 附件图片注入: 最后一条 user 消息 content → [text, image_url...]
+        images = getattr(self, "_pending_images", None)
+        if images and messages:
+            for i in range(len(messages) - 1, -1, -1):
+                m = messages[i]
+                if m.get("role") == "user" and isinstance(m.get("content"), str):
+                    blocks: list[dict] = [{"type": "text", "text": m["content"]}]
+                    for img in images:
+                        blocks.append({"type": "image_url",
+                                       "image_url": {"url": img}})
+                    messages[i] = {**m, "content": blocks}
+                    break
         merged_cfg = {**self._llm_config, **req_cfg}
         if req_cfg.get("providers"):
             merged_cfg["providers"] = {
@@ -492,6 +504,7 @@ class MasterCoordinator:
         provider: str | None = None,
         model: str | None = None,
         endpoint: str | None = None,
+        images: list[str] | None = None,
     ) -> dict[str, Any]:
         """主脑主入口(委托主库 ReAct 循环)。
 
@@ -507,6 +520,8 @@ class MasterCoordinator:
             llm_kwargs["model"] = model
         if endpoint:
             llm_kwargs["endpoint"] = endpoint
+        # 附件图片 (base64 data URI) → _bound_llm 注入 user 消息 (视觉模型可用)
+        self._pending_images = images or None
         # on_step 经 contextvar 桥接: 主库 notify=fire_step 会自动命中。
         # SSE 链路 (new_agent_stream_events) 已 set(queue.on_step) 且不传参数
         # on_step → 参数为 None 时保留外层 contextvar, 否则覆盖 (master/chat 直调)。

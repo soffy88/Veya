@@ -18,4 +18,5 @@ export interface ChatMessage {
 	steps: ToolStep[];
 	cost?: number;
 	error?: string;
+	images?: string[];
 }

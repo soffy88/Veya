@@ -34,7 +34,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	import { planStore } from "$lib/planStore.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import FileTree from "./FileTree.svelte";
-	import { Folder, Mic } from "lucide-svelte";
+	import { Folder, Mic, Paperclip } from "lucide-svelte";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
 
 	const SUGGESTIONS = [
@@ -51,6 +51,75 @@ import ModelPicker from "./ModelPicker.svelte";
 	let dictating = $state(false);
 	let dictationError = $state("");
 	let recognition: { stop: () => void; lang: string } | null = null;
+
+	// ── 附件上传 (文件/图片) ──────────────────────────────────────────
+	interface Attachment {
+		name: string;
+		content: string;
+	}
+	let attachments = $state<Attachment[]>([]);
+	let images = $state<string[]>([]); // base64 data URI
+	let fileInput = $state<HTMLInputElement>();
+	let uploadError = $state("");
+
+	const TEXT_EXT = [".txt", ".md", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".csv", ".log", ".html", ".css", ".svelte", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".sh"];
+
+	function pickFiles() {
+		fileInput?.click();
+	}
+
+	async function onFilesChosen(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const files = [...(input.files ?? [])];
+		input.value = "";
+		uploadError = "";
+		for (const f of files) {
+			if (f.size > 200_000) {
+				uploadError = `文件过大 (>200KB): ${f.name} — 用文件树 @path 让模型按需读取`;
+				continue;
+			}
+			if (f.type.startsWith("image/")) {
+				const dataUrl = await new Promise<string>((resolve) => {
+					const r = new FileReader();
+					r.onload = () => resolve(String(r.result ?? ""));
+					r.readAsDataURL(f);
+				});
+				if (dataUrl) images = [...images, dataUrl];
+				continue;
+			}
+			const ext = "." + (f.name.split(".").pop() ?? "").toLowerCase();
+			if (!TEXT_EXT.includes(ext)) {
+				uploadError = `不支持的文件类型: ${f.name} — 仅文本类文件可上传, 其他用文件树 @path`;
+				continue;
+			}
+			const text = await f.text();
+			attachments = [...attachments, { name: f.name, content: text }];
+		}
+	}
+
+	function onPaste(e: ClipboardEvent) {
+		const items = e.clipboardData?.items;
+		if (!items) return;
+		for (const it of items) {
+			if (it.type.startsWith("image/")) {
+				e.preventDefault();
+				const f = it.getAsFile();
+				if (!f) continue;
+				const r = new FileReader();
+				r.onload = () => {
+					if (typeof r.result === "string") images = [...images, r.result];
+				};
+				r.readAsDataURL(f);
+			}
+		}
+	}
+
+	function removeImage(i: number) {
+		images = images.filter((_, idx) => idx !== i);
+	}
+	function removeAttachment(i: number) {
+		attachments = attachments.filter((_, idx) => idx !== i);
+	}
 
 	// ── 语音听写 (Web Speech API, 纯前端) ────────────────────────────
 	function toggleDictation() {
@@ -190,7 +259,22 @@ import ModelPicker from "./ModelPicker.svelte";
 		lastUserText = text;
 
 		const sid = sessionStore.activeSid;
-		sessionStore.append(sid, { role: "user", text, status: "done", steps: [] });
+		// 附件: 上传的文本/图片随消息发送
+		const pendingFiles = [...attachments];
+		const pendingImages = [...images];
+		attachments = [];
+		images = [];
+		const attachPrefix =
+			pendingFiles.length > 0
+				? "\n\n" + pendingFiles.map((f) => `[附件 ${f.name}]\n${f.content}`).join("\n\n") + "\n\n"
+				: "";
+		sessionStore.append(sid, {
+			role: "user",
+			text: text + attachPrefix,
+			status: "done",
+			steps: [],
+			images: pendingImages,
+		});
 		sessionStore.append(sid, { role: "assistant", text: "", status: "streaming", steps: [] });
 		busy = true;
 
@@ -202,7 +286,8 @@ import ModelPicker from "./ModelPicker.svelte";
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
-					text,
+					text: text + attachPrefix,
+					images: pendingImages,
 					session_id: sid,
 					provider: apiKeyStore.provider,
 					model: apiKeyStore.model.trim() || undefined,
@@ -365,6 +450,25 @@ import ModelPicker from "./ModelPicker.svelte";
 		{#if dictationError}
 			<div class="mb-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] text-amber-400">{dictationError}</div>
 		{/if}
+		{#if uploadError}
+			<div class="mb-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] text-amber-400">{uploadError}</div>
+		{/if}
+		{#if images.length > 0 || attachments.length > 0}
+			<div class="mb-1.5 flex flex-wrap gap-1.5">
+				{#each images as img, i (img)}
+					<div class="relative">
+						<img src={img} alt="附件图片" class="h-14 w-14 rounded-lg border border-white/15 object-cover" />
+						<button type="button" onclick={() => removeImage(i)} class="absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full bg-rose-500 text-[10px] text-white">×</button>
+					</div>
+				{/each}
+				{#each attachments as a, i (a.name + i)}
+					<span class="flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 font-mono text-[10px] text-sky-300">
+						📎 {a.name}
+						<button type="button" onclick={() => removeAttachment(i)} class="text-white/50 hover:text-white">×</button>
+					</span>
+				{/each}
+			</div>
+		{/if}
 		{#if dictating}
 			<div class="mb-1.5 flex items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 py-1 font-mono text-[10px] text-rose-400">
 				<span class="size-1.5 animate-pulse rounded-full bg-rose-400"></span>
@@ -403,6 +507,15 @@ import ModelPicker from "./ModelPicker.svelte";
 			>
 				<Mic class="size-4" />
 			</button>
+			<button
+				type="button"
+				onclick={pickFiles}
+				title="上传文件/图片 (文本类直接读, 图片随消息发送)"
+				class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white"
+			>
+				<Paperclip class="size-4" />
+			</button>
+			<input bind:this={fileInput} type="file" multiple class="hidden" onchange={onFilesChosen} />
 			<textarea
 				bind:this={textareaEl}
 				bind:value={input}
@@ -496,6 +609,13 @@ import ModelPicker from "./ModelPicker.svelte";
 						<div class="min-w-0 flex-1 {msg.role === 'user' ? 'max-w-[70%]' : 'max-w-[85%]'}">
 							{#if msg.role === "user"}
 								<div class="w-fit max-w-full rounded-2xl rounded-tr-sm bg-white/10 px-4 py-2.5 text-[15px] leading-relaxed text-terminal-fg">
+									{#if msg.images && msg.images.length > 0}
+										<div class="mb-2 flex flex-wrap gap-1.5">
+											{#each msg.images as img (img)}
+												<img src={img} alt="图片附件" class="max-h-32 rounded-lg border border-white/15" />
+											{/each}
+										</div>
+									{/if}
 									{msg.text}
 								</div>
 							{:else}

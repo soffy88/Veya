@@ -34,7 +34,7 @@ def _plan_id(out: str) -> str:
 @pytest.mark.asyncio
 async def test_plan_create_status_update(tmp_path, monkeypatch):
     """create_plan → plan_status → update_todo 状态流转 + 证据链。"""
-    monkeypatch.setattr("server.plan_todo._PLANS_DIR", tmp_path / "plans")
+    monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan, plan_status, update_todo
 
     out = await create_plan("测试计划", [
@@ -57,7 +57,7 @@ async def test_plan_create_status_update(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_plan_rejects_bad_status_and_id(tmp_path, monkeypatch):
-    monkeypatch.setattr("server.plan_todo._PLANS_DIR", tmp_path / "plans")
+    monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan, update_todo
 
     out = await create_plan("X", [{"title": "a", "id": "t1"}])
@@ -71,7 +71,7 @@ async def test_plan_rejects_bad_status_and_id(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_quota_state_machine(tmp_path, monkeypatch):
     """quota: 可推进→deliver / 依赖未满足→repair / 全 done→wait。"""
-    monkeypatch.setattr("server.plan_todo._PLANS_DIR", tmp_path / "plans")
+    monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan, update_todo
 
     out = await create_plan("Q", [
@@ -94,7 +94,7 @@ async def test_quota_state_machine(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_claim_lease(tmp_path, monkeypatch):
-    monkeypatch.setattr("server.plan_todo._PLANS_DIR", tmp_path / "plans")
+    monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan
 
     out = await create_plan("C", [{"title": "a", "id": "t1"}])
@@ -114,7 +114,7 @@ async def test_claim_lease(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_gate_scoped(tmp_path, monkeypatch):
-    monkeypatch.setattr("server.plan_todo._PLANS_DIR", tmp_path / "plans")
+    monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan, update_todo
 
     out = await create_plan("G", [
@@ -133,7 +133,7 @@ async def test_gate_scoped(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_spend_idempotent(tmp_path, monkeypatch):
-    monkeypatch.setattr("server.plan_todo._PLANS_DIR", tmp_path / "plans")
+    monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan, update_todo
 
     out = await create_plan("S", [{"title": "a", "id": "t1"}])

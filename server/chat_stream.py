@@ -30,6 +30,7 @@ async def new_agent_stream_events(
     model: str | None = None,
     endpoint: str | None = None,
     user: dict | None = None,
+    images: list[str] | None = None,
 ) -> AsyncIterator[str]:
     """主脑 SSE 事件泵: 消费事件队列 → SSE 帧。
 
