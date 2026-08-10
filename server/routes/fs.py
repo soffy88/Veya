@@ -153,38 +153,33 @@ async def fs_read(path: str, max_chars: int = 12000) -> dict:
 
 
 @router.post("/api/v1/fs/upload")
-async def fs_upload(file: UploadFile) -> dict:
+async def fs_upload(request: Request) -> dict:
     """大文件上传到工作区 .veya-uploads/ (≤100MB), 返回引用路径供 @path 读取。
 
     文本类大文件不直接注入消息 (撑爆上下文) — 存工作区, 消息放 @uploads/<name>
     引用, 模型用 read_file/long_read 按需读取。
+    传输: application/octet-stream 原始 body + x-file-name 头 (绕过 SvelteKit
+    对 multipart form 的 CSRF 检查, 且二进制安全)。
     """
     import uuid
 
-    if not file.filename:
+    filename = request.headers.get("x-file-name") or "upload.bin"
+    if not filename:
         raise HTTPException(status_code=422, detail="缺少文件名")
     # /app 只读挂载 → 上传目录用 ~/.veya/uploads (veya-data volume rw)
     root = Path.home() / ".veya"
     uploads = root / "uploads"
     uploads.mkdir(parents=True, exist_ok=True)
-    safe_name = Path(file.filename).name.replace("/", "_").replace("\\", "_")[:120]
+    safe_name = Path(filename).name.replace("/", "_").replace("\\", "_")[:120]
     dst = uploads / f"{uuid.uuid4().hex[:8]}_{safe_name}"
-    size = 0
     MAX_UPLOAD = 100 * 1024 * 1024  # 100MB
+    body = await request.body()
+    size = len(body)
+    if size > MAX_UPLOAD:
+        raise HTTPException(status_code=413, detail="文件超过 100MB 上限")
     try:
-        with dst.open("wb") as f:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > MAX_UPLOAD:
-                    dst.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail="文件超过 100MB 上限")
-                f.write(chunk)
+        dst.write_bytes(body)
     except Exception:
         dst.unlink(missing_ok=True)
         raise
-    finally:
-        await file.close()
-    return {"path": str(dst.relative_to(root)), "name": file.filename, "size": size}
+    return {"path": str(dst.relative_to(root)), "name": filename, "size": size}
