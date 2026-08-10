@@ -33,13 +33,15 @@ def test_skill_hub_loads_both_packs():
     result = hub.reload_skills()
     assert result["loaded"] >= 3  # browser_use + agent_reach + officecli
     assert result["errors"] == 0
-    assert {"browser_use", "agent_reach", "officecli"} <= set(hub.list_skills())
+    assert {"browser_use", "agent_reach", "officecli"} <= set(hub._all_skill_names())
 
+    # ②-A dispatcher: LLM 看到的是 list_skills + run_skill 调度器
     names = {s["function"]["name"] for s in hub.get_all_schemas()}
-    assert {"browser_use", "agent_reach"} <= names
-    bu = next(s for s in hub.get_all_schemas()
-              if s["function"]["name"] == "browser_use")
-    assert "goal" in bu["function"]["parameters"]["properties"]
+    assert {"list_skills", "run_skill"} <= names
+    run = next(s for s in hub.get_all_schemas()
+               if s["function"]["name"] == "run_skill")
+    assert "skill_name" in run["function"]["parameters"]["properties"]
+    assert "browser_use" in run["function"]["description"]  # 目录进 catalog
 
 
 def test_agent_reach_mcp_executor_unreachable_is_structured():
