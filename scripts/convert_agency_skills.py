@@ -43,7 +43,8 @@ from __future__ import annotations
 
 from typing import Any
 
-SYSTEM_PROMPT = r"""{system_prompt}"""
+# repr 转义: 源 md 正文可能含三引号/特殊引号, 避免 r""" 截断
+SYSTEM_PROMPT = {system_prompt!r}
 
 
 def main(goal: str, context: str = "", **_: Any) -> dict[str, Any]:
