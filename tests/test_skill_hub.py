@@ -61,11 +61,13 @@ def test_hub_loads_python_skill(tmp_path):
     )
     hub = VeyaSkillHub(skills_dir=tmp_path)
 
-    assert hub.list_skills() == ["greeter"]
+    assert hub._all_skill_names() == ["greeter"]
     schemas = hub.get_all_schemas()
-    assert schemas[0]["function"]["name"] == "greeter"
-    assert schemas[0]["function"]["description"] == "Greet a user by name"
-    assert schemas[0]["function"]["parameters"]["required"] == ["x"]
+    # ②-A dispatcher 收口: N 个 per-skill 工具 → list_skills + run_skill
+    assert {s["function"]["name"] for s in schemas} == {"list_skills", "run_skill"}
+    run = next(s for s in schemas if s["function"]["name"] == "run_skill")
+    assert "skill_name" in run["function"]["parameters"]["properties"]
+    assert "greeter" in run["function"]["description"]  # 目录进 catalog
     assert hub.get_stats()["loaded"] == 1
 
 
@@ -184,10 +186,12 @@ def test_hub_duplicate_name_last_wins(tmp_path):
     (tmp_path / "other" / "run.py").write_text("def main():\n    return 'override'\n", encoding="utf-8")
     hub = VeyaSkillHub(skills_dir=tmp_path)
     assert hub.has("dup")
-    schemas = hub.get_all_schemas()
-    assert len(schemas) == 2  # dup(被覆盖) + dup2
-    dup_schema = next(s for s in schemas if s["function"]["name"] == "dup")
-    assert dup_schema["function"]["description"] == "second"  # 后加载者覆盖生效
+    # ②-A dispatcher: 真实技能名走 _all_skill_names, catalog 反映后加载覆盖
+    assert "dup" in hub._all_skill_names()
+    assert "dup2" in hub._all_skill_names()
+    run = next(s for s in hub.get_all_schemas()
+               if s["function"]["name"] == "run_skill")
+    assert "second" in run["function"]["description"]  # 后加载者覆盖生效
 
 
 # ---------------------------------------------------------------------------
@@ -353,9 +357,9 @@ async def test_master_system_reload_tool(tmp_path):
         # 第一轮: 模型决定先热重载
         if turn == 1:
             return _tool_response("system_reload_skills", {})
-        # 第二轮: 新技能已可见, 模型调用它
+        # 第二轮: 新技能已可见, 模型通过 run_skill 调度器调用它
         if turn == 2:
-            return _tool_response("btc_price", {})
+            return _tool_response("run_skill", {"skill_name": "btc_price"})
         return _text_response("比特币价格查询完成: 97000 USD")
 
     # 技能包在 reload 前写入磁盘(模拟 Genesis 交付)
@@ -368,16 +372,16 @@ async def test_master_system_reload_tool(tmp_path):
     assert result["rounds"] == 3
     assert result["tool_calls"] == [
         {"tool": "system_reload_skills", "status": "success"},
-        {"tool": "btc_price", "status": "success"},
+        {"tool": "run_skill", "status": "success"},
     ]
-    # 热重载结果回喂
+    # 热重载结果回喂 (数字与 skill 计数环境相关, 只验证成功语义)
     assert "reloaded successfully" in calls[1][-1]["content"]
-    assert "Now tracking 1 dynamic skills" in calls[1][-1]["content"]
+    assert "dynamic skills" in calls[1][-1]["content"]
     # 技能执行结果回喂
     assert "97000" in calls[2][-1]["content"]
-    # 第二轮起, 动态技能 schema 出现在喂给模型的 tools 中
+    # 第二轮起, 动态技能通过 run_skill 调度器出现在喂给模型的 tools 中
     tool_names = {t["function"]["name"] for t in tools_seen[1]}
-    assert "btc_price" in tool_names
+    assert "run_skill" in tool_names
     assert "system_reload_skills" in tool_names
 
 
@@ -402,9 +406,10 @@ async def test_master_routes_to_skill_hub(tmp_path):
 
 
 def test_master_inventory_includes_skills(tmp_path):
+    """②-A dispatcher: 技能不再逐条进系统提示 (精简意图), 只保留 system_reload_skills。"""
     _write_skill(tmp_path, "greeter", code="def main(x):\n    return x\n")
     hub = VeyaSkillHub(skills_dir=tmp_path)
     coord = MasterCoordinator(skill_hub=hub)
     prompt = coord.get_system_prompt()
-    assert "- greeter —" in prompt
+    assert "- greeter —" not in prompt      # dispatcher: 技能不进 system 提示
     assert "- system_reload_skills —" in prompt

@@ -140,7 +140,7 @@ def test_ecc_agent_skill_loaded():
 
     hub = VeyaSkillHub(skills_dir=str(Path.home() / ".veya" / "skills"))
     hub.reload_skills()
-    ecc = [s for s in hub.list_skills() if s.startswith("ecc_")]
+    ecc = [s for s in hub._all_skill_names() if s.startswith("ecc_")]
     assert len(ecc) >= 5, f"ECC 领域技能不足: {len(ecc)}"
     # 代表性领域 agent
     assert any("code_review" in s or "architect" in s or "resolver" in s for s in ecc)
@@ -152,7 +152,7 @@ def test_ecc_agent_executor_returns_instruction():
 
     hub = VeyaSkillHub(skills_dir=str(Path.home() / ".veya" / "skills"))
     hub.reload_skills()
-    name = next(s for s in hub.list_skills() if s.startswith("ecc_"))
+    name = next(s for s in hub._all_skill_names() if s.startswith("ecc_"))
     executor = hub._executors[name]
 
     import asyncio
