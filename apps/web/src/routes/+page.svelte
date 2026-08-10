@@ -66,7 +66,7 @@
 	}
 </script>
 
-<main class="flex h-screen overflow-hidden">
+<main class="flex h-dvh overflow-hidden">
 	<!-- ── mobile backdrop ────────────────────────────────────────── -->
 	{#if sidebarOpen}
 		<div
