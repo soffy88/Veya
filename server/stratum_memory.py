@@ -22,8 +22,7 @@ _obase = _load_obase()
 
 # FastMCP streamable_http_app 内部端点 /mcp, 经 http_api mount /mcp 后为 /mcp/mcp。
 # 宿主 9309 端口已改为 0.0.0.0 绑定 (原 127.0.0.1 拒绝 veya 容器经宿网关访问)。
-STRATUM_MCP_ENDPOINT = os.environ.get(
-    "STRATUM_MCP_ENDPOINT", "http://192.168.16.1:9309/mcp/mcp")
+STRATUM_MCP_ENDPOINT = os.environ.get("STRATUM_MCP_ENDPOINT", "http://192.168.16.1:9309/mcp/mcp")
 
 
 class StratumConnector:
@@ -47,7 +46,9 @@ class StratumConnector:
             # stratum 的 mcp 服务端无 JWT (单租户 STRATUM_MCP_USER_ID 服务端绑定);
             # Host/Origin 头照 hevi 模式伪造 loopback (FastMCP transport 校验)。
             client = StreamableHttpMcpClient(
-                self.endpoint, name=self.name, timeout=60.0,
+                self.endpoint,
+                name=self.name,
+                timeout=60.0,
                 headers={
                     "Host": "127.0.0.1:9302",
                     "Origin": "http://127.0.0.1:9302",
@@ -55,7 +56,7 @@ class StratumConnector:
             )
             await client.start()
         except Exception:
-            return      # stratum 不可达 → 降级
+            return  # stratum 不可达 → 降级
         self._client = client
         _obase.McpClientRegistry.register(self.name, client)
 
@@ -71,15 +72,15 @@ class StratumConnector:
 
     # ── 知识查询 (供 coordinator/路由直接调用) ─────────────────────────
 
-    async def search_knowledge(self, query_text: str | None = None, top_k: int = 10,
-                               *, query: str | None = None) -> Any:
+    async def search_knowledge(
+        self, query_text: str | None = None, top_k: int = 10, *, query: str | None = None
+    ) -> Any:
         """融合检索 (BM25+向量) 主脑知识库。query 为旧版参数名兼容。
 
         MCP 服务端返回解析后的结果 (list[dict] 或 dict), 原样透传。
         """
         q = query_text or query or ""
-        return await self._client.call_tool(
-            "search_knowledge", {"query_text": q, "top_k": top_k})
+        return await self._client.call_tool("search_knowledge", {"query_text": q, "top_k": top_k})
 
     async def get_note(self, note_id: str) -> Any:
         """按 id 取笔记内容。"""
@@ -102,28 +103,24 @@ class StratumConnector:
             adapter = make_mcp_tool_adapter(spec, self._client)
             params = (spec.get("inputSchema") or {}).get("properties", {})
             required = (spec.get("inputSchema") or {}).get("required", [])
-            out.append({
-                "name": f"mcp_stratum_{spec['name'].replace('.', '_')}",
-                "description": adapter.description,
-                "parameters": {"type": "object", "properties": params, "required": required},
-                "func": adapter.callable,
-            })
+            out.append(
+                {
+                    "name": f"mcp_stratum_{spec['name'].replace('.', '_')}",
+                    "description": adapter.description,
+                    "parameters": {"type": "object", "properties": params, "required": required},
+                    "func": adapter.callable,
+                }
+            )
         return out
 
 
 async def wire_master_tools(connector: StratumConnector | None = None) -> int:
     """mcp_stratum_* 注册进 master_tools (主脑知识面), 幂等。"""
-    from server.tool_registry import master_tools
+    from server.tool_registry import register_mcp_tools
 
     connector = connector or get_stratum()
-    added = 0
-    for a in await connector.tool_adapters():
-        if master_tools.has(a["name"]):
-            continue
-        master_tools.register(a["name"], a["description"], a["parameters"], a["func"],
-                              max_result_chars=16000)
-        added += 1
-    return added
+    # ②-B: 收成 1 个网关 mcp_stratum(action, args)
+    return register_mcp_tools("stratum", await connector.tool_adapters(), max_result_chars=16000)
 
 
 _stratum: StratumConnector | None = None

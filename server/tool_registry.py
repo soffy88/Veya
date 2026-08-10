@@ -39,7 +39,9 @@ def _to_str(result: Any, limit: int = 8000) -> str:
             text = str(result)
     else:
         text = str(result)
-    return text[:limit] + (f"\n... [truncated {len(text) - limit} chars]" if len(text) > limit else "")
+    return text[:limit] + (
+        f"\n... [truncated {len(text) - limit} chars]" if len(text) > limit else ""
+    )
 
 
 class MasterToolRegistry:
@@ -155,13 +157,72 @@ class MasterToolRegistry:
 
 master_tools = MasterToolRegistry()
 
+# ②-B mcp 静态收口: 每个 mcp 服务的 N 个工具收成 1 个网关 mcp_<server>(action, args)。
+# VEYA_MCP_GATEWAY=0 回退逐工具注册。合冻结 §2.1 (静态, 非动态裁藏)。
+_MCP_GATEWAY = os.environ.get("VEYA_MCP_GATEWAY", "1") != "0"
+
+
+def register_mcp_tools(server: str, adapters: list[dict], *, max_result_chars: int = 16000) -> int:
+    """把某 mcp 服务的工具收成 1 个网关 (或 gateway=0 时逐个注册)。幂等。"""
+    if not _MCP_GATEWAY:
+        n = 0
+        for a in adapters:
+            if not master_tools.has(a["name"]):
+                master_tools.register(
+                    a["name"],
+                    a["description"],
+                    a["parameters"],
+                    a["func"],
+                    max_result_chars=max_result_chars,
+                )
+                n += 1
+        return n
+    name = f"mcp_{server}"
+    if master_tools.has(name):
+        return 0
+    action_map = {a["name"]: a["func"] for a in adapters}
+    catalog = "\n".join(f"- {a['name']}: {(a.get('description') or '')[:80]}" for a in adapters)
+
+    async def _gateway(action: str, args: dict | None = None) -> Any:
+        fn = action_map.get(action)
+        if fn is None:
+            raise ToolExecutionError(
+                f"mcp_{server}: unknown action '{action}'. "
+                f"Available: {', '.join(sorted(action_map))}"
+            )
+        res = fn(**(args or {}))
+        return await res if inspect.isawaitable(res) else res
+
+    master_tools.register(
+        name,
+        f"Gateway to the {server} MCP server ({len(adapters)} actions). "
+        f"Pick `action` from the catalog and pass its `args`.\n# ACTIONS:\n{catalog}",
+        {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": f"Which {server} action (from catalog).",
+                },
+                "args": {"type": "object", "description": "Arguments for the action."},
+            },
+            "required": ["action"],
+        },
+        _gateway,
+        max_result_chars=max_result_chars,
+    )
+    return 1
+
+
 # 3O 主库根(Genesis 默认)
 _DEFAULT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "platform" / "3O"
 
 
 def _resolve_workspace_root() -> Path:
     """工具读写文件的根: 优先 VEYA_WORKSPACE env, 默认项目根。"""
-    return Path(os.environ.get("VEYA_WORKSPACE", str(Path(__file__).resolve().parent.parent))).resolve()
+    return Path(
+        os.environ.get("VEYA_WORKSPACE", str(Path(__file__).resolve().parent.parent))
+    ).resolve()
 
 
 def _resolve_path(filepath: str, *, must_exist: bool = True) -> Path:
@@ -185,7 +246,11 @@ def _html_to_text(html: str, max_chars: int = 12000) -> str:
 
     html = re.sub(r"(?is)<(script|style|noscript|svg|template)[^>]*>.*?</\1>", " ", html)
     html = re.sub(r"(?s)<!--.*?-->", " ", html)
-    text = re.sub(r"(?i)<br\s*/?>|<p[^>]*>|</p>|</div>|<div[^>]*>|<li[^>]*>|</li>|<h[1-6][^>]*>|</h[1-6]>", "\n", html)
+    text = re.sub(
+        r"(?i)<br\s*/?>|<p[^>]*>|</p>|</div>|<div[^>]*>|<li[^>]*>|</li>|<h[1-6][^>]*>|</h[1-6]>",
+        "\n",
+        html,
+    )
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n\s*\n+", "\n", text)
@@ -238,9 +303,7 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     proxy = _proxy_url()
 
     def _client() -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            timeout=20.0, follow_redirects=True, proxy=proxy
-        )
+        return httpx.AsyncClient(timeout=20.0, follow_redirects=True, proxy=proxy)
 
     # GitHub 仓库/子路径 → raw README 快速通道 (无 JS, 最可靠)
     m = re.match(r"https?://github\.com/([^/]+)/([^/?#]+)", url)
@@ -304,7 +367,8 @@ async def _tool_browser_run(
     try:
         await session.start()
         navigate = await session.execute_sequence(
-            [action_navigate(url, wait_until="domcontentloaded")])
+            [action_navigate(url, wait_until="domcontentloaded")]
+        )
         if not navigate or not getattr(navigate[-1], "success", True):
             raise ToolExecutionError(f"browser_run: 导航失败 {url}")
         actions = {
@@ -325,7 +389,9 @@ async def _tool_browser_run(
                 "url": last.page_url or url,
                 "title": last.page_title,
                 "text": last.text[:4000],
-                "screenshot_base64": (last.screenshot_base64[:200] + "...") if last.screenshot_base64 else "",
+                "screenshot_base64": (last.screenshot_base64[:200] + "...")
+                if last.screenshot_base64
+                else "",
                 "success": last.success,
             },
             ensure_ascii=False,
@@ -365,7 +431,9 @@ async def _tool_delegate_to_genesis(requirement_json: str) -> str:
         if not isinstance(requirement, (dict, list)):
             raise ValueError("requirement_json 必须是 JSON 对象或数组")
     except json.JSONDecodeError as exc:
-        raise ToolExecutionError(f"delegate_to_genesis: requirement_json 不是合法 JSON: {exc}") from exc
+        raise ToolExecutionError(
+            f"delegate_to_genesis: requirement_json 不是合法 JSON: {exc}"
+        ) from exc
 
     factory = _genesis_factory or _make_genesis_agent
     try:
@@ -400,8 +468,7 @@ def _tool_read_file_ast(filepath: str) -> str:
 
     path = _resolve_path(filepath)
     if path.is_dir():
-        raise ToolExecutionError(
-            f"path '{filepath}' 是目录不是文件 — 请指定具体 .py 文件路径")
+        raise ToolExecutionError(f"path '{filepath}' 是目录不是文件 — 请指定具体 .py 文件路径")
     source = path.read_text(encoding="utf-8", errors="replace")
     return extract_skeleton(source, filepath)
 
@@ -468,7 +535,9 @@ async def _tool_run_in_sandbox(code: str | None = None, command: str | None = No
     from veya.sandbox import SandboxConfig, create_safe_executor
 
     if not code and not command:
-        raise ToolExecutionError("run_in_sandbox requires either 'code' (python source) or 'command' (shell)")
+        raise ToolExecutionError(
+            "run_in_sandbox requires either 'code' (python source) or 'command' (shell)"
+        )
     config = SandboxConfig(
         time_limit=30.0,
         memory_limit=1024 * 1024 * 1024,
@@ -601,7 +670,10 @@ master_tools.register(
     parameters={
         "type": "object",
         "properties": {
-            "requirement_json": {"type": "string", "description": "The approved PRD as a JSON string"}
+            "requirement_json": {
+                "type": "string",
+                "description": "The approved PRD as a JSON string",
+            }
         },
         "required": ["requirement_json"],
     },
@@ -616,7 +688,9 @@ master_tools.register(
     ),
     parameters={
         "type": "object",
-        "properties": {"filepath": {"type": "string", "description": "path relative to workspace root"}},
+        "properties": {
+            "filepath": {"type": "string", "description": "path relative to workspace root"}
+        },
         "required": ["filepath"],
     },
     func=_tool_read_file_ast,
@@ -630,7 +704,10 @@ master_tools.register(
         "properties": {
             "pattern": {"type": "string", "description": "regex pattern"},
             "glob": {"type": "string", "description": "rg glob filter, e.g. '*.py' (optional)"},
-            "root": {"type": "string", "description": "subdirectory relative to workspace root (optional)"},
+            "root": {
+                "type": "string",
+                "description": "subdirectory relative to workspace root (optional)",
+            },
         },
         "required": ["pattern"],
     },
@@ -642,7 +719,12 @@ master_tools.register(
     description="List files under a directory of the workspace (noise dirs excluded).",
     parameters={
         "type": "object",
-        "properties": {"path": {"type": "string", "description": "directory relative to workspace root (optional)"}}
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "directory relative to workspace root (optional)",
+            }
+        },
     },
     func=_tool_list_files,
 )
@@ -658,7 +740,7 @@ master_tools.register(
         "properties": {
             "code": {"type": "string", "description": "python source to execute (optional)"},
             "command": {"type": "string", "description": "shell command to execute (optional)"},
-        }
+        },
     },
     func=_tool_run_in_sandbox,
 )
@@ -707,7 +789,10 @@ master_tools.register(
     parameters={
         "type": "object",
         "properties": {
-            "strategy_code": {"type": "string", "description": "python code defining run_strategy(df)"},
+            "strategy_code": {
+                "type": "string",
+                "description": "python code defining run_strategy(df)",
+            },
             "asset_id": {"type": "string"},
             "start_date": {"type": "string", "description": "e.g. '2022-01-01'"},
             "end_date": {"type": "string", "description": "e.g. '2024-12-31'"},
