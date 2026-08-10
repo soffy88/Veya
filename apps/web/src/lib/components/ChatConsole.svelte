@@ -34,7 +34,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	import { planStore } from "$lib/planStore.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import FileTree from "./FileTree.svelte";
-	import { Folder } from "lucide-svelte";
+	import { Folder, Mic } from "lucide-svelte";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
 
 	const SUGGESTIONS = [
@@ -48,6 +48,46 @@ import ModelPicker from "./ModelPicker.svelte";
 	let busy = $state(false);
 	let lastUserText = $state("");
 	let fileTreeOpen = $state(false);
+	let dictating = $state(false);
+	let dictationError = $state("");
+	let recognition: { stop: () => void; lang: string } | null = null;
+
+	// ── 语音听写 (Web Speech API, 纯前端) ────────────────────────────
+	function toggleDictation() {
+		if (dictating) {
+			recognition?.stop();
+			dictating = false;
+			return;
+		}
+		const SR = (window as unknown as Record<string, unknown>).SpeechRecognition
+			?? (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+		if (!SR) {
+			dictationError = "浏览器不支持语音听写 (请用 Chrome/Edge)";
+			return;
+		}
+		dictationError = "";
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const rec = new (SR as new () => any)();
+		rec.lang = "zh-CN";
+		rec.continuous = false;
+		rec.interimResults = true;
+		rec.onresult = (e: { resultIndex: number; results: { [k: number]: { [k: number]: { transcript: string } }; length: number } }) => {
+			let t = "";
+			for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0]?.transcript ?? "";
+			if (t) input = t;
+		};
+		rec.onend = () => {
+			dictating = false;
+			recognition = null;
+		};
+		rec.onerror = (ev: { error?: string }) => {
+			dictating = false;
+			dictationError = `语音识别错误: ${ev.error ?? "unknown"}`;
+		};
+		recognition = rec;
+		dictating = true;
+		rec.start();
+	}
 	let listEl = $state<HTMLDivElement>();
 	let textareaEl = $state<HTMLTextAreaElement>();
 	let aborter: AbortController | null = null;
@@ -322,6 +362,15 @@ import ModelPicker from "./ModelPicker.svelte";
 
 {#snippet composer()}
 	<div class="mx-auto w-full max-w-2xl">
+		{#if dictationError}
+			<div class="mb-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] text-amber-400">{dictationError}</div>
+		{/if}
+		{#if dictating}
+			<div class="mb-1.5 flex items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 py-1 font-mono text-[10px] text-rose-400">
+				<span class="size-1.5 animate-pulse rounded-full bg-rose-400"></span>
+				正在听… (再次点击麦克风停止)
+			</div>
+		{/if}
 		{#if fileTreeOpen}
 			<div class="mb-2 h-56 overflow-hidden rounded-xl border border-white/10 bg-[#0d0d0d]">
 				<FileTree
@@ -343,6 +392,16 @@ import ModelPicker from "./ModelPicker.svelte";
 					: ''}"
 			>
 				<Folder class="size-4" />
+			</button>
+			<button
+				type="button"
+				onclick={toggleDictation}
+				title="语音听写"
+				class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 transition {dictating
+					? 'border-rose-500/50 bg-rose-500/10 text-rose-400'
+					: 'text-white/50 hover:border-sky-500/40 hover:text-white'}"
+			>
+				<Mic class="size-4" />
 			</button>
 			<textarea
 				bind:this={textareaEl}
