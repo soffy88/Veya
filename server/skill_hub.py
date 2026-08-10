@@ -302,12 +302,21 @@ class VeyaSkillHub:
             )
         if self._dispatcher and tool_name == "run_skill":
             skill_name = kwargs.get("skill_name") or ""
-            args = kwargs.get("args") or {}
+            args = dict(kwargs.get("args") or {})
             executor = self._executors.get(skill_name)
             if executor is None:
                 raise ToolExecutionError(
                     f"run_skill: skill '{skill_name}' not found. Available: {', '.join(self._all_skill_names())}"
                 )
+            # 参数兜底: 技能 main(goal, context) 约定 goal 为任务; 模型可能传
+            # task/任务/prompt 等任意字段 → 归一化, 避免 missing goal 报错
+            if "goal" not in args:
+                for key in ("task", "任务", "prompt", "content", "objective"):
+                    if key in args:
+                        args["goal"] = args.pop(key)
+                        break
+                else:
+                    args["goal"] = json.dumps(args, ensure_ascii=False)[:2000]
             raw = executor(**args)
             return await raw if inspect.isawaitable(raw) else raw
         executor = self._executors.get(tool_name)
