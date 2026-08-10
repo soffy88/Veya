@@ -62,7 +62,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	let fileInput = $state<HTMLInputElement>();
 	let uploadError = $state("");
 
-	const TEXT_EXT = [".txt", ".md", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".csv", ".log", ".html", ".css", ".svelte", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".sh"];
+	const TEXT_EXT = [".txt", ".md", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".toml", ".csv", ".log", ".html", ".css", ".svelte", ".rs", ".go", ".java", ".c", ".cpp", ".h", ".sh", ".pdf", ".docx", ".xlsx"];
 
 	function pickFiles() {
 		fileInput?.click();
