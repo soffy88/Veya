@@ -107,9 +107,9 @@ import ModelPicker from "./ModelPicker.svelte";
 				// 大文本 (≤100MB): 上传到工作区 → 消息放 @uploads/<path> 引用
 				try {
 					// octet-stream 原始 body (非 multipart form → 不触发 SvelteKit CSRF, 二进制安全)
-					const res = await fetch(`${API_BASE}/api/v1/fs/upload`, {
+					const res = await fetch(`${API_BASE}/api/v1/fs/upload?name=${encodeURIComponent(f.name)}`, {
 						method: "POST",
-						headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(f.name) },
+						headers: { "content-type": "application/octet-stream" },
 						body: f,
 					});
 					if (!res.ok) throw new Error(`HTTP ${res.status}`);
