@@ -85,9 +85,9 @@ DONE
 | 10 | **机械 QUALITY GATE** (lint/type/build, 禁 mutating) | quality_gate 命令 + mutating 拒绝 + 3 次/激活 + 环境失败升级 | 🟢 90% |
 | 11 | **PRE-FLIGHT 安全检查** (clean tree/分支/QG resolution) | workdir git clean/分支/可写检查 (可开关) | 🟢 85% |
 | 12 | read-only 硬保证 (sandbox 强制) | 批判引擎 read-only 靠 prompt (软, 引擎 CLI 无 sandbox 强制) | 🟡 30% |
-| 13 | 三种模式 (full/review-only/refactor-only) | 仅 full | 🟡 40% |
+| 13 | 三种模式 (full/review-only/refactor-only) | full + graph_review (只读报告) + refactor 模式 | 🟢 95% |
 | 14 | 命名空间隔离 (按 feature 分节) | plan 天然隔离 (每 plan 独立 JSON) | 🟢 100% |
-| 15 | Elevated assurance (3 lens + exit challenger) | ❌ 无 | 🔴 0% |
+| 15 | Elevated assurance (3 lens + exit challenger) | 3 fresh lens (独立引擎) + fan-in 规范化去重 + 终局 challenger; auto 高风险触发 | 🟢 90% |
 | 16 | /goal 停闸 + 模板 | plan quota/boundary_scan (状态内核) 类似物 | 🟡 50% |
 | 17 | 成本/风险透明 | 工具 description 注明外部引擎费用 | 🟢 90% |
 | 18 | 质量门失败回写者 (capped retry) | 实现无输出→重试 (同激活) | 🟡 50% |
