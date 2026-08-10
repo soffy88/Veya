@@ -36,6 +36,7 @@ class TaskRecord:
     updated_at: float = field(default_factory=time.time)
     cancel_requested: bool = False
     _done: asyncio.Event = field(default_factory=asyncio.Event)
+    _watchers: set = field(default_factory=set)  # wait() 实时进度订阅者
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -83,9 +84,16 @@ class ReasonixTaskQueue:
         if rec is None:
             raise KeyError(f"task {tid} not found")
         if on_progress is not None:
-            for ev in rec.events:  # 已发生的进度先补发
+            # 已发生的进度先补发, 之后 worker 每产生新事件实时推给订阅者
+            for ev in rec.events:
                 on_progress(ev)
-        await rec._done.wait()
+            rec._watchers.add(on_progress)
+            try:
+                await rec._done.wait()
+            finally:
+                rec._watchers.discard(on_progress)
+        else:
+            await rec._done.wait()
         return rec
 
     def get(self, tid: str) -> TaskRecord | None:
@@ -184,6 +192,12 @@ class ReasonixTaskQueue:
             rec.events.append(ev)
             if len(rec.events) > 200:  # 事件快照限长
                 rec.events.pop(0)
+            # 实时推给所有 wait() 订阅者 (SSE 断线/回调异常绝不拖垮 worker)
+            for w in list(rec._watchers):
+                try:
+                    w(ev)
+                except Exception:  # noqa: BLE001
+                    pass
 
         try:
             summary = await _execute_reasonix_core(
