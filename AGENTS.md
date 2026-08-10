@@ -195,12 +195,12 @@ docker ps | grep veya-backend                              # docker 侧
 
 ```
 用户输入 → 大模型（ReAct 循环，全量工具面 ~171）→ 模型自主决定：
-           直接回答 or 调哪个工具（reasonix_run / fetch_url / browser_run / mcp_*）
+           直接回答 or 调哪个工具（hicode_run / fetch_url / browser_run / mcp_*）
 ```
 
 **已固化的设计决策（不要"优化"回去）：**
 1. **入口只有一个大模型，零程序判断**：无前置路由、无工具面分层/裁藏、无 URL 预抓、
-   无 reasonix 关键词兜底。长任务/工具选择全由模型自主判断。
+   无 hicode 关键词兜底。长任务/工具选择全由模型自主判断。
 2. **LLM 层 = opencode-go 直连**：`veya1.1` 直接调
    `https://opencode.ai/zen/go/v1`（用户自己的 `OPENCODE_API_KEY`），
    候选重试（deepseek-v4-flash / mimo-v2.5）+ 空回复降级本地
@@ -208,7 +208,7 @@ docker ps | grep veya-backend                              # docker 侧
    **禁止**重新引入 oskill 复杂路由器（quality-gate 升级/模型切换/并行分派）。
 3. **可靠性护栏（非判断，保留）**：轮次上限（防死循环）、空回复可见提示、
    前端 error 态（绝不静默空白）、"任务开始/思考…"徽章不展示。
-4. **前端交互**：只显示真实执行轨迹（tool_call / tool_error / reasonix_progress）。
+4. **前端交互**：只显示真实执行轨迹（tool_call / tool_error / hicode_progress）。
 
 ### 变更审批规则
 
