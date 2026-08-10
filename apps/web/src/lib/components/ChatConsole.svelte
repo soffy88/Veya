@@ -33,6 +33,8 @@ import ModelPicker from "./ModelPicker.svelte";
 	import { API_BASE } from "$lib/api";
 	import { planStore } from "$lib/planStore.svelte";
 	import PlanCard from "./PlanCard.svelte";
+	import FileTree from "./FileTree.svelte";
+	import { Folder } from "lucide-svelte";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
 
 	const SUGGESTIONS = [
@@ -45,6 +47,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	let input = $state("");
 	let busy = $state(false);
 	let lastUserText = $state("");
+	let fileTreeOpen = $state(false);
 	let listEl = $state<HTMLDivElement>();
 	let textareaEl = $state<HTMLTextAreaElement>();
 	let aborter: AbortController | null = null;
@@ -319,7 +322,28 @@ import ModelPicker from "./ModelPicker.svelte";
 
 {#snippet composer()}
 	<div class="mx-auto w-full max-w-2xl">
+		{#if fileTreeOpen}
+			<div class="mb-2 h-56 overflow-hidden rounded-xl border border-white/10 bg-[#0d0d0d]">
+				<FileTree
+					onPick={(p) => {
+						input = input + (input ? " " : "") + "@" + p;
+						fileTreeOpen = false;
+						if (textareaEl) textareaEl.focus();
+					}}
+				/>
+			</div>
+		{/if}
 		<div class="flex items-end gap-2 rounded-2xl border border-white/10 bg-[#0d0d0d] p-2 transition focus-within:border-white/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.05)]">
+			<button
+				type="button"
+				onclick={() => (fileTreeOpen = !fileTreeOpen)}
+				title="工作区文件 (点击文件注入 @path)"
+				class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white {fileTreeOpen
+					? 'border-sky-500/40 text-sky-400'
+					: ''}"
+			>
+				<Folder class="size-4" />
+			</button>
 			<textarea
 				bind:this={textareaEl}
 				bind:value={input}
