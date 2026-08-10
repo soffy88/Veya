@@ -207,3 +207,175 @@ async def gate_check(plan_id: str, gate_scope: str) -> str:
 
     return _json.dumps({"gate_open": gate_open, "scope": scope,
                         "blocking_todos": blocking}, ensure_ascii=False)
+
+
+# ── Phase 2: Spend 记账 (验证后 spend, 幂等) ─────────────────────────
+
+async def quota_spend_slot(plan_id: str, todo_id: str,
+                           effect_id: str, note: str = "") -> str:
+    """验证后记账 (spend): 为一次已完成的控制面推进记一笔, 幂等。
+
+    spend = "本轮形成了有效控制面推进"的账, 不是"模型被唤醒过"的计数器。
+    effect_id 唯一 (如 hicode 执行回执 hash); 重复提交同 effect_id 幂等不双扣。
+    dry-run / read-only / 静默 poll 不应调用本工具 (不花配额)。
+    """
+    import hashlib
+    import json as _json
+
+    try:
+        plan = _load_plan(plan_id)
+    except Exception as exc:  # noqa: BLE001
+        return f"spend: {exc}"
+    todo = _todo(plan, todo_id)
+    if todo.get("status") != "done":
+        return f"spend: todo {todo_id} 尚未 done, 不能 spend (先验证完成再记账)"
+
+    key = hashlib.sha256(f"{plan_id}:{todo_id}:{effect_id}".encode()).hexdigest()[:16]
+    spends = plan.setdefault("spends", [])
+    if any(s.get("key") == key for s in spends):
+        return f"spend: effect {effect_id} 已记账 (幂等跳过)"
+    spends.append({
+        "key": key, "todo_id": todo_id, "effect_id": effect_id,
+        "note": note[:200], "at": _now(),
+    })
+    if len(spends) > 200:
+        plan["spends"] = spends[-200:]
+    from server.plan_todo import _save as _save_plan
+
+    _save_plan(plan)
+    return f"✅ spend 记账: todo {todo_id} (effect={effect_id}) 共 {len(spends)} 笔"
+
+
+# ── Phase 3: Terminal Gate (不可逆动作审批建议) ──────────────────────
+
+# terminal 动作: 不可逆/发布/对外生效 — 需人工审批 (对标四级 authority 的 terminal)
+_TERMINAL_ACTIONS = (
+    "merge", "publish", "deploy", "release", "delete", "rm ", "drop ",
+    "push", " 提交", "发布", "部署", "合并", "删除", "下线", "迁移",
+)
+
+
+async def terminal_gate_check(action: str, plan_id: str = "",
+                              scope: str = "") -> str:
+    """检查一个动作是否属 terminal (不可逆/发布) — 需人工审批。
+
+    返回 {requires_approval, authority_level, reason}:
+      requires_approval=true  → 该动作超出本 agent 权威, 必须先经人工审批
+        (可用 system_secure_exec / 询问用户), 不要自行执行;
+      false → 属可验证工作, 可推进 (仍受 plan quota/gate 约束)。
+    """
+    import json as _json
+
+    action_l = (action or "").lower()
+    terminal = any(t in action_l for t in _TERMINAL_ACTIONS)
+    if not terminal:
+        return _json.dumps({
+            "requires_approval": False, "authority_level": "execute",
+            "reason": "非 terminal 动作, 属可验证工作, 可推进 (受 plan quota/gate 约束)",
+        }, ensure_ascii=False)
+    # terminal: 仍检查 plan gate (若有 plan 且有未满足的 scope gate)
+    gate_open = True
+    if plan_id:
+        try:
+            g = await gate_check(plan_id, scope or action)
+            import json as _json2
+            gate_open = bool(_json2.loads(g).get("gate_open"))
+        except Exception:
+            pass
+    return _json.dumps({
+        "requires_approval": True, "authority_level": "terminal",
+        "reason": (f"动作 '{action}' 属不可逆/发布类 (terminal), 须人工审批"
+                   + (f"; 且 plan {plan_id} 的 gate 未开" if not gate_open else "")),
+    }, ensure_ascii=False)
+
+
+# ── Phase 3: 公私边界扫描 (文件级, git-tracked 即公开面) ─────────────
+
+# 敏感标记 (对标 loopx check: token/私钥/密码/轨迹)
+_SENSITIVE_RE = [
+    r"(?i)api[_-]?key[\\s'\"=:]+[a-z0-9_\\-]{16,}",
+    r"(?i)secret[\\s'\"=:]+[a-z0-9_\\-]{16,}",
+    r"(?i)token[\\s'\"=:]+[a-z0-9_\\-]{16,}",
+    r"sk-[A-Za-z0-9_\\-]{20,}",
+    r"-----BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY-----",
+    r"(?i)password\\s*[=:]+\\s*[^\\s'\"#]{6,}",
+    r"AKIA[0-9A-Z]{16}",
+]
+_SENSITIVE_NAMES = ("auth.json", ".credentials", "token", "secret",
+                    ".env", "*.pem", "*.key", "id_rsa", "id_ed25519")
+
+
+async def boundary_scan(path: str = ".") -> str:
+    """文件级公私边界扫描: git-tracked 即公开面, 检测敏感内容。
+
+    返回 {public_tracked, sensitive_files, risk_level, hint}。
+    只读; 不读取 >64KB 文件体 (防把私密大文件扫进控制面)。非 git 仓库按
+    tracked=全部文件 (保守: 都算公开面)。
+    """
+    import json as _json
+    import os
+    import re
+    import subprocess
+    from pathlib import Path
+
+    root = Path(path or ".").resolve()
+    if not root.is_dir():
+        return _json.dumps({"error": f"路径不存在或非目录: {root}"}, ensure_ascii=False)
+
+    # git tracked 清单 (超时保护; 非 git 仓库 → 全部文件视作公开面)
+    tracked: set[str] = set()
+    try:
+        r = subprocess.run(["git", "-C", str(root), "ls-files"],
+                           capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            tracked = {l for l in r.stdout.splitlines() if l}
+    except Exception:
+        tracked = set()
+
+    sensitive_files: list[dict] = []
+    scanned = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if d not in (".git", ".venv", "node_modules", "__pycache__", ".loopx")]
+        for fn in filenames:
+            rel = os.path.relpath(os.path.join(dirpath, fn), root)
+            scanned += 1
+            if scanned > 2000:
+                break
+            if any(_match_name(fn, pat) for pat in _SENSITIVE_NAMES):
+                sensitive_files.append({"path": rel, "reason": "敏感文件名"})
+                continue
+            try:
+                size = os.path.getsize(os.path.join(dirpath, fn))
+            except OSError:
+                continue
+            if size > 65536:
+                continue  # 不读大文件体
+            try:
+                with open(os.path.join(dirpath, fn), "r", encoding="utf-8", errors="ignore") as f:
+                    head = f.read(65536)
+            except OSError:
+                continue
+            for pat in _SENSITIVE_RE:
+                if re.search(pat, head):
+                    sensitive_files.append({"path": rel, "reason": f"敏感标记匹配 {pat[:20]}"})
+                    break
+
+    public_tracked = tracked if tracked else {  # 非 git → 全部算公开面
+        os.path.relpath(os.path.join(dp, fn), root)
+        for dp, _, fns in os.walk(root) for fn in fns
+    }
+    risk = "high" if sensitive_files else ("medium" if public_tracked else "low")
+    hint = ("敏感文件已检出, 禁止提交到公开仓库; 真实状态/凭据只放 git-ignored 目录"
+            if sensitive_files else "未检出敏感内容")
+    return _json.dumps({
+        "public_tracked": sorted(list(public_tracked))[:50],
+        "sensitive_files": sensitive_files[:30],
+        "risk_level": risk, "hint": hint,
+    }, ensure_ascii=False, default=str)
+
+
+def _match_name(fn: str, pat: str) -> bool:
+    import fnmatch
+
+    return fnmatch.fnmatch(fn, pat) or fn == pat
