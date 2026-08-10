@@ -51,7 +51,8 @@ async def new_agent_stream_events(
         # SSE 流式 task 是独立上下文 → 显式设置当前用户 (历史/计划按用户隔离)
         if user:
             auth_mod.set_user(user)
-        await master_coordinator.chat_stream(
+        # 必须 return 结果 — _finish 靠它补发 final (丢了则永远发兜底假象)
+        return await master_coordinator.chat_stream(
             text,
             session_id=sid,
             max_rounds=8,
@@ -59,6 +60,7 @@ async def new_agent_stream_events(
             provider=provider,
             model=model,
             endpoint=endpoint,
+            images=images,
         )
 
     try:
