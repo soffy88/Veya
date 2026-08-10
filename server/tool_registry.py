@@ -928,11 +928,16 @@ from server.graph_engineer import graph_cycle
 master_tools.register(
     name="system_graph_cycle",
     description=(
-        "多引擎编排自纠正循环 (graph-engineer 式): 在计划 (create_plan) 的未完成 "
-        "todo 上跑「实现→批判→修复→验证」循环, 不同引擎分离角色 — 实现引擎写代码, "
-        "批判引擎只读审查 (不让写的人自评), 缺陷则回修复, 直至无缺陷或达到迭代上限。"
+        "在计划的未完成 todo 上跑「实现→质量门→批判→仲裁→修复→验证」自纠正循环, "
+        "不同引擎分离角色 — 实现引擎写代码, 批判引擎只读审查 (不让写的人自评)。"
+        "完整机制 (graph-engineer 式): PRE-FLIGHT 安全检查 (workdir git clean/分支), "
+        "QUALITY GATE 机械门 (quality_gate 命令, lint/type/build, 禁 mutating), "
+        "DEBATE 三分类 (valid/debatable 反证/false-positive), VERIFY 功能验证 "
+        "(verify_command 或验收判断, 失败分类根因回批判), Anti-loop cutoff 防振荡。"
         "参数: plan_id (create_plan 返回); implement_engine/critique_engine 可指定 "
-        "(claude/codex/grok/pi, 默认 codex 实现 + claude 批判); max_iterations 默认 3。"
+        "(claude/codex/grok/pi, 默认 codex 实现 + claude 批判); max_iterations 默认 3; "
+        "workdir (工作目录, PRE-FLIGHT 检查+命令执行); quality_gate (机械检查命令, "
+        "check-only); verify_command (功能测试命令); preflight (默认 true)。"
         "适合: 复杂功能需要多轮打磨、质量要求高的任务。注意: 会调用外部引擎 CLI "
         "(可能产生订阅费用/耗时)。每步状态写入 plan_todo (看板可视化)。"
     ),
@@ -942,7 +947,11 @@ master_tools.register(
             "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
             "implement_engine": {"type": "string", "description": "可选。实现引擎 (claude/codex/grok/pi), 默认 codex。"},
             "critique_engine": {"type": "string", "description": "可选。批判引擎 (默认 claude, 与实现引擎不同更佳)。"},
-            "max_iterations": {"type": "integer", "description": "可选。循环轮次上限, 默认 3, 最大 5。"},
+            "max_iterations": {"type": "integer", "description": "可选。每 todo 修复轮次上限, 默认 3, 最大 5。"},
+            "workdir": {"type": "string", "description": "可选。引擎工作目录 (PRE-FLIGHT 检查 + 质量门/验证命令执行目录)。"},
+            "quality_gate": {"type": "string", "description": "可选。机械检查命令 (lint/type/build, 必须 check-only, 禁 mutating)。"},
+            "verify_command": {"type": "string", "description": "可选。功能测试/验收命令 (与机械门分离, 失败分类根因回批判)。"},
+            "preflight": {"type": "boolean", "description": "可选。PRE-FLIGHT 安全检查开关, 默认 true (git clean/分支警告)。"},
         },
         "required": ["plan_id"],
     },
