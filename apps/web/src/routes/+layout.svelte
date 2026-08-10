@@ -5,12 +5,17 @@
 	import NotificationCenter from "$lib/components/NotificationCenter.svelte";
 	import { artifactStore } from "$lib/artifacts.svelte";
 	import { notifyStore } from "$lib/notifications.svelte";
+	import { sessionStore } from "$lib/sessionStore.svelte";
 	import "../app.css";
 
 	let { children } = $props();
 
 	onMount(() => {
 		notifyStore.connect();
+		// 已登录状态刷新页面 → 自动拉取云端会话列表 (多端同步)
+		if (typeof localStorage !== "undefined" && localStorage.getItem("veya.auth.token")) {
+			void sessionStore.syncCloud();
+		}
 	});
 </script>
 

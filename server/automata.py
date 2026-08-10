@@ -171,19 +171,39 @@ class VeyaAutomata:
         return self._scheduler.jobs_db_path
 
     def register_cron_task(self, cron_expr: str, task_prompt: str, task_id: str | None = None) -> str:
-        return self._scheduler.register_cron_task(cron_expr, task_prompt, task_id=task_id)
+        # 多用户隔离: 注册时记录归属用户 (工具执行 task 内 auth contextvar 有效)
+        from server.auth import current_user
+
+        user_id = current_user()["user_id"] or ""
+        return self._scheduler.register_cron_task(
+            cron_expr, task_prompt, task_id=task_id, user_id=user_id
+        )
 
     def remove_task(self, task_id: str) -> str:
+        # 多用户隔离: 只能删除自己的 cron 任务
+        from server.auth import current_user
+
+        uid = current_user()["user_id"] or ""
+        target = next((j for j in self._scheduler.get_jobs() if j.get("id") == task_id), None)
+        if target and str(task_id).startswith("cron_"):
+            owner = target.get("user_id", "")
+            if owner and owner != uid:
+                return f"无权删除任务: {task_id} (属于其他用户)"
         return self._scheduler.remove_task(task_id)
 
     def get_jobs(self) -> list[dict]:
-        return self._scheduler.get_jobs()
+        # 多用户隔离: 只列当前用户的 cron 任务 (匿名用户看无主任务)
+        from server.auth import current_user
+
+        uid = current_user()["user_id"] or ""
+        jobs = self._scheduler.get_jobs()
+        return [j for j in jobs if not str(j.get("id", "")).startswith("cron_") or j.get("user_id", "") in ("", uid)]
 
     def trigger_event(self, event_name: str, payload: dict) -> str:
         return self._scheduler.trigger_event(event_name, payload)
 
-    async def _run_headless_mission(self, trigger_context: str, task_prompt: str) -> str:
-        return await self._scheduler._run_headless_mission(trigger_context, task_prompt)
+    async def _run_headless_mission(self, trigger_context: str, task_prompt: str, user_id: str = "") -> str:
+        return await self._scheduler._run_headless_mission(trigger_context, task_prompt, user_id)
 
     def get_recent_results(self, limit: int = 10) -> list[dict]:
         return self._scheduler.get_recent_results(limit)
@@ -205,10 +225,14 @@ _automata: VeyaAutomata | None = None
 def _default_headless_runner() -> Callable[[str], Awaitable[str]]:
     """默认无头执行器: 构造一个主脑实例去静默执行合成 Prompt。"""
 
-    async def _runner(synthetic_prompt: str) -> str:
+    async def _runner(synthetic_prompt: str, user_id: str = "") -> str:
         # 延迟 import 避免循环依赖(automata → coordinator_master → automata 单例)
         from server.coordinator_master import MasterCoordinator
+        from server import auth as auth_mod
 
+        if user_id:
+            # 触发时注入归属用户 → 无头 agent 的会话/计划/通知按该用户隔离
+            auth_mod.set_user({"user_id": user_id, "username": user_id[:12]})
         coordinator = MasterCoordinator()  # 用 .env / 环境变量的后台专属 Key
         result = await coordinator.chat_stream(synthetic_prompt, session_id=f"auto_{uuid.uuid4().hex[:8]}")
         if result.get("status") == "success":
