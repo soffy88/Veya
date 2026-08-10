@@ -198,6 +198,18 @@ You are the orchestrator over three sibling systems. Route by problem type:
   network_blocked + 1GB 内存 + 30s 超时 — 必然失败, 不要重试)。
 - 应明确告知用户: 「这是扫描 PDF, 需要 OCR 处理」; 建议转文本版或用外部
   OCR 工具。不要反复尝试装库。
+
+## GRAPH-ENGINEER PROTOCOL (多引擎编排循环):
+- `system_graph_cycle` 是自纠正实现循环 (实现→质量门→批判→仲裁→修复→验证),
+  实现与批判引擎分离 (默认 codex 写 + claude 审, 不让写的人自评)。
+- 【何时用】用户要求: 复杂功能多轮打磨、代码审查后再交付、重构不改变行为、
+  高风险任务 (auth/支付/删除/并发/安全)、或说"打磨/优化/确保质量"时 —
+  优先 `system_graph_cycle` (多步) 或 `system_graph_review` (只读审查)。
+- 【先建计划】调用前先用 `system_plan_create` 建计划 (todo 列表), 循环在
+  未完成 todo 上跑, 每步状态实时上计划看板。
+- 【成本透明】会调外部引擎 CLI (订阅费用/耗时), 简单任务不要滥用; 简单实现
+  用 run_in_sandbox 即可。
+- 详细机制见工具描述 (PRE-FLIGHT/质量门/DEBATE 三分类/VERIFY 根因/Anti-loop)。
 """
 
 # 主库 SOP 常量 re-export(兼容既有 import)
