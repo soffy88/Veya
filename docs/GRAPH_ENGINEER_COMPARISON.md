@@ -81,10 +81,10 @@ DONE
 | 6 | **CRITIQUE 状态连续性 (--resume-last)** | ❌ 每次 fresh, 会重复已裁决发现 | 🔴 0% |
 | 7 | **DEBATE 三分类 (valid/debatable/false-positive)** | 缺陷关键词启发式 (无反证 reinject/无理由) | 🔴 20% |
 | 8 | **Anti-loop cutoff** (同抱怨+无变更→停止) | ❌ 无, 靠迭代上限硬停 (可能假解决) | 🔴 0% |
-| 9 | **VERIFY 真功能测试 + 根因分类** | ❌ 无缺陷→直接 done, 无真实验证 | 🔴 10% |
-| 10 | **机械 QUALITY GATE** (lint/type/build, 禁 mutating) | 仅"实现输出非空", 无真实机械检查 | 🔴 15% |
-| 11 | **PRE-FLIGHT 安全检查** (clean tree/分支/QG resolution) | ❌ 无 | 🔴 0% |
-| 12 | read-only 硬保证 (sandbox 强制) | 批判引擎 read-only 靠 prompt (软) | 🟡 30% |
+| 9 | **VERIFY 真功能测试 + 根因分类** | verify_command/验收判断 + 根因 4 类回批判 + 连续失败升级 | 🟢 90% |
+| 10 | **机械 QUALITY GATE** (lint/type/build, 禁 mutating) | quality_gate 命令 + mutating 拒绝 + 3 次/激活 + 环境失败升级 | 🟢 90% |
+| 11 | **PRE-FLIGHT 安全检查** (clean tree/分支/QG resolution) | workdir git clean/分支/可写检查 (可开关) | 🟢 85% |
+| 12 | read-only 硬保证 (sandbox 强制) | 批判引擎 read-only 靠 prompt (软, 引擎 CLI 无 sandbox 强制) | 🟡 30% |
 | 13 | 三种模式 (full/review-only/refactor-only) | 仅 full | 🟡 40% |
 | 14 | 命名空间隔离 (按 feature 分节) | plan 天然隔离 (每 plan 独立 JSON) | 🟢 100% |
 | 15 | Elevated assurance (3 lens + exit challenger) | ❌ 无 | 🔴 0% |
