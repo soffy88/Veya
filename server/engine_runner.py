@@ -415,7 +415,11 @@ async def stream_engine(
         stderr=asyncio.subprocess.PIPE,
     )
 
+    cost_usd: float = 0.0
+    model: str = ""
+
     async def _read() -> None:
+        nonlocal cost_usd, model
         assert proc.stdout is not None
         line = await proc.stdout.readline()
         while line:
@@ -425,10 +429,14 @@ async def stream_engine(
                 #  - content_block_delta (流式逐 token, grok)
                 #  - assistant (claude 整条消息: message.content[].text)
                 #  - content_block_start + tool_use → 工具轨迹
+                #  - result (claude 终态: total_cost_usd / model → P2 用量透传)
                 try:
                     evt = json.loads(text)
                     t = evt.get("type")
-                    if t == "content_block_delta":
+                    if t == "result":
+                        cost_usd = float(evt.get("total_cost_usd") or 0) or cost_usd
+                        model = str(evt.get("model") or model)
+                    elif t == "content_block_delta":
                         delta = (evt.get("delta") or {}).get("text", "")
                         if delta:
                             yield {"type": "text_delta", "engine": engine, "delta": delta}
@@ -461,7 +469,9 @@ async def stream_engine(
             async for evt in _read():
                 yield evt
         code = await proc.wait()
-        yield {"type": "engine_done", "engine": engine, "status": "success" if code == 0 else "failed"}
+        yield {"type": "engine_done", "engine": engine,
+               "status": "success" if code == 0 else "failed",
+               "cost_usd": round(cost_usd, 6), "model": model}
     except TimeoutError:
         proc.kill()
         await proc.wait()

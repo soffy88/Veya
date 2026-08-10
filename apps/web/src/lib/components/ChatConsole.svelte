@@ -31,6 +31,8 @@ import ModelPicker from "./ModelPicker.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
 	import { API_BASE } from "$lib/api";
+	import { planStore } from "$lib/planStore.svelte";
+	import PlanCard from "./PlanCard.svelte";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
 
 	const SUGGESTIONS = [
@@ -186,10 +188,13 @@ import ModelPicker from "./ModelPicker.svelte";
 					const accumulated = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)?.text ?? "";
 					const final = typeof ev.final === "string" && ev.final.trim() ? ev.final : "";
 					const text = accumulated || final;
+					// P2: 上下文用量 — 主脑 cost 透传
+					const cost = typeof ev.cost_usd === "number" ? ev.cost_usd : undefined;
 					// 绝不静默空白: 主脑无输出时置 error 态 → 显示重试按钮而非空白气泡
 					sessionStore.patchLast(sid, {
 						status: text.trim() ? "done" : "error",
 						text,
+						cost,
 						error: text.trim()
 							? undefined
 							: "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。",
@@ -200,9 +205,13 @@ import ModelPicker from "./ModelPicker.svelte";
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 					if (last) last.steps = [...last.steps, ev as ToolStep];
 				} else if (kind === "plan_update") {
-					// 计划看板事件 (create_plan/update_todo 真实轨迹): 渲染为计划块
+					// 计划看板事件: 进轨迹徽章 + 更新活跃计划条 (P5)
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 					if (last) last.steps = [...last.steps, ev as ToolStep];
+					const pev = ev as { plan_id?: string; objective?: string; todos?: unknown[] };
+					if (pev.plan_id && Array.isArray(pev.todos)) {
+						planStore.apply({ plan_id: pev.plan_id, objective: pev.objective ?? "", todos: pev.todos as never[] });
+					}
 				} else if (kind === "hicode_progress") {
 					// hicode 编码执行器实时进度: 跳过 token 统计噪音, 其余进轨迹
 					if (ev.stage !== "stats") {
@@ -381,6 +390,12 @@ import ModelPicker from "./ModelPicker.svelte";
 		<!-- 聊天中: 内容向上滚动, 输入框固定在窗口最下不动 (Claude 式) -->
 		<div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-6 md:px-6">
 			<div class="mx-auto flex max-w-2xl flex-col gap-7">
+				{#if planStore.active()}
+					{@const activePlan = planStore.active()}
+					{#if activePlan}
+						<PlanCard plan={activePlan} compact />
+					{/if}
+				{/if}
 				{#each messages as msg, i (i)}
 					<div class="flex items-start gap-3 {msg.role === 'user' ? 'flex-row-reverse' : ''}">
 						<span
@@ -468,6 +483,11 @@ import ModelPicker from "./ModelPicker.svelte";
 												>
 													<Copy class="size-3" />
 												</button>
+												{#if msg.cost}
+													<span class="rounded-md px-2 py-1 font-mono text-[11px] text-white/25" title="本次回答成本">
+														${msg.cost.toFixed(4)}
+													</span>
+												{/if}
 											</div>
 										{/if}
 									</div>
