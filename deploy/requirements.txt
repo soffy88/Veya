@@ -163,3 +163,4 @@ webrtcvad==2.0.10
 websockets==17.0.1
 yarl==1.24.5
 z3-solver==5.0.0.0
+pypdf
