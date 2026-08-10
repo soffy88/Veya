@@ -16,9 +16,14 @@ async function forward(event: Parameters<RequestHandler>[0]): Promise<Response> 
   const target = `${BASE}/api/v1/${path}${event.url.search}`;
   const init: RequestInit = { method: event.request.method, headers: {} };
   if (event.request.method !== "GET" && event.request.method !== "HEAD") {
-    init.body = await event.request.text();
-    const ct = event.request.headers.get("content-type");
+    const ct = event.request.headers.get("content-type") ?? "";
     if (ct) (init.headers as Record<string, string>)["content-type"] = ct;
+    // 二进制 body (multipart 文件上传 / octet-stream 大文件) — text() 会 UTF-8 损坏; 用 arrayBuffer 透传
+    if (ct.startsWith("multipart/form-data") || ct === "application/octet-stream") {
+      init.body = await event.request.arrayBuffer();
+    } else {
+      init.body = await event.request.text();
+    }
   }
   let upstream: Response;
   try {

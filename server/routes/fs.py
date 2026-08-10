@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, Request, UploadFile
 
 router = APIRouter(tags=["file-tree"])
 
@@ -153,7 +153,7 @@ async def fs_read(path: str, max_chars: int = 12000) -> dict:
 
 
 @router.post("/api/v1/fs/upload")
-async def fs_upload(request: Request) -> dict:
+async def fs_upload(request: Request, name: str = "upload.bin") -> dict:
     """大文件上传到工作区 .veya-uploads/ (≤100MB), 返回引用路径供 @path 读取。
 
     文本类大文件不直接注入消息 (撑爆上下文) — 存工作区, 消息放 @uploads/<name>
@@ -163,8 +163,10 @@ async def fs_upload(request: Request) -> dict:
     """
     import uuid
 
-    filename = request.headers.get("x-file-name") or "upload.bin"
-    if not filename:
+    import urllib.parse
+
+    filename = urllib.parse.unquote(name) or "upload.bin"
+    if not filename.strip():
         raise HTTPException(status_code=422, detail="缺少文件名")
     # /app 只读挂载 → 上传目录用 ~/.veya/uploads (veya-data volume rw)
     root = Path.home() / ".veya"
