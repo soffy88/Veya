@@ -41,9 +41,14 @@ export async function api(
   }
   const qs = q.size ? `?${q.toString()}` : "";
   const prefix = upstream === "legacy" ? `${API_BASE}/legacy/` : `${API_BASE}/`;
+  // 登录后自动携带 token (后端按 user_id 隔离数据); 未登录保持 anonymous 行为
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
+  const headers: Record<string, string> = {};
+  if (opts.body !== undefined) headers["content-type"] = "application/json";
+  if (token) headers.authorization = `Bearer ${token}`;
   const res = await fetch(`${prefix}${path.replace(/^\/+/, "")}${qs}`, {
     method: opts.method ?? "POST",
-    headers: opts.body !== undefined ? { "content-type": "application/json" } : undefined,
+    headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
 

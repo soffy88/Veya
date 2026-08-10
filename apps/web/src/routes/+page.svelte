@@ -20,6 +20,7 @@
 	import AutomationPanel from "$lib/components/AutomationPanel.svelte";
 	import KanbanPanel from "$lib/components/KanbanPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+	import AuthGate from "$lib/components/AuthGate.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 
 	type View = "chat" | "dashboard" | "plan" | "git" | "graph" | "genesis" | "plugins" | "automation" | "board";
@@ -186,6 +187,7 @@
 				<span class="text-sm font-semibold text-terminal-fg">Veya Workspace</span>
 			</div>
 			<span class="flex-1"></span>
+			<AuthGate />
 			<button
 				type="button"
 				onclick={() => (settingsOpen = true)}

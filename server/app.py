@@ -14,6 +14,7 @@ from server.routes.agent_collaboration import router as agent_collaboration_rout
 from server.routes.analysis import router as analysis_router
 from server.routes.audit import router as audit_router
 from server.routes.auth import router as auth_router
+from server.routes.auth import key_router as auth_key_router
 from server.routes.automata import router as automata_router
 from server.routes.automata import webhook_router
 from server.routes.autonomous import router as autonomous_router
@@ -219,6 +220,7 @@ app.include_router(advanced_visualization_router)
 app.include_router(agent_collaboration_router)
 app.include_router(mcp_router)
 app.include_router(auth_router)
+app.include_router(auth_key_router)
 app.include_router(init_router)
 app.include_router(research_router)
 app.include_router(resilient_router)
