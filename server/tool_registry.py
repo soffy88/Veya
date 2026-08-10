@@ -802,3 +802,63 @@ master_tools.register(
     func=_tool_run_backtest_coprocessor,
     max_result_chars=40000,  # 浓缩 JSON(含 500 点图表数据)必须完整回喂
 )
+
+# ================= 状态内核 (ARCHITECTURE_STATE_KERNEL Phase 1) ============
+# 主脑零改动: 只新增能力工具, 模型自主调用。状态复用 plan_todo 的 plan JSON
+# (单一真相源), 补 Quota/Claim/Gate 控制面对象。
+from server.state_kernel import gate_check, quota_should_run, todo_claim
+
+master_tools.register(
+    name="system_quota_should_run",
+    description=(
+        "控制面判断「该不该动」: 读当前活跃计划状态, 返回 {should_run, action, "
+        "reason}。action=deliver(有可推进 todo) / repair(有 blocked 需解除) / "
+        "wait(无可推进, 等外部或新指令)。长程任务/无人值守/被唤醒时先调本工具 "
+        "判断本轮是否值得执行, 避免空转。可传 plan_id 指定计划, 空则找最近活跃计划。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "plan_id": {"type": "string", "description": "可选。指定计划 id; 空=自动找最近活跃计划。"},
+        },
+    },
+    func=quota_should_run,
+)
+
+master_tools.register(
+    name="system_todo_claim",
+    description=(
+        "认领计划中的一个 todo (claim + 可回收 lease): 标记 in_progress 并设置 "
+        "TTL 租约 (默认 45 分钟, 过期自动释放, fail-closed)。done/blocked 不能认领; "
+        "他人有效租约内不可抢占。多 agent/跨轮分工时用本工具声明『谁在做这件事』。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
+            "todo_id": {"type": "string", "description": "待办 id (plan_status 可见)。"},
+            "lease_minutes": {"type": "integer", "description": "可选。租约分钟数, 默认 45, 上限 1440。"},
+        },
+        "required": ["plan_id", "todo_id"],
+    },
+    func=todo_claim,
+)
+
+master_tools.register(
+    name="system_gate_check",
+    description=(
+        "检查一个 scoped 决策门 (gate) 是否满足: 返回 {gate_open, scope, "
+        "blocking_todos}。gate_scope 描述该门约束 (如 CI 通过/依赖 X 完成)。"
+        "只检查 scope 相关 todo, 不冻结计划全局 (其他 todo 仍可推进)。"
+        "执行不可逆/高风险步骤前先调本工具确认前置门已开。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "plan_id": {"type": "string", "description": "计划 id。"},
+            "gate_scope": {"type": "string", "description": "该门约束的描述/关键词 (如 'CI 通过' 或依赖 todo 名)。"},
+        },
+        "required": ["plan_id", "gate_scope"],
+    },
+    func=gate_check,
+)
