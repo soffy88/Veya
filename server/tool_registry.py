@@ -921,3 +921,30 @@ master_tools.register(
     },
     func=boundary_scan,
 )
+
+# ================= graph-engineer 式多引擎编排 (自纠正循环) ==============
+from server.graph_engineer import graph_cycle
+
+master_tools.register(
+    name="system_graph_cycle",
+    description=(
+        "多引擎编排自纠正循环 (graph-engineer 式): 在计划 (create_plan) 的未完成 "
+        "todo 上跑「实现→批判→修复→验证」循环, 不同引擎分离角色 — 实现引擎写代码, "
+        "批判引擎只读审查 (不让写的人自评), 缺陷则回修复, 直至无缺陷或达到迭代上限。"
+        "参数: plan_id (create_plan 返回); implement_engine/critique_engine 可指定 "
+        "(claude/codex/grok/pi, 默认 codex 实现 + claude 批判); max_iterations 默认 3。"
+        "适合: 复杂功能需要多轮打磨、质量要求高的任务。注意: 会调用外部引擎 CLI "
+        "(可能产生订阅费用/耗时)。每步状态写入 plan_todo (看板可视化)。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
+            "implement_engine": {"type": "string", "description": "可选。实现引擎 (claude/codex/grok/pi), 默认 codex。"},
+            "critique_engine": {"type": "string", "description": "可选。批判引擎 (默认 claude, 与实现引擎不同更佳)。"},
+            "max_iterations": {"type": "integer", "description": "可选。循环轮次上限, 默认 3, 最大 5。"},
+        },
+        "required": ["plan_id"],
+    },
+    func=graph_cycle,
+)
