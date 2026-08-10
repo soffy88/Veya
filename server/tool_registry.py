@@ -952,8 +952,34 @@ master_tools.register(
             "quality_gate": {"type": "string", "description": "可选。机械检查命令 (lint/type/build, 必须 check-only, 禁 mutating)。"},
             "verify_command": {"type": "string", "description": "可选。功能测试/验收命令 (与机械门分离, 失败分类根因回批判)。"},
             "preflight": {"type": "boolean", "description": "可选。PRE-FLIGHT 安全检查开关, 默认 true (git clean/分支警告)。"},
+            "mode": {"type": "string", "description": "可选。full (从零实现, 默认) / refactor (已有代码重构, 不改变行为)。"},
+            "elevated": {"type": "boolean", "description": "可选。Elevated assurance: None=auto (高风险任务如 auth/支付/删除/并发自动开), True=强制 3 lens+终局 challenger, False=关。"},
         },
         "required": ["plan_id"],
     },
     func=graph_cycle,
+)
+
+
+from server.graph_engineer import graph_review
+
+master_tools.register(
+    name="system_graph_review",
+    description=(
+        "Review-only 模式: 只读审查计划中的实现, 不写代码不修 bug, 输出审查报告 "
+        "(功能/边界问题 + 安全隐患 + 建议) 写入 todo evidence, todo 标 reviewed。"
+        "绝不调用实现引擎、绝不修改任何文件 (read-only 硬保证)。"
+        "参数: plan_id (create_plan 返回); critique_engine 可选 (默认 claude); "
+        "workdir 可选 (工作目录)。适合: 上线前审查、接手陌生代码的快速评估。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
+            "critique_engine": {"type": "string", "description": "可选。审查引擎 (claude/codex/grok/pi), 默认 claude。"},
+            "workdir": {"type": "string", "description": "可选。工作目录 (审查上下文)。"},
+        },
+        "required": ["plan_id"],
+    },
+    func=graph_review,
 )
