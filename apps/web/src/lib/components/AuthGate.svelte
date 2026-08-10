@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { login, register, auth, authHeader } from "$lib/auth.svelte";
 	import { notifyStore } from "$lib/notifications.svelte";
+	import { sessionStore } from "$lib/sessionStore.svelte";
 	import { Bot, Loader2, LogOut, User } from "lucide-svelte";
 
 	let mode = $state<"login" | "register">("login");
@@ -24,9 +25,10 @@
 			username = "";
 			password = "";
 			showAuth = false;
-			// 换用户 → 通知流重连 (按新 token 的用户隔离)
+			// 换用户 → 通知流重连 + 拉取云端会话列表 (多端同步)
 			notifyStore.disconnect();
 			notifyStore.connect();
+			void sessionStore.syncCloud();
 		} catch (e) {
 			error = e instanceof Error ? e.message : "操作失败";
 		} finally {
