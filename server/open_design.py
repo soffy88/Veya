@@ -62,16 +62,19 @@ class OpenDesignConnector:
 
         try:
             # od mcp 代理 daemon 的认证 env 是 OD_TOOL_TOKEN (非 OD_API_TOKEN)
-            env = {**os.environ, "OD_API_TOKEN": _od_token(),
-                   "OD_TOOL_TOKEN": _od_token(),
-                   "OD_DAEMON_URL": _od_daemon_url()}
+            env = {
+                **os.environ,
+                "OD_API_TOKEN": _od_token(),
+                "OD_TOOL_TOKEN": _od_token(),
+                "OD_DAEMON_URL": _od_daemon_url(),
+            }
             # jsonl 协议 (od mcp 非 LSP 帧); 全路径 (容器内 od 被 /usr/bin 抢占)
-            client = StdioMcpClient([OD_BIN, "mcp"], env=env,
-                                    name=self.name, startup_timeout=20.0,
-                                    line_delimited=True)
+            client = StdioMcpClient(
+                [OD_BIN, "mcp"], env=env, name=self.name, startup_timeout=20.0, line_delimited=True
+            )
             await client.start()
         except Exception:
-            return      # daemon/二进制不可达 → 降级
+            return  # daemon/二进制不可达 → 降级
         self._client = client
         McpClientRegistry.register(self.name, client)
 
@@ -108,28 +111,24 @@ class OpenDesignConnector:
             adapter = make_mcp_tool_adapter(spec, self._client)
             params = (spec.get("inputSchema") or {}).get("properties", {})
             required = (spec.get("inputSchema") or {}).get("required", [])
-            out.append({
-                "name": f"mcp_od_{spec['name']}",
-                "description": adapter.description,
-                "parameters": {"type": "object", "properties": params, "required": required},
-                "func": adapter.callable,
-            })
+            out.append(
+                {
+                    "name": f"mcp_od_{spec['name']}",
+                    "description": adapter.description,
+                    "parameters": {"type": "object", "properties": params, "required": required},
+                    "func": adapter.callable,
+                }
+            )
         return out
 
 
 async def wire_master_tools(connector: OpenDesignConnector | None = None) -> int:
     """mcp_od_* 注册进 master_tools (主脑设计/渲染面), 幂等。"""
-    from server.tool_registry import master_tools
+    from server.tool_registry import register_mcp_tools
 
     connector = connector or get_open_design()
-    added = 0
-    for a in await connector.tool_adapters():
-        if master_tools.has(a["name"]):
-            continue
-        master_tools.register(a["name"], a["description"], a["parameters"], a["func"],
-                              max_result_chars=16000)
-        added += 1
-    return added
+    # ②-B: 收成 1 个网关 mcp_od(action, args)
+    return register_mcp_tools("od", await connector.tool_adapters(), max_result_chars=16000)
 
 
 _od: OpenDesignConnector | None = None
