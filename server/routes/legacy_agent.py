@@ -37,6 +37,7 @@ async def list_engines() -> dict:
 class LegacyAgentRunRequest(BaseModel):
     task: str | None = Field(None, description="Task description (legacy contract)")
     text: str | None = Field(None, description="Chat prompt (new Agent OS contract)")
+    images: list[str] = Field(default_factory=list, description="附件图片 (base64 data URI 列表)")
     provider: str | None = None
     model: str | None = None
     student_id: str | None = None
@@ -160,6 +161,7 @@ async def legacy_agent_stream(
             provider=req.provider,
             model=req.model,
             user=user,
+            images=req.images or None,
         ),
         media_type="text/event-stream",
         headers={
@@ -187,3 +189,26 @@ async def legacy_agent_stop(req: LegacyAgentStopRequest) -> dict:
     if not req.session_id:
         return {"cancelled": "none", "error": "session_id required"}
     return await cancel_session(req.session_id)
+
+
+@router.get("/api/v1/agent/sessions")
+async def list_user_sessions(
+    user: dict = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """列出当前用户的会话 (多端同步: 手机建的会话, 电脑端可见可续)。"""
+    from veya.history_store import default_history_store
+
+    sessions = await default_history_store().list_sessions(user["user_id"], limit=50)
+    return {"sessions": sessions, "user_id": user["user_id"]}
+
+
+@router.get("/api/v1/agent/history/{sid}")
+async def get_session_history(
+    sid: str,
+    user: dict = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """返回当前用户的指定会话消息 (跨端恢复历史; 仅本人数据)。"""
+    from veya.history_store import default_history_store
+
+    messages = await default_history_store().load(sid, user["user_id"])
+    return {"session_id": sid, "messages": messages}
