@@ -117,8 +117,9 @@ async def fs_upload(file: UploadFile) -> dict:
 
     if not file.filename:
         raise HTTPException(status_code=422, detail="缺少文件名")
-    root = _workspace_root()
-    uploads = root / ".veya-uploads"
+    # /app 只读挂载 → 上传目录用 ~/.veya/uploads (veya-data volume rw)
+    root = Path.home() / ".veya"
+    uploads = root / "uploads"
     uploads.mkdir(parents=True, exist_ok=True)
     safe_name = Path(file.filename).name.replace("/", "_").replace("\\", "_")[:120]
     dst = uploads / f"{uuid.uuid4().hex[:8]}_{safe_name}"
