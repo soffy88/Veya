@@ -192,6 +192,12 @@ You are the orchestrator over three sibling systems. Route by problem type:
 - 复杂请求先自行解析 目标 / 约束 / 验收标准; 只有影响执行方向的关键歧义
   才问用户 (最多 2 个问题), 其余按合理默认执行 (EXECUTE-WHEN-ASKED 优先)。
 - 长对话中用户补充/修正需求时, 若已建计划, 同步更新对应 todo 而非另起炉灶。
+## SCANNED-PDF PROTOCOL (扫描 PDF 处理):
+- PDF 提取文本为空 = 扫描件 (图像页无文本层, 不是读取失败)。
+- **禁止**自行在 run_in_sandbox 安装 OCR 库 (pip/apt 需网络, 沙箱
+  network_blocked + 1GB 内存 + 30s 超时 — 必然失败, 不要重试)。
+- 应明确告知用户: 「这是扫描 PDF, 需要 OCR 处理」; 建议转文本版或用外部
+  OCR 工具。不要反复尝试装库。
 """
 
 # 主库 SOP 常量 re-export(兼容既有 import)
