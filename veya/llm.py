@@ -645,9 +645,12 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             bare = bare or model
             # 网关对部分输入会返回字面量 'None'/空 (抖动) → 换模型重试,
             # 全失败 → 结构化错误消息 (error 标记跳过质量闸门), 绝不静默。
+            # 另: default_content 是失败时的 stub (如 'opencode-go 调用失败'),
+            # 必须与真实回答区分 — 否则错误消息被当有效内容返回且跳过兜底。
             alt_models = ["opencode-go/mimo-v2.5", "opencode-go/deepseek-v4-flash"]
             candidates = [model] + [m for m in alt_models if m != model]
             last_err = ""
+            default = kwargs.get("default_content") or "opencode-go 调用失败"
             for cand in candidates:
                 _, _, cand_bare = cand.partition("/")
                 cand_bare = cand_bare or cand
@@ -659,8 +662,7 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                         model=cand_bare,
                         endpoint="https://opencode.ai/zen/go/v1",
                         tools=payload.get("tools"),
-                        default_content=(kwargs.get("default_content")
-                                         or "opencode-go 调用失败"),
+                        default_content=default,
                     )
                 except Exception as exc:  # 网络/鉴权失败 → 换模型重试
                     last_err = str(exc)
@@ -673,9 +675,10 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                 ).get("tool_calls") or []
                 # 有 tool_calls 的响应 content 为空是合法的 (opencode 模型把
                 # 输出放 reasoning_content + tool_calls) — 不可误判为无效。
-                if (not content.strip() and not tool_calls) or (
-                    content.strip().lower() in ("none", "null")
-                ):
+                # stub 检测: 返回 default_content 说明网关失败, 继续下一候选。
+                if ((not content.strip() and not tool_calls)
+                        or content.strip().lower() in ("none", "null")
+                        or (content.strip() and content.strip() == default and not tool_calls)):
                     last_err = f"opencode-go {cand_bare} 返回无效内容: {content!r}"
                     continue
                 return resp
