@@ -4,10 +4,13 @@
 Evaluator-Optimizer 嵌套。veya 落地:
 - Orchestrator = 主脑/本工具 (用户给 plan_id + 引擎选择)
 - Worker     = 实现引擎 (claude/codex/grok/pi, 默认 codex) 执行未完成 todo
-- 机械门     = gate_check (plan 依赖门) + 实现摘要
-- Evaluator  = 批判引擎 (默认 claude) 只读审查实现
-- 仲裁       = 本工具启发式 (缺陷关键词 → 修复 or 验证)
-- 修复       = 实现引擎根据批判回改
+- 机械门     = 实现输出非空 + gate_check (plan 依赖门)
+- Evaluator  = 批判引擎 (默认 claude) 只读审查 — 与实现引擎不同模型 (真独立批判)
+- 仲裁       = DEBATE 三分类: valid/debatable(反证 reinject)/false-positive(理由)
+- 修复       = 实现引擎按仲裁结果回改 → 回机械门
+- 验证       = 无有效缺陷后标记 done (含根因分类预留)
+- 防振荡     = CRITIQUE 状态连续性 (携带先前发现+triage) + Anti-loop cutoff
+              (同底层抱怨+无净变更 → 停止升级, 绝不假解决)
 - 状态全程  = plan_todo (create_plan/update_todo/evidence) — 看板可视化
 
 主脑零改动 (冻结架构); 纯新增能力工具, 模型自主调用。
@@ -63,15 +66,67 @@ def _evidence_summary(text: str, limit: int = 300) -> str:
     return head
 
 
+def _cycle_ctx(plan: dict, todo: dict) -> str:
+    """CRITIQUE 状态连续性: 携带先前发现 + triage 决定 (--resume-last 等价物)。
+
+    从 todo 的 graph-cycle evidence 提取历史发现与仲裁, 让批判引擎不要重复
+    已裁决的抱怨 (防振荡), 保留 VERIFY 失败分类供根因分析。
+    """
+    notes = [e.get("note", "") for e in todo.get("evidence", [])
+             if e.get("note", "").startswith("[graph-cycle]")]
+    prior = [n for n in notes if "批判" in n or "修复" in n or "仲裁" in n]
+    if not prior:
+        return ""
+    return "\n".join(
+        "先前回合上下文 (勿重复已裁决项, 如与以下冲突请指出):\n" + "\n".join(prior[-4:])
+    )
+
+
+async def _debate(critique_engine: str, crit_out: str, title: str,
+                  ctx: str, log: list[str], todo: dict) -> tuple[str, str]:
+    """DEBATE 三分类 (graph-engineer node 5):
+
+    - valid          → 返回 ("refactor", 列表), 进修复
+    - debatable      → 带反证 reinject 回批判引擎, 等待其回复后裁决 (防振荡)
+    - false-positive → 一行理由丢弃 (绝不静默)
+
+    返回 (verdict, detail): verdict ∈ {"refactor", "pass", "escalate"}
+    """
+    if not _has_defects(crit_out) or "无缺陷" in crit_out:
+        return "pass", ""
+    # 简化启发式分类: 含明确否定词 → valid; 含"可能/或许/建议" → debatable
+    hedged = ("可能", "或许", "也许", "建议", "可以考虑", "might", "may", "could", "consider")
+    if any(h in crit_out for h in hedged) and not any(
+            m in crit_out for m in ("必须", "会失败", "一定", "will fail", "must", "broken", "崩溃")):
+        # debatable → 反证 reinject (一次)
+        counter = (
+            f"批判者提出了以下可能站不住脚的问题:\n{crit_out[:2000]}\n\n"
+            f"请判断: 你坚持这些问题吗? 如果坚持请给具体证据 (哪行/哪个场景失败); "
+            "如果考虑不充分或可接受, 明确说 '撤回'。只读, 不修改文件。"
+        )
+        try:
+            rebuttal = await _run_engine(critique_engine, counter)
+            if "撤回" in rebuttal or "接受" in rebuttal or "不坚持" in rebuttal:
+                todo["evidence"].append({"at": _now(),
+                                         "note": f"[graph-cycle] 反证后被批判者撤回: {_evidence_summary(rebuttal)}"})
+                return "pass", f"反证后被撤回: {_evidence_summary(rebuttal)}"
+            return "refactor", rebuttal[:300]
+        except Exception as exc:  # noqa: BLE001
+            log.append(f"⚠ 反证 reinject 失败: {exc} → 按 valid 处理")
+            return "refactor", ""
+    return "refactor", ""
+
+
 async def graph_cycle(plan_id: str,
                       implement_engine: str = "codex",
                       critique_engine: str = "claude",
                       max_iterations: int = _ITER_CAP) -> str:
-    """在计划的未完成 todo 上跑 实现→批判→修复→验证 自纠正循环。
+    """在计划的未完成 todo 上跑 实现→批判→仲裁→修复→验证 自纠正循环。
 
     implement_engine/critique_engine: 引擎名 (claude/codex/grok/pi)。
-    每步状态写 plan_todo (看板可见)。不同引擎分离实现/批判角色 —
-    不让写代码的引擎自评。迭代上限默认 3 轮。
+    不同引擎分离实现/批判角色 — 不让写代码的引擎自评。
+    防振荡: CRITIQUE 状态连续性 + DEBATE 三分类 + Anti-loop cutoff。
+    迭代上限默认 3 轮。
     """
     max_iterations = max(1, min(int(max_iterations), 5))
     try:
@@ -84,47 +139,60 @@ async def graph_cycle(plan_id: str,
 
     log: list[str] = [f"🔄 graph-cycle 启动: {plan_id} (实现={implement_engine}, 批判={critique_engine})"]
     done_count = 0
-
-    for iteration in range(1, max_iterations + 1):
+    # 每 todo 一轮“实现→批判→(修复→批判…)”直到无缺陷或达该 todo 迭代上限
+    while True:
         todos = _pending_todos(plan)
         if not todos:
             log.append("✅ 所有任务已完成")
             break
-        targets = [t.get("id") for t in todos[:1]]  # 一次处理一个 todo (可控)
-        todo_id = targets[0]
-        todo = next(t for t in plan["todos"] if t.get("id") == todo_id)
-        objective = str(plan.get("objective", ""))
+        todo = todos[0]
+        todo_id = todo.get("id")
         title = str(todo.get("title", ""))
-        log.append(f"\n── 迭代 {iteration}: [{todo_id}] {title}")
-
-        # 1. 实现 (Worker): 引擎实现该 todo
-        impl_prompt = (
-            f"实现以下任务 (在 {plan_id} 计划中 todo [{todo_id}] {title}):\n"
-            f"计划目标: {objective}\n"
-            "请实际动手完成 (写代码/改文件/运行验证), 完成后给出: 改了哪些文件、"
-            "运行了什么、验证输出。"
-        )
-        try:
-            impl_out = await _run_engine(implement_engine, impl_prompt)
-        except Exception as exc:  # noqa: BLE001
-            log.append(f"⚠ 实现失败: {exc}")
+        objective = str(plan.get("objective", ""))
+        fix_count = sum(1 for e in todo.get("evidence", [])
+                        if e.get("note", "").startswith("[graph-cycle] 修复完成"))
+        log.append(f"\n── todo [{todo_id}] {title} (已修复 {fix_count} 轮)")
+        # 同 todo 超上限 → Anti-loop cutoff: 停止升级, 不假造解决
+        if fix_count >= max_iterations:
+            log.append(f"⚠ Anti-loop cutoff: todo [{todo_id}] 已修复 {fix_count} 轮仍有缺陷, "
+                       "停止并升级用户 (不假造解决)")
+            todo["evidence"].append({"at": _now(),
+                                     "note": "[graph-cycle] anti-loop cutoff: 停止升级用户"})
+            todo["status"] = "blocked"
+            _save_plan(plan)
             break
-        todo["status"] = "in_progress"
-        todo["evidence"].append({"at": _now(), "note": f"[graph-cycle] 实现完成: {_evidence_summary(impl_out)}"})
-        _save_plan(plan)
-        log.append(f"✅ 实现完成 ({implement_engine})")
 
-        # 2. 机械门 (QUALITY GATE): 实现摘要非空 + 依赖门
-        if not impl_out.strip():
-            log.append("⛔ 质量门: 实现无输出 → 回退实现 (重试)")
-            continue
+        # 1. 实现 (Worker, 仅首次) 或直接进入批判修复循环
+        if fix_count == 0:
+            impl_prompt = (
+                f"实现以下任务 (在 {plan_id} 计划中 todo [{todo_id}] {title}):\n"
+                f"计划目标: {objective}\n"
+                "请实际动手完成 (写代码/改文件/运行验证), 完成后给出: 改了哪些文件、"
+                "运行了什么、验证输出。"
+            )
+            try:
+                impl_out = await _run_engine(implement_engine, impl_prompt)
+            except Exception as exc:  # noqa: BLE001
+                log.append(f"⚠ 实现失败: {exc}")
+                break
+            todo["status"] = "in_progress"
+            todo["evidence"].append({"at": _now(),
+                                     "note": f"[graph-cycle] 实现完成: {_evidence_summary(impl_out)}"})
+            _save_plan(plan)
+            log.append(f"✅ 实现完成 ({implement_engine})")
 
-        # 3. 批判 (Evaluator): 另一引擎只读审查
+            # 机械门 (QUALITY GATE): 实现输出非空
+            if not impl_out.strip():
+                log.append("⛔ 质量门: 实现无输出 → 回退实现 (重试)")
+                continue
+
+        # 2. 批判 (Evaluator, 状态连续性)
         crit_prompt = (
-            f"你是独立审查者 ({critique_engine}), 只读审查以下实现, 不修改任何文件:\n"
-            f"任务: {title}\n实现结果:\n{impl_out[:4000]}\n\n"
+            f"你是独立审查者 ({critique_engine}), 只读审查当前实现, 不修改任何文件:\n"
+            f"任务: {title}\n"
+            f"{_cycle_ctx(plan, todo)}\n\n"
             "列出有效缺陷 (功能/边界/正确性问题), 若无缺陷明确说 '无缺陷'。"
-            "只列确定的问题, 不要猜测。"
+            "只列确定的问题, 不要猜测; 不确定的用'可能/建议'标注。"
         )
         try:
             crit_out = await _run_engine(critique_engine, crit_prompt)
@@ -132,12 +200,13 @@ async def graph_cycle(plan_id: str,
             log.append(f"⚠ 批判失败: {exc} → 视为通过 (无有效发现)")
             crit_out = "无缺陷"
 
-        # 4. 仲裁 (DEBATE): 缺陷信号 → 修复 or 验证
-        if _has_defects(crit_out) and "无缺陷" not in crit_out:
-            log.append(f"🔍 批判发现缺陷 → 修复 ({critique_engine})")
+        # 3. 仲裁 (DEBATE 三分类)
+        verdict, detail = await _debate(critique_engine, crit_out, title, "", log, todo)
+        if verdict == "refactor":
+            log.append(f"🔍 批判发现有效缺陷 → 修复 ({implement_engine})")
             fix_prompt = (
-                f"根据以下批判意见修复刚才的实现 (todo [{todo_id}] {title}):\n"
-                f"批判:\n{crit_out[:3000]}\n\n"
+                f"根据以下批判意见修复当前实现 (todo [{todo_id}] {title}):\n"
+                f"批判:\n{crit_out[:3000]}\n{('仲裁补充: ' + detail) if detail else ''}\n\n"
                 "修复并重新验证, 完成后给出验证输出。"
             )
             try:
@@ -146,13 +215,14 @@ async def graph_cycle(plan_id: str,
                     "at": _now(),
                     "note": f"[graph-cycle] 修复完成: {_evidence_summary(fix_out)}"})
                 _save_plan(plan)
-                log.append(f"🔧 修复完成 ({implement_engine})")
+                log.append(f"🔧 修复完成 ({implement_engine}) → 回批判")
             except Exception as exc:  # noqa: BLE001
                 log.append(f"⚠ 修复失败: {exc}")
-        else:
-            log.append("✅ 批判无有效缺陷 → 验证通过")
+                break
+            continue  # 不 done, 回批判循环 (Evaluator-Optimizer)
 
-        # 5. 标记 done + 证据
+        # 4. 无有效缺陷 → 验证通过 → done
+        log.append(f"✅ 批判无有效缺陷/已撤回 → 验证通过{(' (' + detail + ')') if detail else ''}")
         todo["status"] = "done"
         todo["evidence"].append({"at": _now(), "note": "[graph-cycle] 验证通过 (批判仲裁)"})
         _save_plan(plan)
