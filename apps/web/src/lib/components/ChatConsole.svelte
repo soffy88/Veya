@@ -17,6 +17,7 @@
 		CircleAlert,
 		Code2,
 		Copy,
+		ListTodo,
 		Loader2,
 		RotateCcw,
 		Send,
@@ -96,6 +97,15 @@ import ModelPicker from "./ModelPicker.svelte";
 					return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode 完成" };
 				return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode" };
 			}
+			case "plan_update": {
+				const action = String(ev.action ?? "");
+				const obj = String(ev.objective ?? "").slice(0, 26);
+				return {
+					Icon: ListTodo,
+					cls: "text-sky-400 bg-sky-400/10 border-sky-400/30",
+					label: action === "create" ? `📋 计划: ${obj || "创建"}` : `计划更新: ${obj || action}`,
+				};
+			}
 			default:
 				// master_start / master_round (任务开始/思考…) 一律不展示
 				return null;
@@ -104,6 +114,13 @@ import ModelPicker from "./ModelPicker.svelte";
 
 	function stepDetail(ev: ToolStep): string {
 		if (ev.type === "hicode_progress" && typeof ev.detail === "string") return ev.detail.slice(0, 200);
+		if (ev.type === "plan_update" && Array.isArray(ev.todos)) {
+			const mark: Record<string, string> = { done: "✅", in_progress: "▶️", blocked: "⛔", open: "⬜" };
+			const lines = (ev.todos as { id?: string; title?: string; status?: string }[]).map(
+				(t) => `${mark[t.status ?? "open"] ?? "⬜"} ${t.id ?? "?"}: ${String(t.title ?? "").slice(0, 60)}`
+			);
+			return lines.join("\n").slice(0, 400);
+		}
 		if (ev.type === "tool_call" && ev.tool_args != null) {
 			try {
 				return JSON.stringify(ev.tool_args).slice(0, 200);
@@ -180,6 +197,10 @@ import ModelPicker from "./ModelPicker.svelte";
 				} else if (kind === "tool_call" || kind === "tool_error") {
 					// 只记录真实执行轨迹 (工具调用/失败); master_start/master_round
 					// (任务开始/思考…) 是过程噪音, 不展示
+					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
+					if (last) last.steps = [...last.steps, ev as ToolStep];
+				} else if (kind === "plan_update") {
+					// 计划看板事件 (create_plan/update_todo 真实轨迹): 渲染为计划块
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 					if (last) last.steps = [...last.steps, ev as ToolStep];
 				} else if (kind === "hicode_progress") {
