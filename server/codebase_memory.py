@@ -291,11 +291,10 @@ class CodebaseMemoryConnector:
             required = (spec.get("inputSchema") or {}).get("required", [])
             out.append(
                 {
-                    "name": f"mcp_codebase_{spec['name']}",   # 统一命名空间
+                    "name": f"mcp_codebase_{spec['name']}",  # 统一命名空间
                     "description": adapter.description,
-                    "parameters": {"type": "object", "properties": params,
-                                    "required": required},
-                    "func": adapter.callable,                  # ToolAdapter.callable
+                    "parameters": {"type": "object", "properties": params, "required": required},
+                    "func": adapter.callable,  # ToolAdapter.callable
                 }
             )
         return out
@@ -345,20 +344,11 @@ async def wire_master_tools(connector: CodebaseMemoryConnector | None = None) ->
     幂等: 已注册的工具跳过 (重复 register 会 ValueError)。
     返回本次新注册数量。
     """
-    from server.tool_registry import master_tools
+    from server.tool_registry import register_mcp_tools
 
     connector = connector or get_connector()
-    adapters = await connector.tool_adapters()
-    added = 0
-    for a in adapters:
-        if master_tools.has(a["name"]):
-            continue
-        master_tools.register(
-            a["name"], a["description"], a["parameters"], a["func"],
-            max_result_chars=16000,   # 代码图谱结果可能较大, 放宽截断
-        )
-        added += 1
-    return added
+    # ②-B: 收成 1 个网关 mcp_codebase(action, args)
+    return register_mcp_tools("codebase", await connector.tool_adapters(), max_result_chars=16000)
 
 
 def schedule_daily_reindex(scheduler: Any, *, hour: int = 3, minute: int = 17) -> str:
@@ -396,5 +386,10 @@ def schedule_daily_reindex(scheduler: Any, *, hour: int = 3, minute: int = 17) -
     return job_id
 
 
-__all__ = ["CodebaseMemoryConnector", "CodebaseMemoryError", "get_connector",
-           "schedule_daily_reindex", "wire_master_tools"]
+__all__ = [
+    "CodebaseMemoryConnector",
+    "CodebaseMemoryError",
+    "get_connector",
+    "schedule_daily_reindex",
+    "wire_master_tools",
+]
