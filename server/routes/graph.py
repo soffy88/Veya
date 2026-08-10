@@ -53,9 +53,8 @@ async def graph_files(limit: int = 200) -> dict:
         raise HTTPException(status_code=503, detail=f"索引失败: {exc}")
     cypher = (
         "MATCH (a:File)-[r]->(b:File) "
-        "WHERE a.name <> b.name "
         "RETURN a.name AS src, b.name AS dst "
-        "LIMIT $limit"
+        "LIMIT 500"
     )
     try:
         rows = await conn.query_cypher(cypher, max_rows=limit)
@@ -64,8 +63,10 @@ async def graph_files(limit: int = 200) -> dict:
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
     for r in rows:
-        src, dst = str(r.get("src") or ""), str(r.get("dst") or "")
-        if not src or not dst:
+        # query_graph 返回 rows 每行为 list [src, dst] (兼容 dict)
+        src = str(r[0] if isinstance(r, list) else (r.get("src") or "")).strip()
+        dst = str(r[1] if isinstance(r, list) else (r.get("dst") or "")).strip()
+        if not src or not dst or src == dst:
             continue
         nodes.setdefault(src, {"id": src, "type": "file", "deps": 0, "dependents": 0})
         nodes.setdefault(dst, {"id": dst, "type": "file", "deps": 0, "dependents": 0})
