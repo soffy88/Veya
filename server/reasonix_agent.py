@@ -312,6 +312,41 @@ def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
 
 # ── 工具实现 ──────────────────────────────────────────────────────────
 
+def _ensure_on_event(
+    on_event: Callable[[dict], None] | None,
+) -> Callable[[dict], None] | None:
+    """on_event 为空时, 自动桥接当前 SSE 请求上下文 (fire_step → reasonix_progress)。
+
+    模型调用 reasonix_run 时无法传入 on_event (工具 schema 无此参数);
+    此处从 contextvar 取当前请求的 on_step (SSE 队列), 把 reasonix 进度事件
+    包装成前端可渲染的 {"type": "reasonix_progress", stage/tool/detail} 实时发出。
+    无请求上下文 (后台/CLI 直调) 时保持 None (行为不变)。
+    """
+    if on_event is not None:
+        return on_event
+    try:
+        from server.events import _on_step_ctx
+
+        cb = _on_step_ctx.get()
+    except Exception:  # noqa: BLE001
+        return None
+    if cb is None:
+        return None
+
+    def _bridge(ev: dict) -> None:
+        try:
+            cb({
+                "type": "reasonix_progress",
+                "stage": ev.get("stage"),
+                "tool": ev.get("tool"),
+                "detail": ev.get("detail"),
+            })
+        except Exception:  # noqa: BLE001 — SSE 推送失败绝不拖垮任务
+            pass
+
+    return _bridge
+
+
 async def _execute_reasonix_core(
     task: str, workspace: str | None = None,
     max_steps: int = 0, timeout_sec: int = 0,
@@ -499,6 +534,7 @@ async def reasonix_run(task: str, workspace: str | None = None,
     续做 (continue_=True) / 恢复 (session_id) → 直接 CLI 执行。
     on_event 用于实时进度回调。
     """
+    on_event = _ensure_on_event(on_event)
     # 续做/恢复: 会话状态在 workspace, 走 CLI 同步执行 (低频管理操作)
     if continue_ or session_id:
         return await _execute_reasonix_core(
