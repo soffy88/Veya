@@ -494,7 +494,7 @@ class TestFullToolSurface:
     """入口只有一个大模型 (2026-08 最终架构): 工具面**全量透传**, 零程序判断。
 
     用户要求: 所有请求直接走大模型, 由模型自主决定是否需要调用工具
-    (含长任务 reasonix)。程序不预判、不裁藏、不预抓。所有工具对模型
+    (含长任务 hicode)。程序不预判、不裁藏、不预抓。所有工具对模型
     恒可见 — 模型自己判断设计任务该直答、回测任务该调行情工具。
     """
 
@@ -674,6 +674,6 @@ class TestFullToolSurface:
         coord = MasterCoordinator(llm_fn=direct_llm, max_rounds=2)
         r = asyncio.run(coord.chat_stream(
             "写一个 python 脚本读取 csv", session_id="s-native"))
-        # 程序不代做: 模型直答就是直答, 没有 reasonix 被程序触发
+        # 程序不代做: 模型直答就是直答, 没有 hicode 被程序触发
         assert "模型自己给出的回答" in r["final_answer"]
         assert not r.get("reasonix_execution")

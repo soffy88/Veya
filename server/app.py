@@ -122,14 +122,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         import logging
         logging.getLogger("veya.lifespan").exception("hp wire failed")
-    # Reasonix 编码执行器 (本地二进制, 缺失时优雅降级; 编程任务 → reasonix_run)
-    from server.reasonix_agent import wire_master_tools as wire_reasonix
+    # Hicode 编码执行器 (本地二进制, 缺失时优雅降级; 编程任务 → hicode_run)
+    from server.hicode_agent import wire_master_tools as wire_hicode
 
     try:
-        await wire_reasonix()                       # reasonix_run/status → 主脑工具面
+        await wire_hicode()                       # hicode_run/status → 主脑工具面
     except Exception:
         import logging
-        logging.getLogger("veya.lifespan").exception("reasonix wire failed")
+        logging.getLogger("veya.lifespan").exception("hicode wire failed")
     try:
         from server.tool_registry import master_tools
 

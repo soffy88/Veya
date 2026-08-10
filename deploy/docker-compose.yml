@@ -13,8 +13,8 @@ services:
     ports:
       - "8767:8765"      # gateway 通道 (VEYA_GATEWAY)
       - "9120:8765"      # legacy 通道 (VEYA_LEGACY, 前端主脑/工具代理)
-      - "8768:8768"      # reasonix serve (独立 oservi: submit/events/cancel/approve/plan/goal)
-    command: ["sh", "/app/reasonix-entrypoint.sh"]
+      - "8768:8768"      # hicode serve (独立 oservi: submit/events/cancel/approve/plan/goal)
+    command: ["sh", "/app/hicode-entrypoint.sh"]
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.1}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -28,9 +28,9 @@ services:
       - OD_API_TOKEN=${OD_API_TOKEN:-}
       - OD_DAEMON_URL=${OD_DAEMON_URL:-http://192.168.16.1:17456}
       - VEYA_FRONTIER_ENDPOINT=${VEYA_FRONTIER_ENDPOINT:-http://192.168.16.1:10101/v1}
-      # Reasonix 编码执行器: 状态/工作区进 veya-data volume, 配置目录只读
+      # hicode 编码执行器: 状态/工作区进 veya-data volume, 配置目录只读
       - REASONIX_STATE_HOME=/home/soffy/.veya/reasonix-state
-      - REASONIX_PROXY=1   # 容器内反代: 改 Host 头绕过 opencodex 来源校验
+      - HICODE_PROXY=1   # 容器内反代: 改 Host 头绕过 opencodex 来源校验
       # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) 临时装容器可写层; 镜像重建后由
       # requirements.txt 提供, 此路径仅容器层存在, 镜像层无则静默跳过
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
@@ -61,10 +61,10 @@ services:
       - /home/soffy/.opencode:/home/soffy/.opencode:ro
       # skill_hub 技能库 (宿主实时同步, 只读)
       - /home/soffy/.veya/skills:/home/soffy/.veya/skills:ro
-      # Reasonix 编码执行器配置 (容器内 base_url=宿主网关 192.168.16.1:10101)
+      # hicode 编码执行器配置 (容器内 base_url=宿主网关 192.168.16.1:10101)
       # 单文件 ro 挂载 → ~/.reasonix/.env (容器层可写, 启动脚本写入 key)
-      - ../deploy/reasonix-container/config.toml:/home/soffy/.reasonix/config.toml:ro
-      - ../deploy/reasonix-entrypoint.sh:/app/reasonix-entrypoint.sh:ro
+      - ../deploy/hicode-container/config.toml:/home/soffy/.reasonix/config.toml:ro
+      - ../deploy/hicode-entrypoint.sh:/app/hicode-entrypoint.sh:ro
     # Chromium 无头浏览器 /dev/shm 需求 (抓取通道)
     shm_size: "1gb"
     restart: unless-stopped

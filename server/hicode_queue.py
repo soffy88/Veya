@@ -1,6 +1,6 @@
-"""reasonix_task_queue — Reasonix 后台任务队列 (并发提交 / 串行执行 / 可停止 / 断线不丢)。
+"""hicode_task_queue — Hicode 后台任务队列 (并发提交 / 串行执行 / 可停止 / 断线不丢)。
 
-serve (reasonix oservi) 是单活跃会话 (单 controller): 同一时刻只能跑一个 turn。
+serve (hicode oservi) 是单活跃会话 (单 controller): 同一时刻只能跑一个 turn。
 本队列在 veya 层提供:
   - 并发提交: 多个编程任务入队互不阻塞, 立即返回 task id;
   - 串行执行: 单个 worker 依次消费 (serve 单会话限制, 安全无文件冲突);
@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-logger = logging.getLogger("reasonix.queue")
+logger = logging.getLogger("hicode.queue")
 
 
 @dataclass
@@ -50,8 +50,8 @@ class TaskRecord:
         }
 
 
-class ReasonixTaskQueue:
-    """全局任务队列 (单例 reasonix_task_queue)。"""
+class HicodeTaskQueue:
+    """全局任务队列 (单例 hicode_task_queue)。"""
 
     def __init__(self) -> None:
         self._tasks: dict[str, TaskRecord] = {}
@@ -69,7 +69,7 @@ class ReasonixTaskQueue:
         self._tasks[tid] = rec
         await self._ready.put(tid)
         self._ensure_worker()
-        logger.info("reasonix 队列: 提交 %s (queued, 队列深度=%d)",
+        logger.info("hicode 队列: 提交 %s (queued, 队列深度=%d)",
                     tid, self._ready.qsize() + 1)
         return tid
 
@@ -117,37 +117,37 @@ class ReasonixTaskQueue:
             rec.error = reason
             rec.updated_at = time.time()
             rec._done.set()
-            logger.info("reasonix 队列: 取消排队任务 %s", tid)
+            logger.info("hicode 队列: 取消排队任务 %s", tid)
             return True
         if rec.status == "running":
             rec.cancel_requested = True
             rec.updated_at = time.time()
             # 1) 软中断: serve POST /cancel (秒级, 但模型调用可能不响应)
-            from server.reasonix_serve import get_serve_client
+            from server.hicode_serve import get_serve_client
 
             client = get_serve_client()
             try:
                 await client.cancel()
-                logger.info("reasonix 队列: 已请求 serve cancel → %s", tid)
+                logger.info("hicode 队列: 已请求 serve cancel → %s", tid)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("reasonix 队列: serve cancel 失败 %s: %s", tid, exc)
+                logger.warning("hicode 队列: serve cancel 失败 %s: %s", tid, exc)
             # 2) 软停观察窗口: 12s 内 turn 未中断 → 硬重启 serve (真正停止)
             try:
                 await asyncio.wait_for(rec._done.wait(), timeout=12)
             except asyncio.TimeoutError:
                 logger.warning(
-                    "reasonix 队列: cancel 未中断 %s → 硬重启 serve", tid)
+                    "hicode 队列: cancel 未中断 %s → 硬重启 serve", tid)
                 try:
                     if not await client.restart_serve():
-                        logger.warning("reasonix 队列: serve 重启未恢复健康")
+                        logger.warning("hicode 队列: serve 重启未恢复健康")
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("reasonix 队列: serve 硬重启失败 %s: %s",
+                    logger.warning("hicode 队列: serve 硬重启失败 %s: %s",
                                    tid, exc)
                 # 等 worker 收尾 (events 断开 → run_task 返回)
                 try:
                     await asyncio.wait_for(rec._done.wait(), timeout=30)
                 except asyncio.TimeoutError:
-                    logger.warning("reasonix 队列: 任务 %s 硬停后仍未收尾", tid)
+                    logger.warning("hicode 队列: 任务 %s 硬停后仍未收尾", tid)
             return True
         return False
 
@@ -159,7 +159,7 @@ class ReasonixTaskQueue:
             def _on_done(t: asyncio.Task) -> None:
                 if t.exception() and not isinstance(
                         t.exception(), asyncio.CancelledError):
-                    logger.warning("reasonix worker 退出: %s", t.exception())
+                    logger.warning("hicode worker 退出: %s", t.exception())
 
             self._worker.add_done_callback(_on_done)
 
@@ -177,7 +177,7 @@ class ReasonixTaskQueue:
             try:
                 await self._run_one(rec)
             except Exception as exc:  # noqa: BLE001
-                logger.exception("reasonix 任务 %s 异常", tid)
+                logger.exception("hicode 任务 %s 异常", tid)
                 rec.status = "failed"
                 rec.error = str(exc)[:400]
             finally:
@@ -186,7 +186,7 @@ class ReasonixTaskQueue:
 
     async def _run_one(self, rec: TaskRecord) -> None:
         # 必须调内核 (不经过队列的工具入口), 否则递归入队死循环
-        from server.reasonix_agent import _execute_reasonix_core
+        from server.hicode_agent import _execute_hicode_core
 
         def _push(ev: dict) -> None:
             rec.events.append(ev)
@@ -200,7 +200,7 @@ class ReasonixTaskQueue:
                     pass
 
         try:
-            summary = await _execute_reasonix_core(
+            summary = await _execute_hicode_core(
                 rec.spec,
                 workspace=rec.workspace,
                 timeout_sec=int(rec.meta.get("timeout_sec") or 900),
@@ -213,7 +213,7 @@ class ReasonixTaskQueue:
             rec.status = "cancelled"
             rec.error = "user stop"
             rec.summary = summary[:400] if summary else ""
-        elif summary.startswith("错误") or summary.startswith("reasonix 不可用"):
+        elif summary.startswith("错误") or summary.startswith("hicode 不可用"):
             rec.status = "failed"
             rec.error = summary[:400]
             rec.summary = summary
@@ -223,4 +223,4 @@ class ReasonixTaskQueue:
 
 
 # 模块级单例 (server 复用)
-reasonix_task_queue = ReasonixTaskQueue()
+hicode_task_queue = HicodeTaskQueue()

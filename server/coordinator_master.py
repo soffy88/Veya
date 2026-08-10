@@ -80,23 +80,23 @@ You have TWO dedicated production systems integrated for video/animation work:
    hevi/od tool actually produced it.
 
 # KNOWLEDGE & CAPABILITY ROUTING (stratum + hevi + codebase) — CRITICAL:
-# CODE EXECUTION (reasonix) — CRITICAL:
-`reasonix_run` is the REAL CODE EXECUTOR (Reasonix — a dedicated coding agent
+# CODE EXECUTION (hicode) — CRITICAL:
+`hicode_run` is the REAL CODE EXECUTOR (Hicode — a dedicated coding agent
 with its own planner/executor/sandbox/checkpoints, working in an isolated
 workspace). ROUTE any task that needs actual code changes here:
 [写代码/实现功能/修改代码/修 bug/跑测试/重构/搭项目/读代码库并动手改].
-- If the task will touch or create code files, call `reasonix_run` directly with
+- If the task will touch or create code files, call `hicode_run` directly with
   a clear task + acceptance criteria. Do NOT hand-write code in chat.
 - `mcp_codebase_*` tools are for UNDERSTANDING code (index/search/call-graph/
-  blast-radius). Use them to scope a task, but hand the actual editing to reasonix.
-- `reasonix_run` is a long task (may take minutes). It returns the execution
-  summary + cost. `reasonix_status` checks availability first if unsure.
-- Cross-turn: user says 「继续上次/接着做」→ `reasonix_run(continue_=true)` resumes
-  the previous session. `reasonix_sessions` lists history (machine ids);
-  `reasonix_run(session_id=<id>)` resumes a specific one.
-- Rollback: user asks 「回滚/撤销最近一次」→ `reasonix_rollback()` restores the
+  blast-radius). Use them to scope a task, but hand the actual editing to hicode.
+- `hicode_run` is a long task (may take minutes). It returns the execution
+  summary + cost. `hicode_status` checks availability first if unsure.
+- Cross-turn: user says 「继续上次/接着做」→ `hicode_run(continue_=true)` resumes
+  the previous session. `hicode_sessions` lists history (machine ids);
+  `hicode_run(session_id=<id>)` resumes a specific one.
+- Rollback: user asks 「回滚/撤销最近一次」→ `hicode_rollback()` restores the
   workspace to the pre-task git snapshot (auto-created before each run).
-- If reasonix is unavailable, state the limitation instead of faking edits.
+- If hicode is unavailable, state the limitation instead of faking edits.
 
 # NATIVE INTELLIGENCE FIRST (长文本 / URL / 直接回答) — CRITICAL:
 You have native long-text understanding and native tool-routing judgment. Rely on
@@ -158,13 +158,13 @@ You are the orchestrator over three sibling systems. Route by problem type:
    - `mcp_stratum_search_memories` / `build_context` — memory & context
 2. **hevi** (mcp_hevi_* tools) — the VIDEO/ANIMATION EXPERT (see VIDEO PRODUCTION).
 3. **codebase / built-in tools** — code, files, browser, office documents.
-4. **reasonix** (reasonix_run) — the CODE EXECUTOR (writes/edits/runs code).
+4. **hicode** (hicode_run) — the CODE EXECUTOR (writes/edits/runs code).
 
 # ROUTING RULES (什么问题找谁):
 - 视频/动画/分镜/漫画/转场 → hevi (mcp_hevi_*) + Open Design 项目载体
 - 查资料/知识检索/翻译/摘要/笔记/PDF/网页/RSS → stratum (mcp_stratum_*)
 - 代码/文件/浏览器/办公文档 → codebase tools / 本地技能 (理解代码: mcp_codebase_*)
-- 需要实际写/改代码 → reasonix_run (编码执行器, 在隔离工作区动手)
+- 需要实际写/改代码 → hicode_run (编码执行器, 在隔离工作区动手)
 - 跨领域任务 → 先用 stratum 检索背景知识, 再决定是否进入 hevi 生产管线
 - Do not invent tools that do not exist; if stratum/hevi are unavailable,
   state the limitation instead of fabricating results.
@@ -174,8 +174,8 @@ You are the orchestrator over three sibling systems. Route by problem type:
 MASTER_SYSTEM_PROMPT = _oservi.MASTER_SYSTEM_PROMPT
 
 
-def _build_reasonix_spec(user_prompt: str) -> str:
-    """规范指令生成: 主脑理解用户话术 → 结构化任务书 (Reasonix 纯执行)。
+def _build_hicode_spec(user_prompt: str) -> str:
+    """规范指令生成: 主脑理解用户话术 → 结构化任务书 (Hicode 纯执行)。
 
     模板含目标 + 执行规范 (最小改动/可运行/运行验证/报告), 让执行器有
     明确验收契约而不必猜测用户意图。
@@ -191,15 +191,15 @@ def _build_reasonix_spec(user_prompt: str) -> str:
     )
 
 
-def _format_reasonix_result(res: dict) -> str:
+def _format_hicode_result(res: dict) -> str:
     """serve 执行结果 → 主脑可读摘要。"""
     if res.get("status") == "error":
-        return f"⚠ reasonix 执行失败: {res.get('error')}"
+        return f"⚠ hicode 执行失败: {res.get('error')}"
     result = (res.get("result") or "").strip()
     turns = res.get("turns") or 0
     tools = res.get("tool_calls") or []
     usage = res.get("usage") or {}
-    head = f"✅ reasonix 执行完成 (轮次={turns}, 工具调用={len(tools)})"
+    head = f"✅ hicode 执行完成 (轮次={turns}, 工具调用={len(tools)})"
     if usage.get("promptTokens") or usage.get("completionTokens"):
         head += f", in={usage.get('promptTokens', 0)} out={usage.get('completionTokens', 0)}"
     return f"{head}\n{result[:8000]}"
@@ -334,7 +334,7 @@ class MasterCoordinator:
         优先于实例配置, 未提供则回落实例/环境默认。
 
         入口只有一个大模型: 工具面**全量透传**, 不做任何程序判断/裁藏 —
-        大模型看到全部工具, 自主决定直答或调用哪个 (reasonix_run /
+        大模型看到全部工具, 自主决定直答或调用哪个 (hicode_run /
         fetch_url / browser_run / mcp_* 都是模型自己的选择)。
 
         绝不静默 (LLM 边界最后一环): 模型返回空/'None' → 带温和原生
@@ -491,7 +491,7 @@ class MasterCoordinator:
             # ── 入口只有一个大模型: 零程序判断 ──
             # 所有请求 (长文本/URL/编程/视频/知识/设计…) 原样交给大模型,
             # 工具面全量透传 — 模型自主决定: 直接回答, 或调用哪个工具
-            # (reasonix_run / fetch_url / browser_run / mcp_* 都是模型
+            # (hicode_run / fetch_url / browser_run / mcp_* 都是模型
             # 自己的选择)。程序不预判、不裁藏、不预抓、不代做长任务。
             # 唯一保留的是轮次上限 (防物理死循环, 不限制智能)。
             lt = None
@@ -652,13 +652,13 @@ def _default_swarm_engine() -> SwarmOrchestrator:
 
 
 # ── Stop 支持 (基础设施, 不影响模型自主路由) ─────────────────────────
-# 活跃流会话注册 (供 Stop 端点 cancel chat_task) + 会话→reasonix 任务映射
+# 活跃流会话注册 (供 Stop 端点 cancel chat_task) + 会话→hicode 任务映射
 _active_streams: dict[str, asyncio.Task] = {}
 _session_task: dict[str, str] = {}
 
 
 async def cancel_session(session_id: str) -> dict:
-    """停止一个流式会话: 真正中断 reasonix 任务 (serve /cancel) + 取消主脑。
+    """停止一个流式会话: 真正中断 hicode 任务 (serve /cancel) + 取消主脑。
 
     前端 Stop 按钮 → POST /api/v1/agent/stop {session_id} → 本函数。
     返回被停止的项目列表。
@@ -667,12 +667,12 @@ async def cancel_session(session_id: str) -> dict:
     tid = _session_task.get(session_id)
     if tid:
         try:
-            from server.reasonix_queue import reasonix_task_queue
+            from server.hicode_queue import hicode_task_queue
 
-            if await reasonix_task_queue.stop(tid):
-                stopped.append(f"reasonix_task:{tid}")
+            if await hicode_task_queue.stop(tid):
+                stopped.append(f"hicode_task:{tid}")
         except Exception as exc:  # noqa: BLE001
-            logger.warning("cancel_session: 停 reasonix 任务失败: %s", exc)
+            logger.warning("cancel_session: 停 hicode 任务失败: %s", exc)
     task = _active_streams.get(session_id)
     if task is not None and not task.done():
         task.cancel()

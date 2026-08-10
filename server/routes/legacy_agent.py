@@ -171,7 +171,7 @@ class LegacyAgentStopRequest(BaseModel):
 async def legacy_agent_stop(req: LegacyAgentStopRequest) -> dict:
     """真正停止一个进行中的流式会话 (前端 Stop 按钮)。
 
-    - 正在运行的 Reasonix 任务 → serve POST /cancel 真正中断 turn (不只断 SSE);
+    - 正在运行的 Hicode 任务 → serve POST /cancel 真正中断 turn (不只断 SSE);
     - 排队中的任务 → 直接取消;
     - 主脑 chat_task → cancel (SSE 结束)。
     """

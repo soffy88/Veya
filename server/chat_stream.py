@@ -76,7 +76,7 @@ async def new_agent_stream_events(
                     {
                         "type": "text_delta",
                         "squad_id": "master",
-                        "delta": "⏹ 已停止。后台 Reasonix 任务也已真正中断。",
+                        "delta": "⏹ 已停止。后台 Hicode 任务也已真正中断。",
                     }
                 )
                 queue.on_step({"type": "master_done", "session_id": sid, "status": "cancelled"})
