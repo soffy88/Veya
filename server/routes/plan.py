@@ -21,14 +21,12 @@ def _plans_dir() -> str:
     return str(_pd())
 
 
-def _quota_summary(plan: dict) -> dict:
+async def _quota_summary(plan: dict) -> dict:
     """quota 摘要 (前端状态行): 该不该动 + 原因。"""
-    import asyncio
-
     from server.state_kernel import quota_should_run
 
     try:
-        raw = asyncio.run(quota_should_run(plan.get("plan_id", "")))
+        raw = await quota_should_run(plan.get("plan_id", ""))
         return json.loads(raw)
     except Exception:
         return {"should_run": None, "action": "unknown", "reason": ""}
@@ -68,7 +66,7 @@ async def plan_list() -> dict:
                 for t in todos
             ],
             "spends": len(plan.get("spends", [])),
-            "quota": _quota_summary(plan),
+            "quota": await _quota_summary(plan),
         })
     return {"plans": plans, "total": len(plans)}
 
@@ -86,5 +84,5 @@ async def plan_detail(plan_id: str) -> dict:
             plan = json.load(fp)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"计划读取失败: {exc}")
-    plan["quota"] = _quota_summary(plan)
+    plan["quota"] = await _quota_summary(plan)
     return plan
