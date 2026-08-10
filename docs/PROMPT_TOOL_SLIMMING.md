@@ -54,6 +54,18 @@
   模型困惑)。做法: dispatcher 模式下 `list_skills()` 对 oservi 渲染返回空、发现走
   `list_skills` 工具。**此项改变 oservi 消费面, 须真实 skills 验证模型仍会先 list 再 run。**
 
+### ②-B mcp 67 → 4 (按服务网关) ✅ 已完成·运行服务实测
+
+**实测(veya-backend 运行服务, 热 mcp 连接):**
+- master_tools **85 → 22**; mcp 67 → **4 网关**(mcp_hevi/mcp_stratum/mcp_od/mcp_codebase), 细工具残留 0。
+- 每网关 catalog 完整(如 mcp_stratum: 1935 字节 / 18 actions 全列), 模型经 `mcp_<server>(action, args)` 调任意能力。
+- 全 agent 面 ~168 → **~35**(11 核心 + 4 mcp 网关 + 7 reasonix + 2 skill dispatcher + 11 system)。
+- 实现: `server/tool_registry.py::register_mcp_tools`(共享 helper) + 4 个 `wire_master_tools` 各改 1 行调用; `VEYA_MCP_GATEWAY=0` 回退逐工具。**未改 3O 子库**。
+- ⚠️ 待生产观察: 模型是否稳定用 `mcp_<server>(action)`(机制+catalog 已验; 异常即 env=0 回退)。
+
+---
+原始设计(供参考):
+
 ### ②-B mcp 67 → ~4 (按服务网关)
 
 - 每个 mcp 服务一个网关工具代替 N 个细工具: `mcp_stratum(action, args)` /

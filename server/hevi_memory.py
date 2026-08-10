@@ -19,7 +19,8 @@ from veya.platform import obase as _load_obase
 _obase = _load_obase()
 
 HEVI_MCP_ENDPOINT = os.environ.get(
-    "HEVI_MCP_ENDPOINT", "http://hevi-cftunnel-hevi-api-1:8000/mcp/mcp")
+    "HEVI_MCP_ENDPOINT", "http://hevi-cftunnel-hevi-api-1:8000/mcp/mcp"
+)
 
 
 def _hevi_secret() -> str:
@@ -41,7 +42,7 @@ def _sign_hevi_jwt() -> str | None:
 
         from veya.platform import obase as _load_obase
 
-        _load_obase()                        # 触发 sys.path 注入 (宿主测试环境)
+        _load_obase()  # 触发 sys.path 注入 (宿主测试环境)
         auth = importlib.import_module("obase.auth")
         return auth.jwt_create(
             payload={"sub": user_id},
@@ -70,7 +71,7 @@ class HeviConnector:
             return
         token = _sign_hevi_jwt()
         if not token:
-            return      # 密钥缺失 → 降级
+            return  # 密钥缺失 → 降级
         McpClientRegistry = _obase.McpClientRegistry
         StreamableHttpMcpClient = _obase.StreamableHttpMcpClient
 
@@ -78,7 +79,9 @@ class HeviConnector:
             # hevi 的 mcp 2.0 校验 Host/Origin (DNS rebinding 防护) —
             # 容器内访问需伪造 loopback 头; JWT 认证走 Bearer。
             client = StreamableHttpMcpClient(
-                self.endpoint, name=self.name, timeout=60.0,
+                self.endpoint,
+                name=self.name,
+                timeout=60.0,
                 headers={
                     "Host": "127.0.0.1:8000",
                     "Origin": "http://127.0.0.1:8000",
@@ -87,7 +90,7 @@ class HeviConnector:
             )
             await client.start()
         except Exception:
-            return      # hevi 不可达 → 降级
+            return  # hevi 不可达 → 降级
         self._client = client
         McpClientRegistry.register(self.name, client)
 
@@ -103,25 +106,35 @@ class HeviConnector:
 
     # ── 视频生产查询 (供 coordinator/路由直接调用) ─────────────────────
 
-    async def generate_longvideo(self, topic: str, *, duration: str = "short",
-                                 video_provider: str | None = None,
-                                 audio_provider: str | None = None,
-                                 style: str = "cinematic", language: str = "zh",
-                                 **extra: Any) -> dict[str, Any]:
+    async def generate_longvideo(
+        self,
+        topic: str,
+        *,
+        duration: str = "short",
+        video_provider: str | None = None,
+        audio_provider: str | None = None,
+        style: str = "cinematic",
+        language: str = "zh",
+        **extra: Any,
+    ) -> dict[str, Any]:
         """创建长视频生产任务 (hevi 视频管线核心)。"""
         args: dict[str, Any] = {
-            "topic": topic, "duration_archetype": duration,
+            "topic": topic,
+            "duration_archetype": duration,
             "video_provider": video_provider or "",
             "audio_provider": audio_provider or "",
-            "style": style, "language": language, **extra,
+            "style": style,
+            "language": language,
+            **extra,
         }
         res = await self._client.call_tool("hevi.generate_longvideo", args)
         return res if isinstance(res, dict) else {"raw": res}
 
     async def gen_storyboard(self, script_text: str, shots: int = 6) -> dict[str, Any]:
         """分镜网格提示词生成。"""
-        res = await self._client.call_tool("hevi.gen_storyboard",
-                                           {"script_text": script_text, "shots": shots})
+        res = await self._client.call_tool(
+            "hevi.gen_storyboard", {"script_text": script_text, "shots": shots}
+        )
         return res if isinstance(res, dict) else {"raw": res}
 
     # ── LLM 工具面 ─────────────────────────────────────────────────────
@@ -137,28 +150,24 @@ class HeviConnector:
             adapter = make_mcp_tool_adapter(spec, self._client)
             params = (spec.get("inputSchema") or {}).get("properties", {})
             required = (spec.get("inputSchema") or {}).get("required", [])
-            out.append({
-                "name": f"mcp_hevi_{spec['name'].replace('.', '_')}",
-                "description": adapter.description,
-                "parameters": {"type": "object", "properties": params, "required": required},
-                "func": adapter.callable,
-            })
+            out.append(
+                {
+                    "name": f"mcp_hevi_{spec['name'].replace('.', '_')}",
+                    "description": adapter.description,
+                    "parameters": {"type": "object", "properties": params, "required": required},
+                    "func": adapter.callable,
+                }
+            )
         return out
 
 
 async def wire_master_tools(connector: HeviConnector | None = None) -> int:
     """mcp_hevi_* 注册进 master_tools (主脑视频生产面), 幂等。"""
-    from server.tool_registry import master_tools
+    from server.tool_registry import register_mcp_tools
 
     connector = connector or get_hevi()
-    added = 0
-    for a in await connector.tool_adapters():
-        if master_tools.has(a["name"]):
-            continue
-        master_tools.register(a["name"], a["description"], a["parameters"], a["func"],
-                              max_result_chars=16000)
-        added += 1
-    return added
+    # ②-B: 收成 1 个网关 mcp_hevi(action, args) (VEYA_MCP_GATEWAY=0 回退逐工具)
+    return register_mcp_tools("hevi", await connector.tool_adapters(), max_result_chars=16000)
 
 
 _hevi: HeviConnector | None = None
