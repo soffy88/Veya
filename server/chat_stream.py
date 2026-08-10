@@ -94,6 +94,9 @@ async def new_agent_stream_events(
                     "type": "master_done",
                     "session_id": sid,
                     "status": result.get("status"),
+                    # P2 上下文用量: 主脑 cost 透传前端 (engine_meta 简版)
+                    "cost_usd": result.get("cost_usd") or 0,
+                    "rounds": result.get("rounds") or 0,
                 }
             )
             queue.close()
