@@ -35,6 +35,8 @@ from server.routes.models import router as models_router
 from server.routes.multimodal import router as multimodal_router
 from server.routes.neuro_symbolic import router as neuro_symbolic_router
 from server.routes.notifications import router as notifications_router
+from server.routes.fs import router as fs_router
+from server.routes.git import router as git_router
 from server.routes.plan import router as plan_router
 from server.routes.observer import router as observer_router
 from server.routes.omni import router as omni_router
@@ -188,6 +190,8 @@ app.include_router(automata_router)
 app.include_router(webhook_router)
 app.include_router(flow_router)
 app.include_router(notifications_router)
+app.include_router(fs_router)
+app.include_router(git_router)
 app.include_router(plan_router)
 app.include_router(omni_router)
 app.include_router(permission_router)
