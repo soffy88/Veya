@@ -63,7 +63,10 @@ class SessionManager {
 		const existing = this.sessions.find((x) => x.sid === sid);
 		if (existing && existing.messages.length > 0) return; // 本地已有 → 不覆盖
 		try {
-			const res = await fetch(`${API_BASE}/api/v1/agent/history/${sid}`);
+			const token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
+			const headers: Record<string, string> = {};
+			if (token) headers.authorization = `Bearer ${token}`;
+			const res = await fetch(`${API_BASE}/api/v1/agent/history/${sid}`, { headers });
 			if (!res.ok) return;
 			const data = await res.json();
 			const msgs = ((data.messages ?? []) as Array<{ role: string; content?: string }>)
@@ -84,6 +87,37 @@ class SessionManager {
 			this.persist();
 		} catch {
 			/* 网络/后端不可用 → 保持本地 */
+		}
+	}
+
+	/** 登录后: 从后端拉云端会话列表, 合并到本地 (多端同步)。 */
+	async syncCloud(): Promise<void> {
+		const token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
+		if (!token) return;
+		try {
+			const res = await fetch(`${API_BASE}/api/v1/agent/sessions`, {
+				headers: { authorization: `Bearer ${token}` },
+			});
+			if (!res.ok) return;
+			const data = await res.json();
+			const cloud = (data.sessions ?? []) as { sid: string; title?: string; updated_at?: number }[];
+			if (cloud.length === 0) return;
+			const localSids = new Set(this.sessions.map((s) => s.sid));
+			const added: ChatSession[] = cloud
+				.filter((s) => s.sid && !localSids.has(s.sid))
+				.map((s) => ({
+					sid: s.sid,
+					title: s.title || "云端会话",
+					ts: (s.updated_at ?? Date.now() / 1000) * 1000,
+					cost: 0,
+					messages: [], // 打开时 hydrate 拉取
+				}));
+			if (added.length > 0) {
+				this.sessions = [...this.sessions, ...added].sort((a, b) => b.ts - a.ts);
+				this.persist();
+			}
+		} catch {
+			/* 后端不可用 → 保持本地 */
 		}
 	}
 

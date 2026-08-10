@@ -95,12 +95,45 @@ class SqliteHistoryStore:
                 ],
             )
 
+    def list_sessions_sync(self, user_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """按用户列出会话: sid / title(首条用户消息) / msg_count / updated_at。"""
+        uid = user_id or self._uid()
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT sid, msg_json, ts FROM turns WHERE user_id=? "
+                "ORDER BY ts DESC LIMIT ?",
+                (uid, limit * 40),
+            ).fetchall()
+        agg: dict[str, dict[str, Any]] = {}
+        for sid, raw, ts in rows:
+            item = agg.setdefault(sid, {"sid": sid, "title": "", "msg_count": 0, "updated_at": ts})
+            item["msg_count"] += 1
+            item["updated_at"] = max(item["updated_at"], ts)
+            if not item["title"]:
+                try:
+                    msg = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if msg.get("role") == "user":
+                    content = msg.get("content")
+                    if isinstance(content, list):
+                        content = "".join(
+                            c.get("text", "") for c in content if isinstance(c, dict)
+                        )
+                    text = str(content or "").replace("\n", " ").strip()
+                    item["title"] = text[:40] or item["title"]
+        out = sorted(agg.values(), key=lambda s: s["updated_at"], reverse=True)
+        return out[:limit]
+
     # ── async wrappers (不阻塞事件循环) ──────────────────────────────
     async def load(self, sid: str, user_id: str | None = None) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self.load_sync, sid, user_id)
 
     async def save(self, sid: str, messages: list[dict[str, Any]], user_id: str | None = None) -> None:
         await asyncio.to_thread(self.save_sync, sid, messages, user_id)
+
+    async def list_sessions(self, user_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self.list_sessions_sync, user_id, limit)
 
 
 _default_store: SqliteHistoryStore | None = None
