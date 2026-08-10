@@ -79,22 +79,22 @@ import ModelPicker from "./ModelPicker.svelte";
 
 	// ── 工具轨迹图标/文案 ───────────────────────────────────────────
 	// master_start / master_round (任务开始/思考…) 是过程噪音, 不展示 —
-	// 只保留真正有用的执行轨迹: 工具调用/失败/Reasonix 进度。
+	// 只保留真正有用的执行轨迹: 工具调用/失败/hicode 进度。
 	function stepMeta(ev: ToolStep) {
 		switch (ev.type) {
 			case "tool_call":
 				return { Icon: Wrench, cls: "text-amber-400 bg-amber-400/10 border-amber-400/30", label: `$ ${String(ev.tool_name ?? "tool")}` };
 			case "tool_error":
 				return { Icon: CircleAlert, cls: "text-rose-400 bg-rose-400/10 border-rose-400/30", label: `✗ ${String(ev.tool_name ?? "tool")}` };
-			case "reasonix_progress": {
+			case "hicode_progress": {
 				const stage = String(ev.stage ?? "");
 				if (stage === "planning")
-					return { Icon: Brain, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "Reasonix 规划中" };
+					return { Icon: Brain, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode 规划中" };
 				if (stage === "executing")
-					return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: `Reasonix: ${String(ev.tool ?? "执行中")}` };
+					return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: `hicode: ${String(ev.tool ?? "执行中")}` };
 				if (stage === "done")
-					return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "Reasonix 完成" };
-				return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "Reasonix" };
+					return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode 完成" };
+				return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode" };
 			}
 			default:
 				// master_start / master_round (任务开始/思考…) 一律不展示
@@ -103,7 +103,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	}
 
 	function stepDetail(ev: ToolStep): string {
-		if (ev.type === "reasonix_progress" && typeof ev.detail === "string") return ev.detail.slice(0, 200);
+		if (ev.type === "hicode_progress" && typeof ev.detail === "string") return ev.detail.slice(0, 200);
 		if (ev.type === "tool_call" && ev.tool_args != null) {
 			try {
 				return JSON.stringify(ev.tool_args).slice(0, 200);
@@ -182,8 +182,8 @@ import ModelPicker from "./ModelPicker.svelte";
 					// (任务开始/思考…) 是过程噪音, 不展示
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 					if (last) last.steps = [...last.steps, ev as ToolStep];
-				} else if (kind === "reasonix_progress") {
-					// Reasonix 编码执行器实时进度: 跳过 token 统计噪音, 其余进轨迹
+				} else if (kind === "hicode_progress") {
+					// hicode 编码执行器实时进度: 跳过 token 统计噪音, 其余进轨迹
 					if (ev.stage !== "stats") {
 						const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 						if (last) last.steps = [...last.steps, ev as ToolStep];
@@ -227,7 +227,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	}
 
 	function stop() {
-		// 先通知后端真正中断 (reasonix 任务 → serve /cancel; 排队中 → 取消),
+		// 先通知后端真正中断 (hicode 任务 → serve /cancel; 排队中 → 取消),
 		// 再断前端 SSE — 不再「只断连接、子进程继续烧 token」。
 		const sid = sessionStore.activeSid;
 		if (sid) {

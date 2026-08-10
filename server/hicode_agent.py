@@ -1,22 +1,22 @@
-"""server.reasonix_agent — Reasonix 编码执行器集成装配层。
+"""server.hicode_agent — Hicode 编码执行器集成装配层。
 
-把 Reasonix (Go 编码 Agent: 独立 planner / executor / sandbox / checkpoint,
+把 Hicode (Go 编码 Agent: 独立 planner / executor / sandbox / checkpoint,
 单二进制, MIT) 作为 veya 主脑的"代码动手执行器"接入:
 
-- reasonix_run   : 在隔离 workspace 里执行编程任务 (写/改代码、修 bug、跑测试)
-- reasonix_status: 二进制 / workspace / 模型可用性诊断
+- hicode_run   : 在隔离 workspace 里执行编程任务 (写/改代码、修 bug、跑测试)
+- hicode_status: 二进制 / workspace / 模型可用性诊断
 
-3O 铁律: 机制 (reasonix run 子进程协议) 在此装配层; 主脑只做路由决策
+3O 铁律: 机制 (hicode run 子进程协议) 在此装配层; 主脑只做路由决策
 (系统提示 SOP 见 coordinator_master._HOST_SOP_APPEND)。
 
 安全:
-- workspace 限定 REASONIX_WORKSPACE (默认 ~/.veya/reasonix-workspace),
+- workspace 限定 HICODE_WORKSPACE (默认 ~/.veya/hicode-workspace),
   工具参数里的绝对路径必须位于根内, 防逃逸;
-- --auto 自动放行权限询问 (Reasonix 自身有 sandbox / checkpoint / 循环守卫);
+- --auto 自动放行权限询问 (Hicode 自身有 sandbox / checkpoint / 循环守卫);
 - 二进制缺失时优雅降级 (工具返回安装指引, 不阻塞服务启动)。
 
 Provider: 复用 veya 本地 opencode 网关 (127.0.0.1:10100/v1, OpenAI 兼容,
-免鉴权, 模型 gpt-5.6-luna)。配置在 ~/.reasonix/reasonix.toml。
+免鉴权, 模型 gpt-5.6-luna)。配置在 ~/.reasonix/config.toml (外部 reasonix CLI 契约, 不改名)。
 """
 
 from __future__ import annotations
@@ -36,32 +36,32 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
 
-logger = logging.getLogger("reasonix")
+logger = logging.getLogger("hicode")
 
 # ── 配置 (env 可覆盖) ─────────────────────────────────────────────────
 DEFAULT_BIN_HINT = os.environ.get(
-    "REASONIX_BIN", ""
+    "HICODE_BIN", ""
 )  # 显式指定二进制; 空 = 自动解析 (PATH → ~/.nvm)
 DEFAULT_WORKSPACE = os.environ.get(
-    "REASONIX_WORKSPACE", str(Path.home() / ".veya" / "reasonix-workspace")
+    "HICODE_WORKSPACE", str(Path.home() / ".veya" / "hicode-workspace")
 )
-DEFAULT_MODEL = os.environ.get("REASONIX_MODEL", "luna")
-DEFAULT_MAX_STEPS = int(os.environ.get("REASONIX_MAX_STEPS", "0"))  # 0 = 自动
-DEFAULT_TIMEOUT_SEC = int(os.environ.get("REASONIX_TIMEOUT_SEC", "1800"))
+DEFAULT_MODEL = os.environ.get("HICODE_MODEL", "luna")
+DEFAULT_MAX_STEPS = int(os.environ.get("HICODE_MAX_STEPS", "0"))  # 0 = 自动
+DEFAULT_TIMEOUT_SEC = int(os.environ.get("HICODE_TIMEOUT_SEC", "1800"))
 # 本地网关免鉴权 (10101: 无 Authorization 放行, 假 key 反而 403) —
-# 不注入任何 api_key_env 占位值, Reasonix 将不发 Authorization 头。
+# 不注入任何 api_key_env 占位值, Hicode 将不发 Authorization 头。
 # 若将来 provider 配了真实 api_key_env, 环境变量自然透传。
 
 # ── 容器内反代 (opencodex 按 Host 头白名单校验) ─────────────────────
 # 容器访问宿主网关 192.168.16.1:10101 时 Host=192.168.16.1:10101 被拒
-# (origin_rejected); 只有 Host=127.0.0.1:10100 放行。reasonix 无法覆盖
-# Host 头 → 在容器内起本地代理 127.0.0.1:REASONIX_PROXY_PORT, 转发时
+# (origin_rejected); 只有 Host=127.0.0.1:10100 放行。hicode 无法覆盖
+# Host 头 → 在容器内起本地代理 127.0.0.1:HICODE_PROXY_PORT, 转发时
 # 强制改写 Host。宿主环境 (base_url 直连 127.0.0.1:10100) 不起代理。
-_PROXY_PORT = int(os.environ.get("REASONIX_PROXY_PORT", "10103"))
+_PROXY_PORT = int(os.environ.get("HICODE_PROXY_PORT", "10103"))
 _PROXY_UPSTREAM = os.environ.get(
-    "REASONIX_PROXY_UPSTREAM", "http://192.168.16.1:10101"
+    "HICODE_PROXY_UPSTREAM", "http://192.168.16.1:10101"
 )
-_PROXY_UPSTREAM_HOST = os.environ.get("REASONIX_PROXY_UPSTREAM_HOST", "127.0.0.1:10100")
+_PROXY_UPSTREAM_HOST = os.environ.get("HICODE_PROXY_UPSTREAM_HOST", "127.0.0.1:10100")
 
 _proxy_server: Any | None = None
 
@@ -71,7 +71,7 @@ def _ensure_local_proxy() -> None:
     global _proxy_server
     if _proxy_server is not None:
         return
-    if not os.environ.get("REASONIX_PROXY"):
+    if not os.environ.get("HICODE_PROXY"):
         return
     import threading
 
@@ -105,11 +105,11 @@ def _ensure_local_proxy() -> None:
     t = threading.Thread(target=server.run, daemon=True)
     t.start()
     _proxy_server = server
-    logger.info("reasonix local proxy on 127.0.0.1:%s → %s (Host=%s)",
+    logger.info("hicode local proxy on 127.0.0.1:%s → %s (Host=%s)",
                 _PROXY_PORT, _PROXY_UPSTREAM, _PROXY_UPSTREAM_HOST)
 
 
-class ReasonixUnavailable(RuntimeError):
+class HicodeUnavailable(RuntimeError):
     """二进制缺失或不可执行 (主脑应看到可操作的降级提示)。"""
 
 
@@ -118,8 +118,8 @@ def _resolve_bin() -> str:
         p = Path(DEFAULT_BIN_HINT)
         if p.is_file() and os.access(p, os.X_OK):
             return str(p)
-        raise ReasonixUnavailable(f"REASONIX_BIN 指向的二进制不可执行: {p}")
-    found = shutil.which("reasonix")
+        raise HicodeUnavailable(f"HICODE_BIN 指向的二进制不可执行: {p}")
+    found = shutil.which("reasonix")  # 外部 CLI 仍名 reasonix (hicode = veya 侧名称)
     if found:
         return found
     # systemd 服务 PATH 可能不含 nvm bin → 兜底扫描
@@ -133,8 +133,9 @@ def _resolve_bin() -> str:
         for c in candidates:
             if c.is_file() and os.access(c, os.X_OK):
                 return str(c)
-    raise ReasonixUnavailable(
-        "reasonix 未安装。安装: npm i -g reasonix (或设置 REASONIX_BIN 指向二进制)。"
+    raise HicodeUnavailable(
+        "hicode (reasonix CLI) 未安装。安装: npm i -g @reasonix/cli "
+        "(或设置 HICODE_BIN 指向二进制)。"
     )
 
 
@@ -165,14 +166,14 @@ def _resolve_workspace(name_or_path: str | None) -> Path:
         rp = p.resolve()
         if rp != root and root not in rp.parents:
             raise ValueError(
-                f"workspace 必须位于 REASONIX_WORKSPACE 内 ({root}); 收到: {rp}"
+                f"workspace 必须位于 HICODE_WORKSPACE 内 ({root}); 收到: {rp}"
             )
         return rp
     # 相对名 → 根下的子目录
     return (root / name_or_path).resolve()
 
 
-async def _run_reasonix(
+async def _run_hicode(
     args: list[str],
     *,
     workspace: Path,
@@ -181,7 +182,7 @@ async def _run_reasonix(
     continue_: bool = False,
     resume_id: str | None = None,
 ) -> dict[str, Any]:
-    """执行一次 reasonix 子进程, 流式解析 stream-json 事件, 返回最终结果对象。
+    """执行一次 hicode 子进程, 流式解析 stream-json 事件, 返回最终结果对象。
 
     --output-format stream-json 每行一个 JSON: 中间是 kind 事件 (turn_started /
     tool_dispatch / tool_result / usage), 结尾是 {"type":"result", ...}。
@@ -199,7 +200,7 @@ async def _run_reasonix(
         cmd.append("--continue")
     if resume_id:
         cmd.append(f"--resume={resume_id}")
-    logger.info("reasonix cmd: %s", " ".join(cmd[:6]) + " ...")
+    logger.info("hicode cmd: %s", " ".join(cmd[:6]) + " ...")
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=str(workspace), stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE, env=env,
@@ -236,8 +237,8 @@ async def _run_reasonix(
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        raise ReasonixUnavailable(
-            f"reasonix 执行超过 {timeout}s 被终止 (可调 timeout_sec / max_steps)。"
+        raise HicodeUnavailable(
+            f"hicode 执行超过 {timeout}s 被终止 (可调 timeout_sec / max_steps)。"
         )
     finally:
         stderr_task.cancel()
@@ -246,8 +247,8 @@ async def _run_reasonix(
             await proc.wait()
     if result is None:
         tail = "".join(stderr_lines)[-1500:] or "(无 stderr)"
-        raise ReasonixUnavailable(
-            f"reasonix 无结构化结果 (exit={proc.returncode}):\n{tail}"
+        raise HicodeUnavailable(
+            f"hicode 无结构化结果 (exit={proc.returncode}):\n{tail}"
         )
     return result
 
@@ -275,13 +276,13 @@ def _tool_brief(name: str, args: dict) -> str:
 
 
 def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
-    """stream-json 中间事件 → 精简进度事件 (→ SSE reasonix_progress)。"""
+    """stream-json 中间事件 → 精简进度事件 (→ SSE hicode_progress)。"""
     if on_event is None:
         return
     kind = ev.get("kind")
     if kind == "turn_started":
         on_event({"stage": "planning", "tool": None,
-                  "detail": "Reasonix 规划中…"})
+                  "detail": "Hicode 规划中…"})
     elif kind == "tool_dispatch":
         tool = ev.get("tool") or {}
         # partial=true 的 dispatch 只是意图预告 (args 为空) — 等完整 args 事件
@@ -315,11 +316,11 @@ def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
 def _ensure_on_event(
     on_event: Callable[[dict], None] | None,
 ) -> Callable[[dict], None] | None:
-    """on_event 为空时, 自动桥接当前 SSE 请求上下文 (fire_step → reasonix_progress)。
+    """on_event 为空时, 自动桥接当前 SSE 请求上下文 (fire_step → hicode_progress)。
 
-    模型调用 reasonix_run 时无法传入 on_event (工具 schema 无此参数);
-    此处从 contextvar 取当前请求的 on_step (SSE 队列), 把 reasonix 进度事件
-    包装成前端可渲染的 {"type": "reasonix_progress", stage/tool/detail} 实时发出。
+    模型调用 hicode_run 时无法传入 on_event (工具 schema 无此参数);
+    此处从 contextvar 取当前请求的 on_step (SSE 队列), 把 hicode 进度事件
+    包装成前端可渲染的 {"type": "hicode_progress", stage/tool/detail} 实时发出。
     无请求上下文 (后台/CLI 直调) 时保持 None (行为不变)。
     """
     if on_event is not None:
@@ -336,7 +337,7 @@ def _ensure_on_event(
     def _bridge(ev: dict) -> None:
         try:
             cb({
-                "type": "reasonix_progress",
+                "type": "hicode_progress",
                 "stage": ev.get("stage"),
                 "tool": ev.get("tool"),
                 "detail": ev.get("detail"),
@@ -347,43 +348,43 @@ def _ensure_on_event(
     return _bridge
 
 
-async def _execute_reasonix_core(
+async def _execute_hicode_core(
     task: str, workspace: str | None = None,
     max_steps: int = 0, timeout_sec: int = 0,
     session_id: str | None = None,
     continue_: bool = False,
     on_event: Callable[[dict], None] | None = None,
 ) -> str:
-    """真正执行一个 reasonix 编程任务 (serve 优先, CLI 兜底)。
+    """真正执行一个 hicode 编程任务 (serve 优先, CLI 兜底)。
 
     continue_=True → --continue (接着上次未完成会话); session_id 指定 →
-    --resume=<machine id> (恢复历史会话, 见 reasonix_sessions)。任务前自动
-    打 git 快照 (checkpoint) → 可用 reasonix_rollback 回滚。
+    --resume=<machine id> (恢复历史会话, 见 hicode_sessions)。任务前自动
+    打 git 快照 (checkpoint) → 可用 hicode_rollback 回滚。
     on_event 用于实时进度回调。
     """
-    # 新编程任务 → 优先 reasonix serve (独立 oservi, HTTP+SSE 进度回流);
+    # 新编程任务 → 优先 hicode serve (独立 oservi, HTTP+SSE 进度回流);
     # serve 不可达/失败 → 回退 CLI (功能等价, 含 checkpoint/续做/回滚)。
     # 续做/恢复仍走 CLI (会话状态在 workspace)。
     if not continue_ and not session_id:
         try:
             from server.coordinator_master import (
-                _build_reasonix_spec,
-                _format_reasonix_result,
+                _build_hicode_spec,
+                _format_hicode_result,
             )
-            from server.reasonix_serve import get_serve_client
+            from server.hicode_serve import get_serve_client
 
             client = get_serve_client()
             if await client.health():
                 ws0 = _resolve_workspace(workspace)
                 _snapshot_workspace(ws0, task)  # checkpoint (回滚可用)
                 res = await client.run_task(
-                    _build_reasonix_spec(task), on_event=on_event,
+                    _build_hicode_spec(task), on_event=on_event,
                     timeout=timeout_sec or 900,
                 )
                 if res.get("status") != "error":
-                    return _format_reasonix_result(res)
+                    return _format_hicode_result(res)
         except Exception as exc:  # noqa: BLE001 — serve 路径失败 → CLI 兜底
-            logger.info("reasonix serve 不可用, 回退 CLI: %s", exc)
+            logger.info("hicode serve 不可用, 回退 CLI: %s", exc)
 
     # ── CLI 路径 (续做 / serve 不可达时的兜底) ──
     try:
@@ -392,8 +393,8 @@ async def _execute_reasonix_core(
         return f"错误: {e}"
     try:
         _resolve_bin()  # 提前失败给出安装指引
-    except ReasonixUnavailable as e:
-        return f"reasonix 不可用: {e}"
+    except HicodeUnavailable as e:
+        return f"hicode 不可用: {e}"
 
     args = ["--max-steps", str(max_steps or DEFAULT_MAX_STEPS)]
     timeout = timeout_sec or DEFAULT_TIMEOUT_SEC
@@ -403,14 +404,14 @@ async def _execute_reasonix_core(
     # 任务前 git 快照 (checkpoint) — 失败不阻塞执行 (无 git 时回滚不可用)
     checkpoint = _snapshot_workspace(ws, task)
     try:
-        r = await _run_reasonix(args, workspace=ws, timeout=timeout,
+        r = await _run_hicode(args, workspace=ws, timeout=timeout,
                                 on_event=on_event, continue_=continue_,
                                 resume_id=session_id)
-    except ReasonixUnavailable as e:
-        return f"reasonix 执行失败: {e}"
+    except HicodeUnavailable as e:
+        return f"hicode 执行失败: {e}"
     except Exception as e:  # noqa: BLE001 — 工具边界兜底, 回喂主脑
-        logger.exception("reasonix_run unexpected error")
-        return f"reasonix 执行异常: {e}"
+        logger.exception("hicode_run unexpected error")
+        return f"hicode 执行异常: {e}"
 
     subtype = r.get("subtype", "unknown")
     ok = not r.get("is_error", False)
@@ -418,7 +419,7 @@ async def _execute_reasonix_core(
     currency = r.get("currency", "")
     usage = r.get("usage") or {}
     body = (r.get("result") or "").strip()
-    head = "✅ reasonix 执行完成" if ok else "⚠ reasonix 执行失败"
+    head = "✅ hicode 执行完成" if ok else "⚠ hicode 执行失败"
     extra = []
     if r.get("num_turns") is not None:
         extra.append(f"轮次={r['num_turns']}")
@@ -431,9 +432,9 @@ async def _execute_reasonix_core(
     meta = f" ({', '.join(extra)})" if extra else ""
     summary = f"{head}{meta} @ {ws}\n{subtype}: {body[:8000]}"
     if len(body) > 8000:
-        summary += f"\n\n[截断, 完整输出见 reasonix session {r.get('session_id')}]"
+        summary += f"\n\n[截断, 完整输出见 hicode session {r.get('session_id')}]"
     if checkpoint:
-        summary += f"\n\n🛟 checkpoint: {checkpoint[:12]} (任务前快照; 回滚: 对我说「回滚最近一次」或 reasonix_rollback)"
+        summary += f"\n\n🛟 checkpoint: {checkpoint[:12]} (任务前快照; 回滚: 对我说「回滚最近一次」或 hicode_rollback)"
     if continue_ or session_id:
         summary += "\n[本次为续做/恢复会话]"
     return summary
@@ -453,7 +454,7 @@ def _snapshot_workspace(ws: Path, task: str) -> str | None:
             _git(ws, "init", "-q")
         _git(ws, "add", "-A")
         # 临时 git 身份 (容器/CI 无 user 配置时 commit 也能成功, 不污染全局)
-        r = _git(ws, "-c", "user.name=veya-reasonix",
+        r = _git(ws, "-c", "user.name=veya-hicode",
                  "-c", "user.email=veya@local",
                  "commit", "-q", "-m", f"pre-task: {task[:80]}")
         if r.returncode != 0 and "nothing to commit" not in (r.stdout + r.stderr):
@@ -469,12 +470,12 @@ def _snapshot_workspace(ws: Path, task: str) -> str | None:
         return None
 
 
-async def reasonix_rollback(workspace: str | None = None,
+async def hicode_rollback(workspace: str | None = None,
                             ref: str | None = None) -> str:
     """回滚工作区到最近一次任务前快照 (或指定 ref)。
 
-    每次 reasonix_run 前自动打 git 快照 (pre-task commit)。默认回滚最近
-    一次 (HEAD~1); ref 可指定 commit/hash (见 reasonix_sessions 的 checkpoint)。
+    每次 hicode_run 前自动打 git 快照 (pre-task commit)。默认回滚最近
+    一次 (HEAD~1); ref 可指定 commit/hash (见 hicode_sessions 的 checkpoint)。
     """
     try:
         ws = _resolve_workspace(workspace)
@@ -497,7 +498,7 @@ async def reasonix_rollback(workspace: str | None = None,
         return f"回滚失败: {e}"
 
 
-# ── 会话感知 (供 Stop 端点定位当前会话的 reasonix 任务) ──────────────
+# ── 会话感知 (供 Stop 端点定位当前会话的 hicode 任务) ──────────────
 
 def _current_sid() -> str | None:
     """从 contextvar 读当前 SSE 会话 id (on_step 是 SSEQueue 的 bound method)。"""
@@ -523,12 +524,12 @@ def _register_session_task(tid: str) -> None:
             pass
 
 
-async def reasonix_run(task: str, workspace: str | None = None,
+async def hicode_run(task: str, workspace: str | None = None,
                        max_steps: int = 0, timeout_sec: int = 0,
                        session_id: str | None = None,
                        continue_: bool = False,
                        on_event: Callable[[dict], None] | None = None) -> str:
-    """执行一个真正的编程任务 (Reasonix 编码执行器)。返回执行摘要。
+    """执行一个真正的编程任务 (Hicode 编码执行器)。返回执行摘要。
 
     新任务 → 后台任务队列 (可停止/断线不丢, 结果留在队列可查);
     续做 (continue_=True) / 恢复 (session_id) → 直接 CLI 执行。
@@ -537,26 +538,26 @@ async def reasonix_run(task: str, workspace: str | None = None,
     on_event = _ensure_on_event(on_event)
     # 续做/恢复: 会话状态在 workspace, 走 CLI 同步执行 (低频管理操作)
     if continue_ or session_id:
-        return await _execute_reasonix_core(
+        return await _execute_hicode_core(
             task, workspace=workspace, max_steps=max_steps,
             timeout_sec=timeout_sec, session_id=session_id,
             continue_=continue_, on_event=on_event,
         )
     # 新任务 → 后台队列: 并发提交/串行执行/可停止/断线不丢
-    from server.reasonix_queue import reasonix_task_queue
+    from server.hicode_queue import hicode_task_queue
 
-    tid = await reasonix_task_queue.submit(
+    tid = await hicode_task_queue.submit(
         task, workspace=workspace,
         meta={"timeout_sec": timeout_sec or 900, "sid": _current_sid()},
     )
     _register_session_task(tid)
     try:
-        rec = await reasonix_task_queue.wait(tid, on_progress=on_event)
+        rec = await hicode_task_queue.wait(tid, on_progress=on_event)
     except asyncio.CancelledError:
         # 会话断开/被 Stop → 等待被打断, 但 worker 继续后台执行 (不丢)
         return (
             f"已提交后台任务 #{tid} (继续后台执行中)。"
-            f"可查看 reasonix_tasks 或说「停止任务 #{tid}」中断。"
+            f"可查看 hicode_tasks 或说「停止任务 #{tid}」中断。"
         )
     if rec.status == "cancelled":
         return f"任务 #{tid} 已停止 ({rec.error or 'user stop'})。"
@@ -565,8 +566,8 @@ async def reasonix_run(task: str, workspace: str | None = None,
     return rec.summary or f"任务 #{tid} 已完成 (无摘要)。"
 
 
-async def reasonix_sessions(limit: int = 8) -> str:
-    """列出最近 reasonix 会话 (可续做 / 查看 checkpoint)。"""
+async def hicode_sessions(limit: int = 8) -> str:
+    """列出最近 hicode 会话 (可续做 / 查看 checkpoint)。"""
     try:
         bin_path = _resolve_bin()
         ws = _workspace_root()
@@ -582,44 +583,44 @@ async def reasonix_sessions(limit: int = 8) -> str:
         return f"无法列出会话: {e}"
     sessions = data.get("sessions", [])
     if not sessions:
-        return "暂无 reasonix 会话 (执行过编程任务后会有; 对我说「继续上次」可续做)。"
-    lines = [f"最近 {min(limit, len(sessions))} 个 reasonix 会话:"]
+        return "暂无 hicode 会话 (执行过编程任务后会有; 对我说「继续上次」可续做)。"
+    lines = [f"最近 {min(limit, len(sessions))} 个 hicode 会话:"]
     for s in sessions[:limit]:
         updated = (s.get("updated_at") or "")[:19].replace("T", " ")
         lines.append(
             f"- {s.get('id')}  turns={s.get('turns')} state={s.get('state')} "
             f"updated={updated}"
         )
-    lines.append("续做: 对我说「继续上次」; 指定会话: reasonix_run(session_id=<id>)。")
+    lines.append("续做: 对我说「继续上次」; 指定会话: hicode_run(session_id=<id>)。")
     return "\n".join(lines)
 
 
-async def reasonix_status() -> str:
-    """诊断 reasonix 执行器可用性 (二进制 / workspace / 模型)。"""
+async def hicode_status() -> str:
+    """诊断 hicode 执行器可用性 (二进制 / workspace / 模型)。"""
     try:
         bin_path = _resolve_bin()
         version = _bin_version() or "?"
         root = _workspace_root()
         root.mkdir(parents=True, exist_ok=True)
         return (
-            "✅ reasonix 可用\n"
+            "✅ hicode 可用\n"
             f"  二进制: {bin_path}\n"
             f"  版本: {version}\n"
             f"  workspace: {root}\n"
             f"  模型: {DEFAULT_MODEL} (本地网关; 容器内经反代 127.0.0.1:{_PROXY_PORT} 改写 Host)\n"
             f"  最大步数: {DEFAULT_MAX_STEPS or '自动'}, 超时: {DEFAULT_TIMEOUT_SEC}s"
         )
-    except ReasonixUnavailable as e:
-        return f"reasonix 不可用: {e}"
+    except HicodeUnavailable as e:
+        return f"hicode 不可用: {e}"
 
 
 # ── AI 代码评审 (CLI review 子命令) ────────────────────────────────
 
-async def reasonix_review(base: str = "HEAD", commit: str = "",
+async def hicode_review(base: str = "HEAD", commit: str = "",
                           instructions: str = "",
                           workspace: str | None = None,
                           timeout_sec: int = 300) -> str:
-    """对 reasonix 工作区最近改动做 AI 代码评审 (Reasonix review 子代理)。
+    """对 hicode 工作区最近改动做 AI 代码评审 (Hicode review 子代理)。
 
     base: 对比基准 ref (默认 HEAD = 评审未提交的 working-tree 改动);
     commit: 评审指定 commit 引入的改动 (与 base 互斥);
@@ -629,7 +630,7 @@ async def reasonix_review(base: str = "HEAD", commit: str = "",
     try:
         ws = _resolve_workspace(workspace)
         bin_path = _resolve_bin()
-    except (ValueError, ReasonixUnavailable) as e:
+    except (ValueError, HicodeUnavailable) as e:
         return f"错误: {e}"
     ws.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
@@ -659,17 +660,17 @@ async def reasonix_review(base: str = "HEAD", commit: str = "",
         return f"评审失败: {exc}"
 
 
-async def reasonix_tasks(limit: int = 12) -> str:
-    """列出 Reasonix 后台任务队列 (排队/执行中/完成/取消)。
+async def hicode_tasks(limit: int = 12) -> str:
+    """列出 Hicode 后台任务队列 (排队/执行中/完成/取消)。
 
     编程任务入队后立即返回 task id; 用本工具查看进度与结果。
-    用户说「任务停掉/别跑了」时用 reasonix_stop 停止指定任务。
+    用户说「任务停掉/别跑了」时用 hicode_stop 停止指定任务。
     """
-    from server.reasonix_queue import reasonix_task_queue
+    from server.hicode_queue import hicode_task_queue
 
-    tasks = reasonix_task_queue.list(limit=limit)
+    tasks = hicode_task_queue.list(limit=limit)
     if not tasks:
-        return "Reasonix 任务队列为空 (暂无后台任务)。"
+        return "Hicode 任务队列为空 (暂无后台任务)。"
     lines = []
     for t in tasks:
         lines.append(
@@ -679,32 +680,32 @@ async def reasonix_tasks(limit: int = 12) -> str:
     return "\n".join(lines)
 
 
-async def reasonix_stop(task_id: str) -> str:
-    """停止一个 Reasonix 后台任务 (真正中断执行, 不只断前端)。
+async def hicode_stop(task_id: str) -> str:
+    """停止一个 Hicode 后台任务 (真正中断执行, 不只断前端)。
 
     执行中任务 → serve /cancel 中断当前 turn; 排队中 → 直接取消。
     """
-    from server.reasonix_queue import reasonix_task_queue
+    from server.hicode_queue import hicode_task_queue
 
-    ok = await reasonix_task_queue.stop(task_id)
+    ok = await hicode_task_queue.stop(task_id)
     if not ok:
         return f"未找到任务 #{task_id} (可能已完成)。"
-    rec = reasonix_task_queue.get(task_id)
+    rec = hicode_task_queue.get(task_id)
     return f"已请求停止 #{task_id} (状态: {rec.status if rec else '?'})。"
 
 
 # ── 注册 ──────────────────────────────────────────────────────────────
 
 async def wire_master_tools() -> int:
-    """把 reasonix 工具注册进 master_tools (幂等)。返回新注册数量。"""
+    """把 hicode 工具注册进 master_tools (幂等)。返回新注册数量。"""
     from server.tool_registry import master_tools
 
     added = 0
     tools: list[tuple[str, str, dict, Any, int]] = [
         (
-            "reasonix_run",
+            "hicode_run",
             "在隔离编码工作区执行真正的编程任务（写/改代码、修 bug、跑测试、重构、"
-            "实现功能、搭建项目）。这是 veya 的编码执行器（Reasonix）：它有独立的"
+            "实现功能、搭建项目）。这是 veya 的编码执行器（Hicode）：它有独立的"
             "规划器/执行器/沙箱/检查点，会自己读代码、改文件、运行命令、验证结果，"
             "完成后返回执行摘要与成本。**需要实际改动代码文件的任务请直接用本工具**，"
             "不要在对话里手搓代码。耗时可能数分钟，属于长任务。纯问答/解释类任务不要用。",
@@ -715,38 +716,38 @@ async def wire_master_tools() -> int:
                     "workspace": {"type": "string", "description": f"可选。工作子目录名或绝对路径（必须位于 {_workspace_root()} 内）。缺省用根工作区。"},
                     "max_steps": {"type": "integer", "description": "可选。工具调用轮次上限，0=自动（默认）。"},
                     "timeout_sec": {"type": "integer", "description": "可选。超时秒数，默认 1800。"},
-                    "session_id": {"type": "string", "description": "可选。恢复指定历史会话（reasonix_sessions 列出的 machine id）。与 continue_ 互斥。"},
+                    "session_id": {"type": "string", "description": "可选。恢复指定历史会话（hicode_sessions 列出的 machine id）。与 continue_ 互斥。"},
                     "continue_": {"type": "boolean", "description": "可选。true = 接着上次未完成的会话继续做（跨轮续做）。"},
                 },
                 "required": ["task"],
             },
-            reasonix_run,
+            hicode_run,
             20000,
         ),
         (
-            "reasonix_sessions",
-            "列出最近的 reasonix 编码会话（id/轮次/状态/更新时间）。跨轮续做或查看历史执行记录时调用；用户说「继续上次」时配合 reasonix_run(continue_=true) 使用。",
+            "hicode_sessions",
+            "列出最近的 hicode 编码会话（id/轮次/状态/更新时间）。跨轮续做或查看历史执行记录时调用；用户说「继续上次」时配合 hicode_run(continue_=true) 使用。",
             {"type": "object", "properties": {"limit": {"type": "integer", "description": "可选。返回条数，默认 8。"}}},
-            reasonix_sessions,
+            hicode_sessions,
             4000,
         ),
         (
-            "reasonix_rollback",
-            "回滚 reasonix 工作区到最近一次任务前快照（或指定 commit）。每次 reasonix_run 前自动打 git 快照；用户说「回滚/撤销最近一次改动」时调用。",
+            "hicode_rollback",
+            "回滚 hicode 工作区到最近一次任务前快照（或指定 commit）。每次 hicode_run 前自动打 git 快照；用户说「回滚/撤销最近一次改动」时调用。",
             {"type": "object", "properties": {"workspace": {"type": "string", "description": f"可选。工作目录（必须位于 {_workspace_root()} 内）。"},"ref": {"type": "string", "description": "可选。回滚目标 commit/ref，默认 HEAD~1（最近一次任务前快照）。"}}},
-            reasonix_rollback,
+            hicode_rollback,
             2000,
         ),
         (
-            "reasonix_status",
-            "诊断 reasonix 编码执行器是否可用（二进制/版本/工作区/模型）。执行编程任务前或收到 reasonix 不可用提示时可调用。",
+            "hicode_status",
+            "诊断 hicode 编码执行器是否可用（二进制/版本/工作区/模型）。执行编程任务前或收到 hicode 不可用提示时可调用。",
             {"type": "object", "properties": {}},
-            reasonix_status,
+            hicode_status,
             2000,
         ),
         (
-            "reasonix_review",
-            "对 reasonix 工作区最近改动做 AI 代码评审（读 diff + 子代理评审，输出问题/风险/建议）。"
+            "hicode_review",
+            "对 hicode 工作区最近改动做 AI 代码评审（读 diff + 子代理评审，输出问题/风险/建议）。"
             "编程任务完成后、或用户要求「评审/审查一下代码」时调用。",
             {"type": "object", "properties": {
                 "base": {"type": "string", "description": "可选。对比基准 ref，默认 HEAD（评审未提交的改动）。"},
@@ -754,22 +755,22 @@ async def wire_master_tools() -> int:
                 "instructions": {"type": "string", "description": "可选。附加评审重点，如「重点看并发安全与内存泄漏」。"},
                 "timeout_sec": {"type": "integer", "description": "可选。超时秒数，默认 300。"},
             }},
-            reasonix_review,
+            hicode_review,
             6000,
         ),
         (
-            "reasonix_tasks",
-            "列出 Reasonix 后台任务队列（排队/执行中/完成/取消）及摘要。编程任务入队后立即返回 task id，用本工具查询进度/结果。",
+            "hicode_tasks",
+            "列出 Hicode 后台任务队列（排队/执行中/完成/取消）及摘要。编程任务入队后立即返回 task id，用本工具查询进度/结果。",
             {"type": "object", "properties": {"limit": {"type": "integer", "description": "可选。返回条数，默认 12。"}}},
-            reasonix_tasks,
+            hicode_tasks,
             4000,
         ),
         (
-            "reasonix_stop",
-            "停止一个 Reasonix 后台任务（真正中断执行，不只断前端连接）。用户说「任务停掉/别跑了/取消」时调用。",
-            {"type": "object", "properties": {"task_id": {"type": "string", "description": "任务 id（reasonix_tasks 列出的 #id）。"}},
+            "hicode_stop",
+            "停止一个 Hicode 后台任务（真正中断执行，不只断前端连接）。用户说「任务停掉/别跑了/取消」时调用。",
+            {"type": "object", "properties": {"task_id": {"type": "string", "description": "任务 id（hicode_tasks 列出的 #id）。"}},
             "required": ["task_id"]},
-            reasonix_stop,
+            hicode_stop,
             1000,
         ),
     ]
@@ -779,5 +780,5 @@ async def wire_master_tools() -> int:
         master_tools.register(name, desc, params, func, max_result_chars=limit)
         added += 1
     if added:
-        logger.info("wire reasonix: 注册 %d 个工具 (bin=%s)", added, _resolve_bin())
+        logger.info("wire hicode: 注册 %d 个工具 (bin=%s)", added, _resolve_bin())
     return added
