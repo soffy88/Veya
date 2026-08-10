@@ -24,6 +24,32 @@ _MAX_ENTRIES = 300
 _MAX_READ = 200_000  # 200KB 读上限
 
 
+def _extract_pdf_text(path: Path, max_chars: int) -> str:
+    """PDF → 纯文本 (pypdf; 容器 site-packages 只读 → 从 ~/.veya/pylibs 加载)。"""
+    import sys
+
+    pylibs = str(Path.home() / ".veya" / "pylibs")
+    if pylibs not in sys.path:
+        sys.path.insert(0, pylibs)
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise HTTPException(status_code=503, detail="PDF 解析库未安装 (pypdf)")
+    try:
+        reader = PdfReader(str(path))
+        parts: list[str] = []
+        total = 0
+        for page in reader.pages:
+            t = page.extract_text() or ""
+            parts.append(t)
+            total += len(t)
+            if total >= max_chars:
+                break
+        return "\n".join(parts)[:max_chars]
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"PDF 解析失败: {exc}")
+
+
 def _workspace_root() -> Path:
     root = os.environ.get("VEYA_WORKSPACE") or os.getcwd()
     return Path(root).resolve()
@@ -97,6 +123,12 @@ async def fs_read(path: str, max_chars: int = 12000) -> dict:
         raise HTTPException(status_code=500, detail=f"stat 失败: {exc}")
     if size > _MAX_READ:
         raise HTTPException(status_code=413, detail=f"文件过大 ({size} bytes), 上限 {_MAX_READ}")
+    # PDF → 提取文本 (pypdf, 轻量)
+    if rp.suffix.lower() == ".pdf":
+        text = _extract_pdf_text(rp, max_chars)
+        return {"path": str(rp), "content": text, "truncated": len(text) >= max_chars,
+                "size": size, "kind": "pdf"}
+
     try:
         text = rp.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
