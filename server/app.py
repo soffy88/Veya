@@ -131,6 +131,15 @@ async def lifespan(app: FastAPI):
         import logging
         logging.getLogger("veya.lifespan").exception("hicode wire failed")
     try:
+        from server.plan_todo import wire_master_tools as wire_plan
+        from server.long_read import wire_master_tools as wire_long
+
+        wire_plan()          # create_plan / plan_status / update_todo → 主脑工具面
+        wire_long()          # long_read (长文分块导航) → 主脑工具面
+    except Exception:
+        import logging
+        logging.getLogger("veya.lifespan").exception("cognition wire failed")
+    try:
         from server.tool_registry import master_tools
 
         _mcp = [n for n in master_tools._functions if n.startswith("mcp_")]
