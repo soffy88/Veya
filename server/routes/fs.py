@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
 
 router = APIRouter(tags=["file-tree"])
 
@@ -104,3 +104,40 @@ async def fs_read(path: str, max_chars: int = 12000) -> dict:
     truncated = len(text) > max_chars
     return {"path": str(rp), "content": text[:max_chars], "truncated": truncated,
             "size": size}
+
+
+@router.post("/api/v1/fs/upload")
+async def fs_upload(file: UploadFile) -> dict:
+    """大文件上传到工作区 .veya-uploads/ (≤100MB), 返回引用路径供 @path 读取。
+
+    文本类大文件不直接注入消息 (撑爆上下文) — 存工作区, 消息放 @uploads/<name>
+    引用, 模型用 read_file/long_read 按需读取。
+    """
+    import uuid
+
+    if not file.filename:
+        raise HTTPException(status_code=422, detail="缺少文件名")
+    root = _workspace_root()
+    uploads = root / ".veya-uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(file.filename).name.replace("/", "_").replace("\\", "_")[:120]
+    dst = uploads / f"{uuid.uuid4().hex[:8]}_{safe_name}"
+    size = 0
+    MAX_UPLOAD = 100 * 1024 * 1024  # 100MB
+    try:
+        with dst.open("wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_UPLOAD:
+                    dst.unlink(missing_ok=True)
+                    raise HTTPException(status_code=413, detail="文件超过 100MB 上限")
+                f.write(chunk)
+    except Exception:
+        dst.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+    return {"path": str(dst.relative_to(root)), "name": file.filename, "size": size}

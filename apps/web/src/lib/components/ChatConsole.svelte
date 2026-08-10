@@ -73,12 +73,19 @@ import ModelPicker from "./ModelPicker.svelte";
 		const files = [...(input.files ?? [])];
 		input.value = "";
 		uploadError = "";
+		const MAX_UPLOAD = 100 * 1024 * 1024; // 100MB
+		const MAX_INLINE_TEXT = 100 * 1024; // ≤100KB 直接注入内容
+		const MAX_IMG = 5 * 1024 * 1024; // 图片 ≤5MB base64
 		for (const f of files) {
-			if (f.size > 200_000) {
-				uploadError = `文件过大 (>200KB): ${f.name} — 用文件树 @path 让模型按需读取`;
+			if (f.size > MAX_UPLOAD) {
+				uploadError = `文件超过 100MB 上限: ${f.name}`;
 				continue;
 			}
 			if (f.type.startsWith("image/")) {
+				if (f.size > MAX_IMG) {
+					uploadError = `图片过大 (>5MB): ${f.name} — 请压缩后重试`;
+					continue;
+				}
 				const dataUrl = await new Promise<string>((resolve) => {
 					const r = new FileReader();
 					r.onload = () => resolve(String(r.result ?? ""));
@@ -89,11 +96,29 @@ import ModelPicker from "./ModelPicker.svelte";
 			}
 			const ext = "." + (f.name.split(".").pop() ?? "").toLowerCase();
 			if (!TEXT_EXT.includes(ext)) {
-				uploadError = `不支持的文件类型: ${f.name} — 仅文本类文件可上传, 其他用文件树 @path`;
+				uploadError = `不支持的文件类型: ${f.name} — 仅文本类可上传, 其他用文件树 @path`;
 				continue;
 			}
-			const text = await f.text();
-			attachments = [...attachments, { name: f.name, content: text }];
+			if (f.size <= MAX_INLINE_TEXT) {
+				// 小文本: 读内容直接注入消息
+				const text = await f.text();
+				attachments = [...attachments, { name: f.name, content: text }];
+			} else {
+				// 大文本 (≤100MB): 上传到工作区 → 消息放 @uploads/<path> 引用
+				try {
+					const fd = new FormData();
+					fd.append("file", f);
+					const res = await fetch(`${API_BASE}/api/v1/fs/upload`, { method: "POST", body: fd });
+					if (!res.ok) throw new Error(`HTTP ${res.status}`);
+					const data = (await res.json()) as { path: string };
+					attachments = [
+						...attachments,
+						{ name: `${f.name} (大文件, 已存工作区 @${data.path})`, content: `@${data.path}` },
+					];
+				} catch (err) {
+					uploadError = `大文件上传失败: ${f.name} — ${err instanceof Error ? err.message : String(err)}`;
+				}
+			}
 		}
 	}
 
