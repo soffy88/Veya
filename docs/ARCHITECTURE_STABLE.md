@@ -17,7 +17,7 @@
 用户输入 ──► [大模型 ReAct：全量 ~171 工具，模型自主决策]
                ├─ 直接回答（设计/问答/写作…）
                ├─ fetch_url / browser_run（URL/网页）
-               ├─ reasonix_run（长任务编码，模型自己决定调用）
+               ├─ hicode_run（长任务编码，模型自己决定调用）
                ├─ run_in_sandbox（运行验证）
                └─ mcp_*（视频 hevi / 知识 stratum / 代码库 codebase）
             └─► 模型收尾总结 → SSE → 前端
@@ -60,7 +60,7 @@
 ### 2.4 前端交互（用户确认）
 
 - 不显示"任务开始 / 思考…"过程徽章（master_start/master_round 不进轨迹）
-- 只显示真实执行轨迹：`$ fetch_url` / `$ reasonix_run` / `✗ 工具失败` / Reasonix 进度
+- 只显示真实执行轨迹：`$ fetch_url` / `$ hicode_run` / `✗ 工具失败` / Hicode 进度
 
 ## 3. 关键部署配置（勿改）
 
@@ -70,7 +70,7 @@
 | OPENCODE_API_KEY | 用户 key | 容器 env（deploy/.env） |
 | VEYA_FRONTIER_ENDPOINT | `http://192.168.16.1:10101/v1`（容器内） | docker-compose env |
 | gpt-5.6-luna 兜底 | 核心工具面（`_core_tool_schemas`） | `veya/llm.py` |
-| reasonix serve | `127.0.0.1:8768`（容器内, 独立 oservi） | reasonix-entrypoint |
+| hicode serve | `127.0.0.1:8768`（容器内, 独立 oservi） | hicode-entrypoint |
 | server/ 挂载 | `../server:/app/server:ro` → 重启即生效 | docker-compose |
 | 前端 | `pnpm build` + 重启 veya-web（systemd） | build/ 非挂载 |
 
