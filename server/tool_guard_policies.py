@@ -19,25 +19,30 @@ from server.tool_guard import ToolGuard, global_tool_guard
 
 _TERMINAL_POLICY = "terminal_action_gate"
 
-# 拼入 action 分类的承载动作语义的参数键 (命令/操作/路径类)。
-_ACTION_ARG_KEYS = ("command", "cmd", "action", "operation", "op", "path", "target", "url")
+
+def _allowlist() -> set[str]:
+    """豁免工具名集合 (env ``VEYA_TOOL_GATE_ALLOWLIST``, 逗号分隔)。
+
+    本仓 omodul 有 74+ 合法业务工具名含 delete/publish/cancel 等 terminal 词
+    (delete_product / publish_products_to_channel ...) —— 它们本就该被主脑调用。
+    enforce 前用 allowlist 把这些豁免掉, 才能只拦真正不可逆的外部/基建动作。
+    """
+    raw = os.environ.get("VEYA_TOOL_GATE_ALLOWLIST", "")
+    return {t.strip() for t in raw.split(",") if t.strip()}
 
 
 async def terminal_action_policy(name: str, kwargs: dict, source: str) -> str | None:
     """命中 terminal/不可逆动作 → 返回拒绝原因; 否则 None (放行)。
 
-    以「工具名 + 关键字符串参数」拼成 action, 交 ``terminal_gate_check`` 关键词
-    分类 (deploy/publish/delete/drop/rm ...)。分类失败一律 fail-open (返回 None)。
+    **只按工具名分类** (不掺入参数值 —— 良性参数如 url/path 里的 'delete' 字样会
+    造成误伤)。allowlist 中的工具直接放行。分类失败一律 fail-open (返回 None)。
     """
+    if name in _allowlist():
+        return None
     from server.state_kernel import terminal_gate_check
 
-    action = name
-    for key in _ACTION_ARG_KEYS:
-        val = kwargs.get(key)
-        if isinstance(val, str) and val:
-            action += " " + val
     try:
-        verdict = json.loads(await terminal_gate_check(action))
+        verdict = json.loads(await terminal_gate_check(name))
     except Exception:
         return None
     if verdict.get("requires_approval"):
