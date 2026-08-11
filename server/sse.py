@@ -11,10 +11,14 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/stream", tags=["sse"])
+
+# 队列静默 >20s 发 SSE 注释心跳 (: ping) — 保持响应体流动 (防 Cloudflare 100s
+# 无数据掐断), 同时给「客户端断开」检测一个固定轮询节拍。
+_HEARTBEAT_S = 20.0
 
 
 class SSEQueue:
@@ -31,14 +35,31 @@ class SSEQueue:
     def close(self) -> None:
         self._q.put_nowait(None)  # sentinel
 
-    async def events(self) -> AsyncIterator[str]:
-        while True:
-            item = await self._q.get()
-            if item is None:
-                yield "data: [DONE]\n\n"
-                return
-            payload = json.dumps(item, ensure_ascii=False)
-            yield f"data: {payload}\n\n"
+    async def events(self, request: Request | None = None) -> AsyncIterator[str]:
+        """消费队列 → SSE 帧。
+
+        断开检测: 无 ``None`` 哨兵时 (生产者仍在运行/永不收尾), 裸
+        ``await self._q.get()`` 会永久悬挂且 ``_queues`` 泄漏。改为带心跳超时的
+        等待, 每个静默节拍检查 ``request.is_disconnected()`` — 客户端已走则退出
+        生成器, ``finally`` 清理会话队列, 释放协程与内存。
+        """
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(self._q.get(), timeout=_HEARTBEAT_S)
+                except TimeoutError:
+                    if request is not None and await request.is_disconnected():
+                        return
+                    yield ": ping\n\n"  # 保活注释行, EventSource 规范忽略
+                    continue
+                if item is None:
+                    yield "data: [DONE]\n\n"
+                    return
+                payload = json.dumps(item, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+        finally:
+            # 消费结束/断开/取消 → 清理会话队列, 防 _queues 无限增长
+            _queues.pop(self.sid, None)
 
 
 # In-memory registry: session_id → SSEQueue
@@ -59,10 +80,10 @@ def emit(session_id: str, event: str, data: dict[str, Any]) -> None:
 
 
 @router.get("/{session_id}")
-async def stream_session(session_id: str) -> StreamingResponse:
+async def stream_session(session_id: str, request: Request) -> StreamingResponse:
     q = get_or_create_queue(session_id)
     return StreamingResponse(
-        q.events(),
+        q.events(request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

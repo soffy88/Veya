@@ -1,50 +1,25 @@
-"""veya.im — Layer 4 IM gateway adapters + account binding.
+"""veya/im — 3O 归位门面 (sys.modules 别名 → veya/oskill/im).
 
-Supported platforms:
-  - Feishu (Lark) — enterprise bot gateway
-  - Slack — Events API bot gateway
-  - Discord — Interactions Endpoint + slash commands
-  - Telegram — long-polling + webhook bot
-  - DingTalk (钉钉) — enterprise bot + group chat bot
-  - WeChat (微信) — Official Account + Enterprise WeChat
-
-Pseudo-anonymization follows SPEC §5.5.1: a stable, non-PII reference token is
-derived from a raw ``user_id`` so logs / trails / memory never store personal
-data.  The resolver first asks the 3O ``obase`` library for its
-``pseudo_anonymizer`` element, and otherwise uses the Layer-4 HMAC-SHA256
-implementation in this package.
-
-Account binding (§5.7): users can bind their own API keys and platform tokens,
-enabling per-user isolation for LLM providers and IM accounts.
+veya 包按 3O 范式重构: im/ (即时消息信道适配器) 归位到 oskill 层。
+本门面注册 sys.modules 别名 + 子模块别名, 使 ``from veya.im.pseudo``
+与 ``from veya.oskill.im.pseudo`` 指向同一模块对象 (防双实例状态分裂)。
 """
 
 from __future__ import annotations
 
-__version__ = "0.2.0"
+import sys
 
-from veya.im.account_binding import (
-    AccountBinding,
-    BindingStore,
-    bind_account,
-    get_binding_store,
-    get_user_credentials,
-    inject_user_credentials,
-    list_user_bindings,
-    unbind_account,
+from veya.oskill import im as _impl
+
+_SUBMODULES = (
+    "account_binding", "dingtalk", "discord", "feishu", "pseudo",
+    "slack", "telegram", "wechat",
 )
-from veya.im.pseudo import PseudoAnonymizer, anonymize_user_id, resolve_anonymizer
+for _sub in _SUBMODULES:  # noqa: PLE001 — 子模块缺失不阻断 (门面尽力而为)
+    try:
+        _m = __import__(f"veya.oskill.im.{_sub}", fromlist=["x"])
+        sys.modules[f"veya.im.{_sub}"] = _m
+    except Exception:
+        pass
 
-__all__ = [
-    "AccountBinding",
-    "BindingStore",
-    "PseudoAnonymizer",
-    "__version__",
-    "anonymize_user_id",
-    "bind_account",
-    "get_binding_store",
-    "get_user_credentials",
-    "inject_user_credentials",
-    "list_user_bindings",
-    "resolve_anonymizer",
-    "unbind_account",
-]
+sys.modules[__name__] = _impl

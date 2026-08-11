@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from veya.im.pseudo import anonymize_user_id
+from veya.oskill.im.pseudo import anonymize_user_id
 
 _bg_tasks: set = set()
 

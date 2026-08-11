@@ -1,17 +1,5 @@
-import subprocess
-
-
-def git_init():
-    subprocess.run(["git", "init"])
-
-
-def git_add(file):
-    subprocess.run(["git", "add", file])
-
-
-def git_commit(message):
-    subprocess.run(["git", "commit", "-m", message])
-
-
-def git_push(remote, branch):
-    subprocess.run(["git", "push", remote, branch])
+"""veya/git — 3O 归位门面 (sys.modules 别名 → veya/oprim/git).
+"""
+import sys
+from veya.oprim import git as _impl
+sys.modules[__name__] = _impl

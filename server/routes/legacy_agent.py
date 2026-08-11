@@ -33,7 +33,6 @@ async def list_engines() -> dict:
     return {"engines": available_engines()}
 
 
-
 class LegacyAgentRunRequest(BaseModel):
     task: str | None = Field(None, description="Task description (legacy contract)")
     text: str | None = Field(None, description="Chat prompt (new Agent OS contract)")
@@ -59,6 +58,7 @@ class LegacyAgentRunResponse(BaseModel):
 
 def _new_session_id() -> str:
     import uuid
+
     return uuid.uuid4().hex[:12]
 
 
@@ -70,8 +70,9 @@ async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse
     if req.engine != "master":
         from server.engine_runner import run_engine
 
-        res = await run_engine(req.engine, req.text or req.task or "",
-                               model=req.model, timeout_s=600.0)
+        res = await run_engine(
+            req.engine, req.text or req.task or "", model=req.model, timeout_s=600.0
+        )
         return LegacyAgentRunResponse(
             session_id=req.session_id or _new_session_id(),
             status="success" if res["ok"] else "failed",
@@ -101,9 +102,10 @@ async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse
     if raw_uid:
         try:
             from veya.im.pseudo import anonymize_user_id
+
             user_ref = anonymize_user_id(raw_uid)
         except Exception:
-            user_ref = f"u_{abs(hash(raw_uid)) % 10 ** 8:08d}"
+            user_ref = f"u_{abs(hash(raw_uid)) % 10**8:08d}"
     if req.mode == "dry_run":
         return LegacyAgentRunResponse(
             session_id=session_id,
@@ -141,8 +143,9 @@ async def legacy_agent_stream(
         from server.engine_runner import stream_engine
 
         async def _engine_events():
-            async for evt in stream_engine(req.engine, req.text or req.task or "",
-                                           model=req.model, timeout_s=600.0):
+            async for evt in stream_engine(
+                req.engine, req.text or req.task or "", model=req.model, timeout_s=600.0
+            ):
                 yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(
@@ -162,6 +165,7 @@ async def legacy_agent_stream(
             model=req.model,
             user=user,
             images=req.images or None,
+            request=request,
         ),
         media_type="text/event-stream",
         headers={

@@ -21,6 +21,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from server.tool_guard import ToolDenied as _ToolDenied
+from server.tool_guard import global_tool_guard as _tool_guard
+
 logger = __import__("logging").getLogger("master.tools")
 
 
@@ -140,6 +143,11 @@ class MasterToolRegistry:
             raise ToolExecutionError(
                 f"Tool '{name}' not found. Available: {', '.join(self.list_tools())}"
             )
+        # 统一守卫通道: 执行前过策略链 + 记决策轨迹 (缺省全放行, 零行为变化)。
+        try:
+            await _tool_guard.acheck(name, kwargs, source="master_tool")
+        except _ToolDenied as denied:
+            raise ToolExecutionError(str(denied)) from denied
         try:
             raw = func(**kwargs)
             if inspect.isawaitable(raw):
@@ -819,7 +827,10 @@ master_tools.register(
     parameters={
         "type": "object",
         "properties": {
-            "plan_id": {"type": "string", "description": "可选。指定计划 id; 空=自动找最近活跃计划。"},
+            "plan_id": {
+                "type": "string",
+                "description": "可选。指定计划 id; 空=自动找最近活跃计划。",
+            },
         },
     },
     func=quota_should_run,
@@ -837,7 +848,10 @@ master_tools.register(
         "properties": {
             "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
             "todo_id": {"type": "string", "description": "待办 id (plan_status 可见)。"},
-            "lease_minutes": {"type": "integer", "description": "可选。租约分钟数, 默认 45, 上限 1440。"},
+            "lease_minutes": {
+                "type": "integer",
+                "description": "可选。租约分钟数, 默认 45, 上限 1440。",
+            },
         },
         "required": ["plan_id", "todo_id"],
     },
@@ -856,7 +870,10 @@ master_tools.register(
         "type": "object",
         "properties": {
             "plan_id": {"type": "string", "description": "计划 id。"},
-            "gate_scope": {"type": "string", "description": "该门约束的描述/关键词 (如 'CI 通过' 或依赖 todo 名)。"},
+            "gate_scope": {
+                "type": "string",
+                "description": "该门约束的描述/关键词 (如 'CI 通过' 或依赖 todo 名)。",
+            },
         },
         "required": ["plan_id", "gate_scope"],
     },
@@ -879,7 +896,10 @@ master_tools.register(
         "properties": {
             "plan_id": {"type": "string", "description": "计划 id。"},
             "todo_id": {"type": "string", "description": "已 done 的 todo id。"},
-            "effect_id": {"type": "string", "description": "本次执行效果唯一标识 (如验证摘要/产物 hash)。"},
+            "effect_id": {
+                "type": "string",
+                "description": "本次执行效果唯一标识 (如验证摘要/产物 hash)。",
+            },
             "note": {"type": "string", "description": "可选。记账说明。"},
         },
         "required": ["plan_id", "todo_id", "effect_id"],
@@ -897,8 +917,14 @@ master_tools.register(
     parameters={
         "type": "object",
         "properties": {
-            "action": {"type": "string", "description": "要执行的动作描述 (如 'git push 到 main' / '发布到生产')。"},
-            "plan_id": {"type": "string", "description": "可选。关联计划 id (同时检查 plan gate)。"},
+            "action": {
+                "type": "string",
+                "description": "要执行的动作描述 (如 'git push 到 main' / '发布到生产')。",
+            },
+            "plan_id": {
+                "type": "string",
+                "description": "可选。关联计划 id (同时检查 plan gate)。",
+            },
             "scope": {"type": "string", "description": "可选。gate scope 关键词。"},
         },
         "required": ["action"],
@@ -947,15 +973,42 @@ master_tools.register(
         "type": "object",
         "properties": {
             "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
-            "implement_engine": {"type": "string", "description": "可选。实现引擎 (claude/codex/grok/pi), 默认 codex。"},
-            "critique_engine": {"type": "string", "description": "可选。批判引擎 (默认 claude, 与实现引擎不同更佳)。"},
-            "max_iterations": {"type": "integer", "description": "可选。每 todo 修复轮次上限, 默认 3, 最大 5。"},
-            "workdir": {"type": "string", "description": "可选。引擎工作目录 (PRE-FLIGHT 检查 + 质量门/验证命令执行目录)。"},
-            "quality_gate": {"type": "string", "description": "可选。机械检查命令 (lint/type/build, 必须 check-only, 禁 mutating)。"},
-            "verify_command": {"type": "string", "description": "可选。功能测试/验收命令 (与机械门分离, 失败分类根因回批判)。"},
-            "preflight": {"type": "boolean", "description": "可选。PRE-FLIGHT 安全检查开关, 默认 true (git clean/分支警告)。"},
-            "mode": {"type": "string", "description": "可选。full (从零实现, 默认) / refactor (已有代码重构, 不改变行为)。"},
-            "elevated": {"type": "boolean", "description": "可选。Elevated assurance: None=auto (高风险任务如 auth/支付/删除/并发自动开), True=强制 3 lens+终局 challenger, False=关。"},
+            "implement_engine": {
+                "type": "string",
+                "description": "可选。实现引擎 (claude/codex/grok/pi), 默认 codex。",
+            },
+            "critique_engine": {
+                "type": "string",
+                "description": "可选。批判引擎 (默认 claude, 与实现引擎不同更佳)。",
+            },
+            "max_iterations": {
+                "type": "integer",
+                "description": "可选。每 todo 修复轮次上限, 默认 3, 最大 5。",
+            },
+            "workdir": {
+                "type": "string",
+                "description": "可选。引擎工作目录 (PRE-FLIGHT 检查 + 质量门/验证命令执行目录)。",
+            },
+            "quality_gate": {
+                "type": "string",
+                "description": "可选。机械检查命令 (lint/type/build, 必须 check-only, 禁 mutating)。",
+            },
+            "verify_command": {
+                "type": "string",
+                "description": "可选。功能测试/验收命令 (与机械门分离, 失败分类根因回批判)。",
+            },
+            "preflight": {
+                "type": "boolean",
+                "description": "可选。PRE-FLIGHT 安全检查开关, 默认 true (git clean/分支警告)。",
+            },
+            "mode": {
+                "type": "string",
+                "description": "可选。full (从零实现, 默认) / refactor (已有代码重构, 不改变行为)。",
+            },
+            "elevated": {
+                "type": "boolean",
+                "description": "可选。Elevated assurance: None=auto (高风险任务如 auth/支付/删除/并发自动开), True=强制 3 lens+终局 challenger, False=关。",
+            },
         },
         "required": ["plan_id"],
     },
@@ -980,7 +1033,10 @@ master_tools.register(
         "type": "object",
         "properties": {
             "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
-            "critique_engine": {"type": "string", "description": "可选。审查引擎 (claude/codex/grok/pi), 默认 claude。"},
+            "critique_engine": {
+                "type": "string",
+                "description": "可选。审查引擎 (claude/codex/grok/pi), 默认 claude。",
+            },
             "workdir": {"type": "string", "description": "可选。工作目录 (审查上下文)。"},
         },
         "required": ["plan_id"],

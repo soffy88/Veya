@@ -372,6 +372,12 @@ class MasterCoordinator:
 
         register_vault_physical_tools(self)
 
+        # 工具守卫默认策略 (幂等): terminal/不可逆动作闸门, 缺省 observe 采样,
+        # VEYA_TOOL_GATE_ENFORCE=1 翻 enforce。收口在统一守卫通道 tool_guard。
+        from server.tool_guard_policies import install_default_tool_policies
+
+        install_default_tool_policies()
+
     # ── 宿主注入 ─────────────────────────────────────────────────────
     async def _bound_llm(self, messages: list, **kwargs: Any) -> Any:
         """把用户 key/endpoint 装配进 LLM 调用(支持请求级覆盖)。
@@ -400,8 +406,7 @@ class MasterCoordinator:
                 if m.get("role") == "user" and isinstance(m.get("content"), str):
                     blocks: list[dict] = [{"type": "text", "text": m["content"]}]
                     for img in images:
-                        blocks.append({"type": "image_url",
-                                       "image_url": {"url": img}})
+                        blocks.append({"type": "image_url", "image_url": {"url": img}})
                     messages[i] = {**m, "content": blocks}
                     break
         merged_cfg = {**self._llm_config, **req_cfg}
@@ -564,14 +569,23 @@ class MasterCoordinator:
             await self._restore_history(sid)
             # P4: 检索相关长期记忆并注入 (空则无操作, 行为不变)
             await self._inject_memory(sid, user_prompt)
-            result = await self._agent.chat_stream(
-                user_prompt,
-                session_id=sid,
-                max_rounds=effective_rounds,
-                llm_kwargs=llm_kwargs or None,
-                long_task=lt,
-            )
-            # P1: 本轮结束落盘 (进程无关持久)
+            # 长任务无损恢复: 循环运行期间定时快照 (主库在 _histories[sid] 原地
+            # 累积每轮消息), 进程被杀也只丢最后一个快照间隔, 而非整轮工作。
+            ckpt_task = asyncio.create_task(self._checkpoint_loop(sid))
+            try:
+                result = await self._agent.chat_stream(
+                    user_prompt,
+                    session_id=sid,
+                    max_rounds=effective_rounds,
+                    llm_kwargs=llm_kwargs or None,
+                    long_task=lt,
+                )
+            finally:
+                ckpt_task.cancel()
+                # CancelledError 是 BaseException, 不被 suppress(Exception) 捕获 → 显式列出
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await ckpt_task
+            # P1: 本轮结束落盘 (权威快照, 进程无关持久)
             await self._persist_history(sid)
             # P4: 后台蒸馏本轮对话为长期记忆 (不阻塞回答)
             self._schedule_distill(sid)
@@ -611,7 +625,7 @@ class MasterCoordinator:
             hist[sid] = [system, *restored]
 
     async def _persist_history(self, sid: str) -> None:
-        """本轮结束: 把进程内历史 (剔除 system) 落盘为权威源。"""
+        """把进程内历史 (剔除 system) 落盘为权威源。轮末 + 长任务中途快照共用。"""
         hist = getattr(self._agent, "_histories", None)
         if hist is None:
             return
@@ -619,6 +633,24 @@ class MasterCoordinator:
         # 落盘故障绝不拖垮对话
         with contextlib.suppress(Exception):
             await self._history_store.save(sid, [m for m in msgs if m.get("role") != "system"])
+
+    async def _checkpoint_loop(self, sid: str) -> None:
+        """长任务运行期间的定时快照循环 (无损恢复)。
+
+        主库 ReAct 循环在 ``_histories[sid]`` 原地追加每一轮消息; 本协程每隔
+        ``VEYA_CHECKPOINT_INTERVAL_S`` 秒落一次盘, 使进程崩溃/被杀后 ``_restore_history``
+        能从上一次快照续跑, 最多丢一个间隔的工作 (而非整轮)。间隔 <=0 关闭。
+        被 chat_stream 在轮末 cancel; CancelledError 正常上抛终止。
+        """
+        try:
+            interval = float(os.environ.get("VEYA_CHECKPOINT_INTERVAL_S", "15") or 15)
+        except ValueError:
+            interval = 15.0
+        if interval <= 0:
+            return
+        while True:
+            await asyncio.sleep(interval)
+            await self._persist_history(sid)
 
     # ── P4 个人记忆 (蒸馏 → 检索 → 注入) ─────────────────────────────
     _MEM_PREFIX = "# MEMORY (关于用户"

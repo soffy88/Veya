@@ -30,7 +30,7 @@ except ImportError:
     Request = object  # type: ignore
     Response = object  # type: ignore
 
-from veya.im.pseudo import anonymize_user_id
+from veya.oskill.im.pseudo import anonymize_user_id
 
 logger = logging.getLogger
 
