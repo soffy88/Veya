@@ -1,9 +1,9 @@
 """
-veya/llm.py — canonical multi-provider LLM client
+veya/llm.py — canonical multi-provider LLM client (facade)
 
 Consolidates the provider layer (previously split across ``server/providers.py``
 and the stub ``llm_call``/``llm_stream`` in ``veya/compat.py``) into a single
-canonical implementation supporting:
+canonical entry point supporting:
 
 - Non-streaming chat completion  (OpenAI-format response dict)
 - Streaming chat completion     (SSE parsed to OpenAI delta events)
@@ -15,6 +15,23 @@ Providers: ``dashscope`` (qwen-plus), ``anthropic`` (claude-*), ``openai`` (gpt-
 
 Selection order: ``config["provider"]`` > ``VEYA_LLM_PROVIDER`` env > ``dashscope``.
 API keys are read from ``{PROVIDER}_API_KEY`` env vars (or ``config["providers"]``).
+
+Structure (obase self-contained base layer, SPEC v3.0 §3.4):
+this module is the **facade** — the concern-separated implementation lives in
+package-private siblings and is re-exported here so the historical
+``veya.llm.*`` import path and monkeypatch surface stay byte-identical:
+
+- :mod:`veya.obase._llm_config`   — pricing/endpoint/env tables + (provider,
+  model)/API-key resolution
+- :mod:`veya.obase._llm_protocol` — pure OpenAI ⇄ Anthropic wire translation +
+  endpoint canonicalization
+- :mod:`veya.obase._llm_transport` — httpx provider calls (``provider_call`` /
+  ``provider_stream``)
+
+The facade keeps the request-orchestration entry points (``llm_call`` /
+``llm_stream`` / ``_aliased_llm_call`` / ``llm_call_routed``) and the
+container/proxy helpers, which are monkeypatched together in the test suite and
+therefore must resolve within this module's namespace.
 """
 
 from __future__ import annotations
@@ -28,59 +45,44 @@ from typing import Any
 
 import httpx
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-# Approximate pricing in USD per 1M tokens: (input, output)
-_PRICING: dict[str, tuple[float, float]] = {
-    "dashscope": (0.4, 1.2),
-    "anthropic": (3.0, 15.0),
-    "openai": (0.5, 1.5),
-    "deepseek": (0.27, 1.1),
-    "openrouter": (0.15, 0.6),
-    "moonshot": (0.2, 2.0),
-    "zhipu": (0.1, 0.1),
-}
-
-_DEFAULT_MODELS: dict[str, str] = {
-    "dashscope": "qwen-plus",
-    "anthropic": "claude-haiku-4-5-20251001",
-    "openai": "gpt-4o-mini",
-    "deepseek": "deepseek-chat",
-    "openrouter": "openai/gpt-4o-mini",
-    "moonshot": "moonshot-v1-8k",
-    "zhipu": "glm-4-flash",
-}
-
-_ENDPOINTS: dict[str, str] = {
-    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-    "openai": "https://api.openai.com/v1/chat/completions",
-    "anthropic": "https://api.anthropic.com/v1/messages",
-    "deepseek": "https://api.deepseek.com/v1/chat/completions",
-    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
-    "moonshot": "https://api.moonshot.cn/v1/chat/completions",
-    "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-}
-
-_API_KEY_ENV: dict[str, str] = {
-    "dashscope": "DASHSCOPE_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "moonshot": "MOONSHOT_API_KEY",
-    "zhipu": "ZHIPU_API_KEY",
-    "opencode-go": "OPENCODE_API_KEY",
-}
-
-_DEFAULT_PROVIDER = "dashscope"
+# Re-export the extracted layers so ``veya.llm.<name>`` (import path +
+# monkeypatch surface) is unchanged after the god-module decomposition.
+from veya.obase._llm_config import (  # noqa: F401
+    _API_KEY_ENV,
+    _DEFAULT_MODELS,
+    _DEFAULT_PROVIDER,
+    _ENDPOINTS,
+    _PRICING,
+    _opencode_go_key_from_auth,
+    calc_cost,
+    get_api_key,
+)
+from veya.obase._llm_protocol import (  # noqa: F401
+    _core_tool_schemas,
+    _is_local_or_private,
+    _normalize_anthropic_response,
+    _normalize_chat_endpoint,
+    _parse_image_url,
+    _strip_empty_tool_calls,
+    _to_anthropic_content_blocks,
+    prepare_messages_for_provider,
+)
+from veya.obase._llm_transport import (  # noqa: F401
+    _call_anthropic,
+    _call_openai_compat,
+    provider_call,
+    provider_stream,
+)
 
 
 def _user_llm_config() -> dict[str, str]:
     """用户主脑默认配置兜底: ~/.veya/config.json 的 llm 段。
 
     宿主与容器 (veya-data volume) 均可能配置; 无文件/损坏 → 空 dict。
+
+    Lives in the facade (not ``_llm_config``) because the test suite
+    monkeypatches ``veya.llm._user_llm_config`` and ``get_provider_config`` must
+    resolve the patched name within this module's namespace.
     """
     try:
         p = Path.home() / ".veya" / "config.json"
@@ -88,8 +90,10 @@ def _user_llm_config() -> dict[str, str]:
             return {}
         data = json.loads(p.read_text(encoding="utf-8"))
         llm = data.get("llm") or {}
-        return {"provider": str(llm.get("provider") or "").lower(),
-                "model": str(llm.get("model") or "")}
+        return {
+            "provider": str(llm.get("provider") or "").lower(),
+            "model": str(llm.get("model") or ""),
+        }
     except Exception:
         return {}
 
@@ -112,335 +116,9 @@ def get_provider_config(
     return p, str(m)
 
 
-def _opencode_go_key_from_auth() -> str:
-    """opencode-go key 兜底: 读 opencode 本地凭据 (auth.json)。
-
-    宿主侧通常无 OPENCODE_API_KEY env; opencode CLI 装过即有此文件。
-    """
-    try:
-        path = os.path.expanduser("~/.local/share/opencode/auth.json")
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        ent = data.get("opencode-go") or {}
-        return str(ent.get("key") or "")
-    except Exception:
-        return ""
-
-
-def get_api_key(provider: str, config: dict | None = None) -> str:
-    """Return the API key for a provider (env var > config dict)."""
-    providers_cfg = (config or {}).get("providers") or {}
-    if isinstance(providers_cfg, dict):
-        key = providers_cfg.get(provider)
-        if isinstance(key, dict):
-            key = key.get("api_key")
-        if key:
-            return str(key)
-    env_name = _API_KEY_ENV.get(provider, f"{provider.upper()}_API_KEY")
-    key = os.environ.get(env_name, "")
-    if not key and provider == "opencode-go":
-        key = _opencode_go_key_from_auth()
-    return key
-
-
-def calc_cost(provider: str, usage: dict) -> float:
-    """Approximate cost in USD for a usage dict (OpenAI or Anthropic keys)."""
-    in_price, out_price = _PRICING.get(provider, (0.0, 0.0))
-    in_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0) or 0
-    out_tokens = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0) or 0
-    return in_tokens * in_price / 1_000_000 + out_tokens * out_price / 1_000_000
-
-
-# ---------------------------------------------------------------------------
-# Low-level provider calls
-# ---------------------------------------------------------------------------
-
-
-async def _call_openai_compat(
-    client: httpx.AsyncClient,
-    endpoint: str,
-    api_key: str,
-    *,
-    model: str,
-    messages: list,
-    tools: list | None,
-    max_tokens: int = 4096,
-    stream: bool = False,
-    temperature: float | None = None,
-    tool_choice: str | None = None,
-) -> httpx.Response:
-    body: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "stream": stream,
-    }
-    if temperature is not None:
-        body["temperature"] = temperature
-    if tools:
-        body["tools"] = tools
-        body["tool_choice"] = tool_choice or "auto"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    # 私网 endpoint (容器经 docker0 网关访问宿主桥) — 目标服务按 Host 头校验
-    # 本机回环 (opencodex origin_rejected): 补 Host=127.0.0.1 让桥转发后放行。
-    if _is_local_or_private(endpoint) and not endpoint.startswith(
-        ("http://localhost", "http://127.0.0.1", "http://0.0.0.0")
-    ):
-        try:
-            from urllib.parse import urlparse
-
-            _port = urlparse(endpoint).port or 80
-            headers["Host"] = f"127.0.0.1:{_port}"
-        except Exception:
-            pass
-    return await client.post(
-        endpoint,
-        headers=headers,
-        json=body,
-    )
-
-
-async def _call_anthropic(
-    client: httpx.AsyncClient,
-    api_key: str,
-    *,
-    model: str,
-    messages: list,
-    tools: list | None,
-    max_tokens: int = 4096,
-    stream: bool = False,
-    temperature: float | None = None,
-    tool_choice: str | None = None,
-) -> httpx.Response:
-    system_msgs = [m for m in messages if m.get("role") == "system"]
-    other_msgs = [m for m in messages if m.get("role") != "system"]
-    system_text = "\n".join(m["content"] for m in system_msgs) or None
-
-    ant_msgs: list[dict] = []
-    for m in other_msgs:
-        role = m.get("role", "user")
-        if role == "tool":
-            ant_msgs.append(
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": m.get("tool_call_id", ""),
-                            "content": m.get("content", ""),
-                        }
-                    ],
-                }
-            )
-        elif m.get("tool_calls"):
-            content: list[dict] = []
-            if m.get("content"):
-                content.append({"type": "text", "text": m["content"]})
-            for tc in m["tool_calls"]:
-                content.append(
-                    {
-                        "type": "tool_use",
-                        "id": tc.get("id", ""),
-                        "name": tc["function"]["name"],
-                        "input": json.loads(tc["function"]["arguments"]),
-                    }
-                )
-            ant_msgs.append({"role": "assistant", "content": content})
-        else:
-            ant_msgs.append({"role": role, "content": m.get("content", "")})
-
-    body: dict[str, Any] = {"model": model, "messages": ant_msgs, "max_tokens": max_tokens}
-    if temperature is not None:
-        body["temperature"] = temperature
-    if system_text:
-        body["system"] = system_text
-    if tools:
-        body["tools"] = [
-            {
-                "name": t["function"]["name"],
-                "description": t["function"]["description"],
-                "input_schema": t["function"]["parameters"],
-            }
-            for t in tools
-        ]
-    if stream:
-        body["stream"] = True
-    return await client.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        },
-        json=body,
-    )
-
-
-def prepare_messages_for_provider(messages: list, provider: str) -> list:
-    """Normalize OpenAI-style messages (plain text or content blocks) for a provider.
-
-    G12 multimodal: ``openai``/``dashscope`` accept content-block lists natively
-    (``[{"type": "text", ...}, {"type": "image_url", ...}]``) and pass through
-    unchanged. ``anthropic`` needs ``image_url`` blocks converted to its native
-    ``{"type": "image", "source": {...}}`` format and list content wrapped as
-    text blocks.
-    """
-    messages = _strip_empty_tool_calls(messages)
-    if provider != "anthropic":
-        return messages
-    out: list[dict] = []
-    for msg in messages:
-        content = msg.get("content")
-        if isinstance(content, list) and msg.get("role") in ("user", "assistant"):
-            msg = dict(msg)
-            msg["content"] = _to_anthropic_content_blocks(content)
-        out.append(msg)
-    return out
-
-
-def _strip_empty_tool_calls(messages: list) -> list:
-    """删除 ``tool_calls: []`` 空数组键 (所有 provider 统一兜底)。
-
-    DeepSeek 等 openai 兼容 API 拒绝空数组: ``messages[i].tool_calls: []`` →
-    HTTP 400 invalid_request_error。历史消息构造方 (coordinator/assembly) 可能
-    写入空数组 (``message.get("tool_calls") or []``), 发送前必须剥掉该键。
-    """
-    out: list = []
-    for msg in messages:
-        if isinstance(msg, dict) and msg.get("tool_calls") == []:
-            msg = {k: v for k, v in msg.items() if k != "tool_calls"}
-        out.append(msg)
-    return out
-
-
-def _parse_image_url(url: str) -> tuple[str | None, str | None]:
-    """Split a data URI into ``(media_type, base64_data)``; plain URLs → (None, None)."""
-    if isinstance(url, str) and url.startswith("data:"):
-        header, _, payload = url.partition(",")
-        media_type = header[5:].split(";")[0] or "image/png"
-        return media_type, payload
-    return None, None
-
-
-def _to_anthropic_content_blocks(content: list) -> list[dict]:
-    """Convert OpenAI-style content blocks → Anthropic content blocks (G12).
-
-    - ``{"type": "text", ...}`` passes through
-    - ``{"type": "image_url", ...}`` → ``{"type": "image", "source": {...}}``
-      (data URI → base64; plain URL → url source)
-    - unknown blocks pass through untouched
-    """
-    blocks: list[dict] = []
-    for block in content:
-        if not isinstance(block, dict):
-            blocks.append({"type": "text", "text": str(block)})
-            continue
-        if block.get("type") == "text":
-            blocks.append({"type": "text", "text": block.get("text", "")})
-        elif block.get("type") == "image_url":
-            url = block.get("image_url") or {}
-            if isinstance(url, dict):
-                url = url.get("url", "")
-            media_type, data = _parse_image_url(str(url))
-            if data is not None:
-                blocks.append(
-                    {
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": media_type, "data": data},
-                    }
-                )
-            else:
-                blocks.append({"type": "image", "source": {"type": "url", "url": str(url)}})
-        else:
-            blocks.append(block)
-    return blocks
-
-
-def _normalize_anthropic_response(data: dict) -> dict:
-    """Normalize an Anthropic Messages response to OpenAI format."""
-    content_text = ""
-    tool_calls: list[dict] = []
-    for blk in data.get("content", []):
-        if blk.get("type") == "text":
-            content_text = blk.get("text", "")
-        elif blk.get("type") == "tool_use":
-            tool_calls.append(
-                {
-                    "id": blk.get("id", ""),
-                    "type": "function",
-                    "function": {
-                        "name": blk["name"],
-                        "arguments": json.dumps(blk.get("input", {})),
-                    },
-                }
-            )
-    usage = data.get("usage", {})
-    return {
-        "choices": [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": content_text or None,
-                    "tool_calls": tool_calls or None,
-                }
-            }
-        ],
-        "usage": {
-            "prompt_tokens": usage.get("input_tokens", 0),
-            "completion_tokens": usage.get("output_tokens", 0),
-        },
-    }
-
-
 def _in_container() -> bool:
     """容器环境检测 (与 engine_runner 一致)。"""
     return bool(os.environ.get("VEYA_WORKSPACE")) or os.path.exists("/.dockerenv")
-
-
-def _is_local_or_private(endpoint: str | None) -> bool:
-    """本地/内网 OpenAI 兼容端点 (Ollama / opencodex / 局域网网关) 无需 API Key。
-
-    容器内经 docker0 网关 (如 192.168.16.1) 访问宿主回环服务时,
-    endpoint 是私网 IP 而非 localhost — 同样免 key。
-    """
-    if not endpoint:
-        return False
-    if endpoint.startswith(("http://localhost", "http://127.0.0.1", "http://0.0.0.0")):
-        return True
-    if endpoint.startswith(("http://192.168.", "http://10.", "http://172.16.",
-                            "http://172.17.", "http://172.18.", "http://172.19.",
-                            "http://172.20.", "http://172.21.", "http://172.22.",
-                            "http://172.23.", "http://172.24.", "http://172.25.",
-                            "http://172.26.", "http://172.27.", "http://172.28.",
-                            "http://172.29.", "http://172.30.", "http://172.31.")):
-        return True
-    return False
-
-
-def _core_tool_schemas(tools: list | None) -> list | None:
-    """全量工具面 → 核心执行子集 (本地兜底模型上下文有限)。
-
-    本地 gpt-5.6-luna 的上下文小于云端 free 池: 全量 173 工具 + 50KB
-    system prompt 会超限 → 空回复。降级兜底时只传核心执行工具面,
-    保「能回复」优先 (fetch/reasonix/browser/sandbox/system/代码工具)。
-    """
-    if not tools:
-        return None
-    _CORE = {
-        "fetch_url", "browser_run", "run_in_sandbox", "grep",
-        "list_files", "read_file_ast", "delegate_to_genesis",
-        "search_genesis_ledger", "get_market_data_schema",
-        "run_backtest_coprocessor",
-    }
-    core: list = []
-    for s in tools:
-        name = ((s.get("function") or {}).get("name") or "")
-        if name.startswith(("system_", "reasonix_")) or name in _CORE:
-            core.append(s)
-    return core or None
 
 
 def _custom_proxy_url(provider: str) -> str | None:
@@ -462,162 +140,6 @@ def _custom_proxy_url(provider: str) -> str | None:
         except Exception:
             continue
     return None
-
-
-def _normalize_chat_endpoint(endpoint: str, provider: str) -> str:
-    """归一化 openai 兼容 chat completions 端点。
-
-    用户配置常给 base URL 形态 (``https://host/v1``), 而请求必须打到
-    ``.../chat/completions`` — 否则出现 ``Invalid URL (POST /v1)`` 404。
-    完整 URL (内置 _ENDPOINTS 均以 /chat/completions 结尾) 原样返回;
-    相对/空 URL 明确报错 (避免 httpx 相对 URL 404 迷惑)。
-    """
-    e = (endpoint or "").strip()
-    if not e:
-        raise ValueError(f"provider {provider!r} 未配置有效 endpoint")
-    if not e.startswith(("http://", "https://")):
-        raise ValueError(
-            f"provider {provider!r} endpoint 必须是完整 URL (http/https), 收到 {e!r}")
-    if not e.rstrip("/").endswith("/chat/completions"):
-        e = e.rstrip("/") + "/chat/completions"
-    return e
-
-
-async def provider_call(
-    client: httpx.AsyncClient,
-    provider: str,
-    *,
-    model: str | None,
-    messages: list,
-    tools: list | None = None,
-    max_tokens: int = 4096,
-    temperature: float | None = None,
-    endpoint: str | None = None,
-    api_key: str | None = None,
-    tool_choice: str | None = None,
-) -> dict[str, Any]:
-    """Single non-streaming completion. Returns an OpenAI-format response dict.
-
-    ``endpoint`` overrides the built-in provider endpoint (e.g. NVIDIA NIM's
-    OpenAI-compatible ``https://integrate.api.nvidia.com/v1/chat/completions``).
-    ``api_key`` overrides the env lookup (Genesis 专属 Key 注入用, 物理隔离).
-    """
-    api_key = api_key or get_api_key(provider)
-    if not api_key:
-        # 本地模型 (Ollama / opencodex 127.0.0.1) 无需 API Key — 与 llm_call
-        # 的 local_endpoint 免 key 语义一致 (此前 provider_call 无条件拦 →
-        # 本地 endpoint 也被降级成 stub)
-        local = _is_local_or_private(endpoint)
-        if not local:
-            raise ValueError(f"API key not set for provider '{provider}'")
-        api_key = "local"
-    resolved_model = model or _DEFAULT_MODELS.get(provider, "default")
-    messages = prepare_messages_for_provider(messages, provider)
-
-    if provider == "anthropic" and not endpoint:
-        resp = await _call_anthropic(
-            client,
-            api_key,
-            model=resolved_model,
-            messages=messages,
-            tools=tools,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            tool_choice=tool_choice,
-        )
-        resp.raise_for_status()
-        return _normalize_anthropic_response(resp.json())
-
-    endpoint = endpoint or _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
-    endpoint = _normalize_chat_endpoint(endpoint, provider)
-    resp = await _call_openai_compat(
-        client,
-        endpoint,
-        api_key,
-        model=resolved_model,
-        messages=messages,
-        tools=tools,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        tool_choice=tool_choice,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data if isinstance(data, dict) else {}
-
-
-async def provider_stream(
-    client: httpx.AsyncClient,
-    provider: str,
-    *,
-    model: str | None,
-    messages: list,
-    tools: list | None = None,
-    max_tokens: int = 4096,
-) -> AsyncIterator[dict[str, Any]]:
-    """Stream a completion, yielding OpenAI-format delta events:
-    ``{"choices": [{"delta": {"content": "..."}}]}``.
-    """
-    api_key = get_api_key(provider)
-    if not api_key:
-        raise ValueError(f"API key not set for provider '{provider}'")
-    resolved_model = model or _DEFAULT_MODELS.get(provider, "default")
-    messages = prepare_messages_for_provider(messages, provider)
-
-    if provider == "anthropic":
-        resp = await _call_anthropic(
-            client,
-            api_key,
-            model=resolved_model,
-            messages=messages,
-            tools=tools,
-            max_tokens=max_tokens,
-            stream=True,
-        )
-        resp.raise_for_status()
-        async for line in resp.aiter_lines():
-            if not line or not line.startswith("data:"):
-                continue
-            event = json.loads(line[5:].strip())
-            if event.get("type") == "content_block_delta":
-                delta = event.get("delta", {})
-                if delta.get("type") == "text_delta" and delta.get("text"):
-                    yield {"choices": [{"delta": {"content": delta["text"]}}]}
-            elif event.get("type") == "message_delta":
-                yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
-        return
-
-    endpoint = _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
-    endpoint = _normalize_chat_endpoint(endpoint, provider)
-    resp = await _call_openai_compat(
-        client,
-        endpoint,
-        api_key,
-        model=resolved_model,
-        messages=messages,
-        tools=tools,
-        max_tokens=max_tokens,
-        stream=True,
-    )
-    resp.raise_for_status()
-    async for line in resp.aiter_lines():
-        if not line or not line.startswith("data:"):
-            continue
-        payload = line[5:].strip()
-        if payload == "[DONE]":
-            yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
-            return
-        try:
-            chunk = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        choice = (chunk.get("choices") or [{}])[0]
-        delta = choice.get("delta") or {}
-        content = delta.get("content")
-        if content:
-            yield {"choices": [{"delta": {"content": content}}]}
-        if choice.get("finish_reason"):
-            yield {"choices": [{"delta": {}, "finish_reason": choice["finish_reason"]}]}
 
 
 # ---------------------------------------------------------------------------
@@ -667,18 +189,20 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                 except Exception as exc:  # 网络/鉴权失败 → 换模型重试
                     last_err = str(exc)
                     continue
-                content = (
-                    (resp.get("choices") or [{}])[0].get("message") or {}
-                ).get("content") or ""
-                tool_calls = (
-                    (resp.get("choices") or [{}])[0].get("message") or {}
-                ).get("tool_calls") or []
+                content = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
+                    "content"
+                ) or ""
+                tool_calls = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
+                    "tool_calls"
+                ) or []
                 # 有 tool_calls 的响应 content 为空是合法的 (opencode 模型把
                 # 输出放 reasoning_content + tool_calls) — 不可误判为无效。
                 # stub 检测: 返回 default_content 说明网关失败, 继续下一候选。
-                if ((not content.strip() and not tool_calls)
-                        or content.strip().lower() in ("none", "null")
-                        or (content.strip() and content.strip() == default and not tool_calls)):
+                if (
+                    (not content.strip() and not tool_calls)
+                    or content.strip().lower() in ("none", "null")
+                    or (content.strip() and content.strip() == default and not tool_calls)
+                ):
                     last_err = f"opencode-go {cand_bare} 返回无效内容: {content!r}"
                     continue
                 return resp
@@ -700,22 +224,29 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                     tools=_core_tool_schemas(payload.get("tools")),
                     default_content="gpt-5.6-luna 兜底失败",
                 )
-                content = (
-                    (resp.get("choices") or [{}])[0].get("message") or {}
-                ).get("content") or ""
+                content = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
+                    "content"
+                ) or ""
                 if content.strip() and content.strip().lower() not in ("none", "null"):
-                    resp["router"] = {"route": "frontier_fallback",
-                                      "reason": "opencode-go empty → gpt-5.6-luna"}
+                    resp["router"] = {
+                        "route": "frontier_fallback",
+                        "reason": "opencode-go empty → gpt-5.6-luna",
+                    }
                     return resp
             except Exception as exc:  # noqa: BLE001 — 兜底失败也绝不静默
                 last_err = f"gpt-5.6-luna 兜底失败: {exc}"
             return {
-                "choices": [{"message": {"role": "assistant",
-                                          "content": (
-                                              f"opencode-go 调用失败: "
-                                              f"{last_err or '所有模型均失败'}")
-                                          }}],
-                "usage": {}, "opencode": True, "error": True,
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (f"opencode-go 调用失败: {last_err or '所有模型均失败'}"),
+                        }
+                    }
+                ],
+                "usage": {},
+                "opencode": True,
+                "error": True,
             }
         return await llm_call(
             payload["messages"],
@@ -731,12 +262,14 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
     # 复杂别名路由器 (quality-gate 升级/模型切换/并行分派把链路搞复杂,
     # 是空回复的诱因)。直连: 候选模型重试 + 空回复 gpt-5.6-luna 兜底
     # (逻辑在 _single 的 opencode 分支)。
-    result = await _single({
-        "provider": "opencode",
-        "model": "opencode-go/deepseek-v4-flash",
-        "messages": messages,
-        "tools": kwargs.get("tools"),
-    })
+    result = await _single(
+        {
+            "provider": "opencode",
+            "model": "opencode-go/deepseek-v4-flash",
+            "messages": messages,
+            "tools": kwargs.get("tools"),
+        }
+    )
     # opencode-go 档: provider_call 不认识 opencode → 已由 _single 特判返回
     if result.get("opencode"):
         return result
@@ -745,10 +278,11 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
     # 外环兜底 (绝不静默): 无论内部哪个路径 (opencode 空 / quality gate 升级
     # 到全量工具超限等) 漏出空回复, 最后用本地 gpt-5.6-luna + 核心工具面
     # 兜一次。兜底是可靠性, 不是路由判断 — 模型决策不受影响。
-    msg = ((result.get("choices") or [{}])[0].get("message") or {})
-    content = (msg.get("content") or "")
-    if ((not content.strip() or content.strip().lower() in ("none", "null"))
-            and not msg.get("tool_calls")):
+    msg = (result.get("choices") or [{}])[0].get("message") or {}
+    content = msg.get("content") or ""
+    if (not content.strip() or content.strip().lower() in ("none", "null")) and not msg.get(
+        "tool_calls"
+    ):
         try:
             frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
                 "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
@@ -764,15 +298,11 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             )
             c2 = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
             if c2.strip() and c2.strip().lower() not in ("none", "null"):
-                resp["router"] = {"route": "frontier_fallback",
-                                  "reason": "empty → gpt-5.6-luna"}
+                resp["router"] = {"route": "frontier_fallback", "reason": "empty → gpt-5.6-luna"}
                 return resp
         except Exception:  # noqa: BLE001 — 兜底失败仍返回原结果 (后续各层继续兜底)
             pass
     return result
-
-
-
 
 
 async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
@@ -829,9 +359,6 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     # 双通道客户端: 直连 + 代理兜底 (自定义海外端点被 GFW 间歇重置时)
     # 内置 provider (dashscope 等国内直连) 不走代理; 容器内经桥 17890 → 宿主 7890。
     proxy = _custom_proxy_url(provider)
-    # 双通道客户端: 直连 + 代理兜底 (自定义海外端点被 GFW 间歇重置时)
-    # 内置 provider (dashscope 等国内直连) 不走代理; 容器内经桥 17890 → 宿主 7890。
-    proxy = _custom_proxy_url(provider)
     clients: list[httpx.AsyncClient] = [httpx.AsyncClient(timeout=timeout)]
     if proxy:
         clients.append(httpx.AsyncClient(timeout=timeout, proxy=proxy))
@@ -852,12 +379,17 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
                     api_key=api_key,
                     tool_choice=tool_choice,
                 )
-            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout,
-                    httpx.RemoteProtocolError, httpx.ReadError) as exc:
+            except (
+                httpx.ConnectError,
+                httpx.ConnectTimeout,
+                httpx.ReadTimeout,
+                httpx.RemoteProtocolError,
+                httpx.ReadError,
+            ) as exc:
                 # 瞬时网络抖动(如 NIM 连接重置) — 指数退避重试 (直连/代理双通道交替)
                 last_exc = exc
                 if attempt < retries:
-                    await asyncio.sleep(1.5 * (2 ** attempt))
+                    await asyncio.sleep(1.5 * (2**attempt))
         raise last_exc if last_exc else RuntimeError("llm_call retry exhausted")
     except ValueError as exc:
         # Missing key etc. — degrade to stub rather than crashing the caller.
@@ -984,9 +516,7 @@ async def llm_call_routed(
     if session_id:
         sticky.lock(session_id, logical_model)
 
-    providers = get_route(logical_model) or [
-        get_provider_config(config, model=logical_model)[0]
-    ]
+    providers = get_route(logical_model) or [get_provider_config(config, model=logical_model)[0]]
     attempts: list[dict[str, Any]] = []
     last_error = "no provider succeeded"
 
@@ -995,7 +525,14 @@ async def llm_call_routed(
         # 用量门禁: 已超限的 provider 跳过
         ok, view = ledger.check(provider, model)
         if not ok:
-            attempts.append({"provider": provider, "model": model, "error": "quota exceeded", "over": view["over"]})
+            attempts.append(
+                {
+                    "provider": provider,
+                    "model": model,
+                    "error": "quota exceeded",
+                    "over": view["over"],
+                }
+            )
             continue
         try:
             response = await llm_call(
@@ -1007,21 +544,28 @@ async def llm_call_routed(
             )
         except Exception as exc:  # 网络/超时/provider 异常 → 学习限额 + 下一位
             ledger.learn_limit(provider, model, error_body=str(exc))
-            attempts.append({"provider": provider, "model": model, "error": f"{exc.__class__.__name__}: {exc}"})
+            attempts.append(
+                {"provider": provider, "model": model, "error": f"{exc.__class__.__name__}: {exc}"}
+            )
             last_error = str(exc)
             continue
 
         # 用量记录 (成功才算)
         usage = response.get("usage") or {}
         ledger.record(
-            provider, model,
+            provider,
+            model,
             prompt_tokens=usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0) or 0,
-            completion_tokens=usage.get("completion_tokens", 0) or usage.get("output_tokens", 0) or 0,
+            completion_tokens=usage.get("completion_tokens", 0)
+            or usage.get("output_tokens", 0)
+            or 0,
         )
         response["_routed"] = {"provider": provider, "model": model, "attempts": attempts}
         # 工具调用救援: 文本 tool call → 结构化
         content = (response.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        if isinstance(content, str) and not response.get("choices", [{}])[0].get("message", {}).get("tool_calls"):
+        if isinstance(content, str) and not response.get("choices", [{}])[0].get("message", {}).get(
+            "tool_calls"
+        ):
             rescued = rescue_tool_calls(content)
             if rescued:
                 response["choices"][0]["message"]["tool_calls"] = rescued

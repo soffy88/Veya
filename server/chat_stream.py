@@ -13,9 +13,13 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from server.coordinator_master import master_coordinator
 from server.sse import get_or_create_queue
+
+if TYPE_CHECKING:
+    from fastapi import Request
 
 # 后台任务引用集(防 GC 回收进行中的流式任务)
 _stream_tasks: set[asyncio.Task] = set()
@@ -31,6 +35,7 @@ async def new_agent_stream_events(
     endpoint: str | None = None,
     user: dict | None = None,
     images: list[str] | None = None,
+    request: "Request | None" = None,
 ) -> AsyncIterator[str]:
     """主脑 SSE 事件泵: 消费事件队列 → SSE 帧。
 
@@ -38,6 +43,9 @@ async def new_agent_stream_events(
     config/provider/model/endpoint 为请求级 LLM 覆盖(前端传入的 user key)。
     user: 登录用户 {user_id, username} — 在流式 task 内显式设置 (contextvar
     不跨 asyncio task 传播, 否则会话历史/计划会落回 anonymous)。
+    request: FastAPI 请求对象 — 心跳节拍上检测客户端断开, 断开则停止推流并
+    释放本生成器协程。注意: 后台 ``chat_task``/``_finish`` 仍跑完 (跨端完成通知
+    依赖它), 故此处只停消费、不取消后台任务。
     """
     # P3: 无 sid 时生成独立 id (旧默认 "chat_stream" 是公共桶, 会跨会话/跨用户串味)
     sid = session_id or uuid.uuid4().hex
@@ -135,9 +143,7 @@ async def new_agent_stream_events(
                 except Exception as exc:  # noqa: BLE001 — 通知失败不拖垮主流程
                     import logging
 
-                    logging.getLogger("chat_stream").warning(
-                        "完成通知推送失败: %s", exc
-                    )
+                    logging.getLogger("chat_stream").warning("完成通知推送失败: %s", exc)
 
         # 保留任务引用防 GC
         finish_task = asyncio.create_task(_finish())
@@ -152,6 +158,11 @@ async def new_agent_stream_events(
             try:
                 item = await asyncio.wait_for(queue._q.get(), timeout=_HEARTBEAT_S)
             except TimeoutError:
+                # 客户端断开: 停止推流 + 释放本协程 (否则长任务下生成器与连接
+                # 会空转到任务结束)。后台 chat_task/_finish 不取消 — 跨端完成
+                # 通知靠它跑完; Stop 语义仍走 /api/v1/agent/stop → cancel_session。
+                if request is not None and await request.is_disconnected():
+                    break
                 yield ": ping\n\n"
                 continue
             if item is None:
