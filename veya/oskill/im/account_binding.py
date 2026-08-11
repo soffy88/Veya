@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from veya.im.pseudo import anonymize_user_id
+from veya.oskill.im.pseudo import anonymize_user_id
 
 # ---------------------------------------------------------------------------
 # Types

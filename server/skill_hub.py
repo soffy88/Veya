@@ -27,6 +27,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from server.tool_guard import ToolDenied as _ToolDenied
+from server.tool_guard import global_tool_guard as _tool_guard
 from server.tool_registry import ToolExecutionError
 
 logger = logging.getLogger("skillhub")
@@ -40,6 +42,30 @@ def _truncate(text: str, limit: int = _MAX_RESULT_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n... [truncated {len(text) - limit} chars]"
+
+
+def _accepted_kwargs(fn: Callable, kwargs: dict) -> dict:
+    """按目标函数签名过滤 kwargs — 技能 main() 收得下才传。
+
+    约定是 ``main(**kwargs)``, 但真实技能可能写成 ``main()`` / ``main(goal)`` /
+    ``main(a, b)``。dispatcher 的 goal 归一化会注入 ``goal``, 若 main() 不收该参
+    就会 ``TypeError: unexpected keyword``。这里:
+    - main 含 ``**kwargs`` (VAR_KEYWORD) → 原样全传;
+    - 否则只传 main 声明的具名参数, 丢弃多余键 (缺必填参再由 main 自身报错)。
+    签名不可内省 (builtin/C) → 原样传 (保持旧行为)。
+    """
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return kwargs
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+        return kwargs
+    accepted = {
+        p.name
+        for p in params
+        if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    return {k: v for k, v in kwargs.items() if k in accepted}
 
 
 class VeyaSkillHub:
@@ -189,7 +215,7 @@ class VeyaSkillHub:
                     f"Skill '{name}' must implement a 'main(**kwargs)' function."
                 )
             try:
-                result = main_fn(**kwargs)
+                result = main_fn(**_accepted_kwargs(main_fn, kwargs))
                 if inspect.isawaitable(result):
                     result = await result
             except Exception as exc:
@@ -292,6 +318,11 @@ class VeyaSkillHub:
 
     async def execute(self, tool_name: str, kwargs: dict) -> str:
         """主脑决定调用工具时,路由到这里执行。dispatcher 模式解包 run_skill/list_skills。"""
+        # 动态技能是运行时自生长的最不可信执行面 → 同样收口统一守卫通道。
+        try:
+            await _tool_guard.acheck(tool_name, kwargs, source="skill_hub")
+        except _ToolDenied as denied:
+            raise ToolExecutionError(str(denied)) from denied
         if self._dispatcher and tool_name == "list_skills":
             return json.dumps(
                 [
