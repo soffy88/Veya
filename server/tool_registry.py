@@ -481,6 +481,41 @@ def _tool_read_file_ast(filepath: str) -> str:
     return extract_skeleton(source, filepath)
 
 
+def _resolve_write_path(filepath: str, *, must_exist: bool = False) -> Path:
+    """写文件根: 可写区 (VEYA_WRITE_ROOT, 默认 ~/.veya/work — veya-data 卷, 重启不丢)。
+
+    与读根 (VEYA_WORKSPACE, 项目/代码只读) 分离: 主脑「存储文件」写到这里,
+    读文件照旧读项目代码。防逃逸同 _resolve_path。
+    """
+    root = Path(
+        os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work"))
+    ).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    p = Path(filepath)
+    if not p.is_absolute():
+        p = root / p
+    p = p.resolve()
+    if p != root and root not in p.parents:
+        raise ToolExecutionError(f"path '{filepath}' escapes write root '{root}'")
+    if must_exist and not p.exists():
+        raise ToolExecutionError(f"file not found: {filepath}")
+    return p
+
+
+def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str:
+    """写文本文件到可写工作区 (~/.veya/work, 主脑「存储文件」入口, 零代码执行)。
+
+    路径限定可写根内 (防逃逸, 与 read_file_ast 同策略);
+    overwrite=false 时已存在则报错, 避免误覆盖。
+    """
+    path = _resolve_write_path(filepath, must_exist=False)
+    if path.exists() and not overwrite:
+        raise ToolExecutionError(f"文件已存在: {filepath} (overwrite=false, 不会覆盖)")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(content), encoding="utf-8")
+    return f"✅ 已写入 {path} ({len(str(content))} 字符)。可用 read_file_ast / grep 继续理解。"
+
+
 def _tool_grep(pattern: str, glob: str | None = None, root: str | None = None) -> str:
     """在项目内搜索代码(ripgrep),定位定义与引用。"""
     from server.assembly import ripgrep_search
@@ -689,6 +724,26 @@ master_tools.register(
 )
 
 master_tools.register(
+    name="write_file",
+    description=(
+        "Write/save text content to a file inside the workspace (主脑「存储文件」入口, "
+        "zero code execution). Use this when the user asks to save/store/persist content "
+        "to a file. NEVER use run_in_sandbox to write files — write_file is the file-write "
+        "tool. After writing, use read_file_ast / grep to understand the file."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "filepath": {"type": "string", "description": "path relative to workspace root"},
+            "content": {"type": "string", "description": "text content to write"},
+            "overwrite": {"type": "boolean", "description": "default true; false = refuse if file exists"},
+        },
+        "required": ["filepath", "content"],
+    },
+    func=_tool_write_file,
+)
+
+master_tools.register(
     name="read_file_ast",
     description=(
         "Read the AST skeleton of a local file (signatures + line ranges, no bodies) to "
@@ -741,7 +796,10 @@ master_tools.register(
     name="run_in_sandbox",
     description=(
         "Run python code (or a shell command) inside the 3O isolated sandbox: network blocked, "
-        "memory/time limited. Use to test code snippets instead of asking the user to run them."
+        "memory/time limited. ONLY for executing/verifying code snippets (e.g. test a function). "
+        "DO NOT use it for file operations — writing files → write_file, reading/understanding "
+        "files → read_file_ast / grep / mcp_codebase. If the user just wants to save content "
+        "or understand a file, use those instead of running anything."
     ),
     parameters={
         "type": "object",
