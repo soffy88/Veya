@@ -1,70 +1,13 @@
+"""veya/utils — 3O 归位门面 (sys.modules 别名 → veya/obase/utils).
+
+veya 包按 3O 范式重构 (SPEC v3.0 §2.1): 顶层平铺模块归位到分层包
+veya/obase/utils.py。本文件注册 sys.modules 别名, 使 import veya.utils
+拿到与 veya.obase.utils 完全相同的模块对象 — 属性访问/monkeypatch/
+私有符号全部等价, 旧导入路径零成本兼容。新代码应直接
+import veya.obase.utils。
 """
-Utility functions and classes for veya project.
-"""
+import sys
 
+from veya.obase import utils as _impl
 
-class CostTracker:
-    """
-    Simple cost tracker for tracking expenses during operations.
-    """
-
-    def __init__(self):
-        self.total_cost = 0.0
-        self.operations = []
-
-    def add_cost(self, amount: float, operation: str = "unknown"):
-        """
-        Add cost for an operation.
-        :param amount: Cost in USD
-        :param operation: Description of the operation
-        """
-        self.total_cost += amount
-        self.operations.append(
-            {"operation": operation, "amount": amount, "cumulative": self.total_cost}
-        )
-
-    def get_total_cost(self) -> float:
-        """Get total accumulated cost."""
-        return self.total_cost
-
-    def reset(self):
-        """Reset the cost tracker."""
-        self.total_cost = 0.0
-        self.operations = []
-
-    def get_operations(self):
-        """Get list of operations with costs."""
-        return self.operations
-
-    def record(self, *, tokens: int = 0, cost_usd: float = 0.0) -> None:
-        """compat-compatible method: record token/cost (§1.4 single source — compat.CostTracker aliases this class)."""
-        self.total_cost += cost_usd
-        self.operations.append(
-            {
-                "operation": "llm",
-                "amount": cost_usd,
-                "tokens": tokens,
-                "cumulative": self.total_cost,
-            }
-        )
-
-    def to_dict(self) -> dict:
-        """compat-compatible method: serializable view."""
-        return {
-            "total_usd": self.total_cost,
-            "total_tokens": sum(op.get("tokens", 0) for op in self.operations),
-        }
-
-
-# Global instance for convenience
-default_cost_tracker = CostTracker()
-
-
-def get_cost_tracker():
-    """Get the global cost tracker instance."""
-    return default_cost_tracker
-
-
-def track_cost(amount: float, operation: str = "unknown"):
-    """Convenience function to add cost to global tracker."""
-    default_cost_tracker.add_cost(amount, operation)
+sys.modules[__name__] = _impl
