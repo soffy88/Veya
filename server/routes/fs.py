@@ -11,9 +11,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 
-router = APIRouter(tags=["file-tree"])
+from server import auth as auth_mod
+
+router = APIRouter(tags=["file-tree"],
+              dependencies=[Depends(auth_mod.require_user)])
 
 _SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".loopx",
               ".svelte-kit", "venv", "dist", "build", ".ruff_cache",

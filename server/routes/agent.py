@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import Depends, APIRouter, HTTPException
+from server import auth as auth_mod
 from pydantic import BaseModel
 
 from agents import resolve_persona
 
-router = APIRouter(prefix="/agent", tags=["agent"])
+router = APIRouter(prefix="/agent", tags=["agent"],
+              dependencies=[Depends(auth_mod.require_user)])
 
 
 class AgentInvokeRequest(BaseModel):

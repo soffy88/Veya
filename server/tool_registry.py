@@ -265,22 +265,23 @@ def _html_to_text(html: str, max_chars: int = 12000) -> str:
     return text.strip()[:max_chars]
 
 
-def _proxy_url() -> str | None:
+async def _proxy_url() -> str | None:
     """容器内 → 宿主代理 (17890 → clash 7890) 兜底 (GFW 海外站点)。
 
     与 veya.llm._custom_proxy_url 同源探活: 容器桥网关可达宿主 python
-    代理端口时返回代理 URL, 否则 None (直连)。
+    代理端口时返回代理 URL, 否则 None (直连)。async httpx 不阻塞事件循环。
     """
     import os
 
     if os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"):
         return None  # 已有系统代理, 不叠加
-    import urllib.request
+    import httpx
 
     for gw in ("192.168.16.1", "172.18.0.1"):
         try:
-            with urllib.request.urlopen(f"http://{gw}:17890/", timeout=0.5) as resp:
-                if resp.status == 200:
+            async with httpx.AsyncClient(timeout=0.5) as client:
+                resp = await client.get(f"http://{gw}:17890/")
+                if resp.status_code == 200:
                     return f"http://{gw}:17890"
         except Exception:
             continue
@@ -308,7 +309,7 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
         ),
         "Accept": "text/html,application/xhtml+xml,text/markdown,text/plain,*/*;q=0.8",
     }
-    proxy = _proxy_url()
+    proxy = await _proxy_url()
 
     def _client() -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=20.0, follow_redirects=True, proxy=proxy)
