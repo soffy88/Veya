@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import Depends, APIRouter, HTTPException
+from server import auth as auth_mod
 
 from server.audit import VeyaAudit
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+router = APIRouter(prefix="/audit", tags=["audit"],
+              dependencies=[Depends(auth_mod.require_user)])
 
 _audit = VeyaAudit()
 
