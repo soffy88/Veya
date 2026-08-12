@@ -7,12 +7,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import Depends, APIRouter, HTTPException
+from server import auth as auth_mod
 from pydantic import BaseModel
 
 from veya.ast import create_ast_analyzer
 
-router = APIRouter(prefix="/analysis", tags=["analysis"])
+router = APIRouter(prefix="/analysis", tags=["analysis"],
+              dependencies=[Depends(auth_mod.require_user)])
 
 # 全局 AST 分析器（实际应用中可以按需创建）
 ast_analyzer = create_ast_analyzer()

@@ -10,10 +10,13 @@ import os
 import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from server import auth as auth_mod
 from pydantic import BaseModel
 
-router = APIRouter(tags=["git-panel"])
+router = APIRouter(tags=["git-panel"],
+              dependencies=[Depends(auth_mod.require_user)])
 
 _GIT_TIMEOUT = 15
 

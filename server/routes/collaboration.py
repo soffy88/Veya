@@ -7,12 +7,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import Depends, APIRouter, HTTPException
+from server import auth as auth_mod
 from pydantic import BaseModel
 
 from veya.collaboration import create_collaboration_manager
 
-router = APIRouter(prefix="/collaboration", tags=["collaboration"])
+router = APIRouter(prefix="/collaboration", tags=["collaboration"],
+              dependencies=[Depends(auth_mod.require_user)])
 
 # 全局协作管理器
 collaboration_manager = create_collaboration_manager()

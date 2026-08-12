@@ -5,16 +5,20 @@
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from server import auth as auth_mod
 
 from veya.performance import create_incremental_computer, create_smart_cache
 
-router = APIRouter(prefix="/performance", tags=["performance"])
+router = APIRouter(prefix="/performance", tags=["performance"],
+              dependencies=[Depends(auth_mod.require_user)])
 
 # 全局实例
 smart_cache = create_smart_cache(max_size=1000)
@@ -127,6 +131,27 @@ async def cache_warmup(data: str | None = None) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Cache warmup failed: {e!s}")
 
 
+# AST 白名单: 只允许数字运算/比较/布尔, 禁止属性访问/调用/导入 (防 RCE)
+_SAFE_NODES = (
+    ast.Expression, ast.Constant, ast.Name, ast.Load,
+    ast.BinOp, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult,
+    ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+    ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
+    ast.And, ast.Or, ast.Not, ast.BoolOp,
+)
+
+
+def _safe_eval(expr: str, env: dict) -> Any:
+    """安全求值: AST 白名单 + 无内置函数。非法节点/未知变量抛 ValueError。"""
+    tree = ast.parse(expr, mode="eval")
+    for node in ast.walk(tree):
+        if not isinstance(node, _SAFE_NODES):
+            raise ValueError(f"unsupported node: {type(node).__name__}")
+        if isinstance(node, ast.Name) and node.id not in env:
+            raise ValueError(f"unknown var: {node.id}")
+    return eval(compile(tree, "<safe>", "eval"), {"__builtins__": {}}, env)
+
+
 @router.post("/incremental/register")
 async def incremental_register(request: IncrementalRegisterRequest) -> dict[str, Any]:
     """注册增量计算项"""
@@ -140,7 +165,7 @@ async def incremental_register(request: IncrementalRegisterRequest) -> dict[str,
                 for i, arg in enumerate(args):
                     result = result.replace(f"$dep{i}$", str(arg))
                 try:
-                    return eval(result)
+                    return _safe_eval(result, {})
                 except Exception:
                     return None
 
