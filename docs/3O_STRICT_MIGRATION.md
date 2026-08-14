@@ -121,7 +121,7 @@ python scripts/check_oskill_pure.py . --strict                                  
 | 2 | oskill 8 纯函数（parse/validate 优先） | ✅ 完成（2026-08，见 §8） |
 | 3 | oprim 7 原子操作（禁止业务直接 I/O） | ✅ 完成（2026-08，见 §9） |
 | 4 | omodul 重建（session_tree/tool_pipeline/agent_loop/evidence_refine）双轨 | ✅ 完成（2026-08，见 §10） |
-| 5 | oservi daemon + api_gateway | ⬜ 未动工（需批准） |
+| 5 | oservi daemon + api_gateway | ✅ 完成（2026-08，见 §11） |
 
 ## 6. 阶段 0 运行结果
 
@@ -261,3 +261,53 @@ obase 句柄合同（阶段 1）→ oskill 纯算法 + 幻觉拦截（阶段 2�
 物理触手原子（阶段 3）→ omodul 注入式心脏 + 会话树 + 工具管道 + 代码证据
 （阶段 4）。主链默认仍走旧路径（冻结架构），`VEYA_AGENT_LOOP=strict` 即可
 切换新心脏——阶段 5 统一入口时收敛。
+
+## 11. 阶段 5 结果（oservi 长时守护 + 统一网关）
+
+**新增:**
+
+| 元素 | 模块 | 能力 |
+|---|---|---|
+| oservi_daemon_engine | `veya/oservi/daemon_engine.py` | 常驻后台；每任务独立 AgentLoop（注入 gate 检查点）；状态机 PENDING→RUNNING⇄PAUSED→COMPLETED/FAILED；HITL 挂起/恢复 + 人类输入注入（写入会话树 user 节点）；任务事件流中继（agent_loop.* + task.end 按 task 分发，顺序由事件流保证）；DaemonBus 集成（start() 注册 daemon.pause/resume/status → 阶段 3 `oprim.daemon` 原子直达真实链路）；register_tool 共享工具表 |
+| oservi_api_gateway | `veya/oservi/gateway.py` | 统一极简指令（FastAPI router，挂载 `/api/v1/3o/`）：POST tasks / GET tasks/{id} / pause / resume{input} / GET stream（SSE 事件流）；404/409/422 语义；engine 懒单例 + 测试可替换 |
+
+**AgentLoop 增量（阶段 4 兼容扩展）:** `gate` 注入检查点——每轮开始前
+await；daemon 注入后 paused 阻塞等待 resume，默认 None 行为不变。
+
+**修复的时序 bug:** 任务终止信号原由 driver 直接 put 队列（先于 relay 处理
+agent_loop.done）→ 改为 `task.end` 事件经事件流发出（relay 保证顺序），
+stream 消费者按 task.end 收尾。
+
+**挂载（零替换）:** `server/app.py` include_router(gateway) —— 新增前缀，
+现有 veya start / CLI 路由全部保留。计划中的「现有入口改为只调用 gateway」
+留作配置动作（`VEYA_AGENT_LOOP=strict` + 前端指向新端点），线上切换需
+另行批准（冻结架构：主链/前端改动审批规则）。
+
+**验证:** `tests/test_oservi_daemon_gateway.py` 10/10（后台任务完成、HITL
+pause/resume、人类输入注入入树、DaemonBus 集成（oprim.daemon 原子直连）、
+事件流中继、AgentLoop gate 检查点、gateway 创建/查询/pause/resume/404/422）；
+门禁 4/4；局部回归 139/139。
+
+## 12. 迁移完成状态（6–8 周计划的压缩落地）
+
+**五层底座全部就位并持续被门禁保护:**
+
+```
+oservi   daemon_engine + api_gateway            (阶段 5)  ── 统一极简指令入口
+omodul   session_tree/tool_pipeline/agent_loop/evidence_refine (阶段 4) ── 注入式心脏
+oprim    fs/shell/snapshot/event/llm/daemon 原子 (阶段 3)  ── 物理触手, 业务禁止直接 I/O
+oskill   pure/ 8 纯函数 (阶段 2)                 ── 算法大脑, 幻觉拦截 (parse/validate)
+obase    interfaces/adapters/container (阶段 1)   ── 句柄合同, 全局注入点
+```
+
+**强制检查（每阶段 + CI）:** check_no_reverse_dep（单向依赖）/
+check_oskill_pure（纯函数）/ check_no_direct_io（业务禁直接 I/O）/
+check_manifest（元素清单）/ 守护测试（guardians）。
+
+**存量违规（迁移 TODO，逐步清零）:** 反向依赖 12 条基线、oskill 纯度 232 条
+基线、业务直接 I/O 310 条基线。
+
+**双轨与切换:** 主链默认旧路径（主库 MasterAgent，冻结架构不动）；新心脏
+随时可切（`VEYA_AGENT_LOOP=strict` → agent_loop_bridge.run_strict；gateway
+已挂载 `/api/v1/3o/`）。线上切换、现有入口改造、Cloudflare Computer 深度
+对接、遗传权重自适应为后续增量（需批准后实施）。
