@@ -1,0 +1,877 @@
+openapi: 3.1.0
+info:
+  title: loop-plane
+  version: '1.0'
+  description: Loop Plane 微服务 — 长程状态/因果/硬化干预/审计/调度门面 (SPEC v1.0)
+paths:
+  /healthz:
+    get:
+      tags:
+      - health
+      summary: Healthz
+      operationId: healthz_healthz_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Healthz Healthz Get
+  /v1/loop/goals:
+    get:
+      tags:
+      - state
+      summary: List Goals
+      description: Goal 列表（未完成优先）。
+      operationId: list_goals_v1_loop_goals_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Goals V1 Loop Goals Get
+    post:
+      tags:
+      - state
+      summary: Create Goal
+      description: 创建 Goal + todos（≡ create_plan）。
+      operationId: create_goal_v1_loop_goals_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGoalBody'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Create Goal V1 Loop Goals Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/goals/{goal_id}:
+    get:
+      tags:
+      - state
+      summary: Get Goal
+      operationId: get_goal_v1_loop_goals__goal_id__get
+      parameters:
+      - name: goal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Goal Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Goal V1 Loop Goals  Goal Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/goals/{goal_id}/todos/{todo_id}:
+    post:
+      tags:
+      - state
+      summary: Update Todo
+      description: 更新 todo status + evidence（≡ update_todo）。
+      operationId: update_todo_v1_loop_goals__goal_id__todos__todo_id__post
+      parameters:
+      - name: goal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Goal Id
+      - name: todo_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Todo Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TodoUpdateBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Update Todo V1 Loop Goals  Goal Id  Todos  Todo Id  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/goals/{goal_id}/todos/{todo_id}/claim:
+    post:
+      tags:
+      - state
+      summary: Claim Todo
+      description: claim + lease（未过期再 claim → 409）。
+      operationId: claim_todo_v1_loop_goals__goal_id__todos__todo_id__claim_post
+      parameters:
+      - name: goal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Goal Id
+      - name: todo_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Todo Id
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/ClaimBody'
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Claim Todo V1 Loop Goals  Goal Id  Todos  Todo Id  Claim
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/goals/{goal_id}/quota/should_run:
+    post:
+      tags:
+      - state
+      summary: Should Run
+      description: 该不该动（≡ quota_should_run）。
+      operationId: should_run_v1_loop_goals__goal_id__quota_should_run_post
+      parameters:
+      - name: goal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Goal Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Should Run V1 Loop Goals  Goal Id  Quota Should Run
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/goals/{goal_id}/quota/spend:
+    post:
+      tags:
+      - state
+      summary: Spend
+      description: quota 记账（≡ quota_spend_slot）。
+      operationId: spend_v1_loop_goals__goal_id__quota_spend_post
+      parameters:
+      - name: goal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Goal Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpendBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Spend V1 Loop Goals  Goal Id  Quota Spend Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/goals/{goal_id}/gates/check:
+    post:
+      tags:
+      - state
+      summary: Gate Check
+      description: scoped 决策检查（≡ gate_check）。
+      operationId: gate_check_v1_loop_goals__goal_id__gates_check_post
+      parameters:
+      - name: goal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Goal Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GateCheckBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Gate Check V1 Loop Goals  Goal Id  Gates Check Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/goals/{goal_id}/terminal_check:
+    post:
+      tags:
+      - state
+      summary: Terminal Check
+      description: terminal 动作：只返回「需审批」建议（≡ terminal_gate_check）。
+      operationId: terminal_check_v1_loop_goals__goal_id__terminal_check_post
+      parameters:
+      - name: goal_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Goal Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminalCheckBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Terminal Check V1 Loop Goals  Goal Id  Terminal Check
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/plan/goal:
+    post:
+      tags:
+      - causal
+      summary: Plan Goal
+      description: 目标规划 → GoalPlanReport（默认 execute=false）。
+      operationId: plan_goal_v1_loop_plan_goal_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanGoalBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Plan Goal V1 Loop Plan Goal Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/plan/diagnose:
+    post:
+      tags:
+      - causal
+      summary: Plan Diagnose
+      description: 故障诊断 → DiagnosisReport。
+      operationId: plan_diagnose_v1_loop_plan_diagnose_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnoseBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Plan Diagnose V1 Loop Plan Diagnose Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/exec/dispatch:
+    post:
+      tags:
+      - exec
+      summary: Dispatch
+      description: 硬化执行分发（mode 服务端收缩，白名单限制）。
+      operationId: dispatch_v1_loop_exec_dispatch_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Dispatch V1 Loop Exec Dispatch Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/exec/runs/{run_id}:
+    get:
+      tags:
+      - exec
+      summary: Get Run
+      operationId: get_run_v1_loop_exec_runs__run_id__get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Run V1 Loop Exec Runs  Run Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/exec/adapters:
+    get:
+      tags:
+      - exec
+      summary: List Adapters
+      description: 白名单列表。
+      operationId: list_adapters_v1_loop_exec_adapters_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Adapters V1 Loop Exec Adapters Get
+  /v1/loop/sched/jobs:
+    get:
+      tags:
+      - sched
+      summary: List Jobs
+      operationId: list_jobs_v1_loop_sched_jobs_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response List Jobs V1 Loop Sched Jobs Get
+    post:
+      tags:
+      - sched
+      summary: Register Job
+      operationId: register_job_v1_loop_sched_jobs_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchedJobBody'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Register Job V1 Loop Sched Jobs Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/sched/jobs/{job_id}:
+    delete:
+      tags:
+      - sched
+      summary: Delete Job
+      operationId: delete_job_v1_loop_sched_jobs__job_id__delete
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Delete Job V1 Loop Sched Jobs  Job Id  Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/sched/jobs/{job_id}/trigger:
+    post:
+      tags:
+      - sched
+      summary: Trigger Job
+      operationId: trigger_job_v1_loop_sched_jobs__job_id__trigger_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Trigger Job V1 Loop Sched Jobs  Job Id  Trigger Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/skills:
+    post:
+      tags:
+      - skills
+      summary: Register Skill
+      operationId: register_skill_v1_loop_skills_post
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Register Skill V1 Loop Skills Post
+  /v1/loop/skills/{skill_id}/experiments:
+    post:
+      tags:
+      - skills
+      summary: Start Experiment
+      operationId: start_experiment_v1_loop_skills__skill_id__experiments_post
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Start Experiment V1 Loop Skills  Skill Id  Experiments
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/skills/experiments/{experiment_id}/optimize:
+    post:
+      tags:
+      - skills
+      summary: Optimize Experiment
+      operationId: optimize_experiment_v1_loop_skills_experiments__experiment_id__optimize_post
+      parameters:
+      - name: experiment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Experiment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Optimize Experiment V1 Loop Skills Experiments  Experiment
+                  Id  Optimize Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/skills/{skill_id}/release:
+    post:
+      tags:
+      - skills
+      summary: Release Skill
+      operationId: release_skill_v1_loop_skills__skill_id__release_post
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Release Skill V1 Loop Skills  Skill Id  Release Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/loop/skills/{skill_id}/rollback:
+    post:
+      tags:
+      - skills
+      summary: Rollback Skill
+      operationId: rollback_skill_v1_loop_skills__skill_id__rollback_post
+      parameters:
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Rollback Skill V1 Loop Skills  Skill Id  Rollback
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    ClaimBody:
+      properties:
+        lease_min:
+          type: integer
+          title: Lease Min
+          default: 45
+      type: object
+      title: ClaimBody
+    CreateGoalBody:
+      properties:
+        objective:
+          type: string
+          minLength: 1
+          title: Objective
+        todos:
+          items:
+            $ref: '#/components/schemas/TodoSpec'
+          type: array
+          title: Todos
+        trace_id:
+          type: string
+          title: Trace Id
+          default: ''
+      type: object
+      required:
+      - objective
+      title: CreateGoalBody
+    DiagnoseBody:
+      properties:
+        symptom:
+          type: string
+          minLength: 1
+          title: Symptom
+        context:
+          additionalProperties: true
+          type: object
+          title: Context
+      type: object
+      required:
+      - symptom
+      title: DiagnoseBody
+    DispatchBody:
+      properties:
+        mode:
+          type: string
+          enum:
+          - sandbox
+          - shadow
+          - live_canary
+          title: Mode
+          default: sandbox
+        tool_name:
+          type: string
+          minLength: 1
+          title: Tool Name
+        args:
+          additionalProperties: true
+          type: object
+          title: Args
+      type: object
+      required:
+      - tool_name
+      title: DispatchBody
+    GateCheckBody:
+      properties:
+        gate_scope:
+          type: string
+          title: Gate Scope
+      type: object
+      required:
+      - gate_scope
+      title: GateCheckBody
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    PlanGoalBody:
+      properties:
+        goal:
+          type: string
+          minLength: 1
+          title: Goal
+        criteria:
+          type: string
+          title: Criteria
+          default: ''
+        execute:
+          type: boolean
+          title: Execute
+          default: false
+      type: object
+      required:
+      - goal
+      title: PlanGoalBody
+    SchedJobBody:
+      properties:
+        name:
+          type: string
+          minLength: 1
+          title: Name
+        cron:
+          type: string
+          title: Cron
+          default: ''
+        pattern:
+          type: string
+          title: Pattern
+          default: ''
+        action:
+          additionalProperties: true
+          type: object
+          title: Action
+      type: object
+      required:
+      - name
+      title: SchedJobBody
+    SpendBody:
+      properties:
+        todo_id:
+          type: string
+          title: Todo Id
+        slots:
+          type: integer
+          title: Slots
+          default: 1
+      type: object
+      required:
+      - todo_id
+      title: SpendBody
+    TerminalCheckBody:
+      properties:
+        action:
+          type: string
+          title: Action
+      type: object
+      required:
+      - action
+      title: TerminalCheckBody
+    TodoSpec:
+      properties:
+        id:
+          type: string
+          minLength: 1
+          title: Id
+        title:
+          type: string
+          minLength: 1
+          title: Title
+        depends_on:
+          items:
+            type: string
+          type: array
+          title: Depends On
+      type: object
+      required:
+      - id
+      - title
+      title: TodoSpec
+    TodoUpdateBody:
+      properties:
+        status:
+          type: string
+          enum:
+          - open
+          - in_progress
+          - done
+          - blocked
+          title: Status
+        evidence:
+          type: string
+          title: Evidence
+          default: ''
+      type: object
+      required:
+      - status
+      title: TodoUpdateBody
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

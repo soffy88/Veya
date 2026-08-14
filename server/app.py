@@ -141,6 +141,10 @@ async def lifespan(app: FastAPI):
 
         wire_plan()          # create_plan / plan_status / update_todo → 主脑工具面
         wire_long()          # long_read (长文分块导航) → 主脑工具面
+        # loop-plane 3 个新工具 (loop_plan_goal / loop_diagnose / loop_intervene)
+        from server.loop_plane_client import wire_loop_tools
+
+        wire_loop_tools()
     except Exception:
         import logging
         logging.getLogger("veya.lifespan").exception("cognition wire failed")

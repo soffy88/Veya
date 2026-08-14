@@ -208,7 +208,21 @@ async def update_todo(plan_id: str, todo_id: str, status: str, evidence: str = "
 
 # ── 注册 ──────────────────────────────────────────────────────────────
 
+def _plan_func(name: str):
+    """feature flag 转发: LOOP_PLANE_URL / LOOP_PLANE_INPROCESS → loop-plane
+    （事件溯源单一真相源）；未开启 → 旧 plan_todo 路径（T8 迁移期可切回）。"""
+    from server.loop_plane_client import make_plan_func
+
+    return make_plan_func(name)
+
+
+def _plan_func_old(name: str):
+    return {"create_plan": create_plan, "plan_status": plan_status, "update_todo": update_todo}[name]
+
+
 def wire_master_tools() -> int:
+    """把 plan 工具注册进 master_tools (幂等)。返回新注册数量。"""
+    from server.tool_registry import master_tools
     """把 plan 工具注册进 master_tools (幂等)。返回新注册数量。"""
     from server.tool_registry import master_tools
 
@@ -257,7 +271,11 @@ def wire_master_tools() -> int:
             8000,
         ),
     ]
-    funcs = {"create_plan": create_plan, "plan_status": plan_status, "update_todo": update_todo}
+    funcs = {
+        "create_plan": _plan_func("create_plan"),
+        "plan_status": _plan_func("plan_status"),
+        "update_todo": _plan_func("update_todo"),
+    }
     for name, desc, params, _ph, limit in tools:
         if master_tools.has(name):
             continue
