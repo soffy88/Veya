@@ -301,6 +301,74 @@ def _mem_kv():
 
 
 @pytest.mark.asyncio
+async def test_agent_loop_context_providers_and_on_finish():
+    """context_providers 每轮注入 + on_finish 结束回调（记忆/蒸馏桥）。"""
+    from veya.omodul.agent_loop import AgentLoop
+    from veya.omodul.session_tree import SessionTreeMgr
+    from veya.omodul.tool_pipeline import ToolPipeline
+
+    injected: list[str] = []
+    finished: list[tuple[str, int]] = []
+
+    class FakeLlm2:
+        def __init__(self):
+            self._calls = 0
+
+        async def complete(self, messages, **kw):
+            self._calls += 1
+            for m in messages:
+                if m.get("role") == "system" and m.get("content", "").startswith("# MEMORY"):
+                    injected.append(m["content"])
+            return {"choices": [{"message": {"role": "assistant", "content": f"第{self._calls}轮完成"}}]}
+
+        async def close(self):
+            pass
+
+    async def mem_provider(sid: str, query: str) -> str:
+        return "# MEMORY (关于用户): 用户喜欢简洁回答"
+
+    async def finish_cb(sid: str, msgs: list[dict]) -> None:
+        finished.append((sid, len(msgs)))
+
+    llm = FakeLlm2()
+    loop = AgentLoop(llm=llm, pipeline=ToolPipeline(), tree=SessionTreeMgr(kv=_mem_kv()),
+                     context_providers=[mem_provider], on_finish=finish_cb)
+    result = await loop.run("hi")
+    assert result.final_answer == "第1轮完成"
+    # 每轮都注入了记忆块
+    assert injected == ["# MEMORY (关于用户): 用户喜欢简洁回答"]
+    # 结束回调拿到 (sid, 消息数)
+    assert len(finished) == 1
+    assert finished[0][0] == result.session_id
+    assert finished[0][1] >= 2  # system + user + assistant
+
+
+@pytest.mark.asyncio
+async def test_run_strict_chat_kv_persist(tmp_path: pytest.MonkeyPatch):
+    """会话树 KV 落盘：同路径重开可见（跨重启续做基础）。"""
+    from server.agent_loop_bridge import run_strict_chat
+
+    class OneShotLlm:
+        async def complete(self, messages, **kw):
+            return {"choices": [{"message": {"role": "assistant", "content": "完成"}}]}
+
+        async def close(self):
+            pass
+
+    kv_file = str(tmp_path / "session.db")
+    r1 = await run_strict_chat("你好", session_id="persist-sid", system_prompt="sys",
+                                max_rounds=2, llm=OneShotLlm(), kv_path=kv_file)
+    assert r1["session_id"] == "persist-sid"
+    # 同路径新实例（模拟重启）→ 树仍在
+    from veya.omodul.session_tree import SessionTreeMgr
+    from veya.obase.adapters import SqliteKvStore
+
+    tree2 = SessionTreeMgr(kv=SqliteKvStore(kv_file))
+    roles = [n["role"] for n in tree2.path("persist-sid")]
+    assert "system" in roles and "user" in roles
+
+
+@pytest.mark.asyncio
 async def test_agent_loop_end_to_end():
     """剧本: 调工具 → 拿到结果 → 直接回答。"""
     llm = FakeLlm([

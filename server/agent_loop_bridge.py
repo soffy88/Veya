@@ -105,16 +105,22 @@ async def run_strict_chat(
     max_rounds: int = 10,
     system_prompt: str = "",
     llm: Any = None,
+    context_providers: list[Callable[[str, str], Awaitable[str]]] | None = None,
+    on_finish: Callable[[str, list[dict]], Awaitable[None]] | None = None,
+    kv_path: str | None = None,
 ) -> dict:
     """主链切换桥（VEYA_AGENT_LOOP=strict）：master_tools 全量工具面 + 提示词
     + SSE 事件桥 + 会话树，用新 omodul 心脏执行一轮对话。
+
+    context_providers: 每轮注入钩子（记忆/代码地图，coordinator 传入）；
+    on_finish: 结束回调（蒸馏记忆）；kv_path: 会话树持久化文件（默认
+    ~/.veya/loop/session_tree.db，容器 veya-data volume 跨重启）。
 
     返回形态兼容旧 chat_stream：{status, final_answer, rounds, tool_calls,
     session_id, stop_kind, loop_plane}。
     """
     from server.tool_registry import master_tools
     from veya.obase.adapters import TelemetryEventBarrier
-    from veya.obase.container import get_kv
     from veya.omodul.agent_loop import AgentLoop
     from veya.omodul.session_tree import SessionTreeMgr
     from veya.omodul.tool_pipeline import ToolPipeline
@@ -155,10 +161,12 @@ async def run_strict_chat(
     loop = AgentLoop(
         llm=effective_llm,
         pipeline=pipeline,
-        tree=SessionTreeMgr(kv=get_kv()),
+        tree=SessionTreeMgr(kv=_session_kv(kv_path)),
         barrier=barrier,
         system_prompt=system_prompt,
         max_rounds=max_rounds,
+        context_providers=context_providers,
+        on_finish=on_finish,
     )
     try:
         result = await loop.run(user_prompt, session_id=session_id)
@@ -212,6 +220,18 @@ async def run_strict(
         max_rounds=max_rounds,
     )
     return await loop.run(user_prompt, session_id=session_id)
+
+
+def _session_kv(kv_path: str | None = None):
+    """会话树持久化 KV：默认 ~/.veya/loop/session_tree.db（容器 veya-data
+    volume 挂载 ~/.veya → 跨重启持久）；显式 kv_path 优先（测试隔离）。"""
+    from pathlib import Path
+
+    from veya.obase.adapters import SqliteKvStore
+
+    if kv_path is None:
+        kv_path = str(Path.home() / ".veya" / "loop" / "session_tree.db")
+    return SqliteKvStore(kv_path)
 
 
 __all__ = ["run_strict", "run_strict_chat", "strict_loop_enabled"]
