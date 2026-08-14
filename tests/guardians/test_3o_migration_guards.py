@@ -96,3 +96,54 @@ def test_oskill_pure_accepts_clean_module(tmp_path: Path):
         timeout=120,
     )
     assert r.returncode == 0, f"干净模块被误报:\n{r.stdout}\n{r.stderr}"
+
+
+# ---------------------------------------------------------------------------
+# 阶段 3: check_no_direct_io — 业务层禁止直接 I/O (subprocess/open/网络)
+# ---------------------------------------------------------------------------
+
+
+def test_direct_io_checker_passes_with_baseline():
+    """业务层直接 I/O 检查在基线模式下必须 0 新增违规。"""
+    baseline = SCRIPTS / "baseline_direct_io.txt"
+    assert baseline.is_file(), "缺少基线 scripts/baseline_direct_io.txt"
+    r = _run("check_no_direct_io.py", "--baseline", str(baseline), "--quiet")
+    assert r.returncode == 0, f"直接 I/O 检查失败:\n{r.stdout}\n{r.stderr}"
+
+
+def test_direct_io_checker_detects_new_violation(tmp_path: Path):
+    """新增业务直接 subprocess 必须被拦下。"""
+    biz = tmp_path / "server"
+    biz.mkdir(parents=True)
+    (biz / "bad_io.py").write_text(
+        "import subprocess\n\ndef run(cmd):\n    return subprocess.run(cmd, capture_output=True)\n",
+        encoding="utf-8",
+    )
+    r = subprocess.run(
+        [sys.executable, str(SCRIPTS / "check_no_direct_io.py"), str(tmp_path),
+         "--targets", "server", "--quiet"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert r.returncode == 1
+    assert "bad_io.py" in r.stdout
+    assert "EXEC" in r.stdout
+
+
+def test_direct_io_checker_allow_marker_exempts(tmp_path: Path):
+    """# 3O-IO-ALLOW 标记文件显式豁免 (需写理由)。"""
+    biz = tmp_path / "server"
+    biz.mkdir(parents=True)
+    (biz / "legacy_io.py").write_text(
+        "# 3O-IO-ALLOW legacy 集成, 待阶段 4 迁移\nimport subprocess\n",
+        encoding="utf-8",
+    )
+    r = subprocess.run(
+        [sys.executable, str(SCRIPTS / "check_no_direct_io.py"), str(tmp_path),
+         "--targets", "server", "--quiet"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert r.returncode == 0, f"allow marker 未生效:\n{r.stdout}"

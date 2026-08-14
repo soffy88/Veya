@@ -66,6 +66,21 @@ from veya.oprim.video import (
     sample_video_frames,
     validate_image,
 )
+# 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑)
+from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
+from veya.oprim.event import emit_event
+from veya.oprim.fs import (
+    fs_delete,
+    fs_exists,
+    fs_listdir,
+    fs_read,
+    fs_read_text,
+    fs_write,
+    fs_write_text,
+)
+from veya.oprim.llm import llm_call, llm_stream
+from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
+from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list
 
 __all__ = [
     # Types
@@ -119,4 +134,30 @@ __all__ = [
     "vad_energy",
     "vad_frame",
     "vad_silero",
+    # --- 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑) ---
+    # fs
+    "fs_delete",
+    "fs_exists",
+    "fs_listdir",
+    "fs_read",
+    "fs_read_text",
+    "fs_write",
+    "fs_write_text",
+    # shell
+    "shell_exec",
+    "shell_exec_args",
+    "shell_run_script",
+    # snapshot
+    "snapshot_commit",
+    "snapshot_delete",
+    "snapshot_fetch",
+    "snapshot_list",
+    # event / llm / daemon
+    "emit_event",
+    "llm_call",
+    "llm_stream",
+    "daemon_pause",
+    "daemon_resume",
+    "daemon_status",
+    "daemon_bind",
 ]
