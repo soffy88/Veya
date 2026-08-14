@@ -51,3 +51,15 @@ def test_wire_loop_tools_registers_three(monkeypatch: pytest.MonkeyPatch):
                              ("loop_plan_goal", "loop_diagnose", "loop_intervene"))
     for name in ("loop_plan_goal", "loop_diagnose", "loop_intervene"):
         assert master_tools.has(name), f"缺少工具 {name}"
+
+
+@pytest.mark.asyncio
+async def test_loop_tools_disabled_hint_without_flag(monkeypatch: pytest.MonkeyPatch):
+    """flag 关闭 → 工具返回明确提示，不隐式启用（零副作用）。"""
+    monkeypatch.delenv("LOOP_PLANE_URL", raising=False)
+    monkeypatch.setenv("LOOP_PLANE_INPROCESS", "false")
+    from server.loop_plane_client import loop_diagnose, loop_intervene, loop_plan_goal
+
+    assert "未启用" in await loop_plan_goal("目标")
+    assert "未启用" in await loop_diagnose("症状")
+    assert "未启用" in await loop_intervene("sandbox", "echo", {})
