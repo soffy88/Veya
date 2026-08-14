@@ -129,8 +129,10 @@ class AgentLoop:
             msgs = agent_messages_to_llm(ctx)
 
             # 2. LLM 调用（物理触手；异常 = 致命错误）
+            # tools 声明随请求发出（OpenAI 格式）→ 模型返回结构化 tool_calls
+            tools = self._pipeline.schemas()
             try:
-                resp = await _oprim_llm_call(msgs, client=self._llm)
+                resp = await _oprim_llm_call(msgs, client=self._llm, tools=tools or None)
             except Exception as exc:  # noqa: BLE001
                 result.stop_kind = "fatal_error"
                 result.stop_reason = f"LLM 调用失败: {exc}"
