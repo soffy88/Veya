@@ -17,6 +17,7 @@ services:
     command: ["sh", "/app/hicode-entrypoint.sh"]
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.1}
+      - VEYA_AGENT_LOOP=${VEYA_AGENT_LOOP:-strict}   # 主链切换: strict=新 omodul 心脏 (默认开启); 置空/off 回旧主库路径
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}

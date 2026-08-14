@@ -119,6 +119,18 @@ async def run_strict_chat(
     from veya.omodul.session_tree import SessionTreeMgr
     from veya.omodul.tool_pipeline import ToolPipeline
 
+    # 空输入健壮性：路由层可能传入空串（旧路径容忍, 新路径需友好响应）
+    if not user_prompt or not str(user_prompt).strip():
+        return {
+            "status": "success",
+            "final_answer": "（空消息）请提供具体内容后重试。",
+            "rounds": 0,
+            "tool_calls": [],
+            "session_id": session_id or "",
+            "stop_kind": "completed",
+            "loop_plane": "strict",
+        }
+
     # 1. 工具面全量注入（master_tools 静态 + mcp wire 后全量）
     pipeline = ToolPipeline()
     for spec in master_tools.get_all_schemas():
