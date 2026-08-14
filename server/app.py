@@ -204,6 +204,10 @@ app.include_router(agent_router)
 app.include_router(models_router)
 app.include_router(security_router)
 app.include_router(vscode_router)
+# 阶段 5: 3O 统一网关（极简指令 + SSE；新增前缀, 不替换现有路由）
+from veya.oservi.gateway import router as gateway_router
+
+app.include_router(gateway_router)
 app.include_router(vault_router)
 app.include_router(vault_compat_router)
 app.include_router(analysis_router)
