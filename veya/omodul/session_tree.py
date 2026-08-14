@@ -131,14 +131,26 @@ class SessionTreeMgr:
         return chain
 
     def messages(self, sid: str) -> list[dict[str, Any]]:
-        """当前叶路径的 LLM 消息形态（protocol_translate 直接可用）。"""
+        """当前叶路径的 LLM 消息形态（protocol_translate 直接可用）。
+        tool 节点 → OpenAI 协议 {role: tool, tool_call_id, content}。"""
         out: list[dict[str, Any]] = []
         for node in self.path(sid):
-            msg: dict[str, Any] = {"role": node["role"], "content": node.get("content")}
+            role = node["role"]
+            if role == "tool":
+                meta = node.get("meta") or {}
+                out.append({
+                    "role": "tool",
+                    "tool_call_id": meta.get("tool_call_id", ""),
+                    "content": node.get("content") or "",
+                })
+                continue
+            msg: dict[str, Any] = {"role": role, "content": node.get("content")}
             if node.get("tool_calls"):
-                msg["tool_calls"] = node["tool_calls"]
+                msg["tool_calls"] = _to_openai_tool_calls(node["tool_calls"])
             out.append(msg)
         return out
+
+
 
     def fork(self, sid: str, *, at_node_id: str) -> str:
         """时空回溯：从 ``at_node_id`` 复制整棵前缀树为新会话，该节点为新叶。"""
@@ -217,3 +229,26 @@ class SessionTreeMgr:
 
 
 __all__ = ["SessionTreeMgr"]
+
+
+def _to_openai_tool_calls(tool_calls: list) -> list:
+    """扁平 tool_calls（llm_message_to_agent 产出）→ OpenAI 协议原始形态。"""
+    out: list[dict[str, Any]] = []
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        if "function" in tc:
+            out.append(tc)  # 已是原始形态
+            continue
+        args = tc.get("arguments")
+        if isinstance(args, dict):
+            import json
+
+            args = json.dumps(args, ensure_ascii=False)
+        out.append({
+            "id": tc.get("id", ""),
+            "type": "function",
+            "function": {"name": tc.get("name", ""), "arguments": args or ""},
+        })
+    return out
+

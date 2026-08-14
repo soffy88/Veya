@@ -174,7 +174,8 @@ class AgentLoop:
                     consecutive_errors = 0
                     self._tree.append(
                         sid, role="tool", content=tr.output,
-                        meta={"tool": call.name, "ok": True, "error": ""},
+                        meta={"tool": call.name, "ok": True, "error": "",
+                              "tool_call_id": call.id},
                     )
                 else:
                     round_ok = False
@@ -183,7 +184,8 @@ class AgentLoop:
                     self._tree.append(
                         sid, role="tool", content=tr.error or "(无输出)",
                         meta={"tool": call.name, "ok": False, "error": tr.error,
-                              "rejected": tr.rejected, "stage": tr.reject_stage},
+                              "rejected": tr.rejected, "stage": tr.reject_stage,
+                              "tool_call_id": call.id},
                     )
                 emit_event(
                     "agent_loop.tool_result",
