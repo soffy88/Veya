@@ -111,6 +111,30 @@ async def test_chat_stream_switch_branch(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.asyncio
+async def test_run_strict_chat_external_session_id(monkeypatch: pytest.MonkeyPatch):
+    """外部传入的 session_id（旧历史 id）在树中不存在 → 自动创建，不崩溃。"""
+    from server.agent_loop_bridge import run_strict_chat
+
+    llm = FakeLlm([{"role": "assistant", "content": "旧会话续做成功"}])
+    result = await run_strict_chat(
+        "继续", session_id="legacy-sid-123", system_prompt="sys", max_rounds=3, llm=llm,
+    )
+    assert result["session_id"] == "legacy-sid-123"
+    assert result["final_answer"] == "旧会话续做成功"
+
+
+@pytest.mark.asyncio
+async def test_run_strict_chat_empty_input_friendly():
+    """空 user_prompt → 友好响应，不 500。"""
+    from server.agent_loop_bridge import run_strict_chat
+
+    result = await run_strict_chat("", system_prompt="sys", max_rounds=3)
+    assert result["status"] == "success"
+    assert "空消息" in result["final_answer"]
+    assert result["stop_kind"] == "completed"
+
+
+@pytest.mark.asyncio
 async def test_run_strict_chat_llm_kwargs_forwarded(monkeypatch: pytest.MonkeyPatch):
     """请求级 llm_kwargs（provider/model）透传到 oprim_llm_call。"""
     import server.agent_loop_bridge as bridge
