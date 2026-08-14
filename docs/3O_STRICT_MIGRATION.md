@@ -117,7 +117,7 @@ python scripts/check_oskill_pure.py . --strict                                  
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | 冻结 + 盘点 + 双检查脚本 | ✅ 完成 |
-| 1 | obase 严格合同（5 Protocol）+ 适配器 + 回归 | ⬜ 未动工 |
+| 1 | obase 严格合同（5 Protocol）+ 适配器 + 回归 | ✅ 完成（2026-08，见 §7） |
 | 2 | oskill 8 纯函数（parse/validate 优先） | ⬜ 未动工 |
 | 3 | oprim 7 原子操作（禁止业务直接 I/O） | ⬜ 未动工 |
 | 4 | omodul 重建（session_tree/tool_pipeline/agent_loop/evidence_refine）双轨 | ⬜ 未动工（需批准） |
@@ -133,3 +133,29 @@ python scripts/check_oskill_pure.py . --strict                                  
 - 核心路径（CLI/SSE/沙箱）: 迁移前主链路为 `platform/3O` 主库 MasterAgent +
   `server/coordinator_master.py` 装配，行为未被阶段 0 触碰；手工链路验证建议
   在阶段 1 适配器落地后一并回归。
+
+## 7. 阶段 1 结果（严格句柄层）
+
+**新增（全部在 `veya/obase/`，rank 0，不改业务行为）:**
+
+| 文件 | 内容 |
+|---|---|
+| `interfaces.py` | 5 个 Protocol 合同: DaemonBus / VfsSandbox / EventBarrier / KvStore / LlmClient + Event / SandboxResult 类型 |
+| `adapters.py` | 薄适配器: SandboxVfsAdapter（ProcessSandbox→VFS 文件面+执行面，越界拒绝）、TelemetryEventBarrier（telemetry.emit 桥接+扇出+屏障）、SqliteKvStore（stdlib SQLite 快照）、LlmClientAdapter（llm_call/stream）、InProcessDaemonBus（进程内 Pub/Sub+RPC，未来 gRPC 替换） |
+| `container.py` | 全局单例句柄层: get_sandbox/get_bus/get_barrier/get_kv/get_llm + configure 注入 + reset/aclose_all |
+| `__init__.py` | `__manifest__` 扩展 16 元素（共 23），顶层再导出句柄合同 |
+| `tests/test_obase_strict_handles.py` | 15 项回归: 现有能力经适配器跑通（沙箱执行/危险拦截/VFS 越界、事件桥接、快照、LLM stub、总线 RPC） |
+
+**配套清理:**
+- 守护测试 `test_single_source.py`: 登记 `Event`（迁移期契约类型，主库退役后清除）；
+  修剪 7 个已失效的 KNOWN_SYMBOLS（ExecResult/Message/SkillMeta/Symbol/ToolResult/git_add/git_commit）
+  + 同步 `docs/dev/veya-3o-assembly.md`（守护从 9 项失败降到全绿）。
+
+**验证:** 反依赖检查 PASS / manifest 23 元素 PASS / oskill 纯净 PASS /
+守护测试 6/6 + 句柄层 15/15（RuntimeWarning 严格模式）。
+
+**阶段 1 契约要点（后续阶段依赖）:**
+- 业务代码禁止直接 import 旧实现，一律经 `veya.obase.container` 取句柄；
+- `VfsSandbox` 文件面是 oprim_fs_* 的物理边界（越界抛 ValueError）；
+- `SqliteKvStore.snapshot/restore` 是阶段 4 session_tree 时空回溯的恢复点；
+- `LlmClient` 只发已打包数据（阶段 2 protocol_translate 产出标准消息）。
