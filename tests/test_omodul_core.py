@@ -262,6 +262,45 @@ def _new_tree() -> SessionTreeMgr:
 
 
 @pytest.mark.asyncio
+async def test_agent_loop_sends_tools_to_llm():
+    """AgentLoop 调 LLM 时必须携带 OpenAI 格式 tools 声明（否则模型不会返回
+    结构化 tool_calls，只会用 XML 文本模拟）。"""
+    from veya.omodul.agent_loop import AgentLoop
+    from veya.omodul.session_tree import SessionTreeMgr
+    from veya.omodul.tool_pipeline import ToolPipeline
+
+    seen: dict = {}
+
+    class CaptureLlm:
+        async def complete(self, messages, **kw):
+            seen.update(kw)
+            return {"choices": [{"message": {"role": "assistant", "content": "直接回答完成"}}]}
+
+        async def close(self):
+            pass
+
+    pipeline = ToolPipeline()
+    pipeline.register("greet", lambda who: f"hi {who}",
+                      schema={"type": "object", "properties": {"who": {"type": "string"}}},
+                      description="打招呼")
+    loop = AgentLoop(llm=CaptureLlm(), pipeline=pipeline,
+                     tree=SessionTreeMgr(kv=_mem_kv()))
+    result = await loop.run("hi")
+    assert result.final_answer == "直接回答完成"
+    assert "tools" in seen
+    tools = seen["tools"]
+    assert tools[0]["function"]["name"] == "greet"
+    assert tools[0]["function"]["description"] == "打招呼"
+    assert tools[0]["function"]["parameters"]["properties"]["who"]["type"] == "string"
+
+
+def _mem_kv():
+    from veya.obase.adapters import SqliteKvStore
+
+    return SqliteKvStore()
+
+
+@pytest.mark.asyncio
 async def test_agent_loop_end_to_end():
     """剧本: 调工具 → 拿到结果 → 直接回答。"""
     llm = FakeLlm([

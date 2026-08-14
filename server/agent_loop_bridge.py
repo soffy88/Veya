@@ -137,7 +137,11 @@ async def run_strict_chat(
         name = spec["function"]["name"]
         fn = master_tools._functions.get(name)  # noqa: SLF001 — registry 内部形态
         if fn is not None:
-            pipeline.register(name, fn, schema=spec["function"].get("parameters"))
+            pipeline.register(
+                name, fn,
+                schema=spec["function"].get("parameters"),
+                description=spec["function"].get("description", ""),
+            )
 
     # 2. LLM（请求级覆盖透传；llm 显式注入优先——测试用）
     effective_llm = llm or (_BoundedLlm(llm_kwargs) if llm_kwargs else None)
