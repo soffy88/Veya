@@ -1,0 +1,310 @@
+cli/headless.py:105 FILE_R open
+cli/headless.py:114 FILE_W open
+cli/product.py:118 EXEC os.chmod
+cli/product.py:205 FILE_W Path.cwd
+cli/product.py:207 FILE_W Path(workspace).expanduser
+cli/product.py:26 FILE_W Path.home
+cli/product.py:360 FILE_R Path(ws).is_dir
+cli/product.py:392 EXEC/NET import 'socket'
+cli/product.py:394 NET socket.socket
+cli/product.py:79 EXEC/NET import 'urllib.request'
+cli/product.py:81 NET urllib.request.urlopen
+cli/simple_cli.py:142 FILE_R open
+cli/simple_cli.py:202 FILE_W open
+cli/simple_cli.py:238 FILE_W open
+commands/__init__.py:237 FILE_R Path(args.strip()).read_text
+config/loader.py:28 FILE_W Path.cwd
+config/loader.py:89 FILE_W Path.cwd
+config/loader.py:91 FILE_W Path.home
+hooks/builtin/security.py:18 FILE_W Path.home
+hooks/builtin/security.py:19 FILE_W Path.cwd
+hooks/builtin/security.py:24 FILE_R open
+hooks/builtin/test_gate.py:5 EXEC/NET import 'subprocess'
+infra/code_sandbox/run_tests.py:131 EXEC/NET import 'shutil'
+infra/code_sandbox/run_tests.py:132 FILE_W shutil.rmtree
+infra/code_sandbox/run_tests.py:20 EXEC/NET import 'subprocess'
+infra/code_sandbox/run_tests.py:22 EXEC/NET import 'tempfile'
+infra/code_sandbox/run_tests.py:67 EXEC subprocess.run
+infra/video_sandbox/evaluate.py:101 EXEC subprocess.run
+infra/video_sandbox/evaluate.py:21 EXEC/NET import 'shutil'
+infra/video_sandbox/evaluate.py:22 EXEC/NET import 'subprocess'
+infra/video_sandbox/evaluate.py:27 FILE_W shutil.which
+infra/video_sandbox/evaluate.py:38 EXEC subprocess.run
+infra/video_sandbox/evaluate.py:58 EXEC subprocess.run
+infra/video_sandbox/evaluate.py:74 EXEC subprocess.run
+infra/video_sandbox/evaluate.py:87 FILE_W shutil.which
+infra/video_sandbox/evaluate.py:94 EXEC subprocess.run
+registries/models.py:18 FILE_R open
+registries/plugins.py:158 FILE_W shutil.rmtree
+registries/plugins.py:159 FILE_W shutil.copytree
+registries/plugins.py:21 EXEC/NET import 'shutil'
+security/audit.py:54 FILE_W open
+security/validator.py:10 FILE_R open
+security/validator.py:2 EXEC/NET import 'urllib.parse'
+security/validator.py:47 FILE_W Path(file_path).resolve
+server/adversarial_chamber.py:44 FILE_W Path(output_dir).expanduser
+server/agents/architect_tools.py:193 FILE_W Path(library_root).resolve
+server/agents/architect_tools.py:23 EXEC/NET import 'subprocess'
+server/agents/architect_tools.py:296 EXEC subprocess.run
+server/agents/genesis_agent.py:85 FILE_W Path(__file__).resolve
+server/agents/genesis_agent.py:86 FILE_W Path(library_root).resolve
+server/agents/genesis_daemon.py:161 FILE_W Path(__file__).resolve
+server/agents/genesis_daemon.py:45 FILE_W Path.home
+server/agents/genesis_memory.py:130 FILE_W open
+server/agents/genesis_memory.py:38 FILE_W Path.home
+server/agents/genesis_memory.py:55 FILE_R open
+server/agents/genesis_memory.py:95 FILE_W open
+server/agents/genesis_memory.py:97 FILE_W os.replace
+server/assembly.py:149 EXEC/NET import 'httpx'
+server/assembly.py:61 EXEC/NET import 'subprocess'
+server/audit.py:25 FILE_W Path(audit_dir).expanduser
+server/auth.py:29 FILE_W Path.home
+server/backends.py:14 EXEC/NET import 'shutil'
+server/backends.py:43 FILE_W shutil.which
+server/backends.py:80 FILE_W shutil.which
+server/board.py:16 EXEC/NET import 'shutil'
+server/board.py:17 EXEC/NET import 'subprocess'
+server/board.py:177 FILE_W Path(repo).resolve
+server/board.py:182 EXEC subprocess.run
+server/board.py:194 FILE_R Path(wt).exists
+server/board.py:195 FILE_W shutil.rmtree
+server/board.py:203 EXEC subprocess.run
+server/board.py:214 EXEC subprocess.run
+server/board.py:225 FILE_W shutil.rmtree
+server/board.py:323 FILE_R Path(card.worktree).exists
+server/board.py:334 FILE_R Path(card.worktree).exists
+server/board.py:78 FILE_W Path.home
+server/channels/adapters.py:37 EXEC/NET import 'httpx'
+server/channels/adapters.py:51 NET httpx.AsyncClient
+server/closed_loop.py:27 FILE_W Path(output_dir).expanduser
+server/closed_loop.py:28 FILE_W Path(audit_dir).expanduser
+server/codebase_memory.py:27 FILE_W Path.home
+server/codebase_memory.py:30 FILE_W Path.home
+server/codebase_memory.py:336 FILE_W Path(__file__).resolve
+server/codebase_memory.py:69 FILE_W Path(workspace_root).resolve
+server/coordinator.py:698 FILE_W Path(self._project_path).resolve
+server/coordinator.py:774 FILE_W Path(self._project_path).resolve
+server/darwin_evolution.py:50 FILE_W Path(state_dir).expanduser
+server/engine_runner.py:100 NET urllib.request.urlopen
+server/engine_runner.py:121 EXEC subprocess.Popen
+server/engine_runner.py:140 FILE_W shutil.which
+server/engine_runner.py:156 FILE_W shutil.which
+server/engine_runner.py:172 FILE_W shutil.which
+server/engine_runner.py:182 FILE_W shutil.which
+server/engine_runner.py:198 FILE_R Path(auth).read_text
+server/engine_runner.py:21 EXEC/NET import 'shutil'
+server/engine_runner.py:239 FILE_W shutil.which
+server/engine_runner.py:246 FILE_W shutil.which
+server/engine_runner.py:272 FILE_W shutil.which
+server/engine_runner.py:317 FILE_W shutil.which
+server/engine_runner.py:50 EXEC/NET import 'urllib.error'
+server/engine_runner.py:51 EXEC/NET import 'urllib.request'
+server/engine_runner.py:55 NET urllib.request.urlopen
+server/engine_runner.py:94 EXEC/NET import 'subprocess'
+server/engine_runner.py:96 EXEC/NET import 'urllib.request'
+server/hicode_agent.py:122 FILE_W shutil.which
+server/hicode_agent.py:126 FILE_W Path.home
+server/hicode_agent.py:144 EXEC/NET import 'subprocess'
+server/hicode_agent.py:146 EXEC subprocess.run
+server/hicode_agent.py:156 FILE_W Path(DEFAULT_WORKSPACE).expanduser
+server/hicode_agent.py:164 FILE_W Path(name_or_path).expanduser
+server/hicode_agent.py:28 EXEC/NET import 'shutil'
+server/hicode_agent.py:29 EXEC/NET import 'subprocess'
+server/hicode_agent.py:35 EXEC/NET import 'httpx'
+server/hicode_agent.py:444 EXEC subprocess.run
+server/hicode_agent.py:46 FILE_W Path.home
+server/hicode_agent.py:85 NET httpx.AsyncClient
+server/hicode_serve.py:107 NET httpx.AsyncClient
+server/hicode_serve.py:116 NET httpx.AsyncClient
+server/hicode_serve.py:25 EXEC/NET import 'httpx'
+server/hicode_serve.py:46 NET httpx.AsyncClient
+server/hp_optimizer.py:22 EXEC/NET import 'tempfile'
+server/long_read.py:35 EXEC/NET import 'httpx'
+server/long_read.py:37 NET httpx.AsyncClient
+server/long_read.py:42 FILE_W Path(p).expanduser
+server/long_read.py:44 FILE_W Path.cwd
+server/memory_bank.py:24 FILE_W Path.home
+server/memory_bank.py:32 FILE_W Path(storage_path or os.environ.get('VEYA_MEMORY_P
+server/memory_bank.py:42 FILE_R open
+server/memory_bank.py:55 FILE_W open
+server/memory_bank.py:57 FILE_W os.replace
+server/observer.py:15 EXEC/NET import 'tempfile'
+server/observer.py:32 FILE_W Path(snapshot_dir or tempfile.mkdtemp(prefix='veya
+server/open_design.py:26 FILE_W Path.home
+server/open_design.py:48 FILE_R Path(OD_BIN).is_file
+server/opencode_client.py:100 EXEC subprocess.Popen
+server/opencode_client.py:115 NET httpx.get
+server/opencode_client.py:181 NET httpx.AsyncClient
+server/opencode_client.py:21 EXEC/NET import 'shutil'
+server/opencode_client.py:22 EXEC/NET import 'subprocess'
+server/opencode_client.py:232 NET httpx.AsyncClient
+server/opencode_client.py:27 EXEC/NET import 'httpx'
+server/opencode_client.py:37 FILE_W shutil.which
+server/opencode_client.py:63 EXEC/NET import 'socket'
+server/opencode_client.py:66 NET socket.socket
+server/opencode_client.py:83 NET httpx.get
+server/openrsi.py:222 FILE_W os.makedirs
+server/openrsi.py:223 FILE_W open
+server/plan_todo.py:26 FILE_W Path.home
+server/quant_coprocessor.py:37 FILE_W Path(__file__).resolve
+server/routes/fs.py:122 FILE_W Path.home
+server/routes/fs.py:169 EXEC/NET import 'urllib.parse'
+server/routes/fs.py:171 NET urllib.parse.unquote
+server/routes/fs.py:175 FILE_W Path.home
+server/routes/fs.py:34 FILE_W Path.home
+server/routes/fs.py:58 FILE_W Path(root).resolve
+server/routes/fs.py:64 FILE_W Path(rel).expanduser
+server/routes/git.py:10 EXEC/NET import 'subprocess'
+server/routes/git.py:27 FILE_R Path(candidate).is_dir
+server/routes/git.py:28 FILE_W Path(candidate).resolve
+server/routes/git.py:29 FILE_W Path.cwd
+server/routes/git.py:33 EXEC subprocess.run
+server/routes/init.py:24 FILE_W Path(req.repo).resolve
+server/routes/models.py:189 FILE_W open
+server/routes/models.py:63 FILE_R open
+server/routes/observer.py:58 FILE_W Path(req.base_dir).expanduser
+server/routes/plan.py:46 FILE_R open
+server/routes/research.py:55 EXEC/NET import 'tempfile'
+server/routes/security.py:170 FILE_R open
+server/routes/security.py:48 FILE_R open
+server/routes/security.py:97 FILE_R open
+server/routes/vscode.py:201 FILE_W Path.home
+server/routes/vscode.py:218 EXEC/NET import 'subprocess'
+server/routes/vscode.py:226 EXEC subprocess.run
+server/routes/vscode.py:238 EXEC subprocess.run
+server/sidecar_manager.py:16 EXEC/NET import 'shutil'
+server/sidecar_manager.py:17 EXEC/NET import 'subprocess'
+server/sidecar_manager.py:73 FILE_W shutil.which
+server/sidecar_manager.py:78 EXEC subprocess.Popen
+server/skill_hub.py:238 EXEC/NET import 'httpx'
+server/skill_hub.py:242 NET httpx.AsyncClient
+server/skill_hub.py:36 FILE_W Path.home
+server/skill_hub.py:427 FILE_W Path(skills_dir or os.environ.get('VEYA_SKILLS_DIR
+server/skill_hub.py:76 FILE_W Path(skills_dir or os.environ.get('VEYA_SKILLS_DIR
+server/state_kernel.py:318 EXEC/NET import 'subprocess'
+server/state_kernel.py:321 FILE_W Path(path or '.').resolve
+server/state_kernel.py:328 EXEC subprocess.run
+server/state_kernel.py:337 FILE_R os.walk
+server/state_kernel.py:355 FILE_R open
+server/state_kernel.py:366 FILE_R os.walk
+server/state_kernel.py:90 FILE_R open
+server/state_machine.py:24 FILE_W Path(db_path).expanduser
+server/threat_model.py:22 FILE_W Path(output_dir).expanduser
+server/tool_registry.py:226 FILE_W Path(__file__).resolve
+server/tool_registry.py:231 FILE_W Path(os.environ.get('VEYA_WORKSPACE', str(Path(__f
+server/tool_registry.py:232 FILE_W Path(__file__).resolve
+server/tool_registry.py:278 EXEC/NET import 'httpx'
+server/tool_registry.py:282 NET httpx.AsyncClient
+server/tool_registry.py:300 EXEC/NET import 'httpx'
+server/tool_registry.py:315 NET httpx.AsyncClient
+server/tool_registry.py:491 FILE_W Path(os.environ.get('VEYA_WRITE_ROOT', str(Path.ho
+server/tool_registry.py:491 FILE_W Path.home
+server/unified_pipeline.py:224 FILE_W Path(workspace_root).resolve
+server/vault_physical_tools.py:67 EXEC/NET import 'httpx'
+server/vault_physical_tools.py:79 NET httpx.AsyncClient
+server/workspace_rag.py:69 FILE_W Path(__file__).resolve
+server/workspace_rag.py:71 FILE_W Path(workspace_root or os.environ.get('VEYA_WORKSP
+server/zero_trust_vault.py:28 FILE_W Path.home
+server/zero_trust_vault.py:99 FILE_W Path(vault_dir or os.environ.get('VEYA_VAULT_DIR',
+services/code_sandbox_client.py:124 EXEC subprocess.check_call
+services/code_sandbox_client.py:130 EXEC subprocess.run
+services/code_sandbox_client.py:14 EXEC/NET import 'subprocess'
+services/code_sandbox_client.py:20 FILE_W Path(__file__).resolve
+services/code_sandbox_client.py:68 EXEC subprocess.run
+services/code_sandbox_client.py:99 EXEC subprocess.run
+session/__init__.py:123 FILE_W Path.home
+session/__init__.py:265 FILE_R Path(path).read_text
+session/__init__.py:395 FILE_W Path.home
+session/__init__.py:410 FILE_W Path(cwd).resolve
+streaming/__init__.py:286 FILE_W Path.home
+veya/omodul/agent_project.py:74 FILE_W Path(path).expanduser
+veya/omodul/agent_project.py:78 FILE_W Path.home
+veya/omodul/execution.py:33 EXEC/NET import 'tempfile'
+veya/omodul/execution.py:410 EXEC/NET import 'shutil'
+veya/omodul/execution.py:412 FILE_W shutil.rmtree
+veya/omodul/integrations.py:137 NET aiohttp.ClientSession
+veya/omodul/integrations.py:14 EXEC/NET import 'aiohttp'
+veya/omodul/integrations.py:206 NET aiohttp.ClientSession
+veya/omodul/integrations.py:298 NET aiohttp.ClientSession
+veya/omodul/kanban.py:224 FILE_W Path.home
+veya/oservi/history_store.py:146 FILE_W Path.home
+veya/oskill/audio_io.py:229 FILE_W open
+veya/oskill/browser.py:137 FILE_W os.makedirs
+veya/oskill/browser.py:138 FILE_W open
+veya/oskill/code_review.py:14 NET httpx.Client
+veya/oskill/code_review.py:3 EXEC/NET import 'httpx'
+veya/oskill/im/account_binding.py:82 FILE_W Path.home
+veya/oskill/im/dingtalk.py:186 EXEC/NET import 'httpx'
+veya/oskill/im/dingtalk.py:188 NET httpx.AsyncClient
+veya/oskill/im/dingtalk.py:20 EXEC/NET import 'urllib.parse'
+veya/oskill/im/dingtalk.py:208 EXEC/NET import 'httpx'
+veya/oskill/im/dingtalk.py:225 NET httpx.AsyncClient
+veya/oskill/im/dingtalk.py:87 EXEC/NET import 'httpx'
+veya/oskill/im/dingtalk.py:89 NET httpx.AsyncClient
+veya/oskill/im/discord.py:206 EXEC/NET import 'httpx'
+veya/oskill/im/discord.py:209 NET httpx.AsyncClient
+veya/oskill/im/feishu.py:136 NET httpx.AsyncClient
+veya/oskill/im/feishu.py:149 NET httpx.AsyncClient
+veya/oskill/im/feishu.py:18 EXEC/NET import 'httpx'
+veya/oskill/im/slack.py:131 NET httpx.AsyncClient
+veya/oskill/im/slack.py:17 EXEC/NET import 'httpx'
+veya/oskill/im/telegram.py:227 EXEC/NET import 'httpx'
+veya/oskill/im/telegram.py:231 NET httpx.AsyncClient
+veya/oskill/im/telegram.py:73 EXEC/NET import 'httpx'
+veya/oskill/im/telegram.py:75 NET httpx.AsyncClient
+veya/oskill/im/telegram.py:95 EXEC/NET import 'httpx'
+veya/oskill/im/telegram.py:96 NET httpx.AsyncClient
+veya/oskill/im/wechat.py:178 EXEC/NET import 'httpx'
+veya/oskill/im/wechat.py:180 NET httpx.AsyncClient
+veya/oskill/im/wechat.py:91 EXEC/NET import 'httpx'
+veya/oskill/im/wechat.py:93 NET httpx.AsyncClient
+veya/oskill/memory_hub.py:41 FILE_W Path.home
+veya/oskill/memory_store.py:146 FILE_W Path.home
+veya/oskill/multimodal.py:214 FILE_R open
+veya/oskill/multimodal.py:372 FILE_R open
+veya/oskill/multimodal.py:421 FILE_R open
+veya/oskill/multimodal.py:486 EXEC/NET import 'subprocess'
+veya/oskill/multimodal.py:497 EXEC subprocess.run
+veya/oskill/multimodal.py:533 EXEC/NET import 'subprocess'
+veya/oskill/multimodal.py:534 EXEC/NET import 'tempfile'
+veya/oskill/multimodal.py:548 EXEC subprocess.run
+veya/oskill/multimodal.py:550 FILE_R open
+veya/oskill/multimodal.py:552 FILE_W os.unlink
+veya/oskill/multimodal.py:63 FILE_R open
+veya/oskill/multimodal.py:674 FILE_W open
+veya/oskill/multimodal.py:684 FILE_W open
+veya/oskill/semantic_search.py:135 FILE_R os.walk
+veya/oskill/semantic_search.py:140 FILE_R open
+veya/oskill/spawn.py:125 FILE_W shutil.which
+veya/oskill/spawn.py:15 EXEC/NET import 'shutil'
+veya/oskill/spawn.py:17 EXEC/NET import 'subprocess'
+veya/oskill/spawn.py:220 FILE_W shutil.which
+veya/oskill/stt.py:156 NET httpx.AsyncClient
+veya/oskill/stt.py:19 EXEC/NET import 'httpx'
+veya/oskill/stt.py:208 NET httpx.AsyncClient
+veya/oskill/stt.py:267 NET httpx.AsyncClient
+veya/oskill/stt.py:383 FILE_R open
+veya/oskill/tool_manager.py:142 FILE_W Path.home
+veya/oskill/tool_manager.py:153 FILE_W shutil.which
+veya/oskill/tool_manager.py:21 EXEC/NET import 'shutil'
+veya/oskill/tool_manager.py:22 EXEC/NET import 'subprocess'
+veya/oskill/tool_manager.py:23 EXEC/NET import 'tempfile'
+veya/oskill/tool_manager.py:231 FILE_W shutil.which
+veya/oskill/tool_manager.py:247 EXEC subprocess.run
+veya/oskill/tool_manager.py:276 EXEC/NET import 'urllib.request'
+veya/oskill/tool_manager.py:282 NET urllib.request.urlretrieve
+veya/oskill/tool_manager.py:322 EXEC subprocess.run
+veya/oskill/tools.py:621 FILE_R open
+veya/oskill/tools.py:631 FILE_W os.makedirs
+veya/oskill/tools.py:633 FILE_W open
+veya/oskill/tools.py:643 FILE_R os.listdir
+veya/oskill/tts.py:131 NET httpx.AsyncClient
+veya/oskill/tts.py:159 NET httpx.AsyncClient
+veya/oskill/tts.py:19 EXEC/NET import 'httpx'
+veya/oskill/tts.py:193 NET httpx.AsyncClient
+veya/oskill/tts.py:293 NET httpx.AsyncClient
+veya/oskill/vision.py:18 EXEC/NET import 'httpx'
+veya/oskill/vision.py:237 NET httpx.AsyncClient
+veya/oskill/vision.py:281 NET httpx.AsyncClient
+veya/oskill/vision.py:332 NET httpx.AsyncClient
+veya/oskill/vision.py:386 FILE_R open

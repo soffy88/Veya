@@ -415,11 +415,16 @@ class TerminalTool(SmartTool):
         super().__init__(metadata)
 
     async def _run_command(self, **kwargs) -> ToolResult:
-        """执行终端命令"""
-        command = kwargs["command"]
-        cwd = kwargs.get("path", ".")
+        """执行终端命令（阶段 3 接线：经 oprim.shell_exec 在沙箱内执行）。
 
-        # 安全检查
+        行为差异（收紧）：
+        1. 执行发生在 VfsSandbox 沙箱工作目录（不再直跑宿主 cwd）；
+        2. 危险命令拦截/资源限制由沙盒统一负责（与 is_dangerous 单源一致）；
+        3. cwd/path 参数不再生效（沙箱内统一根目录）。
+        """
+        command = kwargs["command"]
+
+        # 安全检查（保留 §1.4 单源委托；沙箱内还会再拦一道）
         if not self._is_safe_command(command):
             return ToolResult(
                 command=command,
@@ -428,26 +433,19 @@ class TerminalTool(SmartTool):
                 duration=0.0,
             )
 
+        from veya.oprim.shell import shell_exec
+
         start_time = time.time()
         try:
-            # 执行命令
-            proc = await asyncio.create_subprocess_shell(
-                command, cwd=cwd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-
-            # 处理输出
-            output = stdout.decode().strip()
-            error = stderr.decode().strip()
-
+            result = await shell_exec(command)
             return ToolResult(
                 command=command,
-                status=ToolStatus.SUCCESS if proc.returncode == 0 else ToolStatus.FAILED,
-                output=output,
-                error=error,
+                status=ToolStatus.SUCCESS if result.ok else ToolStatus.FAILED,
+                output=result.stdout.strip(),
+                error=result.stderr.strip() or ("" if result.ok else "exit=%d" % result.exit_code),
                 duration=time.time() - start_time,
-                exit_code=proc.returncode,
-                context={"cwd": cwd},
+                exit_code=result.exit_code,
+                context={"cwd": "sandbox"},
             )
         except Exception as e:
             return ToolResult(
