@@ -59,6 +59,15 @@ class SessionTreeMgr:
         self._save(sid, {"root": root_id, "leaf": root_id, "nodes": nodes})
         return sid
 
+    def ensure_session(self, sid: str, *, system: str | None = None) -> str:
+        """确保会话存在：不存在则用指定 sid 创建（外部传入 session_id 兼容）。
+        已存在则原样返回。"""
+        if self._load(sid) is None:
+            root_id = self._id_fn()
+            nodes = {root_id: self._node(root_id, None, "system", system or "")}
+            self._save(sid, {"root": root_id, "leaf": root_id, "nodes": nodes})
+        return sid
+
     def append(
         self,
         sid: str,

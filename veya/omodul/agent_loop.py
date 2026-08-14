@@ -108,6 +108,9 @@ class AgentLoop:
         if not isinstance(user_input, str) or not user_input.strip():
             raise ValueError("user_input 不能为空")
 
+        # 外部传入 session_id: 树中不存在时用该 sid 创建（兼容旧历史会话 id）
+        if session_id is not None and self._tree.leaf(session_id) is None:
+            self._tree.ensure_session(session_id, system=self._system_prompt or None)
         sid = session_id or self._tree.create_session(system=self._system_prompt or None)
         self._tree.append(sid, role="user", content=user_input)
         emit_event("agent_loop.start", {"session_id": sid}, barrier=self._barrier)
