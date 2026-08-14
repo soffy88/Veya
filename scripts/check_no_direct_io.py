@@ -77,6 +77,7 @@ ALLOWED_DIRS: tuple[str, ...] = (
     "docs",
     "site",
     "deploy",
+    "services/loop-plane",  # 独立微服务（infra 层本职即 I/O, 有自己的存储/执行面）
 )
 
 # 直接 I/O 的导入根
