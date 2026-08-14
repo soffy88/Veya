@@ -231,7 +231,9 @@ def _session_kv(kv_path: str | None = None):
 
     if kv_path is None:
         kv_path = str(Path.home() / ".veya" / "loop" / "session_tree.db")
-    return SqliteKvStore(kv_path)
+    path = Path(kv_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return SqliteKvStore(str(path))
 
 
 __all__ = ["run_strict", "run_strict_chat", "strict_loop_enabled"]
