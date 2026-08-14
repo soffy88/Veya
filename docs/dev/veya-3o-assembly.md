@@ -60,36 +60,23 @@
 - **结论**：同名不同契约，非同一段逻辑；保留 Veya 版为项目层资产。若主库
   未来提供轻量累加 API，再切换 re-export。
 
-### 3.3 ExecResult（📄 契约差异，非双实现）
+### 3.3 Event（📄 严格 3O 句柄层合同类型，阶段 1）
 
-- `veya.execution.ExecResult`：执行路由生命周期结果（Cloudflare
-  WorkspaceRuntimeResult 对应），字段 `status / exit_code / stdout / stderr /
-  value / sync / started_at / finished_at`，`ok` = 完成且退出码 0。
-- `oprim._sandbox.ExecResult`：sandbox 命令执行结果，字段 `argv / exit_code /
-  stdout / stderr / duration_ms / timed_out`（`ok` 额外排除超时）。
-- **结论**：同名不同契约（一个描述执行生命周期、一个描述一次性命令执行），
-  非同一段逻辑；保留 Veya 版为项目层资产。
+`veya/obase/interfaces.py` 定义统一事件类型 `Event`（topic/payload/ts/trace_id），
+是 `EventBarrier`/`DaemonBus` 的标准载荷。主库 `event_bus.Event` 是另一套总线
+事件（契约不同）。迁移计划（docs/3O_STRICT_MIGRATION.md 阶段 3+）将用严格
+句柄层替换 `platform/3O` 主库；主库退役后清除本条目。
 
-### 3.4 SkillMeta（📄 契约差异，非双实现）
-
-- `veya.agent_project.SkillMeta`：Agent 定义（vercel/eve 机制内化）的技能路由
-  元数据，字段 `name / description / path`——渐进披露第一步只暴露 description。
-- `oprim._*.py`（`_load_image` / `_read_skill_frontmatter` / `_run_hook` 等模板
-  文件）的 `SkillMeta`：skill frontmatter 解析结果，字段 `name / description /
-  version / tools / hooks / tags / raw / skill_dir`。
-- **结论**：同名但契约不同（一个面向 Agent 目录索引/路由、一个面向 skill
-  frontmatter 解析）；保留 Veya 版为项目层资产。
-
-## 4. 待逐项审计清单（39 项）
+## 4. 待逐项审计清单（32 项）
 
 > 每个符号出现在 `tests/guardians/test_single_source.py::KNOWN_SYMBOLS`，原因
 > 均标注 "pending audit"。判定标准（§1.4）：① 同契约 → 适配器委托主库；
 > ② 不同契约 → 文档化保留；③ Veya 增强 → 贡献回主库（资产积累 §1.3）。
 
-`CheckpointData` `Message` `RunState` `SubagentDefinition` `Symbol`
-`ToolResult` `ServiceManifest` `assemble` `bash_exec` `build_ripgrep_args`
+`CheckpointData` `RunState` `SubagentDefinition`
+`ServiceManifest` `assemble` `bash_exec` `build_ripgrep_args`
 `cached` `compute_diff` `diff_session_state` `evaluate_hooks` `file_read`
-`file_read_range` `file_write` `git_add` `git_commit` `git_diff` `git_status`
+`file_read_range` `file_write` `git_diff` `git_status`
 `glob_match` `http_fetch` `llm_call` `llm_stream` `lsp_diagnostics`
 `make_checkpoint` `match_permission_rule` `mcp_call_tool` `mcp_connect`
 `merge_config` `parse_ripgrep_output` `plan_to_todos` `read_skill_frontmatter`
