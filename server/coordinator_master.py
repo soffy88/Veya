@@ -18,6 +18,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from server import graft_autocontext as _graft_autocontext
 from server.events import _on_step_ctx, fire_step
 from server.memory_bank import VeyaMemoryBank
 from server.memory_bank import memory_bank as _default_memory_bank
@@ -259,6 +260,32 @@ def _format_hicode_result(res: dict) -> str:
     return f"{head}\n{result[:8000]}"
 
 
+# 主脑输出预算自适应: 主库默认 max_tokens=8192, 但 reasoning 模型 (deepseek-v4-flash
+# 等) 先花上千 token 思考再吐正文 → 详细回答 (方案/长文/多步分析) 会被截断 (实测 T5)。
+# floor 抬到 16384 (是上限非成本, 短回答不多花) + 按末条 user 消息长度放大, 夹到 ceiling。
+_MASTER_TOK_FLOOR = int(os.environ.get("VEYA_MASTER_MAX_TOKENS_FLOOR", "16384"))
+_MASTER_TOK_CEILING = int(os.environ.get("VEYA_MASTER_MAX_TOKENS_CEILING", "32768"))
+
+
+def _last_user_len(messages: list) -> int:
+    """末条 user 消息文本长度 (= 期望回答详略的弱信号; 系统提示/工具schema 恒大, 不计)。"""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            c = m.get("content")
+            if isinstance(c, str):
+                return len(c)
+            if isinstance(c, list):
+                return sum(len(b.get("text", "")) for b in c if isinstance(b, dict))
+            break
+    return 0
+
+
+def _adaptive_master_max_tokens(messages: list, current: int | None) -> int:
+    """主脑本体 LLM 桥的自适应输出预算。不低于调用方已显式设定的值。"""
+    budget = min(_MASTER_TOK_FLOOR + int(_last_user_len(messages) / 3.5), _MASTER_TOK_CEILING)
+    return max(budget, current or 0)
+
+
 class MasterCoordinator:
     """主脑: 把用户请求路由到后端工具 / 子 Agent (Genesis),汇总最终回答。
 
@@ -429,6 +456,10 @@ class MasterCoordinator:
                 **req_cfg["endpoints"],
             }
 
+        # 自适应输出预算: 覆盖主库固定的 8192, 防 reasoning 模型详细回答被截断
+        # (尊重调用方经 llm_kwargs 显式设的更高值)。
+        kwargs["max_tokens"] = _adaptive_master_max_tokens(messages, kwargs.get("max_tokens"))
+
         async def _call(msgs: list) -> Any:
             return await self._llm_fn(
                 msgs,
@@ -562,6 +593,22 @@ class MasterCoordinator:
         # on_step → 参数为 None 时保留外层 contextvar, 否则覆盖 (master/chat 直调)。
         token = _on_step_ctx.set(on_step if on_step is not None else _on_step_ctx.get())
         try:
+            # ── 严格 3O 主链切换 (VEYA_AGENT_LOOP=strict) ──
+            # 默认旧主库路径（冻结架构）；flag 开启时走新 omodul 心脏：
+            # master_tools 全量工具面 + 系统提示 + SSE 事件桥 + 会话树。
+            # 多模态 images 暂不支持 → 自动回落旧路径。
+            from server.agent_loop_bridge import run_strict_chat, strict_loop_enabled
+
+            if strict_loop_enabled() and not images:
+                system = _slim_master_prompt(MASTER_SYSTEM_PROMPT) + "\n" + _HOST_SOP_APPEND
+                return await run_strict_chat(
+                    user_prompt,
+                    session_id=session_id,
+                    on_step=on_step,
+                    llm_kwargs=llm_kwargs or None,
+                    max_rounds=max_rounds or self.max_rounds,
+                    system_prompt=system,
+                )
             # ── 入口只有一个大模型: 零程序判断 ──
             # 所有请求 (长文本/URL/编程/视频/知识/设计…) 原样交给大模型,
             # 工具面全量透传 — 模型自主决定: 直接回答, 或调用哪个工具
@@ -577,6 +624,9 @@ class MasterCoordinator:
             await self._restore_history(sid)
             # P4: 检索相关长期记忆并注入 (空则无操作, 行为不变)
             await self._inject_memory(sid, user_prompt)
+            # 统一流水线 Phase 1: 自动注入 Graft 代码地图 + ReasoningBank 历史规则
+            # (空则无操作; 与 evolve_solution 的 Phase 3 共用持久库, 形成闭环)
+            await self._inject_graft_context(sid, user_prompt)
             # 长任务无损恢复: 循环运行期间定时快照 (主库在 _histories[sid] 原地
             # 累积每轮消息), 进程被杀也只丢最后一个快照间隔, 而非整轮工作。
             ckpt_task = asyncio.create_task(self._checkpoint_loop(sid))
@@ -692,6 +742,32 @@ class MasterCoordinator:
             if not (
                 m.get("role") == "system" and str(m.get("content", "")).startswith(self._MEM_PREFIX)
             )
+        ]
+        if block:
+            msgs.insert(1, {"role": "system", "content": block})
+
+    async def _inject_graft_context(self, sid: str, query: str) -> None:
+        """统一流水线 Phase 1: 装配 Graft 代码依赖地图 + ReasoningBank 历史规则,
+        作为可刷新 system 消息注入 (system 不入持久化)。
+
+        空 → 完全无操作 (行为不变)。构建跑在线程池, 任何故障都被 suppress。
+        每轮先按 MARK 前缀清旧块再插新块, 不累积。
+        """
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None:
+            return
+        block = ""
+        with contextlib.suppress(Exception):  # 上下文装配故障绝不拖垮对话
+            block = await asyncio.to_thread(_graft_autocontext.build_block, query)
+        msgs = hist.get(sid)
+        if msgs is None:  # 新会话: 先按主库约定建 [system]
+            msgs = [{"role": "system", "content": self._agent.get_system_prompt()}]
+            hist[sid] = msgs
+        mark = _graft_autocontext.MARK
+        msgs[:] = [
+            m
+            for m in msgs
+            if not (m.get("role") == "system" and str(m.get("content", "")).startswith(mark))
         ]
         if block:
             msgs.insert(1, {"role": "system", "content": block})
