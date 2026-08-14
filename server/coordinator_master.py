@@ -601,6 +601,11 @@ class MasterCoordinator:
 
             if strict_loop_enabled() and not images:
                 system = _slim_master_prompt(MASTER_SYSTEM_PROMPT) + "\n" + _HOST_SOP_APPEND
+                # 记忆/上下文注入钩子（复用旧检索逻辑；每轮刷新不累积）
+                providers = [
+                    self._memory_provider,
+                    self._graft_provider,
+                ]
                 return await run_strict_chat(
                     user_prompt,
                     session_id=session_id,
@@ -608,6 +613,8 @@ class MasterCoordinator:
                     llm_kwargs=llm_kwargs or None,
                     max_rounds=max_rounds or self.max_rounds,
                     system_prompt=system,
+                    context_providers=providers,
+                    on_finish=self._distill_after_strict,
                 )
             # ── 入口只有一个大模型: 零程序判断 ──
             # 所有请求 (长文本/URL/编程/视频/知识/设计…) 原样交给大模型,
@@ -716,6 +723,35 @@ class MasterCoordinator:
     def _memory_user_id(self) -> str:
         """记忆归属 (跨会话)。当前单用户本地部署用 'default'; 多用户可后扩。"""
         return "default"
+
+    async def _memory_provider(self, sid: str, query: str) -> str:
+        """新主链上下文钩子：检索长期记忆 → 文本块（空记忆返回空串，无操作）。"""
+        if not self._memory_enabled:
+            return ""
+        mems: list[dict[str, Any]] = []
+        with contextlib.suppress(Exception):  # 记忆故障绝不拖垮对话
+            mems = await self._memory_store.retrieve(self._memory_user_id(), query, top_k=5)
+        return format_memory_block(mems)
+
+    async def _graft_provider(self, sid: str, query: str) -> str:
+        """新主链上下文钩子：Graft 代码地图 + ReasoningBank 规则 → 文本块。"""
+        block = ""
+        with contextlib.suppress(Exception):  # 上下文装配故障绝不拖垮对话
+            block = await asyncio.to_thread(_graft_autocontext.build_block, query)
+        return block
+
+    async def _distill_after_strict(self, sid: str, msgs: list[dict[str, Any]]) -> None:
+        """新主链结束回调：蒸馏本轮对话为长期记忆（fire-and-forget）。"""
+        if not self._memory_enabled:
+            return
+        filtered = [
+            m for m in msgs
+            if not (m.get("role") == "system" and str(m.get("content", "")).startswith(self._MEM_PREFIX))
+        ]
+        if len(filtered) < 3:  # 太短不值得蒸馏
+            return
+        with contextlib.suppress(Exception):
+            await self._distill_and_store(sid, filtered)
 
     async def _inject_memory(self, sid: str, query: str) -> None:
         """检索相关长期记忆, 作为可刷新的 system 消息注入 (system 不入持久化)。

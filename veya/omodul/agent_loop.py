@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
@@ -83,9 +84,16 @@ class AgentLoop:
         backoff_sleep: float = 1.0,
         sleep_fn: Callable[[float], Awaitable[None]] | None = None,
         gate: Callable[[], Awaitable[None]] | None = None,
+        context_providers: list[Callable[[str, str], Awaitable[str]]] | None = None,
+        on_finish: Callable[[str, list[dict]], Awaitable[None]] | None = None,
     ) -> None:
         """gate: 每轮开始前 await 的挂起检查点（阶段 5 daemon 注入：
-        paused 时阻塞等待 resume；默认 None = 无挂起能力，行为不变）。"""
+        paused 时阻塞等待 resume；默认 None = 无挂起能力，行为不变）。
+
+        context_providers: 每轮构造 LLM 消息前的上下文注入钩子
+            (sid, user_input) → 附加文本块（记忆/代码地图等，刷新不累积）；
+        on_finish: 循环结束回调 (sid, 最终消息列表) → 蒸馏/落库等。
+        """
         if pipeline is None:
             pipeline = ToolPipeline(barrier=barrier)
         if tree is None:
@@ -100,6 +108,8 @@ class AgentLoop:
         self._backoff_sleep = backoff_sleep
         self._sleep = sleep_fn or asyncio.sleep
         self._gate = gate
+        self._context_providers = list(context_providers or [])
+        self._on_finish = on_finish
 
     # ------------------------------------------------------------------ 主循环
 
@@ -123,9 +133,13 @@ class AgentLoop:
             # 0. 挂起检查点（daemon 注入；paused 时阻塞等待 resume）
             if self._gate is not None:
                 await self._gate()
-            # 1. 上下文（时空回溯路径 + 滑窗压缩）
+            # 1. 上下文（时空回溯路径 + 滑窗压缩 + 注入钩子）
             ctx = self._tree.messages(sid)
             ctx = sliding_window(ctx, max_messages=_MAX_CTX_MESSAGES)
+            for provider in self._context_providers:
+                block = await provider(sid, user_input)
+                if block:
+                    ctx = [{"role": "system", "content": block}] + ctx
             msgs = agent_messages_to_llm(ctx)
 
             # 2. LLM 调用（物理触手；异常 = 致命错误）
@@ -223,6 +237,10 @@ class AgentLoop:
             {"session_id": sid, "stop_kind": result.stop_kind, "rounds": result.rounds},
             barrier=self._barrier,
         )
+        # 结束回调（蒸馏/落库；失败不阻断返回）
+        if self._on_finish is not None:
+            with contextlib.suppress(Exception):
+                await self._on_finish(sid, self._tree.messages(sid))
         return result
 
 
