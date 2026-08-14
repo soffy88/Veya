@@ -82,7 +82,10 @@ class AgentLoop:
         max_consecutive_errors: int = 3,
         backoff_sleep: float = 1.0,
         sleep_fn: Callable[[float], Awaitable[None]] | None = None,
+        gate: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
+        """gate: 每轮开始前 await 的挂起检查点（阶段 5 daemon 注入：
+        paused 时阻塞等待 resume；默认 None = 无挂起能力，行为不变）。"""
         if pipeline is None:
             pipeline = ToolPipeline(barrier=barrier)
         if tree is None:
@@ -96,6 +99,7 @@ class AgentLoop:
         self._max_consecutive_errors = max(1, max_consecutive_errors)
         self._backoff_sleep = backoff_sleep
         self._sleep = sleep_fn or asyncio.sleep
+        self._gate = gate
 
     # ------------------------------------------------------------------ 主循环
 
@@ -113,6 +117,9 @@ class AgentLoop:
         decision: StopDecision | None = None
 
         for round_no in range(self._max_rounds):
+            # 0. 挂起检查点（daemon 注入；paused 时阻塞等待 resume）
+            if self._gate is not None:
+                await self._gate()
             # 1. 上下文（时空回溯路径 + 滑窗压缩）
             ctx = self._tree.messages(sid)
             ctx = sliding_window(ctx, max_messages=_MAX_CTX_MESSAGES)
