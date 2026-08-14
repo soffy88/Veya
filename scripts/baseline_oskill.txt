@@ -1,0 +1,232 @@
+veya/oskill/__init__.py:module-level mutable literal at line 46
+veya/oskill/audio_io.py:11 IO import 'asyncio'
+veya/oskill/audio_io.py:13 IO import 'threading'
+veya/oskill/audio_io.py:229 IO call open
+veya/oskill/browser.py:111 IO call os.environ.get
+veya/oskill/browser.py:12 IO import 'asyncio'
+veya/oskill/browser.py:125 IO call os.path.exists
+veya/oskill/browser.py:137 IO call os.path.dirname
+veya/oskill/browser.py:138 IO call open
+veya/oskill/browser.py:14 IO import 'os'
+veya/oskill/browser.py:155 NONDET call time.time
+veya/oskill/browser.py:158 NONDET call time.time
+veya/oskill/browser.py:166 NONDET call time.time
+veya/oskill/browser.py:18 IO import 'pathlib'
+veya/oskill/browser.py:346 NONDET import 'uuid'
+veya/oskill/browser.py:348 NONDET call uuid.uuid4
+veya/oskill/code_review.py:1 IO import 'os'
+veya/oskill/code_review.py:10 IO call print
+veya/oskill/code_review.py:17 IO call print
+veya/oskill/code_review.py:19 IO call print
+veya/oskill/code_review.py:3 IO import 'httpx'
+veya/oskill/code_review.py:8 IO call os.environ.get
+veya/oskill/im/__init__.py:module-level mutable literal at line 37
+veya/oskill/im/account_binding.py:154 GLOBAL global 语句 ['_default_store']
+veya/oskill/im/account_binding.py:19 IO import 'pathlib'
+veya/oskill/im/account_binding.py:58 NONDET call time.time
+veya/oskill/im/account_binding.py:59 NONDET call time.time
+veya/oskill/im/account_binding.py:93 NONDET call time.time
+veya/oskill/im/dingtalk.py:100 NONDET call time.time
+veya/oskill/im/dingtalk.py:13 IO import 'asyncio'
+veya/oskill/im/dingtalk.py:18 IO import 'os'
+veya/oskill/im/dingtalk.py:186 IO import 'httpx'
+veya/oskill/im/dingtalk.py:20 IO import 'urllib.parse'
+veya/oskill/im/dingtalk.py:208 IO import 'httpx'
+veya/oskill/im/dingtalk.py:210 NONDET call time.time
+veya/oskill/im/dingtalk.py:70 IO call os.environ.get
+veya/oskill/im/dingtalk.py:71 IO call os.environ.get
+veya/oskill/im/dingtalk.py:72 IO call os.environ.get
+veya/oskill/im/dingtalk.py:73 IO call os.environ.get
+veya/oskill/im/dingtalk.py:80 NONDET call time.time
+veya/oskill/im/dingtalk.py:87 IO import 'httpx'
+veya/oskill/im/dingtalk.py:module-level call at line 35
+veya/oskill/im/discord.py:13 IO import 'asyncio'
+veya/oskill/im/discord.py:18 IO import 'os'
+veya/oskill/im/discord.py:206 IO import 'httpx'
+veya/oskill/im/discord.py:75 IO call os.environ.get
+veya/oskill/im/discord.py:76 IO call os.environ.get
+veya/oskill/im/discord.py:77 IO call os.environ.get
+veya/oskill/im/discord.py:module-level call at line 34
+veya/oskill/im/feishu.py:11 IO import 'asyncio'
+veya/oskill/im/feishu.py:18 IO import 'httpx'
+veya/oskill/im/feishu.py:181 NONDET call time.time
+veya/oskill/im/feishu.py:183 NONDET call time.time
+veya/oskill/im/feishu.py:module-level call at line 22
+veya/oskill/im/feishu.py:module-level mutable literal at line 202
+veya/oskill/im/pseudo.py:17 IO import 'os'
+veya/oskill/im/pseudo.py:21 IO call os.environ.get
+veya/oskill/im/pseudo.py:module-level call at line 21
+veya/oskill/im/pseudo.py:module-level mutable literal at line 91
+veya/oskill/im/slack.py:11 IO import 'asyncio'
+veya/oskill/im/slack.py:164 NONDET call time.time
+veya/oskill/im/slack.py:166 NONDET call time.time
+veya/oskill/im/slack.py:17 IO import 'httpx'
+veya/oskill/im/slack.py:module-level call at line 21
+veya/oskill/im/slack.py:module-level mutable literal at line 185
+veya/oskill/im/telegram.py:12 IO import 'asyncio'
+veya/oskill/im/telegram.py:15 IO import 'os'
+veya/oskill/im/telegram.py:227 IO import 'httpx'
+veya/oskill/im/telegram.py:59 IO call os.environ.get
+veya/oskill/im/telegram.py:60 IO call os.environ.get
+veya/oskill/im/telegram.py:73 IO import 'httpx'
+veya/oskill/im/telegram.py:95 IO import 'httpx'
+veya/oskill/im/telegram.py:module-level call at line 31
+veya/oskill/im/wechat.py:106 NONDET call time.time
+veya/oskill/im/wechat.py:16 IO import 'asyncio'
+veya/oskill/im/wechat.py:178 IO import 'httpx'
+veya/oskill/im/wechat.py:19 IO import 'os'
+veya/oskill/im/wechat.py:199 NONDET call time.time
+veya/oskill/im/wechat.py:74 IO call os.environ.get
+veya/oskill/im/wechat.py:75 IO call os.environ.get
+veya/oskill/im/wechat.py:76 IO call os.environ.get
+veya/oskill/im/wechat.py:77 IO call os.environ.get
+veya/oskill/im/wechat.py:84 NONDET call time.time
+veya/oskill/im/wechat.py:91 IO import 'httpx'
+veya/oskill/im/wechat.py:module-level call at line 37
+veya/oskill/intent.py:module-level mutable literal at line 23
+veya/oskill/memory_hub.py:17 IO import 'pathlib'
+veya/oskill/memory_hub.py:module-level mutable literal at line 257
+veya/oskill/memory_store.py:117 NONDET call time.time
+veya/oskill/memory_store.py:13 IO import 'asyncio'
+veya/oskill/memory_store.py:144 GLOBAL global 语句 ['_default_store']
+veya/oskill/memory_store.py:16 IO import 'threading'
+veya/oskill/memory_store.py:18 NONDET import 'uuid'
+veya/oskill/memory_store.py:19 IO import 'pathlib'
+veya/oskill/memory_store.py:77 NONDET call time.time
+veya/oskill/memory_store.py:85 NONDET call uuid.uuid4
+veya/oskill/memory_store.py:module-level call at line 22
+veya/oskill/mobile.py:12 IO import 'asyncio'
+veya/oskill/mobile.py:126 NONDET call time.time
+veya/oskill/multimodal.py:10 IO import 'os'
+veya/oskill/multimodal.py:13 IO import 'pathlib'
+veya/oskill/multimodal.py:140 IO call os.path.exists
+veya/oskill/multimodal.py:214 IO call open
+veya/oskill/multimodal.py:238 IO call os.path.exists
+veya/oskill/multimodal.py:369 IO call os.path.exists
+veya/oskill/multimodal.py:372 IO call open
+veya/oskill/multimodal.py:375 IO call print
+veya/oskill/multimodal.py:394 IO call os.path.getsize
+veya/oskill/multimodal.py:404 IO call os.path.getsize
+veya/oskill/multimodal.py:412 IO call os.path.exists
+veya/oskill/multimodal.py:421 IO call open
+veya/oskill/multimodal.py:424 IO call print
+veya/oskill/multimodal.py:430 IO call os.path.exists
+veya/oskill/multimodal.py:486 IO import 'subprocess'
+veya/oskill/multimodal.py:497 IO call subprocess.run
+veya/oskill/multimodal.py:518 IO call os.path.getsize
+veya/oskill/multimodal.py:533 IO import 'subprocess'
+veya/oskill/multimodal.py:534 IO import 'tempfile'
+veya/oskill/multimodal.py:536 IO call tempfile.NamedTemporaryFile
+veya/oskill/multimodal.py:548 IO call subprocess.run
+veya/oskill/multimodal.py:550 IO call open
+veya/oskill/multimodal.py:586 IO call os.path.exists
+veya/oskill/multimodal.py:63 IO call open
+veya/oskill/multimodal.py:66 IO call print
+veya/oskill/multimodal.py:671 IO call print
+veya/oskill/multimodal.py:674 IO call open
+veya/oskill/multimodal.py:679 IO call print
+veya/oskill/multimodal.py:682 IO call print
+veya/oskill/multimodal.py:684 IO call open
+veya/oskill/multimodal.py:688 IO call print
+veya/oskill/multimodal.py:689 IO call print
+veya/oskill/semantic_search.py:129 IO import 'os'
+veya/oskill/semantic_search.py:138 IO call os.path.join
+veya/oskill/semantic_search.py:140 IO call open
+veya/oskill/semantic_search.py:145 IO call print
+veya/oskill/semantic_search.py:282 IO call print
+veya/oskill/semantic_search.py:285 IO call print
+veya/oskill/semantic_search.py:286 IO call print
+veya/oskill/semantic_search.py:287 IO call print
+veya/oskill/semantic_search.py:290 IO call print
+veya/oskill/semantic_search.py:293 IO call print
+veya/oskill/semantic_search.py:48 NONDET call hash
+veya/oskill/spawn.py:12 IO import 'asyncio'
+veya/oskill/spawn.py:125 IO call shutil.which
+veya/oskill/spawn.py:14 IO import 'os'
+veya/oskill/spawn.py:15 IO import 'shutil'
+veya/oskill/spawn.py:17 IO import 'subprocess'
+veya/oskill/spawn.py:22 IO import 'pathlib'
+veya/oskill/spawn.py:220 IO call shutil.which
+veya/oskill/spawn.py:293 NONDET call time.time
+veya/oskill/spawn.py:311 IO call os.environ.copy
+veya/oskill/spawn.py:328 NONDET call time.time
+veya/oskill/spawn.py:349 NONDET call time.time
+veya/oskill/spawn.py:356 NONDET call time.time
+veya/oskill/spawn.py:383 NONDET call time.time
+veya/oskill/spawn.py:450 NONDET call time.time
+veya/oskill/spawn.py:module-level mutable literal at line 50
+veya/oskill/stt.py:12 IO import 'asyncio'
+veya/oskill/stt.py:13 IO import 'io'
+veya/oskill/stt.py:15 IO import 'os'
+veya/oskill/stt.py:19 IO import 'httpx'
+veya/oskill/stt.py:383 IO call open
+veya/oskill/stt.py:64 IO call os.environ.get
+veya/oskill/stt.py:module-level mutable literal at line 36
+veya/oskill/tool_manager.py:153 IO call shutil.which
+veya/oskill/tool_manager.py:19 IO import 'os'
+veya/oskill/tool_manager.py:21 IO import 'shutil'
+veya/oskill/tool_manager.py:22 IO import 'subprocess'
+veya/oskill/tool_manager.py:23 IO import 'tempfile'
+veya/oskill/tool_manager.py:231 IO call shutil.which
+veya/oskill/tool_manager.py:247 IO call subprocess.run
+veya/oskill/tool_manager.py:26 IO import 'pathlib'
+veya/oskill/tool_manager.py:276 IO import 'urllib.request'
+veya/oskill/tool_manager.py:322 IO call subprocess.run
+veya/oskill/tool_manager.py:module-level mutable literal at line 56
+veya/oskill/tools.py:11 IO import 'os'
+veya/oskill/tools.py:129 NONDET call time.time
+veya/oskill/tools.py:138 NONDET call time.time
+veya/oskill/tools.py:163 NONDET call time.time
+veya/oskill/tools.py:260 NONDET call time.time
+veya/oskill/tools.py:281 NONDET call time.time
+veya/oskill/tools.py:290 NONDET call time.time
+veya/oskill/tools.py:415 NONDET call time.time
+veya/oskill/tools.py:432 NONDET call time.time
+veya/oskill/tools.py:441 NONDET call time.time
+veya/oskill/tools.py:562 NONDET call time.time
+veya/oskill/tools.py:577 NONDET call time.time
+veya/oskill/tools.py:585 NONDET call time.time
+veya/oskill/tools.py:593 NONDET call time.time
+veya/oskill/tools.py:599 IO call os.path.expanduser
+veya/oskill/tools.py:601 IO call os.path.abspath
+veya/oskill/tools.py:607 IO call open
+veya/oskill/tools.py:617 IO call os.path.dirname
+veya/oskill/tools.py:619 IO call open
+veya/oskill/tools.py:630 IO call os.path.join
+veya/oskill/tools.py:631 IO call os.path.isdir
+veya/oskill/tools.py:632 IO call os.path.getsize
+veya/oskill/tools.py:8 IO import 'asyncio'
+veya/oskill/tools.py:831 IO call print
+veya/oskill/tools.py:836 IO call print
+veya/oskill/tools.py:837 IO call print
+veya/oskill/tools.py:838 IO call print
+veya/oskill/tools.py:842 IO call print
+veya/oskill/tools.py:843 IO call print
+veya/oskill/tools.py:847 IO call print
+veya/oskill/tools.py:850 IO call print
+veya/oskill/tools.py:855 IO call print
+veya/oskill/tools.py:856 IO call print
+veya/oskill/tools.py:857 IO call print
+veya/oskill/tools.py:860 IO call os.path.exists
+veya/oskill/tools.py:862 IO call print
+veya/oskill/tools.py:863 IO call print
+veya/oskill/tools.py:867 IO call print
+veya/oskill/tools.py:870 IO call print
+veya/oskill/tools.py:879 IO call print
+veya/oskill/tools.py:880 IO call print
+veya/oskill/tools.py:881 IO call print
+veya/oskill/tools.py:882 IO call print
+veya/oskill/tools.py:module-level call at line 826
+veya/oskill/tts.py:14 IO import 'os'
+veya/oskill/tts.py:19 IO import 'httpx'
+veya/oskill/tts.py:62 IO call os.environ.get
+veya/oskill/tts.py:module-level mutable literal at line 30
+veya/oskill/vision.py:112 NONDET call time.time
+veya/oskill/vision.py:127 NONDET call time.time
+veya/oskill/vision.py:14 IO import 'os'
+veya/oskill/vision.py:18 IO import 'httpx'
+veya/oskill/vision.py:186 NONDET call time.time
+veya/oskill/vision.py:196 NONDET call time.time
+veya/oskill/vision.py:386 IO call open
+veya/oskill/vision.py:65 IO call os.environ.get
+veya/oskill/vision.py:module-level mutable literal at line 36
