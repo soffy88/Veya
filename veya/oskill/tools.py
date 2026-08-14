@@ -16,6 +16,10 @@ from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from typing import Any
 
+# 旧版消息格式兼容（_legacy_validation_message 使用）
+_MISSING_RE = re.compile(r"缺少必填字段 '(\w+)'")
+_TYPE_RE = re.compile(r"\$\.([\w.]+): 类型必须是 (\w+)")
+
 
 class ToolType(StrEnum):
     """工具类型枚举"""
@@ -75,33 +79,45 @@ class ToolMetadata:
     safe_to_retry: bool = True
 
     def validate_parameters(self, args: dict[str, Any]) -> tuple[bool, str]:
-        """验证参数"""
-        for param, spec in self.parameters.items():
-            if spec.get("required", False) and param not in args:
-                return False, f"Missing required parameter: {param}"
+        """验证参数（阶段 2 接线：委托 oskill/pure/validate_args，消息格式兼容旧版）。
 
-            value = args.get(param)
-            if value is not None and "type" in spec:
-                expected_type = spec["type"]
-                if expected_type == "int":
-                    try:
-                        int(value)
-                    except ValueError:
-                        return False, f"Parameter {param} must be integer"
-                elif expected_type == "float":
-                    try:
-                        float(value)
-                    except ValueError:
-                        return False, f"Parameter {param} must be float"
-                elif expected_type == "bool":
-                    if not isinstance(value, bool):
-                        return False, f"Parameter {param} must be boolean"
-                elif expected_type == "str":
-                    if not isinstance(value, str):
-                        return False, f"Parameter {param} must be string"
-                elif expected_type == "list" and not isinstance(value, list):
-                    return False, f"Parameter {param} must be list"
-        return True, ""
+        与旧实现的行为差异（收紧，符合「绝对校验」目标）：
+        1. 旧版 ``int(value)/float(value)`` 接受数字字符串（如 "42"），新版要求真类型；
+        2. 旧版 ``None`` 值跳过类型检查，新版显式校验（None 不是合法 int/str/...）。
+        """
+        from veya.oskill.pure.validate_args import schema_of_legacy, validate_args
+
+        result = validate_args(args, schema_of_legacy(self.parameters))
+        if result.ok:
+            return True, ""
+        return False, _legacy_validation_message(result.errors)
+
+
+# JSON Schema 类型名 → 旧版类型名（兼容消息格式）
+_LEGACY_TYPE_NAMES: dict[str, str] = {
+    "integer": "int",
+    "number": "float",
+    "boolean": "bool",
+    "string": "str",
+    "array": "list",
+    "object": "dict",
+}
+
+
+def _legacy_validation_message(errors: list[str]) -> str:
+    """把 pure.validate_args 的路径化错误转成旧版单条消息（第一条）。"""
+    for err in errors:
+        # 缺少必填字段 'name' → Missing required parameter: name
+        m = _MISSING_RE.search(err)
+        if m:
+            return f"Missing required parameter: {m.group(1)}"
+        # $.count: 类型必须是 integer, 实际是 float → Parameter count must be integer
+        m = _TYPE_RE.search(err)
+        if m:
+            path, want = m.group(1), m.group(2)
+            param = path.lstrip("$.")
+            return f"Parameter {param} must be {_LEGACY_TYPE_NAMES.get(want, want)}"
+    return errors[0] if errors else ""
 
 
 class SmartTool:
