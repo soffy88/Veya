@@ -321,6 +321,25 @@ def test_parse_tool_calls_empty_and_malformed():
     assert parse_tool_calls({"tool_calls": ["garbage"]}) == []
 
 
+def test_parse_tool_calls_flat_agent_form():
+    """Agent 内部扁平形态 (llm_message_to_agent 产出) 也必须能解析。"""
+    msg = {
+        "role": "assistant",
+        "content": "go",
+        "tool_calls": [{"id": "c1", "name": "write_file", "arguments": {"path": "a.txt"}}],
+    }
+    calls = parse_tool_calls(msg)
+    assert len(calls) == 1
+    assert calls[0].name == "write_file"
+    assert calls[0].arguments == {"path": "a.txt"}
+    assert calls[0].error == ""
+    # 扁平形态 + 坏 arguments 同样显式报错
+    bad = {"tool_calls": [{"name": "x", "arguments": "{bad"}]}
+    assert parse_tool_calls(bad)[0].error != ""
+    # 无名 tool_call 跳过
+    assert parse_tool_calls({"tool_calls": [{"arguments": {}}]}) == []
+
+
 def test_parse_tool_call_embed_json_block():
     content = '请执行:\n```json\n{"name": "fetch_url", "arguments": {"url": "https://a.com"}}\n```\n谢谢'
     call = parse_tool_call_embed(content)

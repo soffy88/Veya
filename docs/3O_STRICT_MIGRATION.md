@@ -120,7 +120,7 @@ python scripts/check_oskill_pure.py . --strict                                  
 | 1 | obase 严格合同（5 Protocol）+ 适配器 + 回归 | ✅ 完成（2026-08，见 §7） |
 | 2 | oskill 8 纯函数（parse/validate 优先） | ✅ 完成（2026-08，见 §8） |
 | 3 | oprim 7 原子操作（禁止业务直接 I/O） | ✅ 完成（2026-08，见 §9） |
-| 4 | omodul 重建（session_tree/tool_pipeline/agent_loop/evidence_refine）双轨 | ⬜ 未动工（需批准） |
+| 4 | omodul 重建（session_tree/tool_pipeline/agent_loop/evidence_refine）双轨 | ✅ 完成（2026-08，见 §10） |
 | 5 | oservi daemon + api_gateway | ⬜ 未动工（需批准） |
 
 ## 6. 阶段 0 运行结果
@@ -229,3 +229,35 @@ python scripts/check_oskill_pure.py . --strict                                  
 `tests/test_oprim_atoms.py` 16/16（fs 越界、shell 危险拦截、快照 round-trip、
 事件桥接、LLM stub、daemon RPC、注入优先）；守护测试 8/8（新增 3 项 direct_io）；
 局部回归 100/100（含 TerminalTool 单源守卫 test_sandbox_g4）。
+
+## 10. 阶段 4 结果（omodul 注入式流程控制核心）
+
+**新增（`veya/omodul/`，rank 3，全部经注入句柄/纯函数，零直接 I/O）:**
+
+| 元素 | 模块 | 注入 | 能力 |
+|---|---|---|---|
+| omodul_session_tree_mgr | `omodul/session_tree.py` | KvStore（经 oprim.snapshot）+ id_fn | id/parentId + leaf 指针；append/branch/fork（时空回溯）/path（根→叶消息链）/snapshot/restore |
+| omodul_tool_pipeline（最重要） | `omodul/tool_pipeline.py` | barrier + permit 回调 | 五步管道 解析→校验→权限→执行→包装；全步骤 audit + 事件流；幻觉拦截（坏 JSON/参数不合格 → 拒绝且工具绝不执行） |
+| omodul_agent_loop | `omodul/agent_loop.py` | llm + pipeline + tree + barrier + sleep_fn | 生成→调用→工具→更新树→停止判断；连续失败 ≥3 熔断 + 退避；LLM 异常=致命错误；快照随结果返回 |
+| omodul_evidence_refine | `omodul/evidence_refine.py` | sandbox + barrier | AST 静态检查 → 沙箱执行验证 → 证据（stderr）→ build_fix_hint 修复提示（模型自我修复闭环） |
+
+**双轨运行（零侵入）:**
+- `server/agent_loop_bridge.py`（**新文件**，不改任何现有文件）：
+  `VEYA_AGENT_LOOP=strict` → `run_strict()` 用新 AgentLoop 装配（llm 默认
+  container.get_llm，tools 注入 ToolPipeline）；默认走旧主链 MasterAgent，
+  行为零变化。阶段 5 gateway/daemon 直接调本桥完成切换。
+
+**修复:** `oskill/pure/parse_tool_call` 支持两种 tool_calls 形态——OpenAI 线格式
+（`function.name`）与 Agent 内部扁平格式（`name/arguments`，llm_message_to_agent
+产出）——消除 loop 内部协议不一致（补 4 项测试）。
+
+**验证:** `tests/test_omodul_core.py` 22/22（树分支/回溯/快照、管道五步审计+
+幻觉拦截三拒绝路径、loop 端到端剧本/熔断退避/无效回复/轮次上限/LLM 故障、
+evidence 语法+运行时证据、bridge flag 默认关 + 端到端）；门禁 4/4 PASS；
+局部回归 110/110。
+
+**阶段 4 后的完整底座（全部就位）:**
+obase 句柄合同（阶段 1）→ oskill 纯算法 + 幻觉拦截（阶段 2）→ oprim
+物理触手原子（阶段 3）→ omodul 注入式心脏 + 会话树 + 工具管道 + 代码证据
+（阶段 4）。主链默认仍走旧路径（冻结架构），`VEYA_AGENT_LOOP=strict` 即可
+切换新心脏——阶段 5 统一入口时收敛。
