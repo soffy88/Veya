@@ -136,22 +136,69 @@ def _call_is_nondet(node: ast.Call) -> bool:
     return False
 
 
-def _check_module_level_global(tree: ast.Module) -> list[str]:
-    """模块级可变状态: 顶层赋值给可变字面量 / 调用结果, 或顶层 mutating 调用。"""
-    out: list[str] = []
+def _module_assignments(tree: ast.Module) -> dict[str, ast.AST]:
+    """模块级赋值名字 → 赋值节点（常量候选）。"""
+    out: dict[str, ast.AST] = {}
     for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    out[t.id] = node
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.value is not None:
+                out[node.target.id] = node
+    return out
+
+
+_MUTATORS: tuple[str, ...] = (
+    "append", "extend", "add", "update", "setdefault", "remove", "pop",
+    "clear", "insert", "sort", "reverse", "discard", "difference_update",
+    "symmetric_difference_update", "__setitem__",
+)
+
+
+def _is_mutated(tree: ast.Module, name: str) -> bool:
+    """名字是否在模块内被变异（下标/属性赋值、mutator 调用、augassign、global）。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Global) and name in node.names:
+            return True
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            if node.target.id == name:
+                return True
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
-            value = node.value if isinstance(node, ast.Assign) else node.value
-            if value is None:
-                continue
-            if isinstance(value, MUTABLE_LITERALS):
-                out.append(f"module-level mutable literal at line {node.lineno}")
-            elif isinstance(value, ast.Call):
-                out.append(f"module-level call at line {node.lineno}")
-        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in targets:
+                if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name):
+                    if t.value.id == name:
+                        return True
+                if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name):
+                    if t.value.id == name:
+                        return True
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == name and node.func.attr in _MUTATORS:
+                    return True
+    return False
+
+
+def _check_module_level_global(tree: ast.Module) -> list[str]:
+    """模块级可变状态: 被变异的模块级赋值（常量豁免 — 不可变/从未变异的
+    dict/list/set/compile 结果属于常量配置, 不构成状态）。"""
+    out: list[str] = []
+    assigns = _module_assignments(tree)
+    for name, node in assigns.items():
+        value = node.value if isinstance(node, ast.Assign) else node.value
+        if value is None:
+            continue
+        is_mutable_init = isinstance(value, MUTABLE_LITERALS) or isinstance(value, ast.Call)
+        if is_mutable_init and _is_mutated(tree, name):
+            out.append(f"module-level mutable state {name!r} at line {node.lineno}")
+    # 模块级直接 mutating 调用 (x.append(...) 作为语句)
+    for node in tree.body:
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             fn = node.value.func
-            if isinstance(fn, ast.Attribute) and fn.attr in ("append", "extend", "add", "update", "setdefault", "remove", "pop"):
-                out.append(f"module-level mutation at line {node.lineno}")
+            if isinstance(fn, ast.Attribute) and fn.attr in _MUTATORS:
+                out.append(f"module-level mutation call at line {node.lineno}")
     return out
 
 

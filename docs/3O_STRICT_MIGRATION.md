@@ -118,7 +118,7 @@ python scripts/check_oskill_pure.py . --strict                                  
 |---|---|---|
 | 0 | 冻结 + 盘点 + 双检查脚本 | ✅ 完成 |
 | 1 | obase 严格合同（5 Protocol）+ 适配器 + 回归 | ✅ 完成（2026-08，见 §7） |
-| 2 | oskill 8 纯函数（parse/validate 优先） | ⬜ 未动工 |
+| 2 | oskill 8 纯函数（parse/validate 优先） | ✅ 完成（2026-08，见 §8） |
 | 3 | oprim 7 原子操作（禁止业务直接 I/O） | ⬜ 未动工 |
 | 4 | omodul 重建（session_tree/tool_pipeline/agent_loop/evidence_refine）双轨 | ⬜ 未动工（需批准） |
 | 5 | oservi daemon + api_gateway | ⬜ 未动工（需批准） |
@@ -159,3 +159,38 @@ python scripts/check_oskill_pure.py . --strict                                  
 - `VfsSandbox` 文件面是 oprim_fs_* 的物理边界（越界抛 ValueError）；
 - `SqliteKvStore.snapshot/restore` 是阶段 4 session_tree 时空回溯的恢复点；
 - `LlmClient` 只发已打包数据（阶段 2 protocol_translate 产出标准消息）。
+
+## 8. 阶段 2 结果（oskill 纯函数层）
+
+**新增（全部在 `veya/oskill/pure/`，/pure/ 路径 = 强制纯净，基线不豁免）:**
+
+| 元素 | 模块 | 逻辑来源 |
+|---|---|---|
+| protocol_translate | `pure/protocol_translate.py` | veya/obase/_llm_protocol（消息翻译/空 tool_calls 剥离/Anthropic 块） |
+| context_compress | `pure/context_compress.py` | master_agent 滑窗（[sys]+tail 保首尾）+ 确定性 token 估算 + 预算裁剪 |
+| ast_parse | `pure/ast_parse.py` | 新增（syntax_check/find_definitions/structure_summary/forbidden_imports） |
+| diff_apply | `pure/diff_apply.py` | 新增（unified diff 生成/应用/统计，keepends 精确换行） |
+| parse_tool_call | `pure/parse_tool_call.py` | master_agent tool_call 解析 + 文本内嵌 JSON；**解析失败显式 error 不再静默 {}** |
+| validate_args | `pure/validate_args.py` | tools.py validate_parameters 升级为零依赖 JSON Schema 子集校验（type/required/enum/边界/pattern/items/anyOf/const）+ 旧格式桥 schema_of_legacy |
+| evaluate_stop_condition | `pure/evaluate_stop_condition.py` | master_agent 停止分支（完成/最大轮次/致命错误/空回复疲劳） |
+| genetic_weight_calc | `pure/genetic_weight_calc.py` | 预留占位（确定性移动平均，接口即未来形态） |
+
+**接线（原位置改调 pure 层）:**
+- `veya/oskill/tools.py::validate_parameters` → 委托 `validate_args + schema_of_legacy`，
+  消息格式兼容旧版（Missing required parameter / Parameter X must be int…）；
+  行为收紧 2 处（数字字符串 "42" 不再隐式强转、None 显式校验失败）——符合绝对校验目标。
+- master_agent（旧主库）**不改**（冻结架构，阶段 4 双轨时经 tool_pipeline 接入）。
+
+**检查器升级（check_oskill_pure.py）:**
+- 模块级赋值改为「被变异才算全局状态」：`__manifest__`/`frozenset`/`re.compile` 等
+  不可变常量不再误报；真实变异（subscript/attribute 赋值、mutator 调用、global）仍拦截。
+
+**验证:** pure 层 9 文件 `--strict` 零违规；反依赖/基线 PASS；
+`tests/test_oskill_pure_elements.py` 42/42（含幻觉拦截回归：坏 JSON → error 非空、
+非对象 arguments 拒绝、diff 不匹配拒绝）。
+
+**阶段 2 免疫点（幻觉拦截能力已就位）:**
+- `parse_tool_call`：LLM 输出 → ToolCall（坏 JSON/非对象 → error，管道据此拒绝执行）；
+- `validate_args`：参数绝对校验（类型/必填/枚举/边界/pattern）；
+- `evaluate_stop_condition`：空回复/疲劳标记 → invalid_response（不再静默）；
+- `ast_parse + diff_apply`：复杂代码生成先静态检查、diff 评审后应用（阶段 4 evidence_refine 注入点）。
