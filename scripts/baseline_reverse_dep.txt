@@ -1,0 +1,12 @@
+veya/oservi/history_store.py:64 R2 越界导入业务根 'server' (veya.oservi 不得依赖上层)
+veya/oservi/mcp_server.py:316 R2 越界导入业务子包 'veya.server.manifests' (veya.oservi 不得依赖上层)
+veya/oservi/mcp_server.py:89 R2 越界导入业务子包 'veya.server.manifests' (veya.oservi 不得依赖上层)
+veya/oskill/im/dingtalk.py:253 R2 越界导入业务根 'server' (veya.oskill 不得依赖上层)
+veya/oskill/im/discord.py:238 R2 越界导入业务根 'server' (veya.oskill 不得依赖上层)
+veya/oskill/im/feishu.py:177 R2 越界导入业务根 'server' (veya.oskill 不得依赖上层)
+veya/oskill/im/slack.py:160 R2 越界导入业务根 'server' (veya.oskill 不得依赖上层)
+veya/oskill/im/telegram.py:264 R2 越界导入业务根 'server' (veya.oskill 不得依赖上层)
+veya/oskill/im/wechat.py:219 R2 越界导入业务根 'server' (veya.oskill 不得依赖上层)
+veya/oskill/memory_hub.py:20 R3 裸名导入旧主库 'oskill' (会解析到 platform/3O) → 应写 veya.oskill
+veya/oskill/memory_hub.py:27 R3 裸名导入旧主库 'oskill' (会解析到 platform/3O) → 应写 veya.oskill
+veya/oskill/memory_hub.py:34 R3 裸名导入旧主库 'oskill' (会解析到 platform/3O) → 应写 veya.oskill
