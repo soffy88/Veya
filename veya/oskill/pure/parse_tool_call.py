@@ -53,7 +53,11 @@ def _coerce_args(raw: Any, *, tc_id: str = "") -> tuple[dict[str, Any], str]:
 
 
 def parse_tool_calls(message: dict) -> list[ToolCall]:
-    """OpenAI 格式 message.tool_calls → ToolCall 列表（纯函数）。
+    """从消息解析 tool_calls → ToolCall 列表（纯函数）。
+
+    支持两种形态：
+    - OpenAI 线格式: {"function": {"name", "arguments"}}
+    - Agent 内部扁平格式: {"name", "arguments"}（llm_message_to_agent 产出）
 
     原 master_agent 逻辑：``fn = tool_call.get("function")``；``arguments``
     为字符串时 json.loads。差异：解析失败不再静默 {}，而是 error 显式记录。
@@ -66,11 +70,18 @@ def parse_tool_calls(message: dict) -> list[ToolCall]:
         if not isinstance(tc, dict):
             continue
         fn = tc.get("function")
-        if not isinstance(fn, dict):
+        if isinstance(fn, dict):
+            # OpenAI 线格式
+            name = str(fn.get("name") or "")
+            tc_id = str(tc.get("id") or f"call_{name}")
+            raw_args = fn.get("arguments")
+        else:
+            # Agent 内部扁平格式 (llm_message_to_agent 产出)
+            name = str(tc.get("name") or "")
+            tc_id = str(tc.get("id") or f"call_{name}")
+            raw_args = tc.get("arguments")
+        if not name:
             continue
-        name = str(fn.get("name") or "")
-        tc_id = str(tc.get("id") or f"call_{name}")
-        raw_args = fn.get("arguments")
         args, err = _coerce_args(raw_args, tc_id=tc_id)
         out.append(
             ToolCall(

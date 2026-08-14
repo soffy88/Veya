@@ -33,6 +33,11 @@ from veya.omodul.multimodal_agent import (
     MultiModalState,
     run_multimodal_session,
 )
+# 阶段 4: 注入式流程控制核心 (session_tree / tool_pipeline / agent_loop / evidence_refine)
+from veya.omodul.agent_loop import AgentLoop, LoopResult
+from veya.omodul.evidence_refine import EvidenceRefine, RefineResult
+from veya.omodul.session_tree import SessionTreeMgr
+from veya.omodul.tool_pipeline import ToolPipeline, ToolRunResult, ToolSpec
 
 __all__ = [
     # Voice
@@ -53,4 +58,13 @@ __all__ = [
     "MultiModalSessionResult",
     "MultiModalState",
     "run_multimodal_session",
+    # 阶段 4: 注入式流程控制核心
+    "AgentLoop",
+    "LoopResult",
+    "EvidenceRefine",
+    "RefineResult",
+    "SessionTreeMgr",
+    "ToolPipeline",
+    "ToolRunResult",
+    "ToolSpec",
 ]
