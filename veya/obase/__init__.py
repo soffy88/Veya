@@ -40,6 +40,74 @@ __manifest__: dict[str, dict[str, Any]] = {
         "signature": "gate.evaluate(...) / request_approval(...) / approve(id) / deny(id)",
         "since": "0.1.0",
     },
+    # --- 阶段 1: 严格句柄层合同 (interfaces/adapters/container) ---
+    "interfaces.DaemonBus": {
+        "signature": "connect/close/publish/subscribe/request/register_handler",
+        "since": "0.2.0",
+    },
+    "interfaces.VfsSandbox": {
+        "signature": "execute/execute_args/run_script/read/write/exists/listdir/delete/cancel/close",
+        "since": "0.2.0",
+    },
+    "interfaces.EventBarrier": {
+        "signature": "emit(event)/stream(*topics)/barrier(name, parties, timeout)",
+        "since": "0.2.0",
+    },
+    "interfaces.KvStore": {
+        "signature": "put/get/delete/keys(prefix)/snapshot/restore/close",
+        "since": "0.2.0",
+    },
+    "interfaces.LlmClient": {
+        "signature": "complete(messages, **kw)/stream(messages, **kw)/close",
+        "since": "0.2.0",
+    },
+    "adapters.SandboxVfsAdapter": {
+        "signature": "ProcessSandbox → VfsSandbox (VFS 权限内文件面 + 执行面)",
+        "since": "0.2.0",
+    },
+    "adapters.TelemetryEventBarrier": {
+        "signature": "telemetry.emit 桥接 + 订阅扇出 + 名同步屏障",
+        "since": "0.2.0",
+    },
+    "adapters.SqliteKvStore": {
+        "signature": "KV 快照 (SQLite, JSON 值, snapshot/restore 原子)",
+        "since": "0.2.0",
+    },
+    "adapters.LlmClientAdapter": {
+        "signature": "llm_call/llm_stream → LlmClient",
+        "since": "0.2.0",
+    },
+    "adapters.InProcessDaemonBus": {
+        "signature": "asyncio 进程内 Pub/Sub + 请求-响应 (未来 gRPC 替换)",
+        "since": "0.2.0",
+    },
+    "container.get_sandbox": {"signature": "VfsSandbox 单例句柄", "since": "0.2.0"},
+    "container.get_bus": {"signature": "DaemonBus 单例句柄", "since": "0.2.0"},
+    "container.get_barrier": {"signature": "EventBarrier 单例句柄", "since": "0.2.0"},
+    "container.get_kv": {"signature": "KvStore 单例句柄", "since": "0.2.0"},
+    "container.get_llm": {"signature": "LlmClient 单例句柄", "since": "0.2.0"},
+    "container.configure": {"signature": "句柄注入 (sandbox/bus/barrier/kv/llm)", "since": "0.2.0"},
 }
 
 __all__ = ["__manifest__", "__version__"]
+
+# 阶段 1: 句柄合同与全局单例句柄层
+from veya.obase.container import (  # noqa: E402
+    close_all,
+    configure,
+    get_barrier,
+    get_bus,
+    get_kv,
+    get_llm,
+    get_sandbox,
+    reset,
+)
+from veya.obase.interfaces import (  # noqa: E402
+    DaemonBus,
+    Event,
+    EventBarrier,
+    KvStore,
+    LlmClient,
+    SandboxResult,
+    VfsSandbox,
+)

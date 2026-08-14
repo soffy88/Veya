@@ -32,17 +32,14 @@ ASSEMBLY_DOC = ROOT / "docs" / "dev" / "veya-3o-assembly.md"
 KNOWN_SYMBOLS: dict[str, str] = {
     # --- adapters (single source = obase, veya keeps a thin adapter) ---
     "ProviderRegistry": "adapter over obase.ProviderRegistry (get/register/list route to the obase singleton)",
+    # --- strict 3O handle-layer contract (阶段 1, deliberate overlap until retirement) ---
+    "Event": "严格 3O 句柄层统一事件类型 (veya/obase/interfaces.py); 契约不同于主库 event_bus.Event — 主库随 platform/3O 替换退役后清除本条目",
     # --- project-layer symbols with documented contract differences ---
     "CostTracker": "lightweight accumulator; contract differs from obase.cost_tracker.CostTracker (pricing-table driven)",
-    "ExecResult": "execution-runtime lifecycle result (Cloudflare WorkspaceRuntimeResult); contract differs from oprim._sandbox.ExecResult (sandbox command result)",
-    "SkillMeta": "veya Agent 定义的技能路由元数据 (name/description/path, vercel/eve 机制内化); contract differs from oprim _*.py 模板文件的 SkillMeta (skill frontmatter 解析: name/description/version/tools/hooks/tags/raw/skill_dir)",
     # --- pending per-item contract audit (legacy inline implementations) ---
     "CheckpointData": "pending audit",
-    "Message": "pending audit",
     "RunState": "pending audit",
     "SubagentDefinition": "pending audit",
-    "Symbol": "pending audit",
-    "ToolResult": "pending audit",
     "bash_exec": "pending audit",
     "build_ripgrep_args": "pending audit",
     "cached": "pending audit",
@@ -52,8 +49,6 @@ KNOWN_SYMBOLS: dict[str, str] = {
     "file_read": "pending audit",
     "file_read_range": "pending audit",
     "file_write": "pending audit",
-    "git_add": "pending audit",
-    "git_commit": "pending audit",
     "git_diff": "pending audit",
     "git_status": "pending audit",
     "glob_match": "pending audit",
