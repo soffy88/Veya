@@ -95,14 +95,17 @@ class LoopPlaneHttp:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # 兼容工具函数（返回形态与旧 plan_todo 一致）
 # ---------------------------------------------------------------------------
 
 
 class _LoopClient:
-    """统一客户端门面：HTTP 或进程内。"""
+    """统一客户端门面：HTTP 或进程内（仅 flag 开启时构造，默认零副作用）。"""
 
     def __init__(self) -> None:
+        if not loop_plane_enabled():
+            raise RuntimeError("loop-plane 未启用 (设置 LOOP_PLANE_INPROCESS=true 或 LOOP_PLANE_URL)")
         url = os.environ.get("LOOP_PLANE_URL")
         if url:
             self._http = LoopPlaneHttp(url)
@@ -113,7 +116,7 @@ class _LoopClient:
             self._svc = _inprocess_goal_service()
             self._causal = _inprocess_causal()
 
-    # -- state（≡ create_plan / plan_status / update_todo） -----------------
+# -- state（≡ create_plan / plan_status / update_todo） -----------------
 
     async def create_plan(self, objective: str, todos: list[dict]) -> str:
         goal = await self._goal_call("create", {"objective": objective, "todos": todos})
@@ -238,18 +241,24 @@ def make_plan_func(name: str):
 
 async def loop_plan_goal(goal: str, criteria: str = "") -> str:
     """目标规划（因果）：Goal → ranked_actions 报告。只规划不执行。"""
+    if not loop_plane_enabled():
+        return "loop-plane 未启用 (设置 LOOP_PLANE_INPROCESS=true 或 LOOP_PLANE_URL 后可用)"
     report = await _get_client().plan_goal(goal, criteria)
     return json.dumps(report, ensure_ascii=False, default=str)
 
 
 async def loop_diagnose(symptom: str, context: dict | None = None) -> str:
     """故障诊断（因果）：symptom → root_causes + intervention。"""
+    if not loop_plane_enabled():
+        return "loop-plane 未启用 (设置 LOOP_PLANE_INPROCESS=true 或 LOOP_PLANE_URL 后可用)"
     report = await _get_client().diagnose(symptom, context)
     return json.dumps(report, ensure_ascii=False, default=str)
 
 
 async def loop_intervene(mode: str = "sandbox", tool_name: str = "", args: dict | None = None) -> str:
     """硬化干预执行：mode 服务端收缩（sandbox/shadow/live_canary），白名单限制。"""
+    if not loop_plane_enabled():
+        return "loop-plane 未启用 (设置 LOOP_PLANE_INPROCESS=true 或 LOOP_PLANE_URL 后可用)"
     result = await _get_client().intervene(mode, tool_name, args or {})
     return json.dumps(result, ensure_ascii=False, default=str)
 
