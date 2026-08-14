@@ -119,7 +119,7 @@ python scripts/check_oskill_pure.py . --strict                                  
 | 0 | 冻结 + 盘点 + 双检查脚本 | ✅ 完成 |
 | 1 | obase 严格合同（5 Protocol）+ 适配器 + 回归 | ✅ 完成（2026-08，见 §7） |
 | 2 | oskill 8 纯函数（parse/validate 优先） | ✅ 完成（2026-08，见 §8） |
-| 3 | oprim 7 原子操作（禁止业务直接 I/O） | ⬜ 未动工 |
+| 3 | oprim 7 原子操作（禁止业务直接 I/O） | ✅ 完成（2026-08，见 §9） |
 | 4 | omodul 重建（session_tree/tool_pipeline/agent_loop/evidence_refine）双轨 | ⬜ 未动工（需批准） |
 | 5 | oservi daemon + api_gateway | ⬜ 未动工（需批准） |
 
@@ -194,3 +194,38 @@ python scripts/check_oskill_pure.py . --strict                                  
 - `validate_args`：参数绝对校验（类型/必填/枚举/边界/pattern）；
 - `evaluate_stop_condition`：空回复/疲劳标记 → invalid_response（不再静默）；
 - `ast_parse + diff_apply`：复杂代码生成先静态检查、diff 评审后应用（阶段 4 evidence_refine 注入点）。
+
+## 9. 阶段 3 结果（oprim 物理触手原子层）
+
+**新增（`veya/oprim/`，rank 1，经注入句柄、无业务逻辑）:**
+
+| 元素 | 模块 | 经何句柄 |
+|---|---|---|
+| oprim_fs_read/write/exists/listdir/delete (+text 便捷) | `oprim/fs.py` | VfsSandbox（VFS 权限内，越界 ValueError） |
+| oprim_shell_exec / exec_args / run_script | `oprim/shell.py` | VfsSandbox（沙箱执行 + 危险拦截 + 审计） |
+| oprim_db_commit/fetch/list/delete_snapshot | `oprim/snapshot.py` | KvStore（键空间 `session_tree:` 统一管理） |
+| oprim_emit_event | `oprim/event.py` | EventBarrier（标准 Event 载荷） |
+| oprim_llm_call / llm_stream | `oprim/llm.py` | LlmClient（只发已打包数据，无 Prompt/路由逻辑） |
+| oprim_pause/resume/status_daemon + daemon_bind | `oprim/daemon.py` | DaemonBus（RPC：暂停/恢复/状态查询） |
+
+每个原子默认取 `veya.obase.container` 全局句柄，显式注入优先（测试/双轨）。
+`veya/oprim/__init__.py` 导出 68 个符号（含新增 21 个原子）。
+
+**接线（原位置改走原子操作）:**
+- `veya/oskill/tools.py::TerminalTool._run_command`：裸 `create_subprocess_shell`
+  → `oprim.shell_exec`（沙箱内执行、危险拦截双保险、cwd 语义改为沙箱根）。
+- master_agent / execution.py（FastPathBackend 直跑 subprocess）**未改**——
+  前者冻结架构、后者是阶段 4 tool_pipeline 重建对象。
+
+**第三个强制检查 `scripts/check_no_direct_io.py`（阶段 3 新增）:**
+- 业务层（server/veya.omodul/oskill/oservi/agents/cli/...）禁止直接
+  subprocess/open/网络/写文件/读文件；检测类别 EXEC/NET/FILE_W/FILE_R；
+- 豁免：obase（句柄层）、oprim（原子层）、oskill/pure（已有纯净检查）、
+  platform/3O（旧主库）、tests/scripts/docs；文件内 `# 3O-IO-ALLOW` 标记可显式豁免；
+- 存量 310 条违规入 `scripts/baseline_direct_io.txt`（server 历史直接 I/O 规模），
+  基线模式只拦新增 —— 存量在阶段 4+ 随 tool_pipeline 迁移逐步清零。
+
+**验证:** 4 项门禁全 PASS（反依赖 / oskill 纯净 / 直接 I/O / manifest）；
+`tests/test_oprim_atoms.py` 16/16（fs 越界、shell 危险拦截、快照 round-trip、
+事件桥接、LLM stub、daemon RPC、注入优先）；守护测试 8/8（新增 3 项 direct_io）；
+局部回归 100/100（含 TerminalTool 单源守卫 test_sandbox_g4）。
