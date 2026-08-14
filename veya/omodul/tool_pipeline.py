@@ -104,6 +104,20 @@ class ToolPipeline:
     def spec(self, name: str) -> ToolSpec | None:
         return self._tools.get(name)
 
+    def schemas(self) -> list[dict]:
+        """OpenAI 格式工具声明（发给 LLM 的 tools 参数）。"""
+        out: list[dict] = []
+        for spec in sorted(self._tools.values(), key=lambda s: s.name):
+            out.append({
+                "type": "function",
+                "function": {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters": spec.schema or {"type": "object", "properties": {}},
+                },
+            })
+        return out
+
     # ------------------------------------------------------------------ 管道
 
     async def run_message(self, message: dict, *, session_id: str = "") -> list[ToolRunResult]:
