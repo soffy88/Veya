@@ -221,6 +221,20 @@ async def legacy_agent_stop(req: LegacyAgentStopRequest) -> dict:
     return await cancel_session(req.session_id)
 
 
+@router.get("/api/v1/agent/stream_status")
+async def legacy_agent_stream_status(session_id: str) -> dict:
+    """会话对应的后台主脑任务是否仍在跑 (前端断流重连前先探活)。
+
+    SSE 推流与后台任务解耦 (见 server/chat_stream.py) — 任务完成/取消后
+    再重连 GET /stream/{sid} 只会拿到一个空队列, 永远等不到新事件, 白白
+    挂起。前端靠这个先判断"值不值得重连", 不值得就直接发新消息。
+    """
+    from server.coordinator_master import _active_streams
+
+    task = _active_streams.get(session_id)
+    return {"active": task is not None and not task.done()}
+
+
 class AgentApprovalRequest(BaseModel):
     request_id: str
     approved: bool

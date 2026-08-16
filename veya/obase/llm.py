@@ -318,37 +318,49 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             # 全部候选/全部轮次空/失败 → 本地 frontier (gpt-5.6-luna) 兜底: free 池
             # 本地模型零网络抖动, 保证「绝不静默」在模型层彻底闭环。容器内走
             # 宿主桥 192.168.16.1; 宿主默认 127.0.0.1:10100。
-            try:
-                frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
-                    "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
-                )
-                if not _ensure_frontier_bridge(frontier_endpoint):
-                    last_err = f"frontier 桥 (opencodex) 不可用: {frontier_endpoint}"
-                    raise RuntimeError(last_err)
-                resp = await llm_call(
-                    payload["messages"],
-                    config=kwargs.get("config"),
-                    provider="openai",
-                    model="gpt-5.6-luna",
-                    endpoint=frontier_endpoint,
-                    # 本地模型上下文有限: 兜底时裁剪为核心工具面 (保回复优先)
-                    tools=_core_tool_schemas(payload.get("tools")),
-                    default_content="gpt-5.6-luna 兜底失败",
-                )
-                content = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
-                    "content"
-                ) or ""
-                if content.strip() and content.strip().lower() not in ("none", "null"):
-                    resp["router"] = {
-                        "route": "frontier_fallback",
-                        "reason": "opencode-go empty → gpt-5.6-luna",
-                    }
-                    return resp
-                # 无异常但内容仍空/等于 stub — 必须覆盖 last_err, 否则报错会
-                # 误导性地停留在上一个 opencode-go 候选模型上 (掩盖 frontier 才是真因)。
-                last_err = f"gpt-5.6-luna 兜底返回无效内容: {content!r}"
-            except Exception as exc:  # noqa: BLE001 — 兜底失败也绝不静默
-                last_err = f"gpt-5.6-luna 兜底失败: {exc}"
+            # frontier 桥本身偶尔也会抖 (容器→宿主桥接路径), 同样不能一次
+            # 失败就判死刑 — 短退避重试几次 (本地零网络延迟, 退避比网关候选短)。
+            _frontier_attempts = 3
+            for f_attempt in range(_frontier_attempts):
+                try:
+                    frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
+                        "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
+                    )
+                    if not _ensure_frontier_bridge(frontier_endpoint):
+                        last_err = f"frontier 桥 (opencodex) 不可用: {frontier_endpoint}"
+                        raise RuntimeError(last_err)
+                    resp = await llm_call(
+                        payload["messages"],
+                        config=kwargs.get("config"),
+                        provider="openai",
+                        model="gpt-5.6-luna",
+                        endpoint=frontier_endpoint,
+                        # 本地模型上下文有限: 兜底时裁剪为核心工具面 (保回复优先)
+                        tools=_core_tool_schemas(payload.get("tools")),
+                        default_content="gpt-5.6-luna 兜底失败",
+                    )
+                    content = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
+                        "content"
+                    ) or ""
+                    if content.strip() and content.strip().lower() not in ("none", "null"):
+                        resp["router"] = {
+                            "route": "frontier_fallback",
+                            "reason": "opencode-go empty → gpt-5.6-luna",
+                        }
+                        return resp
+                    # 无异常但内容仍空/等于 stub — 必须覆盖 last_err, 否则报错会
+                    # 误导性地停留在上一个 opencode-go 候选模型上 (掩盖 frontier 才是真因)。
+                    last_err = f"gpt-5.6-luna 兜底返回无效内容: {content!r}"
+                except Exception as exc:  # noqa: BLE001 — 兜底失败也绝不静默
+                    last_err = f"gpt-5.6-luna 兜底失败: {exc}"
+                if f_attempt < _frontier_attempts - 1:
+                    logger.warning(
+                        "frontier 兜底第 %d 次失败 (%s), %.1fs 后重试",
+                        f_attempt + 1,
+                        last_err,
+                        1.5 * (2**f_attempt),
+                    )
+                    await asyncio.sleep(1.5 * (2**f_attempt))
             return {
                 "choices": [
                     {
