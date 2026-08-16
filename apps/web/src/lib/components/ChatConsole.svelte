@@ -341,6 +341,141 @@ import ModelPicker from "./ModelPicker.svelte";
 		if (!sessionStore.activeSid) sessionStore.newSession();
 	}
 
+	// 断流不等于任务死了: 后端 chat_task 与 SSE 推流解耦 (client.is_disconnected()
+	// 只停消费, 不取消后台任务 — 见 server/chat_stream.py), hicode 等长任务在
+	// 网络抖动/HTTP 502 期间仍在后端继续跑。GET /stream/{sid} 能重新接上同一个
+	// session 的事件队列 (未消费事件仍排队等着), 不必把已完成的探索工作扔掉
+	// 重新发一条新消息。用户反馈 (2026-08-16): 网络抖动不该直接报错停在那里。
+	const RECONNECT_ATTEMPTS = 3;
+	const RECONNECT_BACKOFF_MS = [1500, 3000, 6000];
+
+	function makeFrameHandler(targetSid: string) {
+		return (data: string) => {
+			if (data === "[DONE]") return;
+			let ev: Record<string, unknown>;
+			try {
+				ev = JSON.parse(data);
+			} catch {
+				return;
+			}
+			const kind = String(ev.type ?? ev.event ?? "");
+			if (kind === "text_delta" && typeof ev.delta === "string") {
+				sessionStore.patchLast(targetSid, {
+					text:
+						(sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1)?.text ?? "") +
+						ev.delta,
+				});
+			} else if (kind === "master_done") {
+				const accumulated =
+					sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1)?.text ?? "";
+				const final = typeof ev.final === "string" && ev.final.trim() ? ev.final : "";
+				const text = accumulated || final;
+				// P2: 上下文用量 — 主脑 cost 透传
+				const cost = typeof ev.cost_usd === "number" ? ev.cost_usd : undefined;
+				// 绝不静默空白: 主脑无输出时置 error 态 → 显示重试按钮而非空白气泡
+				sessionStore.patchLast(targetSid, {
+					status: text.trim() ? "done" : "error",
+					text,
+					cost,
+					error: text.trim() ? undefined : "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。",
+				});
+			} else if (
+				kind === "tool_call" ||
+				kind === "tool_error" ||
+				kind === "project_understand_ask"
+			) {
+				// 只记录真实执行轨迹 (工具调用/失败/澄清追问); master_start/master_round
+				// (任务开始/思考…) 是过程噪音, 不展示。project_understand_ask 是
+				// project_ask 澄清早退的结构化事件 (成功的 tool 结果本身不流给前端,
+				// 见 server/project_ask.py 里的注释), 不靠模型转述原文渲染澄清卡片。
+				const last = sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1);
+				if (last) last.steps = [...last.steps, ev as ToolStep];
+			} else if (kind === "plan_update") {
+				// 计划看板事件: 进轨迹徽章 + 更新活跃计划条 (P5)
+				const last = sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1);
+				if (last) last.steps = [...last.steps, ev as ToolStep];
+				const pev = ev as { plan_id?: string; objective?: string; todos?: unknown[] };
+				if (pev.plan_id && Array.isArray(pev.todos)) {
+					planStore.apply({
+						plan_id: pev.plan_id,
+						objective: pev.objective ?? "",
+						todos: pev.todos as never[],
+					});
+				}
+			} else if (kind === "hicode_progress") {
+				// hicode 编码执行器实时进度: 跳过 token 统计噪音, 其余进轨迹
+				if (ev.stage !== "stats") {
+					const last = sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1);
+					if (last) last.steps = [...last.steps, ev as ToolStep];
+				}
+			} else if (kind === "permission_request") {
+				pendingApproval = {
+					request_id: String(ev.request_id ?? ""),
+					tool_name: String(ev.tool_name ?? "tool"),
+					reason: String(ev.reason ?? "需要你批准"),
+					tool_args: ev.tool_args,
+				};
+				const last = sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1);
+				if (last) last.steps = [...last.steps, ev as ToolStep];
+			} else if (kind === "agent_question") {
+				// 提问卡片 (OpenMausBot 内化): 弹出卡片 → 用户回答 → /agent/answer 回填
+				pendingQuestion = {
+					request_id: String(ev.request_id ?? ""),
+					question: String(ev.question ?? ""),
+					options: Array.isArray(ev.options) ? (ev.options as unknown[]).map(String) : [],
+				};
+				questionAnswer = "";
+				const last = sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1);
+				if (last) last.steps = [...last.steps, ev as ToolStep];
+			} else if (kind === "error") {
+				throw new Error(typeof ev.error === "string" ? ev.error : "agent error");
+			}
+		};
+	}
+
+	async function pumpSse(res: Response, onFrame: (data: string) => void) {
+		if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+		const reader = res.body.getReader();
+		const decoder = new TextDecoder();
+		let buf = "";
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buf += decoder.decode(value, { stream: true });
+			let idx;
+			while ((idx = buf.indexOf("\n\n")) >= 0) {
+				const frame = buf.slice(0, idx);
+				buf = buf.slice(idx + 2);
+				for (const line of frame.split("\n")) {
+					if (line.startsWith("data:")) onFrame(line.slice(5).trim());
+				}
+			}
+		}
+	}
+
+	// 重新接上同一 session 的事件队列 (不重发消息, 不重启后端任务) —
+	// 后端任务仍在跑就续上剩余事件, 已经跑完就立刻收到收尾事件。
+	async function reconnectStream(targetSid: string, signal?: AbortSignal): Promise<boolean> {
+		try {
+			// 先探活: 后台任务已经跑完/取消的话, 重连只会挂在一个空队列上
+			// 永远等不到新事件 (心跳 ping 不停但没有真数据) — 不值得重连。
+			const statusRes = await fetch(
+				`${API_BASE}/api/v1/agent/stream_status?session_id=${encodeURIComponent(targetSid)}`,
+				{ headers: { ...authHeader() }, signal },
+			);
+			const statusJson = await statusRes.json().catch(() => ({}));
+			if (!statusRes.ok || !statusJson?.active) return false;
+			const res = await fetch(`${API_BASE}/stream/${targetSid}`, {
+				headers: { ...authHeader() },
+				signal,
+			});
+			await pumpSse(res, makeFrameHandler(targetSid));
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	async function send(overrideText?: string) {
 		const text = (overrideText ?? input).trim();
 		if (!text || busy) return;
@@ -388,95 +523,7 @@ import ModelPicker from "./ModelPicker.svelte";
 				}),
 				signal,
 			});
-			if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-			const reader = res.body.getReader();
-			const decoder = new TextDecoder();
-			let buf = "";
-
-			const handleFrame = (data: string) => {
-				if (data === "[DONE]") return;
-				let ev: Record<string, unknown>;
-				try {
-					ev = JSON.parse(data);
-				} catch {
-					return;
-				}
-				const kind = String(ev.type ?? ev.event ?? "");
-				if (kind === "text_delta" && typeof ev.delta === "string") {
-					sessionStore.patchLast(sid, { text: (sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)?.text ?? "") + ev.delta });
-				} else if (kind === "master_done") {
-					const accumulated = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)?.text ?? "";
-					const final = typeof ev.final === "string" && ev.final.trim() ? ev.final : "";
-					const text = accumulated || final;
-					// P2: 上下文用量 — 主脑 cost 透传
-					const cost = typeof ev.cost_usd === "number" ? ev.cost_usd : undefined;
-					// 绝不静默空白: 主脑无输出时置 error 态 → 显示重试按钮而非空白气泡
-					sessionStore.patchLast(sid, {
-						status: text.trim() ? "done" : "error",
-						text,
-						cost,
-						error: text.trim()
-							? undefined
-							: "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。",
-					});
-				} else if (kind === "tool_call" || kind === "tool_error" || kind === "project_understand_ask") {
-					// 只记录真实执行轨迹 (工具调用/失败/澄清追问); master_start/master_round
-					// (任务开始/思考…) 是过程噪音, 不展示。project_understand_ask 是
-					// project_ask 澄清早退的结构化事件 (成功的 tool 结果本身不流给前端,
-					// 见 server/project_ask.py 里的注释), 不靠模型转述原文渲染澄清卡片。
-					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
-					if (last) last.steps = [...last.steps, ev as ToolStep];
-				} else if (kind === "plan_update") {
-					// 计划看板事件: 进轨迹徽章 + 更新活跃计划条 (P5)
-					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
-					if (last) last.steps = [...last.steps, ev as ToolStep];
-					const pev = ev as { plan_id?: string; objective?: string; todos?: unknown[] };
-					if (pev.plan_id && Array.isArray(pev.todos)) {
-						planStore.apply({ plan_id: pev.plan_id, objective: pev.objective ?? "", todos: pev.todos as never[] });
-					}
-				} else if (kind === "hicode_progress") {
-					// hicode 编码执行器实时进度: 跳过 token 统计噪音, 其余进轨迹
-					if (ev.stage !== "stats") {
-						const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
-						if (last) last.steps = [...last.steps, ev as ToolStep];
-					}
-				} else if (kind === "permission_request") {
-					pendingApproval = {
-						request_id: String(ev.request_id ?? ""),
-						tool_name: String(ev.tool_name ?? "tool"),
-						reason: String(ev.reason ?? "需要你批准"),
-						tool_args: ev.tool_args,
-					};
-					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
-					if (last) last.steps = [...last.steps, ev as ToolStep];
-				} else if (kind === "agent_question") {
-					// 提问卡片 (OpenMausBot 内化): 弹出卡片 → 用户回答 → /agent/answer 回填
-					pendingQuestion = {
-						request_id: String(ev.request_id ?? ""),
-						question: String(ev.question ?? ""),
-						options: Array.isArray(ev.options) ? (ev.options as unknown[]).map(String) : [],
-					};
-					questionAnswer = "";
-					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
-					if (last) last.steps = [...last.steps, ev as ToolStep];
-				} else if (kind === "error") {
-					throw new Error(typeof ev.error === "string" ? ev.error : "agent error");
-				}
-			};
-
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				buf += decoder.decode(value, { stream: true });
-				let idx;
-				while ((idx = buf.indexOf("\n\n")) >= 0) {
-					const frame = buf.slice(0, idx);
-					buf = buf.slice(idx + 2);
-					for (const line of frame.split("\n")) {
-						if (line.startsWith("data:")) handleFrame(line.slice(5).trim());
-					}
-				}
-			}
+			await pumpSse(res, makeFrameHandler(sid));
 			// 流正常结束但一直没收到有效文本 → 同样标记 error, 不留空白气泡
 			const lastText = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)?.text ?? "";
 			sessionStore.patchLast(
@@ -487,10 +534,32 @@ import ModelPicker from "./ModelPicker.svelte";
 			);
 		} catch (e) {
 			const aborted = aborter?.signal.aborted;
-			sessionStore.patchLast(sid, {
-				status: aborted ? "stopped" : "error",
-				error: aborted ? undefined : e instanceof Error ? e.message : String(e),
-			});
+			if (aborted) {
+				sessionStore.patchLast(sid, { status: "stopped" });
+			} else {
+				// 断流不代表任务死了 (后端任务与推流解耦, 仍在跑) — 先原地重连
+				// 同一 session 的事件队列, 续上剩余进度, 不立刻甩错误给用户。
+				let recovered = false;
+				for (let i = 0; i < RECONNECT_ATTEMPTS && !aborter?.signal.aborted; i++) {
+					await new Promise((r) => setTimeout(r, RECONNECT_BACKOFF_MS[i]));
+					if (await reconnectStream(sid, aborter?.signal)) {
+						recovered = true;
+						break;
+					}
+				}
+				if (!recovered) {
+					const lastStatus = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1)
+						?.status;
+					if (lastStatus !== "done" && lastStatus !== "error") {
+						sessionStore.patchLast(sid, {
+							status: "error",
+							error: `网络连接反复失败, 已重试 ${RECONNECT_ATTEMPTS} 次仍未恢复: ${
+								e instanceof Error ? e.message : String(e)
+							}`,
+						});
+					}
+				}
+			}
 		} finally {
 			busy = false;
 			aborter = null;
@@ -535,8 +604,20 @@ import ModelPicker from "./ModelPicker.svelte";
 		aborter?.abort();
 	}
 
-	function retryLast() {
+	async function retryLast() {
 		if (busy || !lastUserText) return;
+		// 先探探后台任务是不是还活着 (之前的探索/工具调用别浪费) — 活着就
+		// 续接同一个 session 的事件流, 不是从头发一条新消息重新跑一遍。
+		// 只有确认后台任务已经不在了才退化成全新一轮。
+		const targetSid = sid;
+		if (targetSid) {
+			busy = true;
+			try {
+				if (await reconnectStream(targetSid)) return;
+			} finally {
+				busy = false;
+			}
+		}
 		void send(lastUserText);
 	}
 
