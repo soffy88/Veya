@@ -1,4 +1,4 @@
-"""server/engine_runner.py — 多引擎执行路由 (Claude Code / Codex / Grok Build / Pi)。
+"""server/engine_runner.py — 多引擎执行路由 (Claude Code / Codex / Grok Build / Pi / Dsh)。
 
 聊天框选择引擎 = 选择"谁执行任务", 不只是换 LLM provider:
 
@@ -7,6 +7,7 @@
     engine=codex   → codex CLI (OpenAI Codex, exec)
     engine=grok    → grok CLI (Grok Build TUI, 单轮 / streaming-messages-json)
     engine=pi      → pi CLI (pi-coding-agent, -p)
+    engine=dsh     → dsh CLI (DeepSeek Harness, --profile headless 单轮问答)
 
 执行契约: 引擎 CLI 为可信本机工具, 直接 subprocess 执行 (argv 传参, 无 shell);
 统一超时与错误捕获; prompt 不拼接进 shell, 无注入面。
@@ -31,6 +32,7 @@ ENGINE_ALIASES = {
     "codex": "codex",
     "grok": "grok",
     "pi": "pi",
+    "dsh": "dsh",
     "opencode": "opencode",
     "master": "master",
 }
@@ -56,7 +58,7 @@ def _container_gateway_ip() -> str | None:
                 if resp.status in (200, 401, 403):
                     return gw
         except urllib.error.HTTPError as exc:
-            if exc.code in (200, 401, 403):   # urlopen 对非 2xx 抛 HTTPError
+            if exc.code in (200, 401, 403):  # urlopen 对非 2xx 抛 HTTPError
                 return gw
         except Exception:
             continue
@@ -104,10 +106,14 @@ def _ensure_container_opencodex() -> bool:
 
     if _healthz():
         return True
-    bun = ("/home/soffy/.nvm/versions/node/v26.4.0/lib/node_modules/"
-           "@bitkyc08/opencodex/node_modules/bun/bin/bun.exe")
-    cli = ("/home/soffy/.nvm/versions/node/v26.4.0/lib/node_modules/"
-           "@bitkyc08/opencodex/src/cli/index.ts")
+    bun = (
+        "/home/soffy/.nvm/versions/node/v26.4.0/lib/node_modules/"
+        "@bitkyc08/opencodex/node_modules/bun/bin/bun.exe"
+    )
+    cli = (
+        "/home/soffy/.nvm/versions/node/v26.4.0/lib/node_modules/"
+        "@bitkyc08/opencodex/src/cli/index.ts"
+    )
     if not (os.path.isfile(bun) and os.path.isfile(cli)):
         return False
     gw = _container_gateway_ip() or "192.168.16.1"
@@ -118,9 +124,13 @@ def _ensure_container_opencodex() -> bool:
         "NO_PROXY": "localhost,127.0.0.1",
         "no_proxy": "localhost,127.0.0.1",
     }
-    subprocess.Popen([bun, cli, "start", "--port", "10100"], env=env,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+    subprocess.Popen(
+        [bun, cli, "start", "--port", "10100"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
     for _ in range(20):
         time.sleep(0.5)
         if _healthz():
@@ -134,11 +144,7 @@ def _container_pi_usable() -> bool:
         return True
     pi_dir = os.path.expanduser("~/.pi")
     creds = os.path.join(pi_dir, "agent", "auth.json")
-    return (
-        os.path.isdir(pi_dir)
-        and os.path.isfile(creds)
-        and shutil.which("pi") is not None
-    )
+    return os.path.isdir(pi_dir) and os.path.isfile(creds) and shutil.which("pi") is not None
 
 
 def _container_claude_usable() -> bool:
@@ -167,11 +173,22 @@ def _container_codex_usable() -> bool:
     if not _IN_CONTAINER:
         return True
     home = os.path.expanduser("~")
-    if not (os.path.isfile(os.path.join(home, ".codex", "config.toml"))
-            and os.path.isfile(os.path.join(home, ".codex", "auth.json"))
-            and shutil.which("codex") is not None):
+    if not (
+        os.path.isfile(os.path.join(home, ".codex", "config.toml"))
+        and os.path.isfile(os.path.join(home, ".codex", "auth.json"))
+        and shutil.which("codex") is not None
+    ):
         return False
     return _ensure_container_opencodex()
+
+
+def _container_dsh_usable() -> bool:
+    """容器内 dsh 精确探测: 二进制 + DEEPSEEK_API_KEY (docker-compose 已把 DEEPSEEK_BASE_URL
+    覆盖到 opencode-go 网关, key 复用同一份 opencode key, 无独立凭据文件可查, 只能查 env)。
+    """
+    if not _IN_CONTAINER:
+        return True
+    return bool(os.environ.get("DEEPSEEK_API_KEY")) and shutil.which("dsh") is not None
 
 
 def _container_opencode_bin() -> str | None:
@@ -193,9 +210,11 @@ def _container_opencode_usable() -> bool:
         return True
     home = os.path.expanduser("~")
     auth = os.path.join(home, ".local", "share", "opencode", "auth.json")
-    return (_container_opencode_bin() is not None
-            and os.path.isfile(auth)
-            and "opencode-go" in Path(auth).read_text(encoding="utf-8", errors="ignore"))
+    return (
+        _container_opencode_bin() is not None
+        and os.path.isfile(auth)
+        and "opencode-go" in Path(auth).read_text(encoding="utf-8", errors="ignore")
+    )
 
 
 def _container_grok_usable() -> bool:
@@ -230,11 +249,14 @@ def available_engines() -> dict[str, str]:
     """
     if _IN_CONTAINER:
         out = {"master": "builtin"}
-        for eng, probe in (("pi", _container_pi_usable),
-                           ("claude", _container_claude_usable),
-                           ("codex", _container_codex_usable),
-                           ("grok", _container_grok_usable),
-                           ("opencode", _container_opencode_usable)):
+        for eng, probe in (
+            ("pi", _container_pi_usable),
+            ("claude", _container_claude_usable),
+            ("codex", _container_codex_usable),
+            ("grok", _container_grok_usable),
+            ("dsh", _container_dsh_usable),
+            ("opencode", _container_opencode_usable),
+        ):
             if probe():
                 out[eng] = shutil.which(eng) or f"{eng}"
         return out
@@ -252,17 +274,19 @@ def available_engines() -> dict[str, str]:
 def _container_engine_block(engine: str) -> str | None:
     """容器内非 master 引擎 → 按精确探测返回拒绝原因, 否则 None。"""
     if _IN_CONTAINER and engine != "master":
-        probes = {"pi": _container_pi_usable,
-                  "claude": _container_claude_usable,
-                  "codex": _container_codex_usable,
-                  "grok": _container_grok_usable,
-                  "opencode": _container_opencode_usable}
+        probes = {
+            "pi": _container_pi_usable,
+            "claude": _container_claude_usable,
+            "codex": _container_codex_usable,
+            "grok": _container_grok_usable,
+            "dsh": _container_dsh_usable,
+            "opencode": _container_opencode_usable,
+        }
         probe = probes.get(engine)
         if probe and probe():
             return None
         return f"容器环境不支持外部 CLI 引擎 '{engine}' (凭据/端点未就绪, 仅 master 可用)"
     return None
-
 
 
 def _engine_bin_available(engine: str) -> bool:
@@ -272,9 +296,9 @@ def _engine_bin_available(engine: str) -> bool:
     return shutil.which(engine) is not None
 
 
-def build_argv(engine: str, prompt: str, *,
-                model: str | None = None,
-                streaming: bool = False) -> list[str]:
+def build_argv(
+    engine: str, prompt: str, *, model: str | None = None, streaming: bool = False
+) -> list[str]:
     """构造引擎 CLI 非交互 argv (无 shell, 无注入面)。
 
     streaming=True 时 claude 用 stream-json (逐事件解析); run 聚合模式用普通文本输出。
@@ -304,6 +328,10 @@ def build_argv(engine: str, prompt: str, *,
         if model:
             argv += ["--model", model]
         return argv
+    if engine == "dsh":
+        # headless profile: 单轮问答, 跑完打印结果退出; 无 --model 类 CLI flag
+        # (模型由 profile 的 agent-default-model 插件配置, 非运行时可传参)。
+        return ["dsh", "--profile", "headless", prompt]
     if engine == "grok":
         # Grok Build: -p/--single 单轮模式; 流式用 Anthropic wire format NDJSON
         argv = ["grok", "-p", prompt]
@@ -314,9 +342,10 @@ def build_argv(engine: str, prompt: str, *,
         return argv
     if engine == "opencode":
         # opencode-go 网关模型 (系统内已有凭据); argv[0] 用绝对路径 (容器 PATH 无)
-        oc_bin = _container_opencode_bin() if _IN_CONTAINER else shutil.which("opencode") or "opencode"
-        argv = [oc_bin, "run", prompt,
-                "--model", model or "opencode-go/deepseek-v4-flash"]
+        oc_bin = (
+            _container_opencode_bin() if _IN_CONTAINER else shutil.which("opencode") or "opencode"
+        )
+        argv = [oc_bin, "run", prompt, "--model", model or "opencode-go/deepseek-v4-flash"]
         return argv
     raise ValueError(f"未知引擎: {engine!r}; 可选 {sorted(ENGINE_ALIASES)}")
 
@@ -339,12 +368,15 @@ async def run_engine(
     if engine == "opencode":
         try:
             return await opencode_client.send_message(
-                prompt, model or "opencode-go/deepseek-v4-flash",
-                timeout_s=timeout_s, system=system)
+                prompt, model or "opencode-go/deepseek-v4-flash", timeout_s=timeout_s, system=system
+            )
         except Exception as exc:
             logger.info("opencode serve 不可用, 回退 CLI spawn: %s", exc)
     if not _engine_bin_available(engine):
-        return {"ok": False, "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})"}
+        return {
+            "ok": False,
+            "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})",
+        }
     argv = build_argv(engine, prompt, model=model, streaming=False)
     proc = await asyncio.create_subprocess_exec(
         *argv,
@@ -358,13 +390,20 @@ async def run_engine(
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        return {"ok": False, "error": f"引擎 {engine} 超时 ({timeout_s:.0f}s)",
-                "duration_s": timeout_s}
+        return {
+            "ok": False,
+            "error": f"引擎 {engine} 超时 ({timeout_s:.0f}s)",
+            "duration_s": timeout_s,
+        }
     out = stdout.decode(errors="replace")
     err = stderr.decode(errors="replace")
     if proc.returncode != 0:
-        return {"ok": False, "error": err[-2000:] or f"exit={proc.returncode}",
-                "output": out[-4000:], "duration_s": 0.0}
+        return {
+            "ok": False,
+            "error": err[-2000:] or f"exit={proc.returncode}",
+            "output": out[-4000:],
+            "duration_s": 0.0,
+        }
     return {"ok": True, "output": out, "duration_s": 0.0}
 
 
@@ -391,8 +430,8 @@ async def stream_engine(
     if engine == "opencode":
         try:
             async for delta in opencode_client.stream_send(
-                prompt, model or "opencode-go/deepseek-v4-flash",
-                timeout_s=timeout_s, system=system):
+                prompt, model or "opencode-go/deepseek-v4-flash", timeout_s=timeout_s, system=system
+            ):
                 yield {"type": "text_delta", "engine": engine, "delta": delta}
             yield {"type": "engine_done", "engine": engine, "status": "success"}
             return
@@ -446,18 +485,27 @@ async def stream_engine(
                             if not isinstance(block, dict):
                                 continue
                             if block.get("type") == "text" and block.get("text"):
-                                yield {"type": "text_delta", "engine": engine,
-                                       "delta": block["text"]}
+                                yield {
+                                    "type": "text_delta",
+                                    "engine": engine,
+                                    "delta": block["text"],
+                                }
                             elif block.get("type") == "tool_use":
-                                yield {"type": "tool_call", "engine": engine,
-                                       "tool_name": block.get("name", "tool"),
-                                       "tool_args": block.get("input", {})}
+                                yield {
+                                    "type": "tool_call",
+                                    "engine": engine,
+                                    "tool_name": block.get("name", "tool"),
+                                    "tool_args": block.get("input", {}),
+                                }
                     elif t == "content_block_start":
                         cb = evt.get("content_block") or {}
                         if cb.get("type") == "tool_use":
-                            yield {"type": "tool_call", "engine": engine,
-                                   "tool_name": cb.get("name", "tool"),
-                                   "tool_args": cb.get("input", {})}
+                            yield {
+                                "type": "tool_call",
+                                "engine": engine,
+                                "tool_name": cb.get("name", "tool"),
+                                "tool_args": cb.get("input", {}),
+                            }
                 except json.JSONDecodeError:
                     yield {"type": "text_delta", "engine": engine, "delta": text}
             else:
@@ -469,9 +517,13 @@ async def stream_engine(
             async for evt in _read():
                 yield evt
         code = await proc.wait()
-        yield {"type": "engine_done", "engine": engine,
-               "status": "success" if code == 0 else "failed",
-               "cost_usd": round(cost_usd, 6), "model": model}
+        yield {
+            "type": "engine_done",
+            "engine": engine,
+            "status": "success" if code == 0 else "failed",
+            "cost_usd": round(cost_usd, 6),
+            "model": model,
+        }
     except TimeoutError:
         proc.kill()
         await proc.wait()
