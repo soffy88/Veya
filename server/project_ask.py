@@ -345,6 +345,43 @@ def _write_back(store: ProjectStore, resp: ProjectAskResponse, request: str, ass
     store.save_queue_mirror(mirror)
 
 
+def _record_decision(
+    *,
+    task_id: str,
+    parent_task_id: str | None,
+    category: str,
+    scenario: str,
+    reasoning: str,
+    outcome: str,
+    confidence: float,
+    metadata: dict[str, Any],
+) -> None:
+    """project_ask 审计闭环 (2026-08-16 内化): 每次门禁判定/派工结果自动入
+    决策账本 + 上下文图 (task 节点 + 因果边)。只记录不判断 — 不影响任何
+    路由/派工决策; 失败也记录 (账本是审计, 不是成功日志)。"""
+    try:
+        from server import context_graph as cg_mod
+        from server import decision_ledger as dl_mod
+
+        dl_mod.ledger.record_decision(
+            category,
+            scenario,
+            reasoning=reasoning,
+            outcome=outcome,
+            confidence=confidence,
+            parent_id=parent_task_id,
+            source="project_ask",
+            metadata=metadata,
+        )
+        cg_mod.graph.upsert_node(
+            task_id, "Task", scenario[:200], {"outcome": outcome, "phase": metadata.get("phase", "")}
+        )
+        if parent_task_id:
+            cg_mod.graph.add_edge(parent_task_id, "follows_up", task_id)
+    except Exception:  # noqa: BLE001 — 审计失败不阻断主流程
+        logger.warning("project_ask 决策记录失败 (task %s)", task_id, exc_info=True)
+
+
 def _render(resp: ProjectAskResponse) -> str:
     if resp.phase == "understood_ask":
         lines = [
@@ -479,6 +516,16 @@ async def project_ask(
             confidence=u.confidence,
             parent_task_id=parent_task_id,
         )
+        _record_decision(
+            task_id=task_id,
+            parent_task_id=parent_task_id,
+            category="understand",
+            scenario=request,
+            reasoning=u.interpretation or u.reasons[0] if u.reasons else "",
+            outcome="ask",
+            confidence=u.confidence,
+            metadata={"task_id": task_id, "phase": "understood_ask", "questions": u.questions},
+        )
         _write_back(store, resp, request, "understand")
         # 结构化事件: 主脑执行结果本身不会流给前端 (成功的 tool 只喂回模型上下文,
         # 见 oservi.MasterAgent.chat_stream), 这里额外推一条, 让前端能渲染澄清卡片
@@ -512,6 +559,23 @@ async def project_ask(
     resp.assumptions = u.assumptions
     resp.confidence = u.confidence
     resp.parent_task_id = parent_task_id
+
+    _record_decision(
+        task_id=task_id,
+        parent_task_id=parent_task_id,
+        category="project_task",
+        scenario=request,
+        reasoning=u.interpretation or "",
+        outcome=resp.status,
+        confidence=u.confidence,
+        metadata={
+            "task_id": task_id,
+            "assignee": assignee,
+            "phase": resp.phase,
+            "block_reason": resp.block_reason,
+            "summary": (resp.summary or "")[:200],
+        },
+    )
 
     _write_back(store, resp, request, assignee)
     return _render(resp)
