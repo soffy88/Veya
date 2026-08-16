@@ -22,6 +22,12 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      # dsh (DeepSeek Harness) 走 opencode-go 网关: dsh-llm-deepseek 支持
+      # DEEPSEEK_BASE_URL 覆盖官方 endpoint (源码确认, 进程环境变量优先级最高),
+      # DeepSeek API 本身是 OpenAI 兼容协议, opencode-go 代理同样兼容, 复用同一
+      # 把 opencode key (与 OPENCODE_API_KEY 相同来源, 2026-08-16 接入)。
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://opencode.ai/zen/go/v1}
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:-veya-dev-secret}
       - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
       - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
@@ -68,6 +74,10 @@ services:
       - ../deploy/hicode-entrypoint.sh:/app/hicode-entrypoint.sh:ro
       # Git 面板工作区: 宿主 veya 仓库根 (git status/diff/commit 操作真实仓库)
       - /data/soffy/projects/veya:/repo:rw
+      # 宿主同级项目 (hemal/stratum/aegis 等) — 此前完全没挂进容器, 主脑连
+      # list_files 都会报 "escapes workspace root"。容器内路径与宿主一致
+      # (/home/soffy/projects), 便于按宿主路径直接引用/映射。
+      - /data/soffy/projects:/home/soffy/projects:rw
     # Chromium 无头浏览器 /dev/shm 需求 (抓取通道)
     shm_size: "1gb"
     restart: unless-stopped

@@ -31,6 +31,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
 	import { API_BASE } from "$lib/api";
+	import { authHeader } from "$lib/auth.svelte";
 	import { planStore } from "$lib/planStore.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import FileTree from "./FileTree.svelte";
@@ -46,6 +47,13 @@ import ModelPicker from "./ModelPicker.svelte";
 
 	let input = $state("");
 	let busy = $state(false);
+	let planMode = $state(false);
+	let pendingApproval = $state<{
+		request_id: string;
+		tool_name: string;
+		reason: string;
+		tool_args?: unknown;
+	} | null>(null);
 	let lastUserText = $state("");
 	let fileTreeOpen = $state(false);
 	let dictating = $state(false);
@@ -211,6 +219,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	function newSession() {
 		sessionStore.newSession();
 		input = "";
+		pendingApproval = null;
 	}
 
 	function toggleStep(i: number) {
@@ -239,6 +248,20 @@ import ModelPicker from "./ModelPicker.svelte";
 					return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode 完成" };
 				return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode" };
 			}
+			case "permission_request":
+				return {
+					Icon: CircleAlert,
+					cls: "text-amber-300 bg-amber-400/10 border-amber-400/30",
+					label: `批准? ${String(ev.tool_name ?? "tool")}`,
+				};
+			case "project_understand_ask": {
+				const qs = Array.isArray(ev.questions) ? (ev.questions as unknown[]).length : 0;
+				return {
+					Icon: CircleAlert,
+					cls: "text-sky-300 bg-sky-400/10 border-sky-400/30",
+					label: `❓ 需要澄清 (${qs} 个问题)`,
+				};
+			}
 			case "plan_update": {
 				const action = String(ev.action ?? "");
 				const obj = String(ev.objective ?? "").slice(0, 26);
@@ -255,6 +278,15 @@ import ModelPicker from "./ModelPicker.svelte";
 	}
 
 	function stepDetail(ev: ToolStep): string {
+		if (ev.type === "project_understand_ask") {
+			const interp = typeof ev.interpretation === "string" ? ev.interpretation : "";
+			const qs = Array.isArray(ev.questions) ? (ev.questions as string[]) : [];
+			const lines = [
+				...(interp ? [`理解: ${interp}`] : []),
+				...qs.map((q, i) => `${i + 1}. ${q}`),
+			];
+			return lines.join("\n").slice(0, 400);
+		}
 		if (ev.type === "hicode_progress" && typeof ev.detail === "string") return ev.detail.slice(0, 200);
 		if (ev.type === "plan_update" && Array.isArray(ev.todos)) {
 			const mark: Record<string, string> = { done: "✅", in_progress: "▶️", blocked: "⛔", open: "⬜" };
@@ -312,7 +344,7 @@ import ModelPicker from "./ModelPicker.svelte";
 		try {
 			const res = await fetch(`${API_BASE}/api/v1/agent/stream`, {
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers: { "content-type": "application/json", ...authHeader() },
 				body: JSON.stringify({
 					text: text + attachPrefix,
 					images: pendingImages,
@@ -321,6 +353,8 @@ import ModelPicker from "./ModelPicker.svelte";
 					model: apiKeyStore.model.trim() || undefined,
 					engine: apiKeyStore.engine,
 					config: apiKeyStore.asConfig(),
+					agent_mode: planMode ? "plan" : "agent",
+					require_approval: !planMode,
 				}),
 				signal,
 			});
@@ -355,9 +389,11 @@ import ModelPicker from "./ModelPicker.svelte";
 							? undefined
 							: "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。",
 					});
-				} else if (kind === "tool_call" || kind === "tool_error") {
-					// 只记录真实执行轨迹 (工具调用/失败); master_start/master_round
-					// (任务开始/思考…) 是过程噪音, 不展示
+				} else if (kind === "tool_call" || kind === "tool_error" || kind === "project_understand_ask") {
+					// 只记录真实执行轨迹 (工具调用/失败/澄清追问); master_start/master_round
+					// (任务开始/思考…) 是过程噪音, 不展示。project_understand_ask 是
+					// project_ask 澄清早退的结构化事件 (成功的 tool 结果本身不流给前端,
+					// 见 server/project_ask.py 里的注释), 不靠模型转述原文渲染澄清卡片。
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 					if (last) last.steps = [...last.steps, ev as ToolStep];
 				} else if (kind === "plan_update") {
@@ -374,6 +410,15 @@ import ModelPicker from "./ModelPicker.svelte";
 						const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 						if (last) last.steps = [...last.steps, ev as ToolStep];
 					}
+				} else if (kind === "permission_request") {
+					pendingApproval = {
+						request_id: String(ev.request_id ?? ""),
+						tool_name: String(ev.tool_name ?? "tool"),
+						reason: String(ev.reason ?? "需要你批准"),
+						tool_args: ev.tool_args,
+					};
+					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
+					if (last) last.steps = [...last.steps, ev as ToolStep];
 				} else if (kind === "error") {
 					throw new Error(typeof ev.error === "string" ? ev.error : "agent error");
 				}
@@ -410,6 +455,17 @@ import ModelPicker from "./ModelPicker.svelte";
 			busy = false;
 			aborter = null;
 		}
+	}
+
+	async function resolveApproval(approved: boolean) {
+		const req = pendingApproval;
+		if (!req) return;
+		pendingApproval = null;
+		await fetch(`${API_BASE}/api/v1/agent/approval`, {
+			method: "POST",
+			headers: { "content-type": "application/json", ...authHeader() },
+			body: JSON.stringify({ request_id: req.request_id, approved }),
+		}).catch(() => {});
 	}
 
 	function stop() {
@@ -514,6 +570,23 @@ import ModelPicker from "./ModelPicker.svelte";
 				/>
 			</div>
 		{/if}
+		{#if pendingApproval}
+			<div class="mb-2 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+				<span class="min-w-0 flex-1 font-mono text-[11px] text-amber-200">
+					{pendingApproval.reason}
+				</span>
+				<button
+					type="button"
+					onclick={() => void resolveApproval(true)}
+					class="rounded-lg bg-emerald-500/90 px-2.5 py-1 font-mono text-[11px] text-black hover:bg-emerald-400"
+				>批准</button>
+				<button
+					type="button"
+					onclick={() => void resolveApproval(false)}
+					class="rounded-lg bg-white/10 px-2.5 py-1 font-mono text-[11px] text-white/80 hover:bg-white/20"
+				>拒绝</button>
+			</div>
+		{/if}
 		<div class="flex items-end gap-2 rounded-2xl border border-white/10 bg-[#0d0d0d] p-2 transition focus-within:border-white/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.05)]">
 			<button
 				type="button"
@@ -548,7 +621,7 @@ import ModelPicker from "./ModelPicker.svelte";
 				bind:this={textareaEl}
 				bind:value={input}
 				rows="1"
-				placeholder="问 Veya 任何事…"
+				placeholder={planMode ? "计划模式：只读探索，不会改文件…" : "问 Veya 任何事…"}
 				disabled={busy}
 				onkeydown={onKeydown}
 				oninput={onTextareaInput}
@@ -580,6 +653,14 @@ import ModelPicker from "./ModelPicker.svelte";
 				<span class="size-1.5 rounded-full {apiKeyStore.api_key ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
 				<ModelPicker />
 			</span>
+			<button
+				type="button"
+				onclick={() => (planMode = !planMode)}
+				title="计划模式：只读探索，确认后再切回执行"
+				class="rounded-md border px-1.5 py-0.5 transition {planMode
+					? 'border-sky-500/50 bg-sky-500/15 text-sky-300'
+					: 'border-white/10 text-white/35 hover:text-white/70'}"
+			>{planMode ? "计划" : "执行"}</button>
 			<span class="flex-1"></span>
 			<span class="hidden md:inline">Enter 发送 · Shift+Enter 换行 · ↑ 编辑{ busy ? " · Esc 停止" : "" }</span>
 		</div>

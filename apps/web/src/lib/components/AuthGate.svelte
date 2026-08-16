@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { login, register, auth, authHeader } from "$lib/auth.svelte";
+	import { login, register, logout, auth, authHeader } from "$lib/auth.svelte";
 	import { notifyStore } from "$lib/notifications.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 	import { Bot, Loader2, LogOut, User } from "lucide-svelte";
