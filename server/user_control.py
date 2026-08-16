@@ -64,6 +64,7 @@ HIGH_IMPACT = frozenset(
 
 _POLICY = "user_control"
 _APPROVAL_TIMEOUT_S = float(os.environ.get("VEYA_APPROVAL_TIMEOUT_S", "120") or 120)
+_QUESTION_TIMEOUT_S = float(os.environ.get("VEYA_QUESTION_TIMEOUT_S", "300") or 300)
 
 
 class _Pending:
@@ -75,7 +76,19 @@ class _Pending:
         self.sid = sid
 
 
+class _PendingQuestion:
+    """OpenMausBot 提问卡片内化: bot 执行中向用户提问, 文字回答回填。"""
+
+    def __init__(self, question: str, options: list[str], sid: str) -> None:
+        self.event = asyncio.Event()
+        self.answer: str | None = None
+        self.question = question
+        self.options = options
+        self.sid = sid
+
+
 _pending: dict[str, _Pending] = {}
+_pending_questions: dict[str, _PendingQuestion] = {}
 
 
 def activate(
@@ -123,6 +136,16 @@ def resolve_approval(request_id: str, approved: bool) -> bool:
     return True
 
 
+def resolve_answer(request_id: str, answer: str) -> bool:
+    """回填一次 bot 提问的回答 (POST /api/v1/agent/answer)。"""
+    q = _pending_questions.get(request_id)
+    if q is None:
+        return False
+    q.answer = answer
+    q.event.set()
+    return True
+
+
 async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
     """Return a deny reason, or None to allow."""
     rid = uuid.uuid4().hex[:12]
@@ -148,6 +171,40 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
     if pending.approved:
         return None
     return f"user denied '{tool}'"
+
+
+async def ask_question(question: str, options: list[str] | None = None) -> str:
+    """OpenMausBot 提问卡片内化 (2026-08-16): bot 执行中向用户提问并等待文字回答。
+
+    返回用户回答; 超时/无会话 → 明确提示 (模型自主决定放弃或继续), 不阻断。
+    事件 agent_question 由前端渲染为提问卡片, 回答经 /api/v1/agent/answer 回填。
+    """
+    rid = uuid.uuid4().hex[:12]
+    sid = _session_id.get()
+    opts = [str(o)[:200] for o in (options or [])][:6]
+    q = _PendingQuestion(str(question)[:2000], opts, sid)
+    _pending_questions[rid] = q
+    fire_step(
+        {
+            "type": "agent_question",
+            "request_id": rid,
+            "question": q.question,
+            "options": opts,
+            "session_id": sid,
+        }
+    )
+    try:
+        await asyncio.wait_for(q.event.wait(), timeout=_QUESTION_TIMEOUT_S)
+    except TimeoutError:
+        _pending_questions.pop(rid, None)
+        return (
+            f"[user did not answer within {_QUESTION_TIMEOUT_S:.0f}s] "
+            "用合理的默认假设继续, 不要重复提问。"
+        )
+    _pending_questions.pop(rid, None)
+    if q.answer is None or not str(q.answer).strip():
+        return "[user dismissed the question] 用合理默认假设继续。"
+    return str(q.answer)
 
 
 async def user_control_policy(name: str, kwargs: dict, source: str) -> str | None:

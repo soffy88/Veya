@@ -235,6 +235,20 @@ async def agent_approval(req: AgentApprovalRequest) -> dict:
     return {"ok": ok, "request_id": req.request_id, "approved": req.approved}
 
 
+class AgentAnswerRequest(BaseModel):
+    request_id: str
+    answer: str
+
+
+@router.post("/api/v1/agent/answer")
+async def agent_answer(req: AgentAnswerRequest) -> dict:
+    """Web 聊天: 回答 bot 执行中的提问 (提问卡片回填, OpenMausBot 内化)。"""
+    from server.user_control import resolve_answer
+
+    ok = resolve_answer(req.request_id, req.answer)
+    return {"ok": ok, "request_id": req.request_id}
+
+
 @router.get("/api/v1/agent/sessions")
 async def list_user_sessions(
     user: dict = Depends(auth_mod.get_current_user),
