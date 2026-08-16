@@ -488,9 +488,7 @@ def _resolve_write_path(filepath: str, *, must_exist: bool = False) -> Path:
     与读根 (VEYA_WORKSPACE, 项目/代码只读) 分离: 主脑「存储文件」写到这里,
     读文件照旧读项目代码。防逃逸同 _resolve_path。
     """
-    root = Path(
-        os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work"))
-    ).resolve()
+    root = Path(os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work"))).resolve()
     root.mkdir(parents=True, exist_ok=True)
     p = Path(filepath)
     if not p.is_absolute():
@@ -574,6 +572,16 @@ def _tool_list_files(path: str = ".") -> str:
 
 
 # ── 4. 代码执行 / 测试 (3O 隔离沙箱) ───────────────────────────────
+def _normalize_sandbox_command(command: str) -> str:
+    """沙箱只有 python3/pip3 (无 python/pip 软链)。把模型常用的整词 python/pip 归一到
+    python3/pip3 (不动已带 3 的), 省掉 'python: not found' 反复空转烧轮次。
+    """
+    import re
+
+    command = re.sub(r"(?<![\w./-])python(?!3)(?=\s|$)", "python3", command)
+    return re.sub(r"(?<![\w./-])pip(?!3)(?=\s|$)", "pip3", command)
+
+
 async def _tool_run_in_sandbox(code: str | None = None, command: str | None = None) -> str:
     """在 3O 隔离沙箱中执行代码(网络封锁/内存/时间限制, 单线程 BLAS)。"""
     from veya.sandbox import SandboxConfig, create_safe_executor
@@ -595,7 +603,11 @@ async def _tool_run_in_sandbox(code: str | None = None, command: str | None = No
     )
     executor = create_safe_executor(config)
     async with executor:
-        result = await executor.run_script(code) if code else await executor.execute(command)
+        result = (
+            await executor.run_script(code)
+            if code
+            else await executor.execute(_normalize_sandbox_command(command))
+        )
     if result.get("exit_code") != 0:
         raise ToolExecutionError(
             f"exit_code={result.get('exit_code')} ({result.get('duration', 0.0):.2f}s)\n"
@@ -737,7 +749,10 @@ master_tools.register(
         "properties": {
             "filepath": {"type": "string", "description": "path relative to workspace root"},
             "content": {"type": "string", "description": "text content to write"},
-            "overwrite": {"type": "boolean", "description": "default true; false = refuse if file exists"},
+            "overwrite": {
+                "type": "boolean",
+                "description": "default true; false = refuse if file exists",
+            },
         },
         "required": ["filepath", "content"],
     },
@@ -798,6 +813,9 @@ master_tools.register(
     description=(
         "Run python code (or a shell command) inside the 3O isolated sandbox: network blocked, "
         "memory/time limited. ONLY for executing/verifying code snippets (e.g. test a function). "
+        "The sandbox has `python3` (NOT `python`) and the stdlib `unittest` (pytest is NOT "
+        "installed) — run tests with `python3 -m unittest discover` or `python3 -m unittest "
+        "<module>`, never `python ...` or `pytest`. "
         "DO NOT use it for file operations — writing files → write_file, reading/understanding "
         "files → read_file_ast / grep / mcp_codebase. If the user just wants to save content "
         "or understand a file, use those instead of running anything."
@@ -1102,3 +1120,78 @@ master_tools.register(
     },
     func=graph_review,
 )
+
+# ================= 统一流水线 (Graft + OpenRSI + ReasoningBank 总装) =========
+# evolve_solution: 沙盒验证式演化搜索替代单次盲写。装配层, 只组装 3O 主库能力。
+from server import graft_autocontext as _graft_autocontext  # noqa: E402
+from server import unified_pipeline as _unified_pipeline  # noqa: E402
+from server import wechat_article_pipeline as _wechat_article_pipeline  # noqa: E402
+
+_unified_pipeline.register(master_tools)
+_graft_autocontext.register(master_tools)
+_wechat_article_pipeline.register(master_tools)
+
+
+def _register_wechat_discover(master_tools: Any) -> None:
+    """公众号创作资源 discover 工具 (3O oskill.wechat_resources 装配).
+
+    让主脑面对主题/布局/prompt 不确定时先 discover 再调用
+    produce_wechat_article (md2wechat do-not-guess 原则)。
+    oskill 未挂载时注册一个报错工具而非静默缺失。
+    """
+    if master_tools.has("wechat_discover"):
+        return
+
+    async def _wechat_discover(kind: str = "") -> str:
+        try:
+            from veya.platform import oskill as _load_oskill
+
+            oskill = _load_oskill()
+            from oskill.wechat_resources import register_wechat_resources
+
+            catalog = register_wechat_resources()
+            if kind:
+                items = [
+                    {"name": r.name, "description": r.description}
+                    for r in catalog.discover(kind)
+                ]
+                return f"{kind} 资源 ({len(items)}):\n" + "\n".join(
+                    f"- {i['name']}: {i['description']}" for i in items
+                )
+            cap = catalog.capabilities()
+            lines = [f"公众号创作能力目录 — 类型: {', '.join(cap['kinds'])}"]
+            for k, count in sorted(cap["counts"].items()):
+                lines.append(f"- {k}: {count} 个")
+            lines.append(
+                "用法: wechat_discover(kind='theme'|'layout'|'prompt'|'wechat-flow') "
+                "查看具体资源; 主题/布局可配合 produce_wechat_article 的 requirements 使用。"
+            )
+            return "\n".join(lines)
+        except Exception as exc:  # oskill 未挂载/导入失败 → 明确报错
+            return f"wechat_discover: 3O 主库 oskill 不可用: {type(exc).__name__}: {exc}"
+
+    master_tools.register(
+        name="wechat_discover",
+        description=(
+            "公众号创作能力资源目录 (Discovery-First): 查询可用主题 theme / 布局模块 "
+            "layout / 创作 prompt / 端到端流程 wechat-flow。USE THIS when the user "
+            "wants a WeChat article and has not chosen a theme/layout/prompt, or asks "
+            "what wechat capabilities exist — run this first instead of guessing. "
+            "Pass kind to filter (theme|layout|prompt|wechat-flow), empty = overview."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["", "theme", "layout", "prompt", "wechat-flow"],
+                    "description": "资源类型过滤, 空串返回能力总览",
+                }
+            },
+        },
+        func=_wechat_discover,
+        max_result_chars=4000,
+    )
+
+
+_register_wechat_discover(master_tools)
