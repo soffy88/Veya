@@ -31,6 +31,7 @@ export const ENGINES = [
 	{ id: "claude", label: "Claude" },
 	{ id: "codex", label: "Codex" },
 	{ id: "pi", label: "Pi" },
+	{ id: "dsh", label: "Dsh" },
 ] as const;
 
 /** 各 provider 的常用模型清单 (点选即用; 仍可手动输入任意模型名) */
