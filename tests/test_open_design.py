@@ -72,11 +72,15 @@ async def test_tool_adapters_namespace(connector):
 
 @pytest.mark.asyncio
 async def test_wire_master_tools_idempotent(connector):
-    from server.tool_registry import master_tools
+    from server.tool_registry import _MCP_GATEWAY, master_tools
 
     added = await wire_master_tools(connector)
     assert added >= 0  # 全量顺序下可能已被先前用例 wire
-    assert master_tools.has("mcp_od_write_file")
+    # 网关模式 (默认): 收成单个 mcp_od; VEYA_MCP_GATEWAY=0 才逐个注册 mcp_od_*
+    if _MCP_GATEWAY:
+        assert master_tools.has("mcp_od")
+    else:
+        assert master_tools.has("mcp_od_write_file")
     assert await wire_master_tools(connector) == 0     # 幂等
 
 
