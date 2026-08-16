@@ -35,7 +35,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	import { planStore } from "$lib/planStore.svelte";
 	import PlanCard from "./PlanCard.svelte";
 	import FileTree from "./FileTree.svelte";
-	import { Folder, Mic, Paperclip } from "lucide-svelte";
+	import { Folder, HelpCircle, Mic, Paperclip, Plus } from "lucide-svelte";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
 
 	const SUGGESTIONS = [
@@ -54,11 +54,30 @@ import ModelPicker from "./ModelPicker.svelte";
 		reason: string;
 		tool_args?: unknown;
 	} | null>(null);
+	// 提问卡片 (OpenMausBot 内化): 主脑执行中提问 → 卡片点选/文字回答 → /agent/answer 回填
+	let pendingQuestion = $state<{
+		request_id: string;
+		question: string;
+		options: string[];
+	} | null>(null);
+	let questionAnswer = $state("");
 	let lastUserText = $state("");
 	let fileTreeOpen = $state(false);
 	let dictating = $state(false);
 	let dictationError = $state("");
 	let recognition: { stop: () => void; lang: string } | null = null;
+	let attachMenuOpen = $state(false);
+	let attachMenuEl = $state<HTMLDivElement | null>(null);
+
+	// 点击外部关闭「+」插入菜单
+	$effect(() => {
+		if (!attachMenuOpen) return;
+		function onDown(e: PointerEvent) {
+			if (attachMenuEl && !attachMenuEl.contains(e.target as Node)) attachMenuOpen = false;
+		}
+		document.addEventListener("pointerdown", onDown, true);
+		return () => document.removeEventListener("pointerdown", onDown, true);
+	});
 
 	// ── 附件上传 (文件/图片) ──────────────────────────────────────────
 	interface Attachment {
@@ -220,6 +239,8 @@ import ModelPicker from "./ModelPicker.svelte";
 		sessionStore.newSession();
 		input = "";
 		pendingApproval = null;
+		pendingQuestion = null;
+		questionAnswer = "";
 	}
 
 	function toggleStep(i: number) {
@@ -254,6 +275,12 @@ import ModelPicker from "./ModelPicker.svelte";
 					cls: "text-amber-300 bg-amber-400/10 border-amber-400/30",
 					label: `批准? ${String(ev.tool_name ?? "tool")}`,
 				};
+			case "agent_question":
+				return {
+					Icon: HelpCircle,
+					cls: "text-sky-300 bg-sky-400/10 border-sky-400/30",
+					label: "❓ 主脑提问",
+				};
 			case "project_understand_ask": {
 				const qs = Array.isArray(ev.questions) ? (ev.questions as unknown[]).length : 0;
 				return {
@@ -278,6 +305,9 @@ import ModelPicker from "./ModelPicker.svelte";
 	}
 
 	function stepDetail(ev: ToolStep): string {
+		if (ev.type === "agent_question") {
+			return String(ev.question ?? "").slice(0, 300);
+		}
 		if (ev.type === "project_understand_ask") {
 			const interp = typeof ev.interpretation === "string" ? ev.interpretation : "";
 			const qs = Array.isArray(ev.questions) ? (ev.questions as string[]) : [];
@@ -419,6 +449,16 @@ import ModelPicker from "./ModelPicker.svelte";
 					};
 					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
 					if (last) last.steps = [...last.steps, ev as ToolStep];
+				} else if (kind === "agent_question") {
+					// 提问卡片 (OpenMausBot 内化): 弹出卡片 → 用户回答 → /agent/answer 回填
+					pendingQuestion = {
+						request_id: String(ev.request_id ?? ""),
+						question: String(ev.question ?? ""),
+						options: Array.isArray(ev.options) ? (ev.options as unknown[]).map(String) : [],
+					};
+					questionAnswer = "";
+					const last = sessionStore.sessions.find((s) => s.sid === sid)?.messages.at(-1);
+					if (last) last.steps = [...last.steps, ev as ToolStep];
 				} else if (kind === "error") {
 					throw new Error(typeof ev.error === "string" ? ev.error : "agent error");
 				}
@@ -468,6 +508,18 @@ import ModelPicker from "./ModelPicker.svelte";
 		}).catch(() => {});
 	}
 
+	async function resolveQuestion(answer: string) {
+		const q = pendingQuestion;
+		if (!q) return;
+		pendingQuestion = null;
+		questionAnswer = "";
+		await fetch(`${API_BASE}/api/v1/agent/answer`, {
+			method: "POST",
+			headers: { "content-type": "application/json", ...authHeader() },
+			body: JSON.stringify({ request_id: q.request_id, answer }),
+		}).catch(() => {});
+	}
+
 	function stop() {
 		// 先通知后端真正中断 (hicode 任务 → serve /cancel; 排队中 → 取消),
 		// 再断前端 SSE — 不再「只断连接、子进程继续烧 token」。
@@ -479,6 +531,7 @@ import ModelPicker from "./ModelPicker.svelte";
 				body: JSON.stringify({ session_id: sid }),
 			}).catch(() => {});
 		}
+		pendingQuestion = null; // 中断后提问作废 (后端超时会自动按默认假设继续)
 		aborter?.abort();
 	}
 
@@ -587,35 +640,106 @@ import ModelPicker from "./ModelPicker.svelte";
 				>拒绝</button>
 			</div>
 		{/if}
+		{#if pendingQuestion}
+			<div class="mb-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2.5">
+				<div class="flex items-start gap-2">
+					<span class="mt-0.5 flex size-5 shrink-0 items-center justify-center">
+						<HelpCircle class="size-4 text-sky-300" />
+					</span>
+					<div class="min-w-0 flex-1">
+						<div class="font-mono text-[10px] uppercase tracking-wider text-sky-400/80">主脑提问</div>
+						<div class="mt-1 text-[13px] leading-relaxed text-terminal-fg">{pendingQuestion.question}</div>
+						{#if pendingQuestion.options.length > 0}
+							<div class="mt-2 flex flex-wrap gap-1.5">
+								{#each pendingQuestion.options as opt (opt)}
+									<button
+										type="button"
+										onclick={() => void resolveQuestion(opt)}
+										class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 font-mono text-[11px] text-sky-200 transition hover:bg-sky-500/25"
+									>{opt}</button>
+								{/each}
+							</div>
+						{/if}
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								bind:value={questionAnswer}
+								placeholder="输入回答…"
+								onkeydown={(e) => {
+									if (e.key === "Enter" && !e.isComposing && questionAnswer.trim()) {
+										e.preventDefault();
+										void resolveQuestion(questionAnswer.trim());
+									}
+								}}
+								class="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-2.5 py-1.5 font-mono text-[12px] text-terminal-fg outline-none placeholder:text-white/30 focus:border-sky-500/50"
+							/>
+							<button
+								type="button"
+									onclick={() => void resolveQuestion(questionAnswer.trim())}
+									disabled={!questionAnswer.trim()}
+									class="rounded-lg bg-sky-500/90 px-2.5 py-1.5 font-mono text-[11px] text-black transition hover:bg-sky-400 disabled:opacity-30"
+							>回答</button>
+						</div>
+						<div class="mt-1.5 font-mono text-[10px] text-white/30">
+							不回答的话主脑会在 5 分钟后按默认假设继续，不会卡住
+						</div>
+					</div>
+				</div>
+			</div>
+		{/if}
 		<div class="flex items-end gap-2 rounded-2xl border border-white/10 bg-[#0d0d0d] p-2 transition focus-within:border-white/25 focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.05)]">
-			<button
-				type="button"
-				onclick={() => (fileTreeOpen = !fileTreeOpen)}
-				title="工作区文件 (点击文件注入 @path)"
-				class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white {fileTreeOpen
-					? 'border-sky-500/40 text-sky-400'
-					: ''}"
-			>
-				<Folder class="size-4" />
-			</button>
-			<button
-				type="button"
-				onclick={toggleDictation}
-				title="语音听写"
-				class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 transition {dictating
-					? 'border-rose-500/50 bg-rose-500/10 text-rose-400'
-					: 'text-white/50 hover:border-sky-500/40 hover:text-white'}"
-			>
-				<Mic class="size-4" />
-			</button>
-			<button
-				type="button"
-				onclick={pickFiles}
-				title="上传文件/图片 (文本类直接读, 图片随消息发送)"
-				class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white"
-			>
-				<Paperclip class="size-4" />
-			</button>
+			<div class="relative" bind:this={attachMenuEl}>
+				<button
+					type="button"
+					onclick={() => (attachMenuOpen = !attachMenuOpen)}
+					title="插入…"
+					class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white {attachMenuOpen ||
+					fileTreeOpen ||
+					dictating
+						? 'border-sky-500/40 text-sky-400'
+						: ''}"
+				>
+					<Plus class="size-4 transition-transform {attachMenuOpen ? 'rotate-45' : ''}" />
+				</button>
+				{#if attachMenuOpen}
+					<div class="absolute bottom-10 left-0 z-50 w-52 overflow-hidden rounded-xl border border-terminal-edge bg-terminal-panel shadow-2xl">
+						<button
+							type="button"
+							onclick={() => {
+								fileTreeOpen = !fileTreeOpen;
+								attachMenuOpen = false;
+							}}
+							title="点击文件注入 @path"
+							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] text-white/70 transition hover:bg-white/10 hover:text-white"
+						>
+							<Folder class="size-3.5" /> 工作区文件
+						</button>
+						<button
+							type="button"
+							onclick={() => {
+								toggleDictation();
+								attachMenuOpen = false;
+							}}
+							title="语音听写"
+							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] transition hover:bg-white/10 {dictating
+								? 'text-rose-400'
+								: 'text-white/70 hover:text-white'}"
+						>
+							<Mic class="size-3.5" /> 语音听写
+						</button>
+						<button
+							type="button"
+							onclick={() => {
+								pickFiles();
+								attachMenuOpen = false;
+							}}
+							title="文本类直接读, 图片随消息发送"
+							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] text-white/70 transition hover:bg-white/10 hover:text-white"
+						>
+							<Paperclip class="size-3.5" /> 上传文件/图片
+						</button>
+					</div>
+				{/if}
+			</div>
 			<input bind:this={fileInput} type="file" multiple class="hidden" onchange={onFilesChosen} />
 			<textarea
 				bind:this={textareaEl}
