@@ -8,10 +8,13 @@ set -e
 mkdir -p /home/soffy/.reasonix
 echo "OPENCODE_API_KEY=${OPENCODE_API_KEY}" > /home/soffy/.reasonix/.env
 
-cd /home/soffy/.veya/hicode-workspace
 # hicode serve 守护循环: 被杀/崩溃自动重启 (veya 硬停止依赖此机制),
-# 日志可 docker logs 查看 (/tmp 在容器层)
+# 日志可 docker logs 查看 (/tmp 在容器层)。cd 限定在子 shell 内 — 主脑跑
+# hicode 任务时会在 hicode-workspace 里探索/创建同名目录 (server/platform/
+# omodul 等), 若主进程 CWD 也停在这里, `import server.app` 会被这些目录
+# 影子遮蔽, 拿到假包而不是 /app/server (2026-08-16 踩过: 容器起不来)。
 (
+  cd /home/soffy/.veya/hicode-workspace
   while true; do
     reasonix serve --addr 0.0.0.0:8768 --auth none --model opencode-go \
       >> /tmp/hicode-serve.log 2>&1
@@ -20,4 +23,5 @@ cd /home/soffy/.veya/hicode-workspace
   done
 ) &
 
+cd /app
 exec uvicorn server.app:app --host 0.0.0.0 --port 8765
