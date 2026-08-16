@@ -189,7 +189,7 @@ def _core_tool_schemas(tools: list | None) -> list | None:
     core: list = []
     for s in tools:
         name = (s.get("function") or {}).get("name") or ""
-        if name.startswith(("system_", "reasonix_")) or name in _CORE:
+        if name.startswith(("system_", "reasonix_", "hicode_")) or name in _CORE:
             core.append(s)
     return core or None
 
