@@ -500,8 +500,8 @@ def test_continue_when_tools_present():
 def test_is_invalid_response_variants():
     for v in ("", "none", "null", "None", "N/A", None):
         assert is_invalid_response(v)
-    for v in ("真实回答", "42", "done?"):
-        assert not is_invalid_response(v)
+    for v in ("真实回答", "42", "done?", "ok", "OK", "done", "完成", "已完成"):
+        assert not is_invalid_response(v)  # 有内容的回复不是疲劳标记 (2026-08-16)
 
 
 # ---------------------------------------------------------------------------

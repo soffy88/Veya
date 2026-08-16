@@ -14,9 +14,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-# 模型疲劳空回复集合（与现有主循环一致）
+# 模型疲劳空回复集合（与现有主循环一致）。
+# 2026-08-16 修复: 移除 "ok"/"done"/"完成"/"已完成" — 这些是有内容的正常回复
+# （如用户问「可以吗」模型答 ok），误判为疲劳会让正常对话报
+# 「循环停止 (invalid_response)」错误（HTTP 全路径实测: 模型回 'ok' 被误杀）。
+# 只保留真正「无内容」的标记: 空串与 null/none 变体。
 _INVALID_CONTENTS: frozenset[str] = frozenset(
-    {"", "none", "null", "nil", "n/a", "无", "空", "完成", "已完成", "done", "ok"}
+    {"", "none", "null", "nil", "n/a", "无", "空"}
 )
 
 
