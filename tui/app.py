@@ -17,7 +17,7 @@ Layout:
   └─────────────────────────────────────────────────┘
 
 Architecture rule: TUI never calls oprim/omodul/engine directly.
-All logic flows through coordinator.handle() — same as headless.
+All logic flows through master_coordinator.chat_stream — same brain as Web.
 """
 
 from __future__ import annotations
@@ -37,11 +37,11 @@ from tui.widgets.input import HicodeInput
 from tui.widgets.squads import SquadsPanel
 from tui.widgets.statusbar import StatusBar
 
-_PERSONAS = ["build", "research", "plan", "execute"]
+_MODES = ["agent", "plan"]
 
 
 class HicodeApp(App):
-    """veya TUI — calls coordinator.handle() for all logic."""
+    """veya TUI — calls master_coordinator.chat_stream (same brain as Web)."""
 
     TITLE = "veya"
     SUB_TITLE = "AI coding agent"
@@ -50,7 +50,7 @@ class HicodeApp(App):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+x", "quit", "Quit", show=False, priority=True),
-        Binding("ctrl+p", "cycle_persona", "Persona", show=True),
+        Binding("ctrl+p", "toggle_mode", "Plan/Agent", show=True),
         Binding("ctrl+n", "new_session", "New session", show=True),
         Binding("f1", "toggle_squads", "Squads", show=True),
         Binding("escape", "cancel_task", "Cancel", show=True),
@@ -58,10 +58,9 @@ class HicodeApp(App):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._persona = "build"
+        self._mode = "agent"
         self._session_id: str | None = None
         self._total_cost: float = 0.0
-        self._persona_idx: int = 0
         self._task_running: bool = False
 
     def compose(self) -> ComposeResult:
@@ -71,14 +70,14 @@ class HicodeApp(App):
                 yield ChatLog(id="chat-log")
             yield SquadsPanel(id="squads-panel")
         yield DiffViewer(id="diff-panel")
-        yield HicodeInput(persona=self._persona, id="input-area")
+        yield HicodeInput(persona=self._mode, id="input-area")
         yield StatusBar(id="status-bar")
         yield Footer()
 
     def on_mount(self) -> None:
         chat = self.query_one("#chat-log", ChatLog)
         chat.add_system("veya ready — enter a coding task")
-        chat.add_system("Ctrl+P = cycle persona | Ctrl+N = new session | Ctrl+Q = quit")
+        chat.add_system("Ctrl+P = plan/agent | Ctrl+N = new session | Ctrl+Q = quit")
 
     # ── Input submit ──────────────────────────────────────────────────
 
@@ -94,8 +93,8 @@ class HicodeApp(App):
 
     @work(exclusive=True, exit_on_error=False)
     async def _run_command(self, text: str) -> None:
-        """Worker: calls coordinator.handle() and routes on_step events to widgets."""
-        from server.coordinator import coordinator
+        """Worker: calls master_coordinator.chat_stream and routes on_step events."""
+        from server.coordinator_master import master_coordinator
         from tui.stream import StreamAdapter
 
         self._task_running = True
@@ -111,10 +110,11 @@ class HicodeApp(App):
         on_step = adapter.make_on_step()
 
         try:
-            result = await coordinator.handle(
-                {"text": text, "persona": self._persona},
+            result = await master_coordinator.chat_stream(
+                text,
                 session_id=self._session_id,
                 on_step=on_step,
+                mode=self._mode,
             )
         except Exception as exc:
             chat.add_error(f"Error: {exc}")
@@ -130,12 +130,9 @@ class HicodeApp(App):
         self._total_cost = result.get("cost_usd", self._total_cost)
         status_bar.update_cost(self._total_cost)
 
-        # If result contains a diff (from execute squad), show it
-        for squad in result.get("squads", []):
-            output = squad.get("output") or ""
-            if isinstance(output, str) and output.startswith("---"):
-                diff_panel = self.query_one("#diff-panel", DiffViewer)
-                diff_panel.show_diff(output)
+        answer = result.get("final_answer") or ""
+        if answer:
+            chat.add_assistant(answer)
 
         # Show overall status
         final_status = result.get("status", "unknown")
@@ -147,12 +144,11 @@ class HicodeApp(App):
 
     # ── Key actions ───────────────────────────────────────────────────
 
-    def action_cycle_persona(self) -> None:
-        self._persona_idx = (self._persona_idx + 1) % len(_PERSONAS)
-        self._persona = _PERSONAS[self._persona_idx]
-        self.query_one("#input-area", HicodeInput).update_persona(self._persona)
-        self.query_one("#status-bar", StatusBar).update_persona(self._persona)
-        self.notify(f"Persona → {self._persona}", timeout=2)
+    def action_toggle_mode(self) -> None:
+        self._mode = "plan" if self._mode == "agent" else "agent"
+        self.query_one("#input-area", HicodeInput).update_persona(self._mode)
+        self.query_one("#status-bar", StatusBar).update_persona(self._mode)
+        self.notify(f"Mode → {self._mode}", timeout=2)
 
     def action_new_session(self) -> None:
         self._session_id = None

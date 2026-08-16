@@ -14,14 +14,19 @@
 程序不做任何路由/判断/裁藏/预抓/代做。
 
 ```
-用户输入 ──► [大模型 ReAct：全量 ~171 工具，模型自主决策]
+用户输入 ──► [大模型 ReAct：全量工具，模型自主决策]
                ├─ 直接回答（设计/问答/写作…）
                ├─ fetch_url / browser_run（URL/网页）
+               ├─ assemble_code_context（需要时代码地图 + 历史规则；非每轮预注入）
                ├─ hicode_run（长任务编码，模型自己决定调用）
                ├─ run_in_sandbox（运行验证）
                └─ mcp_*（视频 hevi / 知识 stratum / 代码库 codebase）
             └─► 模型收尾总结 → SSE → 前端
 ```
+
+用户可切换 **计划模式**（只读）并对高影响工具点批准。这是用户握方向盘，不是关键词路由。
+Graft 默认不预注入（`VEYA_GRAFT_CONTEXT=1` 才恢复每轮注入）；编码任务由模型调
+`assemble_code_context`，或 `hicode_run` / `evolve_solution` 内部按需附带。
 
 ## 2. 已固化的设计决策（及踩过的坑）
 

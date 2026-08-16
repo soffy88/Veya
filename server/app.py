@@ -81,10 +81,11 @@ async def lifespan(app: FastAPI):
     try:
         connector = get_connector()
         await connector.start()
-        await wire_master_tools()                       # mcp_codebase_* → 主脑工具面
-        schedule_daily_reindex(automata.scheduler)      # 每日 03:17 增量索引
+        await wire_master_tools()  # mcp_codebase_* → 主脑工具面
+        schedule_daily_reindex(automata.scheduler)  # 每日 03:17 增量索引
     except Exception:
         import logging
+
         logging.getLogger("veya.lifespan").exception("codebase-memory wire failed")
     # Stratum 知识库 MCP (同 docker 网络, 不可达时优雅降级)
     from server.stratum_memory import get_stratum
@@ -93,9 +94,10 @@ async def lifespan(app: FastAPI):
     try:
         stratum = get_stratum()
         await stratum.start()
-        await wire_stratum(stratum)                     # mcp_stratum_* → 主脑工具面
+        await wire_stratum(stratum)  # mcp_stratum_* → 主脑工具面
     except Exception:
         import logging
+
         logging.getLogger("veya.lifespan").exception("stratum wire failed")
     # hevi 视频管线 MCP (同 docker 网络, 不可达/密钥缺失时优雅降级)
     from server.hevi_memory import get_hevi
@@ -104,9 +106,10 @@ async def lifespan(app: FastAPI):
     try:
         hevi = get_hevi()
         await hevi.start()
-        await wire_hevi(hevi)                           # mcp_hevi_* → 主脑工具面
+        await wire_hevi(hevi)  # mcp_hevi_* → 主脑工具面
     except Exception:
         import logging
+
         logging.getLogger("veya.lifespan").exception("hevi wire failed")
     # Open Design MCP (设计/渲染层; daemon 不可达/无 token 时优雅降级)
     from server.open_design import get_open_design
@@ -115,38 +118,46 @@ async def lifespan(app: FastAPI):
     try:
         od = get_open_design()
         await od.start()
-        await wire_od(od)                               # mcp_od_* → 主脑工具面
+        await wire_od(od)  # mcp_od_* → 主脑工具面
     except Exception:
         import logging
+
         logging.getLogger("veya.lifespan").exception("open-design wire failed")
     # Agentic HPO 参数优化工具 (3O _hp_search 装配层, 零外部依赖)
     from server.hp_optimizer import wire_master_tools as wire_hp
 
     try:
-        wire_hp()                                   # optimize_parameters → 主脑工具面 (同步)
+        wire_hp()  # optimize_parameters → 主脑工具面 (同步)
     except Exception:
         import logging
+
         logging.getLogger("veya.lifespan").exception("hp wire failed")
     # Hicode 编码执行器 (本地二进制, 缺失时优雅降级; 编程任务 → hicode_run)
     from server.hicode_agent import wire_master_tools as wire_hicode
 
     try:
-        await wire_hicode()                       # hicode_run/status → 主脑工具面
+        await wire_hicode()  # hicode_run/status → 主脑工具面
     except Exception:
         import logging
+
         logging.getLogger("veya.lifespan").exception("hicode wire failed")
     try:
         from server.plan_todo import wire_master_tools as wire_plan
         from server.long_read import wire_master_tools as wire_long
 
-        wire_plan()          # create_plan / plan_status / update_todo → 主脑工具面
-        wire_long()          # long_read (长文分块导航) → 主脑工具面
+        wire_plan()  # create_plan / plan_status / update_todo → 主脑工具面
+        wire_long()  # long_read (长文分块导航) → 主脑工具面
         # loop-plane 3 个新工具 (loop_plan_goal / loop_diagnose / loop_intervene)
         from server.loop_plane_client import wire_loop_tools
 
         wire_loop_tools()
+        # project_ask + project_status: 项目记忆 + 派工唯一入口 (M2/M3, 不新建第二套队列)
+        from server.project_ask import wire_master_tools as wire_project_ask
+
+        wire_project_ask()
     except Exception:
         import logging
+
         logging.getLogger("veya.lifespan").exception("cognition wire failed")
     try:
         from server.tool_registry import master_tools
@@ -154,7 +165,9 @@ async def lifespan(app: FastAPI):
         _mcp = [n for n in master_tools._functions if n.startswith("mcp_")]
         _lg.warning(
             "wire 汇总: master_tools=%d mcp_*= %d %s",
-            len(master_tools._functions), len(_mcp), sorted(_mcp)[:6],
+            len(master_tools._functions),
+            len(_mcp),
+            sorted(_mcp)[:6],
         )
     except Exception:
         _lg.exception("wire 汇总日志失败")
