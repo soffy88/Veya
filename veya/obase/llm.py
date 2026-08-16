@@ -272,7 +272,9 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             # 空/无效时, 不直接判死刑: 等一下再整轮重来, 给网关喘息时间。
             # 轮次间指数退避, 轮数收敛 (绝不无限重试); 用户不该在这里被
             # 硬报错卡住 (用户反馈 2026-08-16: 抖动应等待重试, 不能报错即停)。
-            _retry_rounds = 3
+            # 用户反馈 (2026-08-16 第二次): 实测网关+frontier 会同时抖动 70s+
+            # (原 20s 总预算扛不住) — 轮数/退避拉长到共约 90s, 覆盖分钟级抖动。
+            _retry_rounds = 5
             for round_idx in range(_retry_rounds):
                 for cand in candidates:
                     _, _, cand_bare = cand.partition("/")
@@ -312,15 +314,15 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                         "opencode-go 全候选模型第 %d 轮均无效 (%s), %.1fs 后重试整轮",
                         round_idx + 1,
                         last_err,
-                        2.0 * (2**round_idx),
+                        3.0 * (2**round_idx),
                     )
-                    await asyncio.sleep(2.0 * (2**round_idx))
+                    await asyncio.sleep(3.0 * (2**round_idx))
             # 全部候选/全部轮次空/失败 → 本地 frontier (gpt-5.6-luna) 兜底: free 池
             # 本地模型零网络抖动, 保证「绝不静默」在模型层彻底闭环。容器内走
             # 宿主桥 192.168.16.1; 宿主默认 127.0.0.1:10100。
             # frontier 桥本身偶尔也会抖 (容器→宿主桥接路径), 同样不能一次
             # 失败就判死刑 — 短退避重试几次 (本地零网络延迟, 退避比网关候选短)。
-            _frontier_attempts = 3
+            _frontier_attempts = 4
             for f_attempt in range(_frontier_attempts):
                 try:
                     frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
@@ -358,9 +360,9 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                         "frontier 兜底第 %d 次失败 (%s), %.1fs 后重试",
                         f_attempt + 1,
                         last_err,
-                        1.5 * (2**f_attempt),
+                        2.0 * (2**f_attempt),
                     )
-                    await asyncio.sleep(1.5 * (2**f_attempt))
+                    await asyncio.sleep(2.0 * (2**f_attempt))
             return {
                 "choices": [
                     {

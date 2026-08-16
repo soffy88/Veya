@@ -511,9 +511,9 @@ def test_llm_call_veya11_opencode_none_content_retries_and_errors(monkeypatch):
             model="veya1.1",
         )
     )
-    # 网关抖动: 候选模型 (deepseek/kimi-k2.7-code) 整轮重试 3 轮仍无效 →
-    # gpt-5.6-luna 兜底也重试 3 次仍无效 → 结构化错误
-    assert calls == ["deepseek-v4-flash", "kimi-k2.7-code"] * 3 + ["gpt-5.6-luna"] * 3
+    # 网关抖动: 候选模型 (deepseek/kimi-k2.7-code) 整轮重试 5 轮仍无效 →
+    # gpt-5.6-luna 兜底也重试 4 次仍无效 → 结构化错误
+    assert calls == ["deepseek-v4-flash", "kimi-k2.7-code"] * 5 + ["gpt-5.6-luna"] * 4
     content = result["choices"][0]["message"]["content"]
     assert "opencode-go 调用失败" in content
     assert "无效内容" in content
