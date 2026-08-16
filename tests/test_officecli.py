@@ -25,7 +25,7 @@ def test_officecli_manifest_valid():
     assert manifest["type"] == "python"
     props = manifest["parameters"]["properties"]
     assert set(props["op"]["enum"]) == {
-        "add", "edit", "read", "convert", "merge", "dump", "batch", "render", "watch"}
+        "add", "edit", "read", "convert", "merge", "dump", "batch", "render", "watch", "help"}
     assert (OFFICECLI_DIR / "run.py").exists()
     assert (OFFICECLI_DIR / "cheat_sheet.md").exists()
 
@@ -37,7 +37,8 @@ def test_skill_hub_loads_officecli():
     hub = VeyaSkillHub(skills_dir=str(SKILLS_DIR))
     result = hub.reload_skills()
     assert result["loaded"] >= 3
-    assert "officecli" in hub.list_skills()
+    # dispatcher 模式下 list_skills 设计上返回空 (skill_hub.py:309), 用 has() 验证加载
+    assert hub.has("officecli")
 
 
 def test_officecli_write_path_whitelist():

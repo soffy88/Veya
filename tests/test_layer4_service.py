@@ -307,7 +307,9 @@ def test_gateway_sandbox(gateway_client):
 def test_gateway_history_missing_returns_empty(gateway_client):
     r = gateway_client.get("/api/v1/agent/history/does-not-exist")
     assert r.status_code == 200
-    assert r.json()["count"] == 0
+    # 2026-08-16 重构: history 端点返回 {session_id, messages} (不再是 {count})
+    assert r.json()["session_id"] == "does-not-exist"
+    assert r.json()["messages"] == []
 
 
 def test_gateway_automata(gateway_client):

@@ -229,7 +229,7 @@ def test_cpd_version_bumps_on_update():
 # 四、HTTP 回放层
 # =========================================================================
 
-def test_audit_route_replay(tmp_path):
+def test_audit_route_replay(tmp_path, monkeypatch):
     # 先写一条真实链路 (走 closed_loop)
     import asyncio
 
@@ -255,8 +255,18 @@ def test_audit_route_replay(tmp_path):
     audit_route_mod._audit = __import__("server.audit", fromlist=["VeyaAudit"]).VeyaAudit(
         audit_dir=str(tmp_path))
 
+    # audit 路由已挂 require_user (强制登录) → 注册测试用户拿 token
+    import server.auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_DB_PATH", tmp_path / "auth.db")
+    auth_mod._init_db()  # monkeypatch 换库后需手动建表
+
     c = TestClient(app)
-    r = c.get(f"/audit/{trace_id}")
+    reg = c.post("/api/v1/auth/register", json={"username": "audit_test", "password": "secret123"})
+    assert reg.status_code == 200, reg.text
+    token = reg.json()["token"]
+    hdr = {"Authorization": f"Bearer {token}"}
+
+    r = c.get(f"/audit/{trace_id}", headers=hdr)
     assert r.status_code == 200
     body = r.json()
     assert body["trace_id"] == trace_id
@@ -266,9 +276,9 @@ def test_audit_route_replay(tmp_path):
     assert body["events"][0]["inputs"]["cpd_version"] == 1
     assert body["events"][2]["execution"]["capability_nonce"] == "cap-route"
 
-    r2 = c.get("/audit/traces")
+    r2 = c.get("/audit/traces", headers=hdr)
     assert r2.status_code == 200
     assert any(t["trace_id"] == trace_id for t in r2.json()["traces"])
 
-    r3 = c.get("/audit/ghost-trace")
+    r3 = c.get("/audit/ghost-trace", headers=hdr)
     assert r3.status_code == 404
