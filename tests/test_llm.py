@@ -446,21 +446,27 @@ class monkeypatch_env:
 # 空 tool_calls 清洗 (DeepSeek 400: messages[i].tool_calls 不能是空数组)
 # ---------------------------------------------------------------------------
 
+
 def test_prepare_messages_strips_empty_tool_calls():
     from veya.llm import prepare_messages_for_provider
 
     msgs = [
         {"role": "user", "content": "hi"},
-        {"role": "assistant", "content": "thinking", "tool_calls": []},   # ← 400 源头
+        {"role": "assistant", "content": "thinking", "tool_calls": []},  # ← 400 源头
         {"role": "tool", "tool_call_id": "c1", "content": "result"},
     ]
     for provider in ("deepseek", "openai", "dashscope", "anthropic"):
         out = prepare_messages_for_provider(msgs, provider)
         assert all(m.get("tool_calls") != [] for m in out), f"{provider}: 空数组残留"
-        assert out[1] == {"role": "assistant", "content": "thinking"}     # 键被剥除
+        assert out[1] == {"role": "assistant", "content": "thinking"}  # 键被剥除
         # 非空 tool_calls 必须保留
-        msgs2 = [{"role": "assistant", "content": "x",
-                  "tool_calls": [{"id": "c1", "function": {"name": "f", "arguments": "{}"}}]}]
+        msgs2 = [
+            {
+                "role": "assistant",
+                "content": "x",
+                "tool_calls": [{"id": "c1", "function": {"name": "f", "arguments": "{}"}}],
+            }
+        ]
         out2 = prepare_messages_for_provider(msgs2, provider)
         assert out2[0]["tool_calls"], f"{provider}: 有效 tool_calls 被误删"
 
@@ -478,21 +484,28 @@ def test_prepare_messages_does_not_mutate_input():
 # endpoint 归一化 (custom provider base URL → /chat/completions)
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_chat_endpoint():
     from veya.llm import _normalize_chat_endpoint
 
     # base URL 形态 → 补 /chat/completions
-    assert _normalize_chat_endpoint("https://token.example.com/v1", "custom") == \
-        "https://token.example.com/v1/chat/completions"
-    assert _normalize_chat_endpoint("https://host.example.com", "custom") == \
-        "https://host.example.com/chat/completions"
+    assert (
+        _normalize_chat_endpoint("https://token.example.com/v1", "custom")
+        == "https://token.example.com/v1/chat/completions"
+    )
+    assert (
+        _normalize_chat_endpoint("https://host.example.com", "custom")
+        == "https://host.example.com/chat/completions"
+    )
     # 完整 URL (内置形态) → 原样
-    assert _normalize_chat_endpoint(
-        "https://api.deepseek.com/v1/chat/completions", "deepseek") == \
-        "https://api.deepseek.com/v1/chat/completions"
-    assert _normalize_chat_endpoint(
-        "https://open.bigmodel.cn/api/paas/v4/chat/completions", "zhipu") == \
-        "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    assert (
+        _normalize_chat_endpoint("https://api.deepseek.com/v1/chat/completions", "deepseek")
+        == "https://api.deepseek.com/v1/chat/completions"
+    )
+    assert (
+        _normalize_chat_endpoint("https://open.bigmodel.cn/api/paas/v4/chat/completions", "zhipu")
+        == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    )
     # 非法 URL → 明确报错 (不再 httpx 相对 URL 404 迷惑)
     with pytest.raises(ValueError, match="完整 URL"):
         _normalize_chat_endpoint("/v1", "custom")
@@ -504,12 +517,14 @@ def test_normalize_chat_endpoint():
 # 双通道: 自定义 provider 代理兜底
 # ---------------------------------------------------------------------------
 
+
 def test_custom_proxy_url_internal_providers_none(monkeypatch):
     from veya.llm import _custom_proxy_url
 
     monkeypatch.setattr("veya.llm._in_container", lambda: True)
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda req, timeout=0.5: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda req, timeout=0.5: (_ for _ in ()).throw(OSError())
+    )
     # 内置 provider 不走代理
     assert _custom_proxy_url("dashscope") is None
     assert _custom_proxy_url("openai") is None
@@ -528,8 +543,7 @@ def test_custom_proxy_url_bridge_detected(monkeypatch):
             return False
 
     monkeypatch.setattr("veya.llm._in_container", lambda: True)
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda req, timeout=0.5: _Resp())
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=0.5: _Resp())
     assert _custom_proxy_url("custom-tokenrouter") == "http://192.168.16.1:17890"
     # 宿主 (非容器) 不走代理
     monkeypatch.setattr("veya.llm._in_container", lambda: False)
@@ -549,38 +563,46 @@ def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
     calls: list[str] = []
     monkeypatch.setattr("os.environ", {**os.environ, "OPENCODE_API_KEY": "sk-test"})
 
+    async def _no_sleep(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
+
     async def flaky_provider(client, provider, **kw):
         # 底层网络层: opencode-go 持续空回复, openai (gpt-5.6-luna) 正常
         calls.append(kw.get("model") or "?")
         if provider == "opencode-go":
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "None"}}],
-                    "usage": {}}
+            return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
         if provider == "openai":
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "兜底成功回复"}}],
-                    "usage": {}}
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "兜底成功回复"}}],
+                "usage": {},
+            }
         raise AssertionError(f"unexpected provider {provider}")
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider)
-    resp = asyncio.run(hllm.llm_call(
-        [{"role": "user", "content": "你是谁你能做什么"}],
-        provider="veya1.1", model="veya1.1"))
+    resp = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你是谁你能做什么"}], provider="veya1.1", model="veya1.1"
+        )
+    )
     # 先走 free 池候选 (deepseek/kimi-k2.7-code), 空回复后落到 gpt-5.6-luna 兜底
     assert calls[-1] == "gpt-5.6-luna", f"最后必须兜底到 gpt-5.6-luna, 实际 {calls}"
-    msg = ((resp.get("choices") or [{}])[0].get("message") or {})
+    msg = (resp.get("choices") or [{}])[0].get("message") or {}
     assert msg.get("content") == "兜底成功回复"
 
     # 绝不静默: 兜底 (gpt-5.6-luna) 也失败时返回结构化错误而非空白
     async def all_empty(client, provider, **kw):
         calls.append(kw.get("model") or "?")
-        return {"choices": [{"message": {"role": "assistant", "content": ""}}],
-                "usage": {}}
+        return {"choices": [{"message": {"role": "assistant", "content": ""}}], "usage": {}}
 
     monkeypatch.setattr(hllm, "provider_call", all_empty)
-    resp2 = asyncio.run(hllm.llm_call(
-        [{"role": "user", "content": "你是谁你能做什么"}],
-        provider="veya1.1", model="veya1.1"))
+    resp2 = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你是谁你能做什么"}], provider="veya1.1", model="veya1.1"
+        )
+    )
     assert resp2.get("error") is True
-    assert str(((resp2.get("choices") or [{}])[0].get("message") or {})
-               .get("content") or "").strip()
+    assert str(
+        ((resp2.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    ).strip()
