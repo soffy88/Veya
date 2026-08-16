@@ -113,15 +113,36 @@ class AgentLoop:
 
     # ------------------------------------------------------------------ 主循环
 
-    async def run(self, user_input: str, *, session_id: str | None = None) -> LoopResult:
-        """执行一轮完整对话（生成 → 工具 → 更新树 → 停止判断）。"""
+    async def run(
+        self, user_input: str, *, session_id: str | None = None, owner: str | None = None
+    ) -> LoopResult:
+        """执行一轮完整对话（生成 → 工具 → 更新树 → 停止判断）。
+
+        owner: 会话归属 (已鉴权 user_id)。传了 session_id 且该会话已存在时,
+        由 SessionTreeMgr.ensure_session 校验归属——不属于当前 owner 的
+        sid 会被拒绝, 而不是静默放行读写 (2026-08-16 修复: 此前完全没有
+        归属校验, 拿到/猜到别人的 sid 就能续接读写其会话树)。
+        """
         if not isinstance(user_input, str) or not user_input.strip():
             raise ValueError("user_input 不能为空")
 
-        # 外部传入 session_id: 树中不存在时用该 sid 创建（兼容旧历史会话 id）
-        if session_id is not None and self._tree.leaf(session_id) is None:
-            self._tree.ensure_session(session_id, system=self._system_prompt or None)
-        sid = session_id or self._tree.create_session(system=self._system_prompt or None)
+        # 外部传入 session_id: 树中不存在则创建, 存在则校验归属 (ensure_session
+        # 统一处理两种情况)。
+        try:
+            if session_id is not None:
+                sid = self._tree.ensure_session(
+                    session_id, system=self._system_prompt or None, owner=owner
+                )
+            else:
+                sid = self._tree.create_session(system=self._system_prompt or None, owner=owner)
+        except PermissionError as exc:
+            return LoopResult(
+                session_id=session_id or "",
+                stop_kind="fatal_error",
+                stop_reason=str(exc),
+                error=str(exc),
+                final_answer=f"⚠ {exc}",
+            )
         self._tree.append(sid, role="user", content=user_input)
         emit_event("agent_loop.start", {"session_id": sid}, barrier=self._barrier)
 
@@ -151,13 +172,20 @@ class AgentLoop:
                 result.stop_kind = "fatal_error"
                 result.stop_reason = f"LLM 调用失败: {exc}"
                 result.error = str(exc)
+                # final_answer 绝不留空: 否则真实原因在这里被吞, 调用方只能看到
+                # 通用的"网关抖动"兜底文案 (result.error 不会被所有调用方转发)。
+                result.final_answer = (
+                    f"⚠ 模型调用失败: {exc}\n请重试，或检查 API key / 网络连通性。"
+                )
                 break
 
             # 3. 翻译 + 入树
             agent_msg = llm_message_to_agent((resp.get("choices") or [{}])[0].get("message") or {})
             content = agent_msg.get("content") or ""
             self._tree.append(
-                sid, role="assistant", content=content,
+                sid,
+                role="assistant",
+                content=content,
                 tool_calls=agent_msg.get("tool_calls") or [],
             )
 
@@ -187,19 +215,27 @@ class AgentLoop:
                 if tr.ok:
                     consecutive_errors = 0
                     self._tree.append(
-                        sid, role="tool", content=tr.output,
-                        meta={"tool": call.name, "ok": True, "error": "",
-                              "tool_call_id": call.id},
+                        sid,
+                        role="tool",
+                        content=tr.output,
+                        meta={"tool": call.name, "ok": True, "error": "", "tool_call_id": call.id},
                     )
                 else:
                     round_ok = False
                     result.tool_failures += 1
                     consecutive_errors += 1
                     self._tree.append(
-                        sid, role="tool", content=tr.error or "(无输出)",
-                        meta={"tool": call.name, "ok": False, "error": tr.error,
-                              "rejected": tr.rejected, "stage": tr.reject_stage,
-                              "tool_call_id": call.id},
+                        sid,
+                        role="tool",
+                        content=tr.error or "(无输出)",
+                        meta={
+                            "tool": call.name,
+                            "ok": False,
+                            "error": tr.error,
+                            "rejected": tr.rejected,
+                            "stage": tr.reject_stage,
+                            "tool_call_id": call.id,
+                        },
                     )
                 emit_event(
                     "agent_loop.tool_result",
@@ -214,6 +250,15 @@ class AgentLoop:
                     f"工具连续失败 {consecutive_errors} 次, 触发熔断 (退避 {self._backoff_sleep}s)"
                 )
                 result.error = result.stop_reason
+                # calls 非空才会进入这个分支 (熔断只在工具执行后判定), 故 tr
+                # 一定绑定了本轮最后一次工具结果 — 把具体错误带出来, 比通用
+                # 兜底文案更有诊断价值。
+                last_tool_error = (tr.error or "") if not tr.ok else ""
+                result.final_answer = (
+                    f"⚠ {result.stop_reason}"
+                    + (f"\n最近一次错误: {last_tool_error}" if last_tool_error else "")
+                    + "\n请重试，或换一种方式描述任务。"
+                )
                 await self._sleep(self._backoff_sleep)
                 break
 
@@ -231,6 +276,37 @@ class AgentLoop:
         if result.stop_kind == "continue":
             result.stop_kind = "max_rounds"
             result.stop_reason = f"达到最大轮次 {self._max_rounds}"
+        # 兜底: 不管哪条路径导致 final_answer 仍为空 (max_rounds 自然耗尽是最
+        # 常见情形——它从未走过上面任何一个显式设置 final_answer 的 break 分支),
+        # 都从会话树回填最后一条非空 assistant 内容, 或退化为工具执行摘要——
+        # 绝不把空字符串交还调用方 (那样只会在更上层被替换成毫无信息量的
+        # "网关抖动"通用文案, 真实原因全部丢失)。
+        if not result.final_answer.strip():
+            last_assistant = ""
+            for msg in reversed(self._tree.messages(sid)):
+                # tool_calls 非空的 assistant 消息只是"我要调工具了"的过渡态
+                # (content 常是 "thinking" 这类占位文案), 不是真正想说给用户
+                # 听的话——跳过, 只认没带 tool_calls 的纯文本回合。
+                if (
+                    msg.get("role") == "assistant"
+                    and not msg.get("tool_calls")
+                    and (msg.get("content") or "").strip()
+                ):
+                    last_assistant = msg["content"]
+                    break
+            if last_assistant:
+                result.final_answer = last_assistant
+            elif result.tool_calls > 0:
+                result.final_answer = (
+                    f"⚠ 达到最大轮次 ({self._max_rounds}), 已执行 {result.tool_calls} 次工具调用 "
+                    f"({result.tool_calls - result.tool_failures} 成功/{result.tool_failures} 失败), "
+                    "但未在预算内给出总结。可以让我接着处理，或换个更具体的说法。"
+                )
+            else:
+                result.final_answer = (
+                    f"⚠ 达到最大轮次 ({self._max_rounds}) 仍未产出回答，且未执行任何工具。"
+                    "请重试，或检查模型/网关是否正常。"
+                )
         result.snapshot = self._tree.snapshot(sid)
         emit_event(
             "agent_loop.done",

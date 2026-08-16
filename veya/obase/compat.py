@@ -41,6 +41,10 @@ class CheckpointData:
     timestamp: float
     version: int = 1
     payload: dict[str, Any] = field(default_factory=dict)
+    # 会话归属 (已鉴权 user_id)。None = 未记录 (旧数据/无主, 不校验——由
+    # server/checkpoint.py 在读写时按已鉴权用户填充; obase 层本身不感知
+    # auth 概念, 这里只是个普通可选字段, 不引入新依赖)。
+    owner: str | None = None
 
 
 # ===================================================================

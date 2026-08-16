@@ -126,6 +126,122 @@ def test_tree_snapshot_restore_and_errors():
         tree.append(sid, role="bogus", content="x")
 
 
+# ── owner 归属校验回归 (2026-08-16): 此前 SessionTreeMgr 完全没有 user_id ──
+# 概念, 拿到/猜到别人的 sid 就能续接读写会话树。
+
+
+def test_create_session_records_owner():
+    tree = SessionTreeMgr(kv=_mem_kv(), id_fn=_seq_id())
+    sid = tree.create_session(system="sys", owner="alice")
+    assert tree.owner_of(sid) == "alice"
+
+
+def test_ensure_session_creates_with_owner_when_missing():
+    tree = SessionTreeMgr(kv=_mem_kv(), id_fn=_seq_id())
+    tree.ensure_session("ext-sid", owner="alice")
+    assert tree.owner_of("ext-sid") == "alice"
+
+
+def test_ensure_session_same_owner_reconnects_fine():
+    tree = SessionTreeMgr(kv=_mem_kv(), id_fn=_seq_id())
+    sid = tree.create_session(system="sys", owner="alice")
+    tree.append(sid, role="user", content="q1")
+    tree.ensure_session(sid, owner="alice")  # 同一账号续接, 不应报错/不应丢数据
+    assert [n["content"] for n in tree.path(sid)] == ["sys", "q1"]
+
+
+def test_ensure_session_rejects_mismatched_owner():
+    """回归: 拿到别人的 sid, 传自己的 owner 续接, 必须被拒绝。"""
+    tree = SessionTreeMgr(kv=_mem_kv(), id_fn=_seq_id())
+    sid = tree.create_session(system="sys", owner="alice")
+    with pytest.raises(PermissionError):
+        tree.ensure_session(sid, owner="bob")
+
+
+def test_ensure_session_owner_none_does_not_enforce():
+    """未传 owner (旧调用方) 完全不受影响——向后兼容。"""
+    tree = SessionTreeMgr(kv=_mem_kv(), id_fn=_seq_id())
+    sid = tree.create_session(system="sys", owner="alice")
+    tree.ensure_session(sid)  # owner=None, 不校验
+    assert tree.owner_of(sid) == "alice"  # 也不会被覆盖成 None
+
+
+def test_fork_inherits_owner():
+    tree = SessionTreeMgr(kv=_mem_kv(), id_fn=_seq_id())
+    sid = tree.create_session(system="sys", owner="alice")
+    n1 = tree.append(sid, role="user", content="q1")
+    new_sid = tree.fork(sid, at_node_id=n1)
+    assert tree.owner_of(new_sid) == "alice"
+
+
+def test_owner_of_missing_session_returns_none():
+    tree = SessionTreeMgr(kv=_mem_kv(), id_fn=_seq_id())
+    assert tree.owner_of("does-not-exist") is None
+
+
+# ── list_sessions 回归 (2026-08-16): 多端同步接口的新数据源 ──────────────
+# 此前 /api/v1/agent/sessions 读 history_store.py, 但新主链
+# (VEYA_AGENT_LOOP=strict) 的对话只写进 session_tree.db, 两边从未打通。
+
+
+def test_list_sessions_filters_by_owner():
+    kv = _mem_kv()
+    tree = SessionTreeMgr(kv=kv)
+    sid_a = tree.create_session(system="sys", owner="alice")
+    tree.append(sid_a, role="user", content="alice 的问题")
+    sid_b = tree.create_session(system="sys", owner="bob")
+    tree.append(sid_b, role="user", content="bob 的问题")
+
+    alice_sessions = tree.list_sessions(owner="alice")
+    assert {s["sid"] for s in alice_sessions} == {sid_a}
+    bob_sessions = tree.list_sessions(owner="bob")
+    assert {s["sid"] for s in bob_sessions} == {sid_b}
+
+
+def test_list_sessions_ownerless_sessions_excluded_from_specific_owner():
+    """回归核心: 没有 owner 记录的旧会话不该出现在任何具体账号的列表里。"""
+    kv = _mem_kv()
+    tree = SessionTreeMgr(kv=kv)
+    tree.create_session(system="sys")  # owner=None, 早于归属修复的旧数据
+
+    assert tree.list_sessions(owner="alice") == []
+
+
+def test_list_sessions_title_from_first_user_message():
+    kv = _mem_kv()
+    tree = SessionTreeMgr(kv=kv)
+    sid = tree.create_session(system="sys", owner="alice")
+    tree.append(sid, role="user", content="帮我看看这段代码")
+    tree.append(sid, role="assistant", content="好的")
+
+    sessions = tree.list_sessions(owner="alice")
+    assert sessions[0]["title"] == "帮我看看这段代码"
+    assert sessions[0]["msg_count"] == 2  # user + assistant (不含 system)
+
+
+def test_list_sessions_sorted_by_most_recently_updated():
+    import time
+
+    kv = _mem_kv()
+    tree = SessionTreeMgr(kv=kv)
+    older = tree.create_session(system="sys", owner="alice")
+    tree.append(older, role="user", content="第一个会话")
+    time.sleep(0.01)  # 保证 ts 有区分度, 避免同毫秒排序不稳
+    newer = tree.create_session(system="sys", owner="alice")
+    tree.append(newer, role="user", content="第二个会话")
+
+    sessions = tree.list_sessions(owner="alice")
+    assert [s["sid"] for s in sessions] == [newer, older]
+
+
+def test_list_sessions_respects_limit():
+    kv = _mem_kv()
+    tree = SessionTreeMgr(kv=kv)
+    for _ in range(5):
+        tree.create_session(system="sys", owner="alice")
+    assert len(tree.list_sessions(owner="alice", limit=2)) == 2
+
+
 # ---------------------------------------------------------------------------
 # tool_pipeline — 五步管道
 # ---------------------------------------------------------------------------
@@ -155,7 +271,9 @@ def pipeline():
 def test_pipeline_executes_valid_call(pipeline):
     calls = {"echo": lambda text: f"echo:{text}"}
     for name, fn in calls.items():
-        pipeline.register(name, fn, schema={"type": "object", "properties": {"text": {"type": "string"}}})
+        pipeline.register(
+            name, fn, schema={"type": "object", "properties": {"text": {"type": "string"}}}
+        )
     res = _run(pipeline, _tool_call_msg("echo", {"text": "hi"}))[0]
     assert res.ok
     assert res.output == "echo:hi"
@@ -166,8 +284,11 @@ def test_pipeline_executes_valid_call(pipeline):
 
 def test_pipeline_rejects_bad_json(pipeline):
     """幻觉拦截: 坏 JSON arguments → parse 阶段拒绝。"""
-    msg = {"role": "assistant", "content": "", "tool_calls": [
-        {"function": {"name": "echo", "arguments": "{broken"}}]}
+    msg = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"function": {"name": "echo", "arguments": "{broken"}}],
+    }
     res = _run(pipeline, msg)[0]
     assert not res.ok
     assert res.rejected and res.reject_stage == "parse"
@@ -181,11 +302,15 @@ def test_pipeline_rejects_schema_violation(pipeline):
         executed.append(kw)
         return "should-not-run"
 
-    pipeline.register("boom", boom, schema={
-        "type": "object",
-        "required": ["x"],
-        "properties": {"x": {"type": "integer", "minimum": 1}},
-    })
+    pipeline.register(
+        "boom",
+        boom,
+        schema={
+            "type": "object",
+            "required": ["x"],
+            "properties": {"x": {"type": "integer", "minimum": 1}},
+        },
+    )
     res = _run(pipeline, _tool_call_msg("boom", {"x": "not-int"}))[0]
     assert not res.ok
     assert res.rejected and res.reject_stage == "validate"
@@ -280,11 +405,13 @@ async def test_agent_loop_sends_tools_to_llm():
             pass
 
     pipeline = ToolPipeline()
-    pipeline.register("greet", lambda who: f"hi {who}",
-                      schema={"type": "object", "properties": {"who": {"type": "string"}}},
-                      description="打招呼")
-    loop = AgentLoop(llm=CaptureLlm(), pipeline=pipeline,
-                     tree=SessionTreeMgr(kv=_mem_kv()))
+    pipeline.register(
+        "greet",
+        lambda who: f"hi {who}",
+        schema={"type": "object", "properties": {"who": {"type": "string"}}},
+        description="打招呼",
+    )
+    loop = AgentLoop(llm=CaptureLlm(), pipeline=pipeline, tree=SessionTreeMgr(kv=_mem_kv()))
     result = await loop.run("hi")
     assert result.final_answer == "直接回答完成"
     assert "tools" in seen
@@ -319,7 +446,9 @@ async def test_agent_loop_context_providers_and_on_finish():
             for m in messages:
                 if m.get("role") == "system" and m.get("content", "").startswith("# MEMORY"):
                     injected.append(m["content"])
-            return {"choices": [{"message": {"role": "assistant", "content": f"第{self._calls}轮完成"}}]}
+            return {
+                "choices": [{"message": {"role": "assistant", "content": f"第{self._calls}轮完成"}}]
+            }
 
         async def close(self):
             pass
@@ -331,8 +460,13 @@ async def test_agent_loop_context_providers_and_on_finish():
         finished.append((sid, len(msgs)))
 
     llm = FakeLlm2()
-    loop = AgentLoop(llm=llm, pipeline=ToolPipeline(), tree=SessionTreeMgr(kv=_mem_kv()),
-                     context_providers=[mem_provider], on_finish=finish_cb)
+    loop = AgentLoop(
+        llm=llm,
+        pipeline=ToolPipeline(),
+        tree=SessionTreeMgr(kv=_mem_kv()),
+        context_providers=[mem_provider],
+        on_finish=finish_cb,
+    )
     result = await loop.run("hi")
     assert result.final_answer == "第1轮完成"
     # 每轮都注入了记忆块
@@ -356,8 +490,14 @@ async def test_run_strict_chat_kv_persist(tmp_path: pytest.MonkeyPatch):
             pass
 
     kv_file = str(tmp_path / "session.db")
-    r1 = await run_strict_chat("你好", session_id="persist-sid", system_prompt="sys",
-                                max_rounds=2, llm=OneShotLlm(), kv_path=kv_file)
+    r1 = await run_strict_chat(
+        "你好",
+        session_id="persist-sid",
+        system_prompt="sys",
+        max_rounds=2,
+        llm=OneShotLlm(),
+        kv_path=kv_file,
+    )
     assert r1["session_id"] == "persist-sid"
     # 同路径新实例（模拟重启）→ 树仍在
     from veya.omodul.session_tree import SessionTreeMgr
@@ -369,15 +509,81 @@ async def test_run_strict_chat_kv_persist(tmp_path: pytest.MonkeyPatch):
 
 
 @pytest.mark.asyncio
+async def test_run_strict_chat_rejects_session_owned_by_other_user(tmp_path):
+    """回归 (2026-08-16): run_strict_chat 此前完全不管 sid 归属, 只要拿到
+
+    别人的 session_id 就能续接读写——现在会从 auth.current_user() 取当前
+    登录用户, 归属不符时干净拒绝而不是裸抛异常。用同一个 kv_path 让手工建
+    的 session 和 run_strict_chat 内部实例化的 SessionTreeMgr 共享同一份
+    落盘存储 (否则各查各的、看不到彼此写入)。
+    """
+    from server import auth as auth_mod
+    from server.agent_loop_bridge import run_strict_chat
+    from veya.obase.adapters import SqliteKvStore
+    from veya.omodul.session_tree import SessionTreeMgr
+
+    class OneShotLlm:
+        async def complete(self, messages, **kw):
+            return {"choices": [{"message": {"role": "assistant", "content": "不该跑到这里"}}]}
+
+        async def close(self):
+            pass
+
+    kv_file = str(tmp_path / "session.db")
+    tree = SessionTreeMgr(kv=SqliteKvStore(kv_file))
+    sid = tree.create_session(system="sys", owner="alice")
+
+    token = auth_mod._user_ctx.set({"user_id": "bob", "username": "bob"})
+    try:
+        r = await run_strict_chat(
+            "hi", session_id=sid, llm=OneShotLlm(), max_rounds=2, kv_path=kv_file
+        )
+    finally:
+        auth_mod._user_ctx.reset(token)
+
+    assert r["status"] == "failed"
+    assert "不属于" in r["final_answer"]
+
+
+@pytest.mark.asyncio
+async def test_run_strict_chat_propagates_error_on_llm_failure():
+    """回归 (2026-08-16): run_strict_chat 此前丢弃 AgentLoop 捕获到的 result.error,
+
+    coordinator_master 的"绝不静默"兜底只对旧路径生效, 新主链的具体失败原因
+    (如网络/鉴权错误) 会在这一层被静默吞掉, 上层只能显示通用文案。
+    """
+    from server.agent_loop_bridge import run_strict_chat
+
+    class BoomLlm:
+        async def complete(self, messages, **kw):
+            raise ConnectionError("gateway timeout")
+
+        async def close(self):
+            pass
+
+    r = await run_strict_chat("hi", llm=BoomLlm(), max_rounds=2)
+    assert r["status"] == "failed"
+    assert "gateway timeout" in r["error"]
+
+
+@pytest.mark.asyncio
 async def test_agent_loop_end_to_end():
     """剧本: 调工具 → 拿到结果 → 直接回答。"""
-    llm = FakeLlm([
-        _tool_call_msg("add", {"a": 1, "b": 2}),
-        {"role": "assistant", "content": "结果是 3"},
-    ])
+    llm = FakeLlm(
+        [
+            _tool_call_msg("add", {"a": 1, "b": 2}),
+            {"role": "assistant", "content": "结果是 3"},
+        ]
+    )
     pipeline = ToolPipeline()
-    pipeline.register("add", lambda a, b: a + b,
-                      schema={"type": "object", "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}}})
+    pipeline.register(
+        "add",
+        lambda a, b: a + b,
+        schema={
+            "type": "object",
+            "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        },
+    )
     tree = _new_tree()
     loop = AgentLoop(llm=llm, pipeline=pipeline, tree=tree, system_prompt="sys")
     result = await loop.run("1+2 等于多少?")
@@ -395,26 +601,40 @@ async def test_agent_loop_end_to_end():
 @pytest.mark.asyncio
 async def test_agent_loop_circuit_breaker():
     """工具连续失败 → 熔断提前停止 (fatal_error)。"""
-    llm = FakeLlm([
-        _tool_call_msg("bad", {}),
-        _tool_call_msg("bad", {}),
-        _tool_call_msg("bad", {}),
-    ])
+    llm = FakeLlm(
+        [
+            _tool_call_msg("bad", {}),
+            _tool_call_msg("bad", {}),
+            _tool_call_msg("bad", {}),
+        ]
+    )
     pipeline = ToolPipeline()
-    pipeline.register("bad", lambda: (_ for _ in ()).throw(RuntimeError("fail")),
-                      schema={"type": "object"})
+    pipeline.register(
+        "bad", lambda: (_ for _ in ()).throw(RuntimeError("fail")), schema={"type": "object"}
+    )
     slept = []
 
     async def fake_sleep(s):
         slept.append(s)
 
-    loop = AgentLoop(llm=llm, pipeline=pipeline, tree=_new_tree(),
-                     max_consecutive_errors=3, backoff_sleep=0.5, sleep_fn=fake_sleep)
+    loop = AgentLoop(
+        llm=llm,
+        pipeline=pipeline,
+        tree=_new_tree(),
+        max_consecutive_errors=3,
+        backoff_sleep=0.5,
+        sleep_fn=fake_sleep,
+    )
     result = await loop.run("触发熔断")
     assert result.stop_kind == "fatal_error"
     assert "熔断" in result.stop_reason
     assert result.tool_failures == 3
     assert slept == [0.5]  # 退避发生
+    # 回归 (2026-08-16): final_answer 此前在这条分支被留空, 上层只能显示
+    # 一句不带任何诊断信息的"网关抖动"通用文案, 真实原因 (工具连续失败) 丢失。
+    assert result.final_answer.strip()
+    assert "熔断" in result.final_answer
+    assert "fail" in result.final_answer  # 最近一次工具错误原文带出来了
 
 
 @pytest.mark.asyncio
@@ -424,6 +644,7 @@ async def test_agent_loop_invalid_response():
     loop = AgentLoop(llm=llm, pipeline=ToolPipeline(), tree=_new_tree())
     result = await loop.run("hi")
     assert result.stop_kind == "invalid_response"
+    assert result.final_answer.strip()  # 已经安全 (evaluate_stop_condition 兜底), 防回归
 
 
 @pytest.mark.asyncio
@@ -436,6 +657,45 @@ async def test_agent_loop_max_rounds():
     result = await loop.run("一直调用")
     assert result.stop_kind == "max_rounds"
     assert result.rounds == 3
+    # 回归 (2026-08-16): 自然耗尽轮次此前从未走过任何设置 final_answer 的
+    # break 分支, 留空交还调用方——这里每轮 assistant 消息都带 tool_calls
+    # (没有真正的文本收尾), 应退化为工具执行摘要而不是抓到占位 "thinking"。
+    assert result.final_answer.strip()
+    assert "3" in result.final_answer  # 3 次工具调用
+    assert "thinking" not in result.final_answer
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_owner_mismatch_returns_clean_error_not_raised():
+    """回归 (2026-08-16): 拿别人的 session_id + 自己的 owner 续接, AgentLoop
+
+    必须干净拒绝 (走"绝不留空"的 final_answer 兜底), 不是让 PermissionError
+    裸抛到调用方 (那样会变成 500, 而不是一句用户能看懂的解释)。
+    """
+    llm = FakeLlm([{"role": "assistant", "content": "不该跑到这里"}])
+    tree = _new_tree()
+    sid = tree.create_session(system="sys", owner="alice")
+
+    loop = AgentLoop(llm=llm, pipeline=ToolPipeline(), tree=tree)
+    result = await loop.run("hi", session_id=sid, owner="bob")
+
+    assert result.stop_kind == "fatal_error"
+    assert result.final_answer.strip()
+    assert "不属于" in result.final_answer
+    assert llm.calls == 0  # 归属校验在 LLM 调用之前就该拦下
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_same_owner_reconnects_normally():
+    llm = FakeLlm([{"role": "assistant", "content": "继续"}])
+    tree = _new_tree()
+    sid = tree.create_session(system="sys", owner="alice")
+
+    loop = AgentLoop(llm=llm, pipeline=ToolPipeline(), tree=tree)
+    result = await loop.run("hi", session_id=sid, owner="alice")
+
+    assert result.stop_kind == "completed"
+    assert result.final_answer == "继续"
 
 
 @pytest.mark.asyncio
@@ -448,6 +708,10 @@ async def test_agent_loop_llm_failure():
     result = await loop.run("hi")
     assert result.stop_kind == "fatal_error"
     assert "network down" in result.error
+    # 回归 (2026-08-16): 此前 final_answer 留空, result.error 又不被
+    # run_strict_chat 转发 (见下面 bridge 测试) → 用户只看到空白/"网关抖动"。
+    assert result.final_answer.strip()
+    assert "network down" in result.final_answer
 
 
 # ---------------------------------------------------------------------------
@@ -498,16 +762,23 @@ def test_strict_loop_flag_default_off(monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.asyncio
 async def test_run_strict_bridge_end_to_end():
     """bridge: 假 LLM + 工具注入, 新心脏跑通 (旧主链不受影响)。"""
-    llm = FakeLlm([
-        _tool_call_msg("greet", {"who": "world"}),
-        {"role": "assistant", "content": "hello world"},
-    ])
+    llm = FakeLlm(
+        [
+            _tool_call_msg("greet", {"who": "world"}),
+            {"role": "assistant", "content": "hello world"},
+        ]
+    )
     result = await run_strict(
         "打招呼",
-        tools={"greet": (lambda who: f"hello {who}", {
-            "type": "object",
-            "properties": {"who": {"type": "string"}},
-        })},
+        tools={
+            "greet": (
+                lambda who: f"hello {who}",
+                {
+                    "type": "object",
+                    "properties": {"who": {"type": "string"}},
+                },
+            )
+        },
         llm=llm,
         system_prompt="sys",
     )

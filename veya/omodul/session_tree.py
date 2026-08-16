@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any, Callable
 
@@ -25,6 +26,7 @@ from veya.oprim.snapshot import (
     snapshot_commit,
     snapshot_delete,
     snapshot_fetch,
+    snapshot_list,
 )
 
 _ROLES: frozenset[str] = frozenset({"system", "user", "assistant", "tool"})
@@ -47,8 +49,12 @@ class SessionTreeMgr:
 
     # ------------------------------------------------------------------ 树操作
 
-    def create_session(self, *, system: str | None = None) -> str:
-        """创建新会话（根节点 = system 提示，可省略）。返回 session_id。"""
+    def create_session(self, *, system: str | None = None, owner: str | None = None) -> str:
+        """创建新会话（根节点 = system 提示，可省略）。返回 session_id。
+
+        owner: 会话归属 (通常是已鉴权 user_id)；None = 不记归属 (旧调用方
+        兼容，行为不变——校验逻辑见 ensure_session/owner_of)。
+        """
         sid = self._id_fn()
         root_id = self._id_fn()
         nodes: dict[str, dict[str, Any]] = {}
@@ -56,17 +62,76 @@ class SessionTreeMgr:
             nodes[root_id] = self._node(root_id, None, "system", system)
         else:
             nodes[root_id] = self._node(root_id, None, "system", "")
-        self._save(sid, {"root": root_id, "leaf": root_id, "nodes": nodes})
+        self._save(sid, {"root": root_id, "leaf": root_id, "nodes": nodes, "owner": owner})
         return sid
 
-    def ensure_session(self, sid: str, *, system: str | None = None) -> str:
+    def ensure_session(
+        self, sid: str, *, system: str | None = None, owner: str | None = None
+    ) -> str:
         """确保会话存在：不存在则用指定 sid 创建（外部传入 session_id 兼容）。
-        已存在则原样返回。"""
-        if self._load(sid) is None:
+
+        已存在则校验归属：owner 非空且与树上记录的 owner 不同 → 拒绝
+        (PermissionError)，防止拿到/猜到别人的 sid 就能续接读写其会话树
+        (2026-08-16 修复——此前这里完全没有归属概念)。旧数据 (owner 字段
+        缺失, 早于本次修复写入) 视为无主，放行但不会补写 owner，避免
+        静默把无主数据据为己有。
+        """
+        tree = self._load(sid)
+        if tree is None:
             root_id = self._id_fn()
             nodes = {root_id: self._node(root_id, None, "system", system or "")}
-            self._save(sid, {"root": root_id, "leaf": root_id, "nodes": nodes})
+            self._save(sid, {"root": root_id, "leaf": root_id, "nodes": nodes, "owner": owner})
+            return sid
+        existing_owner = tree.get("owner")
+        if owner is not None and existing_owner is not None and existing_owner != owner:
+            raise PermissionError(f"会话 {sid!r} 不属于当前账号")
         return sid
+
+    def owner_of(self, sid: str) -> str | None:
+        """会话归属查询；会话不存在或未记归属都返回 None。"""
+        tree = self._load(sid)
+        return None if tree is None else tree.get("owner")
+
+    def list_sessions(self, *, owner: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """列出会话摘要 (sid/title/msg_count/updated_at/owner)，按最近更新倒序。
+
+        owner 非 None 时只返回该账号名下的会话 (2026-08-16 新增: 跨端同步
+        /api/v1/agent/sessions 的数据源——此前该接口读的是完全独立的
+        history_store.py, 而新主链 (VEYA_AGENT_LOOP=strict) 的对话只写进
+        这里, 两边从未打通, 导致"多端同步"对新主链产生的对话完全不生效)。
+        全量扫描所有快照 (snapshot_list) 逐个过滤——量级假设是单机/小规模
+        部署, 会话数上千之前不需要额外索引。
+        """
+        out: list[dict[str, Any]] = []
+        for sid in snapshot_list(kv=self._kv):
+            tree = self._load(sid)
+            if tree is None:
+                continue
+            if owner is not None and tree.get("owner") != owner:
+                continue
+            nodes = tree.get("nodes") or {}
+            title = ""
+            updated_at = 0.0
+            msg_count = 0
+            for node in nodes.values():
+                role = node.get("role")
+                if role in ("user", "assistant", "tool"):
+                    msg_count += 1
+                updated_at = max(updated_at, float(node.get("ts") or 0))
+                if role == "user" and not title:
+                    content = node.get("content")
+                    title = str(content or "")[:40].replace("\n", " ")
+            out.append(
+                {
+                    "sid": sid,
+                    "title": title or "Untitled",
+                    "msg_count": msg_count,
+                    "updated_at": updated_at,
+                    "owner": tree.get("owner"),
+                }
+            )
+        out.sort(key=lambda s: s["updated_at"], reverse=True)
+        return out[:limit]
 
     def append(
         self,
@@ -93,7 +158,9 @@ class SessionTreeMgr:
         self._save(sid, tree)
         return node_id
 
-    def branch(self, sid: str, *, at_node_id: str, role: str, content: Any, meta: dict | None = None) -> str:
+    def branch(
+        self, sid: str, *, at_node_id: str, role: str, content: Any, meta: dict | None = None
+    ) -> str:
         """从 ``at_node_id`` 分支：新节点挂在该节点下并成为新叶（不复制节点）。"""
         if role not in _ROLES:
             raise ValueError(f"非法 role {role!r}")
@@ -138,19 +205,19 @@ class SessionTreeMgr:
             role = node["role"]
             if role == "tool":
                 meta = node.get("meta") or {}
-                out.append({
-                    "role": "tool",
-                    "tool_call_id": meta.get("tool_call_id", ""),
-                    "content": node.get("content") or "",
-                })
+                out.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": meta.get("tool_call_id", ""),
+                        "content": node.get("content") or "",
+                    }
+                )
                 continue
             msg: dict[str, Any] = {"role": role, "content": node.get("content")}
             if node.get("tool_calls"):
                 msg["tool_calls"] = _to_openai_tool_calls(node["tool_calls"])
             out.append(msg)
         return out
-
-
 
     def fork(self, sid: str, *, at_node_id: str) -> str:
         """时空回溯：从 ``at_node_id`` 复制整棵前缀树为新会话，该节点为新叶。"""
@@ -176,13 +243,25 @@ class SessionTreeMgr:
             old = tree["nodes"][old_id]
             new_id = self._id_fn()
             node = self._node(
-                new_id, new_parent, old["role"], old.get("content"),
-                tool_calls=old.get("tool_calls"), meta=dict(old.get("meta") or {}),
+                new_id,
+                new_parent,
+                old["role"],
+                old.get("content"),
+                tool_calls=old.get("tool_calls"),
+                meta=dict(old.get("meta") or {}),
             )
             prefix[new_id] = node
             new_parent = new_id
             new_leaf = new_id
-        self._save(new_sid, {"root": new_leaf if new_parent is None else list(prefix)[0], "leaf": new_leaf, "nodes": prefix})
+        self._save(
+            new_sid,
+            {
+                "root": new_leaf if new_parent is None else list(prefix)[0],
+                "leaf": new_leaf,
+                "nodes": prefix,
+                "owner": tree.get("owner"),  # 分支延续原会话归属
+            },
+        )
         return new_sid
 
     # ------------------------------------------------------------------ 持久化
@@ -209,8 +288,12 @@ class SessionTreeMgr:
 
     @staticmethod
     def _node(
-        node_id: str, parent_id: str | None, role: str, content: Any,
-        tool_calls: list | None = None, meta: dict | None = None,
+        node_id: str,
+        parent_id: str | None,
+        role: str,
+        content: Any,
+        tool_calls: list | None = None,
+        meta: dict | None = None,
     ) -> dict[str, Any]:
         return {
             "id": node_id,
@@ -219,6 +302,10 @@ class SessionTreeMgr:
             "content": content,
             "tool_calls": tool_calls or [],
             "meta": meta or {},
+            # 会话列表排序/展示用 (2026-08-16 补充: 此前节点没有时间戳, 无法
+            # 按"最近更新"排会话列表——旧数据没有这个字段, 见 list_sessions
+            # 里对缺失 ts 的兜底)。
+            "ts": time.time(),
         }
 
     def _load(self, sid: str) -> dict[str, Any] | None:
@@ -245,10 +332,11 @@ def _to_openai_tool_calls(tool_calls: list) -> list:
             import json
 
             args = json.dumps(args, ensure_ascii=False)
-        out.append({
-            "id": tc.get("id", ""),
-            "type": "function",
-            "function": {"name": tc.get("name", ""), "arguments": args or ""},
-        })
+        out.append(
+            {
+                "id": tc.get("id", ""),
+                "type": "function",
+                "function": {"name": tc.get("name", ""), "arguments": args or ""},
+            }
+        )
     return out
-

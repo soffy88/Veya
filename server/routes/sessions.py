@@ -4,17 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from server import auth as auth_mod
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 @router.get("")
-async def list_sessions(project: str | None = None) -> dict[str, Any]:
+async def list_sessions(
+    project: str | None = None, user: dict[str, Any] = Depends(auth_mod.get_current_user)
+) -> dict[str, Any]:
     from server.routes.session import _sessions
 
     result = []
     for s in _sessions.values():
+        if s.get("user_id", "anonymous") != user["user_id"]:
+            continue
         s_project = s.get("project", "default")
         if project is not None and s_project != project:
             continue
