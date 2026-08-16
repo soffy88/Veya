@@ -156,6 +156,26 @@ async def new_agent_stream_events(
         _stream_tasks.add(finish_task)
         finish_task.add_done_callback(_stream_tasks.discard)
 
+        # 多端同步: 已登录用户的每一帧流事件镜像到该用户的通知扇出通道
+        # (notification_center 每用户 fan-out), 其它设备的常驻通知连接实时
+        # 收到并应用到同一会话 — 电脑执行/输出时手机逐字跟随。匿名不镜像。
+        mirror_uid = (user or {}).get("user_id") or ""
+        _notifier = None
+        if mirror_uid:
+            try:
+                from server.notification_center import global_notifier as _notifier
+            except Exception:  # noqa: BLE001 — 镜像是增强, 失败不拖垮主流
+                _notifier = None
+        if _notifier is not None:
+            # 先镜像用户提问 (流事件不含用户输入) — 其它设备据此现建会话 +
+            # 渲染用户气泡 + 助手占位, 后续 delta 才有落点。
+            try:
+                _notifier.push_stream(
+                    sid, {"type": "user_prompt", "text": text}, user_id=mirror_uid
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
         # 消费事件队列 → SSE 帧(主脑事件流实时推送)
         # 心跳: 队列静默 >20s 时发 SSE 注释行 (: ping) — 前端 EventSource 规范忽略,
         # 但响应体持续流动 → 防止 Cloudflare Tunnel 100s 无数据掐断 (HTTP 524)。
@@ -173,6 +193,11 @@ async def new_agent_stream_events(
                 continue
             if item is None:
                 break
+            if _notifier is not None:
+                try:
+                    _notifier.push_stream(sid, item, user_id=mirror_uid)
+                except Exception:  # noqa: BLE001 — 镜像失败不影响本端推流
+                    pass
             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
     finally:

@@ -65,6 +65,22 @@ class NotificationCenter:
             q.put_nowait(message)
         return message["id"]
 
+    def push_stream(self, session_id: str, event: dict[str, Any], user_id: str = "") -> None:
+        """镜像一帧会话流事件到每用户扇出 (多端同步: 电脑执行/输出时手机实时跟随)。
+
+        与 ``push`` 的区别: 这是**高频**逐帧镜像 (每个 text_delta 都过一次), 所以
+        (1) 不注册进 ``_messages`` — 否则逐 token 会无限增长内存;
+        (2) 用独立 type="STREAM" 帧 — 前端识别后应用到会话消息, 不弹 toast。
+        user_id="" (匿名) 不镜像 (无法按用户隔离, 跨设备无意义)。
+        """
+        if not user_id:
+            return
+        frame = {"type": "STREAM", "session_id": session_id, "event": event, "user_id": user_id}
+        for q, uid in list(self._clients):
+            if uid != user_id:
+                continue
+            q.put_nowait(frame)
+
     def get(self, notification_id: str) -> dict[str, Any] | None:
         """回查已广播的消息(含 payload) — HITL 审批端点据此解析任务引用。"""
         return self._messages.get(notification_id)

@@ -27,7 +27,9 @@
 	} from "lucide-svelte";
 	import MarkdownBlock from "./MarkdownBlock.svelte";
 import ModelPicker from "./ModelPicker.svelte";
+	import { onMount, onDestroy } from "svelte";
 	import { artifactStore } from "$lib/artifacts.svelte";
+	import { notifyStore } from "$lib/notifications.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 	import { apiKeyStore } from "$lib/settings.svelte";
 	import { API_BASE } from "$lib/api";
@@ -62,6 +64,8 @@ import ModelPicker from "./ModelPicker.svelte";
 	} | null>(null);
 	let questionAnswer = $state("");
 	let lastUserText = $state("");
+	// 跨端同步: 本端正在亲自流式的会话 sid — 忽略自己产生的镜像帧 (避免重复应用)。
+	let locallyStreamingSid = $state("");
 	let fileTreeOpen = $state(false);
 	let dictating = $state(false);
 	let dictationError = $state("");
@@ -349,15 +353,9 @@ import ModelPicker from "./ModelPicker.svelte";
 	const RECONNECT_ATTEMPTS = 3;
 	const RECONNECT_BACKOFF_MS = [1500, 3000, 6000];
 
-	function makeFrameHandler(targetSid: string) {
-		return (data: string) => {
-			if (data === "[DONE]") return;
-			let ev: Record<string, unknown>;
-			try {
-				ev = JSON.parse(data);
-			} catch {
-				return;
-			}
+	// 应用一个已解析的流事件到目标会话 — SSE 帧与跨端镜像帧共用这套逻辑。
+	function applyEvent(targetSid: string, ev: Record<string, unknown>) {
+		{
 			const kind = String(ev.type ?? ev.event ?? "");
 			if (kind === "text_delta" && typeof ev.delta === "string") {
 				sessionStore.patchLast(targetSid, {
@@ -430,8 +428,59 @@ import ModelPicker from "./ModelPicker.svelte";
 			} else if (kind === "error") {
 				throw new Error(typeof ev.error === "string" ? ev.error : "agent error");
 			}
+		}
+	}
+
+	function makeFrameHandler(targetSid: string) {
+		return (data: string) => {
+			if (data === "[DONE]") return;
+			let ev: Record<string, unknown>;
+			try {
+				ev = JSON.parse(data);
+			} catch {
+				return;
+			}
+			applyEvent(targetSid, ev);
 		};
 	}
+
+	// 跨端镜像: 别的设备执行时, 本端常驻通知通道收到逐帧镜像 → 应用到会话。
+	function applyMirrorEvent(mirrorSid: string, ev: Record<string, unknown>) {
+		// 本端正在亲自流式这个会话 → 自己的回显, 跳过 (本端 pumpSse 已应用)。
+		if (mirrorSid === locallyStreamingSid) return;
+		const kind = String(ev.type ?? ev.event ?? "");
+		sessionStore.ensureSession(mirrorSid);
+		if (kind === "user_prompt") {
+			// 别的设备发起的一轮: 渲染用户气泡 + 助手占位, 后续 delta 才有落点。
+			const s = sessionStore.sessions.find((x) => x.sid === mirrorSid);
+			const lastMsg = s?.messages.at(-1);
+			// 幂等: 同一轮镜像可能重放, 已有正在流式的助手占位就不重复建。
+			if (!(lastMsg && lastMsg.role === "assistant" && lastMsg.status === "streaming")) {
+				sessionStore.append(mirrorSid, {
+					role: "user",
+					text: typeof ev.text === "string" ? ev.text : "",
+					status: "done",
+					steps: [],
+				});
+				sessionStore.append(mirrorSid, { role: "assistant", text: "", status: "streaming", steps: [] });
+			}
+			return;
+		}
+		// 兜底: 缺助手占位 (镜像中途接入) → 补一个, 保证 delta/步骤有落点。
+		const s = sessionStore.sessions.find((x) => x.sid === mirrorSid);
+		const last = s?.messages.at(-1);
+		if (!(last && last.role === "assistant")) {
+			sessionStore.append(mirrorSid, { role: "assistant", text: "", status: "streaming", steps: [] });
+		}
+		applyEvent(mirrorSid, ev);
+	}
+
+	onMount(() => {
+		notifyStore.streamHandler = applyMirrorEvent;
+	});
+	onDestroy(() => {
+		if (notifyStore.streamHandler === applyMirrorEvent) notifyStore.streamHandler = undefined;
+	});
 
 	async function pumpSse(res: Response, onFrame: (data: string) => void) {
 		if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
@@ -502,6 +551,7 @@ import ModelPicker from "./ModelPicker.svelte";
 		});
 		sessionStore.append(sid, { role: "assistant", text: "", status: "streaming", steps: [] });
 		busy = true;
+		locallyStreamingSid = sid; // 本端亲自流式 → 忽略同 sid 的镜像回显
 
 		aborter = new AbortController();
 		const signal = aborter.signal;
@@ -563,6 +613,7 @@ import ModelPicker from "./ModelPicker.svelte";
 		} finally {
 			busy = false;
 			aborter = null;
+			locallyStreamingSid = "";
 		}
 	}
 

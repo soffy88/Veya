@@ -121,6 +121,16 @@ class SessionManager {
 		}
 	}
 
+	/** 确保会话存在 (跨端镜像: 别的设备开始的会话, 本端先建占位再接收流) */
+	ensureSession(sid: string, title = "新对话"): void {
+		if (this.sessions.find((x) => x.sid === sid)) return;
+		this.sessions = [
+			{ sid, title, ts: Date.now(), cost: 0, messages: [] },
+			...this.sessions,
+		];
+		this.persist();
+	}
+
 	/** 追加消息并自动持久化; 若首条用户消息则生成标题 */
 	append(sid: string, msg: ChatMessage) {
 		const s = this.sessions.find((x) => x.sid === sid);
