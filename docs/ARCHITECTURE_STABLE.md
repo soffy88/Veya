@@ -48,7 +48,7 @@ Graft 默认不预注入（`VEYA_GRAFT_CONTEXT=1` 才恢复每轮注入）；编
 - `provider=veya1.1`（前端默认）→ `veya/llm.py` 直接走 opencode-go：
   - endpoint: `https://opencode.ai/zen/go/v1`
   - key: `OPENCODE_API_KEY`（用户提供，容器已注入）
-  - model 候选重试: `deepseek-v4-flash` → `mimo-v2.5`
+  - model 候选重试: `deepseek-v4-flash` → `kimi-k2.7-code`（2026-08-16 用户指示弃用 mimo）
 - **禁止**重新引入 oskill `router.call_aliased`（quality-gate 升级、模型切换、
   并行分派）——它是空回复的诱因（实测裸 URL 直连 200 有内容，走路由器就空）。
 
