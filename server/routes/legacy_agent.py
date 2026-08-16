@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Literal
 
@@ -45,6 +46,10 @@ class LegacyAgentRunRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     mode: Literal["run", "dry_run"] = "run"
     engine: str = Field("master", description="执行引擎: master|claude|codex|pi")
+    agent_mode: Literal["agent", "plan"] = Field(
+        "agent", description="agent=可写可执行; plan=只读规划"
+    )
+    require_approval: bool = Field(False, description="Web 聊天设 true: 高影响工具等用户批准")
 
 
 class LegacyAgentRunResponse(BaseModel):
@@ -63,9 +68,20 @@ def _new_session_id() -> str:
 
 
 @router.post("/api/v1/agent/run", response_model=LegacyAgentRunResponse)
-async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse:
-    """旧协议入口 → 新主脑 (同进程委托, 无网络跳转)。"""
+async def legacy_agent_run(
+    req: LegacyAgentRunRequest,
+    user: dict = Depends(auth_mod.get_current_user),
+) -> LegacyAgentRunResponse:
+    """旧协议入口 → 新主脑 (同进程委托, 无网络跳转)。
+
+    此前没有鉴权依赖: 带 token 也不会被解析, 请求一律落进共享的 anonymous
+    历史/记忆桶。与已有鉴权的 /stream 端点保持一致的宽松策略 (get_current_user
+    未登录回落 anonymous, 不强制 401) —— 不强制登录, 只是不再把已登录用户的
+    请求错误地当匿名处理 (同步顺带修好按 user_id 隔离历史/记忆的前提)。
+    """
     from server.coordinator_master import master_coordinator
+
+    _ = user  # Depends 已把 auth.current_user() contextvar 设好, 下游按此隔离
 
     if req.engine != "master":
         from server.engine_runner import run_engine
@@ -81,13 +97,17 @@ async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse
         )
 
     if req.text is not None:
+        from server.coordinator_master import DEFAULT_MAX_ROUNDS
+
         result = await master_coordinator.chat_stream(
             req.text,
             session_id=req.session_id or None,
-            max_rounds=8,
+            max_rounds=DEFAULT_MAX_ROUNDS,
             config=req.config or None,
             provider=req.provider,
             model=req.model,
+            mode=req.agent_mode,
+            require_approval=req.require_approval,
         )
         return LegacyAgentRunResponse(
             session_id=result.get("session_id") or req.session_id or _new_session_id(),
@@ -114,13 +134,17 @@ async def legacy_agent_run(req: LegacyAgentRunRequest) -> LegacyAgentRunResponse
             user_ref=user_ref,
         )
 
+    from server.coordinator_master import DEFAULT_MAX_ROUNDS
+
     result = await master_coordinator.chat_stream(
         req.task or "",
         session_id=session_id,
-        max_rounds=8,
+        max_rounds=DEFAULT_MAX_ROUNDS,
         config=req.config or None,
         provider=req.provider,
         model=req.model,
+        mode=req.agent_mode,
+        require_approval=req.require_approval,
     )
     return LegacyAgentRunResponse(
         session_id=result.get("session_id") or session_id,
@@ -166,6 +190,8 @@ async def legacy_agent_stream(
             user=user,
             images=req.images or None,
             request=request,
+            mode=req.agent_mode,
+            require_approval=req.require_approval,
         ),
         media_type="text/event-stream",
         headers={
@@ -195,14 +221,42 @@ async def legacy_agent_stop(req: LegacyAgentStopRequest) -> dict:
     return await cancel_session(req.session_id)
 
 
+class AgentApprovalRequest(BaseModel):
+    request_id: str
+    approved: bool
+
+
+@router.post("/api/v1/agent/approval")
+async def agent_approval(req: AgentApprovalRequest) -> dict:
+    """Web 聊天: 批准或拒绝一次高影响工具。"""
+    from server.user_control import resolve_approval
+
+    ok = resolve_approval(req.request_id, req.approved)
+    return {"ok": ok, "request_id": req.request_id, "approved": req.approved}
+
+
 @router.get("/api/v1/agent/sessions")
 async def list_user_sessions(
     user: dict = Depends(auth_mod.get_current_user),
 ) -> dict[str, Any]:
-    """列出当前用户的会话 (多端同步: 手机建的会话, 电脑端可见可续)。"""
-    from veya.history_store import default_history_store
+    """列出当前用户的会话 (多端同步: 手机建的会话, 电脑端可见可续)。
 
-    sessions = await default_history_store().list_sessions(user["user_id"], limit=50)
+    2026-08-16 修复: 数据源从 veya.history_store (SqliteHistoryStore) 切到
+    session_tree.db (SessionTreeMgr) —— 生产实际路径 (VEYA_AGENT_LOOP=strict)
+    的对话只写进后者, history_store 从未被新主链写入过 (旧路径专用), 导致
+    这个"多端同步"接口此前对所有新对话都读到空列表。
+    """
+    from server.agent_loop_bridge import _session_kv
+    from veya.omodul.session_tree import SessionTreeMgr
+
+    def _load() -> list[dict[str, Any]]:
+        # kv 连接必须和使用它的代码在同一线程创建 (sqlite3 限制) —— 不能把
+        # 构造挪到 to_thread 外面, 那样连接在事件循环线程创建、却在线程池
+        # 线程里被访问, sqlite3 会直接报 ProgrammingError。
+        tree = SessionTreeMgr(kv=_session_kv())
+        return tree.list_sessions(owner=user["user_id"], limit=50)
+
+    sessions = await asyncio.to_thread(_load)
     return {"sessions": sessions, "user_id": user["user_id"]}
 
 
@@ -211,8 +265,22 @@ async def get_session_history(
     sid: str,
     user: dict = Depends(auth_mod.get_current_user),
 ) -> dict[str, Any]:
-    """返回当前用户的指定会话消息 (跨端恢复历史; 仅本人数据)。"""
-    from veya.history_store import default_history_store
+    """返回当前用户的指定会话消息 (跨端恢复历史; 仅本人数据)。
 
-    messages = await default_history_store().load(sid, user["user_id"])
+    2026-08-16: 同上, 切到 session_tree.db；owner 记录且不匹配当前用户 →
+    直接返回空 (不 404, 与 /sessions 列表"看不到即视为不存在"的语义一致，
+    调用方是内部前端逻辑不是需要精确错误码的公开 API)。owner=None (旧数据,
+    早于归属校验修复) 视为无主放行, 与仓库里其它归属校验点口径一致。
+    """
+    from server.agent_loop_bridge import _session_kv
+    from veya.omodul.session_tree import SessionTreeMgr
+
+    def _load() -> list[dict[str, Any]]:
+        tree = SessionTreeMgr(kv=_session_kv())
+        owner = tree.owner_of(sid)
+        if owner is not None and owner != user["user_id"]:
+            return []
+        return [m for m in tree.messages(sid) if m.get("role") != "system"]
+
+    messages = await asyncio.to_thread(_load)
     return {"session_id": sid, "messages": messages}

@@ -36,6 +36,8 @@ async def new_agent_stream_events(
     user: dict | None = None,
     images: list[str] | None = None,
     request: "Request | None" = None,
+    mode: str | None = None,
+    require_approval: bool = False,
 ) -> AsyncIterator[str]:
     """主脑 SSE 事件泵: 消费事件队列 → SSE 帧。
 
@@ -60,15 +62,19 @@ async def new_agent_stream_events(
         if user:
             auth_mod.set_user(user)
         # 必须 return 结果 — _finish 靠它补发 final (丢了则永远发兜底假象)
+        from server.coordinator_master import DEFAULT_MAX_ROUNDS
+
         return await master_coordinator.chat_stream(
             text,
             session_id=sid,
-            max_rounds=8,
+            max_rounds=DEFAULT_MAX_ROUNDS,
             config=config,
             provider=provider,
             model=model,
             endpoint=endpoint,
             images=images,
+            mode=mode,
+            require_approval=require_approval,
         )
 
     try:

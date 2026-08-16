@@ -53,7 +53,9 @@ class StreamAdapter:
                 # Show brief args (first key=value)
                 brief = ", ".join(f"{k}={str(v)[:30]!r}" for k, v in list(tool_args.items())[:2])
                 squads = app.query_one("#squads-panel")
-                squads.update_squad(squad_id, f"→ {tool_name}")
+                sid = squad_id or "master"
+                squads.add_squad(sid, sid)
+                squads.update_squad(sid, f"→ {tool_name}")
                 chat = app.query_one("#chat-log")
                 chat.add_tool_call(tool_name, brief)
 
@@ -65,12 +67,22 @@ class StreamAdapter:
                     squads = app.query_one("#squads-panel")
                     squads.update_squad(squad_id, "✓ response")
 
-            elif event_type == "squad_done":
-                role = event.get("role", "")
+            elif event_type == "tool_error":
+                tool_name = event.get("tool_name", "")
+                err = str(event.get("error") or "")[:80]
+                chat = app.query_one("#chat-log")
+                chat.add_tool_call(tool_name, f"✗ {err}")
+
+            elif event_type in ("squad_done", "master_done"):
+                role = event.get("role", "master")
                 status = event.get("status", "unknown")
                 cost = event.get("cost_usd", 0.0)
                 squads = app.query_one("#squads-panel")
-                squads.complete_squad(squad_id, status, cost)
+                if squad_id:
+                    squads.complete_squad(squad_id, status, cost)
+                elif event_type == "master_done":
+                    squads.add_squad("master", "master")
+                    squads.complete_squad("master", status, cost)
 
             elif event_type == "cost_update":
                 total = event.get("total_cost", 0.0)

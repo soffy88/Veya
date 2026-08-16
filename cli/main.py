@@ -42,17 +42,16 @@ def _build_parser() -> argparse.ArgumentParser:
 # 整改批次 C: CLI 统一到主脑单一大模型 (与 Web 同一 coordinator_master),
 # 消灭「Web=单 LLM / CLI=旧 DAG」双头脑。persona 在主脑下无意义 (无分类/无分队),
 # 保留参数仅为兼容旧命令行, 不再影响行为。
-async def _run_once(text: str, *, persona: str) -> dict[str, Any]:
+async def _run_once(text: str, *, persona: str, session_id: str | None = None) -> dict[str, Any]:
     from server.coordinator_master import master_coordinator
 
-    return await master_coordinator.chat_stream(text)
+    return await master_coordinator.chat_stream(text, session_id=session_id)
 
 
-async def _interactive_loop(persona: str) -> None:
+async def _interactive_loop(persona: str, session_id: str | None = None) -> None:
     from server.coordinator_master import master_coordinator
 
     print(f"veya {_VERSION} | 主脑单一大模型 | Ctrl-D or 'exit' to quit", file=sys.stderr)
-    session_id: str | None = None
 
     with contextlib.suppress(ImportError):
         import readline  # noqa: F401 — enables arrow-key editing on supported platforms
@@ -81,29 +80,15 @@ async def _interactive_loop(persona: str) -> None:
 
 
 async def _resume(session_id: str, persona: str) -> None:
-    # 遗留路径 (batch C 未完): --resume 仍走旧 DAG checkpoint 恢复。主脑下「恢复」
-    # 是会话连续性 (chat_stream(session_id=...) 带新输入), 语义不同 — 待与用户确认
-    # 交互后再迁移。coordinator.py 目前仍被 IM/automata/flow 使用, 尚不能退役。
-    from server.checkpoint import load_checkpoint
-    from veya.compat import checkpoint_to_run_state
-
-    ckpt = await load_checkpoint(session_id)
-    if not ckpt:
-        print(f"No checkpoint found for session '{session_id}'", file=sys.stderr)
-        sys.exit(1)
-
-    state = checkpoint_to_run_state(ckpt)
-    print(
-        f"Resuming session {session_id} from step {state.step}, completed: {state.completed_steps}",
-        file=sys.stderr,
-    )
-
-    from server.coordinator import coordinator
-
-    result = await coordinator.resume(state)
-    import json
-
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    """Resume = continue the master session (same history store as Web)."""
+    print(f"Resuming master session {session_id}", file=sys.stderr)
+    if not sys.stdin.isatty():
+        text = sys.stdin.read().strip()
+        if text:
+            result = await _run_once(text, persona=persona, session_id=session_id)
+            print(result.get("final_answer") or "")
+        return
+    await _interactive_loop(persona, session_id=session_id)
 
 
 def main(argv: list[str] | None = None) -> int:

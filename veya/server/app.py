@@ -487,10 +487,12 @@ def create_app() -> FastAPI:
         if req.text is not None:
             from server.coordinator_master import master_coordinator
 
+            from server.coordinator_master import DEFAULT_MAX_ROUNDS
+
             result = await master_coordinator.chat_stream(
                 req.text,
                 session_id=req.session_id or None,
-                max_rounds=8,
+                max_rounds=DEFAULT_MAX_ROUNDS,
                 config=req.config or None,
                 provider=req.provider,
                 model=req.model,
@@ -519,10 +521,12 @@ def create_app() -> FastAPI:
         # Agent OS master brain (legacy task contract → same brain as text)
         from server.coordinator_master import master_coordinator
 
+        from server.coordinator_master import DEFAULT_MAX_ROUNDS
+
         result = await master_coordinator.chat_stream(
             req.task,
             session_id=session_id,
-            max_rounds=8,
+            max_rounds=DEFAULT_MAX_ROUNDS,
             config=req.config or None,
             provider=req.provider,
             model=req.model,
