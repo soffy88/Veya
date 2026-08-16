@@ -606,3 +606,73 @@ def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
     assert str(
         ((resp2.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     ).strip()
+
+
+def test_frontier_fallback_accepts_tool_call_with_empty_content(monkeypatch):
+    """回归: opencode-go 空 → frontier 返回 tool_call + 空 content 是合法响应,
+
+    不可当"无效内容: ''"误杀。带工具且该调工具的请求会确定性触发此路径,
+    重试也救不了 (根因 2026-08-16: 校验只看 content 不看 tool_calls)。
+    """
+    import asyncio
+    import os
+
+    from veya import llm as hllm
+
+    monkeypatch.setattr("os.environ", {**os.environ, "OPENCODE_API_KEY": "sk-test"})
+
+    async def _no_sleep(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
+
+    async def provider(client, provider, **kw):
+        if provider == "opencode-go":
+            # opencode-go 抖动: 持续空回复
+            return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
+        if provider == "openai":
+            # frontier: content 空但带合法 tool_call (finish_reason=tool_calls)
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "tool_calls",
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {"name": "list_files", "arguments": "{}"},
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "usage": {},
+            }
+        raise AssertionError(f"unexpected provider {provider}")
+
+    monkeypatch.setattr(hllm, "provider_call", provider)
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "list_files",
+                "description": "list dir",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    resp = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "列出当前目录"}],
+            provider="veya1.1",
+            model="veya1.1",
+            tools=tools,
+        )
+    )
+    # 不再报 error — frontier 的 tool_call 被当作有效响应返回
+    assert resp.get("error") is not True
+    msg = (resp.get("choices") or [{}])[0].get("message") or {}
+    assert msg.get("tool_calls"), f"tool_call 应被保留, 实际: {resp}"
