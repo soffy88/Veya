@@ -60,21 +60,19 @@ class HicodeTaskQueue:
         self._max_concurrent = 1  # serve 单活跃会话 → 串行执行
 
     # ── 提交 / 等待 ────────────────────────────────────────────────
-    async def submit(self, spec: str, *, workspace: str | None = None,
-                     meta: dict[str, Any] | None = None) -> str:
+    async def submit(
+        self, spec: str, *, workspace: str | None = None, meta: dict[str, Any] | None = None
+    ) -> str:
         """入队一个编程任务, 立即返回 task id。"""
         tid = uuid.uuid4().hex[:10]
-        rec = TaskRecord(id=tid, spec=spec, workspace=workspace,
-                         meta=meta or {})
+        rec = TaskRecord(id=tid, spec=spec, workspace=workspace, meta=meta or {})
         self._tasks[tid] = rec
         await self._ready.put(tid)
         self._ensure_worker()
-        logger.info("hicode 队列: 提交 %s (queued, 队列深度=%d)",
-                    tid, self._ready.qsize() + 1)
+        logger.info("hicode 队列: 提交 %s (queued, 队列深度=%d)", tid, self._ready.qsize() + 1)
         return tid
 
-    async def wait(self, tid: str,
-                   on_progress: Callable[[dict], None] | None = None) -> TaskRecord:
+    async def wait(self, tid: str, on_progress: Callable[[dict], None] | None = None) -> TaskRecord:
         """等待任务完成 (done/failed/cancelled)。on_progress 收到进度事件。
 
         注意: 调用方被取消 (如 SSE 断线) 时本协程抛 CancelledError, 但
@@ -101,8 +99,7 @@ class HicodeTaskQueue:
 
     def list(self, limit: int = 12) -> list[dict]:
         """按创建时间倒序返回任务快照 (最近 limit 条)。"""
-        recs = sorted(self._tasks.values(),
-                      key=lambda r: r.created_at, reverse=True)
+        recs = sorted(self._tasks.values(), key=lambda r: r.created_at, reverse=True)
         return [r.snapshot() for r in recs[:limit]]
 
     # ── 停止 ───────────────────────────────────────────────────────
@@ -135,14 +132,12 @@ class HicodeTaskQueue:
             try:
                 await asyncio.wait_for(rec._done.wait(), timeout=12)
             except asyncio.TimeoutError:
-                logger.warning(
-                    "hicode 队列: cancel 未中断 %s → 硬重启 serve", tid)
+                logger.warning("hicode 队列: cancel 未中断 %s → 硬重启 serve", tid)
                 try:
                     if not await client.restart_serve():
                         logger.warning("hicode 队列: serve 重启未恢复健康")
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("hicode 队列: serve 硬重启失败 %s: %s",
-                                   tid, exc)
+                    logger.warning("hicode 队列: serve 硬重启失败 %s: %s", tid, exc)
                 # 等 worker 收尾 (events 断开 → run_task 返回)
                 try:
                     await asyncio.wait_for(rec._done.wait(), timeout=30)
@@ -157,8 +152,7 @@ class HicodeTaskQueue:
             self._worker = asyncio.create_task(self._worker_loop())
 
             def _on_done(t: asyncio.Task) -> None:
-                if t.exception() and not isinstance(
-                        t.exception(), asyncio.CancelledError):
+                if t.exception() and not isinstance(t.exception(), asyncio.CancelledError):
                     logger.warning("hicode worker 退出: %s", t.exception())
 
             self._worker.add_done_callback(_on_done)
@@ -205,6 +199,7 @@ class HicodeTaskQueue:
                 workspace=rec.workspace,
                 timeout_sec=int(rec.meta.get("timeout_sec") or 900),
                 on_event=_push,
+                force_cli=bool(rec.meta.get("force_cli")),
             )
         except asyncio.CancelledError:
             raise

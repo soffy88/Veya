@@ -39,9 +39,7 @@ from fastapi import FastAPI, Request, Response
 logger = logging.getLogger("hicode")
 
 # ── 配置 (env 可覆盖) ─────────────────────────────────────────────────
-DEFAULT_BIN_HINT = os.environ.get(
-    "HICODE_BIN", ""
-)  # 显式指定二进制; 空 = 自动解析 (PATH → ~/.nvm)
+DEFAULT_BIN_HINT = os.environ.get("HICODE_BIN", "")  # 显式指定二进制; 空 = 自动解析 (PATH → ~/.nvm)
 DEFAULT_WORKSPACE = os.environ.get(
     "HICODE_WORKSPACE", str(Path.home() / ".veya" / "hicode-workspace")
 )
@@ -58,9 +56,7 @@ DEFAULT_TIMEOUT_SEC = int(os.environ.get("HICODE_TIMEOUT_SEC", "1800"))
 # Host 头 → 在容器内起本地代理 127.0.0.1:HICODE_PROXY_PORT, 转发时
 # 强制改写 Host。宿主环境 (base_url 直连 127.0.0.1:10100) 不起代理。
 _PROXY_PORT = int(os.environ.get("HICODE_PROXY_PORT", "10103"))
-_PROXY_UPSTREAM = os.environ.get(
-    "HICODE_PROXY_UPSTREAM", "http://192.168.16.1:10101"
-)
+_PROXY_UPSTREAM = os.environ.get("HICODE_PROXY_UPSTREAM", "http://192.168.16.1:10101")
 _PROXY_UPSTREAM_HOST = os.environ.get("HICODE_PROXY_UPSTREAM_HOST", "127.0.0.1:10100")
 
 _proxy_server: Any | None = None
@@ -79,34 +75,44 @@ def _ensure_local_proxy() -> None:
 
     async def _proxy(request: Request) -> Response:
         body = await request.body()
-        headers = {k: v for k, v in request.headers.items()
-                   if k.lower() not in ("host", "content-length")}
+        headers = {
+            k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")
+        }
         headers["Host"] = _PROXY_UPSTREAM_HOST
         client = httpx.AsyncClient(base_url=_PROXY_UPSTREAM, timeout=None)
         try:
             r = await client.request(
-                request.method, request.url.path,
-                content=body, headers=headers,
+                request.method,
+                request.url.path,
+                content=body,
+                headers=headers,
             )
-            return Response(content=r.content, status_code=r.status_code,
-                            headers={k: v for k, v in r.headers.items()
-                                     if k.lower() not in ("transfer-encoding",
-                                                          "content-encoding",
-                                                          "content-length")})
+            return Response(
+                content=r.content,
+                status_code=r.status_code,
+                headers={
+                    k: v
+                    for k, v in r.headers.items()
+                    if k.lower() not in ("transfer-encoding", "content-encoding", "content-length")
+                },
+            )
         finally:
             await client.aclose()
 
-    app.add_api_route("/{path:path}", _proxy, methods=["GET", "POST", "PUT",
-                                                      "PATCH", "DELETE",
-                                                      "OPTIONS", "HEAD"])
-    cfg = uvicorn.Config(app, host="127.0.0.1", port=_PROXY_PORT,
-                         log_level="warning")
+    app.add_api_route(
+        "/{path:path}", _proxy, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+    )
+    cfg = uvicorn.Config(app, host="127.0.0.1", port=_PROXY_PORT, log_level="warning")
     server = uvicorn.Server(cfg)
     t = threading.Thread(target=server.run, daemon=True)
     t.start()
     _proxy_server = server
-    logger.info("hicode local proxy on 127.0.0.1:%s → %s (Host=%s)",
-                _PROXY_PORT, _PROXY_UPSTREAM, _PROXY_UPSTREAM_HOST)
+    logger.info(
+        "hicode local proxy on 127.0.0.1:%s → %s (Host=%s)",
+        _PROXY_PORT,
+        _PROXY_UPSTREAM,
+        _PROXY_UPSTREAM_HOST,
+    )
 
 
 class HicodeUnavailable(RuntimeError):
@@ -145,7 +151,9 @@ def _bin_version() -> str | None:
 
         r = subprocess.run(
             [_resolve_bin(), "--version"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         return (r.stdout or r.stderr).strip().splitlines()[-1] or None
     except Exception:
@@ -165,9 +173,7 @@ def _resolve_workspace(name_or_path: str | None) -> Path:
     if p.is_absolute():
         rp = p.resolve()
         if rp != root and root not in rp.parents:
-            raise ValueError(
-                f"workspace 必须位于 HICODE_WORKSPACE 内 ({root}); 收到: {rp}"
-            )
+            raise ValueError(f"workspace 必须位于 HICODE_WORKSPACE 内 ({root}); 收到: {rp}")
         return rp
     # 相对名 → 根下的子目录
     return (root / name_or_path).resolve()
@@ -194,16 +200,29 @@ async def _run_hicode(
     env = os.environ.copy()
     _ensure_local_proxy()
     time.sleep(0.3)  # 代理首次启动等待
-    cmd = [bin_path, "run", *args, "--output-format", "stream-json",
-           "--model", DEFAULT_MODEL, "--auto", "--dir", str(workspace)]
+    cmd = [
+        bin_path,
+        "run",
+        *args,
+        "--output-format",
+        "stream-json",
+        "--model",
+        DEFAULT_MODEL,
+        "--auto",
+        "--dir",
+        str(workspace),
+    ]
     if continue_:
         cmd.append("--continue")
     if resume_id:
         cmd.append(f"--resume={resume_id}")
     logger.info("hicode cmd: %s", " ".join(cmd[:6]) + " ...")
     proc = await asyncio.create_subprocess_exec(
-        *cmd, cwd=str(workspace), stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE, env=env,
+        *cmd,
+        cwd=str(workspace),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     stderr_lines: list[str] = []
 
@@ -247,9 +266,7 @@ async def _run_hicode(
             await proc.wait()
     if result is None:
         tail = "".join(stderr_lines)[-1500:] or "(无 stderr)"
-        raise HicodeUnavailable(
-            f"hicode 无结构化结果 (exit={proc.returncode}):\n{tail}"
-        )
+        raise HicodeUnavailable(f"hicode 无结构化结果 (exit={proc.returncode}):\n{tail}")
     return result
 
 
@@ -281,8 +298,7 @@ def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
         return
     kind = ev.get("kind")
     if kind == "turn_started":
-        on_event({"stage": "planning", "tool": None,
-                  "detail": "Hicode 规划中…"})
+        on_event({"stage": "planning", "tool": None, "detail": "Hicode 规划中…"})
     elif kind == "tool_dispatch":
         tool = ev.get("tool") or {}
         # partial=true 的 dispatch 只是意图预告 (args 为空) — 等完整 args 事件
@@ -295,23 +311,27 @@ def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
                 args = json.loads(args)
             except json.JSONDecodeError:
                 args = {"_raw": args[:60]}
-        on_event({"stage": "executing", "tool": name,
-                  "detail": _tool_brief(name, args)})
+        on_event({"stage": "executing", "tool": name, "detail": _tool_brief(name, args)})
     elif kind == "tool_result":
         tool = ev.get("tool") or {}
         name = str(tool.get("name") or "tool")
         ms = tool.get("durationMs")
-        on_event({"stage": "executing", "tool": name,
-                  "detail": f"{name} 完成" + (f" ({ms}ms)" if ms else "")})
+        on_event(
+            {
+                "stage": "executing",
+                "tool": name,
+                "detail": f"{name} 完成" + (f" ({ms}ms)" if ms else ""),
+            }
+        )
     elif kind == "usage":
         u = ev.get("usage") or {}
         pt, ct = u.get("promptTokens"), u.get("completionTokens")
         if pt or ct:
-            on_event({"stage": "stats", "tool": None,
-                      "detail": f"tokens: in={pt} out={ct}"})
+            on_event({"stage": "stats", "tool": None, "detail": f"tokens: in={pt} out={ct}"})
 
 
 # ── 工具实现 ──────────────────────────────────────────────────────────
+
 
 def _ensure_on_event(
     on_event: Callable[[dict], None] | None,
@@ -336,12 +356,14 @@ def _ensure_on_event(
 
     def _bridge(ev: dict) -> None:
         try:
-            cb({
-                "type": "hicode_progress",
-                "stage": ev.get("stage"),
-                "tool": ev.get("tool"),
-                "detail": ev.get("detail"),
-            })
+            cb(
+                {
+                    "type": "hicode_progress",
+                    "stage": ev.get("stage"),
+                    "tool": ev.get("tool"),
+                    "detail": ev.get("detail"),
+                }
+            )
         except Exception:  # noqa: BLE001 — SSE 推送失败绝不拖垮任务
             pass
 
@@ -349,23 +371,32 @@ def _ensure_on_event(
 
 
 async def _execute_hicode_core(
-    task: str, workspace: str | None = None,
-    max_steps: int = 0, timeout_sec: int = 0,
+    task: str,
+    workspace: str | None = None,
+    max_steps: int = 0,
+    timeout_sec: int = 0,
     session_id: str | None = None,
     continue_: bool = False,
     on_event: Callable[[dict], None] | None = None,
+    force_cli: bool = False,
 ) -> str:
-    """真正执行一个 hicode 编程任务 (serve 优先, CLI 兜底)。
+    """真正执行一个 hicode 编程任务 (默认 serve 优先, CLI 兜底)。
 
     continue_=True → --continue (接着上次未完成会话); session_id 指定 →
     --resume=<machine id> (恢复历史会话, 见 hicode_sessions)。任务前自动
     打 git 快照 (checkpoint) → 可用 hicode_rollback 回滚。
     on_event 用于实时进度回调。
+
+    force_cli=True → 跳过 hicode serve, 强制走 CLI 路径。原因: serve 是
+    单一持久会话 (HicodeServeClient.submit 不带 workspace 参数), 传入的
+    workspace 只用于任务前 git 快照, 不会真正约束执行发生的目录 —— 多项目
+    场景 (如 project_ask) 必须走 CLI (`--add-dir <workspace>`) 才能保证
+    改动真的落在调用方指定的目录内 (2026-08-15 真机 smoke 验证发现)。
     """
     # 新编程任务 → 优先 hicode serve (独立 oservi, HTTP+SSE 进度回流);
     # serve 不可达/失败 → 回退 CLI (功能等价, 含 checkpoint/续做/回滚)。
-    # 续做/恢复仍走 CLI (会话状态在 workspace)。
-    if not continue_ and not session_id:
+    # 续做/恢复仍走 CLI (会话状态在 workspace)。force_cli 时也直接跳过。
+    if not force_cli and not continue_ and not session_id:
         try:
             from server.coordinator_master import (
                 _build_hicode_spec,
@@ -378,7 +409,8 @@ async def _execute_hicode_core(
                 ws0 = _resolve_workspace(workspace)
                 _snapshot_workspace(ws0, task)  # checkpoint (回滚可用)
                 res = await client.run_task(
-                    _build_hicode_spec(task), on_event=on_event,
+                    _build_hicode_spec(task),
+                    on_event=on_event,
                     timeout=timeout_sec or 900,
                 )
                 if res.get("status") != "error":
@@ -404,9 +436,14 @@ async def _execute_hicode_core(
     # 任务前 git 快照 (checkpoint) — 失败不阻塞执行 (无 git 时回滚不可用)
     checkpoint = _snapshot_workspace(ws, task)
     try:
-        r = await _run_hicode(args, workspace=ws, timeout=timeout,
-                                on_event=on_event, continue_=continue_,
-                                resume_id=session_id)
+        r = await _run_hicode(
+            args,
+            workspace=ws,
+            timeout=timeout,
+            on_event=on_event,
+            continue_=continue_,
+            resume_id=session_id,
+        )
     except HicodeUnavailable as e:
         return f"hicode 执行失败: {e}"
     except Exception as e:  # noqa: BLE001 — 工具边界兜底, 回喂主脑
@@ -443,7 +480,9 @@ async def _execute_hicode_core(
 def _git(ws: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", "-C", str(ws), *args],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
 
 
@@ -454,12 +493,19 @@ def _snapshot_workspace(ws: Path, task: str) -> str | None:
             _git(ws, "init", "-q")
         _git(ws, "add", "-A")
         # 临时 git 身份 (容器/CI 无 user 配置时 commit 也能成功, 不污染全局)
-        r = _git(ws, "-c", "user.name=veya-hicode",
-                 "-c", "user.email=veya@local",
-                 "commit", "-q", "-m", f"pre-task: {task[:80]}")
+        r = _git(
+            ws,
+            "-c",
+            "user.name=veya-hicode",
+            "-c",
+            "user.email=veya@local",
+            "commit",
+            "-q",
+            "-m",
+            f"pre-task: {task[:80]}",
+        )
         if r.returncode != 0 and "nothing to commit" not in (r.stdout + r.stderr):
-            logger.warning("snapshot commit failed: %s",
-                           (r.stdout + r.stderr)[-200:])
+            logger.warning("snapshot commit failed: %s", (r.stdout + r.stderr)[-200:])
             return None
         r2 = _git(ws, "rev-parse", "HEAD")
         if r2.returncode != 0:
@@ -470,8 +516,7 @@ def _snapshot_workspace(ws: Path, task: str) -> str | None:
         return None
 
 
-async def hicode_rollback(workspace: str | None = None,
-                            ref: str | None = None) -> str:
+async def hicode_rollback(workspace: str | None = None, ref: str | None = None) -> str:
     """回滚工作区到最近一次任务前快照 (或指定 ref)。
 
     每次 hicode_run 前自动打 git 快照 (pre-task commit)。默认回滚最近
@@ -492,13 +537,16 @@ async def hicode_rollback(workspace: str | None = None,
         before = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
         _git(ws, "reset", "--hard", target_hash)
         after = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
-        return (f"✅ 已回滚 {ws} 到 {target_hash[:12]} (此前 HEAD={before}).\n"
-                f"工作区文件已恢复到任务前状态。")
+        return (
+            f"✅ 已回滚 {ws} 到 {target_hash[:12]} (此前 HEAD={before}).\n"
+            f"工作区文件已恢复到任务前状态。"
+        )
     except Exception as e:  # noqa: BLE001
         return f"回滚失败: {e}"
 
 
 # ── 会话感知 (供 Stop 端点定位当前会话的 hicode 任务) ──────────────
+
 
 def _current_sid() -> str | None:
     """从 contextvar 读当前 SSE 会话 id (on_step 是 SSEQueue 的 bound method)。"""
@@ -524,11 +572,15 @@ def _register_session_task(tid: str) -> None:
             pass
 
 
-async def hicode_run(task: str, workspace: str | None = None,
-                       max_steps: int = 0, timeout_sec: int = 0,
-                       session_id: str | None = None,
-                       continue_: bool = False,
-                       on_event: Callable[[dict], None] | None = None) -> str:
+async def hicode_run(
+    task: str,
+    workspace: str | None = None,
+    max_steps: int = 0,
+    timeout_sec: int = 0,
+    session_id: str | None = None,
+    continue_: bool = False,
+    on_event: Callable[[dict], None] | None = None,
+) -> str:
     """执行一个真正的编程任务 (Hicode 编码执行器)。返回执行摘要。
 
     新任务 → 后台任务队列 (可停止/断线不丢, 结果留在队列可查);
@@ -536,18 +588,31 @@ async def hicode_run(task: str, workspace: str | None = None,
     on_event 用于实时进度回调。
     """
     on_event = _ensure_on_event(on_event)
+    # 新任务按需附带 Graft 地图 + 历史规则 (不是每轮预注入; 续做不再扫盘)
+    if not continue_ and not session_id:
+        try:
+            from server.graft_autocontext import attach_to_task
+
+            task = attach_to_task(task)
+        except Exception:  # noqa: BLE001 — 上下文装配失败不挡编码
+            pass
     # 续做/恢复: 会话状态在 workspace, 走 CLI 同步执行 (低频管理操作)
     if continue_ or session_id:
         return await _execute_hicode_core(
-            task, workspace=workspace, max_steps=max_steps,
-            timeout_sec=timeout_sec, session_id=session_id,
-            continue_=continue_, on_event=on_event,
+            task,
+            workspace=workspace,
+            max_steps=max_steps,
+            timeout_sec=timeout_sec,
+            session_id=session_id,
+            continue_=continue_,
+            on_event=on_event,
         )
     # 新任务 → 后台队列: 并发提交/串行执行/可停止/断线不丢
     from server.hicode_queue import hicode_task_queue
 
     tid = await hicode_task_queue.submit(
-        task, workspace=workspace,
+        task,
+        workspace=workspace,
         meta={"timeout_sec": timeout_sec or 900, "sid": _current_sid()},
     )
     _register_session_task(tid)
@@ -573,9 +638,13 @@ async def hicode_sessions(limit: int = 8) -> str:
         ws = _workspace_root()
         ws.mkdir(parents=True, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
-            bin_path, "session", "list", "--json",
+            bin_path,
+            "session",
+            "list",
+            "--json",
             cwd=str(ws),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=30)
         data = json.loads((out_b or b"").decode("utf-8", "replace") or "{}")
@@ -588,8 +657,7 @@ async def hicode_sessions(limit: int = 8) -> str:
     for s in sessions[:limit]:
         updated = (s.get("updated_at") or "")[:19].replace("T", " ")
         lines.append(
-            f"- {s.get('id')}  turns={s.get('turns')} state={s.get('state')} "
-            f"updated={updated}"
+            f"- {s.get('id')}  turns={s.get('turns')} state={s.get('state')} updated={updated}"
         )
     lines.append("续做: 对我说「继续上次」; 指定会话: hicode_run(session_id=<id>)。")
     return "\n".join(lines)
@@ -616,10 +684,14 @@ async def hicode_status() -> str:
 
 # ── AI 代码评审 (CLI review 子命令) ────────────────────────────────
 
-async def hicode_review(base: str = "HEAD", commit: str = "",
-                          instructions: str = "",
-                          workspace: str | None = None,
-                          timeout_sec: int = 300) -> str:
+
+async def hicode_review(
+    base: str = "HEAD",
+    commit: str = "",
+    instructions: str = "",
+    workspace: str | None = None,
+    timeout_sec: int = 300,
+) -> str:
     """对 hicode 工作区最近改动做 AI 代码评审 (Hicode review 子代理)。
 
     base: 对比基准 ref (默认 HEAD = 评审未提交的 working-tree 改动);
@@ -644,8 +716,11 @@ async def hicode_review(base: str = "HEAD", commit: str = "",
         cmd += ["--instructions", instructions]
     try:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, cwd=str(ws), stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, env=env,
+            *cmd,
+            cwd=str(ws),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
         text = out.decode("utf-8", "replace").strip()
@@ -696,6 +771,7 @@ async def hicode_stop(task_id: str) -> str:
 
 # ── 注册 ──────────────────────────────────────────────────────────────
 
+
 async def wire_master_tools() -> int:
     """把 hicode 工具注册进 master_tools (幂等)。返回新注册数量。"""
     from server.tool_registry import master_tools
@@ -712,12 +788,30 @@ async def wire_master_tools() -> int:
             {
                 "type": "object",
                 "properties": {
-                    "task": {"type": "string", "description": "要完成的编程任务，写明目标与验收标准（如：修复 login.py 的登录失败，跑 pytest 通过）。"},
-                    "workspace": {"type": "string", "description": f"可选。工作子目录名或绝对路径（必须位于 {_workspace_root()} 内）。缺省用根工作区。"},
-                    "max_steps": {"type": "integer", "description": "可选。工具调用轮次上限，0=自动（默认）。"},
-                    "timeout_sec": {"type": "integer", "description": "可选。超时秒数，默认 1800。"},
-                    "session_id": {"type": "string", "description": "可选。恢复指定历史会话（hicode_sessions 列出的 machine id）。与 continue_ 互斥。"},
-                    "continue_": {"type": "boolean", "description": "可选。true = 接着上次未完成的会话继续做（跨轮续做）。"},
+                    "task": {
+                        "type": "string",
+                        "description": "要完成的编程任务，写明目标与验收标准（如：修复 login.py 的登录失败，跑 pytest 通过）。",
+                    },
+                    "workspace": {
+                        "type": "string",
+                        "description": f"可选。工作子目录名或绝对路径（必须位于 {_workspace_root()} 内）。缺省用根工作区。",
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "可选。工具调用轮次上限，0=自动（默认）。",
+                    },
+                    "timeout_sec": {
+                        "type": "integer",
+                        "description": "可选。超时秒数，默认 1800。",
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "可选。恢复指定历史会话（hicode_sessions 列出的 machine id）。与 continue_ 互斥。",
+                    },
+                    "continue_": {
+                        "type": "boolean",
+                        "description": "可选。true = 接着上次未完成的会话继续做（跨轮续做）。",
+                    },
                 },
                 "required": ["task"],
             },
@@ -727,14 +821,31 @@ async def wire_master_tools() -> int:
         (
             "hicode_sessions",
             "列出最近的 hicode 编码会话（id/轮次/状态/更新时间）。跨轮续做或查看历史执行记录时调用；用户说「继续上次」时配合 hicode_run(continue_=true) 使用。",
-            {"type": "object", "properties": {"limit": {"type": "integer", "description": "可选。返回条数，默认 8。"}}},
+            {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "可选。返回条数，默认 8。"}
+                },
+            },
             hicode_sessions,
             4000,
         ),
         (
             "hicode_rollback",
             "回滚 hicode 工作区到最近一次任务前快照（或指定 commit）。每次 hicode_run 前自动打 git 快照；用户说「回滚/撤销最近一次改动」时调用。",
-            {"type": "object", "properties": {"workspace": {"type": "string", "description": f"可选。工作目录（必须位于 {_workspace_root()} 内）。"},"ref": {"type": "string", "description": "可选。回滚目标 commit/ref，默认 HEAD~1（最近一次任务前快照）。"}}},
+            {
+                "type": "object",
+                "properties": {
+                    "workspace": {
+                        "type": "string",
+                        "description": f"可选。工作目录（必须位于 {_workspace_root()} 内）。",
+                    },
+                    "ref": {
+                        "type": "string",
+                        "description": "可选。回滚目标 commit/ref，默认 HEAD~1（最近一次任务前快照）。",
+                    },
+                },
+            },
             hicode_rollback,
             2000,
         ),
@@ -749,27 +860,52 @@ async def wire_master_tools() -> int:
             "hicode_review",
             "对 hicode 工作区最近改动做 AI 代码评审（读 diff + 子代理评审，输出问题/风险/建议）。"
             "编程任务完成后、或用户要求「评审/审查一下代码」时调用。",
-            {"type": "object", "properties": {
-                "base": {"type": "string", "description": "可选。对比基准 ref，默认 HEAD（评审未提交的改动）。"},
-                "commit": {"type": "string", "description": "可选。评审指定 commit 引入的改动（与 base 互斥）。"},
-                "instructions": {"type": "string", "description": "可选。附加评审重点，如「重点看并发安全与内存泄漏」。"},
-                "timeout_sec": {"type": "integer", "description": "可选。超时秒数，默认 300。"},
-            }},
+            {
+                "type": "object",
+                "properties": {
+                    "base": {
+                        "type": "string",
+                        "description": "可选。对比基准 ref，默认 HEAD（评审未提交的改动）。",
+                    },
+                    "commit": {
+                        "type": "string",
+                        "description": "可选。评审指定 commit 引入的改动（与 base 互斥）。",
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "description": "可选。附加评审重点，如「重点看并发安全与内存泄漏」。",
+                    },
+                    "timeout_sec": {"type": "integer", "description": "可选。超时秒数，默认 300。"},
+                },
+            },
             hicode_review,
             6000,
         ),
         (
             "hicode_tasks",
             "列出 Hicode 后台任务队列（排队/执行中/完成/取消）及摘要。编程任务入队后立即返回 task id，用本工具查询进度/结果。",
-            {"type": "object", "properties": {"limit": {"type": "integer", "description": "可选。返回条数，默认 12。"}}},
+            {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "可选。返回条数，默认 12。"}
+                },
+            },
             hicode_tasks,
             4000,
         ),
         (
             "hicode_stop",
             "停止一个 Hicode 后台任务（真正中断执行，不只断前端连接）。用户说「任务停掉/别跑了/取消」时调用。",
-            {"type": "object", "properties": {"task_id": {"type": "string", "description": "任务 id（hicode_tasks 列出的 #id）。"}},
-            "required": ["task_id"]},
+            {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "任务 id（hicode_tasks 列出的 #id）。",
+                    }
+                },
+                "required": ["task_id"],
+            },
             hicode_stop,
             1000,
         ),
