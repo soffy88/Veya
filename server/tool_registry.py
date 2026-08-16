@@ -1195,3 +1195,248 @@ def _register_wechat_discover(master_tools: Any) -> None:
 
 
 _register_wechat_discover(master_tools)
+
+
+# ── 内化能力 (2026-08-16): 决策账本 + 上下文图 ──────────────────────
+# Semantica Decision Intelligence / Context Graph 轻量内化 (server/decision_ledger.py,
+# server/context_graph.py)。工具形态暴露, 模型自主选择调用 — 零程序路由, 不裁藏。
+
+
+def _register_internalized_tools(mt: Any) -> None:
+    from server import context_graph as cg_mod
+    from server import decision_ledger as dl_mod
+
+    # ── decision_record: 把一次决策落成可审计记录 (一等公民) ──
+    # ── ask_user: OpenMausBot 提问卡片内化 (bot 执行中向用户提问) ──
+    async def _ask_user(question: str, options: list[str] | None = None) -> str:
+        from server.user_control import ask_question
+
+        return await ask_question(question, options)
+
+    async def _decision_record(
+        category: str,
+        scenario: str,
+        reasoning: str = "",
+        outcome: str = "",
+        confidence: float = 0.0,
+        parent_id: str | None = None,
+    ) -> str:
+        """记录一次决策, 返回决策 id。parent_id 建立因果链 (后续可 trace/impact)。"""
+        did = dl_mod.ledger.record_decision(
+            category,
+            scenario,
+            reasoning=reasoning,
+            outcome=outcome,
+            confidence=confidence,
+            parent_id=parent_id,
+            source="master_tool",
+        )
+        return f"decision recorded: {did}"
+
+    # ── decision_query: 查先例 / 因果链 / 影响 / 策略门 / 摘要 ──
+    async def _decision_query(
+        action: str,
+        decision_id: str = "",
+        query: str = "",
+        category: str | None = None,
+        limit: int = 5,
+    ) -> str:
+        """查询决策账本: trace=因果链 / similar=先例检索 / impact=影响图 /
+        rules=策略门检查 / export=审计导出 / summary=最近摘要。"""
+        a = action.strip().lower()
+        if a == "trace" and decision_id:
+            return str(dl_mod.trace_decision_chain(decision_id, limit=limit))
+        if a == "similar" and query:
+            return str(dl_mod.find_similar_decisions(query, category=category, limit=limit))
+        if a == "impact" and decision_id:
+            return str(dl_mod.analyze_decision_impact(decision_id))
+        if a == "rules":
+            return str(dl_mod.check_decision_rules({}))
+        if a == "export":
+            return str(dl_mod.export_ledger(limit=limit or None))
+        if a == "summary":
+            return dl_mod.ledger.summary(limit=limit or 8)
+        return "unknown action: use trace|similar|impact|rules|export|summary"
+
+    # ── graph_store: 图写入 (实体/关系/软删) ──
+    async def _graph_store(
+        op: str,
+        node_id: str = "",
+        kind: str = "",
+        name: str = "",
+        rel: str = "",
+        other_id: str = "",
+        props: str = "",
+    ) -> str:
+        """写上下文图: op=upsert_node(建/更新实体) | add_edge(加关系边) |
+        remove_node(软删)。props 为可选 JSON 字符串。"""
+        import json as _json
+
+        p: dict = {}
+        if props:
+            try:
+                p = _json.loads(props)
+            except _json.JSONDecodeError:
+                return f"props 不是合法 JSON: {props[:100]}"
+        o = op.strip().lower()
+        if o == "upsert_node":
+            if not (node_id and kind and name):
+                return "upsert_node 需要 node_id/kind/name"
+            cg_mod.graph.upsert_node(node_id, kind, name, p)
+            return f"node upserted: {node_id} ({kind} {name})"
+        if o == "add_edge":
+            if not (node_id and rel and other_id):
+                return "add_edge 需要 node_id/rel/other_id"
+            cg_mod.graph.add_edge(node_id, rel, other_id, p)
+            return f"edge added: {node_id} -[{rel}]-> {other_id}"
+        if o == "remove_node":
+            if not node_id:
+                return "remove_node 需要 node_id"
+            cg_mod.graph.remove_node(node_id)
+            return f"node removed (soft): {node_id}"
+        return "unknown op: use upsert_node|add_edge|remove_node"
+
+    # ── graph_query: 图读取 (邻居遍历/时点快照/摘要) ──
+    async def _graph_query(
+        op: str,
+        node_id: str = "",
+        hops: int = 1,
+        timestamp: str = "",
+        limit: int = 8,
+    ) -> str:
+        """读上下文图: neighbors=图遍历 (hops 跳子图) / state_at=时点快照 /
+        summary=图摘要。回答「什么相连、为什么、怎么连」类问题用 neighbors。"""
+        o = op.strip().lower()
+        if o == "neighbors":
+            if not node_id:
+                return "neighbors 需要 node_id"
+            return str(cg_mod.neighbors(node_id, hops=hops))
+        if o == "state_at":
+            if not timestamp:
+                return "state_at 需要 ISO 时间戳"
+            return str(cg_mod.state_at(timestamp))
+        if o == "summary":
+            return cg_mod.summary(limit=limit)
+        return "unknown op: use neighbors|state_at|summary"
+
+    for spec in (
+        dict(
+            name="ask_user",
+            description=(
+                "执行中需要用户输入/选择时提问 (OpenMausBot 提问卡片内化): 卡片在聊天里"
+                "弹出, 用户文字回答后回填给模型。适合歧义/二选一/需要用户拍板的场景 —"
+                "不要用它问可自行搜索确认的事。带 options 时用户可点选或自定义。"
+                "用户不答会收到明确提示, 用合理默认假设继续。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "要问的问题 (≤2000 字)"},
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "可选, 给用户的候选项 (最多 6 个)",
+                    },
+                },
+                "required": ["question"],
+            },
+            func=_ask_user,
+            max_result_chars=1000,
+        ),
+        dict(
+            name="decision_record",
+            description=(
+                "记录一次决策为可审计账本条目 (一等公民): 类别/场景/推理/结果/置信度 + "
+                "因果 parent。适合在完成重要判断、审批、派工后调用 — 之后可用 "
+                "decision_query 追踪因果链、找先例、分析影响。只记录不判断。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string", "description": "决策类别, 如 project_task/vendor/approve"},
+                    "scenario": {"type": "string", "description": "场景/请求描述"},
+                    "reasoning": {"type": "string", "description": "推理依据"},
+                    "outcome": {"type": "string", "description": "结果, 如 completed/blocked/approved"},
+                    "confidence": {"type": "number", "description": "置信度 0-1"},
+                    "parent_id": {"type": "string", "description": "可选, 因果父决策 id"},
+                },
+                "required": ["category", "scenario"],
+            },
+            func=_decision_record,
+            max_result_chars=500,
+        ),
+        dict(
+            name="decision_query",
+            description=(
+                "查询决策账本: trace=沿因果链上溯到根, similar=语义先例检索 "
+                "(给 query), impact=某决策影响的下游统计, rules=低置信度策略门, "
+                "export=审计导出, summary=最近记录摘要。审计/复盘/找先例时用。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["trace", "similar", "impact", "rules", "export", "summary"]},
+                    "decision_id": {"type": "string"},
+                    "query": {"type": "string"},
+                    "category": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["action"],
+            },
+            func=_decision_query,
+            max_result_chars=6000,
+        ),
+        dict(
+            name="graph_store",
+            description=(
+                "写上下文图 (实体-关系记忆): upsert_node 建/更新实体, add_edge 加关系边, "
+                "remove_node 软删。与 graph_query 配合, 把重要实体/关系沉淀为可遍历记忆。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string", "enum": ["upsert_node", "add_edge", "remove_node"]},
+                    "node_id": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "name": {"type": "string"},
+                    "rel": {"type": "string"},
+                    "other_id": {"type": "string"},
+                    "props": {"type": "string"},
+                },
+                "required": ["op"],
+            },
+            func=_graph_store,
+            max_result_chars=500,
+        ),
+        dict(
+            name="graph_query",
+            description=(
+                "读上下文图: neighbors=从某实体出发 hops 跳遍历子图 (回答什么相连/为什么/怎么连), "
+                "state_at=某时刻图快照, summary=图概览。实体间连接类问题优先于向量检索。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string", "enum": ["neighbors", "state_at", "summary"]},
+                    "node_id": {"type": "string"},
+                    "hops": {"type": "integer"},
+                    "timestamp": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["op"],
+            },
+            func=_graph_query,
+            max_result_chars=8000,
+        ),
+    ):
+        if not mt.has(spec["name"]):
+            mt.register(
+                name=spec["name"],
+                description=spec["description"],
+                parameters=spec["parameters"],
+                func=spec["func"],
+                max_result_chars=spec.get("max_result_chars", 4000),
+            )
+
+
+_register_internalized_tools(master_tools)
