@@ -566,7 +566,7 @@ def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
     resp = asyncio.run(hllm.llm_call(
         [{"role": "user", "content": "你是谁你能做什么"}],
         provider="veya1.1", model="veya1.1"))
-    # 先走 free 池候选 (deepseek/mimo), 空回复后落到 gpt-5.6-luna 兜底
+    # 先走 free 池候选 (deepseek/kimi-k2.7-code), 空回复后落到 gpt-5.6-luna 兜底
     assert calls[-1] == "gpt-5.6-luna", f"最后必须兜底到 gpt-5.6-luna, 实际 {calls}"
     msg = ((resp.get("choices") or [{}])[0].get("message") or {})
     assert msg.get("content") == "兜底成功回复"

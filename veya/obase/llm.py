@@ -169,7 +169,9 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             # 全失败 → 结构化错误消息 (error 标记跳过质量闸门), 绝不静默。
             # 另: default_content 是失败时的 stub (如 'opencode-go 调用失败'),
             # 必须与真实回答区分 — 否则错误消息被当有效内容返回且跳过兜底。
-            alt_models = ["opencode-go/mimo-v2.5", "opencode-go/deepseek-v4-flash"]
+            # 用户指示 (2026-08-16): 不用 mimo 系列（工具调用场景不稳定）。
+            # 备选换 kimi-k2.7-code（代码/agent 模型, 网关实测可用）。
+            alt_models = ["opencode-go/kimi-k2.7-code", "opencode-go/deepseek-v4-flash"]
             candidates = [model] + [m for m in alt_models if m != model]
             last_err = ""
             default = kwargs.get("default_content") or "opencode-go 调用失败"
