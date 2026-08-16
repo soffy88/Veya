@@ -38,13 +38,10 @@ class DebugSession(BaseModel):
 async def run_agent(req: RunAgentRequest):
     """Run an agent from VS Code (synchronous summary, no SSE)."""
     try:
-        from server.coordinator import Coordinator
+        from server.coordinator_master import master_coordinator
 
-        # Run agent via real coordinator handle()
-        coordinator = Coordinator()
-        result = await coordinator.handle(
-            {"text": req.input_text, "persona": req.agent, "project": req.project},
-            session_id=req.session_id,
+        result = await master_coordinator.chat_stream(
+            req.input_text, session_id=req.session_id
         )
         session_id = result.get("session_id", req.session_id or "")
         status = result.get("status", "completed")
@@ -89,23 +86,20 @@ async def run_stream(req: RunStreamRequest):
     import asyncio as _asyncio
     import uuid as _uuid
 
-    from server.coordinator import Coordinator
+    from server.coordinator_master import master_coordinator
     from server.sse import get_or_create_queue
 
     session_id = req.session_id or _uuid.uuid4().hex
     queue = get_or_create_queue(session_id)
-    # enable_streaming=False:SSE 闭环走 fire_step 通道(/stream 队列),
-    # 避免 StreamingManager 独立事件队列与 on_step 双通道不一致(G6)。
-    coordinator = Coordinator(enable_streaming=False)
 
     async def _run() -> None:
         try:
-            result = await coordinator.handle(
-                {"text": req.text, "persona": req.persona, "project": req.project or "."},
+            queue.on_step({"type": "session_start", "session_id": session_id})
+            result = await master_coordinator.chat_stream(
+                req.text,
                 session_id=session_id,
                 on_step=queue.on_step,
             )
-            # 终结事件:结构化汇总(SSEQueue 的 on_step 不丢事件)
             queue.on_step(
                 {"type": "task_done", "session_id": session_id, "result": _summarize_result(result)}
             )
@@ -125,6 +119,10 @@ _BG_TASKS: set = set()
 
 def _summarize_result(result: dict) -> str:
     """把结构化结果压成人类可读摘要。"""
+    final = result.get("final_answer")
+    if final:
+        cost = result.get("cost_usd", 0.0)
+        return f"{final}\ncost: ${cost:.4f}"
     lines: list[str] = []
     for squad in result.get("squads", []):
         role = squad.get("role", "?")
@@ -142,16 +140,14 @@ def _summarize_result(result: dict) -> str:
 async def get_session(session_id: str):
     """Get session details for VS Code(基于协调器流式/上下文管理器)。"""
     try:
-        from server.coordinator import Coordinator
+        from server.coordinator_master import master_coordinator
 
-        coordinator = Coordinator()
-        context = coordinator.context_managers.get(session_id)
-        stream = coordinator.streaming_managers.get(session_id)
-        history = context.get_history() if context else []
+        hist = getattr(getattr(master_coordinator, "_agent", None), "_histories", {}) or {}
+        messages = hist.get(session_id) or []
         return {
             "session_id": session_id,
-            "status": "active" if stream else "idle",
-            "messages": history,
+            "status": "active" if messages else "idle",
+            "messages": [m for m in messages if m.get("role") != "system"],
             "persona": "",
             "project": "",
         }
@@ -258,14 +254,12 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat")
 async def vscode_chat(req: ChatRequest):
-    """Simple chat interface for VS Code sidebar(真实 coordinator.handle)。"""
+    """Simple chat interface for VS Code sidebar (master brain)."""
     try:
-        from server.coordinator import Coordinator
+        from server.coordinator_master import master_coordinator
 
-        coordinator = Coordinator()
-        result = await coordinator.handle(
-            {"text": req.message, "persona": "build", "project": "."},
-            session_id=req.session_id,
+        result = await master_coordinator.chat_stream(
+            req.message, session_id=req.session_id
         )
         return {
             "session_id": result.get("session_id", req.session_id or ""),

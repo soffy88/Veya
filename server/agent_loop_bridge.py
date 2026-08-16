@@ -73,25 +73,31 @@ async def _relay_loop_events(barrier: Any, on_step: Callable | None = None) -> N
             if event.topic == "agent_loop.done":
                 break  # 自然退出：先处理完队列中的 tool_result 事件
             if event.topic == "agent_loop.tool_result":
-                _emit({
-                    "type": "tool_call",
-                    "tool_name": p.get("tool", ""),
-                    "status": "ok" if p.get("ok") else "error",
-                    "session_id": p.get("session_id", ""),
-                })
-                if not p.get("ok"):
-                    _emit({
-                        "type": "tool_error",
+                _emit(
+                    {
+                        "type": "tool_call",
                         "tool_name": p.get("tool", ""),
-                        "error": p.get("error", ""),
+                        "status": "ok" if p.get("ok") else "error",
                         "session_id": p.get("session_id", ""),
-                    })
+                    }
+                )
+                if not p.get("ok"):
+                    _emit(
+                        {
+                            "type": "tool_error",
+                            "tool_name": p.get("tool", ""),
+                            "error": p.get("error", ""),
+                            "session_id": p.get("session_id", ""),
+                        }
+                    )
             elif event.topic == "agent_loop.round":
-                _emit({
-                    "type": "progress",
-                    "session_id": p.get("session_id", ""),
-                    "round": p.get("round"),
-                })
+                _emit(
+                    {
+                        "type": "progress",
+                        "session_id": p.get("session_id", ""),
+                        "round": p.get("round"),
+                    }
+                )
         except Exception:  # noqa: BLE001 — 事件桥失败不阻断主流程
             pass
 
@@ -119,11 +125,16 @@ async def run_strict_chat(
     返回形态兼容旧 chat_stream：{status, final_answer, rounds, tool_calls,
     session_id, stop_kind, loop_plane}。
     """
+    from server import auth as auth_mod
     from server.tool_registry import master_tools
     from veya.obase.adapters import TelemetryEventBarrier
     from veya.omodul.agent_loop import AgentLoop
     from veya.omodul.session_tree import SessionTreeMgr
     from veya.omodul.tool_pipeline import ToolPipeline
+
+    # 会话归属: 已鉴权 user_id (由请求入口的 auth.get_current_user/set_user
+    # 设过 contextvar); 未登录落 anonymous, 与 history_store 隔离口径一致。
+    owner = auth_mod.current_user()["user_id"]
 
     # 空输入健壮性：路由层可能传入空串（旧路径容忍, 新路径需友好响应）
     if not user_prompt or not str(user_prompt).strip():
@@ -144,7 +155,8 @@ async def run_strict_chat(
         fn = master_tools._functions.get(name)  # noqa: SLF001 — registry 内部形态
         if fn is not None:
             pipeline.register(
-                name, fn,
+                name,
+                fn,
                 schema=spec["function"].get("parameters"),
                 description=spec["function"].get("description", ""),
             )
@@ -169,7 +181,7 @@ async def run_strict_chat(
         on_finish=on_finish,
     )
     try:
-        result = await loop.run(user_prompt, session_id=session_id)
+        result = await loop.run(user_prompt, session_id=session_id, owner=owner)
     finally:
         # 等待 relay 处理完排队事件（done 事件驱动自然退出）；超时兜底取消
         with contextlib.suppress(asyncio.TimeoutError):
@@ -186,6 +198,11 @@ async def run_strict_chat(
     return {
         "status": "success" if result.stop_kind in ("completed", "max_rounds") else "failed",
         "final_answer": result.final_answer,
+        # error 与旧路径 (master_agent.chat_stream) 返回形态对齐: chat_stream.py
+        # 的 _finish() 在 final_answer 为空时会退回 result.get("error") 兜底——
+        # 这里若不带上, AgentLoop 捕获到的具体失败原因 (LLM 调用异常等) 会在
+        # 这一层被悄悄丢弃, 只剩通用的"网关抖动"文案。
+        "error": result.error,
         "rounds": result.rounds,
         "tool_calls": tool_trace,
         "session_id": result.session_id,

@@ -43,12 +43,9 @@ def test_sse_flow_emits_lifecycle_events(client):
         if line.startswith("data:") and line != "data: [DONE]"
     ]
     types = [e.get("type") for e in events]
-    # 事件序列:开始 → 分队 → 输出 → 完成 → 汇总
     assert types[0] == "session_start"
-    assert "squad_start" in types
-    assert "text_delta" in types
-    assert "squad_done" in types
-    assert types[-1] == "task_done"
+    assert "task_done" in types or "master_done" in types
+    assert types[-1] in ("task_done", "master_done")
 
 
 def test_run_agent_sync_route(client):
@@ -78,4 +75,6 @@ def test_vscode_routes_do_not_use_dead_coordinator_api(client):
     with open(v.__file__, encoding="utf-8") as f:
         src = f.read()
     assert "coordinator.run(" not in src
+    assert "from server.coordinator import" not in src
+    assert "coordinator_master" in src
     assert "create_session(" not in src

@@ -50,179 +50,34 @@ def _slim_master_prompt(text: str) -> str:
     return text
 
 
-# 宿主能力段 (追加在主库 MASTER_SYSTEM_PROMPT 之后): 视频生产 (hevi + Open Design)。
-# 3O 铁律: 机制在主库, 此处仅装配层语境 — 主脑需知道 hevi 是视频生成专家、
-# 动画视频该走 mcp_hevi_* 管线 + mcp_od_* 项目承载, 而非自编 HTML/Three.js。
+# 宿主能力段: 短指令。机制在工具描述里, 这里只定分工, 避免和主库 SOP 互斥。
 _HOST_SOP_APPEND = r"""
-# VIDEO PRODUCTION (hevi + Open Design) — CRITICAL:
-You have TWO dedicated production systems integrated for video/animation work:
-1. **hevi** — the VIDEO GENERATION EXPERT (mcp_hevi_* tools). It owns the full
-   pipeline: story prediction, storyboard generation, multi-angle shots,
-   long-video generation, transitions, character consistency, comic-to-animation,
-   element editing (subtitles/particles/sfx), canvas execution. Do NOT hand-write
-   HTML/Three.js/React to fake a video — hevi is the real production surface.
-2. **Open Design** (mcp_od_* tools) — the project/deliverable carrier for
-   design & rendering work. Projects hold the script, scenes, assets and renders.
+# HANDS (when to use tools)
+Conceptual / design / writing / explanation: answer with ZERO tools.
+A tool that fails once: do not retry it with tweaked args. After 2 failures, answer from what you have.
+Follow-ups like 「继续 / 按你建议执行」: read THIS conversation; do not scan sessions or memories.
+Long text: read it yourself. URLs: `fetch_url` or `browser_run`. Never claim you cannot access a URL.
+Never output None/empty.
 
-# VIDEO ROUTING RULES (CRITICAL):
-1. [Any animation / video / film request — 动画/视频/影视]: treat it as a real
-   production job. First call `mcp_od_create_project` (or reuse an existing one
-   via `mcp_od_get_active_context`) to create a project that will carry the
-   deliverable. Then drive the hevi pipeline with `mcp_hevi_*` tools.
-2. Start by inspecting hevi capabilities (`mcp_hevi_hevi_list_capabilities`)
-   and the active project context, then pick the fitting tools — e.g.
-   `mcp_hevi_hevi_gen_storyboard` for shot planning, `mcp_hevi_hevi_generate_longvideo`
-   for the final render, `mcp_hevi_hevi_edit_video_elements` for subtitles /
-   particle effects / sound design.
-3. If the user names a style (水墨/ink-wash, 国风/Chinese-classical), a runtime
-   (精确 2 分钟), or specific elements (字幕/箭雨粒子/战鼓音效/播放控制), fold
-   them into the project brief, the storyboard and the hevi generation calls.
-4. Report progress through tool results; do not claim the video exists until a
-   hevi/od tool actually produced it.
+# CODE
+- Existing-code map / callers / past pitfalls: call `assemble_code_context` first (does not write).
+- Write / edit / run / test / refactor: `hicode_run` (the coding agent). Do not hand-write patches in chat.
+- Test-driven evolutionary search only when test_*.py exists AND the user asked to evolve until green: `evolve_solution`. Otherwise `hicode_run`.
+- Understand-only: `mcp_codebase_*` / grep / read_file_ast / long_read.
+- Resume: 「继续上次」→ `hicode_run(continue_=true)`. Rollback: `hicode_rollback`.
+- Multi-step work: `create_plan` then execute; mark each todo done/blocked with evidence.
 
-# KNOWLEDGE & CAPABILITY ROUTING (stratum + hevi + codebase) — CRITICAL:
-# CODE EXECUTION (hicode) — CRITICAL:
-`hicode_run` is the REAL CODE EXECUTOR (Hicode — a dedicated coding agent
-with its own planner/executor/sandbox/checkpoints, working in an isolated
-workspace). ROUTE any task that needs actual code changes here:
-[写代码/实现功能/修改代码/修 bug/跑测试/重构/搭项目/读代码库并动手改].
-- If the task will touch or create code files, call `hicode_run` directly with
-  a clear task + acceptance criteria. Do NOT hand-write code in chat.
-- `mcp_codebase_*` tools are for UNDERSTANDING code (index/search/call-graph/
-  blast-radius). Use them to scope a task, but hand the actual editing to hicode.
-- `hicode_run` is a long task (may take minutes). It returns the execution
-  summary + cost. `hicode_status` checks availability first if unsure.
-- Cross-turn: user says 「继续上次/接着做」→ `hicode_run(continue_=true)` resumes
-  the previous session. `hicode_sessions` lists history (machine ids);
-  `hicode_run(session_id=<id>)` resumes a specific one.
-- Rollback: user asks 「回滚/撤销最近一次」→ `hicode_rollback()` restores the
-  workspace to the pre-task git snapshot (auto-created before each run).
-- If hicode is unavailable, state the limitation instead of faking edits.
+# PLAN MODE
+If the user message starts with [PLAN MODE]: read-only. Explore, draft with `create_plan`, do NOT write or run code. Wait for agent mode.
 
-# NATIVE INTELLIGENCE FIRST (长文本 / URL / 直接回答) — CRITICAL:
-You have native long-text understanding and native tool-routing judgment. Rely on
-it. Do NOT refuse, truncate, or "need a tool" just because input is long.
-- Long text: READ it fully yourself and answer with your native intelligence.
-  Long input does NOT require a tool and must NEVER be dropped.
-- URLs (GitHub / docs / web pages): call `fetch_url` to read the page content
-  yourself, or `browser_run` when you need interaction (click/login). GitHub
-  repo links: `fetch_url` reads the README automatically. NEVER claim you cannot
-  access a URL — you have the tools.
-- You decide which tool to call — you are NOT limited by any keyword list.
-  Every tool in AVAILABLE TOOLS is yours. Call a tool only when you need real
-  physical action (fetch a page, read a file, run code, change code); answer
-  directly from native knowledge when the question is conceptual.
-- NEVER output "None"/empty. If a tool fails, read the error natively and adapt.
-  If you truly cannot complete, say so in Chinese with the reason + a suggestion.
+# VIDEO
+Animation / film: `mcp_od_*` project then `mcp_hevi_*`. Do not fake a video with HTML/Three.js.
 
-# TOOL DISCIPLINE (工具纪律 — 原生判断, 非规则) — CRITICAL:
-You decide whether tools are needed. These are the cases where they are NOT:
-- Design / plan / writing / explanation / conceptual / architecture tasks
-  (设计/方案/写作/解释/概念/架构/规划): answer DIRECTLY with ZERO tool calls.
-  You do not need market data to design a strategy, nor a file listing to
-  explain a concept. A design request gets a design, not a data fetch.
-- Before ANY tool call, ask: "Do I need real physical data that ONLY a tool
-  can provide (live prices, web content, code files, running code)?"
-  If native knowledge suffices → answer directly.
-- A tool that fails ONCE → do NOT retry it with different arguments. One failed
-  tool call (e.g. missing data file) means: switch tool or answer from what you
-  have. Retrying the same failing tool wastes turns and produces empty replies.
-- After 2 failed tool calls in a row, stop calling tools entirely and answer
-  from the information you already have.
-- Tools are hands, not reflexes: the fewer tools you see, the more native
-  intelligence is expected of you. Never call a tool just because it exists.
+# KNOWLEDGE
+Docs / PDF / notes / search: `mcp_stratum_*`.
 
-# UNDERSTAND-FIRST GATE (理解优先门 — 时机纪律) — CRITICAL:
-Before you have UNDERSTOOD the user's message together with the conversation
-context you ALREADY have, do NOT call external tools (MCP / status scans /
-memory lookups). Comprehension comes FIRST, from what is in front of you.
-Tools are permitted in exactly two moments:
-1. **Understanding-with-missing-material**: reading THIS message genuinely
-   requires external content you do not yet have (a URL/repo the user pasted,
-   a file they reference). Fetch that, then understand.
-2. **Execution**: you have understood and formed a plan — now tools are hands.
-"Scan sessions / list automations / search memories" is NOT case 1: the
-context you need for a follow-up like 「按你建议执行 / 继续」 is the PREVIOUS
-turn in THIS conversation — read it, do not go hunting external stores. If the
-user refers to your own earlier proposal, it is in the conversation history;
-act on it. Never answer "no target found / not persisted" when the target is
-one message above.
-
-You are the orchestrator over three sibling systems. Route by problem type:
-1. **stratum** (mcp_stratum_* tools) — the KNOWLEDGE EXPERT (AI 知识管家). It owns
-   PDF/EPUB/webpage/RSS ingestion, hybrid retrieval (BM25+vector), translation,
-   digests, concept graph, notes, memories, session context. Use it for:
-   [检索/查资料/翻译/摘要/笔记/知识库/概念图谱/RSS/文档理解/记忆上下文].
-   - `mcp_stratum_search_knowledge` — hybrid search the knowledge base
-   - `mcp_stratum_get_note` / `mcp_stratum_list_recent_notes` — notes
-   - `mcp_stratum_viking_read` / `viking_find` / `viking_grep` — layered knowledge
-   - `mcp_stratum_search_memories` / `build_context` — memory & context
-   - `mcp_stratum_record_decision` / `query_decisions` / `run_reasoning` —
-     DECISION INTELLIGENCE (决策账本): 重要决策/结论用 record_decision 落图
-     (可追溯/可审计/可先例检索); 决策前用 query_decisions 查先例;
-     run_reasoning 用规则对概念图做确定性推理。
-2. **hevi** (mcp_hevi_* tools) — the VIDEO/ANIMATION EXPERT (see VIDEO PRODUCTION).
-3. **codebase / built-in tools** — code, files, browser, office documents.
-4. **hicode** (hicode_run) — the CODE EXECUTOR (writes/edits/runs code).
-
-# ROUTING RULES (什么问题找谁):
-- 视频/动画/分镜/漫画/转场 → hevi (mcp_hevi_*) + Open Design 项目载体
-- 查资料/知识检索/翻译/摘要/笔记/PDF/网页/RSS → stratum (mcp_stratum_*)
-- 代码/文件/浏览器/办公文档 → codebase tools / 本地技能 (理解代码: mcp_codebase_*)
-- 需要实际写/改代码 → hicode_run (编码执行器, 在隔离工作区动手)
-- 跨领域任务 → 先用 stratum 检索背景知识, 再决定是否进入 hevi 生产管线
-- Do not invent tools that do not exist; if stratum/hevi are unavailable,
-  state the limitation instead of fabricating results.
-
-# STATE KERNEL (状态内核 — 长程任务控制面, CRITICAL):
-- `system_quota_should_run` — 无人值守/被唤醒时先判断「该不该动」:
-  deliver(有可推进 todo) / repair(有 blocked) / wait(无可推进);
-- `system_todo_claim` — 长任务交接: claim 未完成的 todo (带 lease TTL), 防多 agent 抢跑;
-- `system_gate_check` / `system_boundary_scan` / `system_terminal_gate_check` —
-  高影响动作前查 scoped 决策门 (风险/边界/终端), 不冻结全局;
-- 与 create_plan/update_todo 组合: 目标 → 拆解 → 逐项执行 → 交接/唤醒续做。
-
-# COGNITION PROTOCOL — PLANNING / LONG-DOC / INTENT (CRITICAL):
-## PLANNING PROTOCOL (复杂任务先拆解再执行):
-- 多步骤/跨文件/需验收的任务 (建系统、重构、研究报告、批量处理) 先
-  `create_plan` 拆解: objective=一句可验收目标, todos=3-10 个有依赖顺序的步骤
-  (assignee: 自己 | hicode | genesis)。返回 plan_id 后逐项执行。
-- 每完成一步立即 `update_todo(plan_id, todo_id, "done", evidence=验证结果)`;
-  卡住标 "blocked" 并说明原因, 不假装完成。
-- 跨轮续做/用户问「做到哪了」: 先 `plan_status()` 看未完成项, 只做剩下的,
-  不重复已 done 项。全部完成后可再调 `plan_status` 给用户看总览。
-- **执行与标记必须成对**: 每次执行 (hicode_run / delegate_to_genesis / 自己
-  完成) 返回后, 立即按真实结果逐个 `update_todo` (done + evidence=验证结果);
-  卡住的标 blocked 并说明原因。即使多个 todo 一次执行完, 也要逐一回填,
-  让 `plan_status` 始终反映真实进度。不要建完计划就丢下不管。
-- 简单任务 (≤2 步) 不要建计划, 直接做。
-## LONG-DOC PROTOCOL (超长内容先骨架后深入):
-- 文档/论文/长代码/网页超出上下文时, 先 `long_read(path)` 拿全局大纲 +
-  chunk 索引 (每块标题/符号/要点); 再按 chunk_id 深入原文。
-- 有明确关注点传 focus="关键词"; 需要语义提炼时对指定块 summarize=true。
-- 绝不把整篇超长文一次性塞进回答; 用骨架导航代替通读。
-## INTENT CLARIFICATION (模糊任务先结构化):
-- 复杂请求先自行解析 目标 / 约束 / 验收标准; 只有影响执行方向的关键歧义
-  才问用户 (最多 2 个问题), 其余按合理默认执行 (EXECUTE-WHEN-ASKED 优先)。
-- 长对话中用户补充/修正需求时, 若已建计划, 同步更新对应 todo 而非另起炉灶。
-## SCANNED-PDF PROTOCOL (扫描 PDF 处理):
-- PDF 提取文本为空 = 扫描件 (图像页无文本层, 不是读取失败)。
-- **禁止**自行在 run_in_sandbox 安装 OCR 库 (pip/apt 需网络, 沙箱
-  network_blocked + 1GB 内存 + 30s 超时 — 必然失败, 不要重试)。
-- 应明确告知用户: 「这是扫描 PDF, 需要 OCR 处理」; 建议转文本版或用外部
-  OCR 工具。不要反复尝试装库。
-
-## GRAPH-ENGINEER PROTOCOL (多引擎编排循环):
-- `system_graph_cycle` 是自纠正实现循环 (实现→质量门→批判→仲裁→修复→验证),
-  实现与批判引擎分离 (默认 codex 写 + claude 审, 不让写的人自评)。
-- 【何时用】用户要求: 复杂功能多轮打磨、代码审查后再交付、重构不改变行为、
-  高风险任务 (auth/支付/删除/并发/安全)、或说"打磨/优化/确保质量"时 —
-  优先 `system_graph_cycle` (多步) 或 `system_graph_review` (只读审查)。
-- 【先建计划】调用前先用 `system_plan_create` 建计划 (todo 列表), 循环在
-  未完成 todo 上跑, 每步状态实时上计划看板。
-- 【成本透明】会调外部引擎 CLI (订阅费用/耗时), 简单任务不要滥用; 简单实现
-  用 run_in_sandbox 即可。
-- 详细机制见工具描述 (PRE-FLIGHT/质量门/DEBATE 三分类/VERIFY 根因/Anti-loop)。
+# STATE
+Unattended wake: `system_quota_should_run`. High-impact: the user may have to approve in the UI — if a tool returns "user denied" or "plan mode", stop and explain.
 """
 
 # 主库 SOP 常量 re-export(兼容既有 import)
@@ -265,6 +120,7 @@ def _format_hicode_result(res: dict) -> str:
 # floor 抬到 16384 (是上限非成本, 短回答不多花) + 按末条 user 消息长度放大, 夹到 ceiling。
 _MASTER_TOK_FLOOR = int(os.environ.get("VEYA_MASTER_MAX_TOKENS_FLOOR", "16384"))
 _MASTER_TOK_CEILING = int(os.environ.get("VEYA_MASTER_MAX_TOKENS_CEILING", "32768"))
+DEFAULT_MAX_ROUNDS = int(os.environ.get("VEYA_MASTER_MAX_ROUNDS", "20"))
 
 
 def _last_user_len(messages: list) -> int:
@@ -284,6 +140,41 @@ def _adaptive_master_max_tokens(messages: list, current: int | None) -> int:
     """主脑本体 LLM 桥的自适应输出预算。不低于调用方已显式设定的值。"""
     budget = min(_MASTER_TOK_FLOOR + int(_last_user_len(messages) / 3.5), _MASTER_TOK_CEILING)
     return max(budget, current or 0)
+
+
+def _sanitize_final_answer(result: dict[str, Any]) -> dict[str, Any]:
+    """绝不静默: final_answer 为空/'None' 时按信息量从高到低兜底, 新旧两条主链
+
+    (旧 master_agent.chat_stream / 新 agent_loop_bridge.run_strict_chat) 返回
+    形态一致 (final_answer/error/tool_calls), 用同一份兜底逻辑覆盖两边——此前
+    只有旧路径的 result 会走到这里, 新主链 (VEYA_AGENT_LOOP=strict) 早退直接
+    return, 真实失败原因 (result['error']) 从未被用上, 用户只看到一句不带
+    任何诊断信息的"网关抖动"通用文案。
+    """
+    final = str(result.get("final_answer") or "").strip()
+    if final and final.lower() not in ("none", "null"):
+        return result
+    error = str(result.get("error") or "").strip()
+    tool_calls = result.get("tool_calls")
+    if error:
+        if tool_calls:
+            done = ", ".join(t.get("tool", "?") for t in tool_calls)
+            result["final_answer"] = (
+                f"⚠ {error}（已执行工具: {done}）。请重试, 或在上方更换模型/引擎。"
+            )
+        else:
+            result["final_answer"] = f"⚠ {error}。请重试, 或在上方更换模型/引擎。"
+    elif tool_calls:
+        done = ", ".join(t.get("tool", "?") for t in tool_calls)
+        result["final_answer"] = (
+            f"已执行工具: {done}。但收尾总结生成失败 (模型返回空内容), "
+            f"以上为实际执行结果; 可对我说「继续」让我接着整理。"
+        )
+    else:
+        result["final_answer"] = (
+            "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。请重试, 或在上方更换模型/引擎。"
+        )
+    return result
 
 
 class MasterCoordinator:
@@ -313,7 +204,7 @@ class MasterCoordinator:
         vault: Any | None = None,
         omni_gateway: Any | None = None,
         llm_fn: Callable | None = None,
-        max_rounds: int = 10,
+        max_rounds: int = DEFAULT_MAX_ROUNDS,
         temperature: float = 0.2,
         long_task_factory: Callable[[], Any] | None = None,
         history_store: Any | None = None,
@@ -410,8 +301,10 @@ class MasterCoordinator:
         # 工具守卫默认策略 (幂等): terminal/不可逆动作闸门, 缺省 observe 采样,
         # VEYA_TOOL_GATE_ENFORCE=1 翻 enforce。收口在统一守卫通道 tool_guard。
         from server.tool_guard_policies import install_default_tool_policies
+        from server.user_control import install_user_control_policy
 
         install_default_tool_policies()
+        install_user_control_policy()
 
     # ── 宿主注入 ─────────────────────────────────────────────────────
     async def _bound_llm(self, messages: list, **kwargs: Any) -> Any:
@@ -460,9 +353,23 @@ class MasterCoordinator:
         # (尊重调用方经 llm_kwargs 显式设的更高值)。
         kwargs["max_tokens"] = _adaptive_master_max_tokens(messages, kwargs.get("max_tokens"))
 
+        def _compact(msgs: list) -> list:
+            try:
+                budget = int(os.environ.get("VEYA_CONTEXT_TOKEN_BUDGET", "100000"))
+            except ValueError:
+                budget = 100000
+            if budget <= 0 or len(msgs) <= 4:
+                return msgs
+            try:
+                from veya.oskill.pure.context_compress import truncate_to_token_budget
+
+                return truncate_to_token_budget(msgs, max_tokens=budget)
+            except Exception:
+                return msgs
+
         async def _call(msgs: list) -> Any:
             return await self._llm_fn(
-                msgs,
+                _compact(msgs),
                 config=merged_cfg,
                 model=req_model or self.model,
                 provider=req_provider or self.provider,
@@ -571,11 +478,14 @@ class MasterCoordinator:
         model: str | None = None,
         endpoint: str | None = None,
         images: list[str] | None = None,
+        mode: str | None = None,
+        require_approval: bool = False,
     ) -> dict[str, Any]:
         """主脑主入口(委托主库 ReAct 循环)。
 
         on_step 经 contextvar 桥接: 主库 notify=fire_step 会自动命中。
         config/provider/model/endpoint 为请求级 LLM 覆盖(前端传入的 user key)。
+        mode=plan: 只读; require_approval: 高影响工具等用户点批准。
         """
         llm_kwargs = {}
         if config:
@@ -592,7 +502,24 @@ class MasterCoordinator:
         # SSE 链路 (new_agent_stream_events) 已 set(queue.on_step) 且不传参数
         # on_step → 参数为 None 时保留外层 contextvar, 否则覆盖 (master/chat 直调)。
         token = _on_step_ctx.set(on_step if on_step is not None else _on_step_ctx.get())
+        from server import user_control as _uc
+
+        uc_tokens = None
         try:
+            sid_early = session_id or uuid.uuid4().hex
+            session_id = sid_early
+            uc_tokens = _uc.activate(
+                mode=mode or "agent",
+                require_approval=require_approval,
+                session_id=sid_early,
+            )
+            if (mode or "").strip().lower() == "plan" and not user_prompt.lstrip().startswith(
+                "[PLAN MODE"
+            ):
+                user_prompt = (
+                    "[PLAN MODE — read-only. Explore and draft a plan. "
+                    "Do not write files, run code, or call hicode_run.]\n\n" + user_prompt
+                )
             # ── 严格 3O 主链切换 (VEYA_AGENT_LOOP=strict) ──
             # 默认旧主库路径（冻结架构）；flag 开启时走新 omodul 心脏：
             # master_tools 全量工具面 + 系统提示 + SSE 事件桥 + 会话树。
@@ -606,7 +533,7 @@ class MasterCoordinator:
                     self._memory_provider,
                     self._graft_provider,
                 ]
-                return await run_strict_chat(
+                strict_result = await run_strict_chat(
                     user_prompt,
                     session_id=session_id,
                     on_step=on_step,
@@ -616,6 +543,11 @@ class MasterCoordinator:
                     context_providers=providers,
                     on_finish=self._distill_after_strict,
                 )
+                # 新主链早退直接 return, 以前会跳过下面「绝不静默」兜底 (只对旧
+                # 路径的 result 生效) —— AgentLoop/run_strict_chat 已经把
+                # final_answer/error 修好了, 这里再过一遍同一兜底纯粹是双保险,
+                # 不应该有任何行为分叉。
+                return _sanitize_final_answer(strict_result)
             # ── 入口只有一个大模型: 零程序判断 ──
             # 所有请求 (长文本/URL/编程/视频/知识/设计…) 原样交给大模型,
             # 工具面全量透传 — 模型自主决定: 直接回答, 或调用哪个工具
@@ -631,8 +563,7 @@ class MasterCoordinator:
             await self._restore_history(sid)
             # P4: 检索相关长期记忆并注入 (空则无操作, 行为不变)
             await self._inject_memory(sid, user_prompt)
-            # 统一流水线 Phase 1: 自动注入 Graft 代码地图 + ReasoningBank 历史规则
-            # (空则无操作; 与 evolve_solution 的 Phase 3 共用持久库, 形成闭环)
+            # Graft 每轮预注入仅当 VEYA_GRAFT_CONTEXT=1; 默认由 assemble_code_context / hicode 按需装配
             await self._inject_graft_context(sid, user_prompt)
             # 长任务无损恢复: 循环运行期间定时快照 (主库在 _histories[sid] 原地
             # 累积每轮消息), 进程被杀也只丢最后一个快照间隔, 而非整轮工作。
@@ -654,22 +585,10 @@ class MasterCoordinator:
             await self._persist_history(sid)
             # P4: 后台蒸馏本轮对话为长期记忆 (不阻塞回答)
             self._schedule_distill(sid)
-            # 绝不静默: 模型返回空/'None' 且无工具执行 → 可见兜底话术
-            final = str(result.get("final_answer") or "").strip()
-            if not final or final.lower() in ("none", "null"):
-                if result.get("tool_calls"):
-                    done = ", ".join(t.get("tool", "?") for t in result["tool_calls"])
-                    result["final_answer"] = (
-                        f"已执行工具: {done}。但收尾总结生成失败 (模型返回空内容), "
-                        f"以上为实际执行结果; 可对我说「继续」让我接着整理。"
-                    )
-                else:
-                    result["final_answer"] = (
-                        "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。"
-                        "请重试, 或在上方更换模型/引擎。"
-                    )
-            return result
+            return _sanitize_final_answer(result)
         finally:
+            if uc_tokens is not None:
+                _uc.deactivate(uc_tokens)
             _on_step_ctx.reset(token)
 
     async def _restore_history(self, sid: str) -> None:
@@ -721,8 +640,16 @@ class MasterCoordinator:
     _MEM_PREFIX = "# MEMORY (关于用户"
 
     def _memory_user_id(self) -> str:
-        """记忆归属 (跨会话)。当前单用户本地部署用 'default'; 多用户可后扩。"""
-        return "default"
+        """记忆归属 (跨会话)。取当前请求已鉴权的 user_id (server.auth 的
+
+        contextvar，由 get_current_user/set_user 在请求入口处设置)；未登录
+        统一落 'anonymous'，与 history_store 的隔离口径一致。此前硬编码
+        'default'，导致所有账号的记忆读写都落进同一个桶——是当前默认路径
+        (不需要开任何 flag) 就在生效的跨账号记忆串味，2026-08-16 修复。
+        """
+        from server import auth as auth_mod
+
+        return auth_mod.current_user()["user_id"]
 
     async def _memory_provider(self, sid: str, query: str) -> str:
         """新主链上下文钩子：检索长期记忆 → 文本块（空记忆返回空串，无操作）。"""
@@ -745,8 +672,11 @@ class MasterCoordinator:
         if not self._memory_enabled:
             return
         filtered = [
-            m for m in msgs
-            if not (m.get("role") == "system" and str(m.get("content", "")).startswith(self._MEM_PREFIX))
+            m
+            for m in msgs
+            if not (
+                m.get("role") == "system" and str(m.get("content", "")).startswith(self._MEM_PREFIX)
+            )
         ]
         if len(filtered) < 3:  # 太短不值得蒸馏
             return

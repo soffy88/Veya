@@ -24,7 +24,6 @@ from typing import Any
 
 from config.loader import load_config
 from server.assembly import Infra
-from server.coordinator import coordinator
 
 # =====================================================================
 # headless 核心
@@ -43,13 +42,22 @@ async def headless_run(command: dict[str, Any]) -> dict[str, Any]:
           "squads": [...],            # 各分队结果(协调器模式)
         }
     """
-    result = await coordinator.handle(command)
+    from server.coordinator_master import master_coordinator
+
+    text = command.get("text") or command.get("task") or ""
+    result = await master_coordinator.chat_stream(
+        text,
+        session_id=command.get("session_id"),
+        mode=command.get("mode") or command.get("agent_mode") or "agent",
+    )
     return {
-        "status": result["status"],
+        "status": result.get("status", "failed"),
         "error": result.get("error"),
-        "output": _extract_output(result),
+        "output": result.get("final_answer") or _extract_output(result),
         "cost_usd": result.get("cost_usd", 0.0),
         "squads": result.get("squads", []),
+        "session_id": result.get("session_id"),
+        "final_answer": result.get("final_answer"),
     }
 
 
