@@ -21,7 +21,14 @@ _CKPT_DIR = _CHECKPOINT_DIR
 
 
 async def save_checkpoint(session_id: str, run_state: RunState) -> None:
-    """Serialize run_state to CheckpointData and append to JSONL file."""
+    """Serialize run_state to CheckpointData and append to JSONL file.
+
+    落盘时打上当前已鉴权用户 (server.auth 的 contextvar) 作为 owner；未登录
+    落 anonymous。2026-08-16 修复: 此前完全没有归属概念, 任何人凭 session_id
+    都能通过 /session/{id}/resume 续跑别人的 checkpoint。
+    """
+    from server import auth as auth_mod
+
     ckpt = make_checkpoint(run_state, session_id=session_id)
     path = _CKPT_DIR / f"{session_id}.jsonl"
     await jsonl_append(
@@ -31,12 +38,17 @@ async def save_checkpoint(session_id: str, run_state: RunState) -> None:
             "timestamp": ckpt.timestamp,
             "version": ckpt.version,
             "payload": ckpt.payload,
+            "owner": auth_mod.current_user()["user_id"],
         },
     )
 
 
 async def load_checkpoint(session_id: str) -> CheckpointData | None:
-    """Load the latest checkpoint for session_id. Returns CheckpointData or None."""
+    """Load the latest checkpoint for session_id. Returns CheckpointData or None.
+
+    owner=None 表示旧数据 (早于本次修复写入, 未记录归属)——调用方按此区分
+    "无主放行" vs "有主但不是你" (见 server/routes/session.py::resume_session)。
+    """
     path = _CKPT_DIR / f"{session_id}.jsonl"
     entry = await _read_latest(path)
     if entry is None:
@@ -46,6 +58,7 @@ async def load_checkpoint(session_id: str) -> CheckpointData | None:
         timestamp=entry["timestamp"],
         version=entry["version"],
         payload=entry["payload"],
+        owner=entry.get("owner"),
     )
 
 
