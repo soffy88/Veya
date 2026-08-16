@@ -19,6 +19,8 @@ class NotificationManager {
 	list = $state<VeyaNotification[]>([]);
 	#abort: AbortController | undefined;
 	#active = false;
+	/** 跨端同步: type="STREAM" 镜像帧交给此回调 (ChatConsole 注册), 不弹 toast。 */
+	streamHandler: ((sessionId: string, event: Record<string, unknown>) => void) | undefined;
 
 	add(notif: VeyaNotification) {
 		this.list = [...this.list, notif];
@@ -79,6 +81,13 @@ class NotificationManager {
 						if (payload.type === "DISMISS") {
 							const id = (payload.payload as Record<string, unknown> | undefined)?.id;
 							if (typeof id === "string") this.remove(id);
+							continue;
+						}
+						if (payload.type === "STREAM") {
+							// 跨端镜像帧: 不弹 toast, 交给 ChatConsole 应用到对应会话。
+							const sid = typeof payload.session_id === "string" ? payload.session_id : "";
+							const ev = payload.event as Record<string, unknown> | undefined;
+							if (sid && ev) this.streamHandler?.(sid, ev);
 							continue;
 						}
 						this.add(payload as unknown as VeyaNotification);
