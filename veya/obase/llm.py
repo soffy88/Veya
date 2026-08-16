@@ -38,12 +38,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # Re-export the extracted layers so ``veya.llm.<name>`` (import path +
 # monkeypatch surface) is unchanged after the god-module decomposition.
@@ -142,6 +145,96 @@ def _custom_proxy_url(provider: str) -> str | None:
     return None
 
 
+def _ensure_frontier_bridge(endpoint: str, *, timeout_s: float = 8.0) -> bool:
+    """确保本地 frontier 兜底桥 (opencodex, gpt-5.6-luna) 活着 — 探测 → 无则 spawn。
+
+    frontier 兜底是「绝不静默」的最后一道防线, 但此前只在 server/engine_runner.py
+    探测 codex 执行引擎可用性时被顺带 spawn (且仅容器内; 宿主机假设已由外部常驻
+    进程管理, 从不探测/拉起)。若该副作用从未触发 (未选过 codex 引擎), 桥进程不
+    存在, 兜底请求 connect-refused 后被调用处 `except Exception: pass` 静默吞掉,
+    导致 opencode-go 网关一抖动, 错误就直接漏给用户 (与选哪个候选模型无关)。
+    obase 是自洽底层, 不反向依赖 server.engine_runner — 这里自带一份幂等
+    探测/拉起, 与 engine_runner._ensure_container_opencodex 逻辑对齐但独立运行。
+    """
+    import urllib.parse
+    import urllib.request
+
+    parsed = urllib.parse.urlparse(endpoint)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 10100
+    if host not in ("127.0.0.1", "localhost"):
+        return True  # 自定义 VEYA_FRONTIER_ENDPOINT (非本地) 假定外部管理, 不干预
+
+    def _healthz() -> bool:
+        try:
+            with urllib.request.urlopen(f"http://{host}:{port}/healthz", timeout=0.5) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    if _healthz():
+        return True
+    bun = (
+        "/home/soffy/.nvm/versions/node/v26.4.0/lib/node_modules/"
+        "@bitkyc08/opencodex/node_modules/bun/bin/bun.exe"
+    )
+    cli = (
+        "/home/soffy/.nvm/versions/node/v26.4.0/lib/node_modules/"
+        "@bitkyc08/opencodex/src/cli/index.ts"
+    )
+    if not (os.path.isfile(bun) and os.path.isfile(cli)):
+        return False
+    import subprocess
+    import time
+
+    env = dict(os.environ)
+    if _in_container():
+        gw = _container_gateway_ip_for_proxy()
+        env.update(
+            {
+                "HTTPS_PROXY": f"http://{gw}:17890",
+                "HTTP_PROXY": f"http://{gw}:17890",
+                "NO_PROXY": "localhost,127.0.0.1",
+                "no_proxy": "localhost,127.0.0.1",
+            }
+        )
+    try:
+        subprocess.Popen(
+            [bun, cli, "start", "--port", str(port)],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        logger.warning("frontier 桥 (opencodex) spawn 失败: %s", exc)
+        return False
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if _healthz():
+            return True
+        time.sleep(0.4)
+    return False
+
+
+def _container_gateway_ip_for_proxy() -> str:
+    """容器 → 宿主网关 IP (探测可达网段), 无可达网段兜底默认值。"""
+    import urllib.error
+    import urllib.request
+
+    for gw in ("192.168.16.1", "172.18.0.1", "172.17.0.1"):
+        try:
+            with urllib.request.urlopen(f"http://{gw}:10101/v1/models", timeout=0.5) as resp:
+                if resp.status in (200, 401, 403):
+                    return gw
+        except urllib.error.HTTPError as exc:
+            if exc.code in (200, 401, 403):
+                return gw
+        except Exception:
+            continue
+    return "192.168.16.1"
+
+
 # ---------------------------------------------------------------------------
 # Framework-level entry points (used by compat, commands, TUI, routes)
 # ---------------------------------------------------------------------------
@@ -216,6 +309,9 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                 frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
                     "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
                 )
+                if not _ensure_frontier_bridge(frontier_endpoint):
+                    last_err = f"frontier 桥 (opencodex) 不可用: {frontier_endpoint}"
+                    raise RuntimeError(last_err)
                 resp = await llm_call(
                     payload["messages"],
                     config=kwargs.get("config"),
@@ -235,6 +331,9 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                         "reason": "opencode-go empty → gpt-5.6-luna",
                     }
                     return resp
+                # 无异常但内容仍空/等于 stub — 必须覆盖 last_err, 否则报错会
+                # 误导性地停留在上一个 opencode-go 候选模型上 (掩盖 frontier 才是真因)。
+                last_err = f"gpt-5.6-luna 兜底返回无效内容: {content!r}"
             except Exception as exc:  # noqa: BLE001 — 兜底失败也绝不静默
                 last_err = f"gpt-5.6-luna 兜底失败: {exc}"
             return {
@@ -289,6 +388,8 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
                 "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
             )
+            if not _ensure_frontier_bridge(frontier_endpoint):
+                raise RuntimeError(f"frontier 桥 (opencodex) 不可用: {frontier_endpoint}")
             resp = await llm_call(
                 messages,
                 config=kwargs.get("config"),
