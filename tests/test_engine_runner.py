@@ -62,6 +62,7 @@ async def test_container_blocks_claude_codex(monkeypatch):
     monkeypatch.setattr(er, "_container_codex_usable", lambda: False)
     monkeypatch.setattr(er, "_container_opencode_usable", lambda: False)
     monkeypatch.setattr(er, "_container_grok_usable", lambda: False)
+    monkeypatch.setattr(er, "_container_dsh_usable", lambda: False)
 
     engines = er.available_engines()
     assert set(engines) == {"master", "pi"}          # pi 凭据齐全 → 放行
@@ -127,6 +128,7 @@ async def test_container_pi_requires_credentials(monkeypatch):
     monkeypatch.setattr(er, "_container_codex_usable", lambda: False)
     monkeypatch.setattr(er, "_container_opencode_usable", lambda: False)
     monkeypatch.setattr(er, "_container_grok_usable", lambda: False)
+    monkeypatch.setattr(er, "_container_dsh_usable", lambda: False)
 
     assert set(er.available_engines()) == {"master"}
     result = await er.run_engine("pi", "hi", timeout_s=10)
@@ -169,6 +171,7 @@ def test_engines_endpoint_in_container(monkeypatch):
     monkeypatch.setattr(er, "_container_codex_usable", lambda: False)
     monkeypatch.setattr(er, "_container_opencode_usable", lambda: False)
     monkeypatch.setattr(er, "_container_grok_usable", lambda: False)
+    monkeypatch.setattr(er, "_container_dsh_usable", lambda: False)
     res = TestClient(app).get("/api/v1/engines")
     assert res.status_code == 200
     assert set(res.json()["engines"]) == {"master"}

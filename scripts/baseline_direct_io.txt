@@ -1,5 +1,5 @@
-cli/headless.py:105 FILE_R open
-cli/headless.py:114 FILE_W open
+cli/headless.py:113 FILE_R open
+cli/headless.py:122 FILE_W open
 cli/product.py:118 EXEC os.chmod
 cli/product.py:205 FILE_W Path.cwd
 cli/product.py:207 FILE_W Path(workspace).expanduser
@@ -43,6 +43,7 @@ security/validator.py:10 FILE_R open
 security/validator.py:2 EXEC/NET import 'urllib.parse'
 security/validator.py:47 FILE_W Path(file_path).resolve
 server/adversarial_chamber.py:44 FILE_W Path(output_dir).expanduser
+server/agent_loop_bridge.py:250 FILE_W Path.home
 server/agents/architect_tools.py:193 FILE_W Path(library_root).resolve
 server/agents/architect_tools.py:23 EXEC/NET import 'subprocess'
 server/agents/architect_tools.py:296 EXEC subprocess.run
@@ -82,38 +83,41 @@ server/codebase_memory.py:27 FILE_W Path.home
 server/codebase_memory.py:30 FILE_W Path.home
 server/codebase_memory.py:336 FILE_W Path(__file__).resolve
 server/codebase_memory.py:69 FILE_W Path(workspace_root).resolve
+server/context_graph.py:24 FILE_W Path.home
 server/coordinator.py:698 FILE_W Path(self._project_path).resolve
 server/coordinator.py:774 FILE_W Path(self._project_path).resolve
 server/darwin_evolution.py:50 FILE_W Path(state_dir).expanduser
-server/engine_runner.py:100 NET urllib.request.urlopen
-server/engine_runner.py:121 EXEC subprocess.Popen
-server/engine_runner.py:140 FILE_W shutil.which
-server/engine_runner.py:156 FILE_W shutil.which
-server/engine_runner.py:172 FILE_W shutil.which
-server/engine_runner.py:182 FILE_W shutil.which
-server/engine_runner.py:198 FILE_R Path(auth).read_text
-server/engine_runner.py:21 EXEC/NET import 'shutil'
-server/engine_runner.py:239 FILE_W shutil.which
-server/engine_runner.py:246 FILE_W shutil.which
-server/engine_runner.py:272 FILE_W shutil.which
-server/engine_runner.py:317 FILE_W shutil.which
-server/engine_runner.py:50 EXEC/NET import 'urllib.error'
-server/engine_runner.py:51 EXEC/NET import 'urllib.request'
-server/engine_runner.py:55 NET urllib.request.urlopen
-server/engine_runner.py:94 EXEC/NET import 'subprocess'
-server/engine_runner.py:96 EXEC/NET import 'urllib.request'
-server/hicode_agent.py:122 FILE_W shutil.which
-server/hicode_agent.py:126 FILE_W Path.home
-server/hicode_agent.py:144 EXEC/NET import 'subprocess'
-server/hicode_agent.py:146 EXEC subprocess.run
-server/hicode_agent.py:156 FILE_W Path(DEFAULT_WORKSPACE).expanduser
-server/hicode_agent.py:164 FILE_W Path(name_or_path).expanduser
+server/decision_ledger.py:28 FILE_W Path.home
+server/engine_runner.py:102 NET urllib.request.urlopen
+server/engine_runner.py:127 EXEC subprocess.Popen
+server/engine_runner.py:147 FILE_W shutil.which
+server/engine_runner.py:162 FILE_W shutil.which
+server/engine_runner.py:179 FILE_W shutil.which
+server/engine_runner.py:191 FILE_W shutil.which
+server/engine_runner.py:199 FILE_W shutil.which
+server/engine_runner.py:216 FILE_R Path(auth).read_text
+server/engine_runner.py:22 EXEC/NET import 'shutil'
+server/engine_runner.py:261 FILE_W shutil.which
+server/engine_runner.py:268 FILE_W shutil.which
+server/engine_runner.py:296 FILE_W shutil.which
+server/engine_runner.py:346 FILE_W shutil.which
+server/engine_runner.py:52 EXEC/NET import 'urllib.error'
+server/engine_runner.py:53 EXEC/NET import 'urllib.request'
+server/engine_runner.py:57 NET urllib.request.urlopen
+server/engine_runner.py:96 EXEC/NET import 'subprocess'
+server/engine_runner.py:98 EXEC/NET import 'urllib.request'
+server/hicode_agent.py:128 FILE_W shutil.which
+server/hicode_agent.py:132 FILE_W Path.home
+server/hicode_agent.py:150 EXEC/NET import 'subprocess'
+server/hicode_agent.py:152 EXEC subprocess.run
+server/hicode_agent.py:164 FILE_W Path(DEFAULT_WORKSPACE).expanduser
+server/hicode_agent.py:172 FILE_W Path(name_or_path).expanduser
 server/hicode_agent.py:28 EXEC/NET import 'shutil'
 server/hicode_agent.py:29 EXEC/NET import 'subprocess'
 server/hicode_agent.py:35 EXEC/NET import 'httpx'
-server/hicode_agent.py:444 EXEC subprocess.run
-server/hicode_agent.py:46 FILE_W Path.home
-server/hicode_agent.py:85 NET httpx.AsyncClient
+server/hicode_agent.py:44 FILE_W Path.home
+server/hicode_agent.py:481 EXEC subprocess.run
+server/hicode_agent.py:82 NET httpx.AsyncClient
 server/hicode_serve.py:107 NET httpx.AsyncClient
 server/hicode_serve.py:116 NET httpx.AsyncClient
 server/hicode_serve.py:25 EXEC/NET import 'httpx'
@@ -146,6 +150,8 @@ server/opencode_client.py:83 NET httpx.get
 server/openrsi.py:222 FILE_W os.makedirs
 server/openrsi.py:223 FILE_W open
 server/plan_todo.py:26 FILE_W Path.home
+server/project_ask.py:201 FILE_W shutil.which
+server/project_ask.py:41 EXEC/NET import 'shutil'
 server/quant_coprocessor.py:37 FILE_W Path(__file__).resolve
 server/routes/fs.py:122 FILE_W Path.home
 server/routes/fs.py:169 EXEC/NET import 'urllib.parse'
@@ -168,10 +174,10 @@ server/routes/research.py:55 EXEC/NET import 'tempfile'
 server/routes/security.py:170 FILE_R open
 server/routes/security.py:48 FILE_R open
 server/routes/security.py:97 FILE_R open
-server/routes/vscode.py:201 FILE_W Path.home
-server/routes/vscode.py:218 EXEC/NET import 'subprocess'
-server/routes/vscode.py:226 EXEC subprocess.run
-server/routes/vscode.py:238 EXEC subprocess.run
+server/routes/vscode.py:197 FILE_W Path.home
+server/routes/vscode.py:214 EXEC/NET import 'subprocess'
+server/routes/vscode.py:222 EXEC subprocess.run
+server/routes/vscode.py:234 EXEC subprocess.run
 server/sidecar_manager.py:16 EXEC/NET import 'shutil'
 server/sidecar_manager.py:17 EXEC/NET import 'subprocess'
 server/sidecar_manager.py:73 FILE_W shutil.which
