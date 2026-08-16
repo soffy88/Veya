@@ -74,7 +74,7 @@ class NotificationCenter:
         (e.g. after one tab approves/rejects a HITL_REQUIRED notification)."""
         self._messages.pop(notification_id, None)
         frame = {"type": "DISMISS", "payload": {"id": notification_id}}
-        for q in list(self._clients):
+        for q, _uid in list(self._clients):
             q.put_nowait(frame)
 
     async def stream(self, user_id: str = "") -> AsyncIterator[str]:
