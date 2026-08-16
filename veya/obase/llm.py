@@ -341,10 +341,15 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                         tools=_core_tool_schemas(payload.get("tools")),
                         default_content="gpt-5.6-luna 兜底失败",
                     )
-                    content = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
-                        "content"
-                    ) or ""
-                    if content.strip() and content.strip().lower() not in ("none", "null"):
+                    fmsg = (resp.get("choices") or [{}])[0].get("message") or {}
+                    content = fmsg.get("content") or ""
+                    ftool_calls = fmsg.get("tool_calls") or []
+                    # tool_calls 场景 content 为空是合法的 (模型把输出放 tool_calls) —
+                    # 与 opencode-go 候选循环同款判断, 不可当无效内容拒绝, 否则
+                    # 带工具且该调工具的请求会被确定性误杀 (重试也救不了)。
+                    if ftool_calls or (
+                        content.strip() and content.strip().lower() not in ("none", "null")
+                    ):
                         resp["router"] = {
                             "route": "frontier_fallback",
                             "reason": "opencode-go empty → gpt-5.6-luna",
@@ -426,8 +431,12 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
                 tools=_core_tool_schemas(kwargs.get("tools")),
                 default_content="gpt-5.6-luna 兜底失败",
             )
-            c2 = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-            if c2.strip() and c2.strip().lower() not in ("none", "null"):
+            m2 = (resp.get("choices") or [{}])[0].get("message") or {}
+            c2 = m2.get("content") or ""
+            # tool_calls 场景 content 空是合法的 — 与候选循环同款判断, 不误杀。
+            if (m2.get("tool_calls")) or (
+                c2.strip() and c2.strip().lower() not in ("none", "null")
+            ):
                 resp["router"] = {"route": "frontier_fallback", "reason": "empty → gpt-5.6-luna"}
                 return resp
         except Exception:  # noqa: BLE001 — 兜底失败仍返回原结果 (后续各层继续兜底)
