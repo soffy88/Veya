@@ -17,13 +17,21 @@ for lib in ("oprim", "omodul", "oservi", "obase", "oskill"):
 # oprim._llm_router — 档位分类与矩阵
 # =========================================================================
 
+
 def test_route_vision_to_dashscope():
     from oprim._llm_router import route_decision
 
-    d = route_decision([{"role": "user", "content": [
-        {"type": "text", "text": "看这张图"},
-        {"type": "image_url", "image_url": {"url": "data:image/png;base64,xxx"}},
-    ]}])
+    d = route_decision(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "看这张图"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,xxx"}},
+                ],
+            }
+        ]
+    )
     assert d["route"] == "vision"
     assert d["provider"] == "dashscope"
     assert d["model"] == "qwen3.7-flash"
@@ -33,7 +41,7 @@ def test_route_text_to_opencode_flash():
     from oprim._llm_router import route_decision
 
     d = route_decision([{"role": "user", "content": "你好"}])
-    assert d["route"] == "quick"          # <300 tokens
+    assert d["route"] == "quick"  # <300 tokens
     assert d["provider"] == "opencode"
     assert d["model"] == "opencode-go/deepseek-v4-flash"
 
@@ -41,7 +49,7 @@ def test_route_text_to_opencode_flash():
 def test_route_long():
     from oprim._llm_router import route_decision
 
-    long_text = "长文" * 15000              # 30000 chars → ~8500 tokens > 6000 阈值
+    long_text = "长文" * 15000  # 30000 chars → ~8500 tokens > 6000 阈值
     d = route_decision([{"role": "user", "content": long_text}])
     assert d["route"] == "long"
 
@@ -49,8 +57,10 @@ def test_route_long():
 def test_route_tool_and_code():
     from oprim._llm_router import route_decision
 
-    d = route_decision([{"role": "user", "content": "调用工具"}],
-                       tools=[{"type": "function", "function": {"name": "x"}}])
+    d = route_decision(
+        [{"role": "user", "content": "调用工具"}],
+        tools=[{"type": "function", "function": {"name": "x"}}],
+    )
     assert d["route"] == "tool"
     d2 = route_decision([{"role": "user", "content": "def foo():\n    return 1"}])
     assert d2["route"] == "code"
@@ -62,7 +72,7 @@ def test_route_fallback_on_bad_matrix(tmp_path):
     bad = tmp_path / "llm-router.json"
     bad.write_text("{not json")
     m = load_matrix(str(bad))
-    assert m["fallback"]["model"] == "opencode-go/deepseek-v4-flash"   # 损坏 → 默认
+    assert m["fallback"]["model"] == "opencode-go/deepseek-v4-flash"  # 损坏 → 默认
     d = route_decision([{"role": "user", "content": "x"}], matrix=m)
     assert d["provider"] == "opencode"
 
@@ -76,14 +86,16 @@ def test_matrix_hot_reload(tmp_path):
     assert m1["routes"]["text"]["model"] == "gpt-x"
     f.write_text('{"routes": {"text": {"provider": "openai", "model": "gpt-y"}}}')
     import time as _t
+
     _t.sleep(0.01)
     m2 = load_matrix(str(f))
-    assert m2["routes"]["text"]["model"] == "gpt-y"        # mtime 热重载
+    assert m2["routes"]["text"]["model"] == "gpt-y"  # mtime 热重载
 
 
 # =========================================================================
 # oprim._parallel_llm — 切分与并行聚合
 # =========================================================================
+
 
 def test_split_prompt_paragraphs():
     from oprim._parallel_llm import split_prompt
@@ -114,8 +126,8 @@ def test_parallel_dispatch_speedup_and_failure_isolation():
     r, elapsed = asyncio.run(run())
     assert r["parallel"] is True
     assert r["chunks"] == 4
-    assert elapsed < 0.5                      # 并行 ≈ 单段 0.15s, 远小于串行 0.6s
-    assert "未完成" in r["aggregated"]        # 失败段标记 (不阻塞聚合)
+    assert elapsed < 0.5  # 并行 ≈ 单段 0.15s, 远小于串行 0.6s
+    assert "未完成" in r["aggregated"]  # 失败段标记 (不阻塞聚合)
     assert "第 3 部分" in r["aggregated"]
     assert r["partial"].count(True) == 3
 
@@ -133,6 +145,7 @@ def test_parallel_short_prompt_passthrough():
 # =========================================================================
 # oskill.llm_router — 技能编排 + 审计
 # =========================================================================
+
 
 def test_llm_router_audit_and_route(tmp_path):
     from oskill.llm_router import LLMRouter
@@ -153,11 +166,12 @@ def test_call_aliased_short_single_call():
 
     async def caller(payload):
         calls.append(payload)
-        return {"choices": [{"message": {"role": "assistant", "content": "正常回复内容"}}],
-                "usage": {}}
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "正常回复内容"}}],
+            "usage": {},
+        }
 
-    r = asyncio.run(router.call_aliased(
-        [{"role": "user", "content": "hi"}], caller))
+    r = asyncio.run(router.call_aliased([{"role": "user", "content": "hi"}], caller))
     assert len(calls) == 1
     assert calls[0]["provider"] == "opencode"
     assert calls[0]["model"] == "opencode-go/deepseek-v4-flash"
@@ -172,13 +186,13 @@ def test_call_aliased_long_parallel():
 
     async def caller(payload):
         calls.append(payload)
-        return {"choices": [{"message": {"role": "assistant",
-                                         "content": f"回复{len(calls)}"}}],
-                "usage": {}}
+        return {
+            "choices": [{"message": {"role": "assistant", "content": f"回复{len(calls)}"}}],
+            "usage": {},
+        }
 
-    long = "\n\n".join("内容" * 3000 for _ in range(8))          # 24000 chars → long 档并行
-    r = asyncio.run(router.call_aliased(
-        [{"role": "user", "content": long}], caller))
+    long = "\n\n".join("内容" * 3000 for _ in range(8))  # 24000 chars → long 档并行
+    r = asyncio.run(router.call_aliased([{"role": "user", "content": long}], caller))
     assert r["parallel"] is True
     assert len(calls) > 1
     assert "【第 1 部分】" in r["output"]
@@ -188,6 +202,7 @@ def test_call_aliased_long_parallel():
 # veya/llm.py 别名接线 (mock provider_call)
 # =========================================================================
 
+
 def test_llm_call_veya11_alias_routes_to_opencode(monkeypatch):
     """llm_call(model=veya1.1) → opencode 档 key 直连 (mock provider_call)。"""
     from veya import llm as hllm
@@ -195,22 +210,24 @@ def test_llm_call_veya11_alias_routes_to_opencode(monkeypatch):
     seen: list[dict] = []
 
     async def fake_provider_call(client, provider, **kw):
-        seen.append({"provider": provider, "model": kw["model"],
-                     "endpoint": kw.get("endpoint")})
-        return {"choices": [{"message": {"role": "assistant",
-                                           "content": "routed-ok"}}],
-                "usage": {}}
+        seen.append({"provider": provider, "model": kw["model"], "endpoint": kw.get("endpoint")})
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "routed-ok"}}],
+            "usage": {},
+        }
 
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ,
-                                       "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
 
-    result = asyncio.run(hllm.llm_call(
-        [{"role": "user", "content": "你好"}],
-        provider="veya1.1", model="veya1.1",
-    ))
+    result = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你好"}],
+            provider="veya1.1",
+            model="veya1.1",
+        )
+    )
     assert seen and seen[0]["provider"] == "opencode-go"
-    assert seen[0]["model"] == "deepseek-v4-flash"   # 裸 ID (API 不接受前缀)
+    assert seen[0]["model"] == "deepseek-v4-flash"  # 裸 ID (API 不接受前缀)
     assert seen[0]["endpoint"] == "https://opencode.ai/zen/go/v1/chat/completions"
     assert result["choices"][0]["message"]["content"] == "routed-ok"
 
@@ -222,14 +239,20 @@ def test_llm_call_veya11_opencode_failure_returns_error(monkeypatch):
     async def boom(client, provider, **kw):
         raise RuntimeError("网络抖动")
 
-    monkeypatch.setattr(hllm, "provider_call", boom)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ,
-                                       "OPENCODE_API_KEY": "sk-test"})
+    async def _no_sleep(*_a, **_kw):
+        return None
 
-    result = asyncio.run(hllm.llm_call(
-        [{"role": "user", "content": "你好"}],
-        provider="veya1.1", model="veya1.1",
-    ))
+    monkeypatch.setattr(hllm, "provider_call", boom)
+    monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
+    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
+
+    result = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你好"}],
+            provider="veya1.1",
+            model="veya1.1",
+        )
+    )
     content = result["choices"][0]["message"]["content"]
     assert "opencode-go 调用失败" in content
 
@@ -245,13 +268,15 @@ def test_llm_call_veya11_direct_opencode(monkeypatch):
         return {"choices": [{"message": {"content": "opencode-ok"}}], "usage": {}}
 
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ,
-                                       "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
 
-    resp = asyncio.run(hllm.llm_call(
-        [{"role": "user", "content": "你是谁你能做什么"}],
-        provider="veya1.1", model="veya1.1",
-    ))
+    resp = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你是谁你能做什么"}],
+            provider="veya1.1",
+            model="veya1.1",
+        )
+    )
     # 直连 opencode-go (不再路由到 dashscope/其他模型)
     assert seen and seen[0]["provider"] == "opencode-go"
     assert seen[0]["model"] == "deepseek-v4-flash"
@@ -261,6 +286,7 @@ def test_llm_call_veya11_direct_opencode(monkeypatch):
 # =========================================================================
 # 分层路由 v2 — 动态成本阈值 / Frontier 档 / 质量闸门 / traces 分析
 # =========================================================================
+
 
 def test_route_frontier_on_security_keywords():
     from oprim._llm_router import route_decision
@@ -274,32 +300,34 @@ def test_route_frontier_on_security_keywords():
 def test_route_high_priority_complex_goes_frontier():
     from oprim._llm_router import route_decision
 
-    d = route_decision([{"role": "user", "content": "证明费马小定理"}],
-                       priority="high")
-    assert d["route"] == "frontier"          # high + reason → frontier
+    d = route_decision([{"role": "user", "content": "证明费马小定理"}], priority="high")
+    assert d["route"] == "frontier"  # high + reason → frontier
 
 
 def test_route_low_priority_locks_cheap():
     from oprim._llm_router import route_decision
 
-    d = route_decision([{"role": "user", "content": "def foo():\n    return 1"}],
-                       priority="low")
-    assert d["route"] == "text"              # low 价值 → 锁廉价档
+    d = route_decision([{"role": "user", "content": "def foo():\n    return 1"}], priority="low")
+    assert d["route"] == "text"  # low 价值 → 锁廉价档
 
 
 def test_route_budget_cap_downgrades():
     from oprim._llm_router import route_decision
 
-    d = route_decision([{"role": "user", "content": "证明欧拉公式"}],
-                       priority="normal", budget=0.001)
-    assert d["route"] == "text"              # reason 成本超预算 → 降档
+    d = route_decision(
+        [{"role": "user", "content": "证明欧拉公式"}], priority="normal", budget=0.001
+    )
+    assert d["route"] == "text"  # reason 成本超预算 → 降档
 
 
 def test_quality_gate_detects_low_quality():
     from oprim._quality_gate import quality_check
 
     assert quality_check({"choices": [{"message": {"content": ""}}]})["ok"] is False
-    assert quality_check({"choices": [{"message": {"content": "LLM provider not configured"}}]})["ok"] is False
+    assert (
+        quality_check({"choices": [{"message": {"content": "LLM provider not configured"}}]})["ok"]
+        is False
+    )
     assert quality_check({"choices": [{"message": {"content": "好的回答内容"}}]})["ok"] is True
 
 
@@ -313,14 +341,17 @@ def test_call_aliased_gate_upgrade_retry():
     async def caller(payload):
         calls.append(payload)
         if len(calls) == 1:
-            return {"choices": [{"message": {"role": "assistant", "content": "shim response"}}],
-                    "usage": {}}
-        return {"choices": [{"message": {"role": "assistant", "content": "高质量回答"}}],
-                "usage": {}}
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "shim response"}}],
+                "usage": {},
+            }
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "高质量回答"}}],
+            "usage": {},
+        }
 
-    r = asyncio.run(router.call_aliased(
-        [{"role": "user", "content": "你好"}], caller))
-    assert len(calls) == 2                      # 升级重试 1 次
+    r = asyncio.run(router.call_aliased([{"role": "user", "content": "你好"}], caller))
+    assert len(calls) == 2  # 升级重试 1 次
     assert calls[0]["model"] == "opencode-go/deepseek-v4-flash"
     assert calls[1]["model"] == "gpt-5.6-luna"
     assert r["gate"]["reason"] == "upgraded"
@@ -334,11 +365,9 @@ def test_call_aliased_gate_pass_no_retry():
 
     async def caller(payload):
         calls.append(payload)
-        return {"choices": [{"message": {"role": "assistant", "content": "正常回答"}}],
-                "usage": {}}
+        return {"choices": [{"message": {"role": "assistant", "content": "正常回答"}}], "usage": {}}
 
-    r = asyncio.run(router.call_aliased(
-        [{"role": "user", "content": "你好"}], caller))
+    r = asyncio.run(router.call_aliased([{"role": "user", "content": "你好"}], caller))
     assert len(calls) == 1
     assert r["gate"]["ok"] is True
 
@@ -348,20 +377,25 @@ def test_trace_analysis_identifies_fixed_flow(tmp_path):
     import subprocess
 
     audit = tmp_path / "llm-router.jsonl"
-    lines = ['{"route": "text", "provider": "deepseek", "model": "deepseek-v4-flash", "ts": 1}'
-             ] * 6 + ['{"action": "gate_upgrade", "route": "text", "ts": 2}',
-                      '{"route": "vision", "provider": "dashscope", "model": "qwen3.7-flash", "ts": 3}']
+    lines = [
+        '{"route": "text", "provider": "deepseek", "model": "deepseek-v4-flash", "ts": 1}'
+    ] * 6 + [
+        '{"action": "gate_upgrade", "route": "text", "ts": 2}',
+        '{"route": "vision", "provider": "dashscope", "model": "qwen3.7-flash", "ts": 3}',
+    ]
     audit.write_text("\n".join(lines) + "\n", encoding="utf-8")
     r = subprocess.run(
         [sys.executable, "scripts/analyze_router_traces.py", str(audit), "--json"],
-        capture_output=True, text=True, timeout=60)
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert r.returncode == 0, r.stderr
     data = json.loads(r.stdout)
-    assert data["entries"] == 8          # 6 路由 + 1 动作 + 1 vision
+    assert data["entries"] == 8  # 6 路由 + 1 动作 + 1 vision
     assert data["gate_upgrades"] == 1
     cand = data["fixed_flow_candidates"]
-    assert any(c["route"] == "text" and "deepseek" in c["provider_model"]
-               for c in cand)
+    assert any(c["route"] == "text" and "deepseek" in c["provider_model"] for c in cand)
 
 
 def test_dispatch_long_planner_chain():
@@ -376,35 +410,50 @@ def test_dispatch_long_planner_chain():
     async def caller(payload):
         calls.append(payload)
         if "gpt-5.6-luna" in payload["model"]:
-            content = ("1. 分析需求\n2. 设计方案\n" if "任务拆解" in payload["messages"][0]["content"]
-                       else "综合回答: 方案已确认")
+            content = (
+                "1. 分析需求\n2. 设计方案\n"
+                if "任务拆解" in payload["messages"][0]["content"]
+                else "综合回答: 方案已确认"
+            )
         else:
             content = f"执行片段 {len(calls)}"
-        return {"choices": [{"message": {"role": "assistant", "content": content}}],
-                "usage": {}}
+        return {"choices": [{"message": {"role": "assistant", "content": content}}], "usage": {}}
 
     async def planner(text, phase):
-        res = await caller({"provider": "openai", "model": "gpt-5.6-luna",
-                            "messages": [{"role": "user",
-                                          "content": ("任务拆解规划:\n" if phase == "plan"
-                                                      else "综合:\n") + text}],
-                            "tools": None})
+        res = await caller(
+            {
+                "provider": "openai",
+                "model": "gpt-5.6-luna",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": ("任务拆解规划:\n" if phase == "plan" else "综合:\n") + text,
+                    }
+                ],
+                "tools": None,
+            }
+        )
         content = res["choices"][0]["message"]["content"]
         return {"ok": bool(content), "output": content}
 
     async def chunk_caller(chunk, idx):
-        res = await caller({"provider": "opencode", "model": "opencode-go/deepseek-v4-flash",
-                            "messages": [{"role": "user", "content": chunk}], "tools": None})
+        res = await caller(
+            {
+                "provider": "opencode",
+                "model": "opencode-go/deepseek-v4-flash",
+                "messages": [{"role": "user", "content": chunk}],
+                "tools": None,
+            }
+        )
         content = res["choices"][0]["message"]["content"]
         return {"ok": bool(content), "output": content}
 
     long = "\n\n".join("内容" * 3000 for _ in range(8))
-    r = asyncio.run(router.dispatch_long(long, chunk_caller, planner=planner,
-                                         max_parallel=4))
+    r = asyncio.run(router.dispatch_long(long, chunk_caller, planner=planner, max_parallel=4))
     assert r["parallel"] is True
-    assert r.get("planner") is True                     # 深度规划链
-    assert len(r.get("plan", [])) >= 2                  # 强模型规划产出任务列表
-    assert "综合回答" in r["output"]                     # 强模型聚合结果
+    assert r.get("planner") is True  # 深度规划链
+    assert len(r.get("plan", [])) >= 2  # 强模型规划产出任务列表
+    assert "综合回答" in r["output"]  # 强模型聚合结果
     strong = [c for c in calls if "gpt-5.6-luna" in c["model"]]
     flash = [c for c in calls if "deepseek-v4-flash" in c["model"]]
     assert len(strong) >= 2 and len(flash) >= 1
@@ -414,12 +463,13 @@ def test_get_provider_config_user_config_fallback(monkeypatch):
     """无显式参数时 model 兜底读 ~/.veya/config.json llm 段 (主脑默认 veya1.1)。"""
     from veya import llm as hllm
 
-    monkeypatch.setattr(hllm, "_user_llm_config",
-                        lambda: {"provider": "veya1.1", "model": "veya1.1"})
+    monkeypatch.setattr(
+        hllm, "_user_llm_config", lambda: {"provider": "veya1.1", "model": "veya1.1"}
+    )
     monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
     monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
     p, m = hllm.get_provider_config()
-    assert m == "veya1.1"          # config.json 兜底生效
+    assert m == "veya1.1"  # config.json 兜底生效
 
 
 def test_get_provider_config_no_user_config(monkeypatch):
@@ -445,20 +495,24 @@ def test_llm_call_veya11_opencode_none_content_retries_and_errors(monkeypatch):
     async def flaky_provider_call(client, provider, **kw):
         calls.append(kw["model"])
         # 所有模型都返回无效内容
-        return {"choices": [{"message": {"role": "assistant",
-                                           "content": "None"}}],
-                "usage": {}}
+        return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
+
+    async def _no_sleep(*_a, **_kw):
+        return None
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ,
-                                       "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
+    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
 
-    result = asyncio.run(hllm.llm_call(
-        [{"role": "user", "content": "以动画形式生成草船借箭的2分钟视频"}],
-        provider="veya1.1", model="veya1.1",
-    ))
-    # 重试了备用模型 (deepseek → kimi-k2.7-code → deepseek 三候选) + gpt-5.6-luna 兜底
-    assert calls == ["deepseek-v4-flash", "kimi-k2.7-code", "gpt-5.6-luna"]
+    result = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "以动画形式生成草船借箭的2分钟视频"}],
+            provider="veya1.1",
+            model="veya1.1",
+        )
+    )
+    # 网关抖动: 候选模型 (deepseek/kimi-k2.7-code) 整轮重试 3 轮仍无效 → gpt-5.6-luna 兜底
+    assert calls == ["deepseek-v4-flash", "kimi-k2.7-code"] * 3 + ["gpt-5.6-luna"]
     content = result["choices"][0]["message"]["content"]
     assert "opencode-go 调用失败" in content
     assert "无效内容" in content
@@ -474,21 +528,22 @@ def test_llm_call_veya11_opencode_none_then_good_returns_good(monkeypatch):
     async def flaky_provider_call(client, provider, **kw):
         calls.append(kw["model"])
         if kw["model"] == "deepseek-v4-flash":
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "None"}}],
-                    "usage": {}}
-        return {"choices": [{"message": {"role": "assistant",
-                                           "content": "备用模型正常回复"}}],
-                "usage": {}}
+            return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "备用模型正常回复"}}],
+            "usage": {},
+        }
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ,
-                                       "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
 
-    result = asyncio.run(hllm.llm_call(
-        [{"role": "user", "content": "你好"}],
-        provider="veya1.1", model="veya1.1",
-    ))
+    result = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你好"}],
+            provider="veya1.1",
+            model="veya1.1",
+        )
+    )
     assert calls == ["deepseek-v4-flash", "kimi-k2.7-code"]
     assert result["choices"][0]["message"]["content"] == "备用模型正常回复"
     assert not result.get("error")

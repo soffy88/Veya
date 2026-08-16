@@ -268,43 +268,56 @@ async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
             candidates = [model] + [m for m in alt_models if m != model]
             last_err = ""
             default = kwargs.get("default_content") or "opencode-go 调用失败"
-            for cand in candidates:
-                _, _, cand_bare = cand.partition("/")
-                cand_bare = cand_bare or cand
-                try:
-                    resp = await llm_call(
-                        payload["messages"],
-                        config=kwargs.get("config"),
-                        provider="opencode-go",
-                        model=cand_bare,
-                        endpoint="https://opencode.ai/zen/go/v1",
-                        tools=payload.get("tools"),
-                        default_content=default,
+            # 网关抖动通常是瞬时的 (几秒内自愈) — 候选模型轮完一遍仍全部
+            # 空/无效时, 不直接判死刑: 等一下再整轮重来, 给网关喘息时间。
+            # 轮次间指数退避, 轮数收敛 (绝不无限重试); 用户不该在这里被
+            # 硬报错卡住 (用户反馈 2026-08-16: 抖动应等待重试, 不能报错即停)。
+            _retry_rounds = 3
+            for round_idx in range(_retry_rounds):
+                for cand in candidates:
+                    _, _, cand_bare = cand.partition("/")
+                    cand_bare = cand_bare or cand
+                    try:
+                        resp = await llm_call(
+                            payload["messages"],
+                            config=kwargs.get("config"),
+                            provider="opencode-go",
+                            model=cand_bare,
+                            endpoint="https://opencode.ai/zen/go/v1",
+                            tools=payload.get("tools"),
+                            default_content=default,
+                        )
+                    except Exception as exc:  # 网络/鉴权失败 → 换模型重试
+                        last_err = str(exc)
+                        continue
+                    content = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
+                        "content"
+                    ) or ""
+                    tool_calls = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
+                        "tool_calls"
+                    ) or []
+                    # 有 tool_calls 的响应 content 为空是合法的 (opencode 模型把
+                    # 输出放 reasoning_content + tool_calls) — 不可误判为无效。
+                    # stub 检测: 返回 default_content 说明网关失败, 继续下一候选。
+                    if (
+                        (not content.strip() and not tool_calls)
+                        or content.strip().lower() in ("none", "null")
+                        or (content.strip() and content.strip() == default and not tool_calls)
+                    ):
+                        last_err = f"opencode-go {cand_bare} 返回无效内容: {content!r}"
+                        continue
+                    return resp
+                if round_idx < _retry_rounds - 1:
+                    logger.warning(
+                        "opencode-go 全候选模型第 %d 轮均无效 (%s), %.1fs 后重试整轮",
+                        round_idx + 1,
+                        last_err,
+                        2.0 * (2**round_idx),
                     )
-                except Exception as exc:  # 网络/鉴权失败 → 换模型重试
-                    last_err = str(exc)
-                    continue
-                content = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
-                    "content"
-                ) or ""
-                tool_calls = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
-                    "tool_calls"
-                ) or []
-                # 有 tool_calls 的响应 content 为空是合法的 (opencode 模型把
-                # 输出放 reasoning_content + tool_calls) — 不可误判为无效。
-                # stub 检测: 返回 default_content 说明网关失败, 继续下一候选。
-                if (
-                    (not content.strip() and not tool_calls)
-                    or content.strip().lower() in ("none", "null")
-                    or (content.strip() and content.strip() == default and not tool_calls)
-                ):
-                    last_err = f"opencode-go {cand_bare} 返回无效内容: {content!r}"
-                    continue
-                return resp
-            # 全部候选空/失败 → 本地 frontier (gpt-5.6-luna) 兜底: free 池
-            # 网关间歇性空回复 (可能持续数秒), 本地模型零网络抖动, 保证
-            # 「绝不静默」在模型层彻底闭环。容器内走宿主桥 192.168.16.1
-            # (Host 头重写已放行); 宿主默认 127.0.0.1:10100。
+                    await asyncio.sleep(2.0 * (2**round_idx))
+            # 全部候选/全部轮次空/失败 → 本地 frontier (gpt-5.6-luna) 兜底: free 池
+            # 本地模型零网络抖动, 保证「绝不静默」在模型层彻底闭环。容器内走
+            # 宿主桥 192.168.16.1; 宿主默认 127.0.0.1:10100。
             try:
                 frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
                     "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
