@@ -13,13 +13,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import sqlite3
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+from veya.obase.async_utils import run_sync_in_daemon_thread
+
+_SQLITE_BUSY_TIMEOUT_MS = 5_000
 
 
 class SqliteHistoryStore:
@@ -32,12 +35,19 @@ class SqliteHistoryStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = sqlite3.connect(
+            str(self._db_path),
+            timeout=_SQLITE_BUSY_TIMEOUT_MS / 1_000,
+            check_same_thread=False,
+        )
+        conn.execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
         return conn
 
     def _init_db(self) -> None:
         with self._lock, self._connect() as conn:
+            # journal_mode may need a database lock. Set it once during
+            # initialization so read-only connections never wait on this PRAGMA.
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS turns ("
                 "  user_id TEXT NOT NULL DEFAULT 'anonymous',"
@@ -64,7 +74,7 @@ class SqliteHistoryStore:
             from server.auth import current_user
 
             return current_user()["user_id"]
-        except Exception:  # noqa: BLE001
+        except Exception:
             return "anonymous"
 
     def load_sync(self, sid: str, user_id: str | None = None) -> list[dict[str, Any]]:
@@ -127,13 +137,13 @@ class SqliteHistoryStore:
 
     # ── async wrappers (不阻塞事件循环) ──────────────────────────────
     async def load(self, sid: str, user_id: str | None = None) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(self.load_sync, sid, user_id)
+        return await run_sync_in_daemon_thread(self.load_sync, sid, user_id)
 
     async def save(self, sid: str, messages: list[dict[str, Any]], user_id: str | None = None) -> None:
-        await asyncio.to_thread(self.save_sync, sid, messages, user_id)
+        await run_sync_in_daemon_thread(self.save_sync, sid, messages, user_id)
 
     async def list_sessions(self, user_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(self.list_sessions_sync, user_id, limit)
+        return await run_sync_in_daemon_thread(self.list_sessions_sync, user_id, limit)
 
 
 _default_store: SqliteHistoryStore | None = None

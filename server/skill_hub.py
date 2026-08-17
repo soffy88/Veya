@@ -29,7 +29,12 @@ from typing import Any
 
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
-from server.tool_registry import ToolExecutionError
+from server.tool_registry import (
+    ToolExecutionError,
+    _invoke_callback,
+    _schema_validator,
+    _validate_arguments,
+)
 
 logger = logging.getLogger("skillhub")
 
@@ -78,6 +83,7 @@ class VeyaSkillHub:
         ).expanduser()
         self._schemas: list[dict] = []
         self._executors: dict[str, Callable] = {}
+        self._validators: dict[str, Any] = {}
         self._descriptions: dict[str, str] = {}
         self._skills: dict[str, dict] = {}  # name → manifest 原始信息
         # ②-A 静态收口: dispatcher 模式下 N 个 per-skill 工具收成 2 个
@@ -94,6 +100,7 @@ class VeyaSkillHub:
 
         self._schemas.clear()
         self._executors.clear()
+        self._validators.clear()
         self._descriptions.clear()
         self._skills.clear()
 
@@ -159,14 +166,21 @@ class VeyaSkillHub:
             logger.warning("[SkillHub] 技能 '%s' 挂载失败: %s", name, exc)
             return False
 
+        params = dict(parameters)
+        params.setdefault("type", "object")
+        try:
+            validator = _schema_validator(params, owner=f"Skill '{name}'")
+        except ValueError as exc:
+            logger.warning("[SkillHub] 技能 '%s' schema 非法,跳过: %s", name, exc)
+            return False
+
         # 重名技能: 后加载者覆盖(热更新部署场景), 记 warning 并替换旧 schema
         if name in self._executors:
             logger.warning("[SkillHub] 技能 '%s' 重复,后加载者覆盖", name)
             self._schemas = [s for s in self._schemas if s["function"]["name"] != name]
 
-        params = dict(parameters)
-        params.setdefault("type", "object")
         self._executors[name] = executor
+        self._validators[name] = validator
         self._descriptions[name] = description
         self._skills[name] = {
             "type": skill_type,
@@ -215,9 +229,7 @@ class VeyaSkillHub:
                     f"Skill '{name}' must implement a 'main(**kwargs)' function."
                 )
             try:
-                result = main_fn(**_accepted_kwargs(main_fn, kwargs))
-                if inspect.isawaitable(result):
-                    result = await result
+                result = await _invoke_callback(main_fn, _accepted_kwargs(main_fn, kwargs))
             except Exception as exc:
                 raise ToolExecutionError(f"Skill '{name}' main() failed: {exc}") from exc
             # 强制转换为字符串返回给大模型
@@ -255,6 +267,13 @@ class VeyaSkillHub:
         return executor
 
     # ── 供主脑调用的接口 ─────────────────────────────────────────────
+    @staticmethod
+    async def _authorize(tool_name: str, kwargs: dict) -> None:
+        try:
+            await _tool_guard.acheck(tool_name, kwargs, source="skill_hub")
+        except _ToolDenied as denied:
+            raise ToolExecutionError(str(denied)) from denied
+
     def _all_skill_names(self) -> list[str]:
         """真实技能名 (供 stats/错误提示; 不受 dispatcher 影响)。"""
         return sorted(self._executors)
@@ -318,12 +337,15 @@ class VeyaSkillHub:
 
     async def execute(self, tool_name: str, kwargs: dict) -> str:
         """主脑决定调用工具时,路由到这里执行。dispatcher 模式解包 run_skill/list_skills。"""
-        # 动态技能是运行时自生长的最不可信执行面 → 同样收口统一守卫通道。
-        try:
-            await _tool_guard.acheck(tool_name, kwargs, source="skill_hub")
-        except _ToolDenied as denied:
-            raise ToolExecutionError(str(denied)) from denied
         if self._dispatcher and tool_name == "list_skills":
+            list_schema = self._dispatcher_schemas()[0]["function"]["parameters"]
+            _validate_arguments(
+                "list_skills",
+                kwargs,
+                _schema_validator(list_schema, owner="Skill dispatcher"),
+                owner="Skill dispatcher",
+            )
+            await self._authorize(tool_name, kwargs)
             return json.dumps(
                 [
                     {"name": n, "description": self._descriptions.get(n, "")}
@@ -332,6 +354,12 @@ class VeyaSkillHub:
                 ensure_ascii=False,
             )
         if self._dispatcher and tool_name == "run_skill":
+            run_skill_schema = self._dispatcher_schemas()[1]["function"]["parameters"]
+            run_skill_validator = _schema_validator(run_skill_schema, owner="Skill dispatcher")
+            _validate_arguments(
+                "run_skill", kwargs, run_skill_validator, owner="Skill dispatcher"
+            )
+            await self._authorize(tool_name, kwargs)
             skill_name = kwargs.get("skill_name") or ""
             args = dict(kwargs.get("args") or {})
             executor = self._executors.get(skill_name)
@@ -341,24 +369,34 @@ class VeyaSkillHub:
                 )
             # 参数兜底: 技能 main(goal, context) 约定 goal 为任务; 模型可能传
             # task/任务/prompt 等任意字段 → 归一化, 避免 missing goal 报错
-            if "goal" not in args:
+            skill_schema = self._validators[skill_name]
+            properties = skill_schema.get("properties", {})
+            goal_allowed = (
+                "goal" in properties or skill_schema.get("additionalProperties", True) is not False
+            )
+            if goal_allowed and "goal" not in args:
                 for key in ("task", "任务", "prompt", "content", "objective"):
                     if key in args:
                         args["goal"] = args.pop(key)
                         break
                 else:
                     args["goal"] = json.dumps(args, ensure_ascii=False)[:2000]
-            raw = executor(**args)
-            return await raw if inspect.isawaitable(raw) else raw
+            _validate_arguments(
+                skill_name, args, self._validators[skill_name], owner="Skill"
+            )
+            # 保留 dispatcher 入口策略，同时按真实技能名再授权，支持细粒度策略。
+            await self._authorize(skill_name, args)
+            return await _invoke_callback(executor, args)
         executor = self._executors.get(tool_name)
         if executor is None:
+            # 未知名称仍先过策略，避免拒绝策略下泄露技能目录/装载状态。
+            await self._authorize(tool_name, kwargs)
             raise ToolExecutionError(
                 f"Dynamic skill '{tool_name}' is not loaded. Available: {', '.join(self._all_skill_names())}"
             )
-        raw = executor(**kwargs)
-        if inspect.isawaitable(raw):
-            raw = await raw
-        return raw
+        _validate_arguments(tool_name, kwargs, self._validators[tool_name], owner="Skill")
+        await self._authorize(tool_name, kwargs)
+        return await _invoke_callback(executor, kwargs)
 
     def to_dict(self) -> dict:
         return {
