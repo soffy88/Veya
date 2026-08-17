@@ -241,6 +241,451 @@ def _container_gateway_ip_for_proxy() -> str:
 
 _STUB_CONTENT = "LLM provider not configured — this is a shim response."
 
+# ---------------------------------------------------------------------------
+# veya1.2-flash 别名: opencode zen 免费模型轮询 (round-robin)
+# ---------------------------------------------------------------------------
+# veya1.1 是顺序候选 (永远先 deepseek-v4-flash) — 单模型很快吃光当日额度。
+# veya1.2-flash 改用轮询: 每次调用从池里下一个模型起转, 把负载/额度摊到多个
+# 免费模型上, 单模型耗尽/抖动时自然滑到下一个。
+# 池成员取「显式标 -free/每日免费额度」的模型 (opencode.ai zen 网页口径,
+# 2026-08-17 用户核对): nemotron-3.5-lightning-free / nemotron-3-ultra-free /
+# laguna-s-2.1-free / hy3-free / mimo-v2.5-free / big-pickle /
+# deepseek-v4-flash-free — 均在通用 /zen/v1 端点下 (不是 /zen/go/v1 的 go 池,
+# 那边同名模型无 -free 后缀且按量计费; 探活: /zen/go/v1/models 里查不到这些
+# -free ID, 只有 /zen/v1/models 有)。原池 (deepseek-v4-flash/qwen3.7-plus/
+# kimi-k2.7-code, /zen/go/v1) 按量计费不是免费额度, 已整体替换。
+# nemotron 系推理链较长, 默认 max_tokens=4096 (_llm_transport.py) 够用;
+# 探活当时 mimo-v2.5-free/big-pickle/deepseek-v4-flash-free 命中
+# FreeUsageLimitError (今日额度已被同一 key 的其它探活耗尽) — 报错类型本身
+# 印证这几个确是被追踪配额的免费模型, 非模型失效, 保留入池。
+# 池跨两个 provider (opencode zen 免费 + openrouter 免费), 每项显式带
+# provider/model/endpoint (endpoint 缺省时落 _ENDPOINTS[provider] 默认值,
+# 见 _llm_transport.py 的 `endpoint or _ENDPOINTS.get(provider, ...)`)。
+# 2026-08-17 用户提供 OPENROUTER_API_KEY 后, 从 openrouter 免费模型里选了
+# 3 个上下文 ≥512K 的补进池: nemotron-3-ultra-550b-a55b(1M) /
+# nemotron-3.5-lightning(1M, openrouter 侧, 与 opencode zen 侧同名模型是
+# 不同 provider 的独立候选) / dots-3-note-preview(512K) — 均逐一探活过
+# (curl 直连 openrouter.ai, 拿到真实 content, 非猜测)。
+# 用户可用 VEYA_ZEN_FREE_POOL (逗号分隔裸模型 ID, 均按 opencode-go/zen/v1
+# 解析 — 与默认池的 openrouter 成员是分开的, 覆盖只替换 opencode-go 那一段
+# 不动 openrouter 3 个) 覆盖/扩展 opencode-go 侧子池。
+_ZEN_FREE_DEFAULT_POOL: list[dict[str, str]] = [
+    {
+        "provider": "opencode-go",
+        "model": "nemotron-3.5-lightning-free",
+        "endpoint": "https://opencode.ai/zen/v1",
+    },
+    {
+        "provider": "opencode-go",
+        "model": "nemotron-3-ultra-free",
+        "endpoint": "https://opencode.ai/zen/v1",
+    },
+    {
+        "provider": "opencode-go",
+        "model": "laguna-s-2.1-free",
+        "endpoint": "https://opencode.ai/zen/v1",
+    },
+    {"provider": "opencode-go", "model": "hy3-free", "endpoint": "https://opencode.ai/zen/v1"},
+    {
+        "provider": "opencode-go",
+        "model": "mimo-v2.5-free",
+        "endpoint": "https://opencode.ai/zen/v1",
+    },
+    {"provider": "opencode-go", "model": "big-pickle", "endpoint": "https://opencode.ai/zen/v1"},
+    {
+        "provider": "opencode-go",
+        "model": "deepseek-v4-flash-free",
+        "endpoint": "https://opencode.ai/zen/v1",
+    },
+    {"provider": "openrouter", "model": "nvidia/nemotron-3-ultra-550b-a55b:free"},
+    {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+    {"provider": "openrouter", "model": "dots-studio/dots-3-note-preview:free"},
+]
+
+# 进程内轮询游标 (asyncio 单线程, 普通 int 自增即可) — 跨调用推进以摊额度。
+_zen_rr_cursor = 0
+
+
+def _zen_free_pool() -> list[dict[str, str]]:
+    """veya1.2-flash 免费模型池: env VEYA_ZEN_FREE_POOL 覆盖 opencode-go 子池,
+    否则默认 (opencode zen 7 个 + openrouter 3 个大上下文免费模型)。"""
+    raw = os.environ.get("VEYA_ZEN_FREE_POOL", "").strip()
+    if raw:
+        opencode_go = [
+            {
+                "provider": "opencode-go",
+                "model": m.strip(),
+                "endpoint": "https://opencode.ai/zen/v1",
+            }
+            for m in raw.split(",")
+            if m.strip()
+        ]
+        if opencode_go:
+            openrouter = [e for e in _ZEN_FREE_DEFAULT_POOL if e["provider"] == "openrouter"]
+            return opencode_go + openrouter
+    return list(_ZEN_FREE_DEFAULT_POOL)
+
+
+async def _frontier_fallback(messages: list[dict], kwargs: dict, *, reason: str) -> dict | None:
+    """本地 frontier (gpt-5.6-luna) 兜底: 免费模型池全空/全失败时的最后一道防线。
+
+    与 _aliased_llm_call 内联兜底同款逻辑 (短退避重试 + tool_calls 合法判断),
+    独立成函数供 veya1.2-flash 复用 — 不改动 veya1.1 久经验证的兜底路径。
+    返回有效 resp (含 router 标记) 或 None (兜底也失败, 由调用方给结构化错误)。
+    """
+    _attempts = 4
+    last_err = ""
+    for attempt in range(_attempts):
+        try:
+            frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
+                "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
+            )
+            if not _ensure_frontier_bridge(frontier_endpoint):
+                last_err = f"frontier 桥 (opencodex) 不可用: {frontier_endpoint}"
+                raise RuntimeError(last_err)
+            resp = await llm_call(
+                messages,
+                config=kwargs.get("config"),
+                provider="openai",
+                model="gpt-5.6-luna",
+                endpoint=frontier_endpoint,
+                tools=_core_tool_schemas(kwargs.get("tools")),
+                default_content="gpt-5.6-luna 兜底失败",
+            )
+            fmsg = (resp.get("choices") or [{}])[0].get("message") or {}
+            content = fmsg.get("content") or ""
+            # tool_calls 场景 content 空是合法的 — 不可当无效内容拒绝。
+            if fmsg.get("tool_calls") or (
+                content.strip() and content.strip().lower() not in ("none", "null")
+            ):
+                resp["router"] = {"route": "frontier_fallback", "reason": reason}
+                return resp
+            last_err = f"gpt-5.6-luna 兜底返回无效内容: {content!r}"
+        except Exception as exc:  # noqa: BLE001 — 兜底失败也绝不静默
+            last_err = f"gpt-5.6-luna 兜底失败: {exc}"
+        if attempt < _attempts - 1:
+            logger.warning(
+                "frontier 兜底第 %d 次失败 (%s), %.1fs 后重试",
+                attempt + 1,
+                last_err,
+                2.0 * (2**attempt),
+            )
+            await asyncio.sleep(2.0 * (2**attempt))
+    return None
+
+
+async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
+    """veya1.2-flash 别名: opencode zen 免费模型轮询直连 (+ 本地 frontier 兜底)。
+
+    每次调用从免费池下一个模型起转 (round-robin, 摊额度), 逐个候选试;
+    候选返回空/字面 None/等于 stub 即滑下一个; 全候选一轮全无效 → 短退避后
+    整轮重来 (覆盖网关瞬时抖动); 全轮次仍失败 → gpt-5.6-luna 兜底; 兜底也
+    失败 → 结构化错误 (error 标记跳过质量闸门, 绝不静默)。
+    """
+    global _zen_rr_cursor
+    pool = _zen_free_pool()
+    start = _zen_rr_cursor % len(pool)
+    _zen_rr_cursor = (_zen_rr_cursor + 1) % len(pool)
+    candidates = pool[start:] + pool[:start]  # 从游标处旋转
+
+    default = kwargs.get("default_content") or "免费池调用失败"
+    last_err = ""
+    _retry_rounds = 3
+    for round_idx in range(_retry_rounds):
+        for cand in candidates:
+            cand_provider = cand["provider"]
+            cand_model = cand["model"]
+            call_kwargs: dict[str, Any] = {
+                "config": kwargs.get("config"),
+                "provider": cand_provider,
+                "model": cand_model,
+                "tools": kwargs.get("tools"),
+                "default_content": default,
+            }
+            if cand.get("endpoint"):
+                call_kwargs["endpoint"] = cand["endpoint"]
+            try:
+                resp = await llm_call(messages, **call_kwargs)
+            except Exception as exc:  # 网络/鉴权失败 (含 openrouter 缺 key) → 换模型重试
+                last_err = f"{cand_provider}/{cand_model}: {exc}"
+                continue
+            msg = (resp.get("choices") or [{}])[0].get("message") or {}
+            content = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls") or []
+            # tool_calls 场景 content 空是合法的; stub/字面 None 视为无效。
+            if (
+                (not content.strip() and not tool_calls)
+                or content.strip().lower() in ("none", "null")
+                or (content.strip() and content.strip() == default and not tool_calls)
+            ):
+                last_err = f"{cand_provider}/{cand_model} 返回无效内容: {content!r}"
+                continue
+            resp.setdefault("usage", {})
+            resp["router"] = {
+                "route": "zen-free-rr",
+                "alias": "veya1.2-flash",
+                "provider": cand_provider,
+                "model": cand_model,
+            }
+            return resp
+        if round_idx < _retry_rounds - 1:
+            logger.warning(
+                "veya1.2-flash 免费池第 %d 轮全候选无效 (%s), %.1fs 后重试整轮",
+                round_idx + 1,
+                last_err,
+                3.0 * (2**round_idx),
+            )
+            await asyncio.sleep(3.0 * (2**round_idx))
+
+    fb = await _frontier_fallback(messages, kwargs, reason="zen free pool empty → gpt-5.6-luna")
+    if fb is not None:
+        return fb
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": (
+                        f"veya1.2-flash 免费池调用失败: {last_err or '所有免费模型均失败'}"
+                    ),
+                }
+            }
+        ],
+        "usage": {},
+        "opencode": True,
+        "error": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# veya1.2-vl 别名: openrouter 免费图像/视频理解模型轮询 (round-robin)
+# ---------------------------------------------------------------------------
+# OpenRouter free 层 (:free 后缀, pricing=0) 里 architecture.input_modalities
+# 含 video 的 4 个模型 (探活/核对于 2026-08-17, 用途是「看图/看视频回答」的
+# 理解模型 — 不是文生视频/图生视频)。与 veya1.2-flash 同款 round-robin 设计,
+# 走已内置的 openrouter provider (endpoint/pricing/API_KEY_ENV=OPENROUTER_API_KEY
+# 见 _llm_config.py, 未改动)。OpenRouter free 限流按模型计费 (非账号总量):
+# 20 req/min + 50~1000 req/day (视账号累计充值是否 ≥$10), 轮询摊到 4 个模型
+# 聚合吞吐更高、更不容易撞单模型的分钟窗。
+_OPENROUTER_VL_DEFAULT_POOL: list[str] = [
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-nano-12b-v2-vl:free",
+]
+
+_openrouter_vl_rr_cursor = 0
+
+
+def _openrouter_vl_pool() -> list[str]:
+    """veya1.2-vl 免费视觉模型池: env VEYA_OPENROUTER_VL_POOL 覆盖, 否则默认。"""
+    raw = os.environ.get("VEYA_OPENROUTER_VL_POOL", "").strip()
+    if raw:
+        pool = [m.strip() for m in raw.split(",") if m.strip()]
+        if pool:
+            return pool
+    return list(_OPENROUTER_VL_DEFAULT_POOL)
+
+
+def _has_visual_content(messages: list[dict]) -> bool:
+    """消息里是否带图像/视频内容块 (image_url/image/video_url/video/input_video)。
+
+    决定空池兜底能不能滑到本地 frontier (gpt-5.6-luna, 纯文本模型) — 若请求
+    真带图/视频, frontier 看不见附件, 兜底会「盲答」且看似成功, 比明确报错
+    更危险 (绝不静默 ≠ 绝不能报错, 而是不能悄悄给错答案)。
+    """
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") in (
+                    "image_url",
+                    "image",
+                    "video_url",
+                    "video",
+                    "input_video",
+                ):
+                    return True
+    return False
+
+
+async def _veya12_vl_call(messages: list[dict], kwargs: dict) -> dict:
+    """veya1.2-vl 别名: openrouter 免费图像/视频理解模型轮询直连 (+ 有条件 frontier 兜底)。
+
+    与 _veya12_flash_call 同款轮询/重试策略, 池换成 OpenRouter 免费图像+视频
+    理解模型。兜底例外: 请求真带图/视频时不滑向纯文本 frontier (会盲答),
+    直接给结构化错误; 纯文本请求 (无附件) 才允许 frontier 兜底。
+    """
+    global _openrouter_vl_rr_cursor
+    pool = _openrouter_vl_pool()
+    start = _openrouter_vl_rr_cursor % len(pool)
+    _openrouter_vl_rr_cursor = (_openrouter_vl_rr_cursor + 1) % len(pool)
+    candidates = pool[start:] + pool[:start]  # 从游标处旋转
+
+    default = kwargs.get("default_content") or "openrouter 调用失败"
+    last_err = ""
+    _retry_rounds = 3
+    for round_idx in range(_retry_rounds):
+        for cand in candidates:
+            try:
+                resp = await llm_call(
+                    messages,
+                    config=kwargs.get("config"),
+                    provider="openrouter",
+                    model=cand,
+                    tools=kwargs.get("tools"),
+                    default_content=default,
+                )
+            except Exception as exc:  # 网络/鉴权失败 → 换模型重试
+                last_err = str(exc)
+                continue
+            msg = (resp.get("choices") or [{}])[0].get("message") or {}
+            content = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls") or []
+            if (
+                (not content.strip() and not tool_calls)
+                or content.strip().lower() in ("none", "null")
+                or (content.strip() and content.strip() == default and not tool_calls)
+            ):
+                last_err = f"openrouter {cand} 返回无效内容: {content!r}"
+                continue
+            resp.setdefault("usage", {})
+            resp["router"] = {"route": "openrouter-vl-rr", "alias": "veya1.2-vl", "model": cand}
+            return resp
+        if round_idx < _retry_rounds - 1:
+            logger.warning(
+                "veya1.2-vl 免费池第 %d 轮全候选无效 (%s), %.1fs 后重试整轮",
+                round_idx + 1,
+                last_err,
+                3.0 * (2**round_idx),
+            )
+            await asyncio.sleep(3.0 * (2**round_idx))
+
+    if not _has_visual_content(messages):
+        fb = await _frontier_fallback(
+            messages, kwargs, reason="openrouter vl pool empty → gpt-5.6-luna"
+        )
+        if fb is not None:
+            return fb
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": (f"openrouter 调用失败: {last_err or '所有免费视觉模型均失败'}"),
+                }
+            }
+        ],
+        "usage": {},
+        "opencode": False,
+        "error": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# veya1.2-128K 别名: openrouter 剩余免费文本模型轮询 (round-robin)
+# ---------------------------------------------------------------------------
+# openrouter 免费池 (:free, pricing=0) 里, 512K+ 大上下文的 3 个已进
+# veya1.2-flash、图像/视频理解的 4 个已进 veya1.2-vl — 这里收 openrouter
+# 免费池里剩下的通用文本模型 (2026-08-17 逐一探活确认真出内容; 排除 2 个:
+# poolside/laguna-s-2.1:free 返回纯空白 padding 无有效 JSON, 探活当时判定
+# 故障; nvidia/nemotron-3.5-content-safety:free 是安全审核分类器, 不响应
+# 常规指令只吐"User Safety: safe"这类判定, 不是通用对话模型)。
+_OPENROUTER_128K_DEFAULT_POOL: list[str] = [
+    "cohere/north-mini-code:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "poolside/laguna-xs-2.1:free",
+    "openrouter/free",
+    "liquid/lfm-2.5-2.6b:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "openai/gpt-oss-20b:free",
+    "z-ai/glm-5.2:free",
+]
+
+_openrouter_128k_rr_cursor = 0
+
+
+def _openrouter_128k_pool() -> list[str]:
+    """veya1.2-128K 免费模型池: env VEYA_OPENROUTER_128K_POOL 覆盖, 否则默认。"""
+    raw = os.environ.get("VEYA_OPENROUTER_128K_POOL", "").strip()
+    if raw:
+        pool = [m.strip() for m in raw.split(",") if m.strip()]
+        if pool:
+            return pool
+    return list(_OPENROUTER_128K_DEFAULT_POOL)
+
+
+async def _veya12_128k_call(messages: list[dict], kwargs: dict) -> dict:
+    """veya1.2-128K 别名: openrouter 剩余免费文本模型轮询直连 (+ 本地 frontier 兜底)。
+
+    与 _veya12_vl_call 同款轮询/重试/兜底策略, 池换成 openrouter 免费池里
+    的通用文本模型 (非视觉, 无需 vl 那种"带图跳过 frontier"的特判)。
+    """
+    global _openrouter_128k_rr_cursor
+    pool = _openrouter_128k_pool()
+    start = _openrouter_128k_rr_cursor % len(pool)
+    _openrouter_128k_rr_cursor = (_openrouter_128k_rr_cursor + 1) % len(pool)
+    candidates = pool[start:] + pool[:start]  # 从游标处旋转
+
+    default = kwargs.get("default_content") or "openrouter 调用失败"
+    last_err = ""
+    _retry_rounds = 3
+    for round_idx in range(_retry_rounds):
+        for cand in candidates:
+            try:
+                resp = await llm_call(
+                    messages,
+                    config=kwargs.get("config"),
+                    provider="openrouter",
+                    model=cand,
+                    tools=kwargs.get("tools"),
+                    default_content=default,
+                )
+            except Exception as exc:  # 网络/鉴权失败 → 换模型重试
+                last_err = str(exc)
+                continue
+            msg = (resp.get("choices") or [{}])[0].get("message") or {}
+            content = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls") or []
+            if (
+                (not content.strip() and not tool_calls)
+                or content.strip().lower() in ("none", "null")
+                or (content.strip() and content.strip() == default and not tool_calls)
+            ):
+                last_err = f"openrouter {cand} 返回无效内容: {content!r}"
+                continue
+            resp.setdefault("usage", {})
+            resp["router"] = {"route": "openrouter-128k-rr", "alias": "veya1.2-128K", "model": cand}
+            return resp
+        if round_idx < _retry_rounds - 1:
+            logger.warning(
+                "veya1.2-128K 免费池第 %d 轮全候选无效 (%s), %.1fs 后重试整轮",
+                round_idx + 1,
+                last_err,
+                3.0 * (2**round_idx),
+            )
+            await asyncio.sleep(3.0 * (2**round_idx))
+
+    fb = await _frontier_fallback(
+        messages, kwargs, reason="openrouter 128K pool empty → gpt-5.6-luna"
+    )
+    if fb is not None:
+        return fb
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": (f"openrouter 调用失败: {last_err or '所有免费模型均失败'}"),
+                }
+            }
+        ],
+        "usage": {},
+        "opencode": False,
+        "error": True,
+    }
+
 
 async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
     """veya1.1 别名路由: 决策 → 单发 (short/text/tool/code/reason/vision) 或
@@ -458,6 +903,21 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     # 长输入并行分派快速回答 (RouteLLM 3O 内化, 见 docs/prd/LLM_ROUTER_PRD.md)
     if model in ("veya1.1", "veya-1.1") or provider == "veya1.1":
         return await _aliased_llm_call(messages, kwargs)
+    # veya1.2-flash 别名: opencode zen 免费模型轮询 (round-robin 摊每日额度)
+    if model in ("veya1.2-flash", "veya-1.2-flash", "veya1.2") or provider in (
+        "veya1.2-flash",
+        "veya1.2",
+    ):
+        return await _veya12_flash_call(messages, kwargs)
+    # veya1.2-vl 别名: openrouter 免费图像/视频理解模型轮询 (round-robin)
+    if model in ("veya1.2-vl", "veya-1.2-vl") or provider == "veya1.2-vl":
+        return await _veya12_vl_call(messages, kwargs)
+    # veya1.2-128K 别名: openrouter 剩余免费文本模型轮询 (round-robin)
+    if model in ("veya1.2-128K", "veya1.2-128k", "veya-1.2-128K") or provider in (
+        "veya1.2-128K",
+        "veya1.2-128k",
+    ):
+        return await _veya12_128k_call(messages, kwargs)
     config = kwargs.get("config") or {}
     # 自定义 endpoint: 顶层 kwarg > config["endpoints"][provider] > config["base_url"](NVIDIA NIM 等)
     endpoint = (
