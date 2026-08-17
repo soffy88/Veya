@@ -17,6 +17,18 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# 3O 主库路径注入: 少数模块 (goal_run / boss_entrypoint) 用裸 ``import obase`` 等,
+# 依赖 veya.platform 已把 platform/3O/* 注入 sys.path。生产由 app 启动链自然触发,
+# 测试须在收集前显式触发一次 —— 否则孤立导入这些模块会 ModuleNotFoundError。
+# 一次 load("obase") 即调用 _ensure_paths() 把全部主库目录加进 sys.path。
+try:
+    from veya import platform as _veya_platform
+
+    if _veya_platform.available("obase"):
+        _veya_platform.load("obase")
+except Exception:  # pragma: no cover — 子库缺失时优雅降级 (依赖它的测试自会跳过/报错)
+    pass
+
 
 # ---------------------------------------------------------------------------
 # Fixtures

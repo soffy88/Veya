@@ -164,6 +164,16 @@ async def lifespan(app: FastAPI):
         from server.project_ask import wire_master_tools as wire_project_ask
 
         wire_project_ask()
+        # project_eng_gates: 主库 omodul 工程门禁，只 +1 工具，不做派工路由
+        from server.project_eng_gates import wire_master_tools as wire_eng_gates
+
+        wire_eng_gates()
+        # goal_run: project_run_goal / project_goal_status — 长时目标闭环
+        # (意图分诊 → 闭环规划 → 派 hicode/dsh 叶子执行 → 证据验收)。
+        # 单一入口, 叶子复用既有执行路径; Veya 只编排不写码。
+        from server.goal_run.wire import wire_master_tools as wire_goal_run
+
+        wire_goal_run()
     except Exception:
         import logging
 

@@ -48,9 +48,42 @@ class CodeSandboxClient:
             "test_args": test_args or ["-q", "--tb=short"],
             "timeout_sec": self.timeout_sec,
         }
-        if self.backend == "local":
-            return self._run_local(payload)
-        return self._run_docker(payload)
+        try:
+            return self._run_unified(files, payload["test_args"])
+        except ImportError:
+            if self.backend == "local":
+                return self._run_local(payload)
+            return self._run_docker(payload)
+
+    def _run_unified(self, files: dict[str, str], test_args: list[str]) -> TestResult:
+        from veya.platform import load
+
+        omodul = load("omodul")
+        purpose = "pytest_eval" if self.backend == "docker" else "pytest_local"
+        rec = omodul.eval_in_sandbox(
+            files=files,
+            test_args=test_args,
+            purpose=purpose,
+            timeout_s=float(self.timeout_sec),
+        )
+        if not rec.get("ok") and rec.get("error"):
+            return TestResult(
+                passed=False,
+                n_failed=1,
+                stderr=str(rec.get("error") or "sandbox error"),
+                metadata={
+                    "env_error": True,
+                    "isolation": rec.get("isolation"),
+                    "purpose": purpose,
+                },
+            )
+        return TestResult(
+            passed=bool(rec.get("passed")),
+            n_failed=0 if rec.get("passed") else 1,
+            stdout=str(rec.get("stdout") or ""),
+            stderr=str(rec.get("stderr") or ""),
+            metadata={"isolation": rec.get("isolation"), "purpose": purpose},
+        )
 
     # ── docker 后端 (方案 C) ─────────────────────────────────────────
     def _run_docker(self, payload: dict) -> TestResult:
