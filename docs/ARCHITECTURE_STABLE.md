@@ -20,9 +20,17 @@
                ├─ assemble_code_context（需要时代码地图 + 历史规则；非每轮预注入）
                ├─ hicode_run（长任务编码，模型自己决定调用）
                ├─ run_in_sandbox（运行验证）
-               └─ mcp_*（视频 hevi / 知识 stratum / 代码库 codebase）
+               ├─ mcp_*（视频 hevi / 知识 stratum / 代码库 codebase）
+               └─ vision_*（视觉取证 10 工具：glance/ground/detect/crop/trace/
+                  pixel_diff/long_screenshot_ocr/extract_foreground/dominant_colors/
+                  html_screenshot — 2026-08 用户批准新增, 3O 内化 dsh-vision-toolkit）
             └─► 模型收尾总结 → SSE → 前端
 ```
+
+视觉工具面（`vision_*`，2026-08-16 用户明确要求加入）：纯文本主链的“眼睛”。
+程序仍不做任何视觉路由/预判 — 是否看图、看哪张、问什么，全由模型自主决定；
+视觉模型默认走本地 frontier 桥 gpt-5.6-luna（零配置），`VEYA_VISION_*` 可切。
+详见 `docs/vision-tools/vision-tools.md`。
 
 用户可切换 **计划模式**（只读）并对高影响工具点批准。这是用户握方向盘，不是关键词路由。
 Graft 默认不预注入（`VEYA_GRAFT_CONTEXT=1` 才恢复每轮注入）；编码任务由模型调
