@@ -38,6 +38,9 @@ services:
       # hicode 编码执行器: 状态/工作区进 veya-data volume, 配置目录只读
       - REASONIX_STATE_HOME=/home/soffy/.veya/reasonix-state
       - HICODE_PROXY=1   # 容器内反代: 改 Host 头绕过 opencodex 来源校验
+      # Vision Toolkit 路径白名单: 主脑视觉取证可读 /repo (veya 仓库) + 同级项目
+      # + hicode 工作区 (像素差分 hicode 产物); 视觉模型走 hicode 反代 (见 oskill)
+      - VEYA_VISION_ALLOWED_DIRS=/repo:/home/soffy/projects:/home/soffy/.veya/hicode-workspace
       # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) 临时装容器可写层; 镜像重建后由
       # requirements.txt 提供, 此路径仅容器层存在, 镜像层无则静默跳过
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
