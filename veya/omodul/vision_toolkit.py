@@ -174,7 +174,7 @@ class VisionToolkit:
         box = _ops.parse_region(args.get("region") or f"0,0,{w},{h}", w, h)
         svg, geometry = await asyncio.to_thread(
             _ops.trace_to_svg, _ops.load_rgb(image), box,
-            int(args.get("scale") or 1), bool(args.get("color")), bool(args.get("polygon")),
+            args.get("scale"), bool(args.get("color")), bool(args.get("polygon")),
         )
         filename = args.get("output") or f"trace_{box[0]}_{box[1]}_{box[2]}_{box[3]}.svg"
         data = svg.encode("utf-8")

@@ -7,6 +7,7 @@
 ### 新增：视觉工具链 (3O 内化 dsh-vision-toolkit)
 
 - **10 个 `vision_*` 工具入主脑工具面**（`VEYA_VISION_TOOLS=0` 可关）：glance / ground / detect / crop / trace / pixel_diff / long_screenshot_ocr / extract_foreground / dominant_colors / html_screenshot — 纯文本大模型获得“眼睛”
+- **`vision_trace` 高保真矢量化**: vtracer CLI 主引擎 (上游同源, 样条曲线拟合, 白底剥离+小数截断, 小图自动放大到短边≥256px 活过斑点过滤)；pip 包 0.6.15 在 CPython 3.14 段错误 → 用独立二进制+子进程隔离 (`~/.veya/bin/vtracer`, 安装见 `docs/ops/TOOLCHAIN_SETUP.md` §2.2)，缺时自动降级 PIL 描摹 (`geometry.engine` 标注)
 - **3O 分层内化**（算法源自 Anionex/agent-vision-toolkit, MIT）：L1 `veya/oprim/vision_ops.py` 原子操作（能量切分/像素差分/主色/连通分量报图/边界描摹/OCR 重叠合并）、L2 `veya/oskill/vision_toolkit.py` 组合管线（视觉 LLM 客户端 + glance/ground/detect/聊天结构化 OCR）、L3 `veya/omodul/vision_toolkit.py` 端到端特性（会话工件/并发闸/路径白名单/断点续跑）、L4 `server/vision_toolkit_tools.py` 装配注册
 - **零配置视觉模型**：默认复用本地 frontier 桥 gpt-5.6-luna（免 key），`VEYA_VISION_BASE_URL/MODEL/API_KEY` 可切任意 OpenAI 兼容端点
 - **工件全落 `~/.veya/vision-artifacts/<session>/`**：裁切 PNG/SVG/热力图/差分 JSON/OCR Markdown + manifest + 边界审计，路径越界拒绝

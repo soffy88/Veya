@@ -18,9 +18,13 @@ Dependencies: stdlib only。Optional: PIL/Pillow (无 PIL 时相关操作抛可�
 
 from __future__ import annotations
 
+import contextlib
 import io
 import itertools
 import math
+import os
+import re
+import tempfile
 import unicodedata
 from collections.abc import Sequence
 from difflib import SequenceMatcher
@@ -38,6 +42,37 @@ except ImportError:  # 与 oprim/video.py 同口径: 可选依赖
     ImageFilter = None  # type: ignore
     ImageStat = None  # type: ignore
     _HAS_PIL = False
+
+# 高保真 raster→SVG 引擎 = vtracer 独立 CLI (visioncortex/vtracer, 上游同源)。
+# 不用 pip 包: 0.6.15 的 Python 扩展在 CPython 3.14 下段错误; CLI 走子进程
+# 天然隔离 (崩了也只丢子进程)。二进制获取: 见 docs/ops/TOOLCHAIN_SETUP.md。
+_vtracer_bin_cache: str | None = None
+
+
+def _find_vtracer_bin() -> str | None:
+    """解析 vtracer CLI: VEYA_VTRACER_BIN → ~/.veya/bin/vtracer → PATH。"""
+    global _vtracer_bin_cache
+    if _vtracer_bin_cache is not None:
+        return _vtracer_bin_cache or None
+    candidates = []
+    env_bin = os.environ.get("VEYA_VTRACER_BIN", "").strip()
+    if env_bin:
+        candidates.append(Path(env_bin).expanduser())
+    candidates.append(Path.home() / ".veya" / "bin" / "vtracer")
+    candidates.append(Path("vtracer"))
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            _vtracer_bin_cache = str(candidate)
+            return _vtracer_bin_cache
+        if str(candidate) == "vtracer":
+            import shutil
+
+            found = shutil.which("vtracer")
+            if found:
+                _vtracer_bin_cache = found
+                return found
+    _vtracer_bin_cache = ""
+    return None
 
 
 def _need_pil(op: str) -> None:
@@ -743,8 +778,29 @@ def draw_labeled_preview(
 
 
 # ---------------------------------------------------------------------------
-# SVG 描摹 (像素级精确几何; 简化版 Douglas-Peucker 边界多边形)
+# SVG 描摹 (高保真: vtracer 主引擎 + PIL 边界追踪降级; 零视觉 API)
 # ---------------------------------------------------------------------------
+
+# 小图直接二值化会全部死于斑点过滤 (上游实测): 自动放大到短边 ≥ TARGET_MIN_SIDE。
+TARGET_MIN_SIDE = 256
+_WHITE_FILLS = {"#ffffff", "#fff", "white"}
+
+def _strip_background(svg: str) -> str:
+    """去掉 vtracer 为背景生成的全画布白色首路径 (上游同款后处理)。"""
+    match = re.search(r"<path [^>]*/>", svg)
+    if match:
+        fill = re.search(r'fill="([^"]+)"', match.group(0))
+        if fill and fill.group(1).strip().lower() in _WHITE_FILLS:
+            return svg.replace(match.group(0), "", 1)
+    return svg
+
+
+def _truncate_decimals(svg: str, places: int = 2) -> str:
+    """压缩浮点位数 (SVG 体积/精度折中, 上游同款)。"""
+    return re.sub(
+        r"-?\d+\.\d{3,}", lambda m: f"{float(m.group()):.{places}f}", svg
+    )
+
 
 def _douglas_peucker(points: list[tuple[float, float]], epsilon: float) -> list[tuple[float, float]]:
     if len(points) < 3:
@@ -783,21 +839,93 @@ def _gradient_edges(grey: Any) -> Any:
 def trace_to_svg(
     image: Any,
     box: tuple[int, int, int, int],
-    scale: int = 1,
+    scale: int | None = None,
     color: bool = False,
     polygon: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    """把扁平高对比栅格图描摹成可编辑 SVG (本地, 零视觉 API)。
+    """把扁平高对比栅格图描摹成高保真可编辑 SVG (本地, 零视觉 API, 像素级精确几何)。
 
-    边缘检测 (FIND_EDGES) → 二值墨迹 → 连通分量 → Moore 边界追踪 →
-    Douglas-Peucker 多边形简化。polygon=true 更激进简化 (方框图)。
-    """
+    主引擎 = vtracer CLI (上游同源, filter_speckle=8 / corner_threshold=40 /
+    spline|polygon / bw|color); 无二进制时降级为 PIL 边界追踪 + Douglas-Peucker
+    (保真度较低, geometry.engine 标注 "pil-fallback")。
+
+    scale=None 时自动放大: 区域裁剪 ≥2x, 保证短边 ≥256px 以活过斑点过滤
+    (小图标直接描会二值化成空 — 上游实测教训)。"""
     _need_pil("trace_to_svg")
-    if not 1 <= int(scale) <= 16:
+    if scale is not None and not 1 <= int(scale) <= 16:
         raise ValueError("scale 须在 1-16")
     crop = image.crop(box)
-    if int(scale) > 1:
-        crop = crop.resize((crop.width * int(scale), crop.height * int(scale)), Image.LANCZOS)
+    if _find_vtracer_bin() is not None:
+        return _trace_vtracer(crop, scale, color, polygon)
+    return _trace_pil_fallback(crop, int(scale or 1), color, polygon)
+
+
+def _trace_vtracer(
+    crop: Any, scale: int | None, color: bool, polygon: bool
+) -> tuple[str, dict[str, Any]]:
+    """vtracer CLI 引擎 (子进程隔离): 上游 bin/trace 同款契约 + 白底剥离 + 小数截断。"""
+    if scale is None:
+        shortest = max(min(crop.width, crop.height), 1)
+        scale = max(2, -(-TARGET_MIN_SIDE // shortest))  # ceil 除法
+    if scale != 1:
+        crop = crop.resize((crop.width * scale, crop.height * scale), Image.LANCZOS)
+    svg_src_fd, src_path = tempfile.mkstemp(suffix=".png")
+    svg_out_fd, out_path = tempfile.mkstemp(suffix=".svg")
+    os.close(svg_src_fd)
+    os.close(svg_out_fd)
+    src_path_p = Path(src_path)
+    out_path_p = Path(out_path)
+    try:
+        crop.save(src_path_p, format="PNG")
+        import subprocess
+
+        completed = subprocess.run(
+            [
+                _find_vtracer_bin() or "vtracer",
+                "--input", src_path,
+                "--output", out_path,
+                "--colormode", "color" if color else "bw",
+                "--filter_speckle", "8",
+                "--corner_threshold", "40",
+                "--mode", "polygon" if polygon else "spline",
+            ],
+            capture_output=True, text=True, timeout=60,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"vtracer 退出 {completed.returncode}: "
+                f"{(completed.stderr or completed.stdout or '').strip()[:200]}"
+            )
+        svg = _truncate_decimals(_strip_background(out_path_p.read_text(encoding="utf-8")))
+    finally:
+        for handle in (src_path_p, out_path_p):
+            with contextlib.suppress(OSError):
+                handle.unlink(missing_ok=True)
+    path_count = svg.count("<path")
+    if not path_count:
+        # 二值化后什么都没活下来 — 给出最便宜的恢复路径 (上游同款提示)
+        hint = (
+            "0 paths: 二值化后无形状存活。试更大 scale、把 region 裁到形状附近、"
+            "或浅底深图先反色; color 是最后手段 (抗锯齿图会把每个灰阶拆成一条路径)。"
+        )
+        return "", {
+            "status": "empty", "engine": "vtracer", "path_count": 0,
+            "traced_scale": scale, "bytes": 0, "hint": hint,
+        }
+    return svg, {
+        "status": "generated", "engine": "vtracer", "path_count": path_count,
+        "traced_scale": scale, "bytes": len(svg.encode("utf-8")),
+    }
+
+
+def _trace_pil_fallback(
+    crop: Any, scale: int, color: bool, polygon: bool
+) -> tuple[str, dict[str, Any]]:
+    """PIL 降级引擎 (vtracer 缺失时): 梯度墨迹 → 连通分量 → Moore 边界 → DP 简化。"""
+    if not 1 <= scale <= 16:
+        raise ValueError("scale 须在 1-16")
+    if scale > 1:
+        crop = crop.resize((crop.width * scale, crop.height * scale), Image.LANCZOS)
     grey = crop.convert("L")
     edges = _gradient_edges(grey).point(lambda v: 255 if v > 16 else 0, mode="L")
     rgb = crop.convert("RGB")
@@ -810,7 +938,8 @@ def trace_to_svg(
             if edge_px[x, y]:
                 ink.add((x, y))
     if not ink:
-        return "", {"status": "empty", "path_count": 0, "traced_scale": int(scale), "bytes": 0}
+        return "", {"status": "empty", "engine": "pil-fallback", "path_count": 0,
+                    "traced_scale": scale, "bytes": 0}
 
     comps = connected_components(ink, w, h)
     min_size = max(len(comps[0]) * 0.02, 6)
@@ -824,7 +953,7 @@ def trace_to_svg(
         boundary = _trace_boundary(comp, w, h)[:-1]  # 去掉闭合重复点, DP 后再闭合
         if len(boundary) < 4:
             continue
-        epsilon = (1.2 if polygon else 0.5) * (4 / int(scale) + 0.6)
+        epsilon = (1.2 if polygon else 0.5) * (4 / scale + 0.6)
         simplified = _douglas_peucker(boundary, epsilon)
         if len(simplified) < 3:
             continue
@@ -847,9 +976,9 @@ def trace_to_svg(
         f'width="{w}" height="{h}">{"".join(paths)}</svg>'
     )
     return svg, {
-        "status": "generated",
+        "status": "generated", "engine": "pil-fallback",
         "path_count": len(paths),
-        "traced_scale": int(scale),
+        "traced_scale": scale,
         "bytes": len(svg.encode("utf-8")),
     }
 

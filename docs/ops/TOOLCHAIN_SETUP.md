@@ -36,7 +36,25 @@ cp typst-x86_64-unknown-linux-musl/typst ~/.local/bin/
 typst --version   # typst 0.13.1
 ```
 
-### 2.2 drawio（AppImage 解压 + 用户级 GTK3 依赖链）
+### 2.2 vtracer（高保真 SVG 描摹，vision_trace 主引擎）
+
+`pip install vtracer` 的 Python 扩展在 CPython 3.14 下会段错误（0.6.15 旧 ABI），
+veya 改用独立 CLI 二进制 + 子进程隔离（崩了也只丢子进程）：
+
+```bash
+mkdir -p ~/.veya/bin
+cd /tmp
+curl -sL -o vtracer.tar.gz \
+  https://github.com/visioncortex/vtracer/releases/download/0.6.4/vtracer-x86_64-unknown-linux-musl.tar.gz
+tar -xzf vtracer.tar.gz
+cp vtracer ~/.veya/bin/vtracer && chmod +x ~/.veya/bin/vtracer
+~/.veya/bin/vtracer --version   # visioncortex VTracer 0.6.4
+```
+
+解析顺序: `VEYA_VTRACER_BIN` → `~/.veya/bin/vtracer` → PATH。缺二进制时
+`vision_trace` 自动降级 PIL 描摹（结果 `geometry.engine` 标注 `pil-fallback`）。
+
+### 2.3 drawio（AppImage 解压 + 用户级 GTK3 依赖链）
 
 服务器常缺 FUSE（AppImage 起不来）与 GTK3（Electron 起不来），两步都绕开：
 
@@ -221,6 +239,7 @@ sudo apt install -y texlive-xetex texlive-lang-chinese fonts-noto-cjk
 | 组件 | 位置 | 版本 |
 |---|---|---|
 | typst | `~/.local/bin/typst` | 0.13.1 |
+| **vtracer** | `~/.veya/bin/vtracer` | 0.6.4 |
 | drawio | `~/.local/bin/drawio` → `~/.local/lib/drawio` | 31.1.8 |
 | GTK3 依赖 | `~/.local/lib/gtk3/` | 14 个 deb 解压 |
 | pdftoppm | `~/.local/bin/pdftoppm` → `~/.local/venv/pdftools` | pymupdf 1.28.2 |
