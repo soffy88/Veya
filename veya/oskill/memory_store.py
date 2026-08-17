@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import sqlite3
 import threading
@@ -19,7 +18,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from veya.obase.async_utils import run_sync_in_daemon_thread
+
 _WORD = re.compile(r"[\w一-鿿]+")
+_SQLITE_BUSY_TIMEOUT_MS = 5_000
 
 
 def _tokens(text: str) -> set[str]:
@@ -36,12 +38,19 @@ class SqliteMemoryStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn = sqlite3.connect(
+            str(self._db_path),
+            timeout=_SQLITE_BUSY_TIMEOUT_MS / 1_000,
+            check_same_thread=False,
+        )
+        conn.execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
         return conn
 
     def _init_db(self) -> None:
         with self._lock, self._connect() as conn:
+            # journal_mode may need a database lock. Set it once during
+            # initialization so read-only connections never wait on this PRAGMA.
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS memories ("
                 "  id TEXT PRIMARY KEY,"
@@ -130,10 +139,10 @@ class SqliteMemoryStore:
 
     # ── async wrappers ───────────────────────────────────────────────
     async def add(self, user_id: str, kind: str, text: str, **kw: Any) -> str:
-        return await asyncio.to_thread(self.add_sync, user_id, kind, text, **kw)
+        return await run_sync_in_daemon_thread(self.add_sync, user_id, kind, text, **kw)
 
     async def retrieve(self, user_id: str, query: str, *, top_k: int = 5) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(self.retrieve_sync, user_id, query, top_k=top_k)
+        return await run_sync_in_daemon_thread(self.retrieve_sync, user_id, query, top_k=top_k)
 
 
 _default_store: SqliteMemoryStore | None = None

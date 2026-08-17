@@ -21,9 +21,12 @@
                ├─ hicode_run（长任务编码，模型自己决定调用）
                ├─ run_in_sandbox（运行验证）
                ├─ mcp_*（视频 hevi / 知识 stratum / 代码库 codebase）
-               └─ vision_*（视觉取证 10 工具：glance/ground/detect/crop/trace/
-                  pixel_diff/long_screenshot_ocr/extract_foreground/dominant_colors/
-                  html_screenshot — 2026-08 用户批准新增, 3O 内化 dsh-vision-toolkit）
+               ├─ vision_*（视觉取证 10 工具：glance/ground/detect/crop/trace/
+               │  pixel_diff/long_screenshot_ocr/extract_foreground/dominant_colors/
+               │  html_screenshot — 2026-08 用户批准新增, 3O 内化 dsh-vision-toolkit）
+               └─ agent_loop_run（2026-08-17 新增: 委托 omodul.AgentLoop 在隔离
+                  会话/工具面里跑一个结构化子任务, 完成后把结果文本带回;
+                  模型自主决定要不要调, 不是第二条主链, 见 §2.5）
             └─► 模型收尾总结 → SSE → 前端
 ```
 
@@ -74,6 +77,39 @@ Graft 默认不预注入（`VEYA_GRAFT_CONTEXT=1` 才恢复每轮注入）；编
 
 - 不显示"任务开始 / 思考…"过程徽章（master_start/master_round 不进轨迹）
 - 只显示真实执行轨迹：`$ fetch_url` / `$ hicode_run` / `✗ 工具失败` / Hicode 进度
+
+### 2.5 主链路唯一性纠偏 + AgentLoop 降格为工具（2026-08-17）
+
+**踩过的坑**：`docs/3O_STRICT_MIGRATION.md`（阶段 4-5）新增了
+`server/agent_loop_bridge.py` 作为「双轨切换桥」，`VEYA_AGENT_LOOP=strict` 时
+整个 `coordinator_master.chat_stream()` 早退，改由 `omodul.AgentLoop` 接管
+用户请求（独立会话树 `session_tree.db`、独立工具面裁剪、独立记忆蒸馏钩子）。
+`deploy/docker-compose.yml` 后来把这个 flag 的默认值改成了 `strict`
+——production 因此长期实际跑的是**第二条主链**，而不是本文档描述的
+MasterAgent ReAct，且本文档从未同步更新，导致文档与生产行为脱节。
+
+副作用：
+- 双轨路径各自维护一套「工具面裁剪」逻辑，其中一版直接复刻了 §2.1 明确
+  记录过的失败模式（"工具面分层 `_layer_tools`"）——同一个坑踩了两次。
+- 多端同步 (`/api/v1/agent/sessions`、`/api/v1/agent/history/{sid}`) 一度
+  切换读 `session_tree.db`，因为那是当时生产实际写入的存储；`veya.history_store`
+  反而成了"从未被写入的旧路径专用存储"，本末倒置。
+
+**结论（本次修正）**：
+- 唯一主链恢复为 `MasterCoordinator.chat_stream()` → `MasterAgent.chat_stream()`
+  ReAct 循环，全量工具面（`get_all_tool_schemas()`），零程序裁剪，§1/§2.1
+  原则重新对现实生效。
+- `VEYA_AGENT_LOOP` / `strict_loop_enabled()` 已整体删除，不再是可切换的
+  主链入口。
+- `omodul.AgentLoop` 降格为**一个工具**：`agent_loop_run`（见
+  `server/tool_registry.py`），模型自主决定要不要委托一个隔离子任务给它；
+  它跑在自己的临时 session（`agent-loop-tool-<uuid>`）和裁剪过的工具面里
+  （`MasterToolRegistry.get_resident_schemas` + 按需追加的 `tool_group`），
+  这个裁剪**只约束子任务的执行边界**，不影响 MasterAgent 主链看到的工具集
+  ——§2.1「工具面分层」教训只适用于「面向用户判断的主脑」，不适用于「模型
+  主动委托的隔离子任务执行器」，两者不是一回事。
+- 多端同步接口改回读 `veya.history_store`（`coordinator_master._persist_history`
+  权威写入源），与唯一主链重新对齐。
 
 ## 3. 关键部署配置（勿改）
 

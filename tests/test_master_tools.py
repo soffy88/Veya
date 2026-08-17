@@ -359,21 +359,22 @@ async def test_chat_stream_user_api_key_isolated():
     assert result["status"] == "success"
 
 
-def test_master_router_endpoints_reachable():
+@pytest.mark.asyncio
+async def test_master_router_endpoints_reachable():
     """主脑路由已挂载: /master/tools 真实可访问。"""
-    from fastapi.testclient import TestClient
+    import httpx
 
     from server.app import app
 
-    client = TestClient(app)
-    resp = client.get("/master/tools")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/master/tools")
     assert resp.status_code == 200
     tools = resp.json()["tools"]
     names = {t["name"] for t in tools}
     assert "browser_run" in names
     assert "delegate_to_genesis" in names
     assert "read_file_ast" in names
-    client.close()
 
 
 # =========================================================================

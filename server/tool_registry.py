@@ -17,18 +17,232 @@ import contextlib
 import inspect
 import json
 import os
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
+from veya.obase.async_utils import run_sync_in_daemon_thread
+from veya.oskill.pure.validate_args import validate_args
 
 logger = __import__("logging").getLogger("master.tools")
 
 
 class ToolExecutionError(RuntimeError):
     """工具执行失败 → 由主脑捕获并回喂模型反思(不直接暴露给用户)。"""
+
+
+# ================= 工具分组 (仅供 agent_loop_run 隔离子任务内部使用) =========
+# 2026-08-17 架构澄清 (docs/ARCHITECTURE_STABLE.md「冻结架构」): 面向用户的
+# 唯一主链是 MasterAgent ReAct, 全量工具面 + 模型自主判断, 程序不裁藏 —
+# 这份分组表**不会**用来过滤 MasterAgent 看到的工具 (get_all_tool_schemas
+# 不受影响)。它只服务 agent_loop_run 这一个工具: 该工具把 omodul.AgentLoop
+# 作为「隔离子任务执行器」暴露给 MasterAgent 调用, 子任务自己的临时会话按
+# 请求方指定的 tool_group 给一个有边界的工具面, 避免隔离执行阶段拿到全部
+# ~60 个工具 (那是另一件事: 执行边界收紧, 不是主脑认知裁剪)。
+_RESIDENT_TOOLS: frozenset[str] = frozenset(
+    {
+        "ask_user",  # 意图理解
+        "project_ask",  # 派工唯一入口 (自动路由 builtin/hicode/dsh)
+        "project_status",  # 监督长程执行 (只读进度)
+        "hicode_review",  # 审查
+        "decision_record",  # 决策留痕
+        "decision_query",  # 决策回溯
+    }
+)
+
+# ================= 并发安全工具 (多工具并行执行白名单) ======================
+# 2026-08-17: 主链 ReAct 一轮可能返回多个 tool_call。默认逐个顺序执行；这份
+# 白名单里的工具是**纯只读、无副作用、彼此独立**的, 主库循环遇到「整批都在
+# 白名单内」时并发执行 (asyncio.gather), 直接吃到「一轮读多个文件/搜多个模式」
+# 的延迟收益。保守策略 (pi 同款): 只要一批里有一个不在白名单, 整批退回顺序 —
+# 有副作用/写文件/跑命令的工具永远不并发, 零竞态风险。追加消息顺序恒等于原始
+# 顺序, 对模型完全透明。新工具默认非并发安全, 显式确认无副作用再加入。
+_PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
+    {
+        # 纯文件/代码读取
+        "list_files",
+        "grep",
+        "read_file_ast",
+        "assemble_code_context",
+        # 只读检索/查询
+        "fetch_url",
+        "search_genesis_ledger",
+        "decision_query",
+        "graph_query",
+        "get_market_data_schema",
+        "project_status",
+        "plan_status",
+        # 只读状态检查 (状态内核)
+        "system_quota_should_run",
+        "system_gate_check",
+        "system_terminal_gate_check",
+        "system_boundary_scan",
+        # hicode 只读诊断
+        "hicode_status",
+        "hicode_sessions",
+        "hicode_tasks",
+    }
+)
+
+# 工具名 → 职能分组。未登记的名字兜底进 "other" (mcp_* 网关例外, 见 _group_for)。
+_TOOL_GROUPS: dict[str, str] = {
+    # code_exec: 直接读写代码/跑命令 — 多数场景应走 project_ask 派给 hicode,
+    # 只有需要亲自核查/兜底时才启用。
+    "write_file": "code_exec",
+    "read_file_ast": "code_exec",
+    "list_files": "code_exec",
+    "grep": "code_exec",
+    "run_in_sandbox": "code_exec",
+    "assemble_code_context": "code_exec",
+    "hicode_run": "code_exec",
+    "hicode_sessions": "code_exec",
+    "hicode_rollback": "code_exec",
+    "hicode_status": "code_exec",
+    "hicode_tasks": "code_exec",
+    "hicode_stop": "code_exec",
+    # vision: 视觉取证/像素级图像操作
+    "vision_glance": "vision",
+    "vision_ground": "vision",
+    "vision_detect": "vision",
+    "vision_crop": "vision",
+    "vision_trace": "vision",
+    "vision_pixel_diff": "vision",
+    "vision_long_screenshot_ocr": "vision",
+    "vision_extract_foreground": "vision",
+    "vision_dominant_colors": "vision",
+    "vision_html_screenshot": "vision",
+    # quant: 量化数据/回测协议
+    "get_market_data_schema": "quant",
+    "run_backtest_coprocessor": "quant",
+    # graph_memory: 上下文图谱读写
+    "graph_query": "graph_memory",
+    "graph_store": "graph_memory",
+    # genesis: 3O Engine Genesis 工作流/进化搜索/账本
+    "evolve_solution": "genesis",
+    "search_genesis_ledger": "genesis",
+    "delegate_to_genesis": "genesis",
+    # state_kernel: 计划状态内核控制面, 一般由自动化流程内部调用
+    "system_boundary_scan": "state_kernel",
+    "system_gate_check": "state_kernel",
+    "system_graph_cycle": "state_kernel",
+    "system_graph_review": "state_kernel",
+    "system_quota_should_run": "state_kernel",
+    "system_quota_spend_slot": "state_kernel",
+    "system_terminal_gate_check": "state_kernel",
+    "system_todo_claim": "state_kernel",
+    # business: 公众号图文生产
+    "produce_wechat_article": "business",
+    "wechat_discover": "business",
+    # automation: loop-plane 目标/诊断/干预
+    "loop_plan_goal": "automation",
+    "loop_diagnose": "automation",
+    "loop_intervene": "automation",
+    # web: 浏览器自动化/网页抓取
+    "browser_run": "web",
+    "fetch_url": "web",
+    # planning: 旧版计划系统 (create_plan/plan_status/update_todo), project_ask
+    # 是首选派工入口, 这套留作需要显式多步 todo 追踪时的备选。
+    "create_plan": "planning",
+    "plan_status": "planning",
+    "update_todo": "planning",
+}
+
+_GROUP_DESCRIPTIONS: dict[str, str] = {
+    "code_exec": "直接读写代码/跑沙箱命令 (write_file/grep/run_in_sandbox/hicode_*)。"
+    "多数编码需求应优先 project_ask 派给 hicode, 只有需要亲自核查时才启用。",
+    "vision": "视觉取证/像素级图像操作 (vision_glance/crop/trace/pixel_diff/...)。",
+    "quant": "量化数据协议 + 隔离回测 (get_market_data_schema/run_backtest_coprocessor)。",
+    "graph_memory": "上下文图谱读写 (graph_query/graph_store)。",
+    "genesis": "3O Engine Genesis 工作流/进化搜索/账本查询。",
+    "state_kernel": "计划状态内核控制面 (gate/quota/todo_claim), 一般由自动化流程内部调用。",
+    "business": "公众号图文生产 (produce_wechat_article/wechat_discover)。",
+    "automation": "loop-plane 目标设定/诊断/干预。",
+    "web": "浏览器自动化/网页抓取 (browser_run/fetch_url)。",
+    "planning": "旧版计划系统 (create_plan/plan_status/update_todo); project_ask 是首选派工入口。",
+    "mcp_gateway": "兄弟服务网关 (mcp_hevi/mcp_stratum/mcp_od/mcp_codebase)。",
+}
+
+
+def _group_for(name: str) -> str:
+    if name in _TOOL_GROUPS:
+        return _TOOL_GROUPS[name]
+    if name.startswith("mcp_"):
+        return "mcp_gateway"
+    return "other"
+
+
+# agent_loop_run 隔离子会话 id → 该次调用请求解锁的工具组集合。子任务跑完
+# 即弹出清理 (见 _agent_loop_run), 不跨调用持久化。
+_session_enabled_groups: dict[str, set[str]] = {}
+
+
+def get_enabled_groups(session_id: str | None) -> set[str]:
+    """该隔离子会话已解锁的工具组 (只读快照)。"""
+    return set(_session_enabled_groups.get(session_id or "", ()))
+
+
+_TOOL_TIMEOUT_ENV = "VEYA_TOOL_TIMEOUT_S"
+
+
+def parse_optional_timeout(value: float | str | None, *, source: str) -> float | None:
+    """把可选超时归一化为秒；空值/0 表示不设限。"""
+    if value in (None, ""):
+        return None
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{source} must be a non-negative number of seconds") from exc
+    if timeout < 0:
+        raise ValueError(f"{source} must be a non-negative number of seconds")
+    return timeout or None
+
+
+def _schema_validator(schema: dict, *, owner: str) -> dict[str, Any]:
+    """校验工具 schema 的基本形态，并复用 3O 零依赖参数校验器。"""
+    if not isinstance(schema, dict):
+        raise ValueError(f"{owner}: invalid JSON schema: expected object")
+    if schema.get("type", "object") != "object":
+        raise ValueError(f"{owner}: invalid JSON schema: root type must be object")
+    if not isinstance(schema.get("properties"), dict):
+        raise ValueError(f"{owner}: invalid JSON schema: properties must be object")
+    return dict(schema)
+
+
+def _validate_arguments(
+    name: str,
+    arguments: Any,
+    validator: Any,
+    *,
+    owner: str = "Tool",
+) -> None:
+    """按已注册 schema 校验实际执行参数，输出稳定且可反思的错误。"""
+    verdict = validate_args(arguments, validator)
+    if verdict.ok:
+        return
+    raise ToolExecutionError(
+        f"{owner} '{name}' arguments failed JSON schema validation: "
+        + "; ".join(verdict.errors[:3])
+    )
+
+
+async def _run_sync_callback(func: Callable, kwargs: dict[str, Any]) -> Any:
+    """在线程中跑同步工具，不依赖本环境 Python 3.14 会卡死的默认 executor。"""
+    return await run_sync_in_daemon_thread(func, **kwargs)
+
+
+async def _invoke_callback(func: Callable, kwargs: dict[str, Any]) -> Any:
+    """执行 callback：同步函数进线程池，且兼容同步函数返回 awaitable。"""
+    call = func
+    if inspect.iscoroutinefunction(call):
+        result = call(**kwargs)
+    else:
+        result = await _run_sync_callback(call, kwargs)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
 
 
 def _to_str(result: Any, limit: int = 8000) -> str:
@@ -50,11 +264,22 @@ def _to_str(result: Any, limit: int = 8000) -> str:
 class MasterToolRegistry:
     """全局能力注册表: 物理函数 ↔ 大模型可见的 JSON Schema 双向映射。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, timeout_s: float | None = None) -> None:
         self._functions: dict[str, Callable] = {}
         self._schemas: list[dict] = []
+        self._validators: dict[str, Any] = {}
         self._descriptions: dict[str, str] = {}
         self._result_limits: dict[str, int] = {}  # 工具名 → 结果截断上限(协处理器需大上限)
+        configured_timeout = timeout_s
+        if configured_timeout is None:
+            configured_timeout = os.environ.get(_TOOL_TIMEOUT_ENV)
+        self._default_timeout_s = parse_optional_timeout(
+            configured_timeout, source=f"timeout_s/{_TOOL_TIMEOUT_ENV}"
+        )
+        self._tool_timeouts: dict[str, float | None] = {}
+        # 并发安全工具集: 模块级白名单 + 注册时显式 opt-in。主库循环据此决定
+        # 一批 tool_call 能否并发 (整批都在集内才并发, 否则顺序)。
+        self._parallel_safe: set[str] = set(_PARALLEL_SAFE_TOOLS)
 
     # ── 注册 ─────────────────────────────────────────────────────────
     def register(
@@ -65,6 +290,8 @@ class MasterToolRegistry:
         func: Callable,
         *,
         max_result_chars: int = 8000,
+        timeout_s: float | None = None,
+        parallel_safe: bool | None = None,
     ) -> None:
         """注册一个能力,使其对大模型可见。
 
@@ -74,6 +301,9 @@ class MasterToolRegistry:
             parameters: JSON Schema 对象, 形如 {"type": "object", "properties": {...}, "required": [...]}。
             func: 物理实现(同步或 async 均可)。
             max_result_chars: 结果回喂大模型前的截断上限(浓缩 JSON 类工具需调大)。
+            timeout_s: 此工具的可选超时秒数；未配置时继承 registry/env，0 表示不设限。
+            parallel_safe: 显式声明此工具纯只读/无副作用可与同批工具并发执行；
+                缺省 None 时按模块级 _PARALLEL_SAFE_TOOLS 白名单判定 (默认不并发)。
         """
         if not name or not callable(func):
             raise ValueError("register requires a non-empty tool name and a callable")
@@ -84,10 +314,20 @@ class MasterToolRegistry:
         params.setdefault("type", "object")
         if "properties" not in params:
             raise ValueError(f"Tool '{name}': parameters must include 'properties'")
+        validator = _schema_validator(params, owner=f"Tool '{name}'")
 
         self._functions[name] = func
+        self._validators[name] = validator
         self._descriptions[name] = description
         self._result_limits[name] = max_result_chars
+        if timeout_s is not None:
+            self._tool_timeouts[name] = parse_optional_timeout(
+                timeout_s, source=f"Tool '{name}' timeout_s"
+            )
+        if parallel_safe is True:
+            self._parallel_safe.add(name)
+        elif parallel_safe is False:
+            self._parallel_safe.discard(name)
         self._schemas.append(
             {
                 "type": "function",
@@ -102,13 +342,40 @@ class MasterToolRegistry:
     def unregister(self, name: str) -> None:
         if name in self._functions:
             del self._functions[name]
+            self._validators.pop(name, None)
             del self._descriptions[name]
+            self._result_limits.pop(name, None)
+            self._tool_timeouts.pop(name, None)
+            self._parallel_safe.discard(name)
             self._schemas = [s for s in self._schemas if s["function"]["name"] != name]
 
     # ── 查询 ─────────────────────────────────────────────────────────
     def get_all_schemas(self) -> list[dict]:
         """暴露给大模型的全部认知描述 (Function Calling 协议)。"""
         return list(self._schemas)
+
+    def is_parallel_safe(self, name: str) -> bool:
+        """此工具是否纯只读/无副作用, 可与同批工具并发执行。
+
+        主库 ReAct 循环调用: 一批 tool_call 全部 parallel_safe 才整批并发,
+        否则顺序执行 (保守策略, 有副作用工具永不并发)。未注册的名字返回 False。
+        """
+        return name in self._parallel_safe
+
+    def get_resident_schemas(self, *, session_id: str | None = None) -> list[dict]:
+        """精简工具面: 常驻工具 (意图理解/派工/监督/审查) + 该会话已解锁的专项组。
+
+        仅供 agent_loop_run 的隔离子任务执行使用 (给子任务一个有边界的工具面),
+        不用于 MasterAgent ReAct 主链 —— 主链看到的仍是全量 get_all_schemas(),
+        冻结架构要求「程序不裁藏」。
+        """
+        enabled = get_enabled_groups(session_id)
+        out = []
+        for schema in self._schemas:
+            name = schema["function"]["name"]
+            if name in _RESIDENT_TOOLS or _group_for(name) in enabled:
+                out.append(schema)
+        return out
 
     def list_tools(self) -> list[str]:
         return sorted(self._functions)
@@ -132,7 +399,7 @@ class MasterToolRegistry:
         return len(self._functions)
 
     # ── 执行 ─────────────────────────────────────────────────────────
-    async def execute(self, name: str, kwargs: dict) -> str:
+    async def execute(self, name: str, kwargs: dict, *, timeout_s: float | None = None) -> str:
         """执行物理函数,返回字符串结果。async 函数自动 await。
 
         Raises:
@@ -143,16 +410,28 @@ class MasterToolRegistry:
             raise ToolExecutionError(
                 f"Tool '{name}' not found. Available: {', '.join(self.list_tools())}"
             )
+        _validate_arguments(name, kwargs, self._validators[name])
         # 统一守卫通道: 执行前过策略链 + 记决策轨迹 (缺省全放行, 零行为变化)。
         try:
             await _tool_guard.acheck(name, kwargs, source="master_tool")
         except _ToolDenied as denied:
             raise ToolExecutionError(str(denied)) from denied
+        effective_timeout = parse_optional_timeout(
+            timeout_s, source=f"Tool '{name}' execute timeout_s"
+        )
+        if timeout_s is None:
+            effective_timeout = self._tool_timeouts.get(name, self._default_timeout_s)
         try:
-            raw = func(**kwargs)
-            if inspect.isawaitable(raw):
-                raw = await raw
+            execution = _invoke_callback(func, kwargs)
+            if effective_timeout is None:
+                raw = await execution
+            else:
+                raw = await asyncio.wait_for(execution, timeout=effective_timeout)
             return _to_str(raw, limit=self._result_limits.get(name, 8000))
+        except TimeoutError as exc:
+            raise ToolExecutionError(
+                f"tool '{name}' timed out after {effective_timeout:g}s"
+            ) from exc
         except ToolExecutionError:
             raise
         except Exception as exc:
@@ -233,14 +512,29 @@ def _resolve_workspace_root() -> Path:
     ).resolve()
 
 
+def _resolve_extra_roots() -> list[Path]:
+    """额外允许访问的目录 (VEYA_WORKSPACE_EXTRA_DIRS, ':' 分隔) — 同宿主兄弟项目等,
+    仿 vision_toolkit_tools 的 VEYA_VISION_ALLOWED_DIRS 白名单模式。"""
+    raw = os.environ.get("VEYA_WORKSPACE_EXTRA_DIRS", "")
+    roots: list[Path] = []
+    for part in raw.split(":"):
+        part = part.strip()
+        if not part:
+            continue
+        with contextlib.suppress(OSError):
+            roots.append(Path(part).resolve())
+    return roots
+
+
 def _resolve_path(filepath: str, *, must_exist: bool = True) -> Path:
-    """路径安全: 拒绝逃逸工作区根。"""
+    """路径安全: 拒绝逃逸工作区根 (含 VEYA_WORKSPACE_EXTRA_DIRS 额外允许目录)。"""
     root = _resolve_workspace_root()
     p = Path(filepath)
     if not p.is_absolute():
         p = root / p
     p = p.resolve()
-    if p != root and root not in p.parents:
+    allowed_roots = [root, *_resolve_extra_roots()]
+    if not any(p == r or r in p.parents for r in allowed_roots):
         raise ToolExecutionError(f"path '{filepath}' escapes workspace root '{root}'")
     if must_exist and not p.exists():
         raise ToolExecutionError(f"file not found: {filepath}")
@@ -338,16 +632,13 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
     try:
         async with _client() as client:
             r = await client.get(url, headers=headers)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"抓取失败: {type(exc).__name__}: {exc}"
     if r.status_code >= 400:
         return f"抓取失败: HTTP {r.status_code} @ {url}"
     ctype = (r.headers.get("content-type") or "").lower()
     text = r.text or ""
-    if "html" in ctype:
-        text = _html_to_text(text, max_chars)
-    else:
-        text = text.strip()[:max_chars]
+    text = _html_to_text(text, max_chars) if "html" in ctype else text.strip()[:max_chars]
     return text or "(页面无文本内容)"
 
 
@@ -519,8 +810,9 @@ def _tool_grep(pattern: str, glob: str | None = None, root: str | None = None) -
     """在项目内搜索代码(ripgrep),定位定义与引用。"""
     from server.assembly import ripgrep_search
 
-    base = _resolve_workspace_root()
-    search_root = str(base / root) if root else str(base)
+    search_root = (
+        str(_resolve_path(root, must_exist=True)) if root else str(_resolve_workspace_root())
+    )
     try:
         hits = ripgrep_search(pattern, root=search_root, glob=glob)
     except FileNotFoundError as exc:
@@ -554,13 +846,15 @@ def _tool_list_files(path: str = ".") -> str:
         "dist",
         "build",
     }
+    allowed_roots = [root, *_resolve_extra_roots()]
+    display_root = next((r for r in allowed_roots if target == r or r in target.parents), root)
     lines = []
     count = 0
     for p in sorted(target.rglob("*")):
         if any(part in excluded for part in p.parts):
             continue
         try:
-            rel = p.relative_to(root)
+            rel = p.relative_to(display_root)
         except ValueError:
             continue
         lines.append(f"{rel}/" if p.is_dir() else f"{rel} ({p.stat().st_size}b)")
@@ -891,7 +1185,7 @@ master_tools.register(
 # ================= 状态内核 (ARCHITECTURE_STATE_KERNEL Phase 1) ============
 # 主脑零改动: 只新增能力工具, 模型自主调用。状态复用 plan_todo 的 plan JSON
 # (单一真相源), 补 Quota/Claim/Gate 控制面对象。
-from server.state_kernel import gate_check, quota_should_run, todo_claim
+from server.state_kernel import gate_check, quota_should_run, todo_claim  # noqa: E402
 
 master_tools.register(
     name="system_quota_should_run",
@@ -958,7 +1252,7 @@ master_tools.register(
 )
 
 # ================= 状态内核 Phase 2+3 (Spend / Terminal Gate / 边界扫描) ====
-from server.state_kernel import boundary_scan, quota_spend_slot, terminal_gate_check
+from server.state_kernel import boundary_scan, quota_spend_slot, terminal_gate_check  # noqa: E402
 
 master_tools.register(
     name="system_quota_spend_slot",
@@ -1026,7 +1320,7 @@ master_tools.register(
 )
 
 # ================= graph-engineer 式多引擎编排 (自纠正循环) ==============
-from server.graph_engineer import graph_cycle
+from server.graph_engineer import graph_cycle  # noqa: E402
 
 master_tools.register(
     name="system_graph_cycle",
@@ -1093,7 +1387,7 @@ master_tools.register(
 )
 
 
-from server.graph_engineer import graph_review
+from server.graph_engineer import graph_review  # noqa: E402
 
 master_tools.register(
     name="system_graph_review",
@@ -1146,14 +1440,13 @@ def _register_wechat_discover(master_tools: Any) -> None:
         try:
             from veya.platform import oskill as _load_oskill
 
-            oskill = _load_oskill()
+            _load_oskill()
             from oskill.wechat_resources import register_wechat_resources
 
             catalog = register_wechat_resources()
             if kind:
                 items = [
-                    {"name": r.name, "description": r.description}
-                    for r in catalog.discover(kind)
+                    {"name": r.name, "description": r.description} for r in catalog.discover(kind)
                 ]
                 return f"{kind} 资源 ({len(items)}):\n" + "\n".join(
                     f"- {i['name']}: {i['description']}" for i in items
@@ -1212,6 +1505,43 @@ def _register_internalized_tools(mt: Any) -> None:
         from server.user_control import ask_question
 
         return await ask_question(question, options)
+
+    # ── agent_loop_run: omodul.AgentLoop 作为系统工具暴露 ──
+    # 2026-08-17 架构澄清: MasterAgent ReAct 是唯一面向用户的主链 (全量工具面,
+    # 模型自主判断, 冻结架构不改)；omodul.AgentLoop 不是第二条主链, 而是
+    # MasterAgent 可选调用的一个工具 —— 需要"自己反复摸索多轮才能收敛"的隔离
+    # 子任务时才用 (比如反复读代码+跑沙箱验证直到通过), 跑在自己的临时会话/
+    # 工具面里, 完成后把结果文本带回主链, 不接管用户请求、不产生第二套持久
+    # 会话历史。tool_group 由调用方 (MasterAgent, 全量视野) 决定给子任务开
+    # 哪个专项能力组 — 裁剪的是子任务的执行边界, 不是主脑的认知面。
+    async def _agent_loop_run(
+        task: str, tool_group: str | None = None, max_rounds: int = 15
+    ) -> str:
+        from server.agent_loop_bridge import run_strict_chat
+
+        if tool_group and tool_group not in _GROUP_DESCRIPTIONS:
+            raise ToolExecutionError(
+                f"未知 tool_group '{tool_group}'。可用: {', '.join(sorted(_GROUP_DESCRIPTIONS))}"
+            )
+        sid = f"agent-loop-tool-{uuid.uuid4().hex}"
+        if tool_group:
+            _session_enabled_groups[sid] = {tool_group}
+        try:
+            result = await run_strict_chat(
+                task,
+                session_id=sid,
+                max_rounds=max(1, min(int(max_rounds or 15), 40)),
+                tool_schemas=mt.get_resident_schemas(session_id=sid),
+                tool_executor=mt.execute,
+            )
+        finally:
+            _session_enabled_groups.pop(sid, None)
+        if result.get("status") != "success":
+            raise ToolExecutionError(
+                f"子任务未完成 (status={result.get('status')}): "
+                f"{result.get('error') or result.get('final_answer') or ''}"
+            )
+        return result.get("final_answer") or "(子任务无输出)"
 
     async def _decision_record(
         category: str,
@@ -1353,10 +1683,16 @@ def _register_internalized_tools(mt: Any) -> None:
             parameters={
                 "type": "object",
                 "properties": {
-                    "category": {"type": "string", "description": "决策类别, 如 project_task/vendor/approve"},
+                    "category": {
+                        "type": "string",
+                        "description": "决策类别, 如 project_task/vendor/approve",
+                    },
                     "scenario": {"type": "string", "description": "场景/请求描述"},
                     "reasoning": {"type": "string", "description": "推理依据"},
-                    "outcome": {"type": "string", "description": "结果, 如 completed/blocked/approved"},
+                    "outcome": {
+                        "type": "string",
+                        "description": "结果, 如 completed/blocked/approved",
+                    },
                     "confidence": {"type": "number", "description": "置信度 0-1"},
                     "parent_id": {"type": "string", "description": "可选, 因果父决策 id"},
                 },
@@ -1375,7 +1711,10 @@ def _register_internalized_tools(mt: Any) -> None:
             parameters={
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["trace", "similar", "impact", "rules", "export", "summary"]},
+                    "action": {
+                        "type": "string",
+                        "enum": ["trace", "similar", "impact", "rules", "export", "summary"],
+                    },
                     "decision_id": {"type": "string"},
                     "query": {"type": "string"},
                     "category": {"type": "string"},
@@ -1426,6 +1765,40 @@ def _register_internalized_tools(mt: Any) -> None:
                 "required": ["op"],
             },
             func=_graph_query,
+            max_result_chars=8000,
+        ),
+        dict(
+            name="agent_loop_run",
+            description=(
+                "委托 omodul.AgentLoop 在隔离会话/工具面里执行一个结构化子任务, 完成后把"
+                "结果文本带回来 (不会暂停等你确认, 也不会污染当前对话历史)。适合: 需要自己"
+                "反复摸索多轮才能收敛的隔离子流程 (比如反复读代码+跑沙箱验证直到通过)。"
+                "多数需求应优先直接调用具体工具, 或用 project_ask 派给 hicode; 只有需要给"
+                "一个子任务单独开一段'自己摸索多轮'的隔离空间时才用这个。"
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "子任务目标, 自然语言描述, 写清楚验收标准。",
+                    },
+                    "tool_group": {
+                        "type": "string",
+                        "enum": sorted(_GROUP_DESCRIPTIONS),
+                        "description": (
+                            "子任务隔离工具面里额外解锁的专项组 (可选)。不传则子任务只有"
+                            "意图理解/派工/监督/审查这几个常驻工具。"
+                        ),
+                    },
+                    "max_rounds": {
+                        "type": "integer",
+                        "description": "子任务最多轮次, 默认 15, 上限 40。",
+                    },
+                },
+                "required": ["task"],
+            },
+            func=_agent_loop_run,
             max_result_chars=8000,
         ),
     ):
