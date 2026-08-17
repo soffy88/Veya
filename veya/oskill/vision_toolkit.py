@@ -82,17 +82,21 @@ def resolve_vision_provider() -> dict[str, str]:
 
 
 def _proxy_alive(port: str) -> bool:
-    """hicode 本地反代探活 (0.5s, 静默失败)。"""
+    """hicode 本地反代探活 (2s, 单次重试; 反代首请求冷启动可能 >0.5s)。"""
     import urllib.error
     import urllib.request
 
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=0.5) as resp:
-            return resp.status in (200, 401, 403)
-    except urllib.error.HTTPError as exc:
-        return exc.code in (200, 401, 403)
-    except Exception:
-        return False
+    for _ in range(2):
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/v1/models", timeout=2.0
+            ) as resp:
+                return resp.status in (200, 401, 403)
+        except urllib.error.HTTPError as exc:
+            return exc.code in (200, 401, 403)
+        except Exception:
+            continue
+    return False
 
 
 def _mime_for(path: str) -> str:
