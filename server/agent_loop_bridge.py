@@ -1,42 +1,74 @@
-"""server/agent_loop_bridge — 双轨运行桥（阶段 4，新增文件，不改主链）。
+"""server/agent_loop_bridge — omodul.AgentLoop 执行原语 (供工具调用, 非主链)。
 
-旧路径（默认）: server/coordinator_master.py → 主库 MasterAgent ReAct 循环。
-新路径（VEYA_AGENT_LOOP=strict）: omodul_agent_loop 注入式心脏。
+2026-08-17 架构澄清 (docs/ARCHITECTURE_STABLE.md「冻结架构」): 面向用户的
+唯一主链是 server/coordinator_master.py → 主库 MasterAgent ReAct 循环 (全量
+工具面, 模型自主判断)。omodul.AgentLoop 不是第二条主链，run_strict_chat 只
+被 server/tool_registry.py 的 agent_loop_run 工具调用，为 MasterAgent 委托的
+隔离子任务提供一个注入式心脏 (独立会话/工具面/轮次上限)，完成后把结果文本
+带回主链——不接管用户请求，不产生第二套持久会话历史。
 
-本桥是**新增装配点**：不修改任何现有文件，主链行为零变化；
-阶段 5 oservi_api_gateway / daemon 直接调用本桥即可完成切换。
-
-用法:
-    VEYA_AGENT_LOOP=strict veya serve ...   # 或任何入口前设置 env
-    代码内: await run_strict(user_prompt, tools={...})
+用法: 代码内 await run_strict(user_prompt, tools={...}) / run_strict_chat(...)。
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
-from typing import Any, Awaitable, Callable
+import inspect
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from veya.omodul.agent_loop import AgentLoop, LoopResult
 from veya.omodul.tool_pipeline import ToolPipeline
 
 # 工具注入形态: {name: (fn, schema | None)}; fn 可为 async
 ToolRegistry = dict[str, tuple[Callable[..., Any] | Callable[..., Awaitable[Any]], dict | None]]
+ToolExecutor = Callable[[str, dict[str, Any]], Any | Awaitable[Any]]
 
 
-def strict_loop_enabled() -> bool:
-    """feature flag: VEYA_AGENT_LOOP=strict → 新 omodul 心脏。"""
-    return os.environ.get("VEYA_AGENT_LOOP", "").strip().lower() == "strict"
+def _strict_tool_pipeline(
+    schemas: list[dict],
+    executor: ToolExecutor,
+) -> ToolPipeline:
+    """Build a pipeline whose callbacks all pass through one dispatcher.
+
+    Schemas describe the complete model-visible surface; they do not grant a
+    direct reference to a registry's physical callbacks.  Keeping dispatch
+    behind ``executor`` preserves host guards and lets callers provide one
+    coherent system/static/dynamic tool surface.
+    """
+    pipeline = ToolPipeline()
+
+    def _callback(tool_name: str) -> Callable[..., Awaitable[Any]]:
+        async def _execute(**kwargs: Any) -> Any:
+            result = executor(tool_name, kwargs)
+            return await result if inspect.isawaitable(result) else result
+
+        return _execute
+
+    for spec in schemas:
+        function = spec["function"]
+        name = function["name"]
+        pipeline.register(
+            name,
+            _callback(name),
+            schema=function.get("parameters"),
+            description=function.get("description", ""),
+        )
+    return pipeline
 
 
 class _BoundedLlm:
     """请求级 LLM 覆盖（config/provider/model/endpoint）透传 oprim_llm_call。"""
 
-    def __init__(self, kwargs: dict) -> None:
+    def __init__(self, kwargs: dict, caller: Callable | None = None) -> None:
         self._kwargs = dict(kwargs)
+        self._caller = caller
 
     async def complete(self, messages: list[dict], **kw: Any) -> dict:
+        if self._caller is not None:
+            result = self._caller(messages, **{**self._kwargs, **kw})
+            return await result if inspect.isawaitable(result) else result
         from veya.oprim.llm import llm_call
 
         return await llm_call(messages, client=None, **{**self._kwargs, **kw})
@@ -98,7 +130,7 @@ async def _relay_loop_events(barrier: Any, on_step: Callable | None = None) -> N
                         "round": p.get("round"),
                     }
                 )
-        except Exception:  # noqa: BLE001 — 事件桥失败不阻断主流程
+        except Exception:  # 事件桥失败不阻断主流程
             pass
 
 
@@ -114,23 +146,29 @@ async def run_strict_chat(
     context_providers: list[Callable[[str, str], Awaitable[str]]] | None = None,
     on_finish: Callable[[str, list[dict]], Awaitable[None]] | None = None,
     kv_path: str | None = None,
+    tool_schemas: list[dict] | None = None,
+    tool_executor: ToolExecutor | None = None,
+    llm_caller: Callable | None = None,
 ) -> dict:
-    """主链切换桥（VEYA_AGENT_LOOP=strict）：master_tools 全量工具面 + 提示词
-    + SSE 事件桥 + 会话树，用新 omodul 心脏执行一轮对话。
+    """omodul.AgentLoop 执行原语：用 AgentLoop 心脏跑一段隔离对话/子任务。
 
-    context_providers: 每轮注入钩子（记忆/代码地图，coordinator 传入）；
-    on_finish: 结束回调（蒸馏记忆）；kv_path: 会话树持久化文件（默认
-    ~/.veya/loop/session_tree.db，容器 veya-data volume 跨重启）。
+    调用方目前是 server/tool_registry.py 的 agent_loop_run 工具 (MasterAgent
+    委托的隔离子任务)——不是主链入口。
 
-    返回形态兼容旧 chat_stream：{status, final_answer, rounds, tool_calls,
-    session_id, stop_kind, loop_plane}。
+    context_providers: 每轮注入钩子（记忆/代码地图）；on_finish: 结束回调；
+    kv_path: 会话树持久化文件（默认 ~/.veya/loop/session_tree.db，容器
+    veya-data volume 跨重启；隔离子任务用临时 session_id, 不与主链历史混）。
+    tool_schemas/tool_executor: 可选的工具认知面与统一执行入口；应成对
+    注入。缺省使用 master_tools 的 schema + execute，确保 ToolGuard 不被绕过。
+
+    返回形态：{status, final_answer, rounds, tool_calls, session_id,
+    stop_kind, loop_plane}。
     """
     from server import auth as auth_mod
     from server.tool_registry import master_tools
     from veya.obase.adapters import TelemetryEventBarrier
     from veya.omodul.agent_loop import AgentLoop
     from veya.omodul.session_tree import SessionTreeMgr
-    from veya.omodul.tool_pipeline import ToolPipeline
 
     # 会话归属: 已鉴权 user_id (由请求入口的 auth.get_current_user/set_user
     # 设过 contextvar); 未登录落 anonymous, 与 history_store 隔离口径一致。
@@ -148,21 +186,18 @@ async def run_strict_chat(
             "loop_plane": "strict",
         }
 
-    # 1. 工具面全量注入（master_tools 静态 + mcp wire 后全量）
-    pipeline = ToolPipeline()
-    for spec in master_tools.get_all_schemas():
-        name = spec["function"]["name"]
-        fn = master_tools._functions.get(name)  # noqa: SLF001 — registry 内部形态
-        if fn is not None:
-            pipeline.register(
-                name,
-                fn,
-                schema=spec["function"].get("parameters"),
-                description=spec["function"].get("description", ""),
-            )
+    # 1. 工具认知面与执行面成对注入。默认仍是 master_tools，但物理执行只经
+    # execute() 统一入口，不能直取 _functions 绕过 ToolGuard。
+    effective_schemas = master_tools.get_all_schemas() if tool_schemas is None else tool_schemas
+    effective_executor = master_tools.execute if tool_executor is None else tool_executor
+    pipeline = _strict_tool_pipeline(effective_schemas, effective_executor)
 
     # 2. LLM（请求级覆盖透传；llm 显式注入优先——测试用）
-    effective_llm = llm or (_BoundedLlm(llm_kwargs) if llm_kwargs else None)
+    effective_llm = llm or (
+        _BoundedLlm(llm_kwargs or {}, caller=llm_caller)
+        if llm_kwargs or llm_caller is not None
+        else None
+    )
 
     # 3. 事件桥：barrier → fire_step（relay task 继承当前 contextvar）
     barrier = TelemetryEventBarrier()
@@ -253,4 +288,4 @@ def _session_kv(kv_path: str | None = None):
     return SqliteKvStore(str(path))
 
 
-__all__ = ["run_strict", "run_strict_chat", "strict_loop_enabled"]
+__all__ = ["run_strict", "run_strict_chat"]

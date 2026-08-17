@@ -55,6 +55,11 @@ HIGH_IMPACT = frozenset(
         "evolve_solution",
         "delegate_to_genesis",
         "system_spawn_swarm",
+        "system_create_automation",
+        "system_remove_automation",
+        "system_dispatch_omni_channel",
+        "system_reload_skills",
+        "system_workspace_reindex",
         "system_graph_cycle",
         "hicode_rollback",
         "hicode_stop",
@@ -163,14 +168,16 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
         }
     )
     try:
-        await asyncio.wait_for(pending.event.wait(), timeout=_APPROVAL_TIMEOUT_S)
-    except TimeoutError:
+        try:
+            await asyncio.wait_for(pending.event.wait(), timeout=_APPROVAL_TIMEOUT_S)
+        except TimeoutError:
+            return f"approval timed out for '{tool}' (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
+        if pending.approved:
+            return None
+        return f"user denied '{tool}'"
+    finally:
+        # Stop/断连取消等待时也必须释放请求，避免悬挂审批泄漏。
         _pending.pop(rid, None)
-        return f"approval timed out for '{tool}' (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
-    _pending.pop(rid, None)
-    if pending.approved:
-        return None
-    return f"user denied '{tool}'"
 
 
 async def ask_question(question: str, options: list[str] | None = None) -> str:
@@ -194,17 +201,18 @@ async def ask_question(question: str, options: list[str] | None = None) -> str:
         }
     )
     try:
-        await asyncio.wait_for(q.event.wait(), timeout=_QUESTION_TIMEOUT_S)
-    except TimeoutError:
+        try:
+            await asyncio.wait_for(q.event.wait(), timeout=_QUESTION_TIMEOUT_S)
+        except TimeoutError:
+            return (
+                f"[user did not answer within {_QUESTION_TIMEOUT_S:.0f}s] "
+                "用合理的默认假设继续, 不要重复提问。"
+            )
+        if q.answer is None or not str(q.answer).strip():
+            return "[user dismissed the question] 用合理默认假设继续。"
+        return str(q.answer)
+    finally:
         _pending_questions.pop(rid, None)
-        return (
-            f"[user did not answer within {_QUESTION_TIMEOUT_S:.0f}s] "
-            "用合理的默认假设继续, 不要重复提问。"
-        )
-    _pending_questions.pop(rid, None)
-    if q.answer is None or not str(q.answer).strip():
-        return "[user dismissed the question] 用合理默认假设继续。"
-    return str(q.answer)
 
 
 async def user_control_policy(name: str, kwargs: dict, source: str) -> str | None:

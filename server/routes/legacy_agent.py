@@ -269,22 +269,13 @@ async def list_user_sessions(
 ) -> dict[str, Any]:
     """列出当前用户的会话 (多端同步: 手机建的会话, 电脑端可见可续)。
 
-    2026-08-16 修复: 数据源从 veya.history_store (SqliteHistoryStore) 切到
-    session_tree.db (SessionTreeMgr) —— 生产实际路径 (VEYA_AGENT_LOOP=strict)
-    的对话只写进后者, history_store 从未被新主链写入过 (旧路径专用), 导致
-    这个"多端同步"接口此前对所有新对话都读到空列表。
+    数据源 = veya.history_store (SqliteHistoryStore) —— 主脑唯一主链
+    (MasterAgent ReAct) 权威写入的持久层 (见 coordinator_master._persist_history);
+    按 user_id 分区, 天然只读到本人会话。
     """
-    from server.agent_loop_bridge import _session_kv
-    from veya.omodul.session_tree import SessionTreeMgr
+    from veya.history_store import default_history_store
 
-    def _load() -> list[dict[str, Any]]:
-        # kv 连接必须和使用它的代码在同一线程创建 (sqlite3 限制) —— 不能把
-        # 构造挪到 to_thread 外面, 那样连接在事件循环线程创建、却在线程池
-        # 线程里被访问, sqlite3 会直接报 ProgrammingError。
-        tree = SessionTreeMgr(kv=_session_kv())
-        return tree.list_sessions(owner=user["user_id"], limit=50)
-
-    sessions = await asyncio.to_thread(_load)
+    sessions = await default_history_store().list_sessions(user_id=user["user_id"], limit=50)
     return {"sessions": sessions, "user_id": user["user_id"]}
 
 
@@ -295,20 +286,10 @@ async def get_session_history(
 ) -> dict[str, Any]:
     """返回当前用户的指定会话消息 (跨端恢复历史; 仅本人数据)。
 
-    2026-08-16: 同上, 切到 session_tree.db；owner 记录且不匹配当前用户 →
-    直接返回空 (不 404, 与 /sessions 列表"看不到即视为不存在"的语义一致，
-    调用方是内部前端逻辑不是需要精确错误码的公开 API)。owner=None (旧数据,
-    早于归属校验修复) 视为无主放行, 与仓库里其它归属校验点口径一致。
+    history_store 按 (user_id, sid) 联合主键存取, 查询本身已按 user_id 分区
+    (不存在跨用户 owner 校验的必要), 且只存非 system 消息, 无需额外过滤。
     """
-    from server.agent_loop_bridge import _session_kv
-    from veya.omodul.session_tree import SessionTreeMgr
+    from veya.history_store import default_history_store
 
-    def _load() -> list[dict[str, Any]]:
-        tree = SessionTreeMgr(kv=_session_kv())
-        owner = tree.owner_of(sid)
-        if owner is not None and owner != user["user_id"]:
-            return []
-        return [m for m in tree.messages(sid) if m.get("role") != "system"]
-
-    messages = await asyncio.to_thread(_load)
+    messages = await default_history_store().load(sid, user_id=user["user_id"])
     return {"session_id": sid, "messages": messages}

@@ -73,7 +73,16 @@ def test_hub_loads_python_skill(tmp_path):
 
 @pytest.mark.asyncio
 async def test_hub_executes_python_skill(tmp_path):
-    _write_skill(tmp_path, "adder", code="def main(a, b):\n    return a + b\n")
+    _write_skill(
+        tmp_path,
+        "adder",
+        code="def main(a, b):\n    return a + b\n",
+        parameters={
+            "type": "object",
+            "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+            "required": ["a", "b"],
+        },
+    )
     hub = VeyaSkillHub(skills_dir=tmp_path)
 
     out = await hub.execute("adder", {"a": 2, "b": 3})
@@ -86,6 +95,11 @@ async def test_hub_executes_async_skill(tmp_path):
         tmp_path,
         "async_skill",
         code="import asyncio\nasync def main(x):\n    await asyncio.sleep(0)\n    return {'x': x * 2}\n",
+        parameters={
+            "type": "object",
+            "properties": {"x": {"type": "integer"}},
+            "required": ["x"],
+        },
     )
     hub = VeyaSkillHub(skills_dir=tmp_path)
     out = await hub.execute("async_skill", {"x": 21})
@@ -95,7 +109,12 @@ async def test_hub_executes_async_skill(tmp_path):
 @pytest.mark.asyncio
 async def test_hub_skill_errors(tmp_path):
     # 缺失 main 函数
-    _write_skill(tmp_path, "no_main", code="def helper():\n    return 1\n")
+    _write_skill(
+        tmp_path,
+        "no_main",
+        code="def helper():\n    return 1\n",
+        parameters={"type": "object", "properties": {}},
+    )
     # 入口文件缺失: manifest 指向不存在的 run.py
     pkg = tmp_path / "no_file"
     pkg.mkdir()
@@ -112,7 +131,12 @@ async def test_hub_skill_errors(tmp_path):
         encoding="utf-8",
     )
     # 技能内部抛异常
-    _write_skill(tmp_path, "boom", code="def main():\n    raise ValueError('skill exploded')\n")
+    _write_skill(
+        tmp_path,
+        "boom",
+        code="def main():\n    raise ValueError('skill exploded')\n",
+        parameters={"type": "object", "properties": {}},
+    )
     hub = VeyaSkillHub(skills_dir=tmp_path)
 
     with pytest.raises(ToolExecutionError, match="main"):
@@ -205,7 +229,12 @@ async def test_hot_reload_add_and_remove(tmp_path):
     assert hub.list_skills() == []
 
     # 新技能包落地(模拟 Genesis 交付) → 热重载 → 秒学会
-    _write_skill(tmp_path, "btc_price", code="def main():\n    return {'btc': 97000}\n")
+    _write_skill(
+        tmp_path,
+        "btc_price",
+        code="def main():\n    return {'btc': 97000}\n",
+        parameters={"type": "object", "properties": {}},
+    )
     stats = hub.reload_skills()
     assert stats["loaded"] == 1
     assert hub.has("btc_price")
@@ -363,7 +392,12 @@ async def test_master_system_reload_tool(tmp_path):
         return _text_response("比特币价格查询完成: 97000 USD")
 
     # 技能包在 reload 前写入磁盘(模拟 Genesis 交付)
-    _write_skill(tmp_path, "btc_price", code="def main():\n    return {'btc': 97000, 'usd': 97000}\n")
+    _write_skill(
+        tmp_path,
+        "btc_price",
+        code="def main():\n    return {'btc': 97000, 'usd': 97000}\n",
+        parameters={"type": "object", "properties": {}},
+    )
 
     coord = MasterCoordinator(llm_fn=fake_llm, skill_hub=hub, max_rounds=4)
     result = await coord.chat_stream("查一下比特币价格", session_id="s1")
@@ -388,7 +422,16 @@ async def test_master_system_reload_tool(tmp_path):
 @pytest.mark.asyncio
 async def test_master_routes_to_skill_hub(tmp_path):
     """动态技能执行失败 → FAILED 回喂 → 主脑反思。"""
-    _write_skill(tmp_path, "flaky", code="def main(x):\n    raise RuntimeError(f'bad input {x}')\n")
+    _write_skill(
+        tmp_path,
+        "flaky",
+        code="def main(x):\n    raise RuntimeError(f'bad input {x}')\n",
+        parameters={
+            "type": "object",
+            "properties": {"x": {"type": "integer"}},
+            "required": ["x"],
+        },
+    )
     hub = VeyaSkillHub(skills_dir=tmp_path)
     calls = []
 

@@ -20,7 +20,7 @@ from veya.omodul.agent_loop import AgentLoop
 from veya.omodul.evidence_refine import EvidenceRefine
 from veya.omodul.session_tree import SessionTreeMgr
 from veya.omodul.tool_pipeline import ToolPipeline
-from server.agent_loop_bridge import run_strict, strict_loop_enabled
+from server.agent_loop_bridge import run_strict
 
 
 class FakeLlm:
@@ -748,15 +748,8 @@ async def test_evidence_refine_runtime_evidence():
 
 
 # ---------------------------------------------------------------------------
-# bridge — 双轨
+# bridge — omodul.AgentLoop 执行原语 (agent_loop_run 工具用)
 # ---------------------------------------------------------------------------
-
-
-def test_strict_loop_flag_default_off(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("VEYA_AGENT_LOOP", raising=False)
-    assert strict_loop_enabled() is False
-    monkeypatch.setenv("VEYA_AGENT_LOOP", "strict")
-    assert strict_loop_enabled() is True
 
 
 @pytest.mark.asyncio

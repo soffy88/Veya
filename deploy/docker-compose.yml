@@ -17,7 +17,6 @@ services:
     command: ["sh", "/app/hicode-entrypoint.sh"]
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.1}
-      - VEYA_AGENT_LOOP=${VEYA_AGENT_LOOP:-strict}   # 主链切换: strict=新 omodul 心脏 (默认开启); 置空/off 回旧主库路径
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
@@ -41,6 +40,10 @@ services:
       # Vision Toolkit 路径白名单: 主脑视觉取证可读 /repo (veya 仓库) + 同级项目
       # + hicode 工作区 (像素差分 hicode 产物); 视觉模型走 hicode 反代 (见 oskill)
       - VEYA_VISION_ALLOWED_DIRS=/repo:/home/soffy/projects:/home/soffy/.veya/hicode-workspace
+      # 通用文件工具 (list_files/grep/read_file_ast) 额外允许目录: 卷已挂了同级
+      # 项目 (见下方 volumes), 但读写根 VEYA_WORKSPACE 只认 /app, 之前主脑评估
+      # 兄弟项目(如 hevi)时 list_files/grep 会报 escapes workspace root。
+      - VEYA_WORKSPACE_EXTRA_DIRS=/home/soffy/projects
       # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) 临时装容器可写层; 镜像重建后由
       # requirements.txt 提供, 此路径仅容器层存在, 镜像层无则静默跳过
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps

@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
+import logging
 import os
 import uuid
+import weakref
 from collections.abc import Callable
 from typing import Any
 
@@ -25,15 +28,64 @@ from server.memory_bank import memory_bank as _default_memory_bank
 from server.skill_hub import VeyaSkillHub
 from server.skill_hub import skill_hub as _default_skill_hub
 from server.swarm_manager import SwarmOrchestrator
-from server.tool_registry import master_tools
+from server.tool_registry import ToolExecutionError, master_tools, parse_optional_timeout
 from server.workspace_rag import get_rag_engine as _default_rag_factory
 from veya.history_store import default_history_store
 from veya.llm import get_provider_config, llm_call
 from veya.memory_distill import distill as _distill_conversation
 from veya.memory_store import default_memory_store, format_memory_block
+from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.platform import oservi as _load_oservi
 
 _oservi = _load_oservi()
+
+logger = logging.getLogger("veya.master")
+
+# 请求级图片必须跟随当前协程，不能挂在全局 ``master_coordinator`` 实例上。
+_pending_images_ctx: contextvars.ContextVar[tuple[str, ...] | None] = contextvars.ContextVar(
+    "veya_pending_images", default=None
+)
+
+# 同一会话的两次请求必须串行。按 event loop 分桶，避免测试/CLI 多次
+# ``asyncio.run`` 时复用绑定到旧 loop 的 Lock。
+_session_locks_by_loop: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+class _SessionLockState:
+    __slots__ = ("lock", "users")
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.users = 0
+
+
+async def _acquire_session_lock(session_id: str) -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    locks = _session_locks_by_loop.setdefault(loop, {})
+    state = locks.setdefault(session_id, _SessionLockState())
+    state.users += 1
+    try:
+        await state.lock.acquire()
+    except BaseException:
+        state.users -= 1
+        if state.users == 0:
+            locks.pop(session_id, None)
+        raise
+    return state.lock
+
+
+def _release_session_lock(session_id: str, lock: asyncio.Lock) -> None:
+    locks = _session_locks_by_loop.get(asyncio.get_running_loop())
+    if locks is None:
+        lock.release()
+        return
+    state = locks.get(session_id)
+    lock.release()
+    if state is None or state.lock is not lock:
+        return
+    state.users -= 1
+    if state.users == 0:
+        locks.pop(session_id, None)
 
 
 def _slim_master_prompt(text: str) -> str:
@@ -267,6 +319,10 @@ class MasterCoordinator:
         self._memory_store = memory_store if memory_store is not None else default_memory_store()
         self._memory_enabled = os.environ.get("VEYA_MEMORY", "1") != "0"
         self._bg_tasks: set[asyncio.Task] = set()  # 持有后台蒸馏任务, 防被 GC
+        self._history_owners: dict[str, str] = {}
+        self._tool_timeout_s = parse_optional_timeout(
+            os.environ.get("VEYA_TOOL_TIMEOUT_S"), source="VEYA_TOOL_TIMEOUT_S"
+        )
 
         # 用户侧 Key 只注入本实例 config,不影响全局环境
         self._llm_config: dict[str, Any] = {}
@@ -293,6 +349,7 @@ class MasterCoordinator:
             temperature=temperature,
             cost_calculator=self._cost_calculator,
             system_prompt=_slim_master_prompt(_oservi.MASTER_SYSTEM_PROMPT) + _HOST_SOP_APPEND,
+            sync_runner=run_sync_in_daemon_thread,
         )
 
         # 零信任金库物理工具接线: 大模型只传 vault_id + 意图, 审批通过后
@@ -309,7 +366,89 @@ class MasterCoordinator:
         install_default_tool_policies()
         install_user_control_policy()
 
+        # 主库 system_* 分支原本早于静态 registry 直接执行，绕过统一守卫。
+        # 宿主在装配点包一层，使旧 ReAct 与 strict bridge 共用同一执行契约。
+        self._raw_handle_tool_call = self._agent.handle_tool_call
+        self._system_tool_parameters = {
+            spec["function"]["name"]: spec["function"].get("parameters") or {}
+            for spec in self._agent.get_system_schemas()
+        }
+        self._agent.handle_tool_call = self._guarded_handle_tool_call
+
     # ── 宿主注入 ─────────────────────────────────────────────────────
+    def _merge_llm_config(self, request_config: dict | None = None) -> dict[str, Any]:
+        """合并实例级与请求级 LLM 配置，供旧链和 strict 链共用。"""
+        request_config = request_config or {}
+        merged = {**self._llm_config, **request_config}
+        for key in ("providers", "endpoints"):
+            if request_config.get(key):
+                merged[key] = {
+                    **self._llm_config.get(key, {}),
+                    **request_config[key],
+                }
+        return merged
+
+    def _strict_llm_kwargs(
+        self,
+        *,
+        config: dict | None,
+        provider: str | None,
+        model: str | None,
+        endpoint: str | None,
+    ) -> dict[str, Any] | None:
+        """strict bridge 不经过 ``_bound_llm``，需显式装配实例配置。"""
+        out: dict[str, Any] = {}
+        merged = self._merge_llm_config(config)
+        if merged:
+            out["config"] = merged
+        effective = {
+            "provider": provider or self.provider,
+            "model": model or self.model,
+            "endpoint": endpoint or self.endpoint,
+        }
+        out.update({key: value for key, value in effective.items() if value})
+        return out or None
+
+    async def _guarded_handle_tool_call(self, tool_name: str, tool_args: dict) -> str:
+        """补齐 MasterAgent system_* 直通分支的 schema 与 ToolGuard。"""
+        args = dict(tool_args or {})
+        if tool_name.startswith("system_"):
+            from server.tool_guard import ToolDenied, global_tool_guard
+            from veya.oskill.pure.validate_args import validate_args
+
+            parameters = self._system_tool_parameters.get(tool_name)
+            if parameters:
+                verdict = validate_args(args, parameters)
+                if not verdict.ok:
+                    raise ToolExecutionError(
+                        f"tool '{tool_name}' arguments invalid: {'; '.join(verdict.errors[:3])}"
+                    )
+            try:
+                await global_tool_guard.acheck(tool_name, args, source="master_system")
+            except ToolDenied as denied:
+                raise ToolExecutionError(str(denied)) from denied
+        execution = self._raw_handle_tool_call(tool_name, args)
+        try:
+            if self._tool_timeout_s is None:
+                return await execution
+            return await asyncio.wait_for(execution, timeout=self._tool_timeout_s)
+        except TimeoutError as exc:
+            raise ToolExecutionError(
+                f"tool '{tool_name}' timed out after {self._tool_timeout_s:g}s"
+            ) from exc
+
+    def _bind_history_owner(self, sid: str) -> None:
+        """热历史补 user 维度：sid 跨账号复用时先驱逐上一账号缓存。"""
+        from server import auth as auth_mod
+
+        owner = auth_mod.current_user()["user_id"]
+        previous = self._history_owners.get(sid)
+        if previous is not None and previous != owner:
+            histories = getattr(self._agent, "_histories", None)
+            if histories is not None:
+                histories.pop(sid, None)
+        self._history_owners[sid] = owner
+
     async def _bound_llm(self, messages: list, **kwargs: Any) -> Any:
         """把用户 key/endpoint 装配进 LLM 调用(支持请求级覆盖)。
 
@@ -329,9 +468,10 @@ class MasterCoordinator:
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
         tools = kwargs.pop("tools", None)
-        # 附件图片注入: 最后一条 user 消息 content → [text, image_url...]
-        images = getattr(self, "_pending_images", None)
+        # 附件图片只改请求副本，不能污染/持久化 canonical history。
+        images = _pending_images_ctx.get()
         if images and messages:
+            messages = [dict(message) for message in messages]
             for i in range(len(messages) - 1, -1, -1):
                 m = messages[i]
                 if m.get("role") == "user" and isinstance(m.get("content"), str):
@@ -340,17 +480,7 @@ class MasterCoordinator:
                         blocks.append({"type": "image_url", "image_url": {"url": img}})
                     messages[i] = {**m, "content": blocks}
                     break
-        merged_cfg = {**self._llm_config, **req_cfg}
-        if req_cfg.get("providers"):
-            merged_cfg["providers"] = {
-                **self._llm_config.get("providers", {}),
-                **req_cfg["providers"],
-            }
-        if req_cfg.get("endpoints"):
-            merged_cfg["endpoints"] = {
-                **self._llm_config.get("endpoints", {}),
-                **req_cfg["endpoints"],
-            }
+        merged_cfg = self._merge_llm_config(req_cfg)
 
         # 自适应输出预算: 覆盖主库固定的 8192, 防 reasoning 模型详细回答被截断
         # (尊重调用方经 llm_kwargs 显式设的更高值)。
@@ -397,7 +527,8 @@ class MasterCoordinator:
                     return resp
                 if attempt < len(backoffs):
                     # 不污染会话历史: 仅本次调用附加温和提示
-                    messages = messages + [
+                    messages = [
+                        *messages,
                         {
                             "role": "user",
                             "content": (
@@ -405,7 +536,7 @@ class MasterCoordinator:
                                 "回答用户, 或调用你判断需要的工具; 不要输出 "
                                 "None/空/null。)"
                             ),
-                        }
+                        },
                     ]
             return {
                 "choices": [
@@ -499,8 +630,8 @@ class MasterCoordinator:
             llm_kwargs["model"] = model
         if endpoint:
             llm_kwargs["endpoint"] = endpoint
-        # 附件图片 (base64 data URI) → _bound_llm 注入 user 消息 (视觉模型可用)
-        self._pending_images = images or None
+        # 附件图片 (base64 data URI) → 请求级 ContextVar，避免全局单例串图。
+        image_token = _pending_images_ctx.set(tuple(images) if images else None)
         # on_step 经 contextvar 桥接: 主库 notify=fire_step 会自动命中。
         # SSE 链路 (new_agent_stream_events) 已 set(queue.on_step) 且不传参数
         # on_step → 参数为 None 时保留外层 contextvar, 否则覆盖 (master/chat 直调)。
@@ -509,6 +640,8 @@ class MasterCoordinator:
 
         uc_tokens = None
         vision_ctx = None
+        session_lock: asyncio.Lock | None = None
+        session_lock_acquired = False
         try:
             sid_early = session_id or uuid.uuid4().hex
             session_id = sid_early
@@ -517,6 +650,8 @@ class MasterCoordinator:
                 require_approval=require_approval,
                 session_id=sid_early,
             )
+            session_lock = await _acquire_session_lock(sid_early)
+            session_lock_acquired = True
             # 视觉工具会话上下文: 工件按会话落盘 + 每会话并发闸 (vision_* 工具面)
             from server.vision_toolkit_tools import _vision_session_ctx
             from server.vision_toolkit_tools import vision_session as _vision_session
@@ -529,34 +664,6 @@ class MasterCoordinator:
                     "[PLAN MODE — read-only. Explore and draft a plan. "
                     "Do not write files, run code, or call hicode_run.]\n\n" + user_prompt
                 )
-            # ── 严格 3O 主链切换 (VEYA_AGENT_LOOP=strict) ──
-            # 默认旧主库路径（冻结架构）；flag 开启时走新 omodul 心脏：
-            # master_tools 全量工具面 + 系统提示 + SSE 事件桥 + 会话树。
-            # 多模态 images 暂不支持 → 自动回落旧路径。
-            from server.agent_loop_bridge import run_strict_chat, strict_loop_enabled
-
-            if strict_loop_enabled() and not images:
-                system = _slim_master_prompt(MASTER_SYSTEM_PROMPT) + "\n" + _HOST_SOP_APPEND
-                # 记忆/上下文注入钩子（复用旧检索逻辑；每轮刷新不累积）
-                providers = [
-                    self._memory_provider,
-                    self._graft_provider,
-                ]
-                strict_result = await run_strict_chat(
-                    user_prompt,
-                    session_id=session_id,
-                    on_step=on_step,
-                    llm_kwargs=llm_kwargs or None,
-                    max_rounds=max_rounds or self.max_rounds,
-                    system_prompt=system,
-                    context_providers=providers,
-                    on_finish=self._distill_after_strict,
-                )
-                # 新主链早退直接 return, 以前会跳过下面「绝不静默」兜底 (只对旧
-                # 路径的 result 生效) —— AgentLoop/run_strict_chat 已经把
-                # final_answer/error 修好了, 这里再过一遍同一兜底纯粹是双保险,
-                # 不应该有任何行为分叉。
-                return _sanitize_final_answer(strict_result)
             # ── 入口只有一个大模型: 零程序判断 ──
             # 所有请求 (长文本/URL/编程/视频/知识/设计…) 原样交给大模型,
             # 工具面全量透传 — 模型自主决定: 直接回答, 或调用哪个工具
@@ -569,6 +676,7 @@ class MasterCoordinator:
             effective_rounds = max_rounds or self.max_rounds
             # P1 强上下文: 稳定 sid + 冷启动从持久层恢复历史 (重启/换进程不失忆)
             sid = session_id or uuid.uuid4().hex
+            self._bind_history_owner(sid)
             await self._restore_history(sid)
             # P4: 检索相关长期记忆并注入 (空则无操作, 行为不变)
             await self._inject_memory(sid, user_prompt)
@@ -590,18 +698,22 @@ class MasterCoordinator:
                 # CancelledError 是 BaseException, 不被 suppress(Exception) 捕获 → 显式列出
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await ckpt_task
-            # P1: 本轮结束落盘 (权威快照, 进程无关持久)
-            await self._persist_history(sid)
+                # 正常完成和用户 Stop 都保存最后可见进度。
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self._persist_history(sid)
             # P4: 后台蒸馏本轮对话为长期记忆 (不阻塞回答)
             self._schedule_distill(sid)
             return _sanitize_final_answer(result)
         finally:
+            if session_lock_acquired and session_lock is not None:
+                _release_session_lock(session_id, session_lock)
             if uc_tokens is not None:
                 _uc.deactivate(uc_tokens)
             if vision_ctx is not None:
                 with contextlib.suppress(Exception):
                     _vision_session_ctx.reset(vision_ctx)
             _on_step_ctx.reset(token)
+            _pending_images_ctx.reset(image_token)
 
     async def _restore_history(self, sid: str) -> None:
         """冷启动: 若进程内热缓存无此 sid, 从持久层恢复对话历史。
@@ -663,38 +775,6 @@ class MasterCoordinator:
 
         return auth_mod.current_user()["user_id"]
 
-    async def _memory_provider(self, sid: str, query: str) -> str:
-        """新主链上下文钩子：检索长期记忆 → 文本块（空记忆返回空串，无操作）。"""
-        if not self._memory_enabled:
-            return ""
-        mems: list[dict[str, Any]] = []
-        with contextlib.suppress(Exception):  # 记忆故障绝不拖垮对话
-            mems = await self._memory_store.retrieve(self._memory_user_id(), query, top_k=5)
-        return format_memory_block(mems)
-
-    async def _graft_provider(self, sid: str, query: str) -> str:
-        """新主链上下文钩子：Graft 代码地图 + ReasoningBank 规则 → 文本块。"""
-        block = ""
-        with contextlib.suppress(Exception):  # 上下文装配故障绝不拖垮对话
-            block = await asyncio.to_thread(_graft_autocontext.build_block, query)
-        return block
-
-    async def _distill_after_strict(self, sid: str, msgs: list[dict[str, Any]]) -> None:
-        """新主链结束回调：蒸馏本轮对话为长期记忆（fire-and-forget）。"""
-        if not self._memory_enabled:
-            return
-        filtered = [
-            m
-            for m in msgs
-            if not (
-                m.get("role") == "system" and str(m.get("content", "")).startswith(self._MEM_PREFIX)
-            )
-        ]
-        if len(filtered) < 3:  # 太短不值得蒸馏
-            return
-        with contextlib.suppress(Exception):
-            await self._distill_and_store(sid, filtered)
-
     async def _inject_memory(self, sid: str, query: str) -> None:
         """检索相关长期记忆, 作为可刷新的 system 消息注入 (system 不入持久化)。
 
@@ -736,7 +816,7 @@ class MasterCoordinator:
             return
         block = ""
         with contextlib.suppress(Exception):  # 上下文装配故障绝不拖垮对话
-            block = await asyncio.to_thread(_graft_autocontext.build_block, query)
+            block = await run_sync_in_daemon_thread(_graft_autocontext.build_block, query)
         msgs = hist.get(sid)
         if msgs is None:  # 新会话: 先按主库约定建 [system]
             msgs = [{"role": "system", "content": self._agent.get_system_prompt()}]
@@ -810,6 +890,17 @@ def _default_swarm_engine() -> SwarmOrchestrator:
 # 活跃流会话注册 (供 Stop 端点 cancel chat_task) + 会话→hicode 任务映射
 _active_streams: dict[str, asyncio.Task] = {}
 _session_task: dict[str, str] = {}
+_stop_tasks: set[asyncio.Task] = set()
+
+
+async def _stop_hicode_task(task_id: str) -> bool:
+    try:
+        from server.hicode_queue import hicode_task_queue
+
+        return await hicode_task_queue.stop(task_id)
+    except Exception as exc:
+        logger.warning("cancel_session: 停 hicode 任务失败: %s", exc)
+        return False
 
 
 async def cancel_session(session_id: str) -> dict:
@@ -819,19 +910,21 @@ async def cancel_session(session_id: str) -> dict:
     返回被停止的项目列表。
     """
     stopped: list[str] = []
-    tid = _session_task.get(session_id)
-    if tid:
-        try:
-            from server.hicode_queue import hicode_task_queue
-
-            if await hicode_task_queue.stop(tid):
-                stopped.append(f"hicode_task:{tid}")
-        except Exception as exc:
-            logger.warning("cancel_session: 停 hicode 任务失败: %s", exc)
+    # 先取消主脑，前端立即结束；Hicode 硬停可在后台继续完成（最坏需 42s）。
     task = _active_streams.get(session_id)
     if task is not None and not task.done():
         task.cancel()
         stopped.append("chat_stream")
+    tid = _session_task.pop(session_id, None)
+    if tid:
+        stop_task = asyncio.create_task(_stop_hicode_task(tid))
+        _stop_tasks.add(stop_task)
+        stop_task.add_done_callback(_stop_tasks.discard)
+        try:
+            if await asyncio.wait_for(asyncio.shield(stop_task), timeout=1.0):
+                stopped.append(f"hicode_task:{tid}")
+        except TimeoutError:
+            stopped.append(f"hicode_task:{tid}:stopping")
     return {"cancelled": stopped or ["none"]}
 
 

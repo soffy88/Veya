@@ -311,3 +311,24 @@ check_manifest（元素清单）/ 守护测试（guardians）。
 随时可切（`VEYA_AGENT_LOOP=strict` → agent_loop_bridge.run_strict；gateway
 已挂载 `/api/v1/3o/`）。线上切换、现有入口改造、Cloudflare Computer 深度
 对接、遗传权重自适应为后续增量（需批准后实施）。
+
+## 13. 阶段 6 — 双轨收敛：AgentLoop 降格为工具（2026-08-17）
+
+`docker-compose.yml` 部署配置一度把 `VEYA_AGENT_LOOP` 默认值改成了
+`strict`，使 §12 描述的"主链默认旧路径"在生产环境不再成立——production
+实际长期跑的是 `agent_loop_bridge.run_strict_chat`，`docs/ARCHITECTURE_STABLE.md`
+（用户确认的冻结架构）未同步更新，两份文档与实际部署三者脱节（详见
+`docs/ARCHITECTURE_STABLE.md` §2.5）。
+
+**收敛结果**（用户明确要求 + 确认）：双轨切换桥的角色终结。
+`server/coordinator_master.py` 的用户请求入口只保留 MasterAgent ReAct 一条
+路径；`server/agent_loop_bridge.py` 的 `run_strict_chat`/`run_strict` 不再是
+可选的"另一条主链"，改为 `server/tool_registry.py` 新增的 `agent_loop_run`
+工具的实现层——MasterAgent 在全量工具面里自主决定要不要把一个隔离子任务
+委托给它，跑在临时会话（不写入 `session_tree.db` 之外的任何长期存储）里，
+完成后把结果文本带回主链。`VEYA_AGENT_LOOP` / `strict_loop_enabled()` 已
+整体删除。
+
+阶段 0–5 建的五层底座（obase/oskill/oprim/omodul/oservi）不受影响，继续
+存在并被 `agent_loop_run` 复用；变化的只是"谁能触发 AgentLoop 执行"——从
+"环境变量决定的第二条主链"收敛为"MasterAgent 按需调用的一个工具"。
