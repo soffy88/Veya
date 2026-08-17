@@ -18,6 +18,25 @@ import os
 from server.tool_guard import ToolGuard, global_tool_guard
 
 _TERMINAL_POLICY = "terminal_action_gate"
+_PREFER_GRAPH_POLICY = "prefer_code_graph"
+
+# 结构性探索工具: 问"谁调用/依赖/在哪定义"这类问题, 先查带置信标签的代码图
+# (assemble_code_context) 通常比逐文件 grep/read 更省 token、更准 (graphify 先查图范式)。
+_STRUCTURAL_TOOLS = frozenset({"grep", "read_file_ast", "list_files"})
+
+
+def prefer_code_graph_policy(name: str, kwargs: dict, source: str) -> str | None:
+    """结构性工具命中 → 返回"优先查图"咨询语。
+
+    默认 observe (只落 observed 轨迹, 不拦截): 采样"绕过代码图直接翻文件"的频率, 零
+    行为变化; SOP 已软提示先 assemble_code_context, 本策略是可翻 enforce 的确定性接缝。
+    """
+    if name in _STRUCTURAL_TOOLS:
+        return (
+            "structural query: prefer assemble_code_context first "
+            "(confidence-tagged dependency graph) before raw grep/read"
+        )
+    return None
 
 
 def _allowlist() -> set[str]:
@@ -57,3 +76,7 @@ def install_default_tool_policies(guard: ToolGuard | None = None) -> None:
         return
     enforce = os.environ.get("VEYA_TOOL_GATE_ENFORCE", "0") == "1"
     guard.register_policy(_TERMINAL_POLICY, terminal_action_policy, enforce=enforce)
+    # 先查图钩子: 默认 observe (零行为变化); VEYA_PREFER_GRAPH_ENFORCE=1 才回喂主脑改走图。
+    if not guard.has_policy(_PREFER_GRAPH_POLICY):
+        graph_enforce = os.environ.get("VEYA_PREFER_GRAPH_ENFORCE", "0") == "1"
+        guard.register_policy(_PREFER_GRAPH_POLICY, prefer_code_graph_policy, enforce=graph_enforce)

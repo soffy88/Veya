@@ -105,8 +105,30 @@ class GraftContext:
             out.extend(tree.callees_of(name))
         return sorted(set(out))
 
+    def _def_index(self) -> dict[str, set[str]]:
+        """name → {定义它的模块集}, 供边置信标注 (重名 = 跨文件解析歧义)。"""
+        symbols_by_module: dict[str, list[str]] = {}
+        for tree in self._trees:
+            for sym in tree.symbols:
+                mod = sym.module or tree.module
+                symbols_by_module.setdefault(mod, []).append(sym.name)
+        return _oskill.build_definition_index(symbols_by_module)
+
+    @staticmethod
+    def _render_edges(names: list[str], def_index: dict[str, set[str]]) -> str:
+        """渲染一组边, 低置信 (重名/未解析) 的加 ⚠inferred 标注 —— 不当铁事实喂主脑。"""
+        parts = []
+        for name, conf in _oskill.annotate_edges(names, def_index):
+            parts.append(name if conf == _oskill.EXTRACTED else f"{name} ⚠inferred")
+        return ", ".join(parts)
+
     def assemble(self, entities: list[str]) -> str:
-        """渲染注入主脑的 System Context Block (markdown)。"""
+        """渲染注入主脑的 System Context Block (markdown)。
+
+        调用边带置信标注: 名字唯一定义 = 可信; 重名/未解析 = ⚠inferred (graphify
+        EXTRACTED/INFERRED 范式), 让主脑对低置信依赖保持警惕, 而非照单全收。
+        """
+        def_index = self._def_index()
         lines = ["## CODE CONTEXT (Graft dependency map)"]
         found = False
         for entity in entities:
@@ -118,11 +140,19 @@ class GraftContext:
             for h in hits:
                 lines.append(f"- **defined**: {h.module}:{h.line} ({h.kind})")
                 if h.callers:
-                    lines.append(f"- **callers (blast radius)**: {', '.join(h.callers)}")
+                    lines.append(
+                        f"- **callers (blast radius)**: {self._render_edges(h.callers, def_index)}"
+                    )
                 if h.callees:
-                    lines.append(f"- **calls (dependencies)**: {', '.join(h.callees)}")
+                    lines.append(
+                        f"- **calls (dependencies)**: {self._render_edges(h.callees, def_index)}"
+                    )
         if not found:
             lines.append("\n(no matching symbols in the indexed workspace)")
+        else:
+            lines.append(
+                "\n_(⚠inferred = name resolved across files but ambiguous; verify before trusting.)_"
+            )
         return "\n".join(lines)
 
 
