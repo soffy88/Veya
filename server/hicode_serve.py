@@ -142,12 +142,9 @@ class HicodeServeClient:
         *,
         approve_all: bool = True,
         timeout: float = SERVE_TASK_TIMEOUT,
+        workspace: str | None = None,
     ) -> dict[str, Any]:
-        """串行执行一次编程任务: new → auto 审批 → submit → 订阅到 turn_done。
-
-        返回 {status, result, turns, tool_calls, usage, error}。
-        on_event 回调收到 hicode_progress 格式的进度事件。
-        """
+        """执行一次编程任务。同 workspace 互斥；hicode serve 目前只有 1 个槽。"""
         if not await self.health():
             return {
                 "status": "error",
@@ -157,6 +154,22 @@ class HicodeServeClient:
                     "--model opencode-go &` 启动。"
                 ),
             }
+        from veya.platform import load
+
+        broker = load("omodul").get_broker()
+        async with broker.async_workspace(workspace), broker.async_slot("hicode_serve"):
+            return await self._run_task_locked(
+                spec, on_event, approve_all=approve_all, timeout=timeout
+            )
+
+    async def _run_task_locked(
+        self,
+        spec: str,
+        on_event: Callable[[dict], None] | None,
+        *,
+        approve_all: bool,
+        timeout: float,
+    ) -> dict[str, Any]:
         async with self._lock:
             await self.new_session()
             await self.set_approval_mode("auto" if approve_all else "ask")

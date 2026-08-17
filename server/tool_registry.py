@@ -47,6 +47,7 @@ _RESIDENT_TOOLS: frozenset[str] = frozenset(
         "ask_user",  # 意图理解
         "project_ask",  # 派工唯一入口 (自动路由 builtin/hicode/dsh)
         "project_status",  # 监督长程执行 (只读进度)
+        "project_eng_gates",  # 工程纪律门禁 (S1–S5 编排; 非派工路由)
         "hicode_review",  # 审查
         "decision_record",  # 决策留痕
         "decision_query",  # 决策回溯
@@ -148,6 +149,8 @@ _TOOL_GROUPS: dict[str, str] = {
     "create_plan": "planning",
     "plan_status": "planning",
     "update_todo": "planning",
+    # gates: 工程纪律门禁。不是派工路由，内部编排 S1–S5。
+    "project_eng_gates": "gates",
 }
 
 _GROUP_DESCRIPTIONS: dict[str, str] = {
@@ -162,6 +165,7 @@ _GROUP_DESCRIPTIONS: dict[str, str] = {
     "automation": "loop-plane 目标设定/诊断/干预。",
     "web": "浏览器自动化/网页抓取 (browser_run/fetch_url)。",
     "planning": "旧版计划系统 (create_plan/plan_status/update_todo); project_ask 是首选派工入口。",
+    "gates": "工程纪律门禁 (project_eng_gates)。不是派工入口，不替代 project_ask。",
     "mcp_gateway": "兄弟服务网关 (mcp_hevi/mcp_stratum/mcp_od/mcp_codebase)。",
 }
 
@@ -877,38 +881,46 @@ def _normalize_sandbox_command(command: str) -> str:
 
 
 async def _tool_run_in_sandbox(code: str | None = None, command: str | None = None) -> str:
-    """在 3O 隔离沙箱中执行代码(网络封锁/内存/时间限制, 单线程 BLAS)。"""
-    from veya.sandbox import SandboxConfig, create_safe_executor
+    """在统一沙箱合同里执行代码（chat_verify = process 限额；网络并未阻断）。"""
+    import sys
+
+    from veya.platform import load
 
     if not code and not command:
         raise ToolExecutionError(
             "run_in_sandbox requires either 'code' (python source) or 'command' (shell)"
         )
-    config = SandboxConfig(
-        time_limit=30.0,
-        memory_limit=1024 * 1024 * 1024,
-        network_blocked=True,
-        audit_enabled=True,
-        env_extra={
-            "OPENBLAS_NUM_THREADS": "1",
-            "OMP_NUM_THREADS": "1",
-            "MKL_NUM_THREADS": "1",
-        },
+    oprim = load("oprim")
+    oskill = load("oskill")
+    policy = oskill.isolation_policy("chat_verify")
+    created = oprim.sandbox_create(
+        isolation=policy["isolation"],
+        block_network=False,
+        memory="1g",
     )
-    executor = create_safe_executor(config)
-    async with executor:
-        result = (
-            await executor.run_script(code)
-            if code
-            else await executor.execute(_normalize_sandbox_command(command))
-        )
-    if result.get("exit_code") != 0:
+    if not created.get("ok"):
+        raise ToolExecutionError(created.get("error") or "sandbox_create failed")
+    sid = created["sandbox_id"]
+    try:
+        if code:
+            rec = oprim.sandbox_exec(sid, [sys.executable, "-c", code], timeout_s=30)
+        else:
+            rec = oprim.sandbox_exec(
+                sid,
+                ["bash", "-lc", _normalize_sandbox_command(command)],
+                timeout_s=30,
+            )
+    finally:
+        oprim.sandbox_destroy(sid)
+    isolation = rec.get("isolation") or created.get("isolation")
+    note = f"isolation={isolation} network_blocked={rec.get('block_network', False)}"
+    if rec.get("exit_code") != 0:
         raise ToolExecutionError(
-            f"exit_code={result.get('exit_code')} ({result.get('duration', 0.0):.2f}s)\n"
-            f"stdout:\n{result.get('stdout', '')}\n"
-            f"stderr:\n{result.get('stderr', '')}"
+            f"exit_code={rec.get('exit_code')} ({note})\n"
+            f"stdout:\n{rec.get('stdout', '')}\n"
+            f"stderr:\n{rec.get('stderr', '')}"
         )
-    return f"exit_code=0 ({result.get('duration', 0.0):.2f}s)\n{result.get('stdout', '')}"
+    return f"exit_code=0 ({note})\n{rec.get('stdout', '')}"
 
 
 # ── 5. Genesis 记忆账本查询 ────────────────────────────────────────
@@ -1105,8 +1117,8 @@ master_tools.register(
 master_tools.register(
     name="run_in_sandbox",
     description=(
-        "Run python code (or a shell command) inside the 3O isolated sandbox: network blocked, "
-        "memory/time limited. ONLY for executing/verifying code snippets (e.g. test a function). "
+        "Run python code (or a shell command) in the unified 3O sandbox (chat_verify=process: "
+        "CPU/memory/time limits; network is NOT blocked). ONLY for executing/verifying snippets. "
         "The sandbox has `python3` (NOT `python`) and the stdlib `unittest` (pytest is NOT "
         "installed) — run tests with `python3 -m unittest discover` or `python3 -m unittest "
         "<module>`, never `python ...` or `pytest`. "

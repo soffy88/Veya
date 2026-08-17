@@ -299,55 +299,26 @@ def _engine_bin_available(engine: str) -> bool:
 def build_argv(
     engine: str, prompt: str, *, model: str | None = None, streaming: bool = False
 ) -> list[str]:
-    """构造引擎 CLI 非交互 argv (无 shell, 无注入面)。
-
-    streaming=True 时 claude 用 stream-json (逐事件解析); run 聚合模式用普通文本输出。
-    """
+    """构造引擎 CLI 非交互 argv。表在主库 oskill.harness_argv；此处只补容器装配。"""
     engine = ENGINE_ALIASES.get(engine, engine)
-    if engine == "claude":
-        argv = ["claude", "-p", prompt]
-        if streaming:
-            # stream-json 在 --print 模式下要求 --verbose
-            argv += ["--output-format", "stream-json", "--verbose"]
-        if model:
-            argv += ["--model", model]
-        return argv
-    if engine == "codex":
-        # 非 git 仓库跳过信任检查 + workspace-write 沙箱 (--full-auto 已弃用)
-        argv = ["codex", "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", prompt]
-        if model:
-            argv += ["-m", model]
-        if _IN_CONTAINER:
-            # 容器内覆盖 opencodex 端点 (宿主桥 10101, config.toml 写死 127.0.0.1 不可达)
-            base = _container_codex_base_url()
-            if base:
-                argv += ["-c", f"openai_base_url={base}"]
-        return argv
-    if engine == "pi":
-        argv = ["pi", "-p", prompt]
-        if model:
-            argv += ["--model", model]
-        return argv
-    if engine == "dsh":
-        # headless profile: 单轮问答, 跑完打印结果退出; 无 --model 类 CLI flag
-        # (模型由 profile 的 agent-default-model 插件配置, 非运行时可传参)。
-        return ["dsh", "--profile", "headless", prompt]
-    if engine == "grok":
-        # Grok Build: -p/--single 单轮模式; 流式用 Anthropic wire format NDJSON
-        argv = ["grok", "-p", prompt]
-        if streaming:
-            argv += ["--output-format", "streaming-messages-json"]
-        if model:
-            argv += ["--model", model]
-        return argv
+    extra: list[str] = []
+    bin_name: str | None = None
+    if engine == "codex" and _IN_CONTAINER:
+        base = _container_codex_base_url()
+        if base:
+            extra = ["-c", f"openai_base_url={base}"]
     if engine == "opencode":
-        # opencode-go 网关模型 (系统内已有凭据); argv[0] 用绝对路径 (容器 PATH 无)
-        oc_bin = (
+        bin_name = (
             _container_opencode_bin() if _IN_CONTAINER else shutil.which("opencode") or "opencode"
         )
-        argv = [oc_bin, "run", prompt, "--model", model or "opencode-go/deepseek-v4-flash"]
-        return argv
-    raise ValueError(f"未知引擎: {engine!r}; 可选 {sorted(ENGINE_ALIASES)}")
+    from veya.platform import load
+
+    rec = load("oskill").harness_argv(
+        engine, prompt, model=model, streaming=streaming, bin=bin_name, extra=extra or None
+    )
+    if not rec.get("ok"):
+        raise ValueError(rec.get("error") or f"未知引擎: {engine!r}")
+    return list(rec["argv"])
 
 
 async def run_engine(
@@ -377,34 +348,44 @@ async def run_engine(
             "ok": False,
             "error": f"引擎 {engine} 不可用: CLI 未安装 (可用: {sorted(available_engines())})",
         }
-    argv = build_argv(engine, prompt, model=model, streaming=False)
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        cwd=cwd,
+    from veya.platform import load
+
+    extra: list[str] = []
+    bin_name: str | None = None
+    if engine == "codex" and _IN_CONTAINER:
+        base = _container_codex_base_url()
+        if base:
+            extra = ["-c", f"openai_base_url={base}"]
+    if engine == "opencode":
+        bin_name = (
+            _container_opencode_bin() if _IN_CONTAINER else shutil.which("opencode") or "opencode"
+        )
+    rec = load("omodul").run_harness(
+        engine,
+        prompt,
+        workspace=cwd,
+        purpose="harness_host",
+        timeout_s=timeout_s,
         env={**os.environ, **(_container_proxy_env() if _IN_CONTAINER else {})},
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        model=model,
+        extra=extra or None,
+        bin=bin_name,
     )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
+    if rec.get("timed_out"):
         return {
             "ok": False,
             "error": f"引擎 {engine} 超时 ({timeout_s:.0f}s)",
             "duration_s": timeout_s,
         }
-    out = stdout.decode(errors="replace")
-    err = stderr.decode(errors="replace")
-    if proc.returncode != 0:
+    if not rec.get("ok"):
         return {
             "ok": False,
-            "error": err[-2000:] or f"exit={proc.returncode}",
-            "output": out[-4000:],
+            "error": (rec.get("stderr") or rec.get("error") or "")[-2000:]
+            or f"exit={rec.get('exit_code')}",
+            "output": (rec.get("stdout") or rec.get("output") or "")[-4000:],
             "duration_s": 0.0,
         }
-    return {"ok": True, "output": out, "duration_s": 0.0}
+    return {"ok": True, "output": rec.get("output") or rec.get("stdout") or "", "duration_s": 0.0}
 
 
 async def stream_engine(

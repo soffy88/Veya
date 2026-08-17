@@ -412,6 +412,7 @@ async def _execute_hicode_core(
                     _build_hicode_spec(task),
                     on_event=on_event,
                     timeout=timeout_sec or 900,
+                    workspace=str(ws0),
                 )
                 if res.get("status") != "error":
                     return _format_hicode_result(res)
