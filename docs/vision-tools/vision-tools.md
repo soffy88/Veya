@@ -11,7 +11,7 @@
 | "这张图是什么/说了什么？" | `vision_glance` | 视觉 API |
 | "X 在哪里？"（具名目标） | `vision_ground` | 视觉 API |
 | "所有 X 在哪里？"（每一处同类） | `vision_detect` | 视觉 API |
-| "它的精确形状/尺寸/偏移？" | `vision_trace` | 本地 |
+| "它的精确形状/尺寸/偏移？" | `vision_trace` | 本地 (vtracer CLI) |
 | "把这个框裁成独立图片" | `vision_crop` | 本地 |
 | "OCR 这张长截图/滚动页/聊天记录" | `vision_long_screenshot_ocr` | 视觉 API |
 | "提取图标/logo 前景为透明 PNG" | `vision_extract_foreground` | 本地 |
@@ -34,6 +34,11 @@ ground 要**具名目标**（如"右上角的登录按钮"），detect 要**类�
    需要像素级精确（尺寸/偏移）时用 `vision_trace`（从真实像素推导）。
 2. **对比必须同传**。`vision_glance` 多图对比把图放在**一次调用**里——
    分开调用只能各自描述，事后对比描述 = 两个幻觉面。
+3. **`vision_trace` 是高保真矢量化**: vtracer CLI 主引擎 (样条曲线拟合,
+   上游同款 filter_speckle=8 / corner_threshold=40, 白底剥离 + 小数截断),
+   小图自动放大到短边≥256px 以活过斑点过滤; 无二进制时降级 PIL 多边形
+   (结果 `geometry.engine` 标注 `pil-fallback`, 保真度可见)。颜色模式体积大得多,
+   黑边图用默认黑白。
 3. **"哪里变了"不是 glance 问题，是 diff 问题**。一个小徽章/小偏移对视觉模型是
    舍入误差、对 `vision_pixel_diff` 是精确值：先 diff 拿框 → 再 `vision_glance(region=框)`
    读那个变化到底是什么。
@@ -75,6 +80,7 @@ L4 server/vision_toolkit_tools.py 装配层: JSON Schema → master_tools 注册
 | `VEYA_VISION_ALLOWED_DIRS` | 路径白名单（`os.pathsep` 分隔），默认仅 workspace |
 | `VEYA_VISION_ARTIFACTS` | 工件根目录，默认 `~/.veya/vision-artifacts/<session>/` |
 | `VEYA_VISION_TIMEOUT_MS` / `VEYA_VISION_LONG_OCR_TIMEOUT_MS` | 默认超时 |
+| `VEYA_VTRACER_BIN` | vtracer CLI 路径（缺省 `~/.veya/bin/vtracer` → PATH；安装见 `docs/ops/TOOLCHAIN_SETUP.md` §2.2） |
 
 工件全部落 managed 目录（裁剪 PNG / SVG / 热力图 / 差分 JSON / OCR Markdown +
 manifest + audit），结果里返回绝对路径，供后续工具/自动化直接消费。

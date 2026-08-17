@@ -35,6 +35,12 @@ interactive = [
 settings = [
     "pydantic-settings>=2.0.0",  # 若接入 pydantic 配置管理(现用自研 loader)
 ]
+vision = [
+    "pillow>=10.0.0",   # 图像原子操作 (裁剪/切分/差分/主色/报图)
+    # vtracer pip 包 0.6.15 在 CPython 3.14 下段错误 → 不装包, 用独立 CLI 二进制
+    # (~/.veya/bin/vtracer, 见 docs/ops/TOOLCHAIN_SETUP.md §2.2), 缺失时 PIL 降级
+    "httpx>=0.27.0",    # 视觉 LLM 客户端
+]
 
 [project.scripts]
 veya = "cli.main:main"

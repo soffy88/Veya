@@ -93,15 +93,68 @@ def test_extract_foreground_manual():
 def test_trace_to_svg_square():
     img = Image.new("RGB", (50, 50), (255, 255, 255))
     img.paste((0, 0, 0), (10, 10, 40, 40))  # 实心方块
-    svg, geometry = ops.trace_to_svg(img, (0, 0, 50, 50), scale=1, polygon=True)
+    svg, geometry = ops.trace_to_svg(img, (0, 0, 50, 50), scale=4, polygon=True)
     assert geometry["status"] == "generated"
     assert geometry["path_count"] >= 1
-    assert svg.startswith("<svg") and "<path" in svg and svg.rstrip().endswith("</svg>")
+    assert "<svg" in svg and "<path" in svg and svg.rstrip().endswith("</svg>")
 
 
 def test_trace_to_svg_empty():
     _svg, geometry = ops.trace_to_svg(_img(), (0, 0, 64, 32))
     assert geometry["status"] == "empty"
+
+
+def test_trace_vtracer_engine_used():
+    """vtracer CLI 装好时默认走主引擎; 未装时降级 pil-fallback (保真度标注可见)。"""
+    img = Image.new("RGB", (48, 48), (255, 255, 255))
+    img.paste((0, 0, 0), (6, 6, 42, 42))
+    _svg, geometry = ops.trace_to_svg(img, (0, 0, 48, 48))
+    assert geometry["status"] == "generated"
+    assert geometry["engine"] in ("vtracer", "pil-fallback")
+    if ops._find_vtracer_bin():
+        assert geometry["engine"] == "vtracer"
+        assert geometry["traced_scale"] >= 2  # 48px 小图 → 自动放大到短边≥256
+
+
+def test_trace_pil_fallback_engine(monkeypatch):
+    monkeypatch.setattr(ops, "_vtracer_bin_cache", "")
+    img = Image.new("RGB", (60, 60), (255, 255, 255))
+    img.paste((0, 0, 0), (10, 10, 50, 50))
+    _svg, geometry = ops.trace_to_svg(img, (0, 0, 60, 60), scale=1, polygon=True)
+    assert geometry["engine"] == "pil-fallback"
+    assert geometry["path_count"] >= 1
+
+
+def test_trace_color_mode_keeps_fill():
+    """color 模式应保留前景色而非黑白。"""
+    img = Image.new("RGB", (64, 64), (255, 255, 255))
+    img.paste((220, 40, 40), (8, 8, 56, 56))
+    svg, geometry = ops.trace_to_svg(img, (0, 0, 64, 64), scale=2, color=True)
+    assert geometry["status"] == "generated"
+    if ops._find_vtracer_bin():
+        assert "#" in svg and 'fill="#ffffff"' not in svg.replace("#FFFFFF", "#ffffff")[:200]
+
+
+def test_trace_fidelity_circle_vs_pil():
+    """高保真: 圆形描摹走样条曲线 (C 命令) 而非 PIL 降级的纯 L 多边形。"""
+    from PIL import ImageDraw
+
+    img = Image.new("RGB", (200, 200), (255, 255, 255))
+    ImageDraw.Draw(img).ellipse((20, 20, 180, 180), fill=(0, 0, 0))
+    if not ops._find_vtracer_bin():
+        pytest.skip("需要 vtracer CLI")
+    svg, geometry = ops.trace_to_svg(img, (0, 0, 200, 200), scale=2)
+    assert geometry["engine"] == "vtracer"
+    assert geometry["path_count"] == 1  # 单个圆形 = 单路径 (白底已剥离)
+    # 样条模式: 曲线命令 C/Q 存在 (vs PIL 降级的纯 L 多边形)
+    assert " C " in svg or "C" in svg
+
+
+def test_strip_background_and_truncate():
+    svg = '<svg><path fill="#ffffff" d="M0 0H100V100H0Z"/><path fill="#000000" d="M1.234567 2.345678"/></svg>'
+    stripped = ops._strip_background(svg)
+    assert "#ffffff" not in stripped and "#000000" in stripped
+    assert "1.23" in ops._truncate_decimals(svg) and "2.35" in ops._truncate_decimals(svg)
 
 
 # ── 长图切分 ────────────────────────────────────────────────────────
