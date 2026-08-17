@@ -215,16 +215,16 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
     ),
     (
         "vision_trace",
-        f"把扁平高对比栅格图描摹成可编辑 SVG (本地执行, 零视觉 API), 返回实测几何"
-        f"(尺寸/偏移的像素级精确来源)。{_WORKSPACE_NOTE}",
+        f"把扁平高对比栅格图描摹成高保真可编辑 SVG (vtracer 主引擎, 本地零视觉 API), 返回实测几何"
+        f"(尺寸/偏移的像素级精确来源)。scale 缺省自动放大到短边≥256px (小图标才能活过斑点过滤)。{_WORKSPACE_NOTE}",
         {
             "type": "object",
             "properties": {
                 "image": {"type": "string", "description": "图像路径。"},
                 "region": {"type": "string", "description": f"{_REGION_NOTE} 只描摹此区域; 缺省全图。"},
-                "scale": {"type": "integer", "description": "分析放大 1-16; 缺省 1。"},
-                "color": {"type": "boolean", "description": "采样保留前景颜色; 缺省 currentColor。"},
-                "polygon": {"type": "boolean", "description": "方框图模式 (更激进简化); 缺省平滑。"},
+                "scale": {"type": "integer", "description": "分析放大 1-16; 缺省自动 (短边≥256px)。"},
+                "color": {"type": "boolean", "description": "保留原色; 缺省黑白 (体积小得多)。"},
+                "polygon": {"type": "boolean", "description": "方框图模式 (多边形); 缺省样条 (曲线平滑)。"},
                 "output": {"type": "string", "description": "可选。工件文件名, .svg。"},
                 "timeout_ms": {"type": "integer", "description": _TIMEOUT_NOTE},
             },
