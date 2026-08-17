@@ -183,3 +183,23 @@ def test_engines_endpoint_in_container(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda n: f"/bin/{n}")
     res2 = TestClient(app).get("/api/v1/engines")
     assert set(res2.json()["engines"]) == {"master", "pi", "claude", "codex"}
+
+
+def test_build_argv_is_oskill_table():
+    """argv 单源在 oskill.harness_argv；master 不是 harness。"""
+    from server.engine_runner import build_argv
+    from veya.platform import load
+
+    argv = build_argv("claude", "fix it", model="sonnet")
+    rec = load("oskill").harness_argv("claude", "fix it", model="sonnet")
+    assert argv == rec["argv"]
+    with pytest.raises(ValueError, match="not a harness"):
+        build_argv("master", "hi")
+
+
+def test_omodul_broker_export():
+    from veya.platform import load
+
+    broker = load("omodul").get_broker()
+    assert broker.slots["hicode_serve"] == 1
+    assert callable(load("omodul").run_harness)
