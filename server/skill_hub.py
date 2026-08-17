@@ -38,6 +38,29 @@ from server.tool_registry import (
 
 logger = logging.getLogger("skillhub")
 
+
+def _oskill_mod() -> Any:
+    """惰性取 3O oskill 主库 (单一来源: 契约校验/元路由原语)。
+
+    缺失 (未挂载 submodule / 精简运行时) → 返回 None, 调用方优雅降级为现行行为
+    (契约字段不解析、路由回退全量目录), 绝不因 3O 不可用而崩 SkillHub。
+    """
+    try:
+        from veya.platform import oskill as _load
+
+        return _load()
+    except Exception:  # noqa: BLE001 — 3O 不可用时静默降级
+        return None
+
+
+def _catalog_cap() -> int:
+    """常驻 run_skill 目录最多内联多少条 (超出走 list_skills 按需)。env 可调, 下限 1。"""
+    try:
+        return max(1, int(os.environ.get("VEYA_SKILL_CATALOG_CAP", "30")))
+    except ValueError:
+        return 30
+
+
 _DEFAULT_SKILLS_DIR = str(Path.home() / ".veya" / "skills")
 _MANIFEST_NAME = "manifest.json"
 _MAX_RESULT_CHARS = 8000
@@ -86,6 +109,7 @@ class VeyaSkillHub:
         self._validators: dict[str, Any] = {}
         self._descriptions: dict[str, str] = {}
         self._skills: dict[str, dict] = {}  # name → manifest 原始信息
+        self._contracts: dict[str, dict] = {}  # name → 归一化技能契约 (when_to_use/verify/…)
         # ②-A 静态收口: dispatcher 模式下 N 个 per-skill 工具收成 2 个
         # (list_skills + run_skill), 主脑工具面 93→~23; VEYA_SKILL_DISPATCHER=0 回退。
         self._dispatcher = os.environ.get("VEYA_SKILL_DISPATCHER", "1") != "0"
@@ -103,6 +127,7 @@ class VeyaSkillHub:
         self._validators.clear()
         self._descriptions.clear()
         self._skills.clear()
+        self._contracts.clear()
 
         stats = {"loaded": 0, "skipped": 0, "errors": 0}
         for item in sorted(self.skills_dir.iterdir()):
@@ -187,6 +212,9 @@ class VeyaSkillHub:
             "entrypoint": str(manifest.get("entrypoint", "run.py")),
             "endpoint": manifest.get("endpoint"),
             "path": str(skill_path),
+            # 渐进加载: 技能可附一份 SKILL.md 详细说明。加载期只标记有无, 不读 body
+            # (省常驻 token); 命中路由时才经 oskill.load_skill_progressive 拉取。
+            "has_body": (skill_path / "SKILL.md").exists(),
         }
         self._schemas.append(
             {
@@ -198,6 +226,19 @@ class VeyaSkillHub:
                 },
             }
         )
+        # 技能契约 (3O 单一来源): 解析可选契约字段 (when_to_use/verification/
+        # red_flags/rationalizations) 并存储; 结构不合法只告警不拒载 (向后兼容——
+        # 老技能没有这些字段, 契约为空, 行为不变)。3O 不可用则跳过 (优雅降级)。
+        osk = _oskill_mod()
+        if osk is not None:
+            try:
+                contract_errors = osk.validate_skill_contract(manifest)
+                shape_errors = [e for e in contract_errors if "requires" not in e]
+                if shape_errors:
+                    logger.warning("[SkillHub] 技能 '%s' 契约字段结构告警: %s", name, shape_errors)
+                self._contracts[name] = osk.extract_contract(manifest)
+            except Exception as exc:  # noqa: BLE001 — 契约解析失败不拖垮技能挂载
+                logger.debug("[SkillHub] 技能 '%s' 契约解析跳过: %s", name, exc)
         logger.info("[SkillHub] 挂载技能 '%s' (type=%s)", name, skill_type)
         return True
 
@@ -278,19 +319,94 @@ class VeyaSkillHub:
         """真实技能名 (供 stats/错误提示; 不受 dispatcher 影响)。"""
         return sorted(self._executors)
 
+    def _skill_index(self) -> list[dict]:
+        """技能索引 (name+description+tags), tags 取契约 when_to_use — 供元路由排序。"""
+        index = []
+        for name in self._all_skill_names():
+            index.append(
+                {
+                    "name": name,
+                    "description": self._descriptions.get(name, ""),
+                    "tags": (self._contracts.get(name) or {}).get("when_to_use", []),
+                }
+            )
+        return index
+
+    def _route_skills(self, task: str, top_k: int) -> list[dict]:
+        """元路由 (3O 单一来源): 按 task 排序技能, 附契约 (when_to_use + verification
+        证据要求 + red_flags), 让模型带着"何时用/怎样算做完"选技能。
+
+        oskill 不可用 → 回退按名字取前 top_k (只给 name+description), 行为退化不报错。
+        """
+        top_k = max(1, min(int(top_k or 3), 20))
+        osk = _oskill_mod()
+        index = self._skill_index()
+        if osk is not None:
+            try:
+                ranked = osk.select_skill(task, skill_index=index, top_k=top_k)
+            except Exception:  # noqa: BLE001 — 路由失败回退全量前 top_k
+                ranked = index[:top_k]
+        else:
+            ranked = index[:top_k]
+        out: list[dict] = []
+        for meta in ranked:
+            name = meta.get("name", "")
+            contract = self._contracts.get(name) or {}
+            entry = {"name": name, "description": self._descriptions.get(name, "")}
+            for field in ("when_to_use", "verification", "red_flags"):
+                if contract.get(field):
+                    entry[field] = contract[field]
+            # 渐进加载 (#2): 只有被路由命中的技能, 且带 SKILL.md, 才现拉 body
+            # (matched=True)。未命中的技能 body 永不进上下文 → 常驻目录不因技能变胖。
+            info = self._skills.get(name) or {}
+            if info.get("has_body") and osk is not None and info.get("path"):
+                try:
+                    loaded = osk.load_skill_progressive(info["path"], matched=True)
+                    body = str(loaded.get("body") or "").strip()
+                    if body:
+                        entry["body"] = body[:1500]  # 截断防单技能撑爆
+                except Exception:  # noqa: BLE001 — body 拉取失败不影响路由结果
+                    pass
+            out.append(entry)
+        return out
+
     def _dispatcher_schemas(self) -> list[dict]:
         """②-A: N 个 per-skill 工具收成 2 个 —— 技能目录进 run_skill 的 description
         (走 tools 参数, 不进 system 提示), 模型据此选 skill_name 调用。"""
-        catalog = "\n".join(
-            f"- {n}: {self._descriptions.get(n, '')[:80]}" for n in self._all_skill_names()
-        )
+        # 渐进披露 (#2): 常驻目录只列前 N 条 (每轮都进 tools 载荷, 不能随技能数线性膨胀);
+        # 超出部分 + 契约/body 走 list_skills(task=…) 按需拉取。VEYA_SKILL_CATALOG_CAP 可调。
+        names = self._all_skill_names()
+        cap = _catalog_cap()
+        catalog = "\n".join(f"- {n}: {self._descriptions.get(n, '')[:80]}" for n in names[:cap])
+        if len(names) > cap:
+            catalog += (
+                f"\n… +{len(names) - cap} more skills — call list_skills(task=…) to rank by "
+                "relevance and get each skill's contract (when-to-use + evidence) and details."
+            )
         return [
             {
                 "type": "function",
                 "function": {
                     "name": "list_skills",
-                    "description": "List all available dynamic skills (name + description). Call this to discover what skills exist before run_skill.",
-                    "parameters": {"type": "object", "properties": {}},
+                    "description": (
+                        "Discover dynamic skills before run_skill. Pass `task` (what you are "
+                        "trying to do) to get the most relevant skills ranked, each with its "
+                        "contract (when-to-use + the evidence that proves it is done). "
+                        "Omit `task` to list all skills."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "task": {
+                                "type": "string",
+                                "description": "What you want to accomplish; ranks skills by relevance.",
+                            },
+                            "top_k": {
+                                "type": "integer",
+                                "description": "Max ranked skills to return when task is given (default 3).",
+                            },
+                        },
+                    },
                 },
             },
             {
@@ -346,6 +462,13 @@ class VeyaSkillHub:
                 owner="Skill dispatcher",
             )
             await self._authorize(tool_name, kwargs)
+            task = str(kwargs.get("task") or "").strip()
+            if task:
+                top_k = kwargs.get("top_k")
+                return json.dumps(
+                    self._route_skills(task, top_k if isinstance(top_k, int) else 3),
+                    ensure_ascii=False,
+                )
             return json.dumps(
                 [
                     {"name": n, "description": self._descriptions.get(n, "")}
@@ -356,9 +479,7 @@ class VeyaSkillHub:
         if self._dispatcher and tool_name == "run_skill":
             run_skill_schema = self._dispatcher_schemas()[1]["function"]["parameters"]
             run_skill_validator = _schema_validator(run_skill_schema, owner="Skill dispatcher")
-            _validate_arguments(
-                "run_skill", kwargs, run_skill_validator, owner="Skill dispatcher"
-            )
+            _validate_arguments("run_skill", kwargs, run_skill_validator, owner="Skill dispatcher")
             await self._authorize(tool_name, kwargs)
             skill_name = kwargs.get("skill_name") or ""
             args = dict(kwargs.get("args") or {})
@@ -381,9 +502,7 @@ class VeyaSkillHub:
                         break
                 else:
                     args["goal"] = json.dumps(args, ensure_ascii=False)[:2000]
-            _validate_arguments(
-                skill_name, args, self._validators[skill_name], owner="Skill"
-            )
+            _validate_arguments(skill_name, args, self._validators[skill_name], owner="Skill")
             # 保留 dispatcher 入口策略，同时按真实技能名再授权，支持细粒度策略。
             await self._authorize(skill_name, args)
             return await _invoke_callback(executor, args)
