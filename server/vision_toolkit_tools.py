@@ -360,6 +360,12 @@ def wire_vision_tools() -> int:
     if not ENABLED:
         logger.info("vision tools 关闭 (VEYA_VISION_TOOLS=0)")
         return 0
+    # 容器内视觉模型走 hicode 本地反代 (Host 头改写): 确保反代已拉起
+    if os.environ.get("HICODE_PROXY"):
+        with contextlib.suppress(Exception):
+            from server.hicode_agent import _ensure_local_proxy
+
+            _ensure_local_proxy()
     from server.tool_registry import master_tools
 
     added = 0

@@ -45,19 +45,54 @@ class VisionProviderError(RuntimeError):
     """可读的视觉服务失败 (含 429 重试指引)。"""
 
 
+def _in_container() -> bool:
+    """容器检测: VEYA_WORKSPACE 或 /.dockerenv (与 server.backends 同口径)。"""
+    return bool(os.environ.get("VEYA_WORKSPACE")) or os.path.exists("/.dockerenv")
+
+
 def resolve_vision_provider() -> dict[str, str]:
-    """(base_url, model, api_key) 解析: VEYA_VISION_* → 本地 frontier 桥默认。"""
+    """(base_url, model, api_key, host) 解析: VEYA_VISION_* → 本地 frontier 桥默认。
+
+    容器内直连宿主网关 192.168.16.1:10101 会被 opencodex 按 Host 头拒绝
+    (origin_rejected) — 优先走 hicode 本地反代 127.0.0.1:10103 (已改 Host);
+    反代不在则退回 frontier 端点并附加 host 头重写 (Host=127.0.0.1:10100)。
+    """
     base = os.environ.get("VEYA_VISION_BASE_URL", "").strip()
     model = os.environ.get("VEYA_VISION_MODEL", "").strip()
     key = os.environ.get("VEYA_VISION_API_KEY", "").strip()
+    host = ""
     if not base:
-        frontier = os.environ.get("VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1").strip()
-        if os.environ.get("VEYA_WORKSPACE") or os.path.exists("/.dockerenv"):
-            frontier = "http://192.168.16.1:10101/v1"
-        base = frontier
+        frontier = os.environ.get(
+            "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
+        ).strip()
+        if _in_container():
+            # 容器: 优先 hicode 反代 (Host 已改写, 免鉴权直连 gpt-5.6-luna)
+            proxy = os.environ.get("HICODE_PROXY_PORT", "10103")
+            if _proxy_alive(proxy):
+                base = f"http://127.0.0.1:{proxy}/v1"
+            else:
+                frontier = "http://192.168.16.1:10101/v1"
+                host = os.environ.get("HICODE_PROXY_UPSTREAM_HOST", "127.0.0.1:10100")
+                base = frontier
+        else:
+            base = frontier
     if not model:
         model = "gpt-5.6-luna"
-    return {"base_url": base, "model": model, "api_key": key}
+    return {"base_url": base, "model": model, "api_key": key, "host": host}
+
+
+def _proxy_alive(port: str) -> bool:
+    """hicode 本地反代探活 (0.5s, 静默失败)。"""
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=0.5) as resp:
+            return resp.status in (200, 401, 403)
+    except urllib.error.HTTPError as exc:
+        return exc.code in (200, 401, 403)
+    except Exception:
+        return False
 
 
 def _mime_for(path: str) -> str:
@@ -96,6 +131,9 @@ async def vision_chat(
     headers = {"Content-Type": "application/json"}
     if cfg.get("api_key"):
         headers["Authorization"] = f"Bearer {cfg['api_key']}"
+    # 容器直连宿主网关被 origin_rejected 时的 Host 头重写 (hicode 反代同款)
+    if cfg.get("host"):
+        headers["Host"] = cfg["host"]
     payload = {
         "model": cfg["model"],
         "messages": [{"role": "user", "content": blocks}],
