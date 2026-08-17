@@ -141,6 +141,15 @@ async def lifespan(app: FastAPI):
         import logging
 
         logging.getLogger("veya.lifespan").exception("hicode wire failed")
+    # Vision Toolkit (3O 视觉特性: 文本模型的"眼睛", 默认本地 frontier 桥零配置)
+    from server.vision_toolkit_tools import wire_vision_tools
+
+    try:
+        wire_vision_tools()  # vision_* → 主脑工具面 (同步)
+    except Exception:
+        import logging
+
+        logging.getLogger("veya.lifespan").exception("vision wire failed")
     try:
         from server.plan_todo import wire_master_tools as wire_plan
         from server.long_read import wire_master_tools as wire_long
