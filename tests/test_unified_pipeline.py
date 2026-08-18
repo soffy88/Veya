@@ -62,6 +62,43 @@ def test_run_pipeline_composes_all_three_phases(tmp_path):
     assert "sandbox" in result.summary().lower()
 
 
+def test_run_pipeline_overfit_skips_induction(tmp_path):
+    """overfit(过 train 挂 holdout)时, hack 解不得学进 ReasoningBank。"""
+    _train = (
+        "import unittest\nfrom solution import add\n\n"
+        "class T(unittest.TestCase):\n"
+        "    def test_add(self):\n"
+        "        self.assertEqual(add(2, 3), 5)\n"
+    )
+    _holdout = (
+        "import unittest\nfrom solution import add\n\n"
+        "class H(unittest.TestCase):\n"
+        "    def test_h(self):\n"
+        "        self.assertEqual(add(1, 1), 2)\n"
+    )
+
+    def hardcode_llm(prompt: str) -> str:
+        return "```python\ndef add(a, b):\n    return 5\n```"
+
+    bank = ReasoningBank(base_dir=tmp_path)
+    result = run_pipeline(
+        task="Implement add(a, b)",
+        workspace_files={"solution.py": _STUB, "test_solution.py": _train},
+        target_files=["solution.py"],
+        llm=hardcode_llm,
+        bank=bank,
+        n_branches=2,
+        budget=6,
+        max_depth=2,
+        isolation="none",
+        holdout_files={"test_holdout.py": _holdout},
+    )
+    assert result.overfit
+    assert result.experience is None  # 未归纳
+    assert bank.count() == 0  # ReasoningBank 未被污染
+    assert "overfit" in result.summary().lower()
+
+
 def test_evolve_solution_tool_reads_and_writes_workspace(tmp_path):
     (tmp_path / "solution.py").write_text(_STUB)
     (tmp_path / "test_solution.py").write_text(_TEST)

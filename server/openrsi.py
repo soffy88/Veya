@@ -294,6 +294,11 @@ def evolve(
                      算子看不到、无法硬编码; 仅在选出 best 后叠加跑一次校验。best 过 train
                      却挂 holdout ⇒ EvoResult.overfit=True (reward-hacking 守卫)。
     """
+    if holdout_files:
+        # holdout 须与 workspace 文件名不相交: 叠加时同名会覆盖训练文件、悄悄丢覆盖 → 漏报
+        clash = set(holdout_files) & set(workspace_files)
+        if clash:
+            raise ValueError(f"holdout_files 与 workspace 文件重名 (会覆盖丢覆盖): {sorted(clash)}")
     base = EvoState.of(workspace_files)
     pool = SandboxPool(size=n_branches, isolation=isolation).prewarm()
     try:
@@ -385,11 +390,8 @@ def _run_holdout(
                 fh.write(content)
         probes = probes_factory(base.file_map, target_files)
         rew = run_probes(probes, sb)
-        tests = [p for p in rew.probes if p.name == "tests"]
-        passed = (not rew.gated) and (
-            all(p.score >= 1.0 for p in tests) if tests else rew.value >= 1.0
-        )
-        return rew.value, passed
+        # 复用搜索期的通关口径 (勿另立一套, 否则 solved/holdout 判定会 drift)
+        return rew.value, EvoWorldModel._is_solved(rew)
     finally:
         pool.release(sb)
 

@@ -118,6 +118,21 @@ def test_holdout_catches_reward_hacking():
     assert result.stats["overfit"] is True
 
 
+def test_holdout_name_clash_with_train_test_raises():
+    """holdout 与 train 测试重名会覆盖丢覆盖 → 入口 fail-fast, 不静默漏报。"""
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="重名"):
+        evolve(
+            task="x",
+            workspace_files={"solution.py": _STUB, "test_solution.py": _TRAIN_ONLY},
+            target_files=["solution.py"],
+            llm=_fake_llm,
+            holdout_files={"test_solution.py": _HOLDOUT},  # 与 train 测试同名
+            isolation="none",
+        )
+
+
 @pytest.mark.skipif(shutil.which("python3") is None, reason="沙盒需要 python3")
 def test_holdout_passes_genuine_solution():
     """真正正确的实现 (a+b) 应同时过 train 与 holdout, 不被误标 overfit。"""

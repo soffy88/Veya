@@ -95,7 +95,13 @@ def run_pipeline(
     )
 
     # ---- Phase 3: 反思归纳 + 落盘 ----
-    experience = bank.induce(task, result.trajectory, llm, target=target_files[0])
+    # overfit 的"通关"是 reward-hacking: 其成功分支=硬编码解, 不能学进 ReasoningBank
+    # (否则把 hack 当经验复用), 直接跳过归纳。
+    experience = (
+        None
+        if result.overfit
+        else bank.induce(task, result.trajectory, llm, target=target_files[0])
+    )
 
     return PipelineResult(
         solved=result.solved,
