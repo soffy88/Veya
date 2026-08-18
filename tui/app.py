@@ -13,7 +13,7 @@ Layout:
   ├─────────────────────────────────────────────────┤
   │ Input: [persona] prompt_______________________  │
   ├─────────────────────────────────────────────────┤
-  │ StatusBar: persona | cost | session | provider  │
+  │ StatusBar: persona|tool progress+ETA|⏱tok$|ctx%|session|provider │
   └─────────────────────────────────────────────────┘
 
 Architecture rule: TUI never calls oprim/omodul/engine directly.
@@ -81,18 +81,19 @@ class HicodeApp(App):
 
     # ── Input submit ──────────────────────────────────────────────────
 
-    def on_veya_input_submit(self, event: HicodeInput.Submit) -> None:
+    def on_hicode_input_submit(self, event: HicodeInput.Submit) -> None:
         """User submitted a command — kick off coordinator via worker."""
         text = event.text.strip()
+        display_text = event.display_text.strip() or text
         if not text:
             return
         if self._task_running:
             self.notify("Task already running — press Escape to cancel", severity="warning")
             return
-        self._run_command(text)
+        self._run_command(text, display_text)
 
     @work(exclusive=True, exit_on_error=False)
-    async def _run_command(self, text: str) -> None:
+    async def _run_command(self, text: str, display_text: str | None = None) -> None:
         """Worker: calls master_coordinator.chat_stream and routes on_step events."""
         from server.coordinator_master import master_coordinator
         from tui.stream import StreamAdapter
@@ -104,7 +105,8 @@ class HicodeApp(App):
 
         # Clear squads from previous request
         squads.clear_squads()
-        chat.add_user(text)
+        chat.add_user(display_text or text)  # 长文粘贴用占位符回显, 完整内容仍发给后端
+        status_bar.start_session()
 
         adapter = StreamAdapter(self)
         on_step = adapter.make_on_step()
@@ -158,8 +160,7 @@ class HicodeApp(App):
         chat.add_system("New session started")
         self.query_one("#squads-panel", SquadsPanel).clear_squads()
         self.query_one("#diff-panel", DiffViewer).hide()
-        self.query_one("#status-bar", StatusBar).update_session("")
-        self.query_one("#status-bar", StatusBar).update_cost(0.0)
+        self.query_one("#status-bar", StatusBar).reset()
 
     def action_toggle_squads(self) -> None:
         panel = self.query_one("#squads-panel", SquadsPanel)
