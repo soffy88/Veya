@@ -27,6 +27,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from server.skill_scan import scan_skill_source, summarize as _summarize_risk
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
 from server.tool_registry import (
@@ -113,6 +114,10 @@ class VeyaSkillHub:
         # ②-A 静态收口: dispatcher 模式下 N 个 per-skill 工具收成 2 个
         # (list_skills + run_skill), 主脑工具面 93→~23; VEYA_SKILL_DISPATCHER=0 回退。
         self._dispatcher = os.environ.get("VEYA_SKILL_DISPATCHER", "1") != "0"
+        # 加载期安全扫描: 默认只记录风险 + 高危告警 (向后兼容——自产技能合法用
+        # subprocess 很常见, 不误杀); VEYA_SKILL_SCAN_STRICT=1 时高危调用面拒载。
+        self._scan_strict = os.environ.get("VEYA_SKILL_SCAN_STRICT") == "1"
+        self._risks: dict[str, dict] = {}  # name → 静态扫描风险摘要 (max_severity/categories/…)
 
         # 启动时自动扫描挂载
         self.reload_skills()
@@ -128,6 +133,7 @@ class VeyaSkillHub:
         self._descriptions.clear()
         self._skills.clear()
         self._contracts.clear()
+        self._risks.clear()
 
         stats = {"loaded": 0, "skipped": 0, "errors": 0}
         for item in sorted(self.skills_dir.iterdir()):
@@ -174,9 +180,20 @@ class VeyaSkillHub:
         skill_type = str(manifest.get("type", "python")).lower()
 
         # ── 注册执行器 ──
+        risk: dict | None = None
         try:
             if skill_type == "python":
                 entry_file = skill_path / str(manifest.get("entrypoint", "run.py"))
+                # 加载期安全关口: 静态审查将被 exec_module 的源码 (顶层代码一并执行) —
+                # 第三方技能等于任意代码执行入口。默认只记录+告警; strict 拒高危。
+                risk = self._scan_entry(name, entry_file)
+                if risk["max_severity"] == "high" and self._scan_strict:
+                    logger.warning(
+                        "[SkillHub] 技能 '%s' 命中高危调用面 %s, strict 模式拒载",
+                        name,
+                        risk["categories"],
+                    )
+                    return False
                 executor = self._create_python_executor(name, entry_file)
             elif skill_type == "mcp":
                 endpoint = manifest.get("endpoint")
@@ -216,6 +233,8 @@ class VeyaSkillHub:
             # (省常驻 token); 命中路由时才经 oskill.load_skill_progressive 拉取。
             "has_body": (skill_path / "SKILL.md").exists(),
         }
+        if risk is not None:
+            self._risks[name] = risk
         self._schemas.append(
             {
                 "type": "function",
@@ -241,6 +260,28 @@ class VeyaSkillHub:
                 logger.debug("[SkillHub] 技能 '%s' 契约解析跳过: %s", name, exc)
         logger.info("[SkillHub] 挂载技能 '%s' (type=%s)", name, skill_type)
         return True
+
+    def _scan_entry(self, name: str, entry_file: Path) -> dict:
+        """静态扫描技能 entrypoint, 返回风险摘要 (max_severity/categories/…)。
+
+        文件读不到 → 空风险 (挂载/执行阶段各自会报缺失)。高危命中记 warning,
+        让风险从"不可见"变"可见"; 是否拒载由 _scan_strict 决定 (调用方)。
+        """
+        try:
+            source = entry_file.read_text(encoding="utf-8")
+        except OSError:
+            return _summarize_risk([])
+        findings = scan_skill_source(source, filename=str(entry_file))
+        risk = _summarize_risk(findings)
+        if risk["high"]:
+            highs = [f for f in findings if f["severity"] == "high"]
+            logger.warning(
+                "[SkillHub] 技能 '%s' 静态扫描高危 (%d): %s",
+                name,
+                risk["high"],
+                "; ".join(f"{f['category']}@L{f['line']}:{f['detail']}" for f in highs[:5]),
+            )
+        return risk
 
     # ── 执行器工厂 ───────────────────────────────────────────────────
     def _create_python_executor(self, name: str, filepath: Path) -> Callable:
@@ -555,7 +596,17 @@ class VeyaSkillHub:
                 t: sum(1 for s in self._skills.values() if s["type"] == t)
                 for t in {"python", "mcp"}
             },
+            # 静态扫描风险聚合 (审计视图): 命中危险调用面的技能名单 + strict 状态。
+            "risk": {
+                "strict": self._scan_strict,
+                "flagged": [n for n, r in self._risks.items() if r["max_severity"] != "none"],
+                "high": [n for n, r in self._risks.items() if r["max_severity"] == "high"],
+            },
         }
+
+    def skill_risk(self, name: str) -> dict:
+        """技能的静态扫描风险摘要 (max_severity/high/medium/categories); 无记录 → 空。"""
+        return self._risks.get(name) or _summarize_risk([])
 
     def __len__(self) -> int:
         return len(self._schemas)
