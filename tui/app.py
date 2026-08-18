@@ -81,18 +81,19 @@ class HicodeApp(App):
 
     # ── Input submit ──────────────────────────────────────────────────
 
-    def on_veya_input_submit(self, event: HicodeInput.Submit) -> None:
+    def on_hicode_input_submit(self, event: HicodeInput.Submit) -> None:
         """User submitted a command — kick off coordinator via worker."""
         text = event.text.strip()
+        display_text = event.display_text.strip() or text
         if not text:
             return
         if self._task_running:
             self.notify("Task already running — press Escape to cancel", severity="warning")
             return
-        self._run_command(text)
+        self._run_command(text, display_text)
 
     @work(exclusive=True, exit_on_error=False)
-    async def _run_command(self, text: str) -> None:
+    async def _run_command(self, text: str, display_text: str | None = None) -> None:
         """Worker: calls master_coordinator.chat_stream and routes on_step events."""
         from server.coordinator_master import master_coordinator
         from tui.stream import StreamAdapter
@@ -104,7 +105,7 @@ class HicodeApp(App):
 
         # Clear squads from previous request
         squads.clear_squads()
-        chat.add_user(text)
+        chat.add_user(display_text or text)  # 长文粘贴用占位符回显, 完整内容仍发给后端
         status_bar.start_session()
 
         adapter = StreamAdapter(self)
