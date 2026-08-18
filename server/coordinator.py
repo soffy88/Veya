@@ -1193,6 +1193,14 @@ class Coordinator:
             # 获取上下文统计
             context_stats = context_manager.get_stats()
             print(f"[Context] Current usage: {context_stats['usage_percent']}%")
+            fire_step(
+                {
+                    "type": "context_usage",
+                    "usage_percent": context_stats["usage_percent"],
+                    "compacting": context_stats["usage_percent"] >= 80,
+                    "session_id": sid,
+                }
+            )
 
             # 1. 拆解任务 → SquadPlan
             plan = await self._decompose(command, cost=cost)
@@ -1854,6 +1862,7 @@ class Coordinator:
 
             connector = get_connector()
             if connector.ready:
+
                 def _vec(q: str, top_k: int = top_k) -> list[dict]:
                     return [
                         {

@@ -7,13 +7,20 @@
 - fail 且用尽 → task blocked；策略 on_task_blocked：
   - stop_goal（默认）：goal blocked
   - continue：跳过依赖它的下游，标 cancelled/blocked 传播
+
+acceptance 提到测试通过/失败数时，优先从 leaf_result 里机械抽取 "N passed, M failed" 数字判定，
+不经 LLM 主观判断（autoresearch "mechanical verification only" 范式的内化）；抽不到数字信号时
+退化到原有 LLM 判定，不是每条 acceptance 都能机械核实。
 """
 
+import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
 
-from server.goal_run.models import TaskNode, TaskStatus, GoalRunState, GoalStatus, GoalRunResponse
+from server.goal_run.models import GoalRunResponse, GoalRunState, GoalStatus, TaskNode, TaskStatus
+
+_TEST_HINT_RE = re.compile(r"test|测试", re.IGNORECASE)
+_PASS_HINT_RE = re.compile(r"pass|通过", re.IGNORECASE)
+_TEST_SUMMARY_RE = re.compile(r"(\d+)\s+passed(?:,\s*(\d+)\s+failed)?", re.IGNORECASE)
 
 
 @dataclass
@@ -43,6 +50,13 @@ async def verify_task(
     if not rule_passed:
         return VerifyResult(passed=False, summary=rule_reason or "", reason=rule_reason)
 
+    # 机械核实：acceptance 提到测试通过/失败数且 leaf_result 里有可辨识的数字信号时，
+    # 直接按数字裁决，不问 LLM 主观意见
+    mechanical = _mechanical_verify(task, leaf_result)
+    if mechanical is not None:
+        passed, summary = mechanical
+        return VerifyResult(passed=passed, summary=summary, reason=None if passed else summary)
+
     # LLM 判定
     llm_passed, llm_summary = await _llm_check(task, leaf_result)
 
@@ -68,18 +82,42 @@ def _rule_check(task: TaskNode, leaf_result: str, project_root: str) -> tuple[bo
         if "exists" in condition.lower() or "文件" in condition:
             # 提取路径（简化处理）
             import re
-            paths = re.findall(r"[\w/.-]+\.(?:py|js|ts|md|json|txt|html|css|sh|yaml|yml)", condition)
+
+            paths = re.findall(
+                r"[\w/.-]+\.(?:py|js|ts|md|json|txt|html|css|sh|yaml|yml)", condition
+            )
             for p in paths:
                 from pathlib import Path
+
                 full_path = Path(project_root) / p
                 if not full_path.exists():
                     return False, f"文件不存在: {p}"
         # 检查 leaf_result 中是否包含关键输出
-        if "exit" in condition.lower():
-            if "exit 0" in condition.lower() and "exit 0" not in leaf_result.lower():
-                return False, "exit code 不为 0"
+        if (
+            "exit" in condition.lower()
+            and "exit 0" in condition.lower()
+            and "exit 0" not in leaf_result.lower()
+        ):
+            return False, "exit code 不为 0"
 
     return True, None
+
+
+def _mechanical_verify(task: TaskNode, leaf_result: str) -> tuple[bool, str] | None:
+    """acceptance 提到测试通过/失败时，从 leaf_result 里机械抽取 pytest 风格 "N passed[, M
+    failed]" 数字裁决。找不到可辨识的数字信号返回 None，退化到 LLM 判定。"""
+    if not task.acceptance:
+        return None
+    if not any(_TEST_HINT_RE.search(c) and _PASS_HINT_RE.search(c) for c in task.acceptance):
+        return None
+    m = _TEST_SUMMARY_RE.search(leaf_result)
+    if not m:
+        return None
+    passed_count = int(m.group(1))
+    failed_count = int(m.group(2)) if m.group(2) else 0
+    if failed_count == 0:
+        return True, f"机械核实: {passed_count} passed, 0 failed"
+    return False, f"机械核实: {passed_count} passed, {failed_count} failed"
 
 
 async def _llm_check(task: TaskNode, leaf_result: str) -> tuple[bool, str]:
@@ -94,11 +132,11 @@ async def _llm_check(task: TaskNode, leaf_result: str) -> tuple[bool, str]:
     system_prompt = (
         "你是验收判定器。只输出一个 JSON 对象，不输出任何其它文字。\n"
         "根据用户给定的 acceptance 条件与 leaf 执行结果，判定是否通过。\n"
-        'JSON 字段: passed(bool), summary(string, 一句话总结)。'
+        "JSON 字段: passed(bool), summary(string, 一句话总结)。"
     )
 
     user_prompt = (
-        f"## Acceptance 条件\n"
+        "## Acceptance 条件\n"
         + "\n".join(f"- {a}" for a in task.acceptance)
         + f"\n\n## Leaf 执行结果\n{leaf_result[:2000]}"
     )
@@ -106,10 +144,11 @@ async def _llm_check(task: TaskNode, leaf_result: str) -> tuple[bool, str]:
     try:
         raw = await _default_llm(system_prompt, user_prompt)
         import json
+
         start, end = raw.find("{"), raw.rfind("}")
         if start == -1 or end == -1:
             return False, "LLM 输出解析失败"
-        data = json.loads(raw[start:end + 1])
+        data = json.loads(raw[start : end + 1])
         passed = bool(data.get("passed", False))
         summary = str(data.get("summary", ""))
         return passed, summary
