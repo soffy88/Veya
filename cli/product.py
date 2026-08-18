@@ -179,10 +179,10 @@ def run_init(argv: list[str]) -> int:
             if not interactive:
                 print("    已跳过 (可在 config.json 中手动配置 VEYA_LLM_ENDPOINT)。")
         elif not models:
-            print("\n⚠  Ollama 已启动但没有模型。请先: ollama pull qwen2.5:7b")
+            print("\n⚠  Ollama 已启动但没有模型。请先创建: qwen38-9b-q5")
         else:
             print(f"\n✔  检测到本地 Ollama, 可用模型: {', '.join(models[:6])}")
-        model = args.model or "qwen2.5:7b"
+        model = args.model or "qwen38-9b-q5"
     else:
         print(f"\n[1/3] 提供商: {meta['name']} ({meta['env']})")
         model = args.model or meta["model"]

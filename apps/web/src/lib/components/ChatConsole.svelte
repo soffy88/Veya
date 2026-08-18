@@ -14,11 +14,13 @@
 		Bot,
 		Brain,
 		CheckCircle2,
+		ChevronDown,
 		CircleAlert,
 		Code2,
 		Copy,
 		ListTodo,
 		Loader2,
+		Pencil,
 		RotateCcw,
 		Send,
 		Square,
@@ -27,6 +29,7 @@
 	} from "lucide-svelte";
 	import MarkdownBlock from "./MarkdownBlock.svelte";
 import ModelPicker from "./ModelPicker.svelte";
+import CollapsibleText from "./CollapsibleText.svelte";
 	import { onMount, onDestroy } from "svelte";
 	import { artifactStore } from "$lib/artifacts.svelte";
 	import { notifyStore } from "$lib/notifications.svelte";
@@ -35,9 +38,11 @@ import ModelPicker from "./ModelPicker.svelte";
 	import { API_BASE } from "$lib/api";
 	import { authHeader } from "$lib/auth.svelte";
 	import { planStore } from "$lib/planStore.svelte";
+	import { applyDiagramOperations, wrapMxCellsXml, type DiagramOperation } from "$lib/drawioOps";
 	import PlanCard from "./PlanCard.svelte";
 	import FileTree from "./FileTree.svelte";
-	import { Folder, HelpCircle, Mic, Paperclip, Plus } from "lucide-svelte";
+	import { Folder, HelpCircle, Mic, Paperclip, Phone, Plus } from "lucide-svelte";
+	import VoiceCall from "./VoiceCall.svelte";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
 
 	const SUGGESTIONS = [
@@ -71,6 +76,7 @@ import ModelPicker from "./ModelPicker.svelte";
 	let dictationError = $state("");
 	let recognition: { stop: () => void; lang: string } | null = null;
 	let attachMenuOpen = $state(false);
+	let voiceCallOpen = $state(false);
 	let attachMenuEl = $state<HTMLDivElement | null>(null);
 
 	// 点击外部关闭「+」插入菜单
@@ -226,15 +232,39 @@ import ModelPicker from "./ModelPicker.svelte";
 		sessionStore.sessions.find((s) => s.sid === sid)?.messages ?? [],
 	);
 
-	function scrollBottom() {
+	// 是否贴底 — 用户手动往上滚看历史时不再被拉回底部 (Claude 式), 显示悬浮的
+	// 「回到底部」按钮; 点击它或贴底时的新消息/流式增量才继续自动跟随滚动。
+	let atBottom = $state(true);
+	const BOTTOM_THRESHOLD = 96;
+
+	function handleScroll() {
 		if (!listEl) return;
+		const distance = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
+		atBottom = distance < BOTTOM_THRESHOLD;
+	}
+
+	function scrollBottom(force = false) {
+		if (!listEl || (!force && !atBottom)) return;
 		requestAnimationFrame(() => {
 			if (listEl) listEl.scrollTop = listEl.scrollHeight;
 		});
 	}
 
+	function jumpToBottom() {
+		atBottom = true;
+		scrollBottom(true);
+	}
+
+	// 切会话: 强制跳底并重置贴底状态 (不沿用上一个会话的滚动位置判断)。
+	$effect(() => {
+		void sid;
+		atBottom = true;
+		scrollBottom(true);
+	});
+
 	$effect(() => {
 		void messages.length;
+		void messages.at(-1)?.text; // 流式增量增长时, 贴底才跟着滚
 		void busy;
 		scrollBottom();
 	});
@@ -398,6 +428,53 @@ import ModelPicker from "./ModelPicker.svelte";
 						plan_id: pev.plan_id,
 						objective: pev.objective ?? "",
 						todos: pev.todos as never[],
+					});
+				}
+			} else if (kind === "diagram_result") {
+				// display_diagram 成功: 后端把模型写的裸 mxCell 片段原样透传过来,
+				// 这里包成完整 mxfile 文档后, 拼进当前流式消息文本, 复用既有
+				// <veya-artifact> 正则解析 + ArtifactRenderer 渲染管线。
+				const xml = typeof ev.xml === "string" ? ev.xml : "";
+				const title = (typeof ev.title === "string" && ev.title.trim()) || "Diagram";
+				if (xml.trim()) {
+					const fullXml = wrapMxCellsXml(xml);
+					const current =
+						sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1)?.text ?? "";
+					sessionStore.patchLast(targetSid, {
+						text:
+							current +
+							`\n\n<veya-artifact type="drawio" title="${title.replace(/"/g, "'")}">${fullXml}</veya-artifact>\n\n`,
+					});
+				}
+			} else if (kind === "diagram_edit") {
+				// edit_diagram 成功: 后端只透传结构化操作, 实际 XML 变更在这里做 —
+				// 从会话历史里回溯最近一次画的图当编辑基底 (MasterAgent 是跨会话
+				// 共享单例, 不适合按会话缓存"当前图表"这种可变状态)。
+				const ops = Array.isArray(ev.operations) ? (ev.operations as DiagramOperation[]) : [];
+				const msgs = sessionStore.sessions.find((s) => s.sid === targetSid)?.messages ?? [];
+				let baseXml = "";
+				let baseTitle = "Diagram";
+				for (let i = msgs.length - 1; i >= 0; i--) {
+					if (msgs[i].role !== "assistant") continue;
+					const { artifacts } = artifactStore.parseArtifactsFromText(msgs[i].text);
+					const drawio = [...artifacts].reverse().find((a) => a.type === "drawio");
+					if (drawio) {
+						baseXml = drawio.code;
+						baseTitle = drawio.title;
+						break;
+					}
+				}
+				if (!baseXml) {
+					console.warn("[diagram_edit] 本会话还没有可编辑的图表, 忽略此次编辑");
+				} else if (ops.length > 0) {
+					const { xml: newXml, errors } = applyDiagramOperations(baseXml, ops);
+					if (errors.length > 0) console.warn("[diagram_edit] 部分操作未生效:", errors);
+					const current =
+						sessionStore.sessions.find((s) => s.sid === targetSid)?.messages.at(-1)?.text ?? "";
+					sessionStore.patchLast(targetSid, {
+						text:
+							current +
+							`\n\n<veya-artifact type="drawio" title="${baseTitle.replace(/"/g, "'")}">${newXml}</veya-artifact>\n\n`,
 					});
 				}
 			} else if (kind === "hicode_progress") {
@@ -690,6 +767,52 @@ import ModelPicker from "./ModelPicker.svelte";
 		textareaEl?.focus();
 	}
 
+	// ── 消息内联编辑 (Claude 式: 悬浮铅笔图标 → 就地改文字 → 重新发送,
+	// 截断该消息及其后所有内容, 不支持分支历史) ──────────────────────
+	let editingIndex = $state<number | null>(null);
+	let editingText = $state("");
+	let editTextareaEl = $state<HTMLTextAreaElement>();
+
+	function startEdit(i: number) {
+		if (busy) return;
+		const msg = messages[i];
+		if (!msg || msg.role !== "user") return;
+		editingIndex = i;
+		editingText = msg.text;
+		requestAnimationFrame(() => {
+			editTextareaEl?.focus();
+			if (editTextareaEl) {
+				editTextareaEl.style.height = "auto";
+				editTextareaEl.style.height = Math.min(editTextareaEl.scrollHeight, 300) + "px";
+			}
+		});
+	}
+
+	function cancelEdit() {
+		editingIndex = null;
+		editingText = "";
+	}
+
+	function confirmEdit() {
+		const i = editingIndex;
+		const text = editingText.trim();
+		if (i === null || !text) return;
+		const s = sessionStore.sessions.find((x) => x.sid === sid);
+		if (s) {
+			s.messages = s.messages.slice(0, i); // 截断该消息及其后续(含已收到的回答)
+			sessionStore.persist();
+		}
+		editingIndex = null;
+		editingText = "";
+		void send(text);
+	}
+
+	function onEditTextareaInput() {
+		if (!editTextareaEl) return;
+		editTextareaEl.style.height = "auto";
+		editTextareaEl.style.height = Math.min(editTextareaEl.scrollHeight, 300) + "px";
+	}
+
 	function copyMessage(text: string) {
 		void navigator.clipboard?.writeText(text);
 	}
@@ -869,6 +992,18 @@ import ModelPicker from "./ModelPicker.svelte";
 						>
 							<Paperclip class="size-3.5" /> 上传文件/图片
 						</button>
+						<button
+							type="button"
+							onclick={() => {
+								ensureSession();
+								voiceCallOpen = true;
+								attachMenuOpen = false;
+							}}
+							title="连续可打断的实时语音对话"
+							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] text-white/70 transition hover:bg-white/10 hover:text-white"
+						>
+							<Phone class="size-3.5" /> 语音通话
+						</button>
 					</div>
 				{/if}
 			</div>
@@ -949,7 +1084,9 @@ import ModelPicker from "./ModelPicker.svelte";
 		</div>
 	{:else}
 		<!-- 聊天中: 内容向上滚动, 输入框固定在窗口最下不动 (Claude 式) -->
-		<div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-6 md:px-6">
+		<div class="flex min-h-0 flex-1 flex-col">
+		<div class="relative min-h-0 flex-1">
+		<div bind:this={listEl} onscroll={handleScroll} class="absolute inset-0 overflow-y-auto px-4 pb-8 pt-6 md:px-6">
 			<div class="mx-auto flex max-w-2xl flex-col gap-7">
 				{#if planStore.active()}
 					{@const activePlan = planStore.active()}
@@ -973,15 +1110,74 @@ import ModelPicker from "./ModelPicker.svelte";
 
 						<div class="min-w-0 flex-1 {msg.role === 'user' ? 'max-w-[70%]' : 'max-w-[85%]'}">
 							{#if msg.role === "user"}
-								<div class="w-fit max-w-full rounded-2xl rounded-tr-sm bg-white/10 px-4 py-2.5 text-[15px] leading-relaxed text-terminal-fg">
-									{#if msg.images && msg.images.length > 0}
-										<div class="mb-2 flex flex-wrap gap-1.5">
-											{#each msg.images as img (img)}
-												<img src={img} alt="图片附件" class="max-h-32 rounded-lg border border-white/15" />
-											{/each}
+								<div class="group/user flex flex-col items-end">
+									{#if editingIndex === i}
+										<div class="w-full rounded-2xl border border-sky-500/40 bg-[#0d0d0d] p-2">
+											<textarea
+												bind:this={editTextareaEl}
+												bind:value={editingText}
+												rows="1"
+												oninput={onEditTextareaInput}
+												onkeydown={(e) => {
+													if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+														e.preventDefault();
+														confirmEdit();
+													} else if (e.key === "Escape") {
+														e.preventDefault();
+														cancelEdit();
+													}
+												}}
+												class="max-h-[300px] w-full resize-none bg-transparent px-2 py-1.5 text-[15px] text-terminal-fg outline-none"
+											></textarea>
+											<div class="mt-1.5 flex items-center justify-end gap-2">
+												<button
+													type="button"
+													onclick={cancelEdit}
+													class="rounded-lg px-3 py-1.5 font-mono text-xs text-white/50 transition hover:text-white/80"
+												>取消</button>
+												<button
+													type="button"
+													onclick={confirmEdit}
+													disabled={!editingText.trim()}
+													class="rounded-lg bg-white px-3 py-1.5 font-mono text-xs text-black transition hover:bg-white/85 disabled:opacity-30"
+												>发送</button>
+											</div>
+										</div>
+									{:else}
+										<div class="w-fit max-w-full rounded-2xl rounded-tr-sm bg-white/10 px-4 py-2.5 text-[15px] leading-relaxed text-terminal-fg">
+											{#if msg.images && msg.images.length > 0}
+												<div class="mb-2 flex flex-wrap gap-1.5">
+													{#each msg.images as img (img)}
+														<img src={img} alt="图片附件" class="max-h-32 rounded-lg border border-white/15" />
+													{/each}
+												</div>
+											{/if}
+											<CollapsibleText maxHeight={160}>
+												{#snippet children()}
+													{msg.text}
+												{/snippet}
+											</CollapsibleText>
+										</div>
+										<div class="mt-1 flex items-center gap-0.5 opacity-0 transition group-hover/user:opacity-100">
+											<button
+												type="button"
+												onclick={() => copyMessage(msg.text)}
+												title="复制"
+												class="flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px] text-white/40 transition hover:text-white/80"
+											>
+												<Copy class="size-3" />
+											</button>
+											<button
+												type="button"
+												onclick={() => startEdit(i)}
+												disabled={busy}
+												title="编辑并重新发送"
+												class="flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px] text-white/40 transition hover:text-white/80 disabled:pointer-events-none disabled:opacity-30"
+											>
+												<Pencil class="size-3" />
+											</button>
 										</div>
 									{/if}
-									{msg.text}
 								</div>
 							{:else}
 								{@const parsed = artifactStore.parseArtifactsFromText(msg.text)}
@@ -1017,7 +1213,15 @@ import ModelPicker from "./ModelPicker.svelte";
 												正在思考…
 											</div>
 										{:else if parsed.pureText.trim()}
-											<MarkdownBlock content={parsed.pureText.replace(/\[ARTIFACT_PLACEHOLDER:[^\]]+\]/g, "")} />
+											{#if msg.status === "streaming"}
+												<MarkdownBlock content={parsed.pureText.replace(/\[ARTIFACT_PLACEHOLDER:[^\]]+\]/g, "")} />
+											{:else}
+												<CollapsibleText maxHeight={360}>
+													{#snippet children()}
+														<MarkdownBlock content={parsed.pureText.replace(/\[ARTIFACT_PLACEHOLDER:[^\]]+\]/g, "")} />
+													{/snippet}
+												</CollapsibleText>
+											{/if}
 										{/if}
 
 										{#if msg.status === "streaming" && msg.text}
@@ -1086,12 +1290,29 @@ import ModelPicker from "./ModelPicker.svelte";
 				{/each}
 			</div>
 		</div>
+		{#if !atBottom}
+			<button
+				type="button"
+				onclick={jumpToBottom}
+				title="回到底部"
+				class="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/10 bg-[#141414] px-3 py-1.5 font-mono text-[11px] text-white/70 shadow-lg transition hover:border-white/25 hover:text-white"
+			>
+				<ChevronDown class="size-3.5" />
+				回到底部
+			</button>
+		{/if}
+		</div>
 		<!-- 输入框固定贴底, 与页面一体(无分隔线/无独立背景) -->
 		<div class="shrink-0 px-4 pb-4 pt-1 md:px-6">
 			{@render composer()}
 		</div>
+		</div>
 	{/if}
 </div>
+
+{#if voiceCallOpen && sid}
+	<VoiceCall {sid} onClose={() => (voiceCallOpen = false)} />
+{/if}
 
 <style>
 	@keyframes blink {

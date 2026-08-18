@@ -105,7 +105,6 @@ def _slim_master_prompt(text: str) -> str:
 # 宿主能力段: 短指令。机制在工具描述里, 这里只定分工, 避免和主库 SOP 互斥。
 _HOST_SOP_APPEND = r"""
 # HANDS (when to use tools)
-Conceptual / design / writing / explanation: answer with ZERO tools.
 A tool that fails once: do not retry it with tweaked args. After 2 failures, answer from what you have.
 Follow-ups like 「继续 / 按你建议执行」: read THIS conversation; do not scan sessions or memories.
 Long text: read it yourself. URLs: `fetch_url` or `browser_run`. Never claim you cannot access a URL.
@@ -685,6 +684,12 @@ class MasterCoordinator:
             # 长任务无损恢复: 循环运行期间定时快照 (主库在 _histories[sid] 原地
             # 累积每轮消息), 进程被杀也只丢最后一个快照间隔, 而非整轮工作。
             ckpt_task = asyncio.create_task(self._checkpoint_loop(sid))
+            # 主脑瘦身 (VEYA_MASTER_LITE_TOOLS=1): 把 sid 透进 contextvar, 让只读
+            # submodule 里的 get_all_schemas() (无 session 形参) 能读到本会话解锁集。
+            # 默认关闭时纯属无害的 set/reset, 不改行为。
+            from server import tool_registry as _tr
+
+            _lite_token = _tr._current_master_session.set(sid)
             try:
                 result = await self._agent.chat_stream(
                     user_prompt,
@@ -694,6 +699,8 @@ class MasterCoordinator:
                     long_task=lt,
                 )
             finally:
+                _tr._current_master_session.reset(_lite_token)
+                _tr._session_unlocked.pop(sid, None)  # 会话结束清理解锁集, 防无界增长
                 ckpt_task.cancel()
                 # CancelledError 是 BaseException, 不被 suppress(Exception) 捕获 → 显式列出
                 with contextlib.suppress(asyncio.CancelledError, Exception):

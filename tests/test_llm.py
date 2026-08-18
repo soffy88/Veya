@@ -101,6 +101,28 @@ def test_get_provider_config_env_and_defaults(monkeypatch):
     assert provider == hllm._DEFAULT_PROVIDER == "dashscope"
 
 
+def test_get_provider_config_uses_user_provider(monkeypatch):
+    monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
+    monkeypatch.setattr(
+        hllm,
+        "_user_llm_config",
+        lambda: {"provider": "ollama", "model": "qwen38-9b-q5"},
+    )
+    assert hllm.get_provider_config(None) == ("ollama", "qwen38-9b-q5")
+
+
+def test_get_provider_config_env_overrides_user_provider(monkeypatch):
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
+    monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
+    monkeypatch.setattr(
+        hllm,
+        "_user_llm_config",
+        lambda: {"provider": "ollama", "model": "qwen38-9b-q5"},
+    )
+    assert hllm.get_provider_config(None) == ("openai", "qwen38-9b-q5")
+
+
 def test_get_api_key_from_env(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-123")
     assert hllm.get_api_key("openai") == "sk-test-123"
@@ -112,6 +134,11 @@ def test_get_api_key_from_config():
     assert (
         hllm.get_api_key("openai", {"providers": {"openai": {"api_key": "cfg-key"}}}) == "cfg-key"
     )
+
+
+def test_ollama_defaults():
+    assert hllm._DEFAULT_MODELS["ollama"] == "qwen38-9b-q5"
+    assert hllm._ENDPOINTS["ollama"] == "http://127.0.0.1:11434/v1/chat/completions"
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +265,36 @@ async def test_provider_stream_openai_sse():
 
 
 @pytest.mark.asyncio
+async def test_provider_stream_local_endpoint_without_api_key(monkeypatch):
+    sse = (
+        'data: {"choices":[{"delta":{"content":"local"},"finish_reason":null}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["model"] == "qwen38-9b-q5"
+        assert request.headers["Authorization"] == "Bearer local"
+        return httpx.Response(
+            200, text=sse, headers={"content-type": "text/event-stream"}, request=request
+        )
+
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    client = _client_with(handler)
+    events = [
+        ev
+        async for ev in hllm.provider_stream(
+            client,
+            "ollama",
+            model=None,
+            messages=[],
+            endpoint=hllm._ENDPOINTS["ollama"],
+        )
+    ]
+    assert events[0]["choices"][0]["delta"]["content"] == "local"
+
+
+@pytest.mark.asyncio
 async def test_provider_stream_anthropic_sse():
     sse = (
         'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi "}}\n\n'
@@ -305,6 +362,29 @@ async def test_llm_call_real_path(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_llm_call_ollama_default_without_api_key(monkeypatch):
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("VEYA_LLM_MODEL", "qwen38-9b-q5")
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert str(request.url) == hllm._ENDPOINTS["ollama"]
+        assert body["model"] == "qwen38-9b-q5"
+        assert request.headers["Authorization"] == "Bearer local"
+        return _openai_ok_response(_make_openai_completion("ollama answer"))
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        hllm.httpx,
+        "AsyncClient",
+        lambda **kw: original_client(transport=httpx.MockTransport(handler), **kw),
+    )
+    result = await hllm.llm_call([{"role": "user", "content": "hi"}])
+    assert result["choices"][0]["message"]["content"] == "ollama answer"
+
+
+@pytest.mark.asyncio
 async def test_llm_stream_stub_fallback(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
@@ -339,6 +419,35 @@ async def test_llm_stream_real_path(monkeypatch):
     events = [ev async for ev in hllm.llm_stream([{"role": "user", "content": "hi"}])]
     text = "".join(ev["choices"][0]["delta"].get("content", "") for ev in events)
     assert text == "streamed "
+
+
+@pytest.mark.asyncio
+async def test_llm_stream_ollama_default_without_api_key(monkeypatch):
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("VEYA_LLM_MODEL", "qwen38-9b-q5")
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    sse = (
+        'data: {"choices":[{"delta":{"content":"ollama stream"},"finish_reason":null}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["model"] == "qwen38-9b-q5"
+        assert request.headers["Authorization"] == "Bearer local"
+        return httpx.Response(
+            200, text=sse, headers={"content-type": "text/event-stream"}, request=request
+        )
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        hllm.httpx,
+        "AsyncClient",
+        lambda **kw: original_client(transport=httpx.MockTransport(handler), **kw),
+    )
+    events = [ev async for ev in hllm.llm_stream([{"role": "user", "content": "hi"}])]
+    text = "".join(ev["choices"][0]["delta"].get("content", "") for ev in events)
+    assert text == "ollama stream"
 
 
 # ---------------------------------------------------------------------------

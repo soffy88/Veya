@@ -60,6 +60,7 @@ from server.routes.tools import router as tools_router
 from server.routes.vault import compat_router as vault_compat_router
 from server.routes.vault import router as vault_router
 from server.routes.visualization import router as visualization_router
+from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
 from server.sse import router as sse_router
 
@@ -279,6 +280,7 @@ app.include_router(backends_router)
 app.include_router(board_router)
 app.include_router(legacy_agent_router)
 app.include_router(cindy_compat_router)
+app.include_router(voice_compat_router)
 app.include_router(sse_router)
 
 
