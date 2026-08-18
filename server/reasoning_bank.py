@@ -87,11 +87,12 @@ class ReasoningBank:
         win = max(success, key=lambda t: t["reward"])
         near_miss = max(deaths, key=lambda t: t["reward"])  # 差一点就过 = 决策边界
         tgt = target or next(iter(win.get("files", {})), "")
-        gap = win["reward"] - near_miss["reward"]
+        # 复合奖励含 diff 惩罚, 未通关的 near-miss 可能反超 solved 分 → 取绝对差, 措辞中性
+        gap = abs(win["reward"] - near_miss["reward"])
         prompt = (
             f"# TASK\n{task}\n\n"
-            "Two sandbox attempts sit on the SUCCESS/FAILURE boundary — they differ by only "
-            f"{gap:.2f} reward. Extract the ONE decisive difference that flipped failure into "
+            "Two sandbox attempts sit on the SUCCESS/FAILURE boundary — a reward gap of only "
+            f"{gap:.2f}. Extract the ONE decisive difference that flipped failure into "
             "success as a JSON object with keys situation, pitfall, fix (each one short "
             "sentence).\n"
             f"\n# NEAR-MISS (failed, reward={near_miss['reward']:.2f}, op={near_miss['op']})\n"

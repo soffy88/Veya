@@ -75,7 +75,14 @@ async def consensus_answer(
         )
         return _content(resp).strip()
 
-    stem = await _stem(task) if shared_prefix else ""
+    # 骨架失败不该拖垮整次共识: 回落到无前缀 (与 fan-out 的逐候选容错同语义)。
+    if shared_prefix:
+        try:
+            stem = await _stem(task)
+        except Exception:
+            stem = ""
+    else:
+        stem = ""
 
     async def _generate(task_text: str, i: int) -> str:
         msgs = [*base_msgs, {"role": "user", "content": task_text}]
