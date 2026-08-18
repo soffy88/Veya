@@ -13,7 +13,7 @@ Layout:
   ├─────────────────────────────────────────────────┤
   │ Input: [persona] prompt_______________________  │
   ├─────────────────────────────────────────────────┤
-  │ StatusBar: persona | cost | session | provider  │
+  │ StatusBar: persona|tool progress+ETA|⏱tok$|ctx%|session|provider │
   └─────────────────────────────────────────────────┘
 
 Architecture rule: TUI never calls oprim/omodul/engine directly.
@@ -105,6 +105,7 @@ class HicodeApp(App):
         # Clear squads from previous request
         squads.clear_squads()
         chat.add_user(text)
+        status_bar.start_session()
 
         adapter = StreamAdapter(self)
         on_step = adapter.make_on_step()
@@ -158,8 +159,7 @@ class HicodeApp(App):
         chat.add_system("New session started")
         self.query_one("#squads-panel", SquadsPanel).clear_squads()
         self.query_one("#diff-panel", DiffViewer).hide()
-        self.query_one("#status-bar", StatusBar).update_session("")
-        self.query_one("#status-bar", StatusBar).update_cost(0.0)
+        self.query_one("#status-bar", StatusBar).reset()
 
     def action_toggle_squads(self) -> None:
         panel = self.query_one("#squads-panel", SquadsPanel)
