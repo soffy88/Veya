@@ -118,6 +118,8 @@ class EvoResult:
     solved: bool
     trajectory: list[dict[str, Any]]  # 每个被评估状态一条 (供 Phase 3 归纳)
     stats: dict[str, Any]
+    overfit: bool = False  # 过 train 却挂 holdout = 硬编码/过拟合测试, 上层应丢弃
+    holdout_reward: float | None = None  # holdout 集复合分 (None = 未做 holdout 校验)
 
 
 class EvoWorldModel:
@@ -282,12 +284,21 @@ def evolve(
     max_depth: int = 4,
     probes_factory: ProbesFactory = default_probes,
     isolation: str = "netns",
+    holdout_files: dict[str, str] | None = None,
 ) -> EvoResult:
     """OpenRSI 多分支演化搜索。返回沙盒验证过的最优候选 + 完整轨迹。
 
     workspace_files: 候选跑测所需的全部文件 (实现 + 测试 + 夹具)。
     target_files:    允许算子改写的文件 (测试文件不在其中 = 天然冻结)。
+    holdout_files:   withheld 测试 (path→content, 须 test_*.py 命名)。搜索期从不进沙盒 ——
+                     算子看不到、无法硬编码; 仅在选出 best 后叠加跑一次校验。best 过 train
+                     却挂 holdout ⇒ EvoResult.overfit=True (reward-hacking 守卫)。
     """
+    if holdout_files:
+        # holdout 须与 workspace 文件名不相交: 叠加时同名会覆盖训练文件、悄悄丢覆盖 → 漏报
+        clash = set(holdout_files) & set(workspace_files)
+        if clash:
+            raise ValueError(f"holdout_files 与 workspace 文件重名 (会覆盖丢覆盖): {sorted(clash)}")
     base = EvoState.of(workspace_files)
     pool = SandboxPool(size=n_branches, isolation=isolation).prewarm()
     try:
@@ -323,6 +334,16 @@ def evolve(
             if crossed and _rank(crossed) > _rank(best_entry):
                 best_entry = crossed
 
+        # holdout 反作弊: train 上通关的 best, 用 withheld 测试再验一次 —— 过 train 却挂
+        # holdout = 算子硬编码/过拟合了可见测试, 标记 overfit 供上层丢弃 (泛化未验证)。
+        overfit = False
+        holdout_reward: float | None = None
+        if holdout_files and best_entry.get("solved"):
+            holdout_reward, passed = _run_holdout(
+                best_entry["files"], holdout_files, target_files, base, probes_factory, pool
+            )
+            overfit = not passed
+
         return EvoResult(
             best_files=best_entry["files"],
             best_reward=best_entry["reward"],
@@ -334,10 +355,45 @@ def evolve(
                 "expansions": mcts.stats.expansions,
                 "transposition_hits": mcts.stats.transposition_hits,
                 "evaluated": len(model._reward_cache),
+                "overfit": overfit,
             },
+            overfit=overfit,
+            holdout_reward=holdout_reward,
         )
     finally:
         pool.shutdown()
+
+
+def _run_holdout(
+    best_files: dict[str, str],
+    holdout_files: dict[str, str],
+    target_files: list[str],
+    base: EvoState,
+    probes_factory: ProbesFactory,
+    pool: Any,
+) -> tuple[float, bool]:
+    """把 withheld 测试叠加到 best 候选上跑一次: 返回 (holdout 复合分, 测试是否全绿)。
+
+    holdout 测试在搜索期从不进沙盒 —— 算子看不到、无法硬编码, 故这次全绿=真泛化。
+    train 测试仍一并跑 (叠加而非替换), 组合通过率 <1.0 即暴露 holdout 上的失败。
+    """
+    import os
+
+    merged = dict(best_files)
+    merged.update(holdout_files)  # 叠加 withheld 测试 (须 test_*.py 命名方能被 discover)
+    sb = pool.acquire()
+    try:
+        for rel, content in merged.items():
+            path = os.path.join(sb.workspace, rel)
+            os.makedirs(os.path.dirname(path) or sb.workspace, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(content)
+        probes = probes_factory(base.file_map, target_files)
+        rew = run_probes(probes, sb)
+        # 复用搜索期的通关口径 (勿另立一套, 否则 solved/holdout 判定会 drift)
+        return rew.value, EvoWorldModel._is_solved(rew)
+    finally:
+        pool.release(sb)
 
 
 def _try_crossover(

@@ -34,11 +34,14 @@ class PipelineResult:
     context_block: str
     experience: Experience | None
     stats: dict[str, Any] = field(default_factory=dict)
+    overfit: bool = False  # 过 train 却挂 holdout: solved 不可信, 上层应丢弃
 
     def summary(self) -> str:
         head = (
             "✅ solved" if self.solved else "⚠️ best-effort"
         ) + f" (reward={self.best_reward:.2f})"
+        if self.overfit:
+            head = f"🚨 overfit (过 train 挂 holdout, reward={self.best_reward:.2f})"
         lines = [f"Evolution {head}. stats={self.stats}"]
         if self.experience:
             lines.append(f"Learned rule: {self.experience.to_rule()}")
@@ -57,8 +60,12 @@ def run_pipeline(
     budget: int = 40,
     max_depth: int = 4,
     isolation: str = "netns",
+    holdout_files: dict[str, str] | None = None,
 ) -> PipelineResult:
-    """纯编排 (无 I/O 副作用, 全部注入): Phase 1 → 2 → 3。"""
+    """纯编排 (无 I/O 副作用, 全部注入): Phase 1 → 2 → 3。
+
+    holdout_files: 可选 withheld 测试, 传入即开启 reward-hacking 守卫 (见 openrsi.evolve)。
+    """
     graft = graft or GraftContext()
     bank = bank or ReasoningBank()
 
@@ -84,10 +91,17 @@ def run_pipeline(
         max_depth=max_depth,
         probes_factory=default_probes,
         isolation=isolation,
+        holdout_files=holdout_files,
     )
 
     # ---- Phase 3: 反思归纳 + 落盘 ----
-    experience = bank.induce(task, result.trajectory, llm, target=target_files[0])
+    # overfit 的"通关"是 reward-hacking: 其成功分支=硬编码解, 不能学进 ReasoningBank
+    # (否则把 hack 当经验复用), 直接跳过归纳。
+    experience = (
+        None
+        if result.overfit
+        else bank.induce(task, result.trajectory, llm, target=target_files[0])
+    )
 
     return PipelineResult(
         solved=result.solved,
@@ -96,6 +110,7 @@ def run_pipeline(
         context_block=context_block,
         experience=experience,
         stats=result.stats,
+        overfit=result.overfit,
     )
 
 
