@@ -73,3 +73,21 @@ async def test_shared_prefix_branches_share_one_stem():
     assert seen["stem_calls"] == 1  # 骨架只生成一次 (共享)
     assert seen["branch_had_stem"] == 3  # 3 条分支都从同一骨架继续
     assert out["chosen"] == "FINAL"
+
+
+async def test_shared_prefix_stem_failure_degrades_to_no_prefix():
+    """骨架调用失败不该拖垮整次共识: 回落到无前缀, 分支照常产出。"""
+
+    async def stub_llm(messages, **kw):
+        last = messages[-1]["content"]
+        if "共享推理骨架" in last:  # 骨架调用抛错
+            raise RuntimeError("stem provider down")
+        if "独立回答" in last:  # synthesize
+            return _resp("FINAL")
+        # 无前缀: 分支不应看到任何 assistant 骨架
+        assert not any(m["role"] == "assistant" for m in messages)
+        return _resp("cand")
+
+    out = await consensus_answer("模糊任务", n=3, shared_prefix=True, _llm=stub_llm)
+    assert out["chosen"] == "FINAL"
+    assert len(out["candidates"]) == 3
