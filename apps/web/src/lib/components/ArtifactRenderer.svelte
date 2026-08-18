@@ -9,15 +9,45 @@
 	import { Code, MonitorPlay, X } from "lucide-svelte";
 	import { artifactStore } from "$lib/artifacts.svelte";
 
+	// drawio 画布: 活跃在线服务, 非 srcdoc 静态沙盒 — postMessage 握手把 XML 灌进去。
+	// 画布里手动拖拽的改动本轮不回写进聊天历史 (纯预览; AI 侧的改动走
+	// display_diagram/edit_diagram 工具才是权威状态, 这是刻意收窄的 MVP 范围)。
+	const DRAWIO_EMBED_URL =
+		"https://embed.diagrams.net/?embed=1&ui=kennedy&spin=1&proto=json&noSaveBtn=1&noExitBtn=1";
+	let drawioFrameEl = $state<HTMLIFrameElement>();
+
 	let active = $derived(artifactStore.activeArtifact);
 	let viewMode = $state<"preview" | "code">("preview");
+
+	$effect(() => {
+		if (!active || active.type !== "drawio" || viewMode !== "preview") return;
+		const xml = active.code;
+		function onMessage(e: MessageEvent) {
+			if (e.origin !== "https://embed.diagrams.net") return;
+			if (drawioFrameEl && e.source !== drawioFrameEl.contentWindow) return;
+			let msg: { event?: string };
+			try {
+				msg = JSON.parse(e.data);
+			} catch {
+				return;
+			}
+			if (msg.event === "init") {
+				drawioFrameEl?.contentWindow?.postMessage(
+					JSON.stringify({ action: "load", xml, autosave: 0 }),
+					"https://embed.diagrams.net",
+				);
+			}
+		}
+		window.addEventListener("message", onMessage);
+		return () => window.removeEventListener("message", onMessage);
+	});
 
 	let sandboxHTML = $derived.by(() => {
 		if (!active) return "";
 
 		// html / threejs artifact: code 是完整自包含页面 (img2threejs 预览页含
 		// three.js CDN + OrbitControls), 直接原样 srcdoc 渲染, 不套 babel 模板
-		if (active.type === "html" || active.type === "threejs") {
+		if (active.type === "html" || active.type === "threejs" || active.type === "drawio") {
 			return active.code;
 		}
 
@@ -83,7 +113,17 @@
 		</div>
 
 		<div class="relative flex-1 overflow-hidden bg-white">
-			{#if viewMode === "preview"}
+			{#if viewMode === "preview" && active.type === "drawio"}
+				{#key active.id}
+					<iframe
+						bind:this={drawioFrameEl}
+						title="Veya Artifact Sandbox — drawio"
+						src={DRAWIO_EMBED_URL}
+						sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+						class="h-full w-full border-none"
+					></iframe>
+				{/key}
+			{:else if viewMode === "preview"}
 				<iframe title="Veya Artifact Sandbox" srcdoc={sandboxHTML} sandbox="allow-scripts allow-forms allow-popups" class="h-full w-full border-none"></iframe>
 			{:else}
 				<div class="h-full w-full overflow-auto bg-terminal-bg p-4">

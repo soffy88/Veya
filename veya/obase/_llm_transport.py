@@ -166,12 +166,13 @@ async def provider_call(
     OpenAI-compatible ``https://integrate.api.nvidia.com/v1/chat/completions``).
     ``api_key`` overrides the env lookup (Genesis 专属 Key 注入用, 物理隔离).
     """
+    request_endpoint = endpoint or _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
     api_key = api_key or get_api_key(provider)
     if not api_key:
         # 本地模型 (Ollama / opencodex 127.0.0.1) 无需 API Key — 与 llm_call
         # 的 local_endpoint 免 key 语义一致 (此前 provider_call 无条件拦 →
         # 本地 endpoint 也被降级成 stub)
-        local = _is_local_or_private(endpoint)
+        local = _is_local_or_private(request_endpoint)
         if not local:
             raise ValueError(f"API key not set for provider '{provider}'")
         api_key = "local"
@@ -192,11 +193,10 @@ async def provider_call(
         resp.raise_for_status()
         return _normalize_anthropic_response(resp.json())
 
-    endpoint = endpoint or _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
-    endpoint = _normalize_chat_endpoint(endpoint, provider)
+    request_endpoint = _normalize_chat_endpoint(request_endpoint, provider)
     resp = await _call_openai_compat(
         client,
-        endpoint,
+        request_endpoint,
         api_key,
         model=resolved_model,
         messages=messages,
@@ -218,13 +218,17 @@ async def provider_stream(
     messages: list,
     tools: list | None = None,
     max_tokens: int = 4096,
+    endpoint: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream a completion, yielding OpenAI-format delta events:
     ``{"choices": [{"delta": {"content": "..."}}]}``.
     """
+    request_endpoint = endpoint or _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
     api_key = get_api_key(provider)
     if not api_key:
-        raise ValueError(f"API key not set for provider '{provider}'")
+        if not _is_local_or_private(request_endpoint):
+            raise ValueError(f"API key not set for provider '{provider}'")
+        api_key = "local"
     resolved_model = model or _DEFAULT_MODELS.get(provider, "default")
     messages = prepare_messages_for_provider(messages, provider)
 
@@ -251,11 +255,10 @@ async def provider_stream(
                 yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
         return
 
-    endpoint = _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
-    endpoint = _normalize_chat_endpoint(endpoint, provider)
+    request_endpoint = _normalize_chat_endpoint(request_endpoint, provider)
     resp = await _call_openai_compat(
         client,
-        endpoint,
+        request_endpoint,
         api_key,
         model=resolved_model,
         messages=messages,

@@ -16,12 +16,13 @@ log (SPEC §8 observability).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -1421,6 +1422,69 @@ def create_app() -> FastAPI:
                 "Connection": "keep-alive",
             },
         )
+
+    # ------------------------------------------------------------------
+    # WebSocket /api/v1/voice/ws  (连续可打断的实时语音对话)
+    # ------------------------------------------------------------------
+    @api.websocket("/api/v1/voice/ws")
+    async def voice_ws(websocket: WebSocket, session_id: str | None = None) -> None:
+        """双工实时语音: 浏览器发 16kHz/mono/16-bit PCM 二进制帧, 收到的二进制帧
+        是同格式的 TTS 音频块, 之间穿插 JSON 控制消息 (state/transcript)。持续监听
+        + 可打断由 VoiceAgent.run_streaming() 负责 (veya/omodul/voice_agent.py);
+        llm_handler 直接调 Master Brain 的内部入口 (跟 /api/v1/agent/stream 同一条
+        chat_stream, 复用同一个 session_id → 语音这轮跟文字聊天记录连续,
+        工具调用/记忆都在)。"""
+        await websocket.accept()
+
+        from server.coordinator_master import master_coordinator
+        from veya.omodul.voice_agent import VoiceAgent, VoiceSessionConfig
+
+        sid = session_id or new_session_id()
+        agent = VoiceAgent(VoiceSessionConfig())
+
+        def send_json_fire_and_forget(payload: dict[str, Any]) -> None:
+            async def _send() -> None:
+                try:
+                    await websocket.send_json(payload)
+                except Exception:
+                    pass  # 连接已断开等 — 回调本身不该炸掉语音循环
+
+            asyncio.create_task(_send())
+
+        async def llm_handler(messages: list[dict]) -> dict:
+            result = await master_coordinator.chat_stream(messages[-1]["content"], session_id=sid)
+            return {"content": result.get("final_answer", "")}
+
+        agent.llm_handler = llm_handler
+
+        def on_state_change(state: Any, extra: dict) -> None:
+            payload: dict[str, Any] = {"type": "state", "state": state.value, **extra}
+            if state.value == "speaking":
+                payload["sample_rate"] = agent.config.tts_sample_rate
+            send_json_fire_and_forget(payload)
+
+        agent.on_state_change = on_state_change
+        agent.on_transcript = lambda text, final: send_json_fire_and_forget(
+            {"type": "transcript", "text": text, "final": final}
+        )
+
+        async def audio_source():
+            while True:
+                chunk = await websocket.receive_bytes()
+                yield chunk
+
+        async def on_audio_chunk(chunk: bytes) -> None:
+            await websocket.send_bytes(chunk)
+
+        try:
+            await agent.run_streaming(audio_source(), on_audio_chunk=on_audio_chunk)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
     # ==================================================================
     # G14 — Browser Automation Endpoints
