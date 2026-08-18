@@ -145,6 +145,7 @@ def _build_tool_schema(fn) -> dict:
 def _make_llm_caller():
     import asyncio as _asyncio
     import json as _json
+    import time as _time
 
     import httpx as _httpx
 
@@ -207,6 +208,18 @@ def _make_llm_caller():
                 total_cost += calc_cost(provider, usage)
                 acc_in_tokens += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
                 acc_out_tokens += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+                try:
+                    from server.events import fire_step as _fire_tok
+
+                    _fire_tok(
+                        {
+                            "type": "token_update",
+                            "input_tokens": acc_in_tokens,
+                            "output_tokens": acc_out_tokens,
+                        }
+                    )
+                except Exception:
+                    pass
 
                 choice = data["choices"][0]
                 msg = choice["message"]
@@ -228,6 +241,7 @@ def _make_llm_caller():
                 for tc in raw_tc:
                     fn_name = tc["function"]["name"]
                     tc_id = tc.get("id", f"call_{fn_name}")
+                    _t0 = _time.monotonic()
                     try:
                         fn_args = _json.loads(tc["function"]["arguments"])
                         # Fire tool_call event for TUI visualization
@@ -247,6 +261,19 @@ def _make_llm_caller():
                             result_str = str(raw)
                     except Exception as exc:
                         result_str = f"ERROR: {type(exc).__name__}: {exc}"
+                    try:
+                        from server.events import fire_step as _fire_done
+
+                        _fire_done(
+                            {
+                                "type": "tool_done",
+                                "tool_name": fn_name,
+                                "elapsed_ms": int((_time.monotonic() - _t0) * 1000),
+                                "status": "error" if result_str.startswith("ERROR:") else "ok",
+                            }
+                        )
+                    except Exception:
+                        pass
                     msgs.append({"role": "tool", "tool_call_id": tc_id, "content": result_str})
 
         return {"content": "MAX_TOOL_ROUNDS reached", "tool_calls": [], "cost_usd": total_cost}

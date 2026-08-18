@@ -27,7 +27,7 @@ def _fake_llm(prompt: str) -> str:
         return "```python\ndef add(a, b):\n    return a - b\n```"
     if "OPERATOR: debug" in prompt or "OPERATOR: crossover" in prompt:
         return "```python\ndef add(a, b):\n    return a + b\n```"
-    if "reusable lesson" in prompt:  # induction
+    if "decisive difference" in prompt:  # induction (决策边界归纳)
         return (
             '{"situation": "implementing arithmetic helpers", '
             '"pitfall": "sign errors in the first draft", '
