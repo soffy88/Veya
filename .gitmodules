@@ -12,4 +12,4 @@
 	url = https://github.com/helios-plat/obase.git
 [submodule "platform/3O/oservi"]
 	path = platform/3O/oservi
-	url = https://github.com/helios-plat/oservice.git
+	url = https://github.com/helios-plat/oservi.git
