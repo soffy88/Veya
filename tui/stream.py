@@ -10,8 +10,11 @@ Event types fired by coordinator/assembly:
   squad_start    — {"type": "squad_start", "squad_id": str, "role": str}
   squad_done     — {"type": "squad_done", "squad_id": str, "role": str, "status": str, "cost_usd": float}
   tool_call      — {"type": "tool_call", "tool_name": str, "tool_args": dict}
+  tool_done      — {"type": "tool_done", "tool_name": str, "elapsed_ms": int, "status": str}
   text_delta     — {"type": "text_delta", "squad_id": str, "text": str}
   cost_update    — {"type": "cost_update", "total_cost": float, "session_id": str}
+  token_update   — {"type": "token_update", "input_tokens": int, "output_tokens": int}
+  context_usage  — {"type": "context_usage", "usage_percent": float, "compacting": bool}
 """
 
 from __future__ import annotations
@@ -58,6 +61,14 @@ class StreamAdapter:
                 squads.update_squad(sid, f"→ {tool_name}")
                 chat = app.query_one("#chat-log")
                 chat.add_tool_call(tool_name, brief)
+                status_bar = app.query_one("#status-bar")
+                status_bar.start_tool(tool_name)
+
+            elif event_type == "tool_done":
+                tool_name = event.get("tool_name", "")
+                elapsed_ms = int(event.get("elapsed_ms", 0))
+                status_bar = app.query_one("#status-bar")
+                status_bar.finish_tool(tool_name, elapsed_ms)
 
             elif event_type == "text_delta":
                 text = event.get("text", "")
@@ -88,5 +99,17 @@ class StreamAdapter:
                 total = event.get("total_cost", 0.0)
                 status_bar = app.query_one("#status-bar")
                 status_bar.update_cost(total)
+
+            elif event_type == "token_update":
+                status_bar = app.query_one("#status-bar")
+                status_bar.update_tokens(
+                    event.get("input_tokens", 0), event.get("output_tokens", 0)
+                )
+
+            elif event_type == "context_usage":
+                status_bar = app.query_one("#status-bar")
+                status_bar.update_context(
+                    event.get("usage_percent", 0.0), bool(event.get("compacting", False))
+                )
 
         return on_step
