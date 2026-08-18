@@ -72,3 +72,66 @@ def test_evolution_solves_toy_task():
     assert "draft" in ops and "debug" in ops
     assert any(not t["solved"] for t in result.trajectory)
     assert any(t["solved"] for t in result.trajectory)
+    # 未传 holdout → 守卫默认关闭, 不误报 overfit
+    assert result.overfit is False
+    assert result.holdout_reward is None
+
+
+# holdout 反作弊: train 只查 (2,3)=5, holdout 查 (1,1)=2 —— 硬编码 return 5 过 train 挂 holdout
+_TRAIN_ONLY = (
+    "import unittest\n"
+    "from solution import add\n\n"
+    "class T(unittest.TestCase):\n"
+    "    def test_add(self):\n"
+    "        self.assertEqual(add(2, 3), 5)\n"
+)
+_HOLDOUT = (
+    "import unittest\n"
+    "from solution import add\n\n"
+    "class H(unittest.TestCase):\n"
+    "    def test_h(self):\n"
+    "        self.assertEqual(add(1, 1), 2)\n"
+)
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="沙盒需要 python3")
+def test_holdout_catches_reward_hacking():
+    """算子硬编码 return 5 骗过可见 train 测试, holdout 应抓到过拟合。"""
+
+    def hardcode_llm(prompt: str) -> str:
+        return "```python\ndef add(a, b):\n    return 5  # hardcoded to visible test\n```"
+
+    result = evolve(
+        task="Implement add(a, b).",
+        workspace_files={"solution.py": _STUB, "test_solution.py": _TRAIN_ONLY},
+        target_files=["solution.py"],
+        llm=hardcode_llm,
+        n_branches=2,
+        budget=6,
+        max_depth=2,
+        isolation="none",
+        holdout_files={"test_holdout.py": _HOLDOUT},
+    )
+    assert result.solved  # train 上"通关" (硬编码骗过可见测试)
+    assert result.overfit  # 但 holdout 抓到过拟合
+    assert result.holdout_reward is not None and result.holdout_reward < 1.0
+    assert result.stats["overfit"] is True
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="沙盒需要 python3")
+def test_holdout_passes_genuine_solution():
+    """真正正确的实现 (a+b) 应同时过 train 与 holdout, 不被误标 overfit。"""
+    result = evolve(
+        task="Implement add(a, b) returning the sum.",
+        workspace_files={"solution.py": _STUB, "test_solution.py": _TRAIN_ONLY},
+        target_files=["solution.py"],
+        llm=_fake_llm,  # draft 写错 a-b → debug 修成 a+b (泛化正确)
+        n_branches=2,
+        budget=8,
+        max_depth=3,
+        isolation="none",
+        holdout_files={"test_holdout.py": _HOLDOUT},
+    )
+    assert result.solved
+    assert result.overfit is False
+    assert result.holdout_reward is not None
