@@ -6,6 +6,10 @@
 
 **selective by design**: 这是按需能力, 不进主链路自动触发。调用方 (如对高歧义意图
 判定、关键路由决策) 显式调用才多花算力; 常规请求仍走单次通过, 成本不变。
+
+shared_prefix (opt-in, Orchard prefix-sharing 内化): 先一次生成"共享推理骨架", N 条分支
+从同一前缀继续, 只在决定性分叉处发散 —— 分支不再各自重推公共前提, 多样性聚焦在真正的
+分歧点。多花一次骨架调用, 换更聚焦的扇出。编排仍委托 oskill.fan_out_and_synthesize。
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ async def consensus_answer(
     config: dict | None = None,
     endpoint: str | None = None,
     synthesize: bool = True,
+    shared_prefix: bool = False,
     max_tokens: int = 2048,
     system_prompt: str | None = None,
     _llm: Any | None = None,
@@ -32,6 +37,7 @@ async def consensus_answer(
     """对同一 task 扇出 n 个候选并收敛为一个答案。
 
     synthesize=True → leader 综合 n 个候选 (更稳); False → 多数票/首个 (省一次调用)。
+    shared_prefix=True → 先生成共享推理骨架, N 条分支从同一前缀继续 (多花一次骨架调用)。
     返回 oskill.fan_out_and_synthesize 的结果 dict (chosen/candidates/method/errors)。
     _llm 供测试注入 (async (messages, **kw) -> openai-format dict); 缺省用 veya.llm.llm_call。
     """
@@ -51,9 +57,34 @@ async def consensus_answer(
     def _content(resp: dict) -> str:
         return ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
 
-    async def _generate(task_text: str, i: int) -> str:
+    async def _stem(task_text: str) -> str:
+        """共享推理骨架: 所有可行解都应遵守的前提/约束/推理主线 (不含最终答案)。"""
+        prompt = (
+            "先给出解决该任务的**共享推理骨架**: 所有可行解都必须遵守的前提、约束与推理主线。"
+            "不要给出完整最终答案, 只写各分支应当共享的那部分:\n\n"
+            f"# 任务\n{task_text}"
+        )
         resp = await llm(
-            [*base_msgs, {"role": "user", "content": task_text}],
+            [*base_msgs, {"role": "user", "content": prompt}],
+            model=model,
+            provider=provider,
+            config=config,
+            endpoint=endpoint,
+            temperature=0.2,
+            max_tokens=max_tokens,
+        )
+        return _content(resp).strip()
+
+    stem = await _stem(task) if shared_prefix else ""
+
+    async def _generate(task_text: str, i: int) -> str:
+        msgs = [*base_msgs, {"role": "user", "content": task_text}]
+        if stem:
+            # 共享前缀: N 条分支从同一骨架继续, 只在决定性分叉处发散
+            msgs.append({"role": "assistant", "content": stem})
+            msgs.append({"role": "user", "content": "基于以上共享骨架, 给出完整最终答案。"})
+        resp = await llm(
+            msgs,
             model=model,
             provider=provider,
             config=config,
