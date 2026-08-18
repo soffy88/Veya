@@ -64,6 +64,31 @@
 		if (sameDay) return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 		return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 	}
+
+	// 会话按最近活跃时间分组 (Claude/ChatGPT 式侧边栏): 今天/昨天/7天内/30天内/更早
+	const DAY_MS = 86400000;
+	function startOfDay(d: Date): number {
+		return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+	}
+	const sessionGroups = $derived.by(() => {
+		const today0 = startOfDay(new Date());
+		const labels = ["今天", "昨天", "7 天内", "30 天内", "更早"] as const;
+		const buckets: Record<(typeof labels)[number], typeof sessionStore.sessions> = {
+			"今天": [],
+			"昨天": [],
+			"7 天内": [],
+			"30 天内": [],
+			"更早": [],
+		};
+		for (const s of sessionStore.sessions) {
+			if (s.ts >= today0) buckets["今天"].push(s);
+			else if (s.ts >= today0 - DAY_MS) buckets["昨天"].push(s);
+			else if (s.ts >= today0 - 7 * DAY_MS) buckets["7 天内"].push(s);
+			else if (s.ts >= today0 - 30 * DAY_MS) buckets["30 天内"].push(s);
+			else buckets["更早"].push(s);
+		}
+		return labels.map((label) => ({ label, sessions: buckets[label] })).filter((g) => g.sessions.length > 0);
+	});
 </script>
 
 <main class="flex h-dvh overflow-hidden">
@@ -109,37 +134,40 @@
 
 		{#if view === "chat"}
 			<div class="flex min-h-0 flex-1 flex-col">
-				<div class="px-4 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wider text-terminal-dim/60">会话</div>
 				<div class="flex-1 overflow-y-auto px-2 pb-2">
 					{#if sessionStore.sessions.length === 0}
+						<div class="px-4 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wider text-terminal-dim/60">会话</div>
 						<p class="px-2 py-3 font-mono text-xs text-terminal-dim/60">暂无历史会话</p>
 					{:else}
-						{#each sessionStore.sessions as s (s.sid)}
-							<div
-								class="group relative flex cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2 transition {s.sid === sessionStore.activeSid
-									? 'bg-white/10'
-									: 'hover:bg-white/5'}"
-								onclick={() => sessionStore.open(s.sid)}
-							>
-								<span class="truncate pr-6 text-[13px] text-terminal-fg">{s.title}</span>
-								<span class="flex items-center justify-between font-mono text-[10px] text-terminal-dim/70">
-									<span>{sessionTime(s.ts)}</span>
-									{#if s.cost > 0}
-										<span>${s.cost.toFixed(4)}</span>
-									{/if}
-								</span>
-								<button
-									type="button"
-									title="删除会话"
-									onclick={(e) => {
-										e.stopPropagation();
-										sessionStore.remove(s.sid);
-									}}
-									class="absolute right-1.5 top-1.5 hidden rounded-md p-1 text-terminal-dim transition hover:bg-rose-500/20 hover:text-rose-400 group-hover:block"
+						{#each sessionGroups as group (group.label)}
+							<div class="px-2 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wider text-terminal-dim/60">{group.label}</div>
+							{#each group.sessions as s (s.sid)}
+								<div
+									class="group relative flex cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2 transition {s.sid === sessionStore.activeSid
+										? 'bg-white/10'
+										: 'hover:bg-white/5'}"
+									onclick={() => sessionStore.open(s.sid)}
 								>
-									<Trash2 class="size-3.5" />
-								</button>
-							</div>
+									<span class="truncate pr-6 text-[13px] text-terminal-fg">{s.title}</span>
+									<span class="flex items-center justify-between font-mono text-[10px] text-terminal-dim/70">
+										<span>{sessionTime(s.ts)}</span>
+										{#if s.cost > 0}
+											<span>${s.cost.toFixed(4)}</span>
+										{/if}
+									</span>
+									<button
+										type="button"
+										title="删除会话"
+										onclick={(e) => {
+											e.stopPropagation();
+											sessionStore.remove(s.sid);
+										}}
+										class="absolute right-1.5 top-1.5 hidden rounded-md p-1 text-terminal-dim transition hover:bg-rose-500/20 hover:text-rose-400 group-hover:block"
+									>
+										<Trash2 class="size-3.5" />
+									</button>
+								</div>
+							{/each}
 						{/each}
 					{/if}
 				</div>

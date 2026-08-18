@@ -38,6 +38,7 @@
 | `/api/v1/mcp/health` | ✅ **cindy_compat.py** | ✅ (原生) |
 | `/api/v1/mcp/categories` | ✅ **cindy_compat.py** | ✅ (原生) |
 | `/api/v1/agent/skills-inject` | ✅ **cindy_compat.py** | ✅ (原生) |
+| `/api/v1/voice/ws` | ✅ **voice_compat.py** (2026-08-18 补) | ✅ (原生) |
 
 - **新 Cindy 类端点：两头都要挂**。根 app 侧挂在 `server/routes/cindy_compat.py`（惰性 import 3O 主库，照 legacy_agent 兼容模式），veya L4 侧在 `veya/server/app.py`。
 - 前端探活路径是 `/api/v1/mcp/health`（`apps/web/src/lib/upstreamProbe.ts`），删改需同步。

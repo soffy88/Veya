@@ -157,7 +157,7 @@ async def models_catalog() -> dict[str, Any]:
     providers.append({
         "id": "ollama",
         "env": "",
-        "default_model": "qwen2.5:7b",
+        "default_model": _DEFAULT_MODELS.get("ollama", "qwen38-9b-q5"),
         "configured": True,
         "local": True,
     })

@@ -35,6 +35,18 @@ except Exception:  # pragma: no cover — 子库缺失时优雅降级 (依赖它
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_llm_config(monkeypatch):
+    """测试默认不读开发者 ~/.veya/config.json 的 llm 段 (provider/model 兜底)。
+
+    get_provider_config 无显式 provider 时会兜底到该文件 — 开发者本机若配了
+    本地端点 (如 ollama) 会污染依赖默认 provider 的测试, 使无 key 场景从"走
+    stub"变成"真请求本地服务", 非确定且超时。CI 无此文件 (_user_llm_config →
+    {}), 这里显式对齐。需要真实配置的测试可自行再 monkeypatch 覆盖。
+    """
+    monkeypatch.setattr("veya.obase.llm._user_llm_config", dict, raising=False)
+
+
 @pytest.fixture
 def tmp_project_dir(tmp_path: Path) -> Path:
     """Create a temporary project directory with a minimal veya.yml."""

@@ -108,14 +108,15 @@ def get_provider_config(
     model: str | None = None,
 ) -> tuple[str, str]:
     """Resolve (provider, model) from explicit args → config → env → user config.json → defaults."""
+    user_config = _user_llm_config()
     p = provider or (config or {}).get("provider")
     if not p:
-        p = os.environ.get("VEYA_LLM_PROVIDER", _DEFAULT_PROVIDER)
+        p = os.environ.get("VEYA_LLM_PROVIDER") or user_config.get("provider") or _DEFAULT_PROVIDER
     p = str(p).lower()
     m = model or (config or {}).get("model") or os.environ.get("VEYA_LLM_MODEL")
     if not m:
         # 用户主脑默认兜底 (config.json llm 段) — 否则无参调用落 anthropic/dashscope stub
-        m = _user_llm_config().get("model") or _DEFAULT_MODELS.get(p, "default")
+        m = user_config.get("model") or _DEFAULT_MODELS.get(p, "default")
     return p, str(m)
 
 
@@ -925,6 +926,7 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         or (config.get("endpoints") or {}).get(provider)
         or config.get("base_url")
         or os.environ.get("VEYA_LLM_ENDPOINT")
+        or _ENDPOINTS.get(provider)
     )
     # 归一化到完整 chat/completions URL (base URL 形态自动补全) —
     # 提前到本作用域: 错误信息/重试看到的是真实请求 URL
@@ -1027,7 +1029,15 @@ async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]
     provider, model = get_provider_config(
         kwargs.get("config"), provider=kwargs.get("provider"), model=kwargs.get("model")
     )
-    if not get_api_key(provider, kwargs.get("config")):
+    config = kwargs.get("config") or {}
+    endpoint = (
+        kwargs.get("endpoint")
+        or (config.get("endpoints") or {}).get(provider)
+        or config.get("base_url")
+        or os.environ.get("VEYA_LLM_ENDPOINT")
+        or _ENDPOINTS.get(provider)
+    )
+    if not get_api_key(provider, config) and not _is_local_or_private(endpoint):
         content = kwargs.get("default_content", "LLM streaming not configured — shim.")
         for word in content.split():
             yield {"choices": [{"delta": {"content": word + " "}}]}
@@ -1046,10 +1056,19 @@ async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]
                 messages=messages,
                 tools=tools,
                 max_tokens=max_tokens,
+                endpoint=endpoint,
             ):
                 yield event
-        except ValueError as exc:
-            yield {"choices": [{"delta": {"content": f"{_STUB_CONTENT} ({exc}) "}}]}
+        except (ValueError, httpx.HTTPError) as exc:
+            # 本地兜底 endpoint 免 key 后会真请求 (见上短路条件): 服务没起/离线时
+            # provider_stream 抛 HTTPStatusError/连接错误 —— 与 llm_call 的兜底对齐,
+            # 优雅降级 stub 而非崩。无 key 时用 "not configured" 措辞 (等同短路语义)。
+            if not get_api_key(provider, config):
+                content = kwargs.get("default_content", "LLM streaming not configured — shim.")
+            else:
+                content = f"{_STUB_CONTENT} ({exc})"
+            for word in content.split():
+                yield {"choices": [{"delta": {"content": word + " "}}]}
             yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
 

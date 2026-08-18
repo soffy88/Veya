@@ -36,9 +36,9 @@ class EndpointingConfig:
     """Configuration for endpointing (when the user is done speaking)."""
 
     mode: Literal["vad", "semantic", "hybrid"] = "vad"
-    min_delay_ms: float = 500   # minimum silence before endpoint
+    min_delay_ms: float = 500  # minimum silence before endpoint
     max_delay_ms: float = 3000  # maximum silence before forcing endpoint
-    alpha: float = 1.0          # sensitivity multiplier (higher = faster endpoint)
+    alpha: float = 1.0  # sensitivity multiplier (higher = faster endpoint)
 
 
 @dataclass
@@ -46,8 +46,8 @@ class InterruptionConfig:
     """Configuration for interruption (user barge-in during agent speech)."""
 
     enabled: bool = True
-    min_duration_ms: float = 300    # minimum speech duration to count as interruption
-    min_words: int = 1              # minimum words for interruption
+    min_duration_ms: float = 300  # minimum speech duration to count as interruption
+    min_words: int = 1  # minimum words for interruption
     resume_false_interruption: bool = True  # agent resumes after false interruption
 
 
@@ -163,7 +163,11 @@ class TurnDetector:
 
         elif self._state == TurnState.AGENT_SPEAKING:
             if int_config.enabled and vad.is_speech:
-                # Check if this qualifies as an interruption
+                # agent_started_speaking() 把 _speech_start_ms 清零为"打断候选尚未
+                # 开始"的哨兵值; 这里是候选真正起算的地方 (跟 IDLE→USER_SPEAKING
+                # 那支 current_time_ms 起算是同一套逻辑), 不是本来就该保持 0。
+                if self._speech_start_ms == 0.0:
+                    self._speech_start_ms = current_time_ms
                 speech_dur = current_time_ms - self._speech_start_ms
                 if speech_dur >= int_config.min_duration_ms:
                     self._state = TurnState.INTERRUPTION
@@ -171,6 +175,10 @@ class TurnDetector:
                         state=TurnState.INTERRUPTION,
                         reason=f"interruption after {speech_dur:.0f}ms",
                     )
+            else:
+                # 打断候选中途安静了 (太短暂, 没到 min_duration_ms) — 重新计时,
+                # 不能让下一次冒头直接沿用上次残留的起点。
+                self._speech_start_ms = 0.0
 
             return TurnDecision(state=TurnState.AGENT_SPEAKING, reason="agent_speaking")
 
@@ -200,8 +208,10 @@ class TurnDetector:
 
     def _build_segment(self) -> VADSegment:
         """Build a VAD segment from captured frames."""
-        return build_vad_segments(self._vad_frames)[0] if self._vad_frames else (
-            VADSegment(start_ms=0, end_ms=0)
+        return (
+            build_vad_segments(self._vad_frames)[0]
+            if self._vad_frames
+            else (VADSegment(start_ms=0, end_ms=0))
         )
 
     def _clear(self):
