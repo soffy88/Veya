@@ -76,3 +76,5 @@ apps/desktop/src-tauri/target/
 deploy/ms-playwright/
 deploy/ms-playwright.tar.gz
 deploy/hevi_deps/
+# goal-run 运行时产物 (本地跑 boss 编排的每轮记录, 非源码)
+.veya-project/

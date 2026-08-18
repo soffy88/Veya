@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import inspect
 import json
 import os
+import re
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -53,6 +55,34 @@ _RESIDENT_TOOLS: frozenset[str] = frozenset(
         "decision_query",  # 决策回溯
     }
 )
+
+
+# ============ 主脑瘦身: 渐进解锁工具面 (VEYA_MASTER_LITE_TOOLS=1) ============
+# 2026-08-18 用户指示「主脑必须轻量, 解锁它本身智能」: 默认每轮把 ~60 份完整
+# JSON schema 全塞进 LLM `tools` 参数是 token 大头, 也会稀释模型注意力。开关打开
+# 后, 主链 (MasterAgent ReAct) 每轮 tools 只给「tool_search + 极少常驻」+「本会话
+# 已解锁」的工具; system prompt 里的一行式工具菜单 (master_agent:320) 保留不动,
+# 当"廉价目录"用 —— 模型读菜单知道有什么能力, 用 tool_search 按意图检索并解锁,
+# 下一轮即可原生 function-calling 调用被解锁的工具。
+#
+# 这**不是** §2.1 踩坑的 `_layer_tools` (程序按关键词猜该露哪些→猜错就藏错):
+# 解锁完全由模型自己发 tool_search 驱动, 程序从不替它裁藏; 只是把"付全额 schema
+# 成本"推迟到模型明确要用时。默认关闭 → 生产行为零变化。
+def _master_lite_enabled() -> bool:
+    return os.environ.get("VEYA_MASTER_LITE_TOOLS") == "1"
+
+
+# 主脑常驻的极少高频工具 (tool_search 恒在, 不列这里)。
+_MASTER_RESIDENT: frozenset[str] = frozenset({"ask_user", "project_ask"})
+
+# 当前主链会话 id (contextvar): coordinator_master.chat_stream 在 await agent 流前
+# set, submodule 里 get_all_schemas() 无 session 形参也能读到 → 不改只读 submodule。
+_current_master_session: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "veya_master_session", default=None
+)
+
+# 会话 id → 该会话已解锁工具名集合 (模块级, 全局可见; chat_stream 收尾清理)。
+_session_unlocked: dict[str, set[str]] = {}
 
 # ================= 并发安全工具 (多工具并行执行白名单) ======================
 # 2026-08-17: 主链 ReAct 一轮可能返回多个 tool_call。默认逐个顺序执行；这份
@@ -355,8 +385,30 @@ class MasterToolRegistry:
 
     # ── 查询 ─────────────────────────────────────────────────────────
     def get_all_schemas(self) -> list[dict]:
-        """暴露给大模型的全部认知描述 (Function Calling 协议)。"""
-        return list(self._schemas)
+        """暴露给大模型的全部认知描述 (Function Calling 协议)。
+
+        VEYA_MASTER_LITE_TOOLS=1 时主链走渐进解锁: 只返回 tool_search + 极少常驻 +
+        本会话已解锁的工具 (schema 大头按需付费)。默认关闭 → 全量, 行为不变。
+        """
+        if not _master_lite_enabled():
+            return list(self._schemas)
+        return self._lite_schemas()
+
+    def _lite_schemas(self) -> list[dict]:
+        """瘦身工具面: {tool_search} ∪ 常驻 ∪ 本会话已解锁, 按注册顺序保序去重。"""
+        sid = _current_master_session.get()
+        unlocked = _session_unlocked.get(sid, set()) if sid else set()
+        visible = {"tool_search"} | _MASTER_RESIDENT | unlocked
+        return [s for s in self._schemas if s["function"]["name"] in visible]
+
+    def unlock_for_session(self, sid: str | None, names: list[str]) -> list[str]:
+        """把 names 里已注册的工具加入该会话解锁集, 返回本次新解锁的名字。"""
+        if not sid:
+            return []
+        bucket = _session_unlocked.setdefault(sid, set())
+        added = [n for n in names if n in self._functions and n not in bucket]
+        bucket.update(added)
+        return added
 
     def is_parallel_safe(self, name: str) -> bool:
         """此工具是否纯只读/无副作用, 可与同批工具并发执行。
@@ -1429,6 +1481,7 @@ master_tools.register(
 
 # ================= 统一流水线 (Graft + OpenRSI + ReasoningBank 总装) =========
 # evolve_solution: 沙盒验证式演化搜索替代单次盲写。装配层, 只组装 3O 主库能力。
+from server import drawio_tool as _drawio_tool  # noqa: E402
 from server import graft_autocontext as _graft_autocontext  # noqa: E402
 from server import unified_pipeline as _unified_pipeline  # noqa: E402
 from server import wechat_article_pipeline as _wechat_article_pipeline  # noqa: E402
@@ -1436,6 +1489,7 @@ from server import wechat_article_pipeline as _wechat_article_pipeline  # noqa: 
 _unified_pipeline.register(master_tools)
 _graft_autocontext.register(master_tools)
 _wechat_article_pipeline.register(master_tools)
+_drawio_tool.register(master_tools)
 
 
 def _register_wechat_discover(master_tools: Any) -> None:
@@ -1825,3 +1879,91 @@ def _register_internalized_tools(mt: Any) -> None:
 
 
 _register_internalized_tools(master_tools)
+
+
+# ============ tool_search: 主脑瘦身模式下的按需能力发现 ============
+def _search_tokens(text: str) -> set[str]:
+    """分词: 拉丁词 (≥2 字符) + CJK 二元组 (相邻双字), 覆盖中英混排的工具描述。
+
+    工具名/描述以中文为主, 纯 [a-z0-9_] 分词会丢掉全部中文 → 中文 query 排不出来;
+    对 CJK 取滑动二元组 (如 '沙箱'→{沙箱}), 比单字更准, 又不必引分词库。
+    """
+    text = text.lower()
+    tokens = {t for t in re.findall(r"[a-z0-9_]+", text) if len(t) > 1}
+    cjk = re.findall(r"[一-鿿]+", text)
+    for run in cjk:
+        if len(run) == 1:
+            tokens.add(run)
+        else:
+            tokens.update(run[i : i + 2] for i in range(len(run) - 1))
+    return tokens
+
+
+def _tool_search(query: str, top_k: int = 5) -> str:
+    """按意图检索并**解锁**工具: 命中工具进本会话解锁集, 下一轮即可原生调用。
+
+    仅在 VEYA_MASTER_LITE_TOOLS=1 时对主脑有意义 (瘦身工具面下的发现入口)。
+    评分: 完整子串命中 > query 词元与 name/description 词元的重叠。中英混排均支持。
+    返回命中工具的完整 function schema (name+description+parameters), 让模型这一轮
+    就看清参数, 下一轮直接原生 function-calling 调用。
+    """
+    sid = _current_master_session.get()
+    top_k = max(1, min(int(top_k or 5), 20))
+    q = (query or "").lower().strip()
+    q_tokens = _search_tokens(q)
+    scored: list[tuple[int, str, dict]] = []
+    for schema in master_tools._schemas:
+        fn = schema["function"]
+        name = fn["name"]
+        if name == "tool_search" or name in _MASTER_RESIDENT:
+            continue  # 已常驻, 无需检索解锁
+        hay = f"{name} {fn.get('description', '')}".lower()
+        hay_tokens = _search_tokens(hay)
+        score = 0
+        if q and q in hay:
+            score += 5
+        score += len(q_tokens & hay_tokens)
+        scored.append((score, name, fn))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    hits = [row for row in scored if row[0] > 0][:top_k]
+    if not hits:  # 无命中也给前几个, 避免模型空手
+        hits = scored[:top_k]
+    names = [row[1] for row in hits]
+    newly = master_tools.unlock_for_session(sid, names)
+    return json.dumps(
+        {
+            "unlocked": newly,
+            "already_available": [n for n in names if n not in newly],
+            "tools": [row[2] for row in hits],
+            "note": "已解锁的工具下一轮起可直接调用 (原生 function-calling)。",
+        },
+        ensure_ascii=False,
+    )
+
+
+if not master_tools.has("tool_search"):
+    master_tools.register(
+        name="tool_search",
+        description=(
+            "按意图检索并解锁工具。主脑常驻工具面已精简为极少数; 需要其它能力 (读写文件/"
+            "跑沙箱/派工/回测/视觉/MCP…) 时, 先用它按自然语言意图搜索, 命中工具会被解锁, "
+            "下一轮即可直接原生调用。system prompt 里的工具菜单列出了全部可搜的能力名。"
+            "一次可搜多个关键词 (如 '运行代码 沙箱 验证'), top_k 控制返回数。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "自然语言意图或关键词, 用于匹配工具名与描述。",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "最多返回/解锁的工具数, 默认 5, 上限 20。",
+                },
+            },
+            "required": ["query"],
+        },
+        func=_tool_search,
+        max_result_chars=8000,
+    )

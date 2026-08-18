@@ -20,6 +20,7 @@ import os
 
 # Approximate pricing in USD per 1M tokens: (input, output)
 _PRICING: dict[str, tuple[float, float]] = {
+    "ollama": (0.0, 0.0),
     "dashscope": (0.4, 1.2),
     "anthropic": (3.0, 15.0),
     "openai": (0.5, 1.5),
@@ -30,6 +31,7 @@ _PRICING: dict[str, tuple[float, float]] = {
 }
 
 _DEFAULT_MODELS: dict[str, str] = {
+    "ollama": "qwen38-9b-q5",
     "dashscope": "qwen-plus",
     "anthropic": "claude-haiku-4-5-20251001",
     "openai": "gpt-4o-mini",
@@ -40,6 +42,7 @@ _DEFAULT_MODELS: dict[str, str] = {
 }
 
 _ENDPOINTS: dict[str, str] = {
+    "ollama": "http://127.0.0.1:11434/v1/chat/completions",
     "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     "openai": "https://api.openai.com/v1/chat/completions",
     "anthropic": "https://api.anthropic.com/v1/messages",
