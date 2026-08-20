@@ -50,6 +50,10 @@ class LegacyAgentRunRequest(BaseModel):
         "agent", description="agent=可写可执行; plan=只读规划"
     )
     require_approval: bool = Field(False, description="Web 聊天设 true: 高影响工具等用户批准")
+    freeze_allow: str | None = Field(
+        None,
+        description="Session write freeze: relative subdir still writable; empty string clears freeze",
+    )
 
 
 class LegacyAgentRunResponse(BaseModel):
@@ -108,6 +112,7 @@ async def legacy_agent_run(
             model=req.model,
             mode=req.agent_mode,
             require_approval=req.require_approval,
+            freeze_allow=req.freeze_allow,
         )
         return LegacyAgentRunResponse(
             session_id=result.get("session_id") or req.session_id or _new_session_id(),
@@ -145,6 +150,7 @@ async def legacy_agent_run(
         model=req.model,
         mode=req.agent_mode,
         require_approval=req.require_approval,
+        freeze_allow=req.freeze_allow,
     )
     return LegacyAgentRunResponse(
         session_id=result.get("session_id") or session_id,
@@ -192,6 +198,7 @@ async def legacy_agent_stream(
             request=request,
             mode=req.agent_mode,
             require_approval=req.require_approval,
+            freeze_allow=req.freeze_allow,
         ),
         media_type="text/event-stream",
         headers={

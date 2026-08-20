@@ -160,8 +160,35 @@ def _bin_version() -> str | None:
         return None
 
 
+def _sandbox_profile() -> str:
+    try:
+        from veya.platform import load
+
+        return str(load("oprim").sandbox_profile())
+    except Exception:
+        raw = os.environ.get("VEYA_SANDBOX_PROFILE", "local").strip().lower()
+        return "hosted" if raw in {"hosted", "host", "cloud", "prod"} else "local"
+
+
+def _current_owner_id() -> str:
+    try:
+        from server.auth import current_user
+
+        return str(current_user().get("user_id") or "anonymous")
+    except Exception:
+        return "anonymous"
+
+
+def _safe_owner_segment(owner_id: str) -> str:
+    cleaned = "".join(c if (c.isalnum() or c in "-_") else "_" for c in owner_id)
+    return cleaned or "anonymous"
+
+
 def _workspace_root() -> Path:
-    return Path(DEFAULT_WORKSPACE).expanduser().resolve()
+    root = Path(DEFAULT_WORKSPACE).expanduser().resolve()
+    if _sandbox_profile() == "hosted":
+        return (root / "users" / _safe_owner_segment(_current_owner_id())).resolve()
+    return root
 
 
 def _resolve_workspace(name_or_path: str | None) -> Path:
@@ -393,6 +420,48 @@ async def _execute_hicode_core(
     场景 (如 project_ask) 必须走 CLI (`--add-dir <workspace>`) 才能保证
     改动真的落在调用方指定的目录内 (2026-08-15 真机 smoke 验证发现)。
     """
+    hosted_session = None
+    if _sandbox_profile() == "hosted":
+        try:
+            ws_host = _resolve_workspace(workspace)
+        except ValueError as e:
+            return f"错误: {e}"
+        from veya.platform import load
+
+        hosted_session = load("omodul").sandbox_session(
+            "hicode_workspace",
+            owner_id=_current_owner_id(),
+            workspace=str(ws_host),
+            profile="hosted",
+        )
+        if not hosted_session.ok:
+            return f"错误: hosted hicode volume: {hosted_session.error}"
+    try:
+        return await _execute_hicode_core_inner(
+            task,
+            workspace=workspace,
+            max_steps=max_steps,
+            timeout_sec=timeout_sec,
+            session_id=session_id,
+            continue_=continue_,
+            on_event=on_event,
+            force_cli=force_cli,
+        )
+    finally:
+        if hosted_session is not None:
+            hosted_session.close()
+
+
+async def _execute_hicode_core_inner(
+    task: str,
+    workspace: str | None = None,
+    max_steps: int = 0,
+    timeout_sec: int = 0,
+    session_id: str | None = None,
+    continue_: bool = False,
+    on_event: Callable[[dict], None] | None = None,
+    force_cli: bool = False,
+) -> str:
     # 新编程任务 → 优先 hicode serve (独立 oservi, HTTP+SSE 进度回流);
     # serve 不可达/失败 → 回退 CLI (功能等价, 含 checkpoint/续做/回滚)。
     # 续做/恢复仍走 CLI (会话状态在 workspace)。force_cli 时也直接跳过。

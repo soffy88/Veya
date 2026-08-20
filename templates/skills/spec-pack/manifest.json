@@ -1,0 +1,26 @@
+{
+  "name": "spec-pack",
+  "description": "大/模糊需求的持久 spec 包（非强制六阶段、非主链路由）。start 建 ~/.veya/specs/<slug>/；index 把代码地图写入 codebase.md；advance 写入 research/requirements/design/tasks；resume 读 status 接着填缺口。小任务不要用。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["start", "status", "advance", "resume", "index", "list"],
+        "description": "start=建包; status=看进度; advance=写入某阶段正文; resume=断点续跑提示; index=投影代码索引; list=列出包"
+      },
+      "slug": {"type": "string", "description": "包 id（start 返回）"},
+      "title": {"type": "string", "description": "start 用: 需求标题"},
+      "brief": {"type": "string", "description": "start 用: 一句话问题"},
+      "stage": {
+        "type": "string",
+        "description": "advance 用: triage|research|requirements|design|tasks|implementation"
+      },
+      "body": {"type": "string", "description": "advance 用: 该阶段 markdown 正文"},
+      "query": {"type": "string", "description": "index 用: 代码查询（默认 title）"}
+    },
+    "required": ["action"]
+  }
+}

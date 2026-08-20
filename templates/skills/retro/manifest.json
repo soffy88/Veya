@@ -1,0 +1,21 @@
+{
+  "name": "retro",
+  "description": "任务复盘：把「错在哪 / 下次规则」写入 Genesis 经验账本和用户长期记忆。record=沉淀一条；recent=读最近教训。不是第二套 memory，只往现有 Genesis + memory_store 写。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["record", "recent"],
+        "description": "record=写入一条复盘; recent=读取最近教训"
+      },
+      "mistake": {"type": "string", "description": "record: 做错了什么"},
+      "lesson": {"type": "string", "description": "record: 下次规则"},
+      "context": {"type": "string", "description": "record: 可选上下文"},
+      "n": {"type": "integer", "description": "recent: 条数，默认 5"}
+    },
+    "required": ["action"]
+  }
+}

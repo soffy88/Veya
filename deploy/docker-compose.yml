@@ -1,11 +1,13 @@
 # veya Production Docker Compose
 # Deploy: docker compose up -d --build
 # Domain: veya.aiinote.com
+name: veya
 version: '3.8'
 
 services:
   # ── FastAPI Backend (veya server) ───────────────────
   backend:
+    image: veya-backend:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile.backend
@@ -17,6 +19,11 @@ services:
     command: ["sh", "/app/hicode-entrypoint.sh"]
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.1}
+      # local = process/docker (veya start / 当前单机). hosted = OpenSandbox, 禁止 process.
+      - VEYA_SANDBOX_PROFILE=${VEYA_SANDBOX_PROFILE:-local}
+      - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
+      - OPEN_SANDBOX_API_KEY=${OPEN_SANDBOX_API_KEY:-}
+      - OPEN_SANDBOX_PROTOCOL=${OPEN_SANDBOX_PROTOCOL:-http}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
@@ -92,7 +99,10 @@ services:
 
 volumes:
   veya-data:
+    name: deploy_veya-data
+    external: true
 
 networks:
   veya-net:
+    name: veya-net
     driver: bridge

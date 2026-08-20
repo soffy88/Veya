@@ -97,6 +97,9 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "list_files",
         "grep",
         "read_file_ast",
+        "read_hashline",
+        "runtime_calls_query",
+        "ast_grep_search",
         "assemble_code_context",
         # 只读检索/查询
         "fetch_url",
@@ -123,6 +126,13 @@ _TOOL_GROUPS: dict[str, str] = {
     # code_exec: 直接读写代码/跑命令 — 多数场景应走 project_ask 派给 hicode,
     # 只有需要亲自核查/兜底时才启用。
     "write_file": "code_exec",
+    "edit_hashline": "code_exec",
+    "read_hashline": "code_exec",
+    "runtime_calls_ingest": "code_exec",
+    "runtime_calls_query": "code_exec",
+    "code_blast_radius": "code_exec",
+    "ast_grep_search": "code_exec",
+    "ast_grep_rewrite": "code_exec",
     "read_file_ast": "code_exec",
     "list_files": "code_exec",
     "grep": "code_exec",
@@ -862,6 +872,118 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
     return f"✅ 已写入 {path} ({len(str(content))} 字符)。可用 read_file_ast / grep 继续理解。"
 
 
+def _tool_read_hashline(filepath: str, max_lines: int = 2000) -> str:
+    """Read a file with per-line LINE#hash tags for stale-safe edits."""
+    from server.hashline import render
+
+    path = _resolve_path(filepath)
+    if path.is_dir():
+        raise ToolExecutionError(f"path '{filepath}' 是目录不是文件")
+    source = path.read_text(encoding="utf-8", errors="replace")
+    cap = max(1, min(int(max_lines or 2000), 8000))
+    return f"[hashline {path}]\n" + render(source, max_lines=cap)
+
+
+def _tool_edit_hashline(
+    filepath: str,
+    start_tag: str,
+    new_text: str,
+    end_tag: str | None = None,
+) -> str:
+    """Replace a LINE#hash span. Fails if the file drifted since read_hashline."""
+    from server.hashline import HashlineError, apply
+
+    path = _resolve_path(filepath)
+    source = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        rec = apply(source, start_tag=start_tag, end_tag=end_tag, new_text=new_text)
+    except HashlineError as exc:
+        raise ToolExecutionError(str(exc)) from exc
+    path.write_text(rec["content"], encoding="utf-8")
+    return (
+        f"hashline-edited {filepath} lines {rec['start_line']}-{rec['end_line']} "
+        f"({rec['replaced_lines']} → {rec['new_lines']} lines). "
+        "Re-read with read_hashline before another edit."
+    )
+
+
+def _tool_runtime_calls_ingest(text: str = "", traces_json: str = "") -> str:
+    """Ingest a traceback or JSON stacks into the observed CALLS overlay."""
+    from server.runtime_calls import ingest
+
+    rec = ingest(text=text, traces_json=traces_json)
+    if not rec.get("ok"):
+        raise ToolExecutionError(rec.get("error") or "ingest failed")
+    return json.dumps(rec, ensure_ascii=False)
+
+
+def _tool_runtime_calls_query(symbol: str, direction: str = "both") -> str:
+    from server.runtime_calls import query
+
+    return json.dumps(query(symbol, direction=direction or "both"), ensure_ascii=False)
+
+
+async def _tool_code_blast_radius(symbols: str, depth: int = 2) -> str:
+    """Static callers/callees plus observed runtime CALLS (ingest traces first)."""
+    from server.codebase_memory import get_connector
+
+    names = [s.strip() for s in (symbols or "").replace(",", " ").split() if s.strip()]
+    if not names:
+        raise ToolExecutionError("symbols required (comma/space separated)")
+    connector = get_connector()
+    if connector.ready:
+        try:
+            radius = await connector.blast_radius(names, depth=max(1, int(depth or 2)))
+            return json.dumps(radius, ensure_ascii=False)
+        except Exception as exc:
+            static_err = str(exc)
+    else:
+        static_err = "codebase-memory-mcp not ready"
+    from server.runtime_calls import merge_into_radius
+
+    radius = merge_into_radius(
+        {
+            "symbols": names,
+            "callers": [],
+            "callees": [],
+            "total_affected": 0,
+            "static_error": static_err,
+        },
+        names,
+    )
+    return json.dumps(radius, ensure_ascii=False)
+
+
+def _tool_ast_grep_search(
+    pattern: str, path: str = ".", lang: str | None = None
+) -> str:
+    from server.ast_grep_tool import search
+
+    target = str(_resolve_path(path, must_exist=True))
+    rec = search(pattern, path=target, lang=lang)
+    if not rec.get("ok"):
+        raise ToolExecutionError(rec.get("error") or "ast-grep search failed")
+    return json.dumps(rec, ensure_ascii=False)[:16000]
+
+
+def _tool_ast_grep_rewrite(
+    pattern: str,
+    rewrite: str,
+    path: str,
+    lang: str | None = None,
+    update: bool = False,
+) -> str:
+    from server.ast_grep_tool import search
+
+    target = str(_resolve_path(path, must_exist=True))
+    rec = search(pattern, path=target, lang=lang, rewrite=rewrite, update=bool(update))
+    if not rec.get("ok"):
+        raise ToolExecutionError(rec.get("error") or "ast-grep rewrite failed")
+    mode = "applied" if update else "dry-run"
+    rec["mode"] = mode
+    return json.dumps(rec, ensure_ascii=False)[:16000]
+
+
 def _tool_grep(pattern: str, glob: str | None = None, root: str | None = None) -> str:
     """在项目内搜索代码(ripgrep),定位定义与引用。"""
     from server.assembly import ripgrep_search
@@ -933,46 +1055,39 @@ def _normalize_sandbox_command(command: str) -> str:
 
 
 async def _tool_run_in_sandbox(code: str | None = None, command: str | None = None) -> str:
-    """在统一沙箱合同里执行代码（chat_verify = process 限额；网络并未阻断）。"""
+    """在统一沙箱合同里执行代码。策略由 isolation_policy(chat_verify, profile) 决定。"""
     import sys
 
+    from server.auth import current_user
     from veya.platform import load
 
     if not code and not command:
         raise ToolExecutionError(
             "run_in_sandbox requires either 'code' (python source) or 'command' (shell)"
         )
-    oprim = load("oprim")
-    oskill = load("oskill")
-    policy = oskill.isolation_policy("chat_verify")
-    created = oprim.sandbox_create(
-        isolation=policy["isolation"],
-        block_network=False,
-        memory="1g",
-    )
-    if not created.get("ok"):
-        raise ToolExecutionError(created.get("error") or "sandbox_create failed")
-    sid = created["sandbox_id"]
-    try:
+    omodul = load("omodul")
+    owner_id = str(current_user().get("user_id") or "")
+    with omodul.sandbox_scope("chat_verify", owner_id=owner_id) as session:
+        if not session.ok:
+            raise ToolExecutionError(session.error or "sandbox_create failed")
         if code:
-            rec = oprim.sandbox_exec(sid, [sys.executable, "-c", code], timeout_s=30)
+            rec = session.exec([sys.executable, "-c", code], timeout_s=30)
         else:
-            rec = oprim.sandbox_exec(
-                sid,
+            rec = session.exec(
                 ["bash", "-lc", _normalize_sandbox_command(command)],
                 timeout_s=30,
             )
-    finally:
-        oprim.sandbox_destroy(sid)
-    isolation = rec.get("isolation") or created.get("isolation")
-    note = f"isolation={isolation} network_blocked={rec.get('block_network', False)}"
-    if rec.get("exit_code") != 0:
-        raise ToolExecutionError(
-            f"exit_code={rec.get('exit_code')} ({note})\n"
-            f"stdout:\n{rec.get('stdout', '')}\n"
-            f"stderr:\n{rec.get('stderr', '')}"
+        isolation = rec.get("isolation") or session.isolation
+        note = (
+            f"isolation={isolation} network_blocked={rec.get('block_network', session.block_network)}"
         )
-    return f"exit_code=0 ({note})\n{rec.get('stdout', '')}"
+        if rec.get("exit_code") != 0:
+            raise ToolExecutionError(
+                f"exit_code={rec.get('exit_code')} ({note})\n"
+                f"stdout:\n{rec.get('stdout', '')}\n"
+                f"stderr:\n{rec.get('stderr', '')}"
+            )
+        return f"exit_code=0 ({note})\n{rec.get('stdout', '')}"
 
 
 # ── 5. Genesis 记忆账本查询 ────────────────────────────────────────
@@ -1115,6 +1230,157 @@ master_tools.register(
         "required": ["filepath", "content"],
     },
     func=_tool_write_file,
+)
+
+master_tools.register(
+    name="read_hashline",
+    description=(
+        "Read a workspace file with per-line LINE#xxxxxxxx content-hash tags. "
+        "Use this BEFORE surgical edits. Then call edit_hashline citing those tags. "
+        "If the file changed, tags no longer match and the edit is rejected — "
+        "re-read instead of guessing old_string. Prefer this over rewriting the whole file."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "filepath": {"type": "string", "description": "path relative to workspace root"},
+            "max_lines": {
+                "type": "integer",
+                "description": "cap (default 2000) to protect context",
+            },
+        },
+        "required": ["filepath"],
+    },
+    func=_tool_read_hashline,
+)
+
+master_tools.register(
+    name="edit_hashline",
+    description=(
+        "Replace a span identified by LINE#hash tags from read_hashline. "
+        "start_tag is required; end_tag optional (defaults to one line). "
+        "Refuses the write if hashes no longer match the live file (stale edit). "
+        "Do not invent tags — copy them from the latest read_hashline output."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "filepath": {"type": "string"},
+            "start_tag": {
+                "type": "string",
+                "description": "LINE#xxxxxxxx of the first line to replace",
+            },
+            "end_tag": {
+                "type": "string",
+                "description": "LINE#xxxxxxxx of the last line (inclusive); omit for one line",
+            },
+            "new_text": {"type": "string", "description": "replacement text (may be multiple lines)"},
+        },
+        "required": ["filepath", "start_tag", "new_text"],
+    },
+    func=_tool_edit_hashline,
+)
+
+master_tools.register(
+    name="runtime_calls_ingest",
+    description=(
+        "Ingest a Python traceback, pytest --tb=short, or JSON stacks into the "
+        "observed CALLS overlay (runtime edges static graph cannot see: dispatch/"
+        "reflection/tests). Then query with runtime_calls_query or code_blast_radius. "
+        "MCP ingest_traces is still a stub; this overlay is the live store."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "traceback / pytest short tb"},
+            "traces_json": {
+                "type": "string",
+                "description": 'JSON: [{caller,callee,file,line}] or [{frames:[{func,file,line}]}]',
+            },
+        },
+    },
+    func=_tool_runtime_calls_ingest,
+)
+
+master_tools.register(
+    name="runtime_calls_query",
+    description="Query observed runtime CALLS for a symbol (callers/callees from ingested traces).",
+    parameters={
+        "type": "object",
+        "properties": {
+            "symbol": {"type": "string"},
+            "direction": {
+                "type": "string",
+                "enum": ["both", "callers", "callees"],
+                "description": "default both",
+            },
+        },
+        "required": ["symbol"],
+    },
+    func=_tool_runtime_calls_query,
+)
+
+master_tools.register(
+    name="code_blast_radius",
+    description=(
+        "Impact set for symbols: static codebase-memory callers/callees UNION "
+        "ingested runtime CALLS. Use before a risky edit. Runtime-only names are "
+        "listed separately (dispatch/reflection that tree-sitter missed)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "symbols": {
+                "type": "string",
+                "description": "comma or space separated function/class names",
+            },
+            "depth": {"type": "integer", "description": "static trace depth, default 2"},
+        },
+        "required": ["symbols"],
+    },
+    func=_tool_code_blast_radius,
+)
+
+master_tools.register(
+    name="ast_grep_search",
+    description=(
+        "Structural search with ast-grep (AST pattern, not regex). "
+        "Fails honestly if ast-grep is not installed. Pair with edit_hashline "
+        "for stale-safe writes; use ast_grep_rewrite for pattern rewrite (dry-run default)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "description": "ast-grep pattern, e.g. 'print($A)'"},
+            "path": {"type": "string", "description": "file or dir relative to workspace (default .)"},
+            "lang": {"type": "string", "description": "python/ts/go/... ; inferred from suffix if omitted"},
+        },
+        "required": ["pattern"],
+    },
+    func=_tool_ast_grep_search,
+)
+
+master_tools.register(
+    name="ast_grep_rewrite",
+    description=(
+        "Structural rewrite with ast-grep. Default dry-run (preview hits). "
+        "Set update=true to apply on disk (workspace-jailed). Install ast-grep if missing."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string"},
+            "rewrite": {"type": "string", "description": "replacement pattern, e.g. 'log($A)'"},
+            "path": {"type": "string", "description": "file or dir relative to workspace"},
+            "lang": {"type": "string"},
+            "update": {
+                "type": "boolean",
+                "description": "false=preview (default), true=write files",
+            },
+        },
+        "required": ["pattern", "rewrite", "path"],
+    },
+    func=_tool_ast_grep_rewrite,
 )
 
 master_tools.register(

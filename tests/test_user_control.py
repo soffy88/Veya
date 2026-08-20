@@ -57,6 +57,41 @@ def test_resolve_approval_unblocks(isolated_guard):
         uc._pending.clear()
 
 
+def test_freeze_blocks_writes_outside_allow_dir(isolated_guard, tmp_path):
+    tokens = uc.activate(mode="agent", require_approval=False, session_id="fz1")
+    uc.set_freeze("fz1", allow="src", root=str(tmp_path))
+    try:
+        with pytest.raises(ToolDenied, match="freeze"):
+            asyncio.run(
+                isolated_guard.acheck("write_file", {"filepath": "docs/x.md"}, source="test")
+            )
+        asyncio.run(
+            isolated_guard.acheck("write_file", {"filepath": "src/ok.py"}, source="test")
+        )
+        with pytest.raises(ToolDenied, match="explicit path"):
+            asyncio.run(isolated_guard.acheck("hicode_run", {"task": "x"}, source="test"))
+        asyncio.run(
+            isolated_guard.acheck("hicode_run", {"task": "x", "workspace": "src"}, source="test")
+        )
+        asyncio.run(isolated_guard.acheck("grep", {"pattern": "foo"}, source="test"))
+    finally:
+        uc.clear_freeze("fz1")
+        uc.deactivate(tokens)
+
+
+def test_freeze_empty_allow_denies_all_writes(isolated_guard, tmp_path):
+    tokens = uc.activate(mode="agent", require_approval=False, session_id="fz0")
+    uc.set_freeze("fz0", allow="", root=str(tmp_path))
+    try:
+        with pytest.raises(ToolDenied, match="no allow-dir"):
+            asyncio.run(
+                isolated_guard.acheck("write_file", {"filepath": "src/a.py"}, source="test")
+            )
+    finally:
+        uc.clear_freeze("fz0")
+        uc.deactivate(tokens)
+
+
 def test_luna_core_keeps_hicode():
     from veya.obase._llm_protocol import _core_tool_schemas
 

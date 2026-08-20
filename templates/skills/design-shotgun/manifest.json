@@ -1,0 +1,23 @@
+{
+  "name": "design-shotgun",
+  "description": "UX/设计评审脚手架：shotgun=多方案对比板（模型自己填方案，本技能不调用 LLM、不分流主链）；pick=按轴选出推荐并写清放弃理由；html_to_code=把设计稿/HTML 转产品代码的步骤清单（用现有 vision_* + hicode_run）。用户要对比 UI 方案、设计评审、设计稿落地时用。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["shotgun", "pick", "html_to_code"],
+        "description": "shotgun=生成对比板骨架; pick=在已填方案里按轴推荐; html_to_code=设计稿→代码步骤"
+      },
+      "brief": {"type": "string", "description": "产品/UX 问题陈述"},
+      "options_json": {
+        "type": "string",
+        "description": "pick 用: [{id,title,summary,scores:{axis:0-5}}] JSON"
+      },
+      "winner": {"type": "string", "description": "pick 用: 方案 id（可空=按总分）"}
+    },
+    "required": ["action"]
+  }
+}

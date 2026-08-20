@@ -19,6 +19,7 @@ from server.tool_guard import ToolGuard, global_tool_guard
 
 _TERMINAL_POLICY = "terminal_action_gate"
 _PREFER_GRAPH_POLICY = "prefer_code_graph"
+_EGRESS_POLICY = "egress_audit"
 
 # 结构性探索工具: 问"谁调用/依赖/在哪定义"这类问题, 先查带置信标签的代码图
 # (assemble_code_context) 通常比逐文件 grep/read 更省 token、更准 (graphify 先查图范式)。
@@ -69,14 +70,55 @@ async def terminal_action_policy(name: str, kwargs: dict, source: str) -> str | 
     return None
 
 
+def egress_audit_policy(name: str, kwargs: dict, source: str) -> str | None:
+    """Outbound tools: always append a hash-chain record; optionally deny off-allowlist.
+
+    Default observe (record, never deny). ``VEYA_EGRESS_ENFORCE=1`` plus
+    ``VEYA_EGRESS_ALLOWLIST`` (comma hosts) blocks destinations not on the list.
+    """
+    from server.egress_audit import (
+        destination_allowed,
+        destination_of,
+        digest_of,
+        record_egress,
+    )
+
+    dest = destination_of(name, kwargs or {})
+    if dest is None:
+        return None
+    owner = ""
+    try:
+        from server.auth import current_user
+
+        owner = str(current_user().get("user_id") or "")
+    except Exception:
+        owner = ""
+    try:
+        record_egress(
+            tool=name,
+            destination=dest,
+            digest=digest_of(kwargs or {}),
+            owner_id=owner,
+            source=source,
+        )
+    except Exception:
+        pass
+    enforce = os.environ.get("VEYA_EGRESS_ENFORCE", "0") == "1"
+    if enforce and not destination_allowed(dest):
+        return f"egress denied: {dest} not on VEYA_EGRESS_ALLOWLIST"
+    return None
+
+
 def install_default_tool_policies(guard: ToolGuard | None = None) -> None:
     """幂等安装默认守卫策略。缺省 observe 模式 (VEYA_TOOL_GATE_ENFORCE=1 翻 enforce)。"""
     guard = guard or global_tool_guard
-    if guard.has_policy(_TERMINAL_POLICY):
-        return
     enforce = os.environ.get("VEYA_TOOL_GATE_ENFORCE", "0") == "1"
-    guard.register_policy(_TERMINAL_POLICY, terminal_action_policy, enforce=enforce)
+    if not guard.has_policy(_TERMINAL_POLICY):
+        guard.register_policy(_TERMINAL_POLICY, terminal_action_policy, enforce=enforce)
     # 先查图钩子: 默认 observe (零行为变化); VEYA_PREFER_GRAPH_ENFORCE=1 才回喂主脑改走图。
     if not guard.has_policy(_PREFER_GRAPH_POLICY):
         graph_enforce = os.environ.get("VEYA_PREFER_GRAPH_ENFORCE", "0") == "1"
         guard.register_policy(_PREFER_GRAPH_POLICY, prefer_code_graph_policy, enforce=graph_enforce)
+    if not guard.has_policy(_EGRESS_POLICY):
+        egress_enforce = os.environ.get("VEYA_EGRESS_ENFORCE", "0") == "1"
+        guard.register_policy(_EGRESS_POLICY, egress_audit_policy, enforce=egress_enforce)

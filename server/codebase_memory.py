@@ -229,12 +229,28 @@ class CodebaseMemoryConnector:
             for c in t.get("callees", []):
                 qn = c.get("qualified_name") or c.get("name", "?")
                 callees[qn] = max(callees.get(qn, 0), int(c.get("hop", 1)))
-        return {
+        radius = {
             "symbols": symbols,
             "callers": sorted(callers, key=callers.get, reverse=True),
             "callees": sorted(callees, key=callees.get, reverse=True),
             "total_affected": len(callers) + len(callees),
         }
+        try:
+            from server.runtime_calls import merge_into_radius
+
+            radius = merge_into_radius(radius, symbols)
+        except Exception:
+            pass
+        return radius
+
+    async def ingest_traces(self, traces: list[dict[str, Any]]) -> dict[str, Any]:
+        """Best-effort MCP ingest (binary may still stub edge creation)."""
+        if not self.ready:
+            return {"ok": False, "error": "codebase-memory-mcp 未就绪"}
+        try:
+            return await self._call("ingest_traces", {"traces": traces})
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     # ── 双通道搜索 (图谱优先, 向量 fallback) ──────────────────────────
 

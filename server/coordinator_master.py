@@ -613,12 +613,14 @@ class MasterCoordinator:
         images: list[str] | None = None,
         mode: str | None = None,
         require_approval: bool = False,
+        freeze_allow: str | None = None,
     ) -> dict[str, Any]:
         """主脑主入口(委托主库 ReAct 循环)。
 
         on_step 经 contextvar 桥接: 主库 notify=fire_step 会自动命中。
         config/provider/model/endpoint 为请求级 LLM 覆盖(前端传入的 user key)。
         mode=plan: 只读; require_approval: 高影响工具等用户点批准。
+        freeze_allow: 非 None 时设置本 session 写锁子目录 ("" = 解除 freeze)。
         """
         llm_kwargs = {}
         if config:
@@ -649,6 +651,11 @@ class MasterCoordinator:
                 require_approval=require_approval,
                 session_id=sid_early,
             )
+            if freeze_allow is not None:
+                if str(freeze_allow).strip() == "":
+                    _uc.clear_freeze(sid_early)
+                else:
+                    _uc.set_freeze(sid_early, allow=str(freeze_allow))
             session_lock = await _acquire_session_lock(sid_early)
             session_lock_acquired = True
             # 视觉工具会话上下文: 工件按会话落盘 + 每会话并发闸 (vision_* 工具面)

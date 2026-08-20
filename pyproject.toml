@@ -35,6 +35,9 @@ interactive = [
 settings = [
     "pydantic-settings>=2.0.0",  # 若接入 pydantic 配置管理(现用自研 loader)
 ]
+sandbox = [
+    "opensandbox>=0.1.0",  # hosted multi-user execution plane (optional)
+]
 vision = [
     "pillow>=10.0.0",   # 图像原子操作 (裁剪/切分/差分/主色/报图)
     # vtracer pip 包 0.6.15 在 CPython 3.14 下段错误 → 不装包, 用独立 CLI 二进制
