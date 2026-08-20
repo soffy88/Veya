@@ -38,6 +38,7 @@ async def new_agent_stream_events(
     request: "Request | None" = None,
     mode: str | None = None,
     require_approval: bool = False,
+    freeze_allow: str | None = None,
 ) -> AsyncIterator[str]:
     """主脑 SSE 事件泵: 消费事件队列 → SSE 帧。
 
@@ -75,6 +76,7 @@ async def new_agent_stream_events(
             images=images,
             mode=mode,
             require_approval=require_approval,
+            freeze_allow=freeze_allow,
         )
 
     try:
