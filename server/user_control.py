@@ -1,8 +1,9 @@
-"""User-held plan mode + high-impact tool approval.
+"""User-held plan mode, freeze, and high-impact tool approval.
 
-Plan mode and approvals are *user* decisions (toggle / approve button), not
-keyword routing. Default for tests/CLI: agent mode, no approval wait.
-Web chat sends require_approval=true so write/execute tools pause for the user.
+Plan mode, freeze, and approvals are *user* decisions (request flags), not
+keyword routing or slash commands. Default for tests/CLI: agent mode, no freeze,
+no approval wait. Web chat sends require_approval=true so write/execute tools
+pause for the user. freeze_allow locks writes to one subdirectory for the session.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import asyncio
 import contextvars
 import os
 import uuid
+from pathlib import Path
 from typing import Any
 
 from server.events import fire_step
@@ -28,6 +30,10 @@ PLAN_ALLOW = frozenset(
         "grep",
         "list_files",
         "read_file_ast",
+        "read_hashline",
+        "runtime_calls_query",
+        "ast_grep_search",
+        "code_blast_radius",
         "long_read",
         "assemble_code_context",
         "create_plan",
@@ -50,6 +56,8 @@ PLAN_ALLOW = frozenset(
 HIGH_IMPACT = frozenset(
     {
         "write_file",
+        "edit_hashline",
+        "ast_grep_rewrite",
         "run_in_sandbox",
         "hicode_run",
         "evolve_solution",
@@ -95,6 +103,21 @@ class _PendingQuestion:
 _pending: dict[str, _Pending] = {}
 _pending_questions: dict[str, _PendingQuestion] = {}
 
+# Session-sticky freeze: writes locked to one subdirectory of the workspace root.
+# Not a slash command — user sets it on the request / session (same class as plan mode).
+_freeze: dict[str, tuple[str, str]] = {}  # session_id -> (root, allow_rel)
+_FREEZE_WRITE_TOOLS = frozenset(
+    {
+        "write_file",
+        "edit_hashline",
+        "ast_grep_rewrite",
+        "hicode_run",
+        "hicode_rollback",
+        "evolve_solution",
+    }
+)
+_PATH_KEYS = ("filepath", "path", "workspace")
+
 
 def activate(
     *, mode: str = "agent", require_approval: bool = False, session_id: str = ""
@@ -120,6 +143,62 @@ def current_mode() -> str:
 
 def require_approval() -> bool:
     return _require_approval.get()
+
+
+def _default_freeze_root() -> Path:
+    raw = os.environ.get("VEYA_WORKSPACE") or str(Path.home() / ".veya" / "work")
+    return Path(raw).expanduser().resolve()
+
+
+def set_freeze(session_id: str, *, allow: str, root: str | None = None) -> None:
+    """Lock writes to ``root/allow`` for this session. Empty allow = deny all freeze-write tools."""
+    sid = (session_id or "").strip()
+    if not sid:
+        return
+    base = Path(root).expanduser().resolve() if root else _default_freeze_root()
+    allow_rel = (allow or "").strip().replace("\\", "/").lstrip("/")
+    if allow_rel in {".", "./"}:
+        allow_rel = ""
+    _freeze[sid] = (str(base), allow_rel)
+
+
+def clear_freeze(session_id: str) -> None:
+    _freeze.pop((session_id or "").strip(), None)
+
+
+def current_freeze() -> tuple[str, str] | None:
+    sid = _session_id.get()
+    if not sid:
+        return None
+    return _freeze.get(sid)
+
+
+def _path_in_allow(root: str, allow_rel: str, raw_path: str) -> bool:
+    if not allow_rel:
+        return False
+    base = Path(root).resolve()
+    allow_dir = (base / allow_rel).resolve()
+    try:
+        allow_dir.relative_to(base)
+    except ValueError:
+        return False
+    p = Path(raw_path).expanduser()
+    target = p.resolve() if p.is_absolute() else (base / p).resolve()
+    if target == allow_dir:
+        return True
+    try:
+        target.relative_to(allow_dir)
+        return True
+    except ValueError:
+        return False
+
+
+def _freeze_target(name: str, kwargs: dict[str, Any]) -> str | None:
+    for key in _PATH_KEYS:
+        val = (kwargs or {}).get(key)
+        if val:
+            return str(val)
+    return None
 
 
 def _safe_args(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -216,12 +295,31 @@ async def ask_question(question: str, options: list[str] | None = None) -> str:
 
 
 async def user_control_policy(name: str, kwargs: dict, source: str) -> str | None:
-    """Plan mode = read-only allowlist; agent + require_approval = HITL on high-impact."""
+    """Plan mode = read-only allowlist; freeze = writes locked to one subdir; HITL on high-impact."""
     if current_mode() == "plan" and name not in PLAN_ALLOW:
         return (
             f"plan mode: '{name}' writes or executes. Stay read-only, draft a plan "
             f"(create_plan), and wait for the user to switch to agent mode."
         )
+    frozen = current_freeze()
+    if frozen and name in _FREEZE_WRITE_TOOLS:
+        root, allow_rel = frozen
+        target = _freeze_target(name, kwargs)
+        if not allow_rel:
+            return (
+                f"freeze: writes locked; no allow-dir set. "
+                f"Cannot run '{name}' until the user unfreezes or names a subdirectory."
+            )
+        if target is None:
+            return (
+                f"freeze: '{name}' needs an explicit path under {allow_rel}/ "
+                f"(session writes locked outside that directory)."
+            )
+        if not _path_in_allow(root, allow_rel, target):
+            return (
+                f"freeze: writes locked to '{allow_rel}/' under {root}; "
+                f"'{target}' is outside the allow-dir."
+            )
     if require_approval() and name in HIGH_IMPACT:
         return await _wait_approval(name, kwargs)
     return None

@@ -144,7 +144,7 @@ class HicodeServeClient:
         timeout: float = SERVE_TASK_TIMEOUT,
         workspace: str | None = None,
     ) -> dict[str, Any]:
-        """执行一次编程任务。同 workspace 互斥；hicode serve 目前只有 1 个槽。"""
+        """执行一次编程任务。同 workspace 互斥；全局/每用户槽位由 SandboxBroker。"""
         if not await self.health():
             return {
                 "status": "error",
@@ -157,7 +157,15 @@ class HicodeServeClient:
         from veya.platform import load
 
         broker = load("omodul").get_broker()
-        async with broker.async_workspace(workspace), broker.async_slot("hicode_serve"):
+        try:
+            from server.auth import current_user
+
+            owner_id = str(current_user().get("user_id") or "")
+        except Exception:
+            owner_id = ""
+        async with broker.async_workspace(workspace), broker.async_slot(
+            "hicode_serve", owner_id=owner_id
+        ):
             return await self._run_task_locked(
                 spec, on_event, approve_all=approve_all, timeout=timeout
             )
