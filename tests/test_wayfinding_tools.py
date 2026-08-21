@@ -47,6 +47,7 @@ def _ticket_id(out: str) -> str:
 @pytest.fixture(autouse=True)
 def isolated_dirs(tmp_path, monkeypatch):
     monkeypatch.setenv("THREE_O_WAYFINDING_DIR", str(tmp_path / "wayfinding"))
+    monkeypatch.setenv("THREE_O_CONTEXT_DIR", str(tmp_path / "context"))
     FS.set_default_working_dir(tmp_path / "obase_work")
     yield
     FS.reset_working_dir()
@@ -166,6 +167,13 @@ async def test_end_to_end_chart_to_stateful_goto():
 
     history = await stateful_history("e2e-run")
     assert "handoff" in history
+
+    from obase.hierarchical_context import HierarchicalContextStore
+
+    ctx = HierarchicalContextStore()
+    traj_uri = "3o://user/veya/memories/trajectories/e2e-run"
+    assert ctx.exists(traj_uri, "L2")
+    assert "handoff" in ctx.read(traj_uri, "L2")
 
 
 @pytest.mark.asyncio
