@@ -221,6 +221,10 @@ _TOOL_GROUPS: dict[str, str] = {
     "wayfind_gh_graduate_fog": "wayfinding_github",
     "wayfind_gh_decisions": "wayfinding_github",
     "wayfind_gh_complete": "wayfinding_github",
+    # long_task: GoalKernel 事件溯源治理接主链, goal_start 后本 session 自动生效
+    "goal_start": "long_task",
+    "goal_add_todo": "long_task",
+    "goal_status": "long_task",
 }
 
 _GROUP_DESCRIPTIONS: dict[str, str] = {
@@ -241,6 +245,8 @@ _GROUP_DESCRIPTIONS: dict[str, str] = {
     "wayfinding_github": "同一套探路概念落在真实 GitHub Issues 上 (wayfind_gh_*): map=issue, "
     "ticket=原生 sub-issue, blocking=原生 issue dependency — frontier 在 GitHub 网页上直接可见, "
     "不用调工具查。",
+    "long_task": "长程任务预算/进度治理 (goal_start/goal_add_todo/goal_status)。事件溯源 "
+    "(GoalKernel), goal_start 后本 session 每轮自动追踪花费, 超支自动暂停。",
     "mcp_gateway": "兄弟服务网关 (mcp_hevi/mcp_stratum/mcp_od/mcp_codebase)。",
 }
 
@@ -2173,6 +2179,66 @@ master_tools.register(
         "required": ["repo", "map_number"],
     },
     func=wayfind_gh_complete,
+)
+
+# ================= 长程任务预算/进度治理 (GoalKernel 接主链) ===============
+# goal_start 是唯一入口: 调用后当前 session 的每一轮起自动做预算追踪
+# (server/coordinator_master.py 的 _default_long_task_factory 从
+# server/goal_session_map 查到 goal_id 才生效); 不调这个的会话完全不受影响。
+from server.goal_tools import goal_add_todo, goal_start, goal_status  # noqa: E402
+
+master_tools.register(
+    name="goal_start",
+    description=(
+        "开一个长程任务目标: 之后本 session 每一轮自动做预算追踪, 超支时那一轮"
+        "直接暂停不再调用 LLM。适合会连续跑很多轮、需要控制花费的任务; 普通"
+        "对话不用调这个, 调了也不影响其他没开目标的会话。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "目标标题。"},
+            "budget_usd": {"type": "number", "description": "可选。预算上限 (美元), 默认 5。"},
+        },
+        "required": ["title"],
+    },
+    func=goal_start,
+)
+
+master_tools.register(
+    name="goal_add_todo",
+    description="给当前 session 关联的长程任务加一个 todo (下一轮的进度提示会指向它)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "todo_id": {"type": "string", "description": "todo 的短 id (自己起, 后续引用用它)。"},
+            "title": {"type": "string", "description": "todo 标题。"},
+            "blocked_by": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "可选。依赖的其它 todo_id 列表。",
+            },
+        },
+        "required": ["todo_id", "title"],
+    },
+    func=goal_add_todo,
+)
+
+master_tools.register(
+    name="goal_status",
+    description=(
+        "看当前 session 关联的长程任务进度 (todo/gate/预算)。可选传 todo_id+status "
+        "顺便更新一个 todo 的状态 (如标记 done)。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "todo_id": {"type": "string", "description": "可选。要顺便更新状态的 todo id。"},
+            "status": {"type": "string", "description": "可选。open/done/blocked/deferred。"},
+            "note": {"type": "string", "description": "可选。更新说明。"},
+        },
+    },
+    func=goal_status,
 )
 
 # ================= graph-engineer 式多引擎编排 (自纠正循环) ==============
