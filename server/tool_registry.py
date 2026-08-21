@@ -191,6 +191,23 @@ _TOOL_GROUPS: dict[str, str] = {
     "update_todo": "planning",
     # gates: 工程纪律门禁。不是派工路由，内部编排 S1–S5。
     "project_eng_gates": "gates",
+    # wayfinding: 目标模糊时先探路收敛, 再编译成 Runbook 执行
+    "wayfind_chart": "wayfinding",
+    "wayfind_add_ticket": "wayfinding",
+    "wayfind_wire_blocking": "wayfinding",
+    "wayfind_frontier": "wayfinding",
+    "wayfind_claim": "wayfinding",
+    "wayfind_resolve": "wayfinding",
+    "wayfind_rule_out_of_scope": "wayfinding",
+    "wayfind_add_fog": "wayfinding",
+    "wayfind_graduate_fog": "wayfinding",
+    "wayfind_decisions": "wayfinding",
+    "wayfind_complete": "wayfinding",
+    "wayfind_compile_runbook": "wayfinding",
+    "stateful_start": "wayfinding",
+    "stateful_current": "wayfinding",
+    "stateful_goto": "wayfinding",
+    "stateful_history": "wayfinding",
 }
 
 _GROUP_DESCRIPTIONS: dict[str, str] = {
@@ -206,6 +223,8 @@ _GROUP_DESCRIPTIONS: dict[str, str] = {
     "web": "浏览器自动化/网页抓取 (browser_run/fetch_url)。",
     "planning": "旧版计划系统 (create_plan/plan_status/update_todo); project_ask 是首选派工入口。",
     "gates": "工程纪律门禁 (project_eng_gates)。不是派工入口，不替代 project_ask。",
+    "wayfinding": "目标模糊时先探路收敛范围 (wayfind_chart/ticket/claim/resolve/complete), "
+    "收敛完成后编译成 Runbook 并按检查点执行 (wayfind_compile_runbook/stateful_*)。",
     "mcp_gateway": "兄弟服务网关 (mcp_hevi/mcp_stratum/mcp_od/mcp_codebase)。",
 }
 
@@ -954,9 +973,7 @@ async def _tool_code_blast_radius(symbols: str, depth: int = 2) -> str:
     return json.dumps(radius, ensure_ascii=False)
 
 
-def _tool_ast_grep_search(
-    pattern: str, path: str = ".", lang: str | None = None
-) -> str:
+def _tool_ast_grep_search(pattern: str, path: str = ".", lang: str | None = None) -> str:
     from server.ast_grep_tool import search
 
     target = str(_resolve_path(path, must_exist=True))
@@ -1078,9 +1095,7 @@ async def _tool_run_in_sandbox(code: str | None = None, command: str | None = No
                 timeout_s=30,
             )
         isolation = rec.get("isolation") or session.isolation
-        note = (
-            f"isolation={isolation} network_blocked={rec.get('block_network', session.block_network)}"
-        )
+        note = f"isolation={isolation} network_blocked={rec.get('block_network', session.block_network)}"
         if rec.get("exit_code") != 0:
             raise ToolExecutionError(
                 f"exit_code={rec.get('exit_code')} ({note})\n"
@@ -1274,7 +1289,10 @@ master_tools.register(
                 "type": "string",
                 "description": "LINE#xxxxxxxx of the last line (inclusive); omit for one line",
             },
-            "new_text": {"type": "string", "description": "replacement text (may be multiple lines)"},
+            "new_text": {
+                "type": "string",
+                "description": "replacement text (may be multiple lines)",
+            },
         },
         "required": ["filepath", "start_tag", "new_text"],
     },
@@ -1295,7 +1313,7 @@ master_tools.register(
             "text": {"type": "string", "description": "traceback / pytest short tb"},
             "traces_json": {
                 "type": "string",
-                "description": 'JSON: [{caller,callee,file,line}] or [{frames:[{func,file,line}]}]',
+                "description": "JSON: [{caller,callee,file,line}] or [{frames:[{func,file,line}]}]",
             },
         },
     },
@@ -1352,8 +1370,14 @@ master_tools.register(
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "ast-grep pattern, e.g. 'print($A)'"},
-            "path": {"type": "string", "description": "file or dir relative to workspace (default .)"},
-            "lang": {"type": "string", "description": "python/ts/go/... ; inferred from suffix if omitted"},
+            "path": {
+                "type": "string",
+                "description": "file or dir relative to workspace (default .)",
+            },
+            "lang": {
+                "type": "string",
+                "description": "python/ts/go/... ; inferred from suffix if omitted",
+            },
         },
         "required": ["pattern"],
     },
@@ -1647,6 +1671,284 @@ master_tools.register(
         },
     },
     func=boundary_scan,
+)
+
+# ================= 3O Wayfinding + StatefulProcedure ======================
+# 目标模糊时先探路 (wayfind_*: 认领 ticket → 写决策, 收敛 frontier/fog),
+# 收敛完成后编译成可执行 Runbook 并用 stateful_* 跑 (checked transition,
+# 失败留在原节点)。业务逻辑在 omodul.wayfinding / obase.orchestrator, 这里
+# 只挂号 —— 见 server/wayfinding_tools.py。
+from server.wayfinding_tools import (  # noqa: E402
+    stateful_current,
+    stateful_goto,
+    stateful_history,
+    stateful_start,
+    wayfind_add_fog,
+    wayfind_add_ticket,
+    wayfind_chart,
+    wayfind_claim,
+    wayfind_compile_runbook,
+    wayfind_complete,
+    wayfind_decisions,
+    wayfind_frontier,
+    wayfind_graduate_fog,
+    wayfind_resolve,
+    wayfind_rule_out_of_scope,
+    wayfind_wire_blocking,
+)
+
+master_tools.register(
+    name="wayfind_chart",
+    description=(
+        "开一张新的探路图: 目标还模糊/需要先收敛范围时用这个, 不要直接动手做。"
+        "返回 map_id, 后续所有 wayfind_*/stateful_* 都要传它。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "destination": {"type": "string", "description": "1-2 句话说清楚往哪个方向探。"},
+            "notes": {"type": "string", "description": "可选。领域背景/已知偏好/约束。"},
+        },
+        "required": ["destination"],
+    },
+    func=wayfind_chart,
+)
+
+master_tools.register(
+    name="wayfind_add_ticket",
+    description="给探路图加一张待澄清问题的 ticket。type: research/prototype/grilling/task。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "wayfind_chart 返回的 map_id。"},
+            "title": {"type": "string", "description": "ticket 标题 (人看的短名)。"},
+            "question": {"type": "string", "description": "具体要澄清/解决什么。"},
+            "ticket_type": {
+                "type": "string",
+                "description": "research(可自行调查)/prototype(要出个东西给人看)/"
+                "grilling(纯对话澄清, 不能替人决定)/task(阻塞性前置工作), 默认 task。",
+            },
+        },
+        "required": ["map_id", "title", "question"],
+    },
+    func=wayfind_add_ticket,
+)
+
+master_tools.register(
+    name="wayfind_wire_blocking",
+    description="声明 to_ticket 依赖 from_ticket 先解决 (未关闭前 to 不出现在 frontier)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "map_id。"},
+            "from_ticket": {"type": "string", "description": "前置 ticket id。"},
+            "to_ticket": {"type": "string", "description": "被阻塞的 ticket id。"},
+        },
+        "required": ["map_id", "from_ticket", "to_ticket"],
+    },
+    func=wayfind_wire_blocking,
+)
+
+master_tools.register(
+    name="wayfind_frontier",
+    description="看当前能认领的 ticket (open+未阻塞+未认领)。探路循环每轮先看这个。",
+    parameters={
+        "type": "object",
+        "properties": {"map_id": {"type": "string", "description": "map_id。"}},
+        "required": ["map_id"],
+    },
+    func=wayfind_frontier,
+)
+
+master_tools.register(
+    name="wayfind_claim",
+    description="认领一张 ticket。已被别人认领会失败 (不可抢占); 认领后才能 resolve。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "map_id。"},
+            "ticket_id": {"type": "string", "description": "要认领的 ticket id。"},
+            "claimed_by": {"type": "string", "description": "可选。认领者标识, 默认 veya。"},
+        },
+        "required": ["map_id", "ticket_id"],
+    },
+    func=wayfind_claim,
+)
+
+master_tools.register(
+    name="wayfind_resolve",
+    description=(
+        "解决一张已认领的 ticket, 写下决策 (gist 会进 decisions_so_far, 之后编译成 "
+        "Runbook 节点)。必须先 wayfind_claim 才能 resolve。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "map_id。"},
+            "ticket_id": {"type": "string", "description": "已认领的 ticket id。"},
+            "resolution": {"type": "string", "description": "完整说明: 做了什么/为什么。"},
+            "gist": {"type": "string", "description": "一句话结论。"},
+        },
+        "required": ["map_id", "ticket_id", "resolution", "gist"],
+    },
+    func=wayfind_resolve,
+)
+
+master_tools.register(
+    name="wayfind_rule_out_of_scope",
+    description="把一张 ticket 标记为不在本次范围内: 关闭且不会再出现在 frontier。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "map_id。"},
+            "ticket_id": {"type": "string", "description": "要排除的 ticket id。"},
+            "reason": {"type": "string", "description": "为什么排除。"},
+        },
+        "required": ["map_id", "ticket_id", "reason"],
+    },
+    func=wayfind_rule_out_of_scope,
+)
+
+master_tools.register(
+    name="wayfind_add_fog",
+    description="记一块还说不清楚的模糊地带, 之后用 wayfind_graduate_fog 拆成具体 ticket。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "map_id。"},
+            "patch": {"type": "string", "description": "模糊地带的描述。"},
+        },
+        "required": ["map_id", "patch"],
+    },
+    func=wayfind_add_fog,
+)
+
+master_tools.register(
+    name="wayfind_graduate_fog",
+    description="把一块模糊地带拆成具体 ticket (每个标题一张 task 类型 ticket)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "map_id。"},
+            "patch": {
+                "type": "string",
+                "description": "要拆解的 fog patch (须与 wayfind_add_fog 一致)。",
+            },
+            "new_ticket_titles": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "拆出的新 ticket 标题列表。",
+            },
+        },
+        "required": ["map_id", "patch", "new_ticket_titles"],
+    },
+    func=wayfind_graduate_fog,
+)
+
+master_tools.register(
+    name="wayfind_decisions",
+    description="列出这张探路图目前已经写下的所有决策。",
+    parameters={
+        "type": "object",
+        "properties": {"map_id": {"type": "string", "description": "map_id。"}},
+        "required": ["map_id"],
+    },
+    func=wayfind_decisions,
+)
+
+master_tools.register(
+    name="wayfind_complete",
+    description="frontier 和 fog 都清空时把地图标记为 completed; 没清空会告诉你还剩什么。",
+    parameters={
+        "type": "object",
+        "properties": {"map_id": {"type": "string", "description": "map_id。"}},
+        "required": ["map_id"],
+    },
+    func=wayfind_complete,
+)
+
+master_tools.register(
+    name="wayfind_compile_runbook",
+    description="把已完成探路图的决策编译成 Runbook 预览 (不会自动开始执行)。",
+    parameters={
+        "type": "object",
+        "properties": {"map_id": {"type": "string", "description": "已 complete 的 map_id。"}},
+        "required": ["map_id"],
+    },
+    func=wayfind_compile_runbook,
+)
+
+master_tools.register(
+    name="stateful_start",
+    description="从一张已完成的探路图编译 Runbook, 开始 (或用同一 run_id 续跑) 执行。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "已 complete 的 map_id。"},
+            "run_id": {"type": "string", "description": "可选。不传则用 map-<map_id>。"},
+        },
+        "required": ["map_id"],
+    },
+    func=stateful_start,
+)
+
+master_tools.register(
+    name="stateful_current",
+    description="看某次执行当前停在哪个节点, 节点 prompt 是什么, 能转去哪些节点。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "map_id。"},
+            "run_id": {"type": "string", "description": "stateful_start 用过的 run_id。"},
+        },
+        "required": ["map_id", "run_id"],
+    },
+    func=stateful_current,
+)
+
+master_tools.register(
+    name="stateful_goto",
+    description=(
+        "尝试把执行转移到 target 节点。每个节点都有一条 checklist check ('Decision "
+        "\\'<title>\\' applied / verified') 门住转移 —— 真的落实了该决策后, 把这条 "
+        "checklist 文案原样传进 confirm_items 才能过; 不传或没确认会留在原节点并说明原因。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "map_id。"},
+            "run_id": {"type": "string", "description": "run_id。"},
+            "target": {
+                "type": "string",
+                "description": "目标节点 id (stateful_current 里的 allowed_next)。",
+            },
+            "confirm_items": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "已确认的 checklist 文案列表 (原样照抄节点 prompt 里的决策标题)。",
+            },
+            "workspace_root": {
+                "type": "string",
+                "description": "可选。command 类 check 的执行根目录。",
+            },
+        },
+        "required": ["map_id", "run_id", "target"],
+    },
+    func=stateful_goto,
+)
+
+master_tools.register(
+    name="stateful_history",
+    description="看某次执行的转移历史 (最近 tail 条)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "run_id": {"type": "string", "description": "run_id。"},
+            "tail": {"type": "integer", "description": "可选。返回条数, 默认 20。"},
+        },
+        "required": ["run_id"],
+    },
+    func=stateful_history,
 )
 
 # ================= graph-engineer 式多引擎编排 (自纠正循环) ==============
