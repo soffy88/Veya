@@ -46,6 +46,32 @@ _pending_images_ctx: contextvars.ContextVar[tuple[str, ...] | None] = contextvar
     "veya_pending_images", default=None
 )
 
+# 当前 session 关联的长程任务 goal_id (server/goal_tools.goal_start 写入
+# server/goal_session_map 的关联表)。没调过 goal_start 的会话永远是 None，
+# _default_long_task_factory 见到 None 直接返回 None —— 等价于完全没接线，
+# 不影响任何没主动开长程任务的对话。
+_pending_goal_id_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "veya_pending_goal_id", default=None
+)
+
+
+def _default_long_task_factory() -> Any:
+    """读 _pending_goal_id_ctx，构造一个 LongTaskDriver；没有 goal_id 就返回 None。
+
+    预算不在这里传：goal_start 调 ensure_goal 时已经把 budget_usd 写进事件流，
+    LongTaskDriver.pre_round/post_round 每轮都会从投影 (QuotaView) 自愈实际
+    预算，这里 open_long_task 不传 budget_usd 也不会把已开的 goal 预算清零。
+    """
+    goal_id = _pending_goal_id_ctx.get()
+    if not goal_id:
+        return None
+    from oservi.long_task_driver import open_long_task
+
+    from server.goal_session_map import GOAL_LOOPS_DIR
+
+    return open_long_task(GOAL_LOOPS_DIR, goal_id=goal_id)
+
+
 # 同一会话的两次请求必须串行。按 event loop 分桶，避免测试/CLI 多次
 # ``asyncio.run`` 时复用绑定到旧 loop 的 Lock。
 _session_locks_by_loop: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -641,6 +667,7 @@ class MasterCoordinator:
 
         uc_tokens = None
         vision_ctx = None
+        goal_id_token = None
         session_lock: asyncio.Lock | None = None
         session_lock_acquired = False
         try:
@@ -676,6 +703,13 @@ class MasterCoordinator:
             # (hicode_run / fetch_url / browser_run / mcp_* 都是模型
             # 自己的选择)。程序不预判、不裁藏、不预抓、不代做长任务。
             # 唯一保留的是轮次上限 (防物理死循环, 不限制智能)。
+            # goal_id 只在模型自己调过 goal_start 后才存在 (server/goal_tools.py
+            # 写入 server/goal_session_map)；没调过的会话这里永远是 None，
+            # _default_long_task_factory 见到 None 直接返回 None，长程任务钩子
+            # 完全不生效 —— 这不是程序判断要不要跑长任务，是模型自己选的。
+            from server.goal_session_map import get_goal_id as _get_goal_id
+
+            goal_id_token = _pending_goal_id_ctx.set(_get_goal_id(sid_early))
             lt = None
             if self._long_task_factory is not None:
                 lt = self._long_task_factory()
@@ -726,6 +760,8 @@ class MasterCoordinator:
             if vision_ctx is not None:
                 with contextlib.suppress(Exception):
                     _vision_session_ctx.reset(vision_ctx)
+            if goal_id_token is not None:
+                _pending_goal_id_ctx.reset(goal_id_token)
             _on_step_ctx.reset(token)
             _pending_images_ctx.reset(image_token)
 
@@ -943,4 +979,4 @@ async def cancel_session(session_id: str) -> dict:
 
 
 # 模块级单例(server 复用)
-master_coordinator = MasterCoordinator()
+master_coordinator = MasterCoordinator(long_task_factory=_default_long_task_factory)
