@@ -208,6 +208,19 @@ _TOOL_GROUPS: dict[str, str] = {
     "stateful_current": "wayfinding",
     "stateful_goto": "wayfinding",
     "stateful_history": "wayfinding",
+    # wayfinding_github: 同一套探路概念, 落在真实 GitHub Issues 上 (map=issue,
+    # ticket=原生 sub-issue, blocking=原生 issue dependency, 网页上直接可见)
+    "wayfind_gh_chart": "wayfinding_github",
+    "wayfind_gh_add_ticket": "wayfinding_github",
+    "wayfind_gh_wire_blocking": "wayfinding_github",
+    "wayfind_gh_frontier": "wayfinding_github",
+    "wayfind_gh_claim": "wayfinding_github",
+    "wayfind_gh_resolve": "wayfinding_github",
+    "wayfind_gh_rule_out_of_scope": "wayfinding_github",
+    "wayfind_gh_add_fog": "wayfinding_github",
+    "wayfind_gh_graduate_fog": "wayfinding_github",
+    "wayfind_gh_decisions": "wayfinding_github",
+    "wayfind_gh_complete": "wayfinding_github",
 }
 
 _GROUP_DESCRIPTIONS: dict[str, str] = {
@@ -225,6 +238,9 @@ _GROUP_DESCRIPTIONS: dict[str, str] = {
     "gates": "工程纪律门禁 (project_eng_gates)。不是派工入口，不替代 project_ask。",
     "wayfinding": "目标模糊时先探路收敛范围 (wayfind_chart/ticket/claim/resolve/complete), "
     "收敛完成后编译成 Runbook 并按检查点执行 (wayfind_compile_runbook/stateful_*)。",
+    "wayfinding_github": "同一套探路概念落在真实 GitHub Issues 上 (wayfind_gh_*): map=issue, "
+    "ticket=原生 sub-issue, blocking=原生 issue dependency — frontier 在 GitHub 网页上直接可见, "
+    "不用调工具查。",
     "mcp_gateway": "兄弟服务网关 (mcp_hevi/mcp_stratum/mcp_od/mcp_codebase)。",
 }
 
@@ -1949,6 +1965,214 @@ master_tools.register(
         "required": ["run_id"],
     },
     func=stateful_history,
+)
+
+# ================= Wayfinding — GitHub Issues 后端 =========================
+# 跟上面本地事件溯源版 wayfind_* 并存: map=GitHub issue, ticket=原生
+# sub-issue, blocking=原生 issue dependency — 人能直接在 GitHub 网页上看到
+# frontier, 不用调工具查。见 server/wayfinding_github_tools.py。
+from server.wayfinding_github_tools import (  # noqa: E402
+    wayfind_gh_add_fog,
+    wayfind_gh_add_ticket,
+    wayfind_gh_chart,
+    wayfind_gh_claim,
+    wayfind_gh_complete,
+    wayfind_gh_decisions,
+    wayfind_gh_frontier,
+    wayfind_gh_graduate_fog,
+    wayfind_gh_resolve,
+    wayfind_gh_rule_out_of_scope,
+    wayfind_gh_wire_blocking,
+)
+
+master_tools.register(
+    name="wayfind_gh_chart",
+    description=(
+        "在指定 GitHub 仓库开一张新的探路图 (issue, label wayfinder:map)。目标模糊/"
+        "需要先收敛范围时用这个。返回 map 的 issue number, 后续 wayfind_gh_* 都要传它。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "目标仓库, 'owner/name' 格式。"},
+            "destination": {"type": "string", "description": "1-2 句话说清楚往哪个方向探。"},
+            "notes": {"type": "string", "description": "可选。领域背景/已知偏好/约束。"},
+        },
+        "required": ["repo", "destination"],
+    },
+    func=wayfind_gh_chart,
+)
+
+master_tools.register(
+    name="wayfind_gh_add_ticket",
+    description="给探路图加一张 ticket (GitHub 原生 sub-issue)。type: research/prototype/grilling/task。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "map_number": {
+                "type": "integer",
+                "description": "wayfind_gh_chart 返回的地图 issue number。",
+            },
+            "title": {"type": "string", "description": "ticket 标题。"},
+            "question": {"type": "string", "description": "具体要澄清/解决什么。"},
+            "ticket_type": {
+                "type": "string",
+                "description": "research/prototype/grilling/task, 默认 task。",
+            },
+        },
+        "required": ["repo", "map_number", "title", "question"],
+    },
+    func=wayfind_gh_add_ticket,
+)
+
+master_tools.register(
+    name="wayfind_gh_wire_blocking",
+    description="声明 to_number 依赖 from_number 先解决 (GitHub 原生 blocked-by, 网页上直接可见)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "from_number": {"type": "integer", "description": "前置 ticket 的 issue number。"},
+            "to_number": {"type": "integer", "description": "被阻塞的 ticket 的 issue number。"},
+        },
+        "required": ["repo", "from_number", "to_number"],
+    },
+    func=wayfind_gh_wire_blocking,
+)
+
+master_tools.register(
+    name="wayfind_gh_frontier",
+    description="看当前能认领的 ticket (open+未阻塞+未认领)。探路循环每轮先看这个。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "map_number": {"type": "integer", "description": "地图 issue number。"},
+        },
+        "required": ["repo", "map_number"],
+    },
+    func=wayfind_gh_frontier,
+)
+
+master_tools.register(
+    name="wayfind_gh_claim",
+    description="认领一张 ticket (指派给自己); 已被别人认领会失败。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "ticket_number": {"type": "integer", "description": "要认领的 ticket issue number。"},
+            "login": {"type": "string", "description": "可选。指派给谁, 默认当前认证账号。"},
+        },
+        "required": ["repo", "ticket_number"],
+    },
+    func=wayfind_gh_claim,
+)
+
+master_tools.register(
+    name="wayfind_gh_resolve",
+    description=(
+        "解决一张已认领的 ticket: 评论+关闭 issue, 决策写进地图的 Decisions so far。"
+        "必须先 wayfind_gh_claim 才能 resolve。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "map_number": {"type": "integer", "description": "地图 issue number。"},
+            "ticket_number": {"type": "integer", "description": "已认领的 ticket issue number。"},
+            "resolution": {
+                "type": "string",
+                "description": "完整说明: 做了什么/为什么, 发进 issue 评论。",
+            },
+            "gist": {"type": "string", "description": "一句话结论。"},
+        },
+        "required": ["repo", "map_number", "ticket_number", "resolution", "gist"],
+    },
+    func=wayfind_gh_resolve,
+)
+
+master_tools.register(
+    name="wayfind_gh_rule_out_of_scope",
+    description="把一张 ticket 标记为不在本次范围内: 关闭并记入地图的 Out of scope。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "map_number": {"type": "integer", "description": "地图 issue number。"},
+            "ticket_number": {"type": "integer", "description": "要排除的 ticket issue number。"},
+            "reason": {"type": "string", "description": "为什么排除。"},
+        },
+        "required": ["repo", "map_number", "ticket_number", "reason"],
+    },
+    func=wayfind_gh_rule_out_of_scope,
+)
+
+master_tools.register(
+    name="wayfind_gh_add_fog",
+    description="记一块还说不清楚的模糊地带, 之后用 wayfind_gh_graduate_fog 拆成具体 ticket。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "map_number": {"type": "integer", "description": "地图 issue number。"},
+            "patch": {"type": "string", "description": "模糊地带的描述。"},
+        },
+        "required": ["repo", "map_number", "patch"],
+    },
+    func=wayfind_gh_add_fog,
+)
+
+master_tools.register(
+    name="wayfind_gh_graduate_fog",
+    description="把一块模糊地带拆成具体 ticket (每个标题一张 task 类型 sub-issue)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "map_number": {"type": "integer", "description": "地图 issue number。"},
+            "patch": {
+                "type": "string",
+                "description": "要拆解的 fog patch (须与 wayfind_gh_add_fog 一致)。",
+            },
+            "new_ticket_titles": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "拆出的新 ticket 标题列表。",
+            },
+        },
+        "required": ["repo", "map_number", "patch", "new_ticket_titles"],
+    },
+    func=wayfind_gh_graduate_fog,
+)
+
+master_tools.register(
+    name="wayfind_gh_decisions",
+    description="列出这张探路图目前已经写下的所有决策 (从地图 issue body 读)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "map_number": {"type": "integer", "description": "地图 issue number。"},
+        },
+        "required": ["repo", "map_number"],
+    },
+    func=wayfind_gh_decisions,
+)
+
+master_tools.register(
+    name="wayfind_gh_complete",
+    description="frontier 和 fog 都清空时关闭地图 issue; 没清空会说明还剩什么。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "repo": {"type": "string", "description": "仓库, 'owner/name'。"},
+            "map_number": {"type": "integer", "description": "地图 issue number。"},
+        },
+        "required": ["repo", "map_number"],
+    },
+    func=wayfind_gh_complete,
 )
 
 # ================= graph-engineer 式多引擎编排 (自纠正循环) ==============
