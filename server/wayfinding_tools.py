@@ -21,6 +21,7 @@ Runbook/同一个 content_hash), 只有 RunState 落盘。这样不需要另外�
 
 from __future__ import annotations
 
+from obase.hierarchical_context import HierarchicalContextStore
 from obase.orchestrator import runbook_current, runbook_goto, runbook_history, start_runbook
 from obase.runbook_runtime import default_hook_runner, make_default_check_runner
 from omodul.wayfinding import (
@@ -222,6 +223,9 @@ async def stateful_goto(
     '<title>' applied / verified") 门住转移 —— 真的把该决策落实了 (改了代码/
     发了消息/等等) 之后, 把这条 checklist 文案原样传进 confirm_items 才能过。
     stateful_current 能看到当前节点的 prompt, 里面就是决策原文。
+
+    走到终态 (completed/blocked) 时会自动把这次执行的 trajectory 投影进
+    3o://user/veya/memories/trajectories/<run_id> (HierarchicalContext)。
     """
     try:
         kernel = load_kernel(map_id)
@@ -235,6 +239,7 @@ async def stateful_goto(
             check_runner=check_runner,
             hook_runner=default_hook_runner,
             agent_context=agent_context,
+            context_store=HierarchicalContextStore(),
         )
     except Exception as exc:
         return f"stateful_goto: {exc}"
