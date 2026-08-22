@@ -9,9 +9,15 @@
 - **曾被视为核心成果**: `docs/BENCHMARK_AND_GAPS.md` 的 G2（LLM 意图分类）。
 - **为何退役**: 冻结架构 §2.1 判定"程序前置路由/意图分类"是"不回复/乱调工具"的根因——
   截胡长文/URL、工具面裁藏把模型带偏。主链路改为单 LLM 零程序判断。
-- **当前残留**: 仍被 CLI(`cli/main.py`)、IM(`veya/im/telegram.py`,`dingtalk.py`)、
-  `server/automata.py`、`routes/flow.py` 引用（**双头脑**）。整改批次 C 负责统一到
-  `coordinator_master` 后退役本组件。
+- **当前残留（2026-08-22 复核, 本条已过期）**: CLI(`cli/main.py`)、IM(`veya/oskill/im/telegram.py`,
+  `dingtalk.py`)、`server/automata.py` 三处已于 2026-08-09"整改A+C"提交统一到
+  `coordinator_master`，不再引用本组件。真正残留仅 `server/backends.py`、
+  `server/routes/session.py`、`server/routes/prompt.py`、`server/routes/flow.py`
+  四处——且 `routes/flow.py` 背后是有独立前端(`FlowConsole.svelte`)的 Genesis
+  需求→审批→生成多阶段 HITL 工作流，不是聊天主链的重复实现，迁移前需先确认
+  `coordinator.handle()`/`resume()` 的阶段状态机/审批语义在 `MasterCoordinator`
+  里有没有对应能力，不能当成纯装配点收编来做（评估见 memory
+  project_veya_pi_gap_audit）。
 
 ## 🪦 `AGENTS.md` 上半部分描述的 agents/ 三件套
 
