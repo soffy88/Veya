@@ -25,16 +25,28 @@ def test_skill_pack_manifests_valid():
             assert manifest["endpoint"].startswith("http://")
 
 
-def test_skill_hub_loads_both_packs(monkeypatch):
+def test_skill_hub_loads_both_packs(tmp_path, monkeypatch):
     """skill_hub 热载: 两个技能包全部挂载 + schema 面向 LLM。
 
     officecli 合法用 subprocess (它的职责就是跑 CLI 工具), 是信任名单机制的
     典型场景——2026-08-22 起默认 strict, 不显式信任就会被拒载。
+
+    用隔离的 tmp_path (只拷贝这三个技能), 不直接指向真实 ~/.veya/skills——
+    真实目录里的技能数量会持续增长, run_skill 目录有 VEYA_SKILL_CATALOG_CAP
+    (默认30) 硬顶, 数量涨过阈值后 browser_use 会被挤出常驻目录, 跟本测试要
+    验证的"两个包能不能正常热载+暴露 schema"这件事本身无关。
     """
     monkeypatch.setenv("VEYA_SKILL_TRUSTED_NAMES", "officecli")
+    import shutil
+
+    isolated_dir = tmp_path / "skills"
+    isolated_dir.mkdir()
+    for name in ("browser_use", "agent_reach", "officecli"):
+        shutil.copytree(SKILLS_DIR / name, isolated_dir / name)
+
     from server.skill_hub import VeyaSkillHub
 
-    hub = VeyaSkillHub(skills_dir=str(SKILLS_DIR))
+    hub = VeyaSkillHub(skills_dir=str(isolated_dir))
     result = hub.reload_skills()
     assert result["loaded"] >= 3  # browser_use + agent_reach + officecli
     assert result["errors"] == 0
