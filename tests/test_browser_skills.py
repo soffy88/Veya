@@ -25,8 +25,13 @@ def test_skill_pack_manifests_valid():
             assert manifest["endpoint"].startswith("http://")
 
 
-def test_skill_hub_loads_both_packs():
-    """skill_hub 热载: 两个技能包全部挂载 + schema 面向 LLM。"""
+def test_skill_hub_loads_both_packs(monkeypatch):
+    """skill_hub 热载: 两个技能包全部挂载 + schema 面向 LLM。
+
+    officecli 合法用 subprocess (它的职责就是跑 CLI 工具), 是信任名单机制的
+    典型场景——2026-08-22 起默认 strict, 不显式信任就会被拒载。
+    """
+    monkeypatch.setenv("VEYA_SKILL_TRUSTED_NAMES", "officecli")
     from server.skill_hub import VeyaSkillHub
 
     hub = VeyaSkillHub(skills_dir=str(SKILLS_DIR))
@@ -38,8 +43,7 @@ def test_skill_hub_loads_both_packs():
     # ②-A dispatcher: LLM 看到的是 list_skills + run_skill 调度器
     names = {s["function"]["name"] for s in hub.get_all_schemas()}
     assert {"list_skills", "run_skill"} <= names
-    run = next(s for s in hub.get_all_schemas()
-               if s["function"]["name"] == "run_skill")
+    run = next(s for s in hub.get_all_schemas() if s["function"]["name"] == "run_skill")
     assert "skill_name" in run["function"]["parameters"]["properties"]
     assert "browser_use" in run["function"]["description"]  # 目录进 catalog
 
@@ -71,13 +75,23 @@ def test_browser_run_engine_field_schema():
 
     client = TestClient(app)
     # engine 合法值
-    r = client.post("/api/v1/browser/run", json={
-        "url": "https://example.com", "instruction": "hi", "engine": "omodul",
-    })
+    r = client.post(
+        "/api/v1/browser/run",
+        json={
+            "url": "https://example.com",
+            "instruction": "hi",
+            "engine": "omodul",
+        },
+    )
     assert r.status_code in (200, 400, 500)  # 触发真实执行前 schema 已通过
 
     # 非法 engine → 422 (Literal 校验)
-    r = client.post("/api/v1/browser/run", json={
-        "url": "https://example.com", "instruction": "hi", "engine": "nonsense",
-    })
+    r = client.post(
+        "/api/v1/browser/run",
+        json={
+            "url": "https://example.com",
+            "instruction": "hi",
+            "engine": "nonsense",
+        },
+    )
     assert r.status_code == 422

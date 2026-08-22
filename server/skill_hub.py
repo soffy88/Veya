@@ -114,9 +114,16 @@ class VeyaSkillHub:
         # ②-A 静态收口: dispatcher 模式下 N 个 per-skill 工具收成 2 个
         # (list_skills + run_skill), 主脑工具面 93→~23; VEYA_SKILL_DISPATCHER=0 回退。
         self._dispatcher = os.environ.get("VEYA_SKILL_DISPATCHER", "1") != "0"
-        # 加载期安全扫描: 默认只记录风险 + 高危告警 (向后兼容——自产技能合法用
-        # subprocess 很常见, 不误杀); VEYA_SKILL_SCAN_STRICT=1 时高危调用面拒载。
-        self._scan_strict = os.environ.get("VEYA_SKILL_SCAN_STRICT") == "1"
+        # 加载期安全扫描: 默认 strict (高危调用面拒载); VEYA_SKILL_SCAN_STRICT=0 回退
+        # 只记录+告警 (2026-08-22 前的旧默认)。信任名单 (VEYA_SKILL_TRUSTED_NAMES,
+        # 逗号分隔技能名) 是唯一的例外口子——host 侧配置, 不是技能自己 manifest 里
+        # 能声明的字段 (否则技能自证"我可信"等于信任门形同虚设)。
+        self._scan_strict = os.environ.get("VEYA_SKILL_SCAN_STRICT", "1") != "0"
+        self._trusted_names: frozenset[str] = frozenset(
+            n.strip()
+            for n in os.environ.get("VEYA_SKILL_TRUSTED_NAMES", "").split(",")
+            if n.strip()
+        )
         self._risks: dict[str, dict] = {}  # name → 静态扫描风险摘要 (max_severity/categories/…)
 
         # 启动时自动扫描挂载
@@ -185,15 +192,24 @@ class VeyaSkillHub:
             if skill_type == "python":
                 entry_file = skill_path / str(manifest.get("entrypoint", "run.py"))
                 # 加载期安全关口: 静态审查将被 exec_module 的源码 (顶层代码一并执行) —
-                # 第三方技能等于任意代码执行入口。默认只记录+告警; strict 拒高危。
+                # 第三方技能等于任意代码执行入口。默认 strict 拒高危; 信任名单内的
+                # 例外 (host 侧配置, 技能自己 manifest 声明不算数)。
                 risk = self._scan_entry(name, entry_file)
                 if risk["max_severity"] == "high" and self._scan_strict:
-                    logger.warning(
-                        "[SkillHub] 技能 '%s' 命中高危调用面 %s, strict 模式拒载",
-                        name,
-                        risk["categories"],
-                    )
-                    return False
+                    if name in self._trusted_names:
+                        logger.info(
+                            "[SkillHub] 技能 '%s' 命中高危调用面 %s, 但在信任名单内, strict 放行",
+                            name,
+                            risk["categories"],
+                        )
+                    else:
+                        logger.warning(
+                            "[SkillHub] 技能 '%s' 命中高危调用面 %s, strict 模式拒载 "
+                            "(如确认可信, 把技能名加进 VEYA_SKILL_TRUSTED_NAMES)",
+                            name,
+                            risk["categories"],
+                        )
+                        return False
                 executor = self._create_python_executor(name, entry_file)
             elif skill_type == "mcp":
                 endpoint = manifest.get("endpoint")
