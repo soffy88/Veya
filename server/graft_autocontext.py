@@ -38,6 +38,7 @@ _NOISE = {
 _graft: GraftContext | None = None
 _bank: ReasoningBank | None = None
 _mtime_cache: dict[str, tuple[float, str]] = {}
+_explain_cache: "GraftExplainCache | None" = None
 
 
 def enabled() -> bool:
@@ -60,6 +61,15 @@ def _get_bank() -> ReasoningBank:
     if _bank is None:
         _bank = ReasoningBank()  # 默认持久库 ~/.veya/memory, 与 evolve_solution 共用
     return _bank
+
+
+def _get_explain_cache() -> "GraftExplainCache":
+    global _explain_cache
+    if _explain_cache is None:
+        from server.graft_explain import GraftExplainCache
+
+        _explain_cache = GraftExplainCache()
+    return _explain_cache
 
 
 def _workspace_root() -> Path:
@@ -141,15 +151,73 @@ def attach_to_task(task: str) -> str:
     return f"{task}\n\n{block}"
 
 
-def assemble_code_context(query: str) -> str:
-    """主脑工具: 按需装配 Graft 代码依赖地图 + ReasoningBank 历史规则。"""
+async def assemble_code_context(query: str) -> str:
+    """主脑工具: 按需装配 Graft 代码依赖地图 + 讲解层 + ReasoningBank 历史规则。
+
+    讲解层(server.graft_explain, nanonets/graft "资深工程师讲解" 的内化)是
+    LLM 生成、按内容哈希缓存的锦上添花——结构化地图(build_block, 零 LLM)才是
+    可靠的主体, 讲解层失败/无匹配时静默跳过, 不影响这个工具本身能不能用。
+    """
     block = build_block(query, force=True)
-    if not block:
+    narrative = await _assemble_narrative(query)
+    parts = [p for p in (block, narrative) if p]
+    if not parts:
         return (
             "No code-map or past-lesson match for this query "
             "(no matching symbols in the workspace, empty ReasoningBank)."
         )
-    return block
+    return "\n\n".join(parts)
+
+
+async def _assemble_narrative(query: str) -> str:
+    """讲解层: 给命中的模块生成"这部分是干什么的"大白话解释, 补 build_block
+    结构化部分(定义位置/调用方/被调方)之外的"为什么"。任何环节失败/无匹配都
+    优雅退化为空串, 不抛异常。
+    """
+    try:
+        entities = extract_entities(query)
+        if not entities:
+            return ""
+        files = _scan_py(_workspace_root())
+        if not files:
+            return ""
+        g = _get_graft()
+        g.sync(files)
+        hits_by_module: dict[str, list[str]] = {}
+        for entity in entities:
+            for hit in g.find(entity):
+                hits_by_module.setdefault(hit.module, []).append(entity)
+        if not hits_by_module:
+            return ""
+    except Exception:
+        return ""
+
+    import asyncio
+
+    from server.graft_explain import explain_module
+
+    cache = _get_explain_cache()
+
+    async def _one(module: str) -> tuple[str, str]:
+        source = files.get(module, "")
+        if not source:
+            return module, ""
+        try:
+            text = await explain_module(
+                module=module, source=source, symbol_names=hits_by_module[module], cache=cache
+            )
+        except Exception:
+            text = ""
+        return module, text
+
+    results = await asyncio.gather(*(_one(m) for m in hits_by_module))
+    lines = ["## CODE EXPLANATION (senior-engineer-style, cached)"]
+    found = False
+    for module, text in results:
+        if text:
+            found = True
+            lines.append(f"\n### `{module}`\n{text}")
+    return "\n".join(lines) if found else ""
 
 
 def register(master_tools: object) -> None:
