@@ -476,7 +476,15 @@ async def _execute_hicode_core_inner(
             client = get_serve_client()
             if await client.health():
                 ws0 = _resolve_workspace(workspace)
-                _snapshot_workspace(ws0, task)  # checkpoint (回滚可用)
+                from veya.platform import load
+
+                broker = load("omodul").get_broker()
+                # 短锁: 只护住快照本身, 在调 client.run_task 前释放——run_task
+                # 内部会再拿一次同一把 (按路径 key 的) 锁, 顺序 acquire 不是
+                # 嵌套, 不会死锁 (phase 互斥: 防跟别的 session 的 CLI 路径撞
+                # 同一工作目录的 git 操作)。
+                async with broker.async_workspace(str(ws0)):
+                    _snapshot_workspace(ws0, task)  # checkpoint (回滚可用)
                 res = await client.run_task(
                     _build_hicode_spec(task),
                     on_event=on_event,
@@ -503,22 +511,29 @@ async def _execute_hicode_core_inner(
     if workspace:
         args += ["--add-dir", str(ws)]
     args.append(task)
-    # 任务前 git 快照 (checkpoint) — 失败不阻塞执行 (无 git 时回滚不可用)
-    checkpoint = _snapshot_workspace(ws, task)
-    try:
-        r = await _run_hicode(
-            args,
-            workspace=ws,
-            timeout=timeout,
-            on_event=on_event,
-            continue_=continue_,
-            resume_id=session_id,
-        )
-    except HicodeUnavailable as e:
-        return f"hicode 执行失败: {e}"
-    except Exception as e:  # noqa: BLE001 — 工具边界兜底, 回喂主脑
-        logger.exception("hicode_run unexpected error")
-        return f"hicode 执行异常: {e}"
+
+    from veya.platform import load
+
+    broker = load("omodul").get_broker()
+    # phase 互斥: 快照+执行整段包在同一把工作区锁里, 防跟别的 session 的 CLI
+    # 路径 (或 hicode_rollback) 并发撞同一个工作目录的 git/文件操作。
+    async with broker.async_workspace(str(ws)):
+        # 任务前 git 快照 (checkpoint) — 失败不阻塞执行 (无 git 时回滚不可用)
+        checkpoint = _snapshot_workspace(ws, task)
+        try:
+            r = await _run_hicode(
+                args,
+                workspace=ws,
+                timeout=timeout,
+                on_event=on_event,
+                continue_=continue_,
+                resume_id=session_id,
+            )
+        except HicodeUnavailable as e:
+            return f"hicode 执行失败: {e}"
+        except Exception as e:  # noqa: BLE001 — 工具边界兜底, 回喂主脑
+            logger.exception("hicode_run unexpected error")
+            return f"hicode 执行异常: {e}"
 
     subtype = r.get("subtype", "unknown")
     ok = not r.get("is_error", False)
@@ -596,21 +611,27 @@ async def hicode_rollback(workspace: str | None = None, ref: str | None = None) 
         ws = _resolve_workspace(workspace)
     except ValueError as e:
         return f"错误: {e}"
+    from veya.platform import load
+
+    broker = load("omodul").get_broker()
     try:
-        if not (ws / ".git").exists():
-            return "工作区还没有 git 快照 (没有执行过任务)。"
-        target = ref or "HEAD~1"
-        r = _git(ws, "rev-parse", "--verify", target)
-        if r.returncode != 0:
-            return f"找不到回滚目标 {target!r}。"
-        target_hash = r.stdout.strip()
-        before = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
-        _git(ws, "reset", "--hard", target_hash)
-        after = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
-        return (
-            f"✅ 已回滚 {ws} 到 {target_hash[:12]} (此前 HEAD={before}).\n"
-            f"工作区文件已恢复到任务前状态。"
-        )
+        # phase 互斥: reset --hard 是破坏性操作, 跟正在跑的 snapshot/run 同一把
+        # 工作区锁, 防止冲掉别的会话进行中的改动。
+        async with broker.async_workspace(str(ws)):
+            if not (ws / ".git").exists():
+                return "工作区还没有 git 快照 (没有执行过任务)。"
+            target = ref or "HEAD~1"
+            r = _git(ws, "rev-parse", "--verify", target)
+            if r.returncode != 0:
+                return f"找不到回滚目标 {target!r}。"
+            target_hash = r.stdout.strip()
+            before = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
+            _git(ws, "reset", "--hard", target_hash)
+            after = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
+            return (
+                f"✅ 已回滚 {ws} 到 {target_hash[:12]} (此前 HEAD={before}).\n"
+                f"工作区文件已恢复到任务前状态。"
+            )
     except Exception as e:  # noqa: BLE001
         return f"回滚失败: {e}"
 

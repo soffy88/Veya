@@ -18,6 +18,7 @@ import json
 import logging
 import sqlite3
 import tempfile
+import threading
 import uuid
 from pathlib import Path, PurePosixPath
 from typing import Any, AsyncIterator
@@ -81,9 +82,7 @@ class SandboxVfsAdapter:
         raw = await self._inner.execute(command)
         return self._to_result(raw)
 
-    async def execute_args(
-        self, argv: list[str], *, timeout: float | None = None
-    ) -> SandboxResult:
+    async def execute_args(self, argv: list[str], *, timeout: float | None = None) -> SandboxResult:
         raw = await self._inner.execute_args(argv)
         return self._to_result(raw)
 
@@ -213,44 +212,54 @@ class SqliteKvStore:
     """Session Tree 快照 KV（JSON 值）。默认 :memory:；生产接线可给文件路径。"""
 
     def __init__(self, path: str = ":memory:") -> None:
-        self._conn = sqlite3.connect(path)
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-        )
-        self._conn.commit()
+        # check_same_thread=False + 显式锁: 实例常作为长期单例被注入, 调用方可能
+        # 经 run_sync_in_daemon_thread 从工作线程访问同一连接 (与
+        # SqliteHistoryStore._connect 同款理由)。
+        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._lock = threading.Lock()
+        with self._lock:
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
+            self._conn.commit()
 
     @staticmethod
     def _encode(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False)
 
     def put(self, key: str, value: Any) -> None:
-        self._conn.execute(
-            "INSERT INTO kv(key, value) VALUES(?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, self._encode(value)),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO kv(key, value) VALUES(?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, self._encode(value)),
+            )
+            self._conn.commit()
 
     def get(self, key: str) -> Any:
-        row = self._conn.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
         return json.loads(row[0]) if row else None
 
     def delete(self, key: str) -> None:
-        self._conn.execute("DELETE FROM kv WHERE key=?", (key,))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("DELETE FROM kv WHERE key=?", (key,))
+            self._conn.commit()
 
     def keys(self, prefix: str = "") -> list[str]:
-        rows = self._conn.execute(
-            "SELECT key FROM kv WHERE key LIKE ? ORDER BY key", (prefix + "%",)
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT key FROM kv WHERE key LIKE ? ORDER BY key", (prefix + "%",)
+            ).fetchall()
         return [r[0] for r in rows]
 
     def snapshot(self) -> dict[str, Any]:
-        rows = self._conn.execute("SELECT key, value FROM kv").fetchall()
+        with self._lock:
+            rows = self._conn.execute("SELECT key, value FROM kv").fetchall()
         return {k: json.loads(v) for k, v in rows}
 
     def restore(self, data: dict[str, Any]) -> None:
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.execute("DELETE FROM kv")
             self._conn.executemany(
                 "INSERT INTO kv(key, value) VALUES(?, ?)",
@@ -258,7 +267,8 @@ class SqliteKvStore:
             )
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
 
 # ---------------------------------------------------------------------------

@@ -315,7 +315,28 @@ class SessionTreeMgr:
         snapshot_commit(sid, tree, kv=self._kv)
 
 
-__all__ = ["SessionTreeMgr"]
+_default_mirror: SessionTreeMgr | None = None
+
+
+def default_session_tree_mirror() -> SessionTreeMgr:
+    """主链历史镜像树单例，落 ~/.veya/sessions/session_tree_mirror.db（重启不丢）。
+
+    与 agent_loop_bridge.py 的 ~/.veya/loop/session_tree.db 是不同文件——
+    那棵树服务 agent_loop_run 隔离子任务，sid 命名空间不应与主链混用。
+    """
+    global _default_mirror
+    if _default_mirror is None:
+        from pathlib import Path
+
+        from veya.obase.adapters import SqliteKvStore
+
+        path = Path.home() / ".veya" / "sessions" / "session_tree_mirror.db"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _default_mirror = SessionTreeMgr(kv=SqliteKvStore(str(path)))
+    return _default_mirror
+
+
+__all__ = ["SessionTreeMgr", "default_session_tree_mirror"]
 
 
 def _to_openai_tool_calls(tool_calls: list) -> list:

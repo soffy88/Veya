@@ -14,6 +14,8 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from server.events import _to_envelope
+
 router = APIRouter(prefix="/stream", tags=["sse"])
 
 # 队列静默 >20s 发 SSE 注释心跳 (: ping) — 保持响应体流动 (防 Cloudflare 100s
@@ -30,7 +32,7 @@ class SSEQueue:
 
     def on_step(self, event_dict: dict) -> None:
         """Synchronous callback for engine on_step hooks."""
-        self._q.put_nowait(event_dict)
+        self._q.put_nowait(_to_envelope(event_dict))
 
     def close(self) -> None:
         self._q.put_nowait(None)  # sentinel
