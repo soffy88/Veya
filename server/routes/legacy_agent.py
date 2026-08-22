@@ -14,11 +14,12 @@ import asyncio
 import json
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
+from server.events import _to_envelope
 
 router = APIRouter(tags=["legacy-agent"])
 
@@ -176,7 +177,7 @@ async def legacy_agent_stream(
             async for evt in stream_engine(
                 req.engine, req.text or req.task or "", model=req.model, timeout_s=600.0
             ):
-                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps(_to_envelope(evt), ensure_ascii=False)}\n\n"
 
         return StreamingResponse(
             _engine_events(),
@@ -240,6 +241,36 @@ async def legacy_agent_stream_status(session_id: str) -> dict:
 
     task = _active_streams.get(session_id)
     return {"active": task is not None and not task.done()}
+
+
+class LegacyAgentSteerRequest(BaseModel):
+    session_id: str
+    text: str = Field(..., min_length=1)
+
+
+@router.post("/api/v1/agent/steer")
+async def legacy_agent_steer(
+    req: LegacyAgentSteerRequest,
+    user: dict = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """运行中注入一条 follow-up 消息, 不用等当前轮次跑完 (Harness steering)。
+
+    效果出现在该 session 已经开着的那条 SSE 流里——本端点本身不开新流, 只是把
+    消息排进正在跑的那一轮 (`MasterCoordinator.enqueue_steering_message`)。
+    """
+    from server.coordinator_master import master_coordinator
+
+    owner = master_coordinator._history_owners.get(req.session_id)
+    if owner is not None and owner != user["user_id"]:
+        raise HTTPException(status_code=403, detail="无权操作该会话")
+    queued = master_coordinator.enqueue_steering_message(req.session_id, req.text.strip())
+    if not queued:
+        return {
+            "queued": False,
+            "reason": "no_active_turn_or_queue_full",
+            "hint": "该会话当前没有正在跑的轮次 (或排队已满), 请改用 /api/v1/agent/run 或 /stream",
+        }
+    return {"queued": True}
 
 
 class AgentApprovalRequest(BaseModel):
