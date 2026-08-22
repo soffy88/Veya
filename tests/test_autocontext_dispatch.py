@@ -35,15 +35,20 @@ def _fake_llm(prompt: str) -> str:
 @pytest.fixture(autouse=True)
 def _isolate_autocontext(tmp_path, monkeypatch):
     """把自动上下文的单例指向临时库/工作区, 不污染 ~/.veya, 保证 hermetic。"""
+    from server.graft_explain import GraftExplainCache
+
     ac._graft = None
     ac._bank = ReasoningBank(base_dir=tmp_path / "bank")
     ac._mtime_cache = {}
+    ac._explain_cache = GraftExplainCache(cache_path=tmp_path / "explain_cache.json")
     monkeypatch.setattr(ac, "_get_bank", lambda: ac._bank)
+    monkeypatch.setattr(ac, "_get_explain_cache", lambda: ac._explain_cache)
     monkeypatch.setattr(ac, "_workspace_root", lambda: tmp_path / "ws")
     (tmp_path / "ws").mkdir()
     yield
     ac._graft = None
     ac._bank = None
+    ac._explain_cache = None
 
 
 # ------------------------------------------------------------------ 自动上下文
@@ -95,6 +100,46 @@ def test_assemble_code_context_via_master_execute(tmp_path):
     (ws / "auth.py").write_text("def verify_token(tok):\n    return tok\n")
     out = asyncio.run(master_tools.execute("assemble_code_context", {"query": "verify_token"}))
     assert "verify_token" in out or "No code-map" in out
+
+
+# ------------------------------------------------ 讲解层 (graft_explain 内化)
+
+
+async def _fake_explain_module(*, module, source, symbol_names, cache, **kwargs):
+    return f"讲解: {module} 定义了 {', '.join(symbol_names)}"
+
+
+def test_assemble_code_context_includes_narrative_layer(monkeypatch):
+    monkeypatch.setattr("server.graft_explain.explain_module", _fake_explain_module)
+    ws = ac._workspace_root()
+    (ws / "auth.py").write_text("def verify_token(tok):\n    return tok\n")
+
+    out = asyncio.run(ac.assemble_code_context("refactor verify_token"))
+
+    assert "CODE EXPLANATION" in out
+    assert "讲解: auth.py" in out
+    assert "Graft dependency map" in out  # 结构化部分照旧存在, 讲解层是叠加不是替代
+
+
+def test_assemble_code_context_narrative_failure_keeps_structural_block(monkeypatch):
+    """讲解层 LLM 失败(抛异常)时, 结构化地图部分依然完整返回, 不受牵连。"""
+
+    async def boom(**kwargs):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr("server.graft_explain.explain_module", boom)
+    ws = ac._workspace_root()
+    (ws / "auth.py").write_text("def verify_token(tok):\n    return tok\n")
+
+    out = asyncio.run(ac.assemble_code_context("refactor verify_token"))
+
+    assert "Graft dependency map" in out
+    assert "CODE EXPLANATION" not in out
+
+
+def test_assemble_code_context_no_match_has_no_narrative_section():
+    out = asyncio.run(ac.assemble_code_context("hello how are you"))
+    assert "CODE EXPLANATION" not in out
 
 
 # --------------------------------------------- evolve_solution 真实派发路径
