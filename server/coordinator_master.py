@@ -31,10 +31,18 @@ from server.swarm_manager import SwarmOrchestrator
 from server.tool_registry import ToolExecutionError, master_tools, parse_optional_timeout
 from server.workspace_rag import get_rag_engine as _default_rag_factory
 from veya.history_store import default_history_store
+from veya.omodul.session_tree import default_session_tree_mirror
 from veya.llm import get_provider_config, llm_call
 from veya.memory_distill import distill as _distill_conversation
 from veya.memory_store import default_memory_store, format_memory_block
 from veya.obase.async_utils import run_sync_in_daemon_thread
+from veya.oskill.pure.context_compress import (
+    build_compacted_messages,
+    estimate_messages_tokens,
+    render_messages_for_summary,
+    should_compact,
+    split_compaction_window,
+)
 from veya.platform import oservi as _load_oservi
 
 _oservi = _load_oservi()
@@ -112,6 +120,73 @@ def _release_session_lock(session_id: str, lock: asyncio.Lock) -> None:
     state.users -= 1
     if state.users == 0:
         locks.pop(session_id, None)
+
+
+# ── Harness steering: 运行中注入 follow-up 消息, 不用等当前轮次跑完 ─────────
+_STEERING_QUEUE_CAP = 20  # 单 session 最多堆积这么多条未消费的 steering 消息
+
+_steering_queues: dict[str, list[str]] = {}
+
+
+def _session_turn_in_flight(session_id: str) -> bool:
+    """非阻塞探测: 这个 session 当前是不是真的有一轮在跑 (锁被占用)。"""
+    locks = _session_locks_by_loop.get(asyncio.get_running_loop())
+    if locks is None:
+        return False
+    state = locks.get(session_id)
+    return state is not None and state.lock.locked()
+
+
+def _enqueue_steering_message(session_id: str, text: str) -> bool:
+    """排进正在跑的这一轮; session 当前没有轮次在跑就拒绝 (调用方应回落普通端点,
+    防止消息在没有轮次消费的情况下无限期挂着, 未来插进一个不相关的新对话里)。
+    """
+    if not _session_turn_in_flight(session_id):
+        return False
+    queue = _steering_queues.setdefault(session_id, [])
+    if len(queue) >= _STEERING_QUEUE_CAP:
+        return False
+    queue.append(text)
+    return True
+
+
+def _drain_steering_messages(session_id: str) -> list[str]:
+    return _steering_queues.pop(session_id, [])
+
+
+class _SteeringLongTaskDriver:
+    """组合驱动器: 每轮开始先把排队的 steering 消息注入 messages, 再委托给内层
+    long_task 驱动器 (若有, 如已开的长程任务配额驱动)。总是包一层, 不管这个
+    session 有没有长程任务在跑——steering 跟长程任务字段不冲突, 复用主库
+    `chat_stream` 轮次循环里唯一"每轮必经"的宿主注入点 (`long_task.pre_round`/
+    `post_round`, duck typing), 不用改子模块。
+    """
+
+    def __init__(self, sid: str, agent: Any, inner: Any | None) -> None:
+        self._sid = sid
+        self._agent = agent
+        self._inner = inner
+
+    async def pre_round(self) -> Any:
+        pending = _drain_steering_messages(self._sid)
+        if pending:
+            hist = getattr(self._agent, "_histories", None)
+            messages = hist.get(self._sid) if hist is not None else None
+            if messages is not None:
+                for text in pending:
+                    messages.append({"role": "user", "content": text})
+                    fire_step({"type": "steering_injected", "session_id": self._sid, "text": text})
+        if self._inner is not None:
+            return await self._inner.pre_round()
+        from oservi.long_task_driver import RoundContext
+
+        return RoundContext(
+            next_action=None, goal_summary="", quota_ok=True, remaining_usd=None, prompt_suffix=""
+        )
+
+    async def post_round(self, outcome: Any) -> None:
+        if self._inner is not None:
+            await self._inner.post_round(outcome)
 
 
 def _slim_master_prompt(text: str) -> str:
@@ -257,6 +332,39 @@ def _sanitize_final_answer(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+_INTERRUPTED_TOOL_NOTICE = (
+    "[resume 恢复: 进程在这个工具调用产生结果前中断, 是否已经执行/产生真实副作用未知——"
+    "不要假设它没跑过就直接重试同一个调用, 先用只读方式核实现状或跟用户确认。]"
+)
+
+
+def _repair_dangling_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """resume 幂等: 冷启动恢复的历史尾部若是 assistant tool_calls 且没有对应
+    tool 结果 (进程在这批工具执行完成/结果追加落盘前中断), 补"结果未知"占位
+    tool 消息——把协议不完整的历史修成合法的, 同时明确告诉模型别把"没看到
+    结果"误判成"还没跑过"从而把同一个有副作用的调用再发一遍。
+
+    同一批 tool_calls 的结果消息是执行完整批才一起追加的 (主库 chat_stream 的
+    轮次循环里没有"批内部分追加"的中间态), 所以只需要看最后一条消息是不是
+    悬空的 assistant tool_calls, 不需要逐个 tool_call_id 单独核对是否已有
+    对应结果。
+    """
+    if not messages:
+        return messages
+    last = messages[-1]
+    if last.get("role") != "assistant" or not last.get("tool_calls"):
+        return messages
+    tool_call_ids = [
+        tc.get("id") for tc in last["tool_calls"] if isinstance(tc, dict) and tc.get("id")
+    ]
+    if not tool_call_ids:
+        return messages
+    return messages + [
+        {"role": "tool", "tool_call_id": tc_id, "content": _INTERRUPTED_TOOL_NOTICE}
+        for tc_id in tool_call_ids
+    ]
+
+
 class MasterCoordinator:
     """主脑: 把用户请求路由到后端工具 / 子 Agent (Genesis),汇总最终回答。
 
@@ -288,7 +396,9 @@ class MasterCoordinator:
         temperature: float = 0.2,
         long_task_factory: Callable[[], Any] | None = None,
         history_store: Any | None = None,
+        session_tree: Any | None = None,
         memory_store: Any | None = None,
+        compact_llm_fn: Callable | None = None,
     ):
         """初始化主脑(装配 veya 组件 → 委托主库引擎)。
 
@@ -306,6 +416,8 @@ class MasterCoordinator:
             llm_fn: LLM 调用函数(默认 veya.llm.llm_call; 测试注入用)。
             long_task_factory: 可选长程任务驱动工厂(每次 chat_stream 调用时
                 惰性创建; 默认 None = 长程能力关闭, 线上行为零变化)。
+            compact_llm_fn: Compaction 摘要用的 LLM 调用函数(默认复用
+                self._bound_llm, 与线上行为一致; 测试/未来替换用)。
         """
         self.api_key = user_api_key or ""
         self.model = model
@@ -335,10 +447,21 @@ class MasterCoordinator:
         self.max_rounds = max_rounds
         self.temperature = temperature
         self._long_task_factory = long_task_factory
+        self._compact_llm_fn = compact_llm_fn
         # P1 强上下文: 对话历史持久层 (进程无关, 重启/换设备不丢)。
         # 进程内 _histories 为热缓存, 本 store 为权威源。
         self._history_store = (
             history_store if history_store is not None else default_history_store()
+        )
+        # P0 Session Tree 镜像 (对标"Pi"清单): 只写不读的旁路镜像, 权威源仍是
+        # 上面的 _history_store (docs/ARCHITECTURE_STABLE.md 冻结决定), 只为
+        # 拿 id/parent_id/leaf/branch 能力供后续 Compaction-as-branch/执行侧
+        # 分支消费。失败绝不拖垮对话——见 _mirror_to_session_tree 调用处。
+        self._session_tree = (
+            session_tree if session_tree is not None else default_session_tree_mirror()
+        )
+        self._session_tree_mirror_enabled = (
+            os.environ.get("VEYA_SESSION_TREE_MIRROR_ENABLED", "1") != "0"
         )
         # P4 个人记忆: 蒸馏记忆存储 + 检索注入 (kill-switch: VEYA_MEMORY=0 关闭)。
         self._memory_store = memory_store if memory_store is not None else default_memory_store()
@@ -473,6 +596,14 @@ class MasterCoordinator:
             if histories is not None:
                 histories.pop(sid, None)
         self._history_owners[sid] = owner
+
+    def enqueue_steering_message(self, sid: str, text: str) -> bool:
+        """路由层入口: 运行中注入一条 follow-up 消息, 不用等当前轮次跑完。
+
+        `False` = 该 session 当前没有正在跑的轮次 (或排队已满), 调用方应回落到
+        普通的 /agent/run 或 /stream。
+        """
+        return _enqueue_steering_message(sid, text)
 
     async def _bound_llm(self, messages: list, **kwargs: Any) -> Any:
         """把用户 key/endpoint 装配进 LLM 调用(支持请求级覆盖)。
@@ -716,8 +847,11 @@ class MasterCoordinator:
             effective_rounds = max_rounds or self.max_rounds
             # P1 强上下文: 稳定 sid + 冷启动从持久层恢复历史 (重启/换进程不失忆)
             sid = session_id or uuid.uuid4().hex
+            lt = _SteeringLongTaskDriver(sid, self._agent, lt)  # 总是包一层, 接住运行中的 steering
             self._bind_history_owner(sid)
             await self._restore_history(sid)
+            # P0: 结构化压缩 (token 预算超阈值 → 摘要+保留尾部, 替换硬截断丢弃)
+            await self._maybe_compact_history(sid)
             # P4: 检索相关长期记忆并注入 (空则无操作, 行为不变)
             await self._inject_memory(sid, user_prompt)
             # Graft 每轮预注入仅当 VEYA_GRAFT_CONTEXT=1; 默认由 assemble_code_context / hicode 按需装配
@@ -779,8 +913,179 @@ class MasterCoordinator:
         with contextlib.suppress(Exception):  # 持久层故障绝不拖垮对话
             restored = await self._history_store.load(sid)
         if restored:
+            restored = _repair_dangling_tool_calls(restored)
             system = {"role": "system", "content": self._agent.get_system_prompt()}
             hist[sid] = [system, *restored]
+
+    # ── P0 结构化压缩 (Context Compaction) ────────────────────────────
+    _COMPACT_SUMMARY_SYSTEM = (
+        "你是一个对话压缩器。读一段较早的对话片段 (含用户消息/助手回复/工具调用与"
+        "结果), 把它压缩成一段自然语言摘要, 供后续对话继续使用而不丢失关键上下文。"
+        "必须覆盖: 用户的目标/已经做出的决定/发生过的文件或代码改动/工具调用得到的"
+        "关键事实/尚未解决的 TODO。不要输出 JSON, 直接输出摘要正文, 300-600 字。"
+    )
+
+    async def _maybe_compact_history(self, sid: str) -> None:
+        """token 预算超阈值 → 摘要 + 保留尾部, 原地替换持久历史中被丢弃的中段。
+
+        取代 `_bound_llm._compact` (只裁剪发给 LLM 的临时视图) 和 `master_agent`
+        的 100 条硬截断 (无摘要、不可逆) —— 本方法在硬截断真正触发前更早介入,
+        原地改写 `_histories[sid]` 这个权威引用, 让丢失的中段以摘要形式留存。
+        失败一律静默不影响主对话 (审计记录里能看到跳过原因)。
+        """
+        if os.environ.get("VEYA_CONTEXT_COMPACT_ENABLED", "1") == "0":
+            return
+        hist = getattr(self._agent, "_histories", None)
+        if hist is None:
+            return
+        msgs = hist.get(sid)
+        if not msgs:
+            return
+
+        try:
+            budget = int(os.environ.get("VEYA_CONTEXT_TOKEN_BUDGET", "100000"))
+        except ValueError:
+            budget = 100000
+        try:
+            ratio = float(os.environ.get("VEYA_CONTEXT_COMPACT_TRIGGER_RATIO", "0.7"))
+        except ValueError:
+            ratio = 0.7
+        try:
+            tail_n = int(os.environ.get("VEYA_CONTEXT_COMPACT_TAIL_MSGS", "20"))
+        except ValueError:
+            tail_n = 20
+
+        try:
+            if not should_compact(msgs, max_tokens=budget, trigger_ratio=ratio):
+                return
+            before_count = len(msgs)
+            before_tokens = estimate_messages_tokens(msgs)
+            head, to_compact, tail = split_compaction_window(msgs, keep_tail_messages=tail_n)
+        except Exception:
+            logger.exception("[compact %s] window split failed, skip", sid)
+            return
+        if not to_compact:
+            return
+
+        summary_text = ""
+        summarize_error = ""
+        try:
+            summary_text = await self._summarize_for_compaction(to_compact)
+        except Exception as exc:
+            summarize_error = str(exc)
+        if not summary_text.strip():
+            self._record_compaction_decision(
+                sid,
+                outcome="skipped_summary_failed",
+                before_count=before_count,
+                before_tokens=before_tokens,
+                budget=budget,
+                ratio=ratio,
+                tail_n=tail_n,
+                to_compact=to_compact,
+                tail=tail,
+                after_msgs=None,
+                reasoning=summarize_error or "摘要为空",
+            )
+            return
+
+        try:
+            new_msgs = build_compacted_messages(head, summary_text, tail)
+        except Exception:
+            logger.exception("[compact %s] merge failed, keep original history", sid)
+            self._record_compaction_decision(
+                sid,
+                outcome="skipped_merge_error",
+                before_count=before_count,
+                before_tokens=before_tokens,
+                budget=budget,
+                ratio=ratio,
+                tail_n=tail_n,
+                to_compact=to_compact,
+                tail=tail,
+                after_msgs=None,
+                reasoning="merge/build_compacted_messages raised",
+            )
+            return
+
+        msgs[:] = new_msgs
+        self._record_compaction_decision(
+            sid,
+            outcome="compacted",
+            before_count=before_count,
+            before_tokens=before_tokens,
+            budget=budget,
+            ratio=ratio,
+            tail_n=tail_n,
+            to_compact=to_compact,
+            tail=tail,
+            after_msgs=msgs,
+            reasoning=f"tokens~{before_tokens} >= {budget}*{ratio}",
+        )
+
+    async def _summarize_for_compaction(self, messages: list[dict[str, Any]]) -> str:
+        """把待压缩片段渲染 → 走 `_bound_llm` 摘要 (复用现有 key/endpoint 装配)。"""
+        convo = render_messages_for_summary(messages)
+        if not convo.strip():
+            return ""
+        prompt_messages = [
+            {"role": "system", "content": self._COMPACT_SUMMARY_SYSTEM},
+            {"role": "user", "content": f"对话片段:\n{convo}\n\n请输出摘要。"},
+        ]
+        llm_fn = self._compact_llm_fn or self._bound_llm
+        resp = await llm_fn(prompt_messages)
+        if isinstance(resp, dict):
+            choices = resp.get("choices") or []
+            if choices:
+                return ((choices[0].get("message") or {}).get("content") or "").strip()
+            return str(resp.get("final_answer") or resp.get("content") or "").strip()
+        if isinstance(resp, str):
+            return resp.strip()
+        return ""
+
+    def _record_compaction_decision(
+        self,
+        sid: str,
+        *,
+        outcome: str,
+        before_count: int,
+        before_tokens: int,
+        budget: int,
+        ratio: float,
+        tail_n: int,
+        to_compact: list,
+        tail: list,
+        after_msgs: list | None,
+        reasoning: str,
+    ) -> None:
+        """把一次压缩(或放弃压缩)记成可持久化审计记录, 供事后排查上下文丢失。"""
+        with contextlib.suppress(Exception):  # 审计失败绝不影响已完成/放弃的压缩本身
+            from server import decision_ledger as dl_mod
+
+            dl_mod.ledger.record_decision(
+                "context_compaction",
+                f"sid={sid} before={before_count}msgs~{before_tokens}tok",
+                reasoning=reasoning,
+                outcome=outcome,
+                confidence=1.0 if outcome == "compacted" else 0.0,
+                source="coordinator_master",
+                metadata={
+                    "sid": sid,
+                    "before_messages": before_count,
+                    "after_messages": len(after_msgs) if after_msgs is not None else before_count,
+                    "before_tokens_est": before_tokens,
+                    "after_tokens_est": (
+                        estimate_messages_tokens(after_msgs) if after_msgs is not None else None
+                    ),
+                    "budget": budget,
+                    "trigger_ratio": ratio,
+                    "tail_msgs_target": tail_n,
+                    "tail_msgs_actual": len(tail),
+                    "compacted_span": len(to_compact),
+                    "model": self.model,
+                    "provider": self.provider,
+                },
+            )
 
     async def _persist_history(self, sid: str) -> None:
         """把进程内历史 (剔除 system) 落盘为权威源。轮末 + 长任务中途快照共用。"""
@@ -788,9 +1093,60 @@ class MasterCoordinator:
         if hist is None:
             return
         msgs = hist.get(sid) or []
+        non_system = [m for m in msgs if m.get("role") != "system"]
         # 落盘故障绝不拖垮对话
         with contextlib.suppress(Exception):
-            await self._history_store.save(sid, [m for m in msgs if m.get("role") != "system"])
+            await self._history_store.save(sid, non_system)
+        if self._session_tree_mirror_enabled:
+            with contextlib.suppress(Exception):  # 镜像失败绝不拖垮对话/权威落盘
+                await run_sync_in_daemon_thread(self._mirror_to_session_tree, sid, non_system)
+
+    def _mirror_to_session_tree(self, sid: str, msgs: list[dict[str, Any]]) -> None:
+        """把本轮非 system 消息同步进 SessionTreeMgr（纯增量镜像，不影响主对话读路径）。
+
+        用"最长公共前缀"对比上次镜像进树的路径与当前 msgs：前缀之后纯追加是常见的
+        轮次推进；前缀之后内容不一致 (如 Compaction 用摘要替换了旧的头部) 则从公共
+        祖先节点 append (等价于开新分支, 旧节点保留不删——SessionTreeMgr 语义本就
+        如此)。tool_calls 走 append() 的 tool_calls 形参 (branch() 不支持, 统一走
+        append(parent_id=...) 而不用 branch())。
+        """
+        tree = self._session_tree
+        owner = self._history_owners.get(sid)
+        tree.ensure_session(sid, owner=owner)
+        path = tree.path(sid)
+        prev = [n for n in path if n["role"] != "system"]
+        root_id = path[0]["id"] if path else None
+
+        def _key(role: Any, content: Any, tool_call_id: Any) -> tuple:
+            return (role, content, tool_call_id)
+
+        prev_keys = [
+            _key(n["role"], n.get("content"), (n.get("meta") or {}).get("tool_call_id"))
+            for n in prev
+        ]
+        cur_keys = [_key(m.get("role"), m.get("content"), m.get("tool_call_id")) for m in msgs]
+        k = 0
+        while k < len(prev_keys) and k < len(cur_keys) and prev_keys[k] == cur_keys[k]:
+            k += 1
+        remaining = msgs[k:]
+        if not remaining:
+            return
+        parent_id = prev[k - 1]["id"] if k > 0 else root_id
+        for m in remaining:
+            role = m.get("role")
+            meta = (
+                {"tool_call_id": m["tool_call_id"]}
+                if role == "tool" and m.get("tool_call_id")
+                else None
+            )
+            parent_id = tree.append(
+                sid,
+                role=role,
+                content=m.get("content"),
+                parent_id=parent_id,
+                tool_calls=m.get("tool_calls") or None,
+                meta=meta,
+            )
 
     async def _checkpoint_loop(self, sid: str) -> None:
         """长任务运行期间的定时快照循环 (无损恢复)。
