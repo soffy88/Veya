@@ -508,6 +508,31 @@ class VeyaSkillHub:
     def has(self, name: str) -> bool:
         return name in self._executors
 
+    async def semantic_scan(self, name: str) -> dict[str, Any]:
+        """按需 LLM 语义审查(补 AST 扫描盲区: 指令内容里的 prompt-injection/诱导性
+        破坏外泄行为/文档与实际行为不一致)。不在 reload_skills() 热路径里跑——LLM
+        调用慢且有真实成本; 由调用方(运维脚本/信任前人工核实)按需触发。见
+        server/skill_scan_semantic.py。
+        """
+        info = self._skills.get(name)
+        if info is None:
+            return {"verdict": "unscanned", "concerns": [], "reasoning": f"技能 '{name}' 不存在"}
+        entry_file = Path(info["path"]) / info["entrypoint"]
+        try:
+            source = entry_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            return {"verdict": "unscanned", "concerns": [], "reasoning": f"读源码失败: {exc}"}
+
+        from server.skill_scan_semantic import scan_skill_semantics
+        from veya.llm import llm_call
+
+        return await scan_skill_semantics(
+            name=name,
+            source=source,
+            manifest_description=self._descriptions.get(name, ""),
+            llm_call_fn=llm_call,
+        )
+
     async def execute(self, tool_name: str, kwargs: dict) -> str:
         """主脑决定调用工具时,路由到这里执行。dispatcher 模式解包 run_skill/list_skills。"""
         if self._dispatcher and tool_name == "list_skills":
