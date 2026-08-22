@@ -54,6 +54,11 @@ class TaskNode:
     block_reason: str | None = field(default=None)
     artifacts: list[str] = field(default_factory=list)  # 本任务产物路径索引
     execute_result: str | None = field(default=None)  # leaf 执行输出
+    # 执行侧分支(对标"Pi"清单 P2, 见 memory project_veya_pi_gap_audit 步骤8):
+    # 每次验收失败重试用 SessionTreeMgr.branch() 在失败节点下开新叶, 而不是
+    # 原地覆盖 instruction——失败尝试留在树里可查, 不是被字符串拼接悄悄吞掉。
+    session_tree_sid: str | None = field(default=None)
+    session_tree_leaf: str | None = field(default=None)
 
     def ready_condition_met(self, completed_ids: set[str]) -> bool:
         """deps 全 completed 则就 ready。空 deps 始终满足。"""
@@ -83,11 +88,13 @@ class GoalRunState:
     constitution: str = ""
     status: GoalStatus = GoalStatus.planning
     default_assignee: str = "hicode"
-    budget: dict[str, int] = field(default_factory=lambda: {
-        "max_wall_s": 7200,        # 总时长上限(s)
-        "max_leaf_tasks": 40,      # 最大叶子任务数
-        "max_retries_per_task": 2  # 单任务最大重试次数
-    })
+    budget: dict[str, int] = field(
+        default_factory=lambda: {
+            "max_wall_s": 7200,  # 总时长上限(s)
+            "max_leaf_tasks": 40,  # 最大叶子任务数
+            "max_retries_per_task": 2,  # 单任务最大重试次数
+        }
+    )
     tasks: dict[str, TaskNode] = field(default_factory=dict)
     completed_ids: set[str] = field(default_factory=set)
     running_ids: set[str] = field(default_factory=set)
@@ -102,21 +109,25 @@ class GoalRunState:
         """转为 taskgraph.json 格式（用于落盘/序列化）。"""
         tasks_list = []
         for t in self.tasks.values():
-            tasks_list.append({
-                "id": t.id,
-                "title": t.title,
-                "instruction": t.instruction,
-                "acceptance": t.acceptance,
-                "depends_on": t.depends_on,
-                "assignee": t.assignee,
-                "status": t.status.value,
-                "retries": t.retries,
-                "leaf_task_id": t.leaf_task_id,
-                "verify_summary": t.verify_summary,
-                "block_reason": t.block_reason,
-                "artifacts": t.artifacts,
-                "execute_result": t.execute_result,
-            })
+            tasks_list.append(
+                {
+                    "id": t.id,
+                    "title": t.title,
+                    "instruction": t.instruction,
+                    "acceptance": t.acceptance,
+                    "depends_on": t.depends_on,
+                    "assignee": t.assignee,
+                    "status": t.status.value,
+                    "retries": t.retries,
+                    "leaf_task_id": t.leaf_task_id,
+                    "verify_summary": t.verify_summary,
+                    "block_reason": t.block_reason,
+                    "artifacts": t.artifacts,
+                    "execute_result": t.execute_result,
+                    "session_tree_sid": t.session_tree_sid,
+                    "session_tree_leaf": t.session_tree_leaf,
+                }
+            )
         return {
             "version": 1,
             "goal_id": self.goal_id,
@@ -151,6 +162,8 @@ class GoalRunState:
                 block_reason=td.get("block_reason"),
                 artifacts=td.get("artifacts", []),
                 execute_result=td.get("execute_result"),
+                session_tree_sid=td.get("session_tree_sid"),
+                session_tree_leaf=td.get("session_tree_leaf"),
             )
             state.tasks[tn.id] = tn
 
@@ -162,14 +175,17 @@ class GoalRunState:
             "status": self.status.value,
             "running_ids": list(self.running_ids),
             "completed_ids": list(self.completed_ids),
-            "tasks": {tid: {
-                "id": tn.id,
-                "status": tn.status.value,
-                "title": tn.title,
-                "retries": tn.retries,
-                "block_reason": tn.block_reason,
-            } for tid, tn in self.tasks.items()
-            if tn.status in (TaskStatus.running, TaskStatus.ready, TaskStatus.pending)}
+            "tasks": {
+                tid: {
+                    "id": tn.id,
+                    "status": tn.status.value,
+                    "title": tn.title,
+                    "retries": tn.retries,
+                    "block_reason": tn.block_reason,
+                }
+                for tid, tn in self.tasks.items()
+                if tn.status in (TaskStatus.running, TaskStatus.ready, TaskStatus.pending)
+            },
         }
 
     def is_terminal(self) -> bool:
