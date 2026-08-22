@@ -109,8 +109,9 @@ def _write_skill(skills_dir: Path, name: str, code: str) -> None:
     (pkg / "run.py").write_text(code, encoding="utf-8")
 
 
-def test_hub_records_risk_but_loads_by_default(tmp_path):
-    """默认 (非 strict): 高危技能仍挂载 (不误杀自产), 但风险被记录。"""
+def test_hub_records_risk_but_loads_when_not_strict(tmp_path, monkeypatch):
+    """VEYA_SKILL_SCAN_STRICT=0 (opt-out): 高危技能仍挂载 (不误杀自产), 但风险被记录。"""
+    monkeypatch.setenv("VEYA_SKILL_SCAN_STRICT", "0")
     _write_skill(tmp_path, "danger", _DANGER)
     hub = VeyaSkillHub(skills_dir=tmp_path)
     assert hub.has("danger")
@@ -119,9 +120,9 @@ def test_hub_records_risk_but_loads_by_default(tmp_path):
     assert "command-exec" in risk["categories"]
 
 
-def test_hub_strict_rejects_high(tmp_path, monkeypatch):
-    """VEYA_SKILL_SCAN_STRICT=1: 高危调用面拒载, 干净技能正常挂。"""
-    monkeypatch.setenv("VEYA_SKILL_SCAN_STRICT", "1")
+def test_hub_strict_rejects_high_by_default(tmp_path):
+    """2026-08-22 起默认 strict (对标"Pi"清单信任门要求): 高危调用面拒载,
+    干净技能正常挂, 不用显式设 VEYA_SKILL_SCAN_STRICT。"""
     _write_skill(tmp_path, "danger", _DANGER)
     _write_skill(tmp_path, "safe", _CLEAN)
     hub = VeyaSkillHub(skills_dir=tmp_path)
@@ -129,7 +130,27 @@ def test_hub_strict_rejects_high(tmp_path, monkeypatch):
     assert hub.has("safe")
 
 
-def test_hub_stats_risk_aggregation(tmp_path):
+def test_hub_trusted_names_bypass_strict_rejection(tmp_path, monkeypatch):
+    """信任名单是 host 侧环境变量, 不是技能自己 manifest 能声明的字段——否则
+    技能自证"我可信"等于信任门形同虚设。"""
+    monkeypatch.setenv("VEYA_SKILL_TRUSTED_NAMES", "danger,other-trusted-name")
+    _write_skill(tmp_path, "danger", _DANGER)
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    assert hub.has("danger")  # 在信任名单内, strict 放行
+    risk = hub.skill_risk("danger")
+    assert risk["max_severity"] == "high"  # 风险仍然可见, 只是不拒载
+
+
+def test_hub_trusted_names_does_not_bypass_for_untrusted_skill(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEYA_SKILL_TRUSTED_NAMES", "some-other-skill")
+    _write_skill(tmp_path, "danger", _DANGER)
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    assert not hub.has("danger")  # 不在信任名单内, 照样拒载
+
+
+def test_hub_stats_risk_aggregation(tmp_path, monkeypatch):
+    """非 strict 时高危技能仍挂载, stats 里能看到风险聚合。"""
+    monkeypatch.setenv("VEYA_SKILL_SCAN_STRICT", "0")
     _write_skill(tmp_path, "danger", _DANGER)
     _write_skill(tmp_path, "safe", _CLEAN)
     hub = VeyaSkillHub(skills_dir=tmp_path)
@@ -137,3 +158,8 @@ def test_hub_stats_risk_aggregation(tmp_path):
     assert "danger" in risk["high"] and "danger" in risk["flagged"]
     assert "safe" not in risk["flagged"]
     assert risk["strict"] is False
+
+
+def test_hub_stats_strict_true_by_default(tmp_path):
+    hub = VeyaSkillHub(skills_dir=tmp_path)
+    assert hub.get_stats()["risk"]["strict"] is True
