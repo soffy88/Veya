@@ -8,10 +8,14 @@ G0 Understand → G1 Plan → G2 Loop (调度 + 执行 + 验收) → G3 Finalize
 """
 
 import asyncio
+import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("veya.goal_run")
 
 # G2 调度停滞熔断: v0.1 叶子同步执行, 若连续这么多 tick 取不到任何可跑任务,
 # 判定为无法推进 (陈旧 running_id / 依赖不可达), 退出循环交 G3 收敛为 blocked,
@@ -71,6 +75,49 @@ async def _constitution_guard(
         "intervention_prompt"
     ) or "constitution_violation"
     return await apply_block_policy(state, task, "stop_goal")
+
+
+def _record_retry_branch(
+    task: Any, *, leaf_summary: str, verify_reason: str, new_instruction: str
+) -> None:
+    """验收失败重试: 用 SessionTreeMgr.branch() 开新叶, 不再是原地覆盖 instruction。
+
+    对标"Pi"清单 P2 执行侧分支(见 memory project_veya_pi_gap_audit 步骤8)。复用
+    步骤2 已落地的镜像树(`default_session_tree_mirror()`, 跟 chat_stream 共用同一
+    个库/db), 不新开 db, 也不用曾经复活又废弃的旧 `~/.veya/loop/session_tree.db`
+    路径。sid 用 `goalrun-<task.id>` 前缀跟聊天会话的 uuid4 sid 天然不撞命名空间。
+    失败绝不拖垮任务调度——任何异常吞掉只记日志, 调用方仍会正常推进重试。
+    """
+    if os.environ.get("VEYA_GOAL_RUN_BRANCH_ENABLED", "1") == "0":
+        return
+    try:
+        from veya.omodul.session_tree import default_session_tree_mirror
+
+        tree = default_session_tree_mirror()
+        if task.session_tree_sid is None:
+            sid = f"goalrun-{task.id}"
+            tree.ensure_session(sid, system=f"goal_run task {task.id}: {task.title}")
+            task.session_tree_sid = sid
+            task.session_tree_leaf = tree.leaf(sid)["id"]
+        fail_node = tree.append(
+            task.session_tree_sid,
+            role="assistant",
+            content=leaf_summary,
+            parent_id=task.session_tree_leaf,
+            meta={"verify_passed": False, "verify_reason": verify_reason, "retries": task.retries},
+        )
+        branch_node = tree.branch(
+            task.session_tree_sid,
+            at_node_id=fail_node,
+            role="user",
+            content=new_instruction,
+            meta={"retry_attempt": task.retries},
+        )
+        task.session_tree_leaf = branch_node
+    except Exception:
+        logger.exception(
+            "[goal_run %s] session_tree branch failed, skip (仅结构化追踪丢失, 不影响重试)", task.id
+        )
 
 
 async def project_run_goal(
@@ -329,9 +376,16 @@ async def _run_loop_and_finalize(
                     # 重试：回到 ready 状态
                     task.status = TaskStatus.ready
                     # 可在 instruction 中记录上轮失败原因
-                    task.instruction = (
+                    new_instruction = (
                         f"{task.instruction}\n\n(上轮验收失败: {verify_result.reason})"
                     )
+                    _record_retry_branch(
+                        task,
+                        leaf_summary=leaf_result.summary,
+                        verify_reason=verify_result.reason,
+                        new_instruction=new_instruction,
+                    )
+                    task.instruction = new_instruction
                 else:
                     # 重试用尽：blocked
                     task.status = TaskStatus.blocked
