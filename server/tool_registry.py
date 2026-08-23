@@ -203,6 +203,7 @@ _TOOL_GROUPS: dict[str, str] = {
     "wayfind_graduate_fog": "wayfinding",
     "wayfind_decisions": "wayfinding",
     "wayfind_complete": "wayfinding",
+    "wayfind_to_spec": "wayfinding",
     "wayfind_compile_runbook": "wayfinding",
     "stateful_start": "wayfinding",
     "stateful_current": "wayfinding",
@@ -1716,6 +1717,7 @@ from server.wayfinding_tools import (  # noqa: E402
     wayfind_graduate_fog,
     wayfind_resolve,
     wayfind_rule_out_of_scope,
+    wayfind_to_spec,
     wayfind_wire_blocking,
 )
 
@@ -1887,6 +1889,27 @@ master_tools.register(
         "required": ["map_id"],
     },
     func=wayfind_complete,
+)
+
+master_tools.register(
+    name="wayfind_to_spec",
+    description=(
+        "把已清空探路图的决策收敛成一份 spec-pack requirements(产出人能读的文档, "
+        "不是直接编译成可执行 Runbook——那是 wayfind_compile_runbook)。决策多/"
+        "要给人看/要接 goal_run 批量执行时选这条。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "map_id": {"type": "string", "description": "已清空(is_clear)的 map_id。"},
+            "slug": {
+                "type": "string",
+                "description": "可选: 指定 spec-pack slug (默认由地图标题生成)。",
+            },
+        },
+        "required": ["map_id"],
+    },
+    func=wayfind_to_spec,
 )
 
 master_tools.register(

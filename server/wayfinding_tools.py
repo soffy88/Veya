@@ -10,8 +10,17 @@
 
 用法顺序: wayfind_chart → wayfind_add_ticket (可选 wayfind_add_fog) →
 wayfind_frontier → wayfind_claim → (做调查/原型/沟通) → wayfind_resolve →
-... 重复直到 wayfind_complete → wayfind_compile_runbook → stateful_start →
-stateful_goto (反复) → stateful_history。
+... 重复直到 wayfind_complete → 然后二选一分岔:
+  - 直接执行: wayfind_compile_runbook → stateful_start → stateful_goto (反复)
+    → stateful_history。
+  - 先收敛成文档(决策多/要给人看/要接 goal_run 批量执行时选这条):
+    wayfind_to_spec → spec-pack advance(design/tasks) → spec-pack
+    export_speckit → project_run_goal。
+
+``stateful_*`` 系列不持久化 Runbook 本身 —— 每次都用 map_id 重新跑
+``decisions_to_runbook`` (纯函数, 只要 decisions_so_far 没变就是同一个
+Runbook/同一个 content_hash), 只有 RunState 落盘。这样不需要另外管理
+"这个 run 对应哪份 YAML" 的映射。
 
 ``stateful_*`` 系列不持久化 Runbook 本身 —— 每次都用 map_id 重新跑
 ``decisions_to_runbook`` (纯函数, 只要 decisions_so_far 没变就是同一个
@@ -171,6 +180,48 @@ async def wayfind_complete(map_id: str) -> str:
         fog_left = len(kernel.map.not_yet_specified)
         return f"还没清空: frontier 剩 {remaining} 项, fog 剩 {fog_left} 项"
     return f"✅ 地图 {map_id} 已完成, 下一步: wayfind_compile_runbook"
+
+
+async def wayfind_to_spec(map_id: str, slug: str = "") -> str:
+    """把已清空探路图的决策收敛成一份 spec-pack requirements(不是直接编译成
+    可执行 Runbook——那是 wayfind_compile_runbook 的路, 这条路产出一份人能读
+    的文档)。地图必须先清空(frontier 和 fog 都空)才能收敛, 跟
+    wayfind_compile_runbook 前提一样, 产出不同。
+
+    收敛完之后, 用 spec-pack 的 advance(stage=design/tasks) 继续把设计和任务
+    写完, 再用 spec-pack 的 export_speckit 导出给 goal_run 执行。
+    """
+    try:
+        kernel = load_kernel(map_id)
+    except Exception as exc:
+        return f"to_spec: {exc}"
+    m = kernel.map
+    if not m.is_clear():
+        remaining = len(m.frontier())
+        fog_left = len(m.not_yet_specified)
+        return f"❌ 地图未清空: frontier 剩 {remaining} 项, fog 剩 {fog_left} 项, 先 wayfind_resolve/wayfind_graduate_fog"
+
+    lines = [f"# {m.destination}", ""]
+    if m.notes:
+        lines += ["## Notes", "", m.notes, ""]
+    lines += ["## Decisions", ""]
+    for d in m.decisions_so_far:
+        lines.append(f"### {d.title}")
+        lines.append(d.gist)
+        lines.append("")
+    body = "\n".join(lines)
+
+    from server.spec_pack import advance, start
+
+    result = start(title=m.title, brief=m.destination, slug=slug)
+    spec_slug = result["slug"]
+    advance(slug=spec_slug, stage="requirements", body=body)
+    return (
+        f"✅ 已把地图 {map_id} 的 {len(m.decisions_so_far)} 条决定收敛进 "
+        f"spec-pack '{spec_slug}' 的 requirements 阶段\n"
+        "下一步: spec-pack advance(stage=design) 补设计, advance(stage=tasks) "
+        "拆任务(Spec Kit checkbox 格式), 再 export_speckit 导出给 goal_run 执行"
+    )
 
 
 async def wayfind_compile_runbook(map_id: str) -> str:

@@ -8,8 +8,8 @@
     "properties": {
       "action": {
         "type": "string",
-        "enum": ["start", "status", "advance", "resume", "index", "list"],
-        "description": "start=建包; status=看进度; advance=写入某阶段正文; resume=断点续跑提示; index=投影代码索引; list=列出包"
+        "enum": ["start", "status", "advance", "resume", "index", "list", "export_speckit"],
+        "description": "start=建包; status=看进度; advance=写入某阶段正文; resume=断点续跑提示; index=投影代码索引; list=列出包; export_speckit=把 tasks 阶段导出成 .speckit/{tasks,constitution}.md 供 goal_run 消费"
       },
       "slug": {"type": "string", "description": "包 id（start 返回）"},
       "title": {"type": "string", "description": "start 用: 需求标题"},
@@ -18,8 +18,15 @@
         "type": "string",
         "description": "advance 用: triage|research|requirements|design|tasks|implementation"
       },
-      "body": {"type": "string", "description": "advance 用: 该阶段 markdown 正文"},
-      "query": {"type": "string", "description": "index 用: 代码查询（默认 title）"}
+      "body": {
+        "type": "string",
+        "description": "advance 用: 该阶段 markdown 正文。stage=tasks 必须用 Spec Kit checkbox 格式(- [ ] T1: 标题, 可选子行 Depends: T2,T3 / Accept: ...), 否则 export_speckit 解析不出任务"
+      },
+      "query": {"type": "string", "description": "index 用: 代码查询（默认 title）"},
+      "project_root": {
+        "type": "string",
+        "description": "export_speckit 用: 导出到哪个项目目录（默认当前工作区）"
+      }
     },
     "required": ["action"]
   }

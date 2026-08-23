@@ -13,6 +13,7 @@ def main(
     stage: str = "",
     body: str = "",
     query: str = "",
+    project_root: str = "",
     **_: Any,
 ) -> dict[str, Any]:
     from server.spec_pack import dispatch
@@ -25,4 +26,5 @@ def main(
         stage=stage,
         body=body,
         query=query,
+        project_root=project_root,
     )
