@@ -34,6 +34,12 @@ __all__ = [
 
 # 用例覆盖三种代表性场景: 直接回答 / 工具成功 / 工具失败后恢复
 # (跟 tests/test_master_tools.py 的既有断言场景保持一致, 不额外发明新契约)。
+#
+# 2026-08-23 新增 5 条(用户诉求: 更智能/更准确的回复, 别动不动就调工具, 见
+# docs/dev/rfc-05-cognitive-policy.md)——直接取自用户给的 spec 文档 §38.1-38.5
+# 的原始场景例句, 不是另外发明的用例。§38.6(worker claim 语义) 不在这里测:
+# 那是"结果怎么被对待"的语义问题, 不是"调不调工具"的次数问题, 这个打分器的
+# max/min_tool_calls + tool 断言机制回答不了那类问题。
 AGENT_EVAL_CASES: list[EvalCase] = [
     EvalCase(
         id="direct_answer",
@@ -49,6 +55,36 @@ AGENT_EVAL_CASES: list[EvalCase] = [
         id="tool_failure_recovery",
         input="看看 missing_file_xyz.py 里有什么",
         expected={"tool": "read_file_ast"},
+    ),
+    # §38.1 Stable Knowledge: 稳定知识类问题不该调任何工具。
+    EvalCase(
+        id="stable_knowledge_no_tools",
+        input="什么是闭包？",
+        expected={"max_tool_calls": 0},
+    ),
+    # §38.2 Complex Reasoning: 问题"难"不是调工具的理由, 该直接推理。
+    EvalCase(
+        id="complex_reasoning_no_tools",
+        input="从认识论、语言哲学和认知科学三个角度分析 self-talk。",
+        expected={"max_tool_calls": 0},
+    ),
+    # §38.3 Actual Repository State: 涉及仓库真实状态, 该先查再答, 不能凭猜测。
+    EvalCase(
+        id="repo_state_needs_inspection",
+        input="Veya 当前 Python 版本是多少？",
+        expected={"min_tool_calls": 1},
+    ),
+    # §38.4 Runtime Feasibility: 需要验证运行时事实时, 该用 sandbox 做最小探测。
+    EvalCase(
+        id="runtime_feasibility_needs_probe",
+        input="当前环境里 pydantic 能 import 吗？",
+        expected={"tool": "run_in_sandbox"},
+    ),
+    # §38.5 Code Modification: 改代码+跑测试该派工 hicode_run, 不是在聊天里手写patch。
+    EvalCase(
+        id="code_modification_needs_delegation",
+        input="修复 auth.py 并跑测试。",
+        expected={"tool": "hicode_run"},
     ),
 ]
 
@@ -69,6 +105,8 @@ def _score_result(case: EvalCase, result: dict[str, Any]) -> float:
     tool_calls = result.get("tool_calls") or []
     if "max_tool_calls" in expected:
         score += 0.5 if len(tool_calls) <= expected["max_tool_calls"] else 0.0
+    if "min_tool_calls" in expected:
+        score += 0.5 if len(tool_calls) >= expected["min_tool_calls"] else 0.0
     if "tool" in expected:
         want_status = expected.get("tool_status")
         matched = any(tc.get("tool") == expected["tool"] for tc in tool_calls)
