@@ -28,6 +28,7 @@ from server.wayfinding_tools import (
     wayfind_graduate_fog,
     wayfind_resolve,
     wayfind_rule_out_of_scope,
+    wayfind_to_spec,
     wayfind_wire_blocking,
 )
 
@@ -174,6 +175,39 @@ async def test_end_to_end_chart_to_stateful_goto():
     traj_uri = "3o://user/veya/memories/trajectories/e2e-run"
     assert ctx.exists(traj_uri, "L2")
     assert "handoff" in ctx.read(traj_uri, "L2")
+
+
+@pytest.mark.asyncio
+async def test_to_spec_requires_clear_map():
+    map_id = _map_id(await wayfind_chart("d1"))
+    await wayfind_add_ticket(map_id, "Q", "question")
+    out = await wayfind_to_spec(map_id)
+    assert "✅" not in out
+    assert "frontier 剩" in out
+
+
+@pytest.mark.asyncio
+async def test_to_spec_collapses_decisions_into_spec_pack(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEYA_SPECS_ROOT", str(tmp_path / "specs"))
+    map_id = _map_id(await wayfind_chart("ship feature X", notes="perf matters"))
+    t1 = _ticket_id(await wayfind_add_ticket(map_id, "pick db", "which db?"))
+    await wayfind_claim(map_id, t1)
+    await wayfind_resolve(map_id, t1, resolution="chose postgres", gist="use postgres")
+
+    out = await wayfind_to_spec(map_id)
+
+    assert "✅" in out
+    assert "requirements" in out
+    from server import spec_pack as sp
+
+    packs = sp.list_packs()["packs"]
+    assert packs, "spec-pack 应该已经建出来"
+    slug = packs[0]["slug"]
+    requirements = (sp.pack_dir(slug) / "requirements.md").read_text(encoding="utf-8")
+    assert "ship feature X" in requirements
+    assert "use postgres" in requirements
+    rec = sp.status(slug)
+    assert "requirements" in rec["stages_done"]
 
 
 @pytest.mark.asyncio

@@ -257,6 +257,65 @@ def advance(*, slug: str, stage: str, body: str) -> dict[str, Any]:
     return {"ok": True, "slug": slug, "stage": stage, "stages_done": done}
 
 
+def export_speckit(*, slug: str, project_root: str = "") -> dict[str, Any]:
+    """spec-pack → ``.speckit/{tasks,constitution}.md`` 导出。
+
+    对标 mattpocock/skills 的 to-tickets: 把收敛完的 spec 切成 goal_run 能吃的
+    任务。不重新实现任务图编译——``server.goal_run.planner._g1_from_speckit``
+    已经有现成的 ``.speckit/`` 消费管线, 这里只导出文件, 让那条已有管线自然
+    捡到(下次 project_run_goal 对同一 project_root 调用时)。
+
+    tasks 阶段必须已完成, 且正文得是 Spec Kit checkbox 格式
+    (``- [ ] T1: 标题``, 可选子行 ``Depends: T2,T3`` / ``Accept: ...``, 缩进=
+    父依赖)——导出前用 ``oskill.dag_compiler``(纯函数, 跟 goal_run 消费时用的
+    是同一个解析器)校验一遍, 解析不出任务/有环就拒绝导出, 不留到
+    project_run_goal 才失败。
+    """
+    st = load_status(slug)
+    if "tasks" not in (st.get("stages_done") or []):
+        return {"ok": False, "error": "tasks 阶段还没写, 先 advance(stage=tasks)"}
+    d = pack_dir(slug)
+    tasks_md = (d / STAGE_FILES["tasks"]).read_text(encoding="utf-8")
+
+    from veya.platform import load as _load_3o
+
+    _oskill = _load_3o("oskill")
+    nodes = _oskill.dag_compiler.compile_spec_to_dag(tasks_md)
+    if not nodes:
+        return {
+            "ok": False,
+            "error": "tasks.md 解析不出任何任务; 需要 Spec Kit checkbox 格式 (- [ ] T1: 标题)",
+        }
+    dag_errors = _oskill.dag_compiler.validate_taskgraph_dag(nodes)
+    if dag_errors:
+        return {"ok": False, "error": f"任务图非法: {'; '.join(dag_errors)}"}
+
+    root = Path(project_root).expanduser() if project_root else workspace_root()
+    speckit_dir = root / ".speckit"
+    speckit_dir.mkdir(parents=True, exist_ok=True)
+    (speckit_dir / "tasks.md").write_text(tasks_md, encoding="utf-8")
+
+    constitution_parts = []
+    for stage in ("requirements", "design"):
+        path = d / STAGE_FILES[stage]
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
+        if content.strip():
+            constitution_parts.append(f"## {stage.title()}\n\n{content.strip()}")
+    constitution = "\n\n".join(constitution_parts) or (
+        f"# {st.get('title') or slug}\n\n{st.get('brief', '')}"
+    )
+    (speckit_dir / "constitution.md").write_text(constitution, encoding="utf-8")
+
+    return {
+        "ok": True,
+        "slug": slug,
+        "project_root": str(root),
+        "task_count": len(nodes),
+        "hint": "已写 .speckit/tasks.md + constitution.md; 下次对这个 project_root "
+        "调 project_run_goal 会自动走 .speckit 消费管线, 不用手写 goal 文本。",
+    }
+
+
 def _top_entries(root: Path, cap: int = 40) -> list[str]:
     rows: list[str] = []
     try:
@@ -346,6 +405,7 @@ def dispatch(
     stage: str = "",
     body: str = "",
     query: str = "",
+    project_root: str = "",
 ) -> dict[str, Any]:
     try:
         if action == "start":
@@ -362,6 +422,8 @@ def dispatch(
             return advance(slug=slug, stage=stage, body=body)
         if action == "index":
             return index_pack(slug=slug, query=query)
+        if action == "export_speckit":
+            return export_speckit(slug=slug, project_root=project_root)
         return {"ok": False, "error": f"unknown action {action!r}"}
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}

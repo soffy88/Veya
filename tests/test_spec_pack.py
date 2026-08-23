@@ -60,6 +60,60 @@ def test_index_writes_codebase_and_detects_stale(tmp_path, monkeypatch):
         assert rec2["index_stale"] is True
 
 
+_TASKS_MD = (
+    "- [ ] T1: Set up database schema\n"
+    "- [ ] T2: Build API endpoint\n"
+    "  Depends: T1\n"
+    "  Accept: returns 200 on valid input\n"
+)
+
+
+def test_export_speckit_requires_tasks_stage_done(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEYA_SPECS_ROOT", str(tmp_path / "specs"))
+    slug = sp.start(title="Export me")["slug"]
+    out = sp.export_speckit(slug=slug, project_root=str(tmp_path / "proj"))
+    assert out["ok"] is False
+    assert "tasks" in out["error"]
+
+
+def test_export_speckit_writes_speckit_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEYA_SPECS_ROOT", str(tmp_path / "specs"))
+    slug = sp.start(title="Export me", brief="ship the thing")["slug"]
+    sp.advance(slug=slug, stage="requirements", body="## Requirements\n- must ship")
+    sp.advance(slug=slug, stage="design", body="## Design\n- REST API")
+    sp.advance(slug=slug, stage="tasks", body=_TASKS_MD)
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    out = sp.export_speckit(slug=slug, project_root=str(proj))
+
+    assert out["ok"] is True
+    assert out["task_count"] == 2
+    tasks_written = (proj / ".speckit" / "tasks.md").read_text(encoding="utf-8")
+    assert tasks_written == _TASKS_MD
+    constitution = (proj / ".speckit" / "constitution.md").read_text(encoding="utf-8")
+    assert "must ship" in constitution
+    assert "REST API" in constitution
+
+
+def test_export_speckit_rejects_unparseable_tasks(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEYA_SPECS_ROOT", str(tmp_path / "specs"))
+    slug = sp.start(title="Bad tasks")["slug"]
+    sp.advance(slug=slug, stage="tasks", body="just some prose, no checkboxes")
+    out = sp.export_speckit(slug=slug, project_root=str(tmp_path / "proj"))
+    assert out["ok"] is False
+    assert "解析不出" in out["error"]
+
+
+def test_export_speckit_rejects_cyclic_deps(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEYA_SPECS_ROOT", str(tmp_path / "specs"))
+    slug = sp.start(title="Cyclic")["slug"]
+    cyclic = "- [ ] T1: A\n  Depends: T2\n- [ ] T2: B\n  Depends: T1\n"
+    sp.advance(slug=slug, stage="tasks", body=cyclic)
+    out = sp.export_speckit(slug=slug, project_root=str(tmp_path / "proj"))
+    assert out["ok"] is False
+
+
 def test_skill_wrapper_dispatches(tmp_path, monkeypatch):
     import importlib.util
 
@@ -71,8 +125,6 @@ def test_skill_wrapper_dispatches(tmp_path, monkeypatch):
     spec.loader.exec_module(mod)
     out = mod.main("start", title="Foo bar")
     assert out["ok"] is True
-    man = json.loads(
-        (path.parent / "manifest.json").read_text(encoding="utf-8")
-    )
+    man = json.loads((path.parent / "manifest.json").read_text(encoding="utf-8"))
     assert man["name"] == "spec-pack"
     assert (path.parent / "SKILL.md").is_file()
