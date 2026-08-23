@@ -2990,6 +2990,55 @@ def _register_internalized_tools(mt: Any) -> None:
 
 _register_internalized_tools(master_tools)
 
+# ================= VAOM 只读查询: harness 历史表现 + 项目经验教训 ==========
+# P5 落地(PR-25 最小可行版本, 见 docs/dev/rfc-01-vaom.md)。2026-08-23 用户已
+# 按 ARCHITECTURE_STABLE.md §4 明确批准。纯只读、无副作用, 数据来自 P2/P3 已
+# 经在跑的旁路记录(server/capability_model.py::performance_store,
+# server/memory_controller.py::memory_controller)——见 server/vaom_query_tools.py。
+from server.vaom_query_tools import (  # noqa: E402
+    harness_performance_query,
+    memory_recall_project_lessons,
+)
+
+master_tools.register(
+    name="harness_performance_query",
+    description=(
+        "查某个执行者(hicode/dsh/builtin)在历史任务里的真实表现(成功率/样本量)。"
+        "不传 harness_id 时返回全部已知执行者的对比。数据来自 goal_run 任务验收结果的"
+        "真实累积, 不是宣传/文档——样本量很小或没有数据时会如实说明, 不要当作决定性证据。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "harness_id": {"type": "string", "description": "可选。hicode | dsh | builtin。"},
+            "task_archetype": {
+                "type": "string",
+                "description": "可选。目前粒度很粗, 只有一个桶 'goal_run_task'。",
+            },
+        },
+    },
+    func=harness_performance_query,
+)
+
+master_tools.register(
+    name="memory_recall_project_lessons",
+    description=(
+        "召回过往任务执行中积累的经验教训(比如'先跑迁移脚本再动代码'这类被反复验证过"
+        "的做法)。是关键词匹配, 不是语义检索——查不到不代表不存在, 只是措辞没对上。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "可选。关键词。"},
+            "scope": {
+                "type": "string",
+                "description": "可选。user | project | repo | global。",
+            },
+        },
+    },
+    func=memory_recall_project_lessons,
+)
+
 
 # ============ tool_search: 主脑瘦身模式下的按需能力发现 ============
 def _search_tokens(text: str) -> set[str]:
