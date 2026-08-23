@@ -226,6 +226,21 @@ _TOOL_GROUPS: dict[str, str] = {
     "goal_start": "long_task",
     "goal_add_todo": "long_task",
     "goal_status": "long_task",
+    # team: 点对点协作(邮箱+共享任务列表+协商式关闭), 主脑自己协调多个
+    # session/工作项用, 不是塞进外部 CLI 子进程的
+    "team_create": "team",
+    "team_delete": "team",
+    "team_list": "team",
+    "team_send_message": "team",
+    "team_read_messages": "team",
+    "team_task_create": "team",
+    "team_task_list": "team",
+    "team_task_get": "team",
+    "team_task_update": "team",
+    "team_shutdown_request": "team",
+    "team_approve_shutdown": "team",
+    "team_reject_shutdown": "team",
+    "team_status": "team",
 }
 
 _GROUP_DESCRIPTIONS: dict[str, str] = {
@@ -249,6 +264,9 @@ _GROUP_DESCRIPTIONS: dict[str, str] = {
     "long_task": "长程任务预算/进度治理 (goal_start/goal_add_todo/goal_status)。事件溯源 "
     "(GoalKernel), goal_start 后本 session 每轮自动追踪花费, 超支自动暂停。",
     "mcp_gateway": "兄弟服务网关 (mcp_hevi/mcp_stratum/mcp_od/mcp_codebase)。",
+    "team": "多智能体点对点协作 (team_create/send_message/task_*/shutdown_*): 邮箱式消息 + "
+    "共享任务列表(claim 认领) + 协商式关闭。用于主脑自己协调多个 session/工作项, 不是给外部 "
+    "CLI 子进程(hicode/codex 等)用的。",
 }
 
 
@@ -1994,6 +2012,217 @@ master_tools.register(
         "required": ["run_id"],
     },
     func=stateful_history,
+)
+
+# ================= Team Mode — 点对点协作(oh-my-openagent 内化) ===========
+# 邮箱 + 共享任务列表(claim) + 协商式关闭。真实限制: board.py 卡片跑外部 CLI
+# 子进程, 塞不进 veya 工具, 这套是给主脑自己协调多个 session/工作项用的——
+# 见 server/team_coord.py 文件头。
+from server.team_tools import (  # noqa: E402
+    team_approve_shutdown,
+    team_create,
+    team_delete,
+    team_list,
+    team_read_messages,
+    team_reject_shutdown,
+    team_send_message,
+    team_shutdown_request,
+    team_status,
+    team_task_create,
+    team_task_get,
+    team_task_list,
+    team_task_update,
+)
+
+master_tools.register(
+    name="team_create",
+    description="建一个协作组(邮箱+共享任务列表)。lead 会自动加入 members。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名(唯一)。"},
+            "description": {"type": "string", "description": "可选: 协作组用途。"},
+            "lead": {"type": "string", "description": "可选: 领队成员 id。"},
+            "member_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "可选: 初始成员 id 列表。",
+            },
+        },
+        "required": ["name"],
+    },
+    func=team_create,
+)
+
+master_tools.register(
+    name="team_delete",
+    description="解散协作组。还有成员没完成关闭协商(除发起者外)且 force=False 会被拒绝。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "requested_by": {
+                "type": "string",
+                "description": "可选: 发起解散的成员 id(不计入阻塞检查)。",
+            },
+            "force": {"type": "boolean", "description": "可选: 强制解散, 忽略未完成协商的成员。"},
+        },
+        "required": ["name"],
+    },
+    func=team_delete,
+)
+
+master_tools.register(
+    name="team_list",
+    description="列出所有未解散的协作组及其任务概况。",
+    parameters={"type": "object", "properties": {}},
+    func=team_list,
+)
+
+master_tools.register(
+    name="team_send_message",
+    description="发一条消息。to_member 留空 = 广播给全体成员。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "from_member": {"type": "string", "description": "发送者成员 id。"},
+            "content": {"type": "string", "description": "消息内容。"},
+            "to_member": {"type": "string", "description": "可选: 接收者成员 id, 留空广播。"},
+        },
+        "required": ["name", "from_member", "content"],
+    },
+    func=team_send_message,
+)
+
+master_tools.register(
+    name="team_read_messages",
+    description="读某个成员的邮箱(发给他的 + 广播的)。默认只看未读, 读过会标记已读。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "member_id": {"type": "string", "description": "要读取邮箱的成员 id。"},
+            "unread_only": {"type": "boolean", "description": "可选: 默认 true, 只看未读。"},
+        },
+        "required": ["name", "member_id"],
+    },
+    func=team_read_messages,
+)
+
+master_tools.register(
+    name="team_task_create",
+    description="加一个共享任务(open 状态, 谁都能来 claim)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "title": {"type": "string", "description": "任务标题。"},
+            "description": {"type": "string", "description": "可选: 任务详情。"},
+        },
+        "required": ["name", "title"],
+    },
+    func=team_task_create,
+)
+
+master_tools.register(
+    name="team_task_list",
+    description="列出共享任务, 可按状态过滤(open/claimed/done)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "status_filter": {"type": "string", "description": "可选: open/claimed/done。"},
+        },
+        "required": ["name"],
+    },
+    func=team_task_list,
+)
+
+master_tools.register(
+    name="team_task_get",
+    description="看一个任务的详情(含 note)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "task_id": {"type": "string", "description": "任务 id。"},
+        },
+        "required": ["name", "task_id"],
+    },
+    func=team_task_get,
+)
+
+master_tools.register(
+    name="team_task_update",
+    description="更新任务状态(status=claimed 时必须带 claimed_by, 已被别人认领会拒绝)/认领人/备注。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "task_id": {"type": "string", "description": "任务 id。"},
+            "status": {"type": "string", "description": "可选: open/claimed/done。"},
+            "claimed_by": {"type": "string", "description": "可选: status=claimed 时的认领人。"},
+            "note": {"type": "string", "description": "可选: 进度备注。"},
+        },
+        "required": ["name", "task_id"],
+    },
+    func=team_task_update,
+)
+
+master_tools.register(
+    name="team_shutdown_request",
+    description="请求某成员关闭(不是立刻关, 要走 team_approve_shutdown/team_reject_shutdown)。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "member_id": {"type": "string", "description": "要关闭的成员 id。"},
+            "reason": {"type": "string", "description": "可选: 关闭原因。"},
+        },
+        "required": ["name", "member_id"],
+    },
+    func=team_shutdown_request,
+)
+
+master_tools.register(
+    name="team_approve_shutdown",
+    description="批准某成员的关闭请求。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "member_id": {"type": "string", "description": "成员 id。"},
+        },
+        "required": ["name", "member_id"],
+    },
+    func=team_approve_shutdown,
+)
+
+master_tools.register(
+    name="team_reject_shutdown",
+    description="拒绝某成员的关闭请求, 成员状态回到 active。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "协作组名。"},
+            "member_id": {"type": "string", "description": "成员 id。"},
+            "reason": {"type": "string", "description": "可选: 拒绝原因。"},
+        },
+        "required": ["name", "member_id"],
+    },
+    func=team_reject_shutdown,
+)
+
+master_tools.register(
+    name="team_status",
+    description="汇总视图: 成员状态 + 任务计数 + 消息数。",
+    parameters={
+        "type": "object",
+        "properties": {"name": {"type": "string", "description": "协作组名。"}},
+        "required": ["name"],
+    },
+    func=team_status,
 )
 
 # ================= Wayfinding — GitHub Issues 后端 =========================
