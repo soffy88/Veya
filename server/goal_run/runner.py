@@ -25,6 +25,7 @@ _MAX_STALL_TICKS = 3
 # smart-ralph [P] marker 支持的并发上限(见 memory project_veya_pi_gap_audit)。
 _MAX_PARALLEL_CONCURRENCY = 4
 
+from server.capability_model import performance_store
 from server.goal_run.leaf import execute_leaf_with_memory
 from server.goal_run.models import (
     GoalRunResponse,
@@ -46,7 +47,13 @@ from server.goal_run.store import (
     save_goal_run,
     write_final_summary,
 )
+from server.goal_run.trust_plane import (
+    append_trust_plane_records,
+    build_and_write_task_episode,
+    record_task_verification,
+)
 from server.goal_run.verify import apply_block_policy, verify_task
+from server.memory_controller import memory_controller
 
 
 async def _constitution_guard(
@@ -210,6 +217,73 @@ async def _run_plan_review_gate(
     )
 
 
+def _record_trust_plane(
+    task: Any,
+    state: Any,
+    project_root: str,
+    *,
+    verify_result: Any,
+    diff_text: str,
+    review_findings: dict | None,
+) -> bool:
+    """把本次验收结果按 VAOM Trust Plane schema 旁路记一份(见 docs/dev/rfc-01-vaom.md,
+    server/goal_run/trust_plane.py)。纯旁路——task.status 的转移逻辑不依赖这个函数的
+    返回值, 除非 VEYA_GOAL_RUN_VERIFIED_GATE=1(见 _process_one_task)。任何异常都吞掉
+    只记日志, 记录失败不该拖垮任务调度本身(除非显式开了 gate)。
+
+    返回是否成功写出了一条 VerifiedState(供 gate 判断用; verify 没过时天然是 False)。
+    """
+    if os.environ.get("VEYA_GOAL_RUN_TRUST_PLANE_ENABLED", "1") == "0":
+        return True  # 记录整体关闭时不产生任何 gate 副作用
+    try:
+        claim, evidences, evaluations, verified_state = record_task_verification(
+            task_id=task.id,
+            goal_id=state.goal_id,
+            actor=task.assignee,
+            statement=verify_result.summary,
+            target_refs=task.acceptance,
+            verify_passed=verify_result.passed,
+            verify_summary=verify_result.summary,
+            diff_text=diff_text,
+            review_findings=review_findings,
+        )
+        append_trust_plane_records(
+            project_root,
+            state.goal_id,
+            claim=claim,
+            evidences=evidences,
+            evaluations=evaluations,
+            verified_state=verified_state,
+        )
+        return verified_state is not None
+    except Exception:
+        logger.exception(
+            "[goal_run %s] trust_plane record failed for task %s", state.goal_id, task.id
+        )
+        return False
+
+
+def _record_performance_sample(task: Any, *, success: bool) -> None:
+    """goal_run 每次任务验收结果顺带喂一条样本给 PerformanceStore(VAOM
+    PerformanceProfile, 见 server/capability_model.py, docs/dev/rfc-01-vaom.md)。
+    task_archetype 目前只有一个粗粒度桶("goal_run_task")——按任务标题/instruction
+    做更细的归类是后续需要时再加, 这里先诚实反映"暂时没有归类能力"而不是编一个
+    看起来更细但其实是瞎猜的 archetype。纯旁路, 异常吞掉不拖垮任务调度。
+    """
+    try:
+        performance_store.record_outcome(
+            harness_id=task.assignee,
+            task_archetype="goal_run_task",
+            success=success,
+        )
+    except Exception:
+        logger.exception(
+            "[goal_run] performance sample record failed for task %s (harness=%s)",
+            task.id,
+            task.assignee,
+        )
+
+
 async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRunResponse | None:
     """单个任务的执行→验收→重试/完成/双轴审查全流程。抽成独立协程是为了让
     [P] 批次能用 asyncio.gather 并发跑(见 memory project_veya_pi_gap_audit
@@ -253,6 +327,29 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
         state.completed_ids.add(task.id)
         task.artifacts.extend(leaf_result.artifacts)
         task.review_findings = await _run_dual_axis_review(task, project_root, before_ref)
+
+        from server.goal_run.git_diff import capture_task_diff
+
+        verified_ok = _record_trust_plane(
+            task,
+            state,
+            project_root,
+            verify_result=verify_result,
+            diff_text=capture_task_diff(project_root, before_ref),
+            review_findings=task.review_findings,
+        )
+        _record_performance_sample(task, success=True)
+        # GoalKernel Verified Gate(PR-09, 见 docs/dev/rfc-01-vaom.md/VEYA_3.0_GAP_AUDIT.md §3.4):
+        # 默认关闭——verify_result.passed 本来就已经是"独立验收通过"而不是 worker 自报
+        # (task.execute_result 从不直接驱动 status), 这个 gate 加的是更严格的一层:
+        # 连 VerifiedState 记录本身都必须落盘成功, 任务才算真正 completed。只有显式
+        # 开启时才会因为记录失败把已经验收通过的任务打回 blocked, 因此默认关闭,
+        # 不属于"纯文档/测试"改动, 打开前需按 ARCHITECTURE_STABLE.md §4 先获用户同意。
+        if os.environ.get("VEYA_GOAL_RUN_VERIFIED_GATE", "0") == "1" and not verified_ok:
+            task.status = TaskStatus.blocked
+            state.completed_ids.discard(task.id)
+            task.block_reason = "verified_state_write_failed (VEYA_GOAL_RUN_VERIFIED_GATE=1)"
+            return await apply_block_policy(state, task, "stop_goal")
         return None
 
     # 验收失败：重试计数
@@ -274,6 +371,18 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
     # 重试用尽：blocked
     task.status = TaskStatus.blocked
     task.block_reason = task.block_reason or f"verify failed after {task.retries} retries"
+
+    from server.goal_run.git_diff import capture_task_diff
+
+    _record_trust_plane(
+        task,
+        state,
+        project_root,
+        verify_result=verify_result,
+        diff_text=capture_task_diff(project_root, before_ref),
+        review_findings=None,
+    )
+    _record_performance_sample(task, success=False)
     return await apply_block_policy(state, task, "stop_goal")
 
 
@@ -474,6 +583,27 @@ async def project_run_goal(
         reset_breaker(breaker_token)
 
 
+def _finalize_episode(state: Any, project_root: str, *, outcome: str) -> None:
+    """goal 到达终态(正常完成或提前终止)时聚合一份 TaskEpisode(见 trust_plane.py),
+    并从中提炼候选记忆(VAOM MemoryController.extract_candidates, 见
+    server/memory_controller.py, docs/dev/rfc-01-vaom.md P3)。异常照例吞掉——
+    这是旁路记录, 不该在 goal 已经算完的最后一步反而拖垮返回。
+    """
+    try:
+        build_and_write_task_episode(
+            project_root,
+            state.goal_id,
+            state.goal_text,
+            task_ids=list(state.tasks.keys()),
+            outcome=outcome,
+            started_at=state.started_at.isoformat() if state.started_at else None,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        memory_controller.extract_candidates(project_root, state.goal_id)
+    except Exception:
+        logger.exception("[goal_run %s] task episode finalize failed", state.goal_id)
+
+
 async def _run_loop_and_finalize(
     *,
     state: GoalRunState,
@@ -491,6 +621,7 @@ async def _run_loop_and_finalize(
         elapsed_s = time.time() - start_ts
         budget_block = await check_and_update_budget(state, elapsed_s, scheduler_state)
         if budget_block is not None:
+            _finalize_episode(state, project_root, outcome=budget_block.status.value)
             return budget_block
 
         # 2. 调度：promote ready，pick next
@@ -532,6 +663,7 @@ async def _run_loop_and_finalize(
         for r in results:
             if r is not None:
                 save_goal_run(state, project_root)
+                _finalize_episode(state, project_root, outcome=r.status.value)
                 return r
 
         # 7. 保存 state（每 tick 保存一次）
@@ -578,6 +710,7 @@ async def _run_loop_and_finalize(
     state.final_summary = final_summary
     state.finished_at = datetime.now(timezone.utc)
     save_goal_run(state, project_root)
+    _finalize_episode(state, project_root, outcome=GoalStatus.completed.value)
 
     # 返回最终响应
     return GoalRunResponse(

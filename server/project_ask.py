@@ -374,7 +374,10 @@ def _record_decision(
             metadata=metadata,
         )
         cg_mod.graph.upsert_node(
-            task_id, "Task", scenario[:200], {"outcome": outcome, "phase": metadata.get("phase", "")}
+            task_id,
+            "Task",
+            scenario[:200],
+            {"outcome": outcome, "phase": metadata.get("phase", "")},
         )
         if parent_task_id:
             cg_mod.graph.add_edge(parent_task_id, "follows_up", task_id)
@@ -543,16 +546,23 @@ async def project_ask(
         )
         return _render(resp)
 
-    # 2. Act — existing builtin/hicode/dsh paths, brief 前置 Understand 摘要
+    # 2. Act — existing builtin/hicode/dsh paths, brief 前置 Understand 摘要。
+    # 经 HarnessRegistry.execute() 路由(PR-15, 见 server/capability_model.py::
+    # HarnessRegistry.execute 的 docstring)——三个函数本身零改动, 只是把"选哪个"
+    # 收口到一处, 满足 VAOM"CC/Pi/Hicode/DSH 均通过 HarnessSpec 调用"这条。
+    from server.capability_model import harness_registry
+
     assignee = _decide_assignee(request, assignee_hint)
     understand_prefix = _understand_prefix(u, request, chain)
 
-    if assignee == "builtin":
-        resp = _run_builtin(store, task_id, request)
-    elif assignee == "hicode":
-        resp = await _run_hicode(store, task_id, project_root, request, understand_prefix)
-    else:
-        resp = await _run_dsh(store, task_id, project_root, request, understand_prefix)
+    resp = await harness_registry.execute(
+        assignee,
+        store=store,
+        task_id=task_id,
+        request=request,
+        project_root=project_root,
+        understand_prefix=understand_prefix,
+    )
 
     resp.phase = "executed"
     resp.interpretation = u.interpretation

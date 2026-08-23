@@ -48,7 +48,7 @@ async def execute_leaf(
     - 组装 instruction = 任务 instruction + acceptance 列表 + 项目记忆前缀
     - 返回 LeafResult
     """
-    from server.project_ask import _run_hicode, _run_dsh, _run_builtin
+    from server.capability_model import harness_registry
     from server.project_store import ProjectStore
 
     store = ProjectStore(project_root)
@@ -68,9 +68,13 @@ async def execute_leaf(
     run_dir = store.run_dir(task_id)
     (run_dir / "brief.md").write_text(brief, encoding="utf-8")
 
-    # 派工执行
+    # 派工执行。经 HarnessRegistry.execute() 路由(PR-15, 见
+    # server/capability_model.py::HarnessRegistry.execute 的 docstring)——
+    # _run_builtin/_run_hicode/_run_dsh 本身零改动, 参数/返回值跟直接调用完全一致。
     if assignee == "builtin":
-        resp = _run_builtin(store, task_id, instruction)
+        resp = await harness_registry.execute(
+            "builtin", store=store, task_id=task_id, request=instruction
+        )
         return LeafResult(
             status="completed" if resp.status == "completed" else "blocked",
             summary=resp.summary or "",
@@ -78,7 +82,9 @@ async def execute_leaf(
             artifacts=resp.artifacts,
         )
     elif assignee == "hicode":
-        resp = await _run_hicode(store, task_id, project_root, instruction, understand_prefix="")
+        resp = await harness_registry.execute(
+            "hicode", store=store, task_id=task_id, request=instruction, project_root=project_root
+        )
         return LeafResult(
             status=resp.status,
             summary=resp.summary or "",
@@ -86,7 +92,9 @@ async def execute_leaf(
             artifacts=resp.artifacts,
         )
     elif assignee == "dsh":
-        resp = await _run_dsh(store, task_id, project_root, instruction, understand_prefix="")
+        resp = await harness_registry.execute(
+            "dsh", store=store, task_id=task_id, request=instruction, project_root=project_root
+        )
         return LeafResult(
             status=resp.status,
             summary=resp.summary or "",
@@ -116,6 +124,7 @@ def _context_prefix(store: ProjectStore) -> str:
 
 
 # ── 便捷函数：从 project_ask 复用的执行入口（供 goal_run 调用） ──────────────
+
 
 async def execute_leaf_with_memory(
     project_root: str,
