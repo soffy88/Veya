@@ -59,6 +59,11 @@ class TaskNode:
     # 原地覆盖 instruction——失败尝试留在树里可查, 不是被字符串拼接悄悄吞掉。
     session_tree_sid: str | None = field(default=None)
     session_tree_leaf: str | None = field(default=None)
+    # 双轴代码审查(mattpocock/skills code-review 内化, 见 memory
+    # project_veya_pi_gap_audit): {"standards": {...}, "spec": {...}} 或 None
+    # (没跑/diff为空)。advisory only——不影响 verify 是否 passed, 只是记录下来
+    # 供人/下游查看, LLM 判断是假设不是证据。
+    review_findings: dict[str, Any] | None = field(default=None)
 
     def ready_condition_met(self, completed_ids: set[str]) -> bool:
         """deps 全 completed 则就 ready。空 deps 始终满足。"""
@@ -126,6 +131,7 @@ class GoalRunState:
                     "execute_result": t.execute_result,
                     "session_tree_sid": t.session_tree_sid,
                     "session_tree_leaf": t.session_tree_leaf,
+                    "review_findings": t.review_findings,
                 }
             )
         return {
@@ -164,6 +170,7 @@ class GoalRunState:
                 execute_result=td.get("execute_result"),
                 session_tree_sid=td.get("session_tree_sid"),
                 session_tree_leaf=td.get("session_tree_leaf"),
+                review_findings=td.get("review_findings"),
             )
             state.tasks[tn.id] = tn
 
