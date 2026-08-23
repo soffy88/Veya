@@ -152,6 +152,61 @@ async def _run_dual_axis_review(task: Any, project_root: str, before_ref: str) -
         return None
 
 
+async def _run_plan_review_gate(
+    state: Any, goal_text: str, project_root: str
+) -> GoalRunResponse | None:
+    """G1 出图后的计划前置双轴审查(oh-my-openagent orchestration 内化, 见 memory
+    project_veya_pi_gap_audit)。真正的门禁, 不是 advisory——Feasibility/Safety
+    任一轴明确 reject 就拦, 状态停在 awaiting_user 不进 G2。LLM 失败/关闭开关
+    都放行(fail open), 只有拿到明确 reject 才拦。
+    """
+    if os.environ.get("VEYA_GOAL_RUN_PLAN_REVIEW_ENABLED", "1") == "0":
+        state.plan_review = {"skipped": True}
+        return None
+    try:
+        from server.goal_run.plan_review import dual_axis_plan_review
+
+        tasks = [
+            {
+                "id": t.id,
+                "title": t.title,
+                "instruction": t.instruction,
+                "acceptance": t.acceptance,
+                "depends_on": t.depends_on,
+            }
+            for t in state.tasks.values()
+        ]
+        report = await dual_axis_plan_review(goal_text=goal_text, tasks=tasks)
+    except Exception:
+        logger.exception("[goal_run %s] plan review failed, fail open (放行)", state.goal_id)
+        state.plan_review = {"error": "plan review raised, failed open"}
+        save_goal_run(state, project_root)
+        return None
+
+    state.plan_review = report
+    if not report.get("blocked"):
+        save_goal_run(state, project_root)
+        return None
+
+    state.status = GoalStatus.awaiting_user
+    save_goal_run(state, project_root)
+    concerns = list(report["feasibility"].get("concerns") or []) + list(
+        report["safety"].get("concerns") or []
+    )
+    return GoalRunResponse(
+        goal_id=state.goal_id,
+        status=GoalStatus.awaiting_user,
+        phase="plan_review_blocked",
+        interpretation=None,
+        questions=None,
+        goal_counts=state.snapshot_running(),
+        summary=None,
+        block_reason="; ".join(concerns) or "plan review rejected",
+        artifacts=None,
+        next_action="wait",
+    )
+
+
 async def project_run_goal(
     project_root: str,
     goal: str,
@@ -274,6 +329,14 @@ async def project_run_goal(
     if resume_goal_id and state:
         # 恢复已有的 taskgraph 状态
         pass
+
+    # ── 计划前置双轴审查(oh-my-openagent orchestration 内化, 见 memory
+    # project_veya_pi_gap_audit): G1 出图后、G2 执行前跑一遍, 拦下还没烧执行
+    # 预算, 比事后审更值。plan_review is None 才跑(resume 场景不重复审)。
+    if state.plan_review is None:
+        blocked_response = await _run_plan_review_gate(state, goal, project_root)
+        if blocked_response is not None:
+            return blocked_response
 
     # ── G2: Loop 调度 + 执行 + 验收 ───────────────────────────────────
     # 设置最大并发
