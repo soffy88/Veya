@@ -15,6 +15,7 @@ import pytest
 from server.agent_eval import (
     AGENT_EVAL_CASES,
     EvalCase,
+    _score_result,
     compare_runs,
     run_agent_eval_suite,
 )
@@ -47,22 +48,55 @@ def _tool_response(name: str, args: dict) -> dict:
 
 
 async def _good_llm(messages, **kwargs):
-    """按最近一条消息内容路由, 覆盖 AGENT_EVAL_CASES 的三个场景, 全部成功收尾。"""
+    """按最近一条消息内容路由, 覆盖 AGENT_EVAL_CASES 全部场景(含 2026-08-23 新增
+    的 5 个 §38.1-38.5 场景), 全部成功收尾。"""
     last = messages[-1]["content"] if messages else ""
     if "[Tool list_files" in last:
         return _text_response("目录文件已列出。")
     if "[Tool read_file_ast" in last:
         return _text_response("文件不存在, 已改用其他方式确认。")
+    if "[Tool run_in_sandbox" in last:
+        return _text_response("import 成功, pydantic 可用。")
+    if "[Tool hicode_run" in last:
+        return _text_response("已修复 auth.py 并跑通测试。")
     if "列出当前目录文件" in last:
         return _tool_response("list_files", {"path": "."})
     if "missing_file_xyz.py" in last:
         return _tool_response("read_file_ast", {"filepath": "missing_file_xyz.py"})
+    if "Python 版本" in last:
+        return _tool_response("read_file_ast", {"filepath": "pyproject.toml"})
+    if "pydantic" in last:
+        return _tool_response("run_in_sandbox", {"code": "import pydantic"})
+    if "auth.py" in last:
+        return _tool_response("hicode_run", {"instruction": "fix auth.py and run tests"})
+    # 剩余场景(闭包定义/复杂哲学推理)按 §38.1/38.2 预期直接回答, 不调工具。
     return _text_response("你好! 我是 Veya 主脑。")
 
 
 async def _bad_llm(messages, **kwargs):
     """ "退化候选": 从不调工具, 只会道歉——用于验证 compare_runs 真能测出回归。"""
     return _text_response("抱歉, 我暂时无法处理这个请求。")
+
+
+def test_score_result_min_tool_calls():
+    """2026-08-23 新增(§38.3 类场景需要断言"至少调过一次工具")。"""
+    case = EvalCase(id="c", input="x", expected={"min_tool_calls": 1})
+
+    below = _score_result(case, {"status": "success", "tool_calls": []})
+    at_least = _score_result(case, {"status": "success", "tool_calls": [{"tool": "grep"}]})
+
+    assert below == 0.5  # 底分, 未命中 min_tool_calls 不加分
+    assert at_least == 1.0
+
+
+def test_score_result_max_tool_calls_still_works():
+    case = EvalCase(id="c", input="x", expected={"max_tool_calls": 0})
+
+    zero_calls = _score_result(case, {"status": "success", "tool_calls": []})
+    one_call = _score_result(case, {"status": "success", "tool_calls": [{"tool": "grep"}]})
+
+    assert zero_calls == 1.0
+    assert one_call == 0.5
 
 
 @pytest.mark.asyncio
@@ -80,7 +114,7 @@ async def test_agent_eval_suite_runs_real_chat_stream_and_scores(tmp_path, monke
         assert agent_result["status"] == "success"
     assert run.scores["tool_success"] == 1.0  # list_files 命中, 满分
     summary = run.summary()
-    assert summary["n"] == 3
+    assert summary["n"] == len(AGENT_EVAL_CASES)
     assert summary["mean"] > 0.5
 
 
