@@ -94,6 +94,43 @@ def test_tree_branch_changes_leaf_only():
     assert roles == ["system", "user", "assistant"]
 
 
+def test_tree_list_branches_enumerates_all_leaves():
+    """对标 Maka"事实源不可变"原则的差距审计(见 memory project_veya_pi_gap_audit):
+    branch() 出的旧分支节点保留不删, 但 path()/leaf() 只看当前活跃叶——
+    list_branches() 是找回其它分支(比如 Compaction 覆盖前的原文)的入口。
+    """
+    kv = _mem_kv()
+    tree = SessionTreeMgr(kv=kv, id_fn=_seq_id())
+    sid = tree.create_session(system="sys")
+    n1 = tree.append(sid, role="user", content="q1")
+    tree.append(sid, role="assistant", content="a1")
+    tree.branch(sid, at_node_id=n1, role="assistant", content="a1-alt")
+
+    branches = tree.list_branches(sid)
+    contents = sorted([n["content"] for n in b] for b in branches)
+    assert contents == [
+        ["sys", "q1", "a1"],
+        ["sys", "q1", "a1-alt"],
+    ]
+
+
+def test_tree_list_branches_single_leaf_is_one_branch():
+    kv = _mem_kv()
+    tree = SessionTreeMgr(kv=kv, id_fn=_seq_id())
+    sid = tree.create_session(system="sys")
+    tree.append(sid, role="user", content="q1")
+
+    branches = tree.list_branches(sid)
+    assert len(branches) == 1
+    assert [n["content"] for n in branches[0]] == ["sys", "q1"]
+
+
+def test_tree_list_branches_missing_session_returns_empty():
+    kv = _mem_kv()
+    tree = SessionTreeMgr(kv=kv, id_fn=_seq_id())
+    assert tree.list_branches("nope") == []
+
+
 def test_tree_fork_spacetime_rewind():
     kv = _mem_kv()
     tree = SessionTreeMgr(kv=kv, id_fn=_seq_id())

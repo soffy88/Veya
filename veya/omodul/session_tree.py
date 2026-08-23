@@ -197,6 +197,27 @@ class SessionTreeMgr:
         chain.reverse()
         return chain
 
+    def list_branches(self, sid: str) -> list[list[dict[str, Any]]]:
+        """列出这棵树里所有分支（每个无子节点的叶子各一条根→叶路径）。
+
+        对标 Maka"事实源不可变, 一切都是投影"的原则(见 memory
+        project_veya_pi_gap_audit): coordinator_master 的 Compaction 头部重写
+        走 branch(不覆盖旧节点), 但 `path()`/`leaf()` 只看当前活跃叶——旧分支
+        (比如压缩前的完整原文)技术上还在树里, 只是没有入口找到它。这个方法
+        就是那个入口: 只读, 不改任何状态, 供排障/审计/找回被压缩的原文用。
+        """
+        tree = self._load(sid)
+        if tree is None:
+            return []
+        nodes = tree["nodes"]
+        has_child: set[str] = set()
+        for node in nodes.values():
+            parent = node.get("parent_id")
+            if parent is not None:
+                has_child.add(parent)
+        leaf_ids = [nid for nid in nodes if nid not in has_child]
+        return [self.path(sid, node_id=lid) for lid in leaf_ids]
+
     def messages(self, sid: str) -> list[dict[str, Any]]:
         """当前叶路径的 LLM 消息形态（protocol_translate 直接可用）。
         tool 节点 → OpenAI 协议 {role: tool, tool_call_id, content}。"""
