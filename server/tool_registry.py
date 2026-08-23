@@ -1502,6 +1502,9 @@ master_tools.register(
     description=(
         "Run python code (or a shell command) in the unified 3O sandbox (chat_verify=process: "
         "CPU/memory/time limits; network is NOT blocked). ONLY for executing/verifying snippets. "
+        "This tool exists to produce evidence for a fact you're not certain of (does this "
+        "import work, does this snippet behave as expected) — it is not a default step, and "
+        "not needed just because a question involves code or is hard to reason about. "
         "The sandbox has `python3` (NOT `python`) and the stdlib `unittest` (pytest is NOT "
         "installed) — run tests with `python3 -m unittest discover` or `python3 -m unittest "
         "<module>`, never `python ...` or `pytest`. "

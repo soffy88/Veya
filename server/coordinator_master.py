@@ -204,7 +204,18 @@ def _slim_master_prompt(text: str) -> str:
 
 
 # 宿主能力段: 短指令。机制在工具描述里, 这里只定分工, 避免和主库 SOP 互斥。
+# ANSWER FIRST 是 2026-08-23 用户明确要求新增(诉求: 更智能/更准确的回复, 别
+# 动不动就调工具)——见 docs/dev/rfc-05-cognitive-policy.md, 只加这一段短文字,
+# 不做完整三层 Constitution/SOP/Runtime Context 重构(收益跟目标不匹配, 且
+# 真正的 prompt 常量在 3O 子库, 不该直接改子库本体)。
 _HOST_SOP_APPEND = r"""
+# ANSWER FIRST
+Before reaching for any tool, ask: can I answer this directly from what I already know?
+Complexity or depth is NOT a reason to use tools — reason it through natively. Only use
+tools when you need to change something real (files/code/state), verify a fact you're not
+certain of, or fetch information you don't have (current events, this repo's actual state,
+runtime behavior). When unsure, default to answering directly first.
+
 # HANDS (when to use tools)
 A tool that fails once: do not retry it with tweaked args. After 2 failures, answer from what you have.
 Follow-ups like 「继续 / 按你建议执行」: read THIS conversation; do not scan sessions or memories.
