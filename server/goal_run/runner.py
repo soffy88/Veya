@@ -120,6 +120,38 @@ def _record_retry_branch(
         )
 
 
+async def _run_dual_axis_review(task: Any, project_root: str, before_ref: str) -> dict | None:
+    """验收通过后跑一遍双轴审查(mattpocock/skills code-review 内化, 见 memory
+    project_veya_pi_gap_audit)。advisory only——findings 只记录不拦任务完成
+    (acceptance 验收才是真正准入门, LLM 审查判断是假设不是证据)。任何异常都
+    静默跳过, 绝不拖垮任务调度。
+    """
+    if os.environ.get("VEYA_GOAL_RUN_CODE_REVIEW_ENABLED", "1") == "0":
+        return None
+    try:
+        from server.goal_run.code_review import dual_axis_review
+        from server.goal_run.git_diff import capture_task_diff
+
+        diff_text = capture_task_diff(project_root, before_ref)
+        if not diff_text.strip():
+            return None
+        standards_doc = ""
+        claude_md = Path(project_root) / "CLAUDE.md"
+        if claude_md.is_file():
+            standards_doc = claude_md.read_text(encoding="utf-8")
+        return await dual_axis_review(
+            diff_text=diff_text,
+            task_instruction=task.instruction,
+            acceptance=task.acceptance,
+            standards_doc=standards_doc,
+        )
+    except Exception:
+        logger.exception(
+            "[goal_run %s] dual-axis review failed, skip (advisory, 不影响任务完成)", task.id
+        )
+        return None
+
+
 async def project_run_goal(
     project_root: str,
     goal: str,
@@ -341,6 +373,9 @@ async def _run_loop_and_finalize(
             state.completed_ids.discard(task.id)
 
             # 执行 leaf：复用 project_ask 内部路径
+            from server.goal_run.git_diff import current_head
+
+            before_ref = current_head(project_root)
             leaf_result = await execute_leaf_with_memory(
                 project_root=project_root,
                 instruction=task.instruction,
@@ -369,6 +404,7 @@ async def _run_loop_and_finalize(
                 task.execute_result = leaf_result.summary
                 state.completed_ids.add(task.id)
                 task.artifacts.extend(leaf_result.artifacts)
+                task.review_findings = await _run_dual_axis_review(task, project_root, before_ref)
             else:
                 # 验收失败：重试计数
                 task.retries += 1
