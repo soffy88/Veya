@@ -109,6 +109,10 @@ class GoalRunState:
     # G3 Finalize 产物
     final_summary: str | None = field(default=None)
     artifacts_summary: list[str] = field(default_factory=list)
+    # 计划前置双轴审查(oh-my-openagent orchestration 内化, 见 memory
+    # project_veya_pi_gap_audit): G1 出图后、G2 执行前跑一遍, blocked 时状态
+    # 停在 awaiting_user, 不进 G2。None = 还没审过。
+    plan_review: dict[str, Any] | None = field(default=None)
 
     def to_taskgraph_json(self) -> dict[str, Any]:
         """转为 taskgraph.json 格式（用于落盘/序列化）。"""
@@ -141,6 +145,7 @@ class GoalRunState:
             "default_assignee": self.default_assignee,
             "budget": self.budget,
             "constitution": self.constitution,
+            "plan_review": self.plan_review,
             "tasks": tasks_list,
         }
 
@@ -152,6 +157,7 @@ class GoalRunState:
         state.default_assignee = data.get("default_assignee", "hicode")
         state.budget = data.get("budget", state.budget)
         state.constitution = data.get("constitution", "") or ""
+        state.plan_review = data.get("plan_review")
 
         for td in data.get("tasks", []):
             tn = TaskNode(
