@@ -120,6 +120,47 @@ async def test_head_rewrite_branches_and_keeps_old_nodes(coord, tree):
 
 
 @pytest.mark.asyncio
+async def test_head_rewrite_original_recoverable_via_list_branches(coord, tree):
+    """对标 Maka"事实源不可变"原则的差距审计(见 memory project_veya_pi_gap_audit):
+    Compaction 改写权威源(_histories[sid])后, 被替换掉的原文不是真的没了——
+    还能通过 list_branches() 从镜像树里完整取回。这是验证"数据没真丢"这件事
+    本身, 不是验证镜像写入逻辑(那个 test_head_rewrite_branches_and_keeps_old_nodes
+    已经测过)。
+    """
+    hist = {
+        "s1": [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "turn1"},
+            {"role": "assistant", "content": "reply1"},
+            {"role": "user", "content": "turn2"},
+            {"role": "assistant", "content": "reply2"},
+        ]
+    }
+    coord._agent._histories = hist
+    await coord._persist_history("s1")
+
+    hist["s1"][:] = [
+        {"role": "system", "content": "sys"},
+        {"role": "assistant", "content": "[摘要] turn1/reply1 已压缩"},
+        {"role": "user", "content": "turn2"},
+        {"role": "assistant", "content": "reply2"},
+    ]
+    await coord._persist_history("s1")
+
+    branches = tree.list_branches("s1")
+    assert len(branches) == 2  # 压缩前的完整分支 + 压缩后的当前分支
+
+    contents = [[n.get("content") for n in b] for b in branches]
+    original = next((c for c in contents if "turn1" in c), None)
+    assert original is not None, "压缩前的原文分支应该还在树里能找到"
+    assert "reply1" in original  # 原始逐字内容完整保留, 不是只有摘要
+
+    compacted = next((c for c in contents if "[摘要] turn1/reply1 已压缩" in c), None)
+    assert compacted is not None
+    assert "turn1" not in compacted  # 当前分支确实是压缩后的版本
+
+
+@pytest.mark.asyncio
 async def test_disabled_env_var_skips_mirror(coord, tree):
     coord._session_tree_mirror_enabled = False
     coord._agent._histories = {
