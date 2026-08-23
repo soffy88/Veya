@@ -16,10 +16,10 @@ from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatu
 
 
 class SchedulerDecision(Enum):
-    promote = "promote"      # 有任务可以 promote
-    none = "none"            # 没有就绪任务
-    timeout = "timeout"      # 超时
-    all_done = "all_done"    # 所有任务已完成
+    promote = "promote"  # 有任务可以 promote
+    none = "none"  # 没有就绪任务
+    timeout = "timeout"  # 超时
+    all_done = "all_done"  # 所有任务已完成
 
 
 @dataclass
@@ -58,7 +58,9 @@ class SchedulerState:
             return SchedulerDecision.promote
 
         # 检查是否所有非阻塞任务都已完成
-        pending_count = sum(1 for tn in self.state.tasks.values() if tn.status == TaskStatus.pending)
+        pending_count = sum(
+            1 for tn in self.state.tasks.values() if tn.status == TaskStatus.pending
+        )
         if pending_count == 0 and len(self.state.running_ids) == 0:
             return SchedulerDecision.all_done
 
@@ -87,19 +89,39 @@ def pick_next_tasks(
     - 按准备就绪顺序（或随机/优先级）选任务
     - 更新任务状态为 running
     - 返回被选中的任务列表
+
+    smart-ralph [P] 并行支持(见 memory project_veya_pi_gap_audit)：
+    - 一个批次要么是"恰好一个 parallel=False 任务"，要么是"若干个连续的
+      parallel=True 任务(最多 max_concurrent 个)"——不混批。parallel=False
+      的任务永远独占一个批次, 不会跟任何任务同批, 因为它没有声明"跟别的
+      任务同时跑是安全的"这件事, veya 不替它猜。
+    - 队列按 id 排序保证 FIFO 公平；批次从队头开始取, 遇到跟队头
+      parallel 属性不一致的任务就停(不跳过后面的任务抢跑，避免饿死队头)。
     """
     ready_tasks = [
-        tn for tn_id, tn in state.tasks.items()
+        tn
+        for tn_id, tn in state.tasks.items()
         if tn.status == TaskStatus.ready and tn.id not in running_ids
     ]
 
     if not ready_tasks:
         return []
 
-    # 简单的 FIFO: 按任务 id 排序 (也可按优先级)
     ready_tasks.sort(key=lambda tn: tn.id)
+    head = ready_tasks[0]
 
-    to_run = ready_tasks[:max_concurrent]
+    to_run: List[TaskNode]
+    if not head.parallel:
+        to_run = [head]
+    else:
+        to_run = []
+        for tn in ready_tasks:
+            if not tn.parallel:
+                break
+            to_run.append(tn)
+            if len(to_run) >= max_concurrent:
+                break
+
     for tn in to_run:
         tn.status = TaskStatus.running
         state.running_ids.add(tn.id)

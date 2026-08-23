@@ -17,6 +17,7 @@ from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatu
 
 # ── G0 — Understand 入口 ────────────────────────────────────────────────
 
+
 async def g0_understand(
     goal_text: str,
     memory: str,
@@ -79,6 +80,7 @@ async def g0_understand(
 
 
 # ── G1 — Plan 任务图生成 ─────────────────────────────────────────────────
+
 
 async def g1_plan(
     interpretation: str,
@@ -163,7 +165,8 @@ async def g1_plan(
     goal_md_path.write_text(
         f"# Goal: {goal_text}\n\n"
         f"## Interpretation\n{interpretation}\n\n"
-        f"## Assumptions\n" + "\n".join(f"- {a}" for a in assumptions)
+        f"## Assumptions\n"
+        + "\n".join(f"- {a}" for a in assumptions)
         + f"\n\n## Task Graph\nGenerated at {datetime.now(timezone.utc).isoformat()}",
         encoding="utf-8",
     )
@@ -244,6 +247,17 @@ async def _g1_from_speckit(
         default_assignee=default_assignee,
         budget=budget,
     )
+    # [P] 并行标记(smart-ralph 内化, 见 memory project_veya_pi_gap_audit): 单独
+    # 重读一遍原始 tasks.md 提取标记——不碰 oskill.dag_compiler(3O 主库), 结果
+    # 按任务 id 跟它已经解析出的 findings["tasks"] 对齐, 见
+    # server/goal_run/parallel_markers.py 文件头。
+    from server.goal_run.parallel_markers import extract_parallel_task_ids
+
+    try:
+        tasks_md_text = (root / ".speckit" / "tasks.md").read_text(encoding="utf-8")
+        parallel_ids = extract_parallel_task_ids(tasks_md_text)
+    except OSError:
+        parallel_ids = set()
     for td in findings.get("tasks") or []:
         state.tasks[td["id"]] = TaskNode(
             id=td["id"],
@@ -252,6 +266,7 @@ async def _g1_from_speckit(
             acceptance=td.get("acceptance") or [td["title"]],
             depends_on=td.get("depends_on") or [],
             assignee=td.get("assignee") or default_assignee,
+            parallel=td["id"] in parallel_ids,
         )
     from server.goal_run.store import save_goal_run
 
@@ -290,31 +305,34 @@ def _generate_tasks_rules(
     tasks = []
     # 简单的关键词提取作为演示
     key_verbs = ["实现", "修复", "创建", "分析", "测试", "部署"]
-    
+
     # 解析 interpretation 获取关键指令
     instr = interpretation[:200] if interpretation else ""
-    
+
     # 生成最多 max_leaf_tasks 个任务
     for i in range(min(max_leaf_tasks, 5)):  # 演示最多 5 个任务
-        task_id = f"t{i+1}"
-        title = f"任务 {i+1}: {instr[:30]}..."
-        instruction = f"{instr}（子任务 {i+1}）"
-        acceptance = [f"可观察条件 {i+1}: {task_id} 完成"]
+        task_id = f"t{i + 1}"
+        title = f"任务 {i + 1}: {instr[:30]}..."
+        instruction = f"{instr}（子任务 {i + 1}）"
+        acceptance = [f"可观察条件 {i + 1}: {task_id} 完成"]
         depends_on = [] if i == 0 else [f"t{i}"]
-        
-        tasks.append({
-            "id": task_id,
-            "title": title,
-            "instruction": instruction,
-            "acceptance": acceptance,
-            "depends_on": depends_on,
-            "assignee": default_assignee,
-        })
-    
+
+        tasks.append(
+            {
+                "id": task_id,
+                "title": title,
+                "instruction": instruction,
+                "acceptance": acceptance,
+                "depends_on": depends_on,
+                "assignee": default_assignee,
+            }
+        )
+
     return tasks
 
 
 # ── 辅助：将旧格式 taskgraph 迁移到新模型 ────────────────────────────────
+
 
 async def migrate_old_taskgraph(
     project_root: str,
