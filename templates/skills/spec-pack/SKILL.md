@@ -34,6 +34,12 @@ The `tasks` stage body must use Spec Kit checkbox syntax if you intend to
 `Accept: ...`, indentation implies a parent dependency. `export_speckit`
 validates the DAG before writing and refuses on zero tasks or a cycle.
 
+Optionally mark a task safe to run concurrently with other marked tasks
+(smart-ralph-style, see `server/goal_run/parallel_markers.py`): put `[P]`
+right after the checkbox, before the id — `- [ ] [P] T2: title`. Unmarked
+tasks always run alone; goal_run never guesses which tasks are safe to
+parallelize.
+
 ## Coming from a cleared wayfinder map
 
 `wayfind_to_spec(map_id)` (see `server.wayfinding_tools`) collapses a cleared

@@ -64,6 +64,11 @@ class TaskNode:
     # (没跑/diff为空)。advisory only——不影响 verify 是否 passed, 只是记录下来
     # 供人/下游查看, LLM 判断是假设不是证据。
     review_findings: dict[str, Any] | None = field(default=None)
+    # smart-ralph [P] 并行标记内化(见 memory project_veya_pi_gap_audit): tasks.md
+    # 里显式标 [P] 的任务才会被 scheduler 并发调度, 没标的严格串行——这是任务
+    # 作者(g1_plan/人工写的 tasks.md)的声明, veya 不自己猜哪些任务"看起来"能
+    # 并行(猜错了两个任务同时改同一批文件是真实数据损坏风险)。
+    parallel: bool = field(default=False)
 
     def ready_condition_met(self, completed_ids: set[str]) -> bool:
         """deps 全 completed 则就 ready。空 deps 始终满足。"""
@@ -136,6 +141,7 @@ class GoalRunState:
                     "session_tree_sid": t.session_tree_sid,
                     "session_tree_leaf": t.session_tree_leaf,
                     "review_findings": t.review_findings,
+                    "parallel": t.parallel,
                 }
             )
         return {
@@ -177,6 +183,7 @@ class GoalRunState:
                 session_tree_sid=td.get("session_tree_sid"),
                 session_tree_leaf=td.get("session_tree_leaf"),
                 review_findings=td.get("review_findings"),
+                parallel=bool(td.get("parallel", False)),
             )
             state.tasks[tn.id] = tn
 
