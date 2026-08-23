@@ -24,9 +24,14 @@
                ├─ vision_*（视觉取证 10 工具：glance/ground/detect/crop/trace/
                │  pixel_diff/long_screenshot_ocr/extract_foreground/dominant_colors/
                │  html_screenshot — 2026-08 用户批准新增, 3O 内化 dsh-vision-toolkit）
-               └─ agent_loop_run（2026-08-17 新增: 委托 omodul.AgentLoop 在隔离
-                  会话/工具面里跑一个结构化子任务, 完成后把结果文本带回;
-                  模型自主决定要不要调, 不是第二条主链, 见 §2.5）
+               ├─ agent_loop_run（2026-08-17 新增: 委托 omodul.AgentLoop 在隔离
+               │  会话/工具面里跑一个结构化子任务, 完成后把结果文本带回;
+               │  模型自主决定要不要调, 不是第二条主链, 见 §2.5）
+               └─ harness_performance_query / memory_recall_project_lessons
+                  （2026-08-23 用户批准新增: VAOM P5 只读查询工具, 见
+                  docs/dev/rfc-01-vaom.md/docs/VEYA_3.0_GAP_AUDIT.md——纯只读
+                  无副作用, 数据来自 goal_run 旁路记录的真实累积, 模型自己
+                  判断要不要参考, 程序不替模型决策）
             └─► 模型收尾总结 → SSE → 前端
 ```
 
