@@ -50,6 +50,7 @@ from server.project_understand import (
     force_confirm_ask,
     understand,
 )
+from server.tool_registry import SideEffect
 
 logger = logging.getLogger("veya.project_ask")
 
@@ -93,7 +94,7 @@ def _decide_assignee(request: str, hint: str | None) -> str:
 
 
 def _now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _new_task_id() -> str:
@@ -174,7 +175,7 @@ async def _run_hicode(
             meta={"project_ask": task_id, "force_cli": True},
         )
         rec = await hicode_task_queue.wait(worker_tid)
-    except Exception as exc:  # noqa: BLE001 — 派工/等待异常也要收敛成 blocked, 不裸露给调用方
+    except Exception as exc:
         logger.exception("project_ask hicode 派工异常 %s", task_id)
         (run_dir / "worker.log").write_text(f"dispatch error: {exc}", encoding="utf-8")
         return ProjectAskResponse(
@@ -220,7 +221,7 @@ async def _dsh_exec(bin_path: str, prompt: str, cwd: str, timeout_s: int) -> tup
     )
     try:
         out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         raise
@@ -285,11 +286,11 @@ async def _run_dsh(
 
     try:
         code, out, err = await _dsh_exec(bin_path, prompt, project_root, _DSH_TIMEOUT_S)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         reason = f"dsh timed out after {_DSH_TIMEOUT_S}s"
         (run_dir / "worker.log").write_text(reason, encoding="utf-8")
         return ProjectAskResponse(task_id=task_id, status="blocked", block_reason=reason)
-    except Exception as exc:  # noqa: BLE001 — 派工异常也要收敛成 blocked, 不裸露给调用方
+    except Exception as exc:
         logger.exception("project_ask dsh 派工异常 %s", task_id)
         reason = f"dispatch error: {exc}"
         (run_dir / "worker.log").write_text(reason, encoding="utf-8")
@@ -381,7 +382,7 @@ def _record_decision(
         )
         if parent_task_id:
             cg_mod.graph.add_edge(parent_task_id, "follows_up", task_id)
-    except Exception:  # noqa: BLE001 — 审计失败不阻断主流程
+    except Exception:
         logger.warning("project_ask 决策记录失败 (task %s)", task_id, exc_info=True)
 
 
@@ -684,6 +685,7 @@ def _wire_project_status(master_tools: Any) -> int:
         },
         project_status,
         max_result_chars=2000,
+        side_effect=SideEffect.PURE_READ,
     )
     return 1
 
