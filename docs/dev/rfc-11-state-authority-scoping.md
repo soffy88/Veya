@@ -2,7 +2,9 @@
 
 > 状态：§1-3 是 2026-08-24 当时的评估（阻塞点是"不敢动真实用户数据"）；
 > 用户随后明确"不用考虑之前的数据"，解除了这个阻塞点——§4 记录第二轮实际
-> 执行的范围（只做了会话历史这一项，session_tree/memory 仍未动）。
+> 执行的范围（会话历史）。§5 是第三轮：核实 session_tree 后发现它已经满足
+> "原始事实不可变"（不需要跟着改），memory_store 缺 confidence/invalidate/
+> supersede，补上了。
 
 ## 1. 现状核实
 
@@ -115,3 +117,52 @@ coordinator_master.py`）零改动——它们只调用 `store.save(sid, message
 canonical event 模型、要不要跟 history_store 共享同一个 revision 概念，
 仍然是 §3 问题 2/3 那类需要先谈清楚范围的产品决策，"不用考虑之前的数据"
 解除的是数据迁移这一个具体障碍，不是把这两个的范围也一起授权掉。
+
+## 5. 第三轮：核实 session_tree + 补 memory_store 的 provenance
+
+### 5.1 session_tree：核实后发现不需要改
+
+读 `veya/omodul/session_tree.py::append()`/`branch()`/`_save()` 后发现它
+跟 history_store 当时的问题不一样：`append()` 只往 `tree["nodes"]` 字典里加
+新节点、移动 `leaf` 指针，从不删除/覆盖已有节点；`_save()` 虽然是整棵树整体
+提交（`snapshot_commit`），但因为节点只增不减，每次提交都是前一次的严格超集
+——不会像 history_store 旧版那样因为压缩把早期消息真的从存储里抹掉。
+`tests/test_session_tree_mirror.py` 的现状注释也确认了它本来就只是 history_
+store 的镜像，不是权威源（`docs/ARCHITECTURE_STABLE.md` 冻结决定）。结论：
+这里已经满足"原始事实不可变"，不需要跟着做同样的改造——检查完发现不需要动，
+也是这次核实该有的产出，不是"应该做但没做完"。
+
+### 5.2 memory_store：补 confidence/invalidate/supersede
+
+`veya/oskill/memory_store.py::add_sync()` 原本的"去重"逻辑（同 user 同 text
+已存在 → 只抬 salience、刷新 ts）本身不是信息销毁式的覆盖（内容没变），但
+整个模块确实完全没有计划 §9.4 要的"这条记忆错了/过时了"表达方式——一条记忆
+一旦写入就永远被检索到。补了：
+
+- `confidence`/`scope` 列：写入时可选声明确定性/作用域，缺省 1.0/"user"，
+  不强迫既有调用方（`server/coordinator_master.py` 三处 `_memory_store.add()`
+  调用）改代码。
+- `invalidate_sync()`/`invalidate()`：标记一条记忆不再检索，不物理删除
+  （保留审计轨迹，`include_invalidated=True` 能查到）。
+- `supersede_sync()`/`supersede()`：废弃旧记忆 + 写入替换它的新记忆，新记忆
+  id 回填进旧记忆的 `superseded_by`——查得到"这条记忆是从哪条修正来的"。
+  旧记忆 id 不存在时仍然正常写入新记忆，不因为溯源目标缺失就拒绝修正。
+- `source_event_ids`（计划文档写的复数列表）故意没做，保持现有的单数
+  `source_sid`——现在所有调用方每次只传一个 session id，造一个没人填多值的
+  列表字段是形式主义，等真有多来源合并的场景再加。
+
+外部签名（`add(user_id, kind, text, **kw)`/`retrieve(user_id, query,
+top_k=)`）不变，`server/coordinator_master.py` 的三处调用点零改动。
+
+### 5.3 验证
+
+- `tests/test_memory_store_provenance.py`（新增，7 项）：直接对真实
+  `SqliteMemoryStore`（`tmp_path` 独立 db）验证——去重触达不误改 confidence/
+  created_at、invalidate 后默认视图看不到但行还在、supersede 正确建立溯源
+  指针且检索结果切换到新记忆、supersede 目标缺失时仍正常写入、async 包装
+  往返正确。全部通过。
+- `tests/test_coordinator_safety.py` + `tests/test_coordinator_cognitive.py`
+  （27 项）：零回归。
+- `ruff check` 干净；`mypy --follow-imports=skip veya/oskill/memory_store.py`
+  0 错误（含顺手修的 4 处既有 `no-any-return`，都在这次touch 到的方法里，
+  不是到别的文件里翻旧账）。
