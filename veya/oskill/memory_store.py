@@ -6,6 +6,17 @@
 存储: `~/.veya/memory/memory.db` (SQLite, veya-data 卷)。
 检索: 默认**零依赖** 关键词重叠 + recency + salience 打分 (无需 numpy/embedding);
       未来可注入 embedder / 复用 stratum 做语义检索 (见 CONTEXT_MEMORY_DESIGN.md P4)。
+
+2026-08-24 (docs/dev/rfc-11-state-authority-scoping.md §9.4, "不能把模型总结
+直接视为事实"): 补 confidence/scope/created_at + invalidate/supersede——之前
+一条记忆一旦写入就永远被检索到, 没有"这条记忆错了/过时了"的表达方式。新增:
+- confidence: 写入时可选声明"这条提炼有多确定", 缺省 1.0(向后兼容, 不强迫
+  调用方填)。
+- invalidate_sync(): 标记一条记忆不再检索, 不物理删除(保留审计轨迹)。
+- supersede_sync(): invalidate 旧记忆 + 写入替换它的新记忆, 新记忆继承旧记忆
+  id 作为溯源指针——查得到"这条记忆是从哪条记忆修正来的"。
+source_sid 故意保持单数(不是计划文档写的 source_event_ids 复数列表)——现在
+所有调用方每次只传一个 session id, 造一个没人填多值的列表字段是形式主义。
 """
 
 from __future__ import annotations
@@ -59,7 +70,12 @@ class SqliteMemoryStore:
                 "  text TEXT NOT NULL,"
                 "  salience REAL NOT NULL,"
                 "  source_sid TEXT,"
-                "  ts INTEGER NOT NULL"
+                "  confidence REAL NOT NULL DEFAULT 1.0,"
+                "  scope TEXT NOT NULL DEFAULT 'user',"
+                "  created_at INTEGER NOT NULL,"
+                "  invalidated INTEGER NOT NULL DEFAULT 0,"
+                "  superseded_by TEXT,"
+                "  ts INTEGER NOT NULL"  # 最近一次写入/去重触达时间 (即 last_verified_at)
                 ")"
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_mem_user ON memories(user_id)")
@@ -73,14 +89,17 @@ class SqliteMemoryStore:
         *,
         salience: float = 0.5,
         source_sid: str | None = None,
+        confidence: float = 1.0,
+        scope: str = "user",
     ) -> str:
         text = (text or "").strip()
         if not text:
             return ""
         with self._lock, self._connect() as conn:
-            # 去重: 同 user 同 text 已存在 → 抬 salience + 刷新 ts, 不新增
+            # 去重: 同 user 同 text 已存在 → 抬 salience + 刷新 ts(=再次被印证), 不新增,
+            # 不动 confidence/created_at(去重触达不是"重新评估确定性"或"重新创建")。
             row = conn.execute(
-                "SELECT id, salience FROM memories WHERE user_id=? AND text=?",
+                "SELECT id, salience FROM memories WHERE user_id=? AND text=? AND invalidated=0",
                 (user_id, text),
             ).fetchone()
             now = int(time.time())
@@ -90,21 +109,78 @@ class SqliteMemoryStore:
                     "UPDATE memories SET salience=?, ts=? WHERE id=?",
                     (min(1.0, float(old) + 0.1), now, mid),
                 )
-                return mid
+                return str(mid)
             mid = uuid.uuid4().hex
             conn.execute(
-                "INSERT INTO memories (id, user_id, kind, text, salience, source_sid, ts)"
-                " VALUES (?,?,?,?,?,?,?)",
-                (mid, user_id, kind, text, float(salience), source_sid, now),
+                "INSERT INTO memories"
+                " (id, user_id, kind, text, salience, source_sid, confidence, scope, created_at, ts)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    mid,
+                    user_id,
+                    kind,
+                    text,
+                    float(salience),
+                    source_sid,
+                    float(confidence),
+                    scope,
+                    now,
+                    now,
+                ),
             )
             return mid
 
-    def all_for_user_sync(self, user_id: str) -> list[dict[str, Any]]:
+    def invalidate_sync(self, memory_id: str) -> bool:
+        """标记一条记忆不再检索(不物理删除, 保留审计轨迹)。返回是否真的改动了一行。"""
         with self._lock, self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id, kind, text, salience, source_sid, ts FROM memories WHERE user_id=?",
-                (user_id,),
-            ).fetchall()
+            cur = conn.execute(
+                "UPDATE memories SET invalidated=1 WHERE id=? AND invalidated=0", (memory_id,)
+            )
+            return cur.rowcount > 0
+
+    def supersede_sync(
+        self,
+        old_id: str,
+        user_id: str,
+        kind: str,
+        text: str,
+        *,
+        salience: float = 0.5,
+        source_sid: str | None = None,
+        confidence: float = 1.0,
+        scope: str = "user",
+    ) -> str:
+        """废弃 old_id、写入替换它的新记忆, 新记忆 id 回填进 old_id 的
+        superseded_by(溯源: 能查到"这条记忆是从哪条修正来的")。old_id 不存在
+        或已经废弃时仍然正常写入新记忆(不因为溯源目标缺失就拒绝修正)。"""
+        new_id = self.add_sync(
+            user_id,
+            kind,
+            text,
+            salience=salience,
+            source_sid=source_sid,
+            confidence=confidence,
+            scope=scope,
+        )
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "UPDATE memories SET invalidated=1, superseded_by=? WHERE id=? AND invalidated=0",
+                (new_id, old_id),
+            )
+        return new_id
+
+    def all_for_user_sync(
+        self, user_id: str, *, include_invalidated: bool = False
+    ) -> list[dict[str, Any]]:
+        query = (
+            "SELECT id, kind, text, salience, source_sid, confidence, scope,"
+            " created_at, ts, invalidated, superseded_by FROM memories WHERE user_id=?"
+        )
+        params: list[Any] = [user_id]
+        if not include_invalidated:
+            query += " AND invalidated=0"
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
         return [
             {
                 "id": r[0],
@@ -112,13 +188,20 @@ class SqliteMemoryStore:
                 "text": r[2],
                 "salience": r[3],
                 "source_sid": r[4],
-                "ts": r[5],
+                "confidence": r[5],
+                "scope": r[6],
+                "created_at": r[7],
+                "ts": r[8],
+                "last_verified_at": r[8],
+                "invalidated": bool(r[9]),
+                "superseded_by": r[10],
             }
             for r in rows
         ]
 
     def retrieve_sync(self, user_id: str, query: str, *, top_k: int = 5) -> list[dict[str, Any]]:
-        """关键词重叠 + recency + salience 加权; 无 embedding 依赖。"""
+        """关键词重叠 + recency + salience 加权; 无 embedding 依赖。已废弃
+        (invalidate/supersede 过)的记忆不参与检索——all_for_user_sync 默认过滤。"""
         mems = self.all_for_user_sync(user_id)
         if not mems:
             return []
@@ -139,10 +222,29 @@ class SqliteMemoryStore:
 
     # ── async wrappers ───────────────────────────────────────────────
     async def add(self, user_id: str, kind: str, text: str, **kw: Any) -> str:
-        return await run_sync_in_daemon_thread(self.add_sync, user_id, kind, text, **kw)
+        return str(await run_sync_in_daemon_thread(self.add_sync, user_id, kind, text, **kw))
 
     async def retrieve(self, user_id: str, query: str, *, top_k: int = 5) -> list[dict[str, Any]]:
-        return await run_sync_in_daemon_thread(self.retrieve_sync, user_id, query, top_k=top_k)
+        return list(
+            await run_sync_in_daemon_thread(self.retrieve_sync, user_id, query, top_k=top_k)
+        )
+
+    async def invalidate(self, memory_id: str) -> bool:
+        return bool(await run_sync_in_daemon_thread(self.invalidate_sync, memory_id))
+
+    async def supersede(self, old_id: str, user_id: str, kind: str, text: str, **kw: Any) -> str:
+        return str(
+            await run_sync_in_daemon_thread(self.supersede_sync, old_id, user_id, kind, text, **kw)
+        )
+
+    async def all_for_user(
+        self, user_id: str, *, include_invalidated: bool = False
+    ) -> list[dict[str, Any]]:
+        return list(
+            await run_sync_in_daemon_thread(
+                self.all_for_user_sync, user_id, include_invalidated=include_invalidated
+            )
+        )
 
 
 _default_store: SqliteMemoryStore | None = None
