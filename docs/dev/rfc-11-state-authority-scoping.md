@@ -1,7 +1,8 @@
 # RFC-11: PR-07 State Authority — 决策：这次不动代码
 
-> 状态：范围评估，不执行任何代码改动（2026-08-24）
-> 依据：docs/VEYA_10_OF_10_PLAN.md §9（State / Session / Memory 做到 10/10）
+> 状态：§1-3 是 2026-08-24 当时的评估（阻塞点是"不敢动真实用户数据"）；
+> 用户随后明确"不用考虑之前的数据"，解除了这个阻塞点——§4 记录第二轮实际
+> 执行的范围（只做了会话历史这一项，session_tree/memory 仍未动）。
 
 ## 1. 现状核实
 
@@ -45,3 +46,72 @@ PR-07 跟这次会话做过的所有其他事在性质上不一样：
 
 这几个问题没有唯一正确答案，是产品/工程权衡，回答清楚之后才适合再开一轮
 "PR-07 落地"。
+
+## 4. 第二轮：用户明确"不用考虑之前的数据"后实际做的
+
+§3 的三个问题里，第 1 个（数据迁移方案）被用户直接解除——不用考虑之前的数据，
+不需要迁移方案。这不代表第 2/3 个问题也一起解除，所以范围仍然收窄：**只改了
+`veya/oservi/history_store.py`（会话历史），`session_tree`/`memory_store`
+这次没动**——§3 问题 3（`veya_loop` 要不要纳入）跟问题 2（一次切换 vs 新旧
+并存）本质都还是"这套模式要推广到多大范围"的产品决策，用户这句话解除的只是
+"数据"这一个具体障碍，不是把整个 PR-07 的范围都交给我判断，混为一谈会是我
+自己过度解读授权范围。
+
+### 4.1 实际改动
+
+`SqliteHistoryStore`（`turns` 表）从"`save()` = DELETE 整个 session 再
+INSERT"改成"`save()` = INSERT 一条新的不可变修订（revision 单调递增，永不
+删除/覆盖旧行）"：
+
+- `load_sync()`：外部行为完全不变——仍是"读这个 session 当前应该看到的消息
+  列表"，内部改成读最新一条 revision。
+- `save_sync()`：外部签名不变，内部从覆盖改成追加。
+- 新增 `replay_sync()`/`replay()`：读完整的不可变修订序列（`[{"revision",
+  "messages", "ts"}, ...]`），这是新增的能力，之前没有任何方式能看到"这个
+  session 历史上某次 checkpoint 的样子"，只能看到最新状态。
+- `list_sessions_sync()`：从"按行聚合"（旧 schema 一行一条消息）改成"每个
+  session 只取最新一条 revision"（窗口函数），因为新 schema 一行是一次
+  save() 的完整快照，聚合口径必须跟着变，否则 `msg_count` 会算成历史修订
+  总数而不是当前消息数。
+
+`MasterCoordinator._persist_history`/`_restore_history`（`server/
+coordinator_master.py`）零改动——它们只调用 `store.save(sid, messages)`/
+`store.load(sid)`，这两个方法的外部契约完全没变，所以调用方不用跟着改，这是
+故意这样设计的（§2 提到的"每一个读这几个存储的调用点都要跟着换读法"这个风险
+被这个设计规避掉了，不是靠"不用考虑数据"解决的，是靠保持外部 API 形状不变
+解决的）。
+
+### 4.2 已知取舍：没做修订保留策略
+
+`save()` 不再删除旧数据，意味着长会话频繁 checkpoint
+（`VEYA_CHECKPOINT_INTERVAL_S`）会让同一 session 的行数持续增长。没有做
+"只保留最近 N 条 + 归档更早的"这类保留策略——现在不知道合适的保留窗口该多大，
+这个数字应该等真实用量数据出来后再定，硬猜一个比不设限更容易做错决定（见文件
+头注释）。这是记录下来的已知 gap，不是遗漏。
+
+### 4.3 验证
+
+- `tests/test_history_store_async.py`：新增 2 条直接测试不可变性——
+  `test_save_is_append_only_old_revisions_survive`（save 三次，验证 `load()`
+  只看到最新一条，但 `replay()` 三条修订都还在且顺序正确）、
+  `test_replay_respects_limit_and_session_isolation`。原有 2 条并发/WAL 测试
+  （其中一条直接对 `turns` 表跑原始 SQL）全部不改代码就通过——证明表名/关键
+  列名兼容，SQLite WAL 并发语义没被破坏。全量 4/4 通过。
+- 间接依赖 history_store 的集成测试：`test_master_checkpoint_resume.py` +
+  `test_coordinator_safety.py` + `test_resume_idempotent.py` +
+  `test_session_tree_mirror.py` + `test_legacy_agent_sessions_sync.py` +
+  `test_omodul_core.py`（78 项）+ `test_coordinator_cognitive.py` +
+  `test_g13_resume.py` + `test_g7_e2e.py` + `test_checkpoint_isolation.py`
+  （34 项）全部通过，合计 112 项零回归——包括真实走 `MasterCoordinator`
+  checkpoint/resume 全链路的测试，不只是 history_store 自身的单测。
+- `mypy --follow-imports=skip veya/oservi/history_store.py`：只剩一处
+  pre-existing（`_uid()` 的 `no-any-return`，这次没碰的代码）；`ruff check`
+  干净。
+
+### 4.4 仍然没做的（保持 §3 的范围判断）
+
+`session_tree`（`veya/omodul/session_tree.py`）和 `memory_store` 要不要
+同样从"覆盖式"改成"追加不可变修订"，没有跟着做——这两个是否要统一进同一套
+canonical event 模型、要不要跟 history_store 共享同一个 revision 概念，
+仍然是 §3 问题 2/3 那类需要先谈清楚范围的产品决策，"不用考虑之前的数据"
+解除的是数据迁移这一个具体障碍，不是把这两个的范围也一起授权掉。
