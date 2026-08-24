@@ -3,6 +3,10 @@ name = "veya"
 version = "0.6.0"
 description = "veya — AI 编码 agent layer4 实现"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
