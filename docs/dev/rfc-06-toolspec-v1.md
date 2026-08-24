@@ -1,8 +1,8 @@
 # RFC-06: ToolSpec/ToolResult v1 — 落地可行性评估
 
-> 状态：evaluation only（2026-08-24，未写代码，未改变 tool_registry.py 运行行为）
+> 状态：§3 的最小步骤已落地（2026-08-24 第二轮）；见下方「6. 落地记录」
 > 依据：docs/VEYA_10_OF_10_PLAN.md §7（Tool 系统做到 10/10）
-> 范围：这次只回答"现状是什么、v1 该长什么样、第一步该多小"，不做实际迁移。
+> 范围：§1-5 是原始评估（不做实际迁移的判断），§6 是后续真正执行的记录。
 
 ## 1. 目的
 
@@ -67,3 +67,31 @@
 （见 CI 新增的 `Run mypy (current chat kernel)` 步骤），后续给 `register()` 加
 `side_effect` 参数、给 21 个只读工具补标注时，应该复用同一条 `--follow-imports=skip`
 检查通道，不需要新开检查项。
+
+## 6. 落地记录（2026-08-24 第二轮，§3 方案按原计划执行）
+
+- `server/tool_registry.py` 新增 `SideEffect`(枚举, 只启用 `PURE_READ`, 其余五档占位)
+  和 `ToolSpec`(冻结 dataclass, 目前只有 `name`/`side_effect` 两个字段)。
+- `register()` 新增可选 `side_effect: SideEffect | None = None`；新增
+  `spec_for(name) -> ToolSpec | None` 查询入口；`unregister()` 同步清理。
+  纯附加——并发判断仍然只读 `_parallel_safe`，两者暂不合并。
+- **实际标注了 21 个白名单只读工具里的 15 个**：`fetch_url`/`read_hashline`/
+  `runtime_calls_query`/`ast_grep_search`/`read_file_ast`/`grep`/`list_files`/
+  `search_genesis_ledger`/`get_market_data_schema`/`system_quota_should_run`/
+  `system_gate_check`/`system_terminal_gate_check`/`system_boundary_scan`（都在
+  `tool_registry.py` 内直接 `register()`）+ `decision_query`/`graph_query`（走
+  `dict(...)` 批量注册循环，顺带给这条循环的 `mt.register(...)` 调用补了
+  `side_effect=spec.get("side_effect")` 转发，否则字段会被静默吞掉）。
+- **剩下 6 个没标注**：`assemble_code_context`（`server/graft_autocontext.py`）、
+  `project_status`（`server/project_ask.py`）、`plan_status`
+  （`server/plan_todo.py`）、`hicode_status`/`hicode_sessions`/`hicode_tasks`
+  （`server/hicode_agent.py`）——注册点在别的文件, 这轮没跨文件展开, 不是漏了
+  忘标, 是范围没扩大。这些文件要标注时直接照抄同样的 `side_effect=
+  SideEffect.PURE_READ` 参数即可，不需要新设计。
+- 验证：`tests/test_master_tools.py` 新增两条——`test_registry_tool_spec_side_effect`
+  （独立 registry 单测：标注/未标注/未注册/unregister 后清理四种状态）、
+  `test_side_effect_pure_read_matches_parallel_safe_whitelist`（对全局
+  `master_tools` 做子集断言：所有标了 `PURE_READ` 的工具都在
+  `_PARALLEL_SAFE_TOOLS` 里——断言子集不是相等，因为这轮只标了 15/21）。
+  `tests/test_master_tools.py` 全量 30 项通过；`--follow-imports=skip` 模式下
+  `coordinator_master.py`/`tool_registry.py` mypy 仍 0 错误。

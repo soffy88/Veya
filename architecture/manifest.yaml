@@ -4,6 +4,10 @@
 # 目前只做只读报告（见 scripts/check_architecture_manifest.py），forbidden_imports 留空——
 # server.coordinator 仍被 4 个真实路由引用，现在就 hard-fail 会拉红生产路径；先如实记录，
 # 迁移完成后再收紧（对应计划里的 PR-03/PR-04）。
+#
+# server.coordinator 退役背景的完整叙事（为什么 flow.py 不能直接收编、历次复核记录）见
+# docs/graveyard.md「意图分类 + DAG 分解」条目——这份文件只记当前事实快照，不重复叙事,
+# 避免两份文档各说各话。
 
 kernel:
   # 唯一权威聊天主链入口：MasterCoordinator，委托 3O oservi.MasterAgent。

@@ -21,6 +21,8 @@ import os
 import re
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +85,30 @@ _current_master_session: contextvars.ContextVar[str | None] = contextvars.Contex
 
 # 会话 id → 该会话已解锁工具名集合 (模块级, 全局可见; chat_stream 收尾清理)。
 _session_unlocked: dict[str, set[str]] = {}
+
+
+# ================= ToolSpec v1 (docs/dev/rfc-06-toolspec-v1.md 最小步骤) ====
+# 增量元数据, 只启用 side_effect 一个维度 (risk/idempotency 先占位, §7.1 全量字段
+# 要等真有判断逻辑要读它们时再填, 现在填了也没人用, 是形式主义)。纯附加信息 —
+# 不参与任何执行时判断: 并发与否仍读 _parallel_safe 集合 (下面), 这里只是把已经
+# 做过的判断显式标注出来, 不改变一行运行行为。
+class SideEffect(Enum):
+    """docs/VEYA_10_OF_10_PLAN.md §7.2 的六档分类。目前只有 PURE_READ 被实际标注过
+    (2026-08-24)；其余档位先占位, 避免以后要扩展枚举还要动一次这里。"""
+
+    PURE_READ = "pure_read"
+    LOCAL_WRITE = "local_write"
+    PROCESS_EXEC = "process_exec"
+    NETWORK_WRITE = "network_write"
+    EXTERNAL_MUTATION = "external_mutation"
+    PRIVILEGED = "privileged"
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    side_effect: SideEffect | None = None
+
 
 # ================= 并发安全工具 (多工具并行执行白名单) ======================
 # 2026-08-17: 主链 ReAct 一轮可能返回多个 tool_call。默认逐个顺序执行；这份
@@ -384,6 +410,8 @@ class MasterToolRegistry:
         # 并发安全工具集: 模块级白名单 + 注册时显式 opt-in。主库循环据此决定
         # 一批 tool_call 能否并发 (整批都在集内才并发, 否则顺序)。
         self._parallel_safe: set[str] = set(_PARALLEL_SAFE_TOOLS)
+        # ToolSpec v1 (rfc-06): 纯附加元数据, 不参与上面 _parallel_safe 的判断。
+        self._tool_specs: dict[str, ToolSpec] = {}
 
     # ── 注册 ─────────────────────────────────────────────────────────
     def register(
@@ -396,6 +424,7 @@ class MasterToolRegistry:
         max_result_chars: int = 8000,
         timeout_s: float | None = None,
         parallel_safe: bool | None = None,
+        side_effect: SideEffect | None = None,
     ) -> None:
         """注册一个能力,使其对大模型可见。
 
@@ -408,6 +437,8 @@ class MasterToolRegistry:
             timeout_s: 此工具的可选超时秒数；未配置时继承 registry/env，0 表示不设限。
             parallel_safe: 显式声明此工具纯只读/无副作用可与同批工具并发执行；
                 缺省 None 时按模块级 _PARALLEL_SAFE_TOOLS 白名单判定 (默认不并发)。
+            side_effect: ToolSpec v1 附加标注(rfc-06), 目前只是记录用, 不参与
+                parallel_safe 判断 — 两者暂时独立, 待后续验证等价后再考虑合并。
         """
         if not name or not callable(func):
             raise ValueError("register requires a non-empty tool name and a callable")
@@ -424,6 +455,7 @@ class MasterToolRegistry:
         self._validators[name] = validator
         self._descriptions[name] = description
         self._result_limits[name] = max_result_chars
+        self._tool_specs[name] = ToolSpec(name=name, side_effect=side_effect)
         if timeout_s is not None:
             self._tool_timeouts[name] = parse_optional_timeout(
                 timeout_s, source=f"Tool '{name}' timeout_s"
@@ -443,6 +475,10 @@ class MasterToolRegistry:
             }
         )
 
+    def spec_for(self, name: str) -> ToolSpec | None:
+        """ToolSpec v1 (rfc-06) 查询入口, 未注册/未标注 side_effect 均返回对应默认值。"""
+        return self._tool_specs.get(name)
+
     def unregister(self, name: str) -> None:
         if name in self._functions:
             del self._functions[name]
@@ -451,6 +487,7 @@ class MasterToolRegistry:
             self._result_limits.pop(name, None)
             self._tool_timeouts.pop(name, None)
             self._parallel_safe.discard(name)
+            self._tool_specs.pop(name, None)
             self._schemas = [s for s in self._schemas if s["function"]["name"] != name]
 
     # ── 查询 ─────────────────────────────────────────────────────────
@@ -1223,6 +1260,7 @@ master_tools.register(
     },
     func=_tool_fetch_url,
     max_result_chars=16000,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1311,6 +1349,7 @@ master_tools.register(
         "required": ["filepath"],
     },
     func=_tool_read_hashline,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1380,6 +1419,7 @@ master_tools.register(
         "required": ["symbol"],
     },
     func=_tool_runtime_calls_query,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1426,6 +1466,7 @@ master_tools.register(
         "required": ["pattern"],
     },
     func=_tool_ast_grep_search,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1465,6 +1506,7 @@ master_tools.register(
         "required": ["filepath"],
     },
     func=_tool_read_file_ast,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1483,6 +1525,7 @@ master_tools.register(
         "required": ["pattern"],
     },
     func=_tool_grep,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1498,6 +1541,7 @@ master_tools.register(
         },
     },
     func=_tool_list_files,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1537,6 +1581,7 @@ master_tools.register(
         "required": ["query"],
     },
     func=_tool_search_genesis_ledger,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1554,6 +1599,7 @@ master_tools.register(
         "required": ["asset_id"],
     },
     func=_tool_get_market_data_schema,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1606,6 +1652,7 @@ master_tools.register(
         },
     },
     func=quota_should_run,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1650,6 +1697,7 @@ master_tools.register(
         "required": ["plan_id", "gate_scope"],
     },
     func=gate_check,
+    side_effect=SideEffect.PURE_READ,
 )
 
 # ================= 状态内核 Phase 2+3 (Spend / Terminal Gate / 边界扫描) ====
@@ -1702,6 +1750,7 @@ master_tools.register(
         "required": ["action"],
     },
     func=terminal_gate_check,
+    side_effect=SideEffect.PURE_READ,
 )
 
 master_tools.register(
@@ -1718,6 +1767,7 @@ master_tools.register(
         },
     },
     func=boundary_scan,
+    side_effect=SideEffect.PURE_READ,
 )
 
 # ================= 3O Wayfinding + StatefulProcedure ======================
@@ -2906,6 +2956,7 @@ def _register_internalized_tools(mt: Any) -> None:
             },
             func=_decision_query,
             max_result_chars=6000,
+            side_effect=SideEffect.PURE_READ,
         ),
         dict(
             name="graph_store",
@@ -2948,6 +2999,7 @@ def _register_internalized_tools(mt: Any) -> None:
             },
             func=_graph_query,
             max_result_chars=8000,
+            side_effect=SideEffect.PURE_READ,
         ),
         dict(
             name="agent_loop_run",
@@ -2991,6 +3043,7 @@ def _register_internalized_tools(mt: Any) -> None:
                 parameters=spec["parameters"],
                 func=spec["func"],
                 max_result_chars=spec.get("max_result_chars", 4000),
+                side_effect=spec.get("side_effect"),
             )
 
 
