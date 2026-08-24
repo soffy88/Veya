@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -171,7 +172,7 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     return await _real_llm_call(messages, **kwargs)
 
 
-async def llm_stream(messages: list[dict], **kwargs: Any):
+async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]:
     """Streaming chat completion via the canonical LLM layer."""
     from veya.obase.llm import llm_stream as _real_llm_stream
 
@@ -427,14 +428,14 @@ async def init_project(config: dict, **kwargs: Any) -> dict:
 
 
 def retry_with_backoff(
-    func,
-    *args,
+    func: Any,
+    *args: Any,
     max_attempts: int = 3,
     base_delay: float = 0.1,
     max_delay: float = 30.0,
     retryable: tuple = (ConnectionError,),
     **kwargs: Any,
-):
+) -> Any:
     """
     Retry wrapper for async/sync callables with *args/**kwargs.
 
@@ -448,7 +449,7 @@ def retry_with_backoff(
     import random
     import time
 
-    async def _run():
+    async def _run() -> Any:
         last_exc: BaseException | None = None
         for attempt in range(max_attempts):
             try:

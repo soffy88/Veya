@@ -1,0 +1,53 @@
+name: Security Nightly
+
+# docs/VEYA_10_OF_10_PLAN.md §23 Sandbox/Permission「security nightly」。
+# push/PR 触发的 supply-chain job(ci.yml)只在代码变更时抓漏洞——新披露的 CVE
+# 不会自己触发新的 PR, 需要一条不依赖代码变更的定时检查, 否则"依赖没变但漏洞库
+# 更新了"这类情况永远不会被 CI 发现。这里额外把安全相关测试子集(sandbox/
+# adversarial/fault-injection)一起复跑, 顺带覆盖"环境漂移"(比如系统 Python
+# 补丁更新导致行为变化), 不只是代码变更。
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # 每天 UTC 03:17(错峰, 不跟整点批量任务抢资源)
+  workflow_dispatch:
+
+jobs:
+  security-nightly:
+    name: Vulnerability scan + security regression subset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package + security tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pip-audit pytest pytest-asyncio
+
+      - name: pip-audit (vulnerability gate)
+        run: python -m pip_audit
+
+      - name: Security-relevant regression subset
+        # tests/guardians/test_3o_migration_guards.py 不在这份子集里——它在
+        # main 分支当前就是红的(pre-existing baseline 漂移, 见其断言里的
+        # "115 处新增直接 I/O", 跟本次改动无关), 塞进一条本该"红了就要立刻
+        # 处理"的 nightly 只会让人学会忽略它, 不提供信号。
+        run: |
+          pytest -q --no-header \
+            tests/test_hosted_sandbox.py \
+            tests/test_sandbox_cmd_normalize.py \
+            tests/test_adversarial_chamber.py \
+            tests/test_fault_injection.py \
+            tests/guardians/test_single_source.py
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Security nightly 失败——新披露的 CVE 或安全回归, 需要人工确认"

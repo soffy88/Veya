@@ -27,6 +27,7 @@ from veya.omodul.agent_loop import AgentLoop, LoopResult
 from veya.omodul.session_tree import SessionTreeMgr
 from veya.omodul.tool_pipeline import ToolPipeline
 from veya.oprim.daemon import daemon_bind
+from veya.oprim.event import emit_event
 
 # 中继关注的 agent_loop 事件 topic（事件 payload 需带 session_id）
 _RELAY_TOPICS: tuple[str, ...] = (
@@ -101,6 +102,7 @@ class DaemonEngine:
     def register_tool(self, name: str, fn: Callable[..., Any], schema: dict | None = None) -> None:
         """注册共享工具（所有任务实例的 pipeline 继承）。"""
         self._tool_specs[name] = (fn, schema)
+
     # ------------------------------------------------------------------ 生命周期
 
     async def start(self) -> None:
@@ -136,7 +138,9 @@ class DaemonEngine:
         state = TaskState(task_id=task_id, user_input=user_input)
         self._tasks[task_id] = state
         # 预建会话（事件中继按 session_id 分发 + HITL 输入注入需要）
-        state.session_id = session_id or self._tree.create_session(system=self._system_prompt or None)
+        state.session_id = session_id or self._tree.create_session(
+            system=self._system_prompt or None
+        )
 
         pipeline = self._pipeline_factory()
         for name, (fn, schema) in self._tool_specs.items():
