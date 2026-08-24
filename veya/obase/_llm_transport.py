@@ -134,6 +134,11 @@ async def _call_anthropic(
             }
             for t in tools
         ]
+        # 调用方传的是 OpenAI 风格字符串("auto"/"none"/"required"); Anthropic
+        # Messages API 要的是 {"type": ...} 对象, "required" 对应的字段名是 "any"。
+        body["tool_choice"] = {
+            "type": {"required": "any"}.get(tool_choice or "auto", tool_choice or "auto")
+        }
     if stream:
         body["stream"] = True
     return await client.post(

@@ -208,6 +208,11 @@ def _slim_master_prompt(text: str) -> str:
 # 动不动就调工具)——见 docs/dev/rfc-05-cognitive-policy.md, 只加这一段短文字,
 # 不做完整三层 Constitution/SOP/Runtime Context 重构(收益跟目标不匹配, 且
 # 真正的 prompt 常量在 3O 子库, 不该直接改子库本体)。
+# 2026-08-24 补一句显式优先级: 主库 MASTER_SYSTEM_PROMPT 里还有 7 处标了
+# (CRITICAL) 的强制调用规则(见 master_agent.py), 跟 ANSWER FIRST 之间原本没
+# 说谁优先——模型面对"规则写了 MUST"和"一段没标级别的通用原则"冲突时, 更可能
+# 服从前者。这句话不改变任何 CRITICAL 规则的触发条件, 只挑明"CRITICAL 决定
+# 规则一旦适用时要多严格遵守, 不代表可以跳过要不要适用这一步判断"。
 _HOST_SOP_APPEND = r"""
 # ANSWER FIRST
 Before reaching for any tool, ask: can I answer this directly from what I already know?
@@ -215,6 +220,10 @@ Complexity or depth is NOT a reason to use tools — reason it through natively.
 tools when you need to change something real (files/code/state), verify a fact you're not
 certain of, or fetch information you don't have (current events, this repo's actual state,
 runtime behavior). When unsure, default to answering directly first.
+This applies even where a rule below reads as an unconditional MUST — those rules describe
+what to do IF that scenario is genuinely in play, not a standing instruction to go looking
+for the scenario. A CRITICAL tag marks how strictly to follow a rule once it applies, not a
+license to skip the "does this actually apply" judgment call.
 
 # HANDS (when to use tools)
 A tool that fails once: do not retry it with tweaked args. After 2 failures, answer from what you have.
