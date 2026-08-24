@@ -16,6 +16,7 @@ project_veya_pi_gap_audit)。
 
 from __future__ import annotations
 
+import statistics
 from typing import Any
 
 from veya.platform import oskill as _load_oskill
@@ -24,12 +25,15 @@ _load_oskill()
 from oskill.eval_suite import EvalCase, EvalRun, compare_runs, run_suite  # noqa: E402
 
 __all__ = [
+    "AGENT_EVAL_CASES",
     "EvalCase",
     "EvalRun",
+    "category_breakdown",
     "compare_runs",
-    "AGENT_EVAL_CASES",
-    "run_agent_eval_suite",
+    "cost_per_case",
     "eval_run_to_dict",
+    "run_agent_eval_suite",
+    "unnecessary_tool_rate",
 ]
 
 # 用例覆盖三种代表性场景: 直接回答 / 工具成功 / 工具失败后恢复
@@ -40,51 +44,64 @@ __all__ = [
 # 的原始场景例句, 不是另外发明的用例。§38.6(worker claim 语义) 不在这里测:
 # 那是"结果怎么被对待"的语义问题, 不是"调不调工具"的次数问题, 这个打分器的
 # max/min_tool_calls + tool 断言机制回答不了那类问题。
+# meta.category 按 docs/VEYA_10_OF_10_PLAN.md §16 的分类打标(2026-08-24, rfc-09)。
+# 这是诚实分类既有用例, 不是新写用例——8 条里 7 条落在 tool_selection, 只有
+# 1 条 recovery、1 条 delegation, coding/research/long_task/safety/context
+# 五个类目目前零覆盖。故意不为了"看起来分布均匀"去凑新用例, 缺口就是缺口,
+# 记在 rfc-09 里, 不用假用例填。
 AGENT_EVAL_CASES: list[EvalCase] = [
     EvalCase(
         id="direct_answer",
         input="你好,你是谁?",
         expected={"max_tool_calls": 0},
+        meta={"category": "tool_selection"},
     ),
     EvalCase(
         id="tool_success",
         input="列出当前目录文件",
         expected={"tool": "list_files", "tool_status": "success"},
+        meta={"category": "tool_selection"},
     ),
     EvalCase(
         id="tool_failure_recovery",
         input="看看 missing_file_xyz.py 里有什么",
         expected={"tool": "read_file_ast"},
+        meta={"category": "recovery"},
     ),
     # §38.1 Stable Knowledge: 稳定知识类问题不该调任何工具。
     EvalCase(
         id="stable_knowledge_no_tools",
         input="什么是闭包？",
         expected={"max_tool_calls": 0},
+        meta={"category": "tool_selection"},
     ),
     # §38.2 Complex Reasoning: 问题"难"不是调工具的理由, 该直接推理。
     EvalCase(
         id="complex_reasoning_no_tools",
         input="从认识论、语言哲学和认知科学三个角度分析 self-talk。",
         expected={"max_tool_calls": 0},
+        meta={"category": "tool_selection"},
     ),
     # §38.3 Actual Repository State: 涉及仓库真实状态, 该先查再答, 不能凭猜测。
     EvalCase(
         id="repo_state_needs_inspection",
         input="Veya 当前 Python 版本是多少？",
         expected={"min_tool_calls": 1},
+        meta={"category": "tool_selection"},
     ),
     # §38.4 Runtime Feasibility: 需要验证运行时事实时, 该用 sandbox 做最小探测。
     EvalCase(
         id="runtime_feasibility_needs_probe",
         input="当前环境里 pydantic 能 import 吗？",
         expected={"tool": "run_in_sandbox"},
+        meta={"category": "tool_selection"},
     ),
     # §38.5 Code Modification: 改代码+跑测试该派工 hicode_run, 不是在聊天里手写patch。
     EvalCase(
         id="code_modification_needs_delegation",
         input="修复 auth.py 并跑测试。",
         expected={"tool": "hicode_run"},
+        meta={"category": "delegation"},
     ),
 ]
 
@@ -151,14 +168,71 @@ async def run_agent_eval_suite(
     return run
 
 
-def eval_run_to_dict(run: EvalRun) -> dict[str, Any]:
-    """EvalRun → JSON 可序列化 dict(供 --save / --compare-against 落盘用)。"""
+def category_breakdown(run: EvalRun, cases: list[EvalCase]) -> dict[str, dict[str, Any]]:
+    """docs/VEYA_10_OF_10_PLAN.md §16 核心指标(2026-08-24, rfc-09)——按
+    `EvalCase.meta["category"]` 分组均分。用真实跑分数据算, 不是新造指标口径。
+    """
+    by_cat: dict[str, list[float]] = {}
+    for case in cases:
+        cat = case.meta.get("category", "uncategorized")
+        if case.id in run.scores:
+            by_cat.setdefault(cat, []).append(run.scores[case.id])
     return {
+        cat: {"n": len(scores), "mean": statistics.fmean(scores)}
+        for cat, scores in sorted(by_cat.items())
+    }
+
+
+def unnecessary_tool_rate(run: EvalRun, cases: list[EvalCase]) -> float | None:
+    """docs/VEYA_10_OF_10_PLAN.md §16 "Unnecessary Tool Rate"。
+
+    只统计 expected 里写了 max_tool_calls=0(该场景本该零工具调用)的用例中,
+    真实调用了 >0 个工具的比例——不是全量用例的笼统统计, 那样会跟"该调用工具
+    但调多了"的场景混在一起, 口径不干净。没有任何 max_tool_calls=0 用例时返回
+    None(不伪造一个 0.0, 那看起来像"全部通过"而不是"没数据")。
+    """
+    relevant = [c for c in cases if (c.expected or {}).get("max_tool_calls") == 0]
+    if not relevant:
+        return None
+    triggered = 0
+    for case in relevant:
+        agent_result = run.details.get(case.id, {}).get("agent_result", {})
+        tool_calls = agent_result.get("tool_calls") or []
+        if len(tool_calls) > 0:
+            triggered += 1
+    return triggered / len(relevant)
+
+
+def cost_per_case(run: EvalRun) -> dict[str, float]:
+    """docs/VEYA_10_OF_10_PLAN.md §16 "Cost / Successful Task"——从 chat_stream()
+    结果里已经带的 cost_usd 读, 不新增采集链路。缺失字段的用例不进这份表
+    (不伪造 0.0 成本)。"""
+    costs: dict[str, float] = {}
+    for case_id, detail in run.details.items():
+        cost = detail.get("agent_result", {}).get("cost_usd")
+        if isinstance(cost, int | float):
+            costs[case_id] = float(cost)
+    return costs
+
+
+def eval_run_to_dict(run: EvalRun, cases: list[EvalCase] | None = None) -> dict[str, Any]:
+    """EvalRun → JSON 可序列化 dict(供 --save / --compare-against 落盘用)。
+
+    cases 传入时附带 §16 派生指标(category_breakdown/unnecessary_tool_rate/
+    cost_per_case); 不传(如 eval_run_from_dict 还原出的历史基线, 已经丢了
+    meta)时只输出 summary, 不假装能算出用不存在的分类数据。
+    """
+    payload: dict[str, Any] = {
         "suite_name": run.suite_name,
         "scores": run.scores,
         "details": run.details,
         "summary": run.summary(),
     }
+    if cases is not None:
+        payload["category_breakdown"] = category_breakdown(run, cases)
+        payload["unnecessary_tool_rate"] = unnecessary_tool_rate(run, cases)
+        payload["cost_per_case"] = cost_per_case(run)
+    return payload
 
 
 def eval_run_from_dict(data: dict[str, Any]) -> EvalRun:
