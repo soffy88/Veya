@@ -1158,7 +1158,7 @@ class MasterCoordinator:
             return
         parent_id = prev[k - 1]["id"] if k > 0 else root_id
         for m in remaining:
-            role = m.get("role")
+            role = str(m.get("role") or "")
             meta = (
                 {"tool_call_id": m["tool_call_id"]}
                 if role == "tool" and m.get("tool_call_id")

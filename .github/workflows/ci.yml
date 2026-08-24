@@ -60,6 +60,9 @@ jobs:
       - name: Architecture manifest (docs/VEYA_10_OF_10_PLAN.md PR-01, report-only)
         run: python scripts/check_architecture_manifest.py
 
+      - name: Legacy import scan (docs/VEYA_10_OF_10_PLAN.md §28, report-only)
+        run: python scripts/legacy_import_scan.py
+
   typecheck:
     name: Type Check (mypy)
     runs-on: ubuntu-latest
@@ -79,18 +82,35 @@ jobs:
 
       - name: Run mypy
         run: |
-          mypy --config-file pyproject.toml server/coordinator.py veya/streaming.py veya/sandbox.py veya/intent.py veya/obase/ veya/llm.py veya/errors.py veya/compat.py veya/utils.py
-        # G7: 解锁集严格检查(coordinator/streaming/sandbox/intent + obase/llm/errors/compat/utils)。
-        # 遗留代码暂不纳入,避免整库历史错误阻塞 CI。
+          mypy --config-file pyproject.toml --follow-imports=silent server/coordinator.py veya/obase/ veya/oservi/streaming.py veya/oskill/intent.py
+        # G7: 解锁集严格检查(coordinator + obase 全量 + streaming/intent 的真实实现)。
+        # 2026-08-24: 原来直接查 veya/streaming.py 等"3O 归位门面"(sys.modules
+        # 别名, 内容只有 3 行) 会让 mypy 把这几个模块当命令行显式入口处理, 优先级
+        # 盖过同目录 veya/*.pyi stub, 导致 server/coordinator.py 等所有间接
+        # import 这些门面的地方都拿到假的"模块没有这个属性"报错(找 mypy 真实原因
+        # 花了不少功夫, 不是随手改的)——改查真实实现文件(veya/oservi/streaming.py/
+        # veya/oskill/intent.py, 其余 5 个门面的真实实现已经在 veya/obase/ 里),
+        # 门面文件本身留给旁边新增的 veya/*.pyi stub 覆盖(见 rfc-12 后续)。
+        # 2026-08-24: 上面这条即使改查真实文件, mypy 默认 follow_imports=normal
+        # 仍会跟随 coordinator.py 的整个导入闭包, 把 server/goal_run 等 77 个
+        # 未解锁文件的历史错误也报出来(341 个), 跟 "遗留代码暂不纳入" 的本意矛盾
+        # ——加 --follow-imports=silent 后只对显式传入的文件(coordinator.py +
+        # obase 全量 + streaming/intent)报错, 依赖仍参与类型推导但不因其历史
+        # 债务失败, 降到 41 个真正在解锁范围内的错误。
 
       - name: Run mypy (current chat kernel)
         run: |
-          mypy --config-file pyproject.toml --follow-imports=skip server/coordinator_master.py server/tool_registry.py
+          mypy --config-file pyproject.toml --follow-imports=silent server/coordinator_master.py server/tool_registry.py
         # docs/VEYA_10_OF_10_PLAN.md §15.1: 上面那条 G7 检查只查 legacy coordinator.py,
         # 从没查过真正的主链入口 coordinator_master.py/tool_registry.py (2026-08-24 核实:
         # 补全后跟随导入会拉出 384 个历史错误, 跟这两个文件本身无关) —— 单独用
         # --follow-imports=skip 只查这两个文件自身, 不跟随导入闭包, 避免被无关历史债务
         # 挡住。这两个文件本身已清零 (2026-08-24), 新代码不能再往这两个文件里引入新错误。
+        # 2026-08-24: skip 模式下 mypy 不会跟进 veya/*.pyi stub 里的
+        # `from veya.obase.X import *`(找不到通配符实际导出了什么), 导致新加的
+        # 门面 stub 在这条检查下反而报 8 个假的"模块没有这个属性"——改用
+        # --follow-imports=silent(依赖仍被正常分析, 只是不因其历史错误失败),
+        # 顺带曝出 4 个 skip 模式下因 Any 盲区被吞掉的真实错误(已一并修)。
 
   docs:
     name: Docs Build (mkdocs)
@@ -172,6 +192,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install .
 
+      - name: Minimal install dependency hygiene (docs/VEYA_10_OF_10_PLAN.md §13.3/§28)
+        run: python scripts/check_minimal_install.py
+
       - name: Version & doctor self-check
         run: |
           veya --version | grep -q "0.6.0"
@@ -219,8 +242,59 @@ jobs:
       - name: Build package
         run: python -m build
 
+      # docs/VEYA_10_OF_10_PLAN.md §13.3「core wheel < 5MB」。2026-08-24 验证过：
+      # 用真实 `git archive HEAD`(不含本地未提交的构建产物, 跟这个 job 的
+      # fresh checkout 等价)构建, wheel 实测 2.4MB, 有余量——之前用带本地
+      # apps/ 前端构建产物 + .code-review-graph/ 缓存的脏工作目录测出过 10MB+,
+      # 是本地环境污染, 不是真实包体积, 不能拿那次结果当基线。
+      - name: Wheel size budget
+        run: |
+          WHEEL=$(ls dist/*.whl | head -1)
+          SIZE=$(stat -c%s "$WHEEL")
+          SIZE_MB=$(awk "BEGIN { printf \"%.2f\", $SIZE / 1024 / 1024 }")
+          echo "wheel: $WHEEL ($SIZE_MB MB)"
+          if [ "$SIZE" -gt $((5 * 1024 * 1024)) ]; then
+            echo "::error::wheel $SIZE_MB MB 超过 §13.3 budget (5MB)"
+            exit 1
+          fi
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
+
+  supply-chain:
+    name: Supply Chain (docs/VEYA_10_OF_10_PLAN.md §13.4)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install package + supply-chain tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+          pip install pip-audit cyclonedx-bom
+
+      # 2026-08-24 本地(隔离干净 venv, 非本仓库 dev venv)验证过核心依赖表当前
+      # 0 已知漏洞——hard fail, 不是 report-only: 新披露的 CVE 应该真的挡住 CI,
+      # 这正是"漏洞门"要做的事, 不是给它留个 soft-pass。只审计 pip 装的核心包,
+      # platform/3O/ 子模块走独立仓库的依赖管理, 不在这份 SBOM/审计范围内。
+      - name: pip-audit (vulnerability gate)
+        run: python -m pip_audit
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          cyclonedx-py environment --output-format json --output-file sbom.json "$(python -c 'import sys; print(sys.prefix)')"
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json

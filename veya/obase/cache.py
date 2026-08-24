@@ -28,7 +28,7 @@ class LRUCache:
         self._access_order: list[str] = []
         self._lock = threading.Lock()
 
-    def _update_access(self, key: str):
+    def _update_access(self, key: str) -> None:
         """更新访问顺序(调用方必须持有 self._lock)。"""
         if key in self._access_order:
             self._access_order.remove(key)
@@ -48,13 +48,13 @@ class LRUCache:
                 self._update_access(key)
             return value
 
-    def set(self, key: str, value: Any):
+    def set(self, key: str, value: Any) -> None:
         """设置缓存值"""
         with self._lock:
             self._cache[key] = value
             self._update_access(key)
 
-    def delete(self, key: str):
+    def delete(self, key: str) -> None:
         """删除缓存项"""
         with self._lock:
             if key in self._cache:
@@ -62,7 +62,7 @@ class LRUCache:
             if key in self._access_order:
                 self._access_order.remove(key)
 
-    def clear(self):
+    def clear(self) -> None:
         """清空缓存"""
         with self._lock:
             self._cache.clear()
@@ -79,7 +79,7 @@ class LRUCache:
             }
 
 
-def generate_cache_key(func_name: str, *args, **kwargs) -> str:
+def generate_cache_key(func_name: str, *args: Any, **kwargs: Any) -> str:
     """生成缓存键"""
     # 创建字典包含函数名、位置参数和关键字参数
     cache_data = {
@@ -93,7 +93,7 @@ def generate_cache_key(func_name: str, *args, **kwargs) -> str:
     return hashlib.md5(data_str.encode("utf-8")).hexdigest()
 
 
-def cached(ttl: int = 300, max_size: int = 1000):
+def cached(ttl: int = 300, max_size: int = 1000) -> Callable[[Callable], Callable]:
     """
     缓存装饰器
 
@@ -102,11 +102,11 @@ def cached(ttl: int = 300, max_size: int = 1000):
     - max_size: 最大缓存数量
     """
     cache = LRUCache(max_size=max_size)
-    timestamps = {}  # 记录每个键的创建时间
+    timestamps: dict[str, float] = {}  # 记录每个键的创建时间
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # 生成缓存键
             key = generate_cache_key(func.__name__, *args, **kwargs)
 
@@ -144,10 +144,10 @@ def cached(ttl: int = 300, max_size: int = 1000):
             return result
 
         # 添加缓存管理方法
-        wrapper.cache_get = lambda k: cache.get(k)
-        wrapper.cache_delete = lambda k: cache.delete(k)
-        wrapper.cache_clear = cache.clear
-        wrapper.cache_stats = cache.get_stats
+        wrapper.cache_get = lambda k: cache.get(k)  # type: ignore[attr-defined]
+        wrapper.cache_delete = lambda k: cache.delete(k)  # type: ignore[attr-defined]
+        wrapper.cache_clear = cache.clear  # type: ignore[attr-defined]
+        wrapper.cache_stats = cache.get_stats  # type: ignore[attr-defined]
 
         return wrapper
 
@@ -170,7 +170,7 @@ class ParallelExecutor:
         self.timeout = timeout
         self.semaphore = asyncio.Semaphore(max_concurrent)
 
-    async def execute_task(self, task_func: Callable, *args, **kwargs) -> Any:
+    async def execute_task(self, task_func: Callable, *args: Any, **kwargs: Any) -> Any:
         """执行单个任务（带资源限制）"""
         async with self.semaphore:
             try:
@@ -212,7 +212,7 @@ class ParallelExecutor:
         total = len(tasks)
         completed = 0
 
-        async def update_progress(result):
+        async def update_progress(result: Any) -> Any:
             nonlocal completed
             completed += 1
             if progress_callback:
@@ -220,7 +220,7 @@ class ParallelExecutor:
             return result
 
         # 创建带进度的任务
-        async def task_with_progress(task):
+        async def task_with_progress(task: tuple) -> Any:
             try:
                 result = await self.execute_task(
                     task[0], *task[1], **task[2] if len(task) > 2 else {}
@@ -248,21 +248,21 @@ class Preloader:
     3. 智能缓存
     """
 
-    def __init__(self, cache: LRUCache = None):
+    def __init__(self, cache: LRUCache | None = None):
         self.cache = cache or LRUCache(max_size=500)
-        self.predictions = {}  # 用户行为预测
+        self.predictions: dict[str, Any] = {}  # 用户行为预测
 
-    async def preload_context(self, user_query: str, project_files: list[str]):
+    async def preload_context(self, user_query: str, project_files: list[str]) -> None:
         """预加载可能需要的上下文"""
         # 基于查询预测相关文件
         relevant_files = self._predict_relevant_files(user_query, project_files)
 
         # 并行加载
         executor = ParallelExecutor(max_concurrent=3)
-        load_tasks = []
+        load_tasks: list[tuple] = []
 
         for file_path in relevant_files:
-            task = (self._load_file_async, (file_path,), {})
+            task: tuple = (self._load_file_async, (file_path,), {})
             load_tasks.append(task)
 
         if load_tasks:
@@ -354,7 +354,7 @@ if __name__ == "__main__":
         return await test_cached_function(x, y)
 
     # 测试
-    async def test_cache():
+    async def test_cache() -> None:
         print("第一次调用:")
         result1 = await cached_add(2, 3)
         print(f"结果: {result1}\n")
@@ -364,7 +364,7 @@ if __name__ == "__main__":
         print(f"结果: {result2}\n")
 
         # 显示缓存统计
-        stats = cached_add.cache_stats()
+        stats = cached_add.cache_stats()  # type: ignore[attr-defined]
         print(f"缓存统计: {stats}\n")
 
     # 测试并行执行
@@ -374,10 +374,10 @@ if __name__ == "__main__":
         print(f"完成任务 {name}")
         return f"{name} 完成"
 
-    async def test_parallel():
+    async def test_parallel() -> None:
         executor = create_parallel_executor(max_concurrent=2)
 
-        tasks = [
+        tasks: list[tuple] = [
             (slow_task, ("A", 2), {}),
             (slow_task, ("B", 1), {}),
             (slow_task, ("C", 3), {}),

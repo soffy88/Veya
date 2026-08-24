@@ -100,27 +100,27 @@ def load(lib: str) -> Any:
 
 
 # --- convenience accessors for the obase core used by Veya ------------------
-def obase() -> object:
+def obase() -> Any:
     """Lazy ``import obase`` (core submodules; optional deps lazy-resolved)."""
     return load("obase")
 
 
-def oprim() -> object:
+def oprim() -> Any:
     """Lazy ``import oprim``."""
     return load("oprim")
 
 
-def oskill() -> object:
+def oskill() -> Any:
     """Lazy ``import oskill``."""
     return load("oskill")
 
 
-def omodul() -> object:
+def omodul() -> Any:
     """Lazy ``import omodul``."""
     return load("omodul")
 
 
-def oservi() -> object:
+def oservi() -> Any:
     """Lazy ``import oservi``."""
     return load("oservi")
 

@@ -173,8 +173,6 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [
-    "veya.errors",  # already fully typed
-    "veya.sandbox",
     "veya.obase",
     "veya.obase.*",
 ]
@@ -182,6 +180,13 @@ disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = ["textual.*", "plotly.*", "networkx.*", "matplotlib.*"]
+ignore_missing_imports = true
+
+# 真正可选依赖(try/except ImportError 守卫, 缺失时功能降级), 不是核心依赖清单
+# 漏项——见 veya/oskill/audio_io.py::list_audio_devices / veya/oprim/vad.py
+# (Silero VAD 需要 onnxruntime, 缺失时回落纯 Python 能量检测)。
+[[tool.mypy.overrides]]
+module = ["sounddevice", "onnxruntime"]
 ignore_missing_imports = true
 
 # 3O 子库用 veya.platform.load() 动态挂载到 sys.path, mypy 静态分析看不到这条路径,

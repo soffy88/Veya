@@ -25,12 +25,12 @@ def _client_of(client: Any) -> Any:
 
 async def llm_call(messages: list[dict], client: Any = None, **kwargs: Any) -> dict:
     """非流式补全：messages 必须是标准 AgentMessage 列表。"""
-    return await _client_of(client).complete(messages, **kwargs)  # type: ignore[attr-defined]
+    return await _client_of(client).complete(messages, **kwargs)
 
 
 def llm_stream(messages: list[dict], client: Any = None, **kwargs: Any) -> AsyncIterator[dict]:
     """流式补全：逐条 delta 事件。"""
-    return _client_of(client).stream(messages, **kwargs)  # type: ignore[attr-defined]
+    return _client_of(client).stream(messages, **kwargs)
 
 
 __all__ = ["llm_call", "llm_stream"]

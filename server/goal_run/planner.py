@@ -343,8 +343,11 @@ async def migrate_old_taskgraph(
     实现要点：读取旧的 runs/<task_id>/taskgraph.json（若存在）并转换为
     GoalRunState，不丢失已完成任务与产物。
     """
+    import json
+
     from server.project_store import ProjectStore
     from server.goal_run.models import TaskNode, TaskStatus
+    from server.goal_run.store import save_goal_run
 
     store = ProjectStore(project_root)
     # 尝试读取旧格式
@@ -363,8 +366,9 @@ async def migrate_old_taskgraph(
             # 迁移：将旧字段映射到新模型
             state = GoalRunState.from_taskgraph_json(old_data, "")
             state.goal_id = goal_id
-            # 保存新格式
-            await save_goal_run(state, goal_id)
+            # 保存新格式 (save_goal_run 是同步函数, 跟其余全部调用点一致, 不 await;
+            # 第二个参数是 project_root 不是 goal_id, 之前传错了)
+            save_goal_run(state, project_root)
             return state
         except Exception:
             continue

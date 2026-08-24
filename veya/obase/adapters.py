@@ -21,7 +21,7 @@ import tempfile
 import threading
 import uuid
 from pathlib import Path, PurePosixPath
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, cast
 
 from veya.obase import telemetry
 from veya.obase.interfaces import Event, SandboxResult
@@ -363,7 +363,7 @@ class InProcessDaemonBus:
             if handler is None:
                 raise TimeoutError(f"topic {topic!r} 无处理器")
             reply = await asyncio.wait_for(handler(payload, request_id=request_id), timeout=timeout)
-            return reply
+            return cast("dict[str, Any]", reply)
         finally:
             self._pending.pop(request_id, None)
 

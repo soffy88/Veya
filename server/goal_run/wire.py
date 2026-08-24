@@ -5,6 +5,8 @@
 在 Coordinator 里拆分多套 tool 给模型自主路由。
 """
 
+from typing import Any
+
 from server.goal_run.runner import project_run_goal
 from server.goal_run.status import project_goal_status
 

@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from server.graft_context import GraftContext, extract_entities
 from server.reasoning_bank import ReasoningBank
+
+if TYPE_CHECKING:
+    from server.graft_explain import GraftExplainCache
 
 # 注入块的稳定标记 (主脑历史里按此前缀幂等刷新, 每轮先清旧块再插新块)。
 MARK = "<!-- veya-auto-context -->"
@@ -38,7 +42,7 @@ _NOISE = {
 _graft: GraftContext | None = None
 _bank: ReasoningBank | None = None
 _mtime_cache: dict[str, tuple[float, str]] = {}
-_explain_cache: "GraftExplainCache | None" = None
+_explain_cache: GraftExplainCache | None = None
 
 
 def enabled() -> bool:
@@ -63,7 +67,7 @@ def _get_bank() -> ReasoningBank:
     return _bank
 
 
-def _get_explain_cache() -> "GraftExplainCache":
+def _get_explain_cache() -> GraftExplainCache:
     global _explain_cache
     if _explain_cache is None:
         from server.graft_explain import GraftExplainCache
