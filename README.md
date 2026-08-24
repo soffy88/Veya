@@ -83,4 +83,9 @@ cd Veya && python -m venv venv && ./venv/bin/pip install -e ".[dev]"
 ./venv/bin/python -m pytest tests/ -q
 ```
 
+贡献代码见 [CONTRIBUTING.md](CONTRIBUTING.md)；行为准则见
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)；安全问题见 [SECURITY.md](SECURITY.md)；
+遇到问题找支持见 [SUPPORT.md](SUPPORT.md)；项目治理见 [GOVERNANCE.md](GOVERNANCE.md)；
+路线图见 [ROADMAP.md](ROADMAP.md)。协议 [MIT](LICENSE)。
+
 3O 主库（obase/oprim/oskill/omodul/oservi）为 git submodule 独立主数据包。
