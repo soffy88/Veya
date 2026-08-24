@@ -19,6 +19,7 @@ import inspect
 import json
 import os
 import re
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from typing import Any
 
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
+from veya.obase import telemetry
 from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.oskill.pure.validate_args import validate_args
 
@@ -584,20 +586,64 @@ class MasterToolRegistry:
         )
         if timeout_s is None:
             effective_timeout = self._tool_timeouts.get(name, self._default_timeout_s)
+        # 工具执行 span (docs/dev/rfc-10-observability-scoping.md): emit() 目前无人
+        # set_emitter/绑定 trace, 是安全 no-op——先把 tool_span 埋点接进唯一的执行
+        # 收口点, 真正接进 SSE/trace_id 是设计决策, 留给后续单独一轮做, 不在这次
+        # 顺手改热路径的控制流。
+        _span_start = time.time()
         try:
             execution = _invoke_callback(func, kwargs)
             if effective_timeout is None:
                 raw = await execution
             else:
                 raw = await asyncio.wait_for(execution, timeout=effective_timeout)
-            return _to_str(raw, limit=self._result_limits.get(name, 8000))
+            result = _to_str(raw, limit=self._result_limits.get(name, 8000))
+            telemetry.emit(
+                {
+                    "span": "tool_execute",
+                    "tool": name,
+                    "event": "exit",
+                    "status": "completed",
+                    "duration_ms": round((time.time() - _span_start) * 1000, 3),
+                }
+            )
+            return result
         except TimeoutError as exc:
+            telemetry.emit(
+                {
+                    "span": "tool_execute",
+                    "tool": name,
+                    "event": "error",
+                    "status": "timeout",
+                    "duration_ms": round((time.time() - _span_start) * 1000, 3),
+                }
+            )
             raise ToolExecutionError(
                 f"tool '{name}' timed out after {effective_timeout:g}s"
             ) from exc
-        except ToolExecutionError:
+        except ToolExecutionError as exc:
+            telemetry.emit(
+                {
+                    "span": "tool_execute",
+                    "tool": name,
+                    "event": "error",
+                    "status": "failed",
+                    "error": str(exc),
+                    "duration_ms": round((time.time() - _span_start) * 1000, 3),
+                }
+            )
             raise
         except Exception as exc:
+            telemetry.emit(
+                {
+                    "span": "tool_execute",
+                    "tool": name,
+                    "event": "error",
+                    "status": "failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "duration_ms": round((time.time() - _span_start) * 1000, 3),
+                }
+            )
             raise ToolExecutionError(f"tool '{name}' failed: {type(exc).__name__}: {exc}") from exc
 
 
