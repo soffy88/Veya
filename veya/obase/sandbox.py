@@ -147,6 +147,37 @@ class SandboxConfig:
         }
 
 
+class SandboxProfile(StrEnum):
+    """docs/VEYA_10_OF_10_PLAN.md §11.3 分级(2026-08-24, rfc-08)。
+
+    纯附加的只读分类, 从 SandboxConfig 已有的 allow_write/network_blocked 两个
+    维度推导, 不引入新的执行时判断——真正的权限仍然完全由 SandboxConfig 本身
+    决定, 这个分级只是给一份配置贴一个人可读的标签, 方便审计/日志/未来的策略
+    判断分组读, 不做任何强制。
+
+    计划里的 TEST 档没有实现: 现有 SandboxConfig 只有 allow_write 一个"能不能
+    写"的维度, 分不出"能跑测试但不能改业务代码"这种更细的语义——真要支持需要
+    先在 SandboxConfig 上加一个新维度, 不是分类逻辑能凭空造出来的, 诚实地不实现
+    比伪造一个假界限更负责任。
+    """
+
+    READ_ONLY = "read_only"
+    BUILD = "build"
+    NETWORKED = "networked"
+    PRIVILEGED = "privileged"
+
+
+def profile_for(config: SandboxConfig) -> SandboxProfile:
+    """从 allow_write/network_blocked 推导出人可读的 profile 标签(只读, 不改判断)。"""
+    if config.allow_write and not config.network_blocked:
+        return SandboxProfile.PRIVILEGED
+    if not config.network_blocked:
+        return SandboxProfile.NETWORKED
+    if config.allow_write:
+        return SandboxProfile.BUILD
+    return SandboxProfile.READ_ONLY
+
+
 class Sandbox(ABC):
     """
     Sandbox abstract base class.
@@ -723,7 +754,9 @@ class SafeExecutor:
     async def stop(self) -> None:
         """Stop the executor and thread pool."""
         if self.sandbox:
-            clean = getattr(self.sandbox, "cleanup", None) or getattr(self.sandbox, "cleanup_environment", None)
+            clean = getattr(self.sandbox, "cleanup", None) or getattr(
+                self.sandbox, "cleanup_environment", None
+            )
             if clean:
                 clean()
 
