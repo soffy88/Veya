@@ -1,5 +1,5 @@
 site_name: Veya
-site_description: "Veya — AI coding agent (modular orchestration: plan → research → build)"
+site_description: "Veya — an open agent runtime for persistent, tool-using, verifiable AI (coding is the first application surface, not the final definition)"
 site_url: https://github.com/soffy88/Veya
 repo_url: https://github.com/soffy88/Veya
 repo_name: soffy88/Veya

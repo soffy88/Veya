@@ -1,7 +1,12 @@
 # veya
 
-> **AI 编码 Agent，下载就能干活** —— 模块化 AI 编排框架：代码感知推理、研究、规划与执行。
-> 3O 架构（obase/oprim/oskill/omodul）+ 沙箱执行 + 多入口（CLI / Web / TUI / VSCode）。
+> **面向长期任务、工具执行与闭环验证的开放 Agent Runtime。**
+> Coding 是第一个应用面，不是最终定义——下载就能当 AI 编码 Agent 用，
+> 底子是一个更通用的 runtime：持久会话/记忆/长程任务（Persistent）、
+> 沙箱工具执行/委派（Executable）、审计/回放/评估闭环（Verifiable，
+> 这块还在补齐中，见 [rfc-10](docs/dev/rfc-10-observability-scoping.md)/
+> [rfc-09](docs/dev/rfc-09-eval-harness-coverage.md)，不是已经做完的宣称）。
+> 3O 架构（obase/oprim/oskill/omodul/oservi）+ 沙箱执行 + 多入口（CLI / Web / TUI / VSCode）。
 > 因果闭环控制基板见 [Veya Loop](veya_loop/)（独立包 `veya-loop`）。
 
 ---
@@ -40,6 +45,29 @@ veya start                        # 启动本地服务 + 浏览器（可选）
 veya "帮我审查当前目录的代码"       # 交互式任务
 veya-headless --agent plan --text "设计一个数据管道"   # 无头模式
 ```
+
+---
+
+## 三个差异化维度（不是宣传口号，链接是真实代码/文档）
+
+- **Persistent（持久）** — 会话历史落 SQLite 不可变追加日志（重启/换进程不
+  失忆，见 [`veya/oservi/history_store.py`](veya/oservi/history_store.py)）、
+  蒸馏记忆带 confidence/invalidate/supersede（见
+  [`veya/oskill/memory_store.py`](veya/oskill/memory_store.py)）、长程任务见
+  [`docs/dev/rfc-11-state-authority-scoping.md`](docs/dev/rfc-11-state-authority-scoping.md)。
+- **Executable（可执行）** — 119+ 工具、统一沙箱（资源限制/审计日志/危险命令
+  拦截/符号链接与路径穿越防护，见
+  [`docs/dev/rfc-08-security-contracts-scoping.md`](docs/dev/rfc-08-security-contracts-scoping.md)）、
+  hicode 委派编程任务。
+- **Verifiable（可验证）** — 这块诚实地还在补齐，不是已经做完：工具执行埋了
+  span（见 [`rfc-10`](docs/dev/rfc-10-observability-scoping.md)，但还没接进
+  SSE/trace_id）、eval harness 现状只覆盖了 tool_selection 一类场景（见
+  [`rfc-09`](docs/dev/rfc-09-eval-harness-coverage.md)）、完整闭环验证见独立包
+  [Veya Loop](veya_loop/)。
+
+架构现状快照（不是文档，是脚本能跑的事实源）见
+[`architecture/manifest.yaml`](architecture/manifest.yaml) +
+[`scripts/check_architecture_manifest.py`](scripts/check_architecture_manifest.py)。
 
 ---
 
