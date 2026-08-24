@@ -18,6 +18,15 @@
   `coordinator.handle()`/`resume()` 的阶段状态机/审批语义在 `MasterCoordinator`
   里有没有对应能力，不能当成纯装配点收编来做（评估见 memory
   project_veya_pi_gap_audit）。
+- **四处难度分级（2026-08-24 补充, 见 `architecture/manifest.yaml`）**：`backends.py::_run_builtin`
+  一次性文本进出、无 session/resume，四处里最容易迁；`routes/prompt.py::/prompt` 有
+  session_id + SSE，形状接近 `chat_stream`，但需先核实 `persona` 字段跟 `chat_stream(mode=)`
+  是否语义等价；`routes/flow.py` 如上，更像该显式标 `VEYA_EXECUTION_PLANE=workflow`（冻结
+  架构 §2 例外条款）而不是硬迁移进聊天主链；`routes/session.py::/resume` 依赖
+  `veya.compat.RunState` 检查点格式（`server/coordinator.py` 专属状态机），
+  `coordinator_master` 用的是完全不同的 `history_store` 会话模型，没有对应的 RunState
+  概念——硬迁移等于让现存 checkpoint 全部作废，这是数据兼容性决策，需要人拍板，
+  不是代码改动能单方面解决的。
 
 ## 🪦 `AGENTS.md` 上半部分描述的 agents/ 三件套
 

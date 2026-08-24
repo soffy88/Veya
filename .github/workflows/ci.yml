@@ -57,6 +57,9 @@ jobs:
       - name: G16 English-docstring gate (modern core)
         run: python scripts/check_docstring_language.py
 
+      - name: Architecture manifest (docs/VEYA_10_OF_10_PLAN.md PR-01, report-only)
+        run: python scripts/check_architecture_manifest.py
+
   typecheck:
     name: Type Check (mypy)
     runs-on: ubuntu-latest

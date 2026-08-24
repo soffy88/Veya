@@ -8,8 +8,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from server.coordinator_master import MASTER_SYSTEM_PROMPT, MasterCoordinator
+from server.tool_registry import _PARALLEL_SAFE_TOOLS as _PARALLEL_SAFE_TOOLS_MODULE
 from server.tool_registry import (
     MasterToolRegistry,
+    SideEffect,
     ToolExecutionError,
     master_tools,
     set_genesis_factory,
@@ -29,7 +31,11 @@ def test_registry_register_and_schemas():
     reg.register(
         "add_numbers",
         "Add two integers. Use for arithmetic requests.",
-        {"type": "object", "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}}, "required": ["a", "b"]},
+        {
+            "type": "object",
+            "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+            "required": ["a", "b"],
+        },
         _add,
     )
 
@@ -46,6 +52,52 @@ def test_registry_register_and_schemas():
     assert "add_numbers — Add two integers" in reg.describe("add_numbers")
 
 
+def test_registry_tool_spec_side_effect():
+    """ToolSpec v1 (rfc-06): side_effect 是纯附加元数据, 不影响注册/执行行为。"""
+    reg = MasterToolRegistry()
+    reg.register(
+        "read_only_probe",
+        "probe",
+        {"type": "object", "properties": {}},
+        lambda: "ok",
+        side_effect=SideEffect.PURE_READ,
+    )
+    reg.register(
+        "unannotated_probe",
+        "probe",
+        {"type": "object", "properties": {}},
+        lambda: "ok",
+    )
+
+    spec = reg.spec_for("read_only_probe")
+    assert spec is not None
+    assert spec.side_effect is SideEffect.PURE_READ
+
+    unannotated = reg.spec_for("unannotated_probe")
+    assert unannotated is not None
+    assert unannotated.side_effect is None
+
+    assert reg.spec_for("never_registered") is None
+
+    reg.unregister("read_only_probe")
+    assert reg.spec_for("read_only_probe") is None
+
+
+def test_side_effect_pure_read_matches_parallel_safe_whitelist():
+    """rfc-06 §3 承诺的等价性验证: 每个标了 PURE_READ 的工具都在既有并发白名单里
+    (side_effect 目前是附加标注, 不驱动并发判断——这条测试保证两者不会静默分叉)。
+    这次只标注了 21 个白名单工具里的一部分 (见 rfc-06), 所以只断言子集关系,
+    不断言相等。"""
+    annotated_pure_read = {
+        name
+        for name in master_tools.list_tools()
+        if (spec := master_tools.spec_for(name)) is not None
+        and spec.side_effect is SideEffect.PURE_READ
+    }
+    assert annotated_pure_read, "至少应该有一批工具标了 PURE_READ, 空集说明标注丢了"
+    assert annotated_pure_read.issubset(_PARALLEL_SAFE_TOOLS_MODULE)
+
+
 @pytest.mark.asyncio
 async def test_registry_execute_sync_and_async():
     reg = MasterToolRegistry()
@@ -56,8 +108,15 @@ async def test_registry_execute_sync_and_async():
     async def _async(x: int) -> int:
         return x * 3
 
-    reg.register("sync_double", "sync", {"type": "object", "properties": {"x": {"type": "integer"}}}, _sync)
-    reg.register("async_triple", "async", {"type": "object", "properties": {"x": {"type": "integer"}}}, _async)
+    reg.register(
+        "sync_double", "sync", {"type": "object", "properties": {"x": {"type": "integer"}}}, _sync
+    )
+    reg.register(
+        "async_triple",
+        "async",
+        {"type": "object", "properties": {"x": {"type": "integer"}}},
+        _async,
+    )
 
     assert await reg.execute("sync_double", {"x": 2}) == "4"
     assert await reg.execute("async_triple", {"x": 2}) == "6"
@@ -114,7 +173,7 @@ def test_master_tools_mounted_capabilities():
 @pytest.mark.asyncio
 async def test_read_file_ast_real(tmp_path, monkeypatch):
     """AST 骨架: 真实文件 → 签名/行号, 无函数体。"""
-    src = "def greet(name: str) -> str:\n    \"\"\"Say hello.\"\"\"\n    return f'Hi {name}'\n\nclass Calc:\n    def add(self, a, b):\n        return a + b\n"
+    src = 'def greet(name: str) -> str:\n    """Say hello."""\n    return f\'Hi {name}\'\n\nclass Calc:\n    def add(self, a, b):\n        return a + b\n'
     (tmp_path / "mod.py").write_text(src)
     monkeypatch.setenv("VEYA_WORKSPACE", str(tmp_path))
 
@@ -155,7 +214,9 @@ async def test_delegate_to_genesis_routes_mission(tmp_path):
     """delegate_to_genesis: 验证 requirement 解析 + Genesis 唤醒 + 结果/账本回传。"""
     fake_agent = AsyncMock()
     fake_agent.handle_mission.return_value = {"status": "success", "response": "已锻造", "steps": 3}
-    fake_agent.memory = type("M", (), {"memory": {"element_ledger": {"oskill/ema.py": {"version": 1}}}})()
+    fake_agent.memory = type(
+        "M", (), {"memory": {"element_ledger": {"oskill/ema.py": {"version": 1}}}}
+    )()
     set_genesis_factory(lambda: fake_agent)
     try:
         out = await master_tools.execute(
@@ -180,9 +241,7 @@ async def test_delegate_to_genesis_bad_json_and_failure(tmp_path):
     set_genesis_factory(lambda: fake_agent)
     try:
         with pytest.raises(ToolExecutionError, match="Genesis mission failed"):
-            await master_tools.execute(
-                "delegate_to_genesis", {"requirement_json": "{}"}
-            )
+            await master_tools.execute("delegate_to_genesis", {"requirement_json": "{}"})
     finally:
         set_genesis_factory(None)
 
@@ -299,6 +358,7 @@ async def test_chat_stream_failure_reflection(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_stream_no_tool_direct_answer():
     """一般知识/闲聊 → 模型直接回答, 不调工具。"""
+
     async def fake_llm(messages, **kwargs):
         return _text_response("你好! 我是 Veya 主脑。")
 
@@ -320,9 +380,16 @@ async def test_lightweight_chat_injects_system_prompt():
         seen.append(list(messages))
         return _text_response("我是 Veya。")
 
-    agent = MasterAgent(llm_caller=fake_llm, max_rounds=1, temperature=0.3,
-                        tools={}, skill_hub=None, memory=None, swarm=None,
-                        vault=None)
+    agent = MasterAgent(
+        llm_caller=fake_llm,
+        max_rounds=1,
+        temperature=0.3,
+        tools={},
+        skill_hub=None,
+        memory=None,
+        swarm=None,
+        vault=None,
+    )
     agent.get_system_prompt = lambda: "你是 Veya 主脑。"
     result = await agent.chat("你是谁")
     assert result["final_answer"] == "我是 Veya。"
@@ -335,6 +402,7 @@ async def test_lightweight_chat_injects_system_prompt():
 @pytest.mark.asyncio
 async def test_chat_stream_hitl_after_max_rounds():
     """模型循环调工具 → 超过最大轮次 → HITL。"""
+
     async def looping_llm(messages, **kwargs):
         return _tool_response("list_files", {"path": "."})
 
@@ -350,6 +418,7 @@ async def test_chat_stream_hitl_after_max_rounds():
 @pytest.mark.asyncio
 async def test_chat_stream_user_api_key_isolated():
     """用户侧 Key 只注入实例 config, 不污染全局环境。"""
+
     async def fake_llm(messages, **kwargs):
         assert kwargs["config"] == {"providers": {"openai": {"api_key": "sk-user-1"}}}
         return _text_response("ok")
@@ -380,6 +449,7 @@ async def test_master_router_endpoints_reachable():
 # =========================================================================
 # 连续对话历史 (session_id 持久化)
 # =========================================================================
+
 
 def test_conversation_history_persists_across_turns():
     """同 session 第二轮: 模型应看到第一轮的对话 (含 assistant 回答)。"""
@@ -427,12 +497,20 @@ def test_conversation_history_persists_across_turns():
 
     async def llm(messages, **kwargs):
         seen_messages.append(list(messages))
-        return {"choices": [{"message": {"role": "assistant", "content": "first reply"}}],
-                "usage": {}}
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "first reply"}}],
+            "usage": {},
+        }
 
     agent = MasterAgent(
-        llm_caller=llm, tools=Tools(), skill_hub=SkillHub(), memory=Memory(),
-        swarm=None, vault=None, max_rounds=8, notify=lambda _e: None,
+        llm_caller=llm,
+        tools=Tools(),
+        skill_hub=SkillHub(),
+        memory=Memory(),
+        swarm=None,
+        vault=None,
+        max_rounds=8,
+        notify=lambda _e: None,
     )
 
     r1 = asyncio.run(agent.chat_stream("你好", session_id="conv1"))
@@ -443,9 +521,9 @@ def test_conversation_history_persists_across_turns():
     # 第二轮模型看到的 messages 含第一轮的 user + assistant
     msgs2 = seen_messages[1]
     roles = [(m.get("role"), m.get("content")) for m in msgs2]
-    assert ("user", "你好") in roles                 # 第一轮 user 仍在
-    assert ("assistant", "first reply") in roles     # 第一轮 assistant 仍在
-    assert msgs2[0]["role"] == "system"              # system 常驻首位
+    assert ("user", "你好") in roles  # 第一轮 user 仍在
+    assert ("assistant", "first reply") in roles  # 第一轮 assistant 仍在
+    assert msgs2[0]["role"] == "system"  # system 常驻首位
     assert roles[-1] == ("user", "还记得我上句说了什么吗")
 
 
@@ -459,20 +537,37 @@ def test_conversation_history_scoped_by_session():
     MasterAgent = oservi.MasterAgent
 
     class Tools:
-        def get_all_tool_schemas(self): return []
-        def get_all_schemas(self): return []
-        def list_tools(self): return []
-        def describe(self, name): return ""
-        def has(self, name): return False
-        async def execute(self, name, args=None): return ""
+        def get_all_tool_schemas(self):
+            return []
+
+        def get_all_schemas(self):
+            return []
+
+        def list_tools(self):
+            return []
+
+        def describe(self, name):
+            return ""
+
+        def has(self, name):
+            return False
+
+        async def execute(self, name, args=None):
+            return ""
 
     class SkillHub:
-        def list_skills(self): return []
-        def get_all_schemas(self): return []
-        def describe(self, name): return ""
+        def list_skills(self):
+            return []
+
+        def get_all_schemas(self):
+            return []
+
+        def describe(self, name):
+            return ""
 
     class Memory:
-        def inject_subconscious(self): return ""
+        def inject_subconscious(self):
+            return ""
 
     seen = []
 
@@ -480,9 +575,16 @@ def test_conversation_history_scoped_by_session():
         seen.append(list(messages))
         return {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}}
 
-    agent = MasterAgent(llm_caller=llm, tools=Tools(), skill_hub=SkillHub(),
-                        memory=Memory(), swarm=None, vault=None,
-                        max_rounds=8, notify=lambda _e: None)
+    agent = MasterAgent(
+        llm_caller=llm,
+        tools=Tools(),
+        skill_hub=SkillHub(),
+        memory=Memory(),
+        swarm=None,
+        vault=None,
+        max_rounds=8,
+        notify=lambda _e: None,
+    )
     asyncio.run(agent.chat_stream("A 会话", session_id="sa"))
     asyncio.run(agent.chat_stream("B 会话", session_id="sb"))
     asyncio.run(agent.chat_stream("A 又来了", session_id="sa"))
@@ -509,15 +611,15 @@ class TestFullToolSurface:
 
         async def fake_llm(messages, **kwargs):
             captured["tools"] = kwargs.get("tools")
-            return {"choices": [{"message": {"role": "assistant", "content": "ok"}}],
-                    "usage": {}}
+            return {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}}
 
         coord = MasterCoordinator(llm_fn=fake_llm)
-        for text in ("写一个基于 MACD 的风险控制拦截器设计",  # 设计任务
-                     "用 MACD 回测 BTCUSDT",                   # 回测任务
-                     "你是谁你能做什么"):                       # 简单问答
-            asyncio.run(coord._bound_llm(
-                [{"role": "user", "content": text}], tools=None))
+        for text in (
+            "写一个基于 MACD 的风险控制拦截器设计",  # 设计任务
+            "用 MACD 回测 BTCUSDT",  # 回测任务
+            "你是谁你能做什么",
+        ):  # 简单问答
+            asyncio.run(coord._bound_llm([{"role": "user", "content": text}], tools=None))
             break
         # 工具面全量透传 (非 None): 模型看到全部工具, 由模型自己判断
         assert captured["tools"] is None or isinstance(captured["tools"], list)
@@ -532,8 +634,7 @@ class TestFullToolSurface:
 
         async def fake_llm(messages, **kwargs):
             captured["tools"] = kwargs.get("tools")
-            return {"choices": [{"message": {"role": "assistant", "content": "ok"}}],
-                    "usage": {}}
+            return {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}}
 
         coord = MasterCoordinator(llm_fn=fake_llm)
         tool_schemas = [
@@ -542,9 +643,12 @@ class TestFullToolSurface:
             {"type": "function", "function": {"name": "mcp_hevi_generate_longvideo"}},
             {"type": "function", "function": {"name": "system_ping"}},
         ]
-        asyncio.run(coord._bound_llm(
-            [{"role": "user", "content": "写一个基于 MACD 的风险控制拦截器设计"}],
-            tools=tool_schemas))
+        asyncio.run(
+            coord._bound_llm(
+                [{"role": "user", "content": "写一个基于 MACD 的风险控制拦截器设计"}],
+                tools=tool_schemas,
+            )
+        )
         # 全量透传: 设计任务同样能看到行情工具 — 模型自主决定, 程序不裁
         assert captured["tools"] == tool_schemas
 
@@ -558,9 +662,7 @@ class TestFullToolSurface:
 
         async def flaky_llm(messages, **kw):
             calls.append({**kw, "_n": len(calls) + 1})
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "None"}}],
-                    "usage": {}}
+            return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
 
         coord = MasterCoordinator(llm_fn=flaky_llm)
         asyncio.run(coord._bound_llm([{"role": "user", "content": "hi"}]))
@@ -577,12 +679,14 @@ class TestFullToolSurface:
         async def flaky(messages, **kw):
             calls.append(list(messages))
             if len(calls) == 1:
-                return {"choices": [{"message": {"role": "assistant",
-                                                   "content": "None"}}],
-                        "usage": {}}
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "重试成功。"}}],
-                    "usage": {}}
+                return {
+                    "choices": [{"message": {"role": "assistant", "content": "None"}}],
+                    "usage": {},
+                }
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "重试成功。"}}],
+                "usage": {},
+            }
 
         async def _no_sleep(_: float) -> None:
             return None
@@ -596,14 +700,13 @@ class TestFullToolSurface:
         cm.llm_call = flaky  # type: ignore[assignment]
         try:
             coord = MasterCoordinator(llm_fn=flaky)
-            resp = asyncio.run(coord._bound_llm(
-                [{"role": "user", "content": "hi"}]))
+            resp = asyncio.run(coord._bound_llm([{"role": "user", "content": "hi"}]))
         finally:
             cm.llm_call = orig
         assert len(calls) == 2, "空响应必须重试 (1 次空 + 1 次成功)"
         # 重试调用带温和提示
         assert "空/无效内容" in calls[1][-1]["content"]
-        msg = ((resp.get("choices") or [{}])[0].get("message") or {})
+        msg = (resp.get("choices") or [{}])[0].get("message") or {}
         assert msg.get("content") == "重试成功。"
 
     def test_bound_llm_persistent_empty_returns_visible(self, monkeypatch):
@@ -616,9 +719,7 @@ class TestFullToolSurface:
 
         async def always_empty(messages, **kw):
             calls.append(1)
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": ""}}],
-                    "usage": {}}
+            return {"choices": [{"message": {"role": "assistant", "content": ""}}], "usage": {}}
 
         async def _no_sleep(_: float) -> None:
             return None
@@ -630,12 +731,11 @@ class TestFullToolSurface:
         cm.llm_call = always_empty  # type: ignore[assignment]
         try:
             coord = MasterCoordinator(llm_fn=always_empty)
-            resp = asyncio.run(coord._bound_llm(
-                [{"role": "user", "content": "hi"}]))
+            resp = asyncio.run(coord._bound_llm([{"role": "user", "content": "hi"}]))
         finally:
             cm.llm_call = orig
         assert len(calls) == 3, "3 次退避重试后放弃"
-        msg = ((resp.get("choices") or [{}])[0].get("message") or {})
+        msg = (resp.get("choices") or [{}])[0].get("message") or {}
         assert "网关抖动" in (msg.get("content") or "")
         assert (msg.get("content") or "").strip()
 
@@ -649,13 +749,13 @@ class TestFullToolSurface:
 
         async def fake_llm(messages, **kwargs):
             seen.append(kwargs)
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "已原生理解并回答。"}}],
-                    "usage": {}}
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "已原生理解并回答。"}}],
+                "usage": {},
+            }
 
         coord = MasterCoordinator(llm_fn=fake_llm, max_rounds=3)
-        r = asyncio.run(coord.chat_stream(
-            "https://github.com/user/repo 帮我看看这个项目实现"))
+        r = asyncio.run(coord.chat_stream("https://github.com/user/repo 帮我看看这个项目实现"))
         assert r["status"] == "success"
         assert "原生理解并回答" in r["final_answer"]
         # 工具面仍然注入 (模型可自主选择), 只是没有被强制 preempt
@@ -668,13 +768,15 @@ class TestFullToolSurface:
         from server.coordinator_master import MasterCoordinator
 
         async def direct_llm(messages, **kw):
-            return {"choices": [{"message": {"role": "assistant",
-                                               "content": "这是模型自己给出的回答"}}],
-                    "usage": {}}
+            return {
+                "choices": [
+                    {"message": {"role": "assistant", "content": "这是模型自己给出的回答"}}
+                ],
+                "usage": {},
+            }
 
         coord = MasterCoordinator(llm_fn=direct_llm, max_rounds=2)
-        r = asyncio.run(coord.chat_stream(
-            "写一个 python 脚本读取 csv", session_id="s-native"))
+        r = asyncio.run(coord.chat_stream("写一个 python 脚本读取 csv", session_id="s-native"))
         # 程序不代做: 模型直答就是直答, 没有 hicode 被程序触发
         assert "模型自己给出的回答" in r["final_answer"]
         assert not r.get("reasonix_execution")

@@ -7,6 +7,16 @@
 
 ---
 
+> **2026-08-24 核实结论（执行侧追加，不改动上文原始方案）**：本文档 §3/§5/§21/§22/§28 里把
+> `server/agent_loop_bridge.py` 列为待验证删除的 legacy 是误判——`docs/ARCHITECTURE_STABLE.md:89`
+> 早就记录它是 `VEYA_AGENT_LOOP=strict` 的双轨切换桥，`server/coordinator_master.py`/
+> `server/tool_registry.py`（`agent_loop_run` 工具）现在还在用，不是待清理代码，不需要
+> PR-04。§3 里 `server/coordinator.py` 四个调用点的现状同样比这里描述的更细——已核实的
+> 难度分级见 `docs/graveyard.md`（“意图分类 + DAG 分解”条目）和 `architecture/manifest.yaml`，
+> 不要重复调研，直接读那两份。落地进度追踪见 `architecture/manifest.yaml` + 各 `docs/dev/rfc-*.md`。
+
+---
+
 ## 0. 执行摘要
 
 Veya 当前已经具备真正 Agent Runtime 的多数关键构件：单 Master LLM 主链、ReAct、工具注册表、Sandbox、权限门、Session、Memory、SSE、Hicode、Vision、MCP、长任务、Goal Kernel、Veya Loop、审计与部分闭环能力。
