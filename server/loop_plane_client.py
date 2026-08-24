@@ -44,10 +44,10 @@ def _loop_plane_path() -> str:
 
 def _inprocess_goal_service():
     _loop_plane_path()
-    from app.domain.state.service import GoalService
-    from app.infra.event_store import EventStore
+    from app.domain.state.service import GoalService  # type: ignore[import-not-found]
+    from app.infra.event_store import EventStore  # type: ignore[import-not-found]
 
-    from app.config import Settings
+    from app.config import Settings  # type: ignore[import-not-found]
 
     settings = Settings.from_env()
     settings.ensure_dirs()
@@ -56,10 +56,10 @@ def _inprocess_goal_service():
 
 def _inprocess_causal():
     _loop_plane_path()
-    from app.domain.causal.service import CausalService
-    from app.infra.event_store import AuditLog, EventStore
+    from app.domain.causal.service import CausalService  # type: ignore[import-not-found]
+    from app.infra.event_store import AuditLog, EventStore  # type: ignore[import-not-found]
 
-    from app.config import Settings
+    from app.config import Settings  # type: ignore[import-not-found]
 
     settings = Settings.from_env()
     settings.ensure_dirs()
@@ -198,7 +198,7 @@ class _LoopClient:
         if self._http is None:
             # 进程内 exec: 轻量直调（domain 层）
             _loop_plane_path()
-            from app.domain.exec.service import ExecService
+            from app.domain.exec.service import ExecService  # type: ignore[import-not-found]
 
             return ExecService().dispatch(mode=payload["mode"], tool_name=payload["tool_name"], args=payload["args"])
         return await self._http.post("/v1/loop/exec/dispatch", payload)

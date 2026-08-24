@@ -169,7 +169,7 @@ def _ensure_frontier_bridge(endpoint: str, *, timeout_s: float = 8.0) -> bool:
     def _healthz() -> bool:
         try:
             with urllib.request.urlopen(f"http://{host}:{port}/healthz", timeout=0.5) as r:
-                return r.status == 200
+                return bool(r.status == 200)
         except Exception:
             return False
 

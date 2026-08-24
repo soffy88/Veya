@@ -99,10 +99,15 @@ class UsageLedger:
         """记录一次成功调用的用量。"""
         now = ts or time.time()
         self._prune(now)
-        self._events.append({
-            "provider": provider, "model": model, "ts": now,
-            "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
-        })
+        self._events.append(
+            {
+                "provider": provider,
+                "model": model,
+                "ts": now,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            }
+        )
 
     def _counts(self, provider: str, model: str, now: float) -> dict[str, int]:
         window_rpm = now - 60
@@ -143,8 +148,10 @@ class UsageLedger:
         counts = self._counts(provider, model, now)
         over: dict[str, int] = {}
         for kind, limit in (
-            ("rpm", limits.rpm), ("rpd", limits.rpd),
-            ("tpm", limits.tpm), ("tpd", limits.tpd),
+            ("rpm", limits.rpm),
+            ("rpd", limits.rpd),
+            ("tpm", limits.tpm),
+            ("tpd", limits.tpd),
         ):
             if limit is not None and counts[kind] >= limit:
                 over[kind] = limit
@@ -178,9 +185,9 @@ class UsageLedger:
             for kind, attr in (("rpm", "rpm"), ("rpd", "rpd"), ("tpm", "tpm"), ("tpd", "tpd")):
                 value = response_headers.get(f"x-ratelimit-limit-{attr}")
                 if value and value.isdigit():
-                    value = int(value)
-                    if getattr(quota, kind) is None or value < getattr(quota, kind):
-                        setattr(quota, kind, value)
+                    limit_value = int(value)
+                    if getattr(quota, kind) is None or limit_value < getattr(quota, kind):
+                        setattr(quota, kind, limit_value)
                         changed = True
         if error_body:
             lowered = error_body.lower()
@@ -192,9 +199,9 @@ class UsageLedger:
             ):
                 match = re.search(pattern, lowered)
                 if match:
-                    value = int(match.group(1))
-                    if getattr(quota, kind) is None or value < getattr(quota, kind):
-                        setattr(quota, kind, value)
+                    limit_value = int(match.group(1))
+                    if getattr(quota, kind) is None or limit_value < getattr(quota, kind):
+                        setattr(quota, kind, limit_value)
                         changed = True
         if changed:
             self.limits[key] = quota
@@ -217,7 +224,14 @@ class StickySession:
         self.ttl = ttl
         self._locks: dict[str, tuple[str, float]] = {}
 
-    def lock(self, session_id: str, logical_model: str, *, ttl: float | None = None, ts: float | None = None) -> None:
+    def lock(
+        self,
+        session_id: str,
+        logical_model: str,
+        *,
+        ttl: float | None = None,
+        ts: float | None = None,
+    ) -> None:
         """锁定 session → 逻辑模型 (幂等覆盖)。"""
         now = ts or time.time()
         self._locks[session_id] = (logical_model, now + (ttl or self.ttl))
@@ -318,11 +332,13 @@ def _normalize_tool_calls(raw: list[Any]) -> list[dict[str, Any]]:
             args = json.dumps(args, ensure_ascii=False)
         elif not isinstance(args, str):
             args = json.dumps(item.get("arguments", {}), ensure_ascii=False)
-        calls.append({
-            "id": item.get("id") or f"call_rescued_{i}",
-            "type": "function",
-            "function": {"name": name, "arguments": args},
-        })
+        calls.append(
+            {
+                "id": item.get("id") or f"call_rescued_{i}",
+                "type": "function",
+                "function": {"name": name, "arguments": args},
+            }
+        )
     return calls
 
 

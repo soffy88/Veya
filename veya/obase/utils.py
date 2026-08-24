@@ -8,11 +8,11 @@ class CostTracker:
     Simple cost tracker for tracking expenses during operations.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.total_cost = 0.0
-        self.operations = []
+        self.operations: list[dict] = []
 
-    def add_cost(self, amount: float, operation: str = "unknown"):
+    def add_cost(self, amount: float, operation: str = "unknown") -> None:
         """
         Add cost for an operation.
         :param amount: Cost in USD
@@ -27,12 +27,12 @@ class CostTracker:
         """Get total accumulated cost."""
         return self.total_cost
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the cost tracker."""
         self.total_cost = 0.0
         self.operations = []
 
-    def get_operations(self):
+    def get_operations(self) -> list[dict]:
         """Get list of operations with costs."""
         return self.operations
 
@@ -60,11 +60,11 @@ class CostTracker:
 default_cost_tracker = CostTracker()
 
 
-def get_cost_tracker():
+def get_cost_tracker() -> CostTracker:
     """Get the global cost tracker instance."""
     return default_cost_tracker
 
 
-def track_cost(amount: float, operation: str = "unknown"):
+def track_cost(amount: float, operation: str = "unknown") -> None:
     """Convenience function to add cost to global tracker."""
     default_cost_tracker.add_cost(amount, operation)

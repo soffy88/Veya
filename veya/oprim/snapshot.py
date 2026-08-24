@@ -26,23 +26,23 @@ def _kv_of(kv: Any) -> Any:
 
 def snapshot_commit(tree_id: str, data: Any, kv: Any = None) -> None:
     """提交会话树快照（原子单键写入）。"""
-    _kv_of(kv).put(f"{_KEY_PREFIX}{tree_id}", data)  # type: ignore[attr-defined]
+    _kv_of(kv).put(f"{_KEY_PREFIX}{tree_id}", data)
 
 
 def snapshot_fetch(tree_id: str, kv: Any = None) -> Any:
     """取回会话树快照（不存在返回 None）。"""
-    return _kv_of(kv).get(f"{_KEY_PREFIX}{tree_id}")  # type: ignore[attr-defined]
+    return _kv_of(kv).get(f"{_KEY_PREFIX}{tree_id}")
 
 
 def snapshot_list(kv: Any = None) -> list[str]:
     """列出全部已提交快照的 tree_id（剥离前缀）。"""
-    keys = _kv_of(kv).keys(_KEY_PREFIX)  # type: ignore[attr-defined]
+    keys = _kv_of(kv).keys(_KEY_PREFIX)
     return [k[len(_KEY_PREFIX) :] for k in keys]
 
 
 def snapshot_delete(tree_id: str, kv: Any = None) -> None:
     """删除会话树快照。"""
-    _kv_of(kv).delete(f"{_KEY_PREFIX}{tree_id}")  # type: ignore[attr-defined]
+    _kv_of(kv).delete(f"{_KEY_PREFIX}{tree_id}")
 
 
 __all__ = ["snapshot_commit", "snapshot_delete", "snapshot_fetch", "snapshot_list"]

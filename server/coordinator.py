@@ -29,7 +29,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError
 
@@ -852,6 +852,7 @@ class VeyaCoordinator:
             if command:
                 result = await executor.execute(command, session_id=self._session_id)
             else:
+                assert code is not None
                 result = await executor.run_script(code, session_id=self._session_id)
         if result.get("exit_code") != 0:
             # 主动抛出异常,触发上方的 Reflection 机制
@@ -1878,7 +1879,7 @@ class Coordinator:
 
                 res = await connector.search(query, top_k=top_k, fallback=_vec)
                 if res["source"] in ("graph", "vector"):
-                    return res["results"]
+                    return cast("list[dict[str, Any]]", res["results"])
             results = self.semantic_search.search(query, top_k=top_k)
             return [
                 {

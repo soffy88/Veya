@@ -24,38 +24,38 @@ def _sandbox_of(sandbox: Any) -> Any:
 
 async def fs_read(path: str, sandbox: Any = None) -> bytes:
     """读取沙盒内文件（字节）。越界抛 ValueError。"""
-    return await _sandbox_of(sandbox).read(path)  # type: ignore[attr-defined]
+    return await _sandbox_of(sandbox).read(path)
 
 
 async def fs_write(path: str, data: bytes | str, sandbox: Any = None) -> None:
     """写入沙盒内文件（自动建父目录）。越界抛 ValueError。"""
-    await _sandbox_of(sandbox).write(path, data)  # type: ignore[attr-defined]
+    await _sandbox_of(sandbox).write(path, data)
 
 
 async def fs_read_text(path: str, sandbox: Any = None) -> str:
     """读取沙盒内文本文件。"""
-    data = await _sandbox_of(sandbox).read(path)  # type: ignore[attr-defined]
+    data = await _sandbox_of(sandbox).read(path)
     return data.decode("utf-8", errors="replace")
 
 
 async def fs_write_text(path: str, text: str, sandbox: Any = None) -> None:
     """写入沙盒内文本文件。"""
-    await _sandbox_of(sandbox).write(path, text)  # type: ignore[attr-defined]
+    await _sandbox_of(sandbox).write(path, text)
 
 
 async def fs_exists(path: str, sandbox: Any = None) -> bool:
     """沙盒内路径是否存在。"""
-    return await _sandbox_of(sandbox).exists(path)  # type: ignore[attr-defined]
+    return await _sandbox_of(sandbox).exists(path)
 
 
 async def fs_listdir(path: str, sandbox: Any = None) -> list[str]:
     """列出沙盒内目录条目（仅名字）。"""
-    return await _sandbox_of(sandbox).listdir(path)  # type: ignore[attr-defined]
+    return await _sandbox_of(sandbox).listdir(path)
 
 
 async def fs_delete(path: str, sandbox: Any = None) -> None:
     """删除沙盒内文件或目录（递归）。"""
-    await _sandbox_of(sandbox).delete(path)  # type: ignore[attr-defined]
+    await _sandbox_of(sandbox).delete(path)
 
 
 __all__ = [
