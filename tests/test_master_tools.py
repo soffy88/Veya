@@ -192,6 +192,48 @@ async def test_read_file_ast_path_escape(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_read_file_ast_symlink_escape(tmp_path, monkeypatch):
+    """rfc-08 §11.4 对抗性测试: 工作区内的符号链接指向工作区外, 必须被拒绝
+    (_resolve_path 用 Path.resolve() 先展开符号链接再做 containment 检查,
+    这条测的是那个展开顺序是不是真的挡住了逃逸, 不是猜代码写对了)。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.py"
+    secret.write_text("SECRET = 1\n")
+    link = workspace / "link.py"
+    link.symlink_to(secret)
+    monkeypatch.setenv("VEYA_WORKSPACE", str(workspace))
+    with pytest.raises(ToolExecutionError, match="escapes workspace"):
+        await master_tools.execute("read_file_ast", {"filepath": "link.py"})
+
+
+@pytest.mark.asyncio
+async def test_write_file_path_escape(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEYA_WRITE_ROOT", str(tmp_path / "write_root"))
+    with pytest.raises(ToolExecutionError, match="escapes write root"):
+        await master_tools.execute("write_file", {"filepath": "../outside.txt", "content": "x"})
+
+
+@pytest.mark.asyncio
+async def test_write_file_symlink_escape(tmp_path, monkeypatch):
+    """同 test_read_file_ast_symlink_escape, 换成写路径 (_resolve_write_path)。"""
+    write_root = tmp_path / "write_root"
+    write_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "target.txt"
+    target.write_text("original\n")
+    link = write_root / "link.txt"
+    link.symlink_to(target)
+    monkeypatch.setenv("VEYA_WRITE_ROOT", str(write_root))
+    with pytest.raises(ToolExecutionError, match="escapes write root"):
+        await master_tools.execute("write_file", {"filepath": "link.txt", "content": "pwned"})
+    assert target.read_text() == "original\n"
+
+
+@pytest.mark.asyncio
 async def test_run_in_sandbox_real(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_WORKSPACE", str(tmp_path))
     out = await master_tools.execute("run_in_sandbox", {"code": "print(6 * 7)"})
