@@ -374,7 +374,7 @@ class MasterToolRegistry:
         self._validators: dict[str, Any] = {}
         self._descriptions: dict[str, str] = {}
         self._result_limits: dict[str, int] = {}  # 工具名 → 结果截断上限(协处理器需大上限)
-        configured_timeout = timeout_s
+        configured_timeout: float | str | None = timeout_s
         if configured_timeout is None:
             configured_timeout = os.environ.get(_TOOL_TIMEOUT_ENV)
         self._default_timeout_s = parse_optional_timeout(
@@ -747,7 +747,7 @@ async def _tool_fetch_url(url: str, max_chars: int = 12000) -> str:
                     if r.status_code == 200:
                         return (
                             f"[GitHub {owner}/{repo} README (branch={branch})]\n"
-                            + r.text[:max_chars]
+                            + str(r.text)[:max_chars]
                         )
                 except Exception:
                     continue
@@ -896,7 +896,7 @@ def _tool_read_file_ast(filepath: str) -> str:
     if path.is_dir():
         raise ToolExecutionError(f"path '{filepath}' 是目录不是文件 — 请指定具体 .py 文件路径")
     source = path.read_text(encoding="utf-8", errors="replace")
-    return extract_skeleton(source, filepath)
+    return str(extract_skeleton(source, filepath))
 
 
 def _resolve_write_path(filepath: str, *, must_exist: bool = False) -> Path:
@@ -941,7 +941,7 @@ def _tool_read_hashline(filepath: str, max_lines: int = 2000) -> str:
         raise ToolExecutionError(f"path '{filepath}' 是目录不是文件")
     source = path.read_text(encoding="utf-8", errors="replace")
     cap = max(1, min(int(max_lines or 2000), 8000))
-    return f"[hashline {path}]\n" + render(source, max_lines=cap)
+    return f"[hashline {path}]\n" + str(render(source, max_lines=cap))
 
 
 def _tool_edit_hashline(
@@ -1131,6 +1131,7 @@ async def _tool_run_in_sandbox(code: str | None = None, command: str | None = No
         if code:
             rec = session.exec([sys.executable, "-c", code], timeout_s=30)
         else:
+            assert command is not None  # guaranteed by the not-code-and-not-command check above
             rec = session.exec(
                 ["bash", "-lc", _normalize_sandbox_command(command)],
                 timeout_s=30,
@@ -1164,7 +1165,7 @@ def _tool_get_market_data_schema(asset_id: str) -> str:
     from server.quant_coprocessor import get_market_data_schema as _schema
 
     try:
-        return _schema(asset_id)
+        return str(_schema(asset_id))
     except FileNotFoundError as exc:
         raise ToolExecutionError(str(exc)) from exc
 
@@ -1193,11 +1194,13 @@ async def _tool_run_backtest_coprocessor(
     from server.quant_coprocessor import QuantCoprocessor
 
     coprocessor = QuantCoprocessor()
-    return await coprocessor.execute_strategy(
-        strategy_code=strategy_code,
-        asset_id=asset_id,
-        start_date=start_date,
-        end_date=end_date,
+    return str(
+        await coprocessor.execute_strategy(
+            strategy_code=strategy_code,
+            asset_id=asset_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
     )
 
 
@@ -2683,7 +2686,7 @@ def _register_internalized_tools(mt: Any) -> None:
     async def _ask_user(question: str, options: list[str] | None = None) -> str:
         from server.user_control import ask_question
 
-        return await ask_question(question, options)
+        return str(await ask_question(question, options))
 
     # ── agent_loop_run: omodul.AgentLoop 作为系统工具暴露 ──
     # 2026-08-17 架构澄清: MasterAgent ReAct 是唯一面向用户的主链 (全量工具面,
@@ -2764,7 +2767,7 @@ def _register_internalized_tools(mt: Any) -> None:
         if a == "export":
             return str(dl_mod.export_ledger(limit=limit or None))
         if a == "summary":
-            return dl_mod.ledger.summary(limit=limit or 8)
+            return str(dl_mod.ledger.summary(limit=limit or 8))
         return "unknown action: use trace|similar|impact|rules|export|summary"
 
     # ── graph_store: 图写入 (实体/关系/软删) ──
@@ -2825,7 +2828,7 @@ def _register_internalized_tools(mt: Any) -> None:
                 return "state_at 需要 ISO 时间戳"
             return str(cg_mod.state_at(timestamp))
         if o == "summary":
-            return cg_mod.summary(limit=limit)
+            return str(cg_mod.summary(limit=limit))
         return "unknown op: use neighbors|state_at|summary"
 
     for spec in (

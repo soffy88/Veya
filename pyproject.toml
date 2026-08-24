@@ -153,6 +153,12 @@ disallow_untyped_defs = true
 module = ["textual.*", "plotly.*", "networkx.*", "matplotlib.*"]
 ignore_missing_imports = true
 
+# 3O 子库用 veya.platform.load() 动态挂载到 sys.path, mypy 静态分析看不到这条路径,
+# 报 import-not-found 不代表真的缺实现。跟 numpy/plotly 一样按 stub 缺失处理。
+[[tool.mypy.overrides]]
+module = ["oskill.*", "oservi.*", "oprim.*", "omodul.*", "obase.*"]
+ignore_missing_imports = true
+
 # numpy stubs 使用 3.12 语法(PEP 695),在 python_version=3.11 下报 syntax;
 # 其类型信息对本项目非关键,整体忽略。
 [[tool.mypy.overrides]]

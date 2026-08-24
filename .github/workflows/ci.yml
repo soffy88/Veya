@@ -80,6 +80,15 @@ jobs:
         # G7: 解锁集严格检查(coordinator/streaming/sandbox/intent + obase/llm/errors/compat/utils)。
         # 遗留代码暂不纳入,避免整库历史错误阻塞 CI。
 
+      - name: Run mypy (current chat kernel)
+        run: |
+          mypy --config-file pyproject.toml --follow-imports=skip server/coordinator_master.py server/tool_registry.py
+        # docs/VEYA_10_OF_10_PLAN.md §15.1: 上面那条 G7 检查只查 legacy coordinator.py,
+        # 从没查过真正的主链入口 coordinator_master.py/tool_registry.py (2026-08-24 核实:
+        # 补全后跟随导入会拉出 384 个历史错误, 跟这两个文件本身无关) —— 单独用
+        # --follow-imports=skip 只查这两个文件自身, 不跟随导入闭包, 避免被无关历史债务
+        # 挡住。这两个文件本身已清零 (2026-08-24), 新代码不能再往这两个文件里引入新错误。
+
   docs:
     name: Docs Build (mkdocs)
     runs-on: ubuntu-latest
@@ -166,10 +175,27 @@ jobs:
           veya doctor --json | python -c "import json,sys; d=json.load(sys.stdin); print('doctor checks:', len(d['checks']))"
 
       - name: Dispatch a task headlessly (offline stub mode)
+        # `pip install .` 不含 platform/3O/(pyproject.toml wheel exclude, 3O 走独立仓库单一
+        # 来源), 所以 Infra.init 里 obase.agent_registry 这类 import 需要 PYTHONPATH 指到
+        # checkout 出来的子模块源码 — 跟生产 docker-compose.yml 的 PYTHONPATH 是同一套路径,
+        # 不是新发明的临时方案。之前这里靠 `|| true` 掩盖了这个从未真正跑通过的路径
+        # (本地复现过: 不设 PYTHONPATH 时是 ModuleNotFoundError, 不是"离线模式无输出")。
+        env:
+          PYTHONPATH: "platform/3O/oprim:platform/3O/oskill:platform/3O/omodul:platform/3O/obase:platform/3O/oservi"
         run: |
-          OUT=$(veya-headless --agent plan --text "做一个 3 步的部署计划" 2>&1 || true)
-          echo "$OUT" | head -20
-          echo "$OUT" | grep -qiE "plan|计划|deploy|部署" && echo "SMOKE OK: task produced a plan" || echo "SMOKE WARN: no plan text (stub mode)"
+          OUT=$(veya-headless --agent plan --text "做一个 3 步的部署计划" 2>&1)
+          RC=$?
+          echo "$OUT" | tail -30
+          if [ $RC -ne 0 ]; then
+            echo "SMOKE FAIL: veya-headless exited $RC"
+            exit 1
+          fi
+          # CI 沙箱没有 ollama/API key, LLM 调用会失败并被 coordinator 兜底成
+          # "could not reach ..." 这类可见错误文案(status 仍是 success) —— 这是预期的
+          # 离线降级行为, 不是崩溃; 崩溃走上面的 RC 分支硬失败。
+          echo "$OUT" | grep -qiE "plan|计划|deploy|部署|could not reach|error" \
+            && echo "SMOKE OK: task pipeline produced a structured response" \
+            || { echo "SMOKE FAIL: no recognizable output"; exit 1; }
 
   build:
     name: Build

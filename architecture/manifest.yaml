@@ -1,0 +1,63 @@
+# Veya architecture truth source (docs/VEYA_10_OF_10_PLAN.md §3, PR-01).
+#
+# 记录的是 2026-08-24 逐项核实过的现状（读代码验证过，不是照抄计划文档里的示例）。
+# 目前只做只读报告（见 scripts/check_architecture_manifest.py），forbidden_imports 留空——
+# server.coordinator 仍被 4 个真实路由引用，现在就 hard-fail 会拉红生产路径；先如实记录，
+# 迁移完成后再收紧（对应计划里的 PR-03/PR-04）。
+
+kernel:
+  # 唯一权威聊天主链入口：MasterCoordinator，委托 3O oservi.MasterAgent。
+  master_entry:
+    - server.coordinator_master
+  canonical_llm:
+    - veya.obase.llm
+  canonical_history:
+    - veya.oservi.history_store
+
+# "3O 归位门面"：5 行 sys.modules 别名，指向下面的 canonical 路径。这是刻意保留的
+# 零成本兼容层，不是架构漂移——新代码应直接 import canonical 路径，但旧路径不必强制清零。
+compat_facades:
+  veya.llm: veya.obase.llm
+  veya.intent: veya.oskill.intent
+  veya.history_store: veya.oservi.history_store
+
+# 真正的漂移：跟 kernel.master_entry 并存的第二条可接管请求的入口，违反 I-01
+# （docs/VEYA_10_OF_10_PLAN.md §2）。known_importers 是 2026-08-24 grep 验证过的实际引用者，
+# 不是猜测——check_architecture_manifest.py 会用这份清单跟仓库现状做 diff。
+#
+# 2026-08-24 逐个读过这 4 个调用点, 不是等量齐观的"迁移 4 处"——难度分三档:
+#   backends.py::_run_builtin  — 一次性文本进/出, 无 session/resume, 迁移成本最低。
+#   routes/prompt.py::/prompt  — 有 session_id + SSE on_step, 跟 chat_stream 形状接近,
+#                                 需要先确认 persona 字段跟 chat_stream(mode=) 语义是否等价。
+#   routes/flow.py::/flow/phase1 — mode="requirement", 产出结构化 RequirementDoc 给 Genesis
+#                                 HITL 用, 不是普通聊天回复。这不是"该迁移"而更像是符合计划
+#                                 §2 I-01 例外条款("独立 HITL workflow 可以标记
+#                                 VEYA_EXECUTION_PLANE=workflow"), 应该显式打标签留着,
+#                                 不该硬塞进 chat_stream。
+#   routes/session.py::/resume — 依赖 veya.compat.RunState 检查点格式, 是 legacy Coordinator
+#                                 专属状态机 (跟 mypy 里那几个 RunState attr-defined 错误是
+#                                 同一件事); coordinator_master 用的是完全不同的
+#                                 history_store 会话模型, 没有对应的 RunState 概念。硬迁移
+#                                 = 现存 checkpoint 全部作废, 这是数据兼容性决策不是代码改动,
+#                                 需要人拍板, 不在这次评估范围内执行。
+deprecated:
+  - name: server.coordinator
+    status: still-wired
+    replacement: server.coordinator_master
+    known_importers:
+      - server.backends
+      - server.routes.session
+      - server.routes.flow
+      - server.routes.prompt
+    note: >-
+      I-01 违规：MasterCoordinator 之外第二条能处理完整请求的路径。4 个调用点难度不同
+      （见上面注释），backends.py 最容易迁、flow.py 更可能该标 workflow plane 而不是迁移、
+      session.py resume 卡在检查点数据格式不兼容——不能标 forbidden。
+
+planes:
+  chat:
+    authority: server.coordinator_master
+
+# 暂不启用强制门禁：一旦上面 deprecated 清单里的 known_importers 清空，把对应模块
+# 挪到这里，check_architecture_manifest.py 才会真正拉红新增的违规 import。
+forbidden_imports: []
