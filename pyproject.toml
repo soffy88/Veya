@@ -1,7 +1,7 @@
 [project]
 name = "veya"
 version = "0.6.0"
-description = "veya — AI 编码 agent layer4 实现"
+description = "veya — open agent runtime for persistent, tool-using, verifiable AI (coding is the first surface, not the final definition)"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 classifiers = [
