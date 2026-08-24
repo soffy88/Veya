@@ -17,8 +17,11 @@ curl -fsSL https://raw.githubusercontent.com/soffy88/Veya/main/install.sh | bash
 # Windows PowerShell
 irm https://raw.githubusercontent.com/soffy88/Veya/main/install.ps1 | iex
 
-# 或 pip
-pip install veya
+# 或 pip（含 veya start 用到的本地服务 + 可视化端点）
+pip install "veya[server]"
+
+# 只用 CLI（veya / veya-headless），不跑本地服务，可以更轻量：
+# pip install veya
 ```
 
 ### 2. 接入模型（30 秒向导）
@@ -45,7 +48,7 @@ veya-headless --agent plan --text "设计一个数据管道"   # 无头模式
 | 提供商 | 环境变量 | 说明 |
 |---|---|---|
 | OpenAI | `OPENAI_API_KEY` | 默认模型 `gpt-4o-mini` |
-| Anthropic | `ANTHROPIC_API_KEY` | 默认模型 `claude-sonnet-4-20250514` |
+| Anthropic | `ANTHROPIC_API_KEY` | 默认模型 `claude-haiku-4-5-20251001` |
 | DashScope | `DASHSCOPE_API_KEY` | 默认模型 `qwen-plus` |
 | DeepSeek | `DEEPSEEK_API_KEY` | 默认模型 `deepseek-chat` |
 | Ollama（本地） | — | `veya init` 自动探测 `localhost:11434`，免 Key |
