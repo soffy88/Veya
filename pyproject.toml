@@ -10,18 +10,8 @@ dependencies = [
     "aiohttp>=3.14.3",
     "python-dotenv>=1.0.0",
     "python-multipart>=0.0.9",  # G17: FastAPI 表单/文件上传支持
-    "networkx>=3.6.1",  # server/app.py → routes/advanced_visualization → veya/advanced_visualization
-    "matplotlib>=3.11.1",  # 同上, 均为 eager import 链路, 见 docs/dev/rfc-07-dependency-hygiene.md
-    "plotly>=6.9.0",  # 同上
     "structlog>=24.0",  # 3O obase 主库 core 依赖(轻量, 装配通道 veya.platform 所需)
     "apscheduler>=3.10,<4",  # Veya Automata: 后台定时/事件调度(Agent OS)
-    # pandas/numpy/pyarrow: server/app.py → routes/evolution → darwin_evolution →
-    # quant_coprocessor 是 eager import 链, numpy 另经 veya.ast/git/cross_language
-    # (3O 归位门面) → veya/oprim → vad.py 二次进入; 三者均非安全可挪 extras 候选,
-    # 见 docs/dev/rfc-07-dependency-hygiene.md。
-    "pandas>=2.0",  # Quant Coprocessor: 海量行情数据处理(控制面/数据面分离)
-    "numpy>=1.26",  # Quant Coprocessor: 向量化指标计算
-    "pyarrow>=15.0",  # Quant Coprocessor: parquet 高速 I/O(pd.read_parquet 引擎)
 ]
 
 [project.optional-dependencies]
@@ -52,6 +42,34 @@ vision = [
 # 任何 server/核心 CLI 路径, 是这轮调研里唯一验证过安全可挪的一个。
 tui = [
     "textual>=0.60.0",
+]
+# 2026-08-24 §2 (docs/dev/rfc-07-dependency-hygiene.md): 用 sys.meta_path find_spec
+# 拦截验证过——cli/(veya/veya-headless/veya-simple)完全不 import server.app,
+# 这三个包只有真的跑 FastAPI 服务 (server.app) 时才需要 (routes/evolution →
+# darwin_evolution → quant_coprocessor, 虽然 quant_coprocessor 自己的 pandas/numpy
+# 用法全在沙箱子进程脚本字符串里, 不在主进程 eager import 路径上——真正拉入 numpy
+# 的是 server/routes/adversarial.py → 3O omodul/oprim 链, 但那条链本来就要求 3O
+# 子库存在, 跟这三个包装不装没关系)。生产 docker 镜像不受影响——deploy/
+# requirements.txt 已经独立锁定这六个包的版本, pyproject.toml 这里删减跟
+# Dockerfile.backend 的构建结果无关。
+quant = [
+    "pandas>=2.0",  # Quant Coprocessor: 海量行情数据处理(控制面/数据面分离)
+    "numpy>=1.26",  # Quant Coprocessor: 向量化指标计算
+    "pyarrow>=15.0",  # Quant Coprocessor: parquet 高速 I/O(pd.read_parquet 引擎)
+]
+# 2026-08-24 §3 (docs/dev/rfc-07-dependency-hygiene.md): server/app.py 通过
+# routes/visualization.py + routes/advanced_visualization.py 对 veya.visualization/
+# veya.advanced_visualization 是真 eager import (find_spec 拦截验证过, 直接拉红)。
+# 只有跑 server.app (FastAPI 服务) 才需要; CLI 不受影响。
+viz = [
+    "networkx>=3.6.1",
+    "matplotlib>=3.11.1",
+    "plotly>=6.9.0",
+]
+# 跑 server.app (FastAPI 服务, 而不是纯 CLI) 需要上面 quant + viz 两组全装。
+server = [
+    "veya[quant]",
+    "veya[viz]",
 ]
 
 [project.scripts]
