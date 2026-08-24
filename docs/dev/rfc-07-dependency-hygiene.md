@@ -1,9 +1,13 @@
 # RFC-07: 核心依赖卫生现状调研（PR-08）
 
-> 状态：全部 7 个包已分类完成并执行（2026-08-24，分两轮）。第一轮（§3.2/3.3 原始
+> 状态：全部 7 个包已分类完成并执行（2026-08-24，分三轮）。第一轮（§3.2/3.3 原始
 > 版本）对 pandas/numpy/pyarrow/matplotlib/networkx/plotly 的判断有错，第二轮
 > 用运行时 import 拦截重新核实并纠正——过程记在 §6，不删第一轮的错误结论，
-> 留作方法论教训。
+> 留作方法论教训。第三轮（§7）补上了一处第二轮遗漏的真实回归：`veya start`
+> 走 `veya/server/app.py` → `server/app.py`，后者对 matplotlib/networkx/plotly
+> 是真 eager import——纯改 `pyproject.toml` 声明后, 用户跟着 README 走"pip
+> install veya → veya start"三步会在第三步炸。已在 `server/app.py` 给两个
+> 可视化路由加 guarded import 修掉。
 > 依据：docs/VEYA_10_OF_10_PLAN.md §13（Dependency Hygiene 做到 10/10）
 > 范围：核实哪些"重包"能安全挪进 `optional-dependencies`。
 
@@ -148,3 +152,47 @@ matplotlib/networkx/plotly 对 `server.app` 是真 eager——直接删掉这三
 3. 两个错误共同导致第一轮把 pandas/numpy/pyarrow 错误分类成"不安全"，多写了
    一份不必要的"懒加载重构方案"（已删除，不再具有参考价值）。真正安全与否
    最终是靠 §3.2 的 `find_spec` 拦截实验纠正的，不是靠更仔细地重新 grep。
+
+## 7. 第三轮：补上第二轮遗漏的真实回归（2026-08-24）
+
+第二轮验证过 `import server.app` 在 matplotlib/networkx/plotly 缺失时会真的
+`ImportError`（§3.3，这个结论没错），但当时只满足于"证明它们确实是 eager 的、
+挪 extras 不会让 docker 变差"，**没有反过来确认"挪了之后，还有谁指望这条
+import 链不炸"**。核对 `README.md` 的三步快速开始（`pip install veya` →
+`veya init` → `veya start`）时发现：`cli/product.py::run_start()` 会
+`from veya.server.app import app`，而 `veya/server/app.py:27` 内部又
+`from server.app import app as _agentos_app`——是同一条链，同一批 eager
+import。也就是说，纯改 `pyproject.toml` 声明（不改一行运行代码）之后，
+用户照着 README 走三步，第三步 `veya start` 就会因为装的是 core（不含
+`matplotlib`/`networkx`/`plotly`）而崩溃——这是这次调研自己制造的新回归，
+必须在同一轮里堵上，不能留到"以后有空再修"。
+
+### 修复
+
+`server/app.py`：把 `advanced_visualization_router`/`visualization_router`
+两个 import 从模块顶层的固定 import 挪进一个 `_load_viz_routers()` 辅助函数，
+`try/except ImportError` 兜底返回 `(None, None)` 并记一条带 `pip install
+veya[viz]` 提示的 warning；对应的两处 `app.include_router(...)` 加
+`is not None` 判断跳过未挂载的路由。**没有**动 `adversarial_router`/
+`darwin_evolution` 那条线——那条线的失败原因是 3O `omodul`/`oprim` 子库本身
+不在 wheel 里（不是这三个包装不装的问题，见 §3.2），修那个是完全不同性质
+的问题（server.app 该不该在没有 3O 子库时也能跑），不在这次 PR-08 范围内。
+
+### 验证（运行时，不是只看代码顺眼）
+
+用 `find_spec` 拦截 `{matplotlib, plotly}`（刻意不拦 `networkx`——3O 的
+`oprim._do_calculus_intervention.py` 也在用它，混在一起测会把"该拦的"和
+"3O 本来就要求存在"这两件事搞混）后 `import server.app`：
+
+```text
+IMPORTED OK, total routes: 60   (正常 62, 少了两个视觉路由, 差值精确对上)
+viz router loaded:      False
+adv viz router loaded:  False
+```
+
+不拦截时（本地 venv 全部包都在）：`total routes: 62`，两个路由都 `True`，
+跟改动前行为一致。`--follow-imports=skip` 下 `mypy server/app.py` 0 错误
+（中途踩过一次 mypy 对 try/except 里重复绑定同名变量的 `no-redef` 误报，
+挪成显式返回 `tuple[APIRouter | None, APIRouter | None]` 的函数解决，不是
+`# type: ignore` 糊过去）。`ruff check server/app.py` 除一处这次没碰的
+pre-existing `E402`（`veya.oservi.gateway`，跟这次改动无关）外干净。

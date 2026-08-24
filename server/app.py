@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+import logging as _logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config.loader import load_config
 from server.assembly import Infra
-from server.routes.advanced_visualization import router as advanced_visualization_router
 from server.routes.adversarial import router as adversarial_router
 from server.routes.agent import router as agent_router
 from server.routes.agent_collaboration import router as agent_collaboration_router
 from server.routes.analysis import router as analysis_router
 from server.routes.audit import router as audit_router
-from server.routes.auth import router as auth_router
 from server.routes.auth import key_router as auth_key_router
+from server.routes.auth import router as auth_router
 from server.routes.automata import router as automata_router
 from server.routes.automata import webhook_router
 from server.routes.autonomous import router as autonomous_router
@@ -27,6 +27,9 @@ from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
 from server.routes.evolution import router as evolution_router
 from server.routes.flow import router as flow_router
+from server.routes.fs import router as fs_router
+from server.routes.git import router as git_router
+from server.routes.graph import router as graph_router
 from server.routes.init import router as init_router
 from server.routes.integrations import router as integrations_router
 from server.routes.legacy_agent import router as legacy_agent_router
@@ -36,15 +39,12 @@ from server.routes.models import router as models_router
 from server.routes.multimodal import router as multimodal_router
 from server.routes.neuro_symbolic import router as neuro_symbolic_router
 from server.routes.notifications import router as notifications_router
-from server.routes.fs import router as fs_router
-from server.routes.git import router as git_router
-from server.routes.graph import router as graph_router
-from server.routes.plan import router as plan_router
 from server.routes.observer import router as observer_router
 from server.routes.omni import router as omni_router
 from server.routes.operator import router as operator_router
 from server.routes.performance import router as performance_router
 from server.routes.permission import router as permission_router
+from server.routes.plan import router as plan_router
 from server.routes.projects import router as projects_router
 from server.routes.prompt import router as prompt_router
 from server.routes.research import router as research_router
@@ -59,10 +59,29 @@ from server.routes.tool import router as tool_router
 from server.routes.tools import router as tools_router
 from server.routes.vault import compat_router as vault_compat_router
 from server.routes.vault import router as vault_router
-from server.routes.visualization import router as visualization_router
 from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
 from server.sse import router as sse_router
+
+
+# 2026-08-24 (docs/dev/rfc-07-dependency-hygiene.md §3.3/§3.4): matplotlib/networkx/
+# plotly 挪出核心依赖后, 这两个路由是 server.app 里仅有的、真的需要它们才能 import
+# 成功的地方——guarded import, 装了就挂载, 没装就跳过并记日志, 不让整个 server 因为
+# 两个可视化端点没装 `veya[viz]` 而起不来 (`veya start` 只装 core 也该能跑)。
+def _load_viz_routers() -> tuple[APIRouter | None, APIRouter | None]:
+    try:
+        from server.routes.advanced_visualization import router as adv
+        from server.routes.visualization import router as viz
+    except ImportError as exc:
+        _logging.getLogger("veya.app").warning(
+            "可视化路由未挂载 (缺 matplotlib/networkx/plotly, `pip install veya[viz]` 补上): %s",
+            exc,
+        )
+        return None, None
+    return viz, adv
+
+
+_visualization_router, _advanced_visualization_router = _load_viz_routers()
 
 
 @asynccontextmanager
@@ -152,8 +171,8 @@ async def lifespan(app: FastAPI):
 
         logging.getLogger("veya.lifespan").exception("vision wire failed")
     try:
-        from server.plan_todo import wire_master_tools as wire_plan
         from server.long_read import wire_master_tools as wire_long
+        from server.plan_todo import wire_master_tools as wire_plan
 
         wire_plan()  # create_plan / plan_status / update_todo → 主脑工具面
         wire_long()  # long_read (长文分块导航) → 主脑工具面
@@ -254,10 +273,12 @@ app.include_router(integrations_router)
 app.include_router(collaboration_router)
 app.include_router(semantic_search_router)
 app.include_router(autonomous_router)
-app.include_router(visualization_router)
+if _visualization_router is not None:
+    app.include_router(_visualization_router)
 app.include_router(cross_language_router)
 app.include_router(performance_router)
-app.include_router(advanced_visualization_router)
+if _advanced_visualization_router is not None:
+    app.include_router(_advanced_visualization_router)
 app.include_router(agent_collaboration_router)
 app.include_router(mcp_router)
 app.include_router(auth_router)
