@@ -19,7 +19,7 @@ import os
 import uuid
 import weakref
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from server import graft_autocontext as _graft_autocontext
 from server.events import _on_step_ctx, fire_step
@@ -82,7 +82,9 @@ def _default_long_task_factory() -> Any:
 
 # 同一会话的两次请求必须串行。按 event loop 分桶，避免测试/CLI 多次
 # ``asyncio.run`` 时复用绑定到旧 loop 的 Lock。
-_session_locks_by_loop: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_session_locks_by_loop: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, dict[str, _SessionLockState]
+] = weakref.WeakKeyDictionary()
 
 
 class _SessionLockState:
@@ -598,8 +600,8 @@ class MasterCoordinator:
         execution = self._raw_handle_tool_call(tool_name, args)
         try:
             if self._tool_timeout_s is None:
-                return await execution
-            return await asyncio.wait_for(execution, timeout=self._tool_timeout_s)
+                return str(await execution)
+            return str(await asyncio.wait_for(execution, timeout=self._tool_timeout_s))
         except TimeoutError as exc:
             raise ToolExecutionError(
                 f"tool '{tool_name}' timed out after {self._tool_timeout_s:g}s"
@@ -672,7 +674,7 @@ class MasterCoordinator:
             try:
                 from veya.oskill.pure.context_compress import truncate_to_token_budget
 
-                return truncate_to_token_budget(msgs, max_tokens=budget)
+                return list(truncate_to_token_budget(msgs, max_tokens=budget))
             except Exception:
                 return msgs
 
@@ -737,7 +739,7 @@ class MasterCoordinator:
             from veya.llm import calc_cost
 
             provider, _ = get_provider_config(None, provider=self.provider, model=self.model)
-            return calc_cost(provider, usage)
+            return float(calc_cost(provider, usage))
         except Exception:
             return 0.0
 
@@ -762,19 +764,19 @@ class MasterCoordinator:
 
     # ── 主脑 API(委托主库引擎) ──────────────────────────────────────
     def get_system_prompt(self) -> str:
-        return self._agent.get_system_prompt()
+        return str(self._agent.get_system_prompt())
 
     def get_system_schemas(self) -> list[dict]:
-        return self._agent.get_system_schemas()
+        return list(self._agent.get_system_schemas())
 
     def get_all_tool_schemas(self) -> list[dict]:
-        return self._agent.get_all_tool_schemas()
+        return list(self._agent.get_all_tool_schemas())
 
     def register_secure_tool(self, tool_name: str, callback: Callable) -> None:
         self._agent.register_secure_tool(tool_name, callback)
 
     async def handle_tool_call(self, tool_name: str, tool_args: dict) -> str:
-        return await self._agent.handle_tool_call(tool_name, tool_args)
+        return str(await self._agent.handle_tool_call(tool_name, tool_args))
 
     async def chat_stream(
         self,
@@ -799,7 +801,7 @@ class MasterCoordinator:
         mode=plan: 只读; require_approval: 高影响工具等用户点批准。
         freeze_allow: 非 None 时设置本 session 写锁子目录 ("" = 解除 freeze)。
         """
-        llm_kwargs = {}
+        llm_kwargs: dict[str, Any] = {}
         if config:
             llm_kwargs["config"] = config
         if provider:
@@ -908,6 +910,9 @@ class MasterCoordinator:
             return _sanitize_final_answer(result)
         finally:
             if session_lock_acquired and session_lock is not None:
+                # session_lock_acquired 只在 837 行成功获锁后置 True, 而获锁前 826 行
+                # 已把 session_id 重写成非 None 的 sid_early —— 这里必然非 None。
+                assert session_id is not None
                 _release_session_lock(session_id, session_lock)
             if uc_tokens is not None:
                 _uc.deactivate(uc_tokens)
@@ -1199,7 +1204,7 @@ class MasterCoordinator:
         """
         from server import auth as auth_mod
 
-        return auth_mod.current_user()["user_id"]
+        return str(auth_mod.current_user()["user_id"])
 
     async def _inject_memory(self, sid: str, query: str) -> None:
         """检索相关长期记忆, 作为可刷新的 system 消息注入 (system 不入持久化)。
@@ -1298,7 +1303,7 @@ class MasterCoordinator:
             result["final_answer"] = (
                 "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。请重试, 或在上方更换模型/引擎。"
             )
-        return result
+        return cast("dict[str, Any]", result)
 
 
 # 蜂群引擎全局单例(构造无副作用, eager 安全)
@@ -1323,7 +1328,7 @@ async def _stop_hicode_task(task_id: str) -> bool:
     try:
         from server.hicode_queue import hicode_task_queue
 
-        return await hicode_task_queue.stop(task_id)
+        return bool(await hicode_task_queue.stop(task_id))
     except Exception as exc:
         logger.warning("cancel_session: 停 hicode 任务失败: %s", exc)
         return False
