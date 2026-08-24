@@ -11,13 +11,17 @@ from __future__ import annotations
 import json
 
 import pytest
+from oskill.eval_suite import EvalRun
 
 from server.agent_eval import (
     AGENT_EVAL_CASES,
     EvalCase,
     _score_result,
+    category_breakdown,
     compare_runs,
+    cost_per_case,
     run_agent_eval_suite,
+    unnecessary_tool_rate,
 )
 from server.coordinator_master import MasterCoordinator
 
@@ -97,6 +101,67 @@ def test_score_result_max_tool_calls_still_works():
 
     assert zero_calls == 1.0
     assert one_call == 0.5
+
+
+def test_category_breakdown_groups_by_meta():
+    """rfc-09: 按 EvalCase.meta['category'] 分组, 未跑到的用例(不在 run.scores
+    里)不进统计——不伪造缺失分数。"""
+    cases = [
+        EvalCase(id="a", input="x", meta={"category": "tool_selection"}),
+        EvalCase(id="b", input="x", meta={"category": "tool_selection"}),
+        EvalCase(id="c", input="x", meta={"category": "recovery"}),
+        EvalCase(id="d", input="x"),  # 没打标 → uncategorized
+    ]
+    run = EvalRun(suite_name="s", scores={"a": 1.0, "b": 0.5, "c": 0.0})  # d 没跑到
+
+    breakdown = category_breakdown(run, cases)
+
+    assert breakdown == {
+        "recovery": {"n": 1, "mean": 0.0},
+        "tool_selection": {"n": 2, "mean": 0.75},
+    }
+    assert "uncategorized" not in breakdown
+
+
+def test_unnecessary_tool_rate_only_counts_zero_tool_cases():
+    cases = [
+        EvalCase(id="zero1", input="x", expected={"max_tool_calls": 0}),
+        EvalCase(id="zero2", input="x", expected={"max_tool_calls": 0}),
+        EvalCase(id="needs_tool", input="x", expected={"min_tool_calls": 1}),
+    ]
+    run = EvalRun(
+        suite_name="s",
+        scores={"zero1": 0.5, "zero2": 1.0, "needs_tool": 1.0},
+        details={
+            "zero1": {"agent_result": {"tool_calls": [{"tool": "grep"}]}},  # 违规: 本不该调
+            "zero2": {"agent_result": {"tool_calls": []}},
+            "needs_tool": {"agent_result": {"tool_calls": [{"tool": "read_file_ast"}]}},
+        },
+    )
+
+    rate = unnecessary_tool_rate(run, cases)
+
+    assert rate == 0.5  # zero1/zero2 里一个违规, needs_tool 不计入分母
+
+
+def test_unnecessary_tool_rate_none_when_no_relevant_cases():
+    cases = [EvalCase(id="a", input="x", expected={"min_tool_calls": 1})]
+    run = EvalRun(suite_name="s", scores={"a": 1.0})
+
+    assert unnecessary_tool_rate(run, cases) is None
+
+
+def test_cost_per_case_skips_missing_field():
+    run = EvalRun(
+        suite_name="s",
+        scores={"a": 1.0, "b": 1.0},
+        details={
+            "a": {"agent_result": {"cost_usd": 0.002}},
+            "b": {"agent_result": {}},  # 没有 cost_usd, 不伪造 0.0
+        },
+    )
+
+    assert cost_per_case(run) == {"a": 0.002}
 
 
 @pytest.mark.asyncio

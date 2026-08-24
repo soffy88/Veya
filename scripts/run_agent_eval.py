@@ -27,20 +27,22 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from server.agent_eval import (  # noqa: E402
+from server.agent_eval import (
+    AGENT_EVAL_CASES,
     compare_runs,
     eval_run_from_dict,
     eval_run_to_dict,
     run_agent_eval_suite,
 )
-from server.coordinator_master import MasterCoordinator  # noqa: E402
+from server.coordinator_master import MasterCoordinator
 
 
 async def _main(args: argparse.Namespace) -> int:
     coord = MasterCoordinator(max_rounds=args.max_rounds)
     run = await run_agent_eval_suite(coord, suite_name=args.suite_name)
-    payload = eval_run_to_dict(run)
+    payload = eval_run_to_dict(run, cases=AGENT_EVAL_CASES)
     print(json.dumps(payload["summary"], ensure_ascii=False, indent=2))
+    print(json.dumps(payload["category_breakdown"], ensure_ascii=False, indent=2))
 
     if args.save:
         Path(args.save).write_text(
