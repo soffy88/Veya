@@ -23,6 +23,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from server.tool_registry import SideEffect
+
 _PLANS_ROOT = Path.home() / ".veya" / "plans"
 
 _VALID_STATUS = {"open", "in_progress", "done", "blocked"}
@@ -30,13 +32,14 @@ _VALID_STATUS = {"open", "in_progress", "done", "blocked"}
 
 # ── 存储 ──────────────────────────────────────────────────────────────
 
+
 def _plans_dir() -> Path:
     """按用户隔离: ~/.veya/plans/{user_id}/ (登录用户各自目录, 匿名共用 anonymous)。"""
     try:
         from server.auth import current_user
 
         uid = current_user()["user_id"] or "anonymous"
-    except Exception:  # noqa: BLE001
+    except Exception:
         uid = "anonymous"
     d = _PLANS_ROOT / uid
     d.mkdir(parents=True, exist_ok=True)
@@ -73,21 +76,24 @@ def _fire(plan: dict, action: str) -> None:
     try:
         from server.events import fire_step
 
-        fire_step({
-            "type": "plan_update",
-            "plan_id": plan["plan_id"],
-            "action": action,
-            "objective": plan.get("objective", ""),
-            "todos": [
-                {"id": t["id"], "title": t.get("title", ""), "status": t.get("status", "open")}
-                for t in plan.get("todos", [])
-            ],
-        })
-    except Exception:  # noqa: BLE001 — 事件推送失败绝不拖垮工具
+        fire_step(
+            {
+                "type": "plan_update",
+                "plan_id": plan["plan_id"],
+                "action": action,
+                "objective": plan.get("objective", ""),
+                "todos": [
+                    {"id": t["id"], "title": t.get("title", ""), "status": t.get("status", "open")}
+                    for t in plan.get("todos", [])
+                ],
+            }
+        )
+    except Exception:
         pass
 
 
 # ── 视图 ──────────────────────────────────────────────────────────────
+
 
 def _render(plan: dict, *, brief: bool = False) -> str:
     lines = [f"📋 计划 {plan['plan_id']}: {plan.get('objective', '')}"]
@@ -119,6 +125,7 @@ def _render(plan: dict, *, brief: bool = False) -> str:
 
 # ── 工具实现 ──────────────────────────────────────────────────────────
 
+
 async def create_plan(objective: str, todos: list[dict]) -> str:
     """创建一个可执行计划 (目标 + 待办列表), 持久化, 返回 plan_id 与视图。
 
@@ -139,16 +146,18 @@ async def create_plan(objective: str, todos: list[dict]) -> str:
         status = str(raw.get("status", "open"))
         if status not in _VALID_STATUS:
             raise ValueError(f"todos[{i}] status 非法: {status} (open|in_progress|done|blocked)")
-        norm.append({
-            "id": str(raw["id"]).strip(),
-            "title": str(raw["title"]).strip(),
-            "detail": str(raw.get("detail", "")).strip(),
-            "depends_on": [str(d) for d in (raw.get("depends_on") or [])],
-            "assignee": str(raw.get("assignee", "")).strip() or None,
-            "status": status,
-            "evidence": [],
-            "updated_at": _now(),
-        })
+        norm.append(
+            {
+                "id": str(raw["id"]).strip(),
+                "title": str(raw["title"]).strip(),
+                "detail": str(raw.get("detail", "")).strip(),
+                "depends_on": [str(d) for d in (raw.get("depends_on") or [])],
+                "assignee": str(raw.get("assignee", "")).strip() or None,
+                "status": status,
+                "evidence": [],
+                "updated_at": _now(),
+            }
+        )
     plan = {
         "plan_id": uuid.uuid4().hex[:10],
         "objective": str(objective).strip(),
@@ -172,7 +181,7 @@ async def plan_status(plan_id: str = "") -> str:
         for p in files:
             try:
                 plan = json.loads(p.read_text(encoding="utf-8"))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
             done = sum(1 for t in plan.get("todos", []) if t.get("status") == "done")
             total = len(plan.get("todos", []))
@@ -208,6 +217,7 @@ async def update_todo(plan_id: str, todo_id: str, status: str, evidence: str = "
 
 # ── 注册 ──────────────────────────────────────────────────────────────
 
+
 def _plan_func(name: str):
     """feature flag 转发: LOOP_PLANE_URL / LOOP_PLANE_INPROCESS → loop-plane
     （事件溯源单一真相源）；未开启 → 旧 plan_todo 路径（T8 迁移期可切回）。"""
@@ -217,12 +227,12 @@ def _plan_func(name: str):
 
 
 def _plan_func_old(name: str):
-    return {"create_plan": create_plan, "plan_status": plan_status, "update_todo": update_todo}[name]
+    return {"create_plan": create_plan, "plan_status": plan_status, "update_todo": update_todo}[
+        name
+    ]
 
 
 def wire_master_tools() -> int:
-    """把 plan 工具注册进 master_tools (幂等)。返回新注册数量。"""
-    from server.tool_registry import master_tools
     """把 plan 工具注册进 master_tools (幂等)。返回新注册数量。"""
     from server.tool_registry import master_tools
 
@@ -237,7 +247,10 @@ def wire_master_tools() -> int:
             {
                 "type": "object",
                 "properties": {
-                    "objective": {"type": "string", "description": "把用户意图压缩成一句可验收的目标。"},
+                    "objective": {
+                        "type": "string",
+                        "description": "把用户意图压缩成一句可验收的目标。",
+                    },
                     "todos": {
                         "type": "array",
                         "description": "待办列表, 每项: {id: 't1', title: 简短标题, detail?: 要点, depends_on?: [其他id], assignee?: 'hicode'|'genesis'|'self'}",
@@ -253,7 +266,15 @@ def wire_master_tools() -> int:
             "plan_status",
             "查看计划进度。plan_id 为空列出最近计划 (未完成优先); 指定 id 看完整 todo 与证据。"
             "跨轮续做、或用户问「做到哪了」时调用。",
-            {"type": "object", "properties": {"plan_id": {"type": "string", "description": "可选。计划 id (create_plan 返回)。"}}},
+            {
+                "type": "object",
+                "properties": {
+                    "plan_id": {
+                        "type": "string",
+                        "description": "可选。计划 id (create_plan 返回)。",
+                    }
+                },
+            },
             lambda **kw: None,
             8000,
         ),
@@ -261,12 +282,25 @@ def wire_master_tools() -> int:
             "update_todo",
             "推进计划: 更新一个 todo 的状态并追加证据 (验证结果/产物路径)。"
             "每完成一步立即调用, 让计划与真实进度一致。",
-            {"type": "object", "properties": {
-                "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
-                "todo_id": {"type": "string", "description": "todo id (create_plan 的 todos 里定义的 id)。"},
-                "status": {"type": "string", "enum": ["open", "in_progress", "done", "blocked"]},
-                "evidence": {"type": "string", "description": "简短验证说明 (如 pytest 12 passed / 文件已生成)。"},
-            }, "required": ["plan_id", "todo_id", "status"]},
+            {
+                "type": "object",
+                "properties": {
+                    "plan_id": {"type": "string", "description": "计划 id (create_plan 返回)。"},
+                    "todo_id": {
+                        "type": "string",
+                        "description": "todo id (create_plan 的 todos 里定义的 id)。",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "in_progress", "done", "blocked"],
+                    },
+                    "evidence": {
+                        "type": "string",
+                        "description": "简短验证说明 (如 pytest 12 passed / 文件已生成)。",
+                    },
+                },
+                "required": ["plan_id", "todo_id", "status"],
+            },
             lambda **kw: None,
             8000,
         ),
@@ -279,6 +313,9 @@ def wire_master_tools() -> int:
     for name, desc, params, _ph, limit in tools:
         if master_tools.has(name):
             continue
-        master_tools.register(name, desc, params, funcs[name], max_result_chars=limit)
+        side_effect = SideEffect.PURE_READ if name == "plan_status" else None
+        master_tools.register(
+            name, desc, params, funcs[name], max_result_chars=limit, side_effect=side_effect
+        )
         added += 1
     return added

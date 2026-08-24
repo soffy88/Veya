@@ -36,6 +36,8 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
 
+from server.tool_registry import SideEffect
+
 logger = logging.getLogger("hicode")
 
 # ── 配置 (env 可覆盖) ─────────────────────────────────────────────────
@@ -1001,10 +1003,14 @@ async def wire_master_tools() -> int:
             1000,
         ),
     ]
+    _read_only = {"hicode_sessions", "hicode_status", "hicode_tasks"}
     for name, desc, params, func, limit in tools:
         if master_tools.has(name):
             continue
-        master_tools.register(name, desc, params, func, max_result_chars=limit)
+        side_effect = SideEffect.PURE_READ if name in _read_only else None
+        master_tools.register(
+            name, desc, params, func, max_result_chars=limit, side_effect=side_effect
+        )
         added += 1
     if added:
         logger.info("wire hicode: 注册 %d 个工具 (bin=%s)", added, _resolve_bin())

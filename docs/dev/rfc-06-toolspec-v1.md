@@ -82,16 +82,25 @@
   `tool_registry.py` 内直接 `register()`）+ `decision_query`/`graph_query`（走
   `dict(...)` 批量注册循环，顺带给这条循环的 `mt.register(...)` 调用补了
   `side_effect=spec.get("side_effect")` 转发，否则字段会被静默吞掉）。
-- **剩下 6 个没标注**：`assemble_code_context`（`server/graft_autocontext.py`）、
+- **2026-08-24 第三轮补齐剩余 6 个**：`assemble_code_context`
+  （`server/graft_autocontext.py`，`register()` 挂载函数在 `tool_registry.py`
+  装配期被反向调用，顶层 `import SideEffect` 会循环导入，改成函数体内延迟导入）、
   `project_status`（`server/project_ask.py`）、`plan_status`
-  （`server/plan_todo.py`）、`hicode_status`/`hicode_sessions`/`hicode_tasks`
-  （`server/hicode_agent.py`）——注册点在别的文件, 这轮没跨文件展开, 不是漏了
-  忘标, 是范围没扩大。这些文件要标注时直接照抄同样的 `side_effect=
-  SideEffect.PURE_READ` 参数即可，不需要新设计。
+  （`server/plan_todo.py`，批量注册循环里按工具名做条件判断）、
+  `hicode_status`/`hicode_sessions`/`hicode_tasks`（`server/hicode_agent.py`，
+  同样是批量注册循环 + 只读子集判断）。21 个白名单只读工具**全部标注完成**，
+  逐个用真实 wiring 函数（`_wire_project_status`/`plan_todo.wire_master_tools`/
+  `hicode_agent.wire_master_tools`）验证过 `spec_for(name).side_effect ==
+  SideEffect.PURE_READ`，不是只改了默认值没验证跑没跑到。
 - 验证：`tests/test_master_tools.py` 新增两条——`test_registry_tool_spec_side_effect`
   （独立 registry 单测：标注/未标注/未注册/unregister 后清理四种状态）、
   `test_side_effect_pure_read_matches_parallel_safe_whitelist`（对全局
-  `master_tools` 做子集断言：所有标了 `PURE_READ` 的工具都在
-  `_PARALLEL_SAFE_TOOLS` 里——断言子集不是相等，因为这轮只标了 15/21）。
-  `tests/test_master_tools.py` 全量 30 项通过；`--follow-imports=skip` 模式下
-  `coordinator_master.py`/`tool_registry.py` mypy 仍 0 错误。
+  `master_tools` 做子集断言——仍是子集不是相等，因为 `master_tools` 在纯 import
+  `server.tool_registry` 的进程里只会自动挂载 16/21：`tool_registry.py` 内直接
+  注册的 15 个 + `assemble_code_context`（它的 `register()` 在 `tool_registry.py`
+  装配期被主动调用）；`project_status`/`plan_status`/`hicode_*` 5 个要等
+  `server/app.py`/`server/assembly.py` 跑完整应用装配才会挂上，测试进程默认
+  不触发，所以断言仍写成子集而不是等于 21，避免测试跟装配时机耦合太紧）。
+  `tests/test_master_tools.py` 全量 30 项通过；`tests/test_project_ask.py`/
+  `tests/test_hp_tool.py` 一并跑过确认零回归（62 项）；`--follow-imports=skip`
+  模式下 `coordinator_master.py`/`tool_registry.py` mypy 仍 0 错误。
