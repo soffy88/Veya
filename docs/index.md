@@ -1,6 +1,8 @@
-# Veya — 下载就能干活的 AI 编码 Agent
+# Veya — 面向长期任务、工具执行与闭环验证的开放 Agent Runtime
 
-> **下载 / 快速开始 / 填 API Key 就能跑。** 模块化 AI 编排：代码感知推理、研究、规划与执行。
+> **下载 / 快速开始 / 填 API Key 就能跑。** Coding 是第一个应用面，不是最终
+> 定义——持久会话/记忆（Persistent）+ 工具执行/沙箱（Executable）+ 审计/
+> 评估闭环（Verifiable，还在补齐中，见 `docs/dev/rfc-09`/`rfc-10`）。
 
 ## 立刻开始
 
