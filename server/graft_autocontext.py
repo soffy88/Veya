@@ -222,6 +222,8 @@ async def _assemble_narrative(query: str) -> str:
 
 def register(master_tools: object) -> None:
     """把 assemble_code_context 挂到主脑注册表 (装配期调用, 幂等)。"""
+    from server.tool_registry import SideEffect  # 延迟导入: tool_registry 装配期反向调用本模块
+
     has = getattr(master_tools, "has", None)
     reg = getattr(master_tools, "register", None)
     if not callable(has) or not callable(reg) or has("assemble_code_context"):
@@ -248,4 +250,5 @@ def register(master_tools: object) -> None:
         },
         func=assemble_code_context,
         max_result_chars=12000,
+        side_effect=SideEffect.PURE_READ,
     )
