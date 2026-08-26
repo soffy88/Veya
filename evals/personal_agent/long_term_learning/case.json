@@ -1,0 +1,5 @@
+{
+  "case": "long_term_learning",
+  "setup": {"independent_tasks": 5, "single_failure_auto_learning": false},
+  "assertions": ["one failure creates no behavior change", "repeated accepted work creates a candidate", "positive replay delta is required before apply", "regression can be degraded and rolled back"]
+}

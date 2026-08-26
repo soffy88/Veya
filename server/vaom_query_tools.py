@@ -4,11 +4,9 @@ P5 落地（PR-25 的最小可行版本，见 docs/dev/rfc-01-vaom.md、
 docs/VEYA_3.0_GAP_AUDIT.md）。2026-08-23 用户已按 `ARCHITECTURE_STABLE.md` §4
 明确批准新增这两个工具到 MasterAgent 主链工具面。
 
-两个都是纯只读、无副作用，数据来自 P2/P3 已经在跑的旁路记录
-（`server/capability_model.py::performance_store`、
-`server/memory_controller.py::memory_controller`）——不是给模型代做选择，是给
-证据，模型自己判断要不要参考（VAOM P2 原则"Registry 提供证据不替模型思考"，
-见 `docs/dev/rfc-01-vaom.md`）。
+两个都是纯只读、无副作用。生产 Memory 读取来自 Personal Runtime 的
+PostgreSQL authority；没有生产 DSN 的旧单元测试/本地开发才保留旧适配器，
+不改变生产 authority。
 
 现实情况：这两个数据源刚建成不久，短期内大概率返回"样本太少"/"没查到"——
 如实返回，不伪造数据掩盖这一点。
@@ -48,17 +46,16 @@ def harness_performance_query(harness_id: str = "", task_archetype: str = "") ->
 
 def memory_recall_project_lessons(query: str = "", scope: str = "") -> dict[str, Any]:
     """召回过往任务积累的经验教训。关键词匹配，不是语义检索(见模块 docstring)。"""
-    from server.memory_controller import memory_controller
+    import os
 
-    records = memory_controller.search(query, scope=scope or None)
-    if not records:
-        return {
-            "status": "no_data",
-            "message": "没查到匹配的记忆条目(关键词匹配, 换个说法可能查得到; 也可能是真的还没积累)。",
-        }
-    return {
-        "status": "ok",
-        "lessons": [
+    # Existing isolated tests exercise the pre-v2 adapter without a durable
+    # DSN. Production always has the PostgreSQL DSN and therefore cannot read
+    # the legacy JSON authority.
+    if not os.environ.get("VEYA_EXECUTION_DATABASE_URL") and os.environ.get("VEYA_EXECUTION_PRODUCTION", "0") in {"", "0", "false", "off", "no"}:
+        from server.memory_controller import memory_controller
+
+        records = memory_controller.search(query, scope=scope or None)
+        lessons = [
             {
                 "content": r.content,
                 "status": r.status,
@@ -67,5 +64,37 @@ def memory_recall_project_lessons(query: str = "", scope: str = "") -> dict[str,
                 "provenance": r.provenance,
             }
             for r in records
-        ],
+        ]
+    else:
+        from runtime.personal import get_personal_runtime
+        from server import auth as auth_mod
+
+        user_id = str(auth_mod.current_user().get("user_id") or "anonymous")
+        scope_type = {"global": "user", "user": "user", "project": "workspace", "workspace": "workspace", "session": "session"}.get(scope or "", scope or None)
+        scope_id = user_id if scope in {"global", "user"} else os.environ.get("VEYA_WORKSPACE") if scope in {"project", "workspace"} else None
+        personal = get_personal_runtime()
+        records = personal.run_sync(
+            personal.search_memory(query, scope_type=scope_type, scope_id=scope_id)
+        )
+        lessons = [
+            {
+                "content": r["content"],
+                "status": r["status"],
+                "confidence": r["confidence"],
+                "scope_type": r["scope_type"],
+                "scope_id": r["scope_id"],
+                "provenance": r.get("provenance", {}),
+                "source_event_ids": r["source_event_ids"],
+                "last_verified_at": r.get("last_verified_at"),
+            }
+            for r in records
+        ]
+    if not lessons:
+        return {
+            "status": "no_data",
+            "message": "没查到匹配的记忆条目(关键词匹配, 换个说法可能查得到; 也可能是真的还没积累)。",
+        }
+    return {
+        "status": "ok",
+        "lessons": lessons,
     }

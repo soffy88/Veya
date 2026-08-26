@@ -5,11 +5,11 @@ import asyncio
 import pytest
 import pytest_asyncio
 
+from runtime.execution.runtime import DurableExecutionRuntime, DurableRuntimeConfig
 from server.goal_run.leaf import LeafResult
 from server.goal_run.models import GoalStatus
 from server.goal_run.runner import cancel_goal, project_run_goal
 from server.goal_run.verify import VerifyResult
-from runtime.execution.runtime import DurableExecutionRuntime, DurableRuntimeConfig
 
 
 @pytest_asyncio.fixture
@@ -65,7 +65,10 @@ async def test_goal_run_continuous_scheduler_refills_ready_parallel_task(tmp_pat
     )
 
     assert result.status == GoalStatus.completed
-    assert started[:3] == ["A", "B", "D"]
+    # A and B are concurrently eligible; their start order is intentionally
+    # unspecified.  D must refill immediately after B, before C can run.
+    assert set(started[:2]) == {"A", "B"}
+    assert started[2] == "D"
 
 
 @pytest.mark.asyncio

@@ -41,7 +41,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 	import { applyDiagramOperations, wrapMxCellsXml, type DiagramOperation } from "$lib/drawioOps";
 	import PlanCard from "./PlanCard.svelte";
 	import FileTree from "./FileTree.svelte";
-	import { Folder, HelpCircle, Mic, Paperclip, Phone, Plus } from "lucide-svelte";
+	import { Folder, HelpCircle, History, Mic, Paperclip, Phone, Plus, Sparkles } from "lucide-svelte";
 	import VoiceCall from "./VoiceCall.svelte";
 	import type { ChatMessage, ToolStep } from "$lib/chatTypes";
 
@@ -292,9 +292,13 @@ import CollapsibleText from "./CollapsibleText.svelte";
 	// master_start / master_round (任务开始/思考…) 是过程噪音, 不展示 —
 	// 只保留真正有用的执行轨迹: 工具调用/失败/hicode 进度。
 	function stepMeta(ev: ToolStep) {
-		switch (ev.type) {
-			case "tool_call":
-				return { Icon: Wrench, cls: "text-amber-400 bg-amber-400/10 border-amber-400/30", label: `$ ${String(ev.tool_name ?? "tool")}` };
+			switch (ev.type) {
+			case "tool_call": {
+				const tool = String(ev.tool_name ?? "tool");
+				if (tool === "memory_search") return { Icon: Brain, cls: "text-violet-300 bg-violet-400/10 border-violet-400/30", label: "Used memory" };
+				if (tool === "skill_run") return { Icon: Sparkles, cls: "text-amber-300 bg-amber-400/10 border-amber-400/30", label: "Skill run" };
+				return { Icon: Wrench, cls: "text-amber-400 bg-amber-400/10 border-amber-400/30", label: `$ ${tool}` };
+			}
 			case "tool_error":
 				return { Icon: CircleAlert, cls: "text-rose-400 bg-rose-400/10 border-rose-400/30", label: `✗ ${String(ev.tool_name ?? "tool")}` };
 			case "hicode_progress": {
@@ -340,6 +344,14 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				return { Icon: Loader2, cls: "text-sky-300 bg-sky-400/10 border-sky-400/30", label: "正在收尾" };
 			case "finalization.completed":
 				return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "收尾完成" };
+			case "memory.committed":
+				return { Icon: Brain, cls: "text-violet-300 bg-violet-400/10 border-violet-400/30", label: "记忆已保存" };
+			case "memory.corrected":
+				return { Icon: RotateCcw, cls: "text-sky-300 bg-sky-400/10 border-sky-400/30", label: "记忆已纠正" };
+			case "skill.created":
+				return { Icon: Sparkles, cls: "text-amber-300 bg-amber-400/10 border-amber-400/30", label: "Skill 已确认" };
+			case "continuity.resumed":
+				return { Icon: History, cls: "text-sky-300 bg-sky-400/10 border-sky-400/30", label: "已恢复任务" };
 			case "fanin.completed":
 				return { Icon: ListTodo, cls: "text-violet-300 bg-violet-400/10 border-violet-400/30", label: "结果汇流" };
 			case "delegate.started":
@@ -445,6 +457,10 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				kind === "finalization.started" ||
 				kind === "finalization.completed" ||
 				kind === "fanin.completed" ||
+				kind === "memory.committed" ||
+				kind === "memory.corrected" ||
+				kind === "skill.created" ||
+				kind === "continuity.resumed" ||
 				kind.startsWith("delegate.") ||
 				kind.startsWith("artifact.")
 			) {
