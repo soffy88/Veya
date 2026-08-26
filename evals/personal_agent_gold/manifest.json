@@ -1,0 +1,21 @@
+{
+  "dataset_version": "personal-agent-gold-v1",
+  "schema_version": 1,
+  "runtime_schema_version": 3,
+  "label_version": "human-gold-v1",
+  "review_policy": "Only review_status=approved and reviewer_type=human are evaluated.",
+  "scenario_files": [
+    "memory.jsonl",
+    "skill.jsonl",
+    "continuity.jsonl",
+    "learning.jsonl"
+  ],
+  "file_hashes": {
+    "continuity.jsonl": "sha256:189c0d5b8dac523e4e40dae01dfa982df33c773b7544521713cd97a0bcec129e",
+    "learning.jsonl": "sha256:4826e800f030d621b1c95ede3cd0f34273586fb45779637a9138d507f489a210",
+    "memory.jsonl": "sha256:368ccdeff9ab559bf0c4a2de893529a208cab490b35f4efe0df0bced78ff89b8",
+    "skill.jsonl": "sha256:fb8d4ff60d00effa17dac06f7312613d8898a90be14a1c619e1cf4a7a981c10c"
+  },
+  "scenario_count": 170,
+  "approved_count": 170
+}
