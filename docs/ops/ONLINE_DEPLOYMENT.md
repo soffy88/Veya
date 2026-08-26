@@ -70,7 +70,7 @@ curl -s http://127.0.0.1:8767/api/v1/mcp/health
 | 文件 | 作用 | 消费方 |
 |---|---|---|
 | `~/.veya/config.json` 的 `llm` 段 | 无参调用兜底默认 `provider/model`（当前 `veya1.2`） | `veya/llm.py get_provider_config` |
-| `~/.veya/llm-router.json` | 路由矩阵（quick/text/tool/code/long → veya1.2 OpenRouter 双模型；reason/frontier/planner → openai@10100） | `oprim/_llm_router.py load_matrix`（mtime 热重载） |
+| `~/.veya/llm-router.json` | 路由矩阵（quick/text/tool/code/long → veya1.2 GMI MiniMax M3 / OpenRouter 兜底；reason/frontier/planner → openai@10100） | `oprim/_llm_router.py load_matrix`（mtime 热重载） |
 
 **位置**：容器内 `/home/soffy/.veya` 挂载自 named volume `deploy_veya-data`（`/data/docker/volumes/deploy_veya-data/_data`）——`docker cp` 进 volume 即持久，**容器重建不丢**。
 

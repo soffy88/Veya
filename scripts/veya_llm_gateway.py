@@ -6,7 +6,7 @@ POST /v1/chat/completions), 外部工具 (pi coding-agent 等) 按 model 字段
 自由切换 — 体验对齐直连 opencode-go (同款模型目录, 可换模型), 但换到
 veya 自己的别名时额外拿到轮询/兜底能力:
 
-- veya1.2        — 主脑代理: OpenRouter 免费 Nemotron Ultra / MiniMax M3 轮询
+- veya1.2        — 主脑代理: GMI MiniMax M3 优先, OpenRouter 免费模型兜底
 - veya1.1        — 兼容旧名称, 实际转发到 veya1.2 主脑代理
 - veya1.2-free   — Pi 已配置 provider + Inferera 免费模型轮询
 - veya1.2-vl     — openrouter 免费图像/视频理解池轮询 (需 OPENROUTER_API_KEY, 未配则报结构化错误)

@@ -50,8 +50,8 @@ export const MODEL_PRESETS: Record<string, string[]> = {
 };
 
 export const BUILTIN_PROVIDERS: ProviderDef[] = [
-	// veya1.2: OpenRouter 免费双模型代理 (Nemotron Ultra + MiniMax M3)
-	{ id: "veya1.2", label: "Veya 1.2 (OpenRouter 免费代理)", defaultModel: "veya1.2" },
+	// veya1.2: GMI MiniMax M3 主模型 + OpenRouter 免费兜底
+	{ id: "veya1.2", label: "Veya 1.2 (GMI MiniMax M3)", defaultModel: "veya1.2" },
 	{ id: "dashscope", label: "DashScope · Qwen", defaultModel: "qwen-plus" },
 	{ id: "anthropic", label: "Anthropic · Claude", defaultModel: "claude-haiku-4-5-20251001" },
 	{ id: "openai", label: "OpenAI · GPT", defaultModel: "gpt-4o-mini" },

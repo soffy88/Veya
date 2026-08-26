@@ -42,7 +42,7 @@
 | `agent_graph_investigate` | 21 | 5 | 8 | 0.72 | 图谱探查子代理 |
 | `browser_run` / `agent_verify` / `agent_vision` / `agent_long_horizon` | — | — | — | — | 工具/子代理流 |
 
-**主脑链路**（用户消息 → 回答）静态可见链：`legacy_agent_run/stream → MasterCoordinator.chat_stream → oservi.MasterAgent.chat_stream → _bound_llm → veya.llm（veya1.2 别名 → OpenRouter 双模型池）`。
+**主脑链路**（用户消息 → 回答）静态可见链：`legacy_agent_run/stream → MasterCoordinator.chat_stream → oservi.MasterAgent.chat_stream → _bound_llm → veya.llm（veya1.2 别名 → GMI MiniMax M3 / OpenRouter 兜底池）`。
 
 ## 四、死代码（540 符号，核心层过滤后）
 
