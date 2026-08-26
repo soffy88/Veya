@@ -63,6 +63,9 @@ jobs:
       - name: Legacy import scan (docs/VEYA_10_OF_10_PLAN.md §28, report-only)
         run: python scripts/legacy_import_scan.py
 
+      - name: Personal Agent Gold hard gate
+        run: python -m evals.personal_agent_gold.gate
+
   typecheck:
     name: Type Check (mypy)
     runs-on: ubuntu-latest

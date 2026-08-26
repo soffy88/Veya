@@ -16,6 +16,12 @@ corpus，生成：
 difficulty、scope、session shape、memory case 和 skill case 的全部 failure
 slices。它还按 domain、category、reason 汇总失败场景。
 
+Gold replay 使用 `runtime/personal/quality.py` 中的 deterministic policy：
+旧状态 Memory 硬排除、范围与相关性过滤、Skill eligibility/margin 与 active
+trusted version 解析、Continuity unfinished-task 排序、以及 critical learning
+regression fail-closed。该 adapter 不修改 Gold label、不调整 denominator，也不
+使用 LLM judge；原始修复前结果保留在按 commit 命名的结果文件中。
+
 审计结论有意分开两个维度：
 
 1. Production health：Backend、PostgreSQL authority、queue、lease、outbox 和
@@ -25,3 +31,7 @@ slices。它还按 domain、category、reason 汇总失败场景。
 服务健康不代表长期智能质量 gate 通过。Gold 失败会返回
 `BLOCKED_BY_GOLD_GATE`，不会被改写成成功。Production shadow candidate 不是
 Gold；只有人工审核并 bump dataset version 后才能进入 benchmark。
+
+`python -m evals.personal_agent_gold.gate` 是 CI 硬门禁；critical regression、
+stale memory、错误 Skill activation、Memory precision、Recall 或 Continuity
+低于阈值都会返回非零退出码。

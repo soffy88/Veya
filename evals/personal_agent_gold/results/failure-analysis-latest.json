@@ -1,0 +1,2149 @@
+{
+  "analysis_id": "failure-analysis-personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
+  "approved_count": 170,
+  "dataset_version": "personal-agent-gold-v1",
+  "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
+  "evidence_policy": {
+    "gold_labels_modified": false,
+    "llm_judge_used": false,
+    "unknown_scores_fabricated": false
+  },
+  "failure_count": 13,
+  "failures": [
+    {
+      "actual": {
+        "continuity": {
+          "artifact_ids": [
+            "artifact-backend_crash-1"
+          ],
+          "checkpoint_id": "checkpoint-backend_crash-1",
+          "selected_task_id": "task-backend_crash-1",
+          "state_restored": false,
+          "task_recovered": true
+        },
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {},
+        "skill": {}
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [],
+      "category": "backend_crash",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {
+          "artifact_ids": [
+            "artifact-backend_crash-1"
+          ],
+          "checkpoint_id": "checkpoint-backend_crash-1",
+          "selected_task_id": "task-backend_crash-1",
+          "state_restored": false,
+          "task_recovered": true
+        },
+        "gold_target": {
+          "artifact_ids": [
+            "artifact-backend_crash-1"
+          ],
+          "checkpoint_id": "checkpoint-backend_crash-1",
+          "decisions": [
+            "AgentLoop remains a tool"
+          ],
+          "pending_questions": [
+            "run required tests"
+          ],
+          "task_id": "task-backend_crash-1"
+        },
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {
+            "artifact_ids": [
+              "artifact-backend_crash-1"
+            ],
+            "checkpoint_id": "checkpoint-backend_crash-1",
+            "selected_task_id": "task-backend_crash-1",
+            "state_restored": false,
+            "task_recovered": true
+          },
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {},
+          "skill": {}
+        },
+        "sessions": [
+          {
+            "session_id": "cont-backend_crash-001-session-1",
+            "turn": 1,
+            "user_message": "Continue the unfinished refactor."
+          },
+          {
+            "session_id": "cont-backend_crash-001-session-2",
+            "turn": 2,
+            "user_message": "Continue the unfinished refactor."
+          },
+          {
+            "session_id": "cont-backend_crash-001-session-3",
+            "turn": 3,
+            "user_message": "Continue the unfinished refactor."
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "continuity",
+      "expected": {
+        "continuity": {
+          "artifact_ids": [
+            "artifact-backend_crash-1"
+          ],
+          "checkpoint_id": "checkpoint-backend_crash-1",
+          "decisions": [
+            "AgentLoop remains a tool"
+          ],
+          "pending_questions": [
+            "run required tests"
+          ],
+          "task_id": "task-backend_crash-1"
+        },
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [],
+          "forbidden_used": [],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {},
+      "memory_records": [],
+      "memory_scope": {},
+      "memory_status": {},
+      "reasons": [
+        "continuity_state_not_restored"
+      ],
+      "retrieved_memories": [],
+      "root_cause": "projection bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "The recovered task and artifact were present, but decisions and pending questions were not restored into the continuity projection.",
+      "scenario_id": "cont-backend_crash-001",
+      "selected_continuity_target": "task-backend_crash-1",
+      "selected_skill": [],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": null,
+        "regression_opportunity": null,
+        "selected": null
+      },
+      "used_memories": [],
+      "workspace_id": "workspace-continuity"
+    },
+    {
+      "actual": {
+        "continuity": {
+          "artifact_ids": [
+            "artifact-multiple_tasks-1"
+          ],
+          "checkpoint_id": "checkpoint-multiple_tasks-1",
+          "selected_task_id": "wrong-task-multiple_tasks-1",
+          "state_restored": true,
+          "task_recovered": false
+        },
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {},
+        "skill": {}
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [],
+      "category": "multiple_tasks",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {
+          "artifact_ids": [
+            "artifact-multiple_tasks-1"
+          ],
+          "checkpoint_id": "checkpoint-multiple_tasks-1",
+          "selected_task_id": "wrong-task-multiple_tasks-1",
+          "state_restored": true,
+          "task_recovered": false
+        },
+        "gold_target": {
+          "artifact_ids": [
+            "artifact-multiple_tasks-1"
+          ],
+          "checkpoint_id": "checkpoint-multiple_tasks-1",
+          "decisions": [
+            "AgentLoop remains a tool"
+          ],
+          "pending_questions": [
+            "run required tests"
+          ],
+          "task_id": "task-multiple_tasks-1"
+        },
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {
+            "artifact_ids": [
+              "artifact-multiple_tasks-1"
+            ],
+            "checkpoint_id": "checkpoint-multiple_tasks-1",
+            "selected_task_id": "wrong-task-multiple_tasks-1",
+            "state_restored": true,
+            "task_recovered": false
+          },
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {},
+          "skill": {}
+        },
+        "sessions": [
+          {
+            "session_id": "cont-multiple_tasks-001-session-1",
+            "turn": 1,
+            "user_message": "Continue the unfinished refactor."
+          },
+          {
+            "session_id": "cont-multiple_tasks-001-session-2",
+            "turn": 2,
+            "user_message": "Continue the unfinished refactor."
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "continuity",
+      "expected": {
+        "continuity": {
+          "artifact_ids": [
+            "artifact-multiple_tasks-1"
+          ],
+          "checkpoint_id": "checkpoint-multiple_tasks-1",
+          "decisions": [
+            "AgentLoop remains a tool"
+          ],
+          "pending_questions": [
+            "run required tests"
+          ],
+          "task_id": "task-multiple_tasks-1"
+        },
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [],
+          "forbidden_used": [],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {},
+      "memory_records": [],
+      "memory_scope": {},
+      "memory_status": {},
+      "reasons": [
+        "wrong_task_recovery"
+      ],
+      "retrieved_memories": [],
+      "root_cause": "ranking bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "A non-target task won continuation despite an unfinished task in the same workspace.",
+      "scenario_id": "cont-multiple_tasks-001",
+      "selected_continuity_target": "wrong-task-multiple_tasks-1",
+      "selected_skill": [],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": null,
+        "regression_opportunity": null,
+        "selected": null
+      },
+      "used_memories": [],
+      "workspace_id": "workspace-continuity"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "critical_regression": true,
+          "decision": "applied",
+          "regression_escaped": true
+        },
+        "memory": {},
+        "skill": {}
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [],
+      "category": "critical_regression",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "critical_regression": true,
+            "decision": "applied",
+            "regression_escaped": true
+          },
+          "memory": {},
+          "skill": {}
+        },
+        "sessions": [
+          {
+            "session_id": "learning-critical_regression-001-session-1",
+            "turn": 1,
+            "user_message": "Review a pull request with the project checklist."
+          },
+          {
+            "session_id": "learning-critical_regression-001-session-2",
+            "turn": 2,
+            "user_message": "Review a pull request with the project checklist."
+          },
+          {
+            "session_id": "learning-critical_regression-001-session-3",
+            "turn": 3,
+            "user_message": "Review a pull request with the project checklist."
+          },
+          {
+            "session_id": "learning-critical_regression-001-session-4",
+            "turn": 4,
+            "user_message": "Review a pull request with the project checklist."
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "learning",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "critical_regression_must_block": true,
+          "decision": "rejected",
+          "threshold": 3
+        },
+        "memories": {
+          "forbidden_retrieval": [],
+          "forbidden_used": [],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "applied",
+        "critical_regression": true,
+        "expected_behavior": {
+          "critical_regression_must_block": true,
+          "decision": "rejected",
+          "threshold": 3
+        },
+        "regression_escaped": true
+      },
+      "memory_confidence": {},
+      "memory_records": [],
+      "memory_scope": {},
+      "memory_status": {},
+      "reasons": [
+        "learning_decision_mismatch",
+        "critical_regression_escaped"
+      ],
+      "retrieved_memories": [],
+      "root_cause": "gate bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "The apply path allowed an overall-positive candidate despite a critical scenario regression.",
+      "scenario_id": "learning-critical_regression-001",
+      "selected_continuity_target": null,
+      "selected_skill": [],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": null,
+        "regression_opportunity": null,
+        "selected": null
+      },
+      "used_memories": [],
+      "workspace_id": "workspace-learning"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {
+          "conflict_resolution_correct": false,
+          "correction_success": true,
+          "retrieved_memory_ids": [
+            "memory-contradiction-001-old"
+          ],
+          "used_memory_ids": [
+            "memory-contradiction-001-old"
+          ]
+        },
+        "skill": {}
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [],
+      "category": "contradiction",
+      "conflict_chain": {
+        "active": [
+          "memory-contradiction-001-current"
+        ],
+        "expected_retrieval": [
+          "memory-contradiction-001-current"
+        ],
+        "expected_used": [
+          "memory-contradiction-001-current"
+        ],
+        "resolution_correct": false,
+        "superseded": [
+          "memory-contradiction-001-old"
+        ]
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {
+            "conflict_resolution_correct": false,
+            "correction_success": true,
+            "retrieved_memory_ids": [
+              "memory-contradiction-001-old"
+            ],
+            "used_memory_ids": [
+              "memory-contradiction-001-old"
+            ]
+          },
+          "skill": {}
+        },
+        "sessions": [
+          {
+            "session_id": "mem-contradiction-1-session-1",
+            "turn": 1,
+            "user_message": "What testing rule applies here?"
+          },
+          {
+            "session_id": "mem-contradiction-1-session-2",
+            "turn": 2,
+            "user_message": "What testing rule applies here?"
+          },
+          {
+            "session_id": "mem-contradiction-1-session-3",
+            "turn": 3,
+            "user_message": "What testing rule applies here?"
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "memory",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [
+            "memory-contradiction-001-old"
+          ],
+          "forbidden_used": [
+            "memory-contradiction-001-old"
+          ],
+          "retrieval": [
+            "memory-contradiction-001-current"
+          ],
+          "used": [
+            "memory-contradiction-001-current"
+          ]
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {
+        "memory-contradiction-001-current": null,
+        "memory-contradiction-001-old": null
+      },
+      "memory_records": [
+        {
+          "confidence": null,
+          "content": "project tests use unittest",
+          "id": "memory-contradiction-001-old",
+          "memory_type": "preference",
+          "scope_id": "workspace-1",
+          "scope_type": "workspace",
+          "source_event_ids": [
+            "event-memory-contradiction-001-old"
+          ],
+          "source_session_ids": [],
+          "source_task_ids": [],
+          "status": "superseded",
+          "superseded_by": null,
+          "supersedes": null
+        },
+        {
+          "confidence": null,
+          "content": "project tests use pytest",
+          "id": "memory-contradiction-001-current",
+          "memory_type": "preference",
+          "scope_id": "workspace-1",
+          "scope_type": "workspace",
+          "source_event_ids": [
+            "event-memory-contradiction-001-current"
+          ],
+          "source_session_ids": [],
+          "source_task_ids": [],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null
+        }
+      ],
+      "memory_scope": {
+        "memory-contradiction-001-current": {
+          "scope_id": "workspace-1",
+          "scope_type": "workspace"
+        },
+        "memory-contradiction-001-old": {
+          "scope_id": "workspace-1",
+          "scope_type": "workspace"
+        }
+      },
+      "memory_status": {
+        "memory-contradiction-001-current": "active",
+        "memory-contradiction-001-old": "superseded"
+      },
+      "reasons": [
+        "forbidden_or_unexpected_retrieval",
+        "forbidden_or_unexpected_usage",
+        "stale_memory_used",
+        "conflict_resolution_failed"
+      ],
+      "retrieved_memories": [
+        "memory-contradiction-001-old"
+      ],
+      "root_cause": "status bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "A superseded conflict loser entered the retrieval and usable sets.",
+      "scenario_id": "mem-contradiction-001",
+      "selected_continuity_target": null,
+      "selected_skill": [],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": null,
+        "regression_opportunity": null,
+        "selected": null
+      },
+      "used_memories": [
+        "memory-contradiction-001-old"
+      ],
+      "workspace_id": "workspace-1"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {
+          "retrieved_memory_ids": [
+            "memory-irrelevant_memory-001-current"
+          ],
+          "used_memory_ids": [
+            "memory-irrelevant_memory-001-current"
+          ]
+        },
+        "skill": {}
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [],
+      "category": "irrelevant_memory",
+      "conflict_chain": {
+        "active": [
+          "memory-irrelevant_memory-001-current"
+        ],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {
+            "retrieved_memory_ids": [
+              "memory-irrelevant_memory-001-current"
+            ],
+            "used_memory_ids": [
+              "memory-irrelevant_memory-001-current"
+            ]
+          },
+          "skill": {}
+        },
+        "sessions": [
+          {
+            "session_id": "mem-irrelevant_memory-1-session-1",
+            "turn": 1,
+            "user_message": "What testing rule applies here?"
+          },
+          {
+            "session_id": "mem-irrelevant_memory-1-session-2",
+            "turn": 2,
+            "user_message": "What testing rule applies here?"
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "memory",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [
+            "memory-irrelevant_memory-001-current"
+          ],
+          "forbidden_used": [
+            "memory-irrelevant_memory-001-current"
+          ],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {
+        "memory-irrelevant_memory-001-current": null
+      },
+      "memory_records": [
+        {
+          "confidence": null,
+          "content": "unrelated deployment preference",
+          "id": "memory-irrelevant_memory-001-current",
+          "memory_type": "preference",
+          "scope_id": "workspace-1",
+          "scope_type": "workspace",
+          "source_event_ids": [
+            "event-memory-irrelevant_memory-001-current"
+          ],
+          "source_session_ids": [],
+          "source_task_ids": [],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null
+        }
+      ],
+      "memory_scope": {
+        "memory-irrelevant_memory-001-current": {
+          "scope_id": "workspace-1",
+          "scope_type": "workspace"
+        }
+      },
+      "memory_status": {
+        "memory-irrelevant_memory-001-current": "active"
+      },
+      "reasons": [
+        "forbidden_or_unexpected_retrieval",
+        "forbidden_or_unexpected_usage"
+      ],
+      "retrieved_memories": [
+        "memory-irrelevant_memory-001-current"
+      ],
+      "root_cause": "filter bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "An active memory was accepted without task relevance filtering.",
+      "scenario_id": "mem-irrelevant_memory-001",
+      "selected_continuity_target": null,
+      "selected_skill": [],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": null,
+        "regression_opportunity": null,
+        "selected": null
+      },
+      "used_memories": [
+        "memory-irrelevant_memory-001-current"
+      ],
+      "workspace_id": "workspace-1"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {
+          "retrieved_memory_ids": [
+            "memory-stale-001-old"
+          ],
+          "used_memory_ids": [
+            "memory-stale-001-old"
+          ]
+        },
+        "skill": {}
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [],
+      "category": "stale",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": [
+          "memory-stale-001-old"
+        ]
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {
+            "retrieved_memory_ids": [
+              "memory-stale-001-old"
+            ],
+            "used_memory_ids": [
+              "memory-stale-001-old"
+            ]
+          },
+          "skill": {}
+        },
+        "sessions": [
+          {
+            "session_id": "mem-stale-1-session-1",
+            "turn": 1,
+            "user_message": "What testing rule applies here?"
+          },
+          {
+            "session_id": "mem-stale-1-session-2",
+            "turn": 2,
+            "user_message": "What testing rule applies here?"
+          },
+          {
+            "session_id": "mem-stale-1-session-3",
+            "turn": 3,
+            "user_message": "What testing rule applies here?"
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "memory",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [
+            "memory-stale-001-old"
+          ],
+          "forbidden_used": [
+            "memory-stale-001-old"
+          ],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {
+        "memory-stale-001-old": null
+      },
+      "memory_records": [
+        {
+          "confidence": null,
+          "content": "old release process",
+          "id": "memory-stale-001-old",
+          "memory_type": "preference",
+          "scope_id": "workspace-1",
+          "scope_type": "workspace",
+          "source_event_ids": [
+            "event-memory-stale-001-old"
+          ],
+          "source_session_ids": [],
+          "source_task_ids": [],
+          "status": "superseded",
+          "superseded_by": null,
+          "supersedes": null
+        }
+      ],
+      "memory_scope": {
+        "memory-stale-001-old": {
+          "scope_id": "workspace-1",
+          "scope_type": "workspace"
+        }
+      },
+      "memory_status": {
+        "memory-stale-001-old": "superseded"
+      },
+      "reasons": [
+        "forbidden_or_unexpected_retrieval",
+        "forbidden_or_unexpected_usage",
+        "stale_memory_used"
+      ],
+      "retrieved_memories": [
+        "memory-stale-001-old"
+      ],
+      "root_cause": "status bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "A superseded record was treated as retrievable and usable.",
+      "scenario_id": "mem-stale-001",
+      "selected_continuity_target": null,
+      "selected_skill": [],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": null,
+        "regression_opportunity": null,
+        "selected": null
+      },
+      "used_memories": [
+        "memory-stale-001-old"
+      ],
+      "workspace_id": "workspace-1"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {
+          "conflict_resolution_correct": false,
+          "correction_success": true,
+          "retrieved_memory_ids": [
+            "memory-user_workspace_precedence-001-user"
+          ],
+          "used_memory_ids": [
+            "memory-user_workspace_precedence-001-user"
+          ]
+        },
+        "skill": {}
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [],
+      "category": "user_workspace_precedence",
+      "conflict_chain": {
+        "active": [
+          "memory-user_workspace_precedence-001-workspace"
+        ],
+        "expected_retrieval": [
+          "memory-user_workspace_precedence-001-workspace"
+        ],
+        "expected_used": [
+          "memory-user_workspace_precedence-001-workspace"
+        ],
+        "resolution_correct": false,
+        "superseded": [
+          "memory-user_workspace_precedence-001-user"
+        ]
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {
+            "conflict_resolution_correct": false,
+            "correction_success": true,
+            "retrieved_memory_ids": [
+              "memory-user_workspace_precedence-001-user"
+            ],
+            "used_memory_ids": [
+              "memory-user_workspace_precedence-001-user"
+            ]
+          },
+          "skill": {}
+        },
+        "sessions": [
+          {
+            "session_id": "mem-user_workspace_precedence-1-session-1",
+            "turn": 1,
+            "user_message": "What testing rule applies here?"
+          },
+          {
+            "session_id": "mem-user_workspace_precedence-1-session-2",
+            "turn": 2,
+            "user_message": "What testing rule applies here?"
+          },
+          {
+            "session_id": "mem-user_workspace_precedence-1-session-3",
+            "turn": 3,
+            "user_message": "What testing rule applies here?"
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "memory",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [
+            "memory-user_workspace_precedence-001-user"
+          ],
+          "forbidden_used": [
+            "memory-user_workspace_precedence-001-user"
+          ],
+          "retrieval": [
+            "memory-user_workspace_precedence-001-workspace"
+          ],
+          "used": [
+            "memory-user_workspace_precedence-001-workspace"
+          ]
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {
+        "memory-user_workspace_precedence-001-user": null,
+        "memory-user_workspace_precedence-001-workspace": null
+      },
+      "memory_records": [
+        {
+          "confidence": null,
+          "content": "prefer pytest",
+          "id": "memory-user_workspace_precedence-001-user",
+          "memory_type": "preference",
+          "scope_id": "user-global",
+          "scope_type": "user",
+          "source_event_ids": [
+            "event-memory-user_workspace_precedence-001-user"
+          ],
+          "source_session_ids": [],
+          "source_task_ids": [],
+          "status": "superseded",
+          "superseded_by": null,
+          "supersedes": null
+        },
+        {
+          "confidence": null,
+          "content": "this workspace uses uv run pytest",
+          "id": "memory-user_workspace_precedence-001-workspace",
+          "memory_type": "preference",
+          "scope_id": "workspace-a",
+          "scope_type": "workspace",
+          "source_event_ids": [
+            "event-memory-user_workspace_precedence-001-workspace"
+          ],
+          "source_session_ids": [],
+          "source_task_ids": [],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null
+        }
+      ],
+      "memory_scope": {
+        "memory-user_workspace_precedence-001-user": {
+          "scope_id": "user-global",
+          "scope_type": "user"
+        },
+        "memory-user_workspace_precedence-001-workspace": {
+          "scope_id": "workspace-a",
+          "scope_type": "workspace"
+        }
+      },
+      "memory_status": {
+        "memory-user_workspace_precedence-001-user": "superseded",
+        "memory-user_workspace_precedence-001-workspace": "active"
+      },
+      "reasons": [
+        "forbidden_or_unexpected_retrieval",
+        "forbidden_or_unexpected_usage",
+        "stale_memory_used",
+        "conflict_resolution_failed"
+      ],
+      "retrieved_memories": [
+        "memory-user_workspace_precedence-001-user"
+      ],
+      "root_cause": "precedence bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "The workspace-specific rule did not outrank the conflicting superseded user rule.",
+      "scenario_id": "mem-user_workspace_precedence-001",
+      "selected_continuity_target": null,
+      "selected_skill": [],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": null,
+        "regression_opportunity": null,
+        "selected": null
+      },
+      "used_memories": [
+        "memory-user_workspace_precedence-001-user"
+      ],
+      "workspace_id": "workspace-a"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {
+          "retrieved_memory_ids": [
+            "memory-workspace_isolation-001-b"
+          ],
+          "used_memory_ids": [
+            "memory-workspace_isolation-001-b"
+          ]
+        },
+        "skill": {}
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [],
+      "category": "workspace_isolation",
+      "conflict_chain": {
+        "active": [
+          "memory-workspace_isolation-001-a",
+          "memory-workspace_isolation-001-b"
+        ],
+        "expected_retrieval": [
+          "memory-workspace_isolation-001-a"
+        ],
+        "expected_used": [
+          "memory-workspace_isolation-001-a"
+        ],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {
+            "retrieved_memory_ids": [
+              "memory-workspace_isolation-001-b"
+            ],
+            "used_memory_ids": [
+              "memory-workspace_isolation-001-b"
+            ]
+          },
+          "skill": {}
+        },
+        "sessions": [
+          {
+            "session_id": "mem-workspace_isolation-1-session-1",
+            "turn": 1,
+            "user_message": "What testing rule applies here?"
+          },
+          {
+            "session_id": "mem-workspace_isolation-1-session-2",
+            "turn": 2,
+            "user_message": "What testing rule applies here?"
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "memory",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [
+            "memory-workspace_isolation-001-b"
+          ],
+          "forbidden_used": [
+            "memory-workspace_isolation-001-b"
+          ],
+          "retrieval": [
+            "memory-workspace_isolation-001-a"
+          ],
+          "used": [
+            "memory-workspace_isolation-001-a"
+          ]
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {
+        "memory-workspace_isolation-001-a": null,
+        "memory-workspace_isolation-001-b": null
+      },
+      "memory_records": [
+        {
+          "confidence": null,
+          "content": "workspace A uses PostgreSQL",
+          "id": "memory-workspace_isolation-001-a",
+          "memory_type": "preference",
+          "scope_id": "workspace-a",
+          "scope_type": "workspace",
+          "source_event_ids": [
+            "event-memory-workspace_isolation-001-a"
+          ],
+          "source_session_ids": [],
+          "source_task_ids": [],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null
+        },
+        {
+          "confidence": null,
+          "content": "workspace B uses SQLite",
+          "id": "memory-workspace_isolation-001-b",
+          "memory_type": "preference",
+          "scope_id": "workspace-b",
+          "scope_type": "workspace",
+          "source_event_ids": [
+            "event-memory-workspace_isolation-001-b"
+          ],
+          "source_session_ids": [],
+          "source_task_ids": [],
+          "status": "active",
+          "superseded_by": null,
+          "supersedes": null
+        }
+      ],
+      "memory_scope": {
+        "memory-workspace_isolation-001-a": {
+          "scope_id": "workspace-a",
+          "scope_type": "workspace"
+        },
+        "memory-workspace_isolation-001-b": {
+          "scope_id": "workspace-b",
+          "scope_type": "workspace"
+        }
+      },
+      "memory_status": {
+        "memory-workspace_isolation-001-a": "active",
+        "memory-workspace_isolation-001-b": "active"
+      },
+      "reasons": [
+        "forbidden_or_unexpected_retrieval",
+        "forbidden_or_unexpected_usage"
+      ],
+      "retrieved_memories": [
+        "memory-workspace_isolation-001-b"
+      ],
+      "root_cause": "scope bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "A workspace-B record crossed into a workspace-A retrieval.",
+      "scenario_id": "mem-workspace_isolation-001",
+      "selected_continuity_target": null,
+      "selected_skill": [],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": null,
+        "regression_opportunity": null,
+        "selected": null
+      },
+      "used_memories": [
+        "memory-workspace_isolation-001-b"
+      ],
+      "workspace_id": "workspace-a"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {},
+        "skill": {
+          "activated_skill_ids": [
+            "skill-multiple_candidates-001-other"
+          ],
+          "expected_version": null,
+          "regression_occurred": false,
+          "regression_opportunity": false,
+          "reuse_success": false,
+          "selected_version": null
+        }
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [
+        {
+          "id": "skill-multiple_candidates-001",
+          "scope_id": "workspace-skills",
+          "scope_type": "workspace",
+          "status": "active",
+          "trust_status": "trusted",
+          "version": 1
+        },
+        {
+          "id": "skill-multiple_candidates-001-other",
+          "scope_id": "workspace-skills",
+          "scope_type": "workspace",
+          "status": "active",
+          "trust_status": "trusted",
+          "version": 1
+        }
+      ],
+      "category": "multiple_candidates",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {},
+          "skill": {
+            "activated_skill_ids": [
+              "skill-multiple_candidates-001-other"
+            ],
+            "expected_version": null,
+            "regression_occurred": false,
+            "regression_opportunity": false,
+            "reuse_success": false,
+            "selected_version": null
+          }
+        },
+        "sessions": [
+          {
+            "session_id": "skill-multiple_candidates-1-session-1",
+            "turn": 1,
+            "user_message": "Review this pull request using the project checklist."
+          },
+          {
+            "session_id": "skill-multiple_candidates-1-session-2",
+            "turn": 2,
+            "user_message": "Review this pull request using the project checklist."
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "skill",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [],
+          "forbidden_used": [],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [
+            "skill-multiple_candidates-001"
+          ],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {},
+      "memory_records": [],
+      "memory_scope": {},
+      "memory_status": {},
+      "reasons": [
+        "wrong_skill_activation",
+        "skill_reuse_failed"
+      ],
+      "retrieved_memories": [],
+      "root_cause": "ranking bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "A competing candidate was selected when the expected skill was present in the same scope.",
+      "scenario_id": "skill-multiple_candidates-001",
+      "selected_continuity_target": null,
+      "selected_skill": [
+        "skill-multiple_candidates-001-other"
+      ],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": false,
+        "regression_opportunity": false,
+        "selected": null
+      },
+      "used_memories": [],
+      "workspace_id": "workspace-skills"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {},
+        "skill": {
+          "activated_skill_ids": [
+            "skill-should_not_activate-001"
+          ],
+          "expected_version": null,
+          "regression_occurred": false,
+          "regression_opportunity": false,
+          "reuse_success": false,
+          "selected_version": null
+        }
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [
+        {
+          "id": "skill-should_not_activate-001",
+          "scope_id": "workspace-skills",
+          "scope_type": "workspace",
+          "status": "active",
+          "trust_status": "trusted",
+          "version": 1
+        }
+      ],
+      "category": "should_not_activate",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {},
+          "skill": {
+            "activated_skill_ids": [
+              "skill-should_not_activate-001"
+            ],
+            "expected_version": null,
+            "regression_occurred": false,
+            "regression_opportunity": false,
+            "reuse_success": false,
+            "selected_version": null
+          }
+        },
+        "sessions": [
+          {
+            "session_id": "skill-should_not_activate-1-session-1",
+            "turn": 1,
+            "user_message": "Review this pull request using the project checklist."
+          },
+          {
+            "session_id": "skill-should_not_activate-1-session-2",
+            "turn": 2,
+            "user_message": "Review this pull request using the project checklist."
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "skill",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [],
+          "forbidden_used": [],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": [
+            "skill-should_not_activate-001"
+          ]
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {},
+      "memory_records": [],
+      "memory_scope": {},
+      "memory_status": {},
+      "reasons": [
+        "wrong_skill_activation"
+      ],
+      "retrieved_memories": [],
+      "root_cause": "gate bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "A semantically similar skill was auto-activated without a deterministic threshold or margin gate.",
+      "scenario_id": "skill-should_not_activate-001",
+      "selected_continuity_target": null,
+      "selected_skill": [
+        "skill-should_not_activate-001"
+      ],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": false,
+        "regression_opportunity": false,
+        "selected": null
+      },
+      "used_memories": [],
+      "workspace_id": "workspace-skills"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {},
+        "skill": {
+          "activated_skill_ids": [
+            "skill-version_selection-001"
+          ],
+          "expected_version": 1,
+          "regression_occurred": true,
+          "regression_opportunity": true,
+          "reuse_success": true,
+          "selected_version": 2
+        }
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [
+        {
+          "id": "skill-version_selection-001",
+          "scope_id": "workspace-skills",
+          "scope_type": "workspace",
+          "status": "active",
+          "trust_status": "trusted",
+          "version": 1
+        },
+        {
+          "id": "skill-version_selection-001",
+          "scope_id": "workspace-skills",
+          "scope_type": "workspace",
+          "status": "candidate",
+          "trust_status": "review_required",
+          "version": 2
+        }
+      ],
+      "category": "version_selection",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {},
+          "skill": {
+            "activated_skill_ids": [
+              "skill-version_selection-001"
+            ],
+            "expected_version": 1,
+            "regression_occurred": true,
+            "regression_opportunity": true,
+            "reuse_success": true,
+            "selected_version": 2
+          }
+        },
+        "sessions": [
+          {
+            "session_id": "skill-version_selection-1-session-1",
+            "turn": 1,
+            "user_message": "Review this pull request using the project checklist."
+          },
+          {
+            "session_id": "skill-version_selection-1-session-2",
+            "turn": 2,
+            "user_message": "Review this pull request using the project checklist."
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "skill",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [],
+          "forbidden_used": [],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [
+            "skill-version_selection-001"
+          ],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {},
+      "memory_records": [],
+      "memory_scope": {},
+      "memory_status": {},
+      "reasons": [
+        "skill_regression_occurred",
+        "wrong_skill_version"
+      ],
+      "retrieved_memories": [],
+      "root_cause": "version bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "The newest candidate version was selected instead of the active verified version.",
+      "scenario_id": "skill-version_selection-001",
+      "selected_continuity_target": null,
+      "selected_skill": [
+        "skill-version_selection-001"
+      ],
+      "skill_version": {
+        "expected": 1,
+        "regression_occurred": true,
+        "regression_opportunity": true,
+        "selected": 2
+      },
+      "used_memories": [],
+      "workspace_id": "workspace-skills"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {},
+        "skill": {
+          "activated_skill_ids": [
+            "skill-version_selection-002"
+          ],
+          "expected_version": 1,
+          "regression_occurred": false,
+          "regression_opportunity": true,
+          "reuse_success": false,
+          "selected_version": 1
+        }
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [
+        {
+          "id": "skill-version_selection-002",
+          "scope_id": "workspace-skills",
+          "scope_type": "workspace",
+          "status": "active",
+          "trust_status": "trusted",
+          "version": 1
+        },
+        {
+          "id": "skill-version_selection-002",
+          "scope_id": "workspace-skills",
+          "scope_type": "workspace",
+          "status": "candidate",
+          "trust_status": "review_required",
+          "version": 2
+        }
+      ],
+      "category": "version_selection",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "2"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {},
+          "skill": {
+            "activated_skill_ids": [
+              "skill-version_selection-002"
+            ],
+            "expected_version": 1,
+            "regression_occurred": false,
+            "regression_opportunity": true,
+            "reuse_success": false,
+            "selected_version": 1
+          }
+        },
+        "sessions": [
+          {
+            "session_id": "skill-version_selection-2-session-1",
+            "turn": 1,
+            "user_message": "Review this pull request using the project checklist."
+          },
+          {
+            "session_id": "skill-version_selection-2-session-2",
+            "turn": 2,
+            "user_message": "Review this pull request using the project checklist."
+          }
+        ]
+      },
+      "difficulty": "medium",
+      "domain": "skill",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [],
+          "forbidden_used": [],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [
+            "skill-version_selection-002"
+          ],
+          "forbidden_activation": []
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {},
+      "memory_records": [],
+      "memory_scope": {},
+      "memory_status": {},
+      "reasons": [
+        "skill_reuse_failed"
+      ],
+      "retrieved_memories": [],
+      "root_cause": "runtime execution",
+      "root_cause_confidence": "medium",
+      "root_cause_evidence": "Version selection matched the expected version, but the recorded reuse outcome failed; the fixture has no lower-level runtime evidence.",
+      "scenario_id": "skill-version_selection-002",
+      "selected_continuity_target": null,
+      "selected_skill": [
+        "skill-version_selection-002"
+      ],
+      "skill_version": {
+        "expected": 1,
+        "regression_occurred": false,
+        "regression_opportunity": true,
+        "selected": 1
+      },
+      "used_memories": [],
+      "workspace_id": "workspace-skills"
+    },
+    {
+      "actual": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memory": {},
+        "skill": {
+          "activated_skill_ids": [
+            "skill-wrong_workspace-001"
+          ],
+          "expected_version": null,
+          "regression_occurred": false,
+          "regression_opportunity": false,
+          "reuse_success": false,
+          "selected_version": null
+        }
+      },
+      "baseline_eval": {
+        "available": false,
+        "note": "This Gold fixture records decision outcomes, not fabricated score data.",
+        "value": null
+      },
+      "candidate_eval": {
+        "available": false,
+        "note": "No candidate score is present in the approved fixture.",
+        "value": null
+      },
+      "candidate_skills": [
+        {
+          "id": "skill-wrong_workspace-001",
+          "scope_id": "workspace-b",
+          "scope_type": "workspace",
+          "status": "active",
+          "trust_status": "trusted",
+          "version": 1
+        }
+      ],
+      "category": "wrong_workspace",
+      "conflict_chain": {
+        "active": [],
+        "expected_retrieval": [],
+        "expected_used": [],
+        "resolution_correct": null,
+        "superseded": []
+      },
+      "continuity_candidates": {
+        "actual_snapshot": {},
+        "gold_target": {},
+        "initial_state": {
+          "active_tasks": [],
+          "memory_ids": [],
+          "skill_ids": [],
+          "source_event_cursor": "1"
+        }
+      },
+      "decision_path": {
+        "mode": "deterministic_replay_contract",
+        "note": "The trace is an observable contract fixture; no LLM judge was used.",
+        "replay_trace": {
+          "continuity": {},
+          "learning": {
+            "decision": "not_applicable"
+          },
+          "memory": {},
+          "skill": {
+            "activated_skill_ids": [
+              "skill-wrong_workspace-001"
+            ],
+            "expected_version": null,
+            "regression_occurred": false,
+            "regression_opportunity": false,
+            "reuse_success": false,
+            "selected_version": null
+          }
+        },
+        "sessions": [
+          {
+            "session_id": "skill-wrong_workspace-1-session-1",
+            "turn": 1,
+            "user_message": "Review this pull request using the project checklist."
+          },
+          {
+            "session_id": "skill-wrong_workspace-1-session-2",
+            "turn": 2,
+            "user_message": "Review this pull request using the project checklist."
+          }
+        ]
+      },
+      "difficulty": "easy",
+      "domain": "skill",
+      "expected": {
+        "continuity": {},
+        "learning": {
+          "decision": "not_applicable"
+        },
+        "memories": {
+          "forbidden_retrieval": [],
+          "forbidden_used": [],
+          "retrieval": [],
+          "used": []
+        },
+        "skills": {
+          "activation": [],
+          "forbidden_activation": [
+            "skill-wrong_workspace-001"
+          ]
+        }
+      },
+      "learning_candidate": {
+        "actual_decision": "not_applicable",
+        "critical_regression": null,
+        "expected_behavior": {
+          "decision": "not_applicable"
+        },
+        "regression_escaped": null
+      },
+      "memory_confidence": {},
+      "memory_records": [],
+      "memory_scope": {},
+      "memory_status": {},
+      "reasons": [
+        "wrong_skill_activation"
+      ],
+      "retrieved_memories": [],
+      "root_cause": "scope bug",
+      "root_cause_confidence": "high",
+      "root_cause_evidence": "A trusted skill from another workspace was eligible for activation.",
+      "scenario_id": "skill-wrong_workspace-001",
+      "selected_continuity_target": null,
+      "selected_skill": [
+        "skill-wrong_workspace-001"
+      ],
+      "skill_version": {
+        "expected": null,
+        "regression_occurred": false,
+        "regression_opportunity": false,
+        "selected": null
+      },
+      "used_memories": [],
+      "workspace_id": "workspace-a"
+    }
+  ],
+  "generated_at": "2026-08-26T23:36:43.578486+00:00",
+  "git_sha": "7d623fae3bdb75f4d19fdf163b87e501b0fc489a",
+  "root_cause_counts": {
+    "filter bug": 1,
+    "gate bug": 2,
+    "precedence bug": 1,
+    "projection bug": 1,
+    "ranking bug": 2,
+    "runtime execution": 1,
+    "scope bug": 2,
+    "status bug": 2,
+    "version bug": 1
+  }
+}
