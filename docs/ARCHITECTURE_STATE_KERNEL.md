@@ -106,7 +106,7 @@ veya 缺什么：   两者之间的"可验证状态层"——当前 goal/进度�
 
 - **每阶段独立回退开关**（对标 `VEYA_SKILL_DISPATCHER=0` / `VEYA_MCP_GATEWAY=0` 模式）：如 `VEYA_STATE_KERNEL=0` 回退到内存 plan 语义。
 - **验证**：长任务中断恢复测试（杀掉 hicode/主脑进程 → 重启 → 从 Sqlite 重建 goal/todo → 继续不重放）；幂等测试（重复 receipt 不双扣）。
-- **不动执行面**：主脑 veya1.2 OpenRouter 双模型代理、22 工具面、hicode 执行器均保持现状，控制面只做"状态层"。
+- **不动执行面**：主脑 veya1.2 GMI MiniMax M3 / OpenRouter 兜底代理、22 工具面、hicode 执行器均保持现状，控制面只做"状态层"。
 
 ---
 
@@ -119,4 +119,4 @@ veya 缺什么：   两者之间的"可验证状态层"——当前 goal/进度�
 
 ---
 
-*参考：LoopX 仓库源码（event_sourced_state.py / quota.py / registry.py / settlement），Prime Agent 架构（见 ARCHITECTURE_REVIEW_PRIME.md），veya 实测架构（2026-08，工具面 22 + dispatcher、主脑 veya1.2 OpenRouter 双模型代理、hicode 执行器、P1 记忆）。*
+*参考：LoopX 仓库源码（event_sourced_state.py / quota.py / registry.py / settlement），Prime Agent 架构（见 ARCHITECTURE_REVIEW_PRIME.md），veya 实测架构（2026-08，工具面 22 + dispatcher、主脑 veya1.2 GMI MiniMax M3 / OpenRouter 兜底代理、hicode 执行器、P1 记忆）。*

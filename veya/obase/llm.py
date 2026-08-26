@@ -243,12 +243,17 @@ def _container_gateway_ip_for_proxy() -> str:
 _STUB_CONTENT = "LLM provider not configured — this is a shim response."
 
 # ---------------------------------------------------------------------------
-# Veya 1.2 主脑代理: OpenRouter 免费模型轮询 (round-robin)
+# Veya 1.2 主脑代理: GMI 默认 + OpenRouter 故障轮询 (round-robin)
 # ---------------------------------------------------------------------------
-# 主脑池固定为两个已选定的 OpenRouter 免费模型，轮询分摊单模型限流。
-# OpenRouter 的 API key 由容器环境变量 OPENROUTER_API_KEY 注入；不再回退到
-# 已耗尽的 OpenCode-Go 主脑池，也不保留过期模型名或 VEYA_ZEN_FREE_POOL 覆盖项。
+# 首选 GMI MiniMax M3；GMI 失败时再轮询两个 OpenRouter 免费模型。
+# 凭据分别由 GMI_API_KEY / OPENROUTER_API_KEY 注入；不回退到旧的
+# OpenCode-Go 主脑池，也不保留过期模型名或 VEYA_ZEN_FREE_POOL 覆盖项。
 _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
+    {
+        "provider": "gmi",
+        "model": "MiniMaxAI/MiniMax-M3",
+        "endpoint": "https://api.gmi-serving.com/v1/chat/completions",
+    },
     {
         "provider": "openrouter",
         "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -370,7 +375,7 @@ _veya12_free_rr_cursor = 0
 
 
 def _veya12_pool() -> list[dict[str, str]]:
-    """Veya 1.2 主脑池: 只保留已选定的两个 OpenRouter 免费模型。"""
+    """Veya 1.2 主脑池: GMI MiniMax M3 优先，OpenRouter 免费模型兜底。"""
     return list(_VEYA12_DEFAULT_POOL)
 
 
@@ -507,7 +512,7 @@ async def _veya12_rr_call(
 
 
 async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
-    """veya1.2: OpenRouter 免费双模型轮询。"""
+    """veya1.2: GMI MiniMax M3 优先，OpenRouter 免费模型兜底。"""
     global _zen_rr_cursor
     pool = _veya12_pool()
     start = _zen_rr_cursor % len(pool)
@@ -518,9 +523,9 @@ async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
         pool=pool,
         start=start,
         alias="veya1.2",
-        route="openrouter-free-rr",
+        route="gmi-openrouter-rr",
         pool_label="免费池",
-        fallback_reason="veya1.2 OpenRouter pool empty → gpt-5.6-luna",
+        fallback_reason="veya1.2 GMI/OpenRouter pool empty → gpt-5.6-luna",
     )
 
 
