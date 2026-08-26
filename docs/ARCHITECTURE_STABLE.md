@@ -122,7 +122,7 @@ MasterAgent ReAct，且本文档从未同步更新，导致文档与生产行为
 | 配置 | 值 | 位置 |
 |---|---|---|
 | 默认 provider/model | `veya1.2`（= OpenRouter 免费双模型代理） | 前端 `settings.svelte.ts` / 容器 env |
-| OPENROUTER_API_KEY | 用户 key | 容器 env（deploy/.env） |
+| OPENROUTER_API_KEY | 用户 key | 容器 env（根目录 `.env`，Compose 使用 `--env-file .env`） |
 | VEYA_FRONTIER_ENDPOINT | `http://192.168.16.1:10101/v1`（容器内） | docker-compose env |
 | gpt-5.6-luna 兜底 | 核心工具面（`_core_tool_schemas`） | `veya/llm.py` |
 | hicode serve | `127.0.0.1:8768`（容器内, 独立 oservi） | hicode-entrypoint |
