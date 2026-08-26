@@ -37,7 +37,7 @@ veya_loop (装配包)        veya_loop/src/veya_loop/{__init__,hardened,executio
 
 ## 4. 部署状态（生产在跑）
 
-- **后端容器** `veya-backend`：`deploy/docker-compose.yml`（context=.., 端口 **8767**(gateway)/**9120**(legacy) → 容器 8765），`docker compose -f deploy/docker-compose.yml up -d --force-recreate`
+- **后端容器** `veya-backend`：`deploy/docker-compose.yml`（context=.., 端口 **8767**(gateway)/**9120**(legacy) → 容器 8765），`docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate`
 - **前端** systemd `veya-web`（3105, build/index.js），`sudo systemctl restart veya-web` 加载新 build
 - **引擎挂载**：容器 USER soffy(uid 1000)，挂载 `~/.nvm` `~/.local` `~/.claude` `~/.claude.json` `~/.codex` `~/.pi`，veya-data 卷已 chown 1000
 - **引擎实测**：pi ✅（`1+1=2`）；claude/codex 链路通但 API 403/refused（宿主账号侧）
@@ -64,7 +64,7 @@ veya_loop (装配包)        veya_loop/src/veya_loop/{__init__,hardened,executio
 - **遗留（宿主账号侧）**：容器 `ANTHROPIC/OPENAI/DASHSCOPE_API_KEY` 全空（deploy/.env 不存在，
   compose `${VAR:-}` 解析空）；ALIYUN_MAAS_API_KEY 对 dashscope 无效（invalid_api_key）。
   master 引擎仍 shim —— 需真实 key 写入 deploy/.env 后
-  `docker compose -f deploy/docker-compose.yml up -d --force-recreate backend`；
+  `docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate backend`；
   前端默认 engine=master（settings.svelte.ts）且无引擎选择 UI
 
 ## 5. 测试基线
@@ -221,7 +221,7 @@ veya 主仓 tests   596+ passed (venv/bin/python -m pytest tests/ -q --ignore=te
 ```bash
 # 容器
 docker compose -f deploy/docker-compose.yml build backend
-docker compose -f deploy/docker-compose.yml up -d --force-recreate
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --force-recreate
 docker logs veya-backend --tail 50
 docker exec veya-backend sh -c "claude --version; codex --version; pi --version"
 
