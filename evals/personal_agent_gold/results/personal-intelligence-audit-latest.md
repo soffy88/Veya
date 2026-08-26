@@ -1,9 +1,9 @@
 # Veya Personal Intelligence Audit
 
-- Audit ID: `pia-personal-gold-7cce444ff93c4812a0cbd462031c0a8f-4276c93451e7`
+- Audit ID: `pia-personal-gold-12beca1fe0594232afc251749f27f102-0dc04ccdca64`
 - Dataset: `personal-agent-gold-v1`
-- Eval run: `personal-gold-7cce444ff93c4812a0cbd462031c0a8f`
-- Gold SHA: `2a4d9e3ca241021df2f524d1dd8bd57008d31f60`
+- Eval run: `personal-gold-12beca1fe0594232afc251749f27f102`
+- Gold SHA: `8b07025289a933cac1674a898d8cc79a762b3d03`
 - Approved scenarios: `170/170`
 - Decision: **PASS**
 

@@ -2114,7 +2114,7 @@
       }
     }
   },
-  "audit_id": "pia-personal-gold-7cce444ff93c4812a0cbd462031c0a8f-4276c93451e7",
+  "audit_id": "pia-personal-gold-12beca1fe0594232afc251749f27f102-0dc04ccdca64",
   "audit_name": "Veya Personal Intelligence Audit",
   "audit_version": 1,
   "decision": {
@@ -2157,7 +2157,7 @@
     "failure_count": 0
   },
   "failures": [],
-  "generated_at": "2026-08-26T23:44:33.081735+00:00",
+  "generated_at": "2026-08-26T23:45:44.279468+00:00",
   "interpretation": {
     "llm_judge": "advisory only and not used",
     "production_telemetry": "not used as Gold",
@@ -2401,8 +2401,8 @@
   },
   "source": {
     "dataset_version": "personal-agent-gold-v1",
-    "eval_run_id": "personal-gold-7cce444ff93c4812a0cbd462031c0a8f",
-    "git_sha": "2a4d9e3ca241021df2f524d1dd8bd57008d31f60",
+    "eval_run_id": "personal-gold-12beca1fe0594232afc251749f27f102",
+    "git_sha": "8b07025289a933cac1674a898d8cc79a762b3d03",
     "judge": {
       "human_gold_required": true,
       "llm_judge": "not_used",
