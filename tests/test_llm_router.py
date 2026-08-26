@@ -204,8 +204,8 @@ def test_call_aliased_long_parallel():
 # =========================================================================
 
 
-def test_llm_call_veya12_alias_routes_to_openrouter(monkeypatch):
-    """veya1.2 主脑代理只轮询指定的 Nemotron Ultra 与 MiniMax M3。"""
+def test_llm_call_veya12_alias_routes_to_gmi_by_default(monkeypatch):
+    """veya1.2 主脑代理默认命中 GMI MiniMax M3。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
@@ -220,7 +220,11 @@ def test_llm_call_veya12_alias_routes_to_openrouter(monkeypatch):
 
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
     monkeypatch.setattr(
-        "os.environ", {**__import__("os").environ, "OPENROUTER_API_KEY": "sk-test"}
+        "os.environ", {
+            **__import__("os").environ,
+            "GMI_API_KEY": "sk-test",
+            "OPENROUTER_API_KEY": "sk-test",
+        }
     )
 
     result = asyncio.run(
@@ -230,15 +234,16 @@ def test_llm_call_veya12_alias_routes_to_openrouter(monkeypatch):
             model="veya1.2",
         )
     )
-    assert seen == [
-        {"provider": "openrouter", "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
-         "endpoint": "https://openrouter.ai/api/v1/chat/completions"},
-    ]
+    assert seen == [{
+        "provider": "gmi",
+        "model": "MiniMaxAI/MiniMax-M3",
+        "endpoint": "https://api.gmi-serving.com/v1/chat/completions",
+    }]
     assert result["choices"][0]["message"]["content"] == "routed-ok"
 
 
 def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
-    """旧 veya1.1 名称仍可用，但实际走新的 veya1.2 OpenRouter 池。"""
+    """旧 veya1.1 名称仍可用，但实际走新的 veya1.2 GMI 主池。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
@@ -250,7 +255,11 @@ def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
 
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
     monkeypatch.setattr(
-        "os.environ", {**__import__("os").environ, "OPENROUTER_API_KEY": "sk-test"}
+        "os.environ", {
+            **__import__("os").environ,
+            "GMI_API_KEY": "sk-test",
+            "OPENROUTER_API_KEY": "sk-test",
+        }
     )
 
     result = asyncio.run(
@@ -260,7 +269,7 @@ def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
             model="veya1.1",
         )
     )
-    assert seen == [{"provider": "openrouter", "model": "nvidia/nemotron-3-ultra-550b-a55b:free"}]
+    assert seen == [{"provider": "gmi", "model": "MiniMaxAI/MiniMax-M3"}]
     assert result["choices"][0]["message"]["content"] == "compat-ok"
 
 
@@ -533,7 +542,7 @@ def test_get_provider_config_no_user_config(monkeypatch):
 
 
 def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
-    """OpenRouter 双模型返回空 → 重试 → frontier 失败时给明确错误。"""
+    """GMI + OpenRouter 池返回空 → 重试 → frontier 失败时给明确错误。"""
     from veya import llm as hllm
 
     calls: list[str] = []
@@ -550,7 +559,11 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
     monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
     monkeypatch.setattr(
-        "os.environ", {**__import__("os").environ, "OPENROUTER_API_KEY": "sk-test"}
+        "os.environ", {
+            **__import__("os").environ,
+            "GMI_API_KEY": "sk-test",
+            "OPENROUTER_API_KEY": "sk-test",
+        }
     )
 
     result = asyncio.run(
@@ -560,8 +573,9 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
             model="veya1.2",
         )
     )
-    # 双模型整轮重试 3 轮仍无效 → gpt-5.6-luna 兜底也重试 4 次
+    # GMI + 双 OpenRouter 整轮重试 3 轮仍无效 → gpt-5.6-luna 兜底也重试 4 次
     assert calls == [
+        "MiniMaxAI/MiniMax-M3",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
         "minimax/minimax-m3:free",
     ] * 3 + ["gpt-5.6-luna"] * 4
@@ -580,7 +594,7 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
 
     async def flaky_provider_call(client, provider, **kw):
         calls.append(kw["model"])
-        if kw["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free":
+        if kw["model"] == "MiniMaxAI/MiniMax-M3":
             return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
         return {
             "choices": [{"message": {"role": "assistant", "content": "备用模型正常回复"}}],
@@ -589,7 +603,11 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
     monkeypatch.setattr(
-        "os.environ", {**__import__("os").environ, "OPENROUTER_API_KEY": "sk-test"}
+        "os.environ", {
+            **__import__("os").environ,
+            "GMI_API_KEY": "sk-test",
+            "OPENROUTER_API_KEY": "sk-test",
+        }
     )
 
     result = asyncio.run(
@@ -600,8 +618,8 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
         )
     )
     assert calls == [
+        "MiniMaxAI/MiniMax-M3",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "minimax/minimax-m3:free",
     ]
     assert result["choices"][0]["message"]["content"] == "备用模型正常回复"
     assert not result.get("error")

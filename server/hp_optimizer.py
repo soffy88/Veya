@@ -4,7 +4,7 @@
 HPStudy + AgentSampler (LLM sampler 注入) → 测量迭代 → best 配置。
 
 装配决策 (主仓只装配, 机制在 oprim._hp_search):
-- sampler 默认 veya1.2 别名路由 (OpenRouter 免费双模型池 + frontier 兜底),
+- sampler 默认 veya1.2 别名路由 (GMI MiniMax M3 + OpenRouter 兜底 + frontier),
   可切 ``sampler="opencode-go"`` 走 key 直连端点;
 - objective 在 3O 沙箱执行 (network_blocked, 纯计算); 代码约定: 使用
   ``params`` 字典, 最后一行 ``print(float)`` 输出目标值 (越大越好方向由
@@ -235,7 +235,7 @@ def wire_master_tools() -> int:
                 },
                 "sampler": {
                     "type": "string",
-                    "description": "veya1.2 (default, OpenRouter free pool) | opencode-go (key-direct)",
+                    "description": "veya1.2 (default, GMI MiniMax M3 + OpenRouter fallback) | opencode-go (key-direct)",
                 },
                 "storage": {
                     "type": "string",

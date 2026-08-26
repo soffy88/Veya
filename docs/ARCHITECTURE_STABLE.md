@@ -59,12 +59,14 @@ Graft 默认不预注入（`VEYA_GRAFT_CONTEXT=1` 才恢复每轮注入）；编
 （设计/方案类任务零工具直答、工具失败不重试）是给模型的**行为规范**，
 不是程序判断——模型自己决定听不听。
 
-### 2.2 LLM 层 = veya1.2 OpenRouter 免费双模型代理
+### 2.2 LLM 层 = veya1.2 GMI 主模型 + OpenRouter 兜底代理
 
-- `provider=veya1.2`（前端/主脑默认）→ `veya/llm.py` 轮询 OpenRouter：
-  - endpoint: `https://openrouter.ai/api/v1/chat/completions`
-  - key: `OPENROUTER_API_KEY`（用户提供，容器已注入）
-  - model pool: `nvidia/nemotron-3-ultra-550b-a55b:free` → `minimax/minimax-m3:free`
+- `provider=veya1.2`（前端/主脑默认）→ `veya/llm.py` 优先调用 GMI：
+  - endpoint: `https://api.gmi-serving.com/v1/chat/completions`
+  - key: `GMI_API_KEY`（用户提供，容器已注入）
+  - model: `MiniMaxAI/MiniMax-M3`
+- GMI 失败后才轮询 OpenRouter 免费模型（`OPENROUTER_API_KEY`）：
+  `nvidia/nemotron-3-ultra-550b-a55b:free` → `minimax/minimax-m3:free`。
 - 旧 `veya1.1` 仅作为兼容别名，转发到相同的 veya1.2 池；旧 opencode-go 主脑候选已移除。
 - **禁止**重新引入 oskill `router.call_aliased`（quality-gate 升级、模型切换、
   并行分派）——它是空回复的诱因（实测裸 URL 直连 200 有内容，走路由器就空）。
@@ -121,8 +123,9 @@ MasterAgent ReAct，且本文档从未同步更新，导致文档与生产行为
 
 | 配置 | 值 | 位置 |
 |---|---|---|
-| 默认 provider/model | `veya1.2`（= OpenRouter 免费双模型代理） | 前端 `settings.svelte.ts` / 容器 env |
-| OPENROUTER_API_KEY | 用户 key | 容器 env（根目录 `.env`，Compose 使用 `--env-file .env`） |
+| 默认 provider/model | `veya1.2`（= GMI MiniMax M3，OpenRouter 兜底） | 前端 `settings.svelte.ts` / 容器 env |
+| GMI_API_KEY | 用户 key | 容器 env（根目录 `.env`，Compose 使用 `--env-file .env`） |
+| OPENROUTER_API_KEY | 兜底 key | 容器 env（根目录 `.env`，Compose 使用 `--env-file .env`） |
 | VEYA_FRONTIER_ENDPOINT | `http://192.168.16.1:10101/v1`（容器内） | docker-compose env |
 | gpt-5.6-luna 兜底 | 核心工具面（`_core_tool_schemas`） | `veya/llm.py` |
 | hicode serve | `127.0.0.1:8768`（容器内, 独立 oservi） | hicode-entrypoint |
