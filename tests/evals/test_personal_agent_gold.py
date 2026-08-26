@@ -16,7 +16,9 @@ from evals.personal_agent_gold.benchmark import (
     record_shadow_candidate,
     run_benchmark,
 )
+from evals.personal_agent_gold.gate import check_report
 from runtime.personal.runtime import PersonalRuntimeStore
+from scripts.check_test_baseline import compare, parse_summary
 
 ROOT = Path(__file__).parents[2] / "evals" / "personal_agent_gold"
 
@@ -46,6 +48,35 @@ def test_benchmark_denominators_are_domain_specific():
         for item in difficulty.values()
     )
     assert continuity_den == 30
+
+
+def test_personal_gold_gate_hard_fails_required_metrics():
+    report = run_benchmark(ROOT, git_sha="test", write_outputs=False)
+    assert check_report(report) == []
+    broken = json.loads(json.dumps(report))
+    broken["metrics"]["learning_regression_escape_rate"]["rate"] = 0.5
+    broken["status"] = "FAIL"
+    assert "learning_regression_escape_rate: 0.5 violates <=0.0" in check_report(broken)
+
+
+def test_test_baseline_parser_detects_new_nodes(tmp_path):
+    output = tmp_path / "pytest.txt"
+    output.write_text(
+        "FAILED tests/example.py::test_known - failure\n"
+        "ERROR tests/example.py::test_new - setup error\n",
+        encoding="utf-8",
+    )
+    assert parse_summary(output.read_text(encoding="utf-8")) == {
+        "tests/example.py::test_known",
+        "tests/example.py::test_new",
+    }
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(
+        json.dumps({"tests": [{"nodeid": "tests/example.py::test_known"}]}),
+        encoding="utf-8",
+    )
+    result = compare(baseline, output)
+    assert result["new"] == ["tests/example.py::test_new"]
 
 
 def test_memory_precision_counts_only_actual_usage():
@@ -166,7 +197,10 @@ async def test_personal_metrics_exposes_approved_report_without_changing_search(
         metrics = await store.personal_metrics()
 
         assert metrics["gold_benchmark"]["dataset_version"] == "personal-agent-gold-v1"
-        assert metrics["memory_precision"] == metrics["gold_benchmark"]["metrics"]["memory_precision"]["rate"]
+        assert (
+            metrics["memory_precision"]
+            == metrics["gold_benchmark"]["metrics"]["memory_precision"]["rate"]
+        )
         assert isinstance(await store.search_memory("not present"), list)
     finally:
         await store.close()
@@ -183,7 +217,7 @@ def test_personal_intelligence_audit_preserves_complete_slices_and_failures(tmp_
     )
     written = write_audit(tmp_path)
 
-    assert audit["decision"]["status"] == "BLOCKED_BY_GOLD_GATE"
+    assert audit["decision"]["status"] == "PASS"
     assert len(audit["metrics"]) == 16
     assert set(audit["all_failure_slices"]) == {
         "difficulty",
@@ -192,7 +226,14 @@ def test_personal_intelligence_audit_preserves_complete_slices_and_failures(tmp_
         "session_shape",
         "skill_case",
     }
-    assert len(audit["failures"]) == 13
+    assert audit["failure_slices"] == {
+        "difficulty": {},
+        "memory_case": {},
+        "scope": {},
+        "session_shape": {},
+        "skill_case": {},
+    }
+    assert len(audit["failures"]) == 0
     assert written["output"]["json"].endswith(".json")
     persisted = json.loads(
         (tmp_path / "results" / "personal-intelligence-audit-latest.json").read_text(

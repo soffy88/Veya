@@ -156,6 +156,11 @@ def render_audit(audit: dict[str, Any]) -> str:
                     f"  - `{name}` {metric['numerator']}/{metric['denominator']} = {metric['rate']:.4f}; CI {ci_text}"
                 )
         lines.append("")
+    conclusion = (
+        "The approved Gold contract meets every configured quality gate. The result is a deterministic replay audit, not a claim about unlabeled production conversations."
+        if decision["status"] == "PASS"
+        else "The runtime is production-healthy, but this baseline is not intelligence-quality-gate healthy. The failure corpus contains expected/actual/replay evidence for each failure."
+    )
     lines.extend(
         [
             "## Failure summary",
@@ -182,7 +187,7 @@ def render_audit(audit: dict[str, Any]) -> str:
             "",
             "## Audit conclusion",
             "",
-            "The runtime is production-healthy, but this baseline is not intelligence-quality-gate healthy. Memory stale-use/conflict, wrong Skill activation/version choice, continuity misses, and a critical learning regression escape remain release blockers. The failure corpus contains expected/actual/replay evidence for each failure.",
+            conclusion,
             "",
         ]
     )

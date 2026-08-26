@@ -33,6 +33,19 @@ The runner writes:
 - `results/latest.json` and `.md`;
 - `failures/<eval-run-id>.jsonl`.
 
+The runtime-quality replay adapter applies the same deterministic eligibility
+policies used by Personal Runtime: stale/superseded memories are excluded,
+workspace scope is enforced, ambiguous skills do not auto-activate, only active
+trusted versions run, continuity prefers unfinished work, and critical learning
+regressions fail closed. It does not alter Gold labels or denominators; the
+raw pre-fix report remains available under its commit-named result file.
+
+Run the hard release gate with:
+
+```bash
+python -m evals.personal_agent_gold.gate
+```
+
 Generate the full audit from the latest approved report:
 
 ```bash

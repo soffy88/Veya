@@ -5,61 +5,61 @@
         "metrics": {
           "continuity_state_restore_accuracy": {
             "ci95": {
-              "high": 0.9851349055950829,
-              "low": 0.646120088858883
+              "high": 1.0,
+              "low": 0.7575059933447592
             },
             "denominator": 12,
-            "numerator": 11,
-            "passed": false,
-            "rate": 0.9166666666666666,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.98,
             "target_operator": ">="
           },
           "continuity_task_recovery_accuracy": {
             "ci95": {
-              "high": 0.9851349055950829,
-              "low": 0.646120088858883
+              "high": 1.0,
+              "low": 0.7575059933447592
             },
             "denominator": 12,
-            "numerator": 11,
-            "passed": false,
-            "rate": 0.9166666666666666,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.98,
             "target_operator": ">="
           },
           "learning_candidate_precision": {
             "ci95": {
-              "high": 0.9862895787574435,
-              "low": 0.6668604907890041
+              "high": 0.9999999999999999,
+              "low": 0.7719046276458016
             },
             "denominator": 13,
-            "numerator": 12,
-            "passed": false,
-            "rate": 0.9230769230769231,
+            "numerator": 13,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "learning_regression_escape_rate": {
             "ci95": {
-              "high": 1.0,
-              "low": 0.20654931437723745
+              "high": 0.7934506856227626,
+              "low": 0.0
             },
             "denominator": 1,
-            "numerator": 1,
-            "passed": false,
-            "rate": 1.0,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.0,
             "target_operator": "<="
           },
           "memory_conflict_resolution_accuracy": {
             "ci95": {
-              "high": 0.9367748928821533,
-              "low": 0.45258896910698887
+              "high": 1.0,
+              "low": 0.7008549515804559
             },
             "denominator": 9,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.7777777777777778,
+            "numerator": 9,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -77,121 +77,121 @@
           },
           "memory_precision": {
             "ci95": {
-              "high": 0.8819358765321748,
-              "low": 0.5120844910218489
+              "high": 1.0,
+              "low": 0.8156818649911483
             },
-            "denominator": 19,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.7368421052631579,
+            "denominator": 17,
+            "numerator": 17,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "memory_recall_when_needed": {
             "ci95": {
-              "high": 0.9380887336237901,
-              "low": 0.5897054143116588
+              "high": 1.0,
+              "low": 0.8156818649911483
             },
             "denominator": 17,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.8235294117647058,
+            "numerator": 17,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "retrieval_precision": {
             "ci95": {
-              "high": 0.8819358765321748,
-              "low": 0.5120844910218489
+              "high": 1.0,
+              "low": 0.8156818649911483
             },
-            "denominator": 19,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.7368421052631579,
+            "denominator": 17,
+            "numerator": 17,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "skill_activation_precision": {
             "ci95": {
-              "high": 0.9182047128150143,
-              "low": 0.49743624053272495
+              "high": 1.0,
+              "low": 0.7411670330319684
             },
-            "denominator": 13,
-            "numerator": 10,
-            "passed": false,
-            "rate": 0.7692307692307693,
+            "denominator": 11,
+            "numerator": 11,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "skill_regression_rate": {
             "ci95": {
-              "high": 0.7923403991979522,
-              "low": 0.06149194472039621
+              "high": 0.5614970317550454,
+              "low": 5.551115123125783e-17
             },
             "denominator": 3,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.3333333333333333,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
           "skill_reuse_success_rate": {
             "ci95": {
-              "high": 0.9837678271141151,
-              "low": 0.6226415635484043
+              "high": 1.0,
+              "low": 0.7411670330319684
             },
             "denominator": 11,
-            "numerator": 10,
+            "numerator": 11,
             "passed": true,
-            "rate": 0.9090909090909091,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "skill_version_selection_accuracy": {
             "ci95": {
-              "high": 0.9385080552796037,
-              "low": 0.2076596008020477
+              "high": 1.0,
+              "low": 0.4385029682449546
             },
             "denominator": 3,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.6666666666666666,
+            "numerator": 3,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "stale_memory_use_rate": {
             "ci95": {
-              "high": 0.5323053349335657,
-              "low": 0.08894166839405471
+              "high": 0.24249400665524085,
+              "low": 2.7755575615628914e-17
             },
             "denominator": 12,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.25,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
           "unnecessary_memory_use_rate": {
             "ci95": {
-              "high": 0.6410655481673808,
-              "low": 0.08221892400405678
+              "high": 0.35433043506668743,
+              "low": 5.551115123125783e-17
             },
             "denominator": 7,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.2857142857142857,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.05,
             "target_operator": "<="
           },
           "wrong_skill_activation_rate": {
             "ci95": {
-              "high": 0.37565475270329074,
-              "low": 0.05520471638534141
+              "high": 0.16817922405261626,
+              "low": 0.0
             },
             "denominator": 19,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.15789473684210525,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.02,
             "target_operator": "<="
           }
@@ -528,13 +528,13 @@
           },
           "skill_reuse_success_rate": {
             "ci95": {
-              "high": 0.9837678271141151,
-              "low": 0.6226415635484043
+              "high": 1.0,
+              "low": 0.7411670330319684
             },
             "denominator": 11,
-            "numerator": 10,
+            "numerator": 11,
             "passed": true,
-            "rate": 0.9090909090909091,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
@@ -631,13 +631,13 @@
           },
           "memory_conflict_resolution_accuracy": {
             "ci95": {
-              "high": 0.9650225122567595,
-              "low": 0.639771727342413
+              "high": 1.0,
+              "low": 0.8063923194655637
             },
             "denominator": 16,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 16,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -652,37 +652,37 @@
           },
           "memory_precision": {
             "ci95": {
-              "high": 0.9650225122567595,
-              "low": 0.639771727342413
+              "high": 1.0,
+              "low": 0.8063923194655637
             },
             "denominator": 16,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 16,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "memory_recall_when_needed": {
             "ci95": {
-              "high": 0.9650225122567595,
-              "low": 0.639771727342413
+              "high": 1.0,
+              "low": 0.8063923194655637
             },
             "denominator": 16,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 16,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "retrieval_precision": {
             "ci95": {
-              "high": 0.9650225122567595,
-              "low": 0.639771727342413
+              "high": 1.0,
+              "low": 0.8063923194655637
             },
             "denominator": 16,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 16,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -724,13 +724,13 @@
           },
           "stale_memory_use_rate": {
             "ci95": {
-              "high": 0.36022827265758695,
-              "low": 0.03497748774324047
+              "high": 0.1936076805344365,
+              "low": 0.0
             },
             "denominator": 16,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.125,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
@@ -979,14 +979,11 @@
             "target_operator": ">="
           },
           "memory_precision": {
-            "ci95": {
-              "high": 0.7934506856227626,
-              "low": 0.0
-            },
-            "denominator": 1,
+            "ci95": null,
+            "denominator": 0,
             "numerator": 0,
-            "passed": false,
-            "rate": 0.0,
+            "passed": null,
+            "rate": null,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -1000,14 +997,11 @@
             "target_operator": ">="
           },
           "retrieval_precision": {
-            "ci95": {
-              "high": 0.7934506856227626,
-              "low": 0.0
-            },
-            "denominator": 1,
+            "ci95": null,
+            "denominator": 0,
             "numerator": 0,
-            "passed": false,
-            "rate": 0.0,
+            "passed": null,
+            "rate": null,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -1049,13 +1043,13 @@
           },
           "stale_memory_use_rate": {
             "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
+              "high": 0.32440756488388023,
+              "low": 0.0
             },
             "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
@@ -1122,13 +1116,13 @@
           },
           "memory_conflict_resolution_accuracy": {
             "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
+              "high": 1.0,
+              "low": 0.6755924351161198
             },
             "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -1143,37 +1137,37 @@
           },
           "memory_precision": {
             "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
+              "high": 1.0,
+              "low": 0.6755924351161198
             },
             "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "memory_recall_when_needed": {
             "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
+              "high": 1.0,
+              "low": 0.6755924351161198
             },
             "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "retrieval_precision": {
             "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
+              "high": 1.0,
+              "low": 0.6755924351161198
             },
             "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -1215,13 +1209,13 @@
           },
           "stale_memory_use_rate": {
             "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
+              "high": 0.32440756488388023,
+              "low": 0.0
             },
             "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
@@ -1250,61 +1244,61 @@
         "metrics": {
           "continuity_state_restore_accuracy": {
             "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
             },
             "denominator": 30,
-            "numerator": 29,
-            "passed": false,
-            "rate": 0.9666666666666667,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.98,
             "target_operator": ">="
           },
           "continuity_task_recovery_accuracy": {
             "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
             },
             "denominator": 30,
-            "numerator": 29,
-            "passed": false,
-            "rate": 0.9666666666666667,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.98,
             "target_operator": ">="
           },
           "learning_candidate_precision": {
             "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
             },
             "denominator": 30,
-            "numerator": 29,
+            "numerator": 30,
             "passed": true,
-            "rate": 0.9666666666666667,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "learning_regression_escape_rate": {
             "ci95": {
-              "high": 0.9054687942657693,
-              "low": 0.09453120573423074
+              "high": 0.6576197724933469,
+              "low": 0.0
             },
             "denominator": 2,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.5,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.0,
             "target_operator": "<="
           },
           "memory_conflict_resolution_accuracy": {
             "ci95": {
-              "high": 0.9768411847029567,
-              "low": 0.741511978067893
+              "high": 1.0,
+              "low": 0.8620237953250198
             },
             "denominator": 24,
-            "numerator": 22,
-            "passed": false,
-            "rate": 0.9166666666666666,
+            "numerator": 24,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -1322,121 +1316,121 @@
           },
           "memory_precision": {
             "ci95": {
-              "high": 0.9526685414190106,
-              "low": 0.7696217135574916
+              "high": 1.0,
+              "low": 0.9197043962415192
             },
-            "denominator": 46,
-            "numerator": 41,
-            "passed": false,
-            "rate": 0.8913043478260869,
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "memory_recall_when_needed": {
             "ci95": {
-              "high": 0.9765406040926183,
-              "low": 0.8177495562977846
+              "high": 1.0,
+              "low": 0.9197043962415192
             },
             "denominator": 44,
-            "numerator": 41,
+            "numerator": 44,
             "passed": true,
-            "rate": 0.9318181818181818,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "retrieval_precision": {
             "ci95": {
-              "high": 0.9526685414190106,
-              "low": 0.7696217135574916
+              "high": 1.0,
+              "low": 0.9197043962415192
             },
-            "denominator": 46,
-            "numerator": 41,
-            "passed": false,
-            "rate": 0.8913043478260869,
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "skill_activation_precision": {
             "ci95": {
-              "high": 0.9665353558368026,
-              "low": 0.7510006155660716
+              "high": 1.0,
+              "low": 0.8830302015002593
             },
-            "denominator": 31,
-            "numerator": 28,
-            "passed": false,
-            "rate": 0.9032258064516129,
+            "denominator": 29,
+            "numerator": 29,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "skill_regression_rate": {
             "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
+              "high": 0.32440756488388023,
+              "low": 0.0
             },
             "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
           "skill_reuse_success_rate": {
             "ci95": {
-              "high": 0.9808787338305667,
-              "low": 0.7803541984972431
+              "high": 1.0,
+              "low": 0.8830302015002593
             },
             "denominator": 29,
-            "numerator": 27,
+            "numerator": 29,
             "passed": true,
-            "rate": 0.9310344827586207,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "skill_version_selection_accuracy": {
             "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
+              "high": 1.0,
+              "low": 0.6755924351161198
             },
             "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "stale_memory_use_rate": {
             "ci95": {
-              "high": 0.24218154728387864,
-              "low": 0.032401551298366194
+              "high": 0.1071791982550706,
+              "low": 0.0
             },
             "denominator": 32,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.09375,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
           "unnecessary_memory_use_rate": {
             "ci95": {
-              "high": 0.32799765130178804,
-              "low": 0.03101952264561239
+              "high": 0.17587922364665765,
+              "low": 0.0
             },
             "denominator": 18,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.1111111111111111,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.05,
             "target_operator": "<="
           },
           "wrong_skill_activation_rate": {
             "ci95": {
-              "high": 0.16217091688838173,
-              "low": 0.02061497034897397
+              "high": 0.07134759913335872,
+              "low": 6.938893903907228e-18
             },
             "denominator": 50,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.06,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.02,
             "target_operator": "<="
           }
@@ -1449,61 +1443,61 @@
         "metrics": {
           "continuity_state_restore_accuracy": {
             "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
             },
             "denominator": 30,
-            "numerator": 29,
-            "passed": false,
-            "rate": 0.9666666666666667,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.98,
             "target_operator": ">="
           },
           "continuity_task_recovery_accuracy": {
             "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
             },
             "denominator": 30,
-            "numerator": 29,
-            "passed": false,
-            "rate": 0.9666666666666667,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.98,
             "target_operator": ">="
           },
           "learning_candidate_precision": {
             "ci95": {
-              "high": 0.991930572378736,
-              "low": 0.7820195416134267
+              "high": 1.0,
+              "low": 0.8513451253913791
             },
             "denominator": 22,
-            "numerator": 21,
+            "numerator": 22,
             "passed": true,
-            "rate": 0.9545454545454546,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "learning_regression_escape_rate": {
             "ci95": {
-              "high": 0.9054687942657693,
-              "low": 0.09453120573423074
+              "high": 0.6576197724933469,
+              "low": 0.0
             },
             "denominator": 2,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.5,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.0,
             "target_operator": "<="
           },
           "memory_conflict_resolution_accuracy": {
             "ci95": {
-              "high": 0.9768411847029567,
-              "low": 0.741511978067893
+              "high": 1.0,
+              "low": 0.8620237953250198
             },
             "denominator": 24,
-            "numerator": 22,
-            "passed": false,
-            "rate": 0.9166666666666666,
+            "numerator": 24,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -1521,121 +1515,121 @@
           },
           "memory_precision": {
             "ci95": {
-              "high": 0.9526685414190106,
-              "low": 0.7696217135574916
+              "high": 1.0,
+              "low": 0.9197043962415192
             },
-            "denominator": 46,
-            "numerator": 41,
-            "passed": false,
-            "rate": 0.8913043478260869,
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "memory_recall_when_needed": {
             "ci95": {
-              "high": 0.9765406040926183,
-              "low": 0.8177495562977846
+              "high": 1.0,
+              "low": 0.9197043962415192
             },
             "denominator": 44,
-            "numerator": 41,
+            "numerator": 44,
             "passed": true,
-            "rate": 0.9318181818181818,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "retrieval_precision": {
             "ci95": {
-              "high": 0.9526685414190106,
-              "low": 0.7696217135574916
+              "high": 1.0,
+              "low": 0.9197043962415192
             },
-            "denominator": 46,
-            "numerator": 41,
-            "passed": false,
-            "rate": 0.8913043478260869,
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "skill_activation_precision": {
             "ci95": {
-              "high": 0.9665353558368026,
-              "low": 0.7510006155660716
+              "high": 1.0,
+              "low": 0.8830302015002593
             },
-            "denominator": 31,
-            "numerator": 28,
-            "passed": false,
-            "rate": 0.9032258064516129,
+            "denominator": 29,
+            "numerator": 29,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "skill_regression_rate": {
             "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
+              "high": 0.32440756488388023,
+              "low": 0.0
             },
             "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
           "skill_reuse_success_rate": {
             "ci95": {
-              "high": 0.9808787338305667,
-              "low": 0.7803541984972431
+              "high": 1.0,
+              "low": 0.8830302015002593
             },
             "denominator": 29,
-            "numerator": 27,
+            "numerator": 29,
             "passed": true,
-            "rate": 0.9310344827586207,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "skill_version_selection_accuracy": {
             "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
+              "high": 1.0,
+              "low": 0.6755924351161198
             },
             "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "stale_memory_use_rate": {
             "ci95": {
-              "high": 0.24218154728387864,
-              "low": 0.032401551298366194
+              "high": 0.1071791982550706,
+              "low": 0.0
             },
             "denominator": 32,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.09375,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
           "unnecessary_memory_use_rate": {
             "ci95": {
-              "high": 0.32799765130178804,
-              "low": 0.03101952264561239
+              "high": 0.17587922364665765,
+              "low": 0.0
             },
             "denominator": 18,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.1111111111111111,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.05,
             "target_operator": "<="
           },
           "wrong_skill_activation_rate": {
             "ci95": {
-              "high": 0.16217091688838173,
-              "low": 0.02061497034897397
+              "high": 0.07134759913335872,
+              "low": 6.938893903907228e-18
             },
             "denominator": 50,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.06,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.02,
             "target_operator": "<="
           }
@@ -1881,49 +1875,49 @@
           },
           "skill_activation_precision": {
             "ci95": {
-              "high": 0.9546234090636876,
-              "low": 0.6787251772990404
+              "high": 1.0,
+              "low": 0.8453609810751531
             },
-            "denominator": 23,
-            "numerator": 20,
-            "passed": false,
-            "rate": 0.8695652173913043,
+            "denominator": 21,
+            "numerator": 21,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
           "skill_regression_rate": {
             "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
+              "high": 0.32440756488388023,
+              "low": 0.0
             },
             "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.01,
             "target_operator": "<="
           },
           "skill_reuse_success_rate": {
             "ci95": {
-              "high": 0.9734812325619255,
-              "low": 0.7108586092608176
+              "high": 1.0,
+              "low": 0.8453609810751531
             },
             "denominator": 21,
-            "numerator": 19,
+            "numerator": 21,
             "passed": true,
-            "rate": 0.9047619047619048,
+            "rate": 1.0,
             "target": 0.9,
             "target_operator": ">="
           },
           "skill_version_selection_accuracy": {
             "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
+              "high": 1.0,
+              "low": 0.6755924351161198
             },
             "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
             "target": 0.95,
             "target_operator": ">="
           },
@@ -1947,13 +1941,13 @@
           },
           "wrong_skill_activation_rate": {
             "ci95": {
-              "high": 0.19009426801158313,
-              "low": 0.02459040987330592
+              "high": 0.08379879086570391,
+              "low": 0.0
             },
             "denominator": 42,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.07142857142857142,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
             "target": 0.02,
             "target_operator": "<="
           }
@@ -2120,1841 +2114,50 @@
       }
     }
   },
-  "audit_id": "pia-personal-gold-a2547d54677c460f9ed76f5f59fa2a1d-c664324d52e2",
+  "audit_id": "pia-personal-gold-7cce444ff93c4812a0cbd462031c0a8f-4276c93451e7",
   "audit_name": "Veya Personal Intelligence Audit",
   "audit_version": 1,
   "decision": {
-    "critical_regression_escape_count": 1,
-    "critical_regression_escape_scenarios": [
-      "learning-critical_regression-001"
-    ],
-    "failed_metric_count": 12,
-    "failed_metrics": [
+    "critical_regression_escape_count": 0,
+    "critical_regression_escape_scenarios": [],
+    "failed_metric_count": 0,
+    "failed_metrics": [],
+    "passed_metric_count": 16,
+    "passing_metrics": [
       "continuity_state_restore_accuracy",
       "continuity_task_recovery_accuracy",
+      "learning_candidate_precision",
       "learning_regression_escape_rate",
       "memory_conflict_resolution_accuracy",
+      "memory_correction_success_rate",
       "memory_precision",
+      "memory_recall_when_needed",
       "retrieval_precision",
       "skill_activation_precision",
       "skill_regression_rate",
+      "skill_reuse_success_rate",
       "skill_version_selection_accuracy",
       "stale_memory_use_rate",
       "unnecessary_memory_use_rate",
       "wrong_skill_activation_rate"
     ],
-    "passed_metric_count": 4,
-    "passing_metrics": [
-      "learning_candidate_precision",
-      "memory_correction_success_rate",
-      "memory_recall_when_needed",
-      "skill_reuse_success_rate"
-    ],
-    "status": "BLOCKED_BY_GOLD_GATE"
+    "status": "PASS"
   },
   "failure_slices": {
-    "difficulty": {
-      "easy": {
-        "failed_metrics": {
-          "continuity_state_restore_accuracy": {
-            "ci95": {
-              "high": 0.9851349055950829,
-              "low": 0.646120088858883
-            },
-            "denominator": 12,
-            "numerator": 11,
-            "passed": false,
-            "rate": 0.9166666666666666,
-            "target": 0.98,
-            "target_operator": ">="
-          },
-          "continuity_task_recovery_accuracy": {
-            "ci95": {
-              "high": 0.9851349055950829,
-              "low": 0.646120088858883
-            },
-            "denominator": 12,
-            "numerator": 11,
-            "passed": false,
-            "rate": 0.9166666666666666,
-            "target": 0.98,
-            "target_operator": ">="
-          },
-          "learning_candidate_precision": {
-            "ci95": {
-              "high": 0.9862895787574435,
-              "low": 0.6668604907890041
-            },
-            "denominator": 13,
-            "numerator": 12,
-            "passed": false,
-            "rate": 0.9230769230769231,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "learning_regression_escape_rate": {
-            "ci95": {
-              "high": 1.0,
-              "low": 0.20654931437723745
-            },
-            "denominator": 1,
-            "numerator": 1,
-            "passed": false,
-            "rate": 1.0,
-            "target": 0.0,
-            "target_operator": "<="
-          },
-          "memory_conflict_resolution_accuracy": {
-            "ci95": {
-              "high": 0.9367748928821533,
-              "low": 0.45258896910698887
-            },
-            "denominator": 9,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.7777777777777778,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "memory_precision": {
-            "ci95": {
-              "high": 0.8819358765321748,
-              "low": 0.5120844910218489
-            },
-            "denominator": 19,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.7368421052631579,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "memory_recall_when_needed": {
-            "ci95": {
-              "high": 0.9380887336237901,
-              "low": 0.5897054143116588
-            },
-            "denominator": 17,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.8235294117647058,
-            "target": 0.9,
-            "target_operator": ">="
-          },
-          "retrieval_precision": {
-            "ci95": {
-              "high": 0.8819358765321748,
-              "low": 0.5120844910218489
-            },
-            "denominator": 19,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.7368421052631579,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "skill_activation_precision": {
-            "ci95": {
-              "high": 0.9182047128150143,
-              "low": 0.49743624053272495
-            },
-            "denominator": 13,
-            "numerator": 10,
-            "passed": false,
-            "rate": 0.7692307692307693,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "skill_regression_rate": {
-            "ci95": {
-              "high": 0.7923403991979522,
-              "low": 0.06149194472039621
-            },
-            "denominator": 3,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.3333333333333333,
-            "target": 0.01,
-            "target_operator": "<="
-          },
-          "skill_version_selection_accuracy": {
-            "ci95": {
-              "high": 0.9385080552796037,
-              "low": 0.2076596008020477
-            },
-            "denominator": 3,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.6666666666666666,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "stale_memory_use_rate": {
-            "ci95": {
-              "high": 0.5323053349335657,
-              "low": 0.08894166839405471
-            },
-            "denominator": 12,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.25,
-            "target": 0.01,
-            "target_operator": "<="
-          },
-          "unnecessary_memory_use_rate": {
-            "ci95": {
-              "high": 0.6410655481673808,
-              "low": 0.08221892400405678
-            },
-            "denominator": 7,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.2857142857142857,
-            "target": 0.05,
-            "target_operator": "<="
-          },
-          "wrong_skill_activation_rate": {
-            "ci95": {
-              "high": 0.37565475270329074,
-              "low": 0.05520471638534141
-            },
-            "denominator": 19,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.15789473684210525,
-            "target": 0.02,
-            "target_operator": "<="
-          }
-        },
-        "scenario_count": 67
-      }
-    },
-    "memory_case": {
-      "conflict": {
-        "failed_metrics": {
-          "memory_conflict_resolution_accuracy": {
-            "ci95": {
-              "high": 0.9650225122567595,
-              "low": 0.639771727342413
-            },
-            "denominator": 16,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "memory_precision": {
-            "ci95": {
-              "high": 0.9650225122567595,
-              "low": 0.639771727342413
-            },
-            "denominator": 16,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "memory_recall_when_needed": {
-            "ci95": {
-              "high": 0.9650225122567595,
-              "low": 0.639771727342413
-            },
-            "denominator": 16,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.9,
-            "target_operator": ">="
-          },
-          "retrieval_precision": {
-            "ci95": {
-              "high": 0.9650225122567595,
-              "low": 0.639771727342413
-            },
-            "denominator": 16,
-            "numerator": 14,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "stale_memory_use_rate": {
-            "ci95": {
-              "high": 0.36022827265758695,
-              "low": 0.03497748774324047
-            },
-            "denominator": 16,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.125,
-            "target": 0.01,
-            "target_operator": "<="
-          }
-        },
-        "scenario_count": 16
-      },
-      "stale": {
-        "failed_metrics": {
-          "memory_precision": {
-            "ci95": {
-              "high": 0.7934506856227626,
-              "low": 0.0
-            },
-            "denominator": 1,
-            "numerator": 0,
-            "passed": false,
-            "rate": 0.0,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "retrieval_precision": {
-            "ci95": {
-              "high": 0.7934506856227626,
-              "low": 0.0
-            },
-            "denominator": 1,
-            "numerator": 0,
-            "passed": false,
-            "rate": 0.0,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "stale_memory_use_rate": {
-            "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
-            },
-            "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
-            "target": 0.01,
-            "target_operator": "<="
-          }
-        },
-        "scenario_count": 8
-      }
-    },
-    "scope": {
-      "user": {
-        "failed_metrics": {
-          "memory_conflict_resolution_accuracy": {
-            "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
-            },
-            "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "memory_precision": {
-            "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
-            },
-            "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "memory_recall_when_needed": {
-            "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
-            },
-            "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.9,
-            "target_operator": ">="
-          },
-          "retrieval_precision": {
-            "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
-            },
-            "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "stale_memory_use_rate": {
-            "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
-            },
-            "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
-            "target": 0.01,
-            "target_operator": "<="
-          }
-        },
-        "scenario_count": 8
-      },
-      "workspace": {
-        "failed_metrics": {
-          "continuity_state_restore_accuracy": {
-            "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
-            },
-            "denominator": 30,
-            "numerator": 29,
-            "passed": false,
-            "rate": 0.9666666666666667,
-            "target": 0.98,
-            "target_operator": ">="
-          },
-          "continuity_task_recovery_accuracy": {
-            "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
-            },
-            "denominator": 30,
-            "numerator": 29,
-            "passed": false,
-            "rate": 0.9666666666666667,
-            "target": 0.98,
-            "target_operator": ">="
-          },
-          "learning_regression_escape_rate": {
-            "ci95": {
-              "high": 0.9054687942657693,
-              "low": 0.09453120573423074
-            },
-            "denominator": 2,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.5,
-            "target": 0.0,
-            "target_operator": "<="
-          },
-          "memory_conflict_resolution_accuracy": {
-            "ci95": {
-              "high": 0.9768411847029567,
-              "low": 0.741511978067893
-            },
-            "denominator": 24,
-            "numerator": 22,
-            "passed": false,
-            "rate": 0.9166666666666666,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "memory_precision": {
-            "ci95": {
-              "high": 0.9526685414190106,
-              "low": 0.7696217135574916
-            },
-            "denominator": 46,
-            "numerator": 41,
-            "passed": false,
-            "rate": 0.8913043478260869,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "retrieval_precision": {
-            "ci95": {
-              "high": 0.9526685414190106,
-              "low": 0.7696217135574916
-            },
-            "denominator": 46,
-            "numerator": 41,
-            "passed": false,
-            "rate": 0.8913043478260869,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "skill_activation_precision": {
-            "ci95": {
-              "high": 0.9665353558368026,
-              "low": 0.7510006155660716
-            },
-            "denominator": 31,
-            "numerator": 28,
-            "passed": false,
-            "rate": 0.9032258064516129,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "skill_regression_rate": {
-            "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
-            },
-            "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
-            "target": 0.01,
-            "target_operator": "<="
-          },
-          "skill_version_selection_accuracy": {
-            "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
-            },
-            "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "stale_memory_use_rate": {
-            "ci95": {
-              "high": 0.24218154728387864,
-              "low": 0.032401551298366194
-            },
-            "denominator": 32,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.09375,
-            "target": 0.01,
-            "target_operator": "<="
-          },
-          "unnecessary_memory_use_rate": {
-            "ci95": {
-              "high": 0.32799765130178804,
-              "low": 0.03101952264561239
-            },
-            "denominator": 18,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.1111111111111111,
-            "target": 0.05,
-            "target_operator": "<="
-          },
-          "wrong_skill_activation_rate": {
-            "ci95": {
-              "high": 0.16217091688838173,
-              "low": 0.02061497034897397
-            },
-            "denominator": 50,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.06,
-            "target": 0.02,
-            "target_operator": "<="
-          }
-        },
-        "scenario_count": 170
-      }
-    },
-    "session_shape": {
-      "multi-session": {
-        "failed_metrics": {
-          "continuity_state_restore_accuracy": {
-            "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
-            },
-            "denominator": 30,
-            "numerator": 29,
-            "passed": false,
-            "rate": 0.9666666666666667,
-            "target": 0.98,
-            "target_operator": ">="
-          },
-          "continuity_task_recovery_accuracy": {
-            "ci95": {
-              "high": 0.9940914096183874,
-              "low": 0.8332960900859082
-            },
-            "denominator": 30,
-            "numerator": 29,
-            "passed": false,
-            "rate": 0.9666666666666667,
-            "target": 0.98,
-            "target_operator": ">="
-          },
-          "learning_regression_escape_rate": {
-            "ci95": {
-              "high": 0.9054687942657693,
-              "low": 0.09453120573423074
-            },
-            "denominator": 2,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.5,
-            "target": 0.0,
-            "target_operator": "<="
-          },
-          "memory_conflict_resolution_accuracy": {
-            "ci95": {
-              "high": 0.9768411847029567,
-              "low": 0.741511978067893
-            },
-            "denominator": 24,
-            "numerator": 22,
-            "passed": false,
-            "rate": 0.9166666666666666,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "memory_precision": {
-            "ci95": {
-              "high": 0.9526685414190106,
-              "low": 0.7696217135574916
-            },
-            "denominator": 46,
-            "numerator": 41,
-            "passed": false,
-            "rate": 0.8913043478260869,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "retrieval_precision": {
-            "ci95": {
-              "high": 0.9526685414190106,
-              "low": 0.7696217135574916
-            },
-            "denominator": 46,
-            "numerator": 41,
-            "passed": false,
-            "rate": 0.8913043478260869,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "skill_activation_precision": {
-            "ci95": {
-              "high": 0.9665353558368026,
-              "low": 0.7510006155660716
-            },
-            "denominator": 31,
-            "numerator": 28,
-            "passed": false,
-            "rate": 0.9032258064516129,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "skill_regression_rate": {
-            "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
-            },
-            "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
-            "target": 0.01,
-            "target_operator": "<="
-          },
-          "skill_version_selection_accuracy": {
-            "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
-            },
-            "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "stale_memory_use_rate": {
-            "ci95": {
-              "high": 0.24218154728387864,
-              "low": 0.032401551298366194
-            },
-            "denominator": 32,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.09375,
-            "target": 0.01,
-            "target_operator": "<="
-          },
-          "unnecessary_memory_use_rate": {
-            "ci95": {
-              "high": 0.32799765130178804,
-              "low": 0.03101952264561239
-            },
-            "denominator": 18,
-            "numerator": 2,
-            "passed": false,
-            "rate": 0.1111111111111111,
-            "target": 0.05,
-            "target_operator": "<="
-          },
-          "wrong_skill_activation_rate": {
-            "ci95": {
-              "high": 0.16217091688838173,
-              "low": 0.02061497034897397
-            },
-            "denominator": 50,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.06,
-            "target": 0.02,
-            "target_operator": "<="
-          }
-        },
-        "scenario_count": 162
-      }
-    },
-    "skill_case": {
-      "ambiguous": {
-        "failed_metrics": {
-          "skill_activation_precision": {
-            "ci95": {
-              "high": 0.9546234090636876,
-              "low": 0.6787251772990404
-            },
-            "denominator": 23,
-            "numerator": 20,
-            "passed": false,
-            "rate": 0.8695652173913043,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "skill_regression_rate": {
-            "ci95": {
-              "high": 0.4708881822128535,
-              "low": 0.02241749145005667
-            },
-            "denominator": 8,
-            "numerator": 1,
-            "passed": false,
-            "rate": 0.125,
-            "target": 0.01,
-            "target_operator": "<="
-          },
-          "skill_version_selection_accuracy": {
-            "ci95": {
-              "high": 0.9775825085499433,
-              "low": 0.5291118177871464
-            },
-            "denominator": 8,
-            "numerator": 7,
-            "passed": false,
-            "rate": 0.875,
-            "target": 0.95,
-            "target_operator": ">="
-          },
-          "wrong_skill_activation_rate": {
-            "ci95": {
-              "high": 0.19009426801158313,
-              "low": 0.02459040987330592
-            },
-            "denominator": 42,
-            "numerator": 3,
-            "passed": false,
-            "rate": 0.07142857142857142,
-            "target": 0.02,
-            "target_operator": "<="
-          }
-        },
-        "scenario_count": 42
-      }
-    }
+    "difficulty": {},
+    "memory_case": {},
+    "scope": {},
+    "session_shape": {},
+    "skill_case": {}
   },
   "failure_summary": {
-    "by_category": {
-      "backend_crash": 1,
-      "contradiction": 1,
-      "critical_regression": 1,
-      "irrelevant_memory": 1,
-      "multiple_candidates": 1,
-      "multiple_tasks": 1,
-      "should_not_activate": 1,
-      "stale": 1,
-      "user_workspace_precedence": 1,
-      "version_selection": 2,
-      "workspace_isolation": 1,
-      "wrong_workspace": 1
-    },
-    "by_domain": {
-      "continuity": 2,
-      "learning": 1,
-      "memory": 5,
-      "skill": 5
-    },
-    "by_reason": {
-      "conflict_resolution_failed": 2,
-      "continuity_state_not_restored": 1,
-      "critical_regression_escaped": 1,
-      "forbidden_or_unexpected_retrieval": 5,
-      "forbidden_or_unexpected_usage": 5,
-      "learning_decision_mismatch": 1,
-      "skill_regression_occurred": 1,
-      "skill_reuse_failed": 2,
-      "stale_memory_used": 3,
-      "wrong_skill_activation": 3,
-      "wrong_skill_version": 1,
-      "wrong_task_recovery": 1
-    },
-    "failure_count": 13
+    "by_category": {},
+    "by_domain": {},
+    "by_reason": {},
+    "failure_count": 0
   },
-  "failures": [
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {
-          "retrieved_memory_ids": [
-            "memory-irrelevant_memory-001-current"
-          ],
-          "used_memory_ids": [
-            "memory-irrelevant_memory-001-current"
-          ]
-        },
-        "skill": {}
-      },
-      "continuity_snapshot": {},
-      "domain": "memory",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [
-            "memory-irrelevant_memory-001-current"
-          ],
-          "forbidden_used": [
-            "memory-irrelevant_memory-001-current"
-          ],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "forbidden_or_unexpected_retrieval",
-        "forbidden_or_unexpected_usage"
-      ],
-      "retrieved_memories": [
-        "memory-irrelevant_memory-001-current"
-      ],
-      "scenario": {
-        "category": "irrelevant_memory",
-        "difficulty": "easy",
-        "scenario_id": "mem-irrelevant_memory-001",
-        "workspace_id": "workspace-1"
-      },
-      "scenario_id": "mem-irrelevant_memory-001",
-      "selected_skill": [],
-      "skill_candidates": [],
-      "trace": [
-        {
-          "session_id": "mem-irrelevant_memory-1-session-1",
-          "turn": 1,
-          "user_message": "What testing rule applies here?"
-        },
-        {
-          "session_id": "mem-irrelevant_memory-1-session-2",
-          "turn": 2,
-          "user_message": "What testing rule applies here?"
-        }
-      ],
-      "used_memories": [
-        "memory-irrelevant_memory-001-current"
-      ]
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {
-          "conflict_resolution_correct": false,
-          "correction_success": true,
-          "retrieved_memory_ids": [
-            "memory-contradiction-001-old"
-          ],
-          "used_memory_ids": [
-            "memory-contradiction-001-old"
-          ]
-        },
-        "skill": {}
-      },
-      "continuity_snapshot": {},
-      "domain": "memory",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [
-            "memory-contradiction-001-old"
-          ],
-          "forbidden_used": [
-            "memory-contradiction-001-old"
-          ],
-          "retrieval": [
-            "memory-contradiction-001-current"
-          ],
-          "used": [
-            "memory-contradiction-001-current"
-          ]
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "forbidden_or_unexpected_retrieval",
-        "forbidden_or_unexpected_usage",
-        "stale_memory_used",
-        "conflict_resolution_failed"
-      ],
-      "retrieved_memories": [
-        "memory-contradiction-001-old"
-      ],
-      "scenario": {
-        "category": "contradiction",
-        "difficulty": "easy",
-        "scenario_id": "mem-contradiction-001",
-        "workspace_id": "workspace-1"
-      },
-      "scenario_id": "mem-contradiction-001",
-      "selected_skill": [],
-      "skill_candidates": [],
-      "trace": [
-        {
-          "session_id": "mem-contradiction-1-session-1",
-          "turn": 1,
-          "user_message": "What testing rule applies here?"
-        },
-        {
-          "session_id": "mem-contradiction-1-session-2",
-          "turn": 2,
-          "user_message": "What testing rule applies here?"
-        },
-        {
-          "session_id": "mem-contradiction-1-session-3",
-          "turn": 3,
-          "user_message": "What testing rule applies here?"
-        }
-      ],
-      "used_memories": [
-        "memory-contradiction-001-old"
-      ]
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {
-          "retrieved_memory_ids": [
-            "memory-stale-001-old"
-          ],
-          "used_memory_ids": [
-            "memory-stale-001-old"
-          ]
-        },
-        "skill": {}
-      },
-      "continuity_snapshot": {},
-      "domain": "memory",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [
-            "memory-stale-001-old"
-          ],
-          "forbidden_used": [
-            "memory-stale-001-old"
-          ],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "forbidden_or_unexpected_retrieval",
-        "forbidden_or_unexpected_usage",
-        "stale_memory_used"
-      ],
-      "retrieved_memories": [
-        "memory-stale-001-old"
-      ],
-      "scenario": {
-        "category": "stale",
-        "difficulty": "easy",
-        "scenario_id": "mem-stale-001",
-        "workspace_id": "workspace-1"
-      },
-      "scenario_id": "mem-stale-001",
-      "selected_skill": [],
-      "skill_candidates": [],
-      "trace": [
-        {
-          "session_id": "mem-stale-1-session-1",
-          "turn": 1,
-          "user_message": "What testing rule applies here?"
-        },
-        {
-          "session_id": "mem-stale-1-session-2",
-          "turn": 2,
-          "user_message": "What testing rule applies here?"
-        },
-        {
-          "session_id": "mem-stale-1-session-3",
-          "turn": 3,
-          "user_message": "What testing rule applies here?"
-        }
-      ],
-      "used_memories": [
-        "memory-stale-001-old"
-      ]
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {
-          "retrieved_memory_ids": [
-            "memory-workspace_isolation-001-b"
-          ],
-          "used_memory_ids": [
-            "memory-workspace_isolation-001-b"
-          ]
-        },
-        "skill": {}
-      },
-      "continuity_snapshot": {},
-      "domain": "memory",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [
-            "memory-workspace_isolation-001-b"
-          ],
-          "forbidden_used": [
-            "memory-workspace_isolation-001-b"
-          ],
-          "retrieval": [
-            "memory-workspace_isolation-001-a"
-          ],
-          "used": [
-            "memory-workspace_isolation-001-a"
-          ]
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "forbidden_or_unexpected_retrieval",
-        "forbidden_or_unexpected_usage"
-      ],
-      "retrieved_memories": [
-        "memory-workspace_isolation-001-b"
-      ],
-      "scenario": {
-        "category": "workspace_isolation",
-        "difficulty": "easy",
-        "scenario_id": "mem-workspace_isolation-001",
-        "workspace_id": "workspace-a"
-      },
-      "scenario_id": "mem-workspace_isolation-001",
-      "selected_skill": [],
-      "skill_candidates": [],
-      "trace": [
-        {
-          "session_id": "mem-workspace_isolation-1-session-1",
-          "turn": 1,
-          "user_message": "What testing rule applies here?"
-        },
-        {
-          "session_id": "mem-workspace_isolation-1-session-2",
-          "turn": 2,
-          "user_message": "What testing rule applies here?"
-        }
-      ],
-      "used_memories": [
-        "memory-workspace_isolation-001-b"
-      ]
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {
-          "conflict_resolution_correct": false,
-          "correction_success": true,
-          "retrieved_memory_ids": [
-            "memory-user_workspace_precedence-001-user"
-          ],
-          "used_memory_ids": [
-            "memory-user_workspace_precedence-001-user"
-          ]
-        },
-        "skill": {}
-      },
-      "continuity_snapshot": {},
-      "domain": "memory",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [
-            "memory-user_workspace_precedence-001-user"
-          ],
-          "forbidden_used": [
-            "memory-user_workspace_precedence-001-user"
-          ],
-          "retrieval": [
-            "memory-user_workspace_precedence-001-workspace"
-          ],
-          "used": [
-            "memory-user_workspace_precedence-001-workspace"
-          ]
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "forbidden_or_unexpected_retrieval",
-        "forbidden_or_unexpected_usage",
-        "stale_memory_used",
-        "conflict_resolution_failed"
-      ],
-      "retrieved_memories": [
-        "memory-user_workspace_precedence-001-user"
-      ],
-      "scenario": {
-        "category": "user_workspace_precedence",
-        "difficulty": "easy",
-        "scenario_id": "mem-user_workspace_precedence-001",
-        "workspace_id": "workspace-a"
-      },
-      "scenario_id": "mem-user_workspace_precedence-001",
-      "selected_skill": [],
-      "skill_candidates": [],
-      "trace": [
-        {
-          "session_id": "mem-user_workspace_precedence-1-session-1",
-          "turn": 1,
-          "user_message": "What testing rule applies here?"
-        },
-        {
-          "session_id": "mem-user_workspace_precedence-1-session-2",
-          "turn": 2,
-          "user_message": "What testing rule applies here?"
-        },
-        {
-          "session_id": "mem-user_workspace_precedence-1-session-3",
-          "turn": 3,
-          "user_message": "What testing rule applies here?"
-        }
-      ],
-      "used_memories": [
-        "memory-user_workspace_precedence-001-user"
-      ]
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {},
-        "skill": {
-          "activated_skill_ids": [
-            "skill-wrong_workspace-001"
-          ],
-          "expected_version": null,
-          "regression_occurred": false,
-          "regression_opportunity": false,
-          "reuse_success": false,
-          "selected_version": null
-        }
-      },
-      "continuity_snapshot": {},
-      "domain": "skill",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [],
-          "forbidden_used": [],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": [
-            "skill-wrong_workspace-001"
-          ]
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "wrong_skill_activation"
-      ],
-      "retrieved_memories": [],
-      "scenario": {
-        "category": "wrong_workspace",
-        "difficulty": "easy",
-        "scenario_id": "skill-wrong_workspace-001",
-        "workspace_id": "workspace-a"
-      },
-      "scenario_id": "skill-wrong_workspace-001",
-      "selected_skill": [
-        "skill-wrong_workspace-001"
-      ],
-      "skill_candidates": [
-        {
-          "id": "skill-wrong_workspace-001",
-          "scope_id": "workspace-b",
-          "scope_type": "workspace",
-          "status": "active",
-          "trust_status": "trusted",
-          "version": 1
-        }
-      ],
-      "trace": [
-        {
-          "session_id": "skill-wrong_workspace-1-session-1",
-          "turn": 1,
-          "user_message": "Review this pull request using the project checklist."
-        },
-        {
-          "session_id": "skill-wrong_workspace-1-session-2",
-          "turn": 2,
-          "user_message": "Review this pull request using the project checklist."
-        }
-      ],
-      "used_memories": []
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {},
-        "skill": {
-          "activated_skill_ids": [
-            "skill-should_not_activate-001"
-          ],
-          "expected_version": null,
-          "regression_occurred": false,
-          "regression_opportunity": false,
-          "reuse_success": false,
-          "selected_version": null
-        }
-      },
-      "continuity_snapshot": {},
-      "domain": "skill",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [],
-          "forbidden_used": [],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": [
-            "skill-should_not_activate-001"
-          ]
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "wrong_skill_activation"
-      ],
-      "retrieved_memories": [],
-      "scenario": {
-        "category": "should_not_activate",
-        "difficulty": "easy",
-        "scenario_id": "skill-should_not_activate-001",
-        "workspace_id": "workspace-skills"
-      },
-      "scenario_id": "skill-should_not_activate-001",
-      "selected_skill": [
-        "skill-should_not_activate-001"
-      ],
-      "skill_candidates": [
-        {
-          "id": "skill-should_not_activate-001",
-          "scope_id": "workspace-skills",
-          "scope_type": "workspace",
-          "status": "active",
-          "trust_status": "trusted",
-          "version": 1
-        }
-      ],
-      "trace": [
-        {
-          "session_id": "skill-should_not_activate-1-session-1",
-          "turn": 1,
-          "user_message": "Review this pull request using the project checklist."
-        },
-        {
-          "session_id": "skill-should_not_activate-1-session-2",
-          "turn": 2,
-          "user_message": "Review this pull request using the project checklist."
-        }
-      ],
-      "used_memories": []
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {},
-        "skill": {
-          "activated_skill_ids": [
-            "skill-version_selection-001"
-          ],
-          "expected_version": 1,
-          "regression_occurred": true,
-          "regression_opportunity": true,
-          "reuse_success": true,
-          "selected_version": 2
-        }
-      },
-      "continuity_snapshot": {},
-      "domain": "skill",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [],
-          "forbidden_used": [],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [
-            "skill-version_selection-001"
-          ],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "skill_regression_occurred",
-        "wrong_skill_version"
-      ],
-      "retrieved_memories": [],
-      "scenario": {
-        "category": "version_selection",
-        "difficulty": "easy",
-        "scenario_id": "skill-version_selection-001",
-        "workspace_id": "workspace-skills"
-      },
-      "scenario_id": "skill-version_selection-001",
-      "selected_skill": [
-        "skill-version_selection-001"
-      ],
-      "skill_candidates": [
-        {
-          "id": "skill-version_selection-001",
-          "scope_id": "workspace-skills",
-          "scope_type": "workspace",
-          "status": "active",
-          "trust_status": "trusted",
-          "version": 1
-        },
-        {
-          "id": "skill-version_selection-001",
-          "scope_id": "workspace-skills",
-          "scope_type": "workspace",
-          "status": "candidate",
-          "trust_status": "review_required",
-          "version": 2
-        }
-      ],
-      "trace": [
-        {
-          "session_id": "skill-version_selection-1-session-1",
-          "turn": 1,
-          "user_message": "Review this pull request using the project checklist."
-        },
-        {
-          "session_id": "skill-version_selection-1-session-2",
-          "turn": 2,
-          "user_message": "Review this pull request using the project checklist."
-        }
-      ],
-      "used_memories": []
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {},
-        "skill": {
-          "activated_skill_ids": [
-            "skill-version_selection-002"
-          ],
-          "expected_version": 1,
-          "regression_occurred": false,
-          "regression_opportunity": true,
-          "reuse_success": false,
-          "selected_version": 1
-        }
-      },
-      "continuity_snapshot": {},
-      "domain": "skill",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [],
-          "forbidden_used": [],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [
-            "skill-version_selection-002"
-          ],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "skill_reuse_failed"
-      ],
-      "retrieved_memories": [],
-      "scenario": {
-        "category": "version_selection",
-        "difficulty": "medium",
-        "scenario_id": "skill-version_selection-002",
-        "workspace_id": "workspace-skills"
-      },
-      "scenario_id": "skill-version_selection-002",
-      "selected_skill": [
-        "skill-version_selection-002"
-      ],
-      "skill_candidates": [
-        {
-          "id": "skill-version_selection-002",
-          "scope_id": "workspace-skills",
-          "scope_type": "workspace",
-          "status": "active",
-          "trust_status": "trusted",
-          "version": 1
-        },
-        {
-          "id": "skill-version_selection-002",
-          "scope_id": "workspace-skills",
-          "scope_type": "workspace",
-          "status": "candidate",
-          "trust_status": "review_required",
-          "version": 2
-        }
-      ],
-      "trace": [
-        {
-          "session_id": "skill-version_selection-2-session-1",
-          "turn": 1,
-          "user_message": "Review this pull request using the project checklist."
-        },
-        {
-          "session_id": "skill-version_selection-2-session-2",
-          "turn": 2,
-          "user_message": "Review this pull request using the project checklist."
-        }
-      ],
-      "used_memories": []
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {},
-        "skill": {
-          "activated_skill_ids": [
-            "skill-multiple_candidates-001-other"
-          ],
-          "expected_version": null,
-          "regression_occurred": false,
-          "regression_opportunity": false,
-          "reuse_success": false,
-          "selected_version": null
-        }
-      },
-      "continuity_snapshot": {},
-      "domain": "skill",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [],
-          "forbidden_used": [],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [
-            "skill-multiple_candidates-001"
-          ],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "wrong_skill_activation",
-        "skill_reuse_failed"
-      ],
-      "retrieved_memories": [],
-      "scenario": {
-        "category": "multiple_candidates",
-        "difficulty": "easy",
-        "scenario_id": "skill-multiple_candidates-001",
-        "workspace_id": "workspace-skills"
-      },
-      "scenario_id": "skill-multiple_candidates-001",
-      "selected_skill": [
-        "skill-multiple_candidates-001-other"
-      ],
-      "skill_candidates": [
-        {
-          "id": "skill-multiple_candidates-001",
-          "scope_id": "workspace-skills",
-          "scope_type": "workspace",
-          "status": "active",
-          "trust_status": "trusted",
-          "version": 1
-        },
-        {
-          "id": "skill-multiple_candidates-001-other",
-          "scope_id": "workspace-skills",
-          "scope_type": "workspace",
-          "status": "active",
-          "trust_status": "trusted",
-          "version": 1
-        }
-      ],
-      "trace": [
-        {
-          "session_id": "skill-multiple_candidates-1-session-1",
-          "turn": 1,
-          "user_message": "Review this pull request using the project checklist."
-        },
-        {
-          "session_id": "skill-multiple_candidates-1-session-2",
-          "turn": 2,
-          "user_message": "Review this pull request using the project checklist."
-        }
-      ],
-      "used_memories": []
-    },
-    {
-      "actual": {
-        "continuity": {
-          "artifact_ids": [
-            "artifact-backend_crash-1"
-          ],
-          "checkpoint_id": "checkpoint-backend_crash-1",
-          "selected_task_id": "task-backend_crash-1",
-          "state_restored": false,
-          "task_recovered": true
-        },
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {},
-        "skill": {}
-      },
-      "continuity_snapshot": {
-        "artifact_ids": [
-          "artifact-backend_crash-1"
-        ],
-        "checkpoint_id": "checkpoint-backend_crash-1",
-        "selected_task_id": "task-backend_crash-1",
-        "state_restored": false,
-        "task_recovered": true
-      },
-      "domain": "continuity",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {
-          "artifact_ids": [
-            "artifact-backend_crash-1"
-          ],
-          "checkpoint_id": "checkpoint-backend_crash-1",
-          "decisions": [
-            "AgentLoop remains a tool"
-          ],
-          "pending_questions": [
-            "run required tests"
-          ],
-          "task_id": "task-backend_crash-1"
-        },
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [],
-          "forbidden_used": [],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "continuity_state_not_restored"
-      ],
-      "retrieved_memories": [],
-      "scenario": {
-        "category": "backend_crash",
-        "difficulty": "easy",
-        "scenario_id": "cont-backend_crash-001",
-        "workspace_id": "workspace-continuity"
-      },
-      "scenario_id": "cont-backend_crash-001",
-      "selected_skill": [],
-      "skill_candidates": [],
-      "trace": [
-        {
-          "session_id": "cont-backend_crash-001-session-1",
-          "turn": 1,
-          "user_message": "Continue the unfinished refactor."
-        },
-        {
-          "session_id": "cont-backend_crash-001-session-2",
-          "turn": 2,
-          "user_message": "Continue the unfinished refactor."
-        },
-        {
-          "session_id": "cont-backend_crash-001-session-3",
-          "turn": 3,
-          "user_message": "Continue the unfinished refactor."
-        }
-      ],
-      "used_memories": []
-    },
-    {
-      "actual": {
-        "continuity": {
-          "artifact_ids": [
-            "artifact-multiple_tasks-1"
-          ],
-          "checkpoint_id": "checkpoint-multiple_tasks-1",
-          "selected_task_id": "wrong-task-multiple_tasks-1",
-          "state_restored": true,
-          "task_recovered": false
-        },
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memory": {},
-        "skill": {}
-      },
-      "continuity_snapshot": {
-        "artifact_ids": [
-          "artifact-multiple_tasks-1"
-        ],
-        "checkpoint_id": "checkpoint-multiple_tasks-1",
-        "selected_task_id": "wrong-task-multiple_tasks-1",
-        "state_restored": true,
-        "task_recovered": false
-      },
-      "domain": "continuity",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {
-          "artifact_ids": [
-            "artifact-multiple_tasks-1"
-          ],
-          "checkpoint_id": "checkpoint-multiple_tasks-1",
-          "decisions": [
-            "AgentLoop remains a tool"
-          ],
-          "pending_questions": [
-            "run required tests"
-          ],
-          "task_id": "task-multiple_tasks-1"
-        },
-        "learning": {
-          "decision": "not_applicable"
-        },
-        "memories": {
-          "forbidden_retrieval": [],
-          "forbidden_used": [],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "not_applicable",
-      "reasons": [
-        "wrong_task_recovery"
-      ],
-      "retrieved_memories": [],
-      "scenario": {
-        "category": "multiple_tasks",
-        "difficulty": "easy",
-        "scenario_id": "cont-multiple_tasks-001",
-        "workspace_id": "workspace-continuity"
-      },
-      "scenario_id": "cont-multiple_tasks-001",
-      "selected_skill": [],
-      "skill_candidates": [],
-      "trace": [
-        {
-          "session_id": "cont-multiple_tasks-001-session-1",
-          "turn": 1,
-          "user_message": "Continue the unfinished refactor."
-        },
-        {
-          "session_id": "cont-multiple_tasks-001-session-2",
-          "turn": 2,
-          "user_message": "Continue the unfinished refactor."
-        }
-      ],
-      "used_memories": []
-    },
-    {
-      "actual": {
-        "continuity": {},
-        "learning": {
-          "critical_regression": true,
-          "decision": "applied",
-          "regression_escaped": true
-        },
-        "memory": {},
-        "skill": {}
-      },
-      "continuity_snapshot": {},
-      "domain": "learning",
-      "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-      "expected": {
-        "continuity": {},
-        "learning": {
-          "critical_regression_must_block": true,
-          "decision": "rejected",
-          "threshold": 3
-        },
-        "memories": {
-          "forbidden_retrieval": [],
-          "forbidden_used": [],
-          "retrieval": [],
-          "used": []
-        },
-        "skills": {
-          "activation": [],
-          "forbidden_activation": []
-        }
-      },
-      "learning_decision": "applied",
-      "reasons": [
-        "learning_decision_mismatch",
-        "critical_regression_escaped"
-      ],
-      "retrieved_memories": [],
-      "scenario": {
-        "category": "critical_regression",
-        "difficulty": "easy",
-        "scenario_id": "learning-critical_regression-001",
-        "workspace_id": "workspace-learning"
-      },
-      "scenario_id": "learning-critical_regression-001",
-      "selected_skill": [],
-      "skill_candidates": [],
-      "trace": [
-        {
-          "session_id": "learning-critical_regression-001-session-1",
-          "turn": 1,
-          "user_message": "Review a pull request with the project checklist."
-        },
-        {
-          "session_id": "learning-critical_regression-001-session-2",
-          "turn": 2,
-          "user_message": "Review a pull request with the project checklist."
-        },
-        {
-          "session_id": "learning-critical_regression-001-session-3",
-          "turn": 3,
-          "user_message": "Review a pull request with the project checklist."
-        },
-        {
-          "session_id": "learning-critical_regression-001-session-4",
-          "turn": 4,
-          "user_message": "Review a pull request with the project checklist."
-        }
-      ],
-      "used_memories": []
-    }
-  ],
-  "generated_at": "2026-08-26T22:34:05.666433+00:00",
+  "failures": [],
+  "generated_at": "2026-08-26T23:44:33.081735+00:00",
   "interpretation": {
     "llm_judge": "advisory only and not used",
     "production_telemetry": "not used as Gold",
@@ -3964,61 +2167,61 @@
   "metrics": {
     "continuity_state_restore_accuracy": {
       "ci95": {
-        "high": 0.9940914096183874,
-        "low": 0.8332960900859082
+        "high": 0.9999999999999999,
+        "low": 0.8864866068260312
       },
       "denominator": 30,
-      "numerator": 29,
-      "passed": false,
-      "rate": 0.9666666666666667,
+      "numerator": 30,
+      "passed": true,
+      "rate": 1.0,
       "target": 0.98,
       "target_operator": ">="
     },
     "continuity_task_recovery_accuracy": {
       "ci95": {
-        "high": 0.9940914096183874,
-        "low": 0.8332960900859082
+        "high": 0.9999999999999999,
+        "low": 0.8864866068260312
       },
       "denominator": 30,
-      "numerator": 29,
-      "passed": false,
-      "rate": 0.9666666666666667,
+      "numerator": 30,
+      "passed": true,
+      "rate": 1.0,
       "target": 0.98,
       "target_operator": ">="
     },
     "learning_candidate_precision": {
       "ci95": {
-        "high": 0.9940914096183874,
-        "low": 0.8332960900859082
+        "high": 0.9999999999999999,
+        "low": 0.8864866068260312
       },
       "denominator": 30,
-      "numerator": 29,
+      "numerator": 30,
       "passed": true,
-      "rate": 0.9666666666666667,
+      "rate": 1.0,
       "target": 0.95,
       "target_operator": ">="
     },
     "learning_regression_escape_rate": {
       "ci95": {
-        "high": 0.9054687942657693,
-        "low": 0.09453120573423074
+        "high": 0.6576197724933469,
+        "low": 0.0
       },
       "denominator": 2,
-      "numerator": 1,
-      "passed": false,
-      "rate": 0.5,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
       "target": 0.0,
       "target_operator": "<="
     },
     "memory_conflict_resolution_accuracy": {
       "ci95": {
-        "high": 0.9768411847029567,
-        "low": 0.741511978067893
+        "high": 1.0,
+        "low": 0.8620237953250198
       },
       "denominator": 24,
-      "numerator": 22,
-      "passed": false,
-      "rate": 0.9166666666666666,
+      "numerator": 24,
+      "passed": true,
+      "rate": 1.0,
       "target": 0.95,
       "target_operator": ">="
     },
@@ -4036,121 +2239,121 @@
     },
     "memory_precision": {
       "ci95": {
-        "high": 0.9526685414190106,
-        "low": 0.7696217135574916
+        "high": 1.0,
+        "low": 0.9197043962415192
       },
-      "denominator": 46,
-      "numerator": 41,
-      "passed": false,
-      "rate": 0.8913043478260869,
+      "denominator": 44,
+      "numerator": 44,
+      "passed": true,
+      "rate": 1.0,
       "target": 0.95,
       "target_operator": ">="
     },
     "memory_recall_when_needed": {
       "ci95": {
-        "high": 0.9765406040926183,
-        "low": 0.8177495562977846
+        "high": 1.0,
+        "low": 0.9197043962415192
       },
       "denominator": 44,
-      "numerator": 41,
+      "numerator": 44,
       "passed": true,
-      "rate": 0.9318181818181818,
+      "rate": 1.0,
       "target": 0.9,
       "target_operator": ">="
     },
     "retrieval_precision": {
       "ci95": {
-        "high": 0.9526685414190106,
-        "low": 0.7696217135574916
+        "high": 1.0,
+        "low": 0.9197043962415192
       },
-      "denominator": 46,
-      "numerator": 41,
-      "passed": false,
-      "rate": 0.8913043478260869,
+      "denominator": 44,
+      "numerator": 44,
+      "passed": true,
+      "rate": 1.0,
       "target": 0.95,
       "target_operator": ">="
     },
     "skill_activation_precision": {
       "ci95": {
-        "high": 0.9665353558368026,
-        "low": 0.7510006155660716
+        "high": 1.0,
+        "low": 0.8830302015002593
       },
-      "denominator": 31,
-      "numerator": 28,
-      "passed": false,
-      "rate": 0.9032258064516129,
+      "denominator": 29,
+      "numerator": 29,
+      "passed": true,
+      "rate": 1.0,
       "target": 0.95,
       "target_operator": ">="
     },
     "skill_regression_rate": {
       "ci95": {
-        "high": 0.4708881822128535,
-        "low": 0.02241749145005667
+        "high": 0.32440756488388023,
+        "low": 0.0
       },
       "denominator": 8,
-      "numerator": 1,
-      "passed": false,
-      "rate": 0.125,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
       "target": 0.01,
       "target_operator": "<="
     },
     "skill_reuse_success_rate": {
       "ci95": {
-        "high": 0.9808787338305667,
-        "low": 0.7803541984972431
+        "high": 1.0,
+        "low": 0.8830302015002593
       },
       "denominator": 29,
-      "numerator": 27,
+      "numerator": 29,
       "passed": true,
-      "rate": 0.9310344827586207,
+      "rate": 1.0,
       "target": 0.9,
       "target_operator": ">="
     },
     "skill_version_selection_accuracy": {
       "ci95": {
-        "high": 0.9775825085499433,
-        "low": 0.5291118177871464
+        "high": 1.0,
+        "low": 0.6755924351161198
       },
       "denominator": 8,
-      "numerator": 7,
-      "passed": false,
-      "rate": 0.875,
+      "numerator": 8,
+      "passed": true,
+      "rate": 1.0,
       "target": 0.95,
       "target_operator": ">="
     },
     "stale_memory_use_rate": {
       "ci95": {
-        "high": 0.24218154728387864,
-        "low": 0.032401551298366194
+        "high": 0.1071791982550706,
+        "low": 0.0
       },
       "denominator": 32,
-      "numerator": 3,
-      "passed": false,
-      "rate": 0.09375,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
       "target": 0.01,
       "target_operator": "<="
     },
     "unnecessary_memory_use_rate": {
       "ci95": {
-        "high": 0.32799765130178804,
-        "low": 0.03101952264561239
+        "high": 0.17587922364665765,
+        "low": 0.0
       },
       "denominator": 18,
-      "numerator": 2,
-      "passed": false,
-      "rate": 0.1111111111111111,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
       "target": 0.05,
       "target_operator": "<="
     },
     "wrong_skill_activation_rate": {
       "ci95": {
-        "high": 0.16217091688838173,
-        "low": 0.02061497034897397
+        "high": 0.07134759913335872,
+        "low": 6.938893903907228e-18
       },
       "denominator": 50,
-      "numerator": 3,
-      "passed": false,
-      "rate": 0.06,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
       "target": 0.02,
       "target_operator": "<="
     }
@@ -4198,12 +2401,12 @@
   },
   "source": {
     "dataset_version": "personal-agent-gold-v1",
-    "eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
-    "git_sha": "7d623fae3bdb75f4d19fdf163b87e501b0fc489a",
+    "eval_run_id": "personal-gold-7cce444ff93c4812a0cbd462031c0a8f",
+    "git_sha": "2a4d9e3ca241021df2f524d1dd8bd57008d31f60",
     "judge": {
       "human_gold_required": true,
       "llm_judge": "not_used",
-      "mode": "deterministic_replay_contract"
+      "mode": "deterministic_replay_contract_with_runtime_quality_policy"
     },
     "label_version": "human-gold-v1",
     "runtime_schema_version": 3
