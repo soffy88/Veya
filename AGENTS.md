@@ -241,7 +241,7 @@ Agents are invoked through **three primary interfaces**, depending on usage mode
 ### 铁律与坑（每条都是踩过的）
 
 1. **Cindy 端点（scheduler/plugin/manage/knowledge/mcp/health/skills-inject）挂在根 app**：`server/routes/cindy_compat.py`（在线 Caddy 反代打的是根 app 不是 veya L4）。veya L4 (`veya/server/app.py`) 也有同套端点——两条入口能力面必须一致，新端点两头都要有。
-2. **`server/` 已挂载进 docker 容器**（deploy/docker-compose.yml `../server:/app/server:ro`）→ 线上 `git pull` 后 `docker compose -f deploy/docker-compose.yml up -d backend` 即生效，**无需 build**；但旧镜像/旧部署要先停 systemd `veya-gateway` 否则 8767 bind 失败。
+2. **`server/` 已挂载进 docker 容器**（deploy/docker-compose.yml `../server:/app/server:ro`）→ 线上 `git pull` 后 `docker compose --env-file .env -f deploy/docker-compose.yml up -d backend` 即生效，**无需 build**；显式读取根目录 `.env`，避免 `deploy/.env` 的空占位覆盖密钥；但旧镜像/旧部署要先停 systemd `veya-gateway` 否则 8767 bind 失败。
 3. **前端 /api/v1/* 是 SvelteKit 代理**：`apps/web/src/routes/api/v1/[...path]/+server.ts` 转发到 `VEYA_GATEWAY`（默认 127.0.0.1:8765）；`apps/web/src/lib/upstreamProbe.ts` 在 404/502 时探活 `/api/v1/mcp/health` 并给中文引导。
 4. **git pull "Already up to date" ≠ 部署生效**：修复必须 commit+push 且线上重启容器/服务；镜像内 COPY 的代码不随挂载更新。
 5. 本机开发：`veya start` 端口自动避让（8765 被占自动 +1）；`veya doctor --json` 自检。

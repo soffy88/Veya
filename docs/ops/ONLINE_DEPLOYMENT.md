@@ -51,7 +51,7 @@ git pull                              # 必须已 push 到 origin/main
 # 防 8767 冲突: 先停 systemd 网关
 sudo systemctl stop veya-gateway 2>/dev/null; sudo systemctl disable veya-gateway 2>/dev/null
 # server/ 与 veya_loop/ 已挂载进容器 → 免 build, 直接重建容器
-docker compose -f deploy/docker-compose.yml up -d backend
+docker compose --env-file .env -f deploy/docker-compose.yml up -d backend
 # 同步主脑 LLM 配置 (config.json / llm-router.json → veya-data volume)
 ./scripts/sync-veya-config.sh
 # 验证矩阵
@@ -85,7 +85,7 @@ curl -s http://127.0.0.1:8767/api/v1/mcp/health
 ```bash
 cd /data/soffy/projects/veya
 # 先起容器 (空 volume 自动创建)
-docker compose -f deploy/docker-compose.yml up -d backend
+docker compose --env-file .env -f deploy/docker-compose.yml up -d backend
 ./scripts/sync-veya-config.sh   # 恢复 config.json + llm-router.json
 ```
 
