@@ -33,6 +33,17 @@ The runner writes:
 - `results/latest.json` and `.md`;
 - `failures/<eval-run-id>.jsonl`.
 
+Generate the full audit from the latest approved report:
+
+```bash
+python -m evals.personal_agent_gold.audit
+```
+
+The audit preserves every slice and failure record and writes
+`results/personal-intelligence-audit-latest.json` plus `.md`. Its status is
+`BLOCKED_BY_GOLD_GATE` when the measured baseline misses a target; production
+service health is reported separately.
+
 `candidate_eval_cases.jsonl` is an optional privacy-safe shadow-candidate
 sink. It is draft-only and is never loaded as Gold. The helper stores hashes,
 not prompts, answers, or raw user content.

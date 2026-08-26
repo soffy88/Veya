@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
+from evals.personal_agent_gold.audit import build_audit, write_audit
 from evals.personal_agent_gold.benchmark import (
     _memory_metrics,
     _wilson,
@@ -168,3 +170,33 @@ async def test_personal_metrics_exposes_approved_report_without_changing_search(
         assert isinstance(await store.search_memory("not present"), list)
     finally:
         await store.close()
+
+
+def test_personal_intelligence_audit_preserves_complete_slices_and_failures(tmp_path):
+    audit = build_audit(ROOT)
+    (tmp_path / "results").mkdir()
+    (tmp_path / "failures").mkdir()
+    shutil.copy2(ROOT / "results" / "latest.json", tmp_path / "results" / "latest.json")
+    shutil.copy2(
+        next((ROOT / "failures").glob("*.jsonl")),
+        tmp_path / "failures" / "failure.jsonl",
+    )
+    written = write_audit(tmp_path)
+
+    assert audit["decision"]["status"] == "BLOCKED_BY_GOLD_GATE"
+    assert len(audit["metrics"]) == 16
+    assert set(audit["all_failure_slices"]) == {
+        "difficulty",
+        "memory_case",
+        "scope",
+        "session_shape",
+        "skill_case",
+    }
+    assert len(audit["failures"]) == 13
+    assert written["output"]["json"].endswith(".json")
+    persisted = json.loads(
+        (tmp_path / "results" / "personal-intelligence-audit-latest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert persisted["output"] == written["output"]
