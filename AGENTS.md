@@ -272,9 +272,9 @@ docker ps | grep veya-backend                              # docker 侧
 **已固化的设计决策（不要"优化"回去）：**
 1. **入口只有一个大模型，零程序判断**：无前置路由、无工具面分层/裁藏、无 URL 预抓、
    无 hicode 关键词兜底。长任务/工具选择全由模型自主判断。
-2. **LLM 层 = opencode-go 直连**：`veya1.1` 直接调
-   `https://opencode.ai/zen/go/v1`（用户自己的 `OPENCODE_API_KEY`），
-   候选重试（deepseek-v4-flash / kimi-k2.7-code，2026-08-16 用户指示弃用 mimo）+ 空回复降级本地
+2. **LLM 层 = OpenRouter 免费双模型代理**：`veya1.2` 直接调
+   `https://openrouter.ai/api/v1/chat/completions`（用户自己的 `OPENROUTER_API_KEY`），
+   轮询 Nemotron 3 Ultra / MiniMax M3 + 空回复降级本地
    `gpt-5.6-luna`（宿主桥 192.168.16.1:10101，**裁剪为核心工具面**）+ 结构化错误。
    **禁止**重新引入 oskill 复杂路由器（quality-gate 升级/模型切换/并行分派）。
 3. **可靠性护栏（非判断，保留）**：轮次上限（防死循环）、空回复可见提示、

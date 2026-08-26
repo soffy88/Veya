@@ -2,7 +2,7 @@
 
 > 状态: ① 完成 · ② 规范待 prod-parity 执行 · 2026-08-09
 > 目标: 减主脑负担(工具面 93/线上~157 太肥, 提示 38KB) → 回答不被工具带偏、不夹带系统介绍。
-> 权威主链路见 [`ARCHITECTURE_STABLE.md`](ARCHITECTURE_STABLE.md); 保持 opencode-go 直连(用户 2026-08-09 决定暂不换 Claude)。
+> 权威主链路见 [`ARCHITECTURE_STABLE.md`](ARCHITECTURE_STABLE.md); 当前主脑使用 veya1.2 的 OpenRouter 双模型池。
 
 ## 冻结兼容性(关键)
 

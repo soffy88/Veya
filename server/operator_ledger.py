@@ -228,10 +228,10 @@ def replica_ledger_summary() -> list[dict[str, Any]]:
         for name, meta in REPLICA_LEDGER.items()
     ]
 
-# LLM 智能路由算子 (veya1.1 别名, RouteLLM 3O 内化)
+# LLM 智能路由算子 (veya1.2 别名, RouteLLM 3O 内化)
 ROUTER_LEDGER: dict[str, dict[str, str]] = {
     "llm_router": {"layer": "oprim+oskill", "phase": "路由",
-                   "desc": "veya1.1 别名智能路由: 7 档 (quick/text/tool/code/reason/long/vision) "
+                   "desc": "veya1.2 别名智能路由: 7 档 (quick/text/tool/code/reason/long/vision) "
                            "+ 长文并行分派快速回答",
                    "status": "registered"},
 }
@@ -273,4 +273,3 @@ def goal_driven_ledger_summary() -> list[dict[str, Any]]:
          "status": meta["status"], "description": meta["desc"]}
         for name, meta in GOAL_DRIVEN_LEDGER.items()
     ]
-

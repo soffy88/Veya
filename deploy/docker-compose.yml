@@ -18,7 +18,7 @@ services:
       - "8768:8768"      # hicode serve (独立 oservi: submit/events/cancel/approve/plan/goal)
     command: ["sh", "/app/hicode-entrypoint.sh"]
     environment:
-      - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.1}
+      - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.2}
       # local = process/docker (veya start / 当前单机). hosted = OpenSandbox, 禁止 process.
       - VEYA_SANDBOX_PROFILE=${VEYA_SANDBOX_PROFILE:-local}
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
@@ -26,6 +26,7 @@ services:
       - OPEN_SANDBOX_PROTOCOL=${OPEN_SANDBOX_PROTOCOL:-http}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
       - INFERERA_API_KEY=${INFERERA_API_KEY:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}

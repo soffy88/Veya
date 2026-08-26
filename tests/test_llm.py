@@ -98,7 +98,7 @@ def test_get_provider_config_env_and_defaults(monkeypatch):
 
     monkeypatch.delenv("VEYA_LLM_PROVIDER")
     provider, _ = hllm.get_provider_config(None)
-    assert provider == hllm._DEFAULT_PROVIDER == "dashscope"
+    assert provider == hllm._DEFAULT_PROVIDER == "veya1.2"
 
 
 def test_get_provider_config_uses_user_provider(monkeypatch):
@@ -659,18 +659,18 @@ def test_custom_proxy_url_bridge_detected(monkeypatch):
     assert _custom_proxy_url("custom-tokenrouter") is None
 
 
-# ── veya1.1 别名: opencode-go 空回复 → gpt-5.6-luna 本地兜底 ─────────
+# ── Veya 1.2 OpenRouter 双模型代理 + frontier 兜底 ─────────
 
 
 def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
-    """opencode-go 返回空/'None' 时自动降级本地 frontier, 绝不静默。"""
+    """OpenRouter 双模型都返回空时自动降级本地 frontier, 绝不静默。"""
     import asyncio
     import os
 
     from veya import llm as hllm
 
     calls: list[str] = []
-    monkeypatch.setattr("os.environ", {**os.environ, "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr("os.environ", {**os.environ, "OPENROUTER_API_KEY": "sk-test"})
 
     async def _no_sleep(*_a, **_kw):
         return None
@@ -678,9 +678,9 @@ def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
     monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
 
     async def flaky_provider(client, provider, **kw):
-        # 底层网络层: opencode-go 持续空回复, openai (gpt-5.6-luna) 正常
+        # 底层网络层: OpenRouter 双模型持续空回复, openai (gpt-5.6-luna) 正常
         calls.append(kw.get("model") or "?")
-        if provider == "opencode-go":
+        if provider == "openrouter":
             return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
         if provider == "openai":
             return {
@@ -695,7 +695,7 @@ def test_aliased_llm_falls_back_to_frontier_on_empty(monkeypatch):
             [{"role": "user", "content": "你是谁你能做什么"}], provider="veya1.1", model="veya1.1"
         )
     )
-    # 先走 free 池候选 (deepseek/kimi-k2.7-code), 空回复后落到 gpt-5.6-luna 兜底
+    # 先走 Nemotron/MiniMax 双模型, 空回复后落到 gpt-5.6-luna 兜底
     assert calls[-1] == "gpt-5.6-luna", f"最后必须兜底到 gpt-5.6-luna, 实际 {calls}"
     msg = (resp.get("choices") or [{}])[0].get("message") or {}
     assert msg.get("content") == "兜底成功回复"
@@ -728,7 +728,7 @@ def test_frontier_fallback_accepts_tool_call_with_empty_content(monkeypatch):
 
     from veya import llm as hllm
 
-    monkeypatch.setattr("os.environ", {**os.environ, "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr("os.environ", {**os.environ, "OPENROUTER_API_KEY": "sk-test"})
 
     async def _no_sleep(*_a, **_kw):
         return None
@@ -736,8 +736,8 @@ def test_frontier_fallback_accepts_tool_call_with_empty_content(monkeypatch):
     monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
 
     async def provider(client, provider, **kw):
-        if provider == "opencode-go":
-            # opencode-go 抖动: 持续空回复
+        if provider == "openrouter":
+            # OpenRouter 抖动: 持续空回复
             return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
         if provider == "openai":
             # frontier: content 空但带合法 tool_call (finish_reason=tool_calls)

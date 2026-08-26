@@ -13,7 +13,7 @@ canonical entry point supporting:
 
 Providers: ``dashscope`` (qwen-plus), ``anthropic`` (claude-*), ``openai`` (gpt-*).
 
-Selection order: ``config["provider"]`` > ``VEYA_LLM_PROVIDER`` env > ``dashscope``.
+Selection order: ``config["provider"]`` > ``VEYA_LLM_PROVIDER`` env > ``veya1.2``.
 API keys are read from ``{PROVIDER}_API_KEY`` env vars (or ``config["providers"]``).
 
 Structure (obase self-contained base layer, SPEC v3.0 §3.4):
@@ -243,64 +243,17 @@ def _container_gateway_ip_for_proxy() -> str:
 _STUB_CONTENT = "LLM provider not configured — this is a shim response."
 
 # ---------------------------------------------------------------------------
-# veya1.2-flash 别名: opencode zen 免费模型轮询 (round-robin)
+# Veya 1.2 主脑代理: OpenRouter 免费模型轮询 (round-robin)
 # ---------------------------------------------------------------------------
-# veya1.1 是顺序候选 (永远先 deepseek-v4-flash) — 单模型很快吃光当日额度。
-# veya1.2-flash 改用轮询: 每次调用从池里下一个模型起转, 把负载/额度摊到多个
-# 免费模型上, 单模型耗尽/抖动时自然滑到下一个。
-# 池成员取「显式标 -free/每日免费额度」的模型 (opencode.ai zen 网页口径,
-# 2026-08-17 用户核对): nemotron-3.5-lightning-free / nemotron-3-ultra-free /
-# laguna-s-2.1-free / hy3-free / mimo-v2.5-free / big-pickle /
-# deepseek-v4-flash-free — 均在通用 /zen/v1 端点下 (不是 /zen/go/v1 的 go 池,
-# 那边同名模型无 -free 后缀且按量计费; 探活: /zen/go/v1/models 里查不到这些
-# -free ID, 只有 /zen/v1/models 有)。原池 (deepseek-v4-flash/qwen3.7-plus/
-# kimi-k2.7-code, /zen/go/v1) 按量计费不是免费额度, 已整体替换。
-# nemotron 系推理链较长, 默认 max_tokens=4096 (_llm_transport.py) 够用;
-# 探活当时 mimo-v2.5-free/big-pickle/deepseek-v4-flash-free 命中
-# FreeUsageLimitError (今日额度已被同一 key 的其它探活耗尽) — 报错类型本身
-# 印证这几个确是被追踪配额的免费模型, 非模型失效, 保留入池。
-# 池跨两个 provider (opencode zen 免费 + openrouter 免费), 每项显式带
-# provider/model/endpoint (endpoint 缺省时落 _ENDPOINTS[provider] 默认值,
-# 见 _llm_transport.py 的 `endpoint or _ENDPOINTS.get(provider, ...)`)。
-# 2026-08-17 用户提供 OPENROUTER_API_KEY 后, 从 openrouter 免费模型里选了
-# 3 个上下文 ≥512K 的补进池: nemotron-3-ultra-550b-a55b(1M) /
-# nemotron-3.5-lightning(1M, openrouter 侧, 与 opencode zen 侧同名模型是
-# 不同 provider 的独立候选) / dots-3-note-preview(512K) — 均逐一探活过
-# (curl 直连 openrouter.ai, 拿到真实 content, 非猜测)。
-# 用户可用 VEYA_ZEN_FREE_POOL (逗号分隔裸模型 ID, 均按 opencode-go/zen/v1
-# 解析 — 与默认池的 openrouter 成员是分开的, 覆盖只替换 opencode-go 那一段
-# 不动 openrouter 3 个) 覆盖/扩展 opencode-go 侧子池。
-_ZEN_FREE_DEFAULT_POOL: list[dict[str, str]] = [
+# 主脑池固定为两个已选定的 OpenRouter 免费模型，轮询分摊单模型限流。
+# OpenRouter 的 API key 由容器环境变量 OPENROUTER_API_KEY 注入；不再回退到
+# 已耗尽的 OpenCode-Go 主脑池，也不保留过期模型名或 VEYA_ZEN_FREE_POOL 覆盖项。
+_VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
     {
-        "provider": "opencode-go",
-        "model": "nemotron-3.5-lightning-free",
-        "endpoint": "https://opencode.ai/zen/v1",
+        "provider": "openrouter",
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
     },
-    {
-        "provider": "opencode-go",
-        "model": "nemotron-3-ultra-free",
-        "endpoint": "https://opencode.ai/zen/v1",
-    },
-    {
-        "provider": "opencode-go",
-        "model": "laguna-s-2.1-free",
-        "endpoint": "https://opencode.ai/zen/v1",
-    },
-    {"provider": "opencode-go", "model": "hy3-free", "endpoint": "https://opencode.ai/zen/v1"},
-    {
-        "provider": "opencode-go",
-        "model": "mimo-v2.5-free",
-        "endpoint": "https://opencode.ai/zen/v1",
-    },
-    {"provider": "opencode-go", "model": "big-pickle", "endpoint": "https://opencode.ai/zen/v1"},
-    {
-        "provider": "opencode-go",
-        "model": "deepseek-v4-flash-free",
-        "endpoint": "https://opencode.ai/zen/v1",
-    },
-    {"provider": "openrouter", "model": "nvidia/nemotron-3-ultra-550b-a55b:free"},
-    {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
-    {"provider": "openrouter", "model": "dots-studio/dots-3-note-preview:free"},
+    {"provider": "openrouter", "model": "minimax/minimax-m3:free"},
 ]
 
 # veya1.2-free: Pi gateway 当前已配置凭据的聊天免费模型 + Inferera 池。
@@ -416,31 +369,15 @@ _zen_rr_cursor = 0
 _veya12_free_rr_cursor = 0
 
 
-def _zen_free_pool() -> list[dict[str, str]]:
-    """veya1.2-flash 免费模型池: env VEYA_ZEN_FREE_POOL 覆盖 opencode-go 子池,
-    否则默认 (opencode zen 7 个 + openrouter 3 个大上下文免费模型)。"""
-    raw = os.environ.get("VEYA_ZEN_FREE_POOL", "").strip()
-    if raw:
-        opencode_go = [
-            {
-                "provider": "opencode-go",
-                "model": m.strip(),
-                "endpoint": "https://opencode.ai/zen/v1",
-            }
-            for m in raw.split(",")
-            if m.strip()
-        ]
-        if opencode_go:
-            openrouter = [e for e in _ZEN_FREE_DEFAULT_POOL if e["provider"] == "openrouter"]
-            return opencode_go + openrouter
-    return list(_ZEN_FREE_DEFAULT_POOL)
+def _veya12_pool() -> list[dict[str, str]]:
+    """Veya 1.2 主脑池: 只保留已选定的两个 OpenRouter 免费模型。"""
+    return list(_VEYA12_DEFAULT_POOL)
 
 
 async def _frontier_fallback(messages: list[dict], kwargs: dict, *, reason: str) -> dict | None:
     """本地 frontier (gpt-5.6-luna) 兜底: 免费模型池全空/全失败时的最后一道防线。
 
-    与 _aliased_llm_call 内联兜底同款逻辑 (短退避重试 + tool_calls 合法判断),
-    独立成函数供 veya1.2-flash 复用 — 不改动 veya1.1 久经验证的兜底路径。
+    与主脑代理同款的短退避重试 + tool_calls 合法判断，供 Veya 1.2 复用。
     返回有效 resp (含 router 标记) 或 None (兜底也失败, 由调用方给结构化错误)。
     """
     _attempts = 4
@@ -570,9 +507,9 @@ async def _veya12_rr_call(
 
 
 async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
-    """veya1.2-flash: opencode zen + OpenRouter 免费模型轮询。"""
+    """veya1.2: OpenRouter 免费双模型轮询。"""
     global _zen_rr_cursor
-    pool = _zen_free_pool()
+    pool = _veya12_pool()
     start = _zen_rr_cursor % len(pool)
     _zen_rr_cursor = (_zen_rr_cursor + 1) % len(pool)
     return await _veya12_rr_call(
@@ -580,10 +517,10 @@ async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
         kwargs,
         pool=pool,
         start=start,
-        alias="veya1.2-flash",
-        route="zen-free-rr",
+        alias="veya1.2",
+        route="openrouter-free-rr",
         pool_label="免费池",
-        fallback_reason="zen free pool empty → gpt-5.6-luna",
+        fallback_reason="veya1.2 OpenRouter pool empty → gpt-5.6-luna",
     )
 
 
@@ -790,200 +727,8 @@ async def _veya12_128k_call(messages: list[dict], kwargs: dict) -> dict:
 
 
 async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
-    """veya1.1 别名路由: 决策 → 单发 (short/text/tool/code/reason/vision) 或
-    并行分派 (long) → 归一为 llm_call 返回格式。"""
-    async def _single(payload: dict) -> dict:
-        if payload["provider"] == "opencode":
-            # opencode-go 网关 key 直连 (OpenAI 兼容端点 /zen/go/v1) — 非 CLI
-            # agent 模式: 主脑 system prompt 完整生效, 模型不裹 opencode 人格。
-            # 矩阵 model 形如 opencode-go/deepseek-v4-flash → API 只认裸 ID。
-            model = str(payload.get("model") or "opencode-go/deepseek-v4-flash")
-            _, _, bare = model.partition("/")
-            bare = bare or model
-            # 网关对部分输入会返回字面量 'None'/空 (抖动) → 换模型重试,
-            # 全失败 → 结构化错误消息 (error 标记跳过质量闸门), 绝不静默。
-            # 另: default_content 是失败时的 stub (如 'opencode-go 调用失败'),
-            # 必须与真实回答区分 — 否则错误消息被当有效内容返回且跳过兜底。
-            # 用户指示 (2026-08-16): 不用 mimo 系列（工具调用场景不稳定）。
-            # 备选换 kimi-k2.7-code（代码/agent 模型, 网关实测可用）。
-            alt_models = ["opencode-go/kimi-k2.7-code", "opencode-go/deepseek-v4-flash"]
-            candidates = [model] + [m for m in alt_models if m != model]
-            last_err = ""
-            default = kwargs.get("default_content") or "opencode-go 调用失败"
-            # 网关抖动通常是瞬时的 (几秒内自愈) — 候选模型轮完一遍仍全部
-            # 空/无效时, 不直接判死刑: 等一下再整轮重来, 给网关喘息时间。
-            # 轮次间指数退避, 轮数收敛 (绝不无限重试); 用户不该在这里被
-            # 硬报错卡住 (用户反馈 2026-08-16: 抖动应等待重试, 不能报错即停)。
-            # 用户反馈 (2026-08-16 第二次): 实测网关+frontier 会同时抖动 70s+
-            # (原 20s 总预算扛不住) — 轮数/退避拉长到共约 90s, 覆盖分钟级抖动。
-            _retry_rounds = 5
-            for round_idx in range(_retry_rounds):
-                for cand in candidates:
-                    _, _, cand_bare = cand.partition("/")
-                    cand_bare = cand_bare or cand
-                    try:
-                        resp = await llm_call(
-                            payload["messages"],
-                            config=kwargs.get("config"),
-                            provider="opencode-go",
-                            model=cand_bare,
-                            endpoint="https://opencode.ai/zen/go/v1",
-                            tools=payload.get("tools"),
-                            default_content=default,
-                        )
-                    except Exception as exc:  # 网络/鉴权失败 → 换模型重试
-                        last_err = str(exc)
-                        continue
-                    content = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
-                        "content"
-                    ) or ""
-                    tool_calls = ((resp.get("choices") or [{}])[0].get("message") or {}).get(
-                        "tool_calls"
-                    ) or []
-                    # 有 tool_calls 的响应 content 为空是合法的 (opencode 模型把
-                    # 输出放 reasoning_content + tool_calls) — 不可误判为无效。
-                    # stub 检测: 返回 default_content 说明网关失败, 继续下一候选。
-                    if (
-                        (not content.strip() and not tool_calls)
-                        or content.strip().lower() in ("none", "null")
-                        or (content.strip() and content.strip() == default and not tool_calls)
-                    ):
-                        last_err = f"opencode-go {cand_bare} 返回无效内容: {content!r}"
-                        continue
-                    return resp
-                if round_idx < _retry_rounds - 1:
-                    logger.warning(
-                        "opencode-go 全候选模型第 %d 轮均无效 (%s), %.1fs 后重试整轮",
-                        round_idx + 1,
-                        last_err,
-                        3.0 * (2**round_idx),
-                    )
-                    await asyncio.sleep(3.0 * (2**round_idx))
-            # 全部候选/全部轮次空/失败 → 本地 frontier (gpt-5.6-luna) 兜底: free 池
-            # 本地模型零网络抖动, 保证「绝不静默」在模型层彻底闭环。容器内走
-            # 宿主桥 192.168.16.1; 宿主默认 127.0.0.1:10100。
-            # frontier 桥本身偶尔也会抖 (容器→宿主桥接路径), 同样不能一次
-            # 失败就判死刑 — 短退避重试几次 (本地零网络延迟, 退避比网关候选短)。
-            _frontier_attempts = 4
-            for f_attempt in range(_frontier_attempts):
-                try:
-                    frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
-                        "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
-                    )
-                    if not _ensure_frontier_bridge(frontier_endpoint):
-                        last_err = f"frontier 桥 (opencodex) 不可用: {frontier_endpoint}"
-                        raise RuntimeError(last_err)
-                    resp = await llm_call(
-                        payload["messages"],
-                        config=kwargs.get("config"),
-                        provider="openai",
-                        model="gpt-5.6-luna",
-                        endpoint=frontier_endpoint,
-                        # 本地模型上下文有限: 兜底时裁剪为核心工具面 (保回复优先)
-                        tools=_core_tool_schemas(payload.get("tools")),
-                        default_content="gpt-5.6-luna 兜底失败",
-                    )
-                    fmsg = (resp.get("choices") or [{}])[0].get("message") or {}
-                    content = fmsg.get("content") or ""
-                    ftool_calls = fmsg.get("tool_calls") or []
-                    # tool_calls 场景 content 为空是合法的 (模型把输出放 tool_calls) —
-                    # 与 opencode-go 候选循环同款判断, 不可当无效内容拒绝, 否则
-                    # 带工具且该调工具的请求会被确定性误杀 (重试也救不了)。
-                    if ftool_calls or (
-                        content.strip() and content.strip().lower() not in ("none", "null")
-                    ):
-                        resp["router"] = {
-                            "route": "frontier_fallback",
-                            "reason": "opencode-go empty → gpt-5.6-luna",
-                        }
-                        return resp
-                    # 无异常但内容仍空/等于 stub — 必须覆盖 last_err, 否则报错会
-                    # 误导性地停留在上一个 opencode-go 候选模型上 (掩盖 frontier 才是真因)。
-                    last_err = f"gpt-5.6-luna 兜底返回无效内容: {content!r}"
-                except Exception as exc:  # 兜底失败也绝不静默
-                    last_err = f"gpt-5.6-luna 兜底失败: {exc}"
-                if f_attempt < _frontier_attempts - 1:
-                    logger.warning(
-                        "frontier 兜底第 %d 次失败 (%s), %.1fs 后重试",
-                        f_attempt + 1,
-                        last_err,
-                        2.0 * (2**f_attempt),
-                    )
-                    await asyncio.sleep(2.0 * (2**f_attempt))
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "role": "assistant",
-                            "content": (f"opencode-go 调用失败: {last_err or '所有模型均失败'}"),
-                        }
-                    }
-                ],
-                "usage": {},
-                "opencode": True,
-                "error": True,
-            }
-        return await llm_call(
-            payload["messages"],
-            config=kwargs.get("config"),
-            provider=payload["provider"],
-            model=payload["model"],
-            tools=payload.get("tools"),
-            endpoint=payload.get("endpoint") or kwargs.get("endpoint"),
-            default_content=kwargs.get("default_content"),
-        )
-
-    # 用户要求 (2026-08): 大模型直接用 opencode-go API — 不走 oskill
-    # 复杂别名路由器 (quality-gate 升级/模型切换/并行分派把链路搞复杂,
-    # 是空回复的诱因)。直连: 候选模型重试 + 空回复 gpt-5.6-luna 兜底
-    # (逻辑在 _single 的 opencode 分支)。
-    result = await _single(
-        {
-            "provider": "opencode",
-            "model": "opencode-go/deepseek-v4-flash",
-            "messages": messages,
-            "tools": kwargs.get("tools"),
-        }
-    )
-    # opencode-go 档: provider_call 不认识 opencode → 已由 _single 特判返回
-    if result.get("opencode"):
-        return result
-    result.setdefault("usage", {})
-    result["router"] = {"route": "opencode-direct", "alias": "veya1.1"}
-    # 外环兜底 (绝不静默): 无论内部哪个路径 (opencode 空 / quality gate 升级
-    # 到全量工具超限等) 漏出空回复, 最后用本地 gpt-5.6-luna + 核心工具面
-    # 兜一次。兜底是可靠性, 不是路由判断 — 模型决策不受影响。
-    msg = (result.get("choices") or [{}])[0].get("message") or {}
-    content = msg.get("content") or ""
-    if (not content.strip() or content.strip().lower() in ("none", "null")) and not msg.get(
-        "tool_calls"
-    ):
-        try:
-            frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
-                "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
-            )
-            if not _ensure_frontier_bridge(frontier_endpoint):
-                raise RuntimeError(f"frontier 桥 (opencodex) 不可用: {frontier_endpoint}")
-            resp = await llm_call(
-                messages,
-                config=kwargs.get("config"),
-                provider="openai",
-                model="gpt-5.6-luna",
-                endpoint=frontier_endpoint,
-                tools=_core_tool_schemas(kwargs.get("tools")),
-                default_content="gpt-5.6-luna 兜底失败",
-            )
-            m2 = (resp.get("choices") or [{}])[0].get("message") or {}
-            c2 = m2.get("content") or ""
-            # tool_calls 场景 content 空是合法的 — 与候选循环同款判断, 不误杀。
-            if (m2.get("tool_calls")) or (
-                c2.strip() and c2.strip().lower() not in ("none", "null")
-            ):
-                resp["router"] = {"route": "frontier_fallback", "reason": "empty → gpt-5.6-luna"}
-                return resp
-        except Exception:  # 兜底失败仍返回原结果 (后续各层继续兜底)
-            pass
-    return result
+    """兼容旧的 veya1.1 名称，统一转到 Veya 1.2 OpenRouter 代理。"""
+    return await _veya12_flash_call(messages, kwargs)
 
 
 async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
@@ -996,11 +741,10 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     provider, model = get_provider_config(
         kwargs.get("config"), provider=kwargs.get("provider"), model=kwargs.get("model")
     )
-    # veya1.1 智能路由别名: 按任务类型路由 (deepseek-v4-flash / qwen3.7-flash),
-    # 长输入并行分派快速回答 (RouteLLM 3O 内化, 见 docs/prd/LLM_ROUTER_PRD.md)
+    # veya1.1 兼容别名 → veya1.2 OpenRouter 主脑池。
     if model in ("veya1.1", "veya-1.1") or provider == "veya1.1":
         return await _aliased_llm_call(messages, kwargs)
-    # veya1.2-flash 别名: opencode zen 免费模型轮询 (round-robin 摊每日额度)
+    # veya1.2 主脑代理: OpenRouter 免费模型轮询
     if model in ("veya1.2-flash", "veya-1.2-flash", "veya1.2") or provider in (
         "veya1.2-flash",
         "veya1.2",

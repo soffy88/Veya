@@ -4,7 +4,7 @@
 HPStudy + AgentSampler (LLM sampler 注入) → 测量迭代 → best 配置。
 
 装配决策 (主仓只装配, 机制在 oprim._hp_search):
-- sampler 默认 veya1.1 别名路由 (opencode free 池 + 无 key stub 回落),
+- sampler 默认 veya1.2 别名路由 (OpenRouter 免费双模型池 + frontier 兜底),
   可切 ``sampler="opencode-go"`` 走 key 直连端点;
 - objective 在 3O 沙箱执行 (network_blocked, 纯计算); 代码约定: 使用
   ``params`` 字典, 最后一行 ``print(float)`` 输出目标值 (越大越好方向由
@@ -42,9 +42,9 @@ def _llm_sampler(backend: str) -> object:
                     endpoint=_OPENCODE_ENDPOINT,
                 )
             )
-        else:  # veya1.1 别名路由 (默认)
+        else:  # veya1.2 别名路由 (默认)
             result = asyncio.run(
-                _llm_call([{"role": "user", "content": prompt}], model="veya1.1")
+                _llm_call([{"role": "user", "content": prompt}], model="veya1.2")
             )
         content = result["choices"][0]["message"]["content"]
         return str(content)
@@ -145,7 +145,7 @@ async def _tool_optimize_parameters(
     direction: str = "maximize",
     n_trials: int = 5,
     context: str = "",
-    sampler: str = "veya1.1",
+    sampler: str = "veya1.2",
     storage: str | None = None,
 ) -> str:
     """运行一轮 Agentic HPO: 语义化提议 + 沙箱测量 + 迭代 → best 配置。"""
@@ -235,7 +235,7 @@ def wire_master_tools() -> int:
                 },
                 "sampler": {
                     "type": "string",
-                    "description": "veya1.1 (default, routed alias) | opencode-go (key-direct)",
+                    "description": "veya1.2 (default, OpenRouter free pool) | opencode-go (key-direct)",
                 },
                 "storage": {
                     "type": "string",

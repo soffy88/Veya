@@ -6,8 +6,8 @@ POST /v1/chat/completions), 外部工具 (pi coding-agent 等) 按 model 字段
 自由切换 — 体验对齐直连 opencode-go (同款模型目录, 可换模型), 但换到
 veya 自己的别名时额外拿到轮询/兜底能力:
 
-- veya1.1        — 任务分档智能路由 (quick/text/tool/code/reason/vision) + frontier 兜底
-- veya1.2-flash  — opencode zen 免费池轮询 (round-robin 摊每日额度)
+- veya1.2        — 主脑代理: OpenRouter 免费 Nemotron Ultra / MiniMax M3 轮询
+- veya1.1        — 兼容旧名称, 实际转发到 veya1.2 主脑代理
 - veya1.2-free   — Pi 已配置 provider + Inferera 免费模型轮询
 - veya1.2-vl     — openrouter 免费图像/视频理解池轮询 (需 OPENROUTER_API_KEY, 未配则报结构化错误)
 - gpt-5.6-luna   — 本地 frontier 直连 (opencodex 桥, 零网络)
@@ -44,7 +44,9 @@ app = FastAPI(title="veya LLM gateway")
 # 模型目录: 静态别名/frontier + 启动时从 opencode zen 拉取的全量直连模型
 # ---------------------------------------------------------------------------
 _STATIC_CATALOG: dict[str, dict[str, Any]] = {
+    "veya1.2": {"model": "veya1.2"},
     "veya1.1": {"model": "veya1.1"},
+    # 历史别名保留兼容，但不再代表旧的 opencode zen 主脑池。
     "veya1.2-flash": {"model": "veya1.2-flash"},
     "veya1.2-free": {"model": "veya1.2-free"},
     "veya1.2-vl": {"model": "veya1.2-vl"},
@@ -157,7 +159,7 @@ async def _sse_from_resp(
 @app.post("/v1/chat/completions", response_model=None)
 async def chat_completions(request: Request) -> StreamingResponse | JSONResponse:
     body: dict[str, Any] = await request.json()
-    requested = body.get("model") or "veya1.2-flash"
+    requested = body.get("model") or "veya1.2"
     entry = _CATALOG.get(requested)
     if entry is None:
         return JSONResponse(

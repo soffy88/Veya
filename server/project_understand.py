@@ -174,8 +174,7 @@ def force_confirm_ask(u: UnderstandResult) -> UnderstandResult:
 async def _default_llm(system: str, user: str) -> str:
     from veya.llm import llm_call
 
-    # 显式 provider=veya1.1 → opencode-go 直连 + 候选重试 + gpt-5.6-luna 兜底
-    # (冻结架构主链路 LLM 层, veya/obase/llm.py::_aliased_llm_call)。
+    # 显式 provider=veya1.2 → OpenRouter 双模型代理 + gpt-5.6-luna 兜底。
     # 不能用无参 llm_call: 默认 provider 是 dashscope, 本机无其 key 时会
     # 返回 shim 文本 ("LLM provider not configured"), 被 _parse 判为解析失败
     # → 永远安全降级 ask (U5 真机 smoke 2026-08-16 抓到)。
@@ -184,7 +183,7 @@ async def _default_llm(system: str, user: str) -> str:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        provider="veya1.1",
+        provider="veya1.2",
     )
     return ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
 

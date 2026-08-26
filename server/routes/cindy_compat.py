@@ -214,7 +214,7 @@ async def goal_driven_run_ep(req: GoalDrivenRequest) -> dict[str, Any]:
     async def _engine(prompt_suffix: str) -> dict[str, Any]:
         result = await llm_call(
             [{"role": "user", "content": f"继续长程任务: {prompt_suffix}"}],
-            provider="veya1.1", model="veya1.1", timeout=120)
+            provider="veya1.2", model="veya1.2", timeout=120)
         content = ""
         with contextlib.suppress(KeyError, IndexError):
             content = str(result["choices"][0]["message"].get("content", ""))

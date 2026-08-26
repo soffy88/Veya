@@ -32,6 +32,7 @@ _PRICING: dict[str, tuple[float, float]] = {
 }
 
 _DEFAULT_MODELS: dict[str, str] = {
+    "veya1.2": "veya1.2",
     "ollama": "qwen38-9b-q5",
     "dashscope": "qwen-plus",
     "anthropic": "claude-haiku-4-5-20251001",
@@ -67,7 +68,7 @@ _API_KEY_ENV: dict[str, str] = {
     "opencode-go": "OPENCODE_API_KEY",
 }
 
-_DEFAULT_PROVIDER = "dashscope"
+_DEFAULT_PROVIDER = "veya1.2"
 
 # NOTE: ``_user_llm_config`` and ``get_provider_config`` intentionally live in
 # the facade (:mod:`veya.obase.llm`), not here — the test suite monkeypatches
