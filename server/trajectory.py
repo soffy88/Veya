@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -118,6 +120,21 @@ def append_trajectory(trajectory: Trajectory, *, path: Path | None = None) -> No
             )
     except Exception:
         pass
+    if os.environ.get("VEYA_EXECUTION_DATABASE_URL"):
+        try:
+            from runtime.personal import get_personal_runtime
+
+            async def scan() -> None:
+                await get_personal_runtime().scan_trajectory_candidates()
+
+            try:
+                asyncio.get_running_loop().create_task(scan())
+            except RuntimeError:
+                get_personal_runtime().run_sync(scan())
+        except Exception:
+            # Candidate discovery is a quality enhancement; failed discovery
+            # must not make a completed trajectory or the Master path fail.
+            pass
 
 
 def read_trajectories(task_id: str, *, path: Path | None = None) -> list[dict[str, Any]]:

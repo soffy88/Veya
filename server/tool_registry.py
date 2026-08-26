@@ -149,6 +149,9 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "memory_search",
         "memory_get",
         "memory_explain",
+        "memory_show_source",
+        "skill_search",
+        "skill_show",
     }
 )
 
@@ -453,7 +456,13 @@ class MasterToolRegistry:
         """
         if not name or not callable(func):
             raise ValueError("register requires a non-empty tool name and a callable")
-        if effect_capability not in {"none", "idempotency_key", "status_probe", "compensation", "manual_only"}:
+        if effect_capability not in {
+            "none",
+            "idempotency_key",
+            "status_probe",
+            "compensation",
+            "manual_only",
+        }:
             raise ValueError(f"Tool '{name}': unsupported effect capability {effect_capability!r}")
         if not operation_version.strip():
             raise ValueError(f"Tool '{name}': operation_version must not be empty")
@@ -582,6 +591,7 @@ class MasterToolRegistry:
             raise ToolExecutionError(
                 f"Tool '{name}' not found. Available: {', '.join(self.list_tools())}"
             )
+
         def _event(topic: str, **payload: Any) -> None:
             # Event persistence is observability, never a reason to fail a tool.
             with contextlib.suppress(Exception):
@@ -2961,7 +2971,9 @@ def _register_internalized_tools(mt: Any) -> None:
             from server.acceptance import evaluate_acceptance
 
             workspace = context_ref if Path(context_ref or ".").exists() else "."
-            delegate_result.acceptance_results = evaluate_acceptance(acceptance, workspace=workspace)
+            delegate_result.acceptance_results = evaluate_acceptance(
+                acceptance, workspace=workspace
+            )
         return json.dumps(delegate_result.to_dict(), ensure_ascii=False)
 
     async def _decision_record(
@@ -3228,7 +3240,10 @@ def _register_internalized_tools(mt: Any) -> None:
                         "description": "可选验收契约；确定性条件在子任务返回时评估。",
                     },
                     "budget_usd": {"type": "number", "minimum": 0},
-                    "deadline": {"type": "string", "description": "可选 ISO-8601 deadline；超时会终止子任务。"},
+                    "deadline": {
+                        "type": "string",
+                        "description": "可选 ISO-8601 deadline；超时会终止子任务。",
+                    },
                 },
                 "required": ["task"],
             },
@@ -3351,53 +3366,195 @@ def _tool_search(query: str, top_k: int = 5) -> str:
     )
 
 
-
-# ── P2-03 Memory Toolset (2026-08) ──────────────────────────────────────
-from server.memory_controller import memory_toolset  # noqa: E402
-
-
-def _tool_memory_search(query: str = "", *, scope: str | None = None) -> dict:
-    """搜索长期记忆: 关键词过滤 content/entities/keywords。"""
-    return {"results": memory_toolset.search(query, scope=scope)}
+# ── Personal Runtime Memory capabilities ───────────────────────────────
+# These callbacks remain model-invoked capabilities.  They do not pre-search
+# or inject memory into the MasterAgent context.
+from runtime.personal import PersonalRuntimeError, get_personal_runtime  # noqa: E402
 
 
-def _tool_memory_write(content: str, *, type: str = "semantic", scope: str = "project",
-                       entities: list[str] | None = None, keywords: list[str] | None = None,
-                       provenance: str = "", trust_level: str = "unknown",
-                       scope_type: str | None = None, scope_id: str | None = None,
-                       memory_type: str | None = None, source_event_ids: list[str] | None = None,
-                       tags: list[str] | None = None, confidence: float | None = None) -> dict:
-    """写入新记忆条目。"""
-    return memory_toolset.write(content, type=type, scope=scope, entities=entities,
-                                keywords=keywords, provenance=provenance, trust_level=trust_level,
-                                scope_type=scope_type, scope_id=scope_id,
-                                memory_type=memory_type, source_event_ids=source_event_ids,
-                                tags=tags, confidence=confidence)
+def _personal_request_ids() -> tuple[str, str | None, str | None, str | None]:
+    from server import auth as auth_mod
+    from server.events import current_event_context
+
+    user_id = str(auth_mod.current_user().get("user_id") or "anonymous")
+    context = current_event_context()
+    return user_id, context.get("session_id"), context.get("task_id"), context.get("trace_id")
 
 
-def _tool_memory_correct(memory_id: str, content: str, *, provenance: str = "") -> dict:
-    """修正一条现有记忆的内容。"""
-    return memory_toolset.correct(memory_id, content, provenance=provenance)
+def _personal_user_visible(record: dict[str, Any], user_id: str) -> bool:
+    """User-scoped personal records never cross the authenticated boundary."""
+    return record.get("scope_type") != "user" or str(record.get("scope_id")) == str(user_id)
 
 
-def _tool_memory_supersede(memory_id: str, content: str, *, provenance: str = "") -> dict:
-    """supersede 一条记忆: 标原记录 deprecated, 创建新 candidate 记录。"""
-    return memory_toolset.supersede(memory_id, content, provenance=provenance)
+async def _tool_memory_search(
+    query: str = "",
+    *,
+    scope: str | None = None,
+    scope_id: str | None = None,
+    memory_type: str | None = None,
+    limit: int = 20,
+    min_confidence: float = 0.0,
+    include_superseded: bool = False,
+) -> dict:
+    """搜索带来源、置信度和生命周期的 Personal MemoryRecord v2。"""
+    user_id, _, _, _ = _personal_request_ids()
+    if scope in {None, "global", "user"}:
+        scope_id = user_id
+        scope = "user"
+    if scope == "project" and not scope_id:
+        scope_id = os.environ.get("VEYA_WORKSPACE", "default")
+    scope_type = {
+        "global": "user",
+        "user": "user",
+        "project": "workspace",
+        "workspace": "workspace",
+        "session": "session",
+    }.get(scope or "", scope)
+    results = await get_personal_runtime().search_memory(
+        query,
+        scope_type=scope_type,
+        scope_id=scope_id,
+        memory_type=memory_type,
+        limit=limit,
+        min_confidence=min_confidence,
+        include_superseded=include_superseded,
+    )
+    return {"results": results, "count": len(results), "authority": "execution-runtime"}
 
 
-def _tool_memory_forget(memory_id: str) -> dict:
-    """永久删除一条记忆 (仅限 deprecated/rejected 状态)。"""
-    return memory_toolset.forget(memory_id)
+async def _tool_memory_write(
+    content: str,
+    *,
+    type: str = "semantic",
+    scope: str = "project",
+    entities: list[str] | None = None,
+    keywords: list[str] | None = None,
+    provenance: str = "",
+    trust_level: str = "unknown",
+    scope_type: str | None = None,
+    scope_id: str | None = None,
+    memory_type: str | None = None,
+    source_event_ids: list[str] | None = None,
+    source_session_ids: list[str] | None = None,
+    source_task_ids: list[str] | None = None,
+    tags: list[str] | None = None,
+    confidence: float | None = None,
+    commit: bool = False,
+) -> dict:
+    """创建候选记忆；只有显式 commit 才成为 active fact。"""
+    user_id, session_id, task_id, trace_id = _personal_request_ids()
+    canonical_scope = scope_type or {
+        "global": "user",
+        "user": "user",
+        "project": "workspace",
+        "workspace": "workspace",
+        "session": "session",
+    }.get(scope, "workspace")
+    if canonical_scope == "user":
+        canonical_id = user_id
+    elif canonical_scope == "session":
+        canonical_id = scope_id or session_id or "anonymous-session"
+    else:
+        canonical_id = scope_id or os.environ.get("VEYA_WORKSPACE", "default")
+    event = await get_personal_runtime().record_event(
+        "memory.explicit_write",
+        {
+            "content": content,
+            "memory_type": memory_type or type,
+            "tags": tags or [],
+            "trust_level": trust_level,
+        },
+        trace_id=trace_id,
+        session_id=session_id,
+        task_id=task_id,
+        workspace_id=canonical_id if canonical_scope == "workspace" else None,
+    )
+    candidate = await get_personal_runtime().create_memory_candidate(
+        content,
+        scope_type=canonical_scope,
+        scope_id=canonical_id,
+        memory_type=memory_type or type,
+        source_event_ids=[*(source_event_ids or []), event["id"]],
+        source_session_ids=source_session_ids or ([session_id] if session_id else []),
+        source_task_ids=source_task_ids or ([task_id] if task_id else []),
+        confidence=confidence if confidence is not None else 0.8,
+        reason=provenance or "MasterAgent explicit capability call",
+        provenance={
+            "actor": user_id,
+            "entrypoint": "memory_write",
+            "entities": entities or [],
+            "keywords": keywords or [],
+        },
+        trace_id=trace_id,
+    )
+    if not commit:
+        return {"status": "candidate", "candidate": candidate}
+    return {
+        "status": "committed",
+        "candidate": candidate,
+        "commit": await get_personal_runtime().commit_memory_candidate(
+            candidate["id"], trace_id=trace_id
+        ),
+    }
 
 
-def _tool_memory_get(memory_id: str) -> dict:
-    """获取单条记忆详情。"""
-    return memory_toolset.get(memory_id)
+async def _tool_memory_correct(
+    memory_id: str, content: str, *, provenance: str = "user correction"
+) -> dict:
+    """保留旧记录并创建 active replacement。"""
+    user_id, session_id, task_id, trace_id = _personal_request_ids()
+    try:
+        record = await get_personal_runtime().get_memory(memory_id)
+        if record is None or not _personal_user_visible(record, user_id):
+            return {"status": "not_found", "memory_id": memory_id}
+        return await get_personal_runtime().correct_memory(
+            memory_id,
+            content,
+            source_session_ids=[session_id] if session_id else [],
+            source_task_ids=[task_id] if task_id else [],
+            reason=provenance,
+            trace_id=trace_id,
+        )
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc), "actor": user_id}
 
 
-def _tool_memory_explain(memory_id: str) -> dict:
-    """解释一条记忆的来源。"""
-    return memory_toolset.explain(memory_id)
+async def _tool_memory_supersede(
+    memory_id: str, content: str, *, provenance: str = "explicit supersede"
+) -> dict:
+    return await _tool_memory_correct(memory_id, content, provenance=provenance)
+
+
+async def _tool_memory_forget(memory_id: str) -> dict:
+    try:
+        user_id, _, _, _ = _personal_request_ids()
+        record = await get_personal_runtime().get_memory(memory_id)
+        if record is None or not _personal_user_visible(record, user_id):
+            return {"status": "not_found", "memory_id": memory_id}
+        return await get_personal_runtime().forget_memory(memory_id)
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc)}
+
+
+async def _tool_memory_get(memory_id: str) -> dict:
+    user_id, _, _, _ = _personal_request_ids()
+    record = await get_personal_runtime().get_memory(memory_id, include_sources=True)
+    if record and not _personal_user_visible(record, user_id):
+        record = None
+    return (
+        {"status": "ok", "record": record}
+        if record
+        else {"status": "not_found", "memory_id": memory_id}
+    )
+
+
+async def _tool_memory_explain(memory_id: str) -> dict:
+    user_id, _, _, _ = _personal_request_ids()
+    record = await get_personal_runtime().get_memory(memory_id)
+    if record is None or not _personal_user_visible(record, user_id):
+        return {"status": "not_found", "memory_id": memory_id}
+    source = await get_personal_runtime().show_memory_source(memory_id)
+    return {"status": "ok", **source} if source else {"status": "not_found", "memory_id": memory_id}
 
 
 if not master_tools.has("memory_search"):
@@ -3411,7 +3568,24 @@ if not master_tools.has("memory_search"):
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "搜索关键词(内容/实体/关键词)"},
-                "scope": {"type": "string", "description": "可选: 仅搜指定 scope(project/global等)"},
+                "scope": {
+                    "type": "string",
+                    "description": "可选: 仅搜指定 scope(project/global等)",
+                },
+                "scope_id": {
+                    "type": "string",
+                    "description": "可选 user/workspace/session scope id",
+                },
+                "memory_type": {
+                    "type": "string",
+                    "description": "episodic|semantic|procedural|preference|decision",
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "min_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "include_superseded": {
+                    "type": "boolean",
+                    "description": "审计查询时包含 superseded/forgotten",
+                },
             },
             "required": ["query"],
         },
@@ -3423,25 +3597,53 @@ if not master_tools.has("memory_write"):
     master_tools.register(
         name="memory_write",
         description=(
-            "写入新记忆条目。content 必填; type/scope/entities/keywords/provenance/trust_level 可选。"
-            "返回包含 memory_id 的新记录对象。"
+            "创建带 provenance 的 MemoryCandidate；默认不会成为 active fact，显式 commit=true 才提交。"
         ),
         parameters={
             "type": "object",
             "properties": {
-            "content": {"type": "string", "description": "记忆内容"},
-                "type": {"type": "string", "description": "类型: working|episodic|semantic|procedural, 默认 semantic"},
-                "scope": {"type": "string", "description": "作用域: project|global|user, 默认 project"},
-                "entities": {"type": "array", "items": {"type": "string"}, "description": "实体标签"},
-                "keywords": {"type": "array", "items": {"type": "string"}, "description": "关键词标签"},
+                "content": {"type": "string", "description": "记忆内容"},
+                "type": {
+                    "type": "string",
+                    "description": "类型: working|episodic|semantic|procedural, 默认 semantic",
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "作用域: project|global|user, 默认 project",
+                },
+                "entities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "实体标签",
+                },
+                "keywords": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "关键词标签",
+                },
                 "provenance": {"type": "string", "description": "来源说明"},
-                "trust_level": {"type": "string", "description": "信任等级: unknown|L1|L2_verified|L3_cross_checked, 默认 unknown"},
-                "scope_type": {"type": "string", "description": "canonical scope: user|workspace|session"},
+                "trust_level": {
+                    "type": "string",
+                    "description": "信任等级: unknown|L1|L2_verified|L3_cross_checked, 默认 unknown",
+                },
+                "scope_type": {
+                    "type": "string",
+                    "description": "canonical scope: user|workspace|session",
+                },
                 "scope_id": {"type": "string", "description": "canonical scope id"},
-                "memory_type": {"type": "string", "description": "episodic|semantic|procedural|preference|decision"},
+                "memory_type": {
+                    "type": "string",
+                    "description": "episodic|semantic|procedural|preference|decision",
+                },
                 "source_event_ids": {"type": "array", "items": {"type": "string"}},
                 "tags": {"type": "array", "items": {"type": "string"}},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "source_session_ids": {"type": "array", "items": {"type": "string"}},
+                "source_task_ids": {"type": "array", "items": {"type": "string"}},
+                "commit": {
+                    "type": "boolean",
+                    "description": "显式确认后提交为 active fact，默认 false",
+                },
             },
             "required": ["content"],
         },
@@ -3452,10 +3654,7 @@ if not master_tools.has("memory_write"):
 if not master_tools.has("memory_correct"):
     master_tools.register(
         name="memory_correct",
-        description=(
-            "修正一条现有记忆的内容 (版本递增)。仅允许 candidate/verified 状态。"
-            "返回 status: corrected / error。"
-        ),
+        description=("修正一条长期记忆：旧记录保留为 superseded，新 replacement 成为 active。"),
         parameters={
             "type": "object",
             "properties": {
@@ -3473,8 +3672,7 @@ if not master_tools.has("memory_supersede"):
     master_tools.register(
         name="memory_supersede",
         description=(
-            "supersede 一条记忆: 原记录标 deprecated, 创建新 candidate 记录,"
-            "原记录 supersedes 指向新记录。仅允许 candidate/verified 状态。"
+            "supersede 一条记忆：旧记录保留，新 replacement 成为 active。"
             "返回 old_id / new_id / status。"
         ),
         parameters={
@@ -3493,10 +3691,7 @@ if not master_tools.has("memory_supersede"):
 if not master_tools.has("memory_forget"):
     master_tools.register(
         name="memory_forget",
-        description=(
-            "将一条记忆软删除为 forgotten（保留最小审计记录）。仅允许 deprecated/rejected 状态;"
-            "candidate/verified 受保护。返回 status: forgotten / error。"
-        ),
+        description=("将一条记忆软删除为 forgotten（保留审计记录，不再被正常检索返回）。"),
         parameters={
             "type": "object",
             "properties": {
@@ -3538,6 +3733,358 @@ if not master_tools.has("memory_explain"):
         side_effect=SideEffect.PURE_READ,
     )
 
+if not master_tools.has("memory_show_source"):
+    master_tools.register(
+        name="memory_show_source",
+        description="查看 MemoryRecord 的来源事件、provenance 和缺失来源。",
+        parameters={
+            "type": "object",
+            "properties": {"memory_id": {"type": "string"}},
+            "required": ["memory_id"],
+        },
+        func=_tool_memory_explain,
+        side_effect=SideEffect.PURE_READ,
+    )
+
+
+# ── Personal Runtime Skill/Learning capabilities ────────────────────────
+async def _tool_skill_search(
+    query: str = "",
+    *,
+    scope_type: str | None = None,
+    scope_id: str | None = None,
+    include_candidates: bool = False,
+    limit: int = 20,
+) -> dict:
+    user_id, _, _, _ = _personal_request_ids()
+    if scope_type in {None, "user"}:
+        scope_type = "user"
+        scope_id = user_id
+    return {
+        "skills": await get_personal_runtime().search_skills(
+            query,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            include_candidates=include_candidates,
+            limit=limit,
+        )
+    }
+
+
+async def _tool_skill_show(skill_id: str) -> dict:
+    user_id, _, _, _ = _personal_request_ids()
+    value = await get_personal_runtime().get_skill(skill_id, versions=True)
+    if value and not _personal_user_visible(value, user_id):
+        value = None
+    return (
+        {"status": "ok", "skill": value} if value else {"status": "not_found", "skill_id": skill_id}
+    )
+
+
+async def _tool_skill_create(
+    name: str,
+    description: str,
+    *,
+    scope_type: str = "user",
+    scope_id: str | None = None,
+    trigger_examples: list[str] | None = None,
+    parameters_schema: dict[str, Any] | None = None,
+    execution_type: str = "prompt",
+    execution_ref: str = "",
+) -> dict:
+    user_id, session_id, task_id, trace_id = _personal_request_ids()
+    sid = user_id if scope_type == "user" else scope_id or os.environ.get("VEYA_WORKSPACE", "default")
+    event = await get_personal_runtime().record_event(
+        "skill.teaching_instruction",
+        {"name": name, "description": description},
+        trace_id=trace_id,
+        session_id=session_id,
+        task_id=task_id,
+        workspace_id=sid if scope_type == "workspace" else None,
+    )
+    return await get_personal_runtime().create_skill_candidate(
+        name,
+        description,
+        scope_type=scope_type,
+        scope_id=sid,
+        trigger_examples=trigger_examples or [],
+        parameters_schema=parameters_schema,
+        execution_type=execution_type,
+        execution_ref=execution_ref,
+        source_event_ids=[event["id"]],
+        source_task_ids=[task_id] if task_id else [],
+        created_by=user_id,
+        trace_id=trace_id,
+    )
+
+
+async def _tool_skill_confirm(skill_version_id: str) -> dict:
+    try:
+        user_id, _, _, _ = _personal_request_ids()
+        version = await get_personal_runtime().get_skill_version(skill_version_id)
+        if version is None or not _personal_user_visible(version, user_id):
+            return {"status": "not_found", "skill_version_id": skill_version_id}
+        return await get_personal_runtime().confirm_skill(skill_version_id)
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc)}
+
+
+async def _tool_skill_run(skill_id: str, params: dict[str, Any] | None = None) -> dict:
+    user_id, _, task_id, trace_id = _personal_request_ids()
+    try:
+        skill = await get_personal_runtime().get_skill(skill_id)
+        if skill is None or not _personal_user_visible(skill, user_id):
+            return {"status": "not_found", "skill_id": skill_id}
+        return await get_personal_runtime().run_skill(
+            skill_id, params, task_id=task_id, trace_id=trace_id
+        )
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc)}
+
+
+async def _tool_skill_update(
+    skill_id: str,
+    description: str,
+    *,
+    trigger_examples: list[str] | None = None,
+    execution_type: str = "prompt",
+    execution_ref: str = "",
+) -> dict:
+    user_id, _, _, _ = _personal_request_ids()
+    skill = await get_personal_runtime().get_skill(skill_id)
+    if skill is None:
+        return {"status": "not_found", "skill_id": skill_id}
+    if not _personal_user_visible(skill, user_id):
+        return {"status": "not_found", "skill_id": skill_id}
+    version = skill["versions"][0] if skill.get("versions") else {}
+    return await get_personal_runtime().create_skill_candidate(
+        skill.get("name", skill_id),
+        description,
+        scope_type=skill.get("scope_type", "user"),
+        scope_id=skill.get("scope_id", "anonymous"),
+        trigger_examples=trigger_examples or version.get("trigger_examples", []),
+        parameters_schema=version.get("parameters_schema", {"type": "object", "properties": {}}),
+        execution_type=execution_type,
+        execution_ref=execution_ref,
+        source_task_ids=[],
+        created_by="user",
+        parent_version=int(skill.get("current_version") or version.get("version") or 1),
+    )
+
+
+async def _tool_skill_rollback(skill_id: str, version: int) -> dict:
+    try:
+        user_id, _, _, _ = _personal_request_ids()
+        skill = await get_personal_runtime().get_skill(skill_id)
+        if skill is None or not _personal_user_visible(skill, user_id):
+            return {"status": "not_found", "skill_id": skill_id}
+        return await get_personal_runtime().rollback_skill(skill_id, version)
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc)}
+
+
+async def _tool_skill_deprecate(skill_id: str) -> dict:
+    try:
+        user_id, _, _, _ = _personal_request_ids()
+        skill = await get_personal_runtime().get_skill(skill_id)
+        if skill is None or not _personal_user_visible(skill, user_id):
+            return {"status": "not_found", "skill_id": skill_id}
+        return await get_personal_runtime().deprecate_skill(skill_id)
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc)}
+
+
+async def _tool_learning_candidate(
+    pattern_id: str,
+    observation: str,
+    hypothesis: str,
+    evidence_task_ids: list[str],
+    *,
+    evidence_trajectory_ids: list[str] | None = None,
+    scope: str = "default",
+    candidate_type: str = "policy_advisory",
+    proposed_change: dict[str, Any] | None = None,
+    confidence: float = 0.5,
+    explicit_teaching: bool = False,
+) -> dict:
+    try:
+        user_id, _, _, trace_id = _personal_request_ids()
+        if scope in {"", "default", "user"}:
+            scope = f"user:{user_id}"
+        return await get_personal_runtime().create_learning_candidate(
+            pattern_id=pattern_id,
+            scope=scope,
+            evidence_task_ids=evidence_task_ids,
+            evidence_trajectory_ids=evidence_trajectory_ids or [],
+            observation=observation,
+            hypothesis=hypothesis,
+            confidence=confidence,
+            candidate_type=candidate_type,
+            proposed_change=proposed_change or {},
+            explicit_teaching=explicit_teaching,
+            trace_id=trace_id,
+        )
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc)}
+
+
+async def _tool_learning_eval(
+    learning_id: str,
+    baseline_ref: str,
+    candidate_ref: str,
+    result: dict[str, Any],
+    passed: bool,
+) -> dict:
+    try:
+        return await get_personal_runtime().record_learning_eval(
+            learning_id,
+            baseline_ref=baseline_ref,
+            candidate_ref=candidate_ref,
+            result=result,
+            passed=passed,
+        )
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc)}
+
+
+async def _tool_learning_rollback(learning_id: str, reason: str = "regression detected") -> dict:
+    try:
+        return await get_personal_runtime().rollback_learning(learning_id, reason=reason)
+    except PersonalRuntimeError as exc:
+        return {"status": "error", "code": exc.code, "error": str(exc)}
+
+
+if not master_tools.has("skill_search"):
+    master_tools.register(
+        "skill_search",
+        "搜索带版本、信任和成功率的 Personal Skill。",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "scope_type": {"type": "string"},
+                "scope_id": {"type": "string"},
+                "include_candidates": {"type": "boolean"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["query"],
+        },
+        _tool_skill_search,
+        side_effect=SideEffect.PURE_READ,
+    )
+if not master_tools.has("skill_show"):
+    master_tools.register(
+        "skill_show",
+        "查看 Skill 的当前版本、来源、安全状态和版本历史。",
+        {
+            "type": "object",
+            "properties": {"skill_id": {"type": "string"}},
+            "required": ["skill_id"],
+        },
+        _tool_skill_show,
+        side_effect=SideEffect.PURE_READ,
+    )
+if not master_tools.has("skill_create"):
+    master_tools.register(
+        "skill_create",
+        "创建 SkillCandidate 草案；不会静默激活可执行 Skill，需显式确认。",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "scope_type": {"type": "string"},
+                "scope_id": {"type": "string"},
+                "trigger_examples": {"type": "array", "items": {"type": "string"}},
+                "parameters_schema": {"type": "object"},
+                "execution_type": {"type": "string"},
+                "execution_ref": {"type": "string"},
+            },
+            "required": ["name", "description"],
+        },
+        _tool_skill_create,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+if not master_tools.has("skill_confirm"):
+    master_tools.register(
+        "skill_confirm",
+        "确认一个 SkillCandidate，执行静态安全门禁后激活版本。",
+        {
+            "type": "object",
+            "properties": {"skill_version_id": {"type": "string"}},
+            "required": ["skill_version_id"],
+        },
+        _tool_skill_confirm,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+if not master_tools.has("skill_run"):
+    master_tools.register(
+        "skill_run",
+        "执行当前 active/trusted Skill，并记录版本、结果、验收、产物和证据。",
+        {
+            "type": "object",
+            "properties": {"skill_id": {"type": "string"}, "params": {"type": "object"}},
+            "required": ["skill_id"],
+        },
+        _tool_skill_run,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+if not master_tools.has("learning_rollback"):
+    master_tools.register(
+        "learning_rollback",
+        "回滚已应用但出现回归的 Learning 记录；保留评估证据，不自动修改 Skill 或提示词。",
+        {
+            "type": "object",
+            "properties": {
+                "learning_id": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["learning_id"],
+        },
+        _tool_learning_rollback,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+if not master_tools.has("skill_update"):
+    master_tools.register(
+        "skill_update",
+        "创建 Skill 的新候选版本；不自动替换当前 active 版本。",
+        {
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string"},
+                "description": {"type": "string"},
+                "trigger_examples": {"type": "array", "items": {"type": "string"}},
+                "execution_type": {"type": "string"},
+                "execution_ref": {"type": "string"},
+            },
+            "required": ["skill_id", "description"],
+        },
+        _tool_skill_update,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+if not master_tools.has("skill_rollback"):
+    master_tools.register(
+        "skill_rollback",
+        "将 Skill 回滚到指定的已审计版本。",
+        {
+            "type": "object",
+            "properties": {
+                "skill_id": {"type": "string"},
+                "version": {"type": "integer", "minimum": 1},
+            },
+            "required": ["skill_id", "version"],
+        },
+        _tool_skill_rollback,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+if not master_tools.has("skill_deprecate"):
+    master_tools.register("skill_deprecate", "停用 Skill 但保留全部版本和运行审计。", {"type":"object","properties":{"skill_id":{"type":"string"}},"required":["skill_id"]}, _tool_skill_deprecate, side_effect=SideEffect.LOCAL_WRITE)
+if not master_tools.has("skill_delete"):
+    master_tools.register("skill_delete", "将 Skill 标记 deprecated 以保留审计；不物理删除历史版本。", {"type":"object","properties":{"skill_id":{"type":"string"}},"required":["skill_id"]}, _tool_skill_deprecate, side_effect=SideEffect.LOCAL_WRITE)
+if not master_tools.has("learning_candidate_create"):
+    master_tools.register("learning_candidate_create", "从至少三次独立任务或明确教学创建 LearningCandidate，不直接修改行为。", {"type":"object","properties":{"pattern_id":{"type":"string"},"observation":{"type":"string"},"hypothesis":{"type":"string"},"evidence_task_ids":{"type":"array","items":{"type":"string"}},"evidence_trajectory_ids":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"},"candidate_type":{"type":"string"},"proposed_change":{"type":"object"},"confidence":{"type":"number"},"explicit_teaching":{"type":"boolean"}},"required":["pattern_id","observation","hypothesis","evidence_task_ids"]}, _tool_learning_candidate, side_effect=SideEffect.LOCAL_WRITE)
+if not master_tools.has("learning_eval"):
+    master_tools.register("learning_eval", "记录 baseline/candidate 离线或 replay eval；只有通过才可进入 validated gate。", {"type":"object","properties":{"learning_id":{"type":"string"},"baseline_ref":{"type":"string"},"candidate_ref":{"type":"string"},"result":{"type":"object"},"passed":{"type":"boolean"}},"required":["learning_id","baseline_ref","candidate_ref","result","passed"]}, _tool_learning_eval, side_effect=SideEffect.LOCAL_WRITE)
 
 
 if not master_tools.has("tool_search"):

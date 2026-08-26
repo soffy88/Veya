@@ -1,0 +1,5 @@
+{
+  "case": "memory_recall",
+  "setup": {"memory": {"content": "tests use pytest", "status": "active", "provenance_required": true}},
+  "assertions": ["search returns structured provenance and confidence", "candidate and forgotten records are excluded"]
+}

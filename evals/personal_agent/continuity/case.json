@@ -1,0 +1,5 @@
+{
+  "case": "continuity",
+  "setup": {"entries": ["cli", "web", "tui"], "projection": true},
+  "assertions": ["task/checkpoint/artifact references are consistent", "projection is not a second authority", "continue passes facts to MasterAgent"]
+}

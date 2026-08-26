@@ -9,7 +9,7 @@
 	 *   automation → AutomationPanel
 	 *   board    → KanbanPanel  (多 Agent 编排看板: worktree 隔离 + 依赖链)
 	 */
-	import { Bot, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageSquare, Network, Package, Clock, Settings, Trash2, Plus, Columns3, Menu, X, SquareCheckBig } from "lucide-svelte";
+import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageSquare, Network, Package, Clock, Settings, Trash2, Plus, Columns3, Menu, X, SquareCheckBig } from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
 	import FlowConsole from "$lib/components/FlowConsole.svelte";
 	import Dashboard from "$lib/components/Dashboard.svelte";
@@ -20,11 +20,12 @@
 	import AutomationPanel from "$lib/components/AutomationPanel.svelte";
 	import KanbanPanel from "$lib/components/KanbanPanel.svelte";
 	import TaskCenterPanel from "$lib/components/TaskCenterPanel.svelte";
+	import PersonalContextPanel from "$lib/components/PersonalContextPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
 	import AuthGate from "$lib/components/AuthGate.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 
-	type View = "chat" | "dashboard" | "plan" | "git" | "graph" | "genesis" | "plugins" | "automation" | "board" | "tasks";
+	type View = "chat" | "dashboard" | "plan" | "git" | "graph" | "genesis" | "plugins" | "automation" | "board" | "tasks" | "personal";
 
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
@@ -46,6 +47,7 @@
 		["automation", "自动化", Clock],
 		["board", "看板", Columns3],
 		["tasks", "任务", SquareCheckBig],
+		["personal", "个人上下文", Brain],
 	];
 
 	function selectNav(v: View) {
@@ -258,6 +260,8 @@
 			<div class="flex-1 overflow-y-auto"><KanbanPanel /></div>
 		{:else if view === "tasks"}
 			<div class="flex-1 overflow-hidden"><TaskCenterPanel /></div>
+		{:else if view === "personal"}
+			<div class="flex-1 overflow-hidden"><PersonalContextPanel /></div>
 		{/if}
 	</section>
 </main>

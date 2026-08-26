@@ -1,0 +1,5 @@
+{
+  "case": "memory_conflict",
+  "setup": {"old": "use unittest", "new": "use pytest"},
+  "assertions": ["conflict is detected", "commit requires an explicit conflict decision", "old record is retained"]
+}

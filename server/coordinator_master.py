@@ -848,7 +848,9 @@ class MasterCoordinator:
         session_lock: asyncio.Lock | None = None
         session_lock_acquired = False
         task_token: contextvars.Token | None = None
-        event_context_tokens: tuple[contextvars.Token, contextvars.Token, contextvars.Token] | None = None
+        event_context_tokens: (
+            tuple[contextvars.Token, contextvars.Token, contextvars.Token] | None
+        ) = None
         telemetry: Any | None = None
         trace_id = uuid.uuid4().hex
         turn_started = time.monotonic()
@@ -1022,7 +1024,9 @@ class MasterCoordinator:
                             task_id,
                             "cancelled"
                             if result is not None and result.get("status") == "cancelled"
-                            else ("completed" if result and result.get("error") is None else "failed"),
+                            else (
+                                "completed" if result and result.get("error") is None else "failed"
+                            ),
                         )
                         if result and isinstance(result.get("cost_usd"), (int, float)):
                             task_store.set_cost(task_id, float(result["cost_usd"]))
@@ -1035,9 +1039,9 @@ class MasterCoordinator:
                         telemetry.execute(
                             inputs={"session_id": sid},
                             execution={
-                                    "status": "cancelled"
-                                    if result and result.get("status") == "cancelled"
-                                    else ("failed" if result and result.get("error") else "completed")
+                                "status": "cancelled"
+                                if result and result.get("status") == "cancelled"
+                                else ("failed" if result and result.get("error") else "completed")
                             },
                             session_id=sid,
                             task_id=task_id,
@@ -1077,9 +1081,9 @@ class MasterCoordinator:
                     )
             return final_result
         finally:
-            cancellation_requested = bool(
-                result and result.get("status") == "cancelled"
-            ) or bool(asyncio.current_task() and asyncio.current_task().cancelling())
+            cancellation_requested = bool(result and result.get("status") == "cancelled") or bool(
+                asyncio.current_task() and asyncio.current_task().cancelling()
+            )
             if cancellation_requested and task_id is not None:
                 # Cancellation can arrive during restore/injection, before the ReAct
                 # call's inner finally exists. Close the projection here as well.
@@ -1088,7 +1092,11 @@ class MasterCoordinator:
                     from server.task_store import task_store
 
                     current = task_store.get(task_id)
-                    if current is not None and current.status not in {"cancelled", "completed", "failed"}:
+                    if current is not None and current.status not in {
+                        "cancelled",
+                        "completed",
+                        "failed",
+                    }:
                         task_store.update_status(task_id, "cancelled")
                     if current is not None and not current.latest_checkpoint_id:
                         task_store.set_checkpoint(task_id, uuid.uuid4().hex)
@@ -1430,7 +1438,9 @@ class MasterCoordinator:
                         "actor": "system",
                         "payload": {
                             "checkpoint_id": checkpoint_id,
-                            "history_revision": len(getattr(self._agent, "_histories", {}).get(sid, [])),
+                            "history_revision": len(
+                                getattr(self._agent, "_histories", {}).get(sid, [])
+                            ),
                         },
                     }
                 )
@@ -1506,55 +1516,56 @@ class MasterCoordinator:
             task.add_done_callback(self._bg_tasks.discard)
 
     async def _distill_and_store(self, sid: str, msgs: list[dict[str, Any]]) -> None:
-        """蒸馏为候选 MemoryRecord；不会直接提交为 verified 事实。"""
+        """蒸馏为 Personal Runtime candidate；不会直接提交为 active 事实。"""
         with contextlib.suppress(Exception):
             result = await _distill_conversation(msgs, self._bound_llm)
             uid = self._memory_user_id()
-            from server.events import event_store
-            from server.memory_controller import memory_controller
+            from runtime.personal import get_personal_runtime
 
-            source_event_ids = [
-                str(event.get("event_id"))
-                for event in event_store.read_all(session_id=sid)
-                if event.get("event_id")
-            ]
+            personal = get_personal_runtime()
+            source_event = await personal.record_event(
+                "memory.distilled_candidate_source",
+                {"session_id": sid, "message_count": len(msgs)},
+                session_id=sid,
+                trace_id=sid,
+            )
+            source_event_ids = [str(source_event["id"])]
             for fact in result.get("facts", []):
-                memory_controller.observe(
+                await personal.create_memory_candidate(
                     str(fact),
-                    type="semantic",
-                    scope="global",
                     scope_type="user",
                     scope_id=uid,
+                    memory_type="semantic",
                     source_event_ids=source_event_ids,
-                    provenance=f"conversation:{sid}",
-                    trust_level="candidate",
                     confidence=0.6,
+                    reason="conversation distillation; pending review",
+                    provenance={"conversation_id": sid, "pipeline": "candidate_boundary"},
+                    trace_id=sid,
                 )
             for pref in result.get("preferences", []):
-                memory_controller.observe(
+                await personal.create_memory_candidate(
                     str(pref),
-                    type="semantic",
-                    scope="global",
                     scope_type="user",
                     scope_id=uid,
                     memory_type="preference",
                     source_event_ids=source_event_ids,
-                    provenance=f"conversation:{sid}",
-                    trust_level="candidate",
                     confidence=0.7,
+                    reason="conversation preference distillation; pending review",
+                    provenance={"conversation_id": sid, "pipeline": "candidate_boundary"},
+                    trace_id=sid,
                 )
             summary = result.get("summary")
             if summary:
-                memory_controller.observe(
+                await personal.create_memory_candidate(
                     str(summary),
-                    type="episodic",
-                    scope="global",
                     scope_type="user",
                     scope_id=uid,
+                    memory_type="episodic",
                     source_event_ids=source_event_ids,
-                    provenance=f"conversation:{sid}",
-                    trust_level="candidate",
                     confidence=0.4,
+                    reason="conversation summary candidate; below injection threshold",
+                    provenance={"conversation_id": sid, "pipeline": "candidate_boundary"},
+                    trace_id=sid,
                 )
 
     async def chat(self, user_prompt: str, **kwargs: Any) -> dict[str, Any]:

@@ -14,7 +14,6 @@ from runtime.execution.durable import (
 )
 from runtime.execution.side_effects import SideEffectLedger
 
-
 PG_DSN = os.environ.get("VEYA_EXECUTION_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
     not PG_DSN or not PG_DSN.startswith(("postgres://", "postgresql://")),
@@ -79,7 +78,7 @@ async def test_postgres_global_parallel_limit_and_continuous_refill():
         run_items = await seed.list_work_items(run_id)
         assert sum(item["state"] in {"leased", "running"} for item in run_items) == 4
 
-        for claim in claims[1:] + [refill]:
+        for claim in [*claims[1:], refill]:
             await seed.start(claim)
             await seed.complete(claim, {"summary": claim.logical_key})
         remaining = await seed.list_work_items(run_id)
@@ -111,7 +110,9 @@ async def test_postgres_expiry_recovery_and_stale_fence_rejection():
         old = await old_repo.claim_next("pg-old", goal_run_id=run_id, lease_ttl_s=1)
         assert old is not None
         await old_repo.start(old)
-        await asyncio.sleep(1.2)
+        # Leave enough margin above the one-second lease TTL for CI/database
+        # scheduling jitter; the assertion is about expiry classification.
+        await asyncio.sleep(1.5)
         report = await new_repo.reconcile(run_id)
         assert report.retry_safe == 1
         current = await new_repo.claim_next("pg-new", goal_run_id=run_id, lease_ttl_s=30)
@@ -138,6 +139,7 @@ async def test_postgres_expiry_recovery_and_stale_fence_rejection():
             await old_repo.complete(old, {"stale": True})
         await new_repo.complete(current, {"summary": "new owner"})
         assert (await new_repo.complete(current, {"summary": "new owner"}))["status"] == "idempotent"
+        assert (await new_repo.metrics())["fencing_rejected"] >= 4
         assert item["id"] == current.work_item_id
     finally:
         await old_repo.close()
@@ -218,7 +220,9 @@ async def test_postgres_side_effect_probe_and_quarantine():
             claim=quarantine_claim,
         )
         await repo.update_side_effect(second_key, state="started", claim=quarantine_claim)
-        await asyncio.sleep(1.2)
+        # Keep margin over the one-second lease TTL for database scheduling
+        # jitter; this assertion is about reconciliation after expiry.
+        await asyncio.sleep(1.5)
         report = await repo.reconcile(run_id)
         assert report.quarantined == 1
         row = next(

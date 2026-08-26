@@ -1,0 +1,5 @@
+{
+  "case": "skill_reuse",
+  "setup": {"version": 1, "trust_status": "trusted"},
+  "assertions": ["run selects the active version", "run evidence records result and duration", "failure does not rewrite the skill"]
+}

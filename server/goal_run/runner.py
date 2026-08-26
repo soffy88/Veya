@@ -387,7 +387,10 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
     task.execute_result = leaf_result.summary
     task.artifacts.extend(
         [
-            str(getattr(item, "path", None) or (item.get("path") if isinstance(item, dict) else item))
+            str(
+                getattr(item, "path", None)
+                or (item.get("path") if isinstance(item, dict) else item)
+            )
             for item in (leaf_result.artifacts or [])
         ]
     )
@@ -519,8 +522,7 @@ def _take_continuous_tasks(
     if not ready or len(active) >= max_concurrent:
         return []
     if active and (
-        any(not state.tasks[task_id].parallel for task_id in active)
-        or not ready[0].parallel
+        any(not state.tasks[task_id].parallel for task_id in active) or not ready[0].parallel
     ):
         return []
 
@@ -544,14 +546,18 @@ def _take_continuous_tasks(
 def _mark_unfinished(state: GoalRunState) -> None:
     """Record work that finalization could not execute or verify."""
     for task in state.tasks.values():
-        if task.status in (
-            TaskStatus.pending,
-            TaskStatus.ready,
-            TaskStatus.running,
-            TaskStatus.verifying,
-            TaskStatus.blocked,
-            TaskStatus.cancelled,
-        ) and task.id not in state.completed_ids:
+        if (
+            task.status
+            in (
+                TaskStatus.pending,
+                TaskStatus.ready,
+                TaskStatus.running,
+                TaskStatus.verifying,
+                TaskStatus.blocked,
+                TaskStatus.cancelled,
+            )
+            and task.id not in state.completed_ids
+        ):
             if task.id not in state.unfinished_work:
                 state.unfinished_work.append(task.id)
             if task.instruction not in task.unfinished_work:
@@ -589,7 +595,9 @@ def _write_execution_checkpoint(
     store.write(checkpoint)
 
 
-async def _prepare_durable_goal(state: GoalRunState) -> tuple[DurableExecutionRepository, str] | None:
+async def _prepare_durable_goal(
+    state: GoalRunState,
+) -> tuple[DurableExecutionRepository, str] | None:
     """Write-through the GoalRun plan and create one process-incarnation worker.
 
     The existing file projection remains the compatibility read model while
@@ -627,7 +635,9 @@ async def _prepare_durable_goal(state: GoalRunState) -> tuple[DurableExecutionRe
                 },
                 "depends_on": task.depends_on,
                 "parallel": task.parallel,
-                "side_effect_policy": "manual_on_unknown" if task.assignee in {"hicode", "dsh"} else "none",
+                "side_effect_policy": "manual_on_unknown"
+                if task.assignee in {"hicode", "dsh"}
+                else "none",
                 "max_attempts": int(state.budget.get("max_retries_per_task", 2)) + 1,
             },
             idempotency_key=f"{state.goal_id}:leaf:{task.id}",
@@ -654,7 +664,9 @@ async def _prepare_durable_goal(state: GoalRunState) -> tuple[DurableExecutionRe
                     result = json.loads(result)
             if isinstance(result, dict) and isinstance(result.get("delegate_result"), dict):
                 task.delegate_result = result["delegate_result"]
-                task.execute_result = str(result["delegate_result"].get("summary") or task.execute_result or "")
+                task.execute_result = str(
+                    result["delegate_result"].get("summary") or task.execute_result or ""
+                )
             task.status = TaskStatus.completed
             state.completed_ids.add(task.id)
             state.running_ids.discard(task.id)
@@ -673,7 +685,11 @@ async def _prepare_durable_goal(state: GoalRunState) -> tuple[DurableExecutionRe
             state.running_ids.discard(task.id)
         elif durable_state in {"failed", "quarantined_unknown", "unknown"}:
             task.status = TaskStatus.blocked
-            task.stop_reason = "manual_review" if durable_state in {"quarantined_unknown", "unknown"} else "exception"
+            task.stop_reason = (
+                "manual_review"
+                if durable_state in {"quarantined_unknown", "unknown"}
+                else "exception"
+            )
             task.block_reason = str(row.get("error_json") or durable_state)
             state.running_ids.discard(task.id)
             if task.id not in state.unfinished_work:
@@ -931,9 +947,11 @@ async def cancel_goal(project_root: str, goal_id: str) -> GoalRunResponse:
             artifacts=get_goal_run_artifacts(project_root, goal_id),
             next_action="wait",
         )
-    state.status = GoalStatus.partial_completed if any(
-        task.artifacts or task.evidence for task in state.tasks.values()
-    ) else GoalStatus.cancelled
+    state.status = (
+        GoalStatus.partial_completed
+        if any(task.artifacts or task.evidence for task in state.tasks.values())
+        else GoalStatus.cancelled
+    )
     state.finalization_started = True
     state.last_stop_reason = "cancelled"
     _mark_unfinished(state)
@@ -964,7 +982,48 @@ def _finalize_episode(state: Any, project_root: str, *, outcome: str) -> None:
             started_at=state.started_at.isoformat() if state.started_at else None,
             completed_at=datetime.now(UTC).isoformat(),
         )
-        memory_controller.extract_candidates(project_root, state.goal_id)
+        # The old JSON MemoryController remains available to isolated 0.9
+        # tests, but production GoalRun candidate extraction must use the same
+        # durable Personal Runtime authority as the rest of the application.
+        if os.environ.get("VEYA_EXECUTION_DATABASE_URL"):
+            from runtime.personal import get_personal_runtime
+            from server.goal_run.trust_plane import read_task_episode, read_trust_plane_records
+
+            async def _persist_candidates() -> None:
+                episode = read_task_episode(project_root, state.goal_id)
+                if episode is None:
+                    return
+                records = read_trust_plane_records(project_root, state.goal_id)
+                claims = {item["claim_id"]: item for item in records if item["_type"] == "Claim"}
+                source = await get_personal_runtime().record_event(
+                    "memory.goal_run_candidate_source",
+                    {"goal_id": state.goal_id, "outcome": outcome},
+                    task_id=state.goal_id,
+                    workspace_id=str(project_root),
+                )
+                for verified in (item for item in records if item["_type"] == "VerifiedState"):
+                    claim = claims.get(verified["claim_id"])
+                    if claim is None:
+                        continue
+                    await get_personal_runtime().create_memory_candidate(
+                        claim["statement"],
+                        scope_type="workspace",
+                        scope_id=str(project_root),
+                        memory_type="episodic",
+                        source_event_ids=[source["id"]],
+                        source_task_ids=[state.goal_id],
+                        confidence=0.8,
+                        reason="GoalRun verified state; pending promotion",
+                        provenance={"goal_id": state.goal_id, "episode_id": episode["episode_id"]},
+                        trace_id=state.goal_id,
+                    )
+
+            try:
+                asyncio.get_running_loop().create_task(_persist_candidates())
+            except RuntimeError:
+                asyncio.run(_persist_candidates())
+        else:
+            memory_controller.extract_candidates(project_root, state.goal_id)
     except Exception:
         logger.exception("[goal_run %s] task episode finalize failed", state.goal_id)
 
@@ -989,6 +1048,7 @@ async def _run_loop_and_finalize(
         reserve_ratio=float(state.budget.get("finalization_reserve_ratio", 0.15)),
         max_reserve_s=float(state.budget.get("finalization_max_reserve_s", 900)),
     )
+
     def _spawn_event(event: dict[str, Any]) -> None:
         _emit_runtime_event(
             state,
@@ -1040,14 +1100,12 @@ async def _run_loop_and_finalize(
 
         operator_stop = bool(cancel_event and cancel_event.is_set())
         spawn_snapshot = spawn_guard.snapshot()
-        budget_near = (
-            spawn_snapshot["used_tokens"] + spawn_snapshot["reserved_tokens"]
-            >= spawn_snapshot["max_tokens"]
-            or (
-                spawn_guard.budget.max_cost_usd is not None
-                and spawn_snapshot["used_cost_usd"] + spawn_snapshot["reserved_cost_usd"]
-                >= spawn_guard.budget.max_cost_usd
-            )
+        budget_near = spawn_snapshot["used_tokens"] + spawn_snapshot[
+            "reserved_tokens"
+        ] >= spawn_snapshot["max_tokens"] or (
+            spawn_guard.budget.max_cost_usd is not None
+            and spawn_snapshot["used_cost_usd"] + spawn_snapshot["reserved_cost_usd"]
+            >= spawn_guard.budget.max_cost_usd
         )
         if not finalization.started and finalization.start(
             remaining_s,
@@ -1101,7 +1159,9 @@ async def _run_loop_and_finalize(
                             lease_ttl_s=30,
                         )
                         if claim is None:
-                            raise DurableExecutionError("NOT_FOUND", f"no durable claim for {current_task.id}")
+                            raise DurableExecutionError(
+                                "NOT_FOUND", f"no durable claim for {current_task.id}"
+                            )
                         await durable_repository.start(claim)
                         try:
                             response = await _process_one_task(current_task, state, project_root)
@@ -1124,20 +1184,35 @@ async def _run_loop_and_finalize(
                             else:
                                 await durable_repository.fail(
                                     claim,
-                                    {"message": current_task.block_reason or "leaf did not complete"},
+                                    {
+                                        "message": current_task.block_reason
+                                        or "leaf did not complete"
+                                    },
                                     classification="permanent_failure",
                                 )
                             return response
                         except asyncio.CancelledError:
                             with contextlib.suppress(DurableExecutionError):
-                                await durable_repository.fail(claim, {"message": "worker cancelled"}, classification="cancelled")
+                                await durable_repository.fail(
+                                    claim,
+                                    {"message": "worker cancelled"},
+                                    classification="cancelled",
+                                )
                             raise
                         except DurableExecutionError:
                             raise
                         except Exception as exc:
-                            classification = "unknown" if current_task.assignee in {"hicode", "dsh"} else "safe_retry"
+                            classification = (
+                                "unknown"
+                                if current_task.assignee in {"hicode", "dsh"}
+                                else "safe_retry"
+                            )
                             with contextlib.suppress(DurableExecutionError):
-                                await durable_repository.fail(claim, {"message": f"{type(exc).__name__}: {exc}"}, classification=classification)
+                                await durable_repository.fail(
+                                    claim,
+                                    {"message": f"{type(exc).__name__}: {exc}"},
+                                    classification=classification,
+                                )
                             raise
 
                     return await spawn_guard.run(
@@ -1195,9 +1270,13 @@ async def _run_loop_and_finalize(
                     response = None
                 else:
                     if response is None and task.status == TaskStatus.completed:
-                        _emit_runtime_event(state, project_root, "delegate.completed", task_id=task_id)
+                        _emit_runtime_event(
+                            state, project_root, "delegate.completed", task_id=task_id
+                        )
                     elif response is None and task.status == TaskStatus.ready:
-                        _emit_runtime_event(state, project_root, "delegate.partial", task_id=task_id)
+                        _emit_runtime_event(
+                            state, project_root, "delegate.partial", task_id=task_id
+                        )
                     elif response is not None:
                         _emit_runtime_event(
                             state,
@@ -1241,10 +1320,17 @@ async def _run_loop_and_finalize(
             goal_no_progress.reset()
             continue
         state_signature = tuple(
-            sorted((task.id, task.status.value, tuple(task.depends_on)) for task in state.tasks.values())
+            sorted(
+                (task.id, task.status.value, tuple(task.depends_on))
+                for task in state.tasks.values()
+            )
         )
         if goal_no_progress.observe(
-            signature=(state_signature, tuple(sorted(state.completed_ids)), scheduler_decision.value),
+            signature=(
+                state_signature,
+                tuple(sorted(state.completed_ids)),
+                scheduler_decision.value,
+            ),
         ):
             _mark_unfinished(state)
             state.last_stop_reason = "cross_turn_repetition"
@@ -1300,7 +1386,9 @@ async def _run_loop_and_finalize(
             try:
                 delegate_results.append(DelegateResult.from_mapping(task.id, task.delegate_result))
             except (TypeError, ValueError):
-                logger.warning("[goal_run %s] invalid delegate projection for %s", state.goal_id, task.id)
+                logger.warning(
+                    "[goal_run %s] invalid delegate projection for %s", state.goal_id, task.id
+                )
     fanin_batch = fan_in(delegate_results)
     _emit_runtime_event(
         state,
@@ -1328,7 +1416,9 @@ async def _run_loop_and_finalize(
     artifact_store.ensure_layout()
     for artifact in fanin_batch.artifacts:
         artifact_store.record(artifact)
-        artifact_event = {"draft": "created", "failed": "partial"}.get(artifact.status, artifact.status)
+        artifact_event = {"draft": "created", "failed": "partial"}.get(
+            artifact.status, artifact.status
+        )
         _emit_runtime_event(
             state,
             project_root,
@@ -1387,7 +1477,11 @@ async def _run_loop_and_finalize(
         )
         await durable_repository.complete_finalization(
             durable_finalization_claim,
-            {"answer": final_summary, "artifacts": artifacts, "unfinished_work": state.unfinished_work},
+            {
+                "answer": final_summary,
+                "artifacts": artifacts,
+                "unfinished_work": state.unfinished_work,
+            },
             final_status=final_status.value,
             snapshot_hash=durable_snapshot["manifest_hash"],
             result_artifact_id=durable_result_artifact_id,

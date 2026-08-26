@@ -1,0 +1,5 @@
+{
+  "case": "skill_regression",
+  "setup": {"active_version": 1, "candidate_version": 2, "candidate_delta": -0.1},
+  "assertions": ["inferior candidate stays inactive", "active version remains usable", "rollback is auditable"]
+}

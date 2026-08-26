@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging as _logging
 import os
 from contextlib import asynccontextmanager
@@ -45,6 +46,7 @@ from server.routes.omni import router as omni_router
 from server.routes.operator import router as operator_router
 from server.routes.performance import router as performance_router
 from server.routes.permission import router as permission_router
+from server.routes.personal_runtime import router as personal_runtime_router
 from server.routes.plan import router as plan_router
 from server.routes.projects import router as projects_router
 from server.routes.prompt import router as prompt_router
@@ -95,6 +97,8 @@ async def lifespan(app: FastAPI):
 
     _lg = logging.getLogger("veya.lifespan")
     durable_runtime = None
+    personal_runtime = None
+    personal_outbox_task: asyncio.Task | None = None
     # 启动 Automata 后台守护进程(Agent OS 的"手脚")
     from server.automata import get_automata
 
@@ -218,7 +222,13 @@ async def lifespan(app: FastAPI):
     # Crash-safe execution is opt-in until PostgreSQL migrations and cohort
     # policy are enabled.  When enabled, startup reconciliation completes
     # before any durable worker is allowed to claim work.
-    durable_requested = os.environ.get("VEYA_DURABLE_EXECUTION", "0").strip().lower() not in {"", "0", "false", "off", "no"}
+    durable_requested = os.environ.get("VEYA_DURABLE_EXECUTION", "0").strip().lower() not in {
+        "",
+        "0",
+        "false",
+        "off",
+        "no",
+    }
     try:
         from runtime.execution.runtime import get_durable_runtime
 
@@ -227,6 +237,30 @@ async def lifespan(app: FastAPI):
             await durable_runtime.start()
             app.state.durable_execution = durable_runtime
             _lg.warning("durable execution runtime ready: %s", await durable_runtime.health())
+            # Personal Agent Runtime uses the same PostgreSQL authority and
+            # schema migration as GoalRun.  It is started only with the
+            # durable production runtime; local tools remain lazy SQLite/test
+            # compatible outside production.
+            from runtime.personal import get_personal_runtime
+
+            personal_runtime = get_personal_runtime()
+            await personal_runtime.connect()
+            app.state.personal_runtime = personal_runtime
+            _lg.warning("personal runtime ready: %s", await personal_runtime.health())
+
+            async def _publish_personal_events() -> None:
+                while True:
+                    try:
+                        await personal_runtime.publish_outbox(limit=100)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        _lg.exception("personal runtime outbox pass failed")
+                    await asyncio.sleep(1.0)
+
+            personal_outbox_task = asyncio.create_task(
+                _publish_personal_events(), name="veya-personal-outbox"
+            )
     except Exception:
         if durable_requested or (durable_runtime is not None and durable_runtime.config.enabled):
             _lg.exception("durable execution startup failed; refusing to serve enabled runtime")
@@ -235,6 +269,11 @@ async def lifespan(app: FastAPI):
     yield
     if durable_runtime is not None and durable_runtime.config.enabled:
         await durable_runtime.close()
+    if personal_outbox_task is not None:
+        personal_outbox_task.cancel()
+        await asyncio.gather(personal_outbox_task, return_exceptions=True)
+    if personal_runtime is not None:
+        await personal_runtime.close()
     try:
         from server.codebase_memory import get_connector
 
@@ -301,6 +340,7 @@ if _visualization_router is not None:
     app.include_router(_visualization_router)
 app.include_router(cross_language_router)
 app.include_router(performance_router)
+app.include_router(personal_runtime_router)
 if _advanced_visualization_router is not None:
     app.include_router(_advanced_visualization_router)
 app.include_router(agent_collaboration_router)

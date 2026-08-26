@@ -461,6 +461,62 @@ class DurableExecutionRepository:
         )
         return event
 
+    async def _record_fence_rejection(
+        self, claim: ClaimEnvelope, operation: str
+    ) -> None:
+        """Persist stale-owner telemetry without masking the safety rejection."""
+        payload = {
+            "attempt_id": claim.attempt_id,
+            "owner": claim.worker_id,
+            "lease_token": claim.lease_token,
+            "operation": operation,
+        }
+        key = f"fenced-out:{claim.attempt_id}:{operation}"
+        try:
+            if self.backend == "sqlite":
+                await asyncio.to_thread(
+                    self._sqlite_tx,
+                    lambda conn: self._sqlite_event(
+                        conn,
+                        aggregate_type="work_item",
+                        aggregate_id=claim.work_item_id,
+                        goal_run_id=claim.goal_run_id,
+                        event_type="work_item.fenced_out",
+                        payload=payload,
+                        idempotency_key=key,
+                    ),
+                )
+                return
+
+            async def op_pg(conn: Any) -> None:
+                await self._pg_event(
+                    conn,
+                    aggregate_type="work_item",
+                    aggregate_id=claim.work_item_id,
+                    goal_run_id=claim.goal_run_id,
+                    event_type="work_item.fenced_out",
+                    payload=payload,
+                    idempotency_key=key,
+                )
+
+            await self._pg_tx(op_pg)
+        except Exception:
+            # Safety is fail-closed in the caller; telemetry is quality-only.
+            return
+
+    async def _guard_fenced(
+        self,
+        claim: ClaimEnvelope,
+        operation: str,
+        action: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        try:
+            return await action()
+        except DurableExecutionError as exc:
+            if exc.code == "STALE_FENCE":
+                await self._record_fence_rejection(claim, operation)
+            raise
+
     async def create_goal_run(
         self,
         *,
@@ -828,7 +884,7 @@ class DurableExecutionRepository:
             self._sqlite_event(conn, aggregate_type="work_item", aggregate_id=claim.work_item_id, goal_run_id=claim.goal_run_id, event_type="work_item.started", payload={"attempt_id": claim.attempt_id, "input_hash": claim.input_hash}, idempotency_key=f"started:{claim.attempt_id}")
 
         if self.backend == "sqlite":
-            await asyncio.to_thread(self._sqlite_tx, op)
+            await self._guard_fenced(claim, "start", lambda: asyncio.to_thread(self._sqlite_tx, op))
             return
 
         async def op_pg(conn: Any) -> None:
@@ -841,7 +897,7 @@ class DurableExecutionRepository:
             await conn.execute("UPDATE work_attempts SET state='started',started_at=$1,last_heartbeat_at=$1 WHERE id=$2 AND lease_token=$3", now, claim.attempt_id, claim.lease_token)
             await self._pg_event(conn, aggregate_type="work_item", aggregate_id=claim.work_item_id, goal_run_id=claim.goal_run_id, event_type="work_item.started", payload={"attempt_id": claim.attempt_id, "input_hash": claim.input_hash}, idempotency_key=f"started:{claim.attempt_id}")
 
-        await self._pg_tx(op_pg)
+        await self._guard_fenced(claim, "start", lambda: self._pg_tx(op_pg))
 
     async def heartbeat(self, claim: ClaimEnvelope, progress: dict[str, Any] | None = None, *, lease_ttl_s: float = 30.0) -> float:
         now = time.time()
@@ -861,7 +917,9 @@ class DurableExecutionRepository:
             return expires
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(self._sqlite_tx, op)
+            return await self._guard_fenced(
+                claim, "heartbeat", lambda: asyncio.to_thread(self._sqlite_tx, op)
+            )
 
         async def op_pg(conn: Any) -> float:
             result = await conn.execute("UPDATE execution_leases SET heartbeat_at=$1,expires_at=$2 WHERE work_item_id=$3 AND owner_id=$4 AND token=$5 AND released_at IS NULL AND expires_at>$1", now, expires, claim.work_item_id, claim.worker_id, claim.lease_token)
@@ -872,7 +930,7 @@ class DurableExecutionRepository:
             await self._pg_event(conn, aggregate_type="work_item", aggregate_id=claim.work_item_id, goal_run_id=claim.goal_run_id, event_type="work_item.heartbeat", payload={"attempt_id": claim.attempt_id, "progress": progress, "heartbeat_at": now}, idempotency_key=f"heartbeat:{claim.attempt_id}:{int(now*10)}")
             return expires
 
-        return await self._pg_tx(op_pg)
+        return await self._guard_fenced(claim, "heartbeat", lambda: self._pg_tx(op_pg))
 
     async def checkpoint(self, claim: ClaimEnvelope, checkpoint: dict[str, Any]) -> str:
         checkpoint_id = str(checkpoint.get("id") or new_id())
@@ -887,7 +945,9 @@ class DurableExecutionRepository:
             return checkpoint_id
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(self._sqlite_tx, op)
+            return await self._guard_fenced(
+                claim, "checkpoint", lambda: asyncio.to_thread(self._sqlite_tx, op)
+            )
 
         async def op_pg(conn: Any) -> str:
             result = await conn.execute("UPDATE work_items SET checkpoint_id=$1,revision=revision+1,updated_at=$2 WHERE id=$3 AND lease_owner=$4 AND lease_token=$5 AND state IN ('leased','running')", checkpoint_id, time.time(), claim.work_item_id, claim.worker_id, claim.lease_token)
@@ -897,7 +957,7 @@ class DurableExecutionRepository:
             await self._pg_event(conn, aggregate_type="work_item", aggregate_id=claim.work_item_id, goal_run_id=claim.goal_run_id, event_type="work_item.checkpointed", payload=checkpoint_data, idempotency_key=f"checkpoint:{checkpoint_id}")
             return checkpoint_id
 
-        return await self._pg_tx(op_pg)
+        return await self._guard_fenced(claim, "checkpoint", lambda: self._pg_tx(op_pg))
 
     def _sqlite_fence(self, conn: Any, claim: ClaimEnvelope, *, states: tuple[str, ...] = ("leased", "running")) -> Any:
         placeholders = ",".join("?" for _ in states)
@@ -952,7 +1012,11 @@ class DurableExecutionRepository:
             return dict(conn.execute("SELECT * FROM side_effects WHERE id=?", (effect_id,)).fetchone())
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(self._sqlite_tx, op)
+            if claim is None:
+                return await asyncio.to_thread(self._sqlite_tx, op)
+            return await self._guard_fenced(
+                claim, "side_effect_declare", lambda: asyncio.to_thread(self._sqlite_tx, op)
+            )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
             if claim is not None:
@@ -974,7 +1038,11 @@ class DurableExecutionRepository:
             await self._pg_event(conn, aggregate_type="side_effect", aggregate_id=effect_id, goal_run_id=goal_run_id, event_type="side_effect.declared", payload={"operation_key": operation_key, "request_hash": request_hash, "capability": capability}, idempotency_key=f"side-effect-declared:{operation_key}")
             return dict(await conn.fetchrow("SELECT * FROM side_effects WHERE id=$1", effect_id))
 
-        return await self._pg_tx(op_pg)
+        if claim is None:
+            return await self._pg_tx(op_pg)
+        return await self._guard_fenced(
+            claim, "side_effect_declare", lambda: self._pg_tx(op_pg)
+        )
 
     async def update_side_effect(
         self,
@@ -1010,7 +1078,11 @@ class DurableExecutionRepository:
             return dict(conn.execute("SELECT * FROM side_effects WHERE operation_key=?", (operation_key,)).fetchone())
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(self._sqlite_tx, op)
+            if claim is None:
+                return await asyncio.to_thread(self._sqlite_tx, op)
+            return await self._guard_fenced(
+                claim, "side_effect_update", lambda: asyncio.to_thread(self._sqlite_tx, op)
+            )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
             row = await conn.fetchrow("SELECT * FROM side_effects WHERE operation_key=$1", operation_key)
@@ -1028,7 +1100,11 @@ class DurableExecutionRepository:
             await self._pg_event(conn, aggregate_type="side_effect", aggregate_id=row["id"], goal_run_id=row["goal_run_id"], event_type=f"side_effect.{state}", payload={"operation_key": operation_key, "provider_request_id": provider_request_id, "probe_result": probe_result}, idempotency_key=f"side-effect:{operation_key}:{state}:{int(now*1000)}")
             return dict(await conn.fetchrow("SELECT * FROM side_effects WHERE operation_key=$1", operation_key))
 
-        return await self._pg_tx(op_pg)
+        if claim is None:
+            return await self._pg_tx(op_pg)
+        return await self._guard_fenced(
+            claim, "side_effect_update", lambda: self._pg_tx(op_pg)
+        )
 
     async def record_side_effect(self, operation_key: str, request_hash: str, state: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
         """Compatibility API for callers that already computed a request hash."""
@@ -1142,7 +1218,9 @@ class DurableExecutionRepository:
             return {"status": "committed", "result_hash": result_hash, "work_item_id": claim.work_item_id, "promoted": len(promoted_items)}
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(self._sqlite_tx, op)
+            return await self._guard_fenced(
+                claim, "complete", lambda: asyncio.to_thread(self._sqlite_tx, op)
+            )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
             current = await conn.fetchrow("SELECT * FROM work_items WHERE id=$1 FOR UPDATE", claim.work_item_id)
@@ -1187,7 +1265,7 @@ class DurableExecutionRepository:
                     promoted += 1
             return {"status": "committed", "result_hash": result_hash, "work_item_id": claim.work_item_id, "promoted": promoted}
 
-        return await self._pg_tx(op_pg)
+        return await self._guard_fenced(claim, "complete", lambda: self._pg_tx(op_pg))
 
     async def fail(
         self,
@@ -1241,7 +1319,9 @@ class DurableExecutionRepository:
             return {"status": decision, "state": state, "work_item_id": claim.work_item_id, "next_ready_at": next_ready}
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(self._sqlite_tx, op)
+            return await self._guard_fenced(
+                claim, "fail", lambda: asyncio.to_thread(self._sqlite_tx, op)
+            )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
             current = await conn.fetchrow("SELECT * FROM work_items WHERE id=$1 FOR UPDATE", claim.work_item_id)
@@ -1269,7 +1349,7 @@ class DurableExecutionRepository:
             await self._pg_event(conn, aggregate_type="work_item", aggregate_id=claim.work_item_id, goal_run_id=claim.goal_run_id, event_type=event_type, payload={"attempt_id": claim.attempt_id, "classification": classification, "error": error, "next_ready_at": next_ready}, idempotency_key=f"terminal:{claim.attempt_id}:{decision}")
             return {"status": decision, "state": state, "work_item_id": claim.work_item_id, "next_ready_at": next_ready}
 
-        return await self._pg_tx(op_pg)
+        return await self._guard_fenced(claim, "fail", lambda: self._pg_tx(op_pg))
 
     async def request_cancel(self, goal_run_id: str, *, actor: str = "user") -> dict[str, Any]:
         now = time.time()
@@ -2147,7 +2227,11 @@ class DurableExecutionRepository:
             return dict(conn.execute("SELECT * FROM artifacts WHERE id=?", (artifact_id,)).fetchone())
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(self._sqlite_tx, op)
+            if claim is None:
+                return await asyncio.to_thread(self._sqlite_tx, op)
+            return await self._guard_fenced(
+                claim, "artifact", lambda: asyncio.to_thread(self._sqlite_tx, op)
+            )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
             if claim is not None:
@@ -2166,7 +2250,9 @@ class DurableExecutionRepository:
             await self._pg_event(conn, aggregate_type="artifact", aggregate_id=artifact_id, goal_run_id=goal_run_id, event_type="artifact.created", payload={"artifact_id": artifact_id, "content_uri": content_uri, "content_hash": content_hash_value, "kind": kind, "visibility": visibility}, idempotency_key=f"artifact-created:{artifact_id}")
             return dict(await conn.fetchrow("SELECT * FROM artifacts WHERE id=$1", artifact_id))
 
-        return await self._pg_tx(op_pg)
+        if claim is None:
+            return await self._pg_tx(op_pg)
+        return await self._guard_fenced(claim, "artifact", lambda: self._pg_tx(op_pg))
 
     async def record_migration(
         self,
