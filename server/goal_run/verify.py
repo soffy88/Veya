@@ -124,7 +124,7 @@ async def _llm_check(task: TaskNode, leaf_result: str) -> tuple[bool, str]:
     """LLM 判定：输入 acceptance + leaf summary，返回是否通过。
 
     实现要点：
-    - 调用现有 LLM 层 (veya1.1)
+    - 调用现有 LLM 层 (veya1.2)
     - 返回 (passed, summary)
     """
     from server.project_understand import _default_llm
