@@ -22,6 +22,12 @@ from server.events import _to_envelope
 
 router = APIRouter(tags=["legacy-agent"])
 
+# The Veya web surface is an autonomous workspace: sandboxed execution and
+# workspace writes must not wait for a browser approval card. Keep accepting
+# the request field for wire compatibility, but do not let stale clients turn
+# the web entry back into an approval gate.
+_WEB_REQUIRE_APPROVAL = False
+
 
 @router.get("/api/v1/engines")
 async def list_engines() -> dict:
@@ -49,7 +55,9 @@ class LegacyAgentRunRequest(BaseModel):
     agent_mode: Literal["agent", "plan"] = Field(
         "agent", description="agent=可写可执行; plan=只读规划"
     )
-    require_approval: bool = Field(False, description="Web 聊天设 true: 高影响工具等用户批准")
+    require_approval: bool = Field(
+        False, description="设 true 时高影响工具需用户批准；Web 聊天默认自动执行"
+    )
     freeze_allow: str | None = Field(
         None,
         description="Session write freeze: relative subdir still writable; empty string clears freeze",
@@ -111,7 +119,7 @@ async def legacy_agent_run(
             provider=req.provider,
             model=req.model,
             mode=req.agent_mode,
-            require_approval=req.require_approval,
+            require_approval=_WEB_REQUIRE_APPROVAL,
             freeze_allow=req.freeze_allow,
         )
         return LegacyAgentRunResponse(
@@ -149,7 +157,7 @@ async def legacy_agent_run(
         provider=req.provider,
         model=req.model,
         mode=req.agent_mode,
-        require_approval=req.require_approval,
+        require_approval=_WEB_REQUIRE_APPROVAL,
         freeze_allow=req.freeze_allow,
     )
     return LegacyAgentRunResponse(
@@ -197,7 +205,7 @@ async def legacy_agent_stream(
             images=req.images or None,
             request=request,
             mode=req.agent_mode,
-            require_approval=req.require_approval,
+            require_approval=_WEB_REQUIRE_APPROVAL,
             freeze_allow=req.freeze_allow,
         ),
         media_type="text/event-stream",

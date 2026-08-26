@@ -3,10 +3,8 @@
 返回 taskgraph 摘要 + 最近 events 尾部。不调度、不执行代码、不修改任何文件。
 """
 
-from typing import Any
-
-from server.goal_run.store import load_goal_run, read_events, get_goal_run_artifacts
 from server.goal_run.models import GoalRunResponse, GoalStatus
+from server.goal_run.store import get_goal_run_artifacts, load_goal_run
 
 
 async def project_goal_status(
@@ -72,24 +70,31 @@ async def project_goal_status(
             next_action="none",
         )
 
-    # 读取最近事件
-    events = read_events(project_root, goal_id, limit=20)
-
     # 统计任务数
     pending = sum(1 for tn in state.tasks.values() if tn.status.name == "pending")
     running = sum(1 for tn in state.tasks.values() if tn.status.name == "running")
     completed = sum(1 for tn in state.tasks.values() if tn.status.name == "completed")
     blocked = sum(1 for tn in state.tasks.values() if tn.status.name == "blocked")
     cancelled = sum(1 for tn in state.tasks.values() if tn.status.name == "cancelled")
+    partial = sum(
+        1
+        for tn in state.tasks.values()
+        if (
+            tn.unfinished_work
+            or tn.evidence
+            or tn.assertions
+            or (tn.delegate_result or {}).get("status") in {"partial", "failed", "paused", "cancelled"}
+        )
+    )
 
     # 确定 next_action
-    if state.status == GoalStatus.running:
+    if state.status in (GoalStatus.running, GoalStatus.recovering, GoalStatus.finalizing):
         next_action = "wait"
     elif state.status == GoalStatus.awaiting_user:
         next_action = "answer_clarification"
     elif state.status == GoalStatus.blocked:
         next_action = "inspect_tasks"
-    elif state.status == GoalStatus.completed:
+    elif state.status in (GoalStatus.completed, GoalStatus.partial_completed, GoalStatus.failed):
         next_action = "none"
     else:
         next_action = "wait"
@@ -105,6 +110,8 @@ async def project_goal_status(
             "running": running,
             "completed": completed,
             "blocked": blocked + cancelled,
+            "cancelled": cancelled,
+            "partial": partial,
         },
         summary=state.final_summary,
         block_reason=state.tasks[next(iter(state.tasks))].block_reason

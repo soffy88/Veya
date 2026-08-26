@@ -8,14 +8,21 @@ Veya project_run_goal Spec v0.1:
 - 遵守现有纪律：不靠多 tool 做意图路由；不平行第二套与 HicodeTaskQueue 无关的「影子调度器」
 """
 
-from server.boss_entrypoint import project_run_goal_boss_mode
-from server.goal_run.runner import project_run_goal
+from server.goal_run.runner import cancel_goal, project_run_goal
 from server.goal_run.status import project_goal_status
 from server.goal_run.wire import wire_master_tools
 
+
+def project_run_goal_boss_mode(*args, **kwargs):
+    """Load the optional Boss adapter only when that adapter is requested."""
+    from server.boss_entrypoint import project_run_goal_boss_mode as _run_boss
+
+    return _run_boss(*args, **kwargs)
+
 __all__ = [
+    "cancel_goal",
+    "project_goal_status",
     "project_run_goal",
     "project_run_goal_boss_mode",
-    "project_goal_status",
     "wire_master_tools",
 ]

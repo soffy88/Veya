@@ -7,7 +7,7 @@
 
 from typing import Any
 
-from server.goal_run.runner import project_run_goal
+from server.goal_run.runner import cancel_goal, project_run_goal
 from server.goal_run.status import project_goal_status
 
 
@@ -18,17 +18,17 @@ def wire_master_tools() -> int:
     """
     added = 0
 
-    # 检查是否已注册
+    # 检查是否已注册；增量安装缺失的新运行时能力，不遮蔽既有注册。
     from server.tool_registry import master_tools
 
-    if master_tools.has("project_run_goal"):
-        return 0  # 已注册，直接返回
-
-    # 注册 project_run_goal
-    added += _wire_project_run_goal(master_tools)
+    if not master_tools.has("project_run_goal"):
+        added += _wire_project_run_goal(master_tools)
 
     # 注册 project_goal_status（只读）
-    added += _wire_project_status(master_tools)
+    if not master_tools.has("project_goal_status"):
+        added += _wire_project_status(master_tools)
+    if not master_tools.has("project_goal_cancel"):
+        added += _wire_project_cancel(master_tools)
 
     return added
 
@@ -43,7 +43,8 @@ def _wire_project_run_goal(master_tools: Any) -> int:
         "参数: project_root, goal, tasks(可选的显式任务图), mode(auto|act_eager|ask_only), resume_goal_id, "
         "parent_goal_clarification, max_wall_s, wait(true默认阻塞到终态或超时)。"
         "输出: goal_id, status, phase, interpretation/questions, goal_counts, summary, "
-        "block_reason, artifacts, next_action。",
+        "block_reason, artifacts, unfinished_work, next_action。预算进入收尾 reserve 后停止新增任务，"
+        "有可交付结果但部分验收未通过时返回 partial_completed。",
         {
             "type": "object",
             "properties": {
@@ -87,7 +88,7 @@ def _wire_project_run_goal(master_tools: Any) -> int:
                 },
                 "max_wall_s": {
                     "type": "integer",
-                    "description": "可选。覆盖默认预算 max_wall_s（秒），超时则 goal blocked budget_exceeded。",
+                    "description": "可选。覆盖默认预算 max_wall_s（秒）；进入 reserve 后自动收尾并返回最佳结果。",
                 },
                 "wait": {
                     "type": "boolean",
@@ -127,5 +128,24 @@ def _wire_project_status(master_tools: Any) -> int:
         },
         project_goal_status,
         max_result_chars=4000,
+    )
+    return 1
+
+
+def _wire_project_cancel(master_tools: Any) -> int:
+    """注册用户明确请求的取消入口；运行中的目标会先进入收尾。"""
+    master_tools.register(
+        "project_goal_cancel",
+        "请求取消一个 GoalRun。停止新增调度，传播取消信号，收集已有部分结果并进入收尾。",
+        {
+            "type": "object",
+            "properties": {
+                "project_root": {"type": "string", "description": "项目根目录绝对路径。"},
+                "goal_id": {"type": "string", "description": "要取消的 goal_id。"},
+            },
+            "required": ["project_root", "goal_id"],
+        },
+        cancel_goal,
+        max_result_chars=3000,
     )
     return 1
