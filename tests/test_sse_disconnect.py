@@ -21,6 +21,7 @@ class _FakeRequest:
 
     def __init__(self, disconnected: bool = False) -> None:
         self._disconnected = disconnected
+        self.headers = {}  # 模拟 FastAPI Request.headers
 
     async def is_disconnected(self) -> bool:
         return self._disconnected
@@ -61,6 +62,8 @@ async def test_events_stops_on_client_disconnect(monkeypatch):
 
     # 断开 → 直接退出, 不产生 [DONE] 帧
     assert frames == []
+    # 生成器提前返回, finally 块未执行; 手动 aclose 触发清理
+    await gen.aclose()
     assert "s-gone" not in sse._queues
 
 
@@ -71,11 +74,47 @@ async def test_events_heartbeat_when_connected(monkeypatch):
     req = _FakeRequest(disconnected=False)
 
     gen = q.events(req)
-    # 第一拍: 无数据 + 未断开 → 保活注释行
+    # 第一帧: retry 指引
     first = await asyncio.wait_for(gen.__anext__(), timeout=2.0)
-    assert first == ": ping\n\n"
+    assert first == "retry: 3000\n\n"
+    # 第二拍: 无数据 + 未断开 → 保活注释行
+    second = await asyncio.wait_for(gen.__anext__(), timeout=2.0)
+    assert second == ": ping\n\n"
     await gen.aclose()  # 触发 finally 清理
     assert "s-alive" not in sse._queues
+
+
+def test_on_step_persists_canonical_event(monkeypatch, tmp_path):
+    from server.events import _task_id_ctx, event_store
+
+    monkeypatch.setattr(event_store, "path", tmp_path / "events.jsonl")
+    monkeypatch.setattr(event_store, "_known_event_ids", None)
+    token = _task_id_ctx.set("task-sse")
+    try:
+        q = sse.SSEQueue("sess-sse")
+        q.on_step({"type": "tool.started", "tool_name": "grep"})
+    finally:
+        _task_id_ctx.reset(token)
+
+    events = event_store.read_all(task_id="task-sse")
+    assert len(events) == 1
+    assert events[0]["session_id"] == "sess-sse"
+    assert events[0]["topic"] == "tool.started"
+
+
+@pytest.mark.asyncio
+async def test_last_event_id_replays_only_missed_events():
+    q = sse.SSEQueue("s-replay")
+    q.on_step({"type": "tool.started", "tool_name": "one"})
+    q.on_step({"type": "tool.completed", "tool_name": "one"})
+    req = _FakeRequest()
+    req.headers = {"Last-Event-ID": "1"}
+    gen = q.events(req)
+    first = await gen.__anext__()
+    second = await gen.__anext__()
+    assert first == "retry: 3000\n\n"
+    assert '"tool.completed"' in second
+    await gen.aclose()
 
 
 async def _collect(gen) -> list[str]:

@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from server.coordinator_master import master_coordinator
+from server.session_identity import new_session_id
 from server.sse import get_or_create_queue
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ async def new_agent_stream_events(
     endpoint: str | None = None,
     user: dict | None = None,
     images: list[str] | None = None,
-    request: "Request | None" = None,
+    request: Request | None = None,
     mode: str | None = None,
     require_approval: bool = False,
     freeze_allow: str | None = None,
@@ -51,10 +52,10 @@ async def new_agent_stream_events(
     依赖它), 故此处只停消费、不取消后台任务。
     """
     # P3: 无 sid 时生成独立 id (旧默认 "chat_stream" 是公共桶, 会跨会话/跨用户串味)
-    sid = session_id or uuid.uuid4().hex
+    sid = session_id or new_session_id()
     queue = get_or_create_queue(sid)
-    from server.events import _on_step_ctx
     from server import auth as auth_mod
+    from server.events import _on_step_ctx
 
     token = _on_step_ctx.set(queue.on_step)
 
@@ -148,7 +149,7 @@ async def new_agent_stream_events(
                     logging.getLogger("chat_stream").info(
                         "完成通知已推送 user=%s sid=%s", user["user_id"], sid
                     )
-                except Exception as exc:  # noqa: BLE001 — 通知失败不拖垮主流程
+                except Exception as exc:  # 通知失败不拖垮主流程
                     import logging
 
                     logging.getLogger("chat_stream").warning("完成通知推送失败: %s", exc)
@@ -166,22 +167,32 @@ async def new_agent_stream_events(
         if mirror_uid:
             try:
                 from server.notification_center import global_notifier as _notifier
-            except Exception:  # noqa: BLE001 — 镜像是增强, 失败不拖垮主流
+            except Exception:  # 镜像是增强, 失败不拖垮主流
                 _notifier = None
         if _notifier is not None:
             # 先镜像用户提问 (流事件不含用户输入) — 其它设备据此现建会话 +
             # 渲染用户气泡 + 助手占位, 后续 delta 才有落点。
-            try:
+            with suppress(Exception):
                 _notifier.push_stream(
                     sid, {"type": "user_prompt", "text": text}, user_id=mirror_uid
                 )
-            except Exception:  # noqa: BLE001
-                pass
 
         # 消费事件队列 → SSE 帧(主脑事件流实时推送)
         # 心跳: 队列静默 >20s 时发 SSE 注释行 (: ping) — 前端 EventSource 规范忽略,
         # 但响应体持续流动 → 防止 Cloudflare Tunnel 100s 无数据掐断 (HTTP 524)。
         _HEARTBEAT_S = 20.0
+        last_event_id: int | None = None
+        if request is not None:
+            raw_last_id = request.headers.get("Last-Event-ID", "")
+            if raw_last_id.isdigit():
+                last_event_id = int(raw_last_id)
+        yield "retry: 3000\n\n"
+        replay_highwater = last_event_id if last_event_id is not None else -1
+        if last_event_id is not None:
+            for replayed in queue._replay_from(last_event_id):
+                replay_highwater = max(replay_highwater, int(replayed.get("id", 0)))
+                event_id = replayed.get("id", 0)
+                yield f"id: {event_id}\ndata: {json.dumps(replayed, ensure_ascii=False)}\n\n"
         while True:
             try:
                 item = await asyncio.wait_for(queue._q.get(), timeout=_HEARTBEAT_S)
@@ -195,12 +206,13 @@ async def new_agent_stream_events(
                 continue
             if item is None:
                 break
+            if last_event_id is not None and item.get("id", 0) <= replay_highwater:
+                continue
             if _notifier is not None:
-                try:
+                with suppress(Exception):
                     _notifier.push_stream(sid, item, user_id=mirror_uid)
-                except Exception:  # noqa: BLE001 — 镜像失败不影响本端推流
-                    pass
-            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+            event_id = item.get("id", 0)
+            yield f"id: {event_id}\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
     finally:
         _on_step_ctx.reset(token)

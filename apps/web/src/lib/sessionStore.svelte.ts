@@ -1,9 +1,9 @@
 /**
  * sessionStore — multi-session chat persistence (Claude-style).
  *
- * Sessions live in localStorage so history survives reloads. P3 cross-device:
- * when local has no messages for a sid, hydrate() pulls them from the backend
- * history endpoint (/api/v1/agent/history/{sid}, backed by P1 SQLite store).
+ * localStorage stores only the session index (sid/title/timestamps/cost). The
+ * backend history endpoint is the sole durable message source; hydrate() pulls
+ * messages after reload or on another device.
  * Each session auto-titles from its first user message.
  */
 
@@ -26,7 +26,9 @@ function load(): ChatSession[] {
 		const raw = localStorage.getItem(LS_KEY);
 		if (!raw) return [];
 		const parsed = JSON.parse(raw) as ChatSession[];
-		return Array.isArray(parsed) ? parsed : [];
+		return Array.isArray(parsed)
+			? parsed.map(({ messages: _messages, ...session }) => ({ ...session, messages: [] }))
+			: [];
 	} catch {
 		return [];
 	}
@@ -34,10 +36,25 @@ function load(): ChatSession[] {
 
 function save(list: ChatSession[]) {
 	try {
-		localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, MAX_SESSIONS)));
+		const index = list.slice(0, MAX_SESSIONS).map(({ messages: _messages, ...session }) => ({
+			...session,
+			messages: [],
+		}));
+		localStorage.setItem(LS_KEY, JSON.stringify(index));
 	} catch {
 		/* storage full — ignore */
 	}
+}
+
+function newSessionId(): string {
+	const bytes = new Uint8Array(16);
+	crypto.getRandomValues(bytes);
+	const timestamp = BigInt(Date.now());
+	for (let i = 5; i >= 0; i -= 1) bytes[i] = Number((timestamp >> BigInt((5 - i) * 8)) & 0xffn);
+	bytes[6] = (bytes[6] & 0x0f) | 0x70;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+	return `sess_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 class SessionManager {
@@ -46,11 +63,27 @@ class SessionManager {
 
 	/** 新建(或切换到)一个会话; 返回 sid */
 	newSession(): string {
-		const sid = crypto.randomUUID();
+		const sid = newSessionId();
 		this.sessions = [{ sid, title: "新对话", ts: Date.now(), cost: 0, messages: [] }, ...this.sessions];
 		this.activeSid = sid;
 		this.persist();
+		void this.createRemoteSession(sid);
 		return sid;
+	}
+
+	private async createRemoteSession(sid: string): Promise<void> {
+		try {
+			const token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
+			const headers: Record<string, string> = { "content-type": "application/json" };
+			if (token) headers.authorization = `Bearer ${token}`;
+			await fetch(`${API_BASE}/api/v1/sessions`, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ session_id: sid }),
+			});
+		} catch {
+			/* Local cache remains usable while the backend is unavailable. */
+		}
 	}
 
 	open(sid: string) {
@@ -66,7 +99,7 @@ class SessionManager {
 			const token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
 			const headers: Record<string, string> = {};
 			if (token) headers.authorization = `Bearer ${token}`;
-			const res = await fetch(`${API_BASE}/api/v1/agent/history/${sid}`, { headers });
+			const res = await fetch(`${API_BASE}/api/v1/sessions/${encodeURIComponent(sid)}`, { headers });
 			if (!res.ok) return;
 			const data = await res.json();
 			const msgs = ((data.messages ?? []) as Array<{ role: string; content?: string }>)
@@ -95,18 +128,18 @@ class SessionManager {
 		const token = typeof localStorage !== "undefined" ? localStorage.getItem("veya.auth.token") : null;
 		if (!token) return;
 		try {
-			const res = await fetch(`${API_BASE}/api/v1/agent/sessions`, {
+			const res = await fetch(`${API_BASE}/api/v1/sessions`, {
 				headers: { authorization: `Bearer ${token}` },
 			});
 			if (!res.ok) return;
 			const data = await res.json();
-			const cloud = (data.sessions ?? []) as { sid: string; title?: string; updated_at?: number }[];
+			const cloud = (data.sessions ?? []) as { session_id: string; title?: string; updated_at?: number }[];
 			if (cloud.length === 0) return;
 			const localSids = new Set(this.sessions.map((s) => s.sid));
 			const added: ChatSession[] = cloud
-				.filter((s) => s.sid && !localSids.has(s.sid))
+				.filter((s) => s.session_id && !localSids.has(s.session_id))
 				.map((s) => ({
-					sid: s.sid,
+					sid: s.session_id,
 					title: s.title || "云端会话",
 					ts: (s.updated_at ?? Date.now() / 1000) * 1000,
 					cost: 0,

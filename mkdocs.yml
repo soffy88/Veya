@@ -50,6 +50,9 @@ markdown_extensions:
 nav:
   - 首页: index.md
   - 快速开始: quickstart.md
+  - 使用示例: examples.md
+  - 故障排查: troubleshooting.md
+  - P1–P3 实施规格: VEYA_P1_P3_IMPLEMENTATION_SPEC.md
   - 产品路线图: roadmap.md
   - 架构: architecture.md
   - 标杆差距与路线图: BENCHMARK_AND_GAPS.md

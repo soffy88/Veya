@@ -55,6 +55,10 @@ import CollapsibleText from "./CollapsibleText.svelte";
 	let input = $state("");
 	let busy = $state(false);
 	let planMode = $state(false);
+	// P1-05: 权限档位选择器 (数据源 GET /api/v1/permission/profiles)
+	let permissionProfile = $state("");
+	let profileOptions = $state<{ name: string; description: string }[]>([]);
+	let profileError = $state("");
 	let pendingApproval = $state<{
 		request_id: string;
 		tool_name: string;
@@ -554,6 +558,8 @@ import CollapsibleText from "./CollapsibleText.svelte";
 
 	onMount(() => {
 		notifyStore.streamHandler = applyMirrorEvent;
+		// P1-05: 加载权限档位列表与当前档位
+		void loadProfiles();
 	});
 	onDestroy(() => {
 		if (notifyStore.streamHandler === applyMirrorEvent) notifyStore.streamHandler = undefined;
@@ -715,6 +721,47 @@ import CollapsibleText from "./CollapsibleText.svelte";
 			headers: { "content-type": "application/json", ...authHeader() },
 			body: JSON.stringify({ request_id: q.request_id, answer }),
 		}).catch(() => {});
+	}
+
+	// ── P1-05: 权限档位选择器 ────────────────────────────────────────
+	async function loadProfiles() {
+		try {
+			const [optsRes, curRes] = await Promise.all([
+				fetch(`${API_BASE}/api/v1/permission/profiles`, { headers: { ...authHeader() } }),
+				fetch(`${API_BASE}/api/v1/permission/profile`, { headers: { ...authHeader() } }),
+			]);
+			if (optsRes.ok) {
+				const data = (await optsRes.json()) as { profiles?: { name: string; description: string }[] };
+				profileOptions = data.profiles ?? [];
+			}
+			if (curRes.ok) {
+				const data = (await curRes.json()) as { profile?: string };
+				if (data.profile) permissionProfile = data.profile;
+			}
+		} catch {
+			profileError = "档位加载失败";
+		}
+	}
+
+	async function setPermissionProfile(profile: string) {
+		const prev = permissionProfile;
+		permissionProfile = profile;
+		profileError = "";
+		try {
+			const res = await fetch(`${API_BASE}/api/v1/permission/profile`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...authHeader() },
+				body: JSON.stringify({ profile }),
+			});
+			if (!res.ok) {
+				permissionProfile = prev;
+				const txt = await res.text();
+				profileError = `档位切换失败 (${res.status}): ${txt.slice(0, 120)}`;
+			}
+		} catch (e) {
+			permissionProfile = prev;
+			profileError = `档位切换失败: ${String(e)}`;
+		}
 	}
 
 	function stop() {
@@ -1053,6 +1100,26 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					: 'border-white/10 text-white/35 hover:text-white/70'}"
 			>{planMode ? "计划" : "执行"}</button>
 			<span class="flex-1"></span>
+			{#if profileOptions.length > 0}
+				<label
+					title="权限档位 (P1-05 / P3-01): READ_ONLY=全禁写, DEVELOPMENT=本地写放行, PRODUCTION=写与执行需批准"
+					class="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] text-terminal-dim"
+				>
+					<select
+						class="bg-transparent text-terminal-fg outline-none"
+						bind:value={permissionProfile}
+						onchange={() => void setPermissionProfile(permissionProfile)}
+						disabled={busy}
+					>
+						{#each profileOptions as opt (opt.name)}
+							<option value={opt.name}>{opt.name}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
+			{#if profileError}
+				<span class="font-mono text-[10px] text-rose-400">{profileError}</span>
+			{/if}
 			<span class="hidden md:inline">Enter 发送 · Shift+Enter 换行 · ↑ 编辑{ busy ? " · Esc 停止" : "" }</span>
 		</div>
 	</div>
@@ -1207,11 +1274,11 @@ import CollapsibleText from "./CollapsibleText.svelte";
 									{/if}
 
 									<div class="text-[15px] leading-relaxed text-terminal-fg">
-										{#if msg.status === "streaming" && !msg.text}
-											<div class="flex items-center gap-2 text-sm text-white/40">
-												<Loader2 class="size-4 animate-spin text-white/60" />
-												正在思考…
-											</div>
+						{#if msg.status === "streaming" && !msg.text}
+							<div class="flex items-center gap-2 text-sm text-white/40">
+								<Loader2 class="size-4 animate-spin text-white/60" />
+								执行中
+							</div>
 										{:else if parsed.pureText.trim()}
 											{#if msg.status === "streaming"}
 												<MarkdownBlock content={parsed.pureText.replace(/\[ARTIFACT_PLACEHOLDER:[^\]]+\]/g, "")} />

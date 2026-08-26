@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from server.routes.legacy_agent import get_session_history, list_user_sessions
+from server.routes.legacy_agent import attach_session, get_session_history, list_user_sessions
 from veya.history_store import SqliteHistoryStore
 
 _ALICE = {"user_id": "alice", "username": "alice"}
@@ -70,4 +70,46 @@ async def test_get_session_history_rejects_other_users_session(_patch_history_st
     await store.save("sid-a", [{"role": "user", "content": "alice 的隐私内容"}], user_id="alice")
 
     result = await get_session_history("sid-a", user=_BOB)
+    assert result["messages"] == []
+
+
+@pytest.mark.asyncio
+async def test_attach_session_returns_history_and_inactive_by_default(_patch_history_store):
+    """docs/VEYA_P1_P3_IMPLEMENTATION_SPEC.md §5 attach: 没有 _active_streams 登记时
+
+    active=false (跟 /api/v1/agent/stream_status 同一份判断逻辑)。
+    """
+    store = _patch_history_store
+    await store.save("sid-a", [{"role": "user", "content": "你好"}], user_id="alice")
+
+    result = await attach_session("sid-a", user=_ALICE)
+    assert result["session_id"] == "sid-a"
+    assert [m["role"] for m in result["messages"]] == ["user"]
+    assert result["active"] is False
+
+
+@pytest.mark.asyncio
+async def test_attach_session_reflects_active_running_turn(_patch_history_store, monkeypatch):
+    import asyncio
+
+    from server import coordinator_master
+
+    async def _never_ends():
+        await asyncio.sleep(10)
+
+    task = asyncio.create_task(_never_ends())
+    monkeypatch.setitem(coordinator_master._active_streams, "sid-a", task)
+    try:
+        result = await attach_session("sid-a", user=_ALICE)
+        assert result["active"] is True
+    finally:
+        task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_attach_session_rejects_other_users_session(_patch_history_store):
+    store = _patch_history_store
+    await store.save("sid-a", [{"role": "user", "content": "alice 的隐私内容"}], user_id="alice")
+
+    result = await attach_session("sid-a", user=_BOB)
     assert result["messages"] == []

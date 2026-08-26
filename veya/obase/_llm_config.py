@@ -26,6 +26,7 @@ _PRICING: dict[str, tuple[float, float]] = {
     "openai": (0.5, 1.5),
     "deepseek": (0.27, 1.1),
     "openrouter": (0.15, 0.6),
+    "inferera": (0.0, 0.0),
     "moonshot": (0.2, 2.0),
     "zhipu": (0.1, 0.1),
 }
@@ -37,6 +38,7 @@ _DEFAULT_MODELS: dict[str, str] = {
     "openai": "gpt-4o-mini",
     "deepseek": "deepseek-chat",
     "openrouter": "openai/gpt-4o-mini",
+    "inferera": "gpt-4.1-mini-free",
     "moonshot": "moonshot-v1-8k",
     "zhipu": "glm-4-flash",
 }
@@ -48,6 +50,7 @@ _ENDPOINTS: dict[str, str] = {
     "anthropic": "https://api.anthropic.com/v1/messages",
     "deepseek": "https://api.deepseek.com/v1/chat/completions",
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+    "inferera": "https://api.inferera.com/v1/chat/completions",
     "moonshot": "https://api.moonshot.cn/v1/chat/completions",
     "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
 }
@@ -58,6 +61,7 @@ _API_KEY_ENV: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "inferera": "INFERERA_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
     "zhipu": "ZHIPU_API_KEY",
     "opencode-go": "OPENCODE_API_KEY",
