@@ -2,8 +2,10 @@
 
 Plan mode, freeze, and approvals are *user* decisions (request flags), not
 keyword routing or slash commands. Default for tests/CLI: agent mode, no freeze,
-no approval wait. Web chat sends require_approval=true so write/execute tools
-pause for the user. freeze_allow locks writes to one subdirectory for the session.
+no approval wait. Web chat defaults to autonomous execution; set
+require_approval=true when an interactive approval gate is wanted. Sandbox-backed
+execution remains enforced by the tool implementation. freeze_allow locks writes
+to one subdirectory for the session.
 """
 
 from __future__ import annotations

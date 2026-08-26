@@ -28,7 +28,19 @@ async def list_traces(limit: int = Query(50, ge=1, le=500)) -> dict[str, Any]:
 @router.get("/metrics")
 async def metrics() -> dict[str, Any]:
     """Return runtime success/failure counters without inventing missing samples."""
-    return _api.metrics()
+    result = _api.metrics()
+    try:
+        from runtime.execution.runtime import get_durable_runtime
+
+        runtime = get_durable_runtime()
+        if runtime.config.enabled and runtime._started:
+            result["execution_runtime"] = await runtime.health()
+    except Exception:
+        # Existing telemetry remains available while the optional projection
+        # is unavailable; the durable health endpoint is the authoritative
+        # readiness signal.
+        pass
+    return result
 
 
 @router.get("/traces/{trace_id}")

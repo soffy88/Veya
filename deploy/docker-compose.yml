@@ -19,6 +19,25 @@ services:
     command: ["sh", "/app/hicode-entrypoint.sh"]
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.2}
+      # Production durable execution is configured in the root .env. If it is
+      # enabled without PostgreSQL, startup fails closed before any claim.
+      - VEYA_DURABLE_EXECUTION=${VEYA_DURABLE_EXECUTION:-0}
+      - VEYA_EXECUTION_DATABASE_URL=${VEYA_EXECUTION_DATABASE_URL:-}
+      - VEYA_EXECUTION_PRODUCTION=${VEYA_EXECUTION_PRODUCTION:-1}
+      - VEYA_EXECUTION_LEASE_TTL_S=${VEYA_EXECUTION_LEASE_TTL_S:-30}
+      - VEYA_EXECUTION_HEARTBEAT_INTERVAL_S=${VEYA_EXECUTION_HEARTBEAT_INTERVAL_S:-10}
+      - VEYA_EXECUTION_RECONCILIATION_INTERVAL_S=${VEYA_EXECUTION_RECONCILIATION_INTERVAL_S:-15}
+      - VEYA_EXECUTION_RECONCILIATION_BATCH_SIZE=${VEYA_EXECUTION_RECONCILIATION_BATCH_SIZE:-100}
+      - VEYA_EXECUTION_DURABLE_QUEUE_READ=${VEYA_EXECUTION_DURABLE_QUEUE_READ:-0}
+      - VEYA_EXECUTION_DURABLE_QUEUE_CLAIM=${VEYA_EXECUTION_DURABLE_QUEUE_CLAIM:-0}
+      - VEYA_EXECUTION_LEASE_FENCING=${VEYA_EXECUTION_LEASE_FENCING:-1}
+      - VEYA_EXECUTION_SIDE_EFFECT_LEDGER=${VEYA_EXECUTION_SIDE_EFFECT_LEDGER:-0}
+      - VEYA_EXECUTION_RECONCILER=${VEYA_EXECUTION_RECONCILER:-0}
+      - VEYA_EXECUTION_FINALIZATION_RESUME=${VEYA_EXECUTION_FINALIZATION_RESUME:-0}
+      - VEYA_EXECUTION_EVENT_OUTBOX=${VEYA_EXECUTION_EVENT_OUTBOX:-0}
+      - VEYA_EXECUTION_SHADOW_COMPARE=${VEYA_EXECUTION_SHADOW_COMPARE:-0}
+      - VEYA_EXECUTION_DUAL_RUN_COMPARE=${VEYA_EXECUTION_DUAL_RUN_COMPARE:-0}
+      - VEYA_EXECUTION_REMOTE_WORKER_ADAPTER=${VEYA_EXECUTION_REMOTE_WORKER_ADAPTER:-0}
       # local = process/docker (veya start / 当前单机). hosted = OpenSandbox, 禁止 process.
       - VEYA_SANDBOX_PROFILE=${VEYA_SANDBOX_PROFILE:-local}
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
@@ -67,6 +86,9 @@ services:
       - ../veya:/app/veya:ro
       - ../platform:/app/platform:ro
       - ../server:/app/server:ro
+      # Execution Runtime core is mounted with server so runtime changes take
+      # effect after container recreation without an image rebuild.
+      - ../runtime:/app/runtime:ro
       - ../veya_loop:/app/veya_loop:ro
       # 多引擎 CLI (node 生态 + claude 版本) 与凭据目录
       - /home/soffy/.nvm:/home/soffy/.nvm:ro
@@ -99,6 +121,8 @@ services:
     restart: unless-stopped
     networks:
       - veya-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   veya-data:

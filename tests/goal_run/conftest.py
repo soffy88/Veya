@@ -33,3 +33,19 @@ def _isolate_memory_controller(tmp_path, monkeypatch):
         "server.goal_run.runner.memory_controller",
         MemoryController(_MemoryStore(storage_path=tmp_path / "memory_isolated.json")),
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_durable_runtime(tmp_path, monkeypatch):
+    """Never let the goal-run suite write to the deployment PostgreSQL.
+
+    Production enables the durable runtime through the container environment;
+    tests that exercise durable GoalRun integration opt into their own
+    function-scoped SQLite runtime explicitly.
+    """
+    from runtime.execution.runtime import DurableExecutionRuntime, DurableRuntimeConfig
+
+    runtime = DurableExecutionRuntime(
+        DurableRuntimeConfig(enabled=False, sqlite_path=str(tmp_path / "durable.sqlite3"))
+    )
+    monkeypatch.setattr("runtime.execution.runtime._default_runtime", runtime)

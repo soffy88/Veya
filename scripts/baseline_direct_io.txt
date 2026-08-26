@@ -5,16 +5,17 @@ cli/product.py:205 FILE_W Path.cwd
 cli/product.py:207 FILE_W Path(workspace).expanduser
 cli/product.py:26 FILE_W Path.home
 cli/product.py:361 FILE_R Path(ws).is_dir
-cli/product.py:542 EXEC/NET import 'socket'
-cli/product.py:544 NET socket.socket
+cli/product.py:545 EXEC/NET import 'socket'
+cli/product.py:547 NET socket.socket
 cli/product.py:79 EXEC/NET import 'urllib.request'
 cli/product.py:81 NET urllib.request.urlopen
 cli/simple_cli.py:142 FILE_R open
 cli/simple_cli.py:202 FILE_W open
 cli/simple_cli.py:238 FILE_W open
 commands/__init__.py:237 FILE_R Path(args.strip()).read_text
-commands/upgrade.py:77 EXEC/NET import 'urllib.request'
-commands/upgrade.py:79 NET urllib.request.urlopen
+commands/upgrade.py:28 FILE_W Path(__file__).resolve
+commands/upgrade.py:88 EXEC/NET import 'urllib.request'
+commands/upgrade.py:90 NET urllib.request.urlopen
 config/loader.py:28 FILE_W Path.cwd
 config/loader.py:89 FILE_W Path.cwd
 config/loader.py:91 FILE_W Path.home
@@ -48,7 +49,7 @@ server/acceptance.py:56 FILE_W Path(workspace).expanduser
 server/acceptance.py:6 EXEC/NET import 'subprocess'
 server/acceptance.py:80 EXEC subprocess.run
 server/adversarial_chamber.py:44 FILE_W Path(output_dir).expanduser
-server/agent_loop_bridge.py:378 FILE_W Path.home
+server/agent_loop_bridge.py:389 FILE_W Path.home
 server/agents/architect_tools.py:193 FILE_W Path(library_root).resolve
 server/agents/architect_tools.py:23 EXEC/NET import 'subprocess'
 server/agents/architect_tools.py:296 EXEC subprocess.run
@@ -91,8 +92,8 @@ server/capability_model.py:186 FILE_W Path(storage_path or os.environ.get('VEYA_
 server/capability_model.py:195 FILE_R open
 server/capability_model.py:207 FILE_W open
 server/capability_model.py:209 FILE_W os.replace
-server/capability_model.py:526 FILE_W Path.home
-server/capability_model.py:534 FILE_W Path(storage_path or os.environ.get('VEYA_PERFORMA
+server/capability_model.py:563 FILE_W Path.home
+server/capability_model.py:571 FILE_W Path(storage_path or os.environ.get('VEYA_PERFORMA
 server/channels/adapters.py:37 EXEC/NET import 'httpx'
 server/channels/adapters.py:51 NET httpx.AsyncClient
 server/closed_loop.py:27 FILE_W Path(output_dir).expanduser
@@ -128,14 +129,14 @@ server/engine_runner.py:53 EXEC/NET import 'urllib.request'
 server/engine_runner.py:57 NET urllib.request.urlopen
 server/engine_runner.py:96 EXEC/NET import 'subprocess'
 server/engine_runner.py:98 EXEC/NET import 'urllib.request'
-server/events.py:104 FILE_W Path.home
-server/events.py:111 FILE_W Path(path or os.environ.get('VEYA_EVENT_STORE_PATH
+server/events.py:150 FILE_W Path.home
+server/events.py:157 FILE_W Path(path or os.environ.get('VEYA_EVENT_STORE_PATH
 server/goal_run/git_diff.py:11 EXEC/NET import 'subprocess'
 server/goal_run/git_diff.py:17 EXEC subprocess.run
 server/goal_run/git_diff.py:34 EXEC subprocess.run
 server/goal_run/git_diff.py:41 EXEC subprocess.run
 server/goal_run/git_diff.py:57 EXEC subprocess.run
-server/goal_run/planner.py:364 FILE_R open
+server/goal_run/planner.py:374 FILE_R open
 server/goal_session_map.py:20 FILE_W Path.home
 server/goal_session_map.py:48 FILE_W os.replace
 server/goal_session_map.py:58 FILE_W os.replace
@@ -258,8 +259,8 @@ server/state_kernel.py:355 FILE_R open
 server/state_kernel.py:366 FILE_R os.walk
 server/state_kernel.py:90 FILE_R open
 server/state_machine.py:24 FILE_W Path(db_path).expanduser
-server/task_store.py:136 FILE_W Path(path or os.environ.get('VEYA_TASK_STORE_PATH'
-server/task_store.py:169 FILE_W os.replace
+server/task_store.py:138 FILE_W Path(path or os.environ.get('VEYA_TASK_STORE_PATH'
+server/task_store.py:173 FILE_W os.replace
 server/task_store.py:66 FILE_W Path.home
 server/team_coord.py:109 FILE_W Path.home
 server/telemetry.py:149 FILE_W Path(self.DEFAULT_DIR).expanduser
@@ -268,23 +269,24 @@ server/telemetry.py:259 FILE_W Path(output_path).write_text
 server/telemetry.py:301 FILE_W Path(telemetry_dir).expanduser
 server/telemetry.py:88 FILE_W Path(path).expanduser
 server/threat_model.py:22 FILE_W Path(output_dir).expanduser
-server/tool_registry.py:1000 FILE_W Path(os.environ.get('VEYA_WRITE_ROOT', str(Path.ho
-server/tool_registry.py:1000 FILE_W Path.home
-server/tool_registry.py:723 FILE_W Path(__file__).resolve
-server/tool_registry.py:728 FILE_W Path(os.environ.get('VEYA_WORKSPACE', str(Path(__f
-server/tool_registry.py:729 FILE_W Path(__file__).resolve
-server/tool_registry.py:743 FILE_W Path(part).resolve
-server/tool_registry.py:790 EXEC/NET import 'httpx'
-server/tool_registry.py:794 NET httpx.AsyncClient
-server/tool_registry.py:812 EXEC/NET import 'httpx'
-server/tool_registry.py:827 NET httpx.AsyncClient
+server/tool_registry.py:1057 FILE_W Path(os.environ.get('VEYA_WRITE_ROOT', str(Path.ho
+server/tool_registry.py:1057 FILE_W Path.home
+server/tool_registry.py:2963 FILE_R Path(context_ref or '.').exists
+server/tool_registry.py:780 FILE_W Path(__file__).resolve
+server/tool_registry.py:785 FILE_W Path(os.environ.get('VEYA_WORKSPACE', str(Path(__f
+server/tool_registry.py:786 FILE_W Path(__file__).resolve
+server/tool_registry.py:800 FILE_W Path(part).resolve
+server/tool_registry.py:847 EXEC/NET import 'httpx'
+server/tool_registry.py:851 NET httpx.AsyncClient
+server/tool_registry.py:869 EXEC/NET import 'httpx'
+server/tool_registry.py:884 NET httpx.AsyncClient
 server/trajectory.py:79 FILE_W Path.home
 server/unified_pipeline.py:239 FILE_W Path(workspace_root).resolve
-server/user_control.py:149 FILE_W Path.home
-server/user_control.py:150 FILE_W Path(raw).expanduser
-server/user_control.py:158 FILE_W Path(root).expanduser
-server/user_control.py:179 FILE_W Path(root).resolve
-server/user_control.py:185 FILE_W Path(raw_path).expanduser
+server/user_control.py:152 FILE_W Path.home
+server/user_control.py:153 FILE_W Path(raw).expanduser
+server/user_control.py:161 FILE_W Path(root).expanduser
+server/user_control.py:182 FILE_W Path(root).resolve
+server/user_control.py:188 FILE_W Path(raw_path).expanduser
 server/vault_physical_tools.py:67 EXEC/NET import 'httpx'
 server/vault_physical_tools.py:79 NET httpx.AsyncClient
 server/vision_toolkit_tools.py:77 FILE_W Path(__file__).resolve

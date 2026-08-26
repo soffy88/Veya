@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging as _logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
@@ -93,6 +94,7 @@ async def lifespan(app: FastAPI):
     import logging
 
     _lg = logging.getLogger("veya.lifespan")
+    durable_runtime = None
     # 启动 Automata 后台守护进程(Agent OS 的"手脚")
     from server.automata import get_automata
 
@@ -213,7 +215,26 @@ async def lifespan(app: FastAPI):
         )
     except Exception:
         _lg.exception("wire 汇总日志失败")
+    # Crash-safe execution is opt-in until PostgreSQL migrations and cohort
+    # policy are enabled.  When enabled, startup reconciliation completes
+    # before any durable worker is allowed to claim work.
+    durable_requested = os.environ.get("VEYA_DURABLE_EXECUTION", "0").strip().lower() not in {"", "0", "false", "off", "no"}
+    try:
+        from runtime.execution.runtime import get_durable_runtime
+
+        durable_runtime = get_durable_runtime()
+        if durable_runtime.config.enabled:
+            await durable_runtime.start()
+            app.state.durable_execution = durable_runtime
+            _lg.warning("durable execution runtime ready: %s", await durable_runtime.health())
+    except Exception:
+        if durable_requested or (durable_runtime is not None and durable_runtime.config.enabled):
+            _lg.exception("durable execution startup failed; refusing to serve enabled runtime")
+            raise
+        _lg.exception("durable execution optional startup failed")
     yield
+    if durable_runtime is not None and durable_runtime.config.enabled:
+        await durable_runtime.close()
     try:
         from server.codebase_memory import get_connector
 
@@ -314,3 +335,11 @@ app.include_router(sse_router)
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "0.5.1"}
+
+
+@app.get("/health/execution-runtime")
+async def execution_runtime_health():
+    """Expose durable runtime/database/reconciler readiness separately."""
+    from runtime.execution.runtime import get_durable_runtime
+
+    return await get_durable_runtime().health()

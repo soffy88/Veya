@@ -139,6 +139,8 @@ async def test_agent_loop_run_tool_scopes_isolated_subtask(monkeypatch) -> None:
 
     调 run_strict_chat, 不复用主链 session_id, 完成后把 final_answer 带回。
     """
+    import json
+
     import server.agent_loop_bridge as bridge
 
     seen: dict[str, Any] = {}
@@ -153,7 +155,9 @@ async def test_agent_loop_run_tool_scopes_isolated_subtask(monkeypatch) -> None:
     out = await master_tools.execute(
         "agent_loop_run", {"task": "grep for TODO", "tool_group": "code_exec"}
     )
-    assert out == "sub-task done"
+    delegate = json.loads(out)
+    assert delegate["summary"] == "sub-task done"
+    assert delegate["status"] == "partial"  # missing stop_reason is conservative
     assert seen["task"] == "grep for TODO"
     assert seen["session_id"].startswith("agent-loop-tool-")  # 独立临时会话, 不是主链 sid
     names = {spec["function"]["name"] for spec in seen["tool_schemas"]}

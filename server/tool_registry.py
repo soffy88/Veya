@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from server.events import append_canonical_event, current_task_id
 from server.tool_guard import ToolDenied as _ToolDenied
@@ -73,6 +73,13 @@ _delegation_depth_ctx: contextvars.ContextVar[int] = contextvars.ContextVar(
     "veya_delegation_depth", default=0
 )
 
+# One guard per MasterAgent request context.  ContextVar keeps concurrent user
+# sessions isolated while nested AgentLoop calls share the same depth,
+# concurrency and root budget.
+_spawn_guard_ctx: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+    "veya_execution_spawn_guard", default=None
+)
+
 
 # ================= ToolSpec v1 (docs/dev/rfc-06-toolspec-v1.md 最小步骤) ====
 # 增量元数据, 只启用 side_effect 一个维度 (risk/idempotency 先占位, §7.1 全量字段
@@ -95,6 +102,12 @@ class SideEffect(Enum):
 class ToolSpec:
     name: str
     side_effect: SideEffect | None = None
+    # Provider capability is explicit so durable recovery cannot infer that a
+    # tool is replay-safe from its name or natural-language description.
+    effect_capability: Literal[
+        "none", "idempotency_key", "status_probe", "compensation", "manual_only"
+    ] = "none"
+    operation_version: str = "1"
 
 
 # ================= 并发安全工具 (多工具并行执行白名单) ======================
@@ -417,6 +430,10 @@ class MasterToolRegistry:
         timeout_s: float | None = None,
         parallel_safe: bool | None = None,
         side_effect: SideEffect | None = None,
+        effect_capability: Literal[
+            "none", "idempotency_key", "status_probe", "compensation", "manual_only"
+        ] = "none",
+        operation_version: str = "1",
     ) -> None:
         """注册一个能力,使其对大模型可见。
 
@@ -429,11 +446,17 @@ class MasterToolRegistry:
             timeout_s: 此工具的可选超时秒数；未配置时继承 registry/env，0 表示不设限。
             parallel_safe: 显式声明此工具纯只读/无副作用可与同批工具并发执行；
                 缺省 None 时按模块级 _PARALLEL_SAFE_TOOLS 白名单判定 (默认不并发)。
-            side_effect: ToolSpec v1 附加标注(rfc-06), 目前只是记录用, 不参与
-                parallel_safe 判断 — 两者暂时独立, 待后续验证等价后再考虑合并。
+            side_effect: ToolSpec v1 side-effect category.
+            effect_capability: provider recovery contract; ``none`` means the
+                operation is not declared replay-safe.
+            operation_version: stable version included in durable operation keys.
         """
         if not name or not callable(func):
             raise ValueError("register requires a non-empty tool name and a callable")
+        if effect_capability not in {"none", "idempotency_key", "status_probe", "compensation", "manual_only"}:
+            raise ValueError(f"Tool '{name}': unsupported effect capability {effect_capability!r}")
+        if not operation_version.strip():
+            raise ValueError(f"Tool '{name}': operation_version must not be empty")
         if name in self._functions:
             raise ValueError(f"Tool '{name}' already registered — 名字冲突会混淆大模型")
         # 归一化 parameters: 允许只传 properties 的简写
@@ -447,7 +470,12 @@ class MasterToolRegistry:
         self._validators[name] = validator
         self._descriptions[name] = description
         self._result_limits[name] = max_result_chars
-        self._tool_specs[name] = ToolSpec(name=name, side_effect=side_effect)
+        self._tool_specs[name] = ToolSpec(
+            name=name,
+            side_effect=side_effect,
+            effect_capability=effect_capability,
+            operation_version=operation_version,
+        )
         if timeout_s is not None:
             self._tool_timeouts[name] = parse_optional_timeout(
                 timeout_s, source=f"Tool '{name}' timeout_s"
@@ -470,6 +498,17 @@ class MasterToolRegistry:
     def spec_for(self, name: str) -> ToolSpec | None:
         """ToolSpec v1 (rfc-06) 查询入口, 未注册/未标注 side_effect 均返回对应默认值。"""
         return self._tool_specs.get(name)
+
+    def side_effect_policy_for(self, name: str) -> dict[str, str | None]:
+        """Return the declared side-effect recovery contract for a tool."""
+        spec = self._tool_specs.get(name)
+        if spec is None:
+            return {"side_effect": None, "effect_capability": "none", "operation_version": "1"}
+        return {
+            "side_effect": spec.side_effect.value if spec.side_effect else None,
+            "effect_capability": spec.effect_capability,
+            "operation_version": spec.operation_version,
+        }
 
     def unregister(self, name: str) -> None:
         if name in self._functions:
@@ -2828,35 +2867,46 @@ def _register_internalized_tools(mt: Any) -> None:
         budget_usd: float | None = None,
         deadline: str | None = None,
     ) -> str:
+        from runtime.execution.delegate_runtime import DelegateRuntime
+        from runtime.execution.models import DelegateRequest, SpawnBudget
+        from runtime.execution.spawn_guard import SpawnGuard
         from server.agent_loop_bridge import run_strict_chat
 
         depth = _delegation_depth_ctx.get()
-        if depth >= 2:
-            raise ToolExecutionError("delegation depth limit (2) reached")
         if tool_group and tool_group not in _GROUP_DESCRIPTIONS:
             raise ToolExecutionError(
                 f"未知 tool_group '{tool_group}'。可用: {', '.join(sorted(_GROUP_DESCRIPTIONS))}"
             )
         sid = f"agent-loop-tool-{uuid.uuid4().hex}"
         depth_token = _delegation_depth_ctx.set(depth + 1)
-        from server.events import current_task_id, event_store
+        from server.events import current_task_id, event_store, fire_step
 
         parent_task_id = current_task_id()
-        with contextlib.suppress(Exception):
-            event_store.append(
-                {
-                    "topic": "delegate.started",
-                    "task_id": parent_task_id,
-                    "trace_id": parent_task_id or sid,
-                    "actor": "master",
-                    "payload": {
-                        "child_session_id": sid,
-                        "context_ref": context_ref,
-                        "budget_usd": budget_usd,
-                        "deadline": deadline,
-                    },
-                }
-            )
+
+        def _runtime_event(event: dict[str, Any]) -> None:
+            with contextlib.suppress(Exception):
+                event_store.append(
+                    {
+                        "topic": event.get("type", "delegate.updated"),
+                        "task_id": parent_task_id,
+                        "trace_id": parent_task_id or sid,
+                        "actor": "master",
+                        "payload": {
+                            "child_session_id": sid,
+                            **{key: value for key, value in event.items() if key != "type"},
+                        },
+                    }
+                )
+            # Mirror the same runtime fact into the active SSE stream.  The
+            # canonical store remains the durable projection; this callback
+            # only supplies live UI visibility.
+            fire_step(event)
+
+        guard = _spawn_guard_ctx.get()
+        guard_token = None
+        if guard is None:
+            guard = SpawnGuard(SpawnBudget(), on_event=_runtime_event)
+            guard_token = _spawn_guard_ctx.set(guard)
         if tool_group:
             _session_enabled_groups[sid] = {tool_group}
         try:
@@ -2867,54 +2917,52 @@ def _register_internalized_tools(mt: Any) -> None:
                 )
             if context_ref:
                 child_task += f"\n\nContext reference: {context_ref}"
-            result = await run_strict_chat(
-                child_task,
-                session_id=sid,
-                max_rounds=max(1, min(int(max_rounds or 15), 40)),
-                tool_schemas=mt.get_resident_schemas(session_id=sid),
-                tool_executor=mt.execute,
+            request = DelegateRequest(
+                delegate_id=sid,
+                parent_task_id=parent_task_id or "master",
+                parent_trace_id=parent_task_id or sid,
+                objective=task,
+                context_ref=context_ref or None,
+                capability_scope=[tool_group] if tool_group else [],
+                acceptance=acceptance or [],
+                depth=depth,
+                estimated_tokens=max(1, min(int(max_rounds or 15), 40)) * 4096,
                 budget_usd=budget_usd,
-                deadline=deadline,
+                timeout_s=5400,
+                workspace=context_ref or ".",
             )
-            with contextlib.suppress(Exception):
-                event_store.append(
-                    {
-                        "topic": "delegate.completed" if result.get("status") == "success" else "delegate.failed",
-                        "task_id": parent_task_id,
-                        "trace_id": result.get("trace_id") or parent_task_id or sid,
-                        "actor": "master",
-                        "payload": {
-                            "child_session_id": sid,
-                            "status": result.get("status"),
-                            "cost_usd": result.get("cost_usd", 0.0),
-                        },
-                    }
+
+            async def _run_child(_cancel_event: asyncio.Event) -> dict[str, Any]:
+                return await run_strict_chat(
+                    child_task,
+                    session_id=sid,
+                    max_rounds=max(1, min(int(max_rounds or 15), 40)),
+                    tool_schemas=mt.get_resident_schemas(session_id=sid),
+                    tool_executor=mt.execute,
+                    budget_usd=budget_usd,
+                    deadline=deadline,
                 )
+
+            delegate_result = await DelegateRuntime(guard, on_event=_runtime_event).run(
+                request, _run_child
+            )
         finally:
             _session_enabled_groups.pop(sid, None)
             _delegation_depth_ctx.reset(depth_token)
-        if acceptance or context_ref or budget_usd is not None or deadline:
+            if guard_token is not None:
+                _spawn_guard_ctx.reset(guard_token)
+
+        # Keep deterministic acceptance as a result field.  The MasterAgent
+        # remains the only component that decides how to explain it to the
+        # user; a child never owns the final answer.
+        if acceptance:
+            from pathlib import Path
+
             from server.acceptance import evaluate_acceptance
 
-            acceptance_results = evaluate_acceptance(acceptance or [], workspace=context_ref or ".")
-            return json.dumps(
-                {
-                    "status": "completed" if result.get("status") == "success" else result.get("status", "failed"),
-                    "summary": result.get("final_answer") or result.get("error") or "(子任务无输出)",
-                    "evidence": result.get("tool_calls") or [],
-                    "acceptance_results": acceptance_results,
-                    "cost_usd": float(result.get("cost_usd") or 0.0),
-                    "child_trace_id": result.get("trace_id") or sid,
-                    "error": result.get("error"),
-                },
-                ensure_ascii=False,
-            )
-        if result.get("status") != "success":
-            raise ToolExecutionError(
-                f"子任务未完成 (status={result.get('status')}): "
-                f"{result.get('error') or result.get('final_answer') or ''}"
-            )
-        return result.get("final_answer") or "(子任务无输出)"
+            workspace = context_ref if Path(context_ref or ".").exists() else "."
+            delegate_result.acceptance_results = evaluate_acceptance(acceptance, workspace=workspace)
+        return json.dumps(delegate_result.to_dict(), ensure_ascii=False)
 
     async def _decision_record(
         category: str,

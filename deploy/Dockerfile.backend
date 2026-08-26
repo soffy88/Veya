@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Python 依赖(从 pyproject 全量安装, 含 apscheduler/pandas/numpy/pyarrow/scipy/cryptography)
 COPY veya/ ./veya/
 COPY server/ ./server/
+COPY runtime/ ./runtime/
 COPY platform/ ./platform/
 COPY tests/ ./tests/
 COPY services/ ./services/

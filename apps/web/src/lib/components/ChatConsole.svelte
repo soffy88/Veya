@@ -336,6 +336,26 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					label: action === "create" ? `📋 计划: ${obj || "创建"}` : `计划更新: ${obj || action}`,
 				};
 			}
+			case "finalization.started":
+				return { Icon: Loader2, cls: "text-sky-300 bg-sky-400/10 border-sky-400/30", label: "正在收尾" };
+			case "finalization.completed":
+				return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "收尾完成" };
+			case "fanin.completed":
+				return { Icon: ListTodo, cls: "text-violet-300 bg-violet-400/10 border-violet-400/30", label: "结果汇流" };
+			case "delegate.started":
+				return { Icon: Loader2, cls: "text-amber-300 bg-amber-400/10 border-amber-400/30", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "开始")}` };
+			case "delegate.completed":
+				return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "完成")}` };
+			case "delegate.partial":
+				return { Icon: CircleAlert, cls: "text-yellow-300 bg-yellow-400/10 border-yellow-400/30", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "部分完成")}` };
+			case "delegate.failed":
+				return { Icon: CircleAlert, cls: "text-rose-400 bg-rose-400/10 border-rose-400/30", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "失败")}` };
+			case "delegate.cancelled":
+				return { Icon: Square, cls: "text-white/50 bg-white/5 border-white/15", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "已取消")}` };
+			case "artifact.created":
+			case "artifact.verified":
+			case "artifact.partial":
+				return { Icon: Code2, cls: "text-cyan-300 bg-cyan-400/10 border-cyan-400/30", label: `产物 ${String(ev.path ?? ev.artifact ?? "已更新")}` };
 			default:
 				// master_start / master_round (任务开始/思考…) 一律不展示
 				return null;
@@ -370,6 +390,13 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				return "";
 			}
 		}
+		if (ev.type === "finalization.started") {
+			return `剩余 ${String(ev.remaining_wall_s ?? "-")}s，保留 ${String(ev.reserve_s ?? "-")}s 收口预算`;
+		}
+		if (ev.type === "fanin.completed") {
+			return `${String(ev.complete_count ?? 0)} complete · ${String(ev.partial_count ?? 0)} partial · ${String(ev.failed_count ?? 0)} failed`;
+		}
+		if (ev.type.startsWith("delegate.")) return String(ev.stop_reason ?? ev.error ?? "").slice(0, 200);
 		if (typeof ev.error === "string") return ev.error.slice(0, 200);
 		return "";
 	}
@@ -414,7 +441,12 @@ import CollapsibleText from "./CollapsibleText.svelte";
 			} else if (
 				kind === "tool_call" ||
 				kind === "tool_error" ||
-				kind === "project_understand_ask"
+				kind === "project_understand_ask" ||
+				kind === "finalization.started" ||
+				kind === "finalization.completed" ||
+				kind === "fanin.completed" ||
+				kind.startsWith("delegate.") ||
+				kind.startsWith("artifact.")
 			) {
 				// 只记录真实执行轨迹 (工具调用/失败/澄清追问); master_start/master_round
 				// (任务开始/思考…) 是过程噪音, 不展示。project_understand_ask 是
@@ -652,7 +684,9 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					engine: apiKeyStore.engine,
 					config: apiKeyStore.asConfig(),
 					agent_mode: planMode ? "plan" : "agent",
-					require_approval: !planMode,
+					// Agent tasks run through the backend's sandbox/tool guards without
+					// pausing for a browser-side approval card. Plan mode remains read-only.
+					require_approval: false,
 				}),
 				signal,
 			});

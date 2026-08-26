@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+COMPOSE_ENV_FILE="$PROJECT_DIR/.env"
 DOMAIN="${VEYA_DOMAIN:-veya.aiinote.com}"
 MODE="${1:-docker}"
 
@@ -67,8 +68,8 @@ deploy_docker() {
         sudo systemctl disable veya-gateway 2>/dev/null || true
     fi
 
-    $DOCKER_COMPOSE -f deploy/docker-compose.yml build --no-cache
-    $DOCKER_COMPOSE -f deploy/docker-compose.yml up -d --force-recreate
+    $DOCKER_COMPOSE --env-file "$COMPOSE_ENV_FILE" -f deploy/docker-compose.yml build --no-cache
+    $DOCKER_COMPOSE --env-file "$COMPOSE_ENV_FILE" -f deploy/docker-compose.yml up -d --force-recreate
 
     log "Waiting for services..."
     sleep 5
@@ -87,7 +88,7 @@ deploy_docker() {
     fi
 
     log "🚀 veya deployed at https://$DOMAIN"
-    $DOCKER_COMPOSE -f deploy/docker-compose.yml ps
+    $DOCKER_COMPOSE --env-file "$COMPOSE_ENV_FILE" -f deploy/docker-compose.yml ps
 }
 
 # ── Local (non-Docker) Deploy ─────────────────────────────
@@ -104,7 +105,7 @@ stop_services() {
     if [ -f /tmp/veya-backend.pid ]; then
         kill $(cat /tmp/veya-backend.pid) 2>/dev/null && rm /tmp/veya-backend.pid
     fi
-    $DOCKER_COMPOSE -f deploy/docker-compose.yml down 2>/dev/null
+    $DOCKER_COMPOSE --env-file "$COMPOSE_ENV_FILE" -f deploy/docker-compose.yml down 2>/dev/null
     log "Stopped"
 }
 
@@ -125,10 +126,10 @@ case "${1:-deploy}" in
         stop_services
         ;;
     logs)
-        $DOCKER_COMPOSE -f "$SCRIPT_DIR/docker-compose.yml" logs -f
+        $DOCKER_COMPOSE --env-file "$COMPOSE_ENV_FILE" -f "$SCRIPT_DIR/docker-compose.yml" logs -f
         ;;
     status)
-        $DOCKER_COMPOSE -f "$SCRIPT_DIR/docker-compose.yml" ps 2>/dev/null || {
+        $DOCKER_COMPOSE --env-file "$COMPOSE_ENV_FILE" -f "$SCRIPT_DIR/docker-compose.yml" ps 2>/dev/null || {
             [ -f /tmp/veya-backend.pid ] && echo "Backend running (PID $(cat /tmp/veya-backend.pid))" || echo "Backend stopped"
         }
         ;;

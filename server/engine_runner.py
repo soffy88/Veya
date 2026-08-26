@@ -285,7 +285,7 @@ def _container_engine_block(engine: str) -> str | None:
         probe = probes.get(engine)
         if probe and probe():
             return None
-        return f"容器环境不支持外部 CLI 引擎 '{engine}' (凭据/端点未就绪, 仅 master 可用)"
+        return f"容器环境不支持/不可用外部 CLI 引擎 '{engine}' (凭据/端点未就绪, 仅 master 可用)"
     return None
 
 
