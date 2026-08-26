@@ -73,7 +73,7 @@
 			/>
 			{#if error}<div class="err">{error}</div>{/if}
 			<button class="submit" disabled={busy} onclick={submit}>
-				{#if busy}<Loader2 size={13} class="spin" />{/if}
+				{#if busy}<Loader2 size={13} class="animate-spin" />{/if}
 				{mode === "login" ? "登录" : "注册并登录"}
 			</button>
 			<div class="hint">登录后：多端同步会话/计划，手机发命令电脑可确认执行。</div>
@@ -182,13 +182,5 @@
 		font-size: 11px;
 		color: var(--text-dim, #8b93a7);
 		line-height: 1.5;
-	}
-	.spin {
-		animation: spin 1s linear infinite;
-	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
 	}
 </style>

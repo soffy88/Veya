@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any, Literal
 
@@ -67,9 +66,9 @@ class LegacyAgentRunResponse(BaseModel):
 
 
 def _new_session_id() -> str:
-    import uuid
+    from server.session_identity import new_session_id
 
-    return uuid.uuid4().hex[:12]
+    return new_session_id()
 
 
 @router.post("/api/v1/agent/run", response_model=LegacyAgentRunResponse)
@@ -245,7 +244,11 @@ async def legacy_agent_stream_status(session_id: str) -> dict:
 
 class LegacyAgentSteerRequest(BaseModel):
     session_id: str
-    text: str = Field(..., min_length=1)
+    # ``text`` is canonical; action/instruction preserve the older gateway
+    # payload accepted by existing clients.
+    text: str | None = Field(default=None, min_length=1)
+    action: str = ""
+    instruction: str = ""
 
 
 @router.post("/api/v1/agent/steer")
@@ -263,14 +266,18 @@ async def legacy_agent_steer(
     owner = master_coordinator._history_owners.get(req.session_id)
     if owner is not None and owner != user["user_id"]:
         raise HTTPException(status_code=403, detail="无权操作该会话")
-    queued = master_coordinator.enqueue_steering_message(req.session_id, req.text.strip())
+    text = (req.text or req.instruction).strip()
+    if not text:
+        return {"status": "ok", "queued": False, "reason": "missing_instruction"}
+    queued = master_coordinator.enqueue_steering_message(req.session_id, text)
     if not queued:
         return {
+            "status": "ok",
             "queued": False,
             "reason": "no_active_turn_or_queue_full",
             "hint": "该会话当前没有正在跑的轮次 (或排队已满), 请改用 /api/v1/agent/run 或 /stream",
         }
-    return {"queued": True}
+    return {"status": "ok", "queued": True}
 
 
 class AgentApprovalRequest(BaseModel):
@@ -331,3 +338,28 @@ async def get_session_history(
 
     messages = await default_history_store().load(sid, user_id=user["user_id"])
     return {"session_id": sid, "messages": messages}
+
+
+@router.post("/api/v1/agent/sessions/{sid}/attach")
+async def attach_session(
+    sid: str,
+    user: dict = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """docs/VEYA_P1_P3_IMPLEMENTATION_SPEC.md §5: 接管一个已存在会话 —— 不新建、
+
+    不改动会话本身, 只是把「当前完整历史 + 是否有轮次正在跑」一次性交给客户端,
+    让它决定要不要接着开 GET /stream/{sid} 看实时事件 (`active=true` 时才值得连,
+    跟 `/api/v1/agent/stream_status` 同一份 `_active_streams` 判断逻辑,
+    这里只是把它跟历史拼在一起, 省一次往返)。复用 `get_session_history` 完全
+    一样的鉴权/数据源 (history_store 按 (user_id, sid) 分区), 不引入新状态。
+    """
+    from server.coordinator_master import _active_streams
+    from veya.history_store import default_history_store
+
+    messages = await default_history_store().load(sid, user_id=user["user_id"])
+    task = _active_streams.get(sid)
+    return {
+        "session_id": sid,
+        "messages": messages,
+        "active": task is not None and not task.done(),
+    }

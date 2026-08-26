@@ -16,6 +16,7 @@ dependencies = [
     "python-multipart>=0.0.9",  # G17: FastAPI 表单/文件上传支持
     "structlog>=24.0",  # 3O obase 主库 core 依赖(轻量, 装配通道 veya.platform 所需)
     "apscheduler>=3.10,<4",  # Veya Automata: 后台定时/事件调度(Agent OS)
+    "croniter>=2.0",  # cron 调度工具被 GoalRun/工具注册路径直接导入
 ]
 
 [project.optional-dependencies]

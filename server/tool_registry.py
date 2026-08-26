@@ -27,6 +27,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from server.events import append_canonical_event, current_task_id
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
 from veya.obase import telemetry
@@ -61,32 +62,16 @@ _RESIDENT_TOOLS: frozenset[str] = frozenset(
 )
 
 
-# ============ 主脑瘦身: 渐进解锁工具面 (VEYA_MASTER_LITE_TOOLS=1) ============
-# 2026-08-18 用户指示「主脑必须轻量, 解锁它本身智能」: 默认每轮把 ~60 份完整
-# JSON schema 全塞进 LLM `tools` 参数是 token 大头, 也会稀释模型注意力。开关打开
-# 后, 主链 (MasterAgent ReAct) 每轮 tools 只给「tool_search + 极少常驻」+「本会话
-# 已解锁」的工具; system prompt 里的一行式工具菜单 (master_agent:320) 保留不动,
-# 当"廉价目录"用 —— 模型读菜单知道有什么能力, 用 tool_search 按意图检索并解锁,
-# 下一轮即可原生 function-calling 调用被解锁的工具。
-#
-# 这**不是** §2.1 踩坑的 `_layer_tools` (程序按关键词猜该露哪些→猜错就藏错):
-# 解锁完全由模型自己发 tool_search 驱动, 程序从不替它裁藏; 只是把"付全额 schema
-# 成本"推迟到模型明确要用时。默认关闭 → 生产行为零变化。
-def _master_lite_enabled() -> bool:
-    return os.environ.get("VEYA_MASTER_LITE_TOOLS") == "1"
-
-
-# 主脑常驻的极少高频工具 (tool_search 恒在, 不列这里)。
-_MASTER_RESIDENT: frozenset[str] = frozenset({"ask_user", "project_ask"})
-
 # 当前主链会话 id (contextvar): coordinator_master.chat_stream 在 await agent 流前
 # set, submodule 里 get_all_schemas() 无 session 形参也能读到 → 不改只读 submodule。
 _current_master_session: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "veya_master_session", default=None
 )
 
-# 会话 id → 该会话已解锁工具名集合 (模块级, 全局可见; chat_stream 收尾清理)。
-_session_unlocked: dict[str, set[str]] = {}
+
+_delegation_depth_ctx: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "veya_delegation_depth", default=0
+)
 
 
 # ================= ToolSpec v1 (docs/dev/rfc-06-toolspec-v1.md 最小步骤) ====
@@ -146,6 +131,11 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "hicode_status",
         "hicode_sessions",
         "hicode_tasks",
+        # Memory tools are read-only lookups; writes/corrections remain outside
+        # this set and therefore never join a parallel batch.
+        "memory_search",
+        "memory_get",
+        "memory_explain",
     }
 )
 
@@ -494,30 +484,8 @@ class MasterToolRegistry:
 
     # ── 查询 ─────────────────────────────────────────────────────────
     def get_all_schemas(self) -> list[dict]:
-        """暴露给大模型的全部认知描述 (Function Calling 协议)。
-
-        VEYA_MASTER_LITE_TOOLS=1 时主链走渐进解锁: 只返回 tool_search + 极少常驻 +
-        本会话已解锁的工具 (schema 大头按需付费)。默认关闭 → 全量, 行为不变。
-        """
-        if not _master_lite_enabled():
-            return list(self._schemas)
-        return self._lite_schemas()
-
-    def _lite_schemas(self) -> list[dict]:
-        """瘦身工具面: {tool_search} ∪ 常驻 ∪ 本会话已解锁, 按注册顺序保序去重。"""
-        sid = _current_master_session.get()
-        unlocked = _session_unlocked.get(sid, set()) if sid else set()
-        visible = {"tool_search"} | _MASTER_RESIDENT | unlocked
-        return [s for s in self._schemas if s["function"]["name"] in visible]
-
-    def unlock_for_session(self, sid: str | None, names: list[str]) -> list[str]:
-        """把 names 里已注册的工具加入该会话解锁集, 返回本次新解锁的名字。"""
-        if not sid:
-            return []
-        bucket = _session_unlocked.setdefault(sid, set())
-        added = [n for n in names if n in self._functions and n not in bucket]
-        bucket.update(added)
-        return added
+        """暴露给大模型的完整认知描述；工具检索不改变可见工具面。"""
+        return list(self._schemas)
 
     def is_parallel_safe(self, name: str) -> bool:
         """此工具是否纯只读/无副作用, 可与同批工具并发执行。
@@ -575,12 +543,43 @@ class MasterToolRegistry:
             raise ToolExecutionError(
                 f"Tool '{name}' not found. Available: {', '.join(self.list_tools())}"
             )
-        _validate_arguments(name, kwargs, self._validators[name])
+        def _event(topic: str, **payload: Any) -> None:
+            # Event persistence is observability, never a reason to fail a tool.
+            with contextlib.suppress(Exception):
+                append_canonical_event(
+                    topic,
+                    {"tool_name": name, **payload},
+                    actor="master",
+                    task_id=current_task_id(),
+                )
+
+        def _checkpoint(stage: str) -> None:
+            """Create a safe checkpoint around non-read-only physical work."""
+            if not current_task_id():
+                return
+            with contextlib.suppress(Exception):
+                from server.permission_profiles import RiskLevel, classify_risk
+                from server.task_store import task_store
+
+                if classify_risk(name, kwargs) == RiskLevel.R0:
+                    return
+                checkpoint_id = uuid.uuid4().hex
+                task_store.set_checkpoint(current_task_id(), checkpoint_id, stage=stage)
+
+        _event("tool.requested")
+        try:
+            _validate_arguments(name, kwargs, self._validators[name])
+        except Exception as exc:
+            _event("tool.failed", error_type=type(exc).__name__)
+            raise
+        _checkpoint("before")
         # 统一守卫通道: 执行前过策略链 + 记决策轨迹 (缺省全放行, 零行为变化)。
         try:
             await _tool_guard.acheck(name, kwargs, source="master_tool")
         except _ToolDenied as denied:
+            _event("tool.denied", error_type=type(denied).__name__)
             raise ToolExecutionError(str(denied)) from denied
+        _event("tool.started")
         effective_timeout = parse_optional_timeout(
             timeout_s, source=f"Tool '{name}' execute timeout_s"
         )
@@ -598,6 +597,9 @@ class MasterToolRegistry:
             else:
                 raw = await asyncio.wait_for(execution, timeout=effective_timeout)
             result = _to_str(raw, limit=self._result_limits.get(name, 8000))
+            duration_ms = round((time.time() - _span_start) * 1000, 3)
+            _event("tool.completed", duration_ms=duration_ms, result_chars=len(result))
+            _checkpoint("after")
             telemetry.emit(
                 {
                     "span": "tool_execute",
@@ -608,7 +610,20 @@ class MasterToolRegistry:
                 }
             )
             return result
+        except asyncio.CancelledError:
+            _checkpoint("after_cancelled")
+            _event(
+                "tool.cancelled",
+                duration_ms=round((time.time() - _span_start) * 1000, 3),
+            )
+            raise
         except TimeoutError as exc:
+            _checkpoint("after_failed")
+            _event(
+                "tool.failed",
+                error_type="TimeoutError",
+                duration_ms=round((time.time() - _span_start) * 1000, 3),
+            )
             telemetry.emit(
                 {
                     "span": "tool_execute",
@@ -622,6 +637,12 @@ class MasterToolRegistry:
                 f"tool '{name}' timed out after {effective_timeout:g}s"
             ) from exc
         except ToolExecutionError as exc:
+            _checkpoint("after_failed")
+            _event(
+                "tool.failed",
+                error_type=type(exc).__name__,
+                duration_ms=round((time.time() - _span_start) * 1000, 3),
+            )
             telemetry.emit(
                 {
                     "span": "tool_execute",
@@ -634,6 +655,12 @@ class MasterToolRegistry:
             )
             raise
         except Exception as exc:
+            _checkpoint("after_failed")
+            _event(
+                "tool.failed",
+                error_type=type(exc).__name__,
+                duration_ms=round((time.time() - _span_start) * 1000, 3),
+            )
             telemetry.emit(
                 {
                     "span": "tool_execute",
@@ -2793,27 +2820,95 @@ def _register_internalized_tools(mt: Any) -> None:
     # 会话历史。tool_group 由调用方 (MasterAgent, 全量视野) 决定给子任务开
     # 哪个专项能力组 — 裁剪的是子任务的执行边界, 不是主脑的认知面。
     async def _agent_loop_run(
-        task: str, tool_group: str | None = None, max_rounds: int = 15
+        task: str,
+        tool_group: str | None = None,
+        max_rounds: int = 15,
+        context_ref: str = "",
+        acceptance: list[dict[str, Any]] | None = None,
+        budget_usd: float | None = None,
+        deadline: str | None = None,
     ) -> str:
         from server.agent_loop_bridge import run_strict_chat
 
+        depth = _delegation_depth_ctx.get()
+        if depth >= 2:
+            raise ToolExecutionError("delegation depth limit (2) reached")
         if tool_group and tool_group not in _GROUP_DESCRIPTIONS:
             raise ToolExecutionError(
                 f"未知 tool_group '{tool_group}'。可用: {', '.join(sorted(_GROUP_DESCRIPTIONS))}"
             )
         sid = f"agent-loop-tool-{uuid.uuid4().hex}"
+        depth_token = _delegation_depth_ctx.set(depth + 1)
+        from server.events import current_task_id, event_store
+
+        parent_task_id = current_task_id()
+        with contextlib.suppress(Exception):
+            event_store.append(
+                {
+                    "topic": "delegate.started",
+                    "task_id": parent_task_id,
+                    "trace_id": parent_task_id or sid,
+                    "actor": "master",
+                    "payload": {
+                        "child_session_id": sid,
+                        "context_ref": context_ref,
+                        "budget_usd": budget_usd,
+                        "deadline": deadline,
+                    },
+                }
+            )
         if tool_group:
             _session_enabled_groups[sid] = {tool_group}
         try:
+            child_task = task
+            if acceptance:
+                child_task += "\n\nAcceptance contract:\n" + "\n".join(
+                    f"- {item.get('description') or item.get('id', '')}" for item in acceptance
+                )
+            if context_ref:
+                child_task += f"\n\nContext reference: {context_ref}"
             result = await run_strict_chat(
-                task,
+                child_task,
                 session_id=sid,
                 max_rounds=max(1, min(int(max_rounds or 15), 40)),
                 tool_schemas=mt.get_resident_schemas(session_id=sid),
                 tool_executor=mt.execute,
+                budget_usd=budget_usd,
+                deadline=deadline,
             )
+            with contextlib.suppress(Exception):
+                event_store.append(
+                    {
+                        "topic": "delegate.completed" if result.get("status") == "success" else "delegate.failed",
+                        "task_id": parent_task_id,
+                        "trace_id": result.get("trace_id") or parent_task_id or sid,
+                        "actor": "master",
+                        "payload": {
+                            "child_session_id": sid,
+                            "status": result.get("status"),
+                            "cost_usd": result.get("cost_usd", 0.0),
+                        },
+                    }
+                )
         finally:
             _session_enabled_groups.pop(sid, None)
+            _delegation_depth_ctx.reset(depth_token)
+        if acceptance or context_ref or budget_usd is not None or deadline:
+            from server.acceptance import evaluate_acceptance
+
+            acceptance_results = evaluate_acceptance(acceptance or [], workspace=context_ref or ".")
+            return json.dumps(
+                {
+                    "status": "completed" if result.get("status") == "success" else result.get("status", "failed"),
+                    "summary": result.get("final_answer") or result.get("error") or "(子任务无输出)",
+                    "evidence": result.get("tool_calls") or [],
+                    "acceptance_results": acceptance_results,
+                    "cost_usd": float(result.get("cost_usd") or 0.0),
+                    "child_trace_id": result.get("trace_id") or sid,
+                    "error": result.get("error"),
+                },
+                ensure_ascii=False,
+            )
         if result.get("status") != "success":
             raise ToolExecutionError(
                 f"子任务未完成 (status={result.get('status')}): "
@@ -3075,6 +3170,17 @@ def _register_internalized_tools(mt: Any) -> None:
                         "type": "integer",
                         "description": "子任务最多轮次, 默认 15, 上限 40。",
                     },
+                    "context_ref": {
+                        "type": "string",
+                        "description": "可选的共享上下文/工作区引用，不会把子任务历史写入父会话。",
+                    },
+                    "acceptance": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "可选验收契约；确定性条件在子任务返回时评估。",
+                    },
+                    "budget_usd": {"type": "number", "minimum": 0},
+                    "deadline": {"type": "string", "description": "可选 ISO-8601 deadline；超时会终止子任务。"},
                 },
                 "required": ["task"],
             },
@@ -3164,14 +3270,7 @@ def _search_tokens(text: str) -> set[str]:
 
 
 def _tool_search(query: str, top_k: int = 5) -> str:
-    """按意图检索并**解锁**工具: 命中工具进本会话解锁集, 下一轮即可原生调用。
-
-    仅在 VEYA_MASTER_LITE_TOOLS=1 时对主脑有意义 (瘦身工具面下的发现入口)。
-    评分: 完整子串命中 > query 词元与 name/description 词元的重叠。中英混排均支持。
-    返回命中工具的完整 function schema (name+description+parameters), 让模型这一轮
-    就看清参数, 下一轮直接原生 function-calling 调用。
-    """
-    sid = _current_master_session.get()
+    """按模型显式查询返回工具 schema，不修改主链可见工具面。"""
     top_k = max(1, min(int(top_k or 5), 20))
     q = (query or "").lower().strip()
     q_tokens = _search_tokens(q)
@@ -3179,8 +3278,8 @@ def _tool_search(query: str, top_k: int = 5) -> str:
     for schema in master_tools._schemas:
         fn = schema["function"]
         name = fn["name"]
-        if name == "tool_search" or name in _MASTER_RESIDENT:
-            continue  # 已常驻, 无需检索解锁
+        if name == "tool_search":
+            continue
         hay = f"{name} {fn.get('description', '')}".lower()
         hay_tokens = _search_tokens(hay)
         score = 0
@@ -3193,16 +3292,204 @@ def _tool_search(query: str, top_k: int = 5) -> str:
     if not hits:  # 无命中也给前几个, 避免模型空手
         hits = scored[:top_k]
     names = [row[1] for row in hits]
-    newly = master_tools.unlock_for_session(sid, names)
     return json.dumps(
         {
-            "unlocked": newly,
-            "already_available": [n for n in names if n not in newly],
+            "unlocked": [],
+            "already_available": names,
             "tools": [row[2] for row in hits],
-            "note": "已解锁的工具下一轮起可直接调用 (原生 function-calling)。",
+            "note": "主链始终暴露全量工具；本结果仅提供显式检索到的 schema。",
         },
         ensure_ascii=False,
     )
+
+
+
+# ── P2-03 Memory Toolset (2026-08) ──────────────────────────────────────
+from server.memory_controller import memory_toolset  # noqa: E402
+
+
+def _tool_memory_search(query: str = "", *, scope: str | None = None) -> dict:
+    """搜索长期记忆: 关键词过滤 content/entities/keywords。"""
+    return {"results": memory_toolset.search(query, scope=scope)}
+
+
+def _tool_memory_write(content: str, *, type: str = "semantic", scope: str = "project",
+                       entities: list[str] | None = None, keywords: list[str] | None = None,
+                       provenance: str = "", trust_level: str = "unknown",
+                       scope_type: str | None = None, scope_id: str | None = None,
+                       memory_type: str | None = None, source_event_ids: list[str] | None = None,
+                       tags: list[str] | None = None, confidence: float | None = None) -> dict:
+    """写入新记忆条目。"""
+    return memory_toolset.write(content, type=type, scope=scope, entities=entities,
+                                keywords=keywords, provenance=provenance, trust_level=trust_level,
+                                scope_type=scope_type, scope_id=scope_id,
+                                memory_type=memory_type, source_event_ids=source_event_ids,
+                                tags=tags, confidence=confidence)
+
+
+def _tool_memory_correct(memory_id: str, content: str, *, provenance: str = "") -> dict:
+    """修正一条现有记忆的内容。"""
+    return memory_toolset.correct(memory_id, content, provenance=provenance)
+
+
+def _tool_memory_supersede(memory_id: str, content: str, *, provenance: str = "") -> dict:
+    """supersede 一条记忆: 标原记录 deprecated, 创建新 candidate 记录。"""
+    return memory_toolset.supersede(memory_id, content, provenance=provenance)
+
+
+def _tool_memory_forget(memory_id: str) -> dict:
+    """永久删除一条记忆 (仅限 deprecated/rejected 状态)。"""
+    return memory_toolset.forget(memory_id)
+
+
+def _tool_memory_get(memory_id: str) -> dict:
+    """获取单条记忆详情。"""
+    return memory_toolset.get(memory_id)
+
+
+def _tool_memory_explain(memory_id: str) -> dict:
+    """解释一条记忆的来源。"""
+    return memory_toolset.explain(memory_id)
+
+
+if not master_tools.has("memory_search"):
+    master_tools.register(
+        name="memory_search",
+        description=(
+            "搜索长期记忆库。关键词过滤 content / entities / keywords, 可选按 scope 过滤。"
+            "返回匹配的 MemoryRecord 列表。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索关键词(内容/实体/关键词)"},
+                "scope": {"type": "string", "description": "可选: 仅搜指定 scope(project/global等)"},
+            },
+            "required": ["query"],
+        },
+        func=_tool_memory_search,
+        side_effect=SideEffect.PURE_READ,
+    )
+
+if not master_tools.has("memory_write"):
+    master_tools.register(
+        name="memory_write",
+        description=(
+            "写入新记忆条目。content 必填; type/scope/entities/keywords/provenance/trust_level 可选。"
+            "返回包含 memory_id 的新记录对象。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+            "content": {"type": "string", "description": "记忆内容"},
+                "type": {"type": "string", "description": "类型: working|episodic|semantic|procedural, 默认 semantic"},
+                "scope": {"type": "string", "description": "作用域: project|global|user, 默认 project"},
+                "entities": {"type": "array", "items": {"type": "string"}, "description": "实体标签"},
+                "keywords": {"type": "array", "items": {"type": "string"}, "description": "关键词标签"},
+                "provenance": {"type": "string", "description": "来源说明"},
+                "trust_level": {"type": "string", "description": "信任等级: unknown|L1|L2_verified|L3_cross_checked, 默认 unknown"},
+                "scope_type": {"type": "string", "description": "canonical scope: user|workspace|session"},
+                "scope_id": {"type": "string", "description": "canonical scope id"},
+                "memory_type": {"type": "string", "description": "episodic|semantic|procedural|preference|decision"},
+                "source_event_ids": {"type": "array", "items": {"type": "string"}},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            },
+            "required": ["content"],
+        },
+        func=_tool_memory_write,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+
+if not master_tools.has("memory_correct"):
+    master_tools.register(
+        name="memory_correct",
+        description=(
+            "修正一条现有记忆的内容 (版本递增)。仅允许 candidate/verified 状态。"
+            "返回 status: corrected / error。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "要修正的记忆 ID"},
+                "content": {"type": "string", "description": "新内容"},
+                "provenance": {"type": "string", "description": "修正来源说明"},
+            },
+            "required": ["memory_id", "content"],
+        },
+        func=_tool_memory_correct,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+
+if not master_tools.has("memory_supersede"):
+    master_tools.register(
+        name="memory_supersede",
+        description=(
+            "supersede 一条记忆: 原记录标 deprecated, 创建新 candidate 记录,"
+            "原记录 supersedes 指向新记录。仅允许 candidate/verified 状态。"
+            "返回 old_id / new_id / status。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "要 supersede 的记忆 ID"},
+                "content": {"type": "string", "description": "新记忆内容"},
+                "provenance": {"type": "string", "description": "supersede 来源说明"},
+            },
+            "required": ["memory_id", "content"],
+        },
+        func=_tool_memory_supersede,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+
+if not master_tools.has("memory_forget"):
+    master_tools.register(
+        name="memory_forget",
+        description=(
+            "将一条记忆软删除为 forgotten（保留最小审计记录）。仅允许 deprecated/rejected 状态;"
+            "candidate/verified 受保护。返回 status: forgotten / error。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "要删除的记忆 ID"},
+            },
+            "required": ["memory_id"],
+        },
+        func=_tool_memory_forget,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
+
+if not master_tools.has("memory_get"):
+    master_tools.register(
+        name="memory_get",
+        description="获取单条记忆的完整详情。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "记忆 ID"},
+            },
+            "required": ["memory_id"],
+        },
+        func=_tool_memory_get,
+        side_effect=SideEffect.PURE_READ,
+    )
+
+if not master_tools.has("memory_explain"):
+    master_tools.register(
+        name="memory_explain",
+        description="解释一条记忆的来源: provenance / source_episode_ids / source_artifact_ids / trust_level。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "记忆 ID"},
+            },
+            "required": ["memory_id"],
+        },
+        func=_tool_memory_explain,
+        side_effect=SideEffect.PURE_READ,
+    )
+
 
 
 if not master_tools.has("tool_search"):

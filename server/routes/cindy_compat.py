@@ -15,8 +15,10 @@ from __future__ import annotations
 import contextlib
 from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+
+from server import auth as auth_mod
 
 router = APIRouter(tags=["cindy-compat"])
 
@@ -62,6 +64,16 @@ class SkillTeachRequest(BaseModel):
     """Skill teaching request."""
     description: str = Field(..., min_length=1)
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillConfirmRequest(BaseModel):
+    """Confirm a proposed skill candidate (P2-05 two-phase flow)."""
+    skill_id: str = Field(..., min_length=1)
+
+
+class SkillRejectRequest(BaseModel):
+    """Reject a proposed skill candidate."""
+    skill_id: str = Field(..., min_length=1)
 
 
 # =========================================================================
@@ -204,10 +216,8 @@ async def goal_driven_run_ep(req: GoalDrivenRequest) -> dict[str, Any]:
             [{"role": "user", "content": f"继续长程任务: {prompt_suffix}"}],
             provider="veya1.1", model="veya1.1", timeout=120)
         content = ""
-        try:
+        with contextlib.suppress(KeyError, IndexError):
             content = str(result["choices"][0]["message"].get("content", ""))
-        except (KeyError, IndexError):
-            pass
         return {"ok": bool(content), "output": content or "", "cost_usd": 0.0}
 
     if req.step:
@@ -404,6 +414,119 @@ async def skills_inject_ep(req: SkillTeachRequest) -> dict[str, Any]:
     result = skills_dynamic_inject(ctx, context=req.config or {})
     result["session_id"] = uuid.uuid4().hex
     return result
+
+
+# =========================================================================
+# P2-05 Skill Teaching UX — Two-phase candidate → confirm flow
+# =========================================================================
+
+@router.post("/api/v1/skill/propose")
+async def skill_propose_ep(req: SkillTeachRequest) -> dict[str, Any]:
+    """Propose a new skill candidate (phase 1 of P2-05 two-phase flow).
+
+    Creates a skill spec with status "candidate" — not yet verified.
+    Frontend must call /api/v1/skill/confirm or /api/v1/skill/reject
+    to finalize.
+    """
+    from server.capability_model import skill_registry
+
+    spec = skill_registry.propose_skill(req.description, req.config or {})
+    return {
+        "status": spec.status,
+        "skill_id": spec.skill_id,
+        "description": spec.instructions,
+        "version": spec.version,
+        "phase": "proposed",
+        "message": "Skill candidate created. Call /api/v1/skill/confirm to verify or /api/v1/skill/reject to discard."
+    }
+
+
+@router.post("/api/v1/skill/confirm")
+async def skill_confirm_ep(req: SkillConfirmRequest) -> dict[str, Any]:
+    """Confirm a proposed skill candidate (phase 2 of P2-05 two-phase flow).
+
+    Changes status from "candidate" to "verified" — the skill is now
+    permanently in the registry and discoverable by the model.
+    """
+    from server.capability_model import skill_registry
+
+    spec = skill_registry.confirm_skill(req.skill_id)
+    if spec is None:
+        return {"status": "not_found", "skill_id": req.skill_id, "error": "Skill candidate not found"}
+    return {
+        "status": "confirmed",
+        "skill_id": spec.skill_id,
+        "description": spec.instructions,
+        "version": spec.version,
+        "phase": spec.status,
+    }
+
+
+@router.post("/api/v1/skill/reject")
+async def skill_reject_ep(req: SkillRejectRequest) -> dict[str, Any]:
+    """Reject a proposed skill candidate.
+
+    Changes status to "deprecated" — the skill is removed from
+    active consideration.
+    """
+    from server.capability_model import skill_registry
+
+    ok = skill_registry.reject_skill(req.skill_id)
+    if not ok:
+        return {"status": "not_found", "skill_id": req.skill_id, "error": "Skill candidate not found"}
+    return {"status": "rejected", "skill_id": req.skill_id}
+
+
+# =========================================================================
+# P1-05 / P3-01: 权限档位 (两条入口能力面一致)
+# =========================================================================
+
+class ProfileSetRequest(BaseModel):
+    profile: str = Field(..., description="READ_ONLY | DEVELOPMENT | PRODUCTION")
+
+
+@router.get("/api/v1/permission/profiles")
+async def permission_profiles_ep() -> dict[str, Any]:
+    """列出全部权限档位 (P1-05 档位选择器数据源)。"""
+    from server.permission_profiles import list_profiles
+
+    return {"profiles": list_profiles()}
+
+
+@router.get("/api/v1/permission/profile")
+async def permission_profile_current_ep(
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """当前用户生效档位。"""
+    from server.permission_profiles import default_profile
+
+    return {"profile": default_profile().value}
+
+
+@router.post("/api/v1/permission/profile")
+async def permission_profile_set_ep(
+    req: ProfileSetRequest,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """切换当前用户档位，不改变主链语义决策；
+    是否 enforce 由 VEYA_PERMISSION_PROFILE_ENFORCE 控制 (默认 observe)。
+    """
+    from server.permission_profiles import ProfileName, list_profiles, set_user_profile
+
+    try:
+        name = ProfileName(req.profile.strip().upper())
+    except ValueError:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail=f"invalid profile: {req.profile}")
+    set_user_profile(name, user_id=str(user.get("user_id") or "anonymous"))
+    desc = next((p["description"] for p in list_profiles() if p["name"] == name.value), "")
+    return {
+        "status": "set",
+        "profile": name.value,
+        "description": desc,
+        "note": "观察模式 (observe): 档位仅影响 tool_guard 决策记录; 设 VEYA_PERMISSION_PROFILE_ENFORCE=1 才拦截",
+    }
 
 
 __all__ = ["router"]

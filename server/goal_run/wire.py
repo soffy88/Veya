@@ -35,14 +35,12 @@ def wire_master_tools() -> int:
 
 def _wire_project_run_goal(master_tools: Any) -> int:
     """注册 project_run_goal tool（长时闭环执行）。"""
-    import json
-
     master_tools.register(
         "project_run_goal",
         "Veya 长时目标闭环执行：单一入口吃下复杂目标，自动分解→调度→执行→验收→完成。"
         "遵循 v0.1 Spec：目标层队列（任务图）权威，叶子执行复用 hicode/dsh 既有路径，"
         "无模型 SKU 路由、无影子调度器。返回统一 GoalRunResponse。"
-        "参数: project_root, goal, mode(auto|act_eager|ask_only), resume_goal_id, "
+        "参数: project_root, goal, tasks(可选的显式任务图), mode(auto|act_eager|ask_only), resume_goal_id, "
         "parent_goal_clarification, max_wall_s, wait(true默认阻塞到终态或超时)。"
         "输出: goal_id, status, phase, interpretation/questions, goal_counts, summary, "
         "block_reason, artifacts, next_action。",
@@ -56,6 +54,22 @@ def _wire_project_run_goal(master_tools: Any) -> int:
                 "goal": {
                     "type": "string",
                     "description": "用户复杂目标文本，例如 '实现一个爬虫抓取新闻并存储到数据库'。",
+                },
+                "tasks": {
+                    "type": "array",
+                    "description": "可选。由主模型明确给出的任务节点；GoalRun 不会从自然语言猜测子任务。",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "title": {"type": "string"},
+                            "instruction": {"type": "string"},
+                            "acceptance": {"type": "array", "items": {"type": "string"}},
+                            "depends_on": {"type": "array", "items": {"type": "string"}},
+                            "parallel": {"type": "boolean"},
+                        },
+                        "required": ["instruction"],
+                    },
                 },
                 "mode": {
                     "type": "string",
@@ -91,8 +105,6 @@ def _wire_project_run_goal(master_tools: Any) -> int:
 
 def _wire_project_status(master_tools: Any) -> int:
     """注册 project_goal_status tool（只读状态查询）。"""
-    from server.goal_run.store import load_goal_run
-
     master_tools.register(
         "project_goal_status",
         "只读查询 goal_run 状态：返回 taskgraph 摘要 + 最近 events 尾部。"

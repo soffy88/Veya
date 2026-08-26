@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from server import auth as auth_mod
 from veya.obase.authz import InteractivePermissionGate
 
 router = APIRouter(prefix="/permission", tags=["permission"])
@@ -111,3 +112,62 @@ def _to_response(request, note: str) -> DecisionResponse:
         request_id=request.request_id,
         note=note or request.note,
     )
+
+
+# =========================================================================
+# P3-01 Permission Profiles — 档位查询/切换 (供 P1-05 档位选择器)
+# =========================================================================
+
+
+class ProfileSetRequest(BaseModel):
+    profile: str = Field(..., min_length=1, description="READ_ONLY | DEVELOPMENT | PRODUCTION")
+
+
+@router.get("/profiles")
+async def list_permission_profiles() -> dict[str, Any]:
+    """列出全部权限档位及其矩阵摘要 (P1-05 选择器数据源)。"""
+    from server.permission_profiles import list_profiles
+
+    return {"profiles": list_profiles()}
+
+
+@router.get("/profile")
+async def get_current_profile(
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """返回当前用户/请求生效档位。"""
+    from server.permission_profiles import default_profile
+
+    return {"profile": default_profile().value}
+
+
+@router.post("/profile")
+async def set_permission_profile(
+    req: ProfileSetRequest,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """切换权限档位。
+
+    档位按用户存储在当前进程内，不再用全局环境变量污染其他用户；宿主可在
+    登录态持久化配置。enforce 与否由 VEYA_PERMISSION_PROFILE_ENFORCE 决定。
+    """
+    from server.permission_profiles import ProfileName, set_user_profile
+
+    try:
+        profile = ProfileName(req.profile.strip().upper())
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"invalid profile '{req.profile}'; must be one of "
+            "READ_ONLY, DEVELOPMENT, PRODUCTION",
+        )
+    set_user_profile(profile, user_id=str(user.get("user_id") or "anonymous"))
+    return {
+        "profile": profile.value,
+        "description": {
+            "READ_ONLY": "只读：写入/执行/外发/破坏性一律拒绝",
+            "DEVELOPMENT": "开发：本地写入与测试执行放行，外发/破坏性需确认",
+            "PRODUCTION": "生产：写入/执行/外发需确认，破坏性拒绝",
+        }[profile.value],
+        "note": "档位已切换（进程内）。enforce 与否由 VEYA_PERMISSION_PROFILE_ENFORCE 控制（默认 observe）。",
+    }

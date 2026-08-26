@@ -31,12 +31,27 @@ import json
 import sqlite3
 import threading
 import time
+from collections.abc import Callable
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 from veya.obase.async_utils import run_sync_in_daemon_thread
 
 _SQLITE_BUSY_TIMEOUT_MS = 5_000
+_user_id_provider: ContextVar[Callable[[], dict[str, Any]] | None] = ContextVar(
+    "history_user_id_provider", default=None
+)
+
+
+def set_user_id_provider(provider: Callable[[], dict[str, Any]] | None) -> None:
+    """Install the host's request-user callback without importing the host layer.
+
+    ``veya.oservi`` is deliberately below ``server`` in the 3O dependency graph.
+    The server auth module injects its context-local callback at assembly time;
+    standalone/CLI use therefore keeps the anonymous fallback.
+    """
+    _user_id_provider.set(provider)
 
 
 class SqliteHistoryStore:
@@ -65,6 +80,31 @@ class SqliteHistoryStore:
             # revision: 每次 save() 递增, INSERT-only, 旧 revision 永不删/改
             # (canonical event log; 见文件头 2026-08-24 说明)。msg_json 是该
             # revision 时刻的完整消息列表快照, 不是单条消息。
+            columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(turns)").fetchall()
+            }
+            if columns and "revision" not in columns:
+                # 0.6 的 turns(sid, idx, msg_json, ts, user_id) 是可迁移的旧
+                # projection。保留每条旧快照的顺序，转成新的 user/sid/revision
+                # 主键；不 silently drop 用户历史。
+                conn.execute("ALTER TABLE turns RENAME TO turns_legacy")
+                conn.execute(
+                    "CREATE TABLE turns ("
+                    "  user_id TEXT NOT NULL DEFAULT 'anonymous',"
+                    "  sid TEXT NOT NULL,"
+                    "  revision INTEGER NOT NULL,"
+                    "  msg_json TEXT NOT NULL,"
+                    "  ts INTEGER NOT NULL,"
+                    "  PRIMARY KEY (user_id, sid, revision)"
+                    ")"
+                )
+                conn.execute(
+                    "INSERT INTO turns (user_id, sid, revision, msg_json, ts) "
+                    "SELECT COALESCE(user_id, 'anonymous'), sid, idx, msg_json, ts "
+                    "FROM turns_legacy ORDER BY user_id, sid, idx"
+                )
+                conn.execute("DROP TABLE turns_legacy")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS turns ("
                 "  user_id TEXT NOT NULL DEFAULT 'anonymous',"
@@ -81,11 +121,12 @@ class SqliteHistoryStore:
     def _uid() -> str:
         """当前请求用户 (auth contextvar); 无请求上下文时回落 anonymous。"""
         try:
-            from server.auth import current_user
-
-            return current_user()["user_id"]
+            provider = _user_id_provider.get()
+            if provider is not None:
+                return str(provider().get("user_id") or "anonymous")
         except Exception:
-            return "anonymous"
+            pass
+        return "anonymous"
 
     def load_sync(self, sid: str, user_id: str | None = None) -> list[dict[str, Any]]:
         """当前投影: 最新一条修订的消息列表快照(外部行为跟改动前完全一致)。"""

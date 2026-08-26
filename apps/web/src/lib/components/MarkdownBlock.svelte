@@ -16,6 +16,7 @@
 	let { content }: Props = $props();
 
 	let copiedLang = $state<string | null>(null);
+	let rootEl: HTMLDivElement;
 
 	const html = $derived(
 		marked.parse(content ?? "", { async: false, breaks: true }) as string,
@@ -51,6 +52,7 @@
 	});
 
 	function onRenderedClick(e: MouseEvent) {
+		if (!rootEl?.contains(e.target as Node)) return;
 		const btn = (e.target as HTMLElement).closest("button[data-copy-lang]") as HTMLButtonElement | null;
 		if (!btn) return;
 		// find the sibling <pre> text via the block container
@@ -63,9 +65,16 @@
 			setTimeout(() => (copiedLang = null), 1600);
 		});
 	}
+
 </script>
 
-<div class="markdown-body" onclick={onRenderedClick}>
+<svelte:window onclick={onRenderedClick} />
+<div
+	bind:this={rootEl}
+	class="markdown-body"
+	role="region"
+	aria-label="Rendered markdown"
+>
 	{@html rendered}
 </div>
 

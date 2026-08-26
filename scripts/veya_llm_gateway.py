@@ -8,6 +8,7 @@ veya 自己的别名时额外拿到轮询/兜底能力:
 
 - veya1.1        — 任务分档智能路由 (quick/text/tool/code/reason/vision) + frontier 兜底
 - veya1.2-flash  — opencode zen 免费池轮询 (round-robin 摊每日额度)
+- veya1.2-free   — Pi 已配置 provider + Inferera 免费模型轮询
 - veya1.2-vl     — openrouter 免费图像/视频理解池轮询 (需 OPENROUTER_API_KEY, 未配则报结构化错误)
 - gpt-5.6-luna   — 本地 frontier 直连 (opencodex 桥, 零网络)
 - opencode-go/<id> — opencode zen 全量模型直连 (go 按量池 + zen 免费池 -free/big-pickle),
@@ -45,6 +46,7 @@ app = FastAPI(title="veya LLM gateway")
 _STATIC_CATALOG: dict[str, dict[str, Any]] = {
     "veya1.1": {"model": "veya1.1"},
     "veya1.2-flash": {"model": "veya1.2-flash"},
+    "veya1.2-free": {"model": "veya1.2-free"},
     "veya1.2-vl": {"model": "veya1.2-vl"},
     "veya1.2-128K": {"model": "veya1.2-128K"},
     "gpt-5.6-luna": {
@@ -78,7 +80,7 @@ def _fetch_zen_catalog() -> dict[str, dict[str, Any]]:
             )
             resp.raise_for_status()
             ids = [m["id"] for m in resp.json().get("data", [])]
-        except Exception as exc:  # noqa: BLE001 — 目录拉取失败不阻塞启动
+        except Exception as exc:  # 目录拉取失败不阻塞启动
             print(f"[veya-llm-gateway] 警告: 拉取 {base}/models 失败: {exc}", file=sys.stderr)
             continue
         for mid in ids:
@@ -94,6 +96,30 @@ def _fetch_zen_catalog() -> dict[str, dict[str, Any]]:
 
 _CATALOG: dict[str, dict[str, Any]] = {**_STATIC_CATALOG, **_fetch_zen_catalog()}
 print(f"[veya-llm-gateway] 模型目录就绪: {len(_CATALOG)} 个", file=sys.stderr)
+
+
+def _pi_provider_config() -> dict[str, Any]:
+    """把 Pi 本地 provider keys 转成 llm_call 可用的最小 config。
+
+    仅供本机 Pi → veya 网关链路使用；``!command`` 形式的动态 key 由
+    Veya 自己的环境/凭据链处理，不当作字面 API key 传给上游。
+    """
+    path = Path.home() / ".pi" / "agent" / "models.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    providers: dict[str, dict[str, str]] = {}
+    for name, entry in (data.get("providers") or {}).items():
+        if not isinstance(entry, dict):
+            continue
+        api_key = entry.get("apiKey")
+        if isinstance(api_key, str) and api_key and not api_key.startswith("!"):
+            providers[str(name)] = {"api_key": api_key}
+    return {"providers": providers} if providers else {}
+
+
+_PI_PROVIDER_CONFIG = _pi_provider_config()
 
 
 async def _sse_from_resp(
@@ -145,6 +171,8 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
         call_kwargs["provider"] = entry["provider"]
     if entry.get("endpoint"):
         call_kwargs["endpoint"] = entry["endpoint"]
+    if requested == "veya1.2-free" and _PI_PROVIDER_CONFIG:
+        call_kwargs["config"] = _PI_PROVIDER_CONFIG
     resp = await llm_call(messages, **call_kwargs)
     resp_id = f"{requested}-{int(time.time() * 1000)}"
     created = int(time.time())

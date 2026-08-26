@@ -15,10 +15,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import sys
+from datetime import UTC, datetime
 from typing import Any
 
-_PRODUCT_COMMANDS = {"init", "start", "doctor"}
+_PRODUCT_COMMANDS = {"init", "start", "doctor", "upgrade", "migrate"}
 _VERSION = "0.6.0"
 
 
@@ -35,6 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--config", default=None, help="Config file path")
     p.add_argument("--resume", metavar="SESSION_ID", help="Resume a checkpointed session")
+    p.add_argument("prompt", nargs="?", help="One-shot prompt; omit for interactive mode")
     p.add_argument("--version", action="version", version=f"veya {_VERSION}")
     return p
 
@@ -91,19 +94,130 @@ async def _resume(session_id: str, persona: str) -> None:
     await _interactive_loop(persona, session_id=session_id)
 
 
+async def _session_listing() -> int:
+    from veya.history_store import default_history_store
+
+    sessions = await default_history_store().list_sessions(limit=50)
+    for item in sessions:
+        sid = item.get("sid", "")
+        title = item.get("title") or "Untitled"
+        print(f"{sid}\t{title}\t{item.get('msg_count', 0)}")
+    return 0
+
+
+async def _attach_session(session_id: str) -> int:
+    from server.coordinator_master import _active_streams
+    from veya.history_store import default_history_store
+
+    store = default_history_store()
+    messages = await store.load(session_id)
+    known = await store.list_sessions(limit=5000)
+    if not any(item.get("sid") == session_id for item in known):
+        print(f"session not found: {session_id}", file=sys.stderr)
+        return 1
+    active = _active_streams.get(session_id)
+    print(
+        json.dumps(
+            {
+                "session_id": session_id,
+                "messages": messages,
+                "active": active is not None and not active.done(),
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+async def _resume_command(session_id: str | None, persona: str) -> int:
+    if not session_id:
+        from veya.history_store import default_history_store
+
+        sessions = await default_history_store().list_sessions(limit=1)
+        session_id = sessions[0]["sid"] if sessions else None
+    if not session_id:
+        print("no session to resume", file=sys.stderr)
+        return 1
+    await _resume(session_id, persona)
+    return 0
+
+
+def _skill_command(argv: list[str]) -> int:
+    """Manage user-taught SkillSpec records without creating another executor."""
+    from server.capability_model import SkillRegistry
+
+    if not argv or argv[0] in {"-h", "--help"}:
+        print("usage: veya skill list|show <id>|edit <id> --description <text>|delete <id>")
+        return 0 if argv else 2
+    registry = SkillRegistry()
+    action = argv[0]
+    if action == "list" and len(argv) == 1:
+        for spec in registry.search():
+            print(f"{spec.skill_id}\t{spec.status}\tv{spec.version}\t{spec.instructions}")
+        return 0
+    if action == "show" and len(argv) == 2:
+        spec = registry.get_version(argv[1])
+        if spec is None:
+            print(f"skill not found: {argv[1]}", file=sys.stderr)
+            return 1
+        print(json.dumps(spec.__dict__, ensure_ascii=False, indent=2))
+        return 0
+    if action == "delete" and len(argv) == 2:
+        if registry.get_version(argv[1]) is None:
+            print(f"skill not found: {argv[1]}", file=sys.stderr)
+            return 1
+        registry.rollback(argv[1])
+        return 0
+    if action == "edit" and len(argv) >= 4 and argv[2] == "--description":
+        spec = registry.get_version(argv[1])
+        if spec is None:
+            print(f"skill not found: {argv[1]}", file=sys.stderr)
+            return 1
+        spec.instructions = " ".join(argv[3:])
+        spec.updated_at = datetime.now(UTC).isoformat()
+        registry._store.put("skill", spec.skill_id, spec.__dict__)
+        return 0
+    print("invalid skill command; run `veya skill --help`", file=sys.stderr)
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
-    # 产品化子命令: veya init / start / doctor
+    # 产品化子命令: veya init / start / doctor / upgrade / migrate
     if argv and argv[0] in _PRODUCT_COMMANDS:
         from cli import product
+        from commands import upgrade
 
         cmd = argv.pop(0)
         if cmd == "init":
             return product.run_init(argv)
         if cmd == "start":
             return product.run_start(argv)
-        return product.run_doctor(argv)
+        if cmd == "doctor":
+            return product.run_doctor(argv)
+        if cmd == "upgrade":
+            return upgrade.run_upgrade(argv)
+        if cmd == "migrate":
+            return upgrade.run_migrate(argv)
+
+    # Unified Session API CLI (P1-06). These commands use the same durable
+    # history store as Web/MasterAgent; they do not maintain a CLI-only history.
+    if argv and argv[0] == "sessions":
+        return asyncio.run(_session_listing())
+    if argv and argv[0] == "attach":
+        if len(argv) != 2:
+            print("usage: veya attach <session_id>", file=sys.stderr)
+            return 2
+        return asyncio.run(_attach_session(argv[1]))
+    if argv and argv[0] == "resume":
+        sid = argv[1] if len(argv) > 1 else None
+        if len(argv) > 2:
+            print("usage: veya resume [session_id]", file=sys.stderr)
+            return 2
+        return asyncio.run(_resume_command(sid, "build"))
+    if argv and argv[0] == "skill":
+        return _skill_command(argv[1:])
 
     from config.loader import load_config
     from server.assembly import Infra
@@ -114,6 +228,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.resume:
         asyncio.run(_resume(args.resume, args.persona))
         return 0
+
+    if args.prompt:
+        result = asyncio.run(_run_once(args.prompt, persona=args.persona))
+        answer = result.get("final_answer") or ""
+        print(answer)
+        return 0 if answer else 1
 
     # Non-interactive: read from stdin when piped
     if not sys.stdin.isatty():

@@ -52,18 +52,35 @@ veya start
 # 打开 http://127.0.0.1:8765 后即可在 Web UI 对话
 ```
 
-## 第 4 步：常见问题
+## 升级 & 迁移
 
-| 问题 | 解决 |
-|---|---|
-| `veya doctor` 显示模型未配置 | `veya init` 重新选择并粘贴 Key |
-| 想用本地 Ollama | 先 `ollama pull qwen2.5:7b`，再 `veya init` 选 Ollama |
-| 任务需要写文件/执行危险命令 | 默认受限 — 在对话中确认，或编辑工作区 `.veya/security.yaml` |
-| 端口 8765 被占用 | `veya start --port 9000` |
-| 中断后继续 | `veya --resume <session_id>`（checkpoint 恢复） |
+```bash
+# 检查版本 + 待迁移项
+veya upgrade --check
+
+# 执行配置迁移 (跨版本兼容)
+veya migrate --apply
+```
+
+## 跨入口会话与任务
+
+会话使用统一的 `sess_<uuid7>` ID，CLI、Web 和 API 共享同一持久历史：
+
+```bash
+veya sessions
+veya attach <session_id>
+veya resume <session_id>
+```
+
+任务中心可查看真实工具轨迹、审批、成本、checkpoint 和取消状态；需要脚本化时
+使用 `/api/v1/tasks` 与 `/api/v1/tasks/{task_id}/events`。
+
+详情见 [故障排查](troubleshooting.md)。
 
 ## 下一步
 
+- 读 [使用示例](examples.md) 看更多具体场景的完整命令
+- 遇到问题先查 [故障排查](troubleshooting.md)
 - 读 [落地页](index.md) 了解全部能力（量化协处理 / 零信任金库 / 因果诊断 / 反脆弱闭环…）
 - 读 [路线图](roadmap.md) 了解产品化演进
-- 开发者：见 [架构说明](architecture.md)，测试：`./venv/bin/python -m pytest tests/ -q`
+- 开发者：见 [架构说明](architecture.md)，测试：`python -m pytest tests/ -q`

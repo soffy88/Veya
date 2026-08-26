@@ -1,19 +1,18 @@
-"""goal_run planner — G0 Understand / G1 Plan 阶段。
+"""goal_run planner — explicit task graph compilation for GoalRun.
 
 实现要点：
-- G0: 调用现有 understand() 完成门禁判定；decision=ask → awaiting_user；
-  decision=act → 进入 G1；mode=act_eager 直接放行。
-- G1: LLM 计划任务图 + 每任务 acceptance；落盘 GOAL.md + taskgraph.json。
+- GoalRun does not reinterpret natural-language user intent. The MasterAgent
+  supplies the objective (and may supply an explicit task graph).
+- G1: compile explicit tasks or a single opaque objective into a durable task
+  graph; execute/verify remains the only responsibility of this module.
 - 依赖现有 understand() 与 project_ask 契约；不重复造轮子。
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from server.goal_run.models import GoalRunResponse, GoalRunState, GoalStatus, TaskNode
 from server.project_understand import UnderstandResult
-from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatus, GoalRunResponse
-
 
 # ── G0 — Understand 入口 ────────────────────────────────────────────────
 
@@ -90,6 +89,7 @@ async def g1_plan(
     budget: dict[str, int] | None = None,
     max_leaf_tasks: int | None = None,
     project_root: str | None = None,
+    explicit_tasks: list[dict[str, Any]] | None = None,
 ) -> tuple[GoalRunState, GoalRunResponse]:
     """G1 Plan：根据 interpretation 生成任务图 taskgraph.json。
 
@@ -123,13 +123,15 @@ async def g1_plan(
         if spec_state is not None:
             return spec_state
 
-    # ── LLM 计划调用 ──
-    # 这里简化处理：使用现有 understand 逻辑的增强版提示，
-    # 实际上应调用 LLM 生成 DAG。此处使用占位规则生成任务。
-    tasks = _generate_tasks_rules(interpretation, assumptions, default_assignee, max_leaf_tasks)
+    # Task decomposition is an input contract from the MasterAgent.  If the
+    # caller has not supplied a graph, preserve the objective as one opaque
+    # leaf instead of guessing sub-goals with keywords.
+    tasks = _normalize_explicit_tasks(explicit_tasks, default_assignee, max_leaf_tasks)
+    if not tasks:
+        tasks = _generate_tasks_rules(interpretation, assumptions, default_assignee, max_leaf_tasks)
 
     # ── 构造 GoalRunState ──
-    goal_id = f"goal_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     state = GoalRunState(
         goal_id=goal_id,
         goal_text=goal_text,
@@ -146,13 +148,13 @@ async def g1_plan(
             acceptance=tn["acceptance"],
             depends_on=tn.get("depends_on", []),
             assignee=tn.get("assignee", default_assignee),
+            parallel=bool(tn.get("parallel", False)),
         )
 
     # ── 落盘 ──
-    from server.goal_run.store import save_goal_run, load_goal_run
-
     # 写入 taskgraph.json
-    taskgraph_path = Path(f".veya-project/goal-runs/{goal_id}/taskgraph.json")
+    root = Path(project_root or ".")
+    taskgraph_path = root / ".veya-project" / "goal-runs" / goal_id / "taskgraph.json"
     taskgraph_path.parent.mkdir(parents=True, exist_ok=True)
     taskgraph_path.write_text(
         json.dumps(state.to_taskgraph_json(), ensure_ascii=False, indent=2),
@@ -160,19 +162,19 @@ async def g1_plan(
     )
 
     # 写入 GOAL.md
-    goal_md_path = Path(f".veya-project/goal-runs/{goal_id}/GOAL.md")
+    goal_md_path = root / ".veya-project" / "goal-runs" / goal_id / "GOAL.md"
     goal_md_path.parent.mkdir(parents=True, exist_ok=True)
     goal_md_path.write_text(
         f"# Goal: {goal_text}\n\n"
         f"## Interpretation\n{interpretation}\n\n"
         f"## Assumptions\n"
         + "\n".join(f"- {a}" for a in assumptions)
-        + f"\n\n## Task Graph\nGenerated at {datetime.now(timezone.utc).isoformat()}",
+        + f"\n\n## Task Graph\nGenerated at {datetime.now(UTC).isoformat()}",
         encoding="utf-8",
     )
 
     # 事件记录
-    events_path = Path(f".veya-project/goal-runs/{goal_id}/events.jsonl")
+    events_path = root / ".veya-project" / "goal-runs" / goal_id / "events.jsonl"
     events_path.parent.mkdir(parents=True, exist_ok=True)
     events_path.write_text(
         json.dumps(
@@ -181,7 +183,7 @@ async def g1_plan(
                 "goal_id": goal_id,
                 "goal_text": goal_text,
                 "task_count": len(tasks),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
             },
             ensure_ascii=False,
         )
@@ -226,7 +228,7 @@ async def _g1_from_speckit(
         return None
     if not (root / ".speckit" / "constitution.md").is_file():
         return None
-    goal_id = f"goal_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     rec = await phase_spec_driven_plan(
         {
             "goal_id": goal_id,
@@ -292,43 +294,52 @@ def _generate_tasks_rules(
     default_assignee: str,
     max_leaf_tasks: int,
 ) -> list[dict[str, Any]]:
-    """规则生成任务（占位，实际应 LLM 调用）。
+    """Compile an opaque objective as one leaf when no graph was supplied."""
+    del assumptions, max_leaf_tasks
+    instruction = (interpretation or "").strip()
+    if not instruction:
+        return []
+    return [
+        {
+            "id": "t1",
+            "title": instruction[:80],
+            "instruction": instruction,
+            "acceptance": ["目标执行产生可观察结果"],
+            "depends_on": [],
+            "assignee": default_assignee,
+        }
+    ]
 
-    实现要点：
-    - 从 interpretation 中提取子目标
-    - 每任务自动生成 acceptance（观察条件）
-    - 依赖关系按语义顺序排列
-    - 返回列表中的任务数 ≤ max_leaf_tasks
-    """
-    # 占位实现：解析 interpretation 中的关键动词，生成基础任务
-    # 实际生产中此处应调用 LLM (e.g. via opencode-go) 生成结构化 DAG
-    tasks = []
-    # 简单的关键词提取作为演示
-    key_verbs = ["实现", "修复", "创建", "分析", "测试", "部署"]
 
-    # 解析 interpretation 获取关键指令
-    instr = interpretation[:200] if interpretation else ""
-
-    # 生成最多 max_leaf_tasks 个任务
-    for i in range(min(max_leaf_tasks, 5)):  # 演示最多 5 个任务
-        task_id = f"t{i + 1}"
-        title = f"任务 {i + 1}: {instr[:30]}..."
-        instruction = f"{instr}（子任务 {i + 1}）"
-        acceptance = [f"可观察条件 {i + 1}: {task_id} 完成"]
-        depends_on = [] if i == 0 else [f"t{i}"]
-
-        tasks.append(
+def _normalize_explicit_tasks(
+    tasks: list[dict[str, Any]] | None,
+    default_assignee: str,
+    max_leaf_tasks: int,
+) -> list[dict[str, Any]]:
+    """Validate the model-supplied task graph without semantic expansion."""
+    if not isinstance(tasks, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(tasks[:max_leaf_tasks], start=1):
+        if not isinstance(raw, dict):
+            continue
+        instruction = str(raw.get("instruction") or raw.get("title") or "").strip()
+        if not instruction:
+            continue
+        task_id = str(raw.get("id") or f"t{index}")
+        normalized.append(
             {
                 "id": task_id,
-                "title": title,
+                "title": str(raw.get("title") or instruction[:80]),
                 "instruction": instruction,
-                "acceptance": acceptance,
-                "depends_on": depends_on,
-                "assignee": default_assignee,
+                "acceptance": [str(item) for item in (raw.get("acceptance") or []) if str(item).strip()]
+                or ["目标执行产生可观察结果"],
+                "depends_on": [str(item) for item in (raw.get("depends_on") or [])],
+                "assignee": str(raw.get("assignee") or default_assignee),
+                "parallel": bool(raw.get("parallel", False)),
             }
         )
-
-    return tasks
+    return normalized
 
 
 # ── 辅助：将旧格式 taskgraph 迁移到新模型 ────────────────────────────────
@@ -345,9 +356,8 @@ async def migrate_old_taskgraph(
     """
     import json
 
-    from server.project_store import ProjectStore
-    from server.goal_run.models import TaskNode, TaskStatus
     from server.goal_run.store import save_goal_run
+    from server.project_store import ProjectStore
 
     store = ProjectStore(project_root)
     # 尝试读取旧格式

@@ -155,15 +155,82 @@ class LearningEngine:
     # ── propose: 把一个 finding 落成 CandidateLearning ────────────────────
 
     def propose(self, finding: dict[str, Any], *, type: str = "procedural") -> CandidateLearning:
+        evidence_for = list(finding.get("memory_ids") or finding.get("evidence_for") or [])
+        if not evidence_for and finding.get("source_episode_ids"):
+            # Trajectory/Eval patterns become Memory candidates first. They
+            # remain unverified until the existing review + promotion gate.
+            record = self._memory.observe(
+                str(finding["content"]),
+                type="procedural" if type == "procedural" else "semantic",
+                scope=str(finding.get("scope") or "project"),
+                source_episode_ids=list(finding["source_episode_ids"]),
+                source_event_ids=list(finding.get("source_event_ids") or []),
+                provenance="trajectory+eval pattern",
+                trust_level="candidate",
+            )
+            evidence_for = [record.memory_id]
         candidate = CandidateLearning(
             claim=finding["content"],
             source_episode_ids=list(finding["source_episode_ids"]),
             type=type,
-            evidence_for=list(finding["memory_ids"]),
+            evidence_for=evidence_for,
             scope=finding.get("scope", "project"),
         )
         self._store.put(candidate)
         return candidate
+
+    def reflect_trajectories(self, *, scope: str | None = None) -> list[dict[str, Any]]:
+        """Find repeated, evaluated trajectory patterns without auto-promoting.
+
+        A single success/failure is never enough. The pattern must have at
+        least two distinct task ids and a passed acceptance evaluation for
+        every occurrence; callers still need ``propose`` → ``review`` →
+        ``promote`` before any MemoryRecord becomes verified.
+        """
+        from server.events import event_store
+
+        trajectories = [
+            event
+            for event in event_store.read_all(topics={"trajectory.recorded"})
+            if isinstance(event.get("payload"), dict)
+        ]
+        evaluations = {
+            str(event.get("task_id")): bool((event.get("payload") or {}).get("passed"))
+            for event in event_store.read_all(topics={"eval.recorded"})
+            if event.get("task_id")
+        }
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for event in trajectories:
+            payload = event["payload"]
+            task_id = str(event.get("task_id") or payload.get("task_id") or "")
+            objective = str(payload.get("objective") or "").strip()
+            if not task_id or not objective or payload.get("outcome") not in {"completed", "success"}:
+                continue
+            if not evaluations.get(task_id, False):
+                continue
+            groups.setdefault(objective, []).append(event)
+
+        findings: list[dict[str, Any]] = []
+        for objective, events in groups.items():
+            unique_tasks = sorted({str(event.get("task_id")) for event in events})
+            if len(unique_tasks) < _MIN_SOURCE_EPISODES:
+                continue
+            if scope is not None and scope != "project":
+                continue
+            findings.append(
+                {
+                    "content": f"Repeatedly verified execution pattern: {objective}",
+                    "memory_ids": [],
+                    "source_episode_ids": unique_tasks,
+                    "source_event_ids": [
+                        str(event.get("event_id"))
+                        for event in events
+                        if event.get("event_id")
+                    ],
+                    "scope": scope or "project",
+                }
+            )
+        return findings
 
     # ── test/review: 双轴 Promotion 审查(CrossFamilyReviewer 落地, 见
     # server/promotion_review.py) ─────────────────────────────────────────

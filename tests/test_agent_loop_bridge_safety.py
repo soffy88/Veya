@@ -152,6 +152,39 @@ async def test_injected_complete_tool_surface_uses_injected_executor(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_strict_chat_records_a_trajectory(tmp_path, monkeypatch):
+    """docs/VEYA_P1_P3_IMPLEMENTATION_SPEC.md §16 (P2-09): 委托子任务完成后
+
+    应该在 server/trajectory.py 落一份结构化记录 (task_id/objective/outcome/
+    tool_calls/duration_ms 齐全), 不是只有 run_strict_chat 自己的返回值。
+    """
+    import server.trajectory as trajectory_mod
+    from server.agent_loop_bridge import run_strict_chat
+
+    monkeypatch.setattr(
+        trajectory_mod, "_default_path", lambda task_id: tmp_path / f"{task_id}.jsonl"
+    )
+
+    llm = _ScriptedLlm([{"role": "assistant", "content": "done, no tools needed"}])
+    result = await run_strict_chat(
+        "record a trajectory please",
+        llm=llm,
+        max_rounds=3,
+        kv_path=str(tmp_path / "trajectory.db"),
+    )
+
+    records = trajectory_mod.read_trajectories(result["session_id"], path=None)
+    # 上面 monkeypatch 了 _default_path, read_trajectories 默认参数会调用它。
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["task_id"] == result["session_id"]
+    assert rec["objective"] == "record a trajectory please"
+    assert rec["outcome"] == "completed"
+    assert rec["duration_ms"] >= 0
+    assert rec["tool_calls"] == result["tool_calls"]
+
+
+@pytest.mark.asyncio
 async def test_strict_system_tool_obeys_plan_mode_guard(tmp_path):
     """The full strict path must deny a mutating system tool before execution."""
     from server import user_control
@@ -179,9 +212,7 @@ async def test_strict_system_tool_obeys_plan_mode_guard(tmp_path):
             {"role": "assistant", "content": "denial handled"},
         ]
     )
-    tokens = user_control.activate(
-        mode="plan", require_approval=True, session_id="strict-plan"
-    )
+    tokens = user_control.activate(mode="plan", require_approval=True, session_id="strict-plan")
     try:
         result = await run_strict_chat(
             "schedule it",
@@ -206,9 +237,7 @@ async def test_strict_uses_injected_llm_caller_and_request_config(tmp_path):
 
     async def caller(_messages: list[dict], **kwargs: Any) -> dict:
         seen.update(kwargs)
-        return {
-            "choices": [{"message": {"role": "assistant", "content": "custom backend"}}]
-        }
+        return {"choices": [{"message": {"role": "assistant", "content": "custom backend"}}]}
 
     result = await run_strict_chat(
         "hello",

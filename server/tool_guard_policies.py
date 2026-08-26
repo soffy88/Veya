@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import suppress
 
 from server.tool_guard import ToolGuard, global_tool_guard
 
 _TERMINAL_POLICY = "terminal_action_gate"
 _PREFER_GRAPH_POLICY = "prefer_code_graph"
 _EGRESS_POLICY = "egress_audit"
+_PROFILE_POLICY = "permission_profile_gate"
 
 # 结构性探索工具: 问"谁调用/依赖/在哪定义"这类问题, 先查带置信标签的代码图
 # (assemble_code_context) 通常比逐文件 grep/read 更省 token、更准 (graphify 先查图范式)。
@@ -93,7 +95,7 @@ def egress_audit_policy(name: str, kwargs: dict, source: str) -> str | None:
         owner = str(current_user().get("user_id") or "")
     except Exception:
         owner = ""
-    try:
+    with suppress(Exception):
         record_egress(
             tool=name,
             destination=dest,
@@ -101,11 +103,31 @@ def egress_audit_policy(name: str, kwargs: dict, source: str) -> str | None:
             owner_id=owner,
             source=source,
         )
-    except Exception:
-        pass
     enforce = os.environ.get("VEYA_EGRESS_ENFORCE", "0") == "1"
     if enforce and not destination_allowed(dest):
         return f"egress denied: {dest} not on VEYA_EGRESS_ALLOWLIST"
+    return None
+
+
+def permission_profile_policy(name: str, kwargs: dict, source: str) -> str | None:
+    """P3-01 档位策略：按当前档位对工具调用做 allow/deny/ask 决策。
+
+    - deny → 返回拒绝原因 (enforce 时拦截)；
+    - ask → 返回确认要求 (enforce 时由 user_control 审批链兜底——本策略只表达
+      "该档位要求确认", 不自己建审批请求, 避免与既有 HITL 审批双通道打架)；
+    - allow → None (放行)。
+
+    缺省 observe (VEYA_PERMISSION_PROFILE_ENFORCE != "1"): 只落 observed 轨迹,
+    不拦截任何工具——先采样档位决策, 零行为变化; 确认不误伤后翻 enforce。
+    """
+    from server.permission_profiles import decide, default_profile
+
+    profile = default_profile()
+    decision = decide(profile, name, kwargs)
+    if decision.action == "deny":
+        return decision.reason
+    if decision.action == "ask":
+        return decision.reason
     return None
 
 
@@ -122,3 +144,7 @@ def install_default_tool_policies(guard: ToolGuard | None = None) -> None:
     if not guard.has_policy(_EGRESS_POLICY):
         egress_enforce = os.environ.get("VEYA_EGRESS_ENFORCE", "0") == "1"
         guard.register_policy(_EGRESS_POLICY, egress_audit_policy, enforce=egress_enforce)
+    # P3-01 档位策略: 默认 observe; VEYA_PERMISSION_PROFILE_ENFORCE=1 翻 enforce。
+    if not guard.has_policy(_PROFILE_POLICY):
+        profile_enforce = os.environ.get("VEYA_PERMISSION_PROFILE_ENFORCE", "0") == "1"
+        guard.register_policy(_PROFILE_POLICY, permission_profile_policy, enforce=profile_enforce)

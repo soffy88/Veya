@@ -30,8 +30,9 @@ _DB_PATH = Path.home() / ".veya" / "auth.db"
 _TOKEN_TTL = 30 * 24 * 3600  # 30 天
 
 # 当前请求的用户 (FastAPI 依赖设置; 工具/存储读取做按用户隔离)
-_user_ctx: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
-    "auth_user", default={"user_id": "anonymous", "username": "anonymous"}
+_ANONYMOUS_USER = {"user_id": "anonymous", "username": "anonymous"}
+_user_ctx: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "auth_user", default=None
 )
 
 _lock = threading.Lock()
@@ -154,7 +155,17 @@ def revoke_token(token: str) -> None:
 
 def current_user() -> dict[str, Any]:
     """读取当前请求用户 (contextvar)。工具/存储用它做按用户隔离。"""
-    return _user_ctx.get()
+    return _user_ctx.get() or _ANONYMOUS_USER
+
+
+# Inject the request-local identity into the lower history store without making
+# ``veya.oservi`` import this service layer (3O dependency direction guard).
+try:
+    from veya.oservi.history_store import set_user_id_provider
+
+    set_user_id_provider(current_user)
+except Exception:
+    pass
 
 
 def set_user(user: dict[str, Any]) -> None:

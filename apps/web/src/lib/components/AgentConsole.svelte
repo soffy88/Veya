@@ -31,7 +31,7 @@
 
 	let { engine, label, accent, variant = "default", promptPrefix = "" }: Props = $props();
 
-	const STORAGE_KEY = `veya.agent.${engine}`;
+	const STORAGE_KEY = $derived(`veya.agent.${engine}`);
 
 	function load(): AgentMsg[] {
 		try {

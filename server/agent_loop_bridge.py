@@ -15,9 +15,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import time
+import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
+from server.events import _task_id_ctx, bind_event_context, reset_event_context
 from veya.omodul.agent_loop import AgentLoop, LoopResult
 from veya.omodul.tool_pipeline import ToolPipeline
 
@@ -149,6 +153,8 @@ async def run_strict_chat(
     tool_schemas: list[dict] | None = None,
     tool_executor: ToolExecutor | None = None,
     llm_caller: Callable | None = None,
+    budget_usd: float | None = None,
+    deadline: str | datetime | None = None,
 ) -> dict:
     """omodul.AgentLoop 执行原语：用 AgentLoop 心脏跑一段隔离对话/子任务。
 
@@ -169,6 +175,47 @@ async def run_strict_chat(
     from veya.obase.adapters import TelemetryEventBarrier
     from veya.omodul.agent_loop import AgentLoop
     from veya.omodul.session_tree import SessionTreeMgr
+
+    _turn_started = time.time()
+    if budget_usd is not None:
+        try:
+            budget_usd = float(budget_usd)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("budget_usd must be a non-negative number") from exc
+        if budget_usd < 0:
+            raise ValueError("budget_usd must be a non-negative number")
+
+    deadline_at: datetime | None = None
+    if deadline:
+        if isinstance(deadline, datetime):
+            deadline_at = deadline
+        else:
+            try:
+                deadline_at = datetime.fromisoformat(str(deadline).strip().replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("deadline must be an ISO-8601 datetime") from exc
+        if deadline_at.tzinfo is None:
+            deadline_at = deadline_at.replace(tzinfo=UTC)
+        deadline_at = deadline_at.astimezone(UTC)
+
+    def _response_cost(response: dict) -> float:
+        direct = response.get("cost_usd")
+        if isinstance(direct, (int, float)):
+            return float(direct)
+        usage = response.get("usage") or {}
+        if not isinstance(usage, dict):
+            return 0.0
+        usage_cost = usage.get("cost_usd")
+        if isinstance(usage_cost, (int, float)):
+            return float(usage_cost)
+        provider = str((llm_kwargs or {}).get("provider") or "")
+        if not provider:
+            return 0.0
+        with contextlib.suppress(Exception):
+            from veya.obase._llm_config import calc_cost
+
+            return float(calc_cost(provider, usage))
+        return 0.0
 
     # 会话归属: 已鉴权 user_id (由请求入口的 auth.get_current_user/set_user
     # 设过 contextvar); 未登录落 anonymous, 与 history_store 隔离口径一致。
@@ -212,16 +259,54 @@ async def run_strict_chat(
         barrier=barrier,
         system_prompt=system_prompt,
         max_rounds=max_rounds,
+        budget_usd=budget_usd,
+        cost_calculator=_response_cost,
         context_providers=context_providers,
         on_finish=on_finish,
     )
+    result = None
+    timeout_error: str | None = None
+    child_session_id = session_id or f"agent-loop-{uuid.uuid4().hex}"
+    child_task_token = _task_id_ctx.set(None)
+    event_context_tokens = bind_event_context(
+        session_id=child_session_id,
+        trace_id=child_session_id,
+        turn_id=child_session_id,
+    )
     try:
-        result = await loop.run(user_prompt, session_id=session_id, owner=owner)
+        run = loop.run(user_prompt, session_id=child_session_id, owner=owner)
+        if deadline_at is None:
+            result = await run
+        else:
+            remaining = (deadline_at - datetime.now(UTC)).total_seconds()
+            if remaining <= 0:
+                run.close()
+                timeout_error = "deadline exceeded before child task started"
+            else:
+                try:
+                    result = await asyncio.wait_for(run, timeout=remaining)
+                except TimeoutError:
+                    timeout_error = "deadline exceeded"
     finally:
+        reset_event_context(event_context_tokens)
+        _task_id_ctx.reset(child_task_token)
         # 等待 relay 处理完排队事件（done 事件驱动自然退出）；超时兜底取消
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(asyncio.shield(relay), timeout=5)
         relay.cancel()
+
+    if result is None:
+        return {
+            "status": "failed",
+            "error": timeout_error or "child task did not return a result",
+            "final_answer": f"⚠ {timeout_error or 'child task did not return a result'}",
+            "rounds": 0,
+            "tool_calls": [],
+            "cost_usd": 0.0,
+            "session_id": child_session_id,
+            "stop_kind": "deadline_exceeded" if timeout_error else "failed",
+            "loop_plane": "strict",
+        }
 
     # 4. 返回形态兼容（tool_calls 明细从会话树快照提取）
     tool_trace: list[dict] = []
@@ -230,8 +315,26 @@ async def run_strict_chat(
         if node.get("role") == "tool":
             meta = node.get("meta") or {}
             tool_trace.append({"tool": meta.get("tool", ""), "ok": meta.get("ok", False)})
+    _status = "success" if result.stop_kind in ("completed", "max_rounds") else "failed"
+    # docs/VEYA_P1_P3_IMPLEMENTATION_SPEC.md §16 Trajectory (P2-09): 委托子任务
+    # 有始有终、跟主链热路径隔离, 是"非 GoalRun 路径"里唯一现在就能安全接的一处
+    # (对比 chat_stream() 见 server/trajectory.py 模块 docstring 的范围边界说明)。
+    # 本地文件 append, 从不阻塞/从不影响返回结果。
+    with contextlib.suppress(Exception):
+        from server.trajectory import append_trajectory, build_trajectory
+
+        append_trajectory(
+            build_trajectory(
+                task_id=result.session_id or (session_id or "unknown"),
+                objective=user_prompt,
+                outcome="completed" if _status == "success" else "failed",
+                tool_calls=tool_trace,
+                duration_ms=round((time.time() - _turn_started) * 1000),
+                error=result.error,
+            )
+        )
     return {
-        "status": "success" if result.stop_kind in ("completed", "max_rounds") else "failed",
+        "status": _status,
         "final_answer": result.final_answer,
         # error 与旧路径 (master_agent.chat_stream) 返回形态对齐: chat_stream.py
         # 的 _finish() 在 final_answer 为空时会退回 result.get("error") 兜底——
@@ -243,6 +346,7 @@ async def run_strict_chat(
         "session_id": result.session_id,
         "stop_kind": result.stop_kind,
         "loop_plane": "strict",
+        "cost_usd": round(float(result.cost_usd or 0.0), 6),
     }
 
 

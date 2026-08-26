@@ -9,13 +9,14 @@ pause for the user. freeze_allow locks writes to one subdirectory for the sessio
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import os
 import uuid
 from pathlib import Path
 from typing import Any
 
-from server.events import fire_step
+from server.events import append_canonical_event, fire_step
 
 _mode: contextvars.ContextVar[str] = contextvars.ContextVar("veya_mode", default="agent")
 _require_approval: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -239,6 +240,7 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
     fire_step(
         {
             "type": "permission_request",
+            "topic": "tool.approval_required",
             "request_id": rid,
             "tool_name": tool,
             "tool_args": pending.args,
@@ -246,13 +248,50 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
             "reason": f"「{tool}」需要你批准后才会执行",
         }
     )
+    with contextlib.suppress(Exception):
+        append_canonical_event(
+            "tool.approval_required",
+            {"request_id": rid, "tool_name": tool, "tool_args": pending.args},
+            actor="system",
+            session_id=sid or None,
+        )
     try:
         try:
             await asyncio.wait_for(pending.event.wait(), timeout=_APPROVAL_TIMEOUT_S)
         except TimeoutError:
             return f"approval timed out for '{tool}' (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
         if pending.approved:
+            with contextlib.suppress(Exception):
+                append_canonical_event(
+                    "tool.approved",
+                    {"request_id": rid, "tool_name": tool},
+                    actor="user",
+                    session_id=sid or None,
+                )
+            fire_step(
+                {
+                    "type": "tool.approved",
+                    "tool_name": tool,
+                    "request_id": rid,
+                    "session_id": sid,
+                }
+            )
             return None
+        with contextlib.suppress(Exception):
+            append_canonical_event(
+                "tool.denied",
+                {"request_id": rid, "tool_name": tool},
+                actor="user",
+                session_id=sid or None,
+            )
+        fire_step(
+            {
+                "type": "tool.denied",
+                "tool_name": tool,
+                "request_id": rid,
+                "session_id": sid,
+            }
+        )
         return f"user denied '{tool}'"
     finally:
         # Stop/断连取消等待时也必须释放请求，避免悬挂审批泄漏。

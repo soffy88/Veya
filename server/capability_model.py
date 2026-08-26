@@ -22,6 +22,7 @@ docs/VEYA_3.0_GAP_AUDIT.md §5 表）。范围边界：
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -29,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from server.events import append_canonical_event
 
 
 def _now_iso() -> str:
@@ -83,6 +86,16 @@ class SkillSpec:
     performance: dict[str, Any] = field(default_factory=dict)
     provenance: str = ""
     status: str = "candidate"  # candidate | verified | deprecated
+    trigger_examples: list[str] = field(default_factory=list)
+    execution_type: str = "prompt"
+    execution_ref: str = ""
+    created_by: str = "system"
+    source_event_ids: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    trust_status: str = "review_required"  # trusted | review_required | blocked
+    success_count: int = 0
+    failure_count: int = 0
 
 
 @dataclass
@@ -279,14 +292,163 @@ class SkillRegistry:
 
     def register_candidate(self, spec: SkillSpec) -> None:
         spec.status = "candidate"
+        spec.updated_at = _now_iso()
         self._store.put("skill", spec.skill_id, _to_record(spec))
+
+    @staticmethod
+    def _record_event(topic: str, spec: SkillSpec, **extra: Any) -> dict[str, Any] | None:
+        with contextlib.suppress(Exception):
+            return append_canonical_event(
+                topic,
+                {"skill": _to_record(spec), **extra},
+                actor=spec.created_by or "system",
+                trace_id=spec.skill_id,
+            )
+        return None
+
+    def propose_skill(self, description: str, config: dict[str, Any] | None = None) -> SkillSpec:
+        """Propose a new skill candidate in two-phase teaching flow.
+
+        Creates a skill spec with status "candidate" (pending user confirmation).
+        The caller (frontend/UI) must later confirm or reject via confirm_skill()
+        or reject_skill().  This enforces the candidate→confirm separation so
+        no skill is registered without explicit user authorization.
+
+        Returns the candidate skill spec with skill_id for tracking.
+        """
+        import uuid
+
+        name = description[:50].strip().replace(" ", "-") or f"skill-{uuid.uuid4().hex[:8]}"
+        safe_name = name
+        # Ensure unique name in skill_hub
+        try:
+            from server.skill_hub import skill_hub
+            if skill_hub.has(name):
+                safe_name = f"{name}-{uuid.uuid4().hex[:4]}"
+        except Exception:
+            pass
+        config = config or {}
+        spec = SkillSpec(
+            skill_id=safe_name,
+            instructions=description,
+            version=1,
+            provenance=f"skill_teach_proposal@{datetime.now().isoformat()}",
+            status="candidate",
+            trigger_examples=list(config.get("trigger_examples") or []),
+            execution_type=str(config.get("execution_type") or "prompt"),
+            execution_ref=str(config.get("execution_ref") or ""),
+            created_by=str(config.get("created_by") or "user"),
+            source_event_ids=list(config.get("source_event_ids") or []),
+            trust_status="review_required",
+        )
+        self.register_candidate(spec)
+        event = self._record_event("skill.candidate_created", spec)
+        if event and not spec.source_event_ids and event.get("event_id"):
+            spec.source_event_ids = [str(event["event_id"])]
+            self._store.put("skill", spec.skill_id, _to_record(spec))
+        return spec
+
+    @staticmethod
+    def _scan_candidate(spec: SkillSpec) -> dict[str, Any]:
+        """Small deterministic gate for prompt/executable skill candidates.
+
+        Teaching must not turn unreviewed instructions into trusted runtime
+        behavior. Existing file-backed skills continue to use skill_hub's
+        full AST/static and semantic scanners; this gate covers the registry's
+        text-based teaching path.
+        """
+        source = "\n".join(
+            [spec.instructions, spec.execution_ref, *spec.required_tools]
+        ).lower()
+        forbidden = (
+            "rm -rf",
+            "subprocess",
+            "os.system(",
+            "eval(",
+            "exec(",
+            "__import__",
+        )
+        findings = [token for token in forbidden if token in source]
+        return {
+            "verdict": "blocked" if findings else "pass",
+            "findings": findings,
+            "scan": "deterministic_registry_gate",
+        }
+
+    def confirm_skill(self, skill_id: str) -> SkillSpec | None:
+        """Confirm a previously proposed skill candidate.
+
+        Changes status from "candidate" to "verified" — the skill is now
+        permanently in the registry and discoverable by the model.
+        """
+        spec = self.get_version(skill_id)
+        if spec is None:
+            return None
+        if spec.status != "candidate":
+            raise ValueError(f"Skill {skill_id} is not a candidate (status={spec.status})")
+        scan = self._scan_candidate(spec)
+        self._record_event("skill.scan_completed", spec, result=scan)
+        if scan["verdict"] != "pass":
+            spec.trust_status = "blocked"
+            self._store.put("skill", skill_id, _to_record(spec))
+            raise ValueError(
+                f"Skill {skill_id} failed static safety scan: {', '.join(scan['findings'])}"
+            )
+        spec.status = "verified"
+        spec.trust_status = "trusted"
+        spec.version += 1
+        spec.updated_at = _now_iso()
+        self._store.put("skill", skill_id, _to_record(spec))
+        self._record_event("skill.created", spec)
+        return spec
+
+    def reject_skill(self, skill_id: str) -> bool:
+        """Reject a previously proposed skill candidate.
+
+        Changes status to "deprecated" — the skill is removed from
+        active consideration.
+        Returns True if the skill was found and rejected.
+        """
+        spec = self.get_version(skill_id)
+        if spec is None:
+            return False
+        spec.status = "deprecated"
+        spec.updated_at = _now_iso()
+        self._store.put("skill", skill_id, _to_record(spec))
+        self._record_event("skill.updated", spec, action="rejected")
+        return True
+
 
     def benchmark(self, skill_id: str, metrics: dict[str, Any]) -> SkillSpec | None:
         spec = self.get_version(skill_id)
         if spec is None:
             return None
         spec.performance.update(metrics)
+        spec.updated_at = _now_iso()
         self._store.put("skill", skill_id, _to_record(spec))
+        self._record_event("skill.updated", spec, action="benchmark")
+        return spec
+
+    def record_usage(
+        self,
+        skill_id: str,
+        *,
+        success: bool,
+        evidence: list[str] | None = None,
+    ) -> SkillSpec | None:
+        """Record usage evidence without auto-promoting or rewriting a skill."""
+        spec = self.get_version(skill_id)
+        if spec is None:
+            return None
+        if success:
+            spec.success_count += 1
+        else:
+            spec.failure_count += 1
+        if evidence:
+            spec.performance.setdefault("usage_evidence", []).extend(evidence)
+        spec.updated_at = _now_iso()
+        self._store.put("skill", skill_id, _to_record(spec))
+        self._record_event("skill.failed" if not success else "skill.executed", spec, evidence=evidence or [])
         return spec
 
     def promote(self, skill_id: str) -> bool:
@@ -295,7 +457,10 @@ class SkillRegistry:
         if spec is None or not spec.performance:
             return False
         spec.status = "verified"
+        spec.trust_status = "trusted"
+        spec.updated_at = _now_iso()
         self._store.put("skill", skill_id, _to_record(spec))
+        self._record_event("skill.created", spec, action="promoted")
         return True
 
     def rollback(self, skill_id: str) -> None:
@@ -303,7 +468,9 @@ class SkillRegistry:
         if spec is None:
             return
         spec.status = "deprecated"
+        spec.updated_at = _now_iso()
         self._store.put("skill", skill_id, _to_record(spec))
+        self._record_event("skill.updated", spec, action="rollback")
 
 
 class KnowledgeRegistry:

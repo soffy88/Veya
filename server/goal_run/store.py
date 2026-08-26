@@ -11,13 +11,11 @@
 from __future__ import annotations
 
 import json
-import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from server.goal_run.models import GoalRunState, GoalStatus
-
+from server.goal_run.models import GoalRunState
 
 # ── 目录与文件名常量 ────────────────────────────────────────────────────
 
@@ -63,7 +61,7 @@ def save_goal_run(state: GoalRunState, project_root: str) -> None:
             f"## Interpretation\n{state.tasks[next(iter(state.tasks))].instruction if state.tasks else ''}\n\n"
             f"## Assumptions\n"
             + "\n".join(f"- {a}" for a in ["(no assumptions recorded)"])
-            + f"\n\n## Task Graph\nGenerated at {datetime.now(timezone.utc).isoformat()}",
+            + f"\n\n## Task Graph\nGenerated at {datetime.now(UTC).isoformat()}",
             encoding="utf-8",
         )
 
@@ -103,9 +101,32 @@ def append_event(project_root: str, goal_id: str, event: dict[str, Any]) -> None
     """向 events.jsonl 追加事件（append-only）。"""
     run_dir = _ensure_goal_run_dir(project_root, goal_id)
     events_path = run_dir / _EVENTS_JSONL
-    event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+    event.setdefault("timestamp", datetime.now(UTC).isoformat())
     with events_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    # GoalRun keeps its project-local audit file, while the runtime projection
+    # receives the same fact in the canonical EventStore for cross-entry replay.
+    try:
+        from server.events import event_store
+
+        raw_type = str(event.get("type") or event.get("event") or "")
+        if raw_type in {"goal_started", "run_started", "understand_start"}:
+            topic = "goal.started"
+        elif raw_type in {"goal_completed", "run_completed", "completed"}:
+            topic = "goal.completed"
+        else:
+            topic = "goal.updated"
+        event_store.append(
+            {
+                "topic": topic,
+                "trace_id": goal_id,
+                "task_id": event.get("task_id"),
+                "actor": str(event.get("actor") or "goal_run"),
+                "payload": {"goal_id": goal_id, "goal_event": event},
+            }
+        )
+    except Exception:
+        pass
 
 
 def write_final_summary(project_root: str, goal_id: str, summary: str, artifacts: list[str]) -> None:
@@ -116,7 +137,7 @@ def write_final_summary(project_root: str, goal_id: str, summary: str, artifacts
     summary_path.write_text(
         f"# Final Summary\n\n{summary}\n\n## Artifacts\n"
         + "\n".join(f"- {a}" for a in artifacts)
-        + f"\n\nCompleted at {datetime.now(timezone.utc).isoformat()}",
+        + f"\n\nCompleted at {datetime.now(UTC).isoformat()}",
         encoding="utf-8",
     )
 

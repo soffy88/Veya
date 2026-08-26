@@ -10,6 +10,7 @@ from server.goal_run.leaf import LeafResult
 from server.goal_run.models import GoalStatus
 from server.goal_run.runner import project_run_goal
 from server.goal_run.verify import VerifyResult
+from server.project_understand import UnderstandResult
 
 
 async def _fake_leaf(*_args, **_kwargs) -> LeafResult:
@@ -23,12 +24,31 @@ async def _fake_verify(*_args, **_kwargs) -> VerifyResult:
 def _stub_run(monkeypatch) -> None:
     monkeypatch.setattr("server.goal_run.runner.execute_leaf_with_memory", _fake_leaf)
     monkeypatch.setattr("server.goal_run.runner.verify_task", _fake_verify)
+    monkeypatch.setenv("VEYA_GOAL_RUN_PLAN_REVIEW_ENABLED", "0")
+
+
+async def _fake_understand(*_args, **_kwargs) -> UnderstandResult:
+    return UnderstandResult(
+        decision="act",
+        confidence=1.0,
+        interpretation="execute the requested test goal",
+        assumptions=[],
+        questions=[],
+        risk_flags=[],
+        reasons=["test stub"],
+    )
+
+
+def _stub_understand(monkeypatch) -> None:
+    # project_run_goal's G0 otherwise reaches the real veya1.1 gateway.
+    monkeypatch.setattr("server.project_ask.understand", _fake_understand)
 
 
 @pytest.mark.asyncio
 async def test_project_run_goal_basic_auto(tmp_path: Path, monkeypatch):
     """basic auto mode: simple goal execution (mock leaf, not full integration)."""
     _stub_run(monkeypatch)
+    _stub_understand(monkeypatch)
     # 创建项目根目录结构
     (tmp_path / ".veya-project").mkdir(parents=True, exist_ok=True)
 
@@ -53,6 +73,7 @@ async def test_project_run_goal_basic_auto(tmp_path: Path, monkeypatch):
 async def test_project_run_goal_act_eager(tmp_path: Path, monkeypatch):
     """act_eager 模式：直接执行，跳过门禁。"""
     _stub_run(monkeypatch)
+    _stub_understand(monkeypatch)
     (tmp_path / ".veya-project").mkdir(parents=True, exist_ok=True)
 
     result = await project_run_goal(
@@ -69,8 +90,9 @@ async def test_project_run_goal_act_eager(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_project_run_goal_ask_only(tmp_path: Path):
+async def test_project_run_goal_ask_only(tmp_path: Path, monkeypatch):
     """ask_only 模式：只追问，永不执行。"""
+    _stub_understand(monkeypatch)
     (tmp_path / ".veya-project").mkdir(parents=True, exist_ok=True)
 
     result = await project_run_goal(
@@ -87,10 +109,12 @@ async def test_project_run_goal_ask_only(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_project_run_goal_resume(tmp_path: Path):
+async def test_project_run_goal_resume(tmp_path: Path, monkeypatch):
     """resume 未完成的 run。"""
     (tmp_path / ".veya-project").mkdir(parents=True, exist_ok=True)
 
+    _stub_run(monkeypatch)
+    _stub_understand(monkeypatch)
     # 首次调用创建 run
     result1 = await project_run_goal(
         project_root=str(tmp_path),
@@ -132,5 +156,4 @@ async def test_project_run_goal_invalid_mode(tmp_path: Path):
     # 可能返回 rejected/blocked 状态
     assert hasattr(result, "block_reason") or result.status in [
         GoalStatus.blocked,
-        GoalStatus.rejected,
     ]
