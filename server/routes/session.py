@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import pathlib
 import uuid
@@ -11,6 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from server import auth as auth_mod
+from server.events import event_store
+from server.session_identity import new_session_id
 from veya.platform import obase as _load_obase
 
 router = APIRouter(prefix="/session", tags=["session"])
@@ -32,6 +35,14 @@ def _persist(sid: str) -> None:
     s = _sessions.get(sid)
     if s is not None:
         _store.save(sid, s)
+        with contextlib.suppress(Exception):
+            from veya.history_store import default_history_store
+
+            default_history_store().save_sync(
+                sid,
+                list(s.get("messages") or []),
+                user_id=s.get("user_id", "anonymous"),
+            )
 
 
 def _hydrate() -> None:
@@ -100,7 +111,7 @@ async def create_session(
 ) -> dict[str, Any]:
     import datetime
 
-    sid = str(uuid.uuid4())
+    sid = new_session_id()
     now = datetime.datetime.utcnow().isoformat() + "Z"
     _sessions[sid] = {
         "id": sid,
@@ -114,6 +125,15 @@ async def create_session(
         "updated_at": now,
     }
     _persist(sid)
+    event_store.append(
+        {
+            "topic": "session.created",
+            "session_id": sid,
+            "trace_id": sid,
+            "actor": user["user_id"],
+            "payload": {"session_id": sid},
+        }
+    )
     return {"id": sid, "status": "created", "project": req.project}
 
 
@@ -169,9 +189,18 @@ async def fork_session(
     user: dict[str, Any] = Depends(auth_mod.get_current_user),
 ) -> dict[str, Any]:
     s = _owned_session(session_id, user)
-    new_id = str(uuid.uuid4())
+    new_id = new_session_id()
     _sessions[new_id] = {**copy.deepcopy(s), "id": new_id, "label": req.label}
     _persist(new_id)
+    event_store.append(
+        {
+            "topic": "session.created",
+            "session_id": new_id,
+            "trace_id": new_id,
+            "actor": user["user_id"],
+            "payload": {"session_id": new_id, "forked_from": session_id},
+        }
+    )
     return {"session_id": new_id, "forked_from": session_id}
 
 

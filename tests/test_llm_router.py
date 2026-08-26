@@ -283,6 +283,74 @@ def test_llm_call_veya11_direct_opencode(monkeypatch):
     assert ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") == "opencode-ok"
 
 
+def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
+    """veya1.2-free 只保留实时探测可用的 Pi provider，再轮询 Inferera。"""
+    from veya import llm as hllm
+
+    seen: list[dict] = []
+    hllm._veya12_free_rr_cursor = 0
+
+    async def fake_provider_call(client, provider, **kw):
+        seen.append({"provider": provider, "model": kw["model"]})
+        content = "free-pool-ok" if len(seen) == 3 else ""
+        return {"choices": [{"message": {"role": "assistant", "content": content}}], "usage": {}}
+
+    async def no_sleep(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
+    monkeypatch.setattr(hllm.asyncio, "sleep", no_sleep)
+    config = {
+        "providers": {
+            provider: {"api_key": "test-key"}
+            for provider in ("tokenrouter", "bai", "inferera")
+        }
+    }
+
+    result = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你好"}],
+            provider="veya",
+            model="veya1.2-free",
+            config=config,
+        )
+    )
+
+    assert seen == [
+        {"provider": "tokenrouter", "model": "qwen/qwen3.8-max-free"},
+        {"provider": "bai", "model": "deepseek-v4-flash"},
+        {"provider": "inferera", "model": "coding-glm-4.7-free"},
+    ]
+    assert result["choices"][0]["message"]["content"] == "free-pool-ok"
+
+
+def test_llm_call_veya12_128k_routes_inferera_small_model(monkeypatch):
+    from veya import llm as hllm
+
+    seen: list[dict] = []
+    hllm._openrouter_128k_rr_cursor = 9
+
+    async def fake_provider_call(client, provider, **kw):
+        seen.append({"provider": provider, "model": kw["model"]})
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "small-ok"}}],
+            "usage": {},
+        }
+
+    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
+    result = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你好"}],
+            provider="veya1.2-128K",
+            model="veya1.2-128K",
+            config={"providers": {"inferera": {"api_key": "test-key"}}},
+        )
+    )
+
+    assert seen == [{"provider": "inferera", "model": "coding-glm-4.6-free"}]
+    assert result["choices"][0]["message"]["content"] == "small-ok"
+
+
 # =========================================================================
 # 分层路由 v2 — 动态成本阈值 / Frontier 档 / 质量闸门 / traces 分析
 # =========================================================================
@@ -468,7 +536,7 @@ def test_get_provider_config_user_config_fallback(monkeypatch):
     )
     monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
     monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
-    p, m = hllm.get_provider_config()
+    _, m = hllm.get_provider_config()
     assert m == "veya1.1"  # config.json 兜底生效
 
 

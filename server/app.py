@@ -53,7 +53,10 @@ from server.routes.security import router as security_router
 from server.routes.semantic_search import router as semantic_search_router
 from server.routes.session import router as session_router
 from server.routes.sessions import router as sessions_router
+from server.routes.sessions import unified_router as unified_sessions_router
 from server.routes.static_invariant import router as static_invariant_router
+from server.routes.tasks import router as tasks_router
+from server.routes.telemetry import router as telemetry_router
 from server.routes.threat_model import router as threat_model_router
 from server.routes.tool import router as tool_router
 from server.routes.tools import router as tools_router
@@ -261,7 +264,7 @@ app.include_router(models_router)
 app.include_router(security_router)
 app.include_router(vscode_router)
 # 阶段 5: 3O 统一网关（极简指令 + SSE；新增前缀, 不替换现有路由）
-from veya.oservi.gateway import router as gateway_router
+from veya.oservi.gateway import router as gateway_router  # noqa: E402 — late 3O optional import
 
 app.include_router(gateway_router)
 app.include_router(vault_router)
@@ -287,6 +290,7 @@ app.include_router(init_router)
 app.include_router(research_router)
 app.include_router(resilient_router)
 app.include_router(sessions_router)
+app.include_router(unified_sessions_router)
 app.include_router(projects_router)
 app.include_router(static_invariant_router)
 app.include_router(adversarial_router)
@@ -296,6 +300,8 @@ app.include_router(operator_router)
 app.include_router(observer_router)
 app.include_router(closed_loop_router)
 app.include_router(threat_model_router)
+app.include_router(tasks_router)
+app.include_router(telemetry_router)
 app.include_router(audit_router)
 app.include_router(backends_router)
 app.include_router(board_router)

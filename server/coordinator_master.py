@@ -16,26 +16,34 @@ import contextlib
 import contextvars
 import logging
 import os
+import time
 import uuid
 import weakref
 from collections.abc import Callable
 from typing import Any, cast
 
 from server import graft_autocontext as _graft_autocontext
-from server.events import _on_step_ctx, fire_step
+from server.events import (
+    _on_step_ctx,
+    _task_id_ctx,
+    bind_event_context,
+    fire_step,
+    reset_event_context,
+)
 from server.memory_bank import VeyaMemoryBank
 from server.memory_bank import memory_bank as _default_memory_bank
+from server.session_identity import new_session_id
 from server.skill_hub import VeyaSkillHub
 from server.skill_hub import skill_hub as _default_skill_hub
 from server.swarm_manager import SwarmOrchestrator
 from server.tool_registry import ToolExecutionError, master_tools, parse_optional_timeout
 from server.workspace_rag import get_rag_engine as _default_rag_factory
 from veya.history_store import default_history_store
-from veya.omodul.session_tree import default_session_tree_mirror
 from veya.llm import get_provider_config, llm_call
 from veya.memory_distill import distill as _distill_conversation
-from veya.memory_store import default_memory_store, format_memory_block
+from veya.memory_store import default_memory_store
 from veya.obase.async_utils import run_sync_in_daemon_thread
+from veya.omodul.session_tree import default_session_tree_mirror
 from veya.oskill.pure.context_compress import (
     build_compacted_messages,
     estimate_messages_tokens,
@@ -539,10 +547,21 @@ class MasterCoordinator:
         # 主库 system_* 分支原本早于静态 registry 直接执行，绕过统一守卫。
         # 宿主在装配点包一层，使旧 ReAct 与 strict bridge 共用同一执行契约。
         self._raw_handle_tool_call = self._agent.handle_tool_call
-        self._system_tool_parameters = {
-            spec["function"]["name"]: spec["function"].get("parameters") or {}
-            for spec in self._agent.get_system_schemas()
-        }
+        self._system_tool_parameters = {}
+        for spec in self._agent.get_system_schemas():
+            if not isinstance(spec, dict):
+                continue
+            function = spec.get("function")
+            if isinstance(function, dict):
+                name = function.get("name")
+                parameters = function.get("parameters") or {}
+            else:
+                # Compatibility with injected/legacy adapters that expose the
+                # older flat schema instead of the OpenAI function envelope.
+                name = spec.get("name")
+                parameters = spec.get("parameters") or {}
+            if name:
+                self._system_tool_parameters[str(name)] = parameters
         self._agent.handle_tool_call = self._guarded_handle_tool_call
 
     # ── 宿主注入 ─────────────────────────────────────────────────────
@@ -582,6 +601,11 @@ class MasterCoordinator:
     async def _guarded_handle_tool_call(self, tool_name: str, tool_args: dict) -> str:
         """补齐 MasterAgent system_* 直通分支的 schema 与 ToolGuard。"""
         args = dict(tool_args or {})
+        if tool_name == "system_dispatch_omni_channel":
+            # The physical adapter already treats these as empty strings. Keep
+            # that compatibility behavior before validating the OpenAI schema.
+            args.setdefault("title", "")
+            args.setdefault("content", "")
         if tool_name.startswith("system_"):
             from server.tool_guard import ToolDenied, global_tool_guard
             from veya.oskill.pure.validate_args import validate_args
@@ -823,9 +847,42 @@ class MasterCoordinator:
         goal_id_token = None
         session_lock: asyncio.Lock | None = None
         session_lock_acquired = False
+        task_token: contextvars.Token | None = None
+        event_context_tokens: tuple[contextvars.Token, contextvars.Token, contextvars.Token] | None = None
+        telemetry: Any | None = None
+        trace_id = uuid.uuid4().hex
+        turn_started = time.monotonic()
+        result: dict[str, Any] | None = None
         try:
-            sid_early = session_id or uuid.uuid4().hex
+            sid_early = session_id or new_session_id()
             session_id = sid_early
+            event_context_tokens = bind_event_context(
+                session_id=sid_early, trace_id=trace_id, turn_id=trace_id
+            )
+            with contextlib.suppress(Exception):
+                from server import auth as auth_mod
+                from server.events import event_store
+
+                if not event_store.read_all(session_id=sid_early, topics={"session.created"}):
+                    event_store.append(
+                        {
+                            "topic": "session.created",
+                            "session_id": sid_early,
+                            "trace_id": trace_id,
+                            "actor": str(auth_mod.current_user().get("user_id") or "anonymous"),
+                            "payload": {"session_id": sid_early},
+                        }
+                    )
+                event_store.append(
+                    {
+                        "topic": "message.user_added",
+                        "session_id": sid_early,
+                        "trace_id": trace_id,
+                        "turn_id": trace_id,
+                        "actor": "user",
+                        "payload": {"content": user_prompt},
+                    }
+                )
             uc_tokens = _uc.activate(
                 mode=mode or "agent",
                 require_approval=require_approval,
@@ -868,22 +925,64 @@ class MasterCoordinator:
                 lt = self._long_task_factory()
             effective_rounds = max_rounds or self.max_rounds
             # P1 强上下文: 稳定 sid + 冷启动从持久层恢复历史 (重启/换进程不失忆)
-            sid = session_id or uuid.uuid4().hex
+            sid = session_id or sid_early
+            # P1-03 Task Center 被动登记 (A-04: 只投影不控制): 每轮会话创建一个
+            # task 记录, 后续由状态投影更新。纯副作用——try/except 包裹,
+            # 任何失败绝不拖垮主链 (与 _persist_history 同一纪律)。
+            task_id: str | None = None
+            with contextlib.suppress(Exception):
+                from server.task_store import task_store
+
+                task = task_store.create(
+                    session_id=sid,
+                    title=user_prompt.replace("\n", " ")[:40] or "任务",
+                    objective=user_prompt[:500],
+                    workspace_id=None,
+                    trace_id=trace_id,
+                )
+                task_id = task.id
+                task_token = _task_id_ctx.set(task.id)
+                task_store.update_status(task_id, "running")
+                with contextlib.suppress(Exception):
+                    from server.events import event_store
+
+                    event_store.append(
+                        {
+                            "topic": "turn.started",
+                            "session_id": sid,
+                            "task_id": task_id,
+                            "trace_id": trace_id,
+                            "turn_id": trace_id,
+                            "actor": "system",
+                            "payload": {"objective": user_prompt[:500]},
+                        }
+                    )
+                with contextlib.suppress(Exception):
+                    from server.telemetry import get_emitter
+
+                    telemetry = get_emitter(trace_id=trace_id)
+                    telemetry.execute(
+                        inputs={"session_id": sid},
+                        execution={"status": "started"},
+                        session_id=sid,
+                        task_id=task_id,
+                        topic="turn.started",
+                    )
             lt = _SteeringLongTaskDriver(sid, self._agent, lt)  # 总是包一层, 接住运行中的 steering
             self._bind_history_owner(sid)
             await self._restore_history(sid)
             # P0: 结构化压缩 (token 预算超阈值 → 摘要+保留尾部, 替换硬截断丢弃)
             await self._maybe_compact_history(sid)
-            # P4: 检索相关长期记忆并注入 (空则无操作, 行为不变)
-            await self._inject_memory(sid, user_prompt)
+            # Memory is model-directed through memory_search. Do not perform
+            # keyword retrieval and inject a hidden system message here.
             # Graft 每轮预注入仅当 VEYA_GRAFT_CONTEXT=1; 默认由 assemble_code_context / hicode 按需装配
             await self._inject_graft_context(sid, user_prompt)
             # 长任务无损恢复: 循环运行期间定时快照 (主库在 _histories[sid] 原地
             # 累积每轮消息), 进程被杀也只丢最后一个快照间隔, 而非整轮工作。
             ckpt_task = asyncio.create_task(self._checkpoint_loop(sid))
-            # 主脑瘦身 (VEYA_MASTER_LITE_TOOLS=1): 把 sid 透进 contextvar, 让只读
-            # submodule 里的 get_all_schemas() (无 session 形参) 能读到本会话解锁集。
-            # 默认关闭时纯属无害的 set/reset, 不改行为。
+            # Keep the active session available to goal tools. This context is
+            # not a tool visibility filter; the MasterAgent always receives the
+            # complete registry.
             from server import tool_registry as _tr
 
             _lite_token = _tr._current_master_session.set(sid)
@@ -895,9 +994,18 @@ class MasterCoordinator:
                     llm_kwargs=llm_kwargs or None,
                     long_task=lt,
                 )
+            except asyncio.CancelledError:
+                # Stop/cancel 是安全的终态：先持久化可见历史和 checkpoint，再把
+                # task 投影成 cancelled；不把取消误报成 completed 或 UnboundLocalError。
+                result = {
+                    "status": "cancelled",
+                    "error": "任务已取消，最近 checkpoint 之前的变更已保留；副作用工具需人工核验。",
+                    "final_answer": "⏹ 任务已停止。可继续当前会话，系统会从最近 checkpoint 恢复。",
+                    "tool_calls": [],
+                }
+                raise
             finally:
                 _tr._current_master_session.reset(_lite_token)
-                _tr._session_unlocked.pop(sid, None)  # 会话结束清理解锁集, 防无界增长
                 ckpt_task.cancel()
                 # CancelledError 是 BaseException, 不被 suppress(Exception) 捕获 → 显式列出
                 with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -905,10 +1013,99 @@ class MasterCoordinator:
                 # 正常完成和用户 Stop 都保存最后可见进度。
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await self._persist_history(sid)
+                # P1-03 Task Center 被动状态投影: 轮末标记完成/失败
+                if task_id is not None:
+                    with contextlib.suppress(Exception):
+                        from server.task_store import task_store
+
+                        task_store.update_status(
+                            task_id,
+                            "cancelled"
+                            if result is not None and result.get("status") == "cancelled"
+                            else ("completed" if result and result.get("error") is None else "failed"),
+                        )
+                        if result and isinstance(result.get("cost_usd"), (int, float)):
+                            task_store.set_cost(task_id, float(result["cost_usd"]))
+                        if result and result.get("status") == "cancelled":
+                            checkpoint_id = uuid.uuid4().hex
+                            with contextlib.suppress(Exception):
+                                task_store.set_checkpoint(task_id, checkpoint_id)
+                if telemetry is not None:
+                    with contextlib.suppress(Exception):
+                        telemetry.execute(
+                            inputs={"session_id": sid},
+                            execution={
+                                    "status": "cancelled"
+                                    if result and result.get("status") == "cancelled"
+                                    else ("failed" if result and result.get("error") else "completed")
+                            },
+                            session_id=sid,
+                            task_id=task_id,
+                            topic="turn.completed" if not result.get("error") else "turn.failed",
+                        )
             # P4: 后台蒸馏本轮对话为长期记忆 (不阻塞回答)
             self._schedule_distill(sid)
-            return _sanitize_final_answer(result)
+            final_result = _sanitize_final_answer(result or {})
+            with contextlib.suppress(Exception):
+                from server.events import event_store
+
+                event_store.append(
+                    {
+                        "topic": "message.assistant_added",
+                        "session_id": sid,
+                        "task_id": task_id,
+                        "trace_id": trace_id,
+                        "turn_id": trace_id,
+                        "actor": "assistant",
+                        "payload": {"content": final_result.get("final_answer", "")},
+                    }
+                )
+            if task_id is not None:
+                with contextlib.suppress(Exception):
+                    from server.trajectory import append_trajectory, build_trajectory
+
+                    append_trajectory(
+                        build_trajectory(
+                            task_id=task_id,
+                            objective=user_prompt,
+                            outcome="failed" if final_result.get("error") else "completed",
+                            tool_calls=list(final_result.get("tool_calls") or []),
+                            duration_ms=round((time.monotonic() - turn_started) * 1000),
+                            cost_usd=float(final_result.get("cost_usd") or 0.0),
+                            trace_id=trace_id,
+                        )
+                    )
+            return final_result
         finally:
+            cancellation_requested = bool(
+                result and result.get("status") == "cancelled"
+            ) or bool(asyncio.current_task() and asyncio.current_task().cancelling())
+            if cancellation_requested and task_id is not None:
+                # Cancellation can arrive during restore/injection, before the ReAct
+                # call's inner finally exists. Close the projection here as well.
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self._persist_history(session_id or sid)
+                    from server.task_store import task_store
+
+                    current = task_store.get(task_id)
+                    if current is not None and current.status not in {"cancelled", "completed", "failed"}:
+                        task_store.update_status(task_id, "cancelled")
+                    if current is not None and not current.latest_checkpoint_id:
+                        task_store.set_checkpoint(task_id, uuid.uuid4().hex)
+                    from server.trajectory import append_trajectory, build_trajectory
+
+                    append_trajectory(
+                        build_trajectory(
+                            task_id=task_id,
+                            objective=user_prompt,
+                            outcome="failed",
+                            tool_calls=[],
+                            duration_ms=round((time.monotonic() - turn_started) * 1000),
+                            error="cancelled",
+                            recovery_actions=[{"action": "checkpoint_created"}],
+                            trace_id=trace_id,
+                        )
+                    )
             if session_lock_acquired and session_lock is not None:
                 # session_lock_acquired 只在 837 行成功获锁后置 True, 而获锁前 826 行
                 # 已把 session_id 重写成非 None 的 sid_early —— 这里必然非 None。
@@ -921,6 +1118,10 @@ class MasterCoordinator:
                     _vision_session_ctx.reset(vision_ctx)
             if goal_id_token is not None:
                 _pending_goal_id_ctx.reset(goal_id_token)
+            if task_token is not None:
+                _task_id_ctx.reset(task_token)
+            if event_context_tokens is not None:
+                reset_event_context(event_context_tokens)
             _on_step_ctx.reset(token)
             _pending_images_ctx.reset(image_token)
 
@@ -934,13 +1135,38 @@ class MasterCoordinator:
         hist = getattr(self._agent, "_histories", None)
         if hist is None or sid in hist:
             return  # 主库无此结构, 或热缓存已有 → 跳过
+        from server.events import append_canonical_event
+
+        with contextlib.suppress(Exception):
+            append_canonical_event(
+                "resume.started",
+                {"session_id": sid, "source": "history_store"},
+                actor="system",
+                session_id=sid,
+            )
         restored: list[dict[str, Any]] = []
-        with contextlib.suppress(Exception):  # 持久层故障绝不拖垮对话
+        try:
             restored = await self._history_store.load(sid)
+        except Exception as exc:  # 持久层故障必须可观测且不伪装成成功恢复
+            with contextlib.suppress(Exception):
+                append_canonical_event(
+                    "resume.failed",
+                    {"session_id": sid, "error_type": type(exc).__name__},
+                    actor="system",
+                    session_id=sid,
+                )
+            return
         if restored:
             restored = _repair_dangling_tool_calls(restored)
             system = {"role": "system", "content": self._agent.get_system_prompt()}
             hist[sid] = [system, *restored]
+        with contextlib.suppress(Exception):
+            append_canonical_event(
+                "resume.completed",
+                {"session_id": sid, "message_count": len(restored)},
+                actor="system",
+                session_id=sid,
+            )
 
     # ── P0 结构化压缩 (Context Compaction) ────────────────────────────
     _COMPACT_SUMMARY_SYSTEM = (
@@ -1190,6 +1416,28 @@ class MasterCoordinator:
         while True:
             await asyncio.sleep(interval)
             await self._persist_history(sid)
+            checkpoint_id = uuid.uuid4().hex
+            with contextlib.suppress(Exception):
+                from server.events import current_task_id, event_store
+
+                task_id = current_task_id()
+                event_store.append(
+                    {
+                        "topic": "checkpoint.created",
+                        "session_id": sid,
+                        "task_id": task_id,
+                        "trace_id": sid,
+                        "actor": "system",
+                        "payload": {
+                            "checkpoint_id": checkpoint_id,
+                            "history_revision": len(getattr(self._agent, "_histories", {}).get(sid, [])),
+                        },
+                    }
+                )
+                if task_id:
+                    from server.task_store import task_store
+
+                    task_store.set_checkpoint(task_id, checkpoint_id)
 
     # ── P4 个人记忆 (蒸馏 → 检索 → 注入) ─────────────────────────────
     _MEM_PREFIX = "# MEMORY (关于用户"
@@ -1207,33 +1455,8 @@ class MasterCoordinator:
         return str(auth_mod.current_user()["user_id"])
 
     async def _inject_memory(self, sid: str, query: str) -> None:
-        """检索相关长期记忆, 作为可刷新的 system 消息注入 (system 不入持久化)。
-
-        空记忆 → 完全无操作 (行为不变)。每轮先清旧记忆块再插新块, 不累积。
-        """
-        if not self._memory_enabled:
-            return
-        hist = getattr(self._agent, "_histories", None)
-        if hist is None:
-            return
-        mems: list[dict[str, Any]] = []
-        with contextlib.suppress(Exception):  # 记忆故障绝不拖垮对话
-            mems = await self._memory_store.retrieve(self._memory_user_id(), query, top_k=5)
-        block = format_memory_block(mems)
-        msgs = hist.get(sid)
-        if msgs is None:  # 新会话: 先按主库约定建 [system]
-            msgs = [{"role": "system", "content": self._agent.get_system_prompt()}]
-            hist[sid] = msgs
-        # 清旧记忆块 (按内容前缀识别, 不给消息加非标准字段)
-        msgs[:] = [
-            m
-            for m in msgs
-            if not (
-                m.get("role") == "system" and str(m.get("content", "")).startswith(self._MEM_PREFIX)
-            )
-        ]
-        if block:
-            msgs.insert(1, {"role": "system", "content": block})
+        """Compatibility no-op: memory retrieval belongs to the model toolset."""
+        del sid, query
 
     async def _inject_graft_context(self, sid: str, query: str) -> None:
         """统一流水线 Phase 1: 装配 Graft 代码依赖地图 + ReasoningBank 历史规则,
@@ -1283,17 +1506,56 @@ class MasterCoordinator:
             task.add_done_callback(self._bg_tasks.discard)
 
     async def _distill_and_store(self, sid: str, msgs: list[dict[str, Any]]) -> None:
-        """蒸馏 → 落记忆。质量依赖真实模型, 失败静默。"""
+        """蒸馏为候选 MemoryRecord；不会直接提交为 verified 事实。"""
         with contextlib.suppress(Exception):
             result = await _distill_conversation(msgs, self._bound_llm)
             uid = self._memory_user_id()
+            from server.events import event_store
+            from server.memory_controller import memory_controller
+
+            source_event_ids = [
+                str(event.get("event_id"))
+                for event in event_store.read_all(session_id=sid)
+                if event.get("event_id")
+            ]
             for fact in result.get("facts", []):
-                await self._memory_store.add(uid, "fact", fact, salience=0.6, source_sid=sid)
+                memory_controller.observe(
+                    str(fact),
+                    type="semantic",
+                    scope="global",
+                    scope_type="user",
+                    scope_id=uid,
+                    source_event_ids=source_event_ids,
+                    provenance=f"conversation:{sid}",
+                    trust_level="candidate",
+                    confidence=0.6,
+                )
             for pref in result.get("preferences", []):
-                await self._memory_store.add(uid, "preference", pref, salience=0.7, source_sid=sid)
+                memory_controller.observe(
+                    str(pref),
+                    type="semantic",
+                    scope="global",
+                    scope_type="user",
+                    scope_id=uid,
+                    memory_type="preference",
+                    source_event_ids=source_event_ids,
+                    provenance=f"conversation:{sid}",
+                    trust_level="candidate",
+                    confidence=0.7,
+                )
             summary = result.get("summary")
             if summary:
-                await self._memory_store.add(uid, "summary", summary, salience=0.4, source_sid=sid)
+                memory_controller.observe(
+                    str(summary),
+                    type="episodic",
+                    scope="global",
+                    scope_type="user",
+                    scope_id=uid,
+                    source_event_ids=source_event_ids,
+                    provenance=f"conversation:{sid}",
+                    trust_level="candidate",
+                    confidence=0.4,
+                )
 
     async def chat(self, user_prompt: str, **kwargs: Any) -> dict[str, Any]:
         result = await self._agent.chat(user_prompt, **kwargs)

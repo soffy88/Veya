@@ -1,29 +1,20 @@
 """goal_run runner — project_run_goal 主流程。
 
-实现 v0.1 Spec 完整长时闭环：
-G0 Understand → G1 Plan → G2 Loop (调度 + 执行 + 验收) → G3 Finalize。
+实现 v0.1 Spec 的 durable execution 闭环：
+显式 Objective → G1 Plan/compile → G2 Loop (调度 + 执行 + 验收) → G3 Finalize。
 
-硬约束：Coordinator 不靠多 tool 做意图路由；不平行第二套与 HicodeTaskQueue 无关的
-「影子调度器」——目标层队列可以是权威任务图，叶子执行仍复用现有执行路径。
+硬约束：Coordinator 不靠多 tool 做意图路由；GoalRun 不理解或重写用户意图；
+不平行第二套与 HicodeTaskQueue 无关的「影子调度器」——目标层队列可以是权威
+任务图，叶子执行仍复用现有执行路径。
 """
 
 import asyncio
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-logger = logging.getLogger("veya.goal_run")
-
-# G2 调度停滞熔断: v0.1 叶子同步执行, 若连续这么多 tick 取不到任何可跑任务,
-# 判定为无法推进 (陈旧 running_id / 依赖不可达), 退出循环交 G3 收敛为 blocked,
-# 而不是空转自旋烧 CPU。
-_MAX_STALL_TICKS = 3
-
-# smart-ralph [P] marker 支持的并发上限(见 memory project_veya_pi_gap_audit)。
-_MAX_PARALLEL_CONCURRENCY = 4
 
 from server.capability_model import performance_store
 from server.goal_run.leaf import execute_leaf_with_memory
@@ -43,7 +34,6 @@ from server.goal_run.scheduler import (
 from server.goal_run.store import (
     get_goal_run_artifacts,
     load_goal_run,
-    read_events,
     save_goal_run,
     write_final_summary,
 )
@@ -54,6 +44,36 @@ from server.goal_run.trust_plane import (
 )
 from server.goal_run.verify import apply_block_policy, verify_task
 from server.memory_controller import memory_controller
+from server.project_understand import UnderstandResult
+
+logger = logging.getLogger("veya.goal_run")
+
+# G2 调度停滞熔断: v0.1 叶子同步执行, 若连续这么多 tick 取不到任何可跑任务,
+# 判定为无法推进 (陈旧 running_id / 依赖不可达), 退出循环交 G3 收敛为 blocked,
+# 而不是空转自旋烧 CPU。
+_MAX_STALL_TICKS = 3
+
+# smart-ralph [P] marker 支持的并发上限(见 memory project_veya_pi_gap_audit)。
+_MAX_PARALLEL_CONCURRENCY = 4
+_VALID_GOAL_MODES = frozenset({"auto", "act_eager", "ask_only"})
+
+
+def _explicit_understanding(goal: str, mode: str) -> UnderstandResult:
+    """Treat the MasterAgent's goal as an already-authorized objective.
+
+    This object preserves the old runner contract for downstream response
+    formatting. It is not an intent classifier and never asks a second model
+    to reinterpret the user's request.
+    """
+    return UnderstandResult(
+        decision="ask" if mode == "ask_only" else "act",
+        confidence=1.0,
+        interpretation=str(goal).strip()[:500],
+        assumptions=[],
+        questions=[],
+        risk_flags=[],
+        reasons=["objective supplied by MasterAgent"],
+    )
 
 
 async def _constitution_guard(
@@ -389,6 +409,7 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
 async def project_run_goal(
     project_root: str,
     goal: str,
+    tasks: list[dict[str, Any]] | None = None,
     mode: str = "auto",
     resume_goal_id: str | None = None,
     parent_goal_clarification: str | None = None,
@@ -408,6 +429,20 @@ async def project_run_goal(
 
     返回 GoalRunResponse（统一响应格式）。
     """
+    if mode not in _VALID_GOAL_MODES:
+        return GoalRunResponse(
+            goal_id="",
+            status=GoalStatus.blocked,
+            phase="rejected",
+            interpretation=None,
+            questions=None,
+            goal_counts=None,
+            summary=None,
+            block_reason=f"unknown mode {mode!r}, must be one of {sorted(_VALID_GOAL_MODES)}",
+            artifacts=None,
+            next_action="none",
+        )
+
     start_ts = time.time()
     state: GoalRunState | None = None
 
@@ -423,59 +458,24 @@ async def project_run_goal(
             # (实际应用中可能需要目标文本冲突时的处理)
             pass
 
-    # ── G0: Understand 门禁 ───────────────────────────────────────────
-    from server.goal_run.planner import g0_understand
-
-    memory = ""
-    chain = None
-    if state and state.tasks:
-        # 若有现有 state，读取 memory (STATE/DECISIONS/LESSONS)
-        from server.project_store import ProjectStore
-
-        ps = ProjectStore(project_root)
-        memory = ps.read_state()
-        # chain: 从 events.jsonl 读取最近的 understand/plan 事件
-        events = read_events(project_root, resume_goal_id)
-        if events:
-            # 简化处理：只取最近一次 understand 相关事件的 chain
-            for ev in reversed(events):
-                if ev.get("type") in ("understand_start", "plan_created"):
-                    chain = ev.get("chain", [])
-                    break
-
-    u, g0_response = await g0_understand(
-        goal_text=goal,
-        memory=memory,
-        chain=chain,
-        mode=mode,
+    # ── Objective boundary ─────────────────────────────────────────────
+    # A GoalRun receives a semantic decision from MasterAgent. It persists
+    # and executes that decision; it does not perform G0 intent understanding.
+    u = _explicit_understanding(goal, mode)
+    g0_response = GoalRunResponse(
+        goal_id=(state.goal_id if state else "temp_" + goal[:20]),
+        status=GoalStatus.awaiting_user if mode == "ask_only" else GoalStatus.running,
+        phase="awaiting_user" if mode == "ask_only" else "planning",
+        interpretation=u.interpretation,
+        questions=None,
+        goal_counts=None,
+        summary=None,
+        block_reason="mode=ask_only" if mode == "ask_only" else None,
+        artifacts=None,
+        next_action="wait" if mode == "ask_only" else "plan",
     )
-
-    # 若 G0 返回 ask → 直接返回 understood_ask 响应
-    if u.decision == "ask" and g0_response is not None:
-        g0_response.next_action = "wait" if wait else "none"
-        if not wait:
-            # 不阻塞，直接返回 running 状态
-            g0_response.status = GoalStatus.running
-            g0_response.phase = "running"
-            g0_response.next_action = "wait"
+    if mode == "ask_only":
         return g0_response
-
-    # 若 mode=ask_only 强制只追问
-    if mode == "ask_only" and u.decision == "act":
-        from server.goal_run.models import GoalRunResponse
-
-        return GoalRunResponse(
-            goal_id=g0_response.goal_id,
-            status=GoalStatus.awaiting_user,
-            phase="understood_ask",
-            interpretation=u.interpretation,
-            questions=u.questions,
-            goal_counts=None,
-            summary=None,
-            block_reason="mode=ask_only: forced clarification",
-            artifacts=None,
-            next_action="wait",
-        )
 
     # ── G1: Plan 任务图生成 ────────────────────────────────────────────
     if resume_goal_id and state and state.status == GoalStatus.planning:
@@ -499,6 +499,7 @@ async def project_run_goal(
             default_assignee=state.default_assignee if state else "hicode",
             budget=budget,
             project_root=project_root,
+            explicit_tasks=tasks,
         )
 
         # 保存 state
@@ -597,7 +598,7 @@ def _finalize_episode(state: Any, project_root: str, *, outcome: str) -> None:
             task_ids=list(state.tasks.keys()),
             outcome=outcome,
             started_at=state.started_at.isoformat() if state.started_at else None,
-            completed_at=datetime.now(timezone.utc).isoformat(),
+            completed_at=datetime.now(UTC).isoformat(),
         )
         memory_controller.extract_candidates(project_root, state.goal_id)
     except Exception:
@@ -708,7 +709,7 @@ async def _run_loop_and_finalize(
     # 更新 state 为 completed
     state.status = GoalStatus.completed
     state.final_summary = final_summary
-    state.finished_at = datetime.now(timezone.utc)
+    state.finished_at = datetime.now(UTC)
     save_goal_run(state, project_root)
     _finalize_episode(state, project_root, outcome=GoalStatus.completed.value)
 

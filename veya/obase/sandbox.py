@@ -132,6 +132,7 @@ class SandboxConfig:
     audit_enabled: bool = True
     reject_dangerous: bool = True  # G4: 危险命令执行前拦截
     env_extra: dict[str, str] | None = None  # 注入子进程的额外环境变量(如 OPENBLAS_NUM_THREADS=1)
+    profile: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -144,24 +145,20 @@ class SandboxConfig:
             "allow_write": self.allow_write,
             "audit_enabled": self.audit_enabled,
             "env_extra": self.env_extra,
+            "profile": self.profile,
         }
 
 
 class SandboxProfile(StrEnum):
-    """docs/VEYA_10_OF_10_PLAN.md §11.3 分级(2026-08-24, rfc-08)。
+    """显式资源与 capability profile。
 
-    纯附加的只读分类, 从 SandboxConfig 已有的 allow_write/network_blocked 两个
-    维度推导, 不引入新的执行时判断——真正的权限仍然完全由 SandboxConfig 本身
-    决定, 这个分级只是给一份配置贴一个人可读的标签, 方便审计/日志/未来的策略
-    判断分组读, 不做任何强制。
-
-    计划里的 TEST 档没有实现: 现有 SandboxConfig 只有 allow_write 一个"能不能
-    写"的维度, 分不出"能跑测试但不能改业务代码"这种更细的语义——真要支持需要
-    先在 SandboxConfig 上加一个新维度, 不是分类逻辑能凭空造出来的, 诚实地不实现
-    比伪造一个假界限更负责任。
+    ``profile_config`` 是唯一的配置工厂；``profile_for`` 只负责从已有配置
+    反推标签。TEST 与 BUILD 当前共享 ``allow_write=True`` 的 capability 边界，
+    但 TEST 使用更短时限，调用方仍可在测试执行后丢弃工作区。
     """
 
     READ_ONLY = "read_only"
+    TEST = "test"
     BUILD = "build"
     NETWORKED = "networked"
     PRIVILEGED = "privileged"
@@ -169,6 +166,11 @@ class SandboxProfile(StrEnum):
 
 def profile_for(config: SandboxConfig) -> SandboxProfile:
     """从 allow_write/network_blocked 推导出人可读的 profile 标签(只读, 不改判断)。"""
+    if config.profile:
+        try:
+            return SandboxProfile(config.profile)
+        except ValueError:
+            pass
     if config.allow_write and not config.network_blocked:
         return SandboxProfile.PRIVILEGED
     if not config.network_blocked:
@@ -176,6 +178,65 @@ def profile_for(config: SandboxConfig) -> SandboxProfile:
     if config.allow_write:
         return SandboxProfile.BUILD
     return SandboxProfile.READ_ONLY
+
+
+def profile_config(
+    profile: SandboxProfile | str,
+    *,
+    working_dir: str | None = None,
+) -> SandboxConfig:
+    """Build one explicit resource/capability policy for a sandbox profile."""
+    selected = profile if isinstance(profile, SandboxProfile) else SandboxProfile(profile)
+    base = {
+        "working_dir": working_dir,
+        "audit_enabled": True,
+        "reject_dangerous": True,
+        "profile": selected.value,
+    }
+    if selected is SandboxProfile.READ_ONLY:
+        return SandboxConfig(
+            memory_limit=256 * 1024 * 1024,
+            cpu_limit=30,
+            time_limit=60,
+            network_blocked=True,
+            allow_write=False,
+            **base,
+        )
+    if selected is SandboxProfile.TEST:
+        return SandboxConfig(
+            memory_limit=512 * 1024 * 1024,
+            cpu_limit=120,
+            time_limit=300,
+            network_blocked=True,
+            allow_write=True,
+            **base,
+        )
+    if selected is SandboxProfile.BUILD:
+        return SandboxConfig(
+            memory_limit=512 * 1024 * 1024,
+            cpu_limit=120,
+            time_limit=600,
+            network_blocked=True,
+            allow_write=True,
+            **base,
+        )
+    if selected is SandboxProfile.NETWORKED:
+        return SandboxConfig(
+            memory_limit=512 * 1024 * 1024,
+            cpu_limit=120,
+            time_limit=600,
+            network_blocked=False,
+            allow_write=False,
+            **base,
+        )
+    return SandboxConfig(
+        memory_limit=1024 * 1024 * 1024,
+        cpu_limit=300,
+        time_limit=900,
+        network_blocked=False,
+        allow_write=True,
+        **base,
+    )
 
 
 class Sandbox(ABC):

@@ -219,6 +219,41 @@ class CrossLanguageTranslator:
     4. 库/框架适配
     """
 
+    # Project analysis is used by the P3 workflow and is often pointed at the
+    # repository root. These trees are generated dependencies/caches rather
+    # than project source; traversing them makes an otherwise small query
+    # proportional to the local virtualenv or frontend install size.
+    _ANALYSIS_EXCLUDED_DIRS = frozenset(
+        {
+            ".git",
+            ".hg",
+            ".svn",
+            ".venv",
+            "venv",
+            "env",
+            "node_modules",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".tox",
+            ".svelte-kit",
+            ".next",
+            ".cache",
+            ".parcel-cache",
+            ".turbo",
+            ".pnpm-store",
+            ".code-review-graph",
+            ".veya",
+            ".veya-project",
+            "coverage",
+            "htmlcov",
+            "ms-playwright",
+            "build",
+            "dist",
+        }
+    )
+
     def __init__(self):
         self.parsers = {
             Language.PYTHON: PythonParser(),
@@ -399,7 +434,12 @@ class CrossLanguageTranslator:
             ".go": Language.GO,
         }
 
-        for root, _dirs, files in os.walk(project_path):
+        for root, dirs, files in os.walk(project_path):
+            # ``os.walk`` honours in-place pruning before descending. Keep
+            # source directories such as ``src`` and ``tests`` intact while
+            # avoiding dependency/build trees that can contain millions of
+            # files.
+            dirs[:] = [directory for directory in dirs if directory not in self._ANALYSIS_EXCLUDED_DIRS]
             for file in files:
                 ext = Path(file).suffix
                 if ext in file_extensions:

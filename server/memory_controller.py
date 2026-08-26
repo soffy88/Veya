@@ -22,6 +22,7 @@ Postgres，不改造 oskill.hybrid_search 的语料摄入管线，元数据走 J
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -29,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from server.events import append_canonical_event
 
 
 def _now_iso() -> str:
@@ -39,6 +42,15 @@ def _new_id() -> str:
     import uuid
 
     return f"memory_{uuid.uuid4().hex[:12]}"
+
+
+_CANONICAL_STATUS: dict[str, str] = {
+    "candidate": "active",
+    "verified": "active",
+    "deprecated": "superseded",
+    "rejected": "invalidated",
+    "forgotten": "forgotten",
+}
 
 
 @dataclass
@@ -64,6 +76,27 @@ class MemoryRecord:
     status: str = "candidate"  # candidate | verified | deprecated | rejected
     version: int = 1
     created_at: str = field(default_factory=_now_iso)
+    # P2 MemoryRecord v2 aliases. The legacy fields above remain for persisted
+    # records and existing callers; these fields are the canonical scope/type
+    # dimensions for new records.
+    scope_type: str = "workspace"
+    scope_id: str = ""
+    memory_type: str = "semantic"
+    source_event_ids: list[str] = field(default_factory=list)
+    last_verified_at: str | None = None
+    tags: list[str] = field(default_factory=list)
+
+    @property
+    def canonical_status(self) -> str:
+        """P2 canonical lifecycle status, preserving legacy persisted aliases."""
+        return _CANONICAL_STATUS.get(self.status, self.status)
+
+    def canonical_dict(self) -> dict[str, Any]:
+        """Serialize the spec-shaped record without breaking old callers."""
+        data = asdict(self)
+        data["status"] = self.canonical_status
+        data["legacy_status"] = self.status
+        return data
 
 
 _DEFAULT_STORAGE_PATH = str(Path.home() / ".veya" / "vaom_memory_records.json")
@@ -118,6 +151,16 @@ class MemoryController:
     def __init__(self, store: _MemoryStore | None = None):
         self._store = store or _MemoryStore()
 
+    @staticmethod
+    def _record_event(topic: str, record: MemoryRecord, **extra: Any) -> None:
+        with contextlib.suppress(Exception):
+            append_canonical_event(
+                topic,
+                {"memory": record.canonical_dict(), **extra},
+                actor="system",
+                session_id=record.scope_id if record.scope_type == "session" else None,
+            )
+
     # ── 写入 ─────────────────────────────────────────────────────────────
 
     def observe(
@@ -133,7 +176,20 @@ class MemoryController:
         keywords: list[str] | None = None,
         provenance: str = "",
         trust_level: str = "unknown",
+        scope_type: str | None = None,
+        scope_id: str | None = None,
+        memory_type: str | None = None,
+        source_event_ids: list[str] | None = None,
+        tags: list[str] | None = None,
+        confidence: float | None = None,
     ) -> MemoryRecord:
+        canonical_scope_type = scope_type or {
+            "project": "workspace",
+            "repo": "workspace",
+            "global": "user",
+        }.get(scope, "workspace")
+        canonical_scope_id = scope_id or scope
+        canonical_memory_type = memory_type or type
         record = MemoryRecord(
             content=content,
             type=type,
@@ -145,8 +201,15 @@ class MemoryController:
             keywords=list(keywords or []),
             provenance=provenance,
             trust_level=trust_level,
+            confidence=confidence,
+            scope_type=canonical_scope_type,
+            scope_id=canonical_scope_id,
+            memory_type=canonical_memory_type,
+            source_event_ids=list(source_event_ids or []),
+            tags=list(tags or []),
         )
         self._store.put(record)
+        self._record_event("memory.candidate_created", record)
         return record
 
     def extract_candidates(self, project_root: str, goal_id: str) -> list[MemoryRecord]:
@@ -187,7 +250,8 @@ class MemoryController:
 
     def search(self, query: str = "", *, scope: str | None = None) -> list[MemoryRecord]:
         """关键词过滤(content/entities/keywords), 见模块 docstring——不是向量语义检索。"""
-        items = self._store.all()
+        # forgotten/deprecated 记录保留用于审计与纠错链，但不能继续作为可用事实召回。
+        items = [r for r in self._store.all() if r.status not in {"deprecated", "forgotten"}]
         if scope is not None:
             items = [r for r in items if r.scope == scope]
         if not query:
@@ -273,7 +337,9 @@ class MemoryController:
         ):
             return False
         record.status = "verified"
+        record.last_verified_at = _now_iso()
         self._store.put(record)
+        self._record_event("memory.committed", record)
         return True
 
     def deprecate(self, memory_id: str) -> None:
@@ -282,8 +348,160 @@ class MemoryController:
             return
         record.status = "deprecated"
         self._store.put(record)
+        self._record_event("memory.superseded", record, action="deprecated")
+
+    # ── P2-03 Memory Toolset: correct / supersede / forget ─────────────────
+
+    def correct_record(self, memory_id: str, *, content: str, provenance: str = "") -> str | None:
+        record = self._store.get(memory_id)
+        if record is None:
+            return None
+        if record.status not in ("candidate", "verified"):
+            return None
+        replacement = MemoryRecord(
+            content=content,
+            type=record.type,
+            scope=record.scope,
+            provenance=provenance or f"corrected_from:{memory_id}",
+            trust_level=record.trust_level,
+            confidence=record.confidence,
+            source_episode_ids=list(record.source_episode_ids),
+            source_artifact_ids=list(record.source_artifact_ids),
+            source_knowledge_ids=list(record.source_knowledge_ids),
+            entities=list(record.entities),
+            keywords=list(record.keywords),
+            scope_type=record.scope_type,
+            scope_id=record.scope_id,
+            memory_type=record.memory_type,
+            source_event_ids=list(record.source_event_ids),
+            tags=list(record.tags),
+            supersedes=[memory_id],
+            version=record.version + 1,
+        )
+        record.status = "deprecated"
+        record.supersedes = list(set(record.supersedes) | {replacement.memory_id})
+        self._store.put(record)
+        self._store.put(replacement)
+        self._record_event("memory.corrected", replacement, supersedes=memory_id)
+        return replacement.memory_id
+
+    def correct(self, memory_id: str, *, content: str, provenance: str = "") -> bool:
+        return self.correct_record(memory_id, content=content, provenance=provenance) is not None
+
+    def supersede(self, memory_id: str, *, content: str, provenance: str = "") -> str | None:
+        record = self._store.get(memory_id)
+        if record is None:
+            return None
+        if record.status not in ("candidate", "verified"):
+            return None
+        record.status = "deprecated"
+        self._store.put(record)
+        new_record = MemoryRecord(
+            content=content,
+            type=record.type,
+            scope=record.scope,
+            entities=list(record.entities),
+            keywords=list(record.keywords),
+            provenance=provenance or f"superseded_from:{memory_id}",
+            trust_level=record.trust_level,
+            status="candidate",
+            supersedes=[memory_id],
+        )
+        self._store.put(new_record)
+        record.supersedes = list(set(record.supersedes) | {new_record.memory_id})
+        self._store.put(record)
+        self._record_event("memory.superseded", new_record, supersedes=memory_id)
+        return new_record.memory_id
+
+    def forget(self, memory_id: str) -> bool:
+        record = self._store.get(memory_id)
+        if record is None:
+            return False
+        if record.status not in ("deprecated", "rejected"):
+            return False
+        with self._store._lock:
+            if memory_id in self._store._records:
+                record.status = "forgotten"
+                self._store._records[memory_id] = asdict(record)
+                self._store._save()
+                self._record_event("memory.forgotten", record)
+                return True
+        return False
 
 
 # ── 模块级单例（惯例同 server/memory_bank.py::VeyaMemoryBank 的模块用法）────
 
 memory_controller = MemoryController()
+
+
+# ── P2-03 Memory Toolset: correct / supersede / forget ─────────────────
+
+
+class MemoryToolset:
+    """P2-03 Memory Toolset — 提供 search/write/correct/supersede/forget。
+
+    对接 MemoryController, 给 tool_registry 提供高层接口。
+    不碰 ChatConsole 热路径 (trajectory 同纪律); 工具由大模型自主调用。
+    """
+
+    def __init__(self, controller: MemoryController | None = None):
+        self.controller = controller or memory_controller
+
+    def search(self, query: str = "", *, scope: str | None = None) -> list[dict[str, Any]]:
+        """搜索记忆 (content/entities/keywords 关键词过滤)。"""
+        records = self.controller.search(query, scope=scope)
+        return [r.canonical_dict() for r in records]
+
+    def write(self, content: str, *, type: str = "semantic", scope: str = "project",
+              entities: list[str] | None = None, keywords: list[str] | None = None,
+              provenance: str = "", trust_level: str = "unknown",
+              scope_type: str | None = None, scope_id: str | None = None,
+              memory_type: str | None = None, source_event_ids: list[str] | None = None,
+              tags: list[str] | None = None, confidence: float | None = None) -> dict[str, Any]:
+        """写入新记忆 (observe)。"""
+        record = self.controller.observe(
+            content, type=type, scope=scope, entities=entities,
+            keywords=keywords, provenance=provenance, trust_level=trust_level,
+            scope_type=scope_type, scope_id=scope_id, memory_type=memory_type,
+            source_event_ids=source_event_ids, tags=tags, confidence=confidence,
+        )
+        return record.canonical_dict()
+
+    def correct(self, memory_id: str, content: str, *, provenance: str = "") -> dict[str, Any]:
+        """修正一条现有记忆。"""
+        new_id = self.controller.correct_record(memory_id, content=content, provenance=provenance)
+        if new_id is None:
+            return {"status": "error", "error": f"memory not found or status not correctable: {memory_id}"}
+        return {"status": "corrected", "memory_id": memory_id, "new_id": new_id}
+
+    def supersede(self, memory_id: str, content: str, *, provenance: str = "") -> dict[str, Any]:
+        """supersede 一条记忆: 标原记录 deprecated, 创建新 candidate 记录。"""
+        new_id = self.controller.supersede(memory_id, content=content, provenance=provenance)
+        if new_id is None:
+            return {"status": "error", "error": f"memory not found or status not supersedeable: {memory_id}"}
+        return {"status": "superseded", "old_id": memory_id, "new_id": new_id}
+
+    def forget(self, memory_id: str) -> dict[str, Any]:
+        """软删除一条记忆为 forgotten，保留最小审计记录。"""
+        ok = self.controller.forget(memory_id)
+        if not ok:
+            return {"status": "error", "error": f"memory not found or status not forgettable: {memory_id}"}
+        return {"status": "forgotten", "memory_id": memory_id}
+
+    def get(self, memory_id: str) -> dict[str, Any]:
+        """获取单条记忆详情。"""
+        record = self.controller.get(memory_id)
+        if record is None:
+            return {"status": "not_found", "memory_id": memory_id}
+        return {"status": "ok", "record": record.canonical_dict()}
+
+    def explain(self, memory_id: str) -> dict[str, Any]:
+        """解释一条记忆的来源。"""
+        result = self.controller.explain_provenance(memory_id)
+        if result is None:
+            return {"status": "not_found", "memory_id": memory_id}
+        return {"status": "ok", "memory_id": memory_id, **result}
+
+
+# 模块级单例
+memory_toolset = MemoryToolset()

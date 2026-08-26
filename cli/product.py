@@ -219,6 +219,7 @@ def run_init(argv: list[str]) -> int:
         config.setdefault("providers", {})[provider] = {"api_key": key}
     config["workspace"] = str(ws)
     config["persona"] = "build"
+    config.setdefault("version", "0.8.0")
     _save_config(config)
 
     if provider != "ollama" and key:
@@ -374,6 +375,158 @@ def run_doctor(argv: list[str]) -> int:
     if (cfg.get("doctor") or {}).get("fail_on_toolchain"):
         ok = ok and all(c["ok"] for c in toolchain_checks)
     checks.extend(toolchain_checks)
+
+    # Runtime state-plane checks (P1-07 / P3-06). These checks are deliberately
+    # read-only: an empty store is healthy, while malformed persisted state is not.
+    event_lines: list[dict[str, Any]] = []
+    session_rows: list[dict[str, Any]] = []
+    task_rows: list[Any] = []
+    try:
+        from server.events import event_store
+
+        event_lines = event_store.read_all()
+        add("event store", True, f"可读，{len(event_lines)} events")
+    except Exception as exc:
+        add("event store", False, f"不可读: {type(exc).__name__}: {exc}")
+    try:
+        from veya.history_store import default_history_store
+
+        session_rows = default_history_store().list_sessions_sync(limit=500)
+        add("history store", True, f"可读，最近会话 {len(session_rows)} 条")
+    except Exception as exc:
+        add("history store", False, f"不可读: {type(exc).__name__}: {exc}")
+    try:
+        from server.task_store import TaskStore
+
+        task_rows = TaskStore().list(limit=500)
+        add("task projection", True, f"可读，最近任务 {len(task_rows)} 条")
+    except Exception as exc:
+        add("task projection", False, f"不可读: {type(exc).__name__}: {exc}")
+    try:
+        from server.permission_profiles import default_profile
+        from veya.sandbox import SandboxConfig, profile_for
+
+        add("permission profile", True, default_profile().value)
+        add("sandbox profile", True, profile_for(SandboxConfig()).value)
+    except Exception as exc:
+        add("permission/sandbox", False, f"不可用: {type(exc).__name__}: {exc}")
+    try:
+        from server.tool_registry import master_tools
+
+        add("tool registry", len(master_tools.to_dict().get("tools", [])) > 0, "已装配")
+    except Exception as exc:
+        add("tool registry", False, f"不可用: {type(exc).__name__}: {exc}")
+    try:
+        from server.goal_run import runner as _goal_runner  # noqa: F401
+
+        add("GoalRun", True, "模块可加载")
+    except Exception as exc:
+        add("GoalRun", False, f"不可用: {type(exc).__name__}: {exc}")
+
+    # Projection/recovery consistency checks. They never mutate stores; a legacy
+    # session without a session.created event is reported as compatible history,
+    # not fabricated into a new event.
+    try:
+        event_session_ids = {
+            str(event.get("session_id"))
+            for event in event_lines
+            if event.get("topic") == "session.created" and event.get("session_id")
+        }
+        history_ids = {str(row.get("sid")) for row in session_rows if row.get("sid")}
+        legacy_count = len(history_ids - event_session_ids)
+        add("session consistency", True, f"{len(history_ids)} sessions; legacy-compatible {legacy_count}")
+    except Exception as exc:
+        add("session consistency", False, f"检查失败: {type(exc).__name__}: {exc}")
+
+    try:
+        from server.task_store import TaskProjection
+
+        projected = TaskProjection.from_events(event_lines).snapshot()
+        drift = [
+            task.id
+            for task in task_rows
+            if task.id in projected and projected[task.id].get("status") != task.status
+        ]
+        add("projection drift", not drift, f"{len(drift)} task drift")
+    except Exception as exc:
+        add("projection drift", False, f"检查失败: {type(exc).__name__}: {exc}")
+
+    try:
+        checkpoint_ids = {
+            str((event.get("payload") or {}).get("checkpoint_id"))
+            for event in event_lines
+            if event.get("topic") == "checkpoint.created"
+            and (event.get("payload") or {}).get("checkpoint_id")
+        }
+        missing = [
+            task.id
+            for task in task_rows
+            if task.latest_checkpoint_id and task.latest_checkpoint_id not in checkpoint_ids
+        ]
+        add("checkpoint consistency", not missing, f"{len(missing)} missing checkpoint refs")
+    except Exception as exc:
+        add("checkpoint consistency", False, f"检查失败: {type(exc).__name__}: {exc}")
+
+    try:
+        from server.memory_controller import MemoryController
+
+        memories = MemoryController().search()
+        add("memory index", True, f"可读，{len(memories)} active/candidate records")
+    except Exception as exc:
+        add("memory index", False, f"不可用: {type(exc).__name__}: {exc}")
+    try:
+        from server.capability_model import SkillRegistry
+
+        skills = SkillRegistry().search()
+        add("skill registry", True, f"可读，{len(skills)} skills")
+    except Exception as exc:
+        add("skill registry", False, f"不可用: {type(exc).__name__}: {exc}")
+    try:
+        from server.sse import router as _sse_router  # noqa: F401
+
+        add("SSE endpoint", True, "router 可装配，heartbeat/reconnect 已启用")
+    except Exception as exc:
+        add("SSE endpoint", False, f"不可用: {type(exc).__name__}: {exc}")
+    try:
+        from commands.upgrade import CURRENT_VERSION, _needs_migration, _version_tuple
+
+        stored_version = cfg.get("version")
+        migration_ok = not stored_version or not _needs_migration(cfg)
+        if stored_version and _version_tuple(stored_version) > _version_tuple(CURRENT_VERSION):
+            detail = f"{stored_version}（配置已高于源码基线 {CURRENT_VERSION}，不回退迁移）"
+        else:
+            detail = (
+                f"{stored_version or '未记录（兼容）'} → {CURRENT_VERSION}"
+                if migration_ok
+                else f"{stored_version} → {CURRENT_VERSION}，运行 `veya migrate --apply`"
+            )
+        add("version/migration", migration_ok, detail)
+    except Exception as exc:
+        add("version/migration", False, f"检查失败: {type(exc).__name__}: {exc}")
+    try:
+        def _tool_key(event: dict[str, Any]) -> str:
+            payload = event.get("payload") or {}
+            return str(
+                payload.get("tool_call_id")
+                or payload.get("tool_name")
+                or payload.get("tool")
+                or event.get("event_id")
+            )
+
+        started = {
+            _tool_key(event)
+            for event in event_lines
+            if event.get("topic") == "tool.started"
+        }
+        finished = {
+            _tool_key(event)
+            for event in event_lines
+            if event.get("topic") in {"tool.completed", "tool.failed", "tool.cancelled"}
+        }
+        dangling = len(started - finished)
+        add("dangling_tool_calls", dangling == 0, f"{dangling} unclosed tool calls")
+    except Exception as exc:
+        add("dangling_tool_calls", False, f"检查失败: {type(exc).__name__}: {exc}")
 
     if args.json:
         print(json.dumps({"ok": ok, "checks": checks}, ensure_ascii=False, indent=2))

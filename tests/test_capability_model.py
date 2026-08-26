@@ -112,6 +112,86 @@ def test_skill_search(tmp_path):
     assert [s.skill_id for s in reg.search("excel")] == ["s1"]
 
 
+# ── P2-05 Skill Teaching UX (candidate → confirm flow) ──────────────────
+
+
+def test_skill_propose_creates_candidate(tmp_path):
+    reg = SkillRegistry(_store(tmp_path))
+    spec = reg.propose_skill("A test skill for doing something useful")
+
+    assert spec.status == "candidate"
+    assert spec.skill_id is not None
+    assert spec.version == 1
+    assert spec.instructions == "A test skill for doing something useful"
+    assert spec.provenance.startswith("skill_teach_proposal@")
+
+    # Verify it's in the registry
+    retrieved = reg.get_version(spec.skill_id)
+    assert retrieved.status == "candidate"
+    assert retrieved.skill_id == spec.skill_id
+
+
+def test_skill_confirm_changes_to_verified(tmp_path):
+    reg = SkillRegistry(_store(tmp_path))
+    spec = reg.propose_skill("Test skill to confirm")
+    skill_id = spec.skill_id
+
+    confirmed = reg.confirm_skill(skill_id)
+
+    assert confirmed is not None
+    assert confirmed.status == "verified"
+    assert confirmed.version == 2  # version incremented
+    assert confirmed.skill_id == skill_id
+
+    # Verify persisted
+    retrieved = reg.get_version(skill_id)
+    assert retrieved.status == "verified"
+    assert retrieved.version == 2
+
+
+def test_skill_confirm_non_candidate_raises(tmp_path):
+    reg = SkillRegistry(_store(tmp_path))
+    # Directly insert a verified skill (bypassing propose)
+    reg._store.put("skill", "s1", {
+        "skill_id": "s1",
+        "instructions": "test",
+        "version": 1,
+        "status": "verified",
+        "performance": {},
+        "applicable_when": [],
+        "not_applicable_when": [],
+        "required_tools": [],
+        "knowledge_refs": [],
+        "evaluators": [],
+        "benchmark_suite": None,
+        "provenance": "",
+    })
+
+    try:
+        reg.confirm_skill("s1")
+        raise AssertionError("Should have raised ValueError")
+    except ValueError as e:
+        assert "not a candidate" in str(e)
+
+
+def test_skill_reject_changes_to_deprecated(tmp_path):
+    reg = SkillRegistry(_store(tmp_path))
+    spec = reg.propose_skill("Skill to reject")
+    skill_id = spec.skill_id
+
+    rejected = reg.reject_skill(skill_id)
+
+    assert rejected is True
+    retrieved = reg.get_version(skill_id)
+    assert retrieved.status == "deprecated"
+
+
+def test_skill_reject_nonexistent_returns_false(tmp_path):
+    reg = SkillRegistry(_store(tmp_path))
+    rejected = reg.reject_skill("nonexistent")
+    assert rejected is False
+
+
 # ── KnowledgeRegistry ────────────────────────────────────────────────────
 
 

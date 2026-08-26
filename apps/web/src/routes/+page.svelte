@@ -9,7 +9,7 @@
 	 *   automation → AutomationPanel
 	 *   board    → KanbanPanel  (多 Agent 编排看板: worktree 隔离 + 依赖链)
 	 */
-	import { Bot, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageSquare, Network, Package, Clock, Settings, Trash2, Plus, Columns3, Menu, X } from "lucide-svelte";
+	import { Bot, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageSquare, Network, Package, Clock, Settings, Trash2, Plus, Columns3, Menu, X, SquareCheckBig } from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
 	import FlowConsole from "$lib/components/FlowConsole.svelte";
 	import Dashboard from "$lib/components/Dashboard.svelte";
@@ -19,11 +19,12 @@
 	import PluginPanel from "$lib/components/PluginPanel.svelte";
 	import AutomationPanel from "$lib/components/AutomationPanel.svelte";
 	import KanbanPanel from "$lib/components/KanbanPanel.svelte";
+	import TaskCenterPanel from "$lib/components/TaskCenterPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
 	import AuthGate from "$lib/components/AuthGate.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 
-	type View = "chat" | "dashboard" | "plan" | "git" | "graph" | "genesis" | "plugins" | "automation" | "board";
+	type View = "chat" | "dashboard" | "plan" | "git" | "graph" | "genesis" | "plugins" | "automation" | "board" | "tasks";
 
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
@@ -44,6 +45,7 @@
 		["plugins", "插件", Package],
 		["automation", "自动化", Clock],
 		["board", "看板", Columns3],
+		["tasks", "任务", SquareCheckBig],
 	];
 
 	function selectNav(v: View) {
@@ -146,7 +148,12 @@
 									class="group relative flex cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2 transition {s.sid === sessionStore.activeSid
 										? 'bg-white/10'
 										: 'hover:bg-white/5'}"
+									role="button"
+									tabindex="0"
 									onclick={() => sessionStore.open(s.sid)}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') sessionStore.open(s.sid);
+									}}
 								>
 									<span class="truncate pr-6 text-[13px] text-terminal-fg">{s.title}</span>
 									<span class="flex items-center justify-between font-mono text-[10px] text-terminal-dim/70">
@@ -249,6 +256,8 @@
 		{:else if view === "automation"}
 			<div class="flex-1 overflow-y-auto p-6"><AutomationPanel /></div>
 			<div class="flex-1 overflow-y-auto"><KanbanPanel /></div>
+		{:else if view === "tasks"}
+			<div class="flex-1 overflow-hidden"><TaskCenterPanel /></div>
 		{/if}
 	</section>
 </main>

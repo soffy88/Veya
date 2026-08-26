@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
 
 from veya.omodul.session_tree import SessionTreeMgr
 from veya.omodul.tool_pipeline import ToolPipeline, ToolRunResult
@@ -53,6 +54,7 @@ class LoopResult:
     tool_calls: int = 0
     tool_failures: int = 0
     error: str = ""
+    cost_usd: float = 0.0
     snapshot: dict | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -65,6 +67,7 @@ class LoopResult:
             "tool_calls": self.tool_calls,
             "tool_failures": self.tool_failures,
             "error": self.error,
+            "cost_usd": self.cost_usd,
         }
 
 
@@ -86,6 +89,8 @@ class AgentLoop:
         gate: Callable[[], Awaitable[None]] | None = None,
         context_providers: list[Callable[[str, str], Awaitable[str]]] | None = None,
         on_finish: Callable[[str, list[dict]], Awaitable[None]] | None = None,
+        budget_usd: float | None = None,
+        cost_calculator: Callable[[dict], float] | None = None,
     ) -> None:
         """gate: 每轮开始前 await 的挂起检查点（阶段 5 daemon 注入：
         paused 时阻塞等待 resume；默认 None = 无挂起能力，行为不变）。
@@ -110,6 +115,10 @@ class AgentLoop:
         self._gate = gate
         self._context_providers = list(context_providers or [])
         self._on_finish = on_finish
+        if budget_usd is not None and budget_usd < 0:
+            raise ValueError("budget_usd must be non-negative")
+        self._budget_usd = budget_usd
+        self._cost_calculator = cost_calculator
 
     # ------------------------------------------------------------------ 主循环
 
@@ -154,13 +163,19 @@ class AgentLoop:
             # 0. 挂起检查点（daemon 注入；paused 时阻塞等待 resume）
             if self._gate is not None:
                 await self._gate()
+            if self._budget_usd is not None and result.cost_usd >= self._budget_usd:
+                result.stop_kind = "budget_exceeded"
+                result.stop_reason = f"预算上限 ${self._budget_usd:.6f} 已用尽"
+                result.error = result.stop_reason
+                result.final_answer = f"⚠ {result.stop_reason}"
+                break
             # 1. 上下文（时空回溯路径 + 滑窗压缩 + 注入钩子）
             ctx = self._tree.messages(sid)
             ctx = sliding_window(ctx, max_messages=_MAX_CTX_MESSAGES)
             for provider in self._context_providers:
                 block = await provider(sid, user_input)
                 if block:
-                    ctx = [{"role": "system", "content": block}] + ctx
+                    ctx = [{"role": "system", "content": block}, *ctx]
             msgs = agent_messages_to_llm(ctx)
 
             # 2. LLM 调用（物理触手；异常 = 致命错误）
@@ -168,7 +183,7 @@ class AgentLoop:
             tools = self._pipeline.schemas()
             try:
                 resp = await _oprim_llm_call(msgs, client=self._llm, tools=tools or None)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 result.stop_kind = "fatal_error"
                 result.stop_reason = f"LLM 调用失败: {exc}"
                 result.error = str(exc)
@@ -177,6 +192,28 @@ class AgentLoop:
                 result.final_answer = (
                     f"⚠ 模型调用失败: {exc}\n请重试，或检查 API key / 网络连通性。"
                 )
+                break
+
+            try:
+                if self._cost_calculator is not None:
+                    result.cost_usd += max(0.0, float(self._cost_calculator(resp)))
+                elif isinstance(resp.get("cost_usd"), (int, float)):
+                    result.cost_usd += max(0.0, float(resp["cost_usd"]))
+                elif isinstance(resp.get("usage"), dict):
+                    usage_cost = resp["usage"].get("cost_usd")
+                    if isinstance(usage_cost, (int, float)):
+                        result.cost_usd += max(0.0, float(usage_cost))
+            except (TypeError, ValueError):
+                # Malformed provider usage must not bypass loop safeguards.
+                pass
+            if self._budget_usd is not None and result.cost_usd > self._budget_usd:
+                result.stop_kind = "budget_exceeded"
+                result.stop_reason = (
+                    f"本轮估算成本 ${result.cost_usd:.6f} 超过预算上限 "
+                    f"${self._budget_usd:.6f}"
+                )
+                result.error = result.stop_reason
+                result.final_answer = f"⚠ {result.stop_reason}"
                 break
 
             # 3. 翻译 + 入树
