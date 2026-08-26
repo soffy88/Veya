@@ -40,15 +40,18 @@ export const MODEL_PRESETS: Record<string, string[]> = {
 	openai: ["gpt-5.1-codex", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"],
 	dashscope: ["qwen-plus", "qwen-max", "qwen-turbo"],
 	deepseek: ["deepseek-chat", "deepseek-reasoner"],
-	openrouter: ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.1-8b"],
+	openrouter: [
+		"nvidia/nemotron-3-ultra-550b-a55b:free",
+		"minimax/minimax-m3:free",
+	],
 	moonshot: ["moonshot-v1-8k", "moonshot-v1-32k"],
 	zhipu: ["glm-4-flash", "glm-4-plus"],
 	pi: ["llama3.1-8b", "qwen2.5-7b", "deepseek-r1-7b"],
 };
 
 export const BUILTIN_PROVIDERS: ProviderDef[] = [
-	// veya1.1: 智能路由别名 (后端按任务类型路由: 文本→deepseek-v4-flash, 视觉→qwen3.7-flash)
-	{ id: "veya1.1", label: "Veya 1.1 (智能路由)", defaultModel: "veya1.1" },
+	// veya1.2: OpenRouter 免费双模型代理 (Nemotron Ultra + MiniMax M3)
+	{ id: "veya1.2", label: "Veya 1.2 (OpenRouter 免费代理)", defaultModel: "veya1.2" },
 	{ id: "dashscope", label: "DashScope · Qwen", defaultModel: "qwen-plus" },
 	{ id: "anthropic", label: "Anthropic · Claude", defaultModel: "claude-haiku-4-5-20251001" },
 	{ id: "openai", label: "OpenAI · GPT", defaultModel: "gpt-4o-mini" },
@@ -76,14 +79,18 @@ function emptyCred(): Credential {
 	return { api_key: "", model: "" };
 }
 
+function migrateProvider(provider: string): string {
+	return provider === "veya1.1" ? "veya1.2" : provider;
+}
+
 function load(): StoredState {
-	if (typeof localStorage === "undefined") return { provider: "dashscope", creds: {}, customProviders: [] };
+	if (typeof localStorage === "undefined") return { provider: "veya1.2", creds: {}, customProviders: [] };
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw);
 			if (parsed && typeof parsed.provider === "string") {
-				return { provider: parsed.provider, creds: parsed.creds ?? {}, customProviders: parsed.customProviders ?? [] };
+				return { provider: migrateProvider(parsed.provider), creds: parsed.creds ?? {}, customProviders: parsed.customProviders ?? [] };
 			}
 		}
 		// migrate the old single-credential shape if present
@@ -92,8 +99,8 @@ function load(): StoredState {
 			const p = JSON.parse(legacy);
 			if (p && typeof p.api_key === "string") {
 				return {
-					provider: p.provider ?? "dashscope",
-					creds: { [p.provider ?? "dashscope"]: { api_key: p.api_key, model: p.model ?? "" } },
+					provider: migrateProvider(p.provider ?? "dashscope"),
+					creds: { [migrateProvider(p.provider ?? "dashscope")]: { api_key: p.api_key, model: p.model ?? "" } },
 					customProviders: [],
 				};
 			}
@@ -101,12 +108,12 @@ function load(): StoredState {
 	} catch {
 		/* ignore malformed storage */
 	}
-	return { provider: "dashscope", creds: {}, customProviders: [] };
+	return { provider: "veya1.2", creds: {}, customProviders: [] };
 }
 
 class ApiKeyStore {
 	#initial = load();
-	provider = $state(this.#initial.provider || "veya1.1");
+	provider = $state(this.#initial.provider || "veya1.2");
 	engine = $state("master");
 	customProviders = $state<ProviderDef[]>(this.#initial.customProviders);
 	#creds = $state<Record<string, Credential>>(this.#initial.creds);

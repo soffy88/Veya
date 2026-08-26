@@ -1,4 +1,4 @@
-"""LLM 智能路由门禁 — veya1.1 别名 / 7 档分类 / 长文并行快速回答。"""
+"""LLM 智能路由门禁 — veya1.2 别名 / 7 档分类 / 长文并行快速回答。"""
 
 from __future__ import annotations
 
@@ -37,13 +37,13 @@ def test_route_vision_to_dashscope():
     assert d["model"] == "qwen3.7-flash"
 
 
-def test_route_text_to_opencode_flash():
-    from oprim._llm_router import route_decision
+def test_route_text_to_veya12():
+    from oprim._llm_router import DEFAULT_MATRIX, route_decision
 
-    d = route_decision([{"role": "user", "content": "你好"}])
+    d = route_decision([{"role": "user", "content": "你好"}], matrix=DEFAULT_MATRIX)
     assert d["route"] == "quick"  # <300 tokens
-    assert d["provider"] == "opencode"
-    assert d["model"] == "opencode-go/deepseek-v4-flash"
+    assert d["provider"] == "veya1.2"
+    assert d["model"] == "veya1.2"
 
 
 def test_route_long():
@@ -67,14 +67,15 @@ def test_route_tool_and_code():
 
 
 def test_route_fallback_on_bad_matrix(tmp_path):
-    from oprim._llm_router import load_matrix, route_decision
+    import oprim._llm_router as router
 
     bad = tmp_path / "llm-router.json"
     bad.write_text("{not json")
-    m = load_matrix(str(bad))
-    assert m["fallback"]["model"] == "opencode-go/deepseek-v4-flash"  # 损坏 → 默认
-    d = route_decision([{"role": "user", "content": "x"}], matrix=m)
-    assert d["provider"] == "opencode"
+    router._cache = {"mtime": 0.0, "matrix": router.DEFAULT_MATRIX}
+    m = router.load_matrix(str(bad))
+    assert m["fallback"]["model"] == "veya1.2"  # 损坏 → 默认
+    d = router.route_decision([{"role": "user", "content": "x"}], matrix=m)
+    assert d["provider"] == "veya1.2"
 
 
 def test_matrix_hot_reload(tmp_path):
@@ -153,9 +154,9 @@ def test_llm_router_audit_and_route(tmp_path):
     audit = tmp_path / "router-audit.jsonl"
     router = LLMRouter(audit_path=str(audit))
     d = router.route([{"role": "user", "content": "hi"}])
-    assert d["route"] == "quick" and d["alias"] == "veya1.1"
+    assert d["route"] == "quick" and d["alias"] == "veya1.2"
     assert audit.exists()
-    assert "veya1.1" in audit.read_text()
+    assert "veya1.2" in audit.read_text()
 
 
 def test_call_aliased_short_single_call():
@@ -173,8 +174,8 @@ def test_call_aliased_short_single_call():
 
     r = asyncio.run(router.call_aliased([{"role": "user", "content": "hi"}], caller))
     assert len(calls) == 1
-    assert calls[0]["provider"] == "opencode"
-    assert calls[0]["model"] == "opencode-go/deepseek-v4-flash"
+    assert calls[0]["provider"] == "veya1.2"
+    assert calls[0]["model"] == "veya1.2"
     assert r["route"] == "quick"
 
 
@@ -203,11 +204,12 @@ def test_call_aliased_long_parallel():
 # =========================================================================
 
 
-def test_llm_call_veya11_alias_routes_to_opencode(monkeypatch):
-    """llm_call(model=veya1.1) → opencode 档 key 直连 (mock provider_call)。"""
+def test_llm_call_veya12_alias_routes_to_openrouter(monkeypatch):
+    """veya1.2 主脑代理只轮询指定的 Nemotron Ultra 与 MiniMax M3。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
+    hllm._zen_rr_cursor = 0
 
     async def fake_provider_call(client, provider, **kw):
         seen.append({"provider": provider, "model": kw["model"], "endpoint": kw.get("endpoint")})
@@ -217,34 +219,39 @@ def test_llm_call_veya11_alias_routes_to_opencode(monkeypatch):
         }
 
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr(
+        "os.environ", {**__import__("os").environ, "OPENROUTER_API_KEY": "sk-test"}
+    )
 
     result = asyncio.run(
         hllm.llm_call(
             [{"role": "user", "content": "你好"}],
-            provider="veya1.1",
-            model="veya1.1",
+            provider="veya1.2",
+            model="veya1.2",
         )
     )
-    assert seen and seen[0]["provider"] == "opencode-go"
-    assert seen[0]["model"] == "deepseek-v4-flash"  # 裸 ID (API 不接受前缀)
-    assert seen[0]["endpoint"] == "https://opencode.ai/zen/go/v1/chat/completions"
+    assert seen == [
+        {"provider": "openrouter", "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+         "endpoint": "https://openrouter.ai/api/v1/chat/completions"},
+    ]
     assert result["choices"][0]["message"]["content"] == "routed-ok"
 
 
-def test_llm_call_veya11_opencode_failure_returns_error(monkeypatch):
-    """opencode-go 调用异常 → 结构化错误消息 (不裸抛)。"""
+def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
+    """旧 veya1.1 名称仍可用，但实际走新的 veya1.2 OpenRouter 池。"""
     from veya import llm as hllm
 
-    async def boom(client, provider, **kw):
-        raise RuntimeError("网络抖动")
+    seen: list[dict] = []
+    hllm._zen_rr_cursor = 0
 
-    async def _no_sleep(*_a, **_kw):
-        return None
+    async def fake_provider_call(client, provider, **kw):
+        seen.append({"provider": provider, "model": kw["model"]})
+        return {"choices": [{"message": {"content": "compat-ok"}}], "usage": {}}
 
-    monkeypatch.setattr(hllm, "provider_call", boom)
-    monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
+    monkeypatch.setattr(
+        "os.environ", {**__import__("os").environ, "OPENROUTER_API_KEY": "sk-test"}
+    )
 
     result = asyncio.run(
         hllm.llm_call(
@@ -253,34 +260,8 @@ def test_llm_call_veya11_opencode_failure_returns_error(monkeypatch):
             model="veya1.1",
         )
     )
-    content = result["choices"][0]["message"]["content"]
-    assert "opencode-go 调用失败" in content
-
-
-def test_llm_call_veya11_direct_opencode(monkeypatch):
-    """用户要求 (2026-08): veya1.1 直接用 opencode-go API — 不做多模态路由。"""
-    from veya import llm as hllm
-
-    seen: list[dict] = []
-
-    async def fake_provider_call(client, provider, **kw):
-        seen.append({"provider": provider, "model": kw["model"]})
-        return {"choices": [{"message": {"content": "opencode-ok"}}], "usage": {}}
-
-    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
-
-    resp = asyncio.run(
-        hllm.llm_call(
-            [{"role": "user", "content": "你是谁你能做什么"}],
-            provider="veya1.1",
-            model="veya1.1",
-        )
-    )
-    # 直连 opencode-go (不再路由到 dashscope/其他模型)
-    assert seen and seen[0]["provider"] == "opencode-go"
-    assert seen[0]["model"] == "deepseek-v4-flash"
-    assert ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") == "opencode-ok"
+    assert seen == [{"provider": "openrouter", "model": "nvidia/nemotron-3-ultra-550b-a55b:free"}]
+    assert result["choices"][0]["message"]["content"] == "compat-ok"
 
 
 def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
@@ -420,7 +401,7 @@ def test_call_aliased_gate_upgrade_retry():
 
     r = asyncio.run(router.call_aliased([{"role": "user", "content": "你好"}], caller))
     assert len(calls) == 2  # 升级重试 1 次
-    assert calls[0]["model"] == "opencode-go/deepseek-v4-flash"
+    assert calls[0]["model"] == "veya1.2"
     assert calls[1]["model"] == "gpt-5.6-luna"
     assert r["gate"]["reason"] == "upgraded"
 
@@ -507,8 +488,8 @@ def test_dispatch_long_planner_chain():
     async def chunk_caller(chunk, idx):
         res = await caller(
             {
-                "provider": "opencode",
-                "model": "opencode-go/deepseek-v4-flash",
+                "provider": "veya1.2",
+                "model": "veya1.2",
                 "messages": [{"role": "user", "content": chunk}],
                 "tools": None,
             }
@@ -523,21 +504,21 @@ def test_dispatch_long_planner_chain():
     assert len(r.get("plan", [])) >= 2  # 强模型规划产出任务列表
     assert "综合回答" in r["output"]  # 强模型聚合结果
     strong = [c for c in calls if "gpt-5.6-luna" in c["model"]]
-    flash = [c for c in calls if "deepseek-v4-flash" in c["model"]]
+    flash = [c for c in calls if c["model"] == "veya1.2"]
     assert len(strong) >= 2 and len(flash) >= 1
 
 
 def test_get_provider_config_user_config_fallback(monkeypatch):
-    """无显式参数时 model 兜底读 ~/.veya/config.json llm 段 (主脑默认 veya1.1)。"""
+    """无显式参数时 model 兜底读 ~/.veya/config.json llm 段。"""
     from veya import llm as hllm
 
     monkeypatch.setattr(
-        hllm, "_user_llm_config", lambda: {"provider": "veya1.1", "model": "veya1.1"}
+        hllm, "_user_llm_config", lambda: {"provider": "veya1.2", "model": "veya1.2"}
     )
     monkeypatch.delenv("VEYA_LLM_MODEL", raising=False)
     monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
     _, m = hllm.get_provider_config()
-    assert m == "veya1.1"  # config.json 兜底生效
+    assert m == "veya1.2"  # config.json 兜底生效
 
 
 def test_get_provider_config_no_user_config(monkeypatch):
@@ -551,14 +532,12 @@ def test_get_provider_config_no_user_config(monkeypatch):
     assert p == hllm._DEFAULT_PROVIDER and m  # 默认档位正常
 
 
-def test_llm_call_veya11_opencode_none_content_retries_and_errors(monkeypatch):
-    """opencode-go 返回字面量 'None'/空 (网关抖动) → 换模型重试 → 全失败给明确错误。
-
-    回归: 用户"不回复"根因 — 网关对部分输入 75% 返回 'None', 链路原静默 success。
-    """
+def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
+    """OpenRouter 双模型返回空 → 重试 → frontier 失败时给明确错误。"""
     from veya import llm as hllm
 
     calls: list[str] = []
+    hllm._zen_rr_cursor = 0
 
     async def flaky_provider_call(client, provider, **kw):
         calls.append(kw["model"])
@@ -570,33 +549,38 @@ def test_llm_call_veya11_opencode_none_content_retries_and_errors(monkeypatch):
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
     monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr(
+        "os.environ", {**__import__("os").environ, "OPENROUTER_API_KEY": "sk-test"}
+    )
 
     result = asyncio.run(
         hllm.llm_call(
             [{"role": "user", "content": "以动画形式生成草船借箭的2分钟视频"}],
-            provider="veya1.1",
-            model="veya1.1",
+            provider="veya1.2",
+            model="veya1.2",
         )
     )
-    # 网关抖动: 候选模型 (deepseek/kimi-k2.7-code) 整轮重试 5 轮仍无效 →
-    # gpt-5.6-luna 兜底也重试 4 次仍无效 → 结构化错误
-    assert calls == ["deepseek-v4-flash", "kimi-k2.7-code"] * 5 + ["gpt-5.6-luna"] * 4
+    # 双模型整轮重试 3 轮仍无效 → gpt-5.6-luna 兜底也重试 4 次
+    assert calls == [
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "minimax/minimax-m3:free",
+    ] * 3 + ["gpt-5.6-luna"] * 4
     content = result["choices"][0]["message"]["content"]
-    assert "opencode-go 调用失败" in content
+    assert "veya1.2 免费池调用失败" in content
     assert "无效内容" in content
     assert result.get("error") is True
 
 
-def test_llm_call_veya11_opencode_none_then_good_returns_good(monkeypatch):
+def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
     """首个模型返回 'None' → 换备用模型返回正常内容 → 采用正常内容。"""
     from veya import llm as hllm
 
     calls: list[str] = []
+    hllm._zen_rr_cursor = 0
 
     async def flaky_provider_call(client, provider, **kw):
         calls.append(kw["model"])
-        if kw["model"] == "deepseek-v4-flash":
+        if kw["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free":
             return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
         return {
             "choices": [{"message": {"role": "assistant", "content": "备用模型正常回复"}}],
@@ -604,15 +588,20 @@ def test_llm_call_veya11_opencode_none_then_good_returns_good(monkeypatch):
         }
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
-    monkeypatch.setattr("os.environ", {**__import__("os").environ, "OPENCODE_API_KEY": "sk-test"})
+    monkeypatch.setattr(
+        "os.environ", {**__import__("os").environ, "OPENROUTER_API_KEY": "sk-test"}
+    )
 
     result = asyncio.run(
         hllm.llm_call(
             [{"role": "user", "content": "你好"}],
-            provider="veya1.1",
-            model="veya1.1",
+            provider="veya1.2",
+            model="veya1.2",
         )
     )
-    assert calls == ["deepseek-v4-flash", "kimi-k2.7-code"]
+    assert calls == [
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "minimax/minimax-m3:free",
+    ]
     assert result["choices"][0]["message"]["content"] == "备用模型正常回复"
     assert not result.get("error")
