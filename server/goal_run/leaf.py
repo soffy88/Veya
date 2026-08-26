@@ -13,9 +13,11 @@
 
 from __future__ import annotations
 
-import asyncio
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from runtime.execution.artifacts import ArtifactStore
 
 if TYPE_CHECKING:
     from server.project_store import ProjectStore
@@ -28,11 +30,27 @@ class LeafResult:
     status: str  # "completed" | "blocked"
     summary: str
     block_reason: str | None = None
-    artifacts: list[str] = None
+    artifacts: list[Any] = None
+    # Optional structured output used by the Execution Runtime adapter.  The
+    # old callers only consume status/summary/block_reason/artifacts, so these
+    # additions remain backwards compatible with existing harnesses and tests.
+    evidence: list[dict[str, Any]] = None
+    assertions: list[dict[str, Any]] = None
+    completed_work: list[str] = None
+    unfinished_work: list[str] = None
+    stop_reason: str | None = None
 
     def __post_init__(self):
         if self.artifacts is None:
             self.artifacts = []
+        if self.evidence is None:
+            self.evidence = []
+        if self.assertions is None:
+            self.assertions = []
+        if self.completed_work is None:
+            self.completed_work = []
+        if self.unfinished_work is None:
+            self.unfinished_work = []
 
 
 async def execute_leaf(
@@ -70,6 +88,10 @@ async def execute_leaf(
     # 运行目录
     run_dir = store.run_dir(task_id)
     (run_dir / "brief.md").write_text(brief, encoding="utf-8")
+    runtime_task_id = re.sub(r"[^A-Za-z0-9._-]+", "_", task_id).strip("._")[:80] or "leaf"
+    runtime_artifacts = ArtifactStore(project_root, runtime_task_id)
+    runtime_artifacts.ensure_layout()
+    runtime_artifacts.path("inputs/brief.md").write_text(brief, encoding="utf-8")
 
     # 派工执行。经 HarnessRegistry.execute() 路由(PR-15, 见
     # server/capability_model.py::HarnessRegistry.execute 的 docstring)——
@@ -83,6 +105,7 @@ async def execute_leaf(
             summary=resp.summary or "",
             block_reason=resp.block_reason,
             artifacts=resp.artifacts,
+            stop_reason="completed" if resp.status == "completed" else "exception",
         )
     elif assignee == "hicode":
         resp = await harness_registry.execute(
@@ -93,6 +116,7 @@ async def execute_leaf(
             summary=resp.summary or "",
             block_reason=resp.block_reason,
             artifacts=resp.artifacts,
+            stop_reason="completed" if resp.status == "completed" else "exception",
         )
     elif assignee == "dsh":
         resp = await harness_registry.execute(
@@ -103,6 +127,7 @@ async def execute_leaf(
             summary=resp.summary or "",
             block_reason=resp.block_reason,
             artifacts=resp.artifacts,
+            stop_reason="completed" if resp.status == "completed" else "exception",
         )
     else:
         return LeafResult(
@@ -110,6 +135,7 @@ async def execute_leaf(
             summary="",
             block_reason=f"unknown assignee: {assignee}",
             artifacts=[],
+            stop_reason="exception",
         )
 
 

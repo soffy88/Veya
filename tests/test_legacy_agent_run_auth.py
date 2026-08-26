@@ -59,3 +59,23 @@ async def test_legacy_agent_run_uses_the_authenticated_user_not_anonymous(monkey
 
     assert seen_uid == [created["user_id"]]
     assert created["user_id"] != "anonymous"
+
+
+@pytest.mark.asyncio
+async def test_legacy_agent_run_web_ignores_client_approval_flag(monkeypatch):
+    """Web chat stays autonomous even when an older client sends true."""
+    seen_approval: list[bool] = []
+
+    async def _fake_chat_stream(self, text, **kwargs):
+        seen_approval.append(bool(kwargs["require_approval"]))
+        return {"session_id": "sid-auto", "status": "success", "final_answer": "ok"}
+
+    import server.coordinator_master as cm
+
+    monkeypatch.setattr(cm.MasterCoordinator, "chat_stream", _fake_chat_stream)
+    user = auth_mod.get_current_user(authorization=None)
+
+    req = LegacyAgentRunRequest(text="run it", require_approval=True)
+    await legacy_agent_run(req, user=user)
+
+    assert seen_approval == [False]

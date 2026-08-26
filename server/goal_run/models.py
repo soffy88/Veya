@@ -8,17 +8,21 @@
 
 from __future__ import annotations
 
-import json
+import contextlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum, auto
+from datetime import datetime
+from enum import Enum
 from typing import Any
 
 
 class GoalStatus(Enum):
     planning = "planning"
     running = "running"
+    recovering = "recovering"
+    finalizing = "finalizing"
     completed = "completed"
+    partial_completed = "partial_completed"
+    failed = "failed"
     awaiting_user = "awaiting_user"
     blocked = "blocked"
     cancelled = "cancelled"
@@ -69,6 +73,13 @@ class TaskNode:
     # 作者(g1_plan/人工写的 tasks.md)的声明, veya 不自己猜哪些任务"看起来"能
     # 并行(猜错了两个任务同时改同一批文件是真实数据损坏风险)。
     parallel: bool = field(default=False)
+    # Unified delegate projection.  These fields preserve useful work even
+    # when a leaf stops before acceptance succeeds.
+    stop_reason: str | None = field(default=None)
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    assertions: list[dict[str, Any]] = field(default_factory=list)
+    unfinished_work: list[str] = field(default_factory=list)
+    delegate_result: dict[str, Any] | None = field(default=None)
 
     def ready_condition_met(self, completed_ids: set[str]) -> bool:
         """deps 全 completed 则就 ready。空 deps 始终满足。"""
@@ -118,6 +129,15 @@ class GoalRunState:
     # project_veya_pi_gap_audit): G1 出图后、G2 执行前跑一遍, blocked 时状态
     # 停在 awaiting_user, 不进 G2。None = 还没审过。
     plan_review: dict[str, Any] | None = field(default=None)
+    # Execution Runtime projection. ``finalizing`` freezes new work while
+    # preserving enough wall time to collect artifacts and produce a useful
+    # answer. ``partial_completed`` is a real deliverable state, not a
+    # disguised timeout/block.
+    finalization_started: bool = False
+    finalization_reserve_s: float | None = field(default=None)
+    unfinished_work: list[str] = field(default_factory=list)
+    last_stop_reason: str | None = field(default=None)
+    runtime_checkpoint: dict[str, Any] | None = field(default=None)
 
     def to_taskgraph_json(self) -> dict[str, Any]:
         """转为 taskgraph.json 格式（用于落盘/序列化）。"""
@@ -142,21 +162,33 @@ class GoalRunState:
                     "session_tree_leaf": t.session_tree_leaf,
                     "review_findings": t.review_findings,
                     "parallel": t.parallel,
+                    "stop_reason": t.stop_reason,
+                    "evidence": t.evidence,
+                    "assertions": t.assertions,
+                    "unfinished_work": t.unfinished_work,
+                    "delegate_result": t.delegate_result,
                 }
             )
         return {
-            "version": 1,
+            "version": 2,
             "goal_id": self.goal_id,
             "status": self.status.value,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "default_assignee": self.default_assignee,
             "budget": self.budget,
             "constitution": self.constitution,
             "plan_review": self.plan_review,
+            "finalization_started": self.finalization_started,
+            "finalization_reserve_s": self.finalization_reserve_s,
+            "unfinished_work": self.unfinished_work,
+            "last_stop_reason": self.last_stop_reason,
+            "runtime_checkpoint": self.runtime_checkpoint,
             "tasks": tasks_list,
         }
 
     @classmethod
-    def from_taskgraph_json(cls, data: dict[str, Any], goal_text: str) -> "GoalRunState":
+    def from_taskgraph_json(cls, data: dict[str, Any], goal_text: str) -> GoalRunState:
         """从 taskgraph.json 反序列化（用于 resume）。"""
         state = cls(goal_id=data.get("goal_id", ""), goal_text=goal_text)
         state.status = GoalStatus(data.get("status", "planning"))
@@ -164,6 +196,16 @@ class GoalRunState:
         state.budget = data.get("budget", state.budget)
         state.constitution = data.get("constitution", "") or ""
         state.plan_review = data.get("plan_review")
+        for field_name in ("started_at", "finished_at"):
+            raw_timestamp = data.get(field_name)
+            if raw_timestamp:
+                with contextlib.suppress(ValueError):
+                    setattr(state, field_name, datetime.fromisoformat(str(raw_timestamp)))
+        state.finalization_started = bool(data.get("finalization_started", False))
+        state.finalization_reserve_s = data.get("finalization_reserve_s")
+        state.unfinished_work = list(data.get("unfinished_work") or [])
+        state.last_stop_reason = data.get("last_stop_reason")
+        state.runtime_checkpoint = data.get("runtime_checkpoint")
 
         for td in data.get("tasks", []):
             tn = TaskNode(
@@ -184,6 +226,11 @@ class GoalRunState:
                 session_tree_leaf=td.get("session_tree_leaf"),
                 review_findings=td.get("review_findings"),
                 parallel=bool(td.get("parallel", False)),
+                stop_reason=td.get("stop_reason"),
+                evidence=list(td.get("evidence") or []),
+                assertions=list(td.get("assertions") or []),
+                unfinished_work=list(td.get("unfinished_work") or []),
+                delegate_result=td.get("delegate_result"),
             )
             state.tasks[tn.id] = tn
 
@@ -209,7 +256,13 @@ class GoalRunState:
         }
 
     def is_terminal(self) -> bool:
-        return self.status in (GoalStatus.completed, GoalStatus.blocked, GoalStatus.cancelled)
+        return self.status in (
+            GoalStatus.completed,
+            GoalStatus.partial_completed,
+            GoalStatus.failed,
+            GoalStatus.blocked,
+            GoalStatus.cancelled,
+        )
 
 
 @dataclass

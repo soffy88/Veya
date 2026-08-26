@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -48,10 +49,13 @@ def save_goal_run(state: GoalRunState, project_root: str) -> None:
 
     # 1. taskgraph.json（覆盖写）
     taskgraph_path = run_dir / _TASKGRAPH_JSON
-    taskgraph_path.write_text(
-        json.dumps(state.to_taskgraph_json(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    encoded_taskgraph = json.dumps(state.to_taskgraph_json(), ensure_ascii=False, indent=2)
+    temporary_taskgraph = taskgraph_path.with_suffix(".json.tmp")
+    with temporary_taskgraph.open("w", encoding="utf-8") as handle:
+        handle.write(encoded_taskgraph)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary_taskgraph.replace(taskgraph_path)
 
     # 2. GOAL.md（首次写入，已存在则不覆盖）
     goal_md_path = run_dir / _GOAL_MD
@@ -104,6 +108,8 @@ def append_event(project_root: str, goal_id: str, event: dict[str, Any]) -> None
     event.setdefault("timestamp", datetime.now(UTC).isoformat())
     with events_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
     # GoalRun keeps its project-local audit file, while the runtime projection
     # receives the same fact in the canonical EventStore for cross-entry replay.
     try:
@@ -134,12 +140,17 @@ def write_final_summary(project_root: str, goal_id: str, summary: str, artifacts
     run_dir = _goal_run_dir(project_root, goal_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     summary_path = run_dir / _FINAL_SUMMARY_MD
-    summary_path.write_text(
+    encoded = (
         f"# Final Summary\n\n{summary}\n\n## Artifacts\n"
         + "\n".join(f"- {a}" for a in artifacts)
-        + f"\n\nCompleted at {datetime.now(UTC).isoformat()}",
-        encoding="utf-8",
+        + f"\n\nCompleted at {datetime.now(UTC).isoformat()}"
     )
+    temporary = summary_path.with_suffix(".md.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary.replace(summary_path)
 
 
 def read_events(project_root: str, goal_id: str, limit: int = 50) -> list[dict[str, Any]]:
