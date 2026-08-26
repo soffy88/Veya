@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "authority": "master_agent_capability",
+  "judge": "deterministic_contracts",
+  "cases": [
+    "memory_recall/case.json",
+    "memory_conflict/case.json",
+    "memory_correction/case.json",
+    "memory_forget/case.json",
+    "skill_teaching/case.json",
+    "skill_reuse/case.json",
+    "skill_regression/case.json",
+    "continuity/case.json",
+    "long_term_learning/case.json"
+  ]
+}

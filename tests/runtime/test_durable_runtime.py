@@ -4,6 +4,7 @@ import pytest
 
 from runtime.execution.durable import DurableExecutionError
 from runtime.execution.runtime import DurableExecutionRuntime, DurableRuntimeConfig
+from runtime.execution.schema import SCHEMA_VERSION
 
 
 @pytest.mark.asyncio
@@ -23,7 +24,7 @@ async def test_runtime_start_reconciles_before_ready(tmp_path):
         health = await runtime.start()
         assert health["ok"] is True
         assert health["backend"] == "sqlite"
-        assert health["schema_version"] == 2
+        assert health["schema_version"] == SCHEMA_VERSION
         assert health["started"] is True
     finally:
         await runtime.close()

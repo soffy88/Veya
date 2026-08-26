@@ -27,8 +27,10 @@ router = APIRouter(tags=["cindy-compat"])
 # 请求模型 (与 veya/server/app.py 保持一致)
 # =========================================================================
 
+
 class SchedulerRequest(BaseModel):
     """Scheduler management request."""
+
     action: Literal["create", "list", "toggle", "delete"] = "list"
     id: str = ""
     name: str = ""
@@ -40,6 +42,7 @@ class SchedulerRequest(BaseModel):
 
 class KnowledgeRequest(BaseModel):
     """Knowledge store request."""
+
     action: Literal["read", "write", "list", "stale", "delete", "skeleton"] = "list"
     id: str = ""
     type: str = "module"
@@ -48,7 +51,9 @@ class KnowledgeRequest(BaseModel):
 
 
 class PluginActionRequest(BaseModel):
-    action: Literal["install", "uninstall", "list", "toggle", "configure", "publish", "marketplace"] = "list"
+    action: Literal[
+        "install", "uninstall", "list", "toggle", "configure", "publish", "marketplace"
+    ] = "list"
     name: str = ""
     version: str = "1.0.0"
     capabilities: list[str] = Field(default_factory=list)
@@ -62,17 +67,20 @@ class PluginActionRequest(BaseModel):
 
 class SkillTeachRequest(BaseModel):
     """Skill teaching request."""
+
     description: str = Field(..., min_length=1)
     config: dict[str, Any] = Field(default_factory=dict)
 
 
 class SkillConfirmRequest(BaseModel):
     """Confirm a proposed skill candidate (P2-05 two-phase flow)."""
+
     skill_id: str = Field(..., min_length=1)
 
 
 class SkillRejectRequest(BaseModel):
     """Reject a proposed skill candidate."""
+
     skill_id: str = Field(..., min_length=1)
 
 
@@ -80,17 +88,25 @@ class SkillRejectRequest(BaseModel):
 # POST /api/v1/scheduler — 定时任务 (Cindy scheduler CRUD)
 # =========================================================================
 
+
 @router.post("/api/v1/scheduler")
 async def scheduler_ep(req: SchedulerRequest) -> dict[str, Any]:
     from oskill.recurring_scheduler import RecurringScheduler
 
     sched = RecurringScheduler()
     if req.action == "list":
-        return {"schedules": [
-            {"id": s.id, "name": s.name, "enabled": s.enabled,
-             "phase": s.phase, "run_count": s.run_count}
-            for s in sched.list_all()
-        ]}
+        return {
+            "schedules": [
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    "enabled": s.enabled,
+                    "phase": s.phase,
+                    "run_count": s.run_count,
+                }
+                for s in sched.list_all()
+            ]
+        }
     if req.action == "create":
         s = sched.create(
             req.id or f"sched_{len(sched.list_all())}",
@@ -111,6 +127,7 @@ async def scheduler_ep(req: SchedulerRequest) -> dict[str, Any]:
 # =========================================================================
 # POST /api/v1/plugin/manage — 插件市场
 # =========================================================================
+
 
 @router.post("/api/v1/plugin/manage")
 async def plugin_manage(req: PluginActionRequest) -> dict[str, Any]:
@@ -141,6 +158,7 @@ async def plugin_manage(req: PluginActionRequest) -> dict[str, Any]:
 # POST /api/v1/knowledge — 知识库
 # =========================================================================
 
+
 @router.post("/api/v1/knowledge")
 async def knowledge_ep(req: KnowledgeRequest) -> dict[str, Any]:
     from obase.knowledge_store import KnowledgeStore
@@ -168,6 +186,7 @@ async def knowledge_ep(req: KnowledgeRequest) -> dict[str, Any]:
 # GET /api/v1/operators — 3O 算子账本 (delegate_to_genesis 固化查询)
 # =========================================================================
 
+
 @router.get("/api/v1/operators")
 async def operators_ledger() -> dict[str, Any]:
     from server.operator_ledger import (
@@ -184,19 +203,22 @@ async def operators_ledger() -> dict[str, Any]:
         except Exception as e:
             healths.append({"name": rt.name, "ok": False, "error": str(e)[:200]})
 
-    return {"operators": ledger_summary(),
-            "runtimes": runtime_ledger_summary(),
-            "runtime_health": healths,
-            "replica": replica_ledger_summary()}
+    return {
+        "operators": ledger_summary(),
+        "runtimes": runtime_ledger_summary(),
+        "runtime_health": healths,
+        "replica": replica_ledger_summary(),
+    }
 
 
 # =========================================================================
 # Goal-Driven 长程编排 API: /goal-driven (while 循环: 工作→验证→续跑)
 # =========================================================================
 
+
 class GoalDrivenRequest(BaseModel):
     goal_id: str = Field(..., min_length=1)
-    step: bool = False           # True=单步 (外部驱动), False=连续循环
+    step: bool = False  # True=单步 (外部驱动), False=连续循环
 
 
 @router.post("/api/v1/goal-driven/run")
@@ -214,7 +236,10 @@ async def goal_driven_run_ep(req: GoalDrivenRequest) -> dict[str, Any]:
     async def _engine(prompt_suffix: str) -> dict[str, Any]:
         result = await llm_call(
             [{"role": "user", "content": f"继续长程任务: {prompt_suffix}"}],
-            provider="veya1.2", model="veya1.2", timeout=120)
+            provider="veya1.2",
+            model="veya1.2",
+            timeout=120,
+        )
         content = ""
         with contextlib.suppress(KeyError, IndexError):
             content = str(result["choices"][0]["message"].get("content", ""))
@@ -236,15 +261,18 @@ async def goal_driven_status_ep(goal_id: str = "") -> dict[str, Any]:
     if not goal_id:
         return {"ok": False, "error": "goal_id 必填"}
     kernel = GoalKernel(
-        __import__("obase.loop_event_store", fromlist=["AppendOnlyEventStore"]).AppendOnlyEventStore(
-            str(_P.home() / ".veya" / "loops" / f"{goal_id}.jsonl")),
+        __import__(
+            "obase.loop_event_store", fromlist=["AppendOnlyEventStore"]
+        ).AppendOnlyEventStore(str(_P.home() / ".veya" / "loops" / f"{goal_id}.jsonl")),
         goal_id=goal_id,
     ).rebuild()
     goal = kernel.goal
     if goal is None:
         return {"ok": False, "error": "goal 不存在"}
     return {
-        "ok": True, "goal_id": goal.id, "title": goal.title,
+        "ok": True,
+        "goal_id": goal.id,
+        "title": goal.title,
         "status": goal.status,
         "todos_open": len(goal.open_todos()),
         "gates_pending": len(goal.pending_gates()),
@@ -257,6 +285,7 @@ async def goal_driven_status_ep(goal_id: str = "") -> dict[str, Any]:
 # =========================================================================
 # Spec 可执行化 API (spec-kit 内化): /spec/execute + /spec/presets
 # =========================================================================
+
 
 class SpecExecuteRequest(BaseModel):
     spec: str = Field(..., min_length=20, description="markdown spec (目标/验收标准/约束/测试门)")
@@ -298,6 +327,7 @@ async def spec_presets() -> dict[str, Any]:
 #   engine=browser_use (默认): 自然语言目标; 未装/失败回退 omodul (playwright)
 # =========================================================================
 
+
 class BrowserRunCompatRequest(BaseModel):
     url: str = ""
     instruction: str = Field(..., min_length=1)
@@ -324,22 +354,36 @@ async def browser_run_compat(req: BrowserRunCompatRequest) -> dict[str, Any]:
 
                 endpoint = _os.environ.get("VEYA_LLM_ENDPOINT", "")
                 model = _os.environ.get("VEYA_LLM_MODEL", "gpt-4o-mini")
-                llm = (ChatOpenAI(model=model, base_url=endpoint, api_key="local")
-                       if endpoint else ChatOpenAI(model=model))
+                llm = (
+                    ChatOpenAI(model=model, base_url=endpoint, api_key="local")
+                    if endpoint
+                    else ChatOpenAI(model=model)
+                )
 
                 async def _run_bu() -> dict[str, Any]:
-                    agent = Agent(task=req.instruction, llm=llm,
-                                  max_steps=req.max_steps, headless=req.headless)
+                    agent = Agent(
+                        task=req.instruction,
+                        llm=llm,
+                        max_steps=req.max_steps,
+                        headless=req.headless,
+                    )
                     result = await agent.run()
-                    return {"engine": "browser_use", "status": "success",
-                            "steps": len(getattr(result, "history", [])),
-                            "output": str(getattr(result, "final_result", ""))[:4000]}
+                    return {
+                        "engine": "browser_use",
+                        "status": "success",
+                        "steps": len(getattr(result, "history", [])),
+                        "output": str(getattr(result, "final_result", ""))[:4000],
+                    }
 
                 return await _asyncio.run(_run_bu())
             except Exception as exc:
                 fallback = await _omodul_browser(req)
-                return {"engine": "browser_use", "status": "fallback",
-                        "reason": f"browser_use 执行失败, 回退 omodul: {exc}", **fallback}
+                return {
+                    "engine": "browser_use",
+                    "status": "fallback",
+                    "reason": f"browser_use 执行失败, 回退 omodul: {exc}",
+                    **fallback,
+                }
 
     return await _omodul_browser(req)
 
@@ -350,10 +394,8 @@ async def _omodul_browser(req: BrowserRunCompatRequest) -> dict[str, Any]:
 
     from veya.omodul.browser_agent import run_browser_automation
 
-    config = _NS(headless=req.headless, timeout_ms=req.timeout_ms,
-                 max_steps=req.max_steps)
-    input_data = _NS(url=req.url, instruction=req.instruction,
-                     extract_schema=req.extract_schema)
+    config = _NS(headless=req.headless, timeout_ms=req.timeout_ms, max_steps=req.max_steps)
+    input_data = _NS(url=req.url, instruction=req.instruction, extract_schema=req.extract_schema)
     result = await run_browser_automation(config, input_data, _Path("/tmp/veya/browser"))
     result["engine"] = "omodul"
     return result
@@ -362,6 +404,7 @@ async def _omodul_browser(req: BrowserRunCompatRequest) -> dict[str, Any]:
 # =========================================================================
 # GET /api/v1/models/catalog — ProviderCatalog (动态模型目录)
 # =========================================================================
+
 
 @router.get("/api/v1/models/catalog")
 async def models_catalog_api() -> dict[str, Any]:
@@ -373,6 +416,7 @@ async def models_catalog_api() -> dict[str, Any]:
 # =========================================================================
 # GET /api/v1/mcp/health — veya 服务探活 (前端 upstreamProbe 依赖此路径)
 # =========================================================================
+
 
 @router.get("/api/v1/mcp/health")
 async def mcp_health() -> dict[str, Any]:
@@ -391,6 +435,7 @@ async def mcp_health() -> dict[str, Any]:
 # GET /api/v1/mcp/categories — MCP 渐进式发现
 # =========================================================================
 
+
 @router.get("/api/v1/mcp/categories")
 async def mcp_categories_ep() -> dict[str, Any]:
     from omodul.cindy_mcp_server import build_memory_mcp_server, build_scheduler_mcp_server
@@ -403,6 +448,7 @@ async def mcp_categories_ep() -> dict[str, Any]:
 # =========================================================================
 # POST /api/v1/agent/skills-inject — 动态 Skill 注入
 # =========================================================================
+
 
 @router.post("/api/v1/agent/skills-inject")
 async def skills_inject_ep(req: SkillTeachRequest) -> dict[str, Any]:
@@ -420,6 +466,7 @@ async def skills_inject_ep(req: SkillTeachRequest) -> dict[str, Any]:
 # P2-05 Skill Teaching UX — Two-phase candidate → confirm flow
 # =========================================================================
 
+
 @router.post("/api/v1/skill/propose")
 async def skill_propose_ep(req: SkillTeachRequest) -> dict[str, Any]:
     """Propose a new skill candidate (phase 1 of P2-05 two-phase flow).
@@ -428,6 +475,49 @@ async def skill_propose_ep(req: SkillTeachRequest) -> dict[str, Any]:
     Frontend must call /api/v1/skill/confirm or /api/v1/skill/reject
     to finalize.
     """
+    import os
+
+    if os.environ.get("VEYA_EXECUTION_DATABASE_URL"):
+        from runtime.personal import get_personal_runtime
+        from server import auth as auth_mod
+
+        user = auth_mod.current_user()
+        config = req.config or {}
+        scope_type = str(config.get("scope_type") or "workspace")
+        scope_id = (
+            str(user["user_id"])
+            if scope_type == "user"
+            else str(config.get("scope_id") or os.environ.get("VEYA_WORKSPACE", "default"))
+        )
+        name = str(
+            config.get("name") or req.description[:50].strip().replace(" ", "-") or "taught-skill"
+        )
+        event = await get_personal_runtime().record_event(
+            "skill.teaching_instruction",
+            {"name": name, "description": req.description},
+            workspace_id=scope_id if scope_type == "workspace" else None,
+        )
+        candidate = await get_personal_runtime().create_skill_candidate(
+            name,
+            req.description,
+            scope_type=scope_type,
+            scope_id=scope_id if scope_type in {"user", "workspace"} else str(user["user_id"]),
+            trigger_examples=config.get("trigger_examples") or [],
+            parameters_schema=config.get("parameters_schema")
+            or {"type": "object", "properties": {}},
+            execution_type=str(config.get("execution_type") or "prompt"),
+            execution_ref=str(config.get("execution_ref") or ""),
+            source_event_ids=[event["id"]],
+            created_by=str(user["user_id"]),
+        )
+        return {
+            "status": "candidate",
+            "skill_id": candidate["skill_id"],
+            "skill_version_id": candidate["id"],
+            "description": candidate["description"],
+            "version": candidate["version"],
+            "phase": "proposed",
+        }
     from server.capability_model import skill_registry
 
     spec = skill_registry.propose_skill(req.description, req.config or {})
@@ -437,7 +527,7 @@ async def skill_propose_ep(req: SkillTeachRequest) -> dict[str, Any]:
         "description": spec.instructions,
         "version": spec.version,
         "phase": "proposed",
-        "message": "Skill candidate created. Call /api/v1/skill/confirm to verify or /api/v1/skill/reject to discard."
+        "message": "Skill candidate created. Call /api/v1/skill/confirm to verify or /api/v1/skill/reject to discard.",
     }
 
 
@@ -448,11 +538,57 @@ async def skill_confirm_ep(req: SkillConfirmRequest) -> dict[str, Any]:
     Changes status from "candidate" to "verified" — the skill is now
     permanently in the registry and discoverable by the model.
     """
+    import os
+
+    if os.environ.get("VEYA_EXECUTION_DATABASE_URL"):
+        from runtime.personal import PersonalRuntimeError, get_personal_runtime
+
+        store = get_personal_runtime()
+        user = auth_mod.current_user()
+        skill = await store.get_skill(req.skill_id, versions=True)
+        version_id = req.skill_id
+        if skill:
+            candidate = next(
+                (v for v in skill.get("versions", []) if v.get("status") == "candidate"), None
+            )
+            if candidate:
+                version_id = str(candidate["id"])
+        version = await store.get_skill_version(version_id)
+        if version is None or (
+            version.get("scope_type") == "user"
+            and str(version.get("scope_id")) != str(user["user_id"])
+        ):
+            return {
+                "status": "not_found",
+                "skill_id": req.skill_id,
+                "error": "Skill candidate not found",
+            }
+        try:
+            spec = await store.confirm_skill(version_id)
+        except PersonalRuntimeError as exc:
+            return {
+                "status": "error",
+                "skill_id": req.skill_id,
+                "code": exc.code,
+                "error": str(exc),
+            }
+        return {
+            "status": "confirmed",
+            "skill_id": spec["skill_id"],
+            "skill_version_id": version_id,
+            "description": spec["description"],
+            "version": spec["version"],
+            "phase": spec["status"],
+        }
     from server.capability_model import skill_registry
 
     spec = skill_registry.confirm_skill(req.skill_id)
     if spec is None:
-        return {"status": "not_found", "skill_id": req.skill_id, "error": "Skill candidate not found"}
+        return {
+            "status": "not_found",
+            "skill_id": req.skill_id,
+            "error": "Skill candidate not found",
+        }
     return {
         "status": "confirmed",
         "skill_id": spec.skill_id,
@@ -463,23 +599,53 @@ async def skill_confirm_ep(req: SkillConfirmRequest) -> dict[str, Any]:
 
 
 @router.post("/api/v1/skill/reject")
-async def skill_reject_ep(req: SkillRejectRequest) -> dict[str, Any]:
+async def skill_reject_ep(
+    req: SkillRejectRequest,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
     """Reject a proposed skill candidate.
 
     Changes status to "deprecated" — the skill is removed from
     active consideration.
     """
+    import os
+
+    if os.environ.get("VEYA_EXECUTION_DATABASE_URL"):
+        from runtime.personal import PersonalRuntimeError, get_personal_runtime
+
+        try:
+            store = get_personal_runtime()
+            skill = await store.get_skill(req.skill_id)
+            if skill is None or (
+                skill.get("scope_type") == "user"
+                and str(skill.get("scope_id")) != str(user["user_id"])
+            ):
+                return {"status": "not_found", "skill_id": req.skill_id}
+            result = await store.deprecate_skill(req.skill_id)
+            return {"status": "rejected", **result}
+        except PersonalRuntimeError as exc:
+            return {
+                "status": "error",
+                "skill_id": req.skill_id,
+                "code": exc.code,
+                "error": str(exc),
+            }
     from server.capability_model import skill_registry
 
     ok = skill_registry.reject_skill(req.skill_id)
     if not ok:
-        return {"status": "not_found", "skill_id": req.skill_id, "error": "Skill candidate not found"}
+        return {
+            "status": "not_found",
+            "skill_id": req.skill_id,
+            "error": "Skill candidate not found",
+        }
     return {"status": "rejected", "skill_id": req.skill_id}
 
 
 # =========================================================================
 # P1-05 / P3-01: 权限档位 (两条入口能力面一致)
 # =========================================================================
+
 
 class ProfileSetRequest(BaseModel):
     profile: str = Field(..., description="READ_ONLY | DEVELOPMENT | PRODUCTION")

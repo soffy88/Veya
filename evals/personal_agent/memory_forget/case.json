@@ -1,0 +1,5 @@
+{
+  "case": "memory_forget",
+  "setup": {"content": "temporary preference"},
+  "assertions": ["forget sets status to forgotten", "normal retrieval omits the record", "audit record is retained"]
+}

@@ -38,6 +38,19 @@ services:
       - VEYA_EXECUTION_SHADOW_COMPARE=${VEYA_EXECUTION_SHADOW_COMPARE:-0}
       - VEYA_EXECUTION_DUAL_RUN_COMPARE=${VEYA_EXECUTION_DUAL_RUN_COMPARE:-0}
       - VEYA_EXECUTION_REMOTE_WORKER_ADAPTER=${VEYA_EXECUTION_REMOTE_WORKER_ADAPTER:-0}
+      # Personal Agent Runtime uses the same durable PostgreSQL authority as
+      # GoalRun. Flags are persisted per run by the application; defaults are
+      # enabled for the production cohort and remain lazy in local/dev.
+      - VEYA_MEMORY_V2=${VEYA_MEMORY_V2:-1}
+      - VEYA_MEMORY_CANDIDATES=${VEYA_MEMORY_CANDIDATES:-1}
+      - VEYA_MEMORY_CONFLICT_DETECTION=${VEYA_MEMORY_CONFLICT_DETECTION:-1}
+      - VEYA_SKILL_V2=${VEYA_SKILL_V2:-1}
+      - VEYA_SKILL_TEACHING=${VEYA_SKILL_TEACHING:-1}
+      - VEYA_SKILL_VERSIONING=${VEYA_SKILL_VERSIONING:-1}
+      - VEYA_CONTINUITY_V1=${VEYA_CONTINUITY_V1:-1}
+      - VEYA_PERSONAL_CONTEXT_UI=${VEYA_PERSONAL_CONTEXT_UI:-1}
+      - VEYA_LONG_TERM_LEARNING=${VEYA_LONG_TERM_LEARNING:-1}
+      - VEYA_PERSONAL_AGENT_EVAL=${VEYA_PERSONAL_AGENT_EVAL:-1}
       # local = process/docker (veya start / 当前单机). hosted = OpenSandbox, 禁止 process.
       - VEYA_SANDBOX_PROFILE=${VEYA_SANDBOX_PROFILE:-local}
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
