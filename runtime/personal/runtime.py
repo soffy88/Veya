@@ -22,11 +22,20 @@ from typing import Any
 
 from runtime.execution.durable import DurableExecutionError
 from runtime.execution.schema import POSTGRES_SCHEMA, SCHEMA_VERSION, SQLITE_SCHEMA
+from runtime.personal.quality import (
+    evaluate_learning_gate,
+    memory_eligibility,
+)
+from runtime.personal.quality import (
+    resolve_active_skill_version as resolve_active_skill_version_policy,
+)
 
 _VALID_SCOPE_TYPES = frozenset({"user", "workspace", "session"})
 _VALID_MEMORY_TYPES = frozenset({"episodic", "semantic", "procedural", "preference", "decision"})
 _VALID_MEMORY_STATES = frozenset({"candidate", "active", "superseded", "invalidated", "forgotten"})
-_VALID_SKILL_STATES = frozenset({"candidate", "active", "deprecated", "blocked"})
+_VALID_SKILL_STATES = frozenset(
+    {"candidate", "active", "degraded", "rolled_back", "deprecated", "blocked"}
+)
 _VALID_TRUST = frozenset({"trusted", "review_required", "blocked"})
 
 _FEATURE_FLAGS = (
@@ -514,6 +523,35 @@ class PersonalRuntimeStore:
         ):
             raw = out.pop(key, "[]")
             out[key.removesuffix("_json")] = _loads(raw, {} if key == "provenance_json" else [])
+        status = str(out.get("status", ""))
+        out["usable"] = status == "active"
+        out["exclusion_reason"] = None if out["usable"] else {
+            "superseded": "SUPERSEDED",
+            "forgotten": "FORGOTTEN",
+            "invalidated": "INVALIDATED",
+        }.get(status, "STATUS_NOT_ACTIVE")
+        return out
+
+    @staticmethod
+    def _annotate_memory(
+        row: dict[str, Any],
+        *,
+        query: str,
+        workspace_id: str | None,
+        user_id: str | None = None,
+        min_confidence: float = 0.0,
+    ) -> dict[str, Any]:
+        out = PersonalRuntimeStore._memory_out(row)
+        decision = memory_eligibility(
+            out,
+            query=query,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            min_confidence=min_confidence,
+        )
+        out["usable"] = decision.usable
+        out["exclusion_reason"] = decision.exclusion_reason
+        out["relevance"] = decision.relevance
         return out
 
     @staticmethod
@@ -1174,7 +1212,16 @@ class PersonalRuntimeStore:
                     + " ORDER BY confidence DESC,updated_at DESC LIMIT ?",
                     (*params, limit),
                 ).fetchall()
-                return [self._memory_out(dict(row)) for row in rows]
+                return [
+                    self._annotate_memory(
+                        dict(row),
+                        query=query,
+                        workspace_id=scope_id if scope_type == "workspace" else None,
+                        user_id=scope_id if scope_type == "user" else None,
+                        min_confidence=min_confidence,
+                    )
+                    for row in rows
+                ]
 
             return await asyncio.to_thread(lambda: self._read_sqlite(read))
         clauses = ["status = ANY($1::text[])", "confidence >= $2"]
@@ -1203,7 +1250,16 @@ class PersonalRuntimeStore:
             + f" ORDER BY confidence DESC,updated_at DESC LIMIT ${idx}",
             *params,
         )
-        return [self._memory_out(dict(row)) for row in rows]
+        return [
+            self._annotate_memory(
+                dict(row),
+                query=query,
+                workspace_id=scope_id if scope_type == "workspace" else None,
+                user_id=scope_id if scope_type == "user" else None,
+                min_confidence=min_confidence,
+            )
+            for row in rows
+        ]
 
     def _read_sqlite(self, fn: Callable[[sqlite3.Connection], Any]) -> Any:
         conn = self._sqlite_connection()
@@ -2039,12 +2095,13 @@ class PersonalRuntimeStore:
         do not silently mutate the prompt or execute hidden behavior.  Named
         executable skills reuse SkillHub's existing sandbox/permission gate.
         """
-        skill = await self.get_skill(skill_id)
+        skill = await self.get_skill(skill_id, versions=True)
         if skill is None or not skill.get("versions"):
             raise PersonalRuntimeError("NOT_FOUND", skill_id)
-        version = skill["versions"][0]
-        if version.get("status") != "active" or version.get("trust_status") != "trusted":
+        version = resolve_active_skill_version_policy(skill["versions"])
+        if version is None:
             raise PersonalRuntimeError("SAFETY_HOLD", f"skill {skill_id} is not trusted/active")
+        version = dict(version)
         params = dict(params or {})
         started = time.monotonic()
         result: dict[str, Any]
@@ -2090,6 +2147,14 @@ class PersonalRuntimeStore:
             "result_status": status,
             "result": result,
         }
+
+    async def resolve_active_skill_version(self, skill_id: str) -> dict[str, Any] | None:
+        """Return the active trusted version; candidate/degraded versions never run."""
+        skill = await self.get_skill(skill_id, versions=True)
+        if skill is None or skill.get("status") != "active":
+            return None
+        version = resolve_active_skill_version_policy(skill.get("versions", []))
+        return dict(version) if version is not None else None
 
     async def record_skill_run(
         self,
@@ -2607,6 +2672,14 @@ class PersonalRuntimeStore:
         await self._ensure_connected()
         eid = _new_id("learning_eval")
         now = _now()
+        gate = evaluate_learning_gate(result, requested_pass=passed)
+        if passed and not gate.allowed:
+            passed = False
+            result = {
+                **result,
+                "gate_reason": gate.reason,
+                "critical_regression_count": gate.critical_regression_count,
+            }
         if passed:
             delta = result.get("improvement_delta")
             baseline_score = result.get("baseline_score")
