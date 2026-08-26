@@ -51,6 +51,9 @@ services:
       - VEYA_PERSONAL_CONTEXT_UI=${VEYA_PERSONAL_CONTEXT_UI:-1}
       - VEYA_LONG_TERM_LEARNING=${VEYA_LONG_TERM_LEARNING:-1}
       - VEYA_PERSONAL_AGENT_EVAL=${VEYA_PERSONAL_AGENT_EVAL:-1}
+      # Approved Gold benchmark projection; the database/runtime remains the
+      # authority, and this file is read-only quality evidence only.
+      - VEYA_PERSONAL_AGENT_GOLD_REPORT=${VEYA_PERSONAL_AGENT_GOLD_REPORT:-/repo/evals/personal_agent_gold/results/latest.json}
       # local = process/docker (veya start / 当前单机). hosted = OpenSandbox, 禁止 process.
       - VEYA_SANDBOX_PROFILE=${VEYA_SANDBOX_PROFILE:-local}
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}

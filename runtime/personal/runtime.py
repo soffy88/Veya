@@ -71,6 +71,85 @@ def _loads(value: Any, default: Any) -> Any:
         return default
 
 
+_GOLD_METRIC_NAMES = (
+    "retrieval_precision",
+    "memory_precision",
+    "memory_recall_when_needed",
+    "unnecessary_memory_use_rate",
+    "stale_memory_use_rate",
+    "memory_conflict_resolution_accuracy",
+    "memory_correction_success_rate",
+    "skill_activation_precision",
+    "wrong_skill_activation_rate",
+    "skill_reuse_success_rate",
+    "skill_regression_rate",
+    "skill_version_selection_accuracy",
+    "continuity_task_recovery_accuracy",
+    "continuity_state_restore_accuracy",
+    "learning_candidate_precision",
+    "learning_regression_escape_rate",
+)
+
+
+def _load_gold_benchmark() -> dict[str, Any] | None:
+    """Load approved benchmark evidence without making it runtime state."""
+    configured = os.environ.get("VEYA_PERSONAL_AGENT_GOLD_REPORT")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend(
+        [
+            Path(__file__).resolve().parents[2]
+            / "evals"
+            / "personal_agent_gold"
+            / "results"
+            / "latest.json",
+            Path.cwd() / "evals" / "personal_agent_gold" / "results" / "latest.json",
+        ]
+    )
+    for path in candidates:
+        if not path or not path.is_file():
+            continue
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            report.get("dataset_version") != "personal-agent-gold-v1"
+            or report.get("runtime_schema_version") != SCHEMA_VERSION
+            or report.get("approved_count", 0) != report.get("scenario_count", -1)
+            or report.get("approved_count", 0) <= 0
+        ):
+            continue
+        metrics = {
+            name: report["metrics"][name]
+            for name in _GOLD_METRIC_NAMES
+            if isinstance(report.get("metrics", {}).get(name), dict)
+            and report["metrics"][name].get("rate") is not None
+        }
+        if len(metrics) != len(_GOLD_METRIC_NAMES):
+            continue
+        return {
+            "dataset_version": report["dataset_version"],
+            "eval_run_id": report.get("eval_run_id"),
+            "git_sha": report.get("git_sha"),
+            "approved_count": report["approved_count"],
+            "status": report.get("status"),
+            "metrics": metrics,
+            "source": "approved_personal_agent_gold",
+        }
+    return None
+
+
+def _attach_gold_benchmark(values: dict[str, Any]) -> dict[str, Any]:
+    report = _load_gold_benchmark()
+    values["gold_benchmark"] = report
+    if report is None:
+        return values
+    for name, metric in report["metrics"].items():
+        values[name] = metric["rate"]
+    values["unnecessary_memory_use"] = values["unnecessary_memory_use_rate"]
+    return values
+
+
 def _rowdict(row: Any) -> dict[str, Any] | None:
     if row is None:
         return None
@@ -2898,13 +2977,15 @@ class PersonalRuntimeStore:
                     [str(row[0]) for row in conn.execute("SELECT event_type FROM personal_events")],
                 )
 
-            return await asyncio.to_thread(lambda: self._read_sqlite(read))
+            return _attach_gold_benchmark(await asyncio.to_thread(lambda: self._read_sqlite(read)))
         memory_rows = [dict(row) for row in await self._pool.fetch("SELECT * FROM memory_records")]
         candidate_rows = [dict(row) for row in await self._pool.fetch("SELECT * FROM memory_candidates")]
         skill_run_rows = [dict(row) for row in await self._pool.fetch("SELECT * FROM skill_runs")]
         learning_rows = [dict(row) for row in await self._pool.fetch("SELECT * FROM learning_records")]
         event_types = [str(row["event_type"]) for row in await self._pool.fetch("SELECT event_type FROM personal_events")]
-        return calculate(memory_rows, candidate_rows, skill_run_rows, learning_rows, event_types)
+        return _attach_gold_benchmark(
+            calculate(memory_rows, candidate_rows, skill_run_rows, learning_rows, event_types)
+        )
 
     async def outbox_status(self) -> dict[str, int]:
         await self._ensure_connected()
