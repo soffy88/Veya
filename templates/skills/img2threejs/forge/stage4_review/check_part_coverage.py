@@ -104,10 +104,7 @@ def collect_local_feature_keys(spec: dict[str, Any]) -> set[str]:
 
 
 def find_inventory(spec: dict[str, Any], inventory_arg: str | None) -> list[dict[str, Any]]:
-    if inventory_arg:
-        blob = load(inventory_arg)
-    else:
-        blob = spec.get("preSpecAssessment", {}) or {}
+    blob = load(inventory_arg) if inventory_arg else spec.get("preSpecAssessment", {}) or {}
     entries = blob.get("detailInventory")
     if isinstance(entries, dict):
         entries = entries.get("details")

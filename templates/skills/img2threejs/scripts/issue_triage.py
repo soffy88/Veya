@@ -13,7 +13,6 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Final, Protocol
 
-
 API_ROOT: Final = "https://api.github.com"
 NOTICE_MARKER: Final = "<!-- img2threejs-triage-notice:v1 -->"
 QUEUE_LABEL: Final = "triage: needs-review"
@@ -154,7 +153,7 @@ class GitHubIssueApi:
         )
         for attempt in range(3 if retry else 1):
             try:
-                with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+                with urllib.request.urlopen(request, timeout=30) as response:
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as error:
                 if error.code not in TRANSIENT_STATUSES or attempt == (2 if retry else 0):

@@ -144,7 +144,7 @@ def _crossings(
     direction: tuple[float, float, float],
     vertices: list[list[float]],
     faces: list[tuple[int, int, int]],
-    index: "_DirectionIndex | None" = None,
+    index: _DirectionIndex | None = None,
 ) -> tuple[int, bool]:
     """Möller-Trumbore parity. Returns (crossings, reliable)."""
     ox, oy, oz = origin

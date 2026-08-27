@@ -17,10 +17,10 @@
 
 from __future__ import annotations
 
-import os
+import contextlib
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 # ── 环境映射 ──────────────────────────────────────────────────────────
 _HICODE = Path(__file__).resolve().parent.parent
@@ -59,13 +59,13 @@ try:
 except ImportError:
     pass
 
-try:
+with contextlib.suppress(ImportError):
     from oprim._scipy_linear_assign import _scipy_linear_assign
-except ImportError:
-    pass
 
 try:
     from omodul.deterministic_operate_assign import deterministic_operate_assign
+
+    _deterministic_operate_assign = deterministic_operate_assign
 except ImportError:
     pass
 
@@ -73,7 +73,7 @@ if not all([_CausalGraphStore, _WaitForGraph, _scipy_linear_assign, _determinist
     _FALLBACK = True
 
 
-def _fallback_dag_workflow() -> Dict[str, Any]:
+def _fallback_dag_workflow() -> dict[str, Any]:
     """降级方案: 使用 networkx + scipy 实现 DAG 校验 + 匈牙利分配。
 
     模拟 3O O1(DAG校验) + O2(死锁检测 + 线性分配) 的完整行为。
@@ -120,14 +120,13 @@ def _fallback_dag_workflow() -> Dict[str, Any]:
             return False
 
         for node in graph:
-            if node not in visited:
-                if has_cycle(node):
-                    raise ValueError("环形死锁依赖 — O1 校验失败")
+            if node not in visited and has_cycle(node):
+                raise ValueError("环形死锁依赖 — O1 校验失败")
 
         topo_order = ["Agent_A_Ingest", "Agent_B_Compute", "Agent_C_Publish"]
 
     # ── O2: 死锁等待图注册 ────────────────
-    wfg: Dict[str, set] = {}
+    wfg: dict[str, set] = {}
     wfg.setdefault("Agent_B_Compute", set()).add("Agent_A_Ingest")
     wfg.setdefault("Agent_C_Publish", set()).add("Agent_B_Compute")
     # 死锁检测：等待图中无环
@@ -147,9 +146,8 @@ def _fallback_dag_workflow() -> Dict[str, Any]:
         return False
 
     for node in wfg:
-        if node not in wfg_visited:
-            if wfg_has_cycle(node):
-                raise ValueError("等待图存在死锁 — O2 熔断")
+        if node not in wfg_visited and wfg_has_cycle(node):
+            raise ValueError("等待图存在死锁 — O2 熔断")
 
     # ── O2: 匈牙利算法资源分配 ────────────
     workers = ["Worker_GPU_1", "Worker_GPU_2", "Worker_CPU_1"]
@@ -161,12 +159,12 @@ def _fallback_dag_workflow() -> Dict[str, Any]:
     ]
 
     try:
-        from scipy.optimize import linear_sum_assignment
         import numpy as np
+        from scipy.optimize import linear_sum_assignment
 
         cost = np.array(cost_matrix)
         row_ind, col_ind = linear_sum_assignment(cost)
-        assignments = [(workers[r], tasks[c]) for r, c in zip(row_ind, col_ind)]
+        assignments = [(workers[r], tasks[c]) for r, c in zip(row_ind, col_ind, strict=False)]
         total_cost = cost[row_ind, col_ind].sum()
     except ImportError:
         # 暴力最优分配 (n=3 规模小)
@@ -193,7 +191,7 @@ def _fallback_dag_workflow() -> Dict[str, Any]:
     }
 
 
-def run_dag_workflow() -> Dict[str, Any]:
+def run_dag_workflow() -> dict[str, Any]:
     """
     业务逻辑：构建 A -> B -> C 工作流，并为节点分配 worker 资源。
     """

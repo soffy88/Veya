@@ -21,7 +21,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 VALID_PROJECTION_MODES = (
     "perspective-camera-projection",
     "orthographic-front-projection",
@@ -147,8 +146,8 @@ def build_descriptor(args: argparse.Namespace) -> dict[str, Any]:
                 "camera accuracy is inherited from whatever produced the camera block; an unrefined camera will misalign the projection",
                 "unseen-region inference is a heuristic guess, not observed geometry or texture",
                 "the resulting bake still needs a rendered overlay review against the reference image before being trusted",
-            ]
-            + warnings,
+                *warnings,
+            ],
             "note": (
                 "Feed this descriptor to the Three.js generator/agent to run the actual projection and bake, "
                 "then re-render and visually compare the baked mesh against the reference image before "

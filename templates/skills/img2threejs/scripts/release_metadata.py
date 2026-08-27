@@ -10,7 +10,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Final
 
-
 VERSION_PATTERN: Final = re.compile(r"^version: (\d+)\.(\d+)\.(\d+)$", re.MULTILINE)
 BADGE_PATTERN: Final = re.compile(r"version-\d+\.\d+\.\d+-green\.svg")
 HEADING_PATTERN: Final = re.compile(r"^## \[", re.MULTILINE)
@@ -33,7 +32,7 @@ class Version:
     def __str__(self) -> str:
         return f"{self.major}.{self.minor}.{self.patch}"
 
-    def bump(self, level: ReleaseLevel) -> "Version":
+    def bump(self, level: ReleaseLevel) -> Version:
         match level:
             case ReleaseLevel.PATCH:
                 return Version(self.major, self.minor, self.patch + 1)

@@ -34,7 +34,7 @@ def test_sanitize_strips_script_and_events():
 
 
 def test_sanitize_drops_unknown_tags():
-    clean, issues = sanitize_markup("<iframe src='https://evil'></iframe><p>ok</p>", "html")
+    clean, _issues = sanitize_markup("<iframe src='https://evil'></iframe><p>ok</p>", "html")
     assert "iframe" not in clean.lower()
     assert "<p>ok</p>" in clean
 

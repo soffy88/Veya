@@ -11,6 +11,7 @@ Agent OS 主 app (server/app.py) 的 Caddy 反代把 /api/v1/* 打到本 app —
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -39,15 +40,16 @@ async def voice_ws(websocket: WebSocket, session_id: str | None = None) -> None:
 
     sid = session_id or new_session_id()
     agent = VoiceAgent(VoiceSessionConfig())
+    voice_tasks: set[asyncio.Task[None]] = set()
 
     def send_json_fire_and_forget(payload: dict[str, Any]) -> None:
         async def _send() -> None:
-            try:
+            with contextlib.suppress(Exception):
                 await websocket.send_json(payload)
-            except Exception:
-                pass  # 连接已断开等 — 回调本身不该炸掉语音循环
 
-        asyncio.create_task(_send())
+        task = asyncio.create_task(_send())
+        voice_tasks.add(task)
+        task.add_done_callback(voice_tasks.discard)
 
     async def llm_handler(messages: list[dict]) -> dict:
         result = await master_coordinator.chat_stream(messages[-1]["content"], session_id=sid)
@@ -79,10 +81,8 @@ async def voice_ws(websocket: WebSocket, session_id: str | None = None) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await websocket.close()
-        except Exception:
-            pass
 
 
 __all__ = ["router"]

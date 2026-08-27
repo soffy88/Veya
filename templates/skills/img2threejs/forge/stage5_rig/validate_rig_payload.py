@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 EPSILON = 1e-6
 WEIGHT_TOLERANCE = 1e-4
 MAX_INFLUENCES = 4
@@ -57,7 +56,7 @@ def matrix16(value: Any, label: str, errors: list[str]) -> list[float] | None:
     last_row = flat[12:16]
     if any(
         abs(actual - expected) > WEIGHT_TOLERANCE
-        for actual, expected in zip(last_row, (0.0, 0.0, 0.0, 1.0))
+        for actual, expected in zip(last_row, (0.0, 0.0, 0.0, 1.0), strict=False)
     ):
         errors.append(f"{label} must have affine last row [0, 0, 0, 1]")
     column_scales = [
@@ -69,7 +68,7 @@ def matrix16(value: Any, label: str, errors: list[str]) -> list[float] | None:
 
 
 def distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
-    return math.sqrt(sum((left - right) ** 2 for left, right in zip(a, b)))
+    return math.sqrt(sum((left - right) ** 2 for left, right in zip(a, b, strict=False)))
 
 
 def validate(payload: dict[str, Any]) -> dict[str, Any]:

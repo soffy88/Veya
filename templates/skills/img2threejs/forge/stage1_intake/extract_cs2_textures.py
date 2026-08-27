@@ -18,8 +18,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import locate_cs2_vpk  # noqa: E402  (sibling module, resolved via the path insert above)
-from cs2_foundation import classify_map_path  # noqa: E402
+import locate_cs2_vpk
+from cs2_foundation import classify_map_path
 
 SOURCE2VIEWER_BINARY = "Source2Viewer-CLI"
 

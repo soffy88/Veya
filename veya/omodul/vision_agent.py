@@ -9,22 +9,19 @@ Supports single image, image sequence, and video frame sampling.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from veya.oprim.types import ImageFrame, VisionResult
+from veya.oprim.types import VisionResult
 from veya.oprim.video import (
-    create_image_frame,
     load_image_frame,
     sample_video_frames,
     validate_image,
 )
 from veya.oskill.vision import analyze_image, analyze_images
-
 
 # ---------------------------------------------------------------------------
 # Types
@@ -252,8 +249,8 @@ class VisionAgent:
         # Generate summary from all frame descriptions
         descriptions = [r.description for r in per_frame_results if r.description]
         summary_prompt = (
-            f"Here are frame-by-frame descriptions of a video. "
-            f"Provide a cohesive summary of what happens:\n\n"
+            "Here are frame-by-frame descriptions of a video. "
+            "Provide a cohesive summary of what happens:\n\n"
             + "\n\n---\n\n".join(f"[Frame {i}]: {d}" for i, d in enumerate(descriptions))
         )
 

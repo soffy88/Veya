@@ -15,7 +15,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REFERENCE = ROOT / "docs" / "materials" / "material-reference.json"
 

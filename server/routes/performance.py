@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from server import auth as auth_mod
-
 from veya.performance import create_incremental_computer, create_smart_cache
 
 router = APIRouter(

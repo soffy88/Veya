@@ -6,15 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from feature_acceptance_policy import feature_gate_failures
 from cs2_review import load_review_scene
+from feature_acceptance_policy import feature_gate_failures
 from status_banner import emit_status
-
 
 VALID_ACTIONS = {"continue", "refine-spec", "refine-code", "request-input", "stop"}
 VISUAL_PASS_IDS = {
@@ -147,9 +146,12 @@ def review_completes_pass(spec: dict, entry: dict, pass_id: str) -> bool:
     if pass_id == "blockout" and not entry.get("mapStrippedRender"):
         return False
     viewpoints = entry.get("reviewViewpoints")
-    if isinstance(viewpoints, list) and pass_id in VISUAL_PASS_IDS:
-        if not {"thickness-axis", "long-axis"}.issubset(set(viewpoints)):
-            return False
+    if (
+        isinstance(viewpoints, list)
+        and pass_id in VISUAL_PASS_IDS
+        and not {"thickness-axis", "long-axis"}.issubset(set(viewpoints))
+    ):
+        return False
     if pass_id in VISUAL_PASS_IDS and not (
         isinstance(visual, dict) and visual.get("renderScreenshot")
     ):
@@ -411,7 +413,7 @@ def main(argv: list[str]) -> int:
             )
 
     entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "passId": args.pass_id,
         "estimatedFidelity": clamp_score(args.fidelity),
         "aiVisionScore": clamp_score(args.ai_vision_score)

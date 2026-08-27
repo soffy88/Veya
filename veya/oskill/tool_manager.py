@@ -15,17 +15,11 @@ Supports:
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import platform
 import shutil
 import subprocess
-import tempfile
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
-
 
 # ---------------------------------------------------------------------------
 # Tool specifications
@@ -325,7 +319,7 @@ class ToolManager:
         flags = version_flags.get(spec.cli_command, ["--version"])
         try:
             result = subprocess.run(
-                [spec.cli_command] + flags,
+                [spec.cli_command, *flags],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -339,10 +333,7 @@ class ToolManager:
         """Get the platform key for binary downloads."""
         system = platform.system().lower()  # "linux", "darwin"
         machine = platform.machine().lower()  # "x86_64", "arm64"
-        if machine == "arm64" or machine == "aarch64":
-            arch = "arm64"
-        else:
-            arch = "x86_64"
+        arch = "arm64" if machine == "arm64" or machine == "aarch64" else "x86_64"
         return f"{system}-{arch}"
 
 

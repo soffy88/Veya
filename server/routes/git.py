@@ -11,9 +11,9 @@ import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from server import auth as auth_mod
-from pydantic import BaseModel
 
 router = APIRouter(tags=["git-panel"], dependencies=[Depends(auth_mod.require_user)])
 

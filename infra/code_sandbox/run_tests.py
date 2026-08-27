@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -27,9 +26,7 @@ from pathlib import Path
 
 def _safe_relpath(rel: str) -> bool:
     """仅允许相对路径且不含 .."""
-    if rel.startswith("/") or ".." in Path(rel).parts:
-        return False
-    return True
+    return not (rel.startswith("/") or ".." in Path(rel).parts)
 
 
 def main() -> int:
@@ -158,7 +155,7 @@ def main() -> int:
             )
         )
         return 0 if passed else 1
-    except Exception as exc:  # noqa: BLE001 - 沙箱内任何异常都返回结构化错误
+    except Exception as exc:
         print(
             json.dumps(
                 {

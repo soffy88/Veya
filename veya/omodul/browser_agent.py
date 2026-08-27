@@ -21,16 +21,11 @@ from typing import Any
 
 from veya.oprim.browser import (
     BrowserAction,
-    BrowserActionResult,
-    action_click,
     action_extract_text,
     action_navigate,
     action_screenshot,
-    action_type,
-    build_selector,
 )
-from veya.oskill.browser import BrowserSession, run_browser_task
-
+from veya.oskill.browser import BrowserSession
 
 # ---------------------------------------------------------------------------
 # Types

@@ -25,7 +25,6 @@ from veya.obase.adapters import (
 )
 from veya.obase.interfaces import Event, SandboxResult
 
-
 # ---------------------------------------------------------------------------
 # VfsSandbox 适配器 (现有 ProcessSandbox)
 # ---------------------------------------------------------------------------
@@ -116,7 +115,7 @@ async def test_event_barrier_rendezvous_and_timeout():
         try:
             await arrive(name, parties)
             results.append(True)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             results.append(False)
 
     t1 = asyncio.create_task(runner("sync", 2))

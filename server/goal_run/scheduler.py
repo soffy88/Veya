@@ -7,12 +7,10 @@
 - 并发默认 1 (串行)，以后再升
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Set, Dict, List
 
-from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatus, GoalRunResponse
+from server.goal_run.models import GoalRunResponse, GoalRunState, TaskNode, TaskStatus
 
 
 class SchedulerDecision(Enum):
@@ -49,7 +47,7 @@ class SchedulerState:
 
         # 遍历所有 pending 任务，找出 deps 满足的
         promoted = 0
-        for tn_id, tn in self.state.tasks.items():
+        for _tn_id, tn in self.state.tasks.items():
             if tn.status == TaskStatus.pending and tn.can_run_now(running_ids, completed_ids):
                 tn.status = TaskStatus.ready
                 promoted += 1
@@ -81,8 +79,8 @@ class SchedulerState:
 def pick_next_tasks(
     state: GoalRunState,
     max_concurrent: int,
-    running_ids: Set[str],
-) -> List[TaskNode]:
+    running_ids: set[str],
+) -> list[TaskNode]:
     """从 ready 任务中选出最多 max_concurrent 个进入 running。
 
     实现要点：
@@ -110,7 +108,7 @@ def pick_next_tasks(
     ready_tasks.sort(key=lambda tn: tn.id)
     head = ready_tasks[0]
 
-    to_run: List[TaskNode]
+    to_run: list[TaskNode]
     if not head.parallel:
         to_run = [head]
     else:

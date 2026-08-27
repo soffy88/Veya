@@ -7,10 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from server.goal_run.leaf import LeafResult
-from server.goal_run.models import GoalRunState, TaskNode, TaskStatus
+from server.goal_run.models import TaskNode
 from server.goal_run.runner import _run_dual_axis_review
-from server.goal_run.verify import VerifyResult
 
 
 def _init_repo(path: Path) -> None:

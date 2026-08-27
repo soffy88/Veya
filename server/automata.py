@@ -243,8 +243,8 @@ def _default_headless_runner() -> Callable[[str], Awaitable[str]]:
 
     async def _runner(synthetic_prompt: str, user_id: str = "") -> str:
         # 延迟 import 避免循环依赖(automata → coordinator_master → automata 单例)
-        from server.coordinator_master import MasterCoordinator
         from server import auth as auth_mod
+        from server.coordinator_master import MasterCoordinator
 
         if user_id:
             # 触发时注入归属用户 → 无头 agent 的会话/计划/通知按该用户隔离

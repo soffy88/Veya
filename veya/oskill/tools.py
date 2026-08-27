@@ -442,7 +442,7 @@ class TerminalTool(SmartTool):
                 command=command,
                 status=ToolStatus.SUCCESS if result.ok else ToolStatus.FAILED,
                 output=result.stdout.strip(),
-                error=result.stderr.strip() or ("" if result.ok else "exit=%d" % result.exit_code),
+                error=result.stderr.strip() or ("" if result.ok else f"exit={result.exit_code}"),
                 duration=time.time() - start_time,
                 exit_code=result.exit_code,
                 context={"cwd": "sandbox"},

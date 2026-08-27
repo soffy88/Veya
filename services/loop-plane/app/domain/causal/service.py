@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.state.projectors import render_text
 from app.infra.event_store import AuditLog, EventStore, new_id
 
 
@@ -176,7 +175,7 @@ def _graph_store(store: EventStore | None):
         if graph_store is not None:
             return graph_store()
     except Exception:  # noqa: BLE001
-        pass
+        return store
     return store  # 降级: 无库时沿用调用方 store（multi_step_plan 会明确报错）
 
 

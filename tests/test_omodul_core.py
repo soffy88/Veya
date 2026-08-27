@@ -16,11 +16,11 @@ from typing import Any
 
 import pytest
 
+from server.agent_loop_bridge import run_strict
 from veya.omodul.agent_loop import AgentLoop
 from veya.omodul.evidence_refine import EvidenceRefine
 from veya.omodul.session_tree import SessionTreeMgr
 from veya.omodul.tool_pipeline import ToolPipeline
-from server.agent_loop_bridge import run_strict
 
 
 class FakeLlm:
@@ -537,8 +537,8 @@ async def test_run_strict_chat_kv_persist(tmp_path: pytest.MonkeyPatch):
     )
     assert r1["session_id"] == "persist-sid"
     # 同路径新实例（模拟重启）→ 树仍在
-    from veya.omodul.session_tree import SessionTreeMgr
     from veya.obase.adapters import SqliteKvStore
+    from veya.omodul.session_tree import SessionTreeMgr
 
     tree2 = SessionTreeMgr(kv=SqliteKvStore(kv_file))
     roles = [n["role"] for n in tree2.path("persist-sid")]

@@ -44,11 +44,10 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage1_intake"))
-from extract_pbr_evidence import load_image, build_foreground_mask  # noqa: E402
+from extract_pbr_evidence import build_foreground_mask, load_image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from diagnose_render_multi_angle import analyze_angles, silhouette_area_fraction  # noqa: E402
-
+from diagnose_render_multi_angle import analyze_angles
 
 # Front/right/back/left: the minimum orbit that can catch an off-axis-only
 # defect. Overridable by callers with unusual rigs (e.g. no rear access).
@@ -246,7 +245,9 @@ def analyze_turntable(
         }
     }
     for i, orbit_result in zip(
-        (i for i in range(len(ordered)) if i != reference_index), area_result["angles"]
+        (i for i in range(len(ordered)) if i != reference_index),
+        area_result["angles"],
+        strict=False,
     ):
         per_azimuth[i] = {
             "areaFraction": orbit_result["areaFraction"],

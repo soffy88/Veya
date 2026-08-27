@@ -9,8 +9,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from server.skill_hub import VeyaSkillHub
 from server.skill_scan import scan_skill_source, summarize
 

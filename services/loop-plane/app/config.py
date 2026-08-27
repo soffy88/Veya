@@ -23,7 +23,7 @@ class Settings:
     default_tenant: str = "default"
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         data_dir = Path(os.environ.get("LOOP_DATA_DIR") or (Path.home() / ".veya" / "loop"))
         return cls(
             port=int(os.environ.get("LOOP_PLANE_PORT", "8787")),

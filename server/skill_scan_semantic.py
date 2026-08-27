@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 _STUB_MARKER = "LLM provider not configured"
 

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
 _HEADING_RE = re.compile(r"^(#{1,6}\s|==+\s*$|--+\s*$|^\d+[\.\)]\s)")
 _SYMBOL_RE = re.compile(
@@ -124,9 +123,8 @@ def _render_outline(lines: list[str]) -> str:
         if _HEADING_RE.search(s):
             if s not in headings:
                 headings.append(s)
-        elif _SYMBOL_RE.match(s) and len(s) <= 160:
-            if s not in symbols:
-                symbols.append(s)
+        elif _SYMBOL_RE.match(s) and len(s) <= 160 and s not in symbols:
+            symbols.append(s)
     out: list[str] = []
     if headings:
         out.append("大纲(标题):\n  " + "\n  ".join(headings[:40]))
@@ -158,7 +156,7 @@ async def _llm_summarize(chunk_text: str, source: str, focus: str) -> str:
         content = str(content).strip()
         if content and content.lower() not in ("none", "null"):
             return f"[语义摘要]\n{content[:3000]}"
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return "[语义摘要不可用, 已退回规则要点]"
 

@@ -41,7 +41,9 @@ def _dct_2d(block: list[list[float]]) -> list[list[float]]:
     # rows: temp = M @ block
     temp = [[sum(m[k][i] * block[i][j] for i in range(n)) for j in range(n)] for k in range(n)]
     # cols: out = temp @ M^T
-    out = [[sum(temp[k][j] * m[l][j] for j in range(n)) for l in range(n)] for k in range(n)]
+    out = [
+        [sum(temp[k][j] * m[column][j] for j in range(n)) for column in range(n)] for k in range(n)
+    ]
     return out
 
 
@@ -79,7 +81,7 @@ def phash(gray: list[list[float]], hash_size: int = 8) -> int:
     if n < hash_size:
         raise ValueError(f"grayscale side {n} smaller than hash_size {hash_size}")
     coeffs = _dct_2d(gray)
-    low = [coeffs[k][l] for k in range(hash_size) for l in range(hash_size)]
+    low = [coeffs[k][column] for k in range(hash_size) for column in range(hash_size)]
     # Exclude the DC term (index 0) from the median so overall brightness doesn't dominate.
     ac = [abs(value) for value in low[1:]]
     ordered = sorted(ac)
@@ -87,7 +89,7 @@ def phash(gray: list[list[float]], hash_size: int = 8) -> int:
     median = ordered[mid] if len(ordered) % 2 else 0.5 * (ordered[mid - 1] + ordered[mid])
     noise_floor = max(abs(low[0]), *(abs(value) for value in ac)) * 1e-12
     bits = 0
-    for i, value in enumerate(low):
+    for _i, value in enumerate(low):
         bits <<= 1
         if abs(value) > median + noise_floor:
             bits |= 1

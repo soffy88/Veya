@@ -20,11 +20,10 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
+from extract_pbr_evidence import build_foreground_mask, load_image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
-from image_hash import hamming, phash_from_image  # noqa: E402
-
+from image_hash import hamming, phash_from_image
 
 # Thresholds (calibratable in Plan 1.3 §5; conservative defaults here).
 MIN_FOREGROUND_COVERAGE = 0.05
@@ -89,7 +88,7 @@ def check_admission(
     reasons: list[str] = []
     try:
         width, height, pixels, _load_warnings = load_image(crop_path)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # A reference that cannot even be decoded is a clean rejection, not a crash —
         # an undecodable image is the most meaningless "reference" of all.
         return {
@@ -187,7 +186,7 @@ def main(argv: list[str]) -> int:
 
     try:
         verdict = check_admission(args.image.expanduser().resolve(), args.viewpoint, against)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

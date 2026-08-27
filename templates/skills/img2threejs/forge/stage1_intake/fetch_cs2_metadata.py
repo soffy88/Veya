@@ -24,7 +24,7 @@ def load_index(index_file: Path | None, index_url: str | None) -> list[dict]:
     if index_file is not None:
         data = json.loads(index_file.expanduser().read_text(encoding="utf-8"))
     elif index_url is not None:
-        with urllib.request.urlopen(index_url, timeout=30) as response:  # noqa: S310 (user-supplied trusted URL)
+        with urllib.request.urlopen(index_url, timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
     else:
         raise ValueError("provide --index-file or --index-url")
@@ -143,7 +143,7 @@ def main(argv: list[str]) -> int:
         args.download_image.expanduser().mkdir(parents=True, exist_ok=True)
         target = args.download_image.expanduser() / f"{metadata.get('paintIndex')}.png"
         try:
-            urllib.request.urlretrieve(metadata["imageUrl"], target)  # noqa: S310
+            urllib.request.urlretrieve(metadata["imageUrl"], target)
             metadata["imagePath"] = str(target)
         except OSError as exc:
             print(

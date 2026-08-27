@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import heapq
+import itertools
 import json
 import math
 import sys
@@ -67,7 +68,7 @@ def _quadric(plane: tuple[float, float, float, float]) -> list[float]:
 
 
 def _add(q1: list[float], q2: list[float]) -> list[float]:
-    return [x + y for x, y in zip(q1, q2)]
+    return [x + y for x, y in zip(q1, q2, strict=False)]
 
 
 def _error(q: list[float], v: list[float]) -> float:
@@ -117,7 +118,7 @@ def decimate(
             quadrics[vertex] = _add(quadrics[vertex], q)
 
     edge_faces: dict[tuple[int, int], int] = {}
-    for index, face in enumerate(faces):
+    for _index, face in enumerate(faces):
         a, b, c = face
         for u, v in ((a, b), (b, c), (c, a)):
             key = (u, v) if u < v else (v, u)
@@ -232,11 +233,11 @@ def build_lod_plan(
         raise ValueError("ratios and distances must be the same length")
     tiers = []
     meshes = []
-    for ratio, distance in sorted(zip(ratios, distances), key=lambda pair: pair[1]):
+    for ratio, distance in sorted(zip(ratios, distances, strict=False), key=lambda pair: pair[1]):
         result = decimate(mesh, ratio)
         tiers.append({"distance": distance, "triangleCount": result["triangleCount"]})
         meshes.append(result)
-    for earlier, later in zip(tiers, tiers[1:]):
+    for earlier, later in itertools.pairwise(tiers):
         if later["triangleCount"] >= earlier["triangleCount"]:
             raise ValueError(
                 f"tier at distance {later['distance']} has {later['triangleCount']} triangles, not "

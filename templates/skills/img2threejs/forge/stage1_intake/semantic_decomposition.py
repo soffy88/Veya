@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 SEMANTIC_STRATEGIES = (
     "named-node",
     "primitive-material-boundary",

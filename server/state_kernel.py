@@ -16,7 +16,6 @@ Gate / Evidence(update_todo evidence) / Quota(quota_should_run)。
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from server.plan_todo import _load as _load_plan
 
@@ -73,7 +72,7 @@ async def quota_should_run(plan_id: str = "") -> str:
     if plan_id:
         try:
             plan = _load_plan(plan_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return f"quota: {exc}"
     else:
         # 无 plan_id → 找最近有未完成项的活跃计划
@@ -161,7 +160,7 @@ async def todo_claim(plan_id: str, todo_id: str, lease_minutes: int = DEFAULT_LE
     lease_minutes = max(1, min(int(lease_minutes), MAX_LEASE_MIN))
     try:
         plan = _load_plan(plan_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"claim: {exc}"
     todo = _todo(plan, todo_id)
     if todo.get("status") == "done":
@@ -202,7 +201,7 @@ async def gate_check(plan_id: str, gate_scope: str) -> str:
     """
     try:
         plan = _load_plan(plan_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"gate: {exc}"
     scope = gate_scope.strip()
     # 找到 scope 相关的工作 todo (标题含 scope 或依赖引用含 scope)
@@ -237,11 +236,10 @@ async def quota_spend_slot(plan_id: str, todo_id: str, effect_id: str, note: str
     dry-run / read-only / 静默 poll 不应调用本工具 (不花配额)。
     """
     import hashlib
-    import json as _json
 
     try:
         plan = _load_plan(plan_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"spend: {exc}"
     todo = _todo(plan, todo_id)
     if todo.get("status") != "done":
@@ -383,7 +381,7 @@ async def boundary_scan(path: str = ".") -> str:
             ["git", "-C", str(root), "ls-files"], capture_output=True, text=True, timeout=5
         )
         if r.returncode == 0:
-            tracked = {l for l in r.stdout.splitlines() if l}
+            tracked = {line for line in r.stdout.splitlines() if line}
     except Exception:
         tracked = set()
 
@@ -410,7 +408,7 @@ async def boundary_scan(path: str = ".") -> str:
             if size > 65536:
                 continue  # 不读大文件体
             try:
-                with open(os.path.join(dirpath, fn), "r", encoding="utf-8", errors="ignore") as f:
+                with open(os.path.join(dirpath, fn), encoding="utf-8", errors="ignore") as f:
                     head = f.read(65536)
             except OSError:
                 continue

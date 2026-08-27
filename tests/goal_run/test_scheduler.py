@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatus, TaskNode
+from server.goal_run.models import GoalRunState, TaskNode, TaskStatus
 from server.goal_run.scheduler import SchedulerState, pick_next_tasks
 
 

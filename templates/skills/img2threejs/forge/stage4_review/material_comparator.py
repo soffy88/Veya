@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,7 +15,6 @@ from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "forge" / "_shared"))
 from color_metrics import delta_e_rgb  # noqa: E402
-
 
 GRID = 48
 
@@ -49,7 +47,7 @@ def _grid(path: Path) -> tuple[list[tuple[int, int, int]], list[bool], dict[str,
 
 
 def _mean(values: list[tuple[int, int, int]], selected: list[bool]) -> tuple[int, int, int]:
-    kept = [value for value, use in zip(values, selected) if use] or values
+    kept = [value for value, use in zip(values, selected, strict=False) if use] or values
     return tuple(round(sum(value[channel] for value in kept) / len(kept)) for channel in range(3))  # type: ignore[return-value]
 
 
@@ -59,7 +57,7 @@ def _luma(rgb: tuple[int, int, int]) -> float:
 
 def _features(values: list[tuple[int, int, int]], selected: list[bool]) -> dict[str, float]:
     luma = [_luma(value) for value in values]
-    kept = [value for value, use in zip(luma, selected) if use] or luma
+    kept = [value for value, use in zip(luma, selected, strict=False) if use] or luma
     average = sum(kept) / max(1, len(kept))
     variance = sum((value - average) ** 2 for value in kept) / max(1, len(kept))
     horizontal = 0.0

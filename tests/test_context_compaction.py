@@ -90,7 +90,7 @@ def test_split_multiple_consecutive_tool_call_groups():
         *g2,
         {"role": "user", "content": "u2"},
     ]
-    head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=3)
+    _head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=3)
     # 每组各自完整地落在同一侧
     for g in (g1, g2):
         in_tail = g[0] in tail and g[1] in tail
@@ -125,7 +125,7 @@ def test_split_degenerate_keep_tail_non_positive():
         {"role": "user", "content": "u1"},
         {"role": "assistant", "content": "a1"},
     ]
-    head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=0)
+    _head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=0)
     assert tail == []
     assert to_compact == messages[1:]
 
@@ -136,7 +136,7 @@ def test_split_body_shorter_than_tail_target_keeps_all_in_tail():
         {"role": "user", "content": "u1"},
         {"role": "assistant", "content": "a1"},
     ]
-    head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=10)
+    _head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=10)
     assert to_compact == []
     assert tail == messages[1:]
 
@@ -144,14 +144,14 @@ def test_split_body_shorter_than_tail_target_keeps_all_in_tail():
 def test_split_single_unit_larger_than_tail_target():
     group = _tool_call_group("c1")
     messages = [{"role": "system", "content": "sys"}, *group]
-    head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=1)
+    _head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=1)
     assert tail == group
     assert to_compact == []
 
 
 def test_split_no_head_when_first_message_not_system():
     messages = [{"role": "user", "content": "u1"}, {"role": "assistant", "content": "a1"}]
-    head, to_compact, tail = split_compaction_window(messages, keep_tail_messages=1)
+    head, _to_compact, _tail = split_compaction_window(messages, keep_tail_messages=1)
     assert head == []
 
 

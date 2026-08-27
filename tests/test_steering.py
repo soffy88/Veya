@@ -9,18 +9,16 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from server.coordinator_master import (
     MasterCoordinator,
+    _acquire_session_lock,
     _drain_steering_messages,
     _enqueue_steering_message,
+    _release_session_lock,
     _session_turn_in_flight,
     _SteeringLongTaskDriver,
-    _acquire_session_lock,
-    _release_session_lock,
 )
 from server.events import _on_step_ctx
 

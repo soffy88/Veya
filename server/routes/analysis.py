@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, APIRouter, HTTPException
-from server import auth as auth_mod
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from veya.ast import create_ast_analyzer
 
 router = APIRouter(

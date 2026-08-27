@@ -9,7 +9,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PYTHON = ROOT / "integrations" / "vision" / ".venv" / "bin" / "python"
 ADAPTER = ROOT / "integrations" / "vision" / "reference_vision.py"

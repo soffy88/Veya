@@ -41,7 +41,7 @@ def test_trace_chain_and_impact(tmp_path: Path):
         confidence=0.9,
         parent_id=a,
     )
-    c = dl.record_decision(
+    dl.record_decision(
         "project_task",
         "写代码创建另一个文件",
         outcome="completed",
@@ -143,9 +143,8 @@ def test_ask_question_timeout_uses_default(monkeypatch):
     """超时/用户不答 → 明确提示让模型用默认假设继续, 不阻断。"""
     import asyncio
 
-    from server import user_control as uc
-
     import server.user_control as uc_mod
+    from server import user_control as uc
 
     monkeypatch.setattr(uc_mod, "_QUESTION_TIMEOUT_S", 0.05)
 

@@ -29,7 +29,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 MAX_VISUAL_HULL_RESOLUTION = 32
 MAX_VISUAL_HULL_TRIANGLES = 400_000
 MIN_VISUAL_HULL_MASK_DIMENSION = 4
@@ -119,7 +118,9 @@ def validate_visual_hull_descriptor(component_id: str, descriptor: Any, errors: 
             and isinstance(maximum, list)
             and len(minimum) == len(maximum) == 3
         ):
-            for index, (minimum_value, maximum_value) in enumerate(zip(minimum, maximum)):
+            for index, (minimum_value, maximum_value) in enumerate(
+                zip(minimum, maximum, strict=False)
+            ):
                 if (
                     _is_number(minimum_value)
                     and _is_number(maximum_value)

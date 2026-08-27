@@ -249,7 +249,7 @@ def main(argv):
 
     try:
         args = parser.parse_args(argv)
-        with open(args.history, "r", encoding="utf-8") as fh:
+        with open(args.history, encoding="utf-8") as fh:
             history = json.load(fh)
 
         decision = decide(
@@ -266,7 +266,7 @@ def main(argv):
                 f"stop={decision['stop']} action={decision['action']} reason={decision['reason']}"
             )
         return 0 if not decision["stop"] else 1
-    except Exception as exc:  # noqa: BLE001 - CLI boundary, surface any failure
+    except Exception as exc:
         print(f"error: {exc}")
         return 2
 

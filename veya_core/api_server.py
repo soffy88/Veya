@@ -1,13 +1,11 @@
 """Veya Core: 3O 引擎常驻 FastAPI 服务端."""
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any, Optional
-
 # 导入底层 3O 包装脚本
 from dag_workflow_scheduler import run_dag_workflow
-from single_agent_pandas import run_complex_pandas_task
+from fastapi import FastAPI, HTTPException
 from pipeline_snapshot_rollback import run_pipeline_with_rollback
+from pydantic import BaseModel
+from single_agent_pandas import run_complex_pandas_task
 
 app = FastAPI(
     title="Veya 3O Core Engine",
@@ -17,15 +15,15 @@ app = FastAPI(
 
 
 class SandboxRequest(BaseModel):
-    data_path: Optional[str] = "dummy_data.csv"
+    data_path: str | None = "dummy_data.csv"
 
 
 class PipelineRequest(BaseModel):
-    workspace_dir: Optional[str] = "/tmp/veya_workspace"
+    workspace_dir: str | None = "/tmp/veya_workspace"
 
 
 @app.get("/health")
-def health_check() -> Dict[str, str]:
+def health_check() -> dict[str, str]:
     """健康检查，供上层 Veya 主程序或容器编排探测."""
     return {"status": "healthy", "engine": "3O-Core"}
 

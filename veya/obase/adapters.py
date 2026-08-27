@@ -14,14 +14,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import sqlite3
 import tempfile
 import threading
 import uuid
-from pathlib import Path, PurePosixPath
-from typing import Any, AsyncIterator, cast
+from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any, cast
 
 from veya.obase import telemetry
 from veya.obase.interfaces import Event, SandboxResult
@@ -126,7 +128,7 @@ class SandboxVfsAdapter:
             self._closed = True
             try:
                 self._inner.cleanup_environment()
-            except Exception:  # noqa: BLE001 — 关闭失败不阻断
+            except Exception:
                 logger.warning("sandbox cleanup failed", exc_info=True)
 
 
@@ -148,15 +150,11 @@ class TelemetryEventBarrier:
 
     def emit(self, event: Event) -> None:
         # 既有遥测通道保持打通（JSONL / set_emitter 回调）
-        try:
+        with contextlib.suppress(Exception):
             telemetry.emit({"topic": event.topic, "payload": event.payload})
-        except Exception:  # noqa: BLE001 — 遥测失败不阻断业务事件
-            pass
         for q in self._subscribers.get(event.topic, []):
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(event)
-            except asyncio.QueueFull:
-                pass
 
     def stream(self, *topics: str) -> AsyncIterator[Event]:
         """按 topic 订阅（多 topic 取并集）；迭代器关闭自动退订。"""
@@ -197,7 +195,7 @@ class TelemetryEventBarrier:
             self._barriers[name] = (count, gate)
         try:
             await asyncio.wait_for(gate.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             async with self._lock:
                 self._barriers.pop(name, None)
             raise
@@ -332,10 +330,8 @@ class InProcessDaemonBus:
             raise RuntimeError("bus 已关闭")
         event = Event(topic=topic, payload=payload)
         for q in list(self._subscribers.get(topic, [])):
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(event)
-            except asyncio.QueueFull:
-                pass
 
     def subscribe(self, topic: str) -> AsyncIterator[Event]:
         async def _gen() -> AsyncIterator[Event]:

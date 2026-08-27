@@ -9,9 +9,6 @@ Supports providers: openai (whisper), dashscope (paraformer), deepgram.
 
 from __future__ import annotations
 
-import asyncio
-import io
-import json
 import os
 from typing import Any
 
@@ -25,7 +22,6 @@ except ImportError:
 
 from veya.oprim.audio import pcm_to_wav
 from veya.oprim.types import (
-    AudioConfig,
     TranscriptionResult,
     TranscriptionWord,
 )
@@ -103,10 +99,7 @@ async def speech_to_text(
 
     # Wrap PCM as WAV (most STT APIs expect a container format)
     # Detect if already WAV by checking RIFF header
-    if audio[:4] == b"RIFF":
-        audio_file_data = audio
-    else:
-        audio_file_data = pcm_to_wav(audio, sample_rate=sample_rate)
+    audio_file_data = audio if audio[:4] == b"RIFF" else pcm_to_wav(audio, sample_rate=sample_rate)
 
     if provider == "openai":
         return await _stt_openai(

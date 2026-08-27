@@ -14,30 +14,16 @@ _FORGE_ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(_FORGE_ROOT), str(_FORGE_ROOT / "_shared"), str(_FORGE_ROOT / "stage2_spec")]
 from orchestrate_passes import pass_specific_gaps
 from subdivision import (
-    ATTACHMENT_CYLINDER_HEIGHT_SEGMENTS,
-    ATTACHMENT_CYLINDER_RADIAL_SEGMENTS,
-    CAPSULE_CAP_SEGMENTS,
-    CAPSULE_RADIAL_SEGMENTS,
-    CONE_HEIGHT_SEGMENTS,
     CONE_SUBDIVISION_TOP_RADIUS,
-    CYLINDER_HEIGHT_SEGMENTS,
-    CYLINDER_RADIAL_SEGMENTS,
     DEFAULT_TESSELLATION_TIER,
     MAX_SUBDIVISION_ITERATIONS,
     MAX_SUBDIVISION_QUAD_FACES,
-    PLANE_HEIGHT_SEGMENTS,
-    PLANE_WIDTH_SEGMENTS,
-    SPHERE_HEIGHT_SEGMENTS,
-    SPHERE_WIDTH_SEGMENTS,
+    TESSELLATION_TIERS,
     resolve_instanced_cluster_base,
     segments_for_spec,
-    TESSELLATION_TIERS,
-    TORUS_RADIAL_SEGMENTS,
-    TORUS_TUBULAR_SEGMENTS,
 )
 from validate_sculpt_spec import validate_spec
 from visual_hull import MAX_VISUAL_HULL_TRIANGLES
-
 
 VALID_PRIMITIVES = {
     "box",
@@ -145,9 +131,9 @@ def review_visual_evidence(entry: dict[str, Any]) -> dict[str, Any]:
 def review_completes_pass(entry: dict[str, Any], pass_id: str) -> bool:
     if entry.get("passId") != pass_id or entry.get("action") != "continue":
         return False
-    if pass_id in VISUAL_PASS_IDS and not review_visual_evidence(entry).get("renderScreenshot"):
-        return False
-    return True
+    return not (
+        pass_id in VISUAL_PASS_IDS and not review_visual_evidence(entry).get("renderScreenshot")
+    )
 
 
 def completed_passes(spec: dict[str, Any], ids: list[str]) -> list[str]:
@@ -1666,7 +1652,7 @@ def _rig_weight_function_lines(spec: dict[str, Any], ordered: list[dict[str, Any
     # stage5_rig was deliberately standalone "until WS-C integration" per its own docstring.
     # This is that integration, so importing its derivation is the intended coupling rather than
     # transcribing the §4.3 formula into a second place where it could drift.
-    from stage5_rig.rig_spec import derive_envelope_radius  # noqa: PLC0415
+    from stage5_rig.rig_spec import derive_envelope_radius
 
     by_component = {c.get("id"): c for c in spec.get("componentTree", []) if isinstance(c, dict)}
     envelope: dict[str, float] = {}

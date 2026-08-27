@@ -235,9 +235,7 @@ def validate_manifest(manifest: dict[str, Any]) -> bool:
         return False
     if not isinstance(manifest["sourceViews"], list) or not isinstance(manifest["warnings"], list):
         return False
-    if manifest["state"] == "proceed" and manifest.get("itemFamily") != "knife":
-        return False
-    return True
+    return not (manifest["state"] == "proceed" and manifest.get("itemFamily") != "knife")
 
 
 def persist_manifest(manifest: dict[str, Any], output: Path) -> None:

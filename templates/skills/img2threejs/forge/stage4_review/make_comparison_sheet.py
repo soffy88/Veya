@@ -19,8 +19,7 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
-from jpeg import UnsupportedJpeg, decode_jpeg, is_jpeg  # noqa: E402
-
+from jpeg import UnsupportedJpeg, decode_jpeg, is_jpeg
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 

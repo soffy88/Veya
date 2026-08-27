@@ -13,19 +13,23 @@ import argparse
 import hashlib
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 STAGE1 = Path(__file__).resolve().parents[1] / "stage1_intake"
 sys.path.insert(0, str(STAGE1))
-from probe_image import probe  # noqa: E402
 from probe_glb import probe_glb  # noqa: E402
+from probe_image import probe  # noqa: E402
 
 REVIEW_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(REVIEW_DIR))
-from multi_pass import PASS_IDS, default_pass_records, record_pass, validate_pass_records  # noqa: E402
-
+from multi_pass import (  # noqa: E402
+    PASS_IDS,
+    default_pass_records,
+    record_pass,
+    validate_pass_records,
+)
 
 CAPTURE_PLAN: tuple[dict[str, Any], ...] = (
     {"id": "hero", "role": "reference-match", "azimuthDegrees": 0, "elevationDegrees": 0},
@@ -83,7 +87,7 @@ def portable_path(manifest_path_value: Path, value: Path) -> str:
 
 
 def now_utc() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def init_manifest(
@@ -177,7 +181,7 @@ def init_manifest(
         profile_path = render_profile.expanduser().resolve()
         if not profile_path.is_file():
             raise ValueError(f"render profile does not exist: {profile_path}")
-        from validate_render_profile import validate_file  # noqa: PLC0415
+        from validate_render_profile import validate_file
 
         profile_validation = validate_file(profile_path)
         if not profile_validation["passed"]:
@@ -279,10 +283,7 @@ def record_capture_pass(
         raise ValueError(f"unknown render pass: {pass_id}")
     capture = find_capture(manifest, capture_id)
     target: dict[str, Any]
-    if reference:
-        target = capture.setdefault("reference", {})
-    else:
-        target = capture
+    target = capture.setdefault("reference", {}) if reference else capture
     records = target.setdefault("passes", {})
     record = records.setdefault(pass_id, {})
     result = record_pass(manifest_path_value, record, image_path, probe)
@@ -308,7 +309,7 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
             else:
                 if profile.get("sha256") and profile["sha256"] != sha256(profile_path):
                     errors.append(f"render profile hash changed: {profile_path}")
-                from validate_render_profile import validate_file  # noqa: PLC0415
+                from validate_render_profile import validate_file
 
                 profile_result = validate_file(profile_path)
                 errors.extend(f"render profile: {error}" for error in profile_result["errors"])
@@ -336,7 +337,7 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
                 current_probe = probe_glb(reference_path)
                 if current_probe.get("referenceReadiness") != "pass":
                     errors.append("reference GLB is no longer usable")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 errors.append(f"reference GLB probe failed: {exc}")
 
     captures = manifest.get("captures")
@@ -430,8 +431,8 @@ def diagnose(path: Path, output: Path) -> dict[str, Any]:
 
     review_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(review_dir))
-    from diagnose_render import run_tier1  # noqa: PLC0415
-    from diagnose_render_multi_angle import analyze_angles  # noqa: PLC0415
+    from diagnose_render import run_tier1
+    from diagnose_render_multi_angle import analyze_angles
 
     orbit_paths = []
     for capture in manifest.get("captures", []):

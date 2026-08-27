@@ -9,10 +9,8 @@ Provides async audio capture and playback with configurable pipelines.
 from __future__ import annotations
 
 import asyncio
-import queue
-import threading
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
@@ -20,7 +18,6 @@ from veya.oprim.audio import (
     concat_audio_frames,
     pcm_to_wav,
     split_into_frames,
-    wav_to_pcm,
 )
 from veya.oprim.types import AudioConfig, AudioFrame
 
@@ -123,7 +120,7 @@ class AudioPipeline:
                     sample_rate=self.config.sample_rate,
                     channels=self.config.channels,
                 )
-                for i, frame_data in enumerate(frames):
+                for _i, frame_data in enumerate(frames):
                     frame = AudioFrame(
                         data=frame_data,
                         sample_rate=self.config.sample_rate,
@@ -145,7 +142,7 @@ class AudioPipeline:
                 try:
                     frame = await asyncio.wait_for(self._frame_queue.get(), timeout=1.0)
                     self._output_callback(frame.data)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
         except asyncio.CancelledError:
             pass
@@ -154,7 +151,7 @@ class AudioPipeline:
         """Read a single audio frame from the pipeline."""
         try:
             return await asyncio.wait_for(self._frame_queue.get(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     async def read_all(self) -> bytes:
@@ -244,11 +241,10 @@ def list_audio_devices() -> list[AudioDevice]:
     try:
         import sounddevice as sd
 
-        host_apis = sd.query_hostapis()
         default_input = sd.query_devices(kind="input")
         default_output = sd.query_devices(kind="output")
 
-        for i, dev in enumerate(sd.query_devices()):
+        for _i, dev in enumerate(sd.query_devices()):
             if dev["max_input_channels"] > 0:
                 devices.append(
                     AudioDevice(

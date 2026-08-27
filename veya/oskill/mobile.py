@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,11 +20,7 @@ from veya.oprim.mobile import (
     MobileActionResult,
     MobileActionSpec,
     MobileScreenshot,
-    build_mobile_shell_html,
-    build_pwa_manifest,
-    build_service_worker_js,
 )
-
 
 # ---------------------------------------------------------------------------
 # Device registry
@@ -145,7 +140,7 @@ class MobileBridge:
         try:
             await ws.send(json.dumps(cmd))
             response = await asyncio.wait_for(future, timeout=timeout_sec)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._pending_responses.pop(request_id, None)
             return MobileActionResult(
                 success=False,

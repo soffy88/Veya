@@ -82,7 +82,7 @@ def _has_defects(text: str) -> bool:
 
 
 def _evidence_summary(text: str, limit: int = 300) -> str:
-    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
     return lines[0][:limit] if lines else ""
 
 
@@ -157,13 +157,13 @@ async def _sh(command: str, timeout_s: float = 60.0) -> tuple[int, str]:
         )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
         return proc.returncode or 0, out.decode("utf-8", "replace")[-4000:]
-    except asyncio.TimeoutError:
+    except TimeoutError:
         if proc:
             proc.kill()
         return 124, f"[gate timeout {timeout_s}s]"
     except FileNotFoundError:
         return 127, "[command not found]"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return 1, f"[gate exec error: {exc}]"
 
 
@@ -194,7 +194,7 @@ async def _quality_gate(
             )
             try:
                 await _run_engine(implement_engine, fix_prompt)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.append(f"⚠ gate 修复失败: {exc}")
     log.append("⛔ QUALITY GATE 3 次失败 → 升级")
     return False, "gate 3 次失败"
@@ -227,7 +227,7 @@ async def _debate(
                 )
                 return "pass", f"反证后被撤回: {_evidence_summary(rebuttal)}"
             return "refactor", rebuttal[:300]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.append(f"⚠ 反证 reinject 失败: {exc} → 按 valid 处理")
             return "refactor", ""
     return "refactor", ""
@@ -266,7 +266,7 @@ async def _verify(
     )
     try:
         acc_out = await _run_engine(critique_engine, acc)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.append(f"⚠ 验收引擎失败: {exc} → 视为通过")
         return True, "验收判断缺失, 视为通过"
     if _has_defects(acc_out) and "通过" not in acc_out[:40]:
@@ -286,7 +286,7 @@ async def _classify_root_cause(engine: str, title: str, fail_output: str) -> str
         for root in _VERIFY_ROOTS:
             if root in out.lower():
                 return root
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return "implementation-defect"
 
@@ -337,7 +337,7 @@ async def _lens_review(engine: str, title: str, workdir: str | None) -> str:
     )
     try:
         return await _run_engine(engine, prompt)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"[lens {engine} 失败: {exc}]"
 
 
@@ -347,7 +347,7 @@ def _fan_in(discoveries: list[str]) -> list[str]:
     for d in discoveries:
         if "无缺陷" in d:
             continue
-        lines = [l.strip() for l in d.splitlines() if l.strip()]
+        lines = [line.strip() for line in d.splitlines() if line.strip()]
         for line in lines:
             if len(line) < 4 or any(m in line for m in ("[lens", "你是", "请用", "任务:")):
                 continue
@@ -373,7 +373,7 @@ def _fan_in(discoveries: list[str]) -> list[str]:
             key = (theme, line[:24])
             if not any(k[0] == theme and k[1][:12] == key[1][:12] for k in norm):
                 norm.append(key)
-    return [f"[{t}] {l}" for t, l in norm if t]
+    return [f"[{t}] {line}" for t, line in norm if t]
 
 
 async def _exit_challenger(title: str, engines: list[str], todo: dict) -> tuple[bool, str]:
@@ -389,7 +389,7 @@ async def _exit_challenger(title: str, engines: list[str], todo: dict) -> tuple[
     )
     try:
         out = await _run_engine(eng, prompt)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return False, f"challenger 失败: {exc}"
     if _has_defects(out) and "无缺陷" not in out:
         todo["evidence"].append(
@@ -421,7 +421,7 @@ async def graph_review(
     """
     try:
         plan = _load_plan(plan_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"graph_review: {exc}"
     todos = _pending_todos(plan)
     if not todos:
@@ -440,7 +440,7 @@ async def graph_review(
         )
         try:
             out = await _run_engine(critique_engine, prompt)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.append(f"⚠ 审查失败: {exc}")
             continue
         todo["status"] = "reviewed"
@@ -484,7 +484,7 @@ async def graph_cycle(
     max_iterations = max(1, min(int(max_iterations), 5))
     try:
         plan = _load_plan(plan_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"graph_cycle: {exc}"
     todos = _pending_todos(plan)
     if not todos:
@@ -510,7 +510,7 @@ async def graph_cycle(
         objective = str(plan.get("objective", ""))
         elevated_on = bool(elevated) if elevated is not None else _needs_elevated(title, objective)
         if elevated_on:
-            log.append(f"🛡 Elevated assurance 开启 (任务含高风险要素, 3 lens + challenger)")
+            log.append("🛡 Elevated assurance 开启 (任务含高风险要素, 3 lens + challenger)")
             lens_engines = _pick_lens_engines(implement_engine, critique_engine)
         fix_count = sum(
             1
@@ -566,7 +566,7 @@ async def graph_cycle(
                 )
             try:
                 impl_out = await _run_engine(implement_engine, impl_prompt)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.append(f"⚠ 实现失败: {exc}")
                 break
             todo["status"] = "in_progress"
@@ -602,7 +602,8 @@ async def graph_cycle(
                 discoveries.append(lens_out)
                 lens_log.append(f"  lens[{eng}]: {_evidence_summary(lens_out, 100)}")
             crit_out = "\n".join(
-                f"[{eng} lens] {d[:2000]}" for eng, d in zip(lens_engines, discoveries)
+                f"[{eng} lens] {d[:2000]}"
+                for eng, d in zip(lens_engines, discoveries, strict=False)
             )
             merged = _fan_in(discoveries)
             log.append("🛡 3-lens 审查:\n" + "\n".join(lens_log))
@@ -622,7 +623,7 @@ async def graph_cycle(
             )
             try:
                 crit_out = await _run_engine(critique_engine, crit_prompt)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.append(f"⚠ 批判失败: {exc} → 视为通过 (无有效发现)")
                 crit_out = "无缺陷"
 
@@ -642,7 +643,7 @@ async def graph_cycle(
                 )
                 _save_plan(plan)
                 log.append(f"🔧 修复完成 ({implement_engine}) → 回质量门+批判")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.append(f"⚠ 修复失败: {exc}")
                 break
             continue  # 不 done, 回循环 (Evaluator-Optimizer)
@@ -654,7 +655,7 @@ async def graph_cycle(
         )
         if not verify_ok:
             if "环境阻塞" in verify_note:
-                log.append(f"⛔ VERIFY 环境阻塞 → 升级 (不修复)")
+                log.append("⛔ VERIFY 环境阻塞 → 升级 (不修复)")
                 todo["status"] = "blocked"
                 todo["evidence"].append(
                     {"at": _now(), "note": f"[graph-cycle] {verify_note[:200]}"}

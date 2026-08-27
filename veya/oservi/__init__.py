@@ -20,8 +20,10 @@ Veya 项目服务层的有状态引擎归位于此:
 __version__ = "0.1.0"
 
 # 装配通道: 机制/业务分离 — 引擎实现经 manifest 注入, 不硬编码具体元素
-from veya.oservi.manifest import ServiceManifest, ManifestValidationError
 from veya.oservi.assembler import assemble, validate_manifest
+
+# 阶段 5: 长时任务守护引擎 + 统一网关（极简指令入口）
+from veya.oservi.daemon_engine import DaemonEngine, TaskState, TaskStatus
 from veya.oservi.engines import (
     EngineSkeleton,
     Injection,
@@ -29,24 +31,23 @@ from veya.oservi.engines import (
     list_skeletons,
     register_skeleton,
 )
-
-# 阶段 5: 长时任务守护引擎 + 统一网关（极简指令入口）
-from veya.oservi.daemon_engine import DaemonEngine, TaskState, TaskStatus
-from veya.oservi.gateway import gateway_engine, router as gateway_router
+from veya.oservi.gateway import gateway_engine
+from veya.oservi.gateway import router as gateway_router
+from veya.oservi.manifest import ManifestValidationError, ServiceManifest
 
 __all__ = [
-    "ServiceManifest",
-    "ManifestValidationError",
-    "assemble",
-    "validate_manifest",
+    "DaemonEngine",
     "EngineSkeleton",
     "Injection",
+    "ManifestValidationError",
+    "ServiceManifest",
+    "TaskState",
+    "TaskStatus",
+    "assemble",
+    "gateway_engine",
+    "gateway_router",
     "get_skeleton",
     "list_skeletons",
     "register_skeleton",
-    "DaemonEngine",
-    "TaskState",
-    "TaskStatus",
-    "gateway_engine",
-    "gateway_router",
+    "validate_manifest",
 ]

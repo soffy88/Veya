@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, TypeAlias
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from self_intersection import analyze_mesh  # noqa: E402
+from self_intersection import analyze_mesh
 
 SEAM_MIN_OVERLAP = 0.02
 SEAM_MAX_OVERLAP = 0.05

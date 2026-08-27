@@ -10,13 +10,10 @@ Dependencies: stdlib only (base64, io, struct). Optional: PIL/Pillow for resize.
 from __future__ import annotations
 
 import base64
-import io
 import os
-import struct
 from pathlib import Path
 
 from veya.oprim.types import ImageFormat, ImageFrame
-
 
 # ---------------------------------------------------------------------------
 # Image format detection

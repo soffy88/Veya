@@ -56,7 +56,6 @@ async def test_t7_audit_trace_correlation(client, audit):
 
 @pytest.mark.asyncio
 async def test_audit_phases_validated(audit):
-    from app.infra.event_store import AuditLog
 
     with pytest.raises(ValueError):
         audit.append(phase="bogus", trace_id="x", decision_made={})
@@ -64,7 +63,6 @@ async def test_audit_phases_validated(audit):
 
 def test_plan_service_missing_veya_loop_raises():
     """无 veya_loop → 明确错误（503 语义）。"""
-    import importlib
     import sys
 
     # 模拟 veya_loop 不可用: 从 sys.modules 摘除并拦截导入

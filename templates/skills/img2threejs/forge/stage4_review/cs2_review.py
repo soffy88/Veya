@@ -95,9 +95,11 @@ def _critical_feature_failures(inputs: dict[str, Any], default_threshold: float)
             failures.append("critical-feature-invalid")
             continue
         threshold = feature.get("threshold", default_threshold)
-        if not _number(feature.get("score")) or not _number(threshold):
-            failures.append(f"critical-feature:{feature['id']}")
-        elif float(feature["score"]) < float(threshold):
+        if (
+            not _number(feature.get("score"))
+            or not _number(threshold)
+            or float(feature["score"]) < float(threshold)
+        ):
             failures.append(f"critical-feature:{feature['id']}")
     return failures
 

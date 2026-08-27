@@ -1,1 +1,1 @@
-from veya.obase.cache import *  # noqa: F401,F403 (rfc-12 门面 stub, 见 veya/cache.py)
+from veya.obase.cache import *  # noqa: F403 (rfc-12 门面 stub, 见 veya/cache.py)

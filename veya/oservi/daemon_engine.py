@@ -17,11 +17,12 @@ DaemonBus 集成（阶段 3 oprim_daemon 原子接通真实链路）:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from veya.omodul.agent_loop import AgentLoop, LoopResult
 from veya.omodul.session_tree import SessionTreeMgr
@@ -247,7 +248,7 @@ class DaemonEngine:
             state.status = TaskStatus.FAILED
             state.error = "任务被取消"
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             state.status = TaskStatus.FAILED
             state.error = str(exc)
         finally:
@@ -272,10 +273,8 @@ class DaemonEngine:
             for task_id, state in self._tasks.items():
                 if state.session_id == sid or (not state.session_id and task_id == sid):
                     for q in self._fans.get(task_id, []):
-                        try:
+                        with contextlib.suppress(asyncio.QueueFull):
                             q.put_nowait({"type": event.topic, **event.payload})
-                        except asyncio.QueueFull:
-                            pass
                     break
 
     # -- DaemonBus handlers（oprim.daemon 原子直接可用） ---------------------

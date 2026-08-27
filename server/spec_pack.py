@@ -59,10 +59,7 @@ def _user_id() -> str:
 
 def specs_root() -> Path:
     override = os.environ.get("VEYA_SPECS_ROOT", "").strip()
-    if override:
-        root = Path(override).expanduser()
-    else:
-        root = Path.home() / ".veya" / "specs" / _user_id()
+    root = Path(override).expanduser() if override else Path.home() / ".veya" / "specs" / _user_id()
     root.mkdir(parents=True, exist_ok=True)
     return root
 

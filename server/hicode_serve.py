@@ -75,7 +75,7 @@ class HicodeServeClient:
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.wait()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("restart_serve: pkill 失败: %s", exc)
         deadline = asyncio.get_event_loop().time() + wait_s
         while asyncio.get_event_loop().time() < deadline:
@@ -113,26 +113,28 @@ class HicodeServeClient:
     # ── SSE 事件流 ────────────────────────────────────────────────────
     async def events(self) -> AsyncIterator[dict[str, Any]]:
         """订阅 /events SSE 流, 逐事件产出 (不含心跳注释行)。"""
-        async with httpx.AsyncClient(timeout=None) as c:
-            async with c.stream("GET", f"{self.base}/events") as r:
-                if r.status_code != 200:
-                    raise HicodeServeError(f"GET /events → {r.status_code}")
-                buf = ""
-                async for chunk in r.aiter_text():
-                    buf += chunk
-                    while "\n\n" in buf:
-                        frame, buf = buf.split("\n\n", 1)
-                        for line in frame.split("\n"):
-                            line = line.strip()
-                            if not line.startswith("data:"):
-                                continue
-                            data = line[5:].strip()
-                            if not data:
-                                continue
-                            try:
-                                yield json.loads(data)
-                            except json.JSONDecodeError:
-                                continue
+        async with (
+            httpx.AsyncClient(timeout=None) as c,
+            c.stream("GET", f"{self.base}/events") as r,
+        ):
+            if r.status_code != 200:
+                raise HicodeServeError(f"GET /events → {r.status_code}")
+            buf = ""
+            async for chunk in r.aiter_text():
+                buf += chunk
+                while "\n\n" in buf:
+                    frame, buf = buf.split("\n\n", 1)
+                    for line in frame.split("\n"):
+                        line = line.strip()
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if not data:
+                            continue
+                        try:
+                            yield json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
 
     # ── 任务执行 (串行) ───────────────────────────────────────────────
     async def run_task(
@@ -193,7 +195,7 @@ class HicodeServeClient:
                 try:
                     async for ev in self.events():
                         await q.put(ev)
-                except Exception as exc:  # noqa: BLE001 — 流断 → 终止
+                except Exception as exc:
                     await q.put({"kind": "turn_done", "err": f"events 断开: {exc}"})
                 finally:
                     await q.put(None)

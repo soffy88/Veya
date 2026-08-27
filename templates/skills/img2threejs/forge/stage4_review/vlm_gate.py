@@ -28,8 +28,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 CRITERIA = ("objectness", "semantic", "structural", "specular")
 DEFAULT_CRITERIA_MIN = 0.80
@@ -208,7 +209,7 @@ def main(argv: list[str]) -> int:
             criteria_min=args.criteria_min,
             geometry_class=args.geometry_class,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(

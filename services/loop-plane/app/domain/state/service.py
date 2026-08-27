@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.domain.state.projectors import normalize_status, project_goal_state
@@ -27,7 +27,7 @@ DEFAULT_QUOTA = 8
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _now_ts() -> float:
@@ -35,7 +35,7 @@ def _now_ts() -> float:
 
 
 def _lease_until(lease_min: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(minutes=lease_min)).isoformat()
+    return (datetime.now(UTC) + timedelta(minutes=lease_min)).isoformat()
 
 
 class GoalService:

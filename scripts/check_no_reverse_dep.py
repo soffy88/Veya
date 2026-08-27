@@ -35,7 +35,7 @@ import argparse
 import ast
 import pathlib
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 # rank 表: veya.<layer> -> 层号
 LAYER_RANK: dict[str, int] = {

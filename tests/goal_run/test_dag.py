@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from server.goal_run.models import TaskNode, TaskStatus
 
 

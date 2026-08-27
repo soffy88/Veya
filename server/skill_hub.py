@@ -27,7 +27,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from server.skill_scan import scan_skill_source, summarize as _summarize_risk
+from server.skill_scan import scan_skill_source
+from server.skill_scan import summarize as _summarize_risk
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
 from server.tool_registry import (
@@ -50,7 +51,7 @@ def _oskill_mod() -> Any:
         from veya.platform import oskill as _load
 
         return _load()
-    except Exception:  # noqa: BLE001 — 3O 不可用时静默降级
+    except Exception:
         return None
 
 
@@ -272,7 +273,7 @@ class VeyaSkillHub:
                 if shape_errors:
                     logger.warning("[SkillHub] 技能 '%s' 契约字段结构告警: %s", name, shape_errors)
                 self._contracts[name] = osk.extract_contract(manifest)
-            except Exception as exc:  # noqa: BLE001 — 契约解析失败不拖垮技能挂载
+            except Exception as exc:
                 logger.debug("[SkillHub] 技能 '%s' 契约解析跳过: %s", name, exc)
         logger.info("[SkillHub] 挂载技能 '%s' (type=%s)", name, skill_type)
         return True
@@ -401,7 +402,7 @@ class VeyaSkillHub:
         if osk is not None:
             try:
                 ranked = osk.select_skill(task, skill_index=index, top_k=top_k)
-            except Exception:  # noqa: BLE001 — 路由失败回退全量前 top_k
+            except Exception:
                 ranked = index[:top_k]
         else:
             ranked = index[:top_k]
@@ -422,7 +423,7 @@ class VeyaSkillHub:
                     body = str(loaded.get("body") or "").strip()
                     if body:
                         entry["body"] = body[:1500]  # 截断防单技能撑爆
-                except Exception:  # noqa: BLE001 — body 拉取失败不影响路由结果
+                except Exception:
                     pass
             out.append(entry)
         return out

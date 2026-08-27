@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
-from artifact_cache import (  # noqa: E402
+from artifact_cache import (
     file_sha256,
     get_cached,
     load_manifest,
@@ -85,9 +85,10 @@ def _dependents_of(changed_module_id: str, components: list[dict]) -> set[str]:
         parent_id = comp.get("parent")
         attachment = comp.get("attachment") or {}
         attach_parent = attachment.get("parentId")
-        if parent_id == changed_module_id or attach_parent == changed_module_id:
-            if comp_id is not None:
-                dependents.add(comp_id)
+        if (
+            parent_id == changed_module_id or attach_parent == changed_module_id
+        ) and comp_id is not None:
+            dependents.add(comp_id)
     return dependents
 
 
@@ -141,7 +142,7 @@ def main(argv: list[str]) -> int:
             print(json.dumps(result, ensure_ascii=False))
         else:
             print(result)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 0

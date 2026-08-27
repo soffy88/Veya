@@ -12,16 +12,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
 import shlex
-import subprocess
+import shutil
 import time
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # Agent registry
@@ -243,7 +239,7 @@ class AgentSpawner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
             if proc.returncode == 0:
                 return True, f"{spec.display_name} installed successfully"
             return False, stderr.decode()[:500]
@@ -307,7 +303,6 @@ class AgentSpawner:
         args = [spec.cli_command]
         for tmpl in spec.args_template:
             args.append(tmpl.replace("{prompt}", shlex.quote(prompt)))
-        cmd_str = " ".join(args)
 
         # Build environment
         proc_env = os.environ.copy()
@@ -340,7 +335,7 @@ class AgentSpawner:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
                 stdout = stdout.decode()
                 stderr = stderr.decode()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             return SpawnResult(
                 agent_name=agent_name,
@@ -453,7 +448,7 @@ class AgentSpawner:
             return None
 
         wt_name = f"agent-{agent_name}-{int(time.time())}"
-        wt_path = base.parent / f".worktrees" / wt_name
+        wt_path = base.parent / ".worktrees" / wt_name
         wt_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:

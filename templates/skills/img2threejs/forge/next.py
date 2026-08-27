@@ -8,8 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "_shared"))
 sys.path.insert(0, str(ROOT / "stage3_build"))
+from orchestrate_passes import completed_passes, current_pass, pass_acceptance, pass_order
 from status_banner import emit_status
-from orchestrate_passes import current_pass, pass_acceptance, pass_order, completed_passes
 from workflow_state import (
     WorkflowStateError,
     load_state,

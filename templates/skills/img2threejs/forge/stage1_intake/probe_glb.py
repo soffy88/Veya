@@ -395,7 +395,7 @@ def main(argv: list[str]) -> int:
             temporary.replace(output)
         print(rendered, end="")
         return 0
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}")
         return 2
 

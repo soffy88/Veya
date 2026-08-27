@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from app.domain.state.service import GoalService
 from app.infra.event_store import new_id

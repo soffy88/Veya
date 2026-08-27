@@ -8,7 +8,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Final
 
-
 SCHEMA_VERSION: Final = 1
 STEP_STATUSES: Final = {"pending", "done", "skipped"}
 REFINE_ACTIONS: Final = {"refine-spec", "refine-code"}

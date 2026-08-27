@@ -40,7 +40,7 @@ import argparse
 import ast
 import pathlib
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 BUSINESS_DIRS: tuple[str, ...] = (
     "veya/omodul",
@@ -207,10 +207,7 @@ def _iter_py_files(root: pathlib.Path, targets: list[str]) -> Iterable[pathlib.P
 
 def _is_allowed(path: pathlib.Path, root: pathlib.Path) -> bool:
     rel = path.relative_to(root).as_posix()
-    for allowed in ALLOWED_DIRS:
-        if rel == allowed or rel.startswith(allowed + "/"):
-            return True
-    return False
+    return any(rel == allowed or rel.startswith(allowed + "/") for allowed in ALLOWED_DIRS)
 
 
 def _has_allow_marker(path: pathlib.Path) -> bool:
@@ -234,8 +231,7 @@ def _call_kind(node: ast.Call) -> str | None:
                 "FILE_W"
                 if (
                     mode.startswith(("w", "a", "x", "r+", "w+", "a+"))
-                    or "b" in mode
-                    and mode.startswith(("w", "a"))
+                    or ("b" in mode and mode.startswith(("w", "a")))
                 )
                 else "FILE_R"
             )

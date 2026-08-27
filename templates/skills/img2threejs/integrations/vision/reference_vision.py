@@ -18,7 +18,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RUNTIME = ROOT / "runtime" / "vision"
 DEFAULT_MODELS = DEFAULT_RUNTIME / "models"
