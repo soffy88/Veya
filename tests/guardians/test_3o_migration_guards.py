@@ -119,6 +119,73 @@ def test_direct_io_checker_passes_with_baseline():
     assert r.returncode == 0, f"直接 I/O 检查失败:\n{r.stdout}\n{r.stderr}"
 
 
+def test_direct_io_checker_ignores_historical_line_drift(tmp_path: Path):
+    """基线行号变化不能把同一个稳定 finding 误报为新增。"""
+    biz = tmp_path / "server"
+    biz.mkdir(parents=True)
+    (biz / "legacy.py").write_text(
+        "\n\nimport subprocess\n",
+        encoding="utf-8",
+    )
+    baseline = tmp_path / "baseline.txt"
+    baseline.write_text(
+        "server/legacy.py:1 EXEC/NET import 'subprocess'\n",
+        encoding="utf-8",
+    )
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS / "check_direct_io.py"),
+            str(tmp_path),
+            "--targets",
+            "server",
+            "--baseline",
+            str(baseline),
+            "--fail-on-new",
+            "--quiet",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert r.returncode == 0, f"历史行号漂移被误报:\n{r.stdout}\n{r.stderr}"
+
+
+def test_direct_io_checker_rejects_an_extra_same_fingerprint(tmp_path: Path):
+    """稳定指纹匹配仍按次数计数，不能放过新增的重复调用。"""
+    biz = tmp_path / "server"
+    biz.mkdir(parents=True)
+    (biz / "duplicate.py").write_text(
+        "import subprocess\n\n"
+        "def first(cmd):\n    return subprocess.run(cmd)\n\n"
+        "def second(cmd):\n    return subprocess.run(cmd)\n",
+        encoding="utf-8",
+    )
+    baseline = tmp_path / "baseline.txt"
+    baseline.write_text(
+        "server/duplicate.py:1 EXEC/NET import 'subprocess'\n"
+        "server/duplicate.py:2 EXEC subprocess.run\n",
+        encoding="utf-8",
+    )
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS / "check_direct_io.py"),
+            str(tmp_path),
+            "--targets",
+            "server",
+            "--baseline",
+            str(baseline),
+            "--fail-on-new",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert r.returncode == 1
+    assert "new_findings=1" in r.stdout
+
+
 def test_direct_io_checker_detects_new_violation(tmp_path: Path):
     """新增业务直接 subprocess 必须被拦下。"""
     biz = tmp_path / "server"

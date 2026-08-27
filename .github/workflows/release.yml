@@ -45,7 +45,9 @@ jobs:
           python scripts/check_obase_no_reverse_dep.py
           python scripts/check_manifest.py
           python scripts/check_async_contract.py
-          python scripts/check_no_direct_io.py . --baseline scripts/baseline_direct_io.txt --quiet
+          python scripts/check_direct_io.py . \
+            --baseline scripts/baseline_direct_io.txt \
+            --fail-on-new --format json --report direct-io-report.json
           pytest -q --cov=server.events --cov=server.task_store --cov=server.routes.sessions \
             --cov=server.routes.tasks --cov=server.sse --cov=server.memory_controller \
             --cov=server.capability_model --cov=server.acceptance --cov=server.permission_profiles \
