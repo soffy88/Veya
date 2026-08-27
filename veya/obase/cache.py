@@ -195,12 +195,13 @@ class ParallelExecutor:
         参数:
         tasks: 列表，每个元素是 (函数, *args, **kwargs)
         """
-        coroutines = [
-            self.execute_task(task[0], *task[1], **task[2] if len(task) > 2 else {})
-            for task in tasks
-        ]
-
-        results = await asyncio.gather(*coroutines, return_exceptions=True)
+        results = await asyncio.gather(
+            *(
+                self.execute_task(task[0], *task[1], **task[2] if len(task) > 2 else {})
+                for task in tasks
+            ),
+            return_exceptions=True,
+        )
         return results
 
     async def execute_with_progress(
@@ -233,8 +234,9 @@ class ParallelExecutor:
                 return error_result
 
         # 执行所有任务
-        task_coros = [task_with_progress(task) for task in tasks]
-        results = await asyncio.gather(*task_coros, return_exceptions=True)
+        results = await asyncio.gather(
+            *(task_with_progress(task) for task in tasks), return_exceptions=True
+        )
         return results
 
 

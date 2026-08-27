@@ -20,25 +20,61 @@ import pathlib
 import sys
 
 
-def _find_async_defs(path: pathlib.Path) -> set[str]:
-    """返回文件内 async def 的函数名集合。"""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+def _async_definitions(tree: ast.AST) -> tuple[set[str], set[str]]:
+    """Return async function names and the subset that are async generators."""
     names: set[str] = set()
+    generators: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.AsyncFunctionDef):
             names.add(node.name)
-    return names
+            if any(isinstance(child, (ast.Yield, ast.YieldFrom)) for child in ast.walk(node)):
+                generators.add(node.name)
+    return names, generators
 
 
-def _is_awaited(node: ast.Await) -> bool:
-    return True
+def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+    return parents
+
+
+def _inside_allowed_wrapper(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    """Accept coroutine expressions nested inside an asyncio scheduling call."""
+    current = parents.get(node)
+    while current is not None:
+        if (
+            isinstance(current, ast.Call)
+            and isinstance(current.func, ast.Attribute)
+            and isinstance(current.func.value, ast.Name)
+            and current.func.value.id == "asyncio"
+            and current.func.attr
+            in ("gather", "create_task", "to_thread", "wait_for", "shield", "run")
+        ):
+            return True
+        current = parents.get(current)
+    return False
+
+
+def _inside_sync_return(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    """Allow an explicit sync API that returns a coroutine for its caller to await."""
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, ast.AsyncFunctionDef):
+            return False
+        if isinstance(current, ast.FunctionDef):
+            return True
+        current = parents.get(current)
+    return False
 
 
 def check_file(path: pathlib.Path) -> list[str]:
     """检查单个文件：async def 的调用点必须 await。"""
     issues: list[str] = []
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    async_names = {n.name for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)}
+    async_names, async_generators = _async_definitions(tree)
+    parents = _parent_map(tree)
     # 找所有 Call 到 async 函数名，且不在 await/作为 coroutine 传给 asyncio.* 的
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -49,17 +85,18 @@ def check_file(path: pathlib.Path) -> list[str]:
             name = func.id
         elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
             name = func.attr
-        if name is None or name not in async_names:
+        if name is None or name not in async_names or name in async_generators:
             continue
-        parent = _parent(tree, node)
+        # Name-only matching cannot distinguish sqlite3.connect/Future.cancel from
+        # local async methods. Attribute calls are checked only for self/cls.
+        if isinstance(func, ast.Attribute) and (
+            not isinstance(func.value, ast.Name) or func.value.id not in ("self", "cls")
+        ):
+            continue
+        parent = parents.get(node)
         if isinstance(parent, ast.Await):
             continue
-        # asyncio.gather / create_task / to_thread 等合法包装（单层 if，SIM102）
-        if (
-            isinstance(parent, ast.Call)
-            and isinstance(parent.func, ast.Attribute)
-            and parent.func.attr in ("gather", "create_task", "to_thread", "wait_for", "shield")
-        ):
+        if _inside_allowed_wrapper(node, parents) or _inside_sync_return(node, parents):
             continue
         line = getattr(node, "lineno", "?")
         issues.append(
@@ -67,15 +104,6 @@ def check_file(path: pathlib.Path) -> list[str]:
             " — use await or asyncio.gather/create_task/to_thread"
         )
     return issues
-
-
-def _parent(tree: ast.AST, target: ast.AST) -> ast.AST | None:
-    """返回 target 的父节点（简单线性扫描，AST 规模小足够）。"""
-    for node in ast.walk(tree):
-        for child in ast.iter_child_nodes(node):
-            if child is target:
-                return node
-    return None
 
 
 def main(root: str = ".") -> int:
