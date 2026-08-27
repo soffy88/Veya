@@ -115,3 +115,19 @@ formatted, overwritten, or pushed by this release freeze:
   `gold_approved=170`
 - Durable/Personal semantics, Gold dataset, Execution Runtime ABI, and release
   tags were not changed.
+
+## Veya Required Release Candidate
+
+- Verified baseline HEAD: `1a7470031bce75643d4175dfd4bbc7515d7e73cc`
+- CI: `33047844480` — **success**
+- Public `/health`: fixed and verified HTTP `200`
+- Durable health: PostgreSQL, enabled, healthy, schema `3`, idle queue state
+- Personal Runtime Gold: `personal-agent-gold-v1`, approved `170/170`, gate
+  **PASS**, eval `personal-gold-12beca1fe0594232afc251749f27f102`
+- Required release blockers: **none**
+- Optional/full legacy: **18 historical failures**, outside required CI
+- `execution-runtime-v1.0.0` tag: unchanged
+- `personal-runtime-gold-v1.0.0` tag: unchanged
+- User files explicitly excluded:
+  `tests/test_inferera_free_pool.py`, `veya/obase/_llm_config.py`,
+  `veya/obase/llm.py`
