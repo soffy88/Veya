@@ -131,3 +131,26 @@ formatted, overwritten, or pushed by this release freeze:
 - User files explicitly excluded:
   `tests/test_inferera_free_pool.py`, `veya/obase/_llm_config.py`,
   `veya/obase/llm.py`
+
+## Final Required Release Readiness
+
+- Verified source HEAD: `93672b4b321d7dbd3f10f410869322cca12af1ec`
+- `origin/main`: matched the verified source HEAD
+- Required CI: `33070124298` — **success**
+- Release smoke: `33068140493` — **success**
+- Desktop ancillary status: DMG and NSIS **pass**; DEB was cancelled during
+  temporary smoke-tag cleanup, not failed
+- Public `/health`: HTTPS HTTP `200`, real backend/durable/Personal probes
+- Durable health: PostgreSQL, enabled, healthy, schema `3`
+- Personal Runtime Gold: `personal-agent-gold-v1`, approved `170/170`, gate
+  **PASS**, eval `personal-gold-12beca1fe0594232afc251749f27f102`
+- Direct-IO: `409` known baseline findings, `212` line drift, `0` new findings
+- 3O: **PASS**
+- Ruff: **PASS**
+- Web check/build: **PASS**
+- Optional/full legacy: `18` historical failures remain outside required CI
+- Required release blockers: **none**
+- Formal release tags unchanged; temporary direct-IO smoke tags removed
+- Protected user files explicitly excluded:
+  `tests/test_inferera_free_pool.py`, `veya/obase/_llm_config.py`,
+  `veya/obase/llm.py`
