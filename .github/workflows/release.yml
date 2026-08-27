@@ -14,11 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Verify 3O submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          git submodule status --recursive
 
       - name: Install build tools
         run: |
@@ -30,7 +39,12 @@ jobs:
 
       - name: Release preflight — state, safety, migration, coverage
         run: |
-          python scripts/check_no_reverse_dep.py . --baseline scripts/baseline_reverse_dep.txt --quiet
+          # Keep release's 3O reverse-dependency gate identical to required CI.
+          # The broader legacy checker remains a separately tracked baseline and
+          # must not make this required release path disagree with main CI.
+          python scripts/check_obase_no_reverse_dep.py
+          python scripts/check_manifest.py
+          python scripts/check_async_contract.py
           python scripts/check_no_direct_io.py . --baseline scripts/baseline_direct_io.txt --quiet
           pytest -q --cov=server.events --cov=server.task_store --cov=server.routes.sessions \
             --cov=server.routes.tasks --cov=server.sse --cov=server.memory_controller \
