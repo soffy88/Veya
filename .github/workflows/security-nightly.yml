@@ -34,6 +34,12 @@ jobs:
       - name: pip-audit (vulnerability gate)
         run: python -m pip_audit
 
+      - name: Direct I/O release gate
+        run: |
+          python scripts/check_direct_io.py . \
+            --baseline scripts/baseline_direct_io.txt \
+            --fail-on-new --format json --report direct-io-report.json
+
       - name: Security-relevant regression subset
         # tests/guardians/test_3o_migration_guards.py 不在这份子集里——它在
         # main 分支当前就是红的(pre-existing baseline 漂移, 见其断言里的

@@ -39,7 +39,9 @@ from __future__ import annotations
 import argparse
 import ast
 import pathlib
+import re
 import sys
+from collections import Counter
 from collections.abc import Iterable
 
 BUSINESS_DIRS: tuple[str, ...] = (
@@ -194,6 +196,44 @@ SHUTIL_CALLS: tuple[str, ...] = (
 )
 
 FILE_OPEN_MODES = ("w", "a", "r+", "w+", "a+", "x", "wb", "ab", "rb", "r")
+
+
+_FINDING_RE = re.compile(r"^(?P<path>.+?):(?P<line>\d+) (?P<body>.+)$")
+
+
+def stable_finding_key(finding: str) -> str:
+    """Return a line-number-independent identity for a finding.
+
+    The original baseline format predates the formatter and stores source line
+    numbers.  Line numbers are not an identity: harmless formatting and import
+    changes moved many historical findings while leaving the operation itself
+    unchanged.  Keep the legacy file format, but compare the stable path/type/
+    expression portion.  A new operation still fails because its stable key is
+    absent from the baseline.
+    """
+
+    match = _FINDING_RE.match(finding)
+    if match is None:
+        return finding
+    return f"{match.group('path')} {match.group('body')}"
+
+
+def classify_against_baseline(
+    findings: Iterable[str], baseline_lines: Iterable[str]
+) -> tuple[list[str], list[str]]:
+    """Classify findings with a count-aware, line-number-independent baseline."""
+
+    remaining = Counter(stable_finding_key(line) for line in baseline_lines if line.strip())
+    known: list[str] = []
+    new: list[str] = []
+    for finding in findings:
+        key = stable_finding_key(finding)
+        if remaining[key]:
+            known.append(finding)
+            remaining[key] -= 1
+        else:
+            new.append(finding)
+    return known, new
 
 
 def _iter_py_files(root: pathlib.Path, targets: list[str]) -> Iterable[pathlib.Path]:
@@ -382,8 +422,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.strict and args.baseline:
         bp = pathlib.Path(args.baseline)
-        baseline = set(bp.read_text(encoding="utf-8").splitlines()) if bp.is_file() else set()
-        new = [v for v in all_violations if v not in baseline]
+        baseline_lines = (
+            [line for line in bp.read_text(encoding="utf-8").splitlines() if line.strip()]
+            if bp.is_file()
+            else []
+        )
+        _, new = classify_against_baseline(all_violations, baseline_lines)
     else:
         new = all_violations
 

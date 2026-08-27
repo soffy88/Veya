@@ -58,6 +58,12 @@ jobs:
           python scripts/check_manifest.py
           python scripts/check_async_contract.py
 
+      - name: Direct I/O release gate
+        run: |
+          python scripts/check_direct_io.py . \
+            --baseline scripts/baseline_direct_io.txt \
+            --fail-on-new --format json --report direct-io-report.json
+
       - name: 3O SPEC v3.0 Appendix B — 9-check suite (main libraries, report)
         run: python .github/scripts/3o_lint/runner.py --report-only
 
