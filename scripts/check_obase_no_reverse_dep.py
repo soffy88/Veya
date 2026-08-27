@@ -84,8 +84,9 @@ def _is_forbidden(import_name: str) -> bool:
     if import_name == "veya" or import_name.startswith("veya."):
         if import_name in _FORBIDDEN_VEYA:
             return True
-        # veya.errors / veya.compat / veya.obase / veya.llm 允许
-        allowed = ("veya.errors", "veya.compat", "veya.obase", "veya.llm")
+        # veya.platform 是唯一的 3O assembly choke point，不是业务层；允许
+        # compat adapter 通过它惰性解析 canonical obase registry。
+        allowed = ("veya.errors", "veya.compat", "veya.obase", "veya.llm", "veya.platform")
         if not any(import_name == a or import_name.startswith(a + ".") for a in allowed):
             return True
     return False
