@@ -30,8 +30,7 @@ async def graph_schema() -> dict:
     except HTTPException:
         raise
     try:
-        rows = await conn.query_cypher(
-            "CALL db.schema.visualization()", max_rows=5)
+        rows = await conn.query_cypher("CALL db.schema.visualization()", max_rows=5)
     except Exception as exc:  # noqa: BLE001
         # 兼容无 schema 可视化的后端: 返回空, 前端降级
         return {"nodes": [], "relationships": [], "error": str(exc)[:120]}
@@ -51,11 +50,7 @@ async def graph_files(limit: int = 200) -> dict:
         await conn.ensure_indexed(force=False)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=f"索引失败: {exc}")
-    cypher = (
-        "MATCH (a:File)-[r]->(b:File) "
-        "RETURN a.name AS src, b.name AS dst "
-        "LIMIT 500"
-    )
+    cypher = "MATCH (a:File)-[r]->(b:File) RETURN a.name AS src, b.name AS dst LIMIT 500"
     try:
         rows = await conn.query_cypher(cypher, max_rows=limit)
     except Exception as exc:  # noqa: BLE001

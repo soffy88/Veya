@@ -31,6 +31,7 @@ reference images, which remain the colour authority.
 Usage:
     python generate_reference_mesh.py IMAGE [IMAGE ...] --out-dir DIR [--space ID] [--seed N]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,22 +45,36 @@ DEFAULT_SPACE = "trellis-community/TRELLIS"
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("images", nargs="*", type=Path, help="reference image(s); 2+ enables multi-view")
     p.add_argument("--out-dir", type=Path, required=True)
-    p.add_argument("--from-glb", type=Path, default=None,
-                   help="skip generation and convert an existing GLB. Generation costs finite "
-                        "ZeroGPU quota, so a failure in the local conversion step must never force "
-                        "a regeneration of a mesh that already exists")
+    p.add_argument(
+        "--from-glb",
+        type=Path,
+        default=None,
+        help="skip generation and convert an existing GLB. Generation costs finite "
+        "ZeroGPU quota, so a failure in the local conversion step must never force "
+        "a regeneration of a mesh that already exists",
+    )
     p.add_argument("--space", default=DEFAULT_SPACE)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--mesh-simplify", type=float, default=0.95,
-                   help="TRELLIS simplify ratio, demo range 0.9-0.98. In the reference demo this is "
-                        "the fraction of triangles REMOVED, so higher means a lighter mesh -- but "
-                        "verify against the triangle count this script reports rather than trusting "
-                        "the direction stated here")
-    p.add_argument("--texture-size", type=int, default=512,
-                   help="kept small on purpose: geometry is what is being scored")
+    p.add_argument(
+        "--mesh-simplify",
+        type=float,
+        default=0.95,
+        help="TRELLIS simplify ratio, demo range 0.9-0.98. In the reference demo this is "
+        "the fraction of triangles REMOVED, so higher means a lighter mesh -- but "
+        "verify against the triangle count this script reports rather than trusting "
+        "the direction stated here",
+    )
+    p.add_argument(
+        "--texture-size",
+        type=int,
+        default=512,
+        help="kept small on purpose: geometry is what is being scored",
+    )
     p.add_argument("--hf-token", default=None)
     return p.parse_args()
 
@@ -138,7 +153,7 @@ def inspect_glb(glb_path: Path) -> dict:
     chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
     if chunk_type != 0x4E4F534A:
         sys.exit("first GLB chunk is not JSON")
-    gltf = json.loads(data[20:20 + chunk_length])
+    gltf = json.loads(data[20 : 20 + chunk_length])
     required = gltf.get("extensionsRequired", [])
     return {
         "extensionsRequired": required,
@@ -159,9 +174,11 @@ def write_obj(glb_path: Path, obj_path: Path) -> dict:
 
     scene_or_mesh = trimesh.load(glb_path, force="scene")
     mesh = scene_or_mesh.to_mesh() if hasattr(scene_or_mesh, "to_mesh") else scene_or_mesh
-    mesh.merge_vertices()          # weld first, so smooth normals average across real neighbours
+    mesh.merge_vertices()  # weld first, so smooth normals average across real neighbours
     mesh.fix_normals()
-    obj_path.write_text(trimesh.exchange.obj.export_obj(mesh, include_normals=True, include_texture=False))
+    obj_path.write_text(
+        trimesh.exchange.obj.export_obj(mesh, include_normals=True, include_texture=False)
+    )
     bounds = mesh.bounds
     return {
         "vertices": int(len(mesh.vertices)),
@@ -194,11 +211,17 @@ def main() -> None:
     print(json.dumps(report, indent=2))
 
     if glb_info["compressed"]:
-        print("\nWARNING: GLB declares compression in extensionsRequired. Three.js needs DRACOLoader "
-              "and the pure-Python path cannot read it. The OBJ above is still usable.", file=sys.stderr)
-    print("\nNOTE: this mesh is a generative PROXY, not ground truth. Score it against the original "
-          "reference image before using it as a scoring reference — a hallucinated back side is "
-          "exactly what a confident-but-wrong metric would optimise toward.", file=sys.stderr)
+        print(
+            "\nWARNING: GLB declares compression in extensionsRequired. Three.js needs DRACOLoader "
+            "and the pure-Python path cannot read it. The OBJ above is still usable.",
+            file=sys.stderr,
+        )
+    print(
+        "\nNOTE: this mesh is a generative PROXY, not ground truth. Score it against the original "
+        "reference image before using it as a scoring reference — a hallucinated back side is "
+        "exactly what a confident-but-wrong metric would optimise toward.",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

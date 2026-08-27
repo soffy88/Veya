@@ -134,9 +134,13 @@ def resolve_pipeline_routing(
     if kind in {"hybrid", "unknown"}:
         conflicts.append(f"classification kind {kind!r} requires input")
     elif confidence < CONFIDENCE_THRESHOLD:
-        conflicts.append(f"classification confidence {confidence:.2f} is below {CONFIDENCE_THRESHOLD:.2f}")
+        conflicts.append(
+            f"classification confidence {confidence:.2f} is below {CONFIDENCE_THRESHOLD:.2f}"
+        )
     elif explicit_track is not None and reliable_kind and TRACK_BY_KIND[kind] != explicit_track:
-        conflicts.append(f"explicit track {explicit_track!r} contradicts reliable classification {kind!r}")
+        conflicts.append(
+            f"explicit track {explicit_track!r} contradicts reliable classification {kind!r}"
+        )
 
     status = "resolved" if reliable_kind and not conflicts else "request-input"
     source = "explicit" if explicit_track is not None else "classification"
@@ -170,7 +174,9 @@ def validate_pipeline_routing(routing: Any) -> list[str]:
     if not isinstance(classification, dict) or classification != normalized:
         errors.append("pipelineRouting.classification must use the shared classification contract")
     conflicts = routing.get("conflicts")
-    if not isinstance(conflicts, list) or not all(isinstance(conflict, str) for conflict in conflicts):
+    if not isinstance(conflicts, list) or not all(
+        isinstance(conflict, str) for conflict in conflicts
+    ):
         errors.append("pipelineRouting.conflicts must be a list")
     elif routing.get("status") == "resolved" and conflicts:
         errors.append("resolved pipelineRouting cannot contain conflicts")

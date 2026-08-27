@@ -131,7 +131,9 @@ def next_required_evidence(spec: dict[str, Any], pass_id: str) -> list[str]:
         evidence.append("browser render screenshot from your agent's browser/screenshot tool")
         evidence.append("side-by-side reference/render comparison sheet for AI vision review")
         evidence.append("AI vision score at or above the visual acceptance threshold")
-        evidence.append("all critical semantic feature scores from the shared image pair at or above their thresholds")
+        evidence.append(
+            "all critical semantic feature scores from the shared image pair at or above their thresholds"
+        )
         evidence.append("self-correction review appended with action=continue before the next pass")
     return evidence
 
@@ -177,7 +179,9 @@ def component_requires_attachment(component: dict[str, Any]) -> bool:
     role = str(component.get("role") or "").lower()
     name = str(component.get("name") or component.get("id") or "").lower()
     primitive = str(component.get("primitive") or "").lower()
-    action = component.get("actionProfile") if isinstance(component.get("actionProfile"), dict) else {}
+    action = (
+        component.get("actionProfile") if isinstance(component.get("actionProfile"), dict) else {}
+    )
     animation_role = str(action.get("animationRole") or "").lower()
     tokens = {role, animation_role} | set(re.findall(r"[a-z0-9]+", name))
     return bool(tokens & ATTACHMENT_ROLES) or primitive in ATTACHMENT_PRIMITIVES
@@ -187,8 +191,12 @@ def attachment_complete(component: dict[str, Any]) -> bool:
     attachment = component.get("attachment")
     if not isinstance(attachment, dict):
         return False
-    has_endpoint = is_vector3(attachment.get("localStart")) and is_vector3(attachment.get("localEnd"))
-    has_socket = has_non_empty(attachment.get("parentSocket")) or has_non_empty(attachment.get("parentId"))
+    has_endpoint = is_vector3(attachment.get("localStart")) and is_vector3(
+        attachment.get("localEnd")
+    )
+    has_socket = has_non_empty(attachment.get("parentSocket")) or has_non_empty(
+        attachment.get("parentId")
+    )
     has_contact = has_non_empty(attachment.get("contactType"))
     has_overlap = (
         number_from_layer(attachment.get("embedDepth"), ("base", "amount", "value")) > 0
@@ -266,7 +274,10 @@ def reference_pbr_usable(material: dict[str, Any], threshold: float) -> tuple[bo
     material_id = str(material.get("id") or "(unnamed)")
     reference = material.get("referencePbr")
     if not isinstance(reference, dict):
-        return False, f"material {material_id!r} needs usable referencePbr extracted from source pixels"
+        return (
+            False,
+            f"material {material_id!r} needs usable referencePbr extracted from source pixels",
+        )
     if reference.get("usable") is not True:
         return False, f"material {material_id!r} referencePbr.usable must be true"
     confidence = reference.get("confidence", reference.get("estimatedFidelity"))
@@ -293,27 +304,36 @@ def quality_first_material_gaps(spec: dict[str, Any], material: dict[str, Any]) 
     extraction_targets = material_targets.get("referencePbrExtraction", {})
     if not isinstance(extraction_targets, dict):
         extraction_targets = {}
-    pbr_required = (
-        extraction_targets.get("requiredWhenSourceImagePresent") is True
-        and has_non_empty(spec.get("sourceImage"))
-    )
+    pbr_required = extraction_targets.get(
+        "requiredWhenSourceImagePresent"
+    ) is True and has_non_empty(spec.get("sourceImage"))
     pbr_threshold = extraction_targets.get("targetThreshold", 0.7)
     if not has_number(pbr_threshold):
         pbr_threshold = 0.7
     resolution = material.get("textureResolution")
-    if not isinstance(resolution, int) or isinstance(resolution, bool) or resolution < minimum_resolution:
+    if (
+        not isinstance(resolution, int)
+        or isinstance(resolution, bool)
+        or resolution < minimum_resolution
+    ):
         gaps.append(f"material {material_id!r} textureResolution must be >= {minimum_resolution}")
 
     projection = material.get("textureProjection")
     if not isinstance(projection, dict) or not has_non_empty(projection.get("mode")):
-        gaps.append(f"material {material_id!r} needs textureProjection.mode and texel-density intent")
+        gaps.append(
+            f"material {material_id!r} needs textureProjection.mode and texel-density intent"
+        )
 
     bands = material.get("surfaceFrequencyBands")
-    band_ids = {
-        str(item.get("id")).lower()
-        for item in bands
-        if isinstance(item, dict) and has_non_empty(item.get("id"))
-    } if isinstance(bands, list) else set()
+    band_ids = (
+        {
+            str(item.get("id")).lower()
+            for item in bands
+            if isinstance(item, dict) and has_non_empty(item.get("id"))
+        }
+        if isinstance(bands, list)
+        else set()
+    )
     missing_bands = {"macro", "meso", "micro"} - band_ids
     if missing_bands:
         gaps.append(
@@ -346,11 +366,15 @@ def material_pass_gaps(spec: dict[str, Any]) -> list[str]:
     if not any(material_has_response(item) for item in materials):
         gaps.append("no material defines roughness variation or normal/bump/displacement response")
     if not any(material_has_locality(item) for item in materials):
-        gaps.append("no material defines local overrides, AO, dirt, wear, stains, moss, chips, or scratches")
+        gaps.append(
+            "no material defines local overrides, AO, dirt, wear, stains, moss, chips, or scratches"
+        )
     material_pipeline = spec.get("materialPipeline")
     if material_pipeline is not None:
         if not isinstance(material_pipeline, dict) or material_pipeline.get("status") != "proceed":
-            gaps.append("materialPipeline must be wired and have status=proceed before material-pass")
+            gaps.append(
+                "materialPipeline must be wired and have status=proceed before material-pass"
+            )
         else:
             regions = material_pipeline.get("regions", [])
             if not isinstance(regions, list) or not regions:
@@ -376,14 +400,21 @@ def surface_pass_gaps(spec: dict[str, Any]) -> list[str]:
     components = [item for item in spec.get("componentTree", []) if isinstance(item, dict)]
     has_surface_detail = any(has_non_empty(item.get("surfaceDetail")) for item in components)
     if not has_surface_detail:
-        return ["componentTree has no meaningful surfaceDetail for normal/bump/displacement/AO locality"]
+        return [
+            "componentTree has no meaningful surfaceDetail for normal/bump/displacement/AO locality"
+        ]
     return []
 
 
 def lighting_pass_gaps(spec: dict[str, Any]) -> list[str]:
     lighting = spec.get("lightingFromPhoto", [])
-    if not isinstance(lighting, list) or len([item for item in lighting if has_non_empty(item)]) < 3:
-        return ["lightingFromPhoto needs at least three concrete entries for key/fill/rim or environment lighting"]
+    if (
+        not isinstance(lighting, list)
+        or len([item for item in lighting if has_non_empty(item)]) < 3
+    ):
+        return [
+            "lightingFromPhoto needs at least three concrete entries for key/fill/rim or environment lighting"
+        ]
     text = " ".join(str(item).lower() for item in lighting)
     required_groups = {
         "key light": ("key", "sun", "main light"),
@@ -477,7 +508,9 @@ def ledger_disagreements(spec: dict[str, Any], completed: list[str]) -> list[str
         if pass_id in ids:
             index = ids.index(pass_id)
             blocker = ids[index - 1] if index > 0 else pass_id
-            disagreements.append(f"{pass_id}: reviewed but not credited because {blocker} is incomplete or its evidence/gates failed")
+            disagreements.append(
+                f"{pass_id}: reviewed but not credited because {blocker} is incomplete or its evidence/gates failed"
+            )
         else:
             disagreements.append(f"{pass_id}: reviewed but is not in the declared pass order")
     return disagreements
@@ -506,12 +539,24 @@ def check_pass(spec: dict[str, Any], requested_pass: str) -> tuple[bool, str, di
     if requested_pass in completed or current == "complete":
         gaps = pass_specific_gaps(spec, requested_pass)
         if gaps:
-            return False, f"pass {requested_pass!r} needs spec refinement: {'; '.join(gaps)}", pipeline
-        return True, f"pass {requested_pass!r} is already completed and can be regenerated", pipeline
+            return (
+                False,
+                f"pass {requested_pass!r} needs spec refinement: {'; '.join(gaps)}",
+                pipeline,
+            )
+        return (
+            True,
+            f"pass {requested_pass!r} is already completed and can be regenerated",
+            pipeline,
+        )
     if requested_pass == current:
         gaps = pass_specific_gaps(spec, requested_pass)
         if gaps:
-            return False, f"pass {requested_pass!r} needs spec refinement: {'; '.join(gaps)}", pipeline
+            return (
+                False,
+                f"pass {requested_pass!r} needs spec refinement: {'; '.join(gaps)}",
+                pipeline,
+            )
         if requested_pass in VISUAL_PASS_IDS and not has_passing_tier1_result(spec, requested_pass):
             return (
                 False,
@@ -561,7 +606,11 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     spec_path = args.spec.expanduser().resolve()
     spec = load_spec(spec_path)
-    emit_status(spec, next_command=f"forge/stage3_build/orchestrate_passes.py {args.command} {spec_path}", stream=sys.stderr if getattr(args, "json", False) else sys.stdout)
+    emit_status(
+        spec,
+        next_command=f"forge/stage3_build/orchestrate_passes.py {args.command} {spec_path}",
+        stream=sys.stderr if getattr(args, "json", False) else sys.stdout,
+    )
 
     if args.command == "status":
         payload = status_payload(spec)
@@ -594,7 +643,9 @@ def main(argv: list[str]) -> int:
                 print(f"- {item}", file=sys.stderr)
             return 1
         payload = status_payload(spec)
-        output = spec_path if args.in_place else (args.out.expanduser().resolve() if args.out else None)
+        output = (
+            spec_path if args.in_place else (args.out.expanduser().resolve() if args.out else None)
+        )
         if output:
             write_spec(output, spec)
         if args.json:

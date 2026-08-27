@@ -14,14 +14,14 @@ router = APIRouter(prefix="/closed-loop", tags=["closed-loop"])
 
 
 class InterveneRequest(BaseModel):
-    cpd: dict[str, Any]                          # 当前因果模型 (child_states/counts/parents)
+    cpd: dict[str, Any]  # 当前因果模型 (child_states/counts/parents)
     interventions: list[dict[str, Any]] | None = None
-    diagnosis: dict[str, Any] | None = None   # Phase 2 诊断报告 (自动转换候选)
+    diagnosis: dict[str, Any] | None = None  # Phase 2 诊断报告 (自动转换候选)
     baseline_config: str = "degraded"
     fault_state: str = "fault"
     lambda_cost: float = 1.0
     risk_aversion: float = 1.0
-    update_mode: str = "dirichlet"               # dirichlet | ema
+    update_mode: str = "dirichlet"  # dirichlet | ema
     rounds: int = 1
 
 
@@ -55,7 +55,9 @@ async def closed_loop_intervene(req: InterveneRequest) -> dict[str, Any]:
         )
     else:
         global_notifier.push(
-            "INFO", "闭环诊断: 无需干预",
-            "无正效用干预动作(不输出 least-bad), 系统保持监控", {},
+            "INFO",
+            "闭环诊断: 无需干预",
+            "无正效用干预动作(不输出 least-bad), 系统保持监控",
+            {},
         )
     return result

@@ -31,6 +31,7 @@ def base_run():
 
 # ── 基座: L1/L2/L3 分层 ──────────────────────────────────────────────
 
+
 def test_layer_mapping(base_run):
     assert base_run._OP_LAYER["read"] == "L1"
     assert base_run._OP_LAYER["render"] == "L1"
@@ -61,6 +62,7 @@ def test_unknown_op_raises(base_run):
 
 # ── 基座: 动态 help (mock 二进制) ────────────────────────────────────
 
+
 def test_help_schema_cache(base_run, monkeypatch, tmp_path):
     """help 动态 schema: 调二进制 → 缓存; 二次命中缓存。"""
     calls = {"n": 0}
@@ -70,10 +72,12 @@ def test_help_schema_cache(base_run, monkeypatch, tmp_path):
 
     def fake_run(cmd, **kw):
         calls["n"] += 1
+
         class _P:
             returncode = 0
             stdout = '{"paragraph": {"props": ["bold", "size"]}}'
             stderr = ""
+
         return _P()
 
     monkeypatch.setattr(base_run.shutil, "which", fake_which)
@@ -89,19 +93,25 @@ def test_help_schema_cache(base_run, monkeypatch, tmp_path):
 
 # ── 场景层: 继承基座 ─────────────────────────────────────────────────
 
-@pytest.mark.parametrize("scene", [
-    "officecli-pitch-deck",
-    "officecli-academic-paper",
-    "officecli-financial-model",
-    "officecli-data-dashboard",
-])
+
+@pytest.mark.parametrize(
+    "scene",
+    [
+        "officecli-pitch-deck",
+        "officecli-academic-paper",
+        "officecli-financial-model",
+        "officecli-data-dashboard",
+    ],
+)
 def test_scene_loads_and_has_rules(scene):
     mod = _load_scene(scene)
     rules = mod.scene_rules()
     assert len(rules) > 100
     assert "继承 officecli 基座" in rules
     # manifest 合法
-    manifest_path = Path(__file__).resolve().parents[1] / "templates" / "skills" / scene / "manifest.json"
+    manifest_path = (
+        Path(__file__).resolve().parents[1] / "templates" / "skills" / scene / "manifest.json"
+    )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["name"] == scene
     assert manifest["type"] == "python"

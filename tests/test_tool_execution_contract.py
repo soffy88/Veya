@@ -39,9 +39,10 @@ async def test_registry_validates_registered_schema_before_callback():
         await registry.execute("strict", {"count": 0, "mode": "unsafe", "extra": True})
 
     assert called is False
-    assert json.loads(
-        await registry.execute("strict", {"count": 2, "mode": "safe"})
-    ) == {"count": 2, "mode": "safe"}
+    assert json.loads(await registry.execute("strict", {"count": 2, "mode": "safe"})) == {
+        "count": 2,
+        "mode": "safe",
+    }
 
 
 @pytest.mark.asyncio
@@ -131,13 +132,9 @@ async def test_skill_dispatcher_validates_real_manifest_arguments(tmp_path, monk
     hub = VeyaSkillHub(skills_dir=tmp_path)
 
     with pytest.raises(ToolExecutionError, match=r"Skill 'strict_skill'.*schema validation"):
-        await hub.execute(
-            "run_skill", {"skill_name": "strict_skill", "args": {"count": "one"}}
-        )
+        await hub.execute("run_skill", {"skill_name": "strict_skill", "args": {"count": "one"}})
 
-    result = await hub.execute(
-        "run_skill", {"skill_name": "strict_skill", "args": {"count": 2}}
-    )
+    result = await hub.execute("run_skill", {"skill_name": "strict_skill", "args": {"count": 2}})
     assert json.loads(result) == {"count": 2}
 
 

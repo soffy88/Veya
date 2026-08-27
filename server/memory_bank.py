@@ -84,13 +84,12 @@ class VeyaMemoryBank:
 
             # 容量管理: 超出上限裁剪最旧
             if len(self.memory["preferences"]) > MAX_PREFERENCES:
-                dropped = self.memory["preferences"][: len(self.memory["preferences"]) - MAX_PREFERENCES]
+                dropped = self.memory["preferences"][
+                    : len(self.memory["preferences"]) - MAX_PREFERENCES
+                ]
                 self.memory["preferences"] = self.memory["preferences"][-MAX_PREFERENCES:]
                 self._save_memory()
-                return (
-                    f"✅ 永久记忆已更新: {rule} "
-                    f"(账本已达上限, 已裁剪 {len(dropped)} 条最旧记忆)"
-                )
+                return f"✅ 永久记忆已更新: {rule} (账本已达上限, 已裁剪 {len(dropped)} 条最旧记忆)"
 
             self._save_memory()
             return f"✅ 永久记忆已更新: {rule}"

@@ -167,9 +167,7 @@ class GenesisMemory:
             self.save()
 
     # ── 潜意识注入 ───────────────────────────────────────────────────
-    def build_context_prompt(
-        self, max_experiences: int = _DEFAULT_MAX_EXPERIENCES
-    ) -> str:
+    def build_context_prompt(self, max_experiences: int = _DEFAULT_MAX_EXPERIENCES) -> str:
         """每次 Agent 醒来时,将记忆压缩成 Prompt 注入它的潜意识。
 
         账本全量注入(摘要级,体积可控);经验只取最近 max_experiences 条,

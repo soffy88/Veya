@@ -5,7 +5,7 @@ from __future__ import annotations
 from server.runtime_calls import ingest, merge_into_radius, parse_traceback, query
 
 
-TB = '''\
+TB = """\
 Traceback (most recent call last):
   File "app.py", line 10, in dispatch
     handler()
@@ -13,7 +13,7 @@ Traceback (most recent call last):
     helper()
   File "util.py", line 2, in helper
     return 1
-'''
+"""
 
 
 def test_parse_python_traceback():

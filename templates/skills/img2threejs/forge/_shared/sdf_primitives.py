@@ -10,7 +10,17 @@ VALID_SDF_PRIMITIVES = {"sphere", "capsule", "box", "cone", "ellipsoid"}
 VALID_SDF_OPERATIONS = {"smooth-union", "subtract", "intersect"}
 MAX_SDF_PRIMITIVES = 64
 MAX_SDF_OPERATIONS = 128
-_PRIMITIVE_FIELDS = {"id", "type", "center", "radius", "height", "size", "dimensions", "radii", "transform"}
+_PRIMITIVE_FIELDS = {
+    "id",
+    "type",
+    "center",
+    "radius",
+    "height",
+    "size",
+    "dimensions",
+    "radii",
+    "transform",
+}
 _VECTOR_FIELDS = {"center", "size", "radii"}
 _TRANSFORM_FIELDS = {"position", "translation", "rotation", "scale"}
 _OPERATION_FIELDS = {"id", "output", "type", "left", "right", "radius"}
@@ -70,7 +80,9 @@ def _validate_primitive(primitive: Any, index: int, ids: set[str], errors: list[
         if field not in _PRIMITIVE_FIELDS:
             errors.append(f"{label}.{field} is not supported")
     for field in _VECTOR_FIELDS & set(primitive):
-        _validate_vector(primitive[field], f"{label}.{field}", errors, positive=field in {"size", "radii"})
+        _validate_vector(
+            primitive[field], f"{label}.{field}", errors, positive=field in {"size", "radii"}
+        )
     transform = primitive.get("transform")
     if transform is not None:
         if not isinstance(transform, dict):
@@ -81,7 +93,10 @@ def _validate_primitive(primitive: Any, index: int, ids: set[str], errors: list[
                     errors.append(f"{label}.transform.{field} is not supported")
             for field in _TRANSFORM_FIELDS & set(transform):
                 _validate_vector(
-                    transform[field], f"{label}.transform.{field}", errors, positive=field == "scale"
+                    transform[field],
+                    f"{label}.transform.{field}",
+                    errors,
+                    positive=field == "scale",
                 )
     if primitive_type in {"sphere", "capsule", "cone"}:
         _validate_positive(primitive.get("radius"), f"{label}.radius", errors)
@@ -148,7 +163,9 @@ def validate_sdf_descriptor(component_id: str, descriptor: Any, errors: list[str
         errors.append(f"{label}.operations must be an array")
     else:
         if len(operations) > MAX_SDF_OPERATIONS:
-            errors.append(f"{label}.operations must not contain more than {MAX_SDF_OPERATIONS} entries")
+            errors.append(
+                f"{label}.operations must not contain more than {MAX_SDF_OPERATIONS} entries"
+            )
         for index, operation in enumerate(operations):
             _validate_operation(operation, index, ids, errors)
     resolution = descriptor.get("resolution")
@@ -165,8 +182,18 @@ def validate_sdf_descriptor(component_id: str, descriptor: Any, errors: list[str
             maximum = bounds.get("max")
             _validate_vector(minimum, f"{label}.bounds.min", errors)
             _validate_vector(maximum, f"{label}.bounds.max", errors)
-            if isinstance(minimum, list) and isinstance(maximum, list) and len(minimum) == len(maximum) == 3:
+            if (
+                isinstance(minimum, list)
+                and isinstance(maximum, list)
+                and len(minimum) == len(maximum) == 3
+            ):
                 for index, (minimum_value, maximum_value) in enumerate(zip(minimum, maximum)):
-                    if _is_number(minimum_value) and _is_number(maximum_value) and minimum_value >= maximum_value:
-                        errors.append(f"{label}.bounds.min[{index}] must be less than bounds.max[{index}]")
+                    if (
+                        _is_number(minimum_value)
+                        and _is_number(maximum_value)
+                        and minimum_value >= maximum_value
+                    ):
+                        errors.append(
+                            f"{label}.bounds.min[{index}] must be less than bounds.max[{index}]"
+                        )
     _validate_finite(descriptor, label, errors)

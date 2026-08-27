@@ -32,12 +32,14 @@ from typing import Any
 class AgentSpec:
     """Specification for an external AI coding agent."""
 
-    name: str                    # e.g., "claude-code"
-    display_name: str            # e.g., "Claude Code"
-    cli_command: str             # e.g., "claude"
+    name: str  # e.g., "claude-code"
+    display_name: str  # e.g., "Claude Code"
+    cli_command: str  # e.g., "claude"
     install_command: str | None  # e.g., "npm install -g @anthropic-ai/claude-code"
     env_vars: dict[str, str] = field(default_factory=dict)
-    args_template: list[str] = field(default_factory=list)  # ["-p", "{prompt}", "--output-format", "json"]
+    args_template: list[str] = field(
+        default_factory=list
+    )  # ["-p", "{prompt}", "--output-format", "json"]
     default_model: str = ""
     supports_streaming: bool = True
     supports_tools: bool = True
@@ -136,15 +138,17 @@ def list_agents() -> list[dict[str, Any]]:
     available = discover_agents()
     result = []
     for name, spec in _AGENT_REGISTRY.items():
-        result.append({
-            "name": spec.name,
-            "display_name": spec.display_name,
-            "cli_command": spec.cli_command,
-            "install_command": spec.install_command,
-            "installed": available.get(name, False),
-            "supports_tools": spec.supports_tools,
-            "supports_multimodal": spec.supports_multimodal,
-        })
+        result.append(
+            {
+                "name": spec.name,
+                "display_name": spec.display_name,
+                "cli_command": spec.cli_command,
+                "install_command": spec.install_command,
+                "installed": available.get(name, False),
+                "supports_tools": spec.supports_tools,
+                "supports_multimodal": spec.supports_multimodal,
+            }
+        )
     return result
 
 
@@ -239,9 +243,7 @@ class AgentSpawner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=120.0
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
             if proc.returncode == 0:
                 return True, f"{spec.display_name} installed successfully"
             return False, stderr.decode()[:500]
@@ -335,9 +337,7 @@ class AgentSpawner:
                     stdout_chunks.append(text)
                 stdout = "".join(stdout_chunks)
             else:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout_sec
-                )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
                 stdout = stdout.decode()
                 stderr = stderr.decode()
         except asyncio.TimeoutError:
@@ -366,6 +366,7 @@ class AgentSpawner:
         try:
             # Try to find JSON in stdout
             import re
+
             json_match = re.search(r'\{[\s\S]*"result"[\s\S]*\}', stdout)
             if json_match:
                 output = json.loads(json_match.group(0))
@@ -410,19 +411,21 @@ class AgentSpawner:
             async def _run_one(agent_name: str, prompt: str) -> SpawnResult:
                 async with sem:
                     return await self.spawn(
-                        agent_name, prompt,
-                        workdir=workdir, timeout_sec=timeout_sec,
+                        agent_name,
+                        prompt,
+                        workdir=workdir,
+                        timeout_sec=timeout_sec,
                     )
 
-            return await asyncio.gather(
-                *[_run_one(name, prompt) for name, prompt in tasks]
-            )
+            return await asyncio.gather(*[_run_one(name, prompt) for name, prompt in tasks])
         else:
             results = []
             for name, prompt in tasks:
                 result = await self.spawn(
-                    name, prompt,
-                    workdir=workdir, timeout_sec=timeout_sec,
+                    name,
+                    prompt,
+                    workdir=workdir,
+                    timeout_sec=timeout_sec,
                 )
                 results.append(result)
             return results
@@ -440,7 +443,9 @@ class AgentSpawner:
     # ── Worktree helpers ──────────────────────────────────────────────
 
     async def _create_worktree(
-        self, agent_name: str, base_repo: Path,
+        self,
+        agent_name: str,
+        base_repo: Path,
     ) -> Path | None:
         """Create a git worktree for isolated agent execution."""
         base = base_repo.resolve()
@@ -453,7 +458,10 @@ class AgentSpawner:
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                "git", "worktree", "add", str(wt_path),
+                "git",
+                "worktree",
+                "add",
+                str(wt_path),
                 cwd=str(base),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -469,7 +477,11 @@ class AgentSpawner:
         """Remove a git worktree."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "git", "worktree", "remove", str(wt_path), "--force",
+                "git",
+                "worktree",
+                "remove",
+                str(wt_path),
+                "--force",
                 cwd=str(base_repo),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

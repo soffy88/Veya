@@ -8,6 +8,7 @@ R_T hue-rotation term, so it is the right metric for "is this the same hue zone?
 
 Verified against Sharma et al.'s published CIEDE2000 test pairs (see test_color_metrics.py).
 """
+
 from __future__ import annotations
 
 import math
@@ -42,7 +43,7 @@ def ciede2000(lab1: tuple[float, float, float], lab2: tuple[float, float, float]
     c1 = math.hypot(a1, b1)
     c2 = math.hypot(a2, b2)
     c_bar = (c1 + c2) / 2.0
-    g = 0.5 * (1.0 - math.sqrt(c_bar ** 7 / (c_bar ** 7 + 25.0 ** 7))) if c_bar > 0 else 0.0
+    g = 0.5 * (1.0 - math.sqrt(c_bar**7 / (c_bar**7 + 25.0**7))) if c_bar > 0 else 0.0
     a1p = (1.0 + g) * a1
     a2p = (1.0 + g) * a2
     c1p = math.hypot(a1p, b1)
@@ -88,17 +89,14 @@ def ciede2000(lab1: tuple[float, float, float], lab2: tuple[float, float, float]
         - 0.20 * math.cos(math.radians(4.0 * hp_bar - 63.0))
     )
     d_theta = 30.0 * math.exp(-(((hp_bar - 275.0) / 25.0) ** 2))
-    rc = 2.0 * math.sqrt(Cp_bar ** 7 / (Cp_bar ** 7 + 25.0 ** 7)) if Cp_bar > 0 else 0.0
+    rc = 2.0 * math.sqrt(Cp_bar**7 / (Cp_bar**7 + 25.0**7)) if Cp_bar > 0 else 0.0
     sl = 1.0 + (0.015 * (Lp_bar - 50.0) ** 2) / math.sqrt(20.0 + (Lp_bar - 50.0) ** 2)
     sc = 1.0 + 0.045 * Cp_bar
     sh = 1.0 + 0.015 * Cp_bar * t
     rt = -math.sin(math.radians(2.0 * d_theta)) * rc
 
     return math.sqrt(
-        (dLp / sl) ** 2
-        + (dCp / sc) ** 2
-        + (dHp / sh) ** 2
-        + rt * (dCp / sc) * (dHp / sh)
+        (dLp / sl) ** 2 + (dCp / sc) ** 2 + (dHp / sh) ** 2 + rt * (dCp / sc) * (dHp / sh)
     )
 
 

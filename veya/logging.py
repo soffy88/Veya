@@ -6,6 +6,7 @@ veya/obase/logging.py。本文件注册 sys.modules 别名, 使 import veya.logg
 私有符号全部等价, 旧导入路径零成本兼容。新代码应直接
 import veya.obase.logging。
 """
+
 import sys
 
 from veya.obase import logging as _impl

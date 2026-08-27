@@ -31,10 +31,17 @@ class _FakeHevi:
     def handle(self, payload: dict) -> dict:
         self.requests.append(payload)
         if self.status == "completed":
-            return {"task_id": payload.get("task_id", ""), "status": "completed",
-                    "video_path": self.video_path, "progress": 100}
-        return {"task_id": payload.get("task_id", ""), "status": "failed",
-                "error": "lite pipeline raised: boom"}
+            return {
+                "task_id": payload.get("task_id", ""),
+                "status": "completed",
+                "video_path": self.video_path,
+                "progress": 100,
+            }
+        return {
+            "task_id": payload.get("task_id", ""),
+            "status": "failed",
+            "error": "lite pipeline raised: boom",
+        }
 
 
 @pytest.fixture()
@@ -67,12 +74,11 @@ def test_generate_returns_local_path(fake_hevi):
     state, base = fake_hevi
     Path("/tmp/fake_video.mp4").touch()
     client = HeviGenerateClient(base_url=base)
-    spec = VideoSpec(min_duration_s=6.0, min_width=720, min_height=720,
-                     aspect_ratios=["9:16"])
+    spec = VideoSpec(min_duration_s=6.0, min_width=720, min_height=720, aspect_ratios=["9:16"])
     path = client.generate("测试提示", spec, None)
     assert Path(path).name == "fake_video.mp4"
     req = state.requests[0]
-    assert req["width"] == 720 and req["height"] == 1280      # 9:16 注入
+    assert req["width"] == 720 and req["height"] == 1280  # 9:16 注入
     assert req["cues"] and req["cues"][0]["narration"]
     assert req["topic"] == "测试提示"
     Path("/tmp/fake_video.mp4").unlink()
@@ -92,8 +98,7 @@ def test_failure_context_injects_duration_hint(fake_hevi):
     state, base = fake_hevi
     client = HeviGenerateClient(base_url=base)
     spec = VideoSpec(min_duration_s=8.0)
-    client.generate("示例", spec, {"kind": "spec_or_duration",
-                                   "preferred_action": "ADJUST_PROMPT"})
+    client.generate("示例", spec, {"kind": "spec_or_duration", "preferred_action": "ADJUST_PROMPT"})
     req = state.requests[0]
     assert req["options"]["duration_hint_s"] == 8.0
     assert req["options"]["failure_kind"] == "spec_or_duration"

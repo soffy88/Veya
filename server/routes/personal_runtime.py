@@ -519,7 +519,10 @@ async def learning_detail(
     item = await get_personal_runtime().get_learning(learning_id)
     if item is None:
         raise HTTPException(status_code=404, detail="learning candidate not found")
-    if str(item.get("scope", "")).startswith("user:") and item["scope"] != f"user:{user['user_id']}":
+    if (
+        str(item.get("scope", "")).startswith("user:")
+        and item["scope"] != f"user:{user['user_id']}"
+    ):
         raise HTTPException(status_code=404, detail="learning candidate not found")
     return item
 

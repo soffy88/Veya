@@ -279,7 +279,10 @@ def test_parse_tool_calls_ok():
             {
                 "id": "call_1",
                 "type": "function",
-                "function": {"name": "write_file", "arguments": '{"path": "a.txt", "content": "hi"}'},
+                "function": {
+                    "name": "write_file",
+                    "arguments": '{"path": "a.txt", "content": "hi"}',
+                },
             }
         ]
     )
@@ -291,18 +294,14 @@ def test_parse_tool_calls_ok():
 
 
 def test_parse_tool_calls_dict_arguments():
-    msg = _openai_msg(
-        [{"function": {"name": "echo", "arguments": {"text": "x"}}}]
-    )
+    msg = _openai_msg([{"function": {"name": "echo", "arguments": {"text": "x"}}}])
     calls = parse_tool_calls(msg)
     assert calls[0].arguments == {"text": "x"}
 
 
 def test_parse_tool_calls_bad_json_records_error_not_silent():
     """幻觉拦截: arguments 是坏 JSON 时显式 error, 绝不再静默 {}。"""
-    msg = _openai_msg(
-        [{"function": {"name": "write_file", "arguments": "{not json"}}]
-    )
+    msg = _openai_msg([{"function": {"name": "write_file", "arguments": "{not json"}}])
     calls = parse_tool_calls(msg)
     assert calls[0].error != ""
     assert "解析失败" in calls[0].error
@@ -341,7 +340,9 @@ def test_parse_tool_calls_flat_agent_form():
 
 
 def test_parse_tool_call_embed_json_block():
-    content = '请执行:\n```json\n{"name": "fetch_url", "arguments": {"url": "https://a.com"}}\n```\n谢谢'
+    content = (
+        '请执行:\n```json\n{"name": "fetch_url", "arguments": {"url": "https://a.com"}}\n```\n谢谢'
+    )
     call = parse_tool_call_embed(content)
     assert call is not None
     assert call.name == "fetch_url"
@@ -466,19 +467,26 @@ def test_schema_of_legacy_bridge():
 
 
 def test_stop_completed_on_direct_answer():
-    d: StopDecision = evaluate_stop_condition(round_count=1, max_rounds=10, tool_calls=[], last_content="答案是 42")
+    d: StopDecision = evaluate_stop_condition(
+        round_count=1, max_rounds=10, tool_calls=[], last_content="答案是 42"
+    )
     assert d.stop and d.kind == "completed"
 
 
 def test_stop_max_rounds():
-    d = evaluate_stop_condition(round_count=10, max_rounds=10, tool_calls=[{"name": "x"}], last_content="")
+    d = evaluate_stop_condition(
+        round_count=10, max_rounds=10, tool_calls=[{"name": "x"}], last_content=""
+    )
     assert d.stop and d.kind == "max_rounds"
 
 
 def test_stop_fatal_error_wins():
     d = evaluate_stop_condition(
-        round_count=0, max_rounds=10, tool_calls=[{"name": "x"}],
-        last_content="", fatal_error="LLM 调用失败",
+        round_count=0,
+        max_rounds=10,
+        tool_calls=[{"name": "x"}],
+        last_content="",
+        fatal_error="LLM 调用失败",
     )
     assert d.stop and d.kind == "fatal_error"
 
@@ -518,7 +526,10 @@ def test_default_weights_deterministic_and_isolated():
 
 
 def test_calc_weights_deterministic():
-    history = [{"success_rate": 1.0, "avg_duration_ms": 100.0}, {"success_rate": 0.5, "avg_duration_ms": 200.0}]
+    history = [
+        {"success_rate": 1.0, "avg_duration_ms": 100.0},
+        {"success_rate": 0.5, "avg_duration_ms": 200.0},
+    ]
     w1 = calc_weights(history)
     w2 = calc_weights(history)
     assert w1 == w2

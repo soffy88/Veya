@@ -31,7 +31,9 @@ from forge.stage4_review.render_bridge import (  # noqa: E402
 )
 
 
-def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, timeout_ms: int, mode: str) -> dict:
+def capture(
+    manifest_path_value: Path, capture_ids: list[str], headed: bool, timeout_ms: int, mode: str
+) -> dict:
     try:
         from playwright.sync_api import Error as PlaywrightError  # type: ignore[import-not-found]
         from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
@@ -55,7 +57,9 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
         if reference.get("kind") != "glb":
             raise ValueError("--mode reference requires a GLB reference manifest")
         if not reference.get("browserUrl"):
-            raise ValueError("GLB reference manifest needs reference.browserUrl for the browser adapter")
+            raise ValueError(
+                "GLB reference manifest needs reference.browserUrl for the browser adapter"
+            )
     selected = capture_ids or [str(item["id"]) for item in manifest.get("captures", [])]
     console_errors: list[str] = []
     page_errors: list[str] = []
@@ -71,9 +75,16 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
             )
             page = context.new_page()
             page.on("pageerror", lambda error: page_errors.append(str(error)))
-            page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+            page.on(
+                "console",
+                lambda message: (
+                    console_errors.append(message.text) if message.type == "error" else None
+                ),
+            )
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-            page.wait_for_function("() => Boolean(window.__IMG2THREEJS_READY__)", timeout=timeout_ms)
+            page.wait_for_function(
+                "() => Boolean(window.__IMG2THREEJS_READY__)", timeout=timeout_ms
+            )
 
             if fidelity_v2:
                 pass_contract = page.evaluate(
@@ -192,8 +203,14 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
                         if pass_id == "beauty":
                             pass_path = screenshot
                         else:
-                            target = capture_spec.get("reference") if mode == "reference" else capture_spec
-                            pass_path = manifest_path(manifest_path_value, str(target["passes"][pass_id]["path"]))
+                            target = (
+                                capture_spec.get("reference")
+                                if mode == "reference"
+                                else capture_spec
+                            )
+                            pass_path = manifest_path(
+                                manifest_path_value, str(target["passes"][pass_id]["path"])
+                            )
                             pass_path.parent.mkdir(parents=True, exist_ok=True)
                             pass_result = page.evaluate(
                                 """
@@ -206,7 +223,9 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
                                 {"passId": pass_id, "mode": mode},
                             )
                             if pass_result.get("ok") is False:
-                                raise RuntimeError(str(pass_result.get("reason", "diagnostic pass failed")))
+                                raise RuntimeError(
+                                    str(pass_result.get("reason", "diagnostic pass failed"))
+                                )
                             selector = str(pass_result.get("selector", "canvas"))
                             page.locator(selector).screenshot(path=str(pass_path))
                         record_capture_pass(
@@ -225,19 +244,32 @@ def capture(manifest_path_value: Path, capture_ids: list[str], headed: bool, tim
     manifest.setdefault("evidence", {})["browser"] = browser_info
     manifest["evidence"]["consoleErrors"] = console_errors + page_errors
     write_manifest(manifest_path_value, manifest)
-    return {"captured": selected, "mode": mode, "browser": browser_info, "consoleErrors": console_errors + page_errors}
+    return {
+        "captured": selected,
+        "mode": mode,
+        "browser": browser_info,
+        "consoleErrors": console_errors + page_errors,
+    }
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--capture-id", action="append", default=[], help="capture only this id; repeatable")
+    parser.add_argument(
+        "--capture-id", action="append", default=[], help="capture only this id; repeatable"
+    )
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--timeout-ms", type=int, default=30000)
     parser.add_argument("--mode", choices=("procedural", "reference"), default="procedural")
     args = parser.parse_args(argv)
     try:
-        result = capture(args.manifest.expanduser().resolve(), args.capture_id, args.headed, args.timeout_ms, args.mode)
+        result = capture(
+            args.manifest.expanduser().resolve(),
+            args.capture_id,
+            args.headed,
+            args.timeout_ms,
+            args.mode,
+        )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if not result["consoleErrors"] else 1
     except Exception as exc:

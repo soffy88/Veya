@@ -14,6 +14,7 @@ class NoProgressGuard:
         self.threshold = threshold
         self._last_signature: str | None = None
         self._same_count = 0
+
     def observe(
         self,
         *,
@@ -25,7 +26,9 @@ class NoProgressGuard:
         if new_evidence or new_artifacts or state_changed:
             self.reset()
             return False
-        digest = hashlib.sha256(json.dumps(signature, sort_keys=True, default=str).encode()).hexdigest()
+        digest = hashlib.sha256(
+            json.dumps(signature, sort_keys=True, default=str).encode()
+        ).hexdigest()
         if digest == self._last_signature:
             self._same_count += 1
         else:

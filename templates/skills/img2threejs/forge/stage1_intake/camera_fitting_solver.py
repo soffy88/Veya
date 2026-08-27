@@ -33,12 +33,18 @@ def fit_parameters(
     accepted_steps = 0
     rejected_steps = 0
     for iteration in range(1, limits.maximum_iterations + 1):
-        jacobian = _central_difference_jacobian(correspondences, camera, limits.finite_difference_steps)
+        jacobian = _central_difference_jacobian(
+            correspondences, camera, limits.finite_difference_steps
+        )
         if jacobian is None:
-            return FitState(camera, rms_error, iteration, accepted_steps, rejected_steps, damping, "stalled")
+            return FitState(
+                camera, rms_error, iteration, accepted_steps, rejected_steps, damping, "stalled"
+            )
         accepted = False
         for _ in range(limits.maximum_damping_retries):
-            hessian, gradient = _normal_equations(jacobian, residuals, damping, limits.finite_difference_steps)
+            hessian, gradient = _normal_equations(
+                jacobian, residuals, damping, limits.finite_difference_steps
+            )
             delta = _solve_linear_system(hessian, gradient)
             if delta is None:
                 damping = min(damping * 10.0, limits.maximum_damping)
@@ -63,14 +69,32 @@ def fit_parameters(
                 accepted_steps += 1
                 accepted = True
                 if rms_error <= limits.converged_rms_pixels or _scaled_step_is_small(delta):
-                    return FitState(camera, rms_error, iteration, accepted_steps, rejected_steps, damping, "converged")
+                    return FitState(
+                        camera,
+                        rms_error,
+                        iteration,
+                        accepted_steps,
+                        rejected_steps,
+                        damping,
+                        "converged",
+                    )
                 break
             damping = min(damping * 10.0, limits.maximum_damping)
             rejected_steps += 1
         if not accepted:
-            return FitState(camera, rms_error, iteration, accepted_steps, rejected_steps, damping, "stalled")
+            return FitState(
+                camera, rms_error, iteration, accepted_steps, rejected_steps, damping, "stalled"
+            )
     status = "converged" if rms_error <= limits.converged_rms_pixels else "max-iterations"
-    return FitState(camera, rms_error, limits.maximum_iterations, accepted_steps, rejected_steps, damping, status)
+    return FitState(
+        camera,
+        rms_error,
+        limits.maximum_iterations,
+        accepted_steps,
+        rejected_steps,
+        damping,
+        status,
+    )
 
 
 def _parameter_vector(camera: CameraParameters) -> ParameterVector:
@@ -85,7 +109,9 @@ def _parameter_vector(camera: CameraParameters) -> ParameterVector:
     )
 
 
-def _parameters_from_vector(vector: ParameterVector, image_width: int, image_height: int) -> CameraParameters:
+def _parameters_from_vector(
+    vector: ParameterVector, image_width: int, image_height: int
+) -> CameraParameters:
     return CameraParameters(
         image_width=image_width,
         image_height=image_height,
@@ -124,10 +150,14 @@ def _central_difference_jacobian(
     columns: list[tuple[float, ...]] = []
     for parameter_index, step in enumerate(steps):
         positive_camera = _parameters_from_vector(
-            _vector_with_delta(vector, parameter_index, step), camera.image_width, camera.image_height
+            _vector_with_delta(vector, parameter_index, step),
+            camera.image_width,
+            camera.image_height,
         )
         negative_camera = _parameters_from_vector(
-            _vector_with_delta(vector, parameter_index, -step), camera.image_width, camera.image_height
+            _vector_with_delta(vector, parameter_index, -step),
+            camera.image_width,
+            camera.image_height,
         )
         positive_residuals = residual_components(correspondences, positive_camera)
         negative_residuals = residual_components(correspondences, negative_camera)
@@ -163,7 +193,9 @@ def _normal_equations(
     return hessian, [-value for value in gradient]
 
 
-def _solve_linear_system(matrix: list[list[float]], right_hand_side: list[float]) -> ParameterVector | None:
+def _solve_linear_system(
+    matrix: list[list[float]], right_hand_side: list[float]
+) -> ParameterVector | None:
     dimension = len(right_hand_side)
     augmented = [row.copy() + [right_hand_side[index]] for index, row in enumerate(matrix)]
     largest_entry = max(abs(value) for row in matrix for value in row)
@@ -185,10 +217,18 @@ def _solve_linear_system(matrix: list[list[float]], right_hand_side: list[float]
                 augmented[row][secondary_column] -= factor * augmented[column][secondary_column]
     solution = [0.0 for _ in range(dimension)]
     for row in range(dimension - 1, -1, -1):
-        remaining = sum(augmented[row][column] * solution[column] for column in range(row + 1, dimension))
+        remaining = sum(
+            augmented[row][column] * solution[column] for column in range(row + 1, dimension)
+        )
         solution[row] = (augmented[row][dimension] - remaining) / augmented[row][row]
     return (
-        solution[0], solution[1], solution[2], solution[3], solution[4], solution[5], solution[6]
+        solution[0],
+        solution[1],
+        solution[2],
+        solution[3],
+        solution[4],
+        solution[5],
+        solution[6],
     )
 
 

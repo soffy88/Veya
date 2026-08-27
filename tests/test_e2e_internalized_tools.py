@@ -65,25 +65,48 @@ def test_tool_surface_registered(tmp_path: Path, monkeypatch) -> None:
 async def test_decision_ledger_chain_e2e(tmp_path: Path, monkeypatch) -> None:
     _patch_dbs(tmp_path, monkeypatch)
 
-    r1 = await _call("decision_record", category="project_task",
-                     scenario="端到端验证决策账本工具链", reasoning="按 AGENTS.md: 未证明能工作不算完成",
-                     outcome="completed", confidence=0.95)
+    r1 = await _call(
+        "decision_record",
+        category="project_task",
+        scenario="端到端验证决策账本工具链",
+        reasoning="按 AGENTS.md: 未证明能工作不算完成",
+        outcome="completed",
+        confidence=0.95,
+    )
     id_a = r1.split(":")[-1].strip()
     assert id_a.startswith("dl_")
 
-    r2 = await _call("decision_record", category="approve",
-                     scenario="批准内化工具上线", reasoning="实现完整且 10 用例通过",
-                     outcome="approved", confidence=0.92, parent_id=id_a)
+    r2 = await _call(
+        "decision_record",
+        category="approve",
+        scenario="批准内化工具上线",
+        reasoning="实现完整且 10 用例通过",
+        outcome="approved",
+        confidence=0.92,
+        parent_id=id_a,
+    )
     id_b = r2.split(":")[-1].strip()
 
-    r3 = await _call("decision_record", category="deploy",
-                     scenario="部署到生产容器", reasoning="线上环境待重启验证",
-                     outcome="blocked", confidence=0.55, parent_id=id_b)
+    r3 = await _call(
+        "decision_record",
+        category="deploy",
+        scenario="部署到生产容器",
+        reasoning="线上环境待重启验证",
+        outcome="blocked",
+        confidence=0.55,
+        parent_id=id_b,
+    )
     id_c = r3.split(":")[-1].strip()
 
-    r4 = await _call("decision_record", category="approve",
-                     scenario="低置信度决策(应触发策略门)", reasoning="证据不足",
-                     outcome="pending", confidence=0.3, parent_id=id_a)
+    r4 = await _call(
+        "decision_record",
+        category="approve",
+        scenario="低置信度决策(应触发策略门)",
+        reasoning="证据不足",
+        outcome="pending",
+        confidence=0.3,
+        parent_id=id_a,
+    )
     id_d = r4.split(":")[-1].strip()
 
     # trace: 因果链上溯到根 (最新在前)
@@ -127,9 +150,19 @@ async def test_context_graph_e2e(tmp_path: Path, monkeypatch) -> None:
         ("decision_ledger", "module", "决策账本"),
     ]:
         await _call("graph_store", op="upsert_node", node_id=nid, kind=kind, name=name)
-    await _call("graph_store", op="add_edge", node_id="veya", rel="borrowed_from", other_id="semantica")
-    await _call("graph_store", op="add_edge", node_id="veya", rel="borrowed_from", other_id="openmausbot")
-    await _call("graph_store", op="add_edge", node_id="semantica", rel="inspired", other_id="decision_ledger")
+    await _call(
+        "graph_store", op="add_edge", node_id="veya", rel="borrowed_from", other_id="semantica"
+    )
+    await _call(
+        "graph_store", op="add_edge", node_id="veya", rel="borrowed_from", other_id="openmausbot"
+    )
+    await _call(
+        "graph_store",
+        op="add_edge",
+        node_id="semantica",
+        rel="inspired",
+        other_id="decision_ledger",
+    )
 
     nb = eval(await _call("graph_query", op="neighbors", node_id="veya", hops=2))
     assert {"semantica", "openmausbot", "decision_ledger"} <= set(nb["nodes"])

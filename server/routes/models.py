@@ -146,21 +146,25 @@ async def models_catalog() -> dict[str, Any]:
 
     providers: list[dict[str, Any]] = []
     for pid, env in _API_KEY_ENV.items():
-        providers.append({
-            "id": pid,
-            "env": env,
-            "default_model": _DEFAULT_MODELS.get(pid, ""),
-            "configured": bool(_os.environ.get(env)),
-            "local": False,
-        })
+        providers.append(
+            {
+                "id": pid,
+                "env": env,
+                "default_model": _DEFAULT_MODELS.get(pid, ""),
+                "configured": bool(_os.environ.get(env)),
+                "local": False,
+            }
+        )
     # 本地模型 (Ollama 等, 免 Key)
-    providers.append({
-        "id": "ollama",
-        "env": "",
-        "default_model": _DEFAULT_MODELS.get("ollama", "qwen38-9b-q5"),
-        "configured": True,
-        "local": True,
-    })
+    providers.append(
+        {
+            "id": "ollama",
+            "env": "",
+            "default_model": _DEFAULT_MODELS.get("ollama", "qwen38-9b-q5"),
+            "configured": True,
+            "local": True,
+        }
+    )
     return {"providers": providers}
 
 

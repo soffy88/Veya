@@ -16,6 +16,7 @@ from typing import Any
 
 try:
     import httpx
+
     _HAS_HTTPX = True
 except ImportError:
     httpx = None  # type: ignore
@@ -109,20 +110,38 @@ async def analyze_image(
     data_uri = image_to_data_uri(image, fmt)
 
     import time
+
     start = time.time()
 
     if provider == "openai" or provider == "dashscope":
         result = await _vision_openai_compat(
-            data_uri, prompt, api_key, endpoint, resolved_model,
-            system_prompt, max_tokens, temperature, timeout,
+            data_uri,
+            prompt,
+            api_key,
+            endpoint,
+            resolved_model,
+            system_prompt,
+            max_tokens,
+            temperature,
+            timeout,
         )
     elif provider == "anthropic":
         result = await _vision_anthropic(
-            image, fmt, prompt, api_key, endpoint, resolved_model,
-            system_prompt, max_tokens, temperature, timeout,
+            image,
+            fmt,
+            prompt,
+            api_key,
+            endpoint,
+            resolved_model,
+            system_prompt,
+            max_tokens,
+            temperature,
+            timeout,
         )
     else:
-        result = VisionResult(description="", metadata={"error": f"Provider {provider} not implemented"})
+        result = VisionResult(
+            description="", metadata={"error": f"Provider {provider} not implemented"}
+        )
 
     result.processing_time_ms = (time.time() - start) * 1000
     result.model = resolved_model
@@ -173,25 +192,34 @@ async def analyze_images(
     for img in images:
         fmt = detect_image_format(img) or ImageFormat.PNG
         uri = image_to_data_uri(img, fmt)
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": uri, "detail": "auto"},
-        })
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": uri, "detail": "auto"},
+            }
+        )
 
     messages: list[dict] = [{"role": "user", "content": content}]
     if system_prompt:
         messages.insert(0, {"role": "system", "content": system_prompt})
 
     import time
+
     start = time.time()
 
     if provider in ("openai", "dashscope"):
         result = await _vision_openai_compat_multi(
-            messages, api_key, endpoint, resolved_model,
-            max_tokens, timeout,
+            messages,
+            api_key,
+            endpoint,
+            resolved_model,
+            max_tokens,
+            timeout,
         )
     else:
-        result = VisionResult(description="", metadata={"error": f"Multi-image not supported for {provider}"})
+        result = VisionResult(
+            description="", metadata={"error": f"Multi-image not supported for {provider}"}
+        )
 
     result.processing_time_ms = (time.time() - start) * 1000
     result.model = resolved_model
@@ -320,7 +348,10 @@ async def _vision_anthropic(
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": b64_data}},
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": mime_type, "data": b64_data},
+                    },
                     {"type": "text", "text": prompt},
                 ],
             }

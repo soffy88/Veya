@@ -30,8 +30,8 @@ from veya.oskill.im.pseudo import anonymize_user_id
 class AccountBinding:
     """A user's account binding for a specific platform/provider."""
 
-    platform: str          # "openai", "anthropic", "discord", "slack", "telegram", etc.
-    user_id: str           # pseudo-anonymized user ID
+    platform: str  # "openai", "anthropic", "discord", "slack", "telegram", etc.
+    user_id: str  # pseudo-anonymized user ID
     credentials: dict[str, str] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -163,8 +163,8 @@ def get_binding_store() -> BindingStore:
 
 
 def bind_account(
-    user_id: str,          # real user ID (automatically pseudo-anonymized)
-    platform: str,          # "openai", "anthropic", "discord", etc.
+    user_id: str,  # real user ID (automatically pseudo-anonymized)
+    platform: str,  # "openai", "anthropic", "discord", etc.
     credentials: dict[str, str],  # {"api_key": "sk-..."}
     *,
     store: BindingStore | None = None,

@@ -50,8 +50,13 @@ def locate_vpk(roots: list[Path] | None = None) -> Path | None:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, action="append", dest="roots",
-                        help="Steam root to search (repeatable); defaults to per-OS Steam locations")
+    parser.add_argument(
+        "--root",
+        type=Path,
+        action="append",
+        dest="roots",
+        help="Steam root to search (repeatable); defaults to per-OS Steam locations",
+    )
     parser.add_argument("--json", action="store_true", help="Emit a JSON result object")
     args = parser.parse_args(argv)
 

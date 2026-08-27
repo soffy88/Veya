@@ -13,9 +13,9 @@ router = APIRouter(prefix="/operator", tags=["operator"])
 
 
 class DispatchRequest(BaseModel):
-    problem: dict[str, Any]                     # {tasks, workers, bids, unassigned_penalty}
-    mode: str = "auto"                          # auto | one_to_one | capacity
-    payment_rule: str | None = None          # None | first_price | second_price | vcg
+    problem: dict[str, Any]  # {tasks, workers, bids, unassigned_penalty}
+    mode: str = "auto"  # auto | one_to_one | capacity
+    payment_rule: str | None = None  # None | first_price | second_price | vcg
     resource_ranking: list[str] = []
     balance_weight: float = 0.0
 

@@ -83,10 +83,11 @@ async def test_acp_backend_missing_process():
 # BackendRegistry — 多 backend 挂载
 # =========================================================================
 
+
 def test_registry_discover_and_register():
     reg = BackendRegistry()
     names = {b["name"] for b in reg.list()}
-    assert "master" in names          # builtin 恒在
+    assert "master" in names  # builtin 恒在
     # cli 按本机探测 (有则有)
     for eng in ("claude", "codex", "pi"):
         if __import__("shutil").which(eng):
@@ -133,6 +134,7 @@ def test_registry_status_aggregation():
 # API
 # =========================================================================
 
+
 def test_backends_api_list_status_register():
     client = TestClient(__import__("server.app", fromlist=["app"]).app)
 
@@ -144,26 +146,26 @@ def test_backends_api_list_status_register():
     assert r.status_code == 200
     assert r.json()["backends"][0]["available"] is True
 
-    r = client.post("/api/v1/backends/register",
-                    json={"name": "api-acp", "kind": "acp", "command": ["x-agent"]})
+    r = client.post(
+        "/api/v1/backends/register", json={"name": "api-acp", "kind": "acp", "command": ["x-agent"]}
+    )
     assert r.status_code == 200 and r.json()["status"] == "registered"
 
     # 非法 kind → 400
-    r = client.post("/api/v1/backends/register",
-                    json={"name": "bad", "kind": "nope"})
+    r = client.post("/api/v1/backends/register", json={"name": "bad", "kind": "nope"})
     assert r.status_code == 400
 
 
 def test_backends_run_unknown_404():
     client = TestClient(__import__("server.app", fromlist=["app"]).app)
-    r = client.post("/api/v1/backends/run",
-                    json={"name": "ghost", "prompt": "hi"})
+    r = client.post("/api/v1/backends/run", json={"name": "ghost", "prompt": "hi"})
     assert r.status_code == 404
 
 
 # =========================================================================
 # Issue 自动拆解
 # =========================================================================
+
 
 def test_decompose_checklist_and_headings():
     from server.routes.backends import decompose_issue
@@ -181,12 +183,15 @@ def test_decompose_checklist_and_headings():
 def test_issue_decompose_api_no_github():
     """直接 body 拆解: 创建看板 + 线性依赖链 + auto_start=False 不启动。"""
     client = TestClient(__import__("server.app", fromlist=["app"]).app)
-    r = client.post("/api/v1/automation/issue-decompose", json={
-        "body": "- [ ] 任务一\n- [ ] 任务二\n- [ ] 任务三",
-        "title": "测试 issue",
-        "board": "test-issue-board",
-        "auto_start": False,
-    })
+    r = client.post(
+        "/api/v1/automation/issue-decompose",
+        json={
+            "body": "- [ ] 任务一\n- [ ] 任务二\n- [ ] 任务三",
+            "title": "测试 issue",
+            "board": "test-issue-board",
+            "auto_start": False,
+        },
+    )
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["status"] == "decomposed"

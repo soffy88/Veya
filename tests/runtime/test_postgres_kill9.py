@@ -121,9 +121,7 @@ async def test_postgres_kill9_preserves_completed_and_recovers_dangling_child():
         survivor.join(timeout=3)
 
         rows = {row["logical_key"]: row for row in await repo.list_work_items(run_id)}
-        attempts = {
-            key: len(await repo.list_attempts(row["id"])) for key, row in rows.items()
-        }
+        attempts = {key: len(await repo.list_attempts(row["id"])) for key, row in rows.items()}
         assert attempts == {"crash": 2, "survivor": 1, "queued": 1}
         events = await repo.list_events(run_id)
         assert sum(event["event_type"] == "work_item.succeeded" for event in events) == 3

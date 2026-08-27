@@ -35,15 +35,15 @@ class ComfyUIProvider:
     generate_fn 契约: prompt + failure_context -> 本地视频路径)。
     """
 
-    base_url: str = "http://127.0.0.1:8188"          # ComfyUI 默认端口
-    workflow_template: Path | None = None          # JSON workflow 模板
-    min_vram_gb: int = 24                             # MiniMax H3 硬件门槛
+    base_url: str = "http://127.0.0.1:8188"  # ComfyUI 默认端口
+    workflow_template: Path | None = None  # JSON workflow 模板
+    min_vram_gb: int = 24  # MiniMax H3 硬件门槛
     timeout_s: float = 1800.0
 
     # 采样参数 (Spectrum 加速节点可叠加, 见 repo ComfyUI-Spectrum-MiniMax-H3)
     sampler: str = "euler"
     steps: int = 28
-    spectrum_enabled: bool = False                    # 加速路径 (轨迹 A/B 有差异)
+    spectrum_enabled: bool = False  # 加速路径 (轨迹 A/B 有差异)
     spectrum_args: dict[str, Any] = field(default_factory=dict)
 
     # ── 契约检查 (借鉴 H3 节点: 应用时显式校验, 不兼容→ContractError) ──
@@ -54,7 +54,9 @@ class ComfyUIProvider:
         try:
             out = subprocess.run(
                 ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             vram_mb = int(out.stdout.strip().splitlines()[0].strip())
         except Exception as exc:
@@ -65,8 +67,7 @@ class ComfyUIProvider:
             )
         # 端点可达性
         try:
-            with urllib.request.urlopen(f"{self.base_url}/system_stats",
-                                        timeout=5) as resp:
+            with urllib.request.urlopen(f"{self.base_url}/system_stats", timeout=5) as resp:
                 stats = json.loads(resp.read().decode())
         except Exception as exc:
             raise ProviderContractError(f"ComfyUI 端点不可达: {exc}") from exc
@@ -77,8 +78,9 @@ class ComfyUIProvider:
             )
         return None
 
-    def generate(self, prompt: str, spec: Any,
-                 failure_context: dict[str, Any] | None = None) -> Path:
+    def generate(
+        self, prompt: str, spec: Any, failure_context: dict[str, Any] | None = None
+    ) -> Path:
         """提交 ComfyUI 采样 → 下载产物 → 本地视频路径。
 
         failure_context.preferred_action == "SWITCH_PROVIDER" 时, 首次切换
@@ -88,9 +90,7 @@ class ComfyUIProvider:
         failure_context = failure_context or {}
         self.check_contract()
         if self.workflow_template is None:
-            raise ProviderContractError(
-                "workflow_template 未配置: 请提供 MiniMax H3 workflow JSON"
-            )
+            raise ProviderContractError("workflow_template 未配置: 请提供 MiniMax H3 workflow JSON")
         workflow = json.loads(self.workflow_template.read_text())
         # 注入 prompt / 画幅 (aspect → width/height) / Spectrum 加速参数
         wf = self._inject(workflow, prompt, spec, failure_context)
@@ -114,8 +114,9 @@ class ComfyUIProvider:
         return Path(video)
 
     # ── 内部 ──────────────────────────────────────────────────────────
-    def _inject(self, workflow: dict[str, Any], prompt: str, spec: Any,
-                failure_context: dict[str, Any]) -> dict[str, Any]:
+    def _inject(
+        self, workflow: dict[str, Any], prompt: str, spec: Any, failure_context: dict[str, Any]
+    ) -> dict[str, Any]:
         """把 prompt/画幅/加速参数注入 workflow 节点 (按 class_type 匹配)。"""
         width, height = _aspect_size(spec)
         for node in workflow.values():
@@ -153,9 +154,7 @@ class ComfyUIProvider:
                 continue
             status = entry.get("status", {})
             if status.get("status_str") == "error":
-                raise ProviderContractError(
-                    f"ComfyUI 采样失败: {status.get('messages', [])[-3:]}"
-                )
+                raise ProviderContractError(f"ComfyUI 采样失败: {status.get('messages', [])[-3:]}")
             if status.get("completed") is True:
                 outputs = entry.get("outputs", {})
                 for out in outputs.values():
@@ -163,18 +162,14 @@ class ComfyUIProvider:
                         if img.get("type") == "output":
                             return self._download(img["filename"])
                 # 无图像输出 → 可能只写了视频到 output 目录, 尝试 VHS 节点路径
-                raise ProviderContractError(
-                    "ComfyUI 完成但未找到视频产物 (检查 workflow 输出节点)"
-                )
+                raise ProviderContractError("ComfyUI 完成但未找到视频产物 (检查 workflow 输出节点)")
             time.sleep(5)
         raise ProviderContractError(f"ComfyUI 采样超时 ({self.timeout_s}s)")
 
     def _download(self, filename: str) -> str:
         local = Path("/tmp/comfyui_out") / filename
         local.parent.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(
-            f"{self.base_url}/view?filename={filename}&type=output", local
-        )
+        urllib.request.urlretrieve(f"{self.base_url}/view?filename={filename}&type=output", local)
         return str(local)
 
 

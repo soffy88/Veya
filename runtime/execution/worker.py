@@ -12,7 +12,9 @@ from typing import Any
 
 from .durable import ClaimEnvelope, DurableExecutionError, DurableExecutionRepository
 
-WorkerCallback = Callable[[ClaimEnvelope, asyncio.Event], Awaitable[dict[str, Any]] | dict[str, Any]]
+WorkerCallback = Callable[
+    [ClaimEnvelope, asyncio.Event], Awaitable[dict[str, Any]] | dict[str, Any]
+]
 
 
 class WorkerHost:
@@ -39,7 +41,9 @@ class WorkerHost:
         self._active_cancel_events: dict[str, asyncio.Event] = {}
 
     async def start(self) -> dict[str, Any]:
-        return await self.repository.register_worker(worker_id=self.worker_id, incarnation_id=self.incarnation_id)
+        return await self.repository.register_worker(
+            worker_id=self.worker_id, incarnation_id=self.incarnation_id
+        )
 
     async def stop(self) -> None:
         self._draining = True
@@ -60,7 +64,11 @@ class WorkerHost:
             return False
         callback = self.callbacks.get(claim.kind) or self.callbacks.get("*")
         if callback is None:
-            await self.repository.fail(claim, {"message": f"no callback for kind={claim.kind}"}, classification="permanent_failure")
+            await self.repository.fail(
+                claim,
+                {"message": f"no callback for kind={claim.kind}"},
+                classification="permanent_failure",
+            )
             return True
         await self.repository.start(claim)
         cancel_event = asyncio.Event()
@@ -74,7 +82,9 @@ class WorkerHost:
                     await asyncio.wait_for(cancel_event.wait(), timeout=self.heartbeat_interval_s)
                 except TimeoutError:
                     try:
-                        await self.repository.heartbeat(claim, {"worker_id": self.worker_id}, lease_ttl_s=self.lease_ttl_s)
+                        await self.repository.heartbeat(
+                            claim, {"worker_id": self.worker_id}, lease_ttl_s=self.lease_ttl_s
+                        )
                     except DurableExecutionError as exc:
                         if exc.code == "STALE_FENCE":
                             heartbeat_failed.set()
@@ -88,7 +98,9 @@ class WorkerHost:
                         cancel_event.set()
                         return
 
-        heartbeat_task = asyncio.create_task(heartbeat_loop(), name=f"veya-heartbeat-{claim.work_item_id}")
+        heartbeat_task = asyncio.create_task(
+            heartbeat_loop(), name=f"veya-heartbeat-{claim.work_item_id}"
+        )
         try:
             result = callback(claim, cancel_event)
             if inspect.isawaitable(result):
@@ -96,12 +108,18 @@ class WorkerHost:
             if heartbeat_failed.is_set():
                 raise DurableExecutionError("STALE_FENCE", "worker was fenced during execution")
             if heartbeat_error:
-                raise DurableExecutionError("HEARTBEAT_FAILED", str(heartbeat_error[0])) from heartbeat_error[0]
-            await self.repository.complete(claim, result if isinstance(result, dict) else {"summary": str(result)})
+                raise DurableExecutionError(
+                    "HEARTBEAT_FAILED", str(heartbeat_error[0])
+                ) from heartbeat_error[0]
+            await self.repository.complete(
+                claim, result if isinstance(result, dict) else {"summary": str(result)}
+            )
         except asyncio.CancelledError:
             cancel_event.set()
             with contextlib.suppress(DurableExecutionError):
-                await self.repository.fail(claim, {"message": "worker cancelled"}, classification="cancelled")
+                await self.repository.fail(
+                    claim, {"message": "worker cancelled"}, classification="cancelled"
+                )
             raise
         except DurableExecutionError as exc:
             if exc.code == "STALE_FENCE":
@@ -109,9 +127,15 @@ class WorkerHost:
                 # classify any possible side effect from durable evidence.
                 return True
             classification = getattr(exc, "classification", "permanent_failure")
-            await self.repository.fail(claim, {"message": str(exc), "code": exc.code}, classification=classification)
+            await self.repository.fail(
+                claim, {"message": str(exc), "code": exc.code}, classification=classification
+            )
         except Exception as exc:
-            await self.repository.fail(claim, {"message": f"{type(exc).__name__}: {exc}"}, classification="permanent_failure")
+            await self.repository.fail(
+                claim,
+                {"message": f"{type(exc).__name__}: {exc}"},
+                classification="permanent_failure",
+            )
         finally:
             cancel_event.set()
             self._active_cancel_events.pop(claim.work_item_id, None)
@@ -119,7 +143,9 @@ class WorkerHost:
             await asyncio.gather(heartbeat_task, return_exceptions=True)
         return True
 
-    async def run(self, stop_event: asyncio.Event | None = None, *, idle_sleep_s: float = 0.25) -> None:
+    async def run(
+        self, stop_event: asyncio.Event | None = None, *, idle_sleep_s: float = 0.25
+    ) -> None:
         await self.start()
         stop_event = stop_event or asyncio.Event()
         while not stop_event.is_set() and not self._draining:

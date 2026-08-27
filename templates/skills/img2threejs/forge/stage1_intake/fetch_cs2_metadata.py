@@ -49,8 +49,9 @@ def _rarity_name(record: dict) -> str:
     return str(rarity or "")
 
 
-def match_records(records: list[dict], weapon: str, skin: str, phase: str | None,
-                  paint_index: int | None = None) -> list[dict]:
+def match_records(
+    records: list[dict], weapon: str, skin: str, phase: str | None, paint_index: int | None = None
+) -> list[dict]:
     weapon_l, skin_l = weapon.lower(), skin.lower()
     phase_l = phase.lower() if phase else None
     matches = []
@@ -88,17 +89,28 @@ def to_metadata(record: dict, source: str | None = None) -> dict:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weapon", required=True, help="Weapon name, e.g. 'Karambit'")
-    parser.add_argument("--skin", required=True, help="Skin/paint kit name substring, e.g. 'Doppler'")
-    parser.add_argument("--phase", help="Disambiguating phase substring, e.g. 'Phase 2' or 'Emerald'")
-    parser.add_argument("--paint-index", type=int, dest="paint_index",
-                        help="Exact paint_index to disambiguate when names collide (e.g. CSGO-API lists "
-                             "every Doppler phase as the same name; --paint-index 419 picks Phase 2).")
+    parser.add_argument(
+        "--skin", required=True, help="Skin/paint kit name substring, e.g. 'Doppler'"
+    )
+    parser.add_argument(
+        "--phase", help="Disambiguating phase substring, e.g. 'Phase 2' or 'Emerald'"
+    )
+    parser.add_argument(
+        "--paint-index",
+        type=int,
+        dest="paint_index",
+        help="Exact paint_index to disambiguate when names collide (e.g. CSGO-API lists "
+        "every Doppler phase as the same name; --paint-index 419 picks Phase 2).",
+    )
     parser.add_argument("--index-file", type=Path, help="Local CSGO-API skins JSON")
     parser.add_argument("--index-url", help="Remote CSGO-API skins JSON URL")
     parser.add_argument("--out", type=Path, help="Write the resolved metadata JSON here")
     parser.add_argument("--force", action="store_true", help="Overwrite --out if it exists")
-    parser.add_argument("--download-image", type=Path,
-                        help="Directory to download the resolved CDN image into (optional)")
+    parser.add_argument(
+        "--download-image",
+        type=Path,
+        help="Directory to download the resolved CDN image into (optional)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -109,13 +121,19 @@ def main(argv: list[str]) -> int:
 
     matches = match_records(records, args.weapon, args.skin, args.phase, args.paint_index)
     if not matches:
-        print(f"error: no match for weapon={args.weapon!r} skin={args.skin!r} "
-              f"phase={args.phase!r}; refine the query (nothing guessed)", file=sys.stderr)
+        print(
+            f"error: no match for weapon={args.weapon!r} skin={args.skin!r} "
+            f"phase={args.phase!r}; refine the query (nothing guessed)",
+            file=sys.stderr,
+        )
         return 2
     if len(matches) > 1:
         names = "; ".join(f"{m.get('name')} (paint_index={m.get('paint_index')})" for m in matches)
-        print(f"error: ambiguous match ({len(matches)}): {names}. Add --phase or --paint-index to "
-              "disambiguate (nothing guessed).", file=sys.stderr)
+        print(
+            f"error: ambiguous match ({len(matches)}): {names}. Add --phase or --paint-index to "
+            "disambiguate (nothing guessed).",
+            file=sys.stderr,
+        )
         return 2
 
     source = str(args.index_file.expanduser().resolve()) if args.index_file else args.index_url
@@ -128,7 +146,9 @@ def main(argv: list[str]) -> int:
             urllib.request.urlretrieve(metadata["imageUrl"], target)  # noqa: S310
             metadata["imagePath"] = str(target)
         except OSError as exc:
-            print(f"warning: image download failed ({exc}); metadata still resolved", file=sys.stderr)
+            print(
+                f"warning: image download failed ({exc}); metadata still resolved", file=sys.stderr
+            )
 
     payload = json.dumps(metadata, indent=2, ensure_ascii=False) + "\n"
     if args.out:

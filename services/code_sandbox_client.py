@@ -41,8 +41,7 @@ class CodeSandboxClient:
         if backend not in ("docker", "local"):
             raise ValueError(f"backend 必须是 docker|local, 收到 {backend!r}")
 
-    def run(self, files: dict[str, str],
-            test_args: list[str] | None = None) -> TestResult:
+    def run(self, files: dict[str, str], test_args: list[str] | None = None) -> TestResult:
         payload = {
             "files": files,
             "test_args": test_args or ["-q", "--tb=short"],
@@ -88,13 +87,18 @@ class CodeSandboxClient:
     # ── docker 后端 (方案 C) ─────────────────────────────────────────
     def _run_docker(self, payload: dict) -> TestResult:
         cmd = [
-            self.docker_bin, "run", "--rm", "-i",
+            self.docker_bin,
+            "run",
+            "--rm",
+            "-i",
             f"--network={self.network}",
             f"--memory={self.memory}",
             f"--cpus={self.cpus}",
             "--read-only",
-            "--tmpfs", "/work:rw,exec,size=128m,uid=10001",
-            "--tmpfs", "/tmp:rw,size=64m,uid=10001",
+            "--tmpfs",
+            "/work:rw,exec,size=128m,uid=10001",
+            "--tmpfs",
+            "/tmp:rw,size=64m,uid=10001",
             self.image,
         ]
         try:
@@ -106,7 +110,9 @@ class CodeSandboxClient:
             )
         except subprocess.TimeoutExpired:
             return TestResult(
-                passed=False, n_failed=1, stderr="sandbox outer timeout",
+                passed=False,
+                n_failed=1,
+                stderr="sandbox outer timeout",
                 metadata={"timeout": True},
             )
 
@@ -114,13 +120,15 @@ class CodeSandboxClient:
         stderr = proc.stderr.decode(errors="replace")
         data: dict = {}
         import contextlib
+
         with contextlib.suppress(json.JSONDecodeError):
             data = json.loads(stdout or "{}")
 
         if "passed" not in data:
             # docker/infra 错误 (镜像缺失等)
             return TestResult(
-                passed=False, n_failed=1,
+                passed=False,
+                n_failed=1,
                 stderr=(stderr or stdout)[:2000] or "sandbox error",
                 metadata={"env_error": True},
             )
@@ -137,7 +145,9 @@ class CodeSandboxClient:
             )
         except subprocess.TimeoutExpired:
             return TestResult(
-                passed=False, n_failed=1, stderr="sandbox outer timeout",
+                passed=False,
+                n_failed=1,
+                stderr="sandbox outer timeout",
                 metadata={"timeout": True},
             )
         stdout = proc.stdout.decode(errors="replace")
@@ -145,15 +155,17 @@ class CodeSandboxClient:
             data = json.loads(stdout or "{}")
         except json.JSONDecodeError:
             return TestResult(
-                passed=False, n_failed=1,
+                passed=False,
+                n_failed=1,
                 stderr=f"bad sandbox json: {stdout[:500]}",
                 metadata={"env_error": True},
             )
         return TestResult.from_dict(data)
 
 
-def build_sandbox_image(context: str = "infra/code_sandbox",
-                        tag: str = "veya-code-sandbox:latest") -> None:
+def build_sandbox_image(
+    context: str = "infra/code_sandbox", tag: str = "veya-code-sandbox:latest"
+) -> None:
     subprocess.check_call(["docker", "build", "-t", tag, context])
 
 

@@ -183,7 +183,9 @@ def cylinder_source_face_count(radial_segments: int, height_segments: int) -> in
     return radial_segments * (height_segments + 1)
 
 
-def capsule_source_face_count(cap_segments: int, radial_segments: int, height_segments: int = 1) -> int:
+def capsule_source_face_count(
+    cap_segments: int, radial_segments: int, height_segments: int = 1
+) -> int:
     """Return the exact triangle count emitted by `buildWatertightCapsule` in
     generate_threejs_factory.py, which replaced THREE.CapsuleGeometry as the capsule
     primitive's construction (see that file's `geometry_for()` and the

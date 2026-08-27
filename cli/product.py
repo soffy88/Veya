@@ -29,7 +29,11 @@ _ENV_PATH = _HOME_DIR / ".env"
 
 PROVIDERS: dict[str, dict[str, str]] = {
     "openai": {"name": "OpenAI", "env": "OPENAI_API_KEY", "model": "gpt-4o-mini"},
-    "anthropic": {"name": "Anthropic", "env": "ANTHROPIC_API_KEY", "model": "claude-sonnet-4-20250514"},
+    "anthropic": {
+        "name": "Anthropic",
+        "env": "ANTHROPIC_API_KEY",
+        "model": "claude-sonnet-4-20250514",
+    },
     "dashscope": {"name": "阿里云 DashScope", "env": "DASHSCOPE_API_KEY", "model": "qwen-plus"},
     "deepseek": {"name": "DeepSeek", "env": "DEEPSEEK_API_KEY", "model": "deepseek-chat"},
     "ollama": {"name": "Ollama (本地)", "env": "", "model": None},
@@ -73,6 +77,7 @@ blacklist:
 # 本地模型探测 (Ollama)
 # ---------------------------------------------------------------------------
 
+
 def probe_ollama() -> list[str] | None:
     """探测本地 Ollama: 可达返回模型名列表, 否则 None。"""
     try:
@@ -90,6 +95,7 @@ def probe_ollama() -> list[str] | None:
 # 配置读写
 # ---------------------------------------------------------------------------
 
+
 def _load_config() -> dict[str, Any]:
     if _CONFIG_PATH.exists():
         try:
@@ -101,9 +107,7 @@ def _load_config() -> dict[str, Any]:
 
 def _save_config(config: dict[str, Any]) -> None:
     _HOME_DIR.mkdir(parents=True, exist_ok=True)
-    _CONFIG_PATH.write_text(
-        json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _write_env_file(path: Path, key: str, value: str) -> None:
@@ -121,6 +125,7 @@ def _write_env_file(path: Path, key: str, value: str) -> None:
 # ---------------------------------------------------------------------------
 # veya init
 # ---------------------------------------------------------------------------
+
 
 def _ask(prompt: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
@@ -250,6 +255,7 @@ def run_init(argv: list[str]) -> int:
 # veya start
 # ---------------------------------------------------------------------------
 
+
 def _find_free_port(start: int, *, tries: int = 20) -> int:
     """从 start 起探测第一个空闲端口 (8765 被外部服务占用时自动避让)。"""
     for port in range(start, start + tries):
@@ -305,6 +311,7 @@ def run_start(argv: list[str]) -> int:
 # veya doctor
 # ---------------------------------------------------------------------------
 
+
 def run_doctor(argv: list[str]) -> int:
     """veya doctor — 环境自检 (可脚本化, 输出检查清单)。"""
     import argparse
@@ -342,17 +349,25 @@ def run_doctor(argv: list[str]) -> int:
     provider = (cfg.get("llm") or {}).get("provider", "")
     if provider == "ollama":
         models = probe_ollama()
-        add("Ollama 本地模型", models is not None,
-            f"{OLLAMA_BASE} → {', '.join(models[:4])}" if models else "不可达")
+        add(
+            "Ollama 本地模型",
+            models is not None,
+            f"{OLLAMA_BASE} → {', '.join(models[:4])}" if models else "不可达",
+        )
     elif provider:
         meta = PROVIDERS.get(provider)
         env = meta["env"] if meta else f"{provider.upper()}_API_KEY"
-        key = (cfg.get("providers") or {}).get(provider, {}).get("api_key") if isinstance(
-            (cfg.get("providers") or {}).get(provider), dict
-        ) else ""
+        key = (
+            (cfg.get("providers") or {}).get(provider, {}).get("api_key")
+            if isinstance((cfg.get("providers") or {}).get(provider), dict)
+            else ""
+        )
         key = key or os.environ.get(env, "")
-        add(f"模型接入 ({provider})", bool(key),
-            f"{env} 已配置" if key else f"未配置 {env} — 运行 `veya init` 或 export {env}")
+        add(
+            f"模型接入 ({provider})",
+            bool(key),
+            f"{env} 已配置" if key else f"未配置 {env} — 运行 `veya init` 或 export {env}",
+        )
     else:
         add("模型接入", False, "未配置 provider — 运行 `veya init`")
 
@@ -363,7 +378,11 @@ def run_doctor(argv: list[str]) -> int:
 
     # 端口
     port_busy = _port_in_use(8765)
-    add("端口 8765", not port_busy, "空闲" if not port_busy else "被占用 (veya start 可用 --port 换端口)")
+    add(
+        "端口 8765",
+        not port_busy,
+        "空闲" if not port_busy else "被占用 (veya start 可用 --port 换端口)",
+    )
 
     # 工具链段 (oskill.env_doctor — 3O 主库; 独立收集, 不阻塞产品结论)
     toolchain_checks: list[dict[str, Any]] = []
@@ -434,7 +453,11 @@ def run_doctor(argv: list[str]) -> int:
         }
         history_ids = {str(row.get("sid")) for row in session_rows if row.get("sid")}
         legacy_count = len(history_ids - event_session_ids)
-        add("session consistency", True, f"{len(history_ids)} sessions; legacy-compatible {legacy_count}")
+        add(
+            "session consistency",
+            True,
+            f"{len(history_ids)} sessions; legacy-compatible {legacy_count}",
+        )
     except Exception as exc:
         add("session consistency", False, f"检查失败: {type(exc).__name__}: {exc}")
 
@@ -504,6 +527,7 @@ def run_doctor(argv: list[str]) -> int:
     except Exception as exc:
         add("version/migration", False, f"检查失败: {type(exc).__name__}: {exc}")
     try:
+
         def _tool_key(event: dict[str, Any]) -> str:
             payload = event.get("payload") or {}
             return str(
@@ -514,9 +538,7 @@ def run_doctor(argv: list[str]) -> int:
             )
 
         started = {
-            _tool_key(event)
-            for event in event_lines
-            if event.get("topic") == "tool.started"
+            _tool_key(event) for event in event_lines if event.get("topic") == "tool.started"
         }
         finished = {
             _tool_key(event)
@@ -536,8 +558,11 @@ def run_doctor(argv: list[str]) -> int:
     for c in checks:
         mark = "✔" if c["ok"] else "✗"
         print(f"  {mark} {c['name']}: {c['detail']}")
-    print(f"\n结论: {'一切就绪, 运行 `veya start` 开干' if ok else '有 N 项需处理, 按提示修复后重试'}"
-          .replace("N", str(sum(1 for c in checks if not c["ok"]))))
+    print(
+        f"\n结论: {'一切就绪, 运行 `veya start` 开干' if ok else '有 N 项需处理, 按提示修复后重试'}".replace(
+            "N", str(sum(1 for c in checks if not c["ok"]))
+        )
+    )
     return 0 if ok else 1
 
 
@@ -559,30 +584,58 @@ def _port_in_use(port: int) -> bool:
 
 # 可选文档工具链 (缺失不阻塞, 供 veya 生态 skill 使用)
 _OPTIONAL_TOOLCHAIN: list[dict[str, Any]] = [
-    {"name": "typst", "kind": "cmd", "check": "typst",
-     "purpose": "Typst 排版 (论文/文档编译)", "required": False,
-     "installs": {"mac": ["brew install typst"],
-                  "linux-apt": ["snap install typst"],
-                  "linux-pacman": ["pacman -S typst"],
-                  "windows": ["winget install Typst.Typst"],
-                  "all": ["cargo install --locked typst-cli"]}},
-    {"name": "xelatex", "kind": "cmd", "check": "xelatex",
-     "purpose": "LaTeX 排版 (中文论文必需)", "required": False,
-     "installs": {"mac": ["brew install --cask mactex"],
-                  "linux-apt": ["sudo apt install texlive-xetex texlive-lang-chinese"],
-                  "linux-dnf": ["sudo dnf install texlive-scheme-full"],
-                  "windows": ["winget install MiKTeX.MiKTeX"]}},
-    {"name": "drawio", "kind": "cmd", "check": "drawio",
-     "purpose": "DrawIO 图示导出 PDF", "required": False,
-     "installs": {"mac": ["brew install --cask drawio"],
-                  "linux": ["snap install drawio"],
-                  "windows": ["winget install JGraph.Draw"]}},
-    {"name": "pdftoppm", "kind": "cmd", "check": "pdftoppm",
-     "purpose": "PDF 转 PNG (验收视觉检查)", "required": False,
-     "installs": {"mac": ["brew install poppler"],
-                  "linux-apt": ["sudo apt install poppler-utils"],
-                  "linux-dnf": ["sudo dnf install poppler-utils"],
-                  "windows": ["winget install oschwartz10612.poppler"]}},
+    {
+        "name": "typst",
+        "kind": "cmd",
+        "check": "typst",
+        "purpose": "Typst 排版 (论文/文档编译)",
+        "required": False,
+        "installs": {
+            "mac": ["brew install typst"],
+            "linux-apt": ["snap install typst"],
+            "linux-pacman": ["pacman -S typst"],
+            "windows": ["winget install Typst.Typst"],
+            "all": ["cargo install --locked typst-cli"],
+        },
+    },
+    {
+        "name": "xelatex",
+        "kind": "cmd",
+        "check": "xelatex",
+        "purpose": "LaTeX 排版 (中文论文必需)",
+        "required": False,
+        "installs": {
+            "mac": ["brew install --cask mactex"],
+            "linux-apt": ["sudo apt install texlive-xetex texlive-lang-chinese"],
+            "linux-dnf": ["sudo dnf install texlive-scheme-full"],
+            "windows": ["winget install MiKTeX.MiKTeX"],
+        },
+    },
+    {
+        "name": "drawio",
+        "kind": "cmd",
+        "check": "drawio",
+        "purpose": "DrawIO 图示导出 PDF",
+        "required": False,
+        "installs": {
+            "mac": ["brew install --cask drawio"],
+            "linux": ["snap install drawio"],
+            "windows": ["winget install JGraph.Draw"],
+        },
+    },
+    {
+        "name": "pdftoppm",
+        "kind": "cmd",
+        "check": "pdftoppm",
+        "purpose": "PDF 转 PNG (验收视觉检查)",
+        "required": False,
+        "installs": {
+            "mac": ["brew install poppler"],
+            "linux-apt": ["sudo apt install poppler-utils"],
+            "linux-dnf": ["sudo dnf install poppler-utils"],
+            "windows": ["winget install oschwartz10612.poppler"],
+        },
+    },
 ]
 
 
@@ -613,10 +666,14 @@ def _add_toolchain_checks(add: Any, cfg: dict[str, Any]) -> None:
     """
     try:
         from veya.platform import oskill as _oskill_fn
+
         _oskill = _oskill_fn()  # 懒装配: sys.path 注入 + import oskill
     except Exception as exc:
-        add("工具链 (oskill)", True,
-            f"3O 主库未装配 ({exc.__class__.__name__}), 工具链检查跳过 — git clone --recursive 后可用")
+        add(
+            "工具链 (oskill)",
+            True,
+            f"3O 主库未装配 ({exc.__class__.__name__}), 工具链检查跳过 — git clone --recursive 后可用",
+        )
         return
     try:
         env_doctor = _oskill.env_doctor

@@ -87,7 +87,9 @@ class GenesisDaemon:
     # ── 常驻循环 ─────────────────────────────────────────────────────
     async def serve_forever(self) -> None:
         """轮询 inbox,直到收到停止信号。"""
-        logger.info("Genesis Daemon online. Watching %s (interval=%ss)", self.inbox_dir, self.interval)
+        logger.info(
+            "Genesis Daemon online. Watching %s (interval=%ss)", self.inbox_dir, self.interval
+        )
         while not self._stop.is_set():
             try:
                 n = await self.run_once()
@@ -155,13 +157,26 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass
 
-    parser = argparse.ArgumentParser(prog="genesis", description="Veya Genesis — 3O 护库智能体守护进程")
+    parser = argparse.ArgumentParser(
+        prog="genesis", description="Veya Genesis — 3O 护库智能体守护进程"
+    )
     parser.add_argument("--daemon", action="store_true", help="常驻模式: 轮询 inbox 任务目录")
     parser.add_argument("--one-shot", metavar="MISSION", help="单次模式: 直接执行一条 3O 架构指令")
-    parser.add_argument("--library-root", default=str(Path(__file__).resolve().parent.parent.parent / "platform" / "3O"))
-    parser.add_argument("--model", default=None, help="专属模型(默认读 GENESIS_MODEL env, 再默认 gpt-4o)")
-    parser.add_argument("--provider", default=None, help="专属 provider(默认读 GENESIS_PROVIDER env, 再默认 openai)")
-    parser.add_argument("--endpoint", default=None, help="OpenAI 兼容端点覆盖, 如 NVIDIA NIM https://integrate.api.nvidia.com/v1/chat/completions(默认读 GENESIS_ENDPOINT env)")
+    parser.add_argument(
+        "--library-root",
+        default=str(Path(__file__).resolve().parent.parent.parent / "platform" / "3O"),
+    )
+    parser.add_argument(
+        "--model", default=None, help="专属模型(默认读 GENESIS_MODEL env, 再默认 gpt-4o)"
+    )
+    parser.add_argument(
+        "--provider", default=None, help="专属 provider(默认读 GENESIS_PROVIDER env, 再默认 openai)"
+    )
+    parser.add_argument(
+        "--endpoint",
+        default=None,
+        help="OpenAI 兼容端点覆盖, 如 NVIDIA NIM https://integrate.api.nvidia.com/v1/chat/completions(默认读 GENESIS_ENDPOINT env)",
+    )
     parser.add_argument("--max-steps", type=int, default=8)
     parser.add_argument("--interval", type=float, default=5.0, help="daemon 轮询间隔(秒)")
     args = parser.parse_args(argv)

@@ -21,6 +21,7 @@ from cli.product import PROVIDERS, run_doctor, run_init
 # 子命令路由
 # ---------------------------------------------------------------------------
 
+
 def test_cli_routes_product_subcommands(monkeypatch, capsys):
     """veya init / start / doctor 被分派到 product 模块, 旧 flag 不受影响。"""
     import cli.product as product
@@ -44,6 +45,7 @@ def test_cli_routes_product_subcommands(monkeypatch, capsys):
 # veya init (非交互)
 # ---------------------------------------------------------------------------
 
+
 def test_init_noninteractive_writes_config(monkeypatch, tmp_path):
     """--yes 非交互: 生成 ~/.veya/config.json, 结构对齐 config.loader 消费路径。"""
     home = tmp_path / "home"
@@ -54,8 +56,7 @@ def test_init_noninteractive_writes_config(monkeypatch, tmp_path):
     ws = tmp_path / "work"
     ws.mkdir()
 
-    rc = run_init(["--provider", "openai", "--key", "sk-test-123",
-                   "--workspace", str(ws), "--yes"])
+    rc = run_init(["--provider", "openai", "--key", "sk-test-123", "--workspace", str(ws), "--yes"])
     assert rc == 0
 
     cfg = json.loads((home / "config.json").read_text())
@@ -105,6 +106,7 @@ def test_init_rejects_missing_workspace(monkeypatch, tmp_path, capsys):
 # veya doctor
 # ---------------------------------------------------------------------------
 
+
 def test_doctor_reports_missing_setup(monkeypatch, tmp_path, capsys):
     """无任何配置时: doctor 输出引导, 返回非零但不抛异常。"""
     monkeypatch.setattr("cli.product._HOME_DIR", tmp_path / "home")
@@ -114,7 +116,7 @@ def test_doctor_reports_missing_setup(monkeypatch, tmp_path, capsys):
     rc = run_doctor([])
     out = capsys.readouterr().out
     assert "veya doctor" in out
-    assert "veya init" in out          # 引导而非报错堆栈
+    assert "veya init" in out  # 引导而非报错堆栈
     assert rc == 1
 
     # JSON 模式可脚本化
@@ -135,11 +137,15 @@ def test_doctor_all_green(monkeypatch, tmp_path, capsys):
     ws = tmp_path / "work"
     ws.mkdir()
     home.mkdir(parents=True, exist_ok=True)
-    (home / "config.json").write_text(json.dumps({
-        "llm": {"provider": "deepseek", "model": "deepseek-chat"},
-        "providers": {"deepseek": {"api_key": "sk-x"}},
-        "workspace": str(ws),
-    }))
+    (home / "config.json").write_text(
+        json.dumps(
+            {
+                "llm": {"provider": "deepseek", "model": "deepseek-chat"},
+                "providers": {"deepseek": {"api_key": "sk-x"}},
+                "workspace": str(ws),
+            }
+        )
+    )
     rc = run_doctor(["--json"])
     data = json.loads(capsys.readouterr().out)
     assert data["ok"] is True
@@ -150,27 +156,34 @@ def test_doctor_all_green(monkeypatch, tmp_path, capsys):
 # Ollama 本地 endpoint 免 Key
 # ---------------------------------------------------------------------------
 
+
 def test_llm_local_endpoint_skips_key_check(monkeypatch):
     """VEYA_LLM_ENDPOINT 指向 localhost 时, 无 Key 不降级 stub。"""
     from veya.llm import llm_call
 
     async def _fake_provider_call(client, provider, **kw):
-        assert kw["api_key"] == ""       # 本地模型无 key 也放行
+        assert kw["api_key"] == ""  # 本地模型无 key 也放行
         assert kw["endpoint"].startswith("http://localhost")
         return {"choices": [{"message": {"content": "local-ok"}}], "usage": {}}
 
     monkeypatch.setattr("veya.llm.provider_call", _fake_provider_call)
-    monkeypatch.setattr("os.environ", {**os.environ, "VEYA_LLM_ENDPOINT": "http://localhost:11434/v1/chat/completions"})
+    monkeypatch.setattr(
+        "os.environ",
+        {**os.environ, "VEYA_LLM_ENDPOINT": "http://localhost:11434/v1/chat/completions"},
+    )
 
     import asyncio
 
-    result = asyncio.run(llm_call(
-        [{"role": "user", "content": "hi"}],
-        provider="openai", model="qwen2.5:7b",
-    ))
+    result = asyncio.run(
+        llm_call(
+            [{"role": "user", "content": "hi"}],
+            provider="openai",
+            model="qwen2.5:7b",
+        )
+    )
     content = result["choices"][0]["message"]["content"]
     assert content == "local-ok"
-    assert "shim" not in content          # 未走 stub
+    assert "shim" not in content  # 未走 stub
 
 
 def test_llm_remote_without_key_still_stubs():
@@ -179,21 +192,25 @@ def test_llm_remote_without_key_still_stubs():
 
     from veya.llm import llm_call
 
-    result = asyncio.run(llm_call(
-        [{"role": "user", "content": "hi"}],
-        provider="openai", model="gpt-4o-mini",
-    ))
+    result = asyncio.run(
+        llm_call(
+            [{"role": "user", "content": "hi"}],
+            provider="openai",
+            model="gpt-4o-mini",
+        )
+    )
     assert "shim" in result["choices"][0]["message"]["content"]
 
 
 def test_providers_catalog_complete():
     assert set(PROVIDERS) == {"openai", "anthropic", "dashscope", "deepseek", "ollama"}
-    assert PROVIDERS["ollama"]["env"] == ""     # 本地模型无 key env
+    assert PROVIDERS["ollama"]["env"] == ""  # 本地模型无 key env
 
 
 # ---------------------------------------------------------------------------
 # veya start 端口自动避让
 # ---------------------------------------------------------------------------
+
 
 def test_find_free_port_avoids_busy(monkeypatch):
     """8765 被外部服务占用时, start 自动避让到下一个空闲端口。"""
@@ -202,7 +219,7 @@ def test_find_free_port_avoids_busy(monkeypatch):
     busy = {8765, 8766, 8767}
     monkeypatch.setattr("cli.product._port_in_use", lambda port: port in busy)
     assert _find_free_port(8765) == 8768
-    assert _find_free_port(9000) == 9000   # 空闲直接使用
+    assert _find_free_port(9000) == 9000  # 空闲直接使用
     # 全部被占 → 回退起始端口 (uvicorn 会给出 bind 错误, 但逻辑不崩)
     monkeypatch.setattr("cli.product._port_in_use", lambda port: True)
     assert _find_free_port(8765) == 8765
@@ -211,6 +228,7 @@ def test_find_free_port_avoids_busy(monkeypatch):
 # ---------------------------------------------------------------------------
 # veya doctor 工具链段 (oskill.env_doctor 集成)
 # ---------------------------------------------------------------------------
+
 
 def test_doctor_toolchain_degrades_when_3o_missing(monkeypatch, tmp_path, capsys):
     """3O 主库不可装配时: 工具链段降级提示, 不判失败。"""
@@ -226,7 +244,7 @@ def test_doctor_toolchain_degrades_when_3o_missing(monkeypatch, tmp_path, capsys
     data = json.loads(capsys.readouterr().out)
     toolchain = [c for c in data["checks"] if "工具链" in c["name"]]
     assert toolchain, "工具链段应存在"
-    assert toolchain[0]["ok"] is True        # 降级不判失败
+    assert toolchain[0]["ok"] is True  # 降级不判失败
     assert "跳过" in toolchain[0]["detail"]
 
 
@@ -242,20 +260,24 @@ def test_doctor_toolchain_checks_do_not_block_product(monkeypatch, tmp_path, cap
     ws.mkdir()
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
-    (home / "config.json").write_text(json.dumps({
-        "llm": {"provider": "deepseek", "model": "deepseek-chat"},
-        "providers": {"deepseek": {"api_key": "sk-x"}},
-        "workspace": str(ws),
-    }))
+    (home / "config.json").write_text(
+        json.dumps(
+            {
+                "llm": {"provider": "deepseek", "model": "deepseek-chat"},
+                "providers": {"deepseek": {"api_key": "sk-x"}},
+                "workspace": str(ws),
+            }
+        )
+    )
 
     def fake_toolchain(add, cfg):
-        add("工具链 python3", False, "缺失")       # required 缺失
+        add("工具链 python3", False, "缺失")  # required 缺失
         add("工具链就绪", False, "必须项缺失: python3")
 
     monkeypatch.setattr("cli.product._add_toolchain_checks", fake_toolchain)
     rc = run_doctor(["--json"])
     data = json.loads(capsys.readouterr().out)
-    assert data["ok"] is True                   # 产品段全绿 → 整体绿
+    assert data["ok"] is True  # 产品段全绿 → 整体绿
     assert rc == 0
     names = [c["name"] for c in data["checks"]]
     assert "工具链 python3" in names
@@ -274,12 +296,16 @@ def test_doctor_fail_on_toolchain(monkeypatch, tmp_path, capsys):
     ws.mkdir()
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
-    (home / "config.json").write_text(json.dumps({
-        "llm": {"provider": "deepseek", "model": "deepseek-chat"},
-        "providers": {"deepseek": {"api_key": "sk-x"}},
-        "workspace": str(ws),
-        "doctor": {"fail_on_toolchain": True},
-    }))
+    (home / "config.json").write_text(
+        json.dumps(
+            {
+                "llm": {"provider": "deepseek", "model": "deepseek-chat"},
+                "providers": {"deepseek": {"api_key": "sk-x"}},
+                "workspace": str(ws),
+                "doctor": {"fail_on_toolchain": True},
+            }
+        )
+    )
 
     def fake_toolchain(add, cfg):
         add("工具链 python3", False, "缺失")

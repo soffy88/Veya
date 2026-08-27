@@ -8,9 +8,14 @@ import pytest
 @pytest.mark.asyncio
 async def test_t6_dispatch_unknown_tool(client):
     """未知 tool → permission_denied。"""
-    r = await client.post("/v1/loop/exec/dispatch", json={
-        "mode": "sandbox", "tool_name": "nonexistent", "args": {},
-    })
+    r = await client.post(
+        "/v1/loop/exec/dispatch",
+        json={
+            "mode": "sandbox",
+            "tool_name": "nonexistent",
+            "args": {},
+        },
+    )
     assert r.status_code == 200
     result = r.json()
     assert result["ok"] is False
@@ -21,9 +26,14 @@ async def test_t6_dispatch_unknown_tool(client):
 @pytest.mark.asyncio
 async def test_dispatch_known_tool_sandbox(client):
     """echo 适配器 sandbox 模式可执行。"""
-    r = await client.post("/v1/loop/exec/dispatch", json={
-        "mode": "sandbox", "tool_name": "echo", "args": {"text": "hi"},
-    })
+    r = await client.post(
+        "/v1/loop/exec/dispatch",
+        json={
+            "mode": "sandbox",
+            "tool_name": "echo",
+            "args": {"text": "hi"},
+        },
+    )
     assert r.status_code == 200
     result = r.json()
     assert result["ok"] is True
@@ -38,10 +48,14 @@ async def test_dispatch_known_tool_sandbox(client):
 @pytest.mark.asyncio
 async def test_dispatch_forbidden_python_m(client):
     """sandbox 禁止 python -m 任意路径。"""
-    r = await client.post("/v1/loop/exec/dispatch", json={
-        "mode": "sandbox", "tool_name": "echo",
-        "args": {"text": "x", "cmd": "python -m pip install requests"},
-    })
+    r = await client.post(
+        "/v1/loop/exec/dispatch",
+        json={
+            "mode": "sandbox",
+            "tool_name": "echo",
+            "args": {"text": "x", "cmd": "python -m pip install requests"},
+        },
+    )
     assert r.json()["permission"] == "permission_denied"
     assert "python -m" in r.json()["error"]
 
@@ -71,8 +85,12 @@ def test_exec_writes_audit_and_events(exec_service, audit, store):
     """T7 扩展: execute 节点审计 + ActionFailed 事件 + trace_id 关联。"""
     trace = "trc_exec_1"
     r = exec_service.dispatch(
-        mode="sandbox", tool_name="nonexistent", args={}, trace_id=trace,
-        audit=audit, store=store,
+        mode="sandbox",
+        tool_name="nonexistent",
+        args={},
+        trace_id=trace,
+        audit=audit,
+        store=store,
     )
     assert r["permission"] == "permission_denied"
     entries = audit.by_trace(trace)

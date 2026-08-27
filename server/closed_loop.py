@@ -22,8 +22,11 @@ _oskill = _load_oskill()
 class VeyaClosedLoop:
     """闭环干预: 诊断 → 效用选择 → 执行/模拟 → 观测 → 在线更新因果模型。"""
 
-    def __init__(self, output_dir: str | Path = "~/.veya/closed_loop",
-                 audit_dir: str | Path = "~/.veya/audit"):
+    def __init__(
+        self,
+        output_dir: str | Path = "~/.veya/closed_loop",
+        audit_dir: str | Path = "~/.veya/audit",
+    ):
         self.output_dir = Path(output_dir).expanduser()
         self.audit_dir = Path(audit_dir).expanduser()
         self.audit_dir.mkdir(parents=True, exist_ok=True)
@@ -57,8 +60,7 @@ class VeyaClosedLoop:
              cpd_path, ...} — cpd_after 应被调用方持久化, 作为下一次的 cpd 输入。
         """
         cpd_obj = _oskill.CategoricalCPD.from_dict(cpd)
-        inp = _omodul.ClosedLoopInput(cpd_obj, diagnosis=diagnosis,
-                                      interventions=interventions)
+        inp = _omodul.ClosedLoopInput(cpd_obj, diagnosis=diagnosis, interventions=interventions)
         cfg = _omodul.ClosedLoopConfig(
             lambda_cost=lambda_cost,
             risk_aversion=risk_aversion,

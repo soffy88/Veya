@@ -20,9 +20,17 @@ def _pipeline(spec: dict[str, Any] | None) -> tuple[str, int, str, str]:
     return current, count, reason, next_command
 
 
-def emit_status(spec: dict[str, Any] | None = None, *, next_command: str | None = None, stream: TextIO = sys.stdout) -> None:
+def emit_status(
+    spec: dict[str, Any] | None = None,
+    *,
+    next_command: str | None = None,
+    stream: TextIO = sys.stdout,
+) -> None:
     current, count, reason, default_next = _pipeline(spec)
-    print(f"STATUS pass={current} completed={count} blocked={reason} next={next_command or default_next}", file=stream)
+    print(
+        f"STATUS pass={current} completed={count} blocked={reason} next={next_command or default_next}",
+        file=stream,
+    )
 
 
 def load_optional_spec(path: str | Path | None) -> dict[str, Any] | None:

@@ -66,7 +66,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     if not m:
         return {}, text
     fields: dict[str, str] = {}
-    body = text[m.end():]
+    body = text[m.end() :]
     current_key: str | None = None
     for line in m.group(1).splitlines():
         kv = re.match(r"^([A-Za-z_]+):\s*(.*)$", line)
@@ -109,8 +109,12 @@ def convert_md(path: Path, prefix: str) -> tuple[str, Path, str, str, str] | Non
 def main() -> int:
     ap = argparse.ArgumentParser(description="Convert agency-agents md → veya skills")
     ap.add_argument("--source", required=True, help="agency-agents 仓库根目录")
-    ap.add_argument("--division", nargs="*", default=[], help="部门目录名 (如 engineering design marketing)")
-    ap.add_argument("--pattern", default="", help="文件名 glob 过滤 (逗号分隔, 如 *feishu*,*xiaohongshu*)")
+    ap.add_argument(
+        "--division", nargs="*", default=[], help="部门目录名 (如 engineering design marketing)"
+    )
+    ap.add_argument(
+        "--pattern", default="", help="文件名 glob 过滤 (逗号分隔, 如 *feishu*,*xiaohongshu*)"
+    )
     ap.add_argument("--limit", type=int, default=0, help="最多转换数 (0=不限)")
     ap.add_argument("--out", default=str(Path.home() / ".veya" / "skills"), help="输出技能库目录")
     ap.add_argument("--prefix", default="agency_", help="技能名前缀 (避免与 ecc_ 冲突)")
@@ -165,7 +169,9 @@ def main() -> int:
         (out_dir / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        run_py = _RUN_PY_TEMPLATE.format(slug=skill_name, name=skill_name, system_prompt=system_prompt)
+        run_py = _RUN_PY_TEMPLATE.format(
+            slug=skill_name, name=skill_name, system_prompt=system_prompt
+        )
         (out_dir / "run.py").write_text(run_py, encoding="utf-8")
         print(f"  [ok] {skill_name} ({len(system_prompt)}B prompt) ← {f.name}")
         made += 1

@@ -44,19 +44,29 @@ def _tool_msg(name: str, args: dict) -> dict:
         "role": "assistant",
         "content": "using tool",
         "tool_calls": [
-            {"id": f"call_{name}", "type": "function",
-             "function": {"name": name, "arguments": args}}
+            {
+                "id": f"call_{name}",
+                "type": "function",
+                "function": {"name": name, "arguments": args},
+            }
         ],
     }
 
 
-def _engine(*, bus: Any = None, barrier: Any = None, llm: Any = None, tree: Any = None) -> DaemonEngine:
+def _engine(
+    *, bus: Any = None, barrier: Any = None, llm: Any = None, tree: Any = None
+) -> DaemonEngine:
     return DaemonEngine(
-        bus=bus, barrier=barrier, llm=llm, tree=tree or SessionTreeMgr(kv=SqliteKvStore()),
+        bus=bus,
+        barrier=barrier,
+        llm=llm,
+        tree=tree or SessionTreeMgr(kv=SqliteKvStore()),
     )
 
 
-async def _wait_status(engine: DaemonEngine, task_id: str, *statuses: TaskStatus, timeout: float = 5.0) -> dict:
+async def _wait_status(
+    engine: DaemonEngine, task_id: str, *statuses: TaskStatus, timeout: float = 5.0
+) -> dict:
     async with asyncio.timeout(timeout):
         while True:
             st = await engine.status(task_id)
@@ -72,14 +82,20 @@ async def _wait_status(engine: DaemonEngine, task_id: str, *statuses: TaskStatus
 
 @pytest.mark.asyncio
 async def test_engine_runs_task_to_completion():
-    llm = FakeLlm([
-        _tool_call(_tool_msg("add", {"a": 2, "b": 3})),
-        {"role": "assistant", "content": "答案是 5"},
-    ])
+    llm = FakeLlm(
+        [
+            _tool_call(_tool_msg("add", {"a": 2, "b": 3})),
+            {"role": "assistant", "content": "答案是 5"},
+        ]
+    )
     engine = _engine(llm=llm)
     engine.register_tool(
-        "add", lambda a, b: a + b,
-        schema={"type": "object", "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}}},
+        "add",
+        lambda a, b: a + b,
+        schema={
+            "type": "object",
+            "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+        },
     )
     state = await engine.create_task("2+3?")
     st = await _wait_status(engine, state.task_id, TaskStatus.COMPLETED)
@@ -96,12 +112,18 @@ def _tool_call(msg: dict) -> dict:
 @pytest.mark.asyncio
 async def test_engine_pause_resume_hitl():
     """gate 检查点: paused 后任务阻塞, resume 后继续完成。"""
-    llm = FakeLlm([
-        _tool_call(_tool_msg("echo", {"text": "x"})),
-        {"role": "assistant", "content": "任务完成啦"},
-    ])
+    llm = FakeLlm(
+        [
+            _tool_call(_tool_msg("echo", {"text": "x"})),
+            {"role": "assistant", "content": "任务完成啦"},
+        ]
+    )
     engine = _engine(llm=llm)
-    engine.register_tool("echo", lambda text: text, schema={"type": "object", "properties": {"text": {"type": "string"}}})
+    engine.register_tool(
+        "echo",
+        lambda text: text,
+        schema={"type": "object", "properties": {"text": {"type": "string"}}},
+    )
     state = await engine.create_task("任务")
     # 立即挂起（首轮 gate 前）
     r = await engine.pause(state.task_id)
@@ -142,10 +164,12 @@ async def test_engine_submit_human_input():
 async def test_engine_bus_integration():
     """oprim.daemon 原子经 DaemonBus 直达引擎（阶段 3 原子接通真实链路）。"""
     bus = InProcessDaemonBus()
-    llm = FakeLlm([
-        _tool_call(_tool_msg("ping", {})),
-        {"role": "assistant", "content": "pong"},
-    ])
+    llm = FakeLlm(
+        [
+            _tool_call(_tool_msg("ping", {})),
+            {"role": "assistant", "content": "pong"},
+        ]
+    )
     engine = _engine(bus=bus, llm=llm)
     engine.register_tool("ping", lambda: "pong", schema={"type": "object"})
     await engine.start()
@@ -194,7 +218,9 @@ async def test_engine_errors_and_status():
         await engine.status("no-such")
     state = await engine.create_task("x")
     with pytest.raises(RuntimeError):  # 已完成不能再 pause
-        await engine.pause(state.task_id) if (await _wait_status(engine, state.task_id, TaskStatus.COMPLETED)) else None
+        await engine.pause(state.task_id) if (
+            await _wait_status(engine, state.task_id, TaskStatus.COMPLETED)
+        ) else None
     await engine.shutdown()
 
 
@@ -214,7 +240,9 @@ async def test_agent_loop_gate_blocks_and_releases():
         await gate_ev.wait()
 
     llm = FakeLlm([{"role": "assistant", "content": "检查点放行完成"}])
-    loop = AgentLoop(llm=llm, pipeline=ToolPipeline(), tree=SessionTreeMgr(kv=SqliteKvStore()), gate=gate)
+    loop = AgentLoop(
+        llm=llm, pipeline=ToolPipeline(), tree=SessionTreeMgr(kv=SqliteKvStore()), gate=gate
+    )
     task = asyncio.create_task(loop.run("hi"))
     await asyncio.sleep(0.05)
     assert released == ["hit"]  # 已停在检查点
@@ -237,9 +265,14 @@ async def gateway_client():
     from server.app import app
     from veya.oservi.gateway import gateway_engine
 
-    engine = _engine(llm=FakeLlm([
-        {"role": "assistant", "content": "网关回答啦"},
-    ], delay=0.05))
+    engine = _engine(
+        llm=FakeLlm(
+            [
+                {"role": "assistant", "content": "网关回答啦"},
+            ],
+            delay=0.05,
+        )
+    )
     gateway_engine(engine)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:

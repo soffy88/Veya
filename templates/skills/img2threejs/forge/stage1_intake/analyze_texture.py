@@ -12,6 +12,7 @@ Recipe scalars grounded in grimoire/build/threejs_texture_reference.md (notebook
 CLI:  analyze_texture.py <crop.png> [--json]
 API:  analyze(path) -> dict
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,16 +27,86 @@ from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
 
 # MeshPhysicalMaterial scalar presets per finish (see grimoire threejs_texture_reference.md)
 RECIPES: dict[str, dict[str, Any]] = {
-    "gem-metal":      {"metalness": 0.75, "roughness": 0.14, "clearcoat": 0.60, "clearcoatRoughness": 0.06, "transmission": 0.0, "ior": 1.5,  "envMapIntensity": 1.3, "anisotropy": 0.0, "procedural": "gradient-smoke"},
+    "gem-metal": {
+        "metalness": 0.75,
+        "roughness": 0.14,
+        "clearcoat": 0.60,
+        "clearcoatRoughness": 0.06,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "envMapIntensity": 1.3,
+        "anisotropy": 0.0,
+        "procedural": "gradient-smoke",
+    },
     # candy-coat: anodized / PVD / pigment-dominant doppler coat. Dielectric-led (low metalness) +
     # clearcoat + trimmed envMapIntensity so the environment reflection can't steal the hue — the
     # exact counter-recipe that fixed the M9 Doppler blue-wash (grimoire/feedback/shading_realism.md).
-    "candy-coat":     {"metalness": 0.35, "roughness": 0.18, "clearcoat": 0.60, "clearcoatRoughness": 0.15, "transmission": 0.0, "ior": 1.5,  "envMapIntensity": 0.7, "anisotropy": 0.0, "procedural": "gradient-smoke"},
-    "gemstone":       {"metalness": 0.0,  "roughness": 0.05, "clearcoat": 1.00, "clearcoatRoughness": 0.0,  "transmission": 0.9, "ior": 1.54, "envMapIntensity": 1.0, "anisotropy": 0.0, "procedural": "gradient-smoke"},
-    "painted-metal":  {"metalness": 0.0,  "roughness": 0.5,  "clearcoat": 1.00, "clearcoatRoughness": 0.05, "transmission": 0.0, "ior": 1.5,  "envMapIntensity": 1.0, "anisotropy": 0.0, "procedural": "flat-clearcoat"},
-    "worn-composite": {"metalness": 0.0,  "roughness": 0.9,  "clearcoat": 0.0,  "clearcoatRoughness": 0.0,  "transmission": 0.0, "ior": 1.5,  "envMapIntensity": 0.5, "anisotropy": 0.0, "procedural": "mottle"},
-    "brushed-steel":  {"metalness": 1.0,  "roughness": 0.35, "clearcoat": 0.0,  "clearcoatRoughness": 0.0,  "transmission": 0.0, "ior": 1.5,  "envMapIntensity": 1.0, "anisotropy": 1.0, "procedural": "brushed"},
-    "plastic":        {"metalness": 0.05, "roughness": 0.6,  "clearcoat": 0.2,  "clearcoatRoughness": 0.3,  "transmission": 0.0, "ior": 1.5,  "envMapIntensity": 0.7, "anisotropy": 0.0, "procedural": "flat-clearcoat"},
+    "candy-coat": {
+        "metalness": 0.35,
+        "roughness": 0.18,
+        "clearcoat": 0.60,
+        "clearcoatRoughness": 0.15,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "envMapIntensity": 0.7,
+        "anisotropy": 0.0,
+        "procedural": "gradient-smoke",
+    },
+    "gemstone": {
+        "metalness": 0.0,
+        "roughness": 0.05,
+        "clearcoat": 1.00,
+        "clearcoatRoughness": 0.0,
+        "transmission": 0.9,
+        "ior": 1.54,
+        "envMapIntensity": 1.0,
+        "anisotropy": 0.0,
+        "procedural": "gradient-smoke",
+    },
+    "painted-metal": {
+        "metalness": 0.0,
+        "roughness": 0.5,
+        "clearcoat": 1.00,
+        "clearcoatRoughness": 0.05,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "envMapIntensity": 1.0,
+        "anisotropy": 0.0,
+        "procedural": "flat-clearcoat",
+    },
+    "worn-composite": {
+        "metalness": 0.0,
+        "roughness": 0.9,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "envMapIntensity": 0.5,
+        "anisotropy": 0.0,
+        "procedural": "mottle",
+    },
+    "brushed-steel": {
+        "metalness": 1.0,
+        "roughness": 0.35,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "envMapIntensity": 1.0,
+        "anisotropy": 1.0,
+        "procedural": "brushed",
+    },
+    "plastic": {
+        "metalness": 0.05,
+        "roughness": 0.6,
+        "clearcoat": 0.2,
+        "clearcoatRoughness": 0.3,
+        "transmission": 0.0,
+        "ior": 1.5,
+        "envMapIntensity": 0.7,
+        "anisotropy": 0.0,
+        "procedural": "flat-clearcoat",
+    },
 }
 
 N = 64  # downsample grid for stats
@@ -48,11 +119,14 @@ def _sample(pixels, w, h, mask):
         r = y * w
         for x in range(w):
             if mask[r + x]:
-                minx = min(minx, x); maxx = max(maxx, x)
-                miny = min(miny, y); maxy = max(maxy, y)
+                minx = min(minx, x)
+                maxx = max(maxx, x)
+                miny = min(miny, y)
+                maxy = max(maxy, y)
     if maxx < 0:
         minx, miny, maxx, maxy = 0, 0, w - 1, h - 1
-    bw = max(1, maxx - minx + 1); bh = max(1, maxy - miny + 1)
+    bw = max(1, maxx - minx + 1)
+    bh = max(1, maxy - miny + 1)
     grid = []
     for j in range(N):
         sy = min(h - 1, miny + j * bh // N)
@@ -82,6 +156,7 @@ def analyze(path: str | Path) -> dict[str, Any]:
     # circular hue spread (robust to wraparound + outliers): 1 - mean resultant length,
     # saturation-weighted. ~0 for a single paint hue, larger for a blue→purple gem shift.
     import math as _m
+
     sc = ss = wsum = 0.0
     for _h, s, _v in hsv:
         if s > 0.2:
@@ -91,7 +166,7 @@ def analyze(path: str | Path) -> dict[str, Any]:
     hue_spread = (1.0 - _m.hypot(sc, ss) / wsum) if wsum > 2.0 else 0.0
 
     # luminance gradient along rows vs cols (a strong axis gradient = doppler-like finish)
-    row_means = [sum(lums[j * N:(j + 1) * N]) / N for j in range(N)]
+    row_means = [sum(lums[j * N : (j + 1) * N]) / N for j in range(N)]
     col_means = [sum(lums[i + j * N] for j in range(N)) / N for i in range(N)]
     horiz_grad = (max(col_means) - min(col_means)) / 255.0
     vert_grad = (max(row_means) - min(row_means)) / 255.0
@@ -109,8 +184,12 @@ def analyze(path: str | Path) -> dict[str, Any]:
     mottle = (diffs / cnt) / 255.0 if cnt else 0.0
 
     # directional streaks: horizontal high-freq >> vertical high-freq ⇒ brushed metal
-    hf_h = sum(abs(lums[j * N + i] - lums[j * N + i - 1]) for j in range(N) for i in range(1, N)) / (N * (N - 1))
-    hf_v = sum(abs(lums[j * N + i] - lums[(j - 1) * N + i]) for j in range(1, N) for i in range(N)) / (N * (N - 1))
+    hf_h = sum(
+        abs(lums[j * N + i] - lums[j * N + i - 1]) for j in range(N) for i in range(1, N)
+    ) / (N * (N - 1))
+    hf_v = sum(
+        abs(lums[j * N + i] - lums[(j - 1) * N + i]) for j in range(1, N) for i in range(N)
+    ) / (N * (N - 1))
     streak_ratio = hf_h / (hf_v + 1e-6)
     anisotropy = max(streak_ratio, 1.0 / (streak_ratio + 1e-6))  # directional either axis
 
@@ -119,13 +198,17 @@ def analyze(path: str | Path) -> dict[str, Any]:
 
     # ---- classify ----
     if mean_sat < 0.18:  # near-neutral / grey → metal or worn
-        if anisotropy > 1.9 and (mean_lum > 95 or spec_frac > 0.03):  # bright directional = brushed metal
+        if anisotropy > 1.9 and (
+            mean_lum > 95 or spec_frac > 0.03
+        ):  # bright directional = brushed metal
             finish = "brushed-steel"
-        elif spec_frac > 0.05 and mean_lum > 140:   # bright smooth specular = polished steel
+        elif spec_frac > 0.05 and mean_lum > 140:  # bright smooth specular = polished steel
             finish = "brushed-steel"
-        elif mottle > 0.02 or mean_lum < 120:       # dark / textured neutral = worn composite/rubber grip
+        elif (
+            mottle > 0.02 or mean_lum < 120
+        ):  # dark / textured neutral = worn composite/rubber grip
             finish = "worn-composite"
-        else:                                        # mid-bright smooth neutral = plastic
+        else:  # mid-bright smooth neutral = plastic
             finish = "plastic"
     else:  # chromatic
         # gem/candy/doppler family = a chromatic surface with a strong gradient AND smoky internal
@@ -152,7 +235,7 @@ def analyze(path: str | Path) -> dict[str, Any]:
         if gradient_axis == "horizontal":
             col = [g[j * N + idx] for j in range(N)]
         else:
-            col = g[idx * N:(idx + 1) * N]
+            col = g[idx * N : (idx + 1) * N]
         r = sum(c[0] for c in col) // len(col)
         gg = sum(c[1] for c in col) // len(col)
         b = sum(c[2] for c in col) // len(col)
@@ -168,11 +251,13 @@ def analyze(path: str | Path) -> dict[str, Any]:
         b_ = int(hexs[5:7], 16)
         hh, ss, _vv = colorsys.rgb_to_hsv(r_ / 255, g_ / 255, b_ / 255)
         if b_ > r_ and ss > 0.15 and 0.54 <= hh <= 0.83:  # violet/blue hue band on the HSV circle
-            palette_risk.append({
-                "stop": hexs,
-                "hueRisk": "blue-collapse",
-                "suggestedRgb": [min(255, b_), max(g_, int(b_ * 0.25)), r_],
-            })
+            palette_risk.append(
+                {
+                    "stop": hexs,
+                    "hueRisk": "blue-collapse",
+                    "suggestedRgb": [min(255, b_), max(g_, int(b_ * 0.25)), r_],
+                }
+            )
 
     recipe = dict(RECIPES[finish])
     return {
@@ -237,7 +322,9 @@ def main(argv=None) -> int:
         apply_to_material(mats[0], result)
         if args.in_place:
             args.spec.write_text(json.dumps(spec, indent=2), encoding="utf-8")
-            print(f"applied {result['finishClass']} recipe to material {args.material_id!r} in {args.spec.name}")
+            print(
+                f"applied {result['finishClass']} recipe to material {args.material_id!r} in {args.spec.name}"
+            )
         else:
             print(json.dumps(mats[0], indent=2))
         return 0

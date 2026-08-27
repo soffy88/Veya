@@ -66,11 +66,15 @@ def feature_gate_failures(
         )
 
     reviews = entry.get("featureReviews", [])
-    review_by_id = {
-        review.get("id"): review
-        for review in reviews
-        if isinstance(review, dict) and isinstance(review.get("id"), str)
-    } if isinstance(reviews, list) else {}
+    review_by_id = (
+        {
+            review.get("id"): review
+            for review in reviews
+            if isinstance(review, dict) and isinstance(review.get("id"), str)
+        }
+        if isinstance(reviews, list)
+        else {}
+    )
 
     default_threshold = policy.get("criticalDefaultThreshold", 0.8)
     for target in critical:
@@ -89,9 +93,7 @@ def feature_gate_failures(
         if not is_number(score):
             failures.append(f"critical feature {target_id!r} has no numeric score")
         elif not is_number(minimum) or float(score) < float(minimum):
-            failures.append(
-                f"critical feature {target_id!r} score {score} is below {minimum}"
-            )
+            failures.append(f"critical feature {target_id!r} score {score} is below {minimum}")
     important_ids = {
         target.get("id")
         for target in targets

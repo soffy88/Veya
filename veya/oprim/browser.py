@@ -51,9 +51,19 @@ class BrowserAction:
     """A single browser action to execute."""
 
     action: Literal[
-        "navigate", "click", "type", "press", "screenshot",
-        "extract_text", "extract_html", "scroll", "wait",
-        "select", "hover", "focus", "evaluate",
+        "navigate",
+        "click",
+        "type",
+        "press",
+        "screenshot",
+        "extract_text",
+        "extract_html",
+        "scroll",
+        "wait",
+        "select",
+        "hover",
+        "focus",
+        "evaluate",
     ]
     selector: str | None = None
     value: str | None = None
@@ -385,12 +395,18 @@ def extract_interactive_elements(html: str) -> list[BrowserElement]:
         re.IGNORECASE | re.DOTALL,
     ):
         text = (match.group(1) or match.group(2) or "").strip()
-        tag = "button" if match.group(0).startswith("<button") else ("input" if "input" in match.group(0) else "a")
+        tag = (
+            "button"
+            if match.group(0).startswith("<button")
+            else ("input" if "input" in match.group(0) else "a")
+        )
         if text:
-            elements.append(BrowserElement(
-                selector=f"text={text[:50]}",
-                tag_name=tag,
-                text=text[:100],
-            ))
+            elements.append(
+                BrowserElement(
+                    selector=f"text={text[:50]}",
+                    tag_name=tag,
+                    text=text[:100],
+                )
+            )
 
     return elements[:50]  # Cap at 50 elements

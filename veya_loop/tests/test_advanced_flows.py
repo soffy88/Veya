@@ -30,6 +30,7 @@ rng = np.random.default_rng(42)
 # 一、条件仿射耦合机制
 # =========================================================================
 
+
 def test_coupling_roundtrip_and_logprob():
     from veya_loop import ConditionalCouplingMechanism
 
@@ -39,7 +40,7 @@ def test_coupling_roundtrip_and_logprob():
 
     x, logdet = mech.forward(pa, u)
     u_back = mech.inverse(pa, x)
-    assert np.allclose(u_back, u, atol=1e-10)          # 反演回环
+    assert np.allclose(u_back, u, atol=1e-10)  # 反演回环
     lp = mech.log_prob(pa, x)
     assert np.isfinite(lp)
     # log p = log N(u) + logdet
@@ -55,7 +56,7 @@ def test_coupling_stackable_layers():
     pa = np.array([0.2])
     u = rng.standard_normal(4)
     x, _ = mech2.forward(pa, u)
-    assert np.allclose(mech2.inverse(pa, x), u, atol=1e-9)   # 叠层可逆
+    assert np.allclose(mech2.inverse(pa, x), u, atol=1e-9)  # 叠层可逆
     assert np.isfinite(mech2.log_prob(pa, x))
     # 采样有限
     s = mech2.sample(pa, rng=rng)
@@ -81,13 +82,13 @@ def test_coupling_fit_gradient_vs_finite_difference():
     def nll(**kw):
         w = {nm: kw.get(nm, getattr(layer, nm)) for nm in names}
         # 手写反演 (与机制一致)
-        xa, xb = x[:d // 2], x[d // 2:]
+        xa, xb = x[: d // 2], x[d // 2 :]
         sa_ta = np.tanh(pa @ w["W1"] + w["b1"]) @ w["W2a"] + w["b2a"]
-        sa, ta = sa_ta[:d // 2], sa_ta[d // 2:]
+        sa, ta = sa_ta[: d // 2], sa_ta[d // 2 :]
         ua = (xa - ta) * np.exp(-sa)
         hb = np.tanh(np.concatenate([xa, pa]) @ w["W1b"] + w["b1b"])
         sb_tb = hb @ w["W2b"] + w["b2b"]
-        sb, tb = sb_tb[:d - d // 2], sb_tb[d - d // 2:]
+        sb, tb = sb_tb[: d - d // 2], sb_tb[d - d // 2 :]
         ub = (xb - tb) * np.exp(-sb)
         return 0.5 * float(ua @ ua + ub @ ub) - float(sa.sum() + sb.sum())
 
@@ -114,15 +115,18 @@ def test_coupling_hybrid_scm_fit_and_simulate():
     pa = rng.standard_normal((n, 1))
     # 数据: 非线性耦合结构 (x_b 依赖 x_a)
     xa = pa + 0.3 * rng.standard_normal((n, 1))
-    xb = 0.5 * xa ** 2 + 0.4 * rng.standard_normal((n, 1))
+    xb = 0.5 * xa**2 + 0.4 * rng.standard_normal((n, 1))
     x = np.hstack([xa, xb])
 
     dag = nx.DiGraph()
     dag.add_edge("src", "node")
-    specs = {"src": NodeSpec("src", "continuous", dim=1, continuous_mech="diagonal"),
-             "node": NodeSpec("node", "continuous", dim=2, continuous_mech="coupling")}
-    scm = fit_hybrid_scm(build_hybrid_scm(dag, specs),
-                         {"src": pa, "node": x}, epochs=200, hidden=8, seed=2)
+    specs = {
+        "src": NodeSpec("src", "continuous", dim=1, continuous_mech="diagonal"),
+        "node": NodeSpec("node", "continuous", dim=2, continuous_mech="coupling"),
+    }
+    scm = fit_hybrid_scm(
+        build_hybrid_scm(dag, specs), {"src": pa, "node": x}, epochs=200, hidden=8, seed=2
+    )
 
     # 拟合后: 机制就位, 反演回环, 仿真形状正确
     mech = scm.mechanisms["node"]
@@ -142,6 +146,7 @@ def test_coupling_hybrid_scm_fit_and_simulate():
 # =========================================================================
 # 二、贝叶斯优化规划
 # =========================================================================
+
 
 def test_bayesian_optimize_finds_1d_optimum():
     """1D 凸函数: BO 在有限预算内找到近优。"""
@@ -183,25 +188,34 @@ def test_continuous_plan_with_hybrid_bo():
     err = (pa - 1.2) ** 2 + 0.05 * rng.standard_normal((n, 1))
     dag = nx.DiGraph()
     dag.add_edge("src", "err")
-    specs = {"src": NodeSpec("src", "continuous", dim=1, continuous_mech="diagonal"),
-             "err": NodeSpec("err", "continuous", dim=1, continuous_mech="diagonal")}
-    scm = fit_hybrid_scm(build_hybrid_scm(dag, specs),
-                         {"src": pa, "err": err}, epochs=150, hidden=8, seed=5)
+    specs = {
+        "src": NodeSpec("src", "continuous", dim=1, continuous_mech="diagonal"),
+        "err": NodeSpec("err", "continuous", dim=1, continuous_mech="diagonal"),
+    }
+    scm = fit_hybrid_scm(
+        build_hybrid_scm(dag, specs), {"src": pa, "err": err}, epochs=150, hidden=8, seed=5
+    )
 
     factual = {"src": np.array([0.0]), "err": np.array([1.5])}
     plan = continuous_plan_with_hybrid_bo(
-        scm, factual=factual, query_node="err",
-        bounds_map={"src": (0.0, 2.0)}, n_init=3, n_iter=10, seed=0,
+        scm,
+        factual=factual,
+        query_node="err",
+        bounds_map={"src": (0.0, 2.0)},
+        n_init=3,
+        n_iter=10,
+        seed=0,
     )
     assert plan["n_calls"] == 13
-    assert 0.5 <= plan["best_intervention"]["src"] <= 1.9   # 近优 (含 GP 外推噪声)
-    assert plan["best_value"] < 0.6                          # 干预后 err 显著下降
+    assert 0.5 <= plan["best_intervention"]["src"] <= 1.9  # 近优 (含 GP 外推噪声)
+    assert plan["best_value"] < 0.6  # 干预后 err 显著下降
     assert len(plan["trace"]) == 13
 
 
 # =========================================================================
 # 三、深度训练课表与温度校准
 # =========================================================================
+
 
 def test_fit_deep_scm_schedules_and_grad_clip():
     rng = np.random.default_rng(42)
@@ -210,28 +224,41 @@ def test_fit_deep_scm_schedules_and_grad_clip():
 
     n = 200
     pa = rng.uniform(-1, 1, (n, 1))
-    x = np.hstack([pa ** 2, -pa]) + rng.standard_normal((n, 2)) @ \
-        np.array([[1.0, 0.0], [0.3, 0.9]])
+    x = np.hstack([pa**2, -pa]) + rng.standard_normal((n, 2)) @ np.array([[1.0, 0.0], [0.3, 0.9]])
     dag = nx.DiGraph()
     dag.add_edge("src", "node")
-    specs = {"src": NodeSpec("src", "continuous", dim=1, continuous_mech="diagonal"),
-             "node": NodeSpec("node", "continuous", dim=2, continuous_mech="cholesky")}
+    specs = {
+        "src": NodeSpec("src", "continuous", dim=1, continuous_mech="diagonal"),
+        "node": NodeSpec("node", "continuous", dim=2, continuous_mech="cholesky"),
+    }
     data = {"src": pa, "node": x}
 
     for schedule in ("none", "cosine", "step"):
         _scm, losses, stats = fit_deep_scm(
-            build_hybrid_scm(dag, specs), data,
-            epochs=120, lr=0.05, lr_schedule=schedule, grad_clip=1.0,
-            return_stats=True, seed=1)
+            build_hybrid_scm(dag, specs),
+            data,
+            epochs=120,
+            lr=0.05,
+            lr_schedule=schedule,
+            grad_clip=1.0,
+            return_stats=True,
+            seed=1,
+        )
         assert len(losses) == 120
         assert np.isfinite(losses[-1])
-        assert losses[-1] < losses[0]                       # 收敛
+        assert losses[-1] < losses[0]  # 收敛
         assert stats["min_diag"] > 0
     # 大梯度场景下 grad_clip 不 NaN (极端初始化)
     _scm2, losses2, _ = fit_deep_scm(
-        build_hybrid_scm(dag, specs), data,
-        epochs=60, lr=0.5, lr_schedule="none", grad_clip=0.1,
-        return_stats=True, seed=9)
+        build_hybrid_scm(dag, specs),
+        data,
+        epochs=60,
+        lr=0.5,
+        lr_schedule="none",
+        grad_clip=0.1,
+        return_stats=True,
+        seed=9,
+    )
     assert np.isfinite(losses2[-1])
 
 
@@ -242,14 +269,16 @@ def test_calibrate_temperature_returns_structure():
 
     n = 200
     pa = rng.standard_normal((n, 1))
-    x = np.hstack([pa, -pa]) + rng.standard_normal((n, 2)) @ \
-        np.array([[1.0, 0.0], [0.4, 0.9]])
+    x = np.hstack([pa, -pa]) + rng.standard_normal((n, 2)) @ np.array([[1.0, 0.0], [0.4, 0.9]])
     dag = nx.DiGraph()
     dag.add_edge("src", "node")
-    specs = {"src": NodeSpec("src", "continuous", dim=1, continuous_mech="diagonal"),
-             "node": NodeSpec("node", "continuous", dim=2, continuous_mech="cholesky")}
-    scm = fit_hybrid_scm(build_hybrid_scm(dag, specs),
-                         {"src": pa, "node": x}, epochs=150, hidden=8, seed=3)
+    specs = {
+        "src": NodeSpec("src", "continuous", dim=1, continuous_mech="diagonal"),
+        "node": NodeSpec("node", "continuous", dim=2, continuous_mech="cholesky"),
+    }
+    scm = fit_hybrid_scm(
+        build_hybrid_scm(dag, specs), {"src": pa, "node": x}, epochs=150, hidden=8, seed=3
+    )
 
     cal = calibrate_deep_scm_temperature(scm, {"src": pa, "node": x}, seed=0)
     assert {"temperature", "nll_before", "nll_after", "per_node", "grid"} <= set(cal)

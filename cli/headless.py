@@ -134,8 +134,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", help="结果 JSON 文件(缺省写 stdout)")
     parser.add_argument("--config", help="配置文件路径")
     # 文本任务快捷入口 (产品化): veya-headless --agent plan --text "任务"
-    parser.add_argument("--agent", choices=["plan", "research", "build", "execute"],
-                        help="Agent persona (与 --text 配合的自然语言任务入口)")
+    parser.add_argument(
+        "--agent",
+        choices=["plan", "research", "build", "execute"],
+        help="Agent persona (与 --text 配合的自然语言任务入口)",
+    )
     parser.add_argument("--text", help="自然语言任务描述 (与 --agent 配合)")
     args = parser.parse_args(argv)
 

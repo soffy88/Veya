@@ -39,7 +39,9 @@ def emit_local_state(payload: dict) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Report the exact next sculpt pipeline command")
     parser.add_argument("spec", type=Path, nargs="?")
-    parser.add_argument("--state", type=Path, help="local checklist state created by forge/state.py init")
+    parser.add_argument(
+        "--state", type=Path, help="local checklist state created by forge/state.py init"
+    )
     args = parser.parse_args(argv)
     local_state = None
     spec_path = args.spec
@@ -66,7 +68,9 @@ def main(argv: list[str]) -> int:
 
     if spec_path is None:
         if local_state is None:
-            parser.error("spec is required unless --state points to an initialized pre-spec workflow")
+            parser.error(
+                "spec is required unless --state points to an initialized pre-spec workflow"
+            )
         payload = status_payload(local_state)
         emit_local_state(payload)
         return 3 if payload["status"] == "stopped" else 0
@@ -96,11 +100,15 @@ def main(argv: list[str]) -> int:
         print("pipeline: complete")
         return 0
     acceptance = pass_acceptance(spec, current)
-    command = f"python3 forge/stage3_build/orchestrate_passes.py check {spec_path} --pass-id {current}"
+    command = (
+        f"python3 forge/stage3_build/orchestrate_passes.py check {spec_path} --pass-id {current}"
+    )
     print(f"current pass: {current}")
     print(f"next command: {command}")
     print("unmet acceptance criteria:")
-    for item in acceptance or ["pass-specific evidence and a reviewHistory entry with action=continue"]:
+    for item in acceptance or [
+        "pass-specific evidence and a reviewHistory entry with action=continue"
+    ]:
         print(f"- {item}")
     return 0
 

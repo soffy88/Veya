@@ -26,6 +26,7 @@ def _load_oprim():
     global _oprim
     if _oprim is None:
         from veya.platform import oprim as _load_oprim
+
         _oprim = _load_oprim()
     return _oprim
 
@@ -81,6 +82,7 @@ class TelemetryEvent:
 # Sink (写入目的地)
 # ---------------------------------------------------------------------------
 
+
 class TelemetrySink:
     """遥测 sink: 统一 JSONL 文件落盘 (复用 oprim.JsonlSink 语义)。"""
 
@@ -129,6 +131,7 @@ class TelemetrySink:
 # Telemetry Emitter (统一写出口)
 # ---------------------------------------------------------------------------
 
+
 class TelemetryEmitter:
     """P3-04 Telemetry v1: Trace Correlation + Export 写出口。
 
@@ -145,9 +148,7 @@ class TelemetryEmitter:
         sink: TelemetrySink | None = None,
         trace_id: str | None = None,
     ):
-        self.sink = sink or TelemetrySink(
-            Path(self.DEFAULT_DIR).expanduser() / "telemetry.jsonl"
-        )
+        self.sink = sink or TelemetrySink(Path(self.DEFAULT_DIR).expanduser() / "telemetry.jsonl")
         self.trace_id = trace_id or uuid.uuid4().hex
         # 兼容旧 oprim AuditEmitter (如已有写入)
         try:
@@ -235,26 +236,32 @@ class TelemetryEmitter:
         """导出为简化 OTLP 兼容格式 (用于 Grafana/Jaeger 等)。"""
         events = self.replay()
         otlp = {
-            "resourceSpans": [{
-                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "veya"}}]},
-                "scopeSpans": [{
-                    "scope": {"name": "veya.telemetry"},
-                    "spans": [
+            "resourceSpans": [
+                {
+                    "resource": {
+                        "attributes": [{"key": "service.name", "value": {"stringValue": "veya"}}]
+                    },
+                    "scopeSpans": [
                         {
-                            "traceId": e["trace_id"],
-                            "spanId": e["audit_id"],
-                            "name": e["event_type"],
-                            "startTimeUnixNano": int(e["ts"] * 1e9),
-                            "endTimeUnixNano": int(e["ts"] * 1e9) + 1000000,
-                            "attributes": [
-                                {"key": k, "value": {"stringValue": str(v)}}
-                                for k, v in e.get("context", {}).items()
+                            "scope": {"name": "veya.telemetry"},
+                            "spans": [
+                                {
+                                    "traceId": e["trace_id"],
+                                    "spanId": e["audit_id"],
+                                    "name": e["event_type"],
+                                    "startTimeUnixNano": int(e["ts"] * 1e9),
+                                    "endTimeUnixNano": int(e["ts"] * 1e9) + 1000000,
+                                    "attributes": [
+                                        {"key": k, "value": {"stringValue": str(v)}}
+                                        for k, v in e.get("context", {}).items()
+                                    ],
+                                }
+                                for e in events
                             ],
                         }
-                        for e in events
                     ],
-                }],
-            }]
+                }
+            ]
         }
         Path(output_path).write_text(json.dumps(otlp, ensure_ascii=False), encoding="utf-8")
         return len(events)
@@ -293,6 +300,7 @@ def new_trace() -> TelemetryEmitter:
 # ---------------------------------------------------------------------------
 # 高层: Telemetry API (供 server/audit.py、路由、前端使用)
 # ---------------------------------------------------------------------------
+
 
 class TelemetryAPI:
     """统一遥测读取 API (复用 VeyaAudit 读侧语义, 增加导出)。"""
@@ -347,19 +355,23 @@ class TelemetryAPI:
         for e in all_events:
             by_trace.setdefault(e.get("trace_id", "?"), []).append(e)
         out = []
-        for tid, evs in sorted(
-            by_trace.items(), key=lambda kv: kv[1][-1]["ts"], reverse=True
-        )[:limit]:
-            out.append({
-                "trace_id": tid,
-                "event_count": len(evs),
-                "event_types": [e["event_type"] for e in evs],
-                "first_ts": evs[0]["ts"],
-                "last_ts": evs[-1]["ts"],
-            })
+        for tid, evs in sorted(by_trace.items(), key=lambda kv: kv[1][-1]["ts"], reverse=True)[
+            :limit
+        ]:
+            out.append(
+                {
+                    "trace_id": tid,
+                    "event_count": len(evs),
+                    "event_types": [e["event_type"] for e in evs],
+                    "first_ts": evs[0]["ts"],
+                    "last_ts": evs[-1]["ts"],
+                }
+            )
         return {"traces": out, "total_events": len(all_events)}
 
-    def export_trace(self, trace_id: str, fmt: str = "jsonl", output: str | None = None) -> dict[str, Any]:
+    def export_trace(
+        self, trace_id: str, fmt: str = "jsonl", output: str | None = None
+    ) -> dict[str, Any]:
         """导出单条 trace (jsonl / otlp)。"""
         events = self._sink.read_trace(trace_id)
         if not events:
@@ -372,31 +384,44 @@ class TelemetryAPI:
             )
         elif fmt == "otlp":
             otlp = {
-                "resourceSpans": [{
-                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "veya"}}]},
-                    "scopeSpans": [{
-                        "scope": {"name": "veya.telemetry"},
-                        "spans": [
+                "resourceSpans": [
+                    {
+                        "resource": {
+                            "attributes": [
+                                {"key": "service.name", "value": {"stringValue": "veya"}}
+                            ]
+                        },
+                        "scopeSpans": [
                             {
-                                "traceId": e["trace_id"],
-                                "spanId": e["audit_id"],
-                                "name": e["event_type"],
-                                "startTimeUnixNano": int(e["ts"] * 1e9),
-                                "endTimeUnixNano": int(e["ts"] * 1e9) + 1000000,
-                                "attributes": [
-                                    {"key": k, "value": {"stringValue": str(v)}}
-                                    for k, v in e.get("context", {}).items()
+                                "scope": {"name": "veya.telemetry"},
+                                "spans": [
+                                    {
+                                        "traceId": e["trace_id"],
+                                        "spanId": e["audit_id"],
+                                        "name": e["event_type"],
+                                        "startTimeUnixNano": int(e["ts"] * 1e9),
+                                        "endTimeUnixNano": int(e["ts"] * 1e9) + 1000000,
+                                        "attributes": [
+                                            {"key": k, "value": {"stringValue": str(v)}}
+                                            for k, v in e.get("context", {}).items()
+                                        ],
+                                    }
+                                    for e in events
                                 ],
                             }
-                            for e in events
                         ],
-                    }],
-                }]
+                    }
+                ]
             }
             out_path.write_text(json.dumps(otlp, ensure_ascii=False), encoding="utf-8")
         else:
             return {"status": "error", "error": f"unsupported format: {fmt}"}
-        return {"status": "exported", "trace_id": trace_id, "events": len(events), "path": str(out_path)}
+        return {
+            "status": "exported",
+            "trace_id": trace_id,
+            "events": len(events),
+            "path": str(out_path),
+        }
 
     def metrics(self) -> dict[str, Any]:
         """Return honest runtime counters from canonical events and telemetry sinks."""

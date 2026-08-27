@@ -19,9 +19,7 @@ from pathlib import Path
 from typing import Any
 
 _LOCK = threading.Lock()
-_TB_FILE = re.compile(
-    r'^\s*File "(?P<file>[^"]+)", line (?P<line>\d+), in (?P<func>.+)\s*$'
-)
+_TB_FILE = re.compile(r'^\s*File "(?P<file>[^"]+)", line (?P<line>\d+), in (?P<func>.+)\s*$')
 _PYTEST = re.compile(r"^(?P<file>\S+):(?P<line>\d+): in (?P<func>.+)\s*$")
 
 
@@ -58,7 +56,9 @@ def parse_json_traces(payload: Any) -> list[dict[str, Any]]:
         payload = json.loads(payload)
     edges: list[dict[str, Any]] = []
     if isinstance(payload, dict):
-        payload = payload.get("traces") or payload.get("stacks") or payload.get("edges") or [payload]
+        payload = (
+            payload.get("traces") or payload.get("stacks") or payload.get("edges") or [payload]
+        )
     if not isinstance(payload, list):
         return []
     for item in payload:

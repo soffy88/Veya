@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Queue newly opened, unlabeled GitHub issues for maintainer triage."""
+
 from __future__ import annotations
 
 import argparse
@@ -78,7 +79,9 @@ class GitHubIssueApi:
         issues: list[Issue] = []
         page = 1
         while True:
-            payload = self._request(f"/repos/{self._repository}/issues?state=open&per_page=100&page={page}")
+            payload = self._request(
+                f"/repos/{self._repository}/issues?state=open&per_page=100&page={page}"
+            )
             if not payload:
                 return tuple(issues)
             issues.extend(parse_issue(item) for item in payload)
@@ -105,7 +108,9 @@ class GitHubIssueApi:
     def has_notice_marker(self, number: int) -> bool:
         page = 1
         while True:
-            comments = self._request(f"/repos/{self._repository}/issues/{number}/comments?per_page=100&page={page}")
+            comments = self._request(
+                f"/repos/{self._repository}/issues/{number}/comments?per_page=100&page={page}"
+            )
             if any(
                 NOTICE_MARKER in comment.get("body", "")
                 and comment.get("user", {}).get("login") == TRIAGE_BOT_LOGIN
@@ -211,7 +216,9 @@ def run_triage(api: IssueApi, options: TriageOptions) -> TriageResult:
                 noticed.append(current.number)
         except (urllib.error.HTTPError, urllib.error.URLError):
             failed.append(listed.number)
-    return TriageResult(tuple(noticed), tuple(reconciled), tuple(would_notice), tuple(skipped), tuple(failed))
+    return TriageResult(
+        tuple(noticed), tuple(reconciled), tuple(would_notice), tuple(skipped), tuple(failed)
+    )
 
 
 def main() -> int:
@@ -222,7 +229,9 @@ def main() -> int:
     parser.add_argument("--rollout-after")
     arguments = parser.parse_args()
     if not arguments.repository or not arguments.token:
-        parser.error("--repository and --token (or GITHUB_REPOSITORY and GITHUB_TOKEN) are required")
+        parser.error(
+            "--repository and --token (or GITHUB_REPOSITORY and GITHUB_TOKEN) are required"
+        )
     result = run_triage(
         GitHubIssueApi(arguments.repository, arguments.token),
         TriageOptions(dry_run=arguments.dry_run, rollout_after=arguments.rollout_after),

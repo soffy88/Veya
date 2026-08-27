@@ -43,7 +43,9 @@ def normalize_history(
         if not isinstance(result, Mapping):
             raise input_error(f"results[{index}]", "must be a mapping")
         score = fidelity(result)
-        hard_gates, action, verdict, approved = _approval_state(result, input_error, f"results[{index}]")
+        hard_gates, action, verdict, approved = _approval_state(
+            result, input_error, f"results[{index}]"
+        )
         pending_review = not approved
         reverted = accepted_fidelity is not None and score < accepted_fidelity
         entry = {

@@ -70,9 +70,7 @@ def test_dominant_colors():
 
 def test_score_candidates_winner():
     img = Image.new("RGB", (50, 50), (245, 245, 245))
-    result = ops.score_color_candidates(
-        img, (0, 0, 50, 50), ["#F5F5F5", "#000000"], tolerance=14
-    )
+    result = ops.score_color_candidates(img, (0, 0, 50, 50), ["#F5F5F5", "#000000"], tolerance=14)
     assert result["winner"] == "#F5F5F5"
     assert result["matched_within_tolerance"] is True
 

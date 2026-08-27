@@ -54,8 +54,7 @@ def _default_l1(entries: list) -> list[L1Atom]:
         if len(text) < 8:
             continue
         score = 6.0 if len(text) > 40 else 4.0
-        atoms.append(L1Atom(kind=ATOM_FACT, text=text[:200], score=score,
-                            source_entry=text[:60]))
+        atoms.append(L1Atom(kind=ATOM_FACT, text=text[:200], score=score, source_entry=text[:60]))
     return atoms
 
 
@@ -63,8 +62,9 @@ def _default_l2(atoms: list[L1Atom]) -> list[L2Scenario]:
     """确定性降级 L2: 全部原子归一个场景。"""
     if not atoms:
         return []
-    scenario = L2Scenario(id="s1", title="会话记忆",
-                          content="; ".join(a.text[:80] for a in atoms[:5]))
+    scenario = L2Scenario(
+        id="s1", title="会话记忆", content="; ".join(a.text[:80] for a in atoms[:5])
+    )
     scenario.atom_ids = [a.text for a in atoms]
     return [scenario]
 
@@ -120,8 +120,7 @@ class VeyaMemoryHub:
                 self.pipeline.stabilize_persona(self.l3_fn)
             self._sync_assets()
         self._save()
-        return {"recorded": True, "distilled": distilled,
-                "pending": len(self.pipeline.pending_l1)}
+        return {"recorded": True, "distilled": distilled, "pending": len(self.pipeline.pending_l1)}
 
     # ── 检索 (双层) ──────────────────────────────────────────────────
 
@@ -158,8 +157,11 @@ class VeyaMemoryHub:
         n_docs = max(len(doc_tokens_all), 1)
         avg_dl = sum(len(t) for t in doc_tokens_all) / n_docs
         fts_results = [
-            {"id": atom.text, "text": atom.text,
-             "score": bm25_score(query_tokens, tokens, df=df, n_docs=n_docs, avg_dl=avg_dl)}
+            {
+                "id": atom.text,
+                "text": atom.text,
+                "score": bm25_score(query_tokens, tokens, df=df, n_docs=n_docs, avg_dl=avg_dl),
+            }
             for atom, tokens in zip(atoms, doc_tokens_all, strict=True)
             if bm25_score(query_tokens, tokens, df=df, n_docs=n_docs, avg_dl=avg_dl) > 0
         ]
@@ -167,11 +169,15 @@ class VeyaMemoryHub:
         if vector_results is None and self.vector_fn is not None:
             vector_results = self.vector_fn(query)
         merged = hybrid_search(
-            fts_results, vector_results or [],
+            fts_results,
+            vector_results or [],
             budget=budget or RetrievalBudget(),
         )
-        return {"quick": quick, "atoms": [a.text for a in atoms],
-                "merged": [m["id"] for m in merged]}
+        return {
+            "quick": quick,
+            "atoms": [a.text for a in atoms],
+            "merged": [m["id"] for m in merged],
+        }
 
     # ── 装配 (loadout) ────────────────────────────────────────────────
 
@@ -185,7 +191,10 @@ class VeyaMemoryHub:
     ) -> list[dict[str, Any]]:
         """为 Agent 装配记忆 loadout (按 ACL 过滤)。"""
         assets = self.registry.assemble_loadout(
-            agent_id, principal, bindings=bindings, top_k=top_k,
+            agent_id,
+            principal,
+            bindings=bindings,
+            top_k=top_k,
         )
         return [a.to_dict() for a in assets]
 
@@ -199,14 +208,16 @@ class VeyaMemoryHub:
     def _sync_assets(self) -> None:
         """把蒸馏产物同步为记忆资产 (chat_memory 类型)。"""
         quick = self.pipeline.recall_quick()
-        self.registry.register(MemoryAsset(
-            id="chat-memory",
-            asset_type="chat_memory",
-            owner="veya",
-            visibility=VISIBILITY_TEAM,
-            title="会话记忆",
-            content=quick,
-        ))
+        self.registry.register(
+            MemoryAsset(
+                id="chat-memory",
+                asset_type="chat_memory",
+                owner="veya",
+                visibility=VISIBILITY_TEAM,
+                title="会话记忆",
+                content=quick,
+            )
+        )
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -221,7 +232,8 @@ class VeyaMemoryHub:
             "team_members": self.registry.team_members,
         }
         self.path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8",
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
 
     def _load(self) -> None:

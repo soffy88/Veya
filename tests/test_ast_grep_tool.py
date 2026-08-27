@@ -23,7 +23,9 @@ def test_search_parses_json(monkeypatch, tmp_path):
     def _fake(args, timeout=30):
         assert args[0] == "/usr/bin/ast-grep"
         assert "--pattern" in args
-        return SimpleNamespace(returncode=0, stdout='[{"text":"print(1)","file":"a.py"}]', stderr="")
+        return SimpleNamespace(
+            returncode=0, stdout='[{"text":"print(1)","file":"a.py"}]', stderr=""
+        )
 
     monkeypatch.setattr(ag, "_run", _fake)
     rec = ag.search("print($A)", path=str(tmp_path), lang="python")

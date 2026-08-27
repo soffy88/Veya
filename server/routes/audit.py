@@ -7,8 +7,7 @@ from server import auth as auth_mod
 
 from server.audit import VeyaAudit
 
-router = APIRouter(prefix="/audit", tags=["audit"],
-              dependencies=[Depends(auth_mod.require_user)])
+router = APIRouter(prefix="/audit", tags=["audit"], dependencies=[Depends(auth_mod.require_user)])
 
 _audit = VeyaAudit()
 

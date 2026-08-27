@@ -404,8 +404,7 @@ _IDENTIFIER_TOKEN_PATTERN: Final = re.compile(
 _WORD_TOKEN_PATTERN: Final = re.compile(r"[^\W_]+", re.UNICODE)
 _DASH_TRANSLATION: Final = str.maketrans({character: "-" for character in "‐‑‒–—―"})
 _VIETNAMESE_MARKED: Final = frozenset(
-    "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợ"
-    "ùúủũụưừứửữựỳýỷỹỵđ"
+    "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
 )
 
 
@@ -480,9 +479,7 @@ def _profile_cache_path(mapping: dict[str, JsonValue], path: Path) -> str:
     configured = _profile_string(mapping, "cache", path)
     cache_path = Path(configured)
     if cache_path.is_absolute() or ".." in cache_path.parts:
-        raise ProfileCachePathError(
-            "cache path must be relative and stay within project_root"
-        )
+        raise ProfileCachePathError("cache path must be relative and stay within project_root")
     return configured
 
 
@@ -504,7 +501,9 @@ def load_profiles(path: Path | None = None) -> dict[str, CollectionProfile]:
     bm25_raw = _mapping(defaults.get("bm25"), profile_path, "defaults.bm25")
     max_expansions = alias_raw.get("max_expansions")
     if type(max_expansions) is not int or max_expansions < 0:
-        raise _profile_error(profile_path, "defaults.aliases.max_expansions must be a non-negative integer")
+        raise _profile_error(
+            profile_path, "defaults.aliases.max_expansions must be a non-negative integer"
+        )
     tokenizer: TokenizerSettings = {
         "version": _profile_string(tokenizer_raw, "version", profile_path),
         "unicode_normalization": _profile_normalization(
@@ -530,7 +529,9 @@ def load_profiles(path: Path | None = None) -> dict[str, CollectionProfile]:
     for name in sorted(collections):
         collection = _mapping(collections[name], profile_path, f"collections.{name}")
         term_aliases_raw = collection.get("term_aliases", {})
-        term_aliases_mapping = _mapping(term_aliases_raw, profile_path, f"collections.{name}.term_aliases")
+        term_aliases_mapping = _mapping(
+            term_aliases_raw, profile_path, f"collections.{name}.term_aliases"
+        )
         term_aliases = {
             term: _profile_string_list(term_aliases_mapping, term, profile_path)
             for term in sorted(term_aliases_mapping)
@@ -542,7 +543,9 @@ def load_profiles(path: Path | None = None) -> dict[str, CollectionProfile]:
                 "optional_source_roots",
                 profile_path,
             ),
-            "distilled_records": _profile_string_list(collection, "distilled_records", profile_path),
+            "distilled_records": _profile_string_list(
+                collection, "distilled_records", profile_path
+            ),
             "documentation": _profile_string(collection, "documentation", profile_path),
             "cache": _profile_cache_path(collection, profile_path),
             "encoding": _profile_string(defaults, "encoding", profile_path),
@@ -660,7 +663,11 @@ def _parse_record(value: JsonValue, path: Path, line_number: int) -> SpecRecord:
     if status not in {"observed", "inferred", "unverified"}:
         raise _record_error(path, line_number, "observation_status is invalid")
     confidence = raw.get("confidence")
-    if type(confidence) is bool or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+    if (
+        type(confidence) is bool
+        or not isinstance(confidence, (int, float))
+        or not 0 <= confidence <= 1
+    ):
         raise _record_error(path, line_number, "confidence must be a number from 0 through 1")
     return {
         "record_id": _record_string(raw, "record_id", location),
@@ -703,10 +710,7 @@ def _primary_tokens(text: str, tokenizer: TokenizerConfig) -> list[str]:
     if tokenizer.casefold:
         normalized = normalized.casefold()
     pattern = _IDENTIFIER_TOKEN_PATTERN if tokenizer.preserve_identifiers else _WORD_TOKEN_PATTERN
-    tokens = [
-        match.group(0).translate(_DASH_TRANSLATION)
-        for match in pattern.finditer(normalized)
-    ]
+    tokens = [match.group(0).translate(_DASH_TRANSLATION) for match in pattern.finditer(normalized)]
     if tokenizer.preserve_numbers:
         return tokens
     return [token for token in tokens if any(character.isalpha() for character in token)]
@@ -716,7 +720,9 @@ def _accent_companion(token: str) -> str | None:
     if not any(character.casefold() in _VIETNAMESE_MARKED for character in token):
         return None
     decomposed = unicodedata.normalize("NFD", token)
-    folded = "".join(character for character in decomposed if unicodedata.category(character) != "Mn")
+    folded = "".join(
+        character for character in decomposed if unicodedata.category(character) != "Mn"
+    )
     folded = folded.replace("đ", "d").replace("Đ", "D")
     return folded if folded != token else None
 
@@ -746,15 +752,15 @@ def tokenize(
     if aliases is None:
         return tokens
     normalized_aliases = sorted(
-        (
-            (_primary_tokens(term, tokenizer), tuple(values))
-            for term, values in aliases.items()
-        ),
+        ((_primary_tokens(term, tokenizer), tuple(values)) for term, values in aliases.items()),
         key=lambda item: item[0],
     )
     for alias_tokens, expansions in normalized_aliases:
         width = len(alias_tokens)
-        if width == 0 or not any(primary[index : index + width] == alias_tokens for index in range(len(primary) - width + 1)):
+        if width == 0 or not any(
+            primary[index : index + width] == alias_tokens
+            for index in range(len(primary) - width + 1)
+        ):
             continue
         for expansion in sorted(
             expansions,
@@ -779,7 +785,9 @@ def _read_source(path: Path) -> str:
         raise SourceIngestionError(path=path, reason="unable to read UTF-8 source") from error
 
 
-def _source_reference(file_path: str, heading: str | None, key_path: str | None) -> tuple[SourceReference, ...]:
+def _source_reference(
+    file_path: str, heading: str | None, key_path: str | None
+) -> tuple[SourceReference, ...]:
     return (SourceReference(path=file_path, heading=heading, key_path=key_path),)
 
 
@@ -1026,9 +1034,7 @@ def build_index(
         if document.record_id in records:
             raise IndexBuildError(reason=f"duplicate record_id: {document.record_id}")
         records[document.record_id] = document
-        term_frequencies = Counter(
-            tokenize(_searchable_text(document), aliases, config.tokenizer)
-        )
+        term_frequencies = Counter(tokenize(_searchable_text(document), aliases, config.tokenizer))
         document_lengths[document.record_id] = sum(term_frequencies.values())
         for term in sorted(term_frequencies):
             posting_lists.setdefault(term, []).append(
@@ -1234,10 +1240,7 @@ def _configured_sources(request: IndexRequest) -> list[ConfiguredSource]:
     sources: dict[str, ConfiguredSource] = {}
     configured_roots = (
         *((configured_root, False) for configured_root in request.profile["source_roots"]),
-        *(
-            (configured_root, True)
-            for configured_root in request.profile["optional_source_roots"]
-        ),
+        *((configured_root, True) for configured_root in request.profile["optional_source_roots"]),
     )
     for configured_root, optional in configured_roots:
         root = _configured_project_path(request, configured_root)
@@ -1263,7 +1266,9 @@ def _configured_sources(request: IndexRequest) -> list[ConfiguredSource]:
         if stat.S_ISLNK(record_mode):
             raise SourceIngestionError(path=path, reason="symbolic links are not allowed")
         if not stat.S_ISREG(record_mode):
-            raise SourceIngestionError(path=path, reason="configured distilled record source is not a file")
+            raise SourceIngestionError(
+                path=path, reason="configured distilled record source is not a file"
+            )
         source_path = path.relative_to(request.project_root)
         source_key = source_path.as_posix()
         sources[source_key] = ConfiguredSource(
@@ -1292,7 +1297,9 @@ def _source_fingerprint(sources: Sequence[ConfiguredSource]) -> str:
     return digest.hexdigest()
 
 
-def _index_fingerprints(request: IndexRequest, sources: Sequence[ConfiguredSource]) -> IndexFingerprints:
+def _index_fingerprints(
+    request: IndexRequest, sources: Sequence[ConfiguredSource]
+) -> IndexFingerprints:
     schema_fingerprint = _fingerprint(
         {
             "cache_schema_version": _CACHE_SCHEMA_VERSION,
@@ -1329,7 +1336,9 @@ def _ingest_configured_sources(
     for source in sources:
         match source.kind:
             case "markdown":
-                documents.extend(ingest_markdown(source.path, source.source_path, request.collection))
+                documents.extend(
+                    ingest_markdown(source.path, source.source_path, request.collection)
+                )
             case "json":
                 documents.extend(ingest_json(source.path, source.source_path, request.collection))
             case "jsonl":
@@ -1393,8 +1402,7 @@ def _cached_record(document: SourceDocument) -> CachedRecord:
         "aliases": list(document.aliases),
         "source_refs": [_cached_source_reference(reference) for reference in document.source_refs],
         "evidence_refs": [
-            _cached_evidence_reference(reference)
-            for reference in document.evidence_refs
+            _cached_evidence_reference(reference) for reference in document.evidence_refs
         ],
     }
 
@@ -1422,13 +1430,9 @@ def _cache_payload(index: Bm25Index) -> CachePayload:
             for term, postings in index.postings.items()
         },
         "records": {
-            record_id: _cached_record(document)
-            for record_id, document in index.records.items()
+            record_id: _cached_record(document) for record_id, document in index.records.items()
         },
-        "term_aliases": {
-            term: list(expansions)
-            for term, expansions in index.term_aliases.items()
-        },
+        "term_aliases": {term: list(expansions) for term, expansions in index.term_aliases.items()},
     }
 
 
@@ -1582,17 +1586,13 @@ def _parse_term_aliases(value: JsonValue, path: Path) -> dict[str, tuple[str, ..
 
 def _parse_cached_tokenizer(value: JsonValue, path: Path) -> TokenizerConfig:
     raw = _cache_mapping(value, path, "tokenizer")
-    normalization = _NORMALIZATION_BY_NAME.get(
-        _cache_string(raw, "unicode_normalization", path)
-    )
+    normalization = _NORMALIZATION_BY_NAME.get(_cache_string(raw, "unicode_normalization", path))
     if normalization is None:
         raise _cache_validation_error(
             path,
             "tokenizer.unicode_normalization is invalid",
         )
-    accent_fold = _ACCENT_FOLD_BY_NAME.get(
-        _cache_string(raw, "accent_fold", path)
-    )
+    accent_fold = _ACCENT_FOLD_BY_NAME.get(_cache_string(raw, "accent_fold", path))
     if accent_fold is None:
         raise _cache_validation_error(path, "tokenizer.accent_fold is invalid")
     return TokenizerConfig(
@@ -1622,8 +1622,7 @@ def _parse_cache(value: JsonValue, path: Path) -> Bm25Index:
     if set(document_lengths) != set(records):
         raise _cache_validation_error(path, "document_lengths keys must match records")
     if {
-        term: len(term_postings)
-        for term, term_postings in postings.items()
+        term: len(term_postings) for term, term_postings in postings.items()
     } != document_frequencies:
         raise _cache_validation_error(path, "document_frequencies must match postings")
     avgdl = _cache_float(raw, "avgdl", path)

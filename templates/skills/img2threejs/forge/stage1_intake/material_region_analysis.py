@@ -86,7 +86,9 @@ def _observations(texture_report: dict[str, Any]) -> list[str]:
     if float(stats.get("mottle", 0.0)) > 0.038:
         observations.append("visible meso/micro variation")
     if float(stats.get("gradientStrength", 0.0)) > 0.18:
-        observations.append("strong image-space gradient; verify it is material pattern, not lighting")
+        observations.append(
+            "strong image-space gradient; verify it is material pattern, not lighting"
+        )
     observations.append("single-image PBR inference requires controlled render validation")
     return observations
 
@@ -140,34 +142,43 @@ def analyze_manifest(
             "subtype": region.get("subtype"),
             "finish": region.get("finish"),
             "aliases": region.get("aliases", []),
-            "confidence": min(float(region.get("confidence", 1.0)), float(pbr_report["confidence"])),
+            "confidence": min(
+                float(region.get("confidence", 1.0)), float(pbr_report["confidence"])
+            ),
             "source": region.get("source", "vision"),
         }
-        assignment = build_assignment(hypothesis, {
-            "crop": crop_info,
-            "pbr": pbr_report,
-            "texture": texture_report,
-        }, registry)
+        assignment = build_assignment(
+            hypothesis,
+            {
+                "crop": crop_info,
+                "pbr": pbr_report,
+                "texture": texture_report,
+            },
+            registry,
+        )
         if pbr_report["confidence"] < target_threshold and assignment["status"] == "proceed":
             assignment["status"] = "probe"
-        regions.append({
-            "componentId": component_id,
-            "regionId": region_id,
-            "materialSpecId": region.get("materialSpecId") or region_id,
-            "hypothesis": hypothesis,
-            "assignment": assignment,
-            "observations": _observations(texture_report),
-            "crop": crop_info,
-            "textureAnalysis": texture_report,
-            "pbrReport": pbr_report,
-            "referencePbr": pbr_patch["referencePbr"],
-            "maps": pbr_report.get("maps", {}),
-        })
+        regions.append(
+            {
+                "componentId": component_id,
+                "regionId": region_id,
+                "materialSpecId": region.get("materialSpecId") or region_id,
+                "hypothesis": hypothesis,
+                "assignment": assignment,
+                "observations": _observations(texture_report),
+                "crop": crop_info,
+                "textureAnalysis": texture_report,
+                "pbrReport": pbr_report,
+                "referencePbr": pbr_patch["referencePbr"],
+                "maps": pbr_report.get("maps", {}),
+            }
+        )
     not_observed = manifest.get("notObservedMaterials", [])
     if not isinstance(not_observed, list):
         raise ValueError("notObservedMaterials must be an array when present")
     unresolved_not_observed = [
-        item for item in not_observed
+        item
+        for item in not_observed
         if isinstance(item, dict) and item.get("status") in {"probe", "request-input", "unknown"}
     ]
     return {
@@ -175,7 +186,9 @@ def analyze_manifest(
         "kind": "img2threejs.material-analysis",
         "referenceId": manifest.get("referenceId", manifest_path.stem),
         "manifest": str(manifest_path.resolve()),
-        "registry": str((registry_path or ROOT / "docs/materials/material-reference.json").resolve()),
+        "registry": str(
+            (registry_path or ROOT / "docs/materials/material-reference.json").resolve()
+        ),
         "targetThreshold": target_threshold,
         "notObservedMaterials": not_observed,
         "unresolvedNotObservedMaterials": unresolved_not_observed,
@@ -215,8 +228,19 @@ def main(argv: list[str]) -> int:
         )
         result["artifact"] = str(args.out.resolve())
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(json.dumps({"status": result["status"], "regions": len(result["regions"]), "out": str(args.out.resolve())}, indent=2))
+        args.out.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(
+            json.dumps(
+                {
+                    "status": result["status"],
+                    "regions": len(result["regions"]),
+                    "out": str(args.out.resolve()),
+                },
+                indent=2,
+            )
+        )
         return 0 if result["status"] == "proceed" else 2
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

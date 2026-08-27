@@ -20,9 +20,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-_DB_PATH = os.environ.get(
-    "VEYA_CONTEXT_GRAPH_DB", str(Path.home() / ".veya" / "context_graph.db")
-)
+_DB_PATH = os.environ.get("VEYA_CONTEXT_GRAPH_DB", str(Path.home() / ".veya" / "context_graph.db"))
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS nodes (
@@ -73,20 +71,30 @@ class ContextGraph:
             " VALUES (?,?,?,?,?,NULL)"
             " ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, name=excluded.name,"
             " props=excluded.props, deleted_at=NULL",
-            (node_id, kind[:50], name[:500], json.dumps(props or {}, ensure_ascii=False)[:8000], now),
+            (
+                node_id,
+                kind[:50],
+                name[:500],
+                json.dumps(props or {}, ensure_ascii=False)[:8000],
+                now,
+            ),
         )
         self._conn.commit()
 
-    def add_edge(
-        self, src: str, rel: str, dst: str, props: dict[str, Any] | None = None
-    ) -> None:
+    def add_edge(self, src: str, rel: str, dst: str, props: dict[str, Any] | None = None) -> None:
         """加有向边 (rel 小写归一)。重复边更新 props + 复活。"""
         now = _now()
         self._conn.execute(
             "INSERT INTO edges (src, rel, dst, props, created_at, deleted_at)"
             " VALUES (?,?,?,?,?,NULL)"
             " ON CONFLICT(src, rel, dst) DO UPDATE SET props=excluded.props, deleted_at=NULL",
-            (src, rel.strip().lower()[:80], dst, json.dumps(props or {}, ensure_ascii=False)[:8000], now),
+            (
+                src,
+                rel.strip().lower()[:80],
+                dst,
+                json.dumps(props or {}, ensure_ascii=False)[:8000],
+                now,
+            ),
         )
         self._conn.commit()
 
@@ -111,9 +119,7 @@ class ContextGraph:
         row = self._conn.execute(sql, params).fetchone()
         return _row_to_dict(row) if row else None
 
-    def neighbors(
-        self, node_id: str, *, hops: int = 1, as_of: str | None = None
-    ) -> dict[str, Any]:
+    def neighbors(self, node_id: str, *, hops: int = 1, as_of: str | None = None) -> dict[str, Any]:
         """BFS 遍历子图 (出边 + 入边), 返回 {nodes, edges, hops}。"""
         if hops < 1:
             hops = 1
@@ -186,9 +192,7 @@ class ContextGraph:
             "SELECT * FROM nodes WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        lines = [
-            f"上下文图: {n['c'] if n else 0} 节点 / {e['c'] if e else 0} 边"
-        ]
+        lines = [f"上下文图: {n['c'] if n else 0} 节点 / {e['c'] if e else 0} 边"]
         for r in recent:
             d = _row_to_dict(r)
             lines.append(f"  • {d['kind']} {d['name']} ({d['id']})")

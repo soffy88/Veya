@@ -42,8 +42,10 @@ def _box_schema(required: bool = True) -> dict:
     schema = {
         "type": "object",
         "properties": {
-            "x1": {"type": "integer"}, "y1": {"type": "integer"},
-            "x2": {"type": "integer"}, "y2": {"type": "integer"},
+            "x1": {"type": "integer"},
+            "y1": {"type": "integer"},
+            "x2": {"type": "integer"},
+            "y2": {"type": "integer"},
         },
         "additionalProperties": False,
     }
@@ -74,14 +76,20 @@ async def _call(tool: str, args: dict[str, Any]) -> dict[str, Any]:
     import asyncio
 
     method = getattr(toolkit, tool)
-    workspace = str(Path(os.environ.get("VEYA_WORKSPACE", str(Path(__file__).resolve().parent.parent))).resolve())
+    workspace = str(
+        Path(
+            os.environ.get("VEYA_WORKSPACE", str(Path(__file__).resolve().parent.parent))
+        ).resolve()
+    )
     try:
         return await asyncio.wait_for(
             method(args, workspace=workspace, session_id=_vision_session_ctx.get()),
             timeout=timeout + 10,
         )
     except TimeoutError:
-        raise VisionToolkitError(f"{tool} 超时 ({timeout_ms or 120000}ms); 换更小区域/更低 jobs 重试") from None
+        raise VisionToolkitError(
+            f"{tool} 超时 ({timeout_ms or 120000}ms); 换更小区域/更低 jobs 重试"
+        ) from None
     except VisionToolkitError:
         raise
 
@@ -145,10 +153,14 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
             "type": "object",
             "properties": {
                 "images": {
-                    "type": "array", "items": {"type": "string"},
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": "图像路径列表 (1-5 张; 对比图一次同传, 分开调用看不到彼此)。",
                 },
-                "query": {"type": "string", "description": "定向问题 (如「报错在哪里」); 缺省=详细描述。与 ocr 互斥。"},
+                "query": {
+                    "type": "string",
+                    "description": "定向问题 (如「报错在哪里」); 缺省=详细描述。与 ocr 互斥。",
+                },
                 "ocr": {"type": "boolean", "description": "转录全部可见文字。与 query 互斥。"},
                 "region": {"type": "string", "description": f"{_REGION_NOTE} 仅单图。"},
                 "timeout_ms": {"type": "integer", "description": _TIMEOUT_NOTE},
@@ -166,8 +178,14 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
             "type": "object",
             "properties": {
                 "image": {"type": "string", "description": "图像路径。"},
-                "target": {"type": "string", "description": "要定位的那一个东西, 用可区分的特征描述它。"},
-                "region": {"type": "string", "description": f"{_REGION_NOTE} 只在区域内搜 (命中映射回原图坐标)。"},
+                "target": {
+                    "type": "string",
+                    "description": "要定位的那一个东西, 用可区分的特征描述它。",
+                },
+                "region": {
+                    "type": "string",
+                    "description": f"{_REGION_NOTE} 只在区域内搜 (命中映射回原图坐标)。",
+                },
                 "preview": {"type": "boolean", "description": "生成带框标注的 PNG 预览工件。"},
                 "preview_output": {"type": "string", "description": "可选。预览文件名, .png。"},
                 "timeout_ms": {"type": "integer", "description": _TIMEOUT_NOTE},
@@ -185,7 +203,10 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
             "type": "object",
             "properties": {
                 "image": {"type": "string", "description": "图像路径。"},
-                "category": {"type": "string", "description": "元素类别; 缺省=全部可区分 UI 元素。"},
+                "category": {
+                    "type": "string",
+                    "description": "元素类别; 缺省=全部可区分 UI 元素。",
+                },
                 "region": {"type": "string", "description": f"{_REGION_NOTE} 只清点区域内。"},
                 "preview": {"type": "boolean", "description": "生成编号标注 PNG 预览工件。"},
                 "preview_output": {"type": "string", "description": "可选。预览文件名, .png。"},
@@ -221,10 +242,19 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
             "type": "object",
             "properties": {
                 "image": {"type": "string", "description": "图像路径。"},
-                "region": {"type": "string", "description": f"{_REGION_NOTE} 只描摹此区域; 缺省全图。"},
-                "scale": {"type": "integer", "description": "分析放大 1-16; 缺省自动 (短边≥256px)。"},
+                "region": {
+                    "type": "string",
+                    "description": f"{_REGION_NOTE} 只描摹此区域; 缺省全图。",
+                },
+                "scale": {
+                    "type": "integer",
+                    "description": "分析放大 1-16; 缺省自动 (短边≥256px)。",
+                },
                 "color": {"type": "boolean", "description": "保留原色; 缺省黑白 (体积小得多)。"},
-                "polygon": {"type": "boolean", "description": "方框图模式 (多边形); 缺省样条 (曲线平滑)。"},
+                "polygon": {
+                    "type": "boolean",
+                    "description": "方框图模式 (多边形); 缺省样条 (曲线平滑)。",
+                },
                 "output": {"type": "string", "description": "可选。工件文件名, .svg。"},
                 "timeout_ms": {"type": "integer", "description": _TIMEOUT_NOTE},
             },
@@ -261,15 +291,26 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
             "type": "object",
             "properties": {
                 "image": {"type": "string", "description": "长截图路径。"},
-                "mode": {"type": "string", "enum": ["general", "chat"], "description": "普通文本 / 聊天记录结构化转录。"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["general", "chat"],
+                    "description": "普通文本 / 聊天记录结构化转录。",
+                },
                 "output": {"type": "string", "description": "可选。合并 Markdown 文件名。"},
-                "run_name": {"type": "string", "description": "可选。工件目录名 (resume=true 时复用)。"},
+                "run_name": {
+                    "type": "string",
+                    "description": "可选。工件目录名 (resume=true 时复用)。",
+                },
                 "target_height": {"type": "integer", "description": "可选。目标块高。"},
-                "min_height": {"type": "integer"}, "max_height": {"type": "integer"},
+                "min_height": {"type": "integer"},
+                "max_height": {"type": "integer"},
                 "overlap": {"type": "integer", "description": "可选。块间重叠像素。"},
                 "prompt": {"type": "string", "description": "可选。附加 OCR 要求, 逐块生效。"},
                 "jobs": {"type": "integer", "description": "可选。并行块数; 缺省 4。"},
-                "chunk_timeout_seconds": {"type": "number", "description": "可选。单块超时秒; 缺省 90。"},
+                "chunk_timeout_seconds": {
+                    "type": "number",
+                    "description": "可选。单块超时秒; 缺省 90。",
+                },
                 "split_only": {"type": "boolean", "description": "只切分+审计, 不调视觉 API。"},
                 "resume": {"type": "boolean", "description": "复用上次 run 的 OCR sidecar。"},
                 "timeout_ms": {"type": "integer", "description": _TIMEOUT_NOTE},
@@ -288,12 +329,25 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
             "properties": {
                 "image": {"type": "string", "description": "图像路径。"},
                 "region": {"type": "string", "description": f"{_REGION_NOTE} 手动选区。"},
-                "boxes": {"type": "string", "description": f"可选。grounding 框纠正。{_REGION_NOTE}"},
-                "mode": {"type": "string", "enum": ["color", "dark"], "description": "缺省 color。"},
+                "boxes": {
+                    "type": "string",
+                    "description": f"可选。grounding 框纠正。{_REGION_NOTE}",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["color", "dark"],
+                    "description": "缺省 color。",
+                },
                 "saturation": {"type": "integer", "description": "可选。饱和差阈值; 缺省 40。"},
                 "dark_threshold": {"type": "integer", "description": "可选。亮度阈值; 缺省 90。"},
-                "exclude_color": {"type": "string", "description": "可选。要排除的背景色 #RRGGBB。"},
-                "exclude_tolerance": {"type": "number", "description": "可选。排除色容差; 缺省 24。"},
+                "exclude_color": {
+                    "type": "string",
+                    "description": "可选。要排除的背景色 #RRGGBB。",
+                },
+                "exclude_tolerance": {
+                    "type": "number",
+                    "description": "可选。排除色容差; 缺省 24。",
+                },
                 "padding": {"type": "integer", "description": "可选。外扩像素; 缺省 0。"},
                 "keep_whites": {"type": "boolean", "description": "保留内部白色细节; 缺省 true。"},
                 "output": {"type": "string", "description": "可选。工件文件名, .png。"},
@@ -314,14 +368,21 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
                 "image": {"type": "string", "description": "图像路径。"},
                 "region": {"type": "string", "description": f"{_REGION_NOTE} 缺省全图。"},
                 "candidates": {
-                    "type": "array", "items": {"type": "string"},
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": "可选 1-32 个候选 #RRGGBB; 缺省提取调色板。",
                 },
                 "top": {"type": "integer", "description": "可选。返回色数; 缺省 6。"},
                 "quantize": {"type": "integer", "description": "可选。量化色数; 缺省 16。"},
                 "max_pixels": {"type": "integer", "description": "可选。采样上限; 缺省 200000。"},
-                "merge_tolerance": {"type": "integer", "description": "可选。簇合并容差; 缺省 12。"},
-                "candidate_tolerance": {"type": "integer", "description": "可选。候选容差; 缺省 14。"},
+                "merge_tolerance": {
+                    "type": "integer",
+                    "description": "可选。簇合并容差; 缺省 12。",
+                },
+                "candidate_tolerance": {
+                    "type": "integer",
+                    "description": "可选。候选容差; 缺省 14。",
+                },
                 "timeout_ms": {"type": "integer", "description": _TIMEOUT_NOTE},
             },
             "required": ["image"],
@@ -341,7 +402,10 @@ _TOOLS: list[tuple[str, str, dict, Any, int]] = [
                 "height": {"type": "integer", "description": "视口高; 缺省 720。"},
                 "scale": {"type": "integer", "description": "设备像素比; 缺省 1。"},
                 "wait_ms": {"type": "integer", "description": "渲染等待毫秒; 缺省 100。"},
-                "full_page": {"type": "boolean", "description": "截完整文档高度 (视口保持 width/height)。"},
+                "full_page": {
+                    "type": "boolean",
+                    "description": "截完整文档高度 (视口保持 width/height)。",
+                },
                 "output": {"type": "string", "description": "可选。工件文件名, .png。"},
                 "timeout_ms": {"type": "integer", "description": _TIMEOUT_NOTE},
             },
@@ -375,8 +439,7 @@ def wire_vision_tools() -> int:
         master_tools.register(name, desc, params, func, max_result_chars=limit)
         added += 1
     if added:
-        logger.info("wire vision: 注册 %d 个视觉工具 (provider=%s)",
-                    added, _provider_summary())
+        logger.info("wire vision: 注册 %d 个视觉工具 (provider=%s)", added, _provider_summary())
     return added
 
 

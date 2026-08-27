@@ -115,11 +115,17 @@ def find_inventory(spec: dict[str, Any], inventory_arg: str | None) -> list[dict
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--spec", required=True, help="object-sculpt-spec.json")
     ap.add_argument("--manifest", required=True, help="runtime part-tree dump from the viewer")
-    ap.add_argument("--inventory", help="standalone detail-inventory.json (default: read from spec)")
-    ap.add_argument("--require", help="comma-separated part names that MUST exist, whatever the spec says")
+    ap.add_argument(
+        "--inventory", help="standalone detail-inventory.json (default: read from spec)"
+    )
+    ap.add_argument(
+        "--require", help="comma-separated part names that MUST exist, whatever the spec says"
+    )
     ap.add_argument("--json", dest="json_out", help="write the findings as JSON")
     ap.add_argument("--warn-only", action="store_true", help="always exit 0")
     args = ap.parse_args()
@@ -141,7 +147,9 @@ def main() -> int:
     claimed: dict[str, list[str]] = {}
 
     # ---- A. componentTree -> model -------------------------------------------------
-    all_components = [c for c in spec.get("componentTree", []) if isinstance(c, dict) and c.get("id")]
+    all_components = [
+        c for c in spec.get("componentTree", []) if isinstance(c, dict) and c.get("id")
+    ]
     # Exclude only the TREE ROOT — a parentless component that everything else hangs off. It
     # is the spec's stand-in for the model group, and the viewer likewise never lists its root
     # as a part. Do NOT treat every parent as a container: in a real spec the blade and the
@@ -171,45 +179,55 @@ def main() -> int:
         parent = component.get("parent")
         # The tree root is not a part and is never "missing" — treat it as present so the
         # message below does not blame a top-level component's absence on its own root.
-        parent_built = bool(parent) and (parent in roots or parent in matched or norm(parent) in by_norm)
+        parent_built = bool(parent) and (
+            parent in roots or parent in matched or norm(parent) in by_norm
+        )
         if parent_built and severity != "error":
             # The normal, CORRECT case: a bevel, a jimping band or a choil is relief cut into
             # the part it belongs to, not a mesh of its own. Report it so the coverage is
             # visible, but do not call a right answer a defect.
-            findings.append({
-                "check": "component-folded",
-                "severity": "info",
-                "subject": cid,
-                "detail": f"no mesh of its own — folded into {parent!r}, which is built. Correct "
-                          f"for relief; a real gap only if this needed to be separable.",
-            })
+            findings.append(
+                {
+                    "check": "component-folded",
+                    "severity": "info",
+                    "subject": cid,
+                    "detail": f"no mesh of its own — folded into {parent!r}, which is built. Correct "
+                    f"for relief; a real gap only if this needed to be separable.",
+                }
+            )
         else:
-            findings.append({
-                "check": "component-missing",
-                "severity": severity,
-                "subject": cid,
-                "detail": f"specified component {cid!r} has no matching part in the built model"
-                          + ("" if not parent else f", and its parent {parent!r} is missing too"),
-            })
+            findings.append(
+                {
+                    "check": "component-missing",
+                    "severity": severity,
+                    "subject": cid,
+                    "detail": f"specified component {cid!r} has no matching part in the built model"
+                    + ("" if not parent else f", and its parent {parent!r} is missing too"),
+                }
+            )
 
     for part_key, owners in claimed.items():
         if len(owners) > 1:
-            findings.append({
-                "check": "components-fused",
-                "severity": "error",
-                "subject": by_norm[part_key][0],
-                "detail": f"components {', '.join(sorted(owners))} all resolve to the single part "
-                          f"{by_norm[part_key][0]!r} — they are fused, not separable",
-            })
+            findings.append(
+                {
+                    "check": "components-fused",
+                    "severity": "error",
+                    "subject": by_norm[part_key][0],
+                    "detail": f"components {', '.join(sorted(owners))} all resolve to the single part "
+                    f"{by_norm[part_key][0]!r} — they are fused, not separable",
+                }
+            )
 
     for name in filter(None, (args.require or "").split(",")):
         if norm(name) not in by_norm:
-            findings.append({
-                "check": "required-part-missing",
-                "severity": "error",
-                "subject": name.strip(),
-                "detail": f"required part {name.strip()!r} is absent from the built model",
-            })
+            findings.append(
+                {
+                    "check": "required-part-missing",
+                    "severity": "error",
+                    "subject": name.strip(),
+                    "detail": f"required part {name.strip()!r} is absent from the built model",
+                }
+            )
 
     # ---- B. detailInventory -> spec ------------------------------------------------
     keys = collect_local_feature_keys(spec)
@@ -221,41 +239,49 @@ def main() -> int:
             maps_to = maps_to.get("ref") or maps_to.get("id") or ""
         label = entry.get("id") or entry.get("description") or f"detail[{index}]"
         if not maps_to or not str(maps_to).strip():
-            findings.append({
-                "check": "detail-unmapped",
-                "severity": "warning",
-                "subject": str(label)[:60],
-                "detail": "inventoried detail has no mapsTo — it was observed but never assigned "
-                          "to a component or material field",
-            })
+            findings.append(
+                {
+                    "check": "detail-unmapped",
+                    "severity": "warning",
+                    "subject": str(label)[:60],
+                    "detail": "inventoried detail has no mapsTo — it was observed but never assigned "
+                    "to a component or material field",
+                }
+            )
         elif norm(maps_to) not in keys:
-            findings.append({
-                "check": "detail-dangling",
-                "severity": "warning",
-                "subject": str(label)[:60],
-                "detail": f"mapsTo {maps_to!r} matches no component, localFeature or localOverride",
-            })
+            findings.append(
+                {
+                    "check": "detail-dangling",
+                    "severity": "warning",
+                    "subject": str(label)[:60],
+                    "detail": f"mapsTo {maps_to!r} matches no component, localFeature or localOverride",
+                }
+            )
 
     # ---- C. model hygiene ----------------------------------------------------------
     unnamed = int(manifest.get("unnamedMeshes") or 0)
     if unnamed:
-        findings.append({
-            "check": "unnamed-meshes",
-            "severity": "warning",
-            "subject": f"{unnamed} mesh(es)",
-            "detail": "meshes belonging to no named part: they cannot be selected, and each one "
-                      "explodes on its own instead of riding the part it decorates",
-        })
+        findings.append(
+            {
+                "check": "unnamed-meshes",
+                "severity": "warning",
+                "subject": f"{unnamed} mesh(es)",
+                "detail": "meshes belonging to no named part: they cannot be selected, and each one "
+                "explodes on its own instead of riding the part it decorates",
+            }
+        )
 
     extras = sorted(set(by_norm) - set(claimed))
     for key in extras:
-        findings.append({
-            "check": "part-not-specified",
-            "severity": "info",
-            "subject": by_norm[key][0],
-            "detail": "built part has no matching component in the spec (fine for detail groups; "
-                      "a sign of spec drift for anything larger)",
-        })
+        findings.append(
+            {
+                "check": "part-not-specified",
+                "severity": "info",
+                "subject": by_norm[key][0],
+                "detail": "built part has no matching component in the spec (fine for detail groups; "
+                "a sign of spec drift for anything larger)",
+            }
+        )
 
     # ---- report --------------------------------------------------------------------
     rank = {"error": 0, "warning": 1, "info": 2}

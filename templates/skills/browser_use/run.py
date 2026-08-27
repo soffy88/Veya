@@ -39,7 +39,10 @@ def main(goal: str, url: str = "", max_steps: int = 10, **_: Any) -> dict[str, A
             # 登录态复用: 独立 profile, 不与系统浏览器互扰
             user_data_dir=str(PROFILES_DIR / "default"),
         )
-        llm = LLM(provider="litellm", model=os.environ.get("VEYA_LLM_MODEL") or "anthropic/claude-sonnet-4-6")
+        llm = LLM(
+            provider="litellm",
+            model=os.environ.get("VEYA_LLM_MODEL") or "anthropic/claude-sonnet-4-6",
+        )
         agent = Agent(task=goal, llm=llm, browser=browser, max_steps=max_steps)
         result = await agent.run()
         await browser.close()

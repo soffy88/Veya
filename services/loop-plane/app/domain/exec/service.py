@@ -39,7 +39,9 @@ class AdapterRegistry:
     def __init__(self) -> None:
         self._adapters: dict[str, AdapterSpec] = {}
 
-    def register(self, name: str, fn: Callable[..., Any], *, needs: int = 0, description: str = "") -> None:
+    def register(
+        self, name: str, fn: Callable[..., Any], *, needs: int = 0, description: str = ""
+    ) -> None:
         self._adapters[name] = AdapterSpec(name=name, fn=fn, needs=needs, description=description)
 
     def get(self, name: str) -> AdapterSpec | None:
@@ -55,11 +57,17 @@ class AdapterRegistry:
 class ExecService:
     """硬化执行服务：dispatch 单入口。"""
 
-    def __init__(self, *, workspace: Path | None = None, registry: AdapterRegistry | None = None) -> None:
+    def __init__(
+        self, *, workspace: Path | None = None, registry: AdapterRegistry | None = None
+    ) -> None:
         self._workspace = Path(workspace or Path.cwd())
         self._registry = registry or AdapterRegistry()
-        self._registry.register("echo", lambda text, **_ignored: {"echo": text}, needs=0,
-                                description="echo 适配器（测试/演示）")
+        self._registry.register(
+            "echo",
+            lambda text, **_ignored: {"echo": text},
+            needs=0,
+            description="echo 适配器（测试/演示）",
+        )
         self._runs: dict[str, dict[str, Any]] = {}
 
     @property
@@ -87,26 +95,49 @@ class ExecService:
         # 1. 白名单
         spec = self._registry.get(tool_name)
         if spec is None:
-            result = self._failed(run_id, tool_name, mode, "permission_denied", f"未知 tool {tool_name!r}")
+            result = self._failed(
+                run_id, tool_name, mode, "permission_denied", f"未知 tool {tool_name!r}"
+            )
             self._record(run_id, result)
             self._audit(audit, "execute", trace_id, run_id, result, "permission_denied")
-            self._event(store, "Run", run_id, "ActionFailed", {"tool_name": tool_name, "reason": "unknown_tool"}, trace_id)
+            self._event(
+                store,
+                "Run",
+                run_id,
+                "ActionFailed",
+                {"tool_name": tool_name, "reason": "unknown_tool"},
+                trace_id,
+            )
             return result
 
         # 2. 服务端强制收缩: mode 权限 < adapter.needs → 拒绝
         if mode_level < spec.needs:
-            result = self._failed(run_id, tool_name, mode, "permission_denied",
-                                  f"mode={mode} 权限不足 (adapter.needs={spec.needs})")
+            result = self._failed(
+                run_id,
+                tool_name,
+                mode,
+                "permission_denied",
+                f"mode={mode} 权限不足 (adapter.needs={spec.needs})",
+            )
             self._record(run_id, result)
             self._audit(audit, "execute", trace_id, run_id, result, "permission_denied")
-            self._event(store, "Run", run_id, "ActionFailed", {"tool_name": tool_name, "reason": "mode_contraction"}, trace_id)
+            self._event(
+                store,
+                "Run",
+                run_id,
+                "ActionFailed",
+                {"tool_name": tool_name, "reason": "mode_contraction"},
+                trace_id,
+            )
             return result
 
         # 3. sandbox 约束（SPEC §6.3）
         if mode == "sandbox":
             cmd = str(args.get("cmd") or args.get("command") or "")
             if _PYTHON_M_FORBIDDEN.search(cmd):
-                result = self._failed(run_id, tool_name, mode, "permission_denied", "禁止 python -m 任意路径")
+                result = self._failed(
+                    run_id, tool_name, mode, "permission_denied", "禁止 python -m 任意路径"
+                )
                 self._record(run_id, result)
                 self._audit(audit, "execute", trace_id, run_id, result, "forbidden")
                 return result
@@ -117,19 +148,40 @@ class ExecService:
         try:
             output = spec.fn(**args)
             result = {
-                "run_id": run_id, "ok": True, "mode": mode, "tool_name": tool_name,
-                "output": output, "error": "", "permission": "granted",
+                "run_id": run_id,
+                "ok": True,
+                "mode": mode,
+                "tool_name": tool_name,
+                "output": output,
+                "error": "",
+                "permission": "granted",
                 "trace_id": trace_id,
             }
             self._record(run_id, result)
             self._audit(audit, "execute", trace_id, run_id, result, "granted")
-            self._event(store, "Run", run_id, "ActionSucceeded", {"tool_name": tool_name, "mode": mode}, trace_id)
+            self._event(
+                store,
+                "Run",
+                run_id,
+                "ActionSucceeded",
+                {"tool_name": tool_name, "mode": mode},
+                trace_id,
+            )
             return result
         except Exception as exc:  # noqa: BLE001
-            result = self._failed(run_id, tool_name, mode, "failed", f"{type(exc).__name__}: {exc}", trace_id=trace_id)
+            result = self._failed(
+                run_id, tool_name, mode, "failed", f"{type(exc).__name__}: {exc}", trace_id=trace_id
+            )
             self._record(run_id, result)
             self._audit(audit, "execute", trace_id, run_id, result, "error")
-            self._event(store, "Run", run_id, "ActionFailed", {"tool_name": tool_name, "error": str(exc)}, trace_id)
+            self._event(
+                store,
+                "Run",
+                run_id,
+                "ActionFailed",
+                {"tool_name": tool_name, "error": str(exc)},
+                trace_id,
+            )
             return result
 
     def get_run(self, run_id: str) -> dict[str, Any]:
@@ -144,28 +196,62 @@ class ExecService:
         self._runs[run_id] = result
 
     @staticmethod
-    def _failed(run_id: str, tool_name: str, mode: str, permission: str, error: str, *, trace_id: str = "") -> dict[str, Any]:
+    def _failed(
+        run_id: str, tool_name: str, mode: str, permission: str, error: str, *, trace_id: str = ""
+    ) -> dict[str, Any]:
         return {
-            "run_id": run_id, "ok": False, "mode": mode, "tool_name": tool_name,
-            "output": None, "error": error, "permission": permission, "trace_id": trace_id,
+            "run_id": run_id,
+            "ok": False,
+            "mode": mode,
+            "tool_name": tool_name,
+            "output": None,
+            "error": error,
+            "permission": permission,
+            "trace_id": trace_id,
         }
 
     @staticmethod
-    def _audit(audit: AuditLog | None, phase: str, trace_id: str, run_id: str, result: dict[str, Any], decision: str) -> None:
+    def _audit(
+        audit: AuditLog | None,
+        phase: str,
+        trace_id: str,
+        run_id: str,
+        result: dict[str, Any],
+        decision: str,
+    ) -> None:
         if audit is None:
             return
         audit.append(
-            phase=phase, trace_id=trace_id,
-            decision_made={"run_id": run_id, "tool": result["tool_name"], "decision": decision,
-                           "ok": result["ok"], "mode": result["mode"]},
+            phase=phase,
+            trace_id=trace_id,
+            decision_made={
+                "run_id": run_id,
+                "tool": result["tool_name"],
+                "decision": decision,
+                "ok": result["ok"],
+                "mode": result["mode"],
+            },
             context_snapshot={"workspace": str(Path.cwd())},
         )
 
     @staticmethod
-    def _event(store: EventStore | None, agg_type: str, agg_id: str, event_type: str, payload: dict[str, Any], trace_id: str) -> None:
+    def _event(
+        store: EventStore | None,
+        agg_type: str,
+        agg_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        trace_id: str,
+    ) -> None:
         if store is None:
             return
-        store.append(aggregate_type=agg_type, aggregate_id=agg_id, event_type=event_type, payload=payload, trace_id=trace_id)
+        store.append(
+            aggregate_type=agg_type,
+            aggregate_id=agg_id,
+            event_type=event_type,
+            payload=payload,
+            trace_id=trace_id,
+        )
 
 
 __all__ = ["AdapterRegistry", "ExecService"]

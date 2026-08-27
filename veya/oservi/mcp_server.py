@@ -91,153 +91,173 @@ class MCPToolRegistry:
             for spec_name in sorted(ELEMENT_ALIASES):
                 element = resolve_element(spec_name)
                 if element is not None:
-                    self.register(MCPTool(
-                        name=spec_name.replace(".", "_"),
-                        description=f"3O element: {spec_name}",
-                        input_schema={
-                            "type": "object",
-                            "properties": {
-                                "arguments": {
-                                    "type": "object",
-                                    "description": f"Arguments for {spec_name}",
+                    self.register(
+                        MCPTool(
+                            name=spec_name.replace(".", "_"),
+                            description=f"3O element: {spec_name}",
+                            input_schema={
+                                "type": "object",
+                                "properties": {
+                                    "arguments": {
+                                        "type": "object",
+                                        "description": f"Arguments for {spec_name}",
+                                    },
                                 },
                             },
-                        },
-                        handler=element,
-                    ))
+                            handler=element,
+                        )
+                    )
         except Exception:
             pass
 
     def register_veya_tools(self):
         """Register veya's built-in tools."""
         # Browser tools
-        self.register(MCPTool(
-            name="browser_navigate",
-            description="Navigate to a URL using Playwright browser",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "URL to navigate to"},
-                    "headless": {"type": "boolean", "default": True},
-                },
-                "required": ["url"],
-            },
-        ))
-
-        self.register(MCPTool(
-            name="browser_screenshot",
-            description="Take a screenshot of the current browser page",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "selector": {"type": "string", "description": "CSS selector (optional)"},
-                },
-            },
-        ))
-
-        self.register(MCPTool(
-            name="spawn_agent",
-            description="Spawn an external AI coding agent (Claude Code, Codex, etc.)",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "agent_name": {
-                        "type": "string",
-                        "enum": ["claude-code", "codex", "aider", "cursor"],
+        self.register(
+            MCPTool(
+                name="browser_navigate",
+                description="Navigate to a URL using Playwright browser",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "URL to navigate to"},
+                        "headless": {"type": "boolean", "default": True},
                     },
-                    "prompt": {"type": "string"},
-                    "workdir": {"type": "string", "default": "."},
-                    "timeout_sec": {"type": "number", "default": 300},
+                    "required": ["url"],
                 },
-                "required": ["agent_name", "prompt"],
-            },
-        ))
+            )
+        )
+
+        self.register(
+            MCPTool(
+                name="browser_screenshot",
+                description="Take a screenshot of the current browser page",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "selector": {"type": "string", "description": "CSS selector (optional)"},
+                    },
+                },
+            )
+        )
+
+        self.register(
+            MCPTool(
+                name="spawn_agent",
+                description="Spawn an external AI coding agent (Claude Code, Codex, etc.)",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "agent_name": {
+                            "type": "string",
+                            "enum": ["claude-code", "codex", "aider", "cursor"],
+                        },
+                        "prompt": {"type": "string"},
+                        "workdir": {"type": "string", "default": "."},
+                        "timeout_sec": {"type": "number", "default": 300},
+                    },
+                    "required": ["agent_name", "prompt"],
+                },
+            )
+        )
 
         # Voice tools
-        self.register(MCPTool(
-            name="speech_to_text",
-            description="Transcribe speech audio to text",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "audio_base64": {"type": "string"},
-                    "provider": {"type": "string", "default": "openai"},
-                    "language": {"type": "string", "default": "en"},
+        self.register(
+            MCPTool(
+                name="speech_to_text",
+                description="Transcribe speech audio to text",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "audio_base64": {"type": "string"},
+                        "provider": {"type": "string", "default": "openai"},
+                        "language": {"type": "string", "default": "en"},
+                    },
+                    "required": ["audio_base64"],
                 },
-                "required": ["audio_base64"],
-            },
-        ))
+            )
+        )
 
-        self.register(MCPTool(
-            name="text_to_speech",
-            description="Synthesize speech from text",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string"},
-                    "voice": {"type": "string"},
-                    "provider": {"type": "string", "default": "openai"},
+        self.register(
+            MCPTool(
+                name="text_to_speech",
+                description="Synthesize speech from text",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string"},
+                        "voice": {"type": "string"},
+                        "provider": {"type": "string", "default": "openai"},
+                    },
+                    "required": ["text"],
                 },
-                "required": ["text"],
-            },
-        ))
+            )
+        )
 
         # Vision tools
-        self.register(MCPTool(
-            name="analyze_image",
-            description="Analyze an image using a vision-capable LLM",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "image_base64": {"type": "string"},
-                    "prompt": {"type": "string", "default": "Describe this image."},
-                    "provider": {"type": "string", "default": "openai"},
+        self.register(
+            MCPTool(
+                name="analyze_image",
+                description="Analyze an image using a vision-capable LLM",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "image_base64": {"type": "string"},
+                        "prompt": {"type": "string", "default": "Describe this image."},
+                        "provider": {"type": "string", "default": "openai"},
+                    },
+                    "required": ["image_base64"],
                 },
-                "required": ["image_base64"],
-            },
-        ))
+            )
+        )
 
         # Code tools
-        self.register(MCPTool(
-            name="code_review",
-            description="Review code for bugs, security, and style issues",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "code": {"type": "string"},
-                    "language": {"type": "string", "default": "python"},
+        self.register(
+            MCPTool(
+                name="code_review",
+                description="Review code for bugs, security, and style issues",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string"},
+                        "language": {"type": "string", "default": "python"},
+                    },
+                    "required": ["code"],
                 },
-                "required": ["code"],
-            },
-        ))
+            )
+        )
 
-        self.register(MCPTool(
-            name="ripgrep_search",
-            description="Fast code search using ripgrep",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string"},
-                    "path": {"type": "string", "default": "."},
-                    "glob": {"type": "string"},
+        self.register(
+            MCPTool(
+                name="ripgrep_search",
+                description="Fast code search using ripgrep",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "pattern": {"type": "string"},
+                        "path": {"type": "string", "default": "."},
+                        "glob": {"type": "string"},
+                    },
+                    "required": ["pattern"],
                 },
-                "required": ["pattern"],
-            },
-        ))
+            )
+        )
 
         # Knowledge tools
-        self.register(MCPTool(
-            name="knowledge_search",
-            description="Search the agent's knowledge store",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "type": {"type": "string", "default": "all"},
+        self.register(
+            MCPTool(
+                name="knowledge_search",
+                description="Search the agent's knowledge store",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "type": {"type": "string", "default": "all"},
+                    },
+                    "required": ["query"],
                 },
-                "required": ["query"],
-            },
-        ))
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -362,10 +382,12 @@ class MCPServer:
         try:
             req_data = json.loads(raw)
         except json.JSONDecodeError:
-            return json.dumps(JSONRPCResponse(
-                id=None,
-                error={"code": -32700, "message": "Parse error"},
-            ).to_dict())
+            return json.dumps(
+                JSONRPCResponse(
+                    id=None,
+                    error={"code": -32700, "message": "Parse error"},
+                ).to_dict()
+            )
 
         req = JSONRPCRequest(
             id=req_data.get("id"),
@@ -385,23 +407,30 @@ class MCPServer:
 
         handler = method_handlers.get(req.method)
         if handler is None:
-            return json.dumps(JSONRPCResponse(
-                id=req.id,
-                error={"code": -32601, "message": f"Method not found: {req.method}"},
-            ).to_dict())
+            return json.dumps(
+                JSONRPCResponse(
+                    id=req.id,
+                    error={"code": -32601, "message": f"Method not found: {req.method}"},
+                ).to_dict()
+            )
 
         try:
             result = handler(req.params)
             if hasattr(result, "__await__"):
                 result = await result
-            return json.dumps(JSONRPCResponse(
-                id=req.id, result=result,
-            ).to_dict())
+            return json.dumps(
+                JSONRPCResponse(
+                    id=req.id,
+                    result=result,
+                ).to_dict()
+            )
         except Exception as e:
-            return json.dumps(JSONRPCResponse(
-                id=req.id,
-                error={"code": -32603, "message": str(e)},
-            ).to_dict())
+            return json.dumps(
+                JSONRPCResponse(
+                    id=req.id,
+                    error={"code": -32603, "message": str(e)},
+                ).to_dict()
+            )
 
     # ── Transport ──────────────────────────────────────────────────────
 

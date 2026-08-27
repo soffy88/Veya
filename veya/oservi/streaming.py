@@ -328,15 +328,11 @@ class VoiceStreamManager:
 
     async def push_turn_end(self):
         """Signal the end of a conversation turn."""
-        await self.manager.emit(
-            StreamEventType.PROGRESS, {"type": "turn_end"}
-        )
+        await self.manager.emit(StreamEventType.PROGRESS, {"type": "turn_end"})
 
     async def push_error(self, error: str):
         """Push an error event."""
-        await self.manager.emit(
-            StreamEventType.ERROR, {"type": "error", "message": error}
-        )
+        await self.manager.emit(StreamEventType.ERROR, {"type": "error", "message": error})
 
     def clear_audio_buffer(self) -> bytes:
         """Clear and return the accumulated audio input buffer."""
@@ -362,13 +358,15 @@ class VoiceStreamManager:
     def get_stats(self) -> dict[str, Any]:
         """Get voice stream statistics."""
         base_stats = self.manager.get_stats()
-        base_stats.update({
-            "audio_chunks": len(self.audio_buffer),
-            "audio_bytes": sum(len(c) for c in self.audio_buffer),
-            "tts_chunks": len(self.tts_buffer),
-            "tts_bytes": sum(len(c) for c in self.tts_buffer),
-            "current_transcript": self.current_transcript[:100],
-        })
+        base_stats.update(
+            {
+                "audio_chunks": len(self.audio_buffer),
+                "audio_bytes": sum(len(c) for c in self.audio_buffer),
+                "tts_chunks": len(self.tts_buffer),
+                "tts_bytes": sum(len(c) for c in self.tts_buffer),
+                "current_transcript": self.current_transcript[:100],
+            }
+        )
         return base_stats
 
 

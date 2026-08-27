@@ -22,20 +22,35 @@ SETUP_STEPS: Final = (
     ),
     ("reference-admission", "python3 forge/stage1_intake/check_reference_admission.py {reference}"),
     ("local-spec-search", "Run the local evidence search before authoring the assessment"),
-    ("pre-spec-assessment", "python3 forge/stage2_spec/new_pre_spec_assessment.py \"<name>\" --image {reference} --out assessment.json"),
-    ("detail-inventory", "python3 forge/stage1_intake/build_detail_inventory.py {reference} --mode grid-3x3 --out-dir detail-inventory --out di.json"),
+    (
+        "pre-spec-assessment",
+        'python3 forge/stage2_spec/new_pre_spec_assessment.py "<name>" --image {reference} --out assessment.json',
+    ),
+    (
+        "detail-inventory",
+        "python3 forge/stage1_intake/build_detail_inventory.py {reference} --mode grid-3x3 --out-dir detail-inventory --out di.json",
+    ),
     (
         "projection-route",
         "Record whether projection is required; if required run solve_camera_pose.py, delight_albedo.py, and bake_projected_texture.py, otherwise skip with a reason",
     ),
-    ("spec-authoring", "python3 forge/stage2_spec/new_sculpt_spec.py \"<name>\" --image {reference} --assessment assessment.json --out object-sculpt-spec.json"),
+    (
+        "spec-authoring",
+        'python3 forge/stage2_spec/new_sculpt_spec.py "<name>" --image {reference} --assessment assessment.json --out object-sculpt-spec.json',
+    ),
     (
         "material-evidence",
         "python3 forge/stage1_intake/material_region_analysis.py --manifest material-regions.json --out-dir material-evidence --out material-analysis.json"
         " (single-crop route: analyze_texture.py + extract_pbr_evidence.py per verified crop; otherwise skip with a reason)",
     ),
-    ("material-spec-wiring", "python3 forge/stage2_spec/apply_material_analysis.py {spec} material-analysis.json --in-place"),
-    ("strict-validation", "python3 forge/stage2_spec/validate_sculpt_spec.py {spec} --strict-quality"),
+    (
+        "material-spec-wiring",
+        "python3 forge/stage2_spec/apply_material_analysis.py {spec} material-analysis.json --in-place",
+    ),
+    (
+        "strict-validation",
+        "python3 forge/stage2_spec/validate_sculpt_spec.py {spec} --strict-quality",
+    ),
 )
 
 CHARACTER_STEPS: Final = (
@@ -51,18 +66,45 @@ CHARACTER_STEPS: Final = (
 
 CS2_STEPS: Final = (
     ("cs2-contract-read", "Read grimoire/intake/cs2_intake_contract.md completely"),
-    ("cs2-authoritative-classification", "Obtain an authoritative CS2 family/subtype classification record"),
-    ("cs2-manifest", "python3 forge/stage1_intake/cs2_manifest.py {reference} --classification classification.json --out cs2-intake.json"),
+    (
+        "cs2-authoritative-classification",
+        "Obtain an authoritative CS2 family/subtype classification record",
+    ),
+    (
+        "cs2-manifest",
+        "python3 forge/stage1_intake/cs2_manifest.py {reference} --classification classification.json --out cs2-intake.json",
+    ),
 )
 
 PASS_STEPS: Final = (
-    ("build-current-pass", "python3 forge/stage3_build/generate_threejs_factory.py {spec} --out src/createObjectModel.ts --pass-id {pass_id}"),
-    ("render-capture", "Render {pass_id} and capture the fixed review view plus meaningful orbit views"),
-    ("review-contract-read", "Read grimoire/review/gates_reference.md and grimoire/review/self_correction.md completely"),
-    ("tier1-diagnostics", "python3 forge/stage4_review/diagnose_render.py --reference {reference} --render <shot> --spec {spec} --pass-id {pass_id} --in-place"),
-    ("multi-angle-review", "python3 forge/stage4_review/diagnose_render_multi_angle.py --reference <fixed-shot> --orbit <orbit-shot> --orbit <orbit-shot>"),
-    ("pass-gate-check", "python3 forge/stage3_build/orchestrate_passes.py check {spec} --pass-id {pass_id}"),
-    ("ai-review-recorded", "Create the comparison sheet, inspect it with agent vision, and append exactly one review action"),
+    (
+        "build-current-pass",
+        "python3 forge/stage3_build/generate_threejs_factory.py {spec} --out src/createObjectModel.ts --pass-id {pass_id}",
+    ),
+    (
+        "render-capture",
+        "Render {pass_id} and capture the fixed review view plus meaningful orbit views",
+    ),
+    (
+        "review-contract-read",
+        "Read grimoire/review/gates_reference.md and grimoire/review/self_correction.md completely",
+    ),
+    (
+        "tier1-diagnostics",
+        "python3 forge/stage4_review/diagnose_render.py --reference {reference} --render <shot> --spec {spec} --pass-id {pass_id} --in-place",
+    ),
+    (
+        "multi-angle-review",
+        "python3 forge/stage4_review/diagnose_render_multi_angle.py --reference <fixed-shot> --orbit <orbit-shot> --orbit <orbit-shot>",
+    ),
+    (
+        "pass-gate-check",
+        "python3 forge/stage3_build/orchestrate_passes.py check {spec} --pass-id {pass_id}",
+    ),
+    (
+        "ai-review-recorded",
+        "Create the comparison sheet, inspect it with agent vision, and append exactly one review action",
+    ),
     ("pipeline-sync", "python3 forge/stage3_build/orchestrate_passes.py sync {spec} --in-place"),
 )
 
@@ -74,8 +116,14 @@ CS2_PASS_STEPS: Final = (
 )
 
 FINAL_STEPS: Final = (
-    ("part-coverage", "python3 forge/stage4_review/check_part_coverage.py --spec {spec} --manifest parts.json"),
-    ("action-ready", "Verify explodable/clickable hierarchy, pivots, sockets, and root.userData.sculptRuntime"),
+    (
+        "part-coverage",
+        "python3 forge/stage4_review/check_part_coverage.py --spec {spec} --manifest parts.json",
+    ),
+    (
+        "action-ready",
+        "Verify explodable/clickable hierarchy, pivots, sockets, and root.userData.sculptRuntime",
+    ),
 )
 
 
@@ -114,7 +162,9 @@ def new_state(
         setup[insertion:insertion] = [_step(*item, scope="setup") for item in CHARACTER_STEPS]
     pass_steps = list(PASS_STEPS)
     if profile == "cs2":
-        review_index = next(index for index, item in enumerate(pass_steps) if item[0] == "ai-review-recorded")
+        review_index = next(
+            index for index, item in enumerate(pass_steps) if item[0] == "ai-review-recorded"
+        )
         pass_steps[review_index:review_index] = list(CS2_PASS_STEPS)
     state = {
         "schemaVersion": SCHEMA_VERSION,
@@ -194,7 +244,9 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     validate_state(state)
     target = path.expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    handle, temporary = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             json.dump(state, stream, indent=2, ensure_ascii=False)
@@ -276,7 +328,9 @@ def mark_steps(
     if status not in {"done", "skipped", "pending"}:
         raise WorkflowStateError("mark status must be done, skipped, or pending")
     if status == "done" and not evidence:
-        raise WorkflowStateError("completing a mandatory step requires at least one --evidence value")
+        raise WorkflowStateError(
+            "completing a mandatory step requires at least one --evidence value"
+        )
     if status == "skipped" and not reason.strip():
         raise WorkflowStateError("skipping a mandatory step requires --reason")
     by_id = {entry["id"]: entry for entry in state["checklist"]}
@@ -370,7 +424,9 @@ def sync_from_spec(state: dict[str, Any], spec: dict[str, Any], current_pass: st
     if pass_count >= loops["maxPerPass"]:
         state["status"] = "stopped"
         state["currentStep"] = "stopped"
-        state["stopReason"] = f"max-correction-loops-reached:{current_pass}:{pass_count}/{loops['maxPerPass']}"
+        state["stopReason"] = (
+            f"max-correction-loops-reached:{current_pass}:{pass_count}/{loops['maxPerPass']}"
+        )
     elif total >= loops["maxTotal"]:
         state["status"] = "stopped"
         state["currentStep"] = "stopped"
@@ -396,7 +452,9 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
             "totalCount": loops["total"],
             "maxTotal": loops["maxTotal"],
         },
-        "nextCommand": None if state["status"] != "active" or entry is None else _format_command(state, entry),
+        "nextCommand": None
+        if state["status"] != "active" or entry is None
+        else _format_command(state, entry),
         "stopReason": state.get("stopReason") or None,
         "pending": [
             entry["id"]

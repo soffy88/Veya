@@ -122,8 +122,8 @@ def generate_fn(task, signature, parent_artifact) -> VideoArtifact:
 **真实 hevi 接入** (`templates/video_services/hevi_client.py`):
 
 ```python
-client = HeviGenerateClient(base_url="http://127.0.0.1:8000")   # hevi API
-path = client.generate(prompt, spec, failure_context)            # → Path (MP4)
+client = HeviGenerateClient(base_url="http://127.0.0.1:8000")  # hevi API
+path = client.generate(prompt, spec, failure_context)  # → Path (MP4)
 ```
 
 - hevi 侧: `POST /api/lite/generate` 同步端点 (hevi/pipeline_lite/oapp/lite_router.py,

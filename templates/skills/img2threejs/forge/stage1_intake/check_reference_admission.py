@@ -165,7 +165,9 @@ def check_admission(
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path)
-    parser.add_argument("--viewpoint", default="reference", help="viewpoint tag this ref is ground truth for")
+    parser.add_argument(
+        "--viewpoint", default="reference", help="viewpoint tag this ref is ground truth for"
+    )
     parser.add_argument(
         "--against",
         default="",
@@ -193,7 +195,9 @@ def main(argv: list[str]) -> int:
         print(json.dumps(verdict, indent=2, ensure_ascii=False))
     else:
         status = "ADMITTED" if verdict["admitted"] else "REJECTED"
-        print(f"{status}  ({verdict['provenance']['viewpoint']})  pHash={verdict['provenance']['pHash']}")
+        print(
+            f"{status}  ({verdict['provenance']['viewpoint']})  pHash={verdict['provenance']['pHash']}"
+        )
         for reason in verdict["reasons"]:
             print(f"  - {reason}")
     return 0 if verdict["admitted"] else 1

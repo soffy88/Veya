@@ -17,6 +17,7 @@ from typing import Any
 
 try:
     import httpx
+
     _HAS_HTTPX = True
 except ImportError:
     httpx = None  # type: ignore
@@ -109,17 +110,31 @@ async def speech_to_text(
 
     if provider == "openai":
         return await _stt_openai(
-            audio_file_data, api_key, endpoint, resolved_model, language, prompt,
-            response_format, timeout,
+            audio_file_data,
+            api_key,
+            endpoint,
+            resolved_model,
+            language,
+            prompt,
+            response_format,
+            timeout,
         )
     elif provider == "deepgram":
         return await _stt_deepgram(
-            audio_file_data, api_key, endpoint, resolved_model, language,
+            audio_file_data,
+            api_key,
+            endpoint,
+            resolved_model,
+            language,
             timeout,
         )
     elif provider == "dashscope":
         return await _stt_dashscope(
-            audio_file_data, api_key, endpoint, resolved_model, language,
+            audio_file_data,
+            api_key,
+            endpoint,
+            resolved_model,
+            language,
             timeout,
         )
     else:

@@ -54,9 +54,7 @@ def build_audit(root: Path) -> dict[str, Any]:
     report = _load_report(root)
     failures = _load_failures(root, report["eval_run_id"])
     domains = Counter(item.get("domain", "unknown") for item in failures)
-    categories = Counter(
-        item.get("scenario", {}).get("category", "unknown") for item in failures
-    )
+    categories = Counter(item.get("scenario", {}).get("category", "unknown") for item in failures)
     reasons = Counter(reason for item in failures for reason in item.get("reasons", []))
     failed_metrics = [name for name, metric in report["metrics"].items() if not metric["passed"]]
     passing_metrics = [name for name, metric in report["metrics"].items() if metric["passed"]]
@@ -146,9 +144,7 @@ def render_audit(audit: dict[str, Any]) -> str:
         lines.append(f"### {dimension}")
         lines.append("")
         for value, body in values.items():
-            lines.append(
-                f"- `{value}` ({body['scenario_count']} scenarios):"
-            )
+            lines.append(f"- `{value}` ({body['scenario_count']} scenarios):")
             for name, metric in body["failed_metrics"].items():
                 ci = metric["ci95"]
                 ci_text = "null" if ci is None else f"[{ci['low']:.4f}, {ci['high']:.4f}]"

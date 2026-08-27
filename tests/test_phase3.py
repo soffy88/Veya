@@ -27,6 +27,7 @@ oskill = load_oskill()
 # 一、最优干预选择 (期望效用)
 # =========================================================================
 
+
 def test_utility_selection_picks_correct_optimal():
     """已知 ΔP: 高 ΔP 且低成本者胜出。"""
     cands = [
@@ -61,7 +62,7 @@ def test_negative_utility_dropped_no_least_bad():
         oprim.InterventionCandidate("worse", delta_p=-0.1, cost=0.1, risk=0.1),
     ]
     r = oprim.select_intervention(cands)
-    assert r.best is None                        # 不输出 least-bad
+    assert r.best is None  # 不输出 least-bad
     assert len(r.rejected) == 2
 
 
@@ -72,7 +73,7 @@ def test_selection_deterministic_and_order_independent():
     ]
     r1 = oprim.select_intervention(list(reversed(cands)))
     r2 = oprim.select_intervention(cands)
-    assert r1.best.action_id == r2.best.action_id == "a"   # 平局 → id 字典序
+    assert r1.best.action_id == r2.best.action_id == "a"  # 平局 → id 字典序
 
 
 def test_from_diagnosis_report_aliases():
@@ -81,7 +82,7 @@ def test_from_diagnosis_report_aliases():
         "candidates": [
             {"id": "restart", "ΔP": 0.3, "cost": 0.5, "risk": 0.1},
             {"action_id": "scale", "delta_p_success": 0.25, "cost": 0.2},
-            {"name": "no_delta", "cost": 0.1},              # 无 ΔP → 跳过
+            {"name": "no_delta", "cost": 0.1},  # 无 ΔP → 跳过
         ],
     }
     cands = oprim.from_diagnosis_report(report)
@@ -96,14 +97,14 @@ def test_from_diagnosis_report_aliases():
 # 二、在线 CPD 更新 (Dirichlet / EMA)
 # =========================================================================
 
+
 def test_dirichlet_update_converges_to_truth():
     """500 次真实观测 (P(fault)=0.3) → P(fault) 收敛到 ~0.3。"""
     rng = random.Random(42)
     cpd = oskill.CategoricalCPD.uniform(["success", "fault"], parents=["mode"])
     for _ in range(500):
         fault = rng.random() < 0.3
-        cpd = oskill.dirichlet_update(cpd, "degraded",
-                                      "fault" if fault else "success")
+        cpd = oskill.dirichlet_update(cpd, "degraded", "fault" if fault else "success")
     p = cpd.p_fault("degraded")
     assert 0.25 <= p <= 0.35, f"P(fault)={p} 未收敛到 0.3"
     # 均匀先验: 伪计数 strength=1, 首次成功观测后 P(fault)=1/3
@@ -122,8 +123,8 @@ def test_cpd_column_isolation():
         parents=["mode"],
     )
     cpd2 = oskill.dirichlet_update(cpd, "degraded", "success", strength=10.0)
-    assert cpd2.p_fault("healthy") == pytest.approx(0.1)      # 未动
-    assert cpd2.p_fault("degraded") < cpd.p_fault("degraded") # 该行已更新
+    assert cpd2.p_fault("healthy") == pytest.approx(0.1)  # 未动
+    assert cpd2.p_fault("degraded") < cpd.p_fault("degraded")  # 该行已更新
 
 
 def test_ema_tracks_drift_faster():
@@ -142,13 +143,14 @@ def test_ema_tracks_drift_faster():
         d = oskill.dirichlet_update(d, "m", "fault" if fault else "success", strength=1.0)
         e = oskill.ema_update(e, "m", "fault" if fault else "success", alpha=0.1)
     p_d, p_e = d.p_fault("m"), e.p_fault("m")
-    assert p_e > p_d                               # EMA 对漂移响应更快
+    assert p_e > p_d  # EMA 对漂移响应更快
     assert 0.3 < p_d < 0.8 and 0.5 < p_e < 0.9
 
 
 def test_cpd_json_roundtrip():
-    cpd = oskill.CategoricalCPD(child_states=["success", "fault"],
-                                counts={"degraded": [3.0, 7.0]}, parents=["mode"])
+    cpd = oskill.CategoricalCPD(
+        child_states=["success", "fault"], counts={"degraded": [3.0, 7.0]}, parents=["mode"]
+    )
     restored = oskill.CategoricalCPD.from_dict(json.loads(json.dumps(cpd.to_dict())))
     assert restored.p_fault("degraded") == pytest.approx(0.7)
     assert restored.child_states == ["success", "fault"]
@@ -157,6 +159,7 @@ def test_cpd_json_roundtrip():
 # =========================================================================
 # 三、闭环事务: 可修复故障 → 失败率显著下降
 # =========================================================================
+
 
 class FaultyEnv:
     """真环境: degraded 下 P(fault)=0.7, healthy 下 P(fault)=0.1。
@@ -197,9 +200,9 @@ async def test_closed_loop_failure_rate_drops(tmp_path):
     ]
     for _ in range(300):
         result = await _run_closed_loop(tmp_path, cpd, interventions, env, rounds=1)
-        cpd = oskill.CategoricalCPD.from_dict(result["cpd_after"])   # 在线积累
+        cpd = oskill.CategoricalCPD.from_dict(result["cpd_after"])  # 在线积累
 
-    assert result["executed_failure_rate"] < 0.3    # 显著低于不干预的 0.7
+    assert result["executed_failure_rate"] < 0.3  # 显著低于不干预的 0.7
     # CPD 向真实频率收敛
     assert abs(cpd.p_fault("degraded") - 0.7) < 0.08
     assert abs(cpd.p_fault("healthy") - 0.1) < 0.08
@@ -212,8 +215,9 @@ async def _run_closed_loop(tmp_path, cpd, interventions, env, rounds=1):
     out = tmp_path / "reports"
     out.mkdir(parents=True, exist_ok=True)
     inp = omodul.ClosedLoopInput(cpd, interventions=interventions)
-    cfg = omodul.ClosedLoopConfig(simulate=False, execute_fn=env, rounds=rounds,
-                                  baseline_config="degraded")
+    cfg = omodul.ClosedLoopConfig(
+        simulate=False, execute_fn=env, rounds=rounds, baseline_config="degraded"
+    )
     return await omodul.closed_loop_intervene(cfg, inp, out / f"r{len(list(out.iterdir()))}")
 
 
@@ -249,8 +253,7 @@ async def test_closed_loop_from_diagnosis_report(tmp_path):
     out = tmp_path / "reports"
     out.mkdir(parents=True, exist_ok=True)
     inp = omodul.ClosedLoopInput(cpd, diagnosis=diagnosis)
-    cfg = omodul.ClosedLoopConfig(simulate=True, rounds=10, seed=3,
-                                  baseline_config="degraded")
+    cfg = omodul.ClosedLoopConfig(simulate=True, rounds=10, seed=3, baseline_config="degraded")
     result = await omodul.closed_loop_intervene(cfg, inp, out)
     assert result["status"] == "executed"
     assert len(result["executed"]) == 10
@@ -265,6 +268,7 @@ async def test_closed_loop_from_diagnosis_report(tmp_path):
 # =========================================================================
 # 四、威胁模型演化: 蜜罐信号 → 后验 → 隔离
 # =========================================================================
+
 
 @pytest.mark.asyncio
 async def test_hostile_signals_lead_to_quarantine(tmp_path):
@@ -308,21 +312,23 @@ async def test_threat_profile_persistence_roundtrip(tmp_path):
     out.mkdir(parents=True, exist_ok=True)
 
     inp1 = omodul.ThreatModelInput(
-        [{"kind": "exfiltration", "severity": 0.9}], entity="e1",
-        profile_path=str(profile))
+        [{"kind": "exfiltration", "severity": 0.9}], entity="e1", profile_path=str(profile)
+    )
     r1 = await omodul.threat_model_evolve(
-        omodul.ThreatModelConfig(quarantine_threshold=0.9), inp1, out)
+        omodul.ThreatModelConfig(quarantine_threshold=0.9), inp1, out
+    )
     assert (profile).exists()
     saved = json.loads(profile.read_text(encoding="utf-8"))
     assert saved["posterior"] == r1["posterior"]
 
     # 第二次: 不传 prior → 从画像读旧后验, 一个弱信号就能推到更高
     inp2 = omodul.ThreatModelInput(
-        [{"kind": "probe", "severity": 0.6}], entity="e1",
-        profile_path=str(profile))
+        [{"kind": "probe", "severity": 0.6}], entity="e1", profile_path=str(profile)
+    )
     r2 = await omodul.threat_model_evolve(
-        omodul.ThreatModelConfig(quarantine_threshold=0.9), inp2, out)
-    assert r2["hostile_prob"] > r1["hostile_prob"]   # 记忆让判断更锐利
+        omodul.ThreatModelConfig(quarantine_threshold=0.9), inp2, out
+    )
+    assert r2["hostile_prob"] > r1["hostile_prob"]  # 记忆让判断更锐利
 
 
 @pytest.mark.asyncio
@@ -332,10 +338,10 @@ async def test_quarantine_threshold_configurable(tmp_path):
     out = tmp_path / "reports"
     out.mkdir(parents=True, exist_ok=True)
     low = await omodul.threat_model_evolve(
-        omodul.ThreatModelConfig(quarantine_threshold=0.5),
-        omodul.ThreatModelInput(signals), out)
+        omodul.ThreatModelConfig(quarantine_threshold=0.5), omodul.ThreatModelInput(signals), out
+    )
     high = await omodul.threat_model_evolve(
-        omodul.ThreatModelConfig(quarantine_threshold=0.99),
-        omodul.ThreatModelInput(signals), out)
+        omodul.ThreatModelConfig(quarantine_threshold=0.99), omodul.ThreatModelInput(signals), out
+    )
     assert low["quarantined"] is True
     assert high["quarantined"] is False

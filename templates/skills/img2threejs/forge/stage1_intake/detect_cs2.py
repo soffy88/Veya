@@ -28,6 +28,7 @@ from pathlib import Path
 # Image format readers (pure stdlib, no PIL)
 # ---------------------------------------------------------------------------
 
+
 def _png_dimensions(data: bytes) -> tuple[int, int] | None:
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
         return struct.unpack(">II", data[16:24])
@@ -100,14 +101,14 @@ def _read_dimensions(data: bytes) -> tuple[int, int] | None:
 # route early.
 CS2_WEAPON_ASPECT_RATIOS: dict[str, tuple[float, float]] = {
     # knives — typically shown at ~15-45° angle
-    "knife_long": (1.8, 4.0),     # Bowie, M9, Bayonet, Falchion
-    "knife_curved": (0.8, 1.5),   # Karambit, Talon
-    "knife_folder": (1.2, 2.5),   # Flip, Gut, Navaja
-    "knife_butterfly": (0.6, 1.2),# Butterfly (open)
+    "knife_long": (1.8, 4.0),  # Bowie, M9, Bayonet, Falchion
+    "knife_curved": (0.8, 1.5),  # Karambit, Talon
+    "knife_folder": (1.2, 2.5),  # Flip, Gut, Navaja
+    "knife_butterfly": (0.6, 1.2),  # Butterfly (open)
     # rifles — shown horizontally or at slight angle
     "rifle_horizontal": (2.5, 5.0),  # AK-47, M4A4, AWP
     # pistols — shown at ~20-45° angle
-    "pistol_angle": (1.0, 2.0),   # Glock, USP, Deagle, AK pistol
+    "pistol_angle": (1.0, 2.0),  # Glock, USP, Deagle, AK pistol
     # gloves — shown as pair or single
     "gloves": (0.8, 1.5),
 }
@@ -242,11 +243,16 @@ def detect_cs2_signals(path: Path) -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("image", type=Path, help="Path to reference image")
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
-    parser.add_argument("--threshold", type=float, default=0.3, help="CS2 candidate threshold (default: 0.3)")
+    parser.add_argument(
+        "--threshold", type=float, default=0.3, help="CS2 candidate threshold (default: 0.3)"
+    )
     args = parser.parse_args(argv)
 
     if not args.image.exists():

@@ -27,9 +27,7 @@ logger = None  # lazy
 _DB_PATH = os.environ.get(
     "VEYA_DECISION_LEDGER_DB", str(Path.home() / ".veya" / "decision_ledger.db")
 )
-_DEFAULT_RULE_MIN_CONFIDENCE = float(
-    os.environ.get("DECISION_RULE_MIN_CONFIDENCE", "0.5")
-)
+_DEFAULT_RULE_MIN_CONFIDENCE = float(os.environ.get("DECISION_RULE_MIN_CONFIDENCE", "0.5"))
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (
@@ -112,9 +110,7 @@ class DecisionLedger:
 
     # ── 读 ─────────────────────────────────────────────────────────
     def get_decision(self, decision_id: str) -> dict[str, Any] | None:
-        row = self._conn.execute(
-            "SELECT * FROM decisions WHERE id = ?", (decision_id,)
-        ).fetchone()
+        row = self._conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
         return _row_to_dict(row) if row else None
 
     def trace_decision_chain(self, decision_id: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -173,9 +169,7 @@ class DecisionLedger:
         scored.sort(key=lambda t: t[0], reverse=True)
         return [d for _, d in scored[:limit]]
 
-    def check_decision_rules(
-        self, criteria: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
+    def check_decision_rules(self, criteria: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """轻量策略门 (Semantica check_decision_rules 内化): 对账本存量决策跑规则。
 
         内置规则: 低置信度决策计数 (可配置阈值); 未来规则 (如 category 专属
@@ -289,8 +283,14 @@ def record_decision(
     metadata: dict[str, Any] | None = None,
 ) -> str:
     return ledger.record_decision(
-        category, scenario, reasoning, outcome, confidence,
-        parent_id=parent_id, source=source, metadata=metadata,
+        category,
+        scenario,
+        reasoning,
+        outcome,
+        confidence,
+        parent_id=parent_id,
+        source=source,
+        metadata=metadata,
     )
 
 
@@ -298,7 +298,9 @@ def trace_decision_chain(decision_id: str, limit: int = 20) -> list[dict[str, An
     return ledger.trace_decision_chain(decision_id, limit=limit)
 
 
-def find_similar_decisions(query: str, *, category: str | None = None, limit: int = 5) -> list[dict[str, Any]]:
+def find_similar_decisions(
+    query: str, *, category: str | None = None, limit: int = 5
+) -> list[dict[str, Any]]:
     return ledger.find_similar_decisions(query, category=category, limit=limit)
 
 

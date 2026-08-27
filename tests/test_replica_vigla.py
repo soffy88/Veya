@@ -31,10 +31,12 @@ from oservi.agent_bench_harness import agent_bench_harness  # noqa: E402
 # G5 — 规范化事件管道 (原语层先测)
 # =========================================================================
 
+
 def test_deserialize_vendor_formats():
     # claude stream-json
-    evts = deserialize_vendor(b'{"type":"content_block_delta","delta":{"text":"hi"}}\n'
-                              b'not-json-line\n', "claude")
+    evts = deserialize_vendor(
+        b'{"type":"content_block_delta","delta":{"text":"hi"}}\nnot-json-line\n', "claude"
+    )
     assert evts[0]["type"] == "content_block_delta"
     assert evts[1]["type"] == "text"  # 非 JSON 行兜底
 
@@ -45,7 +47,10 @@ def test_canonical_event_ingest_fingerprint_and_persist(tmp_path):
 
     out = canonical_event_ingest(
         b'{"type":"message_start","content":"start"}\n{"type":"text_delta","delta":"hello"}',
-        "codex", source="mission/m1", sink=JsonlSink(str(sink_path)))
+        "codex",
+        source="mission/m1",
+        sink=JsonlSink(str(sink_path)),
+    )
     assert out["count"] == 2
     assert out["persisted"] is True
     assert len(out["fingerprint"]) == 64  # sha256
@@ -70,6 +75,7 @@ def test_fingerprint_detects_tamper():
 # G3 — Mission Supervisor (真实 git diff)
 # =========================================================================
 
+
 @pytest.fixture
 def git_repo(tmp_path):
     repo = tmp_path / "repo"
@@ -88,13 +94,20 @@ def _make_diff(repo: Path, changes: dict[str, str]) -> str:
     for fname, content in changes.items():
         (repo / fname).write_text(content)
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-    r = subprocess.run(["git", "diff", "--cached", "--no-color"], cwd=repo,
-                       capture_output=True, text=True, check=True)
+    r = subprocess.run(
+        ["git", "diff", "--cached", "--no-color"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     return r.stdout
 
 
 def test_mission_supervisor_blocks_secret_leak(git_repo):
-    diff = _make_diff(git_repo, {"app.py": "print('v2')\nKEY='sk-1234567890abcdef1234567890abcdef'\n"})
+    diff = _make_diff(
+        git_repo, {"app.py": "print('v2')\nKEY='sk-1234567890abcdef1234567890abcdef'\n"}
+    )
     out = mission_supervisor("m1", diff)
     assert out["verdict"] == "block"
     assert any("秘钥" in v for v in out["violations"])
@@ -110,8 +123,7 @@ def test_mission_supervisor_blocks_protected_path(git_repo):
 
 def test_mission_supervisor_path_allowlist(git_repo):
     diff = _make_diff(git_repo, {"outside.txt": "x\n"})
-    out = mission_supervisor("m3", diff,
-                             policy={"path_allowlist": ["src/"]})
+    out = mission_supervisor("m3", diff, policy={"path_allowlist": ["src/"]})
     assert out["verdict"] == "request_changes"
     assert any("越界" in v for v in out["violations"])
 
@@ -125,8 +137,10 @@ def test_mission_supervisor_approve_clean(git_repo):
 
 
 def test_parse_diff_structured():
-    diff = ("diff --git a/a.py b/a.py\nnew file mode 100644\n"
-            "--- /dev/null\n+++ b/a.py\n@@ -0,0 +1 @@\n+print(1)\n")
+    diff = (
+        "diff --git a/a.py b/a.py\nnew file mode 100644\n"
+        "--- /dev/null\n+++ b/a.py\n@@ -0,0 +1 @@\n+print(1)\n"
+    )
     entries = parse_diff(diff)
     assert entries[0].path == "a.py"
     assert entries[0].status == "added"
@@ -137,18 +151,22 @@ def test_parse_diff_structured():
 # G4 — Mission Revert (真实 git worktree 回滚 + 隔离)
 # =========================================================================
 
+
 def test_mission_revert_restores_baseline_and_quarantines(git_repo):
     # worktree 模拟 worker 工作区
     wt_path = git_repo / "wt1"
-    subprocess.run(["git", "worktree", "add", "-b", "w1", str(wt_path)],
-                   cwd=git_repo, check=True)
+    subprocess.run(["git", "worktree", "add", "-b", "w1", str(wt_path)], cwd=git_repo, check=True)
     (wt_path / "broken.py").write_text("print('broken')\n")
-    base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=wt_path,
-                          capture_output=True, text=True, check=True).stdout.strip()
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=wt_path, capture_output=True, text=True, check=True
+    ).stdout.strip()
 
-    out = mission_revert("m1", [{"worker_id": "w1", "worktree": str(wt_path)}],
-                         base_commits={str(wt_path): base},
-                         quarantine_dir=str(git_repo / "quarantine"))
+    out = mission_revert(
+        "m1",
+        [{"worker_id": "w1", "worktree": str(wt_path)}],
+        base_commits={str(wt_path): base},
+        quarantine_dir=str(git_repo / "quarantine"),
+    )
     assert out["reverted"] is True
     # 基线恢复: broken.py 消失
     assert not (wt_path / "broken.py").exists()
@@ -158,8 +176,7 @@ def test_mission_revert_restores_baseline_and_quarantines(git_repo):
     assert "broken" in patch.read_text()
     assert out["audit_id"]
 
-    subprocess.run(["git", "worktree", "remove", "--force", str(wt_path)],
-                   cwd=git_repo, check=True)
+    subprocess.run(["git", "worktree", "remove", "--force", str(wt_path)], cwd=git_repo, check=True)
 
 
 def test_mission_revert_missing_baseline_is_structured(git_repo):
@@ -169,8 +186,7 @@ def test_mission_revert_missing_baseline_is_structured(git_repo):
 
 
 def test_snapshot_mission_baseline(git_repo):
-    states = snapshot_mission_baseline("m3", [{"worker_id": "w0",
-                                               "worktree": str(git_repo)}])
+    states = snapshot_mission_baseline("m3", [{"worker_id": "w0", "worktree": str(git_repo)}])
     assert states[0].base_commit
     assert states[0].worker_id == "w0"
 
@@ -179,9 +195,9 @@ def test_snapshot_mission_baseline(git_repo):
 # G6 — 确定性基准评测
 # =========================================================================
 
+
 def test_bench_harness_mock_deterministic():
-    tasks = [{"repo": "r1", "prompt": "add feature", "gold_patch": "def f(): return 1",
-              "id": "t1"}]
+    tasks = [{"repo": "r1", "prompt": "add feature", "gold_patch": "def f(): return 1", "id": "t1"}]
     r1 = agent_bench_harness(tasks, ["claude", "codex"])
     r2 = agent_bench_harness(tasks, ["claude", "codex"])
     # 确定性: 两次运行完全一致
@@ -210,14 +226,20 @@ def test_bench_harness_custom_executor():
 # 账本
 # =========================================================================
 
+
 def test_replica_ledger_phase_one_registered():
     from server.operator_ledger import REPLICA_LEDGER, replica_ledger_summary
 
     assert set(REPLICA_LEDGER) == {
-        "G3_mission_supervisor", "G4_mission_revert",
-        "G5_canonical_event_ingest", "G6_agent_bench_harness",
-        "G1_artifact_preview", "G2_agent_team_monitor",
-        "G7_skill_crystallize", "G8_trigger_register"}
+        "G3_mission_supervisor",
+        "G4_mission_revert",
+        "G5_canonical_event_ingest",
+        "G6_agent_bench_harness",
+        "G1_artifact_preview",
+        "G2_agent_team_monitor",
+        "G7_skill_crystallize",
+        "G8_trigger_register",
+    }
     summary = replica_ledger_summary()
     g3 = next(s for s in summary if s["name"] == "G3_mission_supervisor")
     assert g3["status"] == "registered"

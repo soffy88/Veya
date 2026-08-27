@@ -47,8 +47,9 @@ def test_wire_loop_tools_registers_three(monkeypatch: pytest.MonkeyPatch):
     from server.tool_registry import master_tools
 
     added = wire_loop_tools()
-    assert added >= 3 or all(master_tools.has(n) for n in
-                             ("loop_plan_goal", "loop_diagnose", "loop_intervene"))
+    assert added >= 3 or all(
+        master_tools.has(n) for n in ("loop_plan_goal", "loop_diagnose", "loop_intervene")
+    )
     for name in ("loop_plan_goal", "loop_diagnose", "loop_intervene"):
         assert master_tools.has(name), f"缺少工具 {name}"
 

@@ -157,6 +157,7 @@ async def test_headless_mission_hitl_semantics(tmp_path, fake_callback):
 @pytest.mark.asyncio
 async def test_headless_failure_recorded(tmp_path, fake_callback):
     """后台任务崩溃 → 结果留痕为 failed, 守护进程不崩溃。"""
+
     async def exploding(prompt):
         raise RuntimeError("LLM 挂了")
 
@@ -266,7 +267,9 @@ async def test_full_loop_llm_creates_automation(tmp_path):
                 "usage": {},
             }
         return {
-            "choices": [{"message": {"role": "assistant", "content": "已设置每日 9 点的自动任务。"}}],
+            "choices": [
+                {"message": {"role": "assistant", "content": "已设置每日 9 点的自动任务。"}}
+            ],
             "usage": {},
         }
 

@@ -14,6 +14,7 @@ blue under ACES/Reinhard tone-mapping; fix = magenta-lean R>=B + green crosstalk
 CLI:  extract_gradient_stops.py <crop.png> [--axis u|v] [--stops N] [--json]
 API:  extract_gradient_stops(path, axis="u", stops=6) -> dict
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,8 +29,15 @@ from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
 
 # Deterministic hue-name lookup over the HSV hue circle (degrees).
 _HUE_NAMES = [
-    (15, "red"), (45, "orange"), (70, "yellow"), (165, "green"),
-    (195, "cyan"), (255, "blue"), (290, "violet"), (345, "magenta"), (360, "red"),
+    (15, "red"),
+    (45, "orange"),
+    (70, "yellow"),
+    (165, "green"),
+    (195, "cyan"),
+    (255, "blue"),
+    (290, "violet"),
+    (345, "magenta"),
+    (360, "red"),
 ]
 
 
@@ -119,7 +127,7 @@ def extract_gradient_stops(path: Path, axis: str = "u", stops: int = 6) -> dict[
         "warnings": warnings,
         "reference": str(path.resolve()),
         "note": "band-median stops grounded in the reference; feed to the texture painter instead "
-                "of hand-guessed STOPS. hueRisk=blue-collapse stops need a magenta-lean correction.",
+        "of hand-guessed STOPS. hueRisk=blue-collapse stops need a magenta-lean correction.",
     }
 
 
@@ -139,7 +147,9 @@ def main(argv: list[str]) -> int:
     else:
         print(f"axis={result['axis']} stops={len(result['stops'])}")
         for s in result["stops"]:
-            risk = f"  ⚠ {s['hueRisk']} → try rgb {s.get('suggestedRgb')}" if s.get("hueRisk") else ""
+            risk = (
+                f"  ⚠ {s['hueRisk']} → try rgb {s.get('suggestedRgb')}" if s.get("hueRisk") else ""
+            )
             print(f"  t={s['t']:<5} rgb={s['rgb']} {s['hueName']:<8} hsv={s['hsv']}{risk}")
         print("hue zones:", " → ".join(z["hueName"] for z in result["hueZones"]))
     return 0

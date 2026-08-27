@@ -15,8 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from server import auth as auth_mod
 from pydantic import BaseModel
 
-router = APIRouter(tags=["git-panel"],
-              dependencies=[Depends(auth_mod.require_user)])
+router = APIRouter(tags=["git-panel"], dependencies=[Depends(auth_mod.require_user)])
 
 _GIT_TIMEOUT = 15
 
@@ -30,11 +29,11 @@ def _workspace() -> Path:
 
 
 def _git(*args: str, timeout: int = _GIT_TIMEOUT) -> str:
-    r = subprocess.run(["git", "-C", str(_workspace()), *args],
-                       capture_output=True, text=True, timeout=timeout)
+    r = subprocess.run(
+        ["git", "-C", str(_workspace()), *args], capture_output=True, text=True, timeout=timeout
+    )
     if r.returncode != 0:
-        raise HTTPException(status_code=400,
-                            detail=(r.stderr or r.stdout or "git 失败")[-400:])
+        raise HTTPException(status_code=400, detail=(r.stderr or r.stdout or "git 失败")[-400:])
     return r.stdout
 
 

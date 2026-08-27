@@ -73,11 +73,15 @@ class FitResult:
     seed: int | None
     history: tuple[FitTelemetry, ...]
 
-    def to_correction_history(self, defect_tags: Sequence[str] = ()) -> list[dict[str, float | bool | list[str]]]:
+    def to_correction_history(
+        self, defect_tags: Sequence[str] = ()
+    ) -> list[dict[str, float | bool | list[str]]]:
         tags = list(defect_tags)
         for index, record in enumerate(self.history):
             if not 0.0 <= record.best_score <= 1.0:
-                raise FitInputError(f"history[{index}].best_score", "must be within [0, 1] for fidelity")
+                raise FitInputError(
+                    f"history[{index}].best_score", "must be within [0, 1] for fidelity"
+                )
         return [
             {"fidelity": record.best_score, "defectTags": tags.copy(), "reverted": False}
             for record in self.history
@@ -129,7 +133,12 @@ def divine_eye_fidelity(result: Mapping[str, object]) -> float:
     score = result.get("fidelity")
     if score is None:
         raise FitInputError("Divine Eye result", "missing fidelity")
-    if isinstance(score, bool) or not isinstance(score, int | float) or not math.isfinite(score) or not 0.0 <= score <= 1.0:
+    if (
+        isinstance(score, bool)
+        or not isinstance(score, int | float)
+        or not math.isfinite(score)
+        or not 0.0 <= score <= 1.0
+    ):
         raise FitInputError("Divine Eye result.fidelity", "must be a finite number in [0, 1]")
     return float(score)
 
@@ -143,7 +152,11 @@ def divine_eye_correction_history(
 
 def _divine_eye_objective_score(result: Mapping[str, object]) -> float:
     fidelity = divine_eye_fidelity(result)
-    return fidelity if is_approved_divine_eye_result(result, FitInputError, "Divine Eye result") else -1.0
+    return (
+        fidelity
+        if is_approved_divine_eye_result(result, FitInputError, "Divine Eye result")
+        else -1.0
+    )
 
 
 def fit_against_divine_eye(
@@ -178,12 +191,24 @@ def fit_against_divine_eye(
     fit_result = fit(initial, bounds, objective, config)
     history = divine_eye_correction_history(results)
     best_raw_fidelity = _selected_raw_fidelity(fit_result.parameters, results)
-    return DivineEyeFitResult(fit_result, best_raw_fidelity, tuple(deepcopy(dict(result)) for result in results), tuple(history))
+    return DivineEyeFitResult(
+        fit_result,
+        best_raw_fidelity,
+        tuple(deepcopy(dict(result)) for result in results),
+        tuple(history),
+    )
 
 
-def _selected_raw_fidelity(parameters: ParameterVector, results: Sequence[Mapping[str, object]]) -> float | None:
+def _selected_raw_fidelity(
+    parameters: ParameterVector, results: Sequence[Mapping[str, object]]
+) -> float | None:
     candidate = list(parameters)
-    scores = [divine_eye_fidelity(result) for result in results if result["fitCandidateParameters"] == candidate and is_approved_divine_eye_result(result, FitInputError, "Divine Eye result")]
+    scores = [
+        divine_eye_fidelity(result)
+        for result in results
+        if result["fitCandidateParameters"] == candidate
+        and is_approved_divine_eye_result(result, FitInputError, "Divine Eye result")
+    ]
     return max(scores, default=None)
 
 
@@ -195,7 +220,12 @@ def _default_divine_eye_evaluator(reference_png: Path, render_png: Path) -> Mapp
     return evaluate(reference_png, render_png)
 
 
-def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: Objective, config: FitConfig = FitConfig()) -> FitResult:
+def fit(
+    initial: Sequence[float],
+    bounds: Sequence[Sequence[float]],
+    objective: Objective,
+    config: FitConfig = FitConfig(),
+) -> FitResult:
     if not callable(objective):
         raise FitInputError("objective", "must be callable")
     parameters, normalized_bounds = _normalize_inputs(initial, bounds)
@@ -223,9 +253,27 @@ def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: 
                 if evaluations >= config.max_evaluations:
                     if candidate_direction:
                         parameters, current_score = candidate_parameters, candidate_score
-                        history.append(FitTelemetry(iteration, evaluations, current_score, True, step_sizes))
-                        return _result(parameters, current_score, "max-evaluations", iteration, evaluations, config, history)
-                    return _result(parameters, current_score, "max-evaluations", iteration - 1, evaluations, config, history)
+                        history.append(
+                            FitTelemetry(iteration, evaluations, current_score, True, step_sizes)
+                        )
+                        return _result(
+                            parameters,
+                            current_score,
+                            "max-evaluations",
+                            iteration,
+                            evaluations,
+                            config,
+                            history,
+                        )
+                    return _result(
+                        parameters,
+                        current_score,
+                        "max-evaluations",
+                        iteration - 1,
+                        evaluations,
+                        config,
+                        history,
+                    )
                 proposal = _replace_coordinate(parameters, index, value)
                 proposal_score = _finite_score(objective(proposal))
                 evaluations += 1
@@ -241,7 +289,10 @@ def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: 
         net_gain = current_score - iteration_start
         if net_gain < config.min_improvement:
             plateau_count += 1
-            flips = sum(direction_by_coordinate.get(index) not in (None, direction) for index, direction in iteration_directions.items())
+            flips = sum(
+                direction_by_coordinate.get(index) not in (None, direction)
+                for index, direction in iteration_directions.items()
+            )
             direction_flips = direction_flips + 1 if flips else 0
             direction_by_coordinate = iteration_directions
         else:
@@ -249,12 +300,24 @@ def fit(initial: Sequence[float], bounds: Sequence[Sequence[float]], objective: 
             direction_by_coordinate = {}
         history.append(FitTelemetry(iteration, evaluations, current_score, improved, step_sizes))
         if direction_flips >= config.oscillation_flips:
-            return _result(parameters, current_score, "oscillation", iteration, evaluations, config, history)
+            return _result(
+                parameters, current_score, "oscillation", iteration, evaluations, config, history
+            )
         if plateau_count >= config.plateau_iterations:
-            return _result(parameters, current_score, "plateau", iteration, evaluations, config, history)
+            return _result(
+                parameters, current_score, "plateau", iteration, evaluations, config, history
+            )
         if not improved:
             step_sizes = tuple(step / 2.0 for step in step_sizes)
-    return _result(parameters, current_score, "max-iterations", config.max_iterations, evaluations, config, history)
+    return _result(
+        parameters,
+        current_score,
+        "max-iterations",
+        config.max_iterations,
+        evaluations,
+        config,
+        history,
+    )
 
 
 def _result(
@@ -266,15 +329,21 @@ def _result(
     config: FitConfig,
     history: list[FitTelemetry],
 ) -> FitResult:
-    return FitResult(parameters, best_score, status, iterations, evaluations, config.seed, tuple(history))
+    return FitResult(
+        parameters, best_score, status, iterations, evaluations, config.seed, tuple(history)
+    )
 
 
-def _normalize_inputs(initial: Sequence[float], bounds: Sequence[Sequence[float]]) -> tuple[ParameterVector, Bounds]:
+def _normalize_inputs(
+    initial: Sequence[float], bounds: Sequence[Sequence[float]]
+) -> tuple[ParameterVector, Bounds]:
     if isinstance(initial, str | bytes) or not isinstance(initial, Sequence):
         raise FitInputError("initial", "must be a sequence of parameters")
     if isinstance(bounds, str | bytes) or not isinstance(bounds, Sequence):
         raise FitInputError("bounds", "must be a sequence of bound pairs")
-    parameters = tuple(_finite_parameter(value, f"initial[{index}]") for index, value in enumerate(initial))
+    parameters = tuple(
+        _finite_parameter(value, f"initial[{index}]") for index, value in enumerate(initial)
+    )
     if not 1 <= len(parameters) <= MAX_DIMENSIONS:
         raise FitInputError("initial", f"must contain 1..{MAX_DIMENSIONS} parameters")
     if len(bounds) != len(parameters):
@@ -314,8 +383,18 @@ def _replace_coordinate(values: ParameterVector, index: int, value: float) -> Pa
 def _validate_config(config: FitConfig) -> None:
     if not isinstance(config, FitConfig):
         raise FitInputError("config", "must be a FitConfig")
-    if not all(_is_positive_integer(value) for value in (config.max_iterations, config.max_evaluations, config.plateau_iterations, config.oscillation_flips)):
-        raise FitInputError("config", "iteration, evaluation, plateau, and oscillation limits must be positive")
+    if not all(
+        _is_positive_integer(value)
+        for value in (
+            config.max_iterations,
+            config.max_evaluations,
+            config.plateau_iterations,
+            config.oscillation_flips,
+        )
+    ):
+        raise FitInputError(
+            "config", "iteration, evaluation, plateau, and oscillation limits must be positive"
+        )
     if (
         isinstance(config.min_improvement, bool)
         or not isinstance(config.min_improvement, int | float)
@@ -323,7 +402,9 @@ def _validate_config(config: FitConfig) -> None:
         or not math.isfinite(config.min_improvement)
     ):
         raise FitInputError("config.min_improvement", "must be a finite non-negative number")
-    if config.seed is not None and (isinstance(config.seed, bool) or not isinstance(config.seed, int)):
+    if config.seed is not None and (
+        isinstance(config.seed, bool) or not isinstance(config.seed, int)
+    ):
         raise FitInputError("config.seed", "must be an integer or null")
 
 
@@ -332,11 +413,20 @@ def _is_positive_integer(value: int) -> bool:
 
 
 def _quadratic_objective(target: ParameterVector) -> Objective:
-    return lambda values: 1.0 - sum((value - target[index]) ** 2 for index, value in enumerate(values))
+    return lambda values: (
+        1.0 - sum((value - target[index]) ** 2 for index, value in enumerate(values))
+    )
 
 
 def _cli_config(raw: Mapping[str, object]) -> FitConfig:
-    names = {"maxIterations": "max_iterations", "maxEvaluations": "max_evaluations", "minImprovement": "min_improvement", "plateauIterations": "plateau_iterations", "oscillationFlips": "oscillation_flips", "seed": "seed"}
+    names = {
+        "maxIterations": "max_iterations",
+        "maxEvaluations": "max_evaluations",
+        "minImprovement": "min_improvement",
+        "plateauIterations": "plateau_iterations",
+        "oscillationFlips": "oscillation_flips",
+        "seed": "seed",
+    }
     unknown = sorted(set(raw) - set(names))
     if unknown:
         raise FitInputError("config", f"unknown key(s): {', '.join(unknown)}")
@@ -355,17 +445,26 @@ def main(argv: Sequence[str]) -> int:
             raise FitInputError("input", "must be a JSON object")
         expected = {"initial", "bounds", "target", "config"}
         if set(raw) != expected:
-            raise FitInputError("input", f"must contain exactly {sorted(expected)}; missing={sorted(expected - set(raw))} unknown={sorted(set(raw) - expected)}")
+            raise FitInputError(
+                "input",
+                f"must contain exactly {sorted(expected)}; missing={sorted(expected - set(raw))} unknown={sorted(set(raw) - expected)}",
+            )
         initial = raw.get("initial")
         bounds = raw.get("bounds")
         target = raw.get("target")
         config_raw = raw.get("config")
-        if not isinstance(initial, list) or not isinstance(bounds, list) or not isinstance(target, list):
+        if (
+            not isinstance(initial, list)
+            or not isinstance(bounds, list)
+            or not isinstance(target, list)
+        ):
             raise FitInputError("input", "initial, bounds, and target must be arrays")
         if not isinstance(config_raw, dict):
             raise FitInputError("config", "must be an object")
         target_parameters, _ = _normalize_inputs(target, bounds)
-        result = fit(initial, bounds, _quadratic_objective(target_parameters), _cli_config(config_raw))
+        result = fit(
+            initial, bounds, _quadratic_objective(target_parameters), _cli_config(config_raw)
+        )
     except (FitInputError, NonFiniteScoreError, OSError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -373,7 +472,9 @@ def main(argv: Sequence[str]) -> int:
     if args.json:
         print(json.dumps(payload, sort_keys=True))
     else:
-        print(f"{payload['status']} score={payload['bestScore']} evaluations={payload['evaluations']}")
+        print(
+            f"{payload['status']} score={payload['bestScore']} evaluations={payload['evaluations']}"
+        )
     return 0
 
 

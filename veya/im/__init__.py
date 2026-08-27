@@ -12,8 +12,14 @@ import sys
 from veya.oskill import im as _impl
 
 _SUBMODULES = (
-    "account_binding", "dingtalk", "discord", "feishu", "pseudo",
-    "slack", "telegram", "wechat",
+    "account_binding",
+    "dingtalk",
+    "discord",
+    "feishu",
+    "pseudo",
+    "slack",
+    "telegram",
+    "wechat",
 )
 for _sub in _SUBMODULES:  # noqa: PLE001 — 子模块缺失不阻断 (门面尽力而为)
     try:

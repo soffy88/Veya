@@ -67,7 +67,9 @@ class SpawnGuard:
 
     @property
     def queued_count(self) -> int:
-        return sum(1 for lease in self._leases.values() if not lease.acquired and not lease.released)
+        return sum(
+            1 for lease in self._leases.values() if not lease.acquired and not lease.released
+        )
 
     def remaining_wall_s(self) -> float:
         return max(0.0, float(self.budget.root_wall_time_s) - (self._clock() - self._started_at))
@@ -80,7 +82,9 @@ class SpawnGuard:
         estimated_cost_usd: float = 0.0,
     ) -> None:
         if depth >= self.budget.max_depth:
-            raise SpawnRejected(f"delegation depth limit reached: depth={depth}, max={self.budget.max_depth}")
+            raise SpawnRejected(
+                f"delegation depth limit reached: depth={depth}, max={self.budget.max_depth}"
+            )
         if depth < 0:
             raise SpawnRejected("delegation depth must be non-negative")
         if estimated_tokens < 0 or estimated_cost_usd < 0:
@@ -88,11 +92,15 @@ class SpawnGuard:
         if self.remaining_wall_s() <= 0:
             raise SpawnRejected("root wall deadline exhausted")
         async with self._lock:
-            if self._used_tokens + self._reserved_tokens + estimated_tokens > self.budget.max_tokens:
+            if (
+                self._used_tokens + self._reserved_tokens + estimated_tokens
+                > self.budget.max_tokens
+            ):
                 raise SpawnRejected("token budget exhausted")
             if (
                 self.budget.max_cost_usd is not None
-                and self._used_cost + self._reserved_cost + estimated_cost_usd > self.budget.max_cost_usd
+                and self._used_cost + self._reserved_cost + estimated_cost_usd
+                > self.budget.max_cost_usd
             ):
                 raise SpawnRejected("cost budget exhausted")
 
@@ -116,11 +124,15 @@ class SpawnGuard:
             # ``pre_check`` is intentionally a cheap public probe.  A second
             # caller can pass that probe before this lock is acquired, so the
             # budget check must be repeated while reservations are serialized.
-            if self._used_tokens + self._reserved_tokens + estimated_tokens > self.budget.max_tokens:
+            if (
+                self._used_tokens + self._reserved_tokens + estimated_tokens
+                > self.budget.max_tokens
+            ):
                 raise SpawnRejected("token budget exhausted")
             if (
                 self.budget.max_cost_usd is not None
-                and self._used_cost + self._reserved_cost + estimated_cost_usd > self.budget.max_cost_usd
+                and self._used_cost + self._reserved_cost + estimated_cost_usd
+                > self.budget.max_cost_usd
             ):
                 raise SpawnRejected("cost budget exhausted")
             self._reserved_tokens += estimated_tokens
@@ -151,10 +163,16 @@ class SpawnGuard:
                 return
             self._reserved_tokens = max(0, self._reserved_tokens - reservation.estimated_tokens)
             self._reserved_cost = max(0.0, self._reserved_cost - reservation.estimated_cost_usd)
-            self._used_tokens += max(0, int(actual_tokens if actual_tokens is not None else reservation.estimated_tokens))
+            self._used_tokens += max(
+                0, int(actual_tokens if actual_tokens is not None else reservation.estimated_tokens)
+            )
             self._used_cost += max(
                 0.0,
-                float(actual_cost_usd if actual_cost_usd is not None else reservation.estimated_cost_usd),
+                float(
+                    actual_cost_usd
+                    if actual_cost_usd is not None
+                    else reservation.estimated_cost_usd
+                ),
             )
             reservation.released = True
             self._leases.pop(reservation.job_id, None)
@@ -165,7 +183,9 @@ class SpawnGuard:
             await self._emit({"type": "scheduler.slot_released", "job_id": reservation.job_id})
 
     @asynccontextmanager
-    async def slot(self, job_id: str, *, depth: int, estimated_tokens: int = 0, estimated_cost_usd: float = 0.0):
+    async def slot(
+        self, job_id: str, *, depth: int, estimated_tokens: int = 0, estimated_cost_usd: float = 0.0
+    ):
         reservation = await self.acquire(
             job_id,
             depth=depth,

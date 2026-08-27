@@ -73,9 +73,15 @@ def _add(q1: list[float], q2: list[float]) -> list[float]:
 def _error(q: list[float], v: list[float]) -> float:
     x, y, z = v
     return (
-        q[0] * x * x + 2 * q[1] * x * y + 2 * q[2] * x * z + 2 * q[3] * x
-        + q[4] * y * y + 2 * q[5] * y * z + 2 * q[6] * y
-        + q[7] * z * z + 2 * q[8] * z
+        q[0] * x * x
+        + 2 * q[1] * x * y
+        + 2 * q[2] * x * z
+        + 2 * q[3] * x
+        + q[4] * y * y
+        + 2 * q[5] * y * z
+        + 2 * q[6] * y
+        + q[7] * z * z
+        + 2 * q[8] * z
         + q[9]
     )
 
@@ -126,7 +132,7 @@ def decimate(
         return _error(_add(quadrics[u], quadrics[v]), merged), merged
 
     heap: list[tuple[float, int, int]] = []
-    for (u, v) in edge_faces:
+    for u, v in edge_faces:
         if (u, v) in boundary:
             continue
         heapq.heappush(heap, (cost(u, v)[0], u, v))

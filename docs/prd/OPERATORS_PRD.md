@@ -92,10 +92,10 @@ officecli_doc_engine    交付物生产层 — docx/xlsx/pptx 渲染-观察-修�
 ```python
 # 账本结构
 _LEDGER = {
-  "browser_use_agent":    {"layer": "外网行为层",  "skill": "browser_use"},
-  "agent_reach_channel":  {"layer": "外网数据层",  "skill": "agent_reach"},
-  "codebase_memory_graph":{"layer": "内网代码智能层","skill": None},
-  "officecli_doc_engine": {"layer": "交付物生产层", "skill": "officecli"},
+    "browser_use_agent": {"layer": "外网行为层", "skill": "browser_use"},
+    "agent_reach_channel": {"layer": "外网数据层", "skill": "agent_reach"},
+    "codebase_memory_graph": {"layer": "内网代码智能层", "skill": None},
+    "officecli_doc_engine": {"layer": "交付物生产层", "skill": "officecli"},
 }
 ```
 

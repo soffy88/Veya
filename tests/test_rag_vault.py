@@ -215,7 +215,12 @@ def test_vault_hitl_event_payload(vault, tmp_path):
     try:
         vault.set_secret("k", "s")
         task = asyncio.run(
-            vault.execute_secure_tool(tool_name="deploy", intent_args={}, required_vault_id="k", physical_tool_callback=lambda **k: "ok")
+            vault.execute_secure_tool(
+                tool_name="deploy",
+                intent_args={},
+                required_vault_id="k",
+                physical_tool_callback=lambda **k: "ok",
+            )
         )
     finally:
         _on_step_ctx.reset(token)
@@ -248,8 +253,14 @@ def test_system_schemas_include_rag_and_vault(tmp_path):
     assert "system_workspace_search" in names
     assert "system_workspace_reindex" in names
     assert "system_secure_exec" in names
-    secure = next(s for s in coord.get_system_schemas() if s["function"]["name"] == "system_secure_exec")
-    assert secure["function"]["parameters"]["required"] == ["tool_name", "intent_args", "required_vault_id"]
+    secure = next(
+        s for s in coord.get_system_schemas() if s["function"]["name"] == "system_secure_exec"
+    )
+    assert secure["function"]["parameters"]["required"] == [
+        "tool_name",
+        "intent_args",
+        "required_vault_id",
+    ]
 
 
 @pytest.mark.asyncio

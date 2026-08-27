@@ -18,7 +18,9 @@ from app.infra.event_store import new_id
 class SchedService:
     """Job 注册/列表/删除/手动触发（持久化到 data_dir/jobs.json）。"""
 
-    def __init__(self, goal_service: GoalService | None = None, *, jobs_path: Path | None = None) -> None:
+    def __init__(
+        self, goal_service: GoalService | None = None, *, jobs_path: Path | None = None
+    ) -> None:
         self._goals = goal_service
         self._lock = threading.Lock()
         self._jobs: dict[str, dict[str, Any]] = {}
@@ -41,14 +43,22 @@ class SchedService:
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(self._jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._path.write_text(
+            json.dumps(self._jobs, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
-    def register(self, name: str, *, cron: str = "", pattern: str = "", action: dict[str, Any] | None = None) -> dict[str, Any]:
+    def register(
+        self, name: str, *, cron: str = "", pattern: str = "", action: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """注册 cron/pattern job。"""
         job_id = new_id("job_")
         job = {
-            "id": job_id, "name": name, "cron": cron, "pattern": pattern,
-            "action": action or {}, "tenant": "default",
+            "id": job_id,
+            "name": name,
+            "cron": cron,
+            "pattern": pattern,
+            "action": action or {},
+            "tenant": "default",
         }
         with self._lock:
             self._jobs[job_id] = job

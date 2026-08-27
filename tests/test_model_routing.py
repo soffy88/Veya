@@ -18,6 +18,7 @@ from veya.model_routing import (
 
 # ── 1. 统一模型 + 组内 fallover (路由注册) ───────────────────────────
 
+
 def test_register_and_get_route():
     register_route("test-model", ["alpha", "beta"])
     assert get_route("test-model") == ["alpha", "beta"]
@@ -39,6 +40,7 @@ def test_register_overrides():
 
 
 # ── 2. 用量跟踪 + 限额学习 ───────────────────────────────────────────
+
 
 def test_ledger_counts_and_limits():
     ledger = UsageLedger()
@@ -69,7 +71,8 @@ def test_ledger_sliding_window():
 def test_learn_limit_from_headers():
     ledger = UsageLedger()
     quota = ledger.learn_limit(
-        "groq", "model-x",
+        "groq",
+        "model-x",
         response_headers={"x-ratelimit-limit-rpm": "30", "x-ratelimit-limit-tpm": "6000"},
     )
     assert quota is not None
@@ -83,7 +86,8 @@ def test_learn_limit_from_headers():
 def test_learn_limit_from_error_body():
     ledger = UsageLedger()
     quota = ledger.learn_limit(
-        "groq", "model-y",
+        "groq",
+        "model-y",
         error_body="Error 429: RPM limit reached, limit 20, remaining 0",
     )
     assert quota is not None
@@ -91,6 +95,7 @@ def test_learn_limit_from_error_body():
 
 
 # ── 3. 粘性会话 ──────────────────────────────────────────────────────
+
 
 def test_sticky_lock_and_get():
     sticky = StickySession()
@@ -120,6 +125,7 @@ def test_default_ttl_constant():
 
 # ── 4. 工具调用救援 ──────────────────────────────────────────────────
 
+
 def test_rescue_code_block_single():
     content = '```json\n{"name": "get_weather", "arguments": {"city": "beijing"}}\n```'
     calls = rescue_tool_calls(content)
@@ -136,7 +142,9 @@ def test_rescue_bare_object():
 
 
 def test_rescue_tool_calls_wrapper():
-    content = '{"tool_calls": [{"name": "f1", "arguments": {"x": 1}}, {"name": "f2", "arguments": {}}]}'
+    content = (
+        '{"tool_calls": [{"name": "f1", "arguments": {"x": 1}}, {"name": "f2", "arguments": {}}]}'
+    )
     calls = rescue_tool_calls(content)
     assert calls is not None
     assert len(calls) == 2
@@ -153,10 +161,11 @@ def test_rescue_function_wrapper():
 def test_rescue_returns_none_for_plain_text():
     assert rescue_tool_calls("这是普通回答, 没有工具调用。") is None
     assert rescue_tool_calls("") is None
-    assert rescue_tool_calls("```json\n{\"not\": \"a tool\"}\n```") is None
+    assert rescue_tool_calls('```json\n{"not": "a tool"}\n```') is None
 
 
 # ── llm_call_routed 组合 (mock veya.llm.llm_call) ────────────────────
+
 
 def test_routed_fallover_on_failure(monkeypatch):
     import veya.llm as llm
@@ -169,16 +178,21 @@ def test_routed_fallover_on_failure(monkeypatch):
         calls.append(kw.get("provider"))
         if kw.get("provider") == "zhipu":
             raise RuntimeError("429 rate limited")
-        return {"choices": [{"message": {"content": "ok from dashscope"}}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
+        return {
+            "choices": [{"message": {"content": "ok from dashscope"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        }
 
     monkeypatch.setattr(llm, "llm_call", fake_llm_call)
     ledger = UsageLedger()
 
-    result = __import__("asyncio").run(llm_call_routed(
-        [{"role": "user", "content": "hi"}],
-        logical_model="glm-4-flash", ledger=ledger,
-    ))
+    result = __import__("asyncio").run(
+        llm_call_routed(
+            [{"role": "user", "content": "hi"}],
+            logical_model="glm-4-flash",
+            ledger=ledger,
+        )
+    )
     assert result["_routed"]["provider"] == "dashscope"  # fallover 成功
     assert [a["provider"] for a in result["_routed"]["attempts"]] == ["zhipu"]
     # 用量已记录 (成功 provider)
@@ -194,9 +208,9 @@ def test_routed_all_fail_returns_error_trail(monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(llm, "llm_call", fake_llm_call)
-    result = __import__("asyncio").run(llm_call_routed(
-        [{"role": "user", "content": "hi"}], logical_model="glm-4-flash"
-    ))
+    result = __import__("asyncio").run(
+        llm_call_routed([{"role": "user", "content": "hi"}], logical_model="glm-4-flash")
+    )
     assert result["_error"] is True
     assert len(result["attempts"]) == 2  # zhipu + dashscope
     assert result["logical_model"] == "glm-4-flash"
@@ -217,16 +231,24 @@ def test_routed_sticky_session(monkeypatch):
     sticky = StickySession()
 
     # 第一次: 路由选 zhipu 并锁定
-    __import__("asyncio").run(llm_call_routed(
-        [{"role": "user", "content": "hi"}], logical_model="glm-4-flash",
-        session_id="sess-a", sticky=sticky,
-    ))
+    __import__("asyncio").run(
+        llm_call_routed(
+            [{"role": "user", "content": "hi"}],
+            logical_model="glm-4-flash",
+            session_id="sess-a",
+            sticky=sticky,
+        )
+    )
     assert providers_called == ["zhipu"]
     # 第二次: 即使传不同模型, 粘性锁定 glm-4-flash
-    __import__("asyncio").run(llm_call_routed(
-        [{"role": "user", "content": "hi2"}], logical_model="deepseek-chat",
-        session_id="sess-a", sticky=sticky,
-    ))
+    __import__("asyncio").run(
+        llm_call_routed(
+            [{"role": "user", "content": "hi2"}],
+            logical_model="deepseek-chat",
+            session_id="sess-a",
+            sticky=sticky,
+        )
+    )
     assert providers_called == ["zhipu", "zhipu"]  # 仍走 glm-4-flash
 
 
@@ -235,14 +257,21 @@ def test_routed_rescues_tool_calls(monkeypatch):
     from veya.llm import llm_call_routed
 
     async def fake_llm_call(messages, **kw):
-        return {"choices": [{"message": {
-            "content": '```json\n{"name": "get_weather", "arguments": {"city": "x"}}\n```'}}],
-            "usage": {}}
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": '```json\n{"name": "get_weather", "arguments": {"city": "x"}}\n```'
+                    }
+                }
+            ],
+            "usage": {},
+        }
 
     monkeypatch.setattr(llm, "llm_call", fake_llm_call)
-    result = __import__("asyncio").run(llm_call_routed(
-        [{"role": "user", "content": "weather?"}], logical_model="glm-4-flash"
-    ))
+    result = __import__("asyncio").run(
+        llm_call_routed([{"role": "user", "content": "weather?"}], logical_model="glm-4-flash")
+    )
     assert result["_rescue"] is True
     tool_calls = result["choices"][0]["message"]["tool_calls"]
     assert tool_calls[0]["function"]["name"] == "get_weather"

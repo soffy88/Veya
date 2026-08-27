@@ -83,7 +83,8 @@ async def project_goal_status(
             tn.unfinished_work
             or tn.evidence
             or tn.assertions
-            or (tn.delegate_result or {}).get("status") in {"partial", "failed", "paused", "cancelled"}
+            or (tn.delegate_result or {}).get("status")
+            in {"partial", "failed", "paused", "cancelled"}
         )
     )
 

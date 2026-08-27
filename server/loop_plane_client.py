@@ -105,7 +105,9 @@ class _LoopClient:
 
     def __init__(self) -> None:
         if not loop_plane_enabled():
-            raise RuntimeError("loop-plane 未启用 (设置 LOOP_PLANE_INPROCESS=true 或 LOOP_PLANE_URL)")
+            raise RuntimeError(
+                "loop-plane 未启用 (设置 LOOP_PLANE_INPROCESS=true 或 LOOP_PLANE_URL)"
+            )
         url = os.environ.get("LOOP_PLANE_URL")
         if url:
             self._http = LoopPlaneHttp(url)
@@ -116,7 +118,7 @@ class _LoopClient:
             self._svc = _inprocess_goal_service()
             self._causal = _inprocess_causal()
 
-# -- state（≡ create_plan / plan_status / update_todo） -----------------
+    # -- state（≡ create_plan / plan_status / update_todo） -----------------
 
     async def create_plan(self, objective: str, todos: list[dict]) -> str:
         goal = await self._goal_call("create", {"objective": objective, "todos": todos})
@@ -139,10 +141,15 @@ class _LoopClient:
         return goal.get("render_text", json.dumps(goal, ensure_ascii=False))
 
     async def update_todo(self, plan_id: str, todo_id: str, status: str, evidence: str = "") -> str:
-        goal = await self._goal_call("update", {
-            "goal_id": plan_id, "todo_id": todo_id,
-            "status": status, "evidence": evidence,
-        })
+        goal = await self._goal_call(
+            "update",
+            {
+                "goal_id": plan_id,
+                "todo_id": todo_id,
+                "status": status,
+                "evidence": evidence,
+            },
+        )
         return goal.get("render_text", "")
 
     # -- causal（新增 loop_* 工具） ------------------------------------------
@@ -168,8 +175,10 @@ class _LoopClient:
                 return self._svc.get_goal(payload["goal_id"])
             if op == "update":
                 return self._svc.update_todo(
-                    payload["goal_id"], payload["todo_id"],
-                    payload["status"], payload["evidence"],
+                    payload["goal_id"],
+                    payload["todo_id"],
+                    payload["status"],
+                    payload["evidence"],
                 )
             raise ValueError(f"未知 op {op}")
         assert self._http is not None
@@ -200,7 +209,9 @@ class _LoopClient:
             _loop_plane_path()
             from app.domain.exec.service import ExecService  # type: ignore[import-not-found]
 
-            return ExecService().dispatch(mode=payload["mode"], tool_name=payload["tool_name"], args=payload["args"])
+            return ExecService().dispatch(
+                mode=payload["mode"], tool_name=payload["tool_name"], args=payload["args"]
+            )
         return await self._http.post("/v1/loop/exec/dispatch", payload)
 
 
@@ -224,14 +235,18 @@ def make_plan_func(name: str):
         if name == "plan_status":
             return await client.plan_status(kw.get("plan_id", ""))
         if name == "update_todo":
-            return await client.update_todo(kw["plan_id"], kw["todo_id"], kw["status"], kw.get("evidence", ""))
+            return await client.update_todo(
+                kw["plan_id"], kw["todo_id"], kw["status"], kw.get("evidence", "")
+            )
         raise ValueError(f"未知 plan 工具 {name}")
 
     if loop_plane_enabled():
         return _forward
     from server.plan_todo import create_plan, plan_status, update_todo
 
-    return {"create_plan": create_plan, "plan_status": plan_status, "update_todo": update_todo}[name]
+    return {"create_plan": create_plan, "plan_status": plan_status, "update_todo": update_todo}[
+        name
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +270,9 @@ async def loop_diagnose(symptom: str, context: dict | None = None) -> str:
     return json.dumps(report, ensure_ascii=False, default=str)
 
 
-async def loop_intervene(mode: str = "sandbox", tool_name: str = "", args: dict | None = None) -> str:
+async def loop_intervene(
+    mode: str = "sandbox", tool_name: str = "", args: dict | None = None
+) -> str:
     """硬化干预执行：mode 服务端收缩（sandbox/shadow/live_canary），白名单限制。"""
     if not loop_plane_enabled():
         return "loop-plane 未启用 (设置 LOOP_PLANE_INPROCESS=true 或 LOOP_PLANE_URL 后可用)"
@@ -271,38 +288,61 @@ def wire_loop_tools() -> int:
             "loop_plan_goal",
             "目标规划: 用因果规划把 Goal 展开为 ranked_actions 报告 (只规划, 不执行)。"
             "适合长程目标拆解/验收标准规划; 结果可配合 create_plan 落地。",
-            {"type": "object", "properties": {
-                "goal": {"type": "string", "description": "目标描述 (可验收)。"},
-                "criteria": {"type": "string", "description": "可选验收标准。"},
-            }, "required": ["goal"]},
+            {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "目标描述 (可验收)。"},
+                    "criteria": {"type": "string", "description": "可选验收标准。"},
+                },
+                "required": ["goal"],
+            },
         ),
         (
             "loop_diagnose",
             "故障诊断: 因果推理定位 root_causes 并给出 intervention 建议。"
             "适合用户报错/流程失败但原因不明时, 先诊断再动手。",
-            {"type": "object", "properties": {
-                "symptom": {"type": "string", "description": "故障症状 (如 '登录偶发 500')。"},
-                "context": {"type": "object", "description": "可选上下文 (服务/时间窗等)。"},
-            }, "required": ["symptom"]},
+            {
+                "type": "object",
+                "properties": {
+                    "symptom": {"type": "string", "description": "故障症状 (如 '登录偶发 500')。"},
+                    "context": {"type": "object", "description": "可选上下文 (服务/时间窗等)。"},
+                },
+                "required": ["symptom"],
+            },
         ),
         (
             "loop_intervene",
             "硬化干预执行: 在白名单适配器上执行动作, mode 由服务端强制收缩权限。"
             "sandbox 模式禁止 python -m 任意路径; 未知工具一律拒绝。",
-            {"type": "object", "properties": {
-                "mode": {"type": "string", "enum": ["sandbox", "shadow", "live_canary"], "default": "sandbox"},
-                "tool_name": {"type": "string", "description": "白名单适配器名。"},
-                "args": {"type": "object", "description": "适配器参数。"},
-            }, "required": ["tool_name"]},
+            {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["sandbox", "shadow", "live_canary"],
+                        "default": "sandbox",
+                    },
+                    "tool_name": {"type": "string", "description": "白名单适配器名。"},
+                    "args": {"type": "object", "description": "适配器参数。"},
+                },
+                "required": ["tool_name"],
+            },
         ),
     ]
     for name, desc, params in specs:
         if master_tools.has(name):
             continue
-        master_tools.register(name, desc, params, {"loop_plan_goal": loop_plan_goal,
-                                                   "loop_diagnose": loop_diagnose,
-                                                   "loop_intervene": loop_intervene}[name],
-                              max_result_chars=12000)
+        master_tools.register(
+            name,
+            desc,
+            params,
+            {
+                "loop_plan_goal": loop_plan_goal,
+                "loop_diagnose": loop_diagnose,
+                "loop_intervene": loop_intervene,
+            }[name],
+            max_result_chars=12000,
+        )
         added += 1
     return added
 

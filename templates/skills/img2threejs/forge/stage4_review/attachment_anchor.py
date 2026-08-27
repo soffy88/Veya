@@ -68,7 +68,9 @@ def _is_number(value: Any) -> bool:
 
 
 def _is_xyz(value: Any) -> bool:
-    return isinstance(value, (list, tuple)) and len(value) == 3 and all(_is_number(v) for v in value)
+    return (
+        isinstance(value, (list, tuple)) and len(value) == 3 and all(_is_number(v) for v in value)
+    )
 
 
 def _distance(a: list[float], b: list[float]) -> float:
@@ -82,7 +84,11 @@ def _is_attachment_component(component: dict[str, Any]) -> bool:
     as `role: "worn"` with no anchor at all must still be caught, not silently ignored because
     it never reached the "has an anchor" branch."""
     attachment = component.get("attachment")
-    if isinstance(attachment, dict) and isinstance(attachment.get("anchor"), str) and attachment["anchor"].strip():
+    if (
+        isinstance(attachment, dict)
+        and isinstance(attachment.get("anchor"), str)
+        and attachment["anchor"].strip()
+    ):
         return True
     for field in ("role", "category", "kind"):
         value = component.get(field)
@@ -109,7 +115,7 @@ def _find_cycle(start: str, anchor_of: dict[str, str]) -> list[str] | None:
     current = start
     while current in anchor_of:
         if current in path:
-            return path[path.index(current):]
+            return path[path.index(current) :]
         path.append(current)
         current = anchor_of[current]
     return None
@@ -129,11 +135,15 @@ def _anchor_extent(anchor_component: dict[str, Any] | None) -> float | None:
     return max(values) if values else None
 
 
-def _max_offset_for(component: dict[str, Any], anchor_component: dict[str, Any] | None) -> tuple[float, str]:
+def _max_offset_for(
+    component: dict[str, Any], anchor_component: dict[str, Any] | None
+) -> tuple[float, str]:
     """Return (limit, rule) so a proximity failure can say WHICH rule produced the number
     instead of a bare threshold. Priority: declared `maxOffset` > anchor-size default >
     constant fallback."""
-    attachment = component.get("attachment") if isinstance(component.get("attachment"), dict) else {}
+    attachment = (
+        component.get("attachment") if isinstance(component.get("attachment"), dict) else {}
+    )
     declared = attachment.get("maxOffset")
     if _is_number(declared):
         return float(declared), "declared attachment.maxOffset"
@@ -144,10 +154,15 @@ def _max_offset_for(component: dict[str, Any], anchor_component: dict[str, Any] 
             f"default: {ANCHOR_PROXIMITY_SIZE_FRACTION:.0%} of anchor's largest declared extent "
             f"({extent:.4f})"
         )
-    return DEFAULT_MAX_OFFSET, f"default: constant fallback ({DEFAULT_MAX_OFFSET}); anchor declares no extents"
+    return (
+        DEFAULT_MAX_OFFSET,
+        f"default: constant fallback ({DEFAULT_MAX_OFFSET}); anchor declares no extents",
+    )
 
 
-def analyze_attachments(spec: dict[str, Any], *, measured: dict[str, list[float]] | None = None) -> dict[str, Any]:
+def analyze_attachments(
+    spec: dict[str, Any], *, measured: dict[str, list[float]] | None = None
+) -> dict[str, Any]:
     """Run the attachment-anchor gate over `spec`'s component tree, optionally cross-checked
     against `measured` (world positions keyed by component or bone id, e.g. from a runtime
     parts manifest). See module docstring for the five checks.
@@ -161,13 +176,20 @@ def analyze_attachments(spec: dict[str, Any], *, measured: dict[str, list[float]
     warnings: list[str] = []
 
     components = [
-        c for c in (spec.get("componentTree") or []) if isinstance(c, dict) and isinstance(c.get("id"), str)
+        c
+        for c in (spec.get("componentTree") or [])
+        if isinstance(c, dict) and isinstance(c.get("id"), str)
     ]
     by_id = {c["id"]: c for c in components}
     rig = spec.get("rig")
     bones = (
-        [b for b in (rig.get("bones") or []) if isinstance(b, dict) and isinstance(b.get("id"), str)]
-        if isinstance(rig, dict) else []
+        [
+            b
+            for b in (rig.get("bones") or [])
+            if isinstance(b, dict) and isinstance(b.get("id"), str)
+        ]
+        if isinstance(rig, dict)
+        else []
     )
     bones_by_id = {b["id"]: b for b in bones}
 
@@ -210,14 +232,15 @@ def analyze_attachments(spec: dict[str, Any], *, measured: dict[str, list[float]
         else:
             errors.append(
                 f"ANCHOR_RESOLVES: attachment {cid!r} anchors to {anchor!r}, which matches no "
-                f"existing component" + (" or bone" if isinstance(rig, dict) else "") + " in this spec"
+                f"existing component"
+                + (" or bone" if isinstance(rig, dict) else "")
+                + " in this spec"
             )
             records.append(record)
             continue
 
-        is_root = (
-            (record["anchorKind"] == "component" and anchor == tree_root_id)
-            or (record["anchorKind"] == "bone" and anchor == rig_root_id)
+        is_root = (record["anchorKind"] == "component" and anchor == tree_root_id) or (
+            record["anchorKind"] == "bone" and anchor == rig_root_id
         )
         if is_root:
             errors.append(
@@ -322,7 +345,9 @@ def _format_summary(result: dict[str, Any]) -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("spec", type=Path, help="sculpt-spec JSON path")
     parser.add_argument(
         "--measured",

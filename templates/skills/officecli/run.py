@@ -55,13 +55,16 @@ def _check_write_path(path: str | Path, op: str) -> Path:
     )
 
 
-def _audit(op: str, *, input_path: str, output_path: str, exit_code: int,
-           detail: str = "") -> None:
+def _audit(op: str, *, input_path: str, output_path: str, exit_code: int, detail: str = "") -> None:
     """文档变更审计 (post_result hook 等价物, 追加 JSONL)。"""
     AUDIT_DIR.mkdir(parents=True, exist_ok=True)
     entry = {
-        "ts": time.time(), "op": op, "input": input_path, "output": output_path,
-        "exit_code": exit_code, "detail": detail[:500],
+        "ts": time.time(),
+        "op": op,
+        "input": input_path,
+        "output": output_path,
+        "exit_code": exit_code,
+        "detail": detail[:500],
         "audit_id": f"office_{uuid.uuid4().hex[:12]}",
     }
     with open(AUDIT_DIR / "officecli.jsonl", "a", encoding="utf-8") as f:
@@ -107,8 +110,14 @@ def render_template(template: str | Path, data: dict[str, Any]) -> str:
     return text
 
 
-def main(op: str, input: str = "", output: str = "", data_json: str = "",
-         options: dict[str, Any] | None = None, **_: Any) -> dict[str, Any]:
+def main(
+    op: str,
+    input: str = "",
+    output: str = "",
+    data_json: str = "",
+    options: dict[str, Any] | None = None,
+    **_: Any,
+) -> dict[str, Any]:
     """执行 officecli 操作。op 语义透传 CLI。
 
     L1/L2/L3 分层: 读/渲染= L1, DOM 编辑= L2, raw XML (options 透传)= L3。
@@ -154,12 +163,18 @@ def main(op: str, input: str = "", output: str = "", data_json: str = "",
         _audit(op, input_path=input, output_path=output, exit_code=-1, detail="timeout")
         return {"ok": False, "op": op, "error": "officecli 超时 (600s)"}
 
-    _audit(op, input_path=input, output_path=output, exit_code=proc.returncode,
-           detail=proc.stderr[-300:])
+    _audit(
+        op,
+        input_path=input,
+        output_path=output,
+        exit_code=proc.returncode,
+        detail=proc.stderr[-300:],
+    )
     if proc.returncode != 0:
         return {"ok": False, "op": op, "error": proc.stderr[-2000:] or f"exit={proc.returncode}"}
     return {
-        "ok": True, "op": op,
+        "ok": True,
+        "op": op,
         "stdout": proc.stdout[:4000],
         "output_path": output or None,
         "readonly": op in READONLY_OPS,

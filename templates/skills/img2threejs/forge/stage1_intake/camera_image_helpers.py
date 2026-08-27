@@ -8,7 +8,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TypeAlias
 
-JsonValue: TypeAlias = str | int | float | bool | None | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
+JsonValue: TypeAlias = (
+    str | int | float | bool | None | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
+)
 
 
 def png_size(data: bytes) -> tuple[int, int] | None:
@@ -40,7 +42,10 @@ def jpeg_size(data: bytes) -> tuple[int, int] | None:
         length = struct.unpack(">H", data[index : index + 2])[0]
         if length < 2 or index + length > len(data):
             return None
-        if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF} and length >= 7:
+        if (
+            marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
+            and length >= 7
+        ):
             height, width = struct.unpack(">HH", data[index + 3 : index + 7])
             return width, height
         index += length
@@ -82,7 +87,10 @@ def clamp(value: float, minimum: float, maximum: float) -> float:
 def estimate_fov(aspect: float | None) -> tuple[float, str]:
     """Return the established default vertical FOV guess and rationale."""
     if aspect is not None and aspect < 0.75:
-        return 38.0, "default guess for a portrait-oriented photo (typical phone/short-tele framing)"
+        return (
+            38.0,
+            "default guess for a portrait-oriented photo (typical phone/short-tele framing)",
+        )
     return 35.0, "default guess for a landscape/square photo (typical phone/short-tele framing)"
 
 
@@ -109,8 +117,17 @@ def build_camera(image: Path, args: argparse.Namespace) -> dict[str, JsonValue]:
         "method": "heuristic default-guess camera, not solved from image content; image dimensions give an exact aspect ratio, everything else is a starting point for agent refinement",
         "imageWidth": width,
         "imageHeight": height,
-        "fovDegrees": {"value": round(fov_degrees, 2), "source": fov_source, "agentFill": fov_source == "default-guess", "rationale": fov_rationale},
-        "aspect": {"value": aspect, "source": "image-dimensions" if size else "fallback-default", "agentFill": size is None},
+        "fovDegrees": {
+            "value": round(fov_degrees, 2),
+            "source": fov_source,
+            "agentFill": fov_source == "default-guess",
+            "rationale": fov_rationale,
+        },
+        "aspect": {
+            "value": aspect,
+            "source": "image-dimensions" if size else "fallback-default",
+            "agentFill": size is None,
+        },
         "orientation": {
             "yawDegrees": {"value": args.yaw, "source": "placeholder", "agentFill": True},
             "pitchDegrees": {"value": args.pitch, "source": "placeholder", "agentFill": True},
@@ -119,7 +136,11 @@ def build_camera(image: Path, args: argparse.Namespace) -> dict[str, JsonValue]:
         },
         "position": {
             "hint": [0.0, args.height_offset, distance],
-            "distance": {"value": distance, "source": distance_source, "agentFill": distance_source == "placeholder"},
+            "distance": {
+                "value": distance,
+                "source": distance_source,
+                "agentFill": distance_source == "placeholder",
+            },
             "note": "Position hint assumes the subject is centered at the origin and the camera looks down -Z.",
         },
         "confidence": 0.35 if size else 0.15,
@@ -128,6 +149,7 @@ def build_camera(image: Path, args: argparse.Namespace) -> dict[str, JsonValue]:
             "fovDegrees is a genre default, not a measurement; wrong FOV distorts perceived proportions under overlay",
             "orientation and position are placeholders and will almost always need manual/agent adjustment",
             "this script cannot detect lens distortion, perspective foreshortening, or non-zero roll",
-        ] + warnings,
+        ]
+        + warnings,
         "note": "Final camera match must be confirmed by overlay review: render the fitted mesh from this camera, place it beside or over the reference image, and adjust fovDegrees/orientation/position until silhouette and landmark alignment match before trusting projected texture bakes.",
     }

@@ -34,7 +34,12 @@ CAPTURE_PLAN: tuple[dict[str, Any], ...] = (
     {"id": "profile", "role": "orbit", "azimuthDegrees": 78, "elevationDegrees": 0},
     {"id": "rear", "role": "orbit", "azimuthDegrees": 180, "elevationDegrees": 0},
     {"id": "head-hero", "role": "head-closeup", "azimuthDegrees": 0, "elevationDegrees": 0},
-    {"id": "head-threequarter", "role": "head-closeup", "azimuthDegrees": 35, "elevationDegrees": 0},
+    {
+        "id": "head-threequarter",
+        "role": "head-closeup",
+        "azimuthDegrees": 35,
+        "elevationDegrees": 0,
+    },
 )
 
 
@@ -56,13 +61,17 @@ def read_manifest(path: Path) -> dict[str, Any]:
 def write_manifest(path: Path, manifest: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     temporary.replace(path)
 
 
 def manifest_path(manifest_path_value: Path, value: str) -> Path:
     candidate = Path(value).expanduser()
-    return candidate if candidate.is_absolute() else (manifest_path_value.parent / candidate).resolve()
+    return (
+        candidate if candidate.is_absolute() else (manifest_path_value.parent / candidate).resolve()
+    )
 
 
 def portable_path(manifest_path_value: Path, value: Path) -> str:
@@ -303,12 +312,18 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
 
                 profile_result = validate_file(profile_path)
                 errors.extend(f"render profile: {error}" for error in profile_result["errors"])
-                warnings.extend(f"render profile: {warning}" for warning in profile_result["warnings"])
+                warnings.extend(
+                    f"render profile: {warning}" for warning in profile_result["warnings"]
+                )
     runtime = manifest.get("runtime")
     if not isinstance(runtime, dict) or not runtime.get("url"):
         errors.append("runtime.url is required")
     reference = manifest.get("reference")
-    if not isinstance(reference, dict) or not reference.get("path") or reference.get("kind") not in {"image", "glb"}:
+    if (
+        not isinstance(reference, dict)
+        or not reference.get("path")
+        or reference.get("kind") not in {"image", "glb"}
+    ):
         errors.append("reference.path is required")
     else:
         reference_path = manifest_path(path, str(reference["path"]))
@@ -347,7 +362,9 @@ def validate_manifest(path: Path, require_complete: bool = False) -> dict[str, A
                 baseline_path = manifest_path(path, str(baseline["path"]))
                 if not baseline_path.is_file():
                     errors.append(f"GLB reference baseline is missing: {baseline_path}")
-                elif baseline.get("screenshotSha256") and baseline["screenshotSha256"] != sha256(baseline_path):
+                elif baseline.get("screenshotSha256") and baseline["screenshotSha256"] != sha256(
+                    baseline_path
+                ):
                     errors.append(f"GLB reference baseline hash changed: {baseline_path}")
                 if baseline.get("consoleErrors"):
                     errors.append(f"browser console errors recorded for GLB baseline: {capture_id}")
@@ -418,7 +435,11 @@ def diagnose(path: Path, output: Path) -> dict[str, Any]:
 
     orbit_paths = []
     for capture in manifest.get("captures", []):
-        if isinstance(capture, dict) and capture.get("role") == "orbit" and capture.get("status") == "recorded":
+        if (
+            isinstance(capture, dict)
+            and capture.get("role") == "orbit"
+            and capture.get("status") == "recorded"
+        ):
             orbit_paths.append(manifest_path(path, str(capture["path"])))
     if reference_record.get("kind") == "glb":
         hero_reference = hero.get("reference")
@@ -448,38 +469,58 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    init = commands.add_parser("init", help="create a deterministic character camera-batch manifest")
+    init = commands.add_parser(
+        "init", help="create a deterministic character camera-batch manifest"
+    )
     reference_group = init.add_mutually_exclusive_group(required=True)
     reference_group.add_argument("--reference", type=Path, help="source image reference")
-    reference_group.add_argument("--reference-glb", type=Path, help="GLB reference mesh; it must be browser-rendered before comparison")
+    reference_group.add_argument(
+        "--reference-glb",
+        type=Path,
+        help="GLB reference mesh; it must be browser-rendered before comparison",
+    )
     init.add_argument("--runtime-url", required=True)
     init.add_argument("--out", type=Path, required=True)
     init.add_argument("--viewport", default="620x1000", help="CSS viewport, e.g. 620x1000")
     init.add_argument("--device-pixel-ratio", type=float, default=1.0)
     init.add_argument("--output-dir", default="captures")
-    init.add_argument("--reference-browser-url", help="browser-visible URL/path for the GLB reference mode")
-    init.add_argument("--render-profile", type=Path, help="validated render-profile.v2 shared by GLB and procedural routes")
+    init.add_argument(
+        "--reference-browser-url", help="browser-visible URL/path for the GLB reference mode"
+    )
+    init.add_argument(
+        "--render-profile",
+        type=Path,
+        help="validated render-profile.v2 shared by GLB and procedural routes",
+    )
 
-    record = commands.add_parser("record", help="record a browser-produced screenshot into the manifest")
+    record = commands.add_parser(
+        "record", help="record a browser-produced screenshot into the manifest"
+    )
     record.add_argument("--manifest", type=Path, required=True)
     record.add_argument("--capture-id", required=True)
     record.add_argument("--screenshot", type=Path, required=True)
     record.add_argument("--ready-signal", default=True)
     record.add_argument("--console-error", action="append", default=[])
 
-    record_reference = commands.add_parser("record-reference", help="record a browser-rendered GLB baseline screenshot")
+    record_reference = commands.add_parser(
+        "record-reference", help="record a browser-rendered GLB baseline screenshot"
+    )
     record_reference.add_argument("--manifest", type=Path, required=True)
     record_reference.add_argument("--capture-id", required=True)
     record_reference.add_argument("--screenshot", type=Path, required=True)
     record_reference.add_argument("--ready-signal", default=True)
     record_reference.add_argument("--console-error", action="append", default=[])
 
-    record_pass_parser = commands.add_parser("record-pass", help="record one browser-produced diagnostic pass")
+    record_pass_parser = commands.add_parser(
+        "record-pass", help="record one browser-produced diagnostic pass"
+    )
     record_pass_parser.add_argument("--manifest", type=Path, required=True)
     record_pass_parser.add_argument("--capture-id", required=True)
     record_pass_parser.add_argument("--pass-id", choices=PASS_IDS, required=True)
     record_pass_parser.add_argument("--image", type=Path, required=True)
-    record_pass_parser.add_argument("--reference", action="store_true", help="record the GLB baseline pass")
+    record_pass_parser.add_argument(
+        "--reference", action="store_true", help="record the GLB baseline pass"
+    )
 
     validate = commands.add_parser("validate", help="validate files and hashes in a manifest")
     validate.add_argument("--manifest", type=Path, required=True)
@@ -517,14 +558,34 @@ def main(argv: list[str]) -> int:
         manifest_path_value = args.manifest.expanduser().resolve()
         manifest = read_manifest(manifest_path_value)
         if args.command == "record":
-            record_capture(manifest_path_value, manifest, args.capture_id, Path(args.screenshot), args.ready_signal, args.console_error)
+            record_capture(
+                manifest_path_value,
+                manifest,
+                args.capture_id,
+                Path(args.screenshot),
+                args.ready_signal,
+                args.console_error,
+            )
             write_manifest(manifest_path_value, manifest)
             print(json.dumps(find_capture(manifest, args.capture_id), indent=2, ensure_ascii=False))
             return 0
         if args.command == "record-reference":
-            record_reference_capture(manifest_path_value, manifest, args.capture_id, Path(args.screenshot), args.ready_signal, args.console_error)
+            record_reference_capture(
+                manifest_path_value,
+                manifest,
+                args.capture_id,
+                Path(args.screenshot),
+                args.ready_signal,
+                args.console_error,
+            )
             write_manifest(manifest_path_value, manifest)
-            print(json.dumps(find_capture(manifest, args.capture_id).get("reference"), indent=2, ensure_ascii=False))
+            print(
+                json.dumps(
+                    find_capture(manifest, args.capture_id).get("reference"),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
             return 0
         if args.command == "record-pass":
             result = record_capture_pass(

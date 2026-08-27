@@ -28,7 +28,11 @@ TONE_MAPPINGS = {"NoToneMapping", "ACESFilmicToneMapping", "AgXToneMapping", "Ne
 
 
 def _is_vec(value: Any, length: int) -> bool:
-    return isinstance(value, list) and len(value) == length and all(isinstance(item, (int, float)) for item in value)
+    return (
+        isinstance(value, list)
+        and len(value) == length
+        and all(isinstance(item, (int, float)) for item in value)
+    )
 
 
 def validate_profile(profile: dict[str, Any]) -> dict[str, Any]:
@@ -68,12 +72,20 @@ def validate_profile(profile: dict[str, Any]) -> dict[str, Any]:
             errors.append("renderer.outputColorSpace must be SRGBColorSpace")
         if renderer.get("toneMapping") not in TONE_MAPPINGS:
             errors.append("renderer.toneMapping is not a supported Three.js profile value")
-        if not isinstance(renderer.get("toneMappingExposure"), (int, float)) or renderer.get("toneMappingExposure", 0) <= 0:
+        if (
+            not isinstance(renderer.get("toneMappingExposure"), (int, float))
+            or renderer.get("toneMappingExposure", 0) <= 0
+        ):
             errors.append("renderer.toneMappingExposure must be > 0")
         viewport = renderer.get("viewport")
         if not _is_vec(viewport, 2) or any(int(value) != value or value <= 0 for value in viewport):
-            errors.append("renderer.viewport must be [positive integer width, positive integer height]")
-        if not isinstance(renderer.get("devicePixelRatio"), (int, float)) or renderer.get("devicePixelRatio", 0) <= 0:
+            errors.append(
+                "renderer.viewport must be [positive integer width, positive integer height]"
+            )
+        if (
+            not isinstance(renderer.get("devicePixelRatio"), (int, float))
+            or renderer.get("devicePixelRatio", 0) <= 0
+        ):
             errors.append("renderer.devicePixelRatio must be > 0")
         if not isinstance(renderer.get("antialias"), bool):
             errors.append("renderer.antialias must be boolean")
@@ -82,13 +94,24 @@ def validate_profile(profile: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(environment, dict):
         errors.append("environment must be an object")
     else:
-        if environment.get("kind") not in {"none", "pmrem-hdr", "pmrem-equirectangular", "pmrem-cubemap"}:
+        if environment.get("kind") not in {
+            "none",
+            "pmrem-hdr",
+            "pmrem-equirectangular",
+            "pmrem-cubemap",
+        }:
             errors.append("environment.kind must identify a PMREM or none")
         if not isinstance(environment.get("source"), str):
             errors.append("environment.source is required")
-        if not isinstance(environment.get("intensity"), (int, float)) or environment.get("intensity", -1) < 0:
+        if (
+            not isinstance(environment.get("intensity"), (int, float))
+            or environment.get("intensity", -1) < 0
+        ):
             errors.append("environment.intensity must be >= 0")
-        if environment.get("kind", "").startswith("pmrem") and environment.get("prefilter") != "PMREMGenerator":
+        if (
+            environment.get("kind", "").startswith("pmrem")
+            and environment.get("prefilter") != "PMREMGenerator"
+        ):
             warnings.append("PMREM environment should record prefilter=PMREMGenerator")
 
     camera = profile.get("camera")
@@ -102,15 +125,25 @@ def validate_profile(profile: dict[str, Any]) -> dict[str, Any]:
                 errors.append(f"camera.{key} must be a numeric vec3")
         if not isinstance(camera.get("near"), (int, float)) or camera.get("near", 0) <= 0:
             errors.append("camera.near must be > 0")
-        if not isinstance(camera.get("far"), (int, float)) or camera.get("far", 0) <= camera.get("near", 0):
+        if not isinstance(camera.get("far"), (int, float)) or camera.get("far", 0) <= camera.get(
+            "near", 0
+        ):
             errors.append("camera.far must be greater than camera.near")
 
     background = profile.get("background")
-    if not isinstance(background, dict) or background.get("kind") not in {"solid", "transparent", "scene"}:
+    if not isinstance(background, dict) or background.get("kind") not in {
+        "solid",
+        "transparent",
+        "scene",
+    }:
         errors.append("background.kind must be solid, transparent, or scene")
 
     passes = profile.get("passes")
-    pass_ids = [item.get("id") for item in passes] if isinstance(passes, list) and all(isinstance(item, dict) for item in passes) else []
+    pass_ids = (
+        [item.get("id") for item in passes]
+        if isinstance(passes, list) and all(isinstance(item, dict) for item in passes)
+        else []
+    )
     if set(pass_ids) != set(PASS_IDS) or len(pass_ids) != len(PASS_IDS):
         errors.append(f"passes must contain exactly: {', '.join(PASS_IDS)}")
     else:
@@ -123,21 +156,38 @@ def validate_profile(profile: dict[str, Any]) -> dict[str, Any]:
                 errors.append(f"diagnostic pass {item.get('id')} must use NoColorSpace")
 
     regions = profile.get("regions")
-    region_ids = [item.get("id") for item in regions] if isinstance(regions, list) and all(isinstance(item, dict) for item in regions) else []
+    region_ids = (
+        [item.get("id") for item in regions]
+        if isinstance(regions, list) and all(isinstance(item, dict) for item in regions)
+        else []
+    )
     missing_regions = [region for region in REGION_IDS if region not in region_ids]
     if missing_regions:
         errors.append(f"regions missing required IDs: {', '.join(missing_regions)}")
 
     feedback = profile.get("feedbackGroups")
-    feedback_ids = [item.get("id") for item in feedback] if isinstance(feedback, list) and all(isinstance(item, dict) for item in feedback) else []
+    feedback_ids = (
+        [item.get("id") for item in feedback]
+        if isinstance(feedback, list) and all(isinstance(item, dict) for item in feedback)
+        else []
+    )
     if feedback_ids != list(FEEDBACK_GROUPS):
-        errors.append("feedbackGroups must be ordered camera, silhouette, face, clothing, accessory, materials, lighting")
+        errors.append(
+            "feedbackGroups must be ordered camera, silhouette, face, clothing, accessory, materials, lighting"
+        )
     else:
         for index, item in enumerate(feedback, start=1):
             if item.get("order") != index:
                 errors.append(f"feedback group {item.get('id')} must have order {index}")
 
-    return {"passed": not errors, "errors": errors, "warnings": warnings, "passIds": pass_ids, "regionIds": region_ids, "feedbackGroups": feedback_ids}
+    return {
+        "passed": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "passIds": pass_ids,
+        "regionIds": region_ids,
+        "feedbackGroups": feedback_ids,
+    }
 
 
 def validate_file(path: Path) -> dict[str, Any]:

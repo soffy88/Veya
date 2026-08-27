@@ -22,7 +22,8 @@ async def plan_goal(body: PlanGoalBody, request: Request) -> dict[str, Any]:
     trace_id = _trace(request)
     try:
         report = plan_for_goal(
-            body.goal, body.criteria,
+            body.goal,
+            body.criteria,
             execute=body.execute,
             trace_id=trace_id,
         )
@@ -32,7 +33,9 @@ async def plan_goal(body: PlanGoalBody, request: Request) -> dict[str, Any]:
     from app.deps import get_audit
 
     audit_and_report(
-        get_audit(), phase="plan", trace_id=report["trace_id"],
+        get_audit(),
+        phase="plan",
+        trace_id=report["trace_id"],
         decision_made={"goal": body.goal, "actions": len(report["ranked_actions"])},
         context_snapshot={"criteria": body.criteria},
     )
@@ -50,7 +53,9 @@ async def plan_diagnose(body: DiagnoseBody, request: Request) -> dict[str, Any]:
     from app.deps import get_audit
 
     audit_and_report(
-        get_audit(), phase="diagnose", trace_id=report["trace_id"],
+        get_audit(),
+        phase="diagnose",
+        trace_id=report["trace_id"],
         decision_made={"symptom": body.symptom, "root_causes": len(report["root_causes"])},
         context_snapshot=body.context,
     )

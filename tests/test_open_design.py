@@ -81,7 +81,7 @@ async def test_wire_master_tools_idempotent(connector):
         assert master_tools.has("mcp_od")
     else:
         assert master_tools.has("mcp_od_write_file")
-    assert await wire_master_tools(connector) == 0     # 幂等
+    assert await wire_master_tools(connector) == 0  # 幂等
 
 
 def test_singleton():
@@ -92,5 +92,5 @@ def test_singleton():
 async def test_missing_token_degrades(monkeypatch):
     monkeypatch.setattr("server.open_design._od_token", lambda: "")
     c = OpenDesignConnector()
-    await c.start()                       # token 缺失 → 降级不抛
+    await c.start()  # token 缺失 → 降级不抛
     assert not c.ready

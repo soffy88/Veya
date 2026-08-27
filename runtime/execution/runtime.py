@@ -51,12 +51,19 @@ class DurableRuntimeConfig:
         return cls(
             enabled=enabled,
             production=_env_bool("VEYA_EXECUTION_PRODUCTION", False),
-            database_url=os.environ.get("VEYA_EXECUTION_DATABASE_URL") or os.environ.get("DATABASE_URL"),
-            sqlite_path=os.environ.get("VEYA_EXECUTION_SQLITE_PATH", ".veya/execution-runtime.sqlite3"),
+            database_url=os.environ.get("VEYA_EXECUTION_DATABASE_URL")
+            or os.environ.get("DATABASE_URL"),
+            sqlite_path=os.environ.get(
+                "VEYA_EXECUTION_SQLITE_PATH", ".veya/execution-runtime.sqlite3"
+            ),
             lease_ttl_s=float(os.environ.get("VEYA_EXECUTION_LEASE_TTL_S", "30")),
             heartbeat_interval_s=float(os.environ.get("VEYA_EXECUTION_HEARTBEAT_INTERVAL_S", "10")),
-            reconciliation_interval_s=float(os.environ.get("VEYA_EXECUTION_RECONCILIATION_INTERVAL_S", "15")),
-            reconciliation_batch_size=int(os.environ.get("VEYA_EXECUTION_RECONCILIATION_BATCH_SIZE", "100")),
+            reconciliation_interval_s=float(
+                os.environ.get("VEYA_EXECUTION_RECONCILIATION_INTERVAL_S", "15")
+            ),
+            reconciliation_batch_size=int(
+                os.environ.get("VEYA_EXECUTION_RECONCILIATION_BATCH_SIZE", "100")
+            ),
             queue_read=_env_bool("VEYA_EXECUTION_DURABLE_QUEUE_READ", enabled),
             queue_claim=_env_bool("VEYA_EXECUTION_DURABLE_QUEUE_CLAIM", enabled),
             lease_fencing=_env_bool("VEYA_EXECUTION_LEASE_FENCING", True),
@@ -70,15 +77,27 @@ class DurableRuntimeConfig:
         )
 
     def validate(self) -> None:
-        if self.lease_ttl_s <= 0 or self.heartbeat_interval_s <= 0 or self.heartbeat_interval_s * 2 > self.lease_ttl_s:
-            raise DurableExecutionError("CONFIG_INVALID", "lease TTL must be at least 2x heartbeat interval")
+        if (
+            self.lease_ttl_s <= 0
+            or self.heartbeat_interval_s <= 0
+            or self.heartbeat_interval_s * 2 > self.lease_ttl_s
+        ):
+            raise DurableExecutionError(
+                "CONFIG_INVALID", "lease TTL must be at least 2x heartbeat interval"
+            )
         if self.reconciliation_interval_s <= 0 or self.reconciliation_batch_size <= 0:
-            raise DurableExecutionError("CONFIG_INVALID", "reconciliation settings must be positive")
+            raise DurableExecutionError(
+                "CONFIG_INVALID", "reconciliation settings must be positive"
+            )
         if self.enabled and not self.event_outbox:
             raise DurableExecutionError("CONFIG_INVALID", "durable execution requires event outbox")
-        if self.enabled and self.production and (
-            not self.database_url
-            or not self.database_url.startswith(("postgres://", "postgresql://"))
+        if (
+            self.enabled
+            and self.production
+            and (
+                not self.database_url
+                or not self.database_url.startswith(("postgres://", "postgresql://"))
+            )
         ):
             raise DurableExecutionError(
                 "CONFIG_INVALID",
@@ -123,14 +142,18 @@ class DurableExecutionRuntime:
         # launched, so this process cannot claim a scope before recovery runs.
         await self.reconciler.startup()
         if self.config.reconciler_enabled:
-            self._reconciler_task = asyncio.create_task(self.reconciler.run(), name="veya-execution-reconciler")
+            self._reconciler_task = asyncio.create_task(
+                self.reconciler.run(), name="veya-execution-reconciler"
+            )
         self._outbox_publisher = OutboxPublisher(
             self.repository,
             self._publish_event,
             interval_s=1.0,
             batch_size=100,
         )
-        self._outbox_task = asyncio.create_task(self._outbox_publisher.run(), name="veya-execution-outbox")
+        self._outbox_task = asyncio.create_task(
+            self._outbox_publisher.run(), name="veya-execution-outbox"
+        )
         self._started = True
         return await self.health()
 

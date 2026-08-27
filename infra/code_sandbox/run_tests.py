@@ -37,8 +37,16 @@ def main() -> int:
     try:
         payload = json.loads(raw or "{}")
     except json.JSONDecodeError:
-        print(json.dumps({"passed": False, "n_failed": 1,
-                          "stderr": "bad stdin json", "metadata": {"env_error": True}}))
+        print(
+            json.dumps(
+                {
+                    "passed": False,
+                    "n_failed": 1,
+                    "stderr": "bad stdin json",
+                    "metadata": {"env_error": True},
+                }
+            )
+        )
         return 1
 
     files: dict = payload.get("files") or {}
@@ -50,9 +58,16 @@ def main() -> int:
     try:
         for rel, content in files.items():
             if not _safe_relpath(rel):
-                print(json.dumps({"passed": False, "n_failed": 1,
-                                  "stderr": f"illegal path: {rel}",
-                                  "metadata": {"env_error": True}}))
+                print(
+                    json.dumps(
+                        {
+                            "passed": False,
+                            "n_failed": 1,
+                            "stderr": f"illegal path: {rel}",
+                            "metadata": {"env_error": True},
+                        }
+                    )
+                )
                 return 1
             target = work / rel
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -60,12 +75,12 @@ def main() -> int:
 
         # 跑 pytest: junitxml 内建输出 (版本无关, 结构稳定) + 简短 stdout
         junit_path = "/tmp/junit.xml"
-        cmd = [sys.executable, "-m", "pytest", *test_args,
-               f"--junitxml={junit_path}"]
+        cmd = [sys.executable, "-m", "pytest", *test_args, f"--junitxml={junit_path}"]
         t0 = time.time()
         try:
             proc = subprocess.run(
-                cmd, cwd=work, capture_output=True, text=True, timeout=timeout_sec)
+                cmd, cwd=work, capture_output=True, text=True, timeout=timeout_sec
+            )
             timed_out = False
         except subprocess.TimeoutExpired:
             proc = None
@@ -74,11 +89,20 @@ def main() -> int:
         duration = time.time() - t0
 
         if timed_out:
-            print(json.dumps({
-                "passed": False, "n_passed": 0, "n_failed": 1,
-                "duration_s": round(duration, 3),
-                "stdout": "", "stderr": f"timeout after {timeout_sec}s",
-                "failed_nodeids": [], "metadata": {"timeout": True}}))
+            print(
+                json.dumps(
+                    {
+                        "passed": False,
+                        "n_passed": 0,
+                        "n_failed": 1,
+                        "duration_s": round(duration, 3),
+                        "stdout": "",
+                        "stderr": f"timeout after {timeout_sec}s",
+                        "failed_nodeids": [],
+                        "metadata": {"timeout": True},
+                    }
+                )
+            )
             return 1
 
         out_text = proc.stdout or ""
@@ -93,8 +117,11 @@ def main() -> int:
             root = ET.parse(junit_path).getroot()
             # pytest 9: 根是 <testsuites>, 计数在子 <testsuite> 上
             suite = root if root.tag == "testsuite" else root.find("testsuite")
-            n_passed = int(suite.get("tests") or 0) \
-                - int(suite.get("failures") or 0) - int(suite.get("errors") or 0)
+            n_passed = (
+                int(suite.get("tests") or 0)
+                - int(suite.get("failures") or 0)
+                - int(suite.get("errors") or 0)
+            )
             n_failed = int(suite.get("failures") or 0) + int(suite.get("errors") or 0)
             for tc in suite.iter("testcase"):
                 if tc.find("failure") is not None or tc.find("error") is not None:
@@ -104,6 +131,7 @@ def main() -> int:
         except Exception:
             # 兜底: 解析简短输出
             import re
+
             m = re.search(r"(\d+) passed", out_text)
             n_passed = int(m.group(1)) if m else 0
             m = re.search(r"(\d+) failed", out_text)
@@ -114,21 +142,37 @@ def main() -> int:
             failed_nodeids = failed_nodeids or ["<no-tests-collected>"]
 
         passed = n_failed == 0 and n_passed > 0
-        print(json.dumps({
-            "passed": passed, "n_passed": n_passed, "n_failed": n_failed,
-            "duration_s": round(duration, 3),
-            "stdout": out_text[-4000:], "stderr": err_text[-2000:],
-            "failed_nodeids": failed_nodeids,
-            "metadata": {"timeout": False, "python": sys.version.split()[0]},
-        }, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "passed": passed,
+                    "n_passed": n_passed,
+                    "n_failed": n_failed,
+                    "duration_s": round(duration, 3),
+                    "stdout": out_text[-4000:],
+                    "stderr": err_text[-2000:],
+                    "failed_nodeids": failed_nodeids,
+                    "metadata": {"timeout": False, "python": sys.version.split()[0]},
+                },
+                ensure_ascii=False,
+            )
+        )
         return 0 if passed else 1
     except Exception as exc:  # noqa: BLE001 - 沙箱内任何异常都返回结构化错误
-        print(json.dumps({"passed": False, "n_failed": 1,
-                          "stderr": f"sandbox internal error: {exc}\n{traceback.format_exc()[-1000:]}",
-                          "metadata": {"env_error": True}}))
+        print(
+            json.dumps(
+                {
+                    "passed": False,
+                    "n_failed": 1,
+                    "stderr": f"sandbox internal error: {exc}\n{traceback.format_exc()[-1000:]}",
+                    "metadata": {"env_error": True},
+                }
+            )
+        )
         return 1
     finally:
         import shutil
+
         shutil.rmtree(work, ignore_errors=True)
 
 

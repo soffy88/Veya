@@ -28,6 +28,7 @@ from server.operator_ledger import (
 # 账本注册
 # =========================================================================
 
+
 def test_register_operators_idempotent():
     """4 算子注册进 AgentRegistry; 重复调用零冲突 (幂等)。"""
     reg = AgentRegistry()
@@ -54,6 +55,7 @@ def test_ledger_summary_shape():
 # =========================================================================
 # 算子行为 (依赖缺失 → 结构化失败, 不崩溃)
 # =========================================================================
+
 
 @pytest.mark.asyncio
 async def test_officecli_operator_missing_binary():
@@ -87,8 +89,9 @@ async def test_browser_use_operator_unavailable():
     except ImportError:
         result = await browser_use_agent("test goal")
         assert result["ok"] is False
-        assert ("未安装" in result["error"] or "未挂载" in result["error"]
-                or "失败" in result["error"])
+        assert (
+            "未安装" in result["error"] or "未挂载" in result["error"] or "失败" in result["error"]
+        )
     else:
         pytest.skip("browser_use 已安装")
 
@@ -105,12 +108,12 @@ async def test_codebase_memory_operator_graceful():
 # 三框架运行时立项账本
 # =========================================================================
 
+
 def test_runtime_ledger_registered():
     """三框架立项: prime-agent / pi / agentscope, 状态 pending。"""
     from server.operator_ledger import RUNTIME_LEDGER, runtime_ledger_summary
 
-    assert set(RUNTIME_LEDGER) == {
-        "prime_agent_runtime", "pi_bridge", "agentscope_bridge"}
+    assert set(RUNTIME_LEDGER) == {"prime_agent_runtime", "pi_bridge", "agentscope_bridge"}
     summary = runtime_ledger_summary()
     assert all(s["status"] == "registered" for s in summary)  # L1-L3 已实施
     # 层归属

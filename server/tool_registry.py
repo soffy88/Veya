@@ -3800,7 +3800,9 @@ async def _tool_skill_create(
     execution_ref: str = "",
 ) -> dict:
     user_id, session_id, task_id, trace_id = _personal_request_ids()
-    sid = user_id if scope_type == "user" else scope_id or os.environ.get("VEYA_WORKSPACE", "default")
+    sid = (
+        user_id if scope_type == "user" else scope_id or os.environ.get("VEYA_WORKSPACE", "default")
+    )
     event = await get_personal_runtime().record_event(
         "skill.teaching_instruction",
         {"name": name, "description": description},
@@ -4085,13 +4087,70 @@ if not master_tools.has("skill_rollback"):
         side_effect=SideEffect.LOCAL_WRITE,
     )
 if not master_tools.has("skill_deprecate"):
-    master_tools.register("skill_deprecate", "停用 Skill 但保留全部版本和运行审计。", {"type":"object","properties":{"skill_id":{"type":"string"}},"required":["skill_id"]}, _tool_skill_deprecate, side_effect=SideEffect.LOCAL_WRITE)
+    master_tools.register(
+        "skill_deprecate",
+        "停用 Skill 但保留全部版本和运行审计。",
+        {
+            "type": "object",
+            "properties": {"skill_id": {"type": "string"}},
+            "required": ["skill_id"],
+        },
+        _tool_skill_deprecate,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
 if not master_tools.has("skill_delete"):
-    master_tools.register("skill_delete", "将 Skill 标记 deprecated 以保留审计；不物理删除历史版本。", {"type":"object","properties":{"skill_id":{"type":"string"}},"required":["skill_id"]}, _tool_skill_deprecate, side_effect=SideEffect.LOCAL_WRITE)
+    master_tools.register(
+        "skill_delete",
+        "将 Skill 标记 deprecated 以保留审计；不物理删除历史版本。",
+        {
+            "type": "object",
+            "properties": {"skill_id": {"type": "string"}},
+            "required": ["skill_id"],
+        },
+        _tool_skill_deprecate,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
 if not master_tools.has("learning_candidate_create"):
-    master_tools.register("learning_candidate_create", "从至少三次独立任务或明确教学创建 LearningCandidate，不直接修改行为。", {"type":"object","properties":{"pattern_id":{"type":"string"},"observation":{"type":"string"},"hypothesis":{"type":"string"},"evidence_task_ids":{"type":"array","items":{"type":"string"}},"evidence_trajectory_ids":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"},"candidate_type":{"type":"string"},"proposed_change":{"type":"object"},"confidence":{"type":"number"},"explicit_teaching":{"type":"boolean"}},"required":["pattern_id","observation","hypothesis","evidence_task_ids"]}, _tool_learning_candidate, side_effect=SideEffect.LOCAL_WRITE)
+    master_tools.register(
+        "learning_candidate_create",
+        "从至少三次独立任务或明确教学创建 LearningCandidate，不直接修改行为。",
+        {
+            "type": "object",
+            "properties": {
+                "pattern_id": {"type": "string"},
+                "observation": {"type": "string"},
+                "hypothesis": {"type": "string"},
+                "evidence_task_ids": {"type": "array", "items": {"type": "string"}},
+                "evidence_trajectory_ids": {"type": "array", "items": {"type": "string"}},
+                "scope": {"type": "string"},
+                "candidate_type": {"type": "string"},
+                "proposed_change": {"type": "object"},
+                "confidence": {"type": "number"},
+                "explicit_teaching": {"type": "boolean"},
+            },
+            "required": ["pattern_id", "observation", "hypothesis", "evidence_task_ids"],
+        },
+        _tool_learning_candidate,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
 if not master_tools.has("learning_eval"):
-    master_tools.register("learning_eval", "记录 baseline/candidate 离线或 replay eval；只有通过才可进入 validated gate。", {"type":"object","properties":{"learning_id":{"type":"string"},"baseline_ref":{"type":"string"},"candidate_ref":{"type":"string"},"result":{"type":"object"},"passed":{"type":"boolean"}},"required":["learning_id","baseline_ref","candidate_ref","result","passed"]}, _tool_learning_eval, side_effect=SideEffect.LOCAL_WRITE)
+    master_tools.register(
+        "learning_eval",
+        "记录 baseline/candidate 离线或 replay eval；只有通过才可进入 validated gate。",
+        {
+            "type": "object",
+            "properties": {
+                "learning_id": {"type": "string"},
+                "baseline_ref": {"type": "string"},
+                "candidate_ref": {"type": "string"},
+                "result": {"type": "object"},
+                "passed": {"type": "boolean"},
+            },
+            "required": ["learning_id", "baseline_ref", "candidate_ref", "result", "passed"],
+        },
+        _tool_learning_eval,
+        side_effect=SideEffect.LOCAL_WRITE,
+    )
 
 
 if not master_tools.has("tool_search"):

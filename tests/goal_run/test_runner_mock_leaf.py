@@ -65,8 +65,8 @@ async def test_project_run_goal_basic_auto(tmp_path: Path, monkeypatch):
     assert result.goal_id is not None or result.status == GoalStatus.blocked
     # 注意：因为是 mock 环境，可能无法真正执行代码
     # 关键是验证响应结构正确
-    assert hasattr(result, 'phase')
-    assert hasattr(result, 'status')
+    assert hasattr(result, "phase")
+    assert hasattr(result, "status")
 
 
 @pytest.mark.asyncio
@@ -86,7 +86,7 @@ async def test_project_run_goal_act_eager(tmp_path: Path, monkeypatch):
     # act_eager 应该直接进入执行阶段
     assert result is not None
     # 可能是 running 或 completed，取决于 mock 实现
-    assert hasattr(result, 'phase')
+    assert hasattr(result, "phase")
 
 
 @pytest.mark.asyncio
@@ -104,7 +104,7 @@ async def test_project_run_goal_ask_only(tmp_path: Path, monkeypatch):
 
     # ask_only 只应返回 understood_ask 相关信息
     assert result is not None
-    assert hasattr(result, 'phase')
+    assert hasattr(result, "phase")
     # ask_only 不应进行实际执行
 
 
@@ -135,7 +135,7 @@ async def test_project_run_goal_resume(tmp_path: Path, monkeypatch):
 
     # 再次调用应正常返回
     assert result2 is not None
-    assert hasattr(result2, 'goal_id')
+    assert hasattr(result2, "goal_id")
     # 可能目标相同导致 completed
 
 

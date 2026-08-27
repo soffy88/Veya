@@ -30,18 +30,59 @@ from typing import Iterable
 
 # ---- I/O 相关导入 (AST import 名 / 子模块前缀) ----
 IO_IMPORTS: tuple[str, ...] = (
-    "os", "pathlib", "sys", "io", "subprocess", "socket", "requests", "httpx",
-    "aiohttp", "urllib", "tempfile", "shutil", "signal", "pty", "fcntl",
-    "ctypes", "multiprocessing", "concurrent.futures", "threading", "asyncio",
-    "select", "selectors", "pdb", "readline",
+    "os",
+    "pathlib",
+    "sys",
+    "io",
+    "subprocess",
+    "socket",
+    "requests",
+    "httpx",
+    "aiohttp",
+    "urllib",
+    "tempfile",
+    "shutil",
+    "signal",
+    "pty",
+    "fcntl",
+    "ctypes",
+    "multiprocessing",
+    "concurrent.futures",
+    "threading",
+    "asyncio",
+    "select",
+    "selectors",
+    "pdb",
+    "readline",
 )
 IO_MODULE_CALLS: dict[str, tuple[str, ...]] = {
     # module_prefix -> 函数名黑名单 (空 = 该模块任何调用都算 I/O)
     "os.": ("",),  # 任何 os.* 调用 (含 environ/getenv/remove/... 与 pure 无关)
-    "Path": (".read_text", ".write_text", ".open", ".exists", ".is_file",
-             ".is_dir", ".iterdir", ".glob", ".rglob", ".mkdir", ".makedirs",
-             ".unlink", ".rename", ".replace", ".rmdir", ".stat", ".lstat",
-             ".chmod", ".touch", ".resolve", ".cwd", ".home", ".expanduser"),
+    "Path": (
+        ".read_text",
+        ".write_text",
+        ".open",
+        ".exists",
+        ".is_file",
+        ".is_dir",
+        ".iterdir",
+        ".glob",
+        ".rglob",
+        ".mkdir",
+        ".makedirs",
+        ".unlink",
+        ".rename",
+        ".replace",
+        ".rmdir",
+        ".stat",
+        ".lstat",
+        ".chmod",
+        ".touch",
+        ".resolve",
+        ".cwd",
+        ".home",
+        ".expanduser",
+    ),
     "subprocess": ("",),
     "socket": ("",),
     "tempfile": ("",),
@@ -51,8 +92,15 @@ IO_BUILTIN_CALLS: tuple[str, ...] = ("open", "input", "print", "breakpoint", "ex
 
 # ---- 全局状态 ----
 GLOBAL_STMT_KW = ("global", "nonlocal")
-MUTABLE_LITERALS = (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.SetComp,
-                    ast.DictComp, ast.GeneratorExp)
+MUTABLE_LITERALS = (
+    ast.List,
+    ast.Dict,
+    ast.Set,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
 
 # ---- 非确定性 ----
 NONDET_IMPORTS: tuple[str, ...] = ("random", "secrets", "uuid")
@@ -151,9 +199,21 @@ def _module_assignments(tree: ast.Module) -> dict[str, ast.AST]:
 
 
 _MUTATORS: tuple[str, ...] = (
-    "append", "extend", "add", "update", "setdefault", "remove", "pop",
-    "clear", "insert", "sort", "reverse", "discard", "difference_update",
-    "symmetric_difference_update", "__setitem__",
+    "append",
+    "extend",
+    "add",
+    "update",
+    "setdefault",
+    "remove",
+    "pop",
+    "clear",
+    "insert",
+    "sort",
+    "reverse",
+    "discard",
+    "difference_update",
+    "symmetric_difference_update",
+    "__setitem__",
 )
 
 
@@ -254,8 +314,9 @@ def check_file(path: pathlib.Path, root: pathlib.Path) -> tuple[list[str], bool]
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="oskill 纯净度强制检查")
     ap.add_argument("root", nargs="?", default=".", help="仓库根目录")
-    ap.add_argument("--targets", nargs="+", default=["veya/oskill"],
-                    help="扫描目录/文件 (默认 veya/oskill)")
+    ap.add_argument(
+        "--targets", nargs="+", default=["veya/oskill"], help="扫描目录/文件 (默认 veya/oskill)"
+    )
     ap.add_argument("--baseline", default=None, help="基线文件 (未列出的违规才失败)")
     ap.add_argument("--write-baseline", default=None, help="把当前违规写入基线文件")
     ap.add_argument("--strict", action="store_true", help="无视基线, 任何违规都失败")
@@ -297,11 +358,15 @@ def main(argv: list[str] | None = None) -> int:
     if new:
         for v in sorted(new):
             print(f"[FAIL] {v}")
-        print(f"\n共 {len(new)} 处违规 (基线内存量未计)。运行 "
-              f"`python scripts/check_oskill_pure.py --write-baseline ...` 可刷新基线。")
+        print(
+            f"\n共 {len(new)} 处违规 (基线内存量未计)。运行 "
+            f"`python scripts/check_oskill_pure.py --write-baseline ...` 可刷新基线。"
+        )
         return 1
     if not args.quiet:
-        print(f"[OK] oskill 纯净度通过 (共扫描 {len(list(_iter_target_files(root, args.targets)))} 个文件)。")
+        print(
+            f"[OK] oskill 纯净度通过 (共扫描 {len(list(_iter_target_files(root, args.targets)))} 个文件)。"
+        )
     return 0
 
 

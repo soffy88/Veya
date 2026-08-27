@@ -19,9 +19,7 @@ from typing import Any
 # （如用户问「可以吗」模型答 ok），误判为疲劳会让正常对话报
 # 「循环停止 (invalid_response)」错误（HTTP 全路径实测: 模型回 'ok' 被误杀）。
 # 只保留真正「无内容」的标记: 空串与 null/none 变体。
-_INVALID_CONTENTS: frozenset[str] = frozenset(
-    {"", "none", "null", "nil", "n/a", "无", "空"}
-)
+_INVALID_CONTENTS: frozenset[str] = frozenset({"", "none", "null", "nil", "n/a", "无", "空"})
 
 
 @dataclass(frozen=True)

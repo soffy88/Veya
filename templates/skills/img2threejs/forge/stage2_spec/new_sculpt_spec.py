@@ -9,6 +9,7 @@ import math
 import re
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
 from pipeline_routing import resolve_pipeline_routing
 from status_banner import emit_status
@@ -234,7 +235,9 @@ def inject_geometry_rules(spec: dict, target_name: str) -> None:
     ]
     object_tokens = set(re.findall(r"[a-z0-9]+", target_name.lower()))
     if object_tokens & {"blade", "knife", "sword", "dagger", "spear", "bowie"}:
-        rules.append(f"Blade components must vary in thickness from spine to edge and taper from ricasso toward the tip ({source}).")
+        rules.append(
+            f"Blade components must vary in thickness from spine to edge and taper from ricasso toward the tip ({source})."
+        )
     for rule in rules:
         if rule not in prohibitions:
             prohibitions.append(rule)
@@ -247,16 +250,44 @@ def inject_geometry_rules(spec: dict, target_name: str) -> None:
             if not isinstance(detail, dict):
                 continue
             mapping = detail.get("mapsTo")
-            detail["realization"] = detail.get("realization") or ("map-only" if isinstance(mapping, dict) and mapping.get("type") == "map" else "unreported")
-            if detail["realization"] == "map-only" and detail.get("kind") in {"fastener", "relief", "linework"}:
-                detail["approximation"] = f"Map-only detail; geometry guidance requires physical relief ({source})."
+            detail["realization"] = detail.get("realization") or (
+                "map-only"
+                if isinstance(mapping, dict) and mapping.get("type") == "map"
+                else "unreported"
+            )
+            if detail["realization"] == "map-only" and detail.get("kind") in {
+                "fastener",
+                "relief",
+                "linework",
+            }:
+                detail["approximation"] = (
+                    f"Map-only detail; geometry guidance requires physical relief ({source})."
+                )
 
 
-def _cnode(cid, name, primitive, parent, position, scale,
-           material="skin", role="body", level="meso", rotation=(0, 0, 0),
-           importance=0.7, sockets=None, local_features=None, anim_role="static",
-           pivot_mode="center", evidence=None, topology_class="assembled-solid",
-           topology_rationale=None, attachment=None, sdf=None, transform_scale=None):
+def _cnode(
+    cid,
+    name,
+    primitive,
+    parent,
+    position,
+    scale,
+    material="skin",
+    role="body",
+    level="meso",
+    rotation=(0, 0, 0),
+    importance=0.7,
+    sockets=None,
+    local_features=None,
+    anim_role="static",
+    pivot_mode="center",
+    evidence=None,
+    topology_class="assembled-solid",
+    topology_rationale=None,
+    attachment=None,
+    sdf=None,
+    transform_scale=None,
+):
     """Build a full schema-valid componentTree node with humanoid-friendly defaults.
 
     `attachment` (optional) supplies a validate_sculpt_spec.py-complete attachment contract
@@ -279,40 +310,91 @@ def _cnode(cid, name, primitive, parent, position, scale,
         topology_class = "implicit"
         transform_scale = (1.0, 1.0, 1.0)
     node = {
-        "id": cid, "name": name, "level": level, "role": role,
-        "importance": importance, "confidence": 0.8, "primitive": primitive,
+        "id": cid,
+        "name": name,
+        "level": level,
+        "role": role,
+        "importance": importance,
+        "confidence": 0.8,
+        "primitive": primitive,
         "topologyClass": topology_class,
         "topologyRationale": topology_rationale,
         "geometryDescriptor": {
             "topologyIntent": "stylized character part",
             "edgeTreatment": {"type": "none", "bevelRadius": 0.0, "segments": 1},
-            "deformationStack": [], "uvStrategy": "generated procedural coordinates",
+            "deformationStack": [],
+            "uvStrategy": "generated procedural coordinates",
             "normalStrategy": "smooth vertex normals",
         },
-        "parent": parent, "attachment": attachment,
-        "dimensions": {"width": float(scale[0]), "height": float(scale[1]),
-                       "depth": float(scale[2]), "units": "relative", "confidence": 0.8},
-        "transform": {"position": list(position), "rotation": list(rotation),
-                      "scale": list(transform_scale if transform_scale is not None else scale)},
+        "parent": parent,
+        "attachment": attachment,
+        "dimensions": {
+            "width": float(scale[0]),
+            "height": float(scale[1]),
+            "depth": float(scale[2]),
+            "units": "relative",
+            "confidence": 0.8,
+        },
+        "transform": {
+            "position": list(position),
+            "rotation": list(rotation),
+            "scale": list(transform_scale if transform_scale is not None else scale),
+        },
         "actionProfile": {
             "animationRole": anim_role,
-            "pivot": {"mode": pivot_mode, "localPosition": [0, 0, 0], "axis": [0, 1, 0], "confidence": 0.7},
-            "transformChannels": {"translate": True, "rotate": True, "scale": True,
-                                  "bend": False, "twist": False, "detach": False,
-                                  "visibility": True, "materialState": False},
+            "pivot": {
+                "mode": pivot_mode,
+                "localPosition": [0, 0, 0],
+                "axis": [0, 1, 0],
+                "confidence": 0.7,
+            },
+            "transformChannels": {
+                "translate": True,
+                "rotate": True,
+                "scale": True,
+                "bend": False,
+                "twist": False,
+                "detach": False,
+                "visibility": True,
+                "materialState": False,
+            },
             "sockets": sockets or [],
-            "collider": {"type": "box", "offset": [0, 0, 0], "scale": [1, 1, 1],
-                         "isTrigger": False, "notes": "box proxy"},
+            "collider": {
+                "type": "box",
+                "offset": [0, 0, 0],
+                "scale": [1, 1, 1],
+                "isTrigger": False,
+                "notes": "box proxy",
+            },
             "constraints": [],
-            "destruction": {"breakable": False, "fractureGroup": cid, "seamRefs": [],
-                            "detachableFragments": [], "breakImpulse": 0.0, "debrisMaterial": material},
+            "destruction": {
+                "breakable": False,
+                "fractureGroup": cid,
+                "seamRefs": [],
+                "detachableFragments": [],
+                "breakImpulse": 0.0,
+                "debrisMaterial": material,
+            },
         },
-        "material": material, "materialLayers": [material], "deformations": [], "joints": [],
-        "seams": [], "localFeatures": local_features or [],
-        "surfaceDetail": {"macroRoughness": 0.0, "microRoughness": 0.0, "bumpAmplitude": 0.0,
-                          "normalPattern": "", "displacementPattern": "", "occlusionPattern": "",
-                          "edgeWearPattern": "", "notes": ""},
-        "evidenceRefs": evidence or ["full-object"], "details": [], "fidelityTier": "blockout",
+        "material": material,
+        "materialLayers": [material],
+        "deformations": [],
+        "joints": [],
+        "seams": [],
+        "localFeatures": local_features or [],
+        "surfaceDetail": {
+            "macroRoughness": 0.0,
+            "microRoughness": 0.0,
+            "bumpAmplitude": 0.0,
+            "normalPattern": "",
+            "displacementPattern": "",
+            "occlusionPattern": "",
+            "edgeWearPattern": "",
+            "notes": "",
+        },
+        "evidenceRefs": evidence or ["full-object"],
+        "details": [],
+        "fidelityTier": "blockout",
     }
     if sdf is not None:
         node["geometryDescriptor"]["sdf"] = sdf
@@ -333,9 +415,17 @@ def _hu_ratio(anatomy: dict | None, key: str, default: float) -> float:
     return default
 
 
-def _limb_attachment(start, end, base_radius, end_radius, socket,
-                      contact_type="socket-joint", embed_depth=0.03, gap_tolerance=0.01,
-                      evidence=None) -> dict:
+def _limb_attachment(
+    start,
+    end,
+    base_radius,
+    end_radius,
+    socket,
+    contact_type="socket-joint",
+    embed_depth=0.03,
+    gap_tolerance=0.01,
+    evidence=None,
+) -> dict:
     """A validate_sculpt_spec.py-complete attachment contract for a linear body segment
     (torso spine, neck, or a limb bone). `socket` fills attachment.parentSocket, a free-text
     joint-name label -- used instead of parentId because a bare parentId would just restate
@@ -380,8 +470,18 @@ def _eye_socket_sdf(hu: float) -> dict:
     extent = max(outer_radius, carve_offset + carve_radius) * 1.25
     return {
         "primitives": [
-            {"id": "shell", "type": "sphere", "center": [0.0, 0.0, 0.0], "radius": round(outer_radius, 5)},
-            {"id": "carve", "type": "sphere", "center": [0.0, 0.0, round(carve_offset, 5)], "radius": round(carve_radius, 5)},
+            {
+                "id": "shell",
+                "type": "sphere",
+                "center": [0.0, 0.0, 0.0],
+                "radius": round(outer_radius, 5),
+            },
+            {
+                "id": "carve",
+                "type": "sphere",
+                "center": [0.0, 0.0, round(carve_offset, 5)],
+                "radius": round(carve_radius, 5),
+            },
         ],
         # id only -- validate_sculpt_spec rejects setting both id and output; they are alternatives.
         "operations": [{"id": "socket", "type": "subtract", "left": "shell", "right": "carve"}],
@@ -443,8 +543,8 @@ def make_character_component_tree(
     # per-part check could see it because every part was individually correct.
     #
     # A skeleton has to be built in the order the bones actually stack.
-    NECK_LENGTH_HU = 0.33          # a neck is about a third of a head unit
-    HEAD_HEIGHT_HU = 1.12          # matches the head ellipsoid's own y scale below
+    NECK_LENGTH_HU = 0.33  # a neck is about a third of a head unit
+    HEAD_HEIGHT_HU = 1.12  # matches the head ellipsoid's own y scale below
     neck_bottom_y = torso_top_y - 0.08 * hu
     neck_top_y = neck_bottom_y + NECK_LENGTH_HU * hu
     head_y = neck_top_y + HEAD_HEIGHT_HU * hu * 0.5 - 0.04 * hu
@@ -486,22 +586,44 @@ def make_character_component_tree(
         anchor = world_anchor[parent_id]
         return (point[0] - anchor[0], point[1] - anchor[1], point[2] - anchor[2])
 
-    tree = [_cnode("root", "Character (root)", "box", None, (0, 0, 0), (1, 1, 1),
-                   material="hidden", role="body", level="macro", importance=1.0, anim_role="root")]
+    tree = [
+        _cnode(
+            "root",
+            "Character (root)",
+            "box",
+            None,
+            (0, 0, 0),
+            (1, 1, 1),
+            material="hidden",
+            role="body",
+            level="macro",
+            importance=1.0,
+            anim_role="root",
+        )
+    ]
 
     # ---- pelvis FIRST: the spine hangs off it, so it has to exist before the abdomen can be
     # parented to it. Previously the torso and pelvis were siblings under "root", which forced
     # derive_character_rig() to pick one as the bone root by hand; a real pelvis->abdomen edge
     # removes that special case entirely.
-    tree.append(_cnode(
-        # An ellipsoid, not a box. A box gave three consecutive profile bands at exactly the same
-        # width (measured: 0.4554, 0.4554, 0.4554) because its sides are flat and vertical -- the
-        # signature of a slab in a silhouette. Hip mass is rounded, so an ellipsoid both reads
-        # correctly and lets the profile taper into the thighs.
-        "pelvis", "Pelvis", "ellipsoid", "root", _rel(pelvis_world, "root"),
-        (hip_w * 0.95, pelvis_half_h * 2, hip_w * 0.75), material="pants", role="body",
-        level="macro", importance=0.9,
-    ))
+    tree.append(
+        _cnode(
+            # An ellipsoid, not a box. A box gave three consecutive profile bands at exactly the same
+            # width (measured: 0.4554, 0.4554, 0.4554) because its sides are flat and vertical -- the
+            # signature of a slab in a silhouette. Hip mass is rounded, so an ellipsoid both reads
+            # correctly and lets the profile taper into the thighs.
+            "pelvis",
+            "Pelvis",
+            "ellipsoid",
+            "root",
+            _rel(pelvis_world, "root"),
+            (hip_w * 0.95, pelvis_half_h * 2, hip_w * 0.75),
+            material="pants",
+            role="body",
+            level="macro",
+            importance=0.9,
+        )
+    )
     world_anchor["pelvis"] = pelvis_world
 
     # ---- spine and neck: capsule/cylinder primitives trigger validate_sculpt_spec.py's
@@ -513,46 +635,97 @@ def make_character_component_tree(
     # Each segment is anchored at its PROXIMAL (lower) end, exactly like a limb. That is what
     # makes a component's origin its own joint, and it is why derive_character_rig() no longer
     # needs a torso-specific joint exception: summing offsets lands on a real joint every time.
-    tree.append(_cnode(
-        "abdomen", "Abdomen", "capsule", "pelvis", _rel(torso_bottom_pt, "pelvis"),
-        (hip_w * 0.9, waist_y - torso_bottom_y, hip_w * 0.8), material="shirt", role="shell",
-        level="macro", importance=0.95,
-        attachment=_limb_attachment(_rel(torso_bottom_pt, "pelvis"), _rel(waist_pt, "pelvis"),
-                                    hip_w * 0.40, shoulder_w * 0.34,
-                                    socket="pelvis-waist", contact_type="rigid-weld"),
-    ))
+    tree.append(
+        _cnode(
+            "abdomen",
+            "Abdomen",
+            "capsule",
+            "pelvis",
+            _rel(torso_bottom_pt, "pelvis"),
+            (hip_w * 0.9, waist_y - torso_bottom_y, hip_w * 0.8),
+            material="shirt",
+            role="shell",
+            level="macro",
+            importance=0.95,
+            attachment=_limb_attachment(
+                _rel(torso_bottom_pt, "pelvis"),
+                _rel(waist_pt, "pelvis"),
+                hip_w * 0.40,
+                shoulder_w * 0.34,
+                socket="pelvis-waist",
+                contact_type="rigid-weld",
+            ),
+        )
+    )
     world_anchor["abdomen"] = torso_bottom_pt
 
-    tree.append(_cnode(
-        "chest", "Chest", "capsule", "abdomen", _rel(waist_pt, "abdomen"),
-        (shoulder_w * 0.95, torso_top_y - waist_y, hip_w * 0.85), material="shirt", role="shell",
-        level="macro", importance=1.0,
-        # The chest now tapers INWARD toward the neck (end radius < base) instead of being widest
-        # at its flat top. Previously the chest's top radius WAS the shoulder width, so the
-        # silhouette jumped from the neck straight to full torso width in a single profile band --
-        # measured 0.091 -> 0.262 with no intermediate value, where the reference slopes
-        # 0.116 -> 0.229 over ~8% of its height. The shoulder mass belongs to the clavicles.
-        attachment=_limb_attachment(_rel(waist_pt, "abdomen"), _rel(torso_top_pt, "abdomen"),
-                                    shoulder_w * 0.38, shoulder_w * 0.26,
-                                    socket="abdomen-chest", contact_type="rigid-weld"),
-    ))
+    tree.append(
+        _cnode(
+            "chest",
+            "Chest",
+            "capsule",
+            "abdomen",
+            _rel(waist_pt, "abdomen"),
+            (shoulder_w * 0.95, torso_top_y - waist_y, hip_w * 0.85),
+            material="shirt",
+            role="shell",
+            level="macro",
+            importance=1.0,
+            # The chest now tapers INWARD toward the neck (end radius < base) instead of being widest
+            # at its flat top. Previously the chest's top radius WAS the shoulder width, so the
+            # silhouette jumped from the neck straight to full torso width in a single profile band --
+            # measured 0.091 -> 0.262 with no intermediate value, where the reference slopes
+            # 0.116 -> 0.229 over ~8% of its height. The shoulder mass belongs to the clavicles.
+            attachment=_limb_attachment(
+                _rel(waist_pt, "abdomen"),
+                _rel(torso_top_pt, "abdomen"),
+                shoulder_w * 0.38,
+                shoulder_w * 0.26,
+                socket="abdomen-chest",
+                contact_type="rigid-weld",
+            ),
+        )
+    )
     world_anchor["chest"] = waist_pt
 
-    tree.append(_cnode(
-        "neck", "Neck", "cylinder", "chest", _rel(neck_bottom_pt, "chest"),
-        (0.55 * hu, neck_top_y - neck_bottom_y, 0.55 * hu), material="skin", role="support",
-        level="meso", importance=0.6,
-        attachment=_limb_attachment(_rel(neck_bottom_pt, "chest"), _rel(neck_top_pt, "chest"),
-                                    0.26 * hu, 0.2 * hu,
-                                    socket="chest-neck-base", contact_type="rigid-weld"),
-    ))
+    tree.append(
+        _cnode(
+            "neck",
+            "Neck",
+            "cylinder",
+            "chest",
+            _rel(neck_bottom_pt, "chest"),
+            (0.55 * hu, neck_top_y - neck_bottom_y, 0.55 * hu),
+            material="skin",
+            role="support",
+            level="meso",
+            importance=0.6,
+            attachment=_limb_attachment(
+                _rel(neck_bottom_pt, "chest"),
+                _rel(neck_top_pt, "chest"),
+                0.26 * hu,
+                0.2 * hu,
+                socket="chest-neck-base",
+                contact_type="rigid-weld",
+            ),
+        )
+    )
     world_anchor["neck"] = neck_bottom_pt
 
-    tree.append(_cnode(
-        "head", "Head", "ellipsoid", "neck", _rel(head_world, "neck"),
-        (0.92 * hu, 1.12 * hu, 0.98 * hu), material="skin", role="body", level="macro",
-        importance=1.0,
-    ))
+    tree.append(
+        _cnode(
+            "head",
+            "Head",
+            "ellipsoid",
+            "neck",
+            _rel(head_world, "neck"),
+            (0.92 * hu, 1.12 * hu, 0.98 * hu),
+            material="skin",
+            role="body",
+            level="macro",
+            importance=1.0,
+        )
+    )
     world_anchor["head"] = head_world
 
     # ---- face features and hair: parented to "head". Offsets are already authored local to
@@ -560,51 +733,228 @@ def make_character_component_tree(
     # no _rel() conversion. ----
     # (id, name, primitive, offset, scale, material, role, level, rotation, importance, features)
     face_parts = [
-        ("hair", "Hair", "ellipsoid", (0, 0.3 * hu, -0.02 * hu),
-         (1.0 * hu, 0.78 * hu, 1.02 * hu), "hair", "hair", "meso", (0, 0, 0), 0.8,
-         ["short, neutral stylized hairstyle"]),
-        ("brow-l", "Eyebrow L", "box", (0.2 * hu, 0.12 * hu, 0.46 * hu),
-         (0.22 * hu, 0.04 * hu, 0.06 * hu), "hair", "detail", "micro", (0, 0, 0), 0.4, []),
-        ("brow-r", "Eyebrow R", "box", (-0.2 * hu, 0.12 * hu, 0.46 * hu),
-         (0.22 * hu, 0.04 * hu, 0.06 * hu), "hair", "detail", "micro", (0, 0, 0), 0.4, []),
+        (
+            "hair",
+            "Hair",
+            "ellipsoid",
+            (0, 0.3 * hu, -0.02 * hu),
+            (1.0 * hu, 0.78 * hu, 1.02 * hu),
+            "hair",
+            "hair",
+            "meso",
+            (0, 0, 0),
+            0.8,
+            ["short, neutral stylized hairstyle"],
+        ),
+        (
+            "brow-l",
+            "Eyebrow L",
+            "box",
+            (0.2 * hu, 0.12 * hu, 0.46 * hu),
+            (0.22 * hu, 0.04 * hu, 0.06 * hu),
+            "hair",
+            "detail",
+            "micro",
+            (0, 0, 0),
+            0.4,
+            [],
+        ),
+        (
+            "brow-r",
+            "Eyebrow R",
+            "box",
+            (-0.2 * hu, 0.12 * hu, 0.46 * hu),
+            (0.22 * hu, 0.04 * hu, 0.06 * hu),
+            "hair",
+            "detail",
+            "micro",
+            (0, 0, 0),
+            0.4,
+            [],
+        ),
         # Ears. Offsets are head-unit multiples like every other feature here, so they scale with
         # the anatomy ratios instead of being pinned to one figure's dimensions. x = 0.43 hu puts
         # them on the skull surface (the head's own half-width is 0.46 hu), y at eye level, z
         # slightly aft of centre. They are detail, not bones: an ear does not articulate.
-        ("ear-l", "Ear L", "ellipsoid", (0.43 * hu, 0.02 * hu, -0.02 * hu),
-         (0.09 * hu, 0.26 * hu, 0.17 * hu), "skin", "detail", "micro", (0, 0, 0), 0.45,
-         ["outer helix reads as a flattened shell against the skull, not a disc"]),
-        ("ear-r", "Ear R", "ellipsoid", (-0.43 * hu, 0.02 * hu, -0.02 * hu),
-         (0.09 * hu, 0.26 * hu, 0.17 * hu), "skin", "detail", "micro", (0, 0, 0), 0.45,
-         ["outer helix reads as a flattened shell against the skull, not a disc"]),
-        ("nose", "Nose", "ellipsoid", (0, -0.04 * hu, 0.5 * hu),
-         (0.14 * hu, 0.28 * hu, 0.18 * hu), "skin", "detail", "micro", (1.4, 0, 0), 0.4, []),
-        ("mouth", "Mouth", "box", (0, -0.34 * hu, 0.46 * hu),
-         (0.24 * hu, 0.04 * hu, 0.05 * hu), "lips", "detail", "micro", (0, 0, 0), 0.4, []),
+        (
+            "ear-l",
+            "Ear L",
+            "ellipsoid",
+            (0.43 * hu, 0.02 * hu, -0.02 * hu),
+            (0.09 * hu, 0.26 * hu, 0.17 * hu),
+            "skin",
+            "detail",
+            "micro",
+            (0, 0, 0),
+            0.45,
+            ["outer helix reads as a flattened shell against the skull, not a disc"],
+        ),
+        (
+            "ear-r",
+            "Ear R",
+            "ellipsoid",
+            (-0.43 * hu, 0.02 * hu, -0.02 * hu),
+            (0.09 * hu, 0.26 * hu, 0.17 * hu),
+            "skin",
+            "detail",
+            "micro",
+            (0, 0, 0),
+            0.45,
+            ["outer helix reads as a flattened shell against the skull, not a disc"],
+        ),
+        (
+            "nose",
+            "Nose",
+            "ellipsoid",
+            (0, -0.04 * hu, 0.5 * hu),
+            (0.14 * hu, 0.28 * hu, 0.18 * hu),
+            "skin",
+            "detail",
+            "micro",
+            (1.4, 0, 0),
+            0.4,
+            [],
+        ),
+        (
+            "mouth",
+            "Mouth",
+            "box",
+            (0, -0.34 * hu, 0.46 * hu),
+            (0.24 * hu, 0.04 * hu, 0.05 * hu),
+            "lips",
+            "detail",
+            "micro",
+            (0, 0, 0),
+            0.4,
+            [],
+        ),
     ]
     if include_accessories:
-        face_parts.extend([
-            ("glasses-frame-l", "Glasses frame L", "torus", (0.21 * hu, 0.02 * hu, 0.48 * hu),
-             (0.26 * hu, 0.22 * hu, 0.08 * hu), "glasses-frame", "rim", "meso", (0, 0, 0), 0.85, []),
-            ("glasses-frame-r", "Glasses frame R", "torus", (-0.21 * hu, 0.02 * hu, 0.48 * hu),
-             (0.26 * hu, 0.22 * hu, 0.08 * hu), "glasses-frame", "rim", "meso", (0, 0, 0), 0.85, []),
-            ("glasses-bridge", "Glasses bridge", "box", (0, 0.04 * hu, 0.5 * hu),
-             (0.12 * hu, 0.04 * hu, 0.04 * hu), "glasses-frame", "trim", "micro", (0, 0, 0), 0.5, []),
-            ("lens-l", "Lens L", "plane-card", (0.21 * hu, 0.02 * hu, 0.485 * hu),
-             (0.22 * hu, 0.18 * hu, 1.0), "glasses-lens", "panel", "micro", (0, 0, 0), 0.5, []),
-            ("lens-r", "Lens R", "plane-card", (-0.21 * hu, 0.02 * hu, 0.485 * hu),
-             (0.22 * hu, 0.18 * hu, 1.0), "glasses-lens", "panel", "micro", (0, 0, 0), 0.5, []),
-            ("hp-band", "Headphone band", "torus", (0, -0.72 * hu, 0.05 * hu),
-             (0.95 * hu, 0.62 * hu, 0.7 * hu), "headphone", "ring", "meso", (1.2, 0, 0), 0.85, []),
-            ("hp-cup-l", "Ear cup L", "sphere", (0.5 * hu, -0.98 * hu, 0.35 * hu),
-             (0.4 * hu, 0.4 * hu, 0.22 * hu), "headphone", "detail", "meso", (0, 0, 0), 0.7, []),
-            ("hp-cup-r", "Ear cup R", "sphere", (-0.5 * hu, -0.98 * hu, 0.35 * hu),
-             (0.4 * hu, 0.4 * hu, 0.22 * hu), "headphone", "detail", "meso", (0, 0, 0), 0.7, []),
-        ])
+        face_parts.extend(
+            [
+                (
+                    "glasses-frame-l",
+                    "Glasses frame L",
+                    "torus",
+                    (0.21 * hu, 0.02 * hu, 0.48 * hu),
+                    (0.26 * hu, 0.22 * hu, 0.08 * hu),
+                    "glasses-frame",
+                    "rim",
+                    "meso",
+                    (0, 0, 0),
+                    0.85,
+                    [],
+                ),
+                (
+                    "glasses-frame-r",
+                    "Glasses frame R",
+                    "torus",
+                    (-0.21 * hu, 0.02 * hu, 0.48 * hu),
+                    (0.26 * hu, 0.22 * hu, 0.08 * hu),
+                    "glasses-frame",
+                    "rim",
+                    "meso",
+                    (0, 0, 0),
+                    0.85,
+                    [],
+                ),
+                (
+                    "glasses-bridge",
+                    "Glasses bridge",
+                    "box",
+                    (0, 0.04 * hu, 0.5 * hu),
+                    (0.12 * hu, 0.04 * hu, 0.04 * hu),
+                    "glasses-frame",
+                    "trim",
+                    "micro",
+                    (0, 0, 0),
+                    0.5,
+                    [],
+                ),
+                (
+                    "lens-l",
+                    "Lens L",
+                    "plane-card",
+                    (0.21 * hu, 0.02 * hu, 0.485 * hu),
+                    (0.22 * hu, 0.18 * hu, 1.0),
+                    "glasses-lens",
+                    "panel",
+                    "micro",
+                    (0, 0, 0),
+                    0.5,
+                    [],
+                ),
+                (
+                    "lens-r",
+                    "Lens R",
+                    "plane-card",
+                    (-0.21 * hu, 0.02 * hu, 0.485 * hu),
+                    (0.22 * hu, 0.18 * hu, 1.0),
+                    "glasses-lens",
+                    "panel",
+                    "micro",
+                    (0, 0, 0),
+                    0.5,
+                    [],
+                ),
+                (
+                    "hp-band",
+                    "Headphone band",
+                    "torus",
+                    (0, -0.72 * hu, 0.05 * hu),
+                    (0.95 * hu, 0.62 * hu, 0.7 * hu),
+                    "headphone",
+                    "ring",
+                    "meso",
+                    (1.2, 0, 0),
+                    0.85,
+                    [],
+                ),
+                (
+                    "hp-cup-l",
+                    "Ear cup L",
+                    "sphere",
+                    (0.5 * hu, -0.98 * hu, 0.35 * hu),
+                    (0.4 * hu, 0.4 * hu, 0.22 * hu),
+                    "headphone",
+                    "detail",
+                    "meso",
+                    (0, 0, 0),
+                    0.7,
+                    [],
+                ),
+                (
+                    "hp-cup-r",
+                    "Ear cup R",
+                    "sphere",
+                    (-0.5 * hu, -0.98 * hu, 0.35 * hu),
+                    (0.4 * hu, 0.4 * hu, 0.22 * hu),
+                    "headphone",
+                    "detail",
+                    "meso",
+                    (0, 0, 0),
+                    0.7,
+                    [],
+                ),
+            ]
+        )
     for pid, name, prim, off, scale, mat, role, level, rot, imp, feats in face_parts:
-        tree.append(_cnode(pid, name, prim, "head", off, scale,
-                           material=mat, role=role, level=level, rotation=rot, importance=imp,
-                           local_features=feats))
+        tree.append(
+            _cnode(
+                pid,
+                name,
+                prim,
+                "head",
+                off,
+                scale,
+                material=mat,
+                role=role,
+                level=level,
+                rotation=rot,
+                importance=imp,
+                local_features=feats,
+            )
+        )
 
     if include_accessories:
         # Chest decal is parented to torso; its offset was authored relative to torso's OLD
@@ -612,11 +962,20 @@ def make_character_component_tree(
         # convert it into torso's real local frame (anchored at torso_top_pt) here.
         decal_old_world = (0.0, torso_center_y + 0.1 * hu, 0.78 * hu)
         decal_local = _rel(decal_old_world, "chest")
-        tree.append(_cnode(
-            "shirt-decal", "Chest graphic", "plane-card", "chest", decal_local,
-            (1.5 * hu, 0.9 * hu, 1.0), material="shirt-decal", role="decal", level="micro",
-            importance=0.7,
-        ))
+        tree.append(
+            _cnode(
+                "shirt-decal",
+                "Chest graphic",
+                "plane-card",
+                "chest",
+                decal_local,
+                (1.5 * hu, 0.9 * hu, 1.0),
+                material="shirt-decal",
+                role="decal",
+                level="micro",
+                importance=0.7,
+            )
+        )
 
     # ---- eyes: a visible eyeball sphere plus a recessed cavity carved via SDF subtract, not a
     # flat patch (US-004). Naming/roles deliberately avoid the token "socket": that token is
@@ -627,20 +986,39 @@ def make_character_component_tree(
     for side, eye_x in (("l", 0.19 * hu), ("r", -0.19 * hu)):
         eye_local = (eye_x, 0.03 * hu, 0.40 * hu)
         cavity_local = (eye_x, 0.03 * hu, 0.43 * hu)
-        tree.append(_cnode(
-            f"eye-{side}", f"Eye {side.upper()}", "sphere", "head", eye_local,
-            (0.11 * hu, 0.11 * hu, 0.11 * hu), material="eye", role="detail", level="micro",
-            importance=0.5,
-        ))
-        tree.append(_cnode(
-            f"eye-cavity-{side}", f"Eye cavity {side.upper()}", "sphere", "head", cavity_local,
-            (0.18 * hu, 0.18 * hu, 0.18 * hu), material="skin", role="cavity", level="micro",
-            importance=0.4, sdf=_eye_socket_sdf(hu),
-            topology_rationale=(
-                "The eye reads as a recessed concave cavity carved out of the head volume with a "
-                "boolean subtraction (US-004), not a flat decal or shaded patch."
-            ),
-        ))
+        tree.append(
+            _cnode(
+                f"eye-{side}",
+                f"Eye {side.upper()}",
+                "sphere",
+                "head",
+                eye_local,
+                (0.11 * hu, 0.11 * hu, 0.11 * hu),
+                material="eye",
+                role="detail",
+                level="micro",
+                importance=0.5,
+            )
+        )
+        tree.append(
+            _cnode(
+                f"eye-cavity-{side}",
+                f"Eye cavity {side.upper()}",
+                "sphere",
+                "head",
+                cavity_local,
+                (0.18 * hu, 0.18 * hu, 0.18 * hu),
+                material="skin",
+                role="cavity",
+                level="micro",
+                importance=0.4,
+                sdf=_eye_socket_sdf(hu),
+                topology_rationale=(
+                    "The eye reads as a recessed concave cavity carved out of the head volume with a "
+                    "boolean subtraction (US-004), not a flat decal or shaded patch."
+                ),
+            )
+        )
 
     # ---- arms: shoulder -> elbow -> wrist -> hand, laid out as absolute joint coordinates,
     # then each segment is parented on the PREVIOUS segment (torso -> upper-arm -> forearm ->
@@ -680,45 +1058,94 @@ def make_character_component_tree(
         # sits inside the chest volume rather than on the joint. It also gives the arm chain a
         # real root that moves with the ribcage, which is what a shoulder does.
         clavicle_root_pt = (sign * shoulder_x * 0.16, shoulder_y + 0.02 * hu, 0.03 * hu)
-        tree.append(_cnode(
-            clavicle_id, f"Clavicle {side.upper()}", "capsule", "chest",
-            _rel(clavicle_root_pt, "chest"),
-            (shoulder_x * 0.84, 0.34 * hu, 0.34 * hu), material="skin", role="support",
-            level="meso", importance=0.6,
-            # Thick, and tapering OUTWARD to the shoulder joint. This is the trapezius/deltoid
-            # mass, and it is what produces the neck-to-shoulder slope: it starts narrow beside
-            # the neck and ends wide at the joint. At the old 0.09 hu radius the clavicle was a
-            # 0.05-wide stick, invisible inside the chest, and the chest's flat top had to be the
-            # shoulder instead -- which is exactly what made the silhouette a cliff.
-            attachment=_limb_attachment(_rel(clavicle_root_pt, "chest"), _rel(shoulder_pt, "chest"),
-                                        0.11 * hu, 0.17 * hu, socket=f"chest-clavicle-{side}",
-                                        contact_type="rigid-weld"),
-        ))
+        tree.append(
+            _cnode(
+                clavicle_id,
+                f"Clavicle {side.upper()}",
+                "capsule",
+                "chest",
+                _rel(clavicle_root_pt, "chest"),
+                (shoulder_x * 0.84, 0.34 * hu, 0.34 * hu),
+                material="skin",
+                role="support",
+                level="meso",
+                importance=0.6,
+                # Thick, and tapering OUTWARD to the shoulder joint. This is the trapezius/deltoid
+                # mass, and it is what produces the neck-to-shoulder slope: it starts narrow beside
+                # the neck and ends wide at the joint. At the old 0.09 hu radius the clavicle was a
+                # 0.05-wide stick, invisible inside the chest, and the chest's flat top had to be the
+                # shoulder instead -- which is exactly what made the silhouette a cliff.
+                attachment=_limb_attachment(
+                    _rel(clavicle_root_pt, "chest"),
+                    _rel(shoulder_pt, "chest"),
+                    0.11 * hu,
+                    0.17 * hu,
+                    socket=f"chest-clavicle-{side}",
+                    contact_type="rigid-weld",
+                ),
+            )
+        )
         world_anchor[clavicle_id] = clavicle_root_pt
 
-        tree.append(_cnode(
-            upper_arm_id, f"Upper arm {side.upper()}", "capsule", clavicle_id,
-            _rel(shoulder_pt, clavicle_id),
-            (0.32 * hu, upper_arm_len, 0.32 * hu), material="shirt", role="arm", level="meso",
-            importance=0.7,
-            attachment=_limb_attachment(_rel(shoulder_pt, clavicle_id), _rel(elbow_pt, clavicle_id),
-                                        0.16 * hu, 0.13 * hu, socket=f"clavicle-shoulder-{side}"),
-        ))
+        tree.append(
+            _cnode(
+                upper_arm_id,
+                f"Upper arm {side.upper()}",
+                "capsule",
+                clavicle_id,
+                _rel(shoulder_pt, clavicle_id),
+                (0.32 * hu, upper_arm_len, 0.32 * hu),
+                material="shirt",
+                role="arm",
+                level="meso",
+                importance=0.7,
+                attachment=_limb_attachment(
+                    _rel(shoulder_pt, clavicle_id),
+                    _rel(elbow_pt, clavicle_id),
+                    0.16 * hu,
+                    0.13 * hu,
+                    socket=f"clavicle-shoulder-{side}",
+                ),
+            )
+        )
         world_anchor[upper_arm_id] = shoulder_pt
-        tree.append(_cnode(
-            forearm_id, f"Forearm {side.upper()}", "capsule", upper_arm_id, _rel(elbow_pt, upper_arm_id),
-            (0.26 * hu, forearm_len, 0.26 * hu), material="skin", role="arm", level="meso",
-            importance=0.65,
-            attachment=_limb_attachment(_rel(elbow_pt, upper_arm_id), _rel(wrist_pt, upper_arm_id),
-                                        0.12 * hu, 0.09 * hu, socket=f"upper-arm-elbow-{side}",
-                                        contact_type="hinge-joint"),
-        ))
+        tree.append(
+            _cnode(
+                forearm_id,
+                f"Forearm {side.upper()}",
+                "capsule",
+                upper_arm_id,
+                _rel(elbow_pt, upper_arm_id),
+                (0.26 * hu, forearm_len, 0.26 * hu),
+                material="skin",
+                role="arm",
+                level="meso",
+                importance=0.65,
+                attachment=_limb_attachment(
+                    _rel(elbow_pt, upper_arm_id),
+                    _rel(wrist_pt, upper_arm_id),
+                    0.12 * hu,
+                    0.09 * hu,
+                    socket=f"upper-arm-elbow-{side}",
+                    contact_type="hinge-joint",
+                ),
+            )
+        )
         world_anchor[forearm_id] = elbow_pt
-        tree.append(_cnode(
-            hand_id, f"Hand {side.upper()}", "box", forearm_id, _rel(hand_center, forearm_id),
-            (0.22 * hu, hand_len, 0.13 * hu), material="skin", role="hand", level="meso",
-            importance=0.55,
-        ))
+        tree.append(
+            _cnode(
+                hand_id,
+                f"Hand {side.upper()}",
+                "box",
+                forearm_id,
+                _rel(hand_center, forearm_id),
+                (0.22 * hu, hand_len, 0.13 * hu),
+                material="skin",
+                role="hand",
+                level="meso",
+                importance=0.55,
+            )
+        )
         world_anchor[hand_id] = hand_center
         # ---- digits: five per hand, three phalanges each, chained proximal -> middle -> distal.
         # This replaces the old `--fingers` flag, which added ONE box labelled "fingers" plus one
@@ -742,10 +1169,12 @@ def make_character_component_tree(
             # The thumb starts near the wrist and runs inward; the fingers start at the knuckle
             # row and run down the same lean the forearm already has.
             if is_thumb:
-                joint = (hand_center[0] + x_offset * hu,
-                         hand_center[1] - hand_len * 0.06,
-                         hand_center[2] + 0.02 * hu)
-                step = (-0.72 * sign, -0.62, 0.30)      # medial, down, forward
+                joint = (
+                    hand_center[0] + x_offset * hu,
+                    hand_center[1] - hand_len * 0.06,
+                    hand_center[2] + 0.02 * hu,
+                )
+                step = (-0.72 * sign, -0.62, 0.30)  # medial, down, forward
             else:
                 joint = (hand_center[0] + x_offset * hu, knuckle_row_y, hand_center[2] + 0.01 * hu)
                 step = (math.sin(lean * 0.6), -math.cos(lean * 0.6), 0.0)
@@ -753,23 +1182,33 @@ def make_character_component_tree(
             parent_id = hand_id
             for index, length in enumerate(lengths):
                 phalanx_id = f"{digit_name}-{side}-{index + 1}"
-                tip = (joint[0] + step[0] * length * hu,
-                       joint[1] + step[1] * length * hu,
-                       joint[2] + step[2] * length * hu)
-                tree.append(_cnode(
-                    phalanx_id,
-                    f"{digit_name.capitalize()} {side.upper()} phalanx {index + 1}",
-                    "capsule", parent_id, _rel(joint, parent_id),
-                    (radius * 2 * hu, length * hu, radius * 2 * hu),
-                    material="skin", role="finger", level="micro",
-                    importance=0.3 if index == 0 else 0.2,
-                    attachment=_limb_attachment(
-                        _rel(joint, parent_id), _rel(tip, parent_id),
-                        radius * hu, radius * 0.82 * hu,
-                        socket=f"{parent_id}-{digit_name}-{index + 1}",
-                        contact_type="hinge-joint" if index else "rigid-weld",
-                    ),
-                ))
+                tip = (
+                    joint[0] + step[0] * length * hu,
+                    joint[1] + step[1] * length * hu,
+                    joint[2] + step[2] * length * hu,
+                )
+                tree.append(
+                    _cnode(
+                        phalanx_id,
+                        f"{digit_name.capitalize()} {side.upper()} phalanx {index + 1}",
+                        "capsule",
+                        parent_id,
+                        _rel(joint, parent_id),
+                        (radius * 2 * hu, length * hu, radius * 2 * hu),
+                        material="skin",
+                        role="finger",
+                        level="micro",
+                        importance=0.3 if index == 0 else 0.2,
+                        attachment=_limb_attachment(
+                            _rel(joint, parent_id),
+                            _rel(tip, parent_id),
+                            radius * hu,
+                            radius * 0.82 * hu,
+                            socket=f"{parent_id}-{digit_name}-{index + 1}",
+                            contact_type="hinge-joint" if index else "rigid-weld",
+                        ),
+                    )
+                )
                 world_anchor[phalanx_id] = joint
                 parent_id = phalanx_id
                 joint = tip
@@ -783,28 +1222,65 @@ def make_character_component_tree(
         foot_center = (lx, foot_y, 0.16 * hu)
         thigh_id = f"thigh-{side}"
         shin_id = f"shin-{side}"
-        tree.append(_cnode(
-            thigh_id, f"Thigh {side.upper()}", "capsule", "pelvis", _rel(hip_pt, "pelvis"),
-            (0.38 * hu, thigh_len, 0.38 * hu), material="pants", role="leg", level="meso",
-            importance=0.75,
-            attachment=_limb_attachment(_rel(hip_pt, "pelvis"), _rel(knee_pt, "pelvis"),
-                                        0.2 * hu, 0.16 * hu, socket=f"pelvis-hip-{side}"),
-        ))
+        tree.append(
+            _cnode(
+                thigh_id,
+                f"Thigh {side.upper()}",
+                "capsule",
+                "pelvis",
+                _rel(hip_pt, "pelvis"),
+                (0.38 * hu, thigh_len, 0.38 * hu),
+                material="pants",
+                role="leg",
+                level="meso",
+                importance=0.75,
+                attachment=_limb_attachment(
+                    _rel(hip_pt, "pelvis"),
+                    _rel(knee_pt, "pelvis"),
+                    0.2 * hu,
+                    0.16 * hu,
+                    socket=f"pelvis-hip-{side}",
+                ),
+            )
+        )
         world_anchor[thigh_id] = hip_pt
-        tree.append(_cnode(
-            shin_id, f"Shin {side.upper()}", "capsule", thigh_id, _rel(knee_pt, thigh_id),
-            (0.28 * hu, shin_len, 0.28 * hu), material="pants", role="leg", level="meso",
-            importance=0.7,
-            attachment=_limb_attachment(_rel(knee_pt, thigh_id), _rel(ankle_pt, thigh_id),
-                                        0.14 * hu, 0.1 * hu, socket=f"thigh-knee-{side}",
-                                        contact_type="hinge-joint"),
-        ))
+        tree.append(
+            _cnode(
+                shin_id,
+                f"Shin {side.upper()}",
+                "capsule",
+                thigh_id,
+                _rel(knee_pt, thigh_id),
+                (0.28 * hu, shin_len, 0.28 * hu),
+                material="pants",
+                role="leg",
+                level="meso",
+                importance=0.7,
+                attachment=_limb_attachment(
+                    _rel(knee_pt, thigh_id),
+                    _rel(ankle_pt, thigh_id),
+                    0.14 * hu,
+                    0.1 * hu,
+                    socket=f"thigh-knee-{side}",
+                    contact_type="hinge-joint",
+                ),
+            )
+        )
         world_anchor[shin_id] = knee_pt
-        tree.append(_cnode(
-            f"foot-{side}", f"Foot {side.upper()}", "box", shin_id, _rel(foot_center, shin_id),
-            (0.24 * hu, 0.16 * hu, 0.44 * hu), material="shoes", role="foot", level="meso",
-            importance=0.5,
-        ))
+        tree.append(
+            _cnode(
+                f"foot-{side}",
+                f"Foot {side.upper()}",
+                "box",
+                shin_id,
+                _rel(foot_center, shin_id),
+                (0.24 * hu, 0.16 * hu, 0.44 * hu),
+                material="shoes",
+                role="foot",
+                level="meso",
+                importance=0.5,
+            )
+        )
     return tree
 
 
@@ -813,13 +1289,18 @@ def _shade_hex(hex_color: str, factor: float) -> str:
     h = hex_color.lstrip("#")
     if len(h) != 6:
         return hex_color
-    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
     r, g, b = (max(0, min(255, round(c * factor))) for c in (r, g, b))
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
 CHARACTER_BASE_MATERIALS = [
-    {"id": "hidden", "baseColor": "#000000", "roughness": {"base": 1.0, "variation": 0.0}, "opacity": {"base": 0.0}},
+    {
+        "id": "hidden",
+        "baseColor": "#000000",
+        "roughness": {"base": 1.0, "variation": 0.0},
+        "opacity": {"base": 0.0},
+    },
     {"id": "skin", "baseColor": "#e8b98f", "roughness": {"base": 0.55, "variation": 0.08}},
     {"id": "hair", "baseColor": "#171310", "roughness": {"base": 0.42, "variation": 0.1}},
     {"id": "shirt", "baseColor": "#20202a", "roughness": {"base": 0.85, "variation": 0.12}},
@@ -841,41 +1322,104 @@ CHARACTER_ACCESSORY_MATERIALS = [
 def make_character_build_passes() -> list:
     base = make_pre_spec_assessment  # noqa: reference to keep import graph obvious
     passes = [
-        {"id": "blockout", "goal": "Match head-unit proportions and pose silhouette.",
-         "componentRefs": ["root"], "acceptance": ["Humanoid proportions and pose read correctly without materials."]},
-        {"id": "proportion-lock", "goal": "Lock head/torso/limb head-unit ratios and pose angles.",
-         "componentRefs": ["root", "head", "chest"], "acceptance": ["Head-unit ratios match anatomy; silhouette matches reference."]},
-        {"id": "feature-placement", "goal": "Place facial features, hair, and any enabled accessories to landmarks.",
-         "componentRefs": ["head", "hair", "eye-l", "eye-r"],
-         "acceptance": ["Eyeline/nose/mouth on landmark lines; eyes read as recessed, not flat patches; enabled accessories placed as in reference."]},
-        {"id": "material-pass", "goal": "Match skin/hair/cloth/metal color and roughness.",
-         "componentRefs": ["root"], "acceptance": ["Skin, hair, shirt, pants, shoe, and any enabled accessory materials match reference palette."]},
-        {"id": "lighting-pass", "goal": "Soft key from reference direction plus rim.",
-         "componentRefs": ["root"], "acceptance": ["Readable under neutral light; reference-matched lighting added."]},
-        {"id": "interaction-pass", "goal": "Rig-ready pivots and sockets.",
-         "componentRefs": ["root"], "acceptance": ["Head/neck/shoulder/elbow/hip/knee pivots and sockets exposed."]},
-        {"id": "optimization-pass", "goal": "Protect runtime performance.",
-         "componentRefs": ["root"], "acceptance": ["Triangle/draw-call budget documented."]},
+        {
+            "id": "blockout",
+            "goal": "Match head-unit proportions and pose silhouette.",
+            "componentRefs": ["root"],
+            "acceptance": ["Humanoid proportions and pose read correctly without materials."],
+        },
+        {
+            "id": "proportion-lock",
+            "goal": "Lock head/torso/limb head-unit ratios and pose angles.",
+            "componentRefs": ["root", "head", "chest"],
+            "acceptance": ["Head-unit ratios match anatomy; silhouette matches reference."],
+        },
+        {
+            "id": "feature-placement",
+            "goal": "Place facial features, hair, and any enabled accessories to landmarks.",
+            "componentRefs": ["head", "hair", "eye-l", "eye-r"],
+            "acceptance": [
+                "Eyeline/nose/mouth on landmark lines; eyes read as recessed, not flat patches; enabled accessories placed as in reference."
+            ],
+        },
+        {
+            "id": "material-pass",
+            "goal": "Match skin/hair/cloth/metal color and roughness.",
+            "componentRefs": ["root"],
+            "acceptance": [
+                "Skin, hair, shirt, pants, shoe, and any enabled accessory materials match reference palette."
+            ],
+        },
+        {
+            "id": "lighting-pass",
+            "goal": "Soft key from reference direction plus rim.",
+            "componentRefs": ["root"],
+            "acceptance": ["Readable under neutral light; reference-matched lighting added."],
+        },
+        {
+            "id": "interaction-pass",
+            "goal": "Rig-ready pivots and sockets.",
+            "componentRefs": ["root"],
+            "acceptance": ["Head/neck/shoulder/elbow/hip/knee pivots and sockets exposed."],
+        },
+        {
+            "id": "optimization-pass",
+            "goal": "Protect runtime performance.",
+            "componentRefs": ["root"],
+            "acceptance": ["Triangle/draw-call budget documented."],
+        },
     ]
     del base
     return passes
 
 
 def make_character_feature_targets(include_accessories: bool = False) -> list:
-    outfit_refs = ["shirt-decal", "headphone", "glasses-frame-l"] if include_accessories else ["chest", "pants", "shoes"]
+    outfit_refs = (
+        ["shirt-decal", "headphone", "glasses-frame-l"]
+        if include_accessories
+        else ["chest", "pants", "shoes"]
+    )
     return [
-        {"id": "anatomy-proportion", "name": "Head-unit proportions and pose", "tier": "critical",
-         "passIds": ["blockout", "proportion-lock"], "minimumScore": 0.78, "mustPass": True,
-         "componentRefs": ["root", "head", "chest"], "evidenceRefs": ["full-object"]},
-        {"id": "face-landmark-placement", "name": "Face landmarks incl. recessed eye sockets", "tier": "critical",
-         "passIds": ["feature-placement"], "minimumScore": 0.75, "mustPass": True,
-         "componentRefs": ["head", "eye-l", "eye-cavity-l", "nose"], "evidenceRefs": ["full-object"]},
-        {"id": "pose-silhouette", "name": "Pose and full-body silhouette", "tier": "critical",
-         "passIds": ["blockout", "proportion-lock"], "minimumScore": 0.75, "mustPass": True,
-         "componentRefs": ["root", "upper-arm-l", "thigh-l"], "evidenceRefs": ["full-object"]},
-        {"id": "outfit-and-palette", "name": "Outfit + accessories + palette", "tier": "important",
-         "passIds": ["material-pass"], "minimumScore": 0.7, "mustPass": False,
-         "componentRefs": outfit_refs, "evidenceRefs": ["full-object"]},
+        {
+            "id": "anatomy-proportion",
+            "name": "Head-unit proportions and pose",
+            "tier": "critical",
+            "passIds": ["blockout", "proportion-lock"],
+            "minimumScore": 0.78,
+            "mustPass": True,
+            "componentRefs": ["root", "head", "chest"],
+            "evidenceRefs": ["full-object"],
+        },
+        {
+            "id": "face-landmark-placement",
+            "name": "Face landmarks incl. recessed eye sockets",
+            "tier": "critical",
+            "passIds": ["feature-placement"],
+            "minimumScore": 0.75,
+            "mustPass": True,
+            "componentRefs": ["head", "eye-l", "eye-cavity-l", "nose"],
+            "evidenceRefs": ["full-object"],
+        },
+        {
+            "id": "pose-silhouette",
+            "name": "Pose and full-body silhouette",
+            "tier": "critical",
+            "passIds": ["blockout", "proportion-lock"],
+            "minimumScore": 0.75,
+            "mustPass": True,
+            "componentRefs": ["root", "upper-arm-l", "thigh-l"],
+            "evidenceRefs": ["full-object"],
+        },
+        {
+            "id": "outfit-and-palette",
+            "name": "Outfit + accessories + palette",
+            "tier": "important",
+            "passIds": ["material-pass"],
+            "minimumScore": 0.7,
+            "mustPass": False,
+            "componentRefs": outfit_refs,
+            "evidenceRefs": ["full-object"],
+        },
     ]
 
 
@@ -956,7 +1500,7 @@ def derive_character_rig(component_tree: list) -> dict:
                 return parent
             parent = by_id.get(parent, {}).get("parent")
         if component_id == "pelvis":
-            return None                      # the single root
+            return None  # the single root
         return None
 
     children = {cid: [] for cid in bone_ids}
@@ -970,11 +1514,14 @@ def derive_character_rig(component_tree: list) -> dict:
     # default does not apply and rig_spec.resolve_tip_positions() would reject them; naming the
     # spine-ward child is an explicit choice rather than picking an arbitrary one.
     _SPINE_WARD = {
-        "chest": "neck", "abdomen": "chest", "pelvis": "abdomen",
+        "chest": "neck",
+        "abdomen": "chest",
+        "pelvis": "abdomen",
         # A hand has five bone children since US-003, so it needs a named tip too. The hand's
         # axis runs to the middle finger, so that digit's proximal phalanx is the anatomical
         # choice rather than whichever digit happens to sort first.
-        "hand-l": "middle-l-1", "hand-r": "middle-r-1",
+        "hand-l": "middle-l-1",
+        "hand-r": "middle-r-1",
     }
 
     # No joint override is needed any more. It used to be, because the single `torso` component
@@ -1035,13 +1582,13 @@ def derive_character_rig(component_tree: list) -> dict:
         if preferred and preferred in kids:
             return joint, joint_of(preferred)
         if len(kids) == 1:
-            return joint, joint_of(kids[0])           # the §6 default, now well-defined
+            return joint, joint_of(kids[0])  # the §6 default, now well-defined
         transform = component.get("transform") or {}
         position = joint
         length = float((transform.get("scale") or [0.0, 0.0, 0.0])[1])
         parent = bone_parent(component_id)
         direction = [0.0, -1.0, 0.0]
-        if parent:                                    # decision 3
+        if parent:  # decision 3
             p_start, p_end = segment(parent)
             delta = [p_end[i] - p_start[i] for i in range(3)]
             norm = sum(d * d for d in delta) ** 0.5
@@ -1052,15 +1599,17 @@ def derive_character_rig(component_tree: list) -> dict:
     bones = []
     for cid in bone_ids:
         joint, tip = segment(cid)
-        bones.append({
-            "id": cid,
-            "parent": bone_parent(cid),
-            "jointPos": [round(v, 5) for v in joint],
-            "tipPos": [round(v, 5) for v in tip],
-            "component": cid,
-            "role": "skinned",
-            "chain": _rig_chain_of(cid),
-        })
+        bones.append(
+            {
+                "id": cid,
+                "parent": bone_parent(cid),
+                "jointPos": [round(v, 5) for v in joint],
+                "tipPos": [round(v, 5) for v in tip],
+                "component": cid,
+                "role": "skinned",
+                "chain": _rig_chain_of(cid),
+            }
+        )
     bones.sort(key=lambda b: (b["parent"] is not None, b["id"]))
     return {"version": "1.0", "bindPose": "A", "forward": "+Z", "bones": bones}
 
@@ -1069,12 +1618,18 @@ def derive_character_rig(component_tree: list) -> dict:
 # component tree spells `-l`. On a front-facing reference that is the viewer's right.
 _POSE_JOINT_TO_COMPONENT = {
     "neck": "neck",
-    "leftShoulder": "upper-arm-l", "rightShoulder": "upper-arm-r",
-    "leftElbow": "forearm-l", "rightElbow": "forearm-r",
-    "leftWrist": "hand-l", "rightWrist": "hand-r",
-    "leftHip": "thigh-l", "rightHip": "thigh-r",
-    "leftKnee": "shin-l", "rightKnee": "shin-r",
-    "leftAnkle": "foot-l", "rightAnkle": "foot-r",
+    "leftShoulder": "upper-arm-l",
+    "rightShoulder": "upper-arm-r",
+    "leftElbow": "forearm-l",
+    "rightElbow": "forearm-r",
+    "leftWrist": "hand-l",
+    "rightWrist": "hand-r",
+    "leftHip": "thigh-l",
+    "rightHip": "thigh-r",
+    "leftKnee": "shin-l",
+    "rightKnee": "shin-r",
+    "leftAnkle": "foot-l",
+    "rightAnkle": "foot-r",
 }
 
 
@@ -1097,7 +1652,7 @@ def apply_character_pose(component_tree: list, anatomy: dict | None) -> list[str
     the ordering is enforced, not merely documented. The rig stays bind-pose data, which is what
     a skeleton is.
     """
-    pose = ((anatomy or {}).get("pose") or {})
+    pose = (anatomy or {}).get("pose") or {}
     angles = pose.get("jointAngles") or {}
     if not angles:
         return []
@@ -1137,7 +1692,9 @@ def apply_character_template(
     object_class = spec.setdefault("preSpecAssessment", {}).setdefault("objectClass", {})
     object_class["primaryDomain"] = "character"
     existing = {m.get("id"): m for m in spec.get("materials", []) if isinstance(m, dict)}
-    character_materials = CHARACTER_BASE_MATERIALS + (CHARACTER_ACCESSORY_MATERIALS if include_accessories else [])
+    character_materials = CHARACTER_BASE_MATERIALS + (
+        CHARACTER_ACCESSORY_MATERIALS if include_accessories else []
+    )
     for mat in character_materials:
         merged = dict(existing.get("base", {}))
         merged.update(mat)
@@ -1151,8 +1708,12 @@ def apply_character_template(
             # the generator only honours a palette with >= 2 entries (else it blends in beige
             # fallback tones), so provide two near-identical shades of the intended colour.
             merged["albedo"] = {"dominant": base_color, "secondary": [shade]}
-            merged["colorVariation"] = {"palette": [base_color, shade], "pattern": "flat",
-                                         "amplitude": 0.05, "heightCorrelation": 0.0}
+            merged["colorVariation"] = {
+                "palette": [base_color, shade],
+                "pattern": "flat",
+                "amplitude": 0.05,
+                "heightCorrelation": 0.0,
+            }
         existing[mat["id"]] = merged
     spec["materials"] = list(existing.values())
     spec["buildPasses"] = make_character_build_passes()
@@ -1174,59 +1735,229 @@ def apply_character_template(
 # strong environment reflection or they render muddy; see
 # grimoire/build/cs2_finishes.md and grimoire/intake/cs2_texture_acquisition.md.
 CS2_FINISH_STYLES = [
-    "solid", "hydrographic", "anodized", "spray-paint",
-    "anodized-multicolored", "custom-paint-job", "patina", "gunsmith",
+    "solid",
+    "hydrographic",
+    "anodized",
+    "spray-paint",
+    "anodized-multicolored",
+    "custom-paint-job",
+    "patina",
+    "gunsmith",
 ]
 
 CS2_FINISH_PROFILES = {
-    "solid":                 {"baseColor": "#7a4b2b", "metalness": 0.15, "roughness": 0.55, "clearcoat": 0.0, "env": 0.9, "viewDependent": False,
-                              "pattern": "flat", "bands": [
-                                  {"id": "macro", "frequency": 1.0, "amplitude": 0.05, "role": "near-uniform lacquer color"},
-                                  {"id": "meso", "frequency": 8.0, "amplitude": 0.03, "role": "faint brush-out streaks"},
-                                  {"id": "micro", "frequency": 40.0, "amplitude": 0.02, "role": "edge-wear scratches under grazing light"},
-                              ]},
-    "hydrographic":          {"baseColor": "#5b6357", "metalness": 0.20, "roughness": 0.50, "clearcoat": 0.10, "env": 1.0, "viewDependent": False,
-                              "pattern": "swirl", "bands": [
-                                  {"id": "macro", "frequency": 3.0, "amplitude": 0.5, "role": "dip-film swirl distortion"},
-                                  {"id": "meso", "frequency": 10.0, "amplitude": 0.15, "role": "print-pattern fine detail"},
-                                  {"id": "micro", "frequency": 50.0, "amplitude": 0.05, "role": "edge-wear scratches under grazing light"},
-                              ]},
-    "anodized":              {"baseColor": "#3a4a9a", "metalness": 0.92, "roughness": 0.12, "clearcoat": 0.30, "env": 1.8, "viewDependent": True,
-                              "pattern": "brushed", "bands": [
-                                  {"id": "macro", "frequency": 1.5, "amplitude": 0.1, "role": "dyed-metal color breakup"},
-                                  {"id": "meso", "frequency": 20.0, "amplitude": 0.1, "role": "directional brushed-metal streaks"},
-                                  {"id": "micro", "frequency": 70.0, "amplitude": 0.05, "role": "edge-wear scratches under grazing light"},
-                              ]},
-    "spray-paint":           {"baseColor": "#6a6a6a", "metalness": 0.10, "roughness": 0.60, "clearcoat": 0.0, "env": 0.9, "viewDependent": False,
-                              "pattern": "speckle", "bands": [
-                                  {"id": "macro", "frequency": 1.0, "amplitude": 0.05, "role": "matte overspray base"},
-                                  {"id": "meso", "frequency": 30.0, "amplitude": 0.25, "role": "overspray speckle clusters"},
-                                  {"id": "micro", "frequency": 90.0, "amplitude": 0.1, "role": "edge-wear scratches under grazing light"},
-                              ]},
-    "anodized-multicolored": {"baseColor": "#b0417a", "metalness": 0.95, "roughness": 0.08, "clearcoat": 0.60, "env": 2.0, "viewDependent": True,
-                              "pattern": "marble", "bands": [
-                                  {"id": "macro", "frequency": 2.0, "amplitude": 0.4, "role": "broad pattern/color breakup"},
-                                  {"id": "meso", "frequency": 14.0, "amplitude": 0.2, "role": "brushed grain / marble swirl relief"},
-                                  {"id": "micro", "frequency": 60.0, "amplitude": 0.07, "role": "edge-wear scratches under grazing light"},
-                              ]},
-    "custom-paint-job":      {"baseColor": "#9a2b2b", "metalness": 0.20, "roughness": 0.45, "clearcoat": 0.20, "env": 1.1, "viewDependent": False,
-                              "pattern": "illustrative", "bands": [
-                                  {"id": "macro", "frequency": 0.8, "amplitude": 0.6, "role": "large non-tiled artwork blocks"},
-                                  {"id": "meso", "frequency": 6.0, "amplitude": 0.1, "role": "artwork edge detail"},
-                                  {"id": "micro", "frequency": 40.0, "amplitude": 0.04, "role": "peel-wear scratches under grazing light"},
-                              ]},
-    "patina":                {"baseColor": "#7a6a3a", "metalness": 0.60, "roughness": 0.40, "clearcoat": 0.0, "env": 1.2, "viewDependent": False,
-                              "pattern": "blotch", "bands": [
-                                  {"id": "macro", "frequency": 1.2, "amplitude": 0.35, "role": "oxidation blotch breakup"},
-                                  {"id": "meso", "frequency": 9.0, "amplitude": 0.25, "role": "hue-shift oxidation detail"},
-                                  {"id": "micro", "frequency": 45.0, "amplitude": 0.1, "role": "darkened edge wear under grazing light"},
-                              ]},
-    "gunsmith":              {"baseColor": "#8a7a5a", "metalness": 0.70, "roughness": 0.35, "clearcoat": 0.10, "env": 1.3, "viewDependent": False,
-                              "pattern": "mask-blend", "bands": [
-                                  {"id": "macro", "frequency": 1.5, "amplitude": 0.3, "role": "custom-paint/patina mask blend"},
-                                  {"id": "meso", "frequency": 12.0, "amplitude": 0.2, "role": "peel + oxidize transition detail"},
-                                  {"id": "micro", "frequency": 55.0, "amplitude": 0.09, "role": "edge-wear scratches under grazing light"},
-                              ]},
+    "solid": {
+        "baseColor": "#7a4b2b",
+        "metalness": 0.15,
+        "roughness": 0.55,
+        "clearcoat": 0.0,
+        "env": 0.9,
+        "viewDependent": False,
+        "pattern": "flat",
+        "bands": [
+            {
+                "id": "macro",
+                "frequency": 1.0,
+                "amplitude": 0.05,
+                "role": "near-uniform lacquer color",
+            },
+            {"id": "meso", "frequency": 8.0, "amplitude": 0.03, "role": "faint brush-out streaks"},
+            {
+                "id": "micro",
+                "frequency": 40.0,
+                "amplitude": 0.02,
+                "role": "edge-wear scratches under grazing light",
+            },
+        ],
+    },
+    "hydrographic": {
+        "baseColor": "#5b6357",
+        "metalness": 0.20,
+        "roughness": 0.50,
+        "clearcoat": 0.10,
+        "env": 1.0,
+        "viewDependent": False,
+        "pattern": "swirl",
+        "bands": [
+            {
+                "id": "macro",
+                "frequency": 3.0,
+                "amplitude": 0.5,
+                "role": "dip-film swirl distortion",
+            },
+            {
+                "id": "meso",
+                "frequency": 10.0,
+                "amplitude": 0.15,
+                "role": "print-pattern fine detail",
+            },
+            {
+                "id": "micro",
+                "frequency": 50.0,
+                "amplitude": 0.05,
+                "role": "edge-wear scratches under grazing light",
+            },
+        ],
+    },
+    "anodized": {
+        "baseColor": "#3a4a9a",
+        "metalness": 0.92,
+        "roughness": 0.12,
+        "clearcoat": 0.30,
+        "env": 1.8,
+        "viewDependent": True,
+        "pattern": "brushed",
+        "bands": [
+            {"id": "macro", "frequency": 1.5, "amplitude": 0.1, "role": "dyed-metal color breakup"},
+            {
+                "id": "meso",
+                "frequency": 20.0,
+                "amplitude": 0.1,
+                "role": "directional brushed-metal streaks",
+            },
+            {
+                "id": "micro",
+                "frequency": 70.0,
+                "amplitude": 0.05,
+                "role": "edge-wear scratches under grazing light",
+            },
+        ],
+    },
+    "spray-paint": {
+        "baseColor": "#6a6a6a",
+        "metalness": 0.10,
+        "roughness": 0.60,
+        "clearcoat": 0.0,
+        "env": 0.9,
+        "viewDependent": False,
+        "pattern": "speckle",
+        "bands": [
+            {"id": "macro", "frequency": 1.0, "amplitude": 0.05, "role": "matte overspray base"},
+            {
+                "id": "meso",
+                "frequency": 30.0,
+                "amplitude": 0.25,
+                "role": "overspray speckle clusters",
+            },
+            {
+                "id": "micro",
+                "frequency": 90.0,
+                "amplitude": 0.1,
+                "role": "edge-wear scratches under grazing light",
+            },
+        ],
+    },
+    "anodized-multicolored": {
+        "baseColor": "#b0417a",
+        "metalness": 0.95,
+        "roughness": 0.08,
+        "clearcoat": 0.60,
+        "env": 2.0,
+        "viewDependent": True,
+        "pattern": "marble",
+        "bands": [
+            {
+                "id": "macro",
+                "frequency": 2.0,
+                "amplitude": 0.4,
+                "role": "broad pattern/color breakup",
+            },
+            {
+                "id": "meso",
+                "frequency": 14.0,
+                "amplitude": 0.2,
+                "role": "brushed grain / marble swirl relief",
+            },
+            {
+                "id": "micro",
+                "frequency": 60.0,
+                "amplitude": 0.07,
+                "role": "edge-wear scratches under grazing light",
+            },
+        ],
+    },
+    "custom-paint-job": {
+        "baseColor": "#9a2b2b",
+        "metalness": 0.20,
+        "roughness": 0.45,
+        "clearcoat": 0.20,
+        "env": 1.1,
+        "viewDependent": False,
+        "pattern": "illustrative",
+        "bands": [
+            {
+                "id": "macro",
+                "frequency": 0.8,
+                "amplitude": 0.6,
+                "role": "large non-tiled artwork blocks",
+            },
+            {"id": "meso", "frequency": 6.0, "amplitude": 0.1, "role": "artwork edge detail"},
+            {
+                "id": "micro",
+                "frequency": 40.0,
+                "amplitude": 0.04,
+                "role": "peel-wear scratches under grazing light",
+            },
+        ],
+    },
+    "patina": {
+        "baseColor": "#7a6a3a",
+        "metalness": 0.60,
+        "roughness": 0.40,
+        "clearcoat": 0.0,
+        "env": 1.2,
+        "viewDependent": False,
+        "pattern": "blotch",
+        "bands": [
+            {
+                "id": "macro",
+                "frequency": 1.2,
+                "amplitude": 0.35,
+                "role": "oxidation blotch breakup",
+            },
+            {
+                "id": "meso",
+                "frequency": 9.0,
+                "amplitude": 0.25,
+                "role": "hue-shift oxidation detail",
+            },
+            {
+                "id": "micro",
+                "frequency": 45.0,
+                "amplitude": 0.1,
+                "role": "darkened edge wear under grazing light",
+            },
+        ],
+    },
+    "gunsmith": {
+        "baseColor": "#8a7a5a",
+        "metalness": 0.70,
+        "roughness": 0.35,
+        "clearcoat": 0.10,
+        "env": 1.3,
+        "viewDependent": False,
+        "pattern": "mask-blend",
+        "bands": [
+            {
+                "id": "macro",
+                "frequency": 1.5,
+                "amplitude": 0.3,
+                "role": "custom-paint/patina mask blend",
+            },
+            {
+                "id": "meso",
+                "frequency": 12.0,
+                "amplitude": 0.2,
+                "role": "peel + oxidize transition detail",
+            },
+            {
+                "id": "micro",
+                "frequency": 55.0,
+                "amplitude": 0.09,
+                "role": "edge-wear scratches under grazing light",
+            },
+        ],
+    },
 }
 
 
@@ -1236,8 +1967,12 @@ def _cs2_wear_mask(float_value: float | None) -> dict:
     instead of silently guessing -- see grimoire/build/cs2_finishes.md ('Float -> wear')."""
     if float_value is None:
         return {
-            "edgeWear": 0.35, "scratches": ["approximated-light-edge-scratch"], "chips": [],
-            "alphaCurve": "curvature-weighted", "aoBias": 0.3, "approximated": True,
+            "edgeWear": 0.35,
+            "scratches": ["approximated-light-edge-scratch"],
+            "chips": [],
+            "alphaCurve": "curvature-weighted",
+            "aoBias": 0.3,
+            "approximated": True,
             "notes": "No float supplied: estimated apparent condition from the reference image.",
         }
     clamped = max(0.0, min(1.0, float_value))
@@ -1258,8 +1993,11 @@ def _cs2_pattern_affine(paint_seed: int | None) -> dict:
     never claim it matches a specific item's actual pattern (see grimoire/build/cs2_finishes.md)."""
     if paint_seed is None:
         return {
-            "paintSeed": None, "affine": "T2*R*S*T1",
-            "translation": [0.5, 0.5], "rotation": 0.0, "scale": [1.0, 1.0],
+            "paintSeed": None,
+            "affine": "T2*R*S*T1",
+            "translation": [0.5, 0.5],
+            "rotation": 0.0,
+            "scale": [1.0, 1.0],
             "matrix": [1.0, 0.0, 0.0, 1.0, 0.5, 0.5],
             "approximated": True,
             "notes": "No paintSeed in image-first mode: deterministic default placement, reported approximated.",
@@ -1271,12 +2009,19 @@ def _cs2_pattern_affine(paint_seed: int | None) -> dict:
     scale = 0.85 + ((rng >> 24) % 30) / 100.0
     cos_a, sin_a = math.cos(angle), math.sin(angle)
     return {
-        "paintSeed": paint_seed, "affine": "T2*R*S*T1",
-        "translation": [round(tx, 4), round(ty, 4)], "rotation": round(angle, 4),
+        "paintSeed": paint_seed,
+        "affine": "T2*R*S*T1",
+        "translation": [round(tx, 4), round(ty, 4)],
+        "rotation": round(angle, 4),
         "scale": [round(scale, 4), round(scale, 4)],
-        "matrix": [round(cos_a * scale, 4), round(sin_a * scale, 4),
-                  round(-sin_a * scale, 4), round(cos_a * scale, 4),
-                  round(tx, 4), round(ty, 4)],
+        "matrix": [
+            round(cos_a * scale, 4),
+            round(sin_a * scale, 4),
+            round(-sin_a * scale, 4),
+            round(cos_a * scale, 4),
+            round(tx, 4),
+            round(ty, 4),
+        ],
         "approximated": False,
         "notes": f"Deterministic placement from paintSeed={paint_seed}.",
     }
@@ -1285,12 +2030,18 @@ def _cs2_pattern_affine(paint_seed: int | None) -> dict:
 # Minimal skin-name -> finish-style hints for the identity precedence resolver. Not exhaustive
 # (thousands of CS2 skins exist); a name that doesn't match falls through to vision/default.
 SKIN_NAME_FINISH_HINTS = {
-    "doppler": "anodized-multicolored", "gamma doppler": "anodized-multicolored",
-    "marble fade": "anodized-multicolored", "fade": "anodized",
-    "damascus": "patina", "case hardened": "patina",
-    "hydrographic": "hydrographic", "hydro dip": "hydrographic",
-    "urban": "spray-paint", "spray": "spray-paint",
-    "custom": "custom-paint-job", "gunsmith": "gunsmith",
+    "doppler": "anodized-multicolored",
+    "gamma doppler": "anodized-multicolored",
+    "marble fade": "anodized-multicolored",
+    "fade": "anodized",
+    "damascus": "patina",
+    "case hardened": "patina",
+    "hydrographic": "hydrographic",
+    "hydro dip": "hydrographic",
+    "urban": "spray-paint",
+    "spray": "spray-paint",
+    "custom": "custom-paint-job",
+    "gunsmith": "gunsmith",
 }
 
 
@@ -1319,7 +2070,9 @@ def resolve_cs2_finish_style(
         candidates.append(("descriptor", descriptor_finish_style))
     if skin_inferred:
         candidates.append(("skin name", skin_inferred))
-    if vision_finish_style and (vision_confidence is None or vision_confidence >= vision_confidence_threshold):
+    if vision_finish_style and (
+        vision_confidence is None or vision_confidence >= vision_confidence_threshold
+    ):
         candidates.append(("vision", vision_finish_style))
     if len(candidates) >= 2 and len({style for _, style in candidates}) > 1:
         sources = ", ".join(f"{source}={style}" for source, style in candidates)
@@ -1338,30 +2091,59 @@ def resolve_cs2_finish_style(
     return "anodized-multicolored", conflicts
 
 
-def _cs2_finish_material(finish_style: str, float_value: float | None = None, paint_seed: int | None = None) -> dict:
+def _cs2_finish_material(
+    finish_style: str, float_value: float | None = None, paint_seed: int | None = None
+) -> dict:
     profile = CS2_FINISH_PROFILES[finish_style]
     base = profile["baseColor"]
     shade = _shade_hex(base, 0.8)
     bands = profile["bands"]
     return {
-        "id": "skin-finish", "name": f"CS2 {finish_style} finish", "type": "standard",
+        "id": "skin-finish",
+        "name": f"CS2 {finish_style} finish",
+        "type": "standard",
         "shaderModel": "MeshPhysicalMaterial / metallic-roughness PBR",
-        "baseColor": base, "color": base,
-        "albedo": {"dominant": base, "secondary": [shade],
-                   "samplingNotes": "Image-first: estimate from the reference; report as approximated (not the exact Valve paint texture)."},
-        "colorVariation": {"palette": [base, shade], "pattern": profile["pattern"], "amplitude": bands[0]["amplitude"], "heightCorrelation": 0.25},
+        "baseColor": base,
+        "color": base,
+        "albedo": {
+            "dominant": base,
+            "secondary": [shade],
+            "samplingNotes": "Image-first: estimate from the reference; report as approximated (not the exact Valve paint texture).",
+        },
+        "colorVariation": {
+            "palette": [base, shade],
+            "pattern": profile["pattern"],
+            "amplitude": bands[0]["amplitude"],
+            "heightCorrelation": 0.25,
+        },
         "textureResolution": 1024,
-        "textureProjection": {"mode": "uv", "repeat": [1.0, 1.0], "anisotropy": 8,
-                              "texelDensityIntent": "Preserve stable blade-scale detail; do not stretch pattern with component scale."},
+        "textureProjection": {
+            "mode": "uv",
+            "repeat": [1.0, 1.0],
+            "anisotropy": 8,
+            "texelDensityIntent": "Preserve stable blade-scale detail; do not stretch pattern with component scale.",
+        },
         "surfaceFrequencyBands": bands,
-        "roughness": {"base": profile["roughness"], "variation": 0.06, "map": "independent-procedural-field",
-                      "localResponse": "lower roughness on worn edges, higher in recesses"},
+        "roughness": {
+            "base": profile["roughness"],
+            "variation": 0.06,
+            "map": "independent-procedural-field",
+            "localResponse": "lower roughness on worn edges, higher in recesses",
+        },
         "metalness": {"base": profile["metalness"], "variation": 0.03},
         "clearcoat": {"base": profile["clearcoat"]},
         "clearcoatRoughness": {"base": 0.12},
-        "normal": {"pattern": "derived-from-independent-height-field", "strength": 0.3, "scale": 28.0, "space": "tangent"},
-        "ambientOcclusion": {"cavityStrength": 0.3, "contactShadowBias": 0.35,
-                             "notes": "Darken guard/pommel seams and engraving recesses."},
+        "normal": {
+            "pattern": "derived-from-independent-height-field",
+            "strength": 0.3,
+            "scale": 28.0,
+            "space": "tangent",
+        },
+        "ambientOcclusion": {
+            "cavityStrength": 0.3,
+            "contactShadowBias": 0.35,
+            "notes": "Darken guard/pommel seams and engraving recesses.",
+        },
         "wear": _cs2_wear_mask(float_value),
         "envMapIntensity": profile["env"],
         "finishStyle": finish_style,
@@ -1380,19 +2162,36 @@ def _cs2_finish_material(finish_style: str, float_value: float | None = None, pa
 _CS2_SUBSTRATE_BANDS = [
     {"id": "macro", "frequency": 2.0, "amplitude": 0.4, "role": "broad pattern/color breakup"},
     {"id": "meso", "frequency": 14.0, "amplitude": 0.2, "role": "brushed grain relief"},
-    {"id": "micro", "frequency": 60.0, "amplitude": 0.07, "role": "edge-wear scratches under grazing light"},
+    {
+        "id": "micro",
+        "frequency": 60.0,
+        "amplitude": 0.07,
+        "role": "edge-wear scratches under grazing light",
+    },
 ]
 
 
 def _cs2_substrate_material() -> dict:
     return {
-        "id": "substrate", "name": "Bare metal substrate", "type": "standard",
+        "id": "substrate",
+        "name": "Bare metal substrate",
+        "type": "standard",
         "shaderModel": "MeshPhysicalMaterial / metallic-roughness PBR",
-        "baseColor": "#3b3b40", "color": "#3b3b40",
-        "colorVariation": {"palette": ["#3b3b40", "#2b2b30"], "pattern": "flat", "amplitude": 0.05, "heightCorrelation": 0.0},
+        "baseColor": "#3b3b40",
+        "color": "#3b3b40",
+        "colorVariation": {
+            "palette": ["#3b3b40", "#2b2b30"],
+            "pattern": "flat",
+            "amplitude": 0.05,
+            "heightCorrelation": 0.0,
+        },
         "textureResolution": 1024,
-        "textureProjection": {"mode": "uv", "repeat": [2.0, 2.0], "anisotropy": 8,
-                              "texelDensityIntent": "Preserve stable metal-scale detail on exposed substrate."},
+        "textureProjection": {
+            "mode": "uv",
+            "repeat": [2.0, 2.0],
+            "anisotropy": 8,
+            "texelDensityIntent": "Preserve stable metal-scale detail on exposed substrate.",
+        },
         "surfaceFrequencyBands": _CS2_SUBSTRATE_BANDS,
         "roughness": {"base": 0.34, "variation": 0.08, "map": "independent-procedural-field"},
         "metalness": {"base": 1.0, "variation": 0.0},
@@ -1406,9 +2205,17 @@ def _cs2_hidden_material() -> dict:
     """Invisible material (opacity 0) for the organizing root group -- same trick as the
     character template's 'hidden' material, so the root component's mesh never renders."""
     return {
-        "id": "hidden", "name": "Hidden (root group)", "type": "standard",
-        "baseColor": "#000000", "color": "#000000",
-        "colorVariation": {"palette": ["#000000", "#000000"], "pattern": "flat", "amplitude": 0.0, "heightCorrelation": 0.0},
+        "id": "hidden",
+        "name": "Hidden (root group)",
+        "type": "standard",
+        "baseColor": "#000000",
+        "color": "#000000",
+        "colorVariation": {
+            "palette": ["#000000", "#000000"],
+            "pattern": "flat",
+            "amplitude": 0.0,
+            "heightCorrelation": 0.0,
+        },
         "albedo": {"dominant": "#000000", "secondary": ["#000000"]},
         "roughness": {"base": 1.0, "variation": 0.0},
         "opacity": {"base": 0.0},
@@ -1416,18 +2223,50 @@ def _cs2_hidden_material() -> dict:
     }
 
 
-def _cs2node(cid, name, primitive, position, scale, material, role, level,
-             importance=0.7, local_features=None):
+def _cs2node(
+    cid,
+    name,
+    primitive,
+    position,
+    scale,
+    material,
+    role,
+    level,
+    importance=0.7,
+    local_features=None,
+):
     """Weapon-part node. All parts parent to root with safe (non-attachment) primitives
     and names so strict-quality does not demand attachment contracts."""
-    return _cnode(cid, name, primitive, "root", position, scale, material=material,
-                  role=role, level=level, importance=importance,
-                  local_features=local_features or [], evidence=["full-object"])
+    return _cnode(
+        cid,
+        name,
+        primitive,
+        "root",
+        position,
+        scale,
+        material=material,
+        role=role,
+        level=level,
+        importance=importance,
+        local_features=local_features or [],
+        evidence=["full-object"],
+    )
 
 
 CS2_KNIFE_SUBTYPES = frozenset(
-    {"karambit", "butterfly", "bayonet", "m9", "flip", "gut", "falchion", "bowie", "navaja",
-     "talon", "classic"}
+    {
+        "karambit",
+        "butterfly",
+        "bayonet",
+        "m9",
+        "flip",
+        "gut",
+        "falchion",
+        "bowie",
+        "navaja",
+        "talon",
+        "classic",
+    }
 )
 
 
@@ -1439,37 +2278,133 @@ def make_cs2_component_tree(item_family: str = "knife", subtype: str | None = No
     # Root is an organizing group only: use the invisible 'hidden' material (opacity 0) exactly
     # like the character template, so the generator's per-component mesh for root never renders as
     # a stray box over the weapon -- no generic generator change needed.
-    root = _cnode("root", "Weapon (root)", "box", None, (0, 0, 0), (1, 1, 1),
-                  material="hidden", role="body", level="macro", importance=1.0, anim_role="root")
+    root = _cnode(
+        "root",
+        "Weapon (root)",
+        "box",
+        None,
+        (0, 0, 0),
+        (1, 1, 1),
+        material="hidden",
+        role="body",
+        level="macro",
+        importance=1.0,
+        anim_role="root",
+    )
     parts = [
-        _cs2node("blade", "Blade", "ground-blade", (0, 0.55, 0), (1.0, 1.0, 1.0), "skin-finish", "blade", "macro", 1.0,
-                 ["edge bevel highlight", "engraved pattern swirl"]),
-        _cs2node("grip", "Grip", "curve-sweep", (0, -0.55, 0), (1.0, 1.0, 1.0), "skin-finish", "grip", "macro", 0.9,
-                 ["checkered grip relief"]),
-        _cs2node("guard", "Guard", "extrude", (0, 0.0, 0), (1.0, 1.0, 1.0), "substrate", "guard", "meso", 0.7),
-        _cs2node("pommel", "Pommel", "sphere", (0, -0.95, 0), (0.2, 0.2, 0.2), "substrate", "pommel", "meso", 0.6),
-        _cs2node("bolster", "Bolster", "box", (0, 0.02, 0), (0.2, 0.18, 0.26), "substrate", "bolster", "meso", 0.6),
+        _cs2node(
+            "blade",
+            "Blade",
+            "ground-blade",
+            (0, 0.55, 0),
+            (1.0, 1.0, 1.0),
+            "skin-finish",
+            "blade",
+            "macro",
+            1.0,
+            ["edge bevel highlight", "engraved pattern swirl"],
+        ),
+        _cs2node(
+            "grip",
+            "Grip",
+            "curve-sweep",
+            (0, -0.55, 0),
+            (1.0, 1.0, 1.0),
+            "skin-finish",
+            "grip",
+            "macro",
+            0.9,
+            ["checkered grip relief"],
+        ),
+        _cs2node(
+            "guard",
+            "Guard",
+            "extrude",
+            (0, 0.0, 0),
+            (1.0, 1.0, 1.0),
+            "substrate",
+            "guard",
+            "meso",
+            0.7,
+        ),
+        _cs2node(
+            "pommel",
+            "Pommel",
+            "sphere",
+            (0, -0.95, 0),
+            (0.2, 0.2, 0.2),
+            "substrate",
+            "pommel",
+            "meso",
+            0.6,
+        ),
+        _cs2node(
+            "bolster",
+            "Bolster",
+            "box",
+            (0, 0.02, 0),
+            (0.2, 0.18, 0.26),
+            "substrate",
+            "bolster",
+            "meso",
+            0.6,
+        ),
     ]
     return [root, *parts]
 
 
 def make_cs2_feature_targets() -> list:
     return [
-        {"id": "cs2-silhouette", "name": "Weapon silhouette and proportions", "tier": "critical",
-         "passIds": ["blockout"], "minimumScore": 0.8, "mustPass": True,
-         "componentRefs": ["root", "blade", "grip"], "evidenceRefs": ["full-object"]},
-        {"id": "cs2-finish-style-read", "name": "Finish style reads correctly", "tier": "critical",
-         "passIds": ["material-pass"], "minimumScore": 0.75, "mustPass": True,
-         "componentRefs": ["blade"], "evidenceRefs": ["full-object"]},
-        {"id": "cs2-metal-response", "name": "Metal / anodized environment response", "tier": "critical",
-         "passIds": ["lighting-pass"], "minimumScore": 0.75, "mustPass": True,
-         "componentRefs": ["blade", "guard"], "evidenceRefs": ["full-object"]},
-        {"id": "cs2-pattern-placement", "name": "Pattern placement (approximated)", "tier": "important",
-         "passIds": ["material-pass"], "minimumScore": 0.65, "mustPass": False,
-         "componentRefs": ["blade"], "evidenceRefs": ["full-object"]},
-        {"id": "cs2-wear-read", "name": "Wear / float reads plausibly", "tier": "important",
-         "passIds": ["surface-pass"], "minimumScore": 0.65, "mustPass": False,
-         "componentRefs": ["blade", "grip"], "evidenceRefs": ["full-object"]},
+        {
+            "id": "cs2-silhouette",
+            "name": "Weapon silhouette and proportions",
+            "tier": "critical",
+            "passIds": ["blockout"],
+            "minimumScore": 0.8,
+            "mustPass": True,
+            "componentRefs": ["root", "blade", "grip"],
+            "evidenceRefs": ["full-object"],
+        },
+        {
+            "id": "cs2-finish-style-read",
+            "name": "Finish style reads correctly",
+            "tier": "critical",
+            "passIds": ["material-pass"],
+            "minimumScore": 0.75,
+            "mustPass": True,
+            "componentRefs": ["blade"],
+            "evidenceRefs": ["full-object"],
+        },
+        {
+            "id": "cs2-metal-response",
+            "name": "Metal / anodized environment response",
+            "tier": "critical",
+            "passIds": ["lighting-pass"],
+            "minimumScore": 0.75,
+            "mustPass": True,
+            "componentRefs": ["blade", "guard"],
+            "evidenceRefs": ["full-object"],
+        },
+        {
+            "id": "cs2-pattern-placement",
+            "name": "Pattern placement (approximated)",
+            "tier": "important",
+            "passIds": ["material-pass"],
+            "minimumScore": 0.65,
+            "mustPass": False,
+            "componentRefs": ["blade"],
+            "evidenceRefs": ["full-object"],
+        },
+        {
+            "id": "cs2-wear-read",
+            "name": "Wear / float reads plausibly",
+            "tier": "important",
+            "passIds": ["surface-pass"],
+            "minimumScore": 0.65,
+            "mustPass": False,
+            "componentRefs": ["blade", "grip"],
+            "evidenceRefs": ["full-object"],
+        },
     ]
 
 
@@ -1495,17 +2430,26 @@ def apply_cs2_template(
         finish_style, skin_name, vision_finish_style, vision_confidence
     )
     if resolved_style not in CS2_FINISH_PROFILES:
-        raise ValueError(f"unknown finish style {resolved_style!r}; expected one of: {', '.join(CS2_FINISH_STYLES)}")
+        raise ValueError(
+            f"unknown finish style {resolved_style!r}; expected one of: {', '.join(CS2_FINISH_STYLES)}"
+        )
     profile = CS2_FINISH_PROFILES[resolved_style]
     spec["componentTree"] = make_cs2_component_tree(item_family, subtype)
-    spec["materials"] = [_cs2_finish_material(resolved_style, float_value, paint_seed), _cs2_substrate_material(), _cs2_hidden_material()]
+    spec["materials"] = [
+        _cs2_finish_material(resolved_style, float_value, paint_seed),
+        _cs2_substrate_material(),
+        _cs2_hidden_material(),
+    ]
     spec["featureReviewTargets"] = make_cs2_feature_targets()
     # top-level signal for the pre-render environment gate (mirrors the material value)
     spec["envMapIntensity"] = profile["env"]
-    spec["cs2Finish"] = {"finishStyle": resolved_style, "viewDependent": profile["viewDependent"],
-                         "environment": "code-generated-default (RoomEnvironment->PMREM); user HDRI optional",
-                         "environmentAvailable": environment_available,
-                         "tier": "image-first"}
+    spec["cs2Finish"] = {
+        "finishStyle": resolved_style,
+        "viewDependent": profile["viewDependent"],
+        "environment": "code-generated-default (RoomEnvironment->PMREM); user HDRI optional",
+        "environmentAvailable": environment_available,
+        "tier": "image-first",
+    }
     # fill the assessment/contract so a normal validate passes; CS2 is held to the ultra-complex
     # bar, so strict-quality still requires the agent to enumerate the CS2 detail inventory first.
     pre = spec.setdefault("preSpecAssessment", {})
@@ -1518,7 +2462,10 @@ def apply_cs2_template(
     oc["formLanguage"] = ["hard-surface", "bladed"]
     oc["structureKind"] = ["blade", "grip", "guard"]
     oc["motionPotential"] = ["static", "inspect-orbit"]
-    oc["materialFamilies"] = ["metal", "anodized-coat" if profile["viewDependent"] else "painted-coat"]
+    oc["materialFamilies"] = [
+        "metal",
+        "anodized-coat" if profile["viewDependent"] else "painted-coat",
+    ]
     oc["cs2"] = True
     complexity = pre.setdefault("complexity", {})
     complexity["tier"] = "ultra-complex"
@@ -1535,8 +2482,14 @@ def apply_cs2_template(
     contract = spec.setdefault("qualityContract", {})
     contract["qualityBar"] = "ultra-complex"
     contract.setdefault("minimumSpecDepth", {}).update(
-        {"macroComponents": 5, "mesoComponents": 16, "microFeatureGroups": 8,
-         "materialLayers": 4, "repetitionSystems": 2, "reviewViewpoints": 5}
+        {
+            "macroComponents": 5,
+            "mesoComponents": 16,
+            "microFeatureGroups": 8,
+            "materialLayers": 4,
+            "repetitionSystems": 2,
+            "reviewViewpoints": 5,
+        }
     )
     return spec
 
@@ -1565,7 +2518,10 @@ def apply_cs2_manifest_evidence(spec: dict, manifest: dict) -> dict:
     if isinstance(manifest.get("camera"), dict) and manifest["camera"].get("referenceCamera"):
         spec["referenceCamera"] = manifest["camera"]["referenceCamera"]
     materials = spec.get("materials", [])
-    skin = next((item for item in materials if isinstance(item, dict) and item.get("id") == "skin-finish"), None)
+    skin = next(
+        (item for item in materials if isinstance(item, dict) and item.get("id") == "skin-finish"),
+        None,
+    )
     if isinstance(skin, dict):
         route = manifest.get("route")
         projection = skin.setdefault("textureProjection", {})
@@ -2282,31 +3238,67 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target_name", help="Human-readable object name")
     parser.add_argument("--image", help="Reference image path or URL")
-    parser.add_argument("--assessment", type=Path, help="Pre-spec assessment JSON from stage2_spec/new_pre_spec_assessment.py")
-    parser.add_argument("--manifest", type=Path, help="Validated cs2-intake.json produced by stage1 intake")
+    parser.add_argument(
+        "--assessment",
+        type=Path,
+        help="Pre-spec assessment JSON from stage2_spec/new_pre_spec_assessment.py",
+    )
+    parser.add_argument(
+        "--manifest", type=Path, help="Validated cs2-intake.json produced by stage1 intake"
+    )
     parser.add_argument("--out", type=Path, help="Output JSON path")
     parser.add_argument("--force", action="store_true", help="Overwrite output file")
-    parser.add_argument("--character", action="store_true",
-                        help="Use the humanoid character template (auto-enabled when the assessment primaryDomain is character/hybrid)")
-    parser.add_argument("--accessories", action="store_true",
-                        help="Character template only: add the opt-in accessory set (glasses, headphones, chest "
-                             "decal). Off by default so the baseline humanoid carries no reference-person traits.")
-    parser.add_argument("--cs2", action="store_true",
-                        help="Use the CS2 weapon-skin finish profile (image-first; auto-enabled when the assessment objectClass.cs2 is true)")
-    parser.add_argument("--finish-style", choices=CS2_FINISH_STYLES, default=None,
-                        help="CS2 finish style descriptor (explicit; takes precedence over --skin-name/--vision-finish-style). "
-                             "Falls back to anodized-multicolored if nothing else resolves it.")
-    parser.add_argument("--skin-name", help="CS2 skin name, e.g. 'Karambit | Doppler' (used to infer finish style)")
-    parser.add_argument("--vision-finish-style", choices=CS2_FINISH_STYLES,
-                        help="Finish style inferred by vision from the reference image (image-only mode)")
-    parser.add_argument("--vision-confidence", type=float,
-                        help="Confidence (0-1) of --vision-finish-style; below threshold it is still used but flagged")
-    parser.add_argument("--float", dest="cs2_float", type=float,
-                        help="CS2 item float (0.0 Factory New .. 1.0 Battle-Scarred); approximated from the image if omitted")
-    parser.add_argument("--paint-seed", type=int, help="CS2 paint seed; deterministic default placement if omitted")
-    parser.add_argument("--no-environment", action="store_true",
-                        help="Mark the code-generated default environment as unavailable (testing/last-resort only) "
-                             "-- validate_sculpt_spec.py blocks view-dependent finishes when set")
+    parser.add_argument(
+        "--character",
+        action="store_true",
+        help="Use the humanoid character template (auto-enabled when the assessment primaryDomain is character/hybrid)",
+    )
+    parser.add_argument(
+        "--accessories",
+        action="store_true",
+        help="Character template only: add the opt-in accessory set (glasses, headphones, chest "
+        "decal). Off by default so the baseline humanoid carries no reference-person traits.",
+    )
+    parser.add_argument(
+        "--cs2",
+        action="store_true",
+        help="Use the CS2 weapon-skin finish profile (image-first; auto-enabled when the assessment objectClass.cs2 is true)",
+    )
+    parser.add_argument(
+        "--finish-style",
+        choices=CS2_FINISH_STYLES,
+        default=None,
+        help="CS2 finish style descriptor (explicit; takes precedence over --skin-name/--vision-finish-style). "
+        "Falls back to anodized-multicolored if nothing else resolves it.",
+    )
+    parser.add_argument(
+        "--skin-name", help="CS2 skin name, e.g. 'Karambit | Doppler' (used to infer finish style)"
+    )
+    parser.add_argument(
+        "--vision-finish-style",
+        choices=CS2_FINISH_STYLES,
+        help="Finish style inferred by vision from the reference image (image-only mode)",
+    )
+    parser.add_argument(
+        "--vision-confidence",
+        type=float,
+        help="Confidence (0-1) of --vision-finish-style; below threshold it is still used but flagged",
+    )
+    parser.add_argument(
+        "--float",
+        dest="cs2_float",
+        type=float,
+        help="CS2 item float (0.0 Factory New .. 1.0 Battle-Scarred); approximated from the image if omitted",
+    )
+    parser.add_argument(
+        "--paint-seed", type=int, help="CS2 paint seed; deterministic default placement if omitted"
+    )
+    parser.add_argument(
+        "--no-environment",
+        action="store_true",
+        help="Mark the code-generated default environment as unavailable (testing/last-resort only) "
+        "-- validate_sculpt_spec.py blocks view-dependent finishes when set",
+    )
     args = parser.parse_args(argv)
     emit_status(None, next_command="forge/stage2_spec/new_sculpt_spec.py")
 
@@ -2317,7 +3309,9 @@ def main(argv: list[str]) -> int:
         if not isinstance(manifest, dict):
             parser.error("CS2 intake manifest must be a JSON object")
         if manifest.get("state") != "proceed":
-            parser.error(f"CS2 intake is not ready for spec authoring: {manifest.get('state', 'unknown')}")
+            parser.error(
+                f"CS2 intake is not ready for spec authoring: {manifest.get('state', 'unknown')}"
+            )
         if manifest.get("itemFamily") != "knife":
             parser.error("CS2 spec authoring currently supports only the knife family")
     spec = make_spec(args.target_name, args.image, assessment)
@@ -2329,8 +3323,12 @@ def main(argv: list[str]) -> int:
         domain = oc.get("primaryDomain") if isinstance(oc, dict) else None
         cs2_marker = bool(oc.get("cs2")) if isinstance(oc, dict) else False
     incoming_routing = assessment.get("pipelineRouting") if isinstance(assessment, dict) else None
-    incoming_classification = incoming_routing.get("classification") if isinstance(incoming_routing, dict) else None
-    explicit_track = "character-v1.5" if args.character or domain in {"character", "hybrid"} else None
+    incoming_classification = (
+        incoming_routing.get("classification") if isinstance(incoming_routing, dict) else None
+    )
+    explicit_track = (
+        "character-v1.5" if args.character or domain in {"character", "hybrid"} else None
+    )
     if explicit_track is None and (args.cs2 or cs2_marker):
         explicit_track = "weapon-v1.4"
     legacy_cs2 = manifest is not None and not isinstance(manifest.get("pipelineRouting"), dict)
@@ -2361,7 +3359,8 @@ def main(argv: list[str]) -> int:
             if isinstance(oc, dict) and oc.get("finishStyle") in CS2_FINISH_PROFILES:
                 finish_style = oc["finishStyle"]
         apply_cs2_template(
-            spec, finish_style,
+            spec,
+            finish_style,
             skin_name=args.skin_name,
             vision_finish_style=args.vision_finish_style,
             vision_confidence=args.vision_confidence,

@@ -25,7 +25,9 @@ class AcceptanceCriterion:
         return asdict(self)
 
 
-def normalize_criteria(items: list[AcceptanceCriterion | dict[str, Any]] | None) -> list[dict[str, Any]]:
+def normalize_criteria(
+    items: list[AcceptanceCriterion | dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
     """Normalize API/task input without evaluating or inventing criteria."""
     result: list[dict[str, Any]] = []
     for index, item in enumerate(items or [], start=1):

@@ -15,12 +15,22 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 
 from server import auth as auth_mod
 
-router = APIRouter(tags=["file-tree"],
-              dependencies=[Depends(auth_mod.require_user)])
+router = APIRouter(tags=["file-tree"], dependencies=[Depends(auth_mod.require_user)])
 
-_SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".loopx",
-              ".svelte-kit", "venv", "dist", "build", ".ruff_cache",
-              ".pytest_cache", "site"}
+_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    ".loopx",
+    ".svelte-kit",
+    "venv",
+    "dist",
+    "build",
+    ".ruff_cache",
+    ".pytest_cache",
+    "site",
+}
 
 _MAX_DEPTH = 4
 _MAX_ENTRIES = 300
@@ -95,7 +105,11 @@ async def fs_tree(path: str = "", depth: int = _MAX_DEPTH) -> dict:
             if e.is_dir():
                 if e.name in _SKIP_DIRS:
                     continue
-                node: dict = {"name": e.name, "type": "dir", "path": str(e.relative_to(_workspace_root()))}
+                node: dict = {
+                    "name": e.name,
+                    "type": "dir",
+                    "path": str(e.relative_to(_workspace_root())),
+                }
                 if d > 0:
                     node["children"] = _walk(e, d - 1)
                 out.append(node)
@@ -106,9 +120,14 @@ async def fs_tree(path: str = "", depth: int = _MAX_DEPTH) -> dict:
                     continue
                 if size > 5_000_000:
                     continue  # >5MB 文件不列 (避免大文件/二进制噪音)
-                out.append({"name": e.name, "type": "file",
-                            "path": str(e.relative_to(_workspace_root())),
-                            "size": size})
+                out.append(
+                    {
+                        "name": e.name,
+                        "type": "file",
+                        "path": str(e.relative_to(_workspace_root())),
+                        "size": size,
+                    }
+                )
         return out
 
     return {"root": str(_workspace_root()), "entries": _walk(root, depth - 1)}
@@ -134,8 +153,13 @@ async def fs_read(path: str, max_chars: int = 12000) -> dict:
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"stat 失败: {exc}")
         text = _extract_pdf_text(rp, max_chars)
-        return {"path": str(rp), "content": text, "truncated": len(text) >= max_chars,
-                "size": size, "kind": "pdf"}
+        return {
+            "path": str(rp),
+            "content": text,
+            "truncated": len(text) >= max_chars,
+            "size": size,
+            "kind": "pdf",
+        }
     try:
         size = rp.stat().st_size
     except OSError as exc:
@@ -143,16 +167,20 @@ async def fs_read(path: str, max_chars: int = 12000) -> dict:
     if size > _MAX_READ:
         raise HTTPException(status_code=413, detail=f"文件过大 ({size} bytes), 上限 {_MAX_READ}")
         text = _extract_pdf_text(rp, max_chars)
-        return {"path": str(rp), "content": text, "truncated": len(text) >= max_chars,
-                "size": size, "kind": "pdf"}
+        return {
+            "path": str(rp),
+            "content": text,
+            "truncated": len(text) >= max_chars,
+            "size": size,
+            "kind": "pdf",
+        }
 
     try:
         text = rp.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"读取失败: {exc}")
     truncated = len(text) > max_chars
-    return {"path": str(rp), "content": text[:max_chars], "truncated": truncated,
-            "size": size}
+    return {"path": str(rp), "content": text[:max_chars], "truncated": truncated, "size": size}
 
 
 @router.post("/api/v1/fs/upload")

@@ -46,15 +46,23 @@ def test_root_app_plugin_unknown_action():
 
 def test_root_app_scheduler_create_toggle_delete():
     """定时任务 CRUD 闭环 (临时任务, 测试后清理)。"""
-    res = client.post("/api/v1/scheduler",
-                      json={"action": "create", "id": "t_ci_test",
-                            "name": "CI 测试任务", "prompt": "测试", "interval_ms": 999999})
+    res = client.post(
+        "/api/v1/scheduler",
+        json={
+            "action": "create",
+            "id": "t_ci_test",
+            "name": "CI 测试任务",
+            "prompt": "测试",
+            "interval_ms": 999999,
+        },
+    )
     assert res.status_code == 200
     assert res.json().get("status") == "created"
 
     try:
-        res = client.post("/api/v1/scheduler",
-                          json={"action": "toggle", "id": "t_ci_test", "enabled": False})
+        res = client.post(
+            "/api/v1/scheduler", json={"action": "toggle", "id": "t_ci_test", "enabled": False}
+        )
         assert res.status_code == 200
         assert res.json()["status"] == "toggled"
 

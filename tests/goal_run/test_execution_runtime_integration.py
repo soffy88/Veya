@@ -34,7 +34,9 @@ async def durable_runtime(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_goal_run_continuous_scheduler_refills_ready_parallel_task(tmp_path, monkeypatch, durable_runtime):
+async def test_goal_run_continuous_scheduler_refills_ready_parallel_task(
+    tmp_path, monkeypatch, durable_runtime
+):
     started: list[str] = []
 
     async def fake_leaf(*, instruction: str, **_kwargs):
@@ -59,8 +61,20 @@ async def test_goal_run_continuous_scheduler_refills_ready_parallel_task(tmp_pat
         tasks=[
             {"id": "A", "instruction": "A", "acceptance": ["ok"], "parallel": True},
             {"id": "B", "instruction": "B", "acceptance": ["ok"], "parallel": True},
-            {"id": "C", "instruction": "C", "acceptance": ["ok"], "depends_on": ["A"], "parallel": True},
-            {"id": "D", "instruction": "D", "acceptance": ["ok"], "depends_on": ["B"], "parallel": True},
+            {
+                "id": "C",
+                "instruction": "C",
+                "acceptance": ["ok"],
+                "depends_on": ["A"],
+                "parallel": True,
+            },
+            {
+                "id": "D",
+                "instruction": "D",
+                "acceptance": ["ok"],
+                "depends_on": ["B"],
+                "parallel": True,
+            },
         ],
     )
 
@@ -72,7 +86,9 @@ async def test_goal_run_continuous_scheduler_refills_ready_parallel_task(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_goal_run_failed_leaf_preserves_sibling_and_returns_partial(tmp_path, monkeypatch, durable_runtime):
+async def test_goal_run_failed_leaf_preserves_sibling_and_returns_partial(
+    tmp_path, monkeypatch, durable_runtime
+):
     async def fake_leaf(*, instruction: str, **_kwargs):
         if instruction.startswith("failed branch"):
             return LeafResult(
@@ -80,7 +96,15 @@ async def test_goal_run_failed_leaf_preserves_sibling_and_returns_partial(tmp_pa
                 summary="evidence before crash",
                 block_reason="worker crashed",
                 artifacts=["outputs/partial.txt"],
-                evidence=[{"id": "e1", "kind": "log", "source": "worker", "content": "evidence", "producer": "worker"}],
+                evidence=[
+                    {
+                        "id": "e1",
+                        "kind": "log",
+                        "source": "worker",
+                        "content": "evidence",
+                        "producer": "worker",
+                    }
+                ],
                 unfinished_work=["finish failed branch"],
             )
         return LeafResult(status="completed", summary="sibling completed")

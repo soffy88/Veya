@@ -39,14 +39,13 @@ def test_parse_spec_sections():
     spec = parse_spec(SAMPLE_SPEC)
     assert "登录" in spec["goal"]
     assert len(spec["acceptance"]) == 2
-    assert spec["acceptance"][0] == "登录接口可用"   # 列表项剥离
+    assert spec["acceptance"][0] == "登录接口可用"  # 列表项剥离
     assert "pytest" in spec["test_gate"]
     assert "新依赖" in spec["constraints"][0]
 
 
 def test_parse_spec_json():
-    spec = parse_spec(json.dumps({"goal": "G", "acceptance": ["a1", "a2"],
-                                  "test_gate": "t"}))
+    spec = parse_spec(json.dumps({"goal": "G", "acceptance": ["a1", "a2"], "test_gate": "t"}))
     assert spec["goal"] == "G" and len(spec["acceptance"]) == 2
 
 
@@ -77,8 +76,9 @@ def test_spec_execute_full_loop():
     async def test_runner():
         return {"ok": True, "output": "pytest: 3 passed"}
 
-    report = asyncio.run(executor.execute(
-        SAMPLE_SPEC, implementer=implementer, test_runner=test_runner))
+    report = asyncio.run(
+        executor.execute(SAMPLE_SPEC, implementer=implementer, test_runner=test_runner)
+    )
     assert report["ok"] is True
     assert report["status"] == "accepted"
     assert report["tasks"] == 2
@@ -100,8 +100,9 @@ def test_spec_execute_invalid_and_failing_gate():
     assert r1["status"] == "invalid_spec"
 
     # 测试门失败 → needs_work
-    r2 = asyncio.run(executor.execute(SAMPLE_SPEC, implementer=implementer,
-                                      test_runner=failing_runner))
+    r2 = asyncio.run(
+        executor.execute(SAMPLE_SPEC, implementer=implementer, test_runner=failing_runner)
+    )
     assert r2["status"] == "needs_work"
     assert r2["test_gate"]["ok"] is False
 
@@ -122,8 +123,9 @@ def test_spec_api_execute_stub():
 
     from server.app import app
 
-    r = TestClient(app).post("/api/v1/spec/execute", json={
-        "spec": SAMPLE_SPEC, "async_impl": False})
+    r = TestClient(app).post(
+        "/api/v1/spec/execute", json={"spec": SAMPLE_SPEC, "async_impl": False}
+    )
     assert r.status_code == 200
     data = r.json()
     assert data["tasks"] == 2
@@ -133,6 +135,7 @@ def test_spec_api_execute_stub():
 # =========================================================================
 # W2 — ECC 领域 Agent 目录
 # =========================================================================
+
 
 def test_ecc_agent_skill_loaded():
     """导入的 ECC 领域技能已热载 (线上技能库)。"""
@@ -168,6 +171,7 @@ def test_ecc_agent_executor_returns_instruction():
 # =========================================================================
 # W3 — 硬规则
 # =========================================================================
+
 
 def test_rules_file_generated():
     rules = Path.home() / ".veya" / "rules.md"

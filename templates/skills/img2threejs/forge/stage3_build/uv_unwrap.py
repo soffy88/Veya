@@ -58,6 +58,7 @@ MIN_TRIANGLE_AREA = 1e-12
 # Mesh helpers
 # ---------------------------------------------------------------------------
 
+
 def _triangles(indices: list[Any]) -> list[tuple[int, int, int]]:
     if indices and isinstance(indices[0], (list, tuple)):
         return [(int(t[0]), int(t[1]), int(t[2])) for t in indices]
@@ -87,7 +88,9 @@ def _norm(a: list[float]) -> float:
     return math.sqrt(_dot(a, a))
 
 
-def _face_normal(vertices: list[list[float]], face: tuple[int, int, int]) -> tuple[list[float], float]:
+def _face_normal(
+    vertices: list[list[float]], face: tuple[int, int, int]
+) -> tuple[list[float], float]:
     p0, p1, p2 = (vertices[i] for i in face)
     n = _cross(_sub(p1, p0), _sub(p2, p0))
     length = _norm(n)
@@ -99,6 +102,7 @@ def _face_normal(vertices: list[list[float]], face: tuple[int, int, int]) -> tup
 # ---------------------------------------------------------------------------
 # 1. Chart segmentation
 # ---------------------------------------------------------------------------
+
 
 def segment_charts(
     vertices: list[list[float]],
@@ -167,7 +171,9 @@ def _chart_adjacency(faces: list[tuple[int, int, int]], chart: list[int]) -> dic
     return adjacency
 
 
-def _split_chart(faces: list[tuple[int, int, int]], chart: list[int]) -> tuple[list[int], list[int]]:
+def _split_chart(
+    faces: list[tuple[int, int, int]], chart: list[int]
+) -> tuple[list[int], list[int]]:
     """Break a chart into a connected half and the remainder, by breadth-first growth.
 
     Breadth-first rather than by a cutting plane: a plane can slice a chart into pieces that are not
@@ -246,6 +252,7 @@ def chart_is_disk(faces: list[tuple[int, int, int]], chart: list[int]) -> bool:
 # ---------------------------------------------------------------------------
 # 2. LSCM
 # ---------------------------------------------------------------------------
+
 
 def _local_coordinates(
     vertices: list[list[float]], face: tuple[int, int, int]
@@ -330,7 +337,7 @@ def lscm(
     # and scale, and CG then wanders instead of converging.
     pin_a, pin_b, best = chart_vertices[0], chart_vertices[1], -1.0
     for i, vi in enumerate(chart_vertices):
-        for vj in chart_vertices[i + 1:]:
+        for vj in chart_vertices[i + 1 :]:
             distance = _norm(_sub(vertices[vi], vertices[vj]))
             if distance > best:
                 best, pin_a, pin_b = distance, vi, vj
@@ -395,6 +402,7 @@ def lscm(
 # Distortion
 # ---------------------------------------------------------------------------
 
+
 def chart_distortion(
     vertices: list[list[float]],
     faces: list[tuple[int, int, int]],
@@ -435,6 +443,7 @@ def chart_distortion(
 # ---------------------------------------------------------------------------
 # 3. Packing
 # ---------------------------------------------------------------------------
+
 
 def pack_charts(
     chart_uvs: list[dict[int, tuple[float, float]]],
@@ -493,7 +502,10 @@ def pack_charts(
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def unwrap(mesh: dict[str, Any], angle_threshold_degrees: float = DEFAULT_CHART_ANGLE_DEGREES) -> dict[str, Any]:
+
+def unwrap(
+    mesh: dict[str, Any], angle_threshold_degrees: float = DEFAULT_CHART_ANGLE_DEGREES
+) -> dict[str, Any]:
     vertices = mesh.get("vertices")
     indices = mesh.get("indices")
     if not isinstance(vertices, list) or not vertices:
@@ -517,13 +529,15 @@ def unwrap(mesh: dict[str, Any], angle_threshold_degrees: float = DEFAULT_CHART_
         uv = lscm(vertices, faces, chart)
         chart_uvs.append(uv)
         distortion = chart_distortion(vertices, faces, chart, uv)
-        reports.append({
-            "chart": number,
-            "faceCount": len(chart),
-            "vertexCount": len(uv),
-            "isDisk": is_disk,
-            **distortion,
-        })
+        reports.append(
+            {
+                "chart": number,
+                "faceCount": len(chart),
+                "vertexCount": len(uv),
+                "isDisk": is_disk,
+                **distortion,
+            }
+        )
 
     packed, efficiency = pack_charts(chart_uvs)
     # A vertex on a chart seam belongs to more than one chart. Writing whichever chart lands last is
@@ -554,7 +568,9 @@ def unwrap(mesh: dict[str, Any], angle_threshold_degrees: float = DEFAULT_CHART_
             return None
         return round(weighted[min(len(weighted) - 1, int(fraction * len(weighted)))], 6)
 
-    finite = [report["areaDistortion"] for report in reports if math.isfinite(report["areaDistortion"])]
+    finite = [
+        report["areaDistortion"] for report in reports if math.isfinite(report["areaDistortion"])
+    ]
     return {
         "areaDistortionMedian": percentile(0.5),
         "areaDistortionP95": percentile(0.95),

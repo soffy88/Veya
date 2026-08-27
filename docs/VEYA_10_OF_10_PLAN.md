@@ -773,7 +773,7 @@ LoopRecord(
     actual_outcome,
     evidence,
     attribution,
-    policy_delta
+    policy_delta,
 )
 ```
 

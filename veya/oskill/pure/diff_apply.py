@@ -101,7 +101,10 @@ def apply_unified_diff(src: str, diff: str) -> tuple[bool, str]:
         if actual_new != new_count and new_count != 0:
             # 末行无换行的 diff 边界: 行数可以 ±1
             if abs(actual_new - new_count) > 1:
-                return False, f"hunk @@ -{old_start},{old_count} +{_new_start},{new_count} 新侧行数不一致"
+                return (
+                    False,
+                    f"hunk @@ -{old_start},{old_count} +{_new_start},{new_count} 新侧行数不一致",
+                )
     return True, "".join(lines)
 
 

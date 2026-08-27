@@ -139,10 +139,10 @@ class MultiModalAgent:
                         prompt="Describe this image briefly.",
                     )
                     if vis_result.description:
-                        vision_context += f"\n[Image {i+1}]: {vis_result.description}"
+                        vision_context += f"\n[Image {i + 1}]: {vis_result.description}"
                         result.vision_findings.append(vis_result.description)
                 except Exception as e:
-                    result.vision_findings.append(f"[Error analyzing image {i+1}: {e}]")
+                    result.vision_findings.append(f"[Error analyzing image {i + 1}: {e}]")
 
         # Step 2: Transcribe audio if no explicit prompt
         if prompt:
@@ -150,6 +150,7 @@ class MultiModalAgent:
         else:
             self._set_state(MultiModalState.LISTENING)
             from veya.oskill.stt import speech_to_text
+
             transcript = await speech_to_text(
                 audio_input,
                 provider=self.config.voice.stt_provider,
@@ -199,6 +200,7 @@ class MultiModalAgent:
         self._set_state(MultiModalState.SPEAKING, {"text": agent_text})
         try:
             from veya.oskill.tts import text_to_speech
+
             audio = await text_to_speech(
                 agent_text,
                 provider=self.config.voice.tts_provider,
@@ -270,7 +272,9 @@ async def run_multimodal_session(
     audio_input = getattr(input_data, "audio_input", b"")
     images = getattr(input_data, "images", None)
     prompt = getattr(input_data, "prompt", None)
-    system_prompt = getattr(input_data, "system_prompt", "You are a helpful assistant that can see and hear.")
+    system_prompt = getattr(
+        input_data, "system_prompt", "You are a helpful assistant that can see and hear."
+    )
     history = getattr(input_data, "conversation_history", None)
 
     session_config = MultiModalSessionConfig(
@@ -307,6 +311,7 @@ async def run_multimodal_session(
 
     if result.audio_output:
         from veya.oprim.audio import pcm_to_wav
+
         audio_path = output_dir / "output_audio.wav"
         wav_data = pcm_to_wav(result.audio_output, sample_rate=session_config.voice.sample_rate)
         audio_path.write_bytes(wav_data)
@@ -315,6 +320,7 @@ async def run_multimodal_session(
 
     transcript_path = output_dir / "transcript.json"
     import json
+
     transcript_path.write_text(json.dumps(result.transcript, indent=2, ensure_ascii=False))
 
     return {

@@ -79,8 +79,7 @@ def median_color(samples: list[tuple[int, int, int]]) -> tuple[int, int, int]:
     if not samples:
         return (255, 255, 255)
     return tuple(
-        int(percentile([float(sample[channel]) for sample in samples], 0.5))
-        for channel in range(3)
+        int(percentile([float(sample[channel]) for sample in samples], 0.5)) for channel in range(3)
     )  # type: ignore[return-value]
 
 
@@ -98,7 +97,9 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
         chunk_data = data[cursor + 8 : cursor + 8 + length]
         cursor += 12 + length
         if chunk_type == b"IHDR":
-            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
         elif chunk_type == b"IDAT":
             idat.extend(chunk_data)
         elif chunk_type == b"IEND":
@@ -210,8 +211,12 @@ def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]], l
             command = [sips, "-s", "format", "png", str(path), "--out", str(converted)]
             result = subprocess.run(command, capture_output=True, text=True, check=False)
             if result.returncode != 0:
-                raise ValueError(result.stderr.strip() or result.stdout.strip() or "sips conversion failed")
-            warnings.append("source image was converted to PNG with macOS sips before pixel extraction")
+                raise ValueError(
+                    result.stderr.strip() or result.stdout.strip() or "sips conversion failed"
+                )
+            warnings.append(
+                "source image was converted to PNG with macOS sips before pixel extraction"
+            )
             width, height, pixels = read_png(converted)
             return width, height, pixels, warnings
 
@@ -247,7 +252,9 @@ def build_foreground_mask(
 ) -> tuple[list[bool], dict[str, Any], list[str]]:
     warnings: list[str] = []
     alpha_values = [pixel[3] for pixel in pixels]
-    transparent_fraction = sum(1 for alpha in alpha_values if alpha < 245) / max(1, len(alpha_values))
+    transparent_fraction = sum(1 for alpha in alpha_values if alpha < 245) / max(
+        1, len(alpha_values)
+    )
     background, background_noise = sample_corner_background(width, height, pixels)
     threshold = max(24.0, background_noise * 2.4)
     mask: list[bool] = []
@@ -267,7 +274,9 @@ def build_foreground_mask(
         mask = [pixel[3] > 16 for pixel in pixels]
         coverage = sum(1 for value in mask if value) / max(1, len(mask))
     if coverage > 0.9:
-        warnings.append("image is not clearly isolated from background; using most pixels as material evidence")
+        warnings.append(
+            "image is not clearly isolated from background; using most pixels as material evidence"
+        )
     return (
         mask,
         {
@@ -339,10 +348,7 @@ def kmeans_palette(samples: list[tuple[int, int, int]], k: int = 5) -> list[str]
     if not samples:
         return ["#8A7A5F"]
     ordered = sorted(samples, key=lambda rgb: (srgb_luma(rgb), rgb[0], rgb[1], rgb[2]))
-    centers = [
-        ordered[int((index + 0.5) * (len(ordered) - 1) / k)]
-        for index in range(k)
-    ]
+    centers = [ordered[int((index + 0.5) * (len(ordered) - 1) / k)] for index in range(k)]
     for _ in range(8):
         groups: list[list[tuple[int, int, int]]] = [[] for _ in centers]
         for sample in samples:
@@ -354,7 +360,10 @@ def kmeans_palette(samples: list[tuple[int, int, int]], k: int = 5) -> list[str]
                 new_centers.append(center)
                 continue
             new_centers.append(
-                tuple(int(round(sum(sample[channel] for sample in group) / len(group))) for channel in range(3))
+                tuple(
+                    int(round(sum(sample[channel] for sample in group) / len(group)))
+                    for channel in range(3)
+                )
             )  # type: ignore[arg-type]
         centers = new_centers
     counts = Counter(
@@ -456,7 +465,9 @@ def make_maps(
         h = height[index]
         local_gradient = gradient_values[index]
         bright_highlight = max(0.0, luma - p95) / max(0.02, 1.0 - p95)
-        rough = clamp01(0.68 + min(0.22, local_gradient * 2.6) + (0.5 - h) * 0.12 - bright_highlight * 0.22)
+        rough = clamp01(
+            0.68 + min(0.22, local_gradient * 2.6) + (0.5 - h) * 0.12 - bright_highlight * 0.22
+        )
         roughness_values.append(rough)
         rough_byte = round(rough * 255)
         roughness.extend((rough_byte, rough_byte, rough_byte))
@@ -482,12 +493,7 @@ def make_maps(
                     round((nz * 0.5 + 0.5) * 255),
                 )
             )
-            neighbors = (
-                left
-                + right
-                + up
-                + down
-            ) * 0.25
+            neighbors = (left + right + up + down) * 0.25
             cavity = max(0.0, neighbors - height[index])
             ao_value = clamp01(1.0 - cavity * 8.0 - max(0.0, 0.35 - height[index]) * 0.16)
             ao_byte = round(ao_value * 255)
@@ -504,7 +510,14 @@ def make_maps(
             "valueRange": round(value_range, 4),
             "heightP90Gradient": round(grad_p90, 5),
             "roughnessBase": round(percentile(roughness_values, 0.5, 0.72), 3),
-            "roughnessVariation": round(max(0.05, percentile(roughness_values, 0.85, 0.82) - percentile(roughness_values, 0.15, 0.62)), 3),
+            "roughnessVariation": round(
+                max(
+                    0.05,
+                    percentile(roughness_values, 0.85, 0.82)
+                    - percentile(roughness_values, 0.15, 0.62),
+                ),
+                3,
+            ),
             "normalStrength": round(normal_strength / 64.0, 3),
             "blurRadius": blur_radius,
         },
@@ -581,7 +594,9 @@ def estimate_confidence(
     )
     confidence = min(single_image_cap, clamp01(confidence))
     if single_image:
-        confidence_notes.append("single-image inverse rendering cannot prove true physical PBR; confidence is capped")
+        confidence_notes.append(
+            "single-image inverse rendering cannot prove true physical PBR; confidence is capped"
+        )
     if dynamic_score < 0.5:
         confidence_notes.append("low value range weakens height/roughness inference")
     if detail_score < 0.5:
@@ -646,7 +661,9 @@ def material_patch(
         "colorVariation": {
             "palette": palette,
             "pattern": "reference-derived pixel palette",
-            "amplitude": round(clamp(float(map_stats.get("valueRange", 0.4)) * 0.42, 0.08, 0.35), 3),
+            "amplitude": round(
+                clamp(float(map_stats.get("valueRange", 0.4)) * 0.42, 0.08, 0.35), 3
+            ),
             "heightCorrelation": 0.42,
         },
         "roughness": {
@@ -664,7 +681,9 @@ def material_patch(
         },
         "bump": {
             "pattern": "reference-derived height field",
-            "amplitude": round(clamp(float(map_stats.get("heightP90Gradient", 0.02)) * 0.45, 0.01, 0.08), 3),
+            "amplitude": round(
+                clamp(float(map_stats.get("heightP90Gradient", 0.02)) * 0.45, 0.01, 0.08), 3
+            ),
             "map": maps["height"],
         },
         "ambientOcclusion": {
@@ -701,9 +720,15 @@ def merge_material_patch(spec: dict[str, Any], material_id: str, patch: dict[str
     if material is None:
         raise ValueError(f"could not find material {material_id!r} in spec")
     for key, value in patch.items():
-        if key == "localOverrides" and isinstance(material.get(key), list) and isinstance(value, list):
+        if (
+            key == "localOverrides"
+            and isinstance(material.get(key), list)
+            and isinstance(value, list)
+        ):
             material[key].extend(value)
-        elif key == "shaderNotes" and isinstance(material.get(key), list) and isinstance(value, list):
+        elif (
+            key == "shaderNotes" and isinstance(material.get(key), list) and isinstance(value, list)
+        ):
             material[key].extend(value)
         else:
             material[key] = value
@@ -762,7 +787,11 @@ def extract(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
     )
     warnings.extend(confidence_notes)
     threshold = clamp01(args.target_threshold)
-    verdict = "pass" if confidence >= threshold else ("conditional" if confidence >= threshold - 0.12 else "reject")
+    verdict = (
+        "pass"
+        if confidence >= threshold
+        else ("conditional" if confidence >= threshold - 0.12 else "reject")
+    )
     patch = material_patch(
         args.material_id,
         image,
@@ -805,18 +834,30 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--target-threshold", type=float, default=0.7)
     parser.add_argument("--url-prefix", default="")
     parser.add_argument("--spec", type=Path, help="Optional ObjectSculptSpec JSON to patch")
-    parser.add_argument("--in-place", action="store_true", help="Patch --spec in place when confidence passes")
+    parser.add_argument(
+        "--in-place", action="store_true", help="Patch --spec in place when confidence passes"
+    )
     parser.add_argument("--out-spec", type=Path, help="Write patched spec to this path")
     parser.add_argument("--report", type=Path, help="Write extraction report JSON")
-    parser.add_argument("--allow-low-confidence", action="store_true", help="Patch/write even when confidence is below threshold")
-    parser.add_argument("--multi-view-reference", action="store_true", help="Raise confidence cap when image belongs to a multi-view reference set")
+    parser.add_argument(
+        "--allow-low-confidence",
+        action="store_true",
+        help="Patch/write even when confidence is below threshold",
+    )
+    parser.add_argument(
+        "--multi-view-reference",
+        action="store_true",
+        help="Raise confidence cap when image belongs to a multi-view reference set",
+    )
     args = parser.parse_args(argv)
 
     try:
         report, patch = extract(args)
         if args.report:
             args.report.expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
-            args.report.expanduser().resolve().write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            args.report.expanduser().resolve().write_text(
+                json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
         if args.spec:
             if not report["ok"] and not args.allow_low_confidence:
                 raise ValueError(
@@ -828,10 +869,16 @@ def main(argv: list[str]) -> int:
             if not isinstance(spec, dict):
                 raise ValueError("spec must be a JSON object")
             merge_material_patch(spec, args.material_id, patch)
-            output = spec_path if args.in_place else (args.out_spec.expanduser().resolve() if args.out_spec else None)
+            output = (
+                spec_path
+                if args.in_place
+                else (args.out_spec.expanduser().resolve() if args.out_spec else None)
+            )
             if output:
                 output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                output.write_text(
+                    json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+                )
         print(json.dumps(report, indent=2, ensure_ascii=False))
         return 0 if report["ok"] or args.allow_low_confidence else 1
     except Exception as exc:

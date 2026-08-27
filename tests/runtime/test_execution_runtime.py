@@ -44,7 +44,9 @@ async def test_spawn_guard_depth_parallel_budget_and_queue():
 
     first_task = asyncio.create_task(guard.run("a", first, depth=0, estimated_tokens=4))
     await first_started.wait()
-    second = asyncio.create_task(guard.run("b", lambda _cancel: asyncio.sleep(0), depth=0, estimated_tokens=4))
+    second = asyncio.create_task(
+        guard.run("b", lambda _cancel: asyncio.sleep(0), depth=0, estimated_tokens=4)
+    )
     await asyncio.sleep(0)
     assert guard.active_count == 1
     assert guard.queued_count == 1
@@ -81,7 +83,9 @@ async def test_spawn_guard_raii_and_cancel_before_acquire():
 
     running = asyncio.create_task(guard.run("running", blocker, depth=0, estimated_tokens=10))
     await entered.wait()
-    queued = asyncio.create_task(guard.run("queued", lambda _cancel: asyncio.sleep(0), depth=0, estimated_tokens=10))
+    queued = asyncio.create_task(
+        guard.run("queued", lambda _cancel: asyncio.sleep(0), depth=0, estimated_tokens=10)
+    )
     await asyncio.sleep(0)
     queued.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -129,7 +133,11 @@ async def test_continuous_scheduler_fills_slot_without_batch_barrier():
 
 @pytest.mark.asyncio
 async def test_continuous_scheduler_non_parallel_is_exclusive():
-    items = [_Item("A", 0.01, parallel=True), _Item("B", 0.01, parallel=False), _Item("C", 0.01, parallel=True)]
+    items = [
+        _Item("A", 0.01, parallel=True),
+        _Item("B", 0.01, parallel=False),
+        _Item("C", 0.01, parallel=True),
+    ]
     active = 0
     peak = 0
 
@@ -147,7 +155,9 @@ async def test_continuous_scheduler_non_parallel_is_exclusive():
 
 
 def test_fanin_preserves_partial_evidence_and_deduplicates():
-    evidence = Evidence(id="e1", kind="url", source="https://example.test", content="same", producer="a")
+    evidence = Evidence(
+        id="e1", kind="url", source="https://example.test", content="same", producer="a"
+    )
     failed = DelegateResult(
         delegate_id="a",
         status="failed",
@@ -155,13 +165,19 @@ def test_fanin_preserves_partial_evidence_and_deduplicates():
         summary="crashed after research",
         evidence=[evidence],
         assertions=[Assertion(id="a1", statement="claim", evidence_ids=["e1"], producer="a")],
-        artifacts=[ArtifactRef(path="outputs/report.md", kind="file", producer="a", status="partial")],
+        artifacts=[
+            ArtifactRef(path="outputs/report.md", kind="file", producer="a", status="partial")
+        ],
     )
     duplicate = DelegateResult(
         delegate_id="b",
         status="complete",
         stop_reason="completed",
-        evidence=[Evidence(id="e2", kind="url", source="https://example.test", content="same", producer="b")],
+        evidence=[
+            Evidence(
+                id="e2", kind="url", source="https://example.test", content="same", producer="b"
+            )
+        ],
     )
     batch = fan_in([failed, duplicate])
     assert batch.failed_count == 1
@@ -179,7 +195,10 @@ def test_unknown_stop_reason_is_partial():
 
 
 def test_finalization_reserve_and_trigger():
-    assert calculate_finalization_reserve(100, min_reserve_s=20, reserve_ratio=0.15, max_reserve_s=40) == 20
+    assert (
+        calculate_finalization_reserve(100, min_reserve_s=20, reserve_ratio=0.15, max_reserve_s=40)
+        == 20
+    )
     controller = FinalizationController(100, min_reserve_s=20, reserve_ratio=0.15, max_reserve_s=40)
     assert controller.start(20)
     assert controller.started

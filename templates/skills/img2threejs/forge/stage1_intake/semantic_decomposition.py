@@ -55,7 +55,9 @@ def assess_semantic_decomposition(
     named_materials = [
         str(item.get("name"))
         for item in materials
-        if isinstance(item, dict) and item.get("name") and not str(item["name"]).startswith("material-")
+        if isinstance(item, dict)
+        and item.get("name")
+        and not str(item["name"]).startswith("material-")
     ]
 
     if node_count == 1 and mesh_count == 1 and primitive_count == 1 and material_count <= 1:
@@ -80,7 +82,9 @@ def assess_semantic_decomposition(
 
     strategy_status: dict[str, str] = {
         "named-node": "available" if len(named_nodes) >= 2 else "not-proven",
-        "primitive-material-boundary": "available" if primitive_count > 1 or material_count > 1 else "not-proven",
+        "primitive-material-boundary": "available"
+        if primitive_count > 1 or material_count > 1
+        else "not-proven",
         "uv-texture-boundary": "available" if texture_count > 0 else "not-proven",
         "connected-component-hypothesis": "candidate-only",
         "curvature-normal-region-growing-hypothesis": "candidate-only",

@@ -64,12 +64,17 @@ def _interview_from_json(raw: str) -> InterviewState:
     data = json.loads(raw)
     state = InterviewState()
     for qd in data:
-        state.add_question(InterviewQuestion(
-            id=qd["id"], title=qd.get("title", qd["id"]), body=qd.get("body", ""),
-            options=qd.get("options"), recommended=qd.get("recommended", ""),
-            depends_on=list(qd.get("depends_on", [])),
-            facts_needed=list(qd.get("facts_needed", [])),
-        ))
+        state.add_question(
+            InterviewQuestion(
+                id=qd["id"],
+                title=qd.get("title", qd["id"]),
+                body=qd.get("body", ""),
+                options=qd.get("options"),
+                recommended=qd.get("recommended", ""),
+                depends_on=list(qd.get("depends_on", [])),
+                facts_needed=list(qd.get("facts_needed", [])),
+            )
+        )
     return state
 
 
@@ -104,8 +109,10 @@ def main(
             "stage": state.stage,
             "idea": state.idea,
             "next_action": pipeline_next_action(state).action,
-            "tickets": [{"id": t.id, "title": t.title, "status": t.status,
-                         "blocked_by": t.blocked_by} for t in state.tickets],
+            "tickets": [
+                {"id": t.id, "title": t.title, "status": t.status, "blocked_by": t.blocked_by}
+                for t in state.tickets
+            ],
         }
 
     if action == "next":
@@ -115,14 +122,24 @@ def main(
             from veya_loop import interview_frontier
 
             payload = [
-                {"id": q.id, "title": q.title, "body": q.body,
-                 "options": q.options, "recommended": q.recommended}
+                {
+                    "id": q.id,
+                    "title": q.title,
+                    "body": q.body,
+                    "options": q.options,
+                    "recommended": q.recommended,
+                }
                 for q in interview_frontier(state.interview)
             ]
         elif nxt.action == "implement_ticket" and nxt.payload is not None:
             payload = {"ticket_id": nxt.payload.id, "title": nxt.payload.title}
-        return {"ok": True, "stage": state.stage, "action": nxt.action,
-                "hint": nxt.hint, "payload": payload}
+        return {
+            "ok": True,
+            "stage": state.stage,
+            "action": nxt.action,
+            "hint": nxt.hint,
+            "payload": payload,
+        }
 
     if action == "advance":
         try:
@@ -133,9 +150,7 @@ def main(
             elif event == "record_answers":
                 if state.interview is None:
                     return {"ok": False, "error": "先 run_interview 注入问题"}
-                record_interview_answers(
-                    state.interview, json.loads(answers_json or "{}")
-                )
+                record_interview_answers(state.interview, json.loads(answers_json or "{}"))
                 from veya_loop import is_interview_complete
 
                 if is_interview_complete(state.interview):
@@ -144,20 +159,26 @@ def main(
                 state = pipeline_transition(state, "spec_written", spec=spec)
             elif event == "tickets_split":
                 tickets = [
-                    {"id": t["id"], "title": t.get("title", t["id"]),
-                     "blocked_by": list(t.get("blocked_by", []))}
+                    {
+                        "id": t["id"],
+                        "title": t.get("title", t["id"]),
+                        "blocked_by": list(t.get("blocked_by", [])),
+                    }
                     for t in json.loads(tickets_json or "[]")
                 ]
                 cycles = tickets_check_cycles(
-                    [type("T", (), {"id": t["id"], "blocked_by": t["blocked_by"]})()
-                     for t in tickets]  # type: ignore[attr-defined]
+                    [
+                        type("T", (), {"id": t["id"], "blocked_by": t["blocked_by"]})()
+                        for t in tickets
+                    ]  # type: ignore[attr-defined]
                 )
                 if cycles:
                     return {"ok": False, "error": f"tickets 依赖环: {cycles}"}
                 from veya_loop import Ticket
 
                 state = pipeline_transition(
-                    state, "tickets_split",
+                    state,
+                    "tickets_split",
                     tickets=[Ticket(**t) for t in tickets],
                 )
             elif event == "review_done":
@@ -174,17 +195,26 @@ def main(
         state = pipeline_transition(state, "ticket_done", ticket_id=ticket_id)
         _save(fid, state)
         nxt = pipeline_next_action(state)
-        return {"ok": True, "stage": state.stage, "next": nxt.action,
-                "payload": {"ticket_id": getattr(nxt.payload, "id", None)}}
+        return {
+            "ok": True,
+            "stage": state.stage,
+            "next": nxt.action,
+            "payload": {"ticket_id": getattr(nxt.payload, "id", None)},
+        }
 
     if action == "review":
         baseline = standards_rules(task=state.idea or "code review", top_k=2)
         report = review_diff(diff, standards_rules=str(baseline))
-        return {"ok": report.ok, "stage": state.stage,
-                "fail": [f.rule for f in report.fails()],
-                "warn": [f.rule for f in report.warns()],
-                "rulebooks": baseline["books"],
-                "findings": [{"axis": f.axis, "severity": f.severity,
-                              "rule": f.rule, "detail": f.detail} for f in report.findings]}
+        return {
+            "ok": report.ok,
+            "stage": state.stage,
+            "fail": [f.rule for f in report.fails()],
+            "warn": [f.rule for f in report.warns()],
+            "rulebooks": baseline["books"],
+            "findings": [
+                {"axis": f.axis, "severity": f.severity, "rule": f.rule, "detail": f.detail}
+                for f in report.findings
+            ],
+        }
 
     return {"ok": False, "error": f"未知 action: {action}"}

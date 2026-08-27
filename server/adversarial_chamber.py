@@ -25,7 +25,9 @@ def _make_llm_caller(llm_fn: Callable | None) -> Callable | None:
     if llm_fn is None:
         return None
 
-    async def caller(messages: list, tools: list | None = None, max_tokens: int = 4096, **kwargs: Any) -> dict:
+    async def caller(
+        messages: list, tools: list | None = None, max_tokens: int = 4096, **kwargs: Any
+    ) -> dict:
         return await llm_fn(messages, tools=tools, max_tokens=max_tokens, **kwargs)
 
     return caller
@@ -66,6 +68,4 @@ class VeyaAdversarialChamber:
             strategy_name=strategy_name,
             context=context,
         )
-        return await _omodul.adversarial_chamber(
-            config, input_data, self.output_dir
-        )
+        return await _omodul.adversarial_chamber(config, input_data, self.output_dir)

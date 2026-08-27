@@ -62,9 +62,7 @@ def resolve_vision_provider() -> dict[str, str]:
     key = os.environ.get("VEYA_VISION_API_KEY", "").strip()
     host = ""
     if not base:
-        frontier = os.environ.get(
-            "VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1"
-        ).strip()
+        frontier = os.environ.get("VEYA_FRONTIER_ENDPOINT", "http://127.0.0.1:10100/v1").strip()
         if _in_container():
             # 容器: 优先 hicode 反代 (Host 已改写, 免鉴权直连 gpt-5.6-luna)
             proxy = os.environ.get("HICODE_PROXY_PORT", "10103")
@@ -88,9 +86,7 @@ def _proxy_alive(port: str) -> bool:
 
     for _ in range(2):
         try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/v1/models", timeout=2.0
-            ) as resp:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=2.0) as resp:
                 return resp.status in (200, 401, 403)
         except urllib.error.HTTPError as exc:
             return exc.code in (200, 401, 403)
@@ -102,8 +98,11 @@ def _proxy_alive(port: str) -> bool:
 def _mime_for(path: str) -> str:
     suffix = Path(path).suffix.lower()
     return {
-        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".gif": "image/gif", ".webp": "image/webp",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
     }.get(suffix, "image/png")
 
 
@@ -147,7 +146,8 @@ async def vision_chat(
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
                 cfg["base_url"].rstrip("/") + "/chat/completions",
-                json=payload, headers=headers,
+                json=payload,
+                headers=headers,
             )
     except httpx.TimeoutException as exc:
         raise VisionProviderError(f"视觉服务超时 ({timeout}s): {cfg['base_url']}") from exc
@@ -175,6 +175,7 @@ async def vision_chat(
 # ---------------------------------------------------------------------------
 # glance: 意图聚焦问答 / OCR / 多图对比
 # ---------------------------------------------------------------------------
+
 
 async def glance(
     image_paths: list[str],
@@ -206,10 +207,12 @@ async def glance(
         blocks.append({"type": "image_url", "image_url": {"url": _data_uri_from_bytes(crop)}})
     else:
         for path in image_paths:
-            blocks.append({
-                "type": "image_url",
-                "image_url": {"url": image_path_to_data_uri(path)},
-            })
+            blocks.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_path_to_data_uri(path)},
+                }
+            )
     if ocr:
         prompt = (
             "Transcribe all visible text in this image. Keep the top-to-bottom "
@@ -366,8 +369,10 @@ async def _locate(
             continue
         if search_box:
             box = {
-                "x1": box["x1"] + search_box[0], "y1": box["y1"] + search_box[1],
-                "x2": box["x2"] + search_box[0], "y2": box["y2"] + search_box[1],
+                "x1": box["x1"] + search_box[0],
+                "y1": box["y1"] + search_box[1],
+                "x2": box["x2"] + search_box[0],
+                "y2": box["y2"] + search_box[1],
             }
         label = str(
             item.get("label") or item.get("caption") or item.get("description") or ""
@@ -386,8 +391,11 @@ async def ground(
 ) -> dict[str, Any]:
     """定位一个具名目标 → 原图像素盒 (0-1000 网格缩放, 裁切级精度)。"""
     matches, size, _ = await _locate(
-        image_path, _GROUND_PROMPT.format(target=target),
-        region=region, timeout=timeout, provider=provider,
+        image_path,
+        _GROUND_PROMPT.format(target=target),
+        region=region,
+        timeout=timeout,
+        provider=provider,
     )
     return {
         "target": target,
@@ -408,16 +416,18 @@ async def detect(
     """清点某一类元素 (或全部 UI 元素) → 编号清单 + 像素盒。"""
     cat = category or "every distinct UI element — include the exact visible text in each label"
     matches, size, _ = await _locate(
-        image_path, _DETECT_PROMPT.format(category=cat),
-        region=region, timeout=timeout, provider=provider,
+        image_path,
+        _DETECT_PROMPT.format(category=cat),
+        region=region,
+        timeout=timeout,
+        provider=provider,
     )
     return {
         "category": category,
         "image_width": size["width"],
         "image_height": size["height"],
         "elements": [
-            {"index": i, "label": m["label"], "box": m["box"]}
-            for i, m in enumerate(matches, 1)
+            {"index": i, "label": m["label"], "box": m["box"]} for i, m in enumerate(matches, 1)
         ],
     }
 
@@ -426,11 +436,12 @@ async def detect(
 # 长截图 OCR (块级提示词 + 聊天结构化解析; 切分在 L1, 装配在 L3)
 # ---------------------------------------------------------------------------
 
+
 def ocr_chunk_prompt(mode: str, index: int, total: int, custom: str | None = None) -> str:
     if mode == "chat":
         instructions = (
             "Transcribe this chat screenshot chunk in strict top-to-bottom message order. "
-            'Return only one valid JSON object with this exact shape: '
+            "Return only one valid JSON object with this exact shape: "
             '{"messages":[{"speaker":"visible name","content":"message text",'
             '"timestamp":"","message_type":"message","quoted_speaker":"",'
             '"quoted_content":""}]}. '
@@ -480,8 +491,7 @@ def _join_visual_wraps(content: str, preserve_lines: bool = False) -> str:
                 merged += "\n" + line
                 continue
             separator = (
-                " " if re.search(r"[A-Za-z0-9]$", merged) and re.match(r"[A-Za-z0-9]", line)
-                else ""
+                " " if re.search(r"[A-Za-z0-9]$", merged) and re.match(r"[A-Za-z0-9]", line) else ""
             )
             merged += separator + line
         normalized.append(merged)
@@ -525,14 +535,16 @@ def parse_chat_messages(raw_text: str) -> list[dict[str, str]]:
         timestamp = str(record.get("timestamp") or "").strip()
         if re.search(r"[:\uFF1A]\d$", timestamp) or "[unreadable]" in timestamp.casefold():
             timestamp = ""
-        messages.append({
-            "speaker": speaker,
-            "content": content,
-            "timestamp": timestamp,
-            "message_type": message_type,
-            "quoted_speaker": str(record.get("quoted_speaker") or "").strip(),
-            "quoted_content": _join_visual_wraps(str(record.get("quoted_content") or "")),
-        })
+        messages.append(
+            {
+                "speaker": speaker,
+                "content": content,
+                "timestamp": timestamp,
+                "message_type": message_type,
+                "quoted_speaker": str(record.get("quoted_speaker") or "").strip(),
+                "quoted_content": _join_visual_wraps(str(record.get("quoted_content") or "")),
+            }
+        )
     if not messages:
         raise VisionProviderError("聊天 OCR JSON 无有效消息")
     return messages
@@ -588,9 +600,12 @@ def _chat_match(left: dict[str, str], right: dict[str, str]) -> bool:
         lowered = s.casefold()
         return not s.strip() or "unreadable" in lowered or "clipped" in lowered
 
-    speakers_match = ls == rs or unreadable(left.get("speaker", "")) or unreadable(right.get("speaker", ""))
+    speakers_match = (
+        ls == rs or unreadable(left.get("speaker", "")) or unreadable(right.get("speaker", ""))
+    )
     timestamps_match = (
-        not left.get("timestamp") or not right.get("timestamp")
+        not left.get("timestamp")
+        or not right.get("timestamp")
         or left.get("timestamp") == right.get("timestamp")
     )
     quotes_match = not lq or not rq or lq == rq
@@ -666,7 +681,9 @@ async def ocr_chunk_bytes(
             attempt_prompt = prompt + (retry_note if attempt else "")
             text = await vision_chat(
                 [*blocks, {"type": "text", "text": attempt_prompt}],
-                max_tokens=512, timeout=timeout, provider=provider,
+                max_tokens=512,
+                timeout=timeout,
+                provider=provider,
             )
             try:
                 messages = parse_chat_messages(text)
@@ -676,7 +693,9 @@ async def ocr_chunk_bytes(
         raise VisionProviderError(f"chunk {index}/{total}: {last_error}") from last_error
     text = await vision_chat(
         [*blocks, {"type": "text", "text": f"{prompt}\n\n{LANG_ZH}"}],
-        max_tokens=512, timeout=timeout, provider=provider,
+        max_tokens=512,
+        timeout=timeout,
+        provider=provider,
     )
     return text.strip()
 

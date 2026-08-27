@@ -87,14 +87,30 @@ def test_minimal_event_types():
 def test_schema_version_increment():
     """schema_version 应该在关键变更时递增。"""
     # 初始版本
-    env0 = {"event_id": "test1", "trace_id": "t1", "session_id": "s1",
-            "task_id": None, "turn_id": None, "topic": "test", "ts": 1.0,
-            "payload": {}, "schema_version": 1}
+    env0 = {
+        "event_id": "test1",
+        "trace_id": "t1",
+        "session_id": "s1",
+        "task_id": None,
+        "turn_id": None,
+        "topic": "test",
+        "ts": 1.0,
+        "payload": {},
+        "schema_version": 1,
+    }
 
     # 关键变更时递增
-    env1 = {"event_id": "test2", "trace_id": "t1", "session_id": "s1",
-            "task_id": "task1", "turn_id": "t1", "topic": "test", "ts": 2.0,
-            "payload": {"key": "val"}, "schema_version": 2}
+    env1 = {
+        "event_id": "test2",
+        "trace_id": "t1",
+        "session_id": "s1",
+        "task_id": "task1",
+        "turn_id": "t1",
+        "topic": "test",
+        "ts": 2.0,
+        "payload": {"key": "val"},
+        "schema_version": 2,
+    }
 
     # 即使 payload 相同但结构变更，版本也应不同
     assert env1["schema_version"] > env0["schema_version"]

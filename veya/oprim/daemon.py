@@ -26,7 +26,9 @@ def _bus_of(bus: Any) -> Any:
     return get_bus()
 
 
-async def daemon_pause(bus: Any = None, *, session_id: str = "", reason: str = "", timeout: float = 30.0) -> dict:
+async def daemon_pause(
+    bus: Any = None, *, session_id: str = "", reason: str = "", timeout: float = 30.0
+) -> dict:
     """请求 daemon 挂起任务（Human-in-the-loop 等待人类输入）。"""
     return await _bus_of(bus).request(
         _TOPIC_PAUSE, {"session_id": session_id, "reason": reason}, timeout=timeout
@@ -35,16 +37,12 @@ async def daemon_pause(bus: Any = None, *, session_id: str = "", reason: str = "
 
 async def daemon_resume(bus: Any = None, *, session_id: str = "", timeout: float = 30.0) -> dict:
     """请求 daemon 恢复任务。"""
-    return await _bus_of(bus).request(
-        _TOPIC_RESUME, {"session_id": session_id}, timeout=timeout
-    )
+    return await _bus_of(bus).request(_TOPIC_RESUME, {"session_id": session_id}, timeout=timeout)
 
 
 async def daemon_status(bus: Any = None, *, session_id: str = "", timeout: float = 10.0) -> dict:
     """查询任务状态（running/paused/completed/failed）。"""
-    return await _bus_of(bus).request(
-        _TOPIC_STATUS, {"session_id": session_id}, timeout=timeout
-    )
+    return await _bus_of(bus).request(_TOPIC_STATUS, {"session_id": session_id}, timeout=timeout)
 
 
 async def daemon_bind(bus: Any = None, topic: str = "", handler: Any = None) -> None:

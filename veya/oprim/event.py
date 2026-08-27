@@ -23,7 +23,9 @@ def _barrier_of(barrier: Any) -> Any:
     return get_barrier()
 
 
-def emit_event(topic: str, payload: dict[str, Any] | None = None, barrier: Any = None, trace_id: str = "") -> Event:
+def emit_event(
+    topic: str, payload: dict[str, Any] | None = None, barrier: Any = None, trace_id: str = ""
+) -> Event:
     """发出标准事件（同步、无阻塞）。返回构造的 Event。"""
     event = Event(topic=topic, payload=payload or {}, trace_id=trace_id)
     _barrier_of(barrier).emit(event)

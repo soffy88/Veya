@@ -112,7 +112,10 @@ class MobileBridge:
     # ── Action execution ───────────────────────────────────────────────
 
     async def execute(
-        self, device_id: str, action: MobileActionSpec, timeout_sec: float = 30.0,
+        self,
+        device_id: str,
+        action: MobileActionSpec,
+        timeout_sec: float = 30.0,
     ) -> MobileActionResult:
         """Execute a mobile action on a connected device."""
         ws = self._ws_connections.get(device_id)
@@ -123,7 +126,7 @@ class MobileBridge:
                 error=f"Device {device_id} not connected",
             )
 
-        request_id = f"req_{int(time.time()*1000)}_{device_id}"
+        request_id = f"req_{int(time.time() * 1000)}_{device_id}"
         cmd = {
             "request_id": request_id,
             "action": action.action.value,
@@ -171,7 +174,7 @@ class MobileBridge:
             screenshot=screenshot,
             text=response.get("text", ""),
             device_info={
-                "screen": f"{response.get('w',0)}x{response.get('h',0)}",
+                "screen": f"{response.get('w', 0)}x{response.get('h', 0)}",
             },
         )
 

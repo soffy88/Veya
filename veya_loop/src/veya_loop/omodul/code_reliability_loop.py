@@ -12,5 +12,12 @@ PatchArtifact = _omodul.code_reliability_loop.PatchArtifact
 TestResult = _omodul.code_reliability_loop.TestResult
 run_code_reliability_loop = _omodul.code_reliability_loop.run_code_reliability_loop
 
-__all__ = ["CodeLoopResult", "CodeTask", "FailureKind", "FailureSignature",
-           "PatchArtifact", "TestResult", "run_code_reliability_loop"]
+__all__ = [
+    "CodeLoopResult",
+    "CodeTask",
+    "FailureKind",
+    "FailureSignature",
+    "PatchArtifact",
+    "TestResult",
+    "run_code_reliability_loop",
+]

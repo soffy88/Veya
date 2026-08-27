@@ -51,6 +51,7 @@ def test_engines_endpoint():
 # 容器环境: master + pi 精确探测 (claude/codex 账号侧 403 未修 → 禁用)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_container_blocks_claude_codex(monkeypatch):
     """容器内: 凭据/端点未就绪的引擎被拒绝 (诚实声明)。"""
@@ -65,7 +66,7 @@ async def test_container_blocks_claude_codex(monkeypatch):
     monkeypatch.setattr(er, "_container_dsh_usable", lambda: False)
 
     engines = er.available_engines()
-    assert set(engines) == {"master", "pi"}          # pi 凭据齐全 → 放行
+    assert set(engines) == {"master", "pi"}  # pi 凭据齐全 → 放行
     assert "claude" not in engines and "codex" not in engines
 
     events = [evt async for evt in er.stream_engine("claude", "hi", timeout_s=10)]
@@ -85,8 +86,10 @@ async def test_container_engine_probes_respect_credentials(monkeypatch, tmp_path
     monkeypatch.setattr(er, "_IN_CONTAINER", True)
     monkeypatch.setenv("HOME", str(tmp_path))
     import shutil
-    monkeypatch.setattr(shutil, "which",
-                        lambda name: f"/bin/{name}" if name in ("pi", "claude", "codex") else None)
+
+    monkeypatch.setattr(
+        shutil, "which", lambda name: f"/bin/{name}" if name in ("pi", "claude", "codex") else None
+    )
 
     # claude: 无凭据 → 不可用
     assert er._container_claude_usable() is False
@@ -99,12 +102,12 @@ async def test_container_engine_probes_respect_credentials(monkeypatch, tmp_path
     # codex: 无 config/auth → 不可用 (端点探测不触发)
     assert er._container_codex_usable() is False
     (tmp_path / ".codex").mkdir()
-    (tmp_path / ".codex" / "config.toml").write_text("model = \"gpt-5\"")
+    (tmp_path / ".codex" / "config.toml").write_text('model = "gpt-5"')
     (tmp_path / ".codex" / "auth.json").write_text("{}")
     monkeypatch.setattr(er, "_ensure_container_opencodex", lambda: False)
-    assert er._container_codex_usable() is False      # opencodex 不可达 → 拒绝
+    assert er._container_codex_usable() is False  # opencodex 不可达 → 拒绝
     monkeypatch.setattr(er, "_ensure_container_opencodex", lambda: True)
-    assert er._container_codex_usable() is True       # 自举可达 → 放行
+    assert er._container_codex_usable() is True  # 自举可达 → 放行
 
     # build_argv: 容器内 codex 覆盖 base_url (loopback 自举实例)
     monkeypatch.setattr(er, "_container_codex_base_url", lambda: "http://127.0.0.1:10100/v1")
@@ -142,8 +145,9 @@ async def test_container_pi_usable_detection(monkeypatch, tmp_path):
     import server.engine_runner as er
 
     monkeypatch.setattr(er, "_IN_CONTAINER", True)
-    monkeypatch.setenv("HOME", str(tmp_path))          # expanduser 读 HOME
+    monkeypatch.setenv("HOME", str(tmp_path))  # expanduser 读 HOME
     import shutil
+
     monkeypatch.setattr(shutil, "which", lambda name: "/bin/pi" if name == "pi" else None)
 
     # 无 ~/.pi → 不可用
@@ -180,6 +184,7 @@ def test_engines_endpoint_in_container(monkeypatch):
     monkeypatch.setattr(er, "_container_claude_usable", lambda: True)
     monkeypatch.setattr(er, "_container_codex_usable", lambda: True)
     import shutil
+
     monkeypatch.setattr(shutil, "which", lambda n: f"/bin/{n}")
     res2 = TestClient(app).get("/api/v1/engines")
     assert set(res2.json()["engines"]) == {"master", "pi", "claude", "codex"}

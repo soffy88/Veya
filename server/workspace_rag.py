@@ -68,9 +68,11 @@ class WorkspaceRAGEngine:
     ):
         default_root = Path(__file__).resolve().parent.parent
         _ensure_embedding_provider()
-        self.workspace_root = Path(
-            workspace_root or os.environ.get("VEYA_WORKSPACE", str(default_root))
-        ).expanduser().resolve()
+        self.workspace_root = (
+            Path(workspace_root or os.environ.get("VEYA_WORKSPACE", str(default_root)))
+            .expanduser()
+            .resolve()
+        )
         self._skill = _oskill.workspace_rag.WorkspaceRAGSkill(
             workspace_root=self.workspace_root,
             persist_index=persist_index,

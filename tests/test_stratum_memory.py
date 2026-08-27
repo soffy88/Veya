@@ -77,7 +77,7 @@ async def test_wire_master_tools_idempotent(connector):
     # ②-B 网关: 每服务 1 个 mcp_<server> 网关 (全量顺序下可能已 wire → added=0)
     assert added >= 0
     assert master_tools.has("mcp_stratum")
-    assert await wire_master_tools(connector) == 0     # 幂等
+    assert await wire_master_tools(connector) == 0  # 幂等
 
 
 def test_singleton():
@@ -87,6 +87,6 @@ def test_singleton():
 @pytest.mark.asyncio
 async def test_unreachable_degrades():
     c = StratumConnector(endpoint="http://no-such-host:1/mcp")
-    await c.start()                       # 降级不抛
+    await c.start()  # 降级不抛
     assert not c.ready
     assert c.health()["available"] is False

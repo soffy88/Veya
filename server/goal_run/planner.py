@@ -332,7 +332,9 @@ def _normalize_explicit_tasks(
                 "id": task_id,
                 "title": str(raw.get("title") or instruction[:80]),
                 "instruction": instruction,
-                "acceptance": [str(item) for item in (raw.get("acceptance") or []) if str(item).strip()]
+                "acceptance": [
+                    str(item) for item in (raw.get("acceptance") or []) if str(item).strip()
+                ]
                 or ["目标执行产生可观察结果"],
                 "depends_on": [str(item) for item in (raw.get("depends_on") or [])],
                 "assignee": str(raw.get("assignee") or default_assignee),

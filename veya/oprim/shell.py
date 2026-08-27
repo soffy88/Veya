@@ -24,17 +24,23 @@ def _sandbox_of(sandbox: Any) -> Any:
     return get_sandbox()
 
 
-async def shell_exec(command: str, sandbox: Any = None, *, timeout: float | None = None) -> SandboxResult:
+async def shell_exec(
+    command: str, sandbox: Any = None, *, timeout: float | None = None
+) -> SandboxResult:
     """Shell 语义执行（仅限可信内部调用；危险命令由沙盒拦截）。"""
     return await _sandbox_of(sandbox).execute(command, timeout=timeout)
 
 
-async def shell_exec_args(argv: list[str], sandbox: Any = None, *, timeout: float | None = None) -> SandboxResult:
+async def shell_exec_args(
+    argv: list[str], sandbox: Any = None, *, timeout: float | None = None
+) -> SandboxResult:
     """argv 数组执行：无 shell 注入面，不可信输入的默认入口。"""
     return await _sandbox_of(sandbox).execute_args(argv, timeout=timeout)
 
 
-async def shell_run_script(script: str, sandbox: Any = None, *, timeout: float | None = None) -> SandboxResult:
+async def shell_run_script(
+    script: str, sandbox: Any = None, *, timeout: float | None = None
+) -> SandboxResult:
     """沙盒内运行脚本。"""
     return await _sandbox_of(sandbox).run_script(script, timeout=timeout)
 

@@ -156,7 +156,9 @@ def completed_passes(spec: dict[str, Any], ids: list[str]) -> list[str]:
         return []
     completed: list[str] = []
     for pass_id in ids:
-        if any(isinstance(entry, dict) and review_completes_pass(entry, pass_id) for entry in history):
+        if any(
+            isinstance(entry, dict) and review_completes_pass(entry, pass_id) for entry in history
+        ):
             completed.append(pass_id)
         else:
             break
@@ -174,7 +176,9 @@ def unlocked_pass(spec: dict[str, Any]) -> str:
 def assert_pass_unlocked(spec: dict[str, Any], requested_pass: str) -> None:
     ids = pass_order(spec)
     if requested_pass not in ids:
-        raise ValueError(f"unknown build pass {requested_pass!r}; expected one of: {', '.join(ids)}")
+        raise ValueError(
+            f"unknown build pass {requested_pass!r}; expected one of: {', '.join(ids)}"
+        )
     completed = completed_passes(spec, ids)
     current = ids[-1] if len(completed) >= len(ids) else ids[len(completed)]
     if requested_pass in completed or requested_pass == current:
@@ -202,12 +206,16 @@ def component_refs_for_pass(spec: dict[str, Any], pass_id: str) -> set[str]:
     return refs
 
 
-def filter_components_for_pass(spec: dict[str, Any], components: list[dict[str, Any]], pass_id: str) -> list[dict[str, Any]]:
+def filter_components_for_pass(
+    spec: dict[str, Any], components: list[dict[str, Any]], pass_id: str
+) -> list[dict[str, Any]]:
     allowed_levels = PASS_LEVELS.get(pass_id, {"macro"})
     explicit_refs = component_refs_for_pass(spec, pass_id)
     included: list[dict[str, Any]] = []
     included_ids: set[str] = set()
-    component_by_id = {str(item.get("id")): item for item in components if item.get("id") is not None}
+    component_by_id = {
+        str(item.get("id")): item for item in components if item.get("id") is not None
+    }
 
     def include_component(component: dict[str, Any]) -> None:
         component_id = str(component.get("id") or "")
@@ -284,9 +292,19 @@ def scale_vector(component: dict[str, Any], transform: dict[str, Any]) -> str:
         return vector(transform.get("scale"), [1, 1, 1])
     dimensions = component.get("dimensions")
     if isinstance(dimensions, dict):
-        width = dimensions.get("width", dimensions.get("radius", 0.5) * 2 if isinstance(dimensions.get("radius"), (int, float)) else 1)
+        width = dimensions.get(
+            "width",
+            dimensions.get("radius", 0.5) * 2
+            if isinstance(dimensions.get("radius"), (int, float))
+            else 1,
+        )
         height = dimensions.get("height", dimensions.get("length", 1))
-        depth = dimensions.get("depth", dimensions.get("radius", 0.5) * 2 if isinstance(dimensions.get("radius"), (int, float)) else 1)
+        depth = dimensions.get(
+            "depth",
+            dimensions.get("radius", 0.5) * 2
+            if isinstance(dimensions.get("radius"), (int, float))
+            else 1,
+        )
         if all(isinstance(item, (int, float)) for item in (width, height, depth)):
             return vector([width, height, depth], [1, 1, 1])
     return vector(None, [1, 1, 1])
@@ -299,20 +317,34 @@ class GeometryNotImplementedError(Exception):
     a generic box) with no signal that anything was wrong. See Plan 1.3 Workstream F."""
 
 
-_DEFAULT_EXTRUDE_PROFILE = {"points": [[-0.3, -0.3], [0.3, -0.3], [0.3, 0.3], [-0.3, 0.3]], "depth": 0.1}
+_DEFAULT_EXTRUDE_PROFILE = {
+    "points": [[-0.3, -0.3], [0.3, -0.3], [0.3, 0.3], [-0.3, 0.3]],
+    "depth": 0.1,
+}
 # Plan 1.3 — ground blade: a real knife solid with a PRIMARY BEVEL (lower body grinds from
 # full thickness at a mid grind-line down to a sharp cutting edge) and a SWEDGE / false edge
 # (near the tip the spine also grinds to a false edge). Lofted from stations [x, spineY, edgeY].
 _DEFAULT_BLADE_SPEC = {
     "stations": [
-        [0.00, 0.080, -0.090], [0.12, 0.086, -0.100], [0.30, 0.086, -0.110],
-        [0.50, 0.084, -0.108], [0.63, 0.078, -0.095], [0.74, 0.055, -0.055],
-        [0.82, 0.028, -0.020], [0.88, 0.000, 0.000],
+        [0.00, 0.080, -0.090],
+        [0.12, 0.086, -0.100],
+        [0.30, 0.086, -0.110],
+        [0.50, 0.084, -0.108],
+        [0.63, 0.078, -0.095],
+        [0.74, 0.055, -0.055],
+        [0.82, 0.028, -0.020],
+        [0.88, 0.000, 0.000],
     ],
-    "thickness": 0.05, "grindFrac": 0.55, "swedgeFromTipFrac": 0.34,
+    "thickness": 0.05,
+    "grindFrac": 0.55,
+    "swedgeFromTipFrac": 0.34,
 }
 _DEFAULT_LATHE_PROFILE = {"points": [[0.3, -0.5], [0.15, 0.0], [0.3, 0.5]], "segments": 24}
-_DEFAULT_TUBE_PATH = {"points": [[0.0, -0.5, 0.0], [0.0, 0.5, 0.0]], "radius": 0.05, "closed": False}
+_DEFAULT_TUBE_PATH = {
+    "points": [[0.0, -0.5, 0.0], [0.0, 0.5, 0.0]],
+    "radius": 0.05,
+    "closed": False,
+}
 # Plan 1.3 F.6 — curve-sweep: a thin 2D cross-section swept along a measured 3D spine.
 # The FIX for curved forms (hooked blades, handles) that a flat extrude only renders
 # correctly from the reference camera angle. Default is a gentle S-curve so a missing
@@ -470,7 +502,7 @@ function buildVisualHullGeometry(descriptor: VisualHullDescriptor): THREE.Buffer
 }"""
 
 
-_DECIMATE_HELPER_SOURCE = '''// Quadric-error decimation (Garland & Heckbert 1997), ported from
+_DECIMATE_HELPER_SOURCE = """// Quadric-error decimation (Garland & Heckbert 1997), ported from
 // forge/stage3_build/decimate.py so it can run on geometry that only exists at runtime.
 //
 // WHY IT RUNS HERE RATHER THAN OFFLINE: the Python version reads a mesh file, and this
@@ -681,7 +713,7 @@ function decimateGeometry(source: THREE.BufferGeometry, targetRatio: number): TH
     reachedTarget: kept.length <= targetCount,
   };
   return geometry;
-}'''
+}"""
 
 
 _SDF_HELPER_SOURCE = """type SdfVector = readonly [number, number, number];
@@ -1277,7 +1309,11 @@ def capped_sdf(sdf: dict[str, Any], segments: dict[str, int]) -> dict[str, Any]:
     """
     ceiling = segments.get("SDF_MAX_RESOLUTION")
     resolution = sdf.get("resolution")
-    if not isinstance(ceiling, int) or not isinstance(resolution, int) or isinstance(resolution, bool):
+    if (
+        not isinstance(ceiling, int)
+        or not isinstance(resolution, int)
+        or isinstance(resolution, bool)
+    ):
         return sdf
     if resolution <= ceiling:
         return sdf
@@ -1314,27 +1350,59 @@ def geometry_for(
     if primitive == "torus":
         # Tube thickness is ring-relative (fraction of the 0.45 base radius) so a
         # component can be a slim bike tyre or a fat donut without changing scale.
-        desc = component.get("geometryDescriptor") if isinstance(component, dict) and isinstance(component.get("geometryDescriptor"), dict) else {}
+        desc = (
+            component.get("geometryDescriptor")
+            if isinstance(component, dict) and isinstance(component.get("geometryDescriptor"), dict)
+            else {}
+        )
         tube_ratio = desc.get("torusTubeRatio")
-        tube = 0.45 * float(tube_ratio) if isinstance(tube_ratio, (int, float)) and tube_ratio > 0 else 0.08
+        tube = (
+            0.45 * float(tube_ratio)
+            if isinstance(tube_ratio, (int, float)) and tube_ratio > 0
+            else 0.08
+        )
         return f"new THREE.TorusGeometry(0.45, {round(tube, 4)}, {seg['TORUS_TUBULAR_SEGMENTS']}, {seg['TORUS_RADIAL_SEGMENTS']})"
     if primitive == "plane-card":
         return f"new THREE.PlaneGeometry(1, 1, {seg['PLANE_WIDTH_SEGMENTS']}, {seg['PLANE_HEIGHT_SEGMENTS']})"
-    descriptor = component.get("geometryDescriptor") if isinstance(component, dict) and isinstance(component.get("geometryDescriptor"), dict) else {}
+    descriptor = (
+        component.get("geometryDescriptor")
+        if isinstance(component, dict) and isinstance(component.get("geometryDescriptor"), dict)
+        else {}
+    )
     if primitive == "extrude":
-        profile = descriptor.get("profile2D") if isinstance(descriptor.get("profile2D"), dict) else _DEFAULT_EXTRUDE_PROFILE
+        profile = (
+            descriptor.get("profile2D")
+            if isinstance(descriptor.get("profile2D"), dict)
+            else _DEFAULT_EXTRUDE_PROFILE
+        )
         return f"buildExtrudeGeometry({json_literal(profile)})"
     if primitive == "ground-blade":
-        spec = descriptor.get("bladeSpec") if isinstance(descriptor.get("bladeSpec"), dict) else _DEFAULT_BLADE_SPEC
+        spec = (
+            descriptor.get("bladeSpec")
+            if isinstance(descriptor.get("bladeSpec"), dict)
+            else _DEFAULT_BLADE_SPEC
+        )
         return f"buildGroundBladeGeometry({json_literal(spec)})"
     if primitive == "lathe":
-        profile = descriptor.get("latheProfile") if isinstance(descriptor.get("latheProfile"), dict) else _DEFAULT_LATHE_PROFILE
+        profile = (
+            descriptor.get("latheProfile")
+            if isinstance(descriptor.get("latheProfile"), dict)
+            else _DEFAULT_LATHE_PROFILE
+        )
         return f"buildLatheGeometry({json_literal(profile)})"
     if primitive == "tube":
-        path = descriptor.get("tubePath") if isinstance(descriptor.get("tubePath"), dict) else _DEFAULT_TUBE_PATH
+        path = (
+            descriptor.get("tubePath")
+            if isinstance(descriptor.get("tubePath"), dict)
+            else _DEFAULT_TUBE_PATH
+        )
         return f"buildTubeGeometry({json_literal(path)})"
     if primitive == "curve-sweep":
-        sweep = descriptor.get("curveSweep") if isinstance(descriptor.get("curveSweep"), dict) else _DEFAULT_CURVE_SWEEP
+        sweep = (
+            descriptor.get("curveSweep")
+            if isinstance(descriptor.get("curveSweep"), dict)
+            else _DEFAULT_CURVE_SWEEP
+        )
         return f"buildCurveSweepGeometry({json_literal(sweep)})"
     if primitive == "instanced-cluster":
         # An instanced cluster's *geometry* is its base shape; the instancing itself is applied
@@ -1471,35 +1539,44 @@ def emit_rig_hierarchy(spec: dict[str, Any]) -> list[str]:
             offset = [float(joint[i]) - float(parent_joint[i]) for i in range(3)]
         else:
             offset = [float(joint[i]) for i in range(3)]
-        lines.extend([
-            f"  const {var} = new THREE.Bone();",
-            f"  {var}.name = {json.dumps(bone_id)};",
-            f"  {var}.position.set({vector(offset, [0.0, 0.0, 0.0])});",
-            (f"  {bone_var(parent)}.add({var});" if parent and parent in by_id
-             else f"  root.add({var});"),
-            f"  bones[{json.dumps(bone_id)}] = {var};",
-            f"  boneOrder.push({json.dumps(bone_id)});",
-        ])
-    lines.extend([
-        "  // The bones are now in REST position. updateMatrixWorld() before constructing the",
-        "  // Skeleton is load-bearing: calculateInverses() reads each bone's CURRENT world matrix,",
-        "  // and those inverses are what cancel the rest pose during skinning. Constructed before",
-        "  // this call it captures identity matrices, the rest pose never cancels, and every",
-        "  // vertex is displaced by its bone's offset at rest. Measured, not assumed --",
-        "  // scratchpad/bind_experiment.mjs read (0, 3, 0) for a vertex authored at (0, 2, 0).",
-        "  root.updateMatrixWorld(true);",
-        "  const skeleton = new THREE.Skeleton(boneOrder.map((id) => bones[id]));",
-        "  const boneIndexOf = new Map<string, number>(boneOrder.map((id, i) => [id, i]));",
-    ])
+        lines.extend(
+            [
+                f"  const {var} = new THREE.Bone();",
+                f"  {var}.name = {json.dumps(bone_id)};",
+                f"  {var}.position.set({vector(offset, [0.0, 0.0, 0.0])});",
+                (
+                    f"  {bone_var(parent)}.add({var});"
+                    if parent and parent in by_id
+                    else f"  root.add({var});"
+                ),
+                f"  bones[{json.dumps(bone_id)}] = {var};",
+                f"  boneOrder.push({json.dumps(bone_id)});",
+            ]
+        )
+    lines.extend(
+        [
+            "  // The bones are now in REST position. updateMatrixWorld() before constructing the",
+            "  // Skeleton is load-bearing: calculateInverses() reads each bone's CURRENT world matrix,",
+            "  // and those inverses are what cancel the rest pose during skinning. Constructed before",
+            "  // this call it captures identity matrices, the rest pose never cancels, and every",
+            "  // vertex is displaced by its bone's offset at rest. Measured, not assumed --",
+            "  // scratchpad/bind_experiment.mjs read (0, 3, 0) for a vertex authored at (0, 2, 0).",
+            "  root.updateMatrixWorld(true);",
+            "  const skeleton = new THREE.Skeleton(boneOrder.map((id) => bones[id]));",
+            "  const boneIndexOf = new Map<string, number>(boneOrder.map((id, i) => [id, i]));",
+        ]
+    )
     lines.extend(_rig_weight_function_lines(spec, ordered))
     lines.extend(_rig_pose_lines(spec, ordered, bone_var))
-    lines.append("  root.userData.rig = { bones, skeleton, boneOrder, boneIndexOf, "
-                 "skinAttributes: skinnedMeshNames, bound: skinnedMeshNames.length > 0 "
-                 "&& boundCount === skinnedMeshNames.length, "
-                 "frustumCulled: false, "
-                 "cullingNote: 'skinned meshes set frustumCulled = false; bone motion does not "
-                 "update a SkinnedMesh boundingSphere, so a consumer that needs culling must "
-                 "recompute bounds per frame' };")
+    lines.append(
+        "  root.userData.rig = { bones, skeleton, boneOrder, boneIndexOf, "
+        "skinAttributes: skinnedMeshNames, bound: skinnedMeshNames.length > 0 "
+        "&& boundCount === skinnedMeshNames.length, "
+        "frustumCulled: false, "
+        "cullingNote: 'skinned meshes set frustumCulled = false; bone motion does not "
+        "update a SkinnedMesh boundingSphere, so a consumer that needs culling must "
+        "recompute bounds per frame' };"
+    )
     return lines
 
 
@@ -1536,10 +1613,12 @@ def _rig_pose_lines(
     ]
     for bone_id, _component_id, values in posed:
         lines.append(f"  {bone_var(bone_id)}.rotation.set({vector(values, [0.0, 0.0, 0.0])});")
-    lines.extend([
-        "  root.updateMatrixWorld(true);",
-        "  skeleton.update();",
-    ])
+    lines.extend(
+        [
+            "  root.updateMatrixWorld(true);",
+            "  skeleton.update();",
+        ]
+    )
     return lines
 
 
@@ -1632,7 +1711,9 @@ def _rig_weight_function_lines(spec: dict[str, Any], ordered: list[dict[str, Any
             "  root.updateMatrixWorld(true);",
         ]
     else:
-        rest_pose_comment = "  // No component carries an authored pose, so there is nothing to rest."
+        rest_pose_comment = (
+            "  // No component carries an authored pose, so there is nothing to rest."
+        )
         rest_pose_lines = []
         restore_pose_lines = []
 
@@ -1837,12 +1918,16 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         # component is `primitive: "capsule"` + `topologyClass: "implicit"`).
         descriptor = component.get("geometryDescriptor")
         geometry_descriptor = descriptor if isinstance(descriptor, dict) else {}
-        is_implicit = component.get("topologyClass") == "implicit" and isinstance(geometry_descriptor.get("sdf"), dict)
+        is_implicit = component.get("topologyClass") == "implicit" and isinstance(
+            geometry_descriptor.get("sdf"), dict
+        )
         is_visual_hull = isinstance(geometry_descriptor.get("visualHull"), dict)
         return not is_implicit and not is_visual_hull
 
     used_primitives = {
-        str(component.get("primitive")) for component in components if _calls_geometry_for(component)
+        str(component.get("primitive"))
+        for component in components
+        if _calls_geometry_for(component)
     }
     implicit_components = [
         component
@@ -1875,13 +1960,15 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         lines.append("")
     if has_subdivision:
         lines.extend(
-        _SUBDIVISION_HELPER_SOURCE.replace(
-            "__MAX_SUBDIVISION_QUAD_FACES__",
-            str(MAX_SUBDIVISION_QUAD_FACES),
-        ).replace(
-            "__MAX_SUBDIVISION_ITERATIONS__",
-            str(MAX_SUBDIVISION_ITERATIONS),
-        ).splitlines()
+            _SUBDIVISION_HELPER_SOURCE.replace(
+                "__MAX_SUBDIVISION_QUAD_FACES__",
+                str(MAX_SUBDIVISION_QUAD_FACES),
+            )
+            .replace(
+                "__MAX_SUBDIVISION_ITERATIONS__",
+                str(MAX_SUBDIVISION_ITERATIONS),
+            )
+            .splitlines()
         )
         lines.append("")
     if "capsule" in used_primitives:
@@ -2171,547 +2258,547 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
 
     lines.extend(
         [
-        "function hashString(value: string): number {",
-        "  let hash = 2166136261;",
-        "  for (let index = 0; index < value.length; index += 1) {",
-        "    hash ^= value.charCodeAt(index);",
-        "    hash = Math.imul(hash, 16777619);",
-        "  }",
-        "  return hash >>> 0;",
-        "}",
-        "",
-        "function readLayerNumber(value: unknown, keys: string[], fallback: number): number {",
-        "  if (typeof value === 'number') return value;",
-        "  if (value && typeof value === 'object') {",
-        "    const record = value as Record<string, unknown>;",
-        "    for (const key of keys) {",
-        "      if (typeof record[key] === 'number') return record[key] as number;",
-        "    }",
-        "  }",
-        "  return fallback;",
-        "}",
-        "",
-        "function hexToRgb(hex: string): [number, number, number] {",
-        "  const normalized = /^#[0-9a-f]{3}$/i.test(hex)",
-        "    ? '#' + hex.slice(1).split('').map((part) => part + part).join('')",
-        "    : hex;",
-        "  const value = /^#[0-9a-f]{6}$/i.test(normalized) ? Number.parseInt(normalized.slice(1), 16) : 0x8a7a5f;",
-        "  return [clampAlbedoChannel((value >> 16) & 255), clampAlbedoChannel((value >> 8) & 255), clampAlbedoChannel(value & 255)];",
-        "}",
-        "",
-        "function materialPalette(spec: SculptMaterialSpec): string[] {",
-        "  const palette = spec.colorVariation?.palette;",
-        "  if (Array.isArray(palette) && palette.length > 0) return palette.filter((value) => typeof value === 'string');",
-        "  const secondary = spec.albedo?.secondary;",
-        "  const colors = [spec.baseColor ?? spec.color ?? spec.albedo?.dominant, ...(Array.isArray(secondary) ? secondary : [])];",
-        "  return colors.filter((value): value is string => typeof value === 'string' && value.startsWith('#'));",
-        "}",
-        "",
-        "function clamp01(value: number): number {",
-        "  return Math.max(0, Math.min(1, value));",
-        "}",
-        "",
-        "function clampAlbedoChannel(value: number): number {",
-        "  return Math.max(30, Math.min(240, Math.round(value)));",
-        "}",
-        "",
-        "function clampPbrF0(value: number): number {",
-        "  return Math.max(0.02, Math.min(1, value));",
-        "}",
-        "",
-        "function clampPbrIor(value: number): number {",
-        "  return Math.max(1, Math.min(2.5, value));",
-        "}",
-        "",
-        "function clampPbrMetalness(value: number): number {",
-        "  return value >= 0.5 ? 1 : 0;",
-        "}",
-        "",
-        "function clampedAlbedoColor(spec: SculptMaterialSpec): THREE.Color {",
-        "  const source = typeof spec.baseColor === 'string' ? spec.baseColor : '#8A7A5F';",
-        "  const [red, green, blue] = hexToRgb(source);",
-        "  return new THREE.Color(red / 255, green / 255, blue / 255);",
-        "}",
-        "",
-        "function smoothCurve(value: number): number {",
-        "  return value * value * (3 - 2 * value);",
-        "}",
-        "",
-        "function periodicHash(x: number, y: number, seed: number, periodX: number, periodY: number): number {",
-        "  const wrappedX = ((x % periodX) + periodX) % periodX;",
-        "  const wrappedY = ((y % periodY) + periodY) % periodY;",
-        "  let value = Math.imul(wrappedX + seed * 17, 374761393) ^ Math.imul(wrappedY + seed * 31, 668265263);",
-        "  value = Math.imul(value ^ (value >>> 13), 1274126177);",
-        "  return ((value ^ (value >>> 16)) >>> 0) / 4294967295;",
-        "}",
-        "",
-        "function periodicValueNoise(u: number, v: number, seed: number, periodX: number, periodY: number): number {",
-        "  const x = u * periodX;",
-        "  const y = v * periodY;",
-        "  const x0 = Math.floor(x);",
-        "  const y0 = Math.floor(y);",
-        "  const tx = smoothCurve(x - x0);",
-        "  const ty = smoothCurve(y - y0);",
-        "  const a = periodicHash(x0, y0, seed, periodX, periodY);",
-        "  const b = periodicHash(x0 + 1, y0, seed, periodX, periodY);",
-        "  const c = periodicHash(x0, y0 + 1, seed, periodX, periodY);",
-        "  const d = periodicHash(x0 + 1, y0 + 1, seed, periodX, periodY);",
-        "  return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a, b, tx), THREE.MathUtils.lerp(c, d, tx), ty);",
-        "}",
-        "",
-        "type SurfaceBand = {",
-        "  frequency: number;",
-        "  amplitude: number;",
-        "  stretchX: number;",
-        "  stretchY: number;",
-        "  ridge: boolean;",
-        "};",
-        "",
-        "function surfaceBands(spec: SculptMaterialSpec): SurfaceBand[] {",
-        "  const source = Array.isArray(spec.surfaceFrequencyBands) ? spec.surfaceFrequencyBands : [];",
-        "  const parsed = source.flatMap((item: unknown) => {",
-        "    if (!item || typeof item !== 'object') return [];",
-        "    const band = item as Record<string, unknown>;",
-        "    const frequency = typeof band.frequency === 'number' ? band.frequency : 0;",
-        "    const amplitude = typeof band.amplitude === 'number' ? band.amplitude : 0;",
-        "    if (frequency <= 0 || amplitude <= 0) return [];",
-        "    const stretch = Array.isArray(band.stretch) ? band.stretch : [1, 1];",
-        "    const description = `${String(band.pattern ?? '')} ${String(band.role ?? '')}`.toLowerCase();",
-        "    return [{",
-        "      frequency,",
-        "      amplitude,",
-        "      stretchX: typeof stretch[0] === 'number' ? Math.max(0.1, stretch[0]) : 1,",
-        "      stretchY: typeof stretch[1] === 'number' ? Math.max(0.1, stretch[1]) : 1,",
-        "      ridge: /(ridge|groove|grain|fiber|striated|crack)/.test(description),",
-        "    }];",
-        "  });",
-        "  return parsed.length > 0 ? parsed : [",
-        "    { frequency: 2, amplitude: 0.42, stretchX: 1, stretchY: 1, ridge: false },",
-        "    { frequency: 12, amplitude: 0.22, stretchX: 1, stretchY: 1, ridge: false },",
-        "    { frequency: 56, amplitude: 0.08, stretchX: 1, stretchY: 1, ridge: false },",
-        "  ];",
-        "}",
-        "",
-        "function sampleSurface(u: number, v: number, bands: SurfaceBand[], seed: number): number {",
-        "  let value = 0;",
-        "  let weight = 0;",
-        "  for (let index = 0; index < bands.length; index += 1) {",
-        "    const band = bands[index];",
-        "    const periodX = Math.max(1, Math.round(band.frequency * band.stretchX));",
-        "    const periodY = Math.max(1, Math.round(band.frequency * band.stretchY));",
-        "    let sample = periodicValueNoise(u, v, seed + index * 1013, periodX, periodY);",
-        "    if (band.ridge) sample = 1 - Math.abs(sample * 2 - 1);",
-        "    value += sample * band.amplitude;",
-        "    weight += band.amplitude;",
-        "  }",
-        "  return weight > 0 ? clamp01(value / weight) : 0.5;",
-        "}",
-        "",
-        "function mixPalette(colors: [number, number, number][], value: number): [number, number, number] {",
-        "  if (colors.length === 1) return colors[0];",
-        "  const scaled = clamp01(value) * (colors.length - 1);",
-        "  const index = Math.min(colors.length - 2, Math.floor(scaled));",
-        "  const mix = scaled - index;",
-        "  const a = colors[index];",
-        "  const b = colors[index + 1];",
-        "  return [",
-        "    Math.round(THREE.MathUtils.lerp(a[0], b[0], mix)),",
-        "    Math.round(THREE.MathUtils.lerp(a[1], b[1], mix)),",
-        "    Math.round(THREE.MathUtils.lerp(a[2], b[2], mix)),",
-        "  ];",
-        "}",
-        "",
-        "type ColorGradientStop = { offset: number; color: string };",
-        "type ColorGradientSpec = {",
-        "  type: 'linear' | 'radial';",
-        "  axis: [number, number];",
-        "  stops: ColorGradientStop[];",
-        "};",
-        "",
-        "function parseRgba(value: string): [number, number, number] {",
-        "  const match = /rgba?\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)/.exec(value);",
-        "  if (!match) return [138, 122, 95];",
-        "  return [clampAlbedoChannel(Number(match[1])), clampAlbedoChannel(Number(match[2])), clampAlbedoChannel(Number(match[3]))];",
-        "}",
-        "",
-        "// Analytical per-pixel gradient sample. The extraction schema's colorGradient carries",
-        "// exact rgba(...) stop colors (see extract_part_color_recipe.py), so this samples the",
-        "// same trend directly in JS math rather than round-tripping through a Canvas 2D",
-        "// createLinearGradient/createRadialGradient object — same visual result, and it composes",
-        "// directly with the existing noise/height-correlated colorVariation blend below.",
-        "function sampleColorGradient(gradient: ColorGradientSpec, u: number, v: number): [number, number, number] {",
-        "  const stops = gradient.stops.length >= 2 ? gradient.stops : [{ offset: 0, color: 'rgba(138,122,95,1)' }, { offset: 1, color: 'rgba(138,122,95,1)' }];",
-        "  let t: number;",
-        "  if (gradient.type === 'radial') {",
-        "    const [cx, cy] = gradient.axis;",
-        "    const dx = u - cx;",
-        "    const dy = v - cy;",
-        "    const maxRadius = Math.max(0.001, Math.hypot(Math.max(cx, 1 - cx), Math.max(cy, 1 - cy)));",
-        "    t = clamp01(Math.hypot(dx, dy) / maxRadius);",
-        "  } else {",
-        "    const [ax, ay] = gradient.axis;",
-        "    const projection = (u - 0.5) * ax + (v - 0.5) * ay;",
-        "    const maxProjection = 0.5 * (Math.abs(ax) + Math.abs(ay)) || 0.5;",
-        "    t = clamp01(projection / maxProjection + 0.5);",
-        "  }",
-        "  const scaled = t * (stops.length - 1);",
-        "  const index = Math.min(stops.length - 2, Math.max(0, Math.floor(scaled)));",
-        "  const mix = scaled - index;",
-        "  const a = parseRgba(stops[index].color);",
-        "  const b = parseRgba(stops[index + 1].color);",
-        "  return [",
-        "    THREE.MathUtils.lerp(a[0], b[0], mix),",
-        "    THREE.MathUtils.lerp(a[1], b[1], mix),",
-        "    THREE.MathUtils.lerp(a[2], b[2], mix),",
-        "  ];",
-        "}",
-        "",
-        "function writePixel(data: Uint8ClampedArray, offset: number, red: number, green: number, blue: number): void {",
-        "  data[offset] = Math.max(0, Math.min(255, Math.round(red)));",
-        "  data[offset + 1] = Math.max(0, Math.min(255, Math.round(green)));",
-        "  data[offset + 2] = Math.max(0, Math.min(255, Math.round(blue)));",
-        "  data[offset + 3] = 255;",
-        "}",
-        "",
-        "function makeCanvas(size: number): HTMLCanvasElement {",
-        "  const canvas = document.createElement('canvas');",
-        "  canvas.width = size;",
-        "  canvas.height = size;",
-        "  return canvas;",
-        "}",
-        "",
-        "function createMapTexture(",
-        "  canvas: HTMLCanvasElement,",
-        "  colorSpace: THREE.ColorSpace,",
-        "  spec: SculptMaterialSpec,",
-        "  options: ProceduralModelOptions,",
-        "): THREE.CanvasTexture {",
-        "  const texture = new THREE.CanvasTexture(canvas);",
-        "  const projection = spec.textureProjection && typeof spec.textureProjection === 'object' ? spec.textureProjection : {};",
-        "  const repeat = Array.isArray(projection.repeat) ? projection.repeat : [2, 2];",
-        "  texture.colorSpace = colorSpace;",
-        "  texture.wrapS = THREE.RepeatWrapping;",
-        "  texture.wrapT = THREE.RepeatWrapping;",
-        "  texture.repeat.set(",
-        "    typeof repeat[0] === 'number' ? repeat[0] : 2,",
-        "    typeof repeat[1] === 'number' ? repeat[1] : 2,",
-        "  );",
-        "  texture.anisotropy = Math.max(1, Math.round(options.textureAnisotropy ?? projection.anisotropy ?? 8));",
-        "  texture.needsUpdate = true;",
-        "  return texture;",
-        "}",
-        "",
-        "type ProceduralTextureSet = {",
-        "  albedo: THREE.Texture;",
-        "  roughness: THREE.Texture;",
-        "  height: THREE.Texture;",
-        "  normal: THREE.Texture;",
-        "  ao: THREE.Texture;",
-        "  source: 'reference-pixel-extraction' | 'procedural';",
-        "};",
-        "",
-        "function referenceMapUrl(spec: SculptMaterialSpec, channel: string): string | null {",
-        "  const reference = spec.referencePbr;",
-        "  if (!reference || typeof reference !== 'object') return null;",
-        "  if (reference.usable === false) return null;",
-        "  const confidence = typeof reference.confidence === 'number'",
-        "    ? reference.confidence",
-        "    : (typeof reference.estimatedFidelity === 'number' ? reference.estimatedFidelity : 0);",
-        "  const threshold = typeof reference.targetThreshold === 'number' ? reference.targetThreshold : 0.7;",
-        "  if (confidence < threshold) return null;",
-        "  const maps = reference.maps;",
-        "  if (!maps || typeof maps !== 'object') return null;",
-        "  const map = (maps as Record<string, unknown>)[channel];",
-        "  if (!map || typeof map !== 'object') return null;",
-        "  const record = map as Record<string, unknown>;",
-        "  const url = typeof record.url === 'string' && record.url.trim() ? record.url : record.path;",
-        "  return typeof url === 'string' && url.trim() ? url : null;",
-        "}",
-        "",
-        "function createLoadedMapTexture(",
-        "  url: string,",
-        "  colorSpace: THREE.ColorSpace,",
-        "  spec: SculptMaterialSpec,",
-        "  options: ProceduralModelOptions,",
-        "): THREE.Texture {",
-        "  const texture = new THREE.TextureLoader().load(url);",
-        "  const projection = spec.textureProjection && typeof spec.textureProjection === 'object' ? spec.textureProjection : {};",
-        "  const repeat = Array.isArray(projection.repeat) ? projection.repeat : [1, 1];",
-        "  texture.colorSpace = colorSpace;",
-        "  texture.wrapS = THREE.RepeatWrapping;",
-        "  texture.wrapT = THREE.RepeatWrapping;",
-        "  texture.repeat.set(",
-        "    typeof repeat[0] === 'number' ? repeat[0] : 1,",
-        "    typeof repeat[1] === 'number' ? repeat[1] : 1,",
-        "  );",
-        "  texture.anisotropy = Math.max(1, Math.round(options.textureAnisotropy ?? projection.anisotropy ?? 8));",
-        "  texture.needsUpdate = true;",
-        "  return texture;",
-        "}",
-        "",
-        "function makeReferenceTextureSet(spec: SculptMaterialSpec, options: ProceduralModelOptions): ProceduralTextureSet | null {",
-        "  const albedo = referenceMapUrl(spec, 'albedo');",
-        "  const roughness = referenceMapUrl(spec, 'roughness');",
-        "  const height = referenceMapUrl(spec, 'height');",
-        "  const normal = referenceMapUrl(spec, 'normal');",
-        "  const ao = referenceMapUrl(spec, 'ao');",
-        "  if (!albedo || !roughness || !height || !normal || !ao) return null;",
-        "  return {",
-        "    albedo: createLoadedMapTexture(albedo, THREE.SRGBColorSpace, spec, options),",
-        "    roughness: createLoadedMapTexture(roughness, THREE.NoColorSpace, spec, options),",
-        "    height: createLoadedMapTexture(height, THREE.NoColorSpace, spec, options),",
-        "    normal: createLoadedMapTexture(normal, THREE.NoColorSpace, spec, options),",
-        "    ao: createLoadedMapTexture(ao, THREE.NoColorSpace, spec, options),",
-        "    source: 'reference-pixel-extraction',",
-        "  };",
-        "}",
-        "",
-        "function makeProceduralTextureSet(",
-        "  id: string,",
-        "  spec: SculptMaterialSpec,",
-        "  options: ProceduralModelOptions,",
-        "): ProceduralTextureSet | null {",
-        "  if (typeof document === 'undefined') return null;",
-        "  const qualityFirst = (options.qualityPriority ?? 'reference-fidelity') === 'reference-fidelity';",
-        "  const requested = options.textureSize ?? spec.textureResolution;",
-        "  const requestedSize = typeof requested === 'number' && Number.isFinite(requested)",
-        "    ? requested",
-        "    : (qualityFirst ? 1024 : 512);",
-        "  const size = Math.max(256, Math.min(2048, 2 ** Math.round(Math.log2(requestedSize))));",
-        "  const canvases = {",
-        "    albedo: makeCanvas(size),",
-        "    roughness: makeCanvas(size),",
-        "    height: makeCanvas(size),",
-        "    normal: makeCanvas(size),",
-        "    ao: makeCanvas(size),",
-        "  };",
-        "  const contexts = {",
-        "    albedo: canvases.albedo.getContext('2d'),",
-        "    roughness: canvases.roughness.getContext('2d'),",
-        "    height: canvases.height.getContext('2d'),",
-        "    normal: canvases.normal.getContext('2d'),",
-        "    ao: canvases.ao.getContext('2d'),",
-        "  };",
-        "  if (!contexts.albedo || !contexts.roughness || !contexts.height || !contexts.normal || !contexts.ao) return null;",
-        "  const images = {",
-        "    albedo: contexts.albedo.createImageData(size, size),",
-        "    roughness: contexts.roughness.createImageData(size, size),",
-        "    height: contexts.height.createImageData(size, size),",
-        "    normal: contexts.normal.createImageData(size, size),",
-        "    ao: contexts.ao.createImageData(size, size),",
-        "  };",
-        "  const seed = hashString(id);",
-        "  const bands = surfaceBands(spec);",
-        "  const heightField = new Float32Array(size * size);",
-        "  const roughnessField = new Float32Array(size * size);",
-        "  const palette = materialPalette(spec);",
-        "  const fallback = typeof spec.baseColor === 'string' ? spec.baseColor : '#8A7A5F';",
-        "  const colors = (palette.length >= 2 ? palette : [fallback, '#6E614B', '#A08F70']).map(hexToRgb);",
-        "  const baseRoughness = clamp01(readLayerNumber(spec.roughness, ['base'], 0.76));",
-        "  const roughnessVariation = clamp01(readLayerNumber(spec.roughness, ['variation'], 0.18));",
-        "  const colorAmplitude = clamp01(readLayerNumber(spec.colorVariation, ['amplitude', 'variation'], 0.18));",
-        "  const heightCorrelation = clamp01(readLayerNumber(spec.colorVariation, ['heightCorrelation'], 0.3));",
-        "  const colorGradient: ColorGradientSpec | undefined = spec.colorGradient;",
-        "  for (let y = 0; y < size; y += 1) {",
-        "    const v = y / size;",
-        "    for (let x = 0; x < size; x += 1) {",
-        "      const u = x / size;",
-        "      const index = y * size + x;",
-        "      const height = sampleSurface(u, v, bands, seed + 101);",
-        "      const roughNoise = sampleSurface(u, v, bands, seed + 7001);",
-        "      const colorNoise = sampleSurface(u, v, bands, seed + 15013);",
-        "      heightField[index] = height;",
-        "      roughnessField[index] = clamp01(baseRoughness + (roughNoise - 0.5) * roughnessVariation * 2);",
-        "      let color: [number, number, number];",
-        "      if (colorGradient) {",
-        "        // Evidence-derived spatial gradient (Plan 1.3 Workstream C) takes priority",
-        "        // over the noise-based palette blend below — it is a measured trend, not a guess.",
-        "        color = sampleColorGradient(colorGradient, u, v);",
-        "      } else {",
-        "        const paletteValue = clamp01(",
-        "          0.5 + (colorNoise - 0.5) * colorAmplitude * 2 + (height - 0.5) * heightCorrelation",
-        "        );",
-        "        color = mixPalette(colors, paletteValue);",
-        "      }",
-        "      writePixel(images.albedo.data, index * 4, color[0], color[1], color[2]);",
-        "    }",
-        "  }",
-        "  const normalStrength = Math.max(0.05, readLayerNumber(spec.normal, ['strength', 'amplitude'], 0.35));",
-        "  const aoStrength = clamp01(readLayerNumber(spec.ambientOcclusion, ['cavityStrength', 'strength'], 0.35));",
-        "  for (let y = 0; y < size; y += 1) {",
-        "    const up = ((y - 1 + size) % size) * size;",
-        "    const down = ((y + 1) % size) * size;",
-        "    for (let x = 0; x < size; x += 1) {",
-        "      const left = (x - 1 + size) % size;",
-        "      const right = (x + 1) % size;",
-        "      const index = y * size + x;",
-        "      const center = heightField[index];",
-        "      const dx = (heightField[y * size + right] - heightField[y * size + left]) * normalStrength * 6;",
-        "      const dy = (heightField[down + x] - heightField[up + x]) * normalStrength * 6;",
-        "      const inverseLength = 1 / Math.sqrt(dx * dx + dy * dy + 1);",
-        "      const normalX = -dx * inverseLength;",
-        "      const normalY = -dy * inverseLength;",
-        "      const normalZ = inverseLength;",
-        "      const neighborAverage = (",
-        "        heightField[y * size + left] + heightField[y * size + right]",
-        "        + heightField[up + x] + heightField[down + x]",
-        "      ) * 0.25;",
-        "      const cavity = Math.max(0, neighborAverage - center);",
-        "      const ao = clamp01(1 - aoStrength * (cavity * 12 + (1 - center) * 0.16));",
-        "      const offset = index * 4;",
-        "      const heightByte = center * 255;",
-        "      const roughnessByte = roughnessField[index] * 255;",
-        "      writePixel(images.height.data, offset, heightByte, heightByte, heightByte);",
-        "      writePixel(images.roughness.data, offset, roughnessByte, roughnessByte, roughnessByte);",
-        "      writePixel(",
-        "        images.normal.data, offset,",
-        "        (normalX * 0.5 + 0.5) * 255,",
-        "        (normalY * 0.5 + 0.5) * 255,",
-        "        (normalZ * 0.5 + 0.5) * 255,",
-        "      );",
-        "      writePixel(images.ao.data, offset, ao * 255, ao * 255, ao * 255);",
-        "    }",
-        "  }",
-        "  contexts.albedo.putImageData(images.albedo, 0, 0);",
-        "  contexts.roughness.putImageData(images.roughness, 0, 0);",
-        "  contexts.height.putImageData(images.height, 0, 0);",
-        "  contexts.normal.putImageData(images.normal, 0, 0);",
-        "  contexts.ao.putImageData(images.ao, 0, 0);",
-        "  return {",
-        "    albedo: createMapTexture(canvases.albedo, THREE.SRGBColorSpace, spec, options),",
-        "    roughness: createMapTexture(canvases.roughness, THREE.NoColorSpace, spec, options),",
-        "    height: createMapTexture(canvases.height, THREE.NoColorSpace, spec, options),",
-        "    normal: createMapTexture(canvases.normal, THREE.NoColorSpace, spec, options),",
-        "    ao: createMapTexture(canvases.ao, THREE.NoColorSpace, spec, options),",
-        "    source: 'procedural',",
-        "  };",
-        "}",
-        "",
-        "function createSculptMaterial(id: string, spec: SculptMaterialSpec, options: ProceduralModelOptions, denseComponent = false): THREE.MeshPhysicalMaterial {",
-        "  const textures = makeReferenceTextureSet(spec, options) ?? makeProceduralTextureSet(id, spec, options);",
-        "  const material = new THREE.MeshPhysicalMaterial({",
-        "    color: textures ? 0xffffff : clampedAlbedoColor(spec),",
-        "    roughness: textures ? 1 : clamp01(readLayerNumber(spec.roughness, ['base'], 0.76)),",
-        "    metalness: clampPbrMetalness(readLayerNumber(spec.metalness, ['base'], 0.0)),",
-        "    clearcoat: clamp01(readLayerNumber(spec.clearcoat, ['base', 'amount'], 0)),",
-        "    clearcoatRoughness: clamp01(readLayerNumber(spec.clearcoatRoughness, ['base'], 0.25)),",
-        "    transmission: clamp01(readLayerNumber(spec.transmission, ['base', 'amount'], 0)),",
-        "    ior: clampPbrIor(readLayerNumber(spec.ior, ['base', 'value'], 1.5)),",
-        "    thickness: Math.max(0, readLayerNumber(spec.thickness, ['base', 'amount'], 0)),",
-        "    attenuationDistance: Math.max(0.001, readLayerNumber(spec.attenuationDistance, ['base', 'value'], Infinity)),",
-        "    attenuationColor: new THREE.Color(typeof spec.attenuationColor === 'string' ? spec.attenuationColor : '#ffffff'),",
-        "    sheen: clamp01(readLayerNumber(spec.sheen, ['base', 'amount'], 0)),",
-        "    sheenColor: new THREE.Color(typeof spec.sheenColor === 'string' ? spec.sheenColor : '#ffffff'),",
-        "    sheenRoughness: clamp01(readLayerNumber(spec.sheenRoughness, ['base'], 1.0)),",
-        "    iridescence: clamp01(readLayerNumber(spec.iridescence, ['base', 'amount'], 0)),",
-        "    iridescenceIOR: clampPbrIor(readLayerNumber(spec.iridescenceIOR, ['base', 'value'], 1.3)),",
-        "    anisotropy: clamp01(readLayerNumber(spec.anisotropy, ['base', 'amount'], 0)),",
-        "    anisotropyRotation: readLayerNumber(spec.anisotropy, ['rotation'], 0),",
-        "    specularIntensity: clampPbrF0(readLayerNumber(spec.specularF0 ?? spec.f0 ?? spec.specularIntensity, ['base', 'value'], 1.0)),",
-        "    specularColor: new THREE.Color(typeof spec.specularColor === 'string' ? spec.specularColor : '#ffffff'),",
-        "    emissive: new THREE.Color(typeof spec.emissive === 'string' ? spec.emissive : '#000000'),",
-        "    emissiveIntensity: Math.max(0, readLayerNumber(spec.emissiveIntensity, ['base'], 1.0)),",
-        "    opacity: clamp01(readLayerNumber(spec.opacity, ['base'], 1)),",
-        "    transparent: readLayerNumber(spec.transmission, ['base', 'amount'], 0) > 0 || readLayerNumber(spec.opacity, ['base'], 1) < 1,",
-        "    alphaTest: Math.max(0, readLayerNumber(spec.alpha, ['cutoff', 'alphaTest'], 0)),",
-        "    wireframe: options.wireframe ?? false,",
-        "    side: spec.doubleSided === true ? THREE.DoubleSide : THREE.FrontSide,",
-        # Faceted shading is a look, not an optimisation: three.js implements it by giving every
-        # face its own normals, which needs unshared vertices, so the geometry has to be
-        # non-indexed and the vertex count triples (3 per face). It is opt-in per material for
-        # that reason -- turning it on globally would silently spend the budget the
-        # `performanceBudget.targetTriangles` tier just bought back.
-        "    flatShading: spec.flatShading === true,",
-        "  });",
-        "  if (textures) {",
-        "    material.map = textures.albedo;",
-        "    material.roughnessMap = textures.roughness;",
-        "    material.normalMap = textures.normal;",
-        "    material.normalScale.setScalar(Math.max(0.05, readLayerNumber(spec.normal, ['strength', 'amplitude'], 0.35)));",
-        "    material.aoMap = textures.ao;",
-        "    material.aoMap.channel = 0;",
-        "    material.aoMapIntensity = readLayerNumber(spec.ambientOcclusion, ['cavityStrength', 'strength'], 0.35);",
-        "    const denseMesh = denseComponent || spec.denseMesh === true || spec.geometryDensity === 'dense' || spec.topologyClass === 'dense';",
-        "    const bumpScale = Math.max(0, readLayerNumber(spec.bump, ['amplitude', 'strength'], 0));",
-        "    const effectiveBumpScale = denseMesh ? Math.max(0.05, bumpScale) : bumpScale;",
-        "    if (effectiveBumpScale > 0) {",
-        "      material.bumpMap = textures.height;",
-        "      material.bumpScale = effectiveBumpScale;",
-        "    }",
-        "    const displacementScale = Math.max(0, readLayerNumber(spec.displacement, ['amplitude', 'strength'], 0));",
-        "    const effectiveDisplacementScale = denseMesh ? Math.max(0.005, displacementScale) : displacementScale;",
-        "    if (effectiveDisplacementScale > 0) {",
-        "      material.displacementMap = textures.height;",
-        "      material.displacementScale = effectiveDisplacementScale;",
-        "      material.displacementBias = -effectiveDisplacementScale * 0.5;",
-        "    }",
-        "  }",
-        "  material.envMapIntensity = readLayerNumber(spec, ['envMapIntensity'], 0.8);",
-        "  material.userData.sculptMaterial = spec;",
-        "  material.userData.proceduralMapsIndependent = true;",
-        "  material.userData.pbrConstraints = { albedoRange: [30, 240], binaryMetalness: true, f0Range: [0.02, 1], iorRange: [1, 2.5] };",
-        "  material.userData.pbrTextureSource = textures?.source ?? 'flat-fallback';",
-        "  material.userData.referencePbr = spec.referencePbr ?? null;",
-        "  material.userData.referenceMaterialId = spec.referenceMaterialId ?? spec.materialReference?.profileId ?? null;",
-        "  material.userData.materialEvidence = spec.materialEvidence ?? null;",
-        "  material.userData.validationViews = spec.materialReference?.validationViews ?? [];",
-        "  material.needsUpdate = true;",
-        "  return material;",
-        "}",
-        "",
-        "type AttachmentEndpoint = {",
-        "  start: THREE.Vector3;",
-        "  midpoint: THREE.Vector3;",
-        "  quaternion: THREE.Quaternion;",
-        "  length: number;",
-        "  baseRadius: number;",
-        "  endRadius: number;",
-        "};",
-        "",
-        "function readVector3(value: unknown, fallback: [number, number, number]): THREE.Vector3 {",
-        "  if (Array.isArray(value) && value.length === 3 && value.every((item) => typeof item === 'number')) {",
-        "    return new THREE.Vector3(value[0], value[1], value[2]);",
-        "  }",
-        "  return new THREE.Vector3(fallback[0], fallback[1], fallback[2]);",
-        "}",
-        "",
-        "function readNumber(value: unknown, fallback: number): number {",
-        "  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;",
-        "}",
-        "",
-        "function makeAttachmentEndpoint(attachment: unknown): AttachmentEndpoint | null {",
-        "  if (!attachment || typeof attachment !== 'object') return null;",
-        "  const record = attachment as Record<string, unknown>;",
-        "  const start = readVector3(record.localStart, [0, 0, 0]);",
-        "  const end = readVector3(record.localEnd, [0, 1, 0]);",
-        "  const delta = end.clone().sub(start);",
-        "  const length = delta.length();",
-        "  if (length <= 0.0001) return null;",
-        "  const direction = delta.clone().normalize();",
-        "  const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);",
-        "  const baseRadius = Math.max(0.005, readNumber(record.baseRadius, 0.06));",
-        "  const endRadius = Math.max(0.003, readNumber(record.endRadius, baseRadius * 0.55));",
-        "  return {",
-        "    start,",
-        "    midpoint: delta.multiplyScalar(0.5),",
-        "    quaternion,",
-        "    length,",
-        "    baseRadius,",
-        "    endRadius,",
-        "  };",
-        "}",
-        "",
-        f"// Generated from ObjectSculptSpec target: {target}",
-        f"// Sculpt build pass: {pass_id}",
-        "// This factory is intentionally pass-gated. Finish browser screenshot review before unlocking deeper passes.",
-        f"export function {function_name}(options: ProceduralModelOptions = {{}}): THREE.Group {{",
-        "  const root = new THREE.Group();",
-        f"  root.name = {json.dumps(target)};",
-        f"  root.userData.reconstructionEvidence = {json_literal(reconstruction_evidence)};",
-        f"  root.userData.materialPipeline = {json_literal(spec.get('materialPipeline', {}))};",
-        f"  root.userData.materialReferenceRegistry = {json_literal(spec.get('materialReference', spec.get('materialPipeline', {}).get('registry') if isinstance(spec.get('materialPipeline'), dict) else None))};",
-        "",
-        "  const materialMap: Record<string, THREE.Material> = {};",
+            "function hashString(value: string): number {",
+            "  let hash = 2166136261;",
+            "  for (let index = 0; index < value.length; index += 1) {",
+            "    hash ^= value.charCodeAt(index);",
+            "    hash = Math.imul(hash, 16777619);",
+            "  }",
+            "  return hash >>> 0;",
+            "}",
+            "",
+            "function readLayerNumber(value: unknown, keys: string[], fallback: number): number {",
+            "  if (typeof value === 'number') return value;",
+            "  if (value && typeof value === 'object') {",
+            "    const record = value as Record<string, unknown>;",
+            "    for (const key of keys) {",
+            "      if (typeof record[key] === 'number') return record[key] as number;",
+            "    }",
+            "  }",
+            "  return fallback;",
+            "}",
+            "",
+            "function hexToRgb(hex: string): [number, number, number] {",
+            "  const normalized = /^#[0-9a-f]{3}$/i.test(hex)",
+            "    ? '#' + hex.slice(1).split('').map((part) => part + part).join('')",
+            "    : hex;",
+            "  const value = /^#[0-9a-f]{6}$/i.test(normalized) ? Number.parseInt(normalized.slice(1), 16) : 0x8a7a5f;",
+            "  return [clampAlbedoChannel((value >> 16) & 255), clampAlbedoChannel((value >> 8) & 255), clampAlbedoChannel(value & 255)];",
+            "}",
+            "",
+            "function materialPalette(spec: SculptMaterialSpec): string[] {",
+            "  const palette = spec.colorVariation?.palette;",
+            "  if (Array.isArray(palette) && palette.length > 0) return palette.filter((value) => typeof value === 'string');",
+            "  const secondary = spec.albedo?.secondary;",
+            "  const colors = [spec.baseColor ?? spec.color ?? spec.albedo?.dominant, ...(Array.isArray(secondary) ? secondary : [])];",
+            "  return colors.filter((value): value is string => typeof value === 'string' && value.startsWith('#'));",
+            "}",
+            "",
+            "function clamp01(value: number): number {",
+            "  return Math.max(0, Math.min(1, value));",
+            "}",
+            "",
+            "function clampAlbedoChannel(value: number): number {",
+            "  return Math.max(30, Math.min(240, Math.round(value)));",
+            "}",
+            "",
+            "function clampPbrF0(value: number): number {",
+            "  return Math.max(0.02, Math.min(1, value));",
+            "}",
+            "",
+            "function clampPbrIor(value: number): number {",
+            "  return Math.max(1, Math.min(2.5, value));",
+            "}",
+            "",
+            "function clampPbrMetalness(value: number): number {",
+            "  return value >= 0.5 ? 1 : 0;",
+            "}",
+            "",
+            "function clampedAlbedoColor(spec: SculptMaterialSpec): THREE.Color {",
+            "  const source = typeof spec.baseColor === 'string' ? spec.baseColor : '#8A7A5F';",
+            "  const [red, green, blue] = hexToRgb(source);",
+            "  return new THREE.Color(red / 255, green / 255, blue / 255);",
+            "}",
+            "",
+            "function smoothCurve(value: number): number {",
+            "  return value * value * (3 - 2 * value);",
+            "}",
+            "",
+            "function periodicHash(x: number, y: number, seed: number, periodX: number, periodY: number): number {",
+            "  const wrappedX = ((x % periodX) + periodX) % periodX;",
+            "  const wrappedY = ((y % periodY) + periodY) % periodY;",
+            "  let value = Math.imul(wrappedX + seed * 17, 374761393) ^ Math.imul(wrappedY + seed * 31, 668265263);",
+            "  value = Math.imul(value ^ (value >>> 13), 1274126177);",
+            "  return ((value ^ (value >>> 16)) >>> 0) / 4294967295;",
+            "}",
+            "",
+            "function periodicValueNoise(u: number, v: number, seed: number, periodX: number, periodY: number): number {",
+            "  const x = u * periodX;",
+            "  const y = v * periodY;",
+            "  const x0 = Math.floor(x);",
+            "  const y0 = Math.floor(y);",
+            "  const tx = smoothCurve(x - x0);",
+            "  const ty = smoothCurve(y - y0);",
+            "  const a = periodicHash(x0, y0, seed, periodX, periodY);",
+            "  const b = periodicHash(x0 + 1, y0, seed, periodX, periodY);",
+            "  const c = periodicHash(x0, y0 + 1, seed, periodX, periodY);",
+            "  const d = periodicHash(x0 + 1, y0 + 1, seed, periodX, periodY);",
+            "  return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a, b, tx), THREE.MathUtils.lerp(c, d, tx), ty);",
+            "}",
+            "",
+            "type SurfaceBand = {",
+            "  frequency: number;",
+            "  amplitude: number;",
+            "  stretchX: number;",
+            "  stretchY: number;",
+            "  ridge: boolean;",
+            "};",
+            "",
+            "function surfaceBands(spec: SculptMaterialSpec): SurfaceBand[] {",
+            "  const source = Array.isArray(spec.surfaceFrequencyBands) ? spec.surfaceFrequencyBands : [];",
+            "  const parsed = source.flatMap((item: unknown) => {",
+            "    if (!item || typeof item !== 'object') return [];",
+            "    const band = item as Record<string, unknown>;",
+            "    const frequency = typeof band.frequency === 'number' ? band.frequency : 0;",
+            "    const amplitude = typeof band.amplitude === 'number' ? band.amplitude : 0;",
+            "    if (frequency <= 0 || amplitude <= 0) return [];",
+            "    const stretch = Array.isArray(band.stretch) ? band.stretch : [1, 1];",
+            "    const description = `${String(band.pattern ?? '')} ${String(band.role ?? '')}`.toLowerCase();",
+            "    return [{",
+            "      frequency,",
+            "      amplitude,",
+            "      stretchX: typeof stretch[0] === 'number' ? Math.max(0.1, stretch[0]) : 1,",
+            "      stretchY: typeof stretch[1] === 'number' ? Math.max(0.1, stretch[1]) : 1,",
+            "      ridge: /(ridge|groove|grain|fiber|striated|crack)/.test(description),",
+            "    }];",
+            "  });",
+            "  return parsed.length > 0 ? parsed : [",
+            "    { frequency: 2, amplitude: 0.42, stretchX: 1, stretchY: 1, ridge: false },",
+            "    { frequency: 12, amplitude: 0.22, stretchX: 1, stretchY: 1, ridge: false },",
+            "    { frequency: 56, amplitude: 0.08, stretchX: 1, stretchY: 1, ridge: false },",
+            "  ];",
+            "}",
+            "",
+            "function sampleSurface(u: number, v: number, bands: SurfaceBand[], seed: number): number {",
+            "  let value = 0;",
+            "  let weight = 0;",
+            "  for (let index = 0; index < bands.length; index += 1) {",
+            "    const band = bands[index];",
+            "    const periodX = Math.max(1, Math.round(band.frequency * band.stretchX));",
+            "    const periodY = Math.max(1, Math.round(band.frequency * band.stretchY));",
+            "    let sample = periodicValueNoise(u, v, seed + index * 1013, periodX, periodY);",
+            "    if (band.ridge) sample = 1 - Math.abs(sample * 2 - 1);",
+            "    value += sample * band.amplitude;",
+            "    weight += band.amplitude;",
+            "  }",
+            "  return weight > 0 ? clamp01(value / weight) : 0.5;",
+            "}",
+            "",
+            "function mixPalette(colors: [number, number, number][], value: number): [number, number, number] {",
+            "  if (colors.length === 1) return colors[0];",
+            "  const scaled = clamp01(value) * (colors.length - 1);",
+            "  const index = Math.min(colors.length - 2, Math.floor(scaled));",
+            "  const mix = scaled - index;",
+            "  const a = colors[index];",
+            "  const b = colors[index + 1];",
+            "  return [",
+            "    Math.round(THREE.MathUtils.lerp(a[0], b[0], mix)),",
+            "    Math.round(THREE.MathUtils.lerp(a[1], b[1], mix)),",
+            "    Math.round(THREE.MathUtils.lerp(a[2], b[2], mix)),",
+            "  ];",
+            "}",
+            "",
+            "type ColorGradientStop = { offset: number; color: string };",
+            "type ColorGradientSpec = {",
+            "  type: 'linear' | 'radial';",
+            "  axis: [number, number];",
+            "  stops: ColorGradientStop[];",
+            "};",
+            "",
+            "function parseRgba(value: string): [number, number, number] {",
+            "  const match = /rgba?\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)/.exec(value);",
+            "  if (!match) return [138, 122, 95];",
+            "  return [clampAlbedoChannel(Number(match[1])), clampAlbedoChannel(Number(match[2])), clampAlbedoChannel(Number(match[3]))];",
+            "}",
+            "",
+            "// Analytical per-pixel gradient sample. The extraction schema's colorGradient carries",
+            "// exact rgba(...) stop colors (see extract_part_color_recipe.py), so this samples the",
+            "// same trend directly in JS math rather than round-tripping through a Canvas 2D",
+            "// createLinearGradient/createRadialGradient object — same visual result, and it composes",
+            "// directly with the existing noise/height-correlated colorVariation blend below.",
+            "function sampleColorGradient(gradient: ColorGradientSpec, u: number, v: number): [number, number, number] {",
+            "  const stops = gradient.stops.length >= 2 ? gradient.stops : [{ offset: 0, color: 'rgba(138,122,95,1)' }, { offset: 1, color: 'rgba(138,122,95,1)' }];",
+            "  let t: number;",
+            "  if (gradient.type === 'radial') {",
+            "    const [cx, cy] = gradient.axis;",
+            "    const dx = u - cx;",
+            "    const dy = v - cy;",
+            "    const maxRadius = Math.max(0.001, Math.hypot(Math.max(cx, 1 - cx), Math.max(cy, 1 - cy)));",
+            "    t = clamp01(Math.hypot(dx, dy) / maxRadius);",
+            "  } else {",
+            "    const [ax, ay] = gradient.axis;",
+            "    const projection = (u - 0.5) * ax + (v - 0.5) * ay;",
+            "    const maxProjection = 0.5 * (Math.abs(ax) + Math.abs(ay)) || 0.5;",
+            "    t = clamp01(projection / maxProjection + 0.5);",
+            "  }",
+            "  const scaled = t * (stops.length - 1);",
+            "  const index = Math.min(stops.length - 2, Math.max(0, Math.floor(scaled)));",
+            "  const mix = scaled - index;",
+            "  const a = parseRgba(stops[index].color);",
+            "  const b = parseRgba(stops[index + 1].color);",
+            "  return [",
+            "    THREE.MathUtils.lerp(a[0], b[0], mix),",
+            "    THREE.MathUtils.lerp(a[1], b[1], mix),",
+            "    THREE.MathUtils.lerp(a[2], b[2], mix),",
+            "  ];",
+            "}",
+            "",
+            "function writePixel(data: Uint8ClampedArray, offset: number, red: number, green: number, blue: number): void {",
+            "  data[offset] = Math.max(0, Math.min(255, Math.round(red)));",
+            "  data[offset + 1] = Math.max(0, Math.min(255, Math.round(green)));",
+            "  data[offset + 2] = Math.max(0, Math.min(255, Math.round(blue)));",
+            "  data[offset + 3] = 255;",
+            "}",
+            "",
+            "function makeCanvas(size: number): HTMLCanvasElement {",
+            "  const canvas = document.createElement('canvas');",
+            "  canvas.width = size;",
+            "  canvas.height = size;",
+            "  return canvas;",
+            "}",
+            "",
+            "function createMapTexture(",
+            "  canvas: HTMLCanvasElement,",
+            "  colorSpace: THREE.ColorSpace,",
+            "  spec: SculptMaterialSpec,",
+            "  options: ProceduralModelOptions,",
+            "): THREE.CanvasTexture {",
+            "  const texture = new THREE.CanvasTexture(canvas);",
+            "  const projection = spec.textureProjection && typeof spec.textureProjection === 'object' ? spec.textureProjection : {};",
+            "  const repeat = Array.isArray(projection.repeat) ? projection.repeat : [2, 2];",
+            "  texture.colorSpace = colorSpace;",
+            "  texture.wrapS = THREE.RepeatWrapping;",
+            "  texture.wrapT = THREE.RepeatWrapping;",
+            "  texture.repeat.set(",
+            "    typeof repeat[0] === 'number' ? repeat[0] : 2,",
+            "    typeof repeat[1] === 'number' ? repeat[1] : 2,",
+            "  );",
+            "  texture.anisotropy = Math.max(1, Math.round(options.textureAnisotropy ?? projection.anisotropy ?? 8));",
+            "  texture.needsUpdate = true;",
+            "  return texture;",
+            "}",
+            "",
+            "type ProceduralTextureSet = {",
+            "  albedo: THREE.Texture;",
+            "  roughness: THREE.Texture;",
+            "  height: THREE.Texture;",
+            "  normal: THREE.Texture;",
+            "  ao: THREE.Texture;",
+            "  source: 'reference-pixel-extraction' | 'procedural';",
+            "};",
+            "",
+            "function referenceMapUrl(spec: SculptMaterialSpec, channel: string): string | null {",
+            "  const reference = spec.referencePbr;",
+            "  if (!reference || typeof reference !== 'object') return null;",
+            "  if (reference.usable === false) return null;",
+            "  const confidence = typeof reference.confidence === 'number'",
+            "    ? reference.confidence",
+            "    : (typeof reference.estimatedFidelity === 'number' ? reference.estimatedFidelity : 0);",
+            "  const threshold = typeof reference.targetThreshold === 'number' ? reference.targetThreshold : 0.7;",
+            "  if (confidence < threshold) return null;",
+            "  const maps = reference.maps;",
+            "  if (!maps || typeof maps !== 'object') return null;",
+            "  const map = (maps as Record<string, unknown>)[channel];",
+            "  if (!map || typeof map !== 'object') return null;",
+            "  const record = map as Record<string, unknown>;",
+            "  const url = typeof record.url === 'string' && record.url.trim() ? record.url : record.path;",
+            "  return typeof url === 'string' && url.trim() ? url : null;",
+            "}",
+            "",
+            "function createLoadedMapTexture(",
+            "  url: string,",
+            "  colorSpace: THREE.ColorSpace,",
+            "  spec: SculptMaterialSpec,",
+            "  options: ProceduralModelOptions,",
+            "): THREE.Texture {",
+            "  const texture = new THREE.TextureLoader().load(url);",
+            "  const projection = spec.textureProjection && typeof spec.textureProjection === 'object' ? spec.textureProjection : {};",
+            "  const repeat = Array.isArray(projection.repeat) ? projection.repeat : [1, 1];",
+            "  texture.colorSpace = colorSpace;",
+            "  texture.wrapS = THREE.RepeatWrapping;",
+            "  texture.wrapT = THREE.RepeatWrapping;",
+            "  texture.repeat.set(",
+            "    typeof repeat[0] === 'number' ? repeat[0] : 1,",
+            "    typeof repeat[1] === 'number' ? repeat[1] : 1,",
+            "  );",
+            "  texture.anisotropy = Math.max(1, Math.round(options.textureAnisotropy ?? projection.anisotropy ?? 8));",
+            "  texture.needsUpdate = true;",
+            "  return texture;",
+            "}",
+            "",
+            "function makeReferenceTextureSet(spec: SculptMaterialSpec, options: ProceduralModelOptions): ProceduralTextureSet | null {",
+            "  const albedo = referenceMapUrl(spec, 'albedo');",
+            "  const roughness = referenceMapUrl(spec, 'roughness');",
+            "  const height = referenceMapUrl(spec, 'height');",
+            "  const normal = referenceMapUrl(spec, 'normal');",
+            "  const ao = referenceMapUrl(spec, 'ao');",
+            "  if (!albedo || !roughness || !height || !normal || !ao) return null;",
+            "  return {",
+            "    albedo: createLoadedMapTexture(albedo, THREE.SRGBColorSpace, spec, options),",
+            "    roughness: createLoadedMapTexture(roughness, THREE.NoColorSpace, spec, options),",
+            "    height: createLoadedMapTexture(height, THREE.NoColorSpace, spec, options),",
+            "    normal: createLoadedMapTexture(normal, THREE.NoColorSpace, spec, options),",
+            "    ao: createLoadedMapTexture(ao, THREE.NoColorSpace, spec, options),",
+            "    source: 'reference-pixel-extraction',",
+            "  };",
+            "}",
+            "",
+            "function makeProceduralTextureSet(",
+            "  id: string,",
+            "  spec: SculptMaterialSpec,",
+            "  options: ProceduralModelOptions,",
+            "): ProceduralTextureSet | null {",
+            "  if (typeof document === 'undefined') return null;",
+            "  const qualityFirst = (options.qualityPriority ?? 'reference-fidelity') === 'reference-fidelity';",
+            "  const requested = options.textureSize ?? spec.textureResolution;",
+            "  const requestedSize = typeof requested === 'number' && Number.isFinite(requested)",
+            "    ? requested",
+            "    : (qualityFirst ? 1024 : 512);",
+            "  const size = Math.max(256, Math.min(2048, 2 ** Math.round(Math.log2(requestedSize))));",
+            "  const canvases = {",
+            "    albedo: makeCanvas(size),",
+            "    roughness: makeCanvas(size),",
+            "    height: makeCanvas(size),",
+            "    normal: makeCanvas(size),",
+            "    ao: makeCanvas(size),",
+            "  };",
+            "  const contexts = {",
+            "    albedo: canvases.albedo.getContext('2d'),",
+            "    roughness: canvases.roughness.getContext('2d'),",
+            "    height: canvases.height.getContext('2d'),",
+            "    normal: canvases.normal.getContext('2d'),",
+            "    ao: canvases.ao.getContext('2d'),",
+            "  };",
+            "  if (!contexts.albedo || !contexts.roughness || !contexts.height || !contexts.normal || !contexts.ao) return null;",
+            "  const images = {",
+            "    albedo: contexts.albedo.createImageData(size, size),",
+            "    roughness: contexts.roughness.createImageData(size, size),",
+            "    height: contexts.height.createImageData(size, size),",
+            "    normal: contexts.normal.createImageData(size, size),",
+            "    ao: contexts.ao.createImageData(size, size),",
+            "  };",
+            "  const seed = hashString(id);",
+            "  const bands = surfaceBands(spec);",
+            "  const heightField = new Float32Array(size * size);",
+            "  const roughnessField = new Float32Array(size * size);",
+            "  const palette = materialPalette(spec);",
+            "  const fallback = typeof spec.baseColor === 'string' ? spec.baseColor : '#8A7A5F';",
+            "  const colors = (palette.length >= 2 ? palette : [fallback, '#6E614B', '#A08F70']).map(hexToRgb);",
+            "  const baseRoughness = clamp01(readLayerNumber(spec.roughness, ['base'], 0.76));",
+            "  const roughnessVariation = clamp01(readLayerNumber(spec.roughness, ['variation'], 0.18));",
+            "  const colorAmplitude = clamp01(readLayerNumber(spec.colorVariation, ['amplitude', 'variation'], 0.18));",
+            "  const heightCorrelation = clamp01(readLayerNumber(spec.colorVariation, ['heightCorrelation'], 0.3));",
+            "  const colorGradient: ColorGradientSpec | undefined = spec.colorGradient;",
+            "  for (let y = 0; y < size; y += 1) {",
+            "    const v = y / size;",
+            "    for (let x = 0; x < size; x += 1) {",
+            "      const u = x / size;",
+            "      const index = y * size + x;",
+            "      const height = sampleSurface(u, v, bands, seed + 101);",
+            "      const roughNoise = sampleSurface(u, v, bands, seed + 7001);",
+            "      const colorNoise = sampleSurface(u, v, bands, seed + 15013);",
+            "      heightField[index] = height;",
+            "      roughnessField[index] = clamp01(baseRoughness + (roughNoise - 0.5) * roughnessVariation * 2);",
+            "      let color: [number, number, number];",
+            "      if (colorGradient) {",
+            "        // Evidence-derived spatial gradient (Plan 1.3 Workstream C) takes priority",
+            "        // over the noise-based palette blend below — it is a measured trend, not a guess.",
+            "        color = sampleColorGradient(colorGradient, u, v);",
+            "      } else {",
+            "        const paletteValue = clamp01(",
+            "          0.5 + (colorNoise - 0.5) * colorAmplitude * 2 + (height - 0.5) * heightCorrelation",
+            "        );",
+            "        color = mixPalette(colors, paletteValue);",
+            "      }",
+            "      writePixel(images.albedo.data, index * 4, color[0], color[1], color[2]);",
+            "    }",
+            "  }",
+            "  const normalStrength = Math.max(0.05, readLayerNumber(spec.normal, ['strength', 'amplitude'], 0.35));",
+            "  const aoStrength = clamp01(readLayerNumber(spec.ambientOcclusion, ['cavityStrength', 'strength'], 0.35));",
+            "  for (let y = 0; y < size; y += 1) {",
+            "    const up = ((y - 1 + size) % size) * size;",
+            "    const down = ((y + 1) % size) * size;",
+            "    for (let x = 0; x < size; x += 1) {",
+            "      const left = (x - 1 + size) % size;",
+            "      const right = (x + 1) % size;",
+            "      const index = y * size + x;",
+            "      const center = heightField[index];",
+            "      const dx = (heightField[y * size + right] - heightField[y * size + left]) * normalStrength * 6;",
+            "      const dy = (heightField[down + x] - heightField[up + x]) * normalStrength * 6;",
+            "      const inverseLength = 1 / Math.sqrt(dx * dx + dy * dy + 1);",
+            "      const normalX = -dx * inverseLength;",
+            "      const normalY = -dy * inverseLength;",
+            "      const normalZ = inverseLength;",
+            "      const neighborAverage = (",
+            "        heightField[y * size + left] + heightField[y * size + right]",
+            "        + heightField[up + x] + heightField[down + x]",
+            "      ) * 0.25;",
+            "      const cavity = Math.max(0, neighborAverage - center);",
+            "      const ao = clamp01(1 - aoStrength * (cavity * 12 + (1 - center) * 0.16));",
+            "      const offset = index * 4;",
+            "      const heightByte = center * 255;",
+            "      const roughnessByte = roughnessField[index] * 255;",
+            "      writePixel(images.height.data, offset, heightByte, heightByte, heightByte);",
+            "      writePixel(images.roughness.data, offset, roughnessByte, roughnessByte, roughnessByte);",
+            "      writePixel(",
+            "        images.normal.data, offset,",
+            "        (normalX * 0.5 + 0.5) * 255,",
+            "        (normalY * 0.5 + 0.5) * 255,",
+            "        (normalZ * 0.5 + 0.5) * 255,",
+            "      );",
+            "      writePixel(images.ao.data, offset, ao * 255, ao * 255, ao * 255);",
+            "    }",
+            "  }",
+            "  contexts.albedo.putImageData(images.albedo, 0, 0);",
+            "  contexts.roughness.putImageData(images.roughness, 0, 0);",
+            "  contexts.height.putImageData(images.height, 0, 0);",
+            "  contexts.normal.putImageData(images.normal, 0, 0);",
+            "  contexts.ao.putImageData(images.ao, 0, 0);",
+            "  return {",
+            "    albedo: createMapTexture(canvases.albedo, THREE.SRGBColorSpace, spec, options),",
+            "    roughness: createMapTexture(canvases.roughness, THREE.NoColorSpace, spec, options),",
+            "    height: createMapTexture(canvases.height, THREE.NoColorSpace, spec, options),",
+            "    normal: createMapTexture(canvases.normal, THREE.NoColorSpace, spec, options),",
+            "    ao: createMapTexture(canvases.ao, THREE.NoColorSpace, spec, options),",
+            "    source: 'procedural',",
+            "  };",
+            "}",
+            "",
+            "function createSculptMaterial(id: string, spec: SculptMaterialSpec, options: ProceduralModelOptions, denseComponent = false): THREE.MeshPhysicalMaterial {",
+            "  const textures = makeReferenceTextureSet(spec, options) ?? makeProceduralTextureSet(id, spec, options);",
+            "  const material = new THREE.MeshPhysicalMaterial({",
+            "    color: textures ? 0xffffff : clampedAlbedoColor(spec),",
+            "    roughness: textures ? 1 : clamp01(readLayerNumber(spec.roughness, ['base'], 0.76)),",
+            "    metalness: clampPbrMetalness(readLayerNumber(spec.metalness, ['base'], 0.0)),",
+            "    clearcoat: clamp01(readLayerNumber(spec.clearcoat, ['base', 'amount'], 0)),",
+            "    clearcoatRoughness: clamp01(readLayerNumber(spec.clearcoatRoughness, ['base'], 0.25)),",
+            "    transmission: clamp01(readLayerNumber(spec.transmission, ['base', 'amount'], 0)),",
+            "    ior: clampPbrIor(readLayerNumber(spec.ior, ['base', 'value'], 1.5)),",
+            "    thickness: Math.max(0, readLayerNumber(spec.thickness, ['base', 'amount'], 0)),",
+            "    attenuationDistance: Math.max(0.001, readLayerNumber(spec.attenuationDistance, ['base', 'value'], Infinity)),",
+            "    attenuationColor: new THREE.Color(typeof spec.attenuationColor === 'string' ? spec.attenuationColor : '#ffffff'),",
+            "    sheen: clamp01(readLayerNumber(spec.sheen, ['base', 'amount'], 0)),",
+            "    sheenColor: new THREE.Color(typeof spec.sheenColor === 'string' ? spec.sheenColor : '#ffffff'),",
+            "    sheenRoughness: clamp01(readLayerNumber(spec.sheenRoughness, ['base'], 1.0)),",
+            "    iridescence: clamp01(readLayerNumber(spec.iridescence, ['base', 'amount'], 0)),",
+            "    iridescenceIOR: clampPbrIor(readLayerNumber(spec.iridescenceIOR, ['base', 'value'], 1.3)),",
+            "    anisotropy: clamp01(readLayerNumber(spec.anisotropy, ['base', 'amount'], 0)),",
+            "    anisotropyRotation: readLayerNumber(spec.anisotropy, ['rotation'], 0),",
+            "    specularIntensity: clampPbrF0(readLayerNumber(spec.specularF0 ?? spec.f0 ?? spec.specularIntensity, ['base', 'value'], 1.0)),",
+            "    specularColor: new THREE.Color(typeof spec.specularColor === 'string' ? spec.specularColor : '#ffffff'),",
+            "    emissive: new THREE.Color(typeof spec.emissive === 'string' ? spec.emissive : '#000000'),",
+            "    emissiveIntensity: Math.max(0, readLayerNumber(spec.emissiveIntensity, ['base'], 1.0)),",
+            "    opacity: clamp01(readLayerNumber(spec.opacity, ['base'], 1)),",
+            "    transparent: readLayerNumber(spec.transmission, ['base', 'amount'], 0) > 0 || readLayerNumber(spec.opacity, ['base'], 1) < 1,",
+            "    alphaTest: Math.max(0, readLayerNumber(spec.alpha, ['cutoff', 'alphaTest'], 0)),",
+            "    wireframe: options.wireframe ?? false,",
+            "    side: spec.doubleSided === true ? THREE.DoubleSide : THREE.FrontSide,",
+            # Faceted shading is a look, not an optimisation: three.js implements it by giving every
+            # face its own normals, which needs unshared vertices, so the geometry has to be
+            # non-indexed and the vertex count triples (3 per face). It is opt-in per material for
+            # that reason -- turning it on globally would silently spend the budget the
+            # `performanceBudget.targetTriangles` tier just bought back.
+            "    flatShading: spec.flatShading === true,",
+            "  });",
+            "  if (textures) {",
+            "    material.map = textures.albedo;",
+            "    material.roughnessMap = textures.roughness;",
+            "    material.normalMap = textures.normal;",
+            "    material.normalScale.setScalar(Math.max(0.05, readLayerNumber(spec.normal, ['strength', 'amplitude'], 0.35)));",
+            "    material.aoMap = textures.ao;",
+            "    material.aoMap.channel = 0;",
+            "    material.aoMapIntensity = readLayerNumber(spec.ambientOcclusion, ['cavityStrength', 'strength'], 0.35);",
+            "    const denseMesh = denseComponent || spec.denseMesh === true || spec.geometryDensity === 'dense' || spec.topologyClass === 'dense';",
+            "    const bumpScale = Math.max(0, readLayerNumber(spec.bump, ['amplitude', 'strength'], 0));",
+            "    const effectiveBumpScale = denseMesh ? Math.max(0.05, bumpScale) : bumpScale;",
+            "    if (effectiveBumpScale > 0) {",
+            "      material.bumpMap = textures.height;",
+            "      material.bumpScale = effectiveBumpScale;",
+            "    }",
+            "    const displacementScale = Math.max(0, readLayerNumber(spec.displacement, ['amplitude', 'strength'], 0));",
+            "    const effectiveDisplacementScale = denseMesh ? Math.max(0.005, displacementScale) : displacementScale;",
+            "    if (effectiveDisplacementScale > 0) {",
+            "      material.displacementMap = textures.height;",
+            "      material.displacementScale = effectiveDisplacementScale;",
+            "      material.displacementBias = -effectiveDisplacementScale * 0.5;",
+            "    }",
+            "  }",
+            "  material.envMapIntensity = readLayerNumber(spec, ['envMapIntensity'], 0.8);",
+            "  material.userData.sculptMaterial = spec;",
+            "  material.userData.proceduralMapsIndependent = true;",
+            "  material.userData.pbrConstraints = { albedoRange: [30, 240], binaryMetalness: true, f0Range: [0.02, 1], iorRange: [1, 2.5] };",
+            "  material.userData.pbrTextureSource = textures?.source ?? 'flat-fallback';",
+            "  material.userData.referencePbr = spec.referencePbr ?? null;",
+            "  material.userData.referenceMaterialId = spec.referenceMaterialId ?? spec.materialReference?.profileId ?? null;",
+            "  material.userData.materialEvidence = spec.materialEvidence ?? null;",
+            "  material.userData.validationViews = spec.materialReference?.validationViews ?? [];",
+            "  material.needsUpdate = true;",
+            "  return material;",
+            "}",
+            "",
+            "type AttachmentEndpoint = {",
+            "  start: THREE.Vector3;",
+            "  midpoint: THREE.Vector3;",
+            "  quaternion: THREE.Quaternion;",
+            "  length: number;",
+            "  baseRadius: number;",
+            "  endRadius: number;",
+            "};",
+            "",
+            "function readVector3(value: unknown, fallback: [number, number, number]): THREE.Vector3 {",
+            "  if (Array.isArray(value) && value.length === 3 && value.every((item) => typeof item === 'number')) {",
+            "    return new THREE.Vector3(value[0], value[1], value[2]);",
+            "  }",
+            "  return new THREE.Vector3(fallback[0], fallback[1], fallback[2]);",
+            "}",
+            "",
+            "function readNumber(value: unknown, fallback: number): number {",
+            "  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;",
+            "}",
+            "",
+            "function makeAttachmentEndpoint(attachment: unknown): AttachmentEndpoint | null {",
+            "  if (!attachment || typeof attachment !== 'object') return null;",
+            "  const record = attachment as Record<string, unknown>;",
+            "  const start = readVector3(record.localStart, [0, 0, 0]);",
+            "  const end = readVector3(record.localEnd, [0, 1, 0]);",
+            "  const delta = end.clone().sub(start);",
+            "  const length = delta.length();",
+            "  if (length <= 0.0001) return null;",
+            "  const direction = delta.clone().normalize();",
+            "  const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);",
+            "  const baseRadius = Math.max(0.005, readNumber(record.baseRadius, 0.06));",
+            "  const endRadius = Math.max(0.003, readNumber(record.endRadius, baseRadius * 0.55));",
+            "  return {",
+            "    start,",
+            "    midpoint: delta.multiplyScalar(0.5),",
+            "    quaternion,",
+            "    length,",
+            "    baseRadius,",
+            "    endRadius,",
+            "  };",
+            "}",
+            "",
+            f"// Generated from ObjectSculptSpec target: {target}",
+            f"// Sculpt build pass: {pass_id}",
+            "// This factory is intentionally pass-gated. Finish browser screenshot review before unlocking deeper passes.",
+            f"export function {function_name}(options: ProceduralModelOptions = {{}}): THREE.Group {{",
+            "  const root = new THREE.Group();",
+            f"  root.name = {json.dumps(target)};",
+            f"  root.userData.reconstructionEvidence = {json_literal(reconstruction_evidence)};",
+            f"  root.userData.materialPipeline = {json_literal(spec.get('materialPipeline', {}))};",
+            f"  root.userData.materialReferenceRegistry = {json_literal(spec.get('materialReference', spec.get('materialPipeline', {}).get('registry') if isinstance(spec.get('materialPipeline'), dict) else None))};",
+            "",
+            "  const materialMap: Record<string, THREE.Material> = {};",
         ]
     )
     for material_id, material in materials.items():
@@ -2739,9 +2826,13 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
     # a plain THREE.Mesh cannot be promoted to one after the fact. On the pivot track this set is
     # empty, so every component stays a THREE.Mesh and the emitted output is unchanged.
     skinned_ids = (
-        {str(b.get("component") or b.get("id"))
-         for b in spec["rig"]["bones"] if isinstance(b, dict) and b.get("id")}
-        if rig_is_bone_track(spec) else set()
+        {
+            str(b.get("component") or b.get("id"))
+            for b in spec["rig"]["bones"]
+            if isinstance(b, dict) and b.get("id")
+        }
+        if rig_is_bone_track(spec)
+        else set()
     )
 
     for index, component in enumerate(components):
@@ -2751,12 +2842,28 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         primitive = str(component.get("primitive") or "box")
         if primitive not in VALID_PRIMITIVES:
             primitive = "box"
-        transform = component.get("transform", {}) if isinstance(component.get("transform"), dict) else {}
-        action_profile = component.get("actionProfile") if isinstance(component.get("actionProfile"), dict) else {}
-        sockets_spec = action_profile.get("sockets", []) if isinstance(action_profile.get("sockets"), list) else []
-        destruction = action_profile.get("destruction") if isinstance(action_profile.get("destruction"), dict) else {}
+        transform = (
+            component.get("transform", {}) if isinstance(component.get("transform"), dict) else {}
+        )
+        action_profile = (
+            component.get("actionProfile")
+            if isinstance(component.get("actionProfile"), dict)
+            else {}
+        )
+        sockets_spec = (
+            action_profile.get("sockets", [])
+            if isinstance(action_profile.get("sockets"), list)
+            else []
+        )
+        destruction = (
+            action_profile.get("destruction")
+            if isinstance(action_profile.get("destruction"), dict)
+            else {}
+        )
         fracture_group = destruction.get("fractureGroup") if isinstance(destruction, dict) else None
-        attachment = component.get("attachment") if isinstance(component.get("attachment"), dict) else None
+        attachment = (
+            component.get("attachment") if isinstance(component.get("attachment"), dict) else None
+        )
         attachment_var = local_var("attachment", component_id, index)
         endpoint_var = local_var("endpoint", component_id, index)
         material_id = str(component.get("material") or next(iter(materials.keys()), "base"))
@@ -2775,9 +2882,13 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
         is_implicit = component.get("topologyClass") == "implicit" and isinstance(sdf, dict)
         is_visual_hull = isinstance(visual_hull, dict)
         iterations = subdivision_iterations(component)
-        effective_primitive = resolve_instanced_cluster_base(primitive, geometry_descriptor, VALID_PRIMITIVES)
+        effective_primitive = resolve_instanced_cluster_base(
+            primitive, geometry_descriptor, VALID_PRIMITIVES
+        )
         if is_visual_hull:
-            base_geometry_lines = [f"    const geometry = buildVisualHullGeometry({json_literal(visual_hull)});"]
+            base_geometry_lines = [
+                f"    const geometry = buildVisualHullGeometry({json_literal(visual_hull)});"
+            ]
         elif is_implicit:
             # An SDF's density comes from its sampling grid, not from segment counts, so the
             # tessellation tier has to reach it separately or it stays the one uncapped source
@@ -2808,7 +2919,9 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 "  })();",
             ]
         elif is_visual_hull:
-            geometry_lines = [f"  const {component_var}Geometry = buildVisualHullGeometry({json_literal(visual_hull)});"]
+            geometry_lines = [
+                f"  const {component_var}Geometry = buildVisualHullGeometry({json_literal(visual_hull)});"
+            ]
         elif is_implicit:
             geometry_lines = [
                 f"  const {component_var}Geometry = polygonizeSdf({json_literal(capped_sdf(sdf, seg))});"
@@ -2977,7 +3090,7 @@ def generate(spec: dict[str, Any], pass_id: str) -> str:
                 "    const _q = new THREE.Quaternion();",
                 "    const _s = new THREE.Vector3(scl[0], scl[1], scl[2]);",
                 f"    for (let i = 0; i < {count}; i++) {{",
-                f"      const ang = (({float(start_deg) if isinstance(start_deg,(int,float)) else 0.0}) + (i * 360) / {count}) * Math.PI / 180;",
+                f"      const ang = (({float(start_deg) if isinstance(start_deg, (int, float)) else 0.0}) + (i * 360) / {count}) * Math.PI / 180;",
                 "      const dir = perp.clone().applyQuaternion(new THREE.Quaternion().setFromAxisAngle(axis, ang));",
                 "      _p.copy(radius > 0 ? dir.clone().multiplyScalar(radius * 0.5) : new THREE.Vector3());",
                 "      _q.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir);",
@@ -3185,7 +3298,10 @@ def main(argv: list[str]) -> int:
     if _errors:
         parser.error(f"spec validation failed: {'; '.join(_errors)}")
     if args.allow_nonstrict:
-        print("WARNING: generating a non-production test-fixture factory (--allow-nonstrict)", file=sys.stderr)
+        print(
+            "WARNING: generating a non-production test-fixture factory (--allow-nonstrict)",
+            file=sys.stderr,
+        )
     pass_id = args.pass_id or unlocked_pass(spec)
     try:
         assert_pass_unlocked(spec, pass_id)

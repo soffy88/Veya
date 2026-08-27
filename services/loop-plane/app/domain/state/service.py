@@ -47,11 +47,14 @@ class GoalService:
 
     # ------------------------------------------------------------------ 创建/查询
 
-    def create_goal(self, objective: str, todos: list[dict[str, Any]], *, trace_id: str = "") -> dict[str, Any]:
+    def create_goal(
+        self, objective: str, todos: list[dict[str, Any]], *, trace_id: str = ""
+    ) -> dict[str, Any]:
         """创建 Goal + todos（≡ create_plan）。返回投影。"""
         goal_id = new_id("goal_")
         self._store.append(
-            aggregate_type="Goal", aggregate_id=goal_id,
+            aggregate_type="Goal",
+            aggregate_id=goal_id,
             event_type="GoalCreated",
             payload={"objective": objective, "todos": todos},
             trace_id=trace_id,
@@ -78,21 +81,25 @@ class GoalService:
 
     # ------------------------------------------------------------------ Todo
 
-    def update_todo(self, goal_id: str, todo_id: str, status: str, evidence: str = "", *, trace_id: str = "") -> dict[str, Any]:
+    def update_todo(
+        self, goal_id: str, todo_id: str, status: str, evidence: str = "", *, trace_id: str = ""
+    ) -> dict[str, Any]:
         """更新 todo 状态 + 追加证据（≡ update_todo）。"""
         goal = self.get_goal(goal_id)  # 404 校验
         if todo_id not in goal["todos"]:
             raise KeyError(f"todo {todo_id!r} 不存在于 Goal {goal_id!r}")
         status = normalize_status(status)
         self._store.append(
-            aggregate_type="Goal", aggregate_id=goal_id,
+            aggregate_type="Goal",
+            aggregate_id=goal_id,
             event_type="TodoUpdated",
             payload={"todo_id": todo_id, "status": status},
             trace_id=trace_id,
         )
         if evidence:
             self._store.append(
-                aggregate_type="Goal", aggregate_id=goal_id,
+                aggregate_type="Goal",
+                aggregate_id=goal_id,
                 event_type="EvidenceAppended",
                 payload={"todo_id": todo_id, "evidence": evidence},
                 trace_id=trace_id,
@@ -100,8 +107,10 @@ class GoalService:
         # 全部 done → GoalCompleted
         if self._all_done(goal_id):
             self._store.append(
-                aggregate_type="Goal", aggregate_id=goal_id,
-                event_type="GoalCompleted", payload={},
+                aggregate_type="Goal",
+                aggregate_id=goal_id,
+                event_type="GoalCompleted",
+                payload={},
                 trace_id=trace_id,
             )
         return self.get_goal(goal_id)
@@ -111,7 +120,15 @@ class GoalService:
         todos = (goal.get("todos") or {}).values()
         return bool(todos) and all(t["status"] == "done" for t in todos)
 
-    def claim(self, goal_id: str, todo_id: str, *, claimant: str = "assistant", lease_min: int = DEFAULT_LEASE_MIN, trace_id: str = "") -> dict[str, Any]:
+    def claim(
+        self,
+        goal_id: str,
+        todo_id: str,
+        *,
+        claimant: str = "assistant",
+        lease_min: int = DEFAULT_LEASE_MIN,
+        trace_id: str = "",
+    ) -> dict[str, Any]:
         """claim + lease；已有未过期 claim → 拒绝（fail-closed）。"""
         goal = self.get_goal(goal_id)
         todo = goal["todos"].get(todo_id)
@@ -132,9 +149,14 @@ class GoalService:
                     pass
         lease_min = max(1, min(int(lease_min), MAX_LEASE_MIN))
         self._store.append(
-            aggregate_type="Goal", aggregate_id=goal_id,
+            aggregate_type="Goal",
+            aggregate_id=goal_id,
             event_type="TodoClaimed",
-            payload={"todo_id": todo_id, "claimant": claimant, "lease_until": _lease_until(lease_min)},
+            payload={
+                "todo_id": todo_id,
+                "claimant": claimant,
+                "lease_until": _lease_until(lease_min),
+            },
             trace_id=trace_id,
         )
         return self.get_goal(goal_id)
@@ -142,8 +164,10 @@ class GoalService:
     def release(self, goal_id: str, todo_id: str, *, trace_id: str = "") -> dict[str, Any]:
         self.get_goal(goal_id)
         self._store.append(
-            aggregate_type="Goal", aggregate_id=goal_id,
-            event_type="TodoReleased", payload={"todo_id": todo_id},
+            aggregate_type="Goal",
+            aggregate_id=goal_id,
+            event_type="TodoReleased",
+            payload={"todo_id": todo_id},
             trace_id=trace_id,
         )
         return self.get_goal(goal_id)
@@ -155,9 +179,9 @@ class GoalService:
         goal = self.get_goal(goal_id)
         todos = goal["todos"]
         actionable = [
-            t for t in todos.values()
-            if t["status"] not in ("done",)
-            and not self._blocked(t, todos)
+            t
+            for t in todos.values()
+            if t["status"] not in ("done",) and not self._blocked(t, todos)
         ]
         spent = int(goal.get("quota_spent", 0))
         budget = int(goal.get("quota_budget", self._default_quota))
@@ -168,11 +192,7 @@ class GoalService:
             "actionable": len(actionable),
             "spent": spent,
             "budget": budget,
-            "reason": (
-                "有可执行 todo 且预算未耗尽"
-                if decision else
-                "无可执行 todo 或预算耗尽"
-            ),
+            "reason": ("有可执行 todo 且预算未耗尽" if decision else "无可执行 todo 或预算耗尽"),
         }
 
     def gate_check(self, goal_id: str, gate_scope: str) -> dict[str, Any]:
@@ -183,10 +203,7 @@ class GoalService:
         unmet: list[str] = []
         if status != "resolved":
             # 依赖未完成的 todo 视为未满足的 gate
-            unmet = [
-                t["id"] for t in goal["todos"].values()
-                if t["status"] != "done"
-            ]
+            unmet = [t["id"] for t in goal["todos"].values() if t["status"] != "done"]
         return {
             "goal_id": goal_id,
             "gate_scope": gate_scope,
@@ -204,7 +221,9 @@ class GoalService:
             "auto_execute": False,
         }
 
-    def spend(self, goal_id: str, todo_id: str, slots: int = 1, *, trace_id: str = "") -> dict[str, Any]:
+    def spend(
+        self, goal_id: str, todo_id: str, slots: int = 1, *, trace_id: str = ""
+    ) -> dict[str, Any]:
         """quota 记账（≡ quota_spend_slot）；超出预算拒绝。"""
         goal = self.get_goal(goal_id)
         if todo_id not in goal["todos"]:
@@ -214,7 +233,8 @@ class GoalService:
         if spent + slots > budget:
             raise RuntimeError(f"quota 超支: spent={spent} slots={slots} budget={budget}")
         self._store.append(
-            aggregate_type="Goal", aggregate_id=goal_id,
+            aggregate_type="Goal",
+            aggregate_id=goal_id,
             event_type="QuotaSpent",
             payload={"todo_id": todo_id, "slots": int(slots)},
             trace_id=trace_id,
@@ -226,8 +246,7 @@ class GoalService:
     @staticmethod
     def _blocked(todo: dict[str, Any], todos: dict[str, dict[str, Any]]) -> bool:
         return any(
-            dep in todos and todos[dep]["status"] != "done"
-            for dep in todo.get("depends_on") or []
+            dep in todos and todos[dep]["status"] != "done" for dep in todo.get("depends_on") or []
         )
 
 

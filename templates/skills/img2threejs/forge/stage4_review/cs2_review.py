@@ -53,14 +53,18 @@ def _number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _failed_threshold(metrics: dict[str, Any], key: str, threshold: float, *, maximum: bool) -> bool:
+def _failed_threshold(
+    metrics: dict[str, Any], key: str, threshold: float, *, maximum: bool
+) -> bool:
     value = metrics.get(key)
     if not _number(value):
         return True
     return float(value) > threshold if maximum else float(value) < threshold
 
 
-def _region_results(inputs: dict[str, Any], threshold: float) -> tuple[list[dict[str, Any]], list[str]]:
+def _region_results(
+    inputs: dict[str, Any], threshold: float
+) -> tuple[list[dict[str, Any]], list[str]]:
     raw = inputs.get("paintedRegions", [])
     if not isinstance(raw, list):
         return [], ["painted-regions-invalid"]
@@ -129,7 +133,9 @@ def evaluate_knife_review(
     if manifest.get("route") == "reference-projection":
         if not isinstance(projection, dict) or projection.get("required") is not True:
             failed.append("projection-evidence-missing")
-        elif _failed_threshold(projection, "coverage", float(thresholds["projectionCoverage"]), maximum=False):
+        elif _failed_threshold(
+            projection, "coverage", float(thresholds["projectionCoverage"]), maximum=False
+        ):
             failed.append("projection-coverage")
 
     multi_angle = inputs.get("multiAngle")
@@ -143,10 +149,23 @@ def evaluate_knife_review(
     hidden_confidence = manifest.get("confidence", {}).get("hiddenRegions")
     report = {
         "verdict": "pass" if not failed else "reject",
-        "action": "continue" if not failed else ("request-input" if any(
-            item.startswith(("unsupported-family", "manifest-state", "projection-evidence", "orbit-coverage"))
-            for item in failed
-        ) else "refine-code"),
+        "action": "continue"
+        if not failed
+        else (
+            "request-input"
+            if any(
+                item.startswith(
+                    (
+                        "unsupported-family",
+                        "manifest-state",
+                        "projection-evidence",
+                        "orbit-coverage",
+                    )
+                )
+                for item in failed
+            )
+            else "refine-code"
+        ),
         "family": family,
         "subtype": manifest.get("subtype"),
         "exactnessTier": manifest.get("exactnessTier"),
@@ -182,7 +201,9 @@ def _load_object(path: Path, label: str) -> dict[str, Any]:
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     target = path.expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    handle, temporary = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             json.dump(payload, stream, indent=2, ensure_ascii=False)

@@ -29,13 +29,9 @@ def validate_manifest(
         for it in items:
             kind = _infer_kind(it)
             if kind not in ("function", "str"):
-                errors.append(
-                    f"注入点 {slot!r} 的 {kind} 不是可装配实现 (function|str)"
-                )
+                errors.append(f"注入点 {slot!r} 的 {kind} 不是可装配实现 (function|str)")
     if skeleton_kinds is not None and manifest.skeleton not in skeleton_kinds:
-        errors.append(
-            f"骨架 {manifest.skeleton!r} 未注册 — 可用: {sorted(skeleton_kinds)}"
-        )
+        errors.append(f"骨架 {manifest.skeleton!r} 未注册 — 可用: {sorted(skeleton_kinds)}")
     return errors
 
 
@@ -50,8 +46,7 @@ class Service:
         runner = getattr(self.skeleton, "run", None)
         if runner is None:
             raise RuntimeError(f"骨架 {self.manifest.skeleton!r} 无 run()")
-        return await runner(self.manifest.inject, self.manifest.trigger,
-                            self.manifest.config)
+        return await runner(self.manifest.inject, self.manifest.trigger, self.manifest.config)
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Service {self.manifest.name} skeleton={self.manifest.skeleton}>"

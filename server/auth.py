@@ -70,6 +70,7 @@ _init_db()
 
 # ── 密码 ──────────────────────────────────────────────────────────────
 
+
 def _hash_password(password: str) -> str:
     salt = os.urandom(16)
     dk = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
@@ -88,6 +89,7 @@ def _verify_password(password: str, stored: str) -> bool:
 
 
 # ── 用户/Token 操作 ───────────────────────────────────────────────────
+
 
 def create_user(username: str, password: str) -> dict[str, str]:
     """注册。返回 {user_id, username}。重复用户名抛 ValueError。"""
@@ -152,6 +154,7 @@ def revoke_token(token: str) -> None:
 
 
 # ── FastAPI 集成 ──────────────────────────────────────────────────────
+
 
 def current_user() -> dict[str, Any]:
     """读取当前请求用户 (contextvar)。工具/存储用它做按用户隔离。"""

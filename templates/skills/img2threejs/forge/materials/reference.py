@@ -92,17 +92,29 @@ def validate_reference(payload: dict[str, Any]) -> list[str]:
             continue
         for property_name, prior in render_prior.items():
             if property_name not in legal:
-                errors.append(f"material {material_id!r} uses undocumented property {property_name!r}")
+                errors.append(
+                    f"material {material_id!r} uses undocumented property {property_name!r}"
+                )
                 continue
             if not isinstance(prior, dict) or not isinstance(prior.get("default"), (int, float)):
                 errors.append(f"material {material_id!r}.{property_name} prior is malformed")
                 continue
             bounds = prior.get("range")
             allowed = legal[property_name]
-            if not isinstance(bounds, list) or len(bounds) != 2 or not isinstance(allowed, list) or len(allowed) != 2:
+            if (
+                not isinstance(bounds, list)
+                or len(bounds) != 2
+                or not isinstance(allowed, list)
+                or len(allowed) != 2
+            ):
                 errors.append(f"material {material_id!r}.{property_name} prior range is malformed")
                 continue
-            if bounds[0] > prior["default"] or prior["default"] > bounds[1] or bounds[0] < allowed[0] or bounds[1] > allowed[1]:
+            if (
+                bounds[0] > prior["default"]
+                or prior["default"] > bounds[1]
+                or bounds[0] < allowed[0]
+                or bounds[1] > allowed[1]
+            ):
                 errors.append(f"material {material_id!r}.{property_name} prior escapes legal range")
     return errors
 
@@ -112,7 +124,9 @@ def load_reference(path: Path | str = DEFAULT_REFERENCE) -> dict[str, Any]:
     try:
         payload = json.loads(reference_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise MaterialReferenceError(f"cannot load material reference {reference_path}: {exc}") from exc
+        raise MaterialReferenceError(
+            f"cannot load material reference {reference_path}: {exc}"
+        ) from exc
     errors = validate_reference(payload)
     if errors:
         raise MaterialReferenceError("invalid material reference: " + "; ".join(errors))
@@ -123,7 +137,9 @@ def _material_index(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in payload.get("materials", []) if isinstance(item, dict)]
 
 
-def _candidate(profile: dict[str, Any], method: str, confidence: float, reason: str) -> dict[str, Any]:
+def _candidate(
+    profile: dict[str, Any], method: str, confidence: float, reason: str
+) -> dict[str, Any]:
     return {
         "materialId": profile.get("id"),
         "profile": profile,
@@ -133,7 +149,9 @@ def _candidate(profile: dict[str, Any], method: str, confidence: float, reason: 
     }
 
 
-def resolve_material(hypothesis: dict[str, Any], payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def resolve_material(
+    hypothesis: dict[str, Any], payload: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Resolve one hypothesis while retaining alternatives and uncertainty.
 
     Explicit user/metadata identity wins.  Alias and family matching never
@@ -144,7 +162,9 @@ def resolve_material(hypothesis: dict[str, Any], payload: dict[str, Any] | None 
     by_id = {str(item.get("id")): item for item in materials}
     explicit = hypothesis.get("materialId")
     if isinstance(explicit, str) and explicit in by_id:
-        result = _candidate(by_id[explicit], "explicit-material-id", 1.0, "authoritative material id")
+        result = _candidate(
+            by_id[explicit], "explicit-material-id", 1.0, "authoritative material id"
+        )
         result["status"] = "proceed"
         result["alternatives"] = []
         return result
@@ -153,13 +173,19 @@ def resolve_material(hypothesis: dict[str, Any], payload: dict[str, Any] | None 
     subtype = _token(hypothesis.get("subtype"))
     finish = _token(hypothesis.get("finish"))
     exact = [
-        item for item in materials
+        item
+        for item in materials
         if _token(item.get("family")) == family
         and (not subtype or _token(item.get("subtype")) == subtype)
         and (not finish or _token(item.get("finish")) == finish)
     ]
     if len(exact) == 1:
-        result = _candidate(exact[0], "family-subtype-finish", float(hypothesis.get("confidence", 0.7)), "exact semantic match")
+        result = _candidate(
+            exact[0],
+            "family-subtype-finish",
+            float(hypothesis.get("confidence", 0.7)),
+            "exact semantic match",
+        )
         result["status"] = "proceed" if result["confidence"] >= 0.7 else "probe"
         result["alternatives"] = []
         return result
@@ -170,9 +196,18 @@ def resolve_material(hypothesis: dict[str, Any], payload: dict[str, Any] | None 
         if isinstance(value, list):
             for item in value:
                 aliases.update(_tokens(item.get("materialId") if isinstance(item, dict) else item))
-    alias_matches = [item for item in materials if aliases & set().union(*(_tokens(alias) for alias in item.get("aliases", [])))]
+    alias_matches = [
+        item
+        for item in materials
+        if aliases & set().union(*(_tokens(alias) for alias in item.get("aliases", [])))
+    ]
     if len(alias_matches) == 1:
-        result = _candidate(alias_matches[0], "alias", float(hypothesis.get("confidence", 0.5)), "unique alias match")
+        result = _candidate(
+            alias_matches[0],
+            "alias",
+            float(hypothesis.get("confidence", 0.5)),
+            "unique alias match",
+        )
         result["status"] = "proceed" if result["confidence"] >= 0.7 else "probe"
         result["alternatives"] = []
         return result
@@ -180,7 +215,12 @@ def resolve_material(hypothesis: dict[str, Any], payload: dict[str, Any] | None 
     family_matches = [item for item in materials if family and _token(item.get("family")) == family]
     family_matches.sort(key=lambda item: str(item.get("id")))
     alternatives = [
-        _candidate(item, "family-fallback", max(0.1, float(hypothesis.get("confidence", 0.3)) * 0.65), "family fallback")
+        _candidate(
+            item,
+            "family-fallback",
+            max(0.1, float(hypothesis.get("confidence", 0.3)) * 0.65),
+            "family fallback",
+        )
         for item in family_matches
     ]
     if len(family_matches) == 1:
@@ -225,16 +265,18 @@ def build_assignment(
         "evidence": copy.deepcopy(evidence or {}),
     }
     if profile:
-        assignment.update({
-            "profileId": profile["id"],
-            "family": profile.get("family"),
-            "subtype": profile.get("subtype"),
-            "finish": profile.get("finish"),
-            "renderPrior": _prior_values(profile),
-            "requiredMaps": list(profile.get("requiredMaps", [])),
-            "optionalMaps": list(profile.get("optionalMaps", [])),
-            "validationViews": list(profile.get("validationViews", [])),
-            "sourceRefs": list(profile.get("sourceRefs", [])),
-            "visualCues": list(profile.get("visualCues", [])),
-        })
+        assignment.update(
+            {
+                "profileId": profile["id"],
+                "family": profile.get("family"),
+                "subtype": profile.get("subtype"),
+                "finish": profile.get("finish"),
+                "renderPrior": _prior_values(profile),
+                "requiredMaps": list(profile.get("requiredMaps", [])),
+                "optionalMaps": list(profile.get("optionalMaps", [])),
+                "validationViews": list(profile.get("validationViews", [])),
+                "sourceRefs": list(profile.get("sourceRefs", [])),
+                "visualCues": list(profile.get("visualCues", [])),
+            }
+        )
     return assignment

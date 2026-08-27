@@ -190,8 +190,12 @@ def apply_to_spec(spec: dict[str, Any], style_heads: float) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("spec", type=Path, help="ObjectSculptSpec to fill")
-    parser.add_argument("--style-heads", type=float, required=True,
-                        help="head-unit height of the figure (8 = realistic, 4 = stylized)")
+    parser.add_argument(
+        "--style-heads",
+        type=float,
+        required=True,
+        help="head-unit height of the figure (8 = realistic, 4 = stylized)",
+    )
     parser.add_argument("--in-place", action="store_true")
     args = parser.parse_args(argv)
 

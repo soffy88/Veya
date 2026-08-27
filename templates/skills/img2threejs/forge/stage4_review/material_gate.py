@@ -62,8 +62,14 @@ def run_material_gate(
         if not isinstance(views, list) or len(views) < 4:
             failures.append("material view plan must contain at least four camera azimuths/views")
         captures = view_plan.get("captureValidation", [])
-        if require_visual_evidence and captures and any(not item.get("passed") for item in captures if isinstance(item, dict)):
-            failures.append("one or more saved material captures failed readback/coverage validation")
+        if (
+            require_visual_evidence
+            and captures
+            and any(not item.get("passed") for item in captures if isinstance(item, dict))
+        ):
+            failures.append(
+                "one or more saved material captures failed readback/coverage validation"
+            )
         environment = view_plan.get("environment")
         if not isinstance(environment, dict) or environment.get("required") is not True:
             failures.append("controlled material views must require a stable environment")
@@ -102,7 +108,9 @@ def main(argv: list[str]) -> int:
         spec = json.loads(args.spec.read_text(encoding="utf-8"))
         analysis = json.loads(args.analysis.read_text(encoding="utf-8")) if args.analysis else None
         comparisons = [json.loads(path.read_text(encoding="utf-8")) for path in args.comparison]
-        view_plan = json.loads(args.view_plan.read_text(encoding="utf-8")) if args.view_plan else None
+        view_plan = (
+            json.loads(args.view_plan.read_text(encoding="utf-8")) if args.view_plan else None
+        )
         result = run_material_gate(
             spec,
             analysis=analysis,
@@ -112,10 +120,23 @@ def main(argv: list[str]) -> int:
         )
         if args.in_place:
             spec["materialGate"] = result
-            args.spec.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            args.spec.write_text(
+                json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(json.dumps({"passed": result["passed"], "failures": result["failures"], "out": str(args.out.resolve())}, indent=2))
+        args.out.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(
+            json.dumps(
+                {
+                    "passed": result["passed"],
+                    "failures": result["failures"],
+                    "out": str(args.out.resolve()),
+                },
+                indent=2,
+            )
+        )
         return 0 if result["passed"] else 2
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

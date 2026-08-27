@@ -41,19 +41,17 @@ def test_merged_candidate_on_first_pass():
     assert r.status == "merged_candidate" and r.success
     assert r.patch.files["main.py"] == "def solve():\n    return 42\n"
     assert r.repairs_used == 0
-    assert [a["action"] for a in r.action_trace] == \
-        ["generate", "test", "merged_candidate"]
+    assert [a["action"] for a in r.action_trace] == ["generate", "test", "merged_candidate"]
 
 
 def test_repair_rounds_until_pass():
     """首轮失败 → 修复轮 (带 failure_context) → 全过。"""
-    task = CodeTask(task_id="t2", spec="return 42", tests=["test_solve"],
-                    max_repairs=3)
+    task = CodeTask(task_id="t2", spec="return 42", tests=["test_solve"], max_repairs=3)
     sigs_seen = []
 
     def gen(task_, sig, parent):
         sigs_seen.append(sig)
-        if sig is None:                      # 首轮故意错
+        if sig is None:  # 首轮故意错
             return _patch({"main.py": "def solve():\n    return 0\n"}, "g0")
         assert sig.kind == FailureKind.TEST_FAILURE
         assert sig.fingerprint and sig.evidence["stderr_tail"]
@@ -63,9 +61,12 @@ def test_repair_rounds_until_pass():
     def tst(task_, patch):
         if "return 42" in patch.files["main.py"]:
             return TestResult(passed=True, n_passed=1)
-        return TestResult(passed=False, n_failed=1,
-                          stderr="AssertionError: 0 != 42",
-                          failed_nodeids=["test_solve"])
+        return TestResult(
+            passed=False,
+            n_failed=1,
+            stderr="AssertionError: 0 != 42",
+            failed_nodeids=["test_solve"],
+        )
 
     r = run_code_reliability_loop(task, gen, tst)
     assert r.status == "merged_candidate" and r.success
@@ -86,12 +87,11 @@ def test_aborted_after_max_repairs():
         return _patch({"main.py": "def solve():\n    return 0\n"}, f"g{len(calls)}")
 
     def tst(task_, patch):
-        return TestResult(passed=False, n_failed=1, stderr="boom",
-                          failed_nodeids=["t"])
+        return TestResult(passed=False, n_failed=1, stderr="boom", failed_nodeids=["t"])
 
     r = run_code_reliability_loop(task, gen, tst)
     assert r.status == "aborted" and not r.success
-    assert r.repairs_used == 2                      # 首轮 + 2 修复 = 3 次生成
+    assert r.repairs_used == 2  # 首轮 + 2 修复 = 3 次生成
     assert len(calls) == 3
     assert r.signature is not None and r.signature.kind == FailureKind.TEST_FAILURE
     assert r.signature.fingerprint
@@ -111,7 +111,7 @@ def test_clarify_on_low_spec_quality():
     r = run_code_reliability_loop(task, gen, lambda t, p: TestResult(passed=True))
     assert r.status == "clarify" and not r.success
     assert r.clarify_message and "0.30" in r.clarify_message
-    assert called == []                              # 生成未被调用
+    assert called == []  # 生成未被调用
 
 
 def test_sandbox_timeout_signature():
@@ -122,8 +122,9 @@ def test_sandbox_timeout_signature():
         return _patch({"main.py": "x"})
 
     def tst(task_, patch):
-        return TestResult(passed=False, n_failed=1, stderr="timeout after 60s",
-                          metadata={"timeout": True})
+        return TestResult(
+            passed=False, n_failed=1, stderr="timeout after 60s", metadata={"timeout": True}
+        )
 
     r = run_code_reliability_loop(task, gen, tst)
     assert r.status == "aborted"
@@ -155,13 +156,11 @@ def test_audit_jsonl_written(tmp_path):
         return _patch({"main.py": "x"}, "g0")
 
     def tst(task_, patch):
-        return TestResult(passed=False, n_failed=1, stderr="e",
-                          failed_nodeids=["t"])
+        return TestResult(passed=False, n_failed=1, stderr="e", failed_nodeids=["t"])
 
     r = run_code_reliability_loop(task, gen, tst, audit_path=audit)
     assert r.status == "aborted"
-    lines = [json.loads(ln) for ln in
-             (tmp_path / "audit.jsonl").read_text().strip().splitlines()]
+    lines = [json.loads(ln) for ln in (tmp_path / "audit.jsonl").read_text().strip().splitlines()]
     assert lines
     assert all(e["trace_id"] == "code_loop_t7" for e in lines)
     # 审计含 execute 事件 (generate/test/repair/aborted)

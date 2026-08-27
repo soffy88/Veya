@@ -38,7 +38,9 @@ def test_disabled_runtime_does_not_construct_a_production_sqlite_authority(monke
 
 def test_runtime_rejects_invalid_lease_or_production_sqlite():
     with pytest.raises(DurableExecutionError, match="2x"):
-        DurableRuntimeConfig(enabled=True, event_outbox=True, lease_ttl_s=10, heartbeat_interval_s=6).validate()
+        DurableRuntimeConfig(
+            enabled=True, event_outbox=True, lease_ttl_s=10, heartbeat_interval_s=6
+        ).validate()
     with pytest.raises(DurableExecutionError, match="PostgreSQL DSN"):
         DurableRuntimeConfig(enabled=True, production=True, event_outbox=True).validate()
 

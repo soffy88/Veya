@@ -33,8 +33,11 @@ def _tool_msg(name: str, args: dict) -> dict:
         "role": "assistant",
         "content": "tool time",
         "tool_calls": [
-            {"id": f"call_{name}", "type": "function",
-             "function": {"name": name, "arguments": args}}
+            {
+                "id": f"call_{name}",
+                "type": "function",
+                "function": {"name": name, "arguments": args},
+            }
         ],
     }
 
@@ -46,13 +49,19 @@ async def test_run_strict_chat_end_to_end(monkeypatch: pytest.MonkeyPatch):
     from server.tool_registry import master_tools
 
     # 注入测试工具到 master_tools（用完清理）
-    master_tools.register("strict_echo", "回显", {"type": "object", "properties": {"text": {"type": "string"}}},
-                          lambda text: f"echo:{text}")
+    master_tools.register(
+        "strict_echo",
+        "回显",
+        {"type": "object", "properties": {"text": {"type": "string"}}},
+        lambda text: f"echo:{text}",
+    )
     try:
-        llm = FakeLlm([
-            _tool_msg("strict_echo", {"text": "hi"}),
-            {"role": "assistant", "content": "新心脏完成"},
-        ])
+        llm = FakeLlm(
+            [
+                _tool_msg("strict_echo", {"text": "hi"}),
+                {"role": "assistant", "content": "新心脏完成"},
+            ]
+        )
         result = await run_strict_chat(
             "测试",
             system_prompt="sys",
@@ -80,14 +89,22 @@ async def test_run_strict_chat_tool_failure_trace(monkeypatch: pytest.MonkeyPatc
     def on_step(ev: dict) -> None:
         events.append(ev)
 
-    master_tools.register("strict_bad", "爆炸", {"type": "object", "properties": {}},
-                          lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    master_tools.register(
+        "strict_bad",
+        "爆炸",
+        {"type": "object", "properties": {}},
+        lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
     try:
-        llm = FakeLlm([
-            _tool_msg("strict_bad", {}),
-            {"role": "assistant", "content": "工具失败了但我在"},
-        ])
-        result = await run_strict_chat("测试", system_prompt="sys", max_rounds=5, llm=llm, on_step=on_step)
+        llm = FakeLlm(
+            [
+                _tool_msg("strict_bad", {}),
+                {"role": "assistant", "content": "工具失败了但我在"},
+            ]
+        )
+        result = await run_strict_chat(
+            "测试", system_prompt="sys", max_rounds=5, llm=llm, on_step=on_step
+        )
         assert result["tool_calls"] == [{"tool": "strict_bad", "ok": False}]
         # 事件桥: tool_call + tool_error 都发出
         types = [e["type"] for e in events]
@@ -117,7 +134,11 @@ async def test_run_strict_chat_external_session_id(monkeypatch: pytest.MonkeyPat
 
     llm = FakeLlm([{"role": "assistant", "content": "旧会话续做成功"}])
     result = await run_strict_chat(
-        "继续", session_id="legacy-sid-123", system_prompt="sys", max_rounds=3, llm=llm,
+        "继续",
+        session_id="legacy-sid-123",
+        system_prompt="sys",
+        max_rounds=3,
+        llm=llm,
     )
     assert result["session_id"] == "legacy-sid-123"
     assert result["final_answer"] == "旧会话续做成功"
@@ -155,6 +176,10 @@ async def test_run_strict_chat_llm_kwargs_forwarded(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(bridge, "_BoundedLlm", CaptureLlm)
     # 不用 kwargs 分支时 llm 显式注入优先；这里验证 kwargs 路径
-    result = await run_strict_chat("hi", system_prompt="sys", max_rounds=2,
-                                   llm_kwargs={"model": "veya1.1", "provider": "veya1.1"})
+    result = await run_strict_chat(
+        "hi",
+        system_prompt="sys",
+        max_rounds=2,
+        llm_kwargs={"model": "veya1.1", "provider": "veya1.1"},
+    )
     assert result["final_answer"] == "完成收到"

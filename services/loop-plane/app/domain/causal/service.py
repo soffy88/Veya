@@ -119,11 +119,13 @@ def _adapt_actions(raw: Any) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for i, item in enumerate(planned):
             if isinstance(item, dict):
-                out.append({
-                    "action": item.get("action") or item.get("step") or str(item),
-                    "reason": item.get("reason", ""),
-                    "priority": item.get("priority", i + 1),
-                })
+                out.append(
+                    {
+                        "action": item.get("action") or item.get("step") or str(item),
+                        "reason": item.get("reason", ""),
+                        "priority": item.get("priority", i + 1),
+                    }
+                )
             else:
                 out.append({"action": str(item), "reason": "", "priority": i + 1})
         return out
@@ -131,11 +133,13 @@ def _adapt_actions(raw: Any) -> list[dict[str, Any]]:
         out = []
         for i, item in enumerate(raw):
             if isinstance(item, dict):
-                out.append({
-                    "action": item.get("action") or item.get("step") or str(item),
-                    "reason": item.get("reason", ""),
-                    "priority": item.get("priority", i + 1),
-                })
+                out.append(
+                    {
+                        "action": item.get("action") or item.get("step") or str(item),
+                        "reason": item.get("reason", ""),
+                        "priority": item.get("priority", i + 1),
+                    }
+                )
             else:
                 out.append({"action": str(item), "reason": "", "priority": i + 1})
         return out
@@ -183,21 +187,31 @@ class CausalService:
         self._store = store
         self._audit = audit
 
-    def plan_goal(self, goal: str, criteria: str = "", *, execute: bool = False, trace_id: str = "") -> dict[str, Any]:
-        report = plan_for_goal(goal, criteria, store=self._store, execute=execute, trace_id=trace_id)
+    def plan_goal(
+        self, goal: str, criteria: str = "", *, execute: bool = False, trace_id: str = ""
+    ) -> dict[str, Any]:
+        report = plan_for_goal(
+            goal, criteria, store=self._store, execute=execute, trace_id=trace_id
+        )
         if self._audit is not None:
             audit_and_report(
-                self._audit, phase="plan", trace_id=report["trace_id"],
+                self._audit,
+                phase="plan",
+                trace_id=report["trace_id"],
                 decision_made={"goal": goal, "actions": len(report["ranked_actions"])},
                 context_snapshot={"criteria": criteria},
             )
         return report
 
-    def diagnose(self, symptom: str, context: dict[str, Any] | None = None, *, trace_id: str = "") -> dict[str, Any]:
+    def diagnose(
+        self, symptom: str, context: dict[str, Any] | None = None, *, trace_id: str = ""
+    ) -> dict[str, Any]:
         report = diagnose(symptom, context, trace_id=trace_id)
         if self._audit is not None:
             audit_and_report(
-                self._audit, phase="diagnose", trace_id=report["trace_id"],
+                self._audit,
+                phase="diagnose",
+                trace_id=report["trace_id"],
                 decision_made={"symptom": symptom, "root_causes": len(report["root_causes"])},
                 context_snapshot=context or {},
             )

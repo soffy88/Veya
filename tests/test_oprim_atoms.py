@@ -231,7 +231,11 @@ async def test_daemon_pause_resume_status():
     bus = InProcessDaemonBus()
 
     async def on_pause(payload, **kw):
-        return {"status": "paused", "session": payload["session_id"], "reason": payload.get("reason")}
+        return {
+            "status": "paused",
+            "session": payload["session_id"],
+            "reason": payload.get("reason"),
+        }
 
     async def on_resume(payload, **kw):
         return {"status": "running", "session": payload["session_id"]}

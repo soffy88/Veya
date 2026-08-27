@@ -35,7 +35,15 @@ MAX_VISUAL_HULL_TRIANGLES = 400_000
 MIN_VISUAL_HULL_MASK_DIMENSION = 4
 MAX_VISUAL_HULL_MASK_DIMENSION = 256
 VALID_VISUAL_HULL_AXES = {"front", "side", "top"}
-_DESCRIPTOR_FIELDS = {"projection", "boundsSpace", "bounds", "resolution", "triangleBudget", "views", "hiddenRegions"}
+_DESCRIPTOR_FIELDS = {
+    "projection",
+    "boundsSpace",
+    "bounds",
+    "resolution",
+    "triangleBudget",
+    "views",
+    "hiddenRegions",
+}
 _VIEW_FIELDS = {"axis", "confidence", "mask"}
 
 
@@ -76,7 +84,9 @@ def _validate_mask(value: Any, label: str, errors: list[str]) -> None:
         elif len(row) != width:
             errors.append(f"{label} rows must all have the same width")
         foreground += row.count("1")
-    if width is not None and (width < MIN_VISUAL_HULL_MASK_DIMENSION or width > MAX_VISUAL_HULL_MASK_DIMENSION):
+    if width is not None and (
+        width < MIN_VISUAL_HULL_MASK_DIMENSION or width > MAX_VISUAL_HULL_MASK_DIMENSION
+    ):
         errors.append(
             f"{label} width must be from {MIN_VISUAL_HULL_MASK_DIMENSION} to {MAX_VISUAL_HULL_MASK_DIMENSION}"
         )
@@ -104,21 +114,45 @@ def validate_visual_hull_descriptor(component_id: str, descriptor: Any, errors: 
         maximum = bounds.get("max")
         _validate_vector(minimum, f"{label}.bounds.min", errors)
         _validate_vector(maximum, f"{label}.bounds.max", errors)
-        if isinstance(minimum, list) and isinstance(maximum, list) and len(minimum) == len(maximum) == 3:
+        if (
+            isinstance(minimum, list)
+            and isinstance(maximum, list)
+            and len(minimum) == len(maximum) == 3
+        ):
             for index, (minimum_value, maximum_value) in enumerate(zip(minimum, maximum)):
-                if _is_number(minimum_value) and _is_number(maximum_value) and minimum_value >= maximum_value:
-                    errors.append(f"{label}.bounds.min[{index}] must be less than bounds.max[{index}]")
+                if (
+                    _is_number(minimum_value)
+                    and _is_number(maximum_value)
+                    and minimum_value >= maximum_value
+                ):
+                    errors.append(
+                        f"{label}.bounds.min[{index}] must be less than bounds.max[{index}]"
+                    )
     resolution = descriptor.get("resolution")
-    if not isinstance(resolution, int) or isinstance(resolution, bool) or resolution < MIN_VISUAL_HULL_MASK_DIMENSION:
-        errors.append(f"{label}.resolution must be an integer from {MIN_VISUAL_HULL_MASK_DIMENSION} to {MAX_VISUAL_HULL_RESOLUTION}")
+    if (
+        not isinstance(resolution, int)
+        or isinstance(resolution, bool)
+        or resolution < MIN_VISUAL_HULL_MASK_DIMENSION
+    ):
+        errors.append(
+            f"{label}.resolution must be an integer from {MIN_VISUAL_HULL_MASK_DIMENSION} to {MAX_VISUAL_HULL_RESOLUTION}"
+        )
     elif resolution > MAX_VISUAL_HULL_RESOLUTION:
         errors.append(f"{label}.resolution must not exceed {MAX_VISUAL_HULL_RESOLUTION}")
     triangle_budget = descriptor.get("triangleBudget")
-    if not isinstance(triangle_budget, int) or isinstance(triangle_budget, bool) or triangle_budget < 1:
+    if (
+        not isinstance(triangle_budget, int)
+        or isinstance(triangle_budget, bool)
+        or triangle_budget < 1
+    ):
         errors.append(f"{label}.triangleBudget must be a positive integer")
     elif triangle_budget > MAX_VISUAL_HULL_TRIANGLES:
         errors.append(f"{label}.triangleBudget must not exceed {MAX_VISUAL_HULL_TRIANGLES}")
-    elif isinstance(resolution, int) and not isinstance(resolution, bool) and resolution >= MIN_VISUAL_HULL_MASK_DIMENSION:
+    elif (
+        isinstance(resolution, int)
+        and not isinstance(resolution, bool)
+        and resolution >= MIN_VISUAL_HULL_MASK_DIMENSION
+    ):
         worst_case_triangles = resolution**3 * 12
         if triangle_budget < worst_case_triangles:
             errors.append(
@@ -128,7 +162,9 @@ def validate_visual_hull_descriptor(component_id: str, descriptor: Any, errors: 
     if not isinstance(views, list) or len(views) < 2:
         errors.append(f"{label}.views must contain at least two views")
     elif len(views) > len(VALID_VISUAL_HULL_AXES):
-        errors.append(f"{label}.views must not contain more than {len(VALID_VISUAL_HULL_AXES)} views")
+        errors.append(
+            f"{label}.views must not contain more than {len(VALID_VISUAL_HULL_AXES)} views"
+        )
     axes: set[str] = set()
     if isinstance(views, list):
         for index, view in enumerate(views):
@@ -141,7 +177,9 @@ def validate_visual_hull_descriptor(component_id: str, descriptor: Any, errors: 
                     errors.append(f"{view_label}.{field} is not supported")
             axis = view.get("axis")
             if axis not in VALID_VISUAL_HULL_AXES:
-                errors.append(f"{view_label}.axis must be one of: {', '.join(sorted(VALID_VISUAL_HULL_AXES))}")
+                errors.append(
+                    f"{view_label}.axis must be one of: {', '.join(sorted(VALID_VISUAL_HULL_AXES))}"
+                )
             elif axis in axes:
                 errors.append(f"{label}.views must use distinct axes")
             else:
@@ -315,7 +353,7 @@ def _boundary_surface(
         (2, -1): ((0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0, 0)),
     }
 
-    for (ix, iy, iz) in sorted(occupied):
+    for ix, iy, iz in sorted(occupied):
         for (axis, direction), offsets in faces.items():
             neighbour = [ix, iy, iz]
             neighbour[axis] += direction

@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pytest
 
-_RUN_PATH = Path(__file__).resolve().parents[1] / "templates" / "skills" / "engineering-flow" / "run.py"
+_RUN_PATH = (
+    Path(__file__).resolve().parents[1] / "templates" / "skills" / "engineering-flow" / "run.py"
+)
 
 
 def _load_main() -> object:
@@ -35,11 +37,23 @@ def test_full_flow(run) -> None:  # noqa: ANN001
     assert r["stage"] == "IDEA"
     assert fid
 
-    r = run("advance", flow_id=fid, event="run_interview",
-            interview_questions_json=json.dumps([
-                {"id": "q1", "title": "目标", "body": "做什么?", "options": ["A"], "recommended": "A"},
+    r = run(
+        "advance",
+        flow_id=fid,
+        event="run_interview",
+        interview_questions_json=json.dumps(
+            [
+                {
+                    "id": "q1",
+                    "title": "目标",
+                    "body": "做什么?",
+                    "options": ["A"],
+                    "recommended": "A",
+                },
                 {"id": "q2", "title": "深度", "body": "做多深?", "depends_on": ["q1"]},
-            ]))
+            ]
+        ),
+    )
     assert r["stage"] == "GRILLING"
     assert run("next", flow_id=fid)["payload"][0]["id"] == "q1"
 
@@ -51,8 +65,12 @@ def test_full_flow(run) -> None:  # noqa: ANN001
     run("advance", flow_id=fid, event="spec_written", spec="spec")
     assert run("next", flow_id=fid)["action"] == "split_tickets"
 
-    run("advance", flow_id=fid, event="tickets_split",
-        tickets_json='[{"id":"t1","title":"a"},{"id":"t2","title":"b","blocked_by":["t1"]}]')
+    run(
+        "advance",
+        flow_id=fid,
+        event="tickets_split",
+        tickets_json='[{"id":"t1","title":"a"},{"id":"t2","title":"b","blocked_by":["t1"]}]',
+    )
     assert run("next", flow_id=fid)["payload"]["ticket_id"] == "t1"
     run("ticket_done", flow_id=fid, ticket_id="t1")
     assert run("next", flow_id=fid)["payload"]["ticket_id"] == "t2"
@@ -65,8 +83,12 @@ def test_full_flow(run) -> None:  # noqa: ANN001
 def test_state_persists_across_calls(run, tmp_path: Path) -> None:  # noqa: ANN001
     r = run("start", idea="persist")
     fid = r["flow_id"]
-    run("advance", flow_id=fid, event="run_interview",
-        interview_questions_json=json.dumps([{"id": "q1", "title": "t", "body": "b"}]))
+    run(
+        "advance",
+        flow_id=fid,
+        event="run_interview",
+        interview_questions_json=json.dumps([{"id": "q1", "title": "t", "body": "b"}]),
+    )
     run("advance", flow_id=fid, event="record_answers", answers_json='{"q1":"x"}')
     run("advance", flow_id=fid, event="spec_written", spec="s")
     state_file = tmp_path / "home" / ".veya" / "loops" / f"{fid}.json"
@@ -79,11 +101,19 @@ def test_state_persists_across_calls(run, tmp_path: Path) -> None:  # noqa: ANN0
 def test_cycle_rejected(run) -> None:  # noqa: ANN001
     r = run("start", idea="cycle")
     fid = r["flow_id"]
-    run("advance", flow_id=fid, event="run_interview",
-        interview_questions_json=json.dumps([{"id": "q1", "title": "t", "body": "b"}]))
+    run(
+        "advance",
+        flow_id=fid,
+        event="run_interview",
+        interview_questions_json=json.dumps([{"id": "q1", "title": "t", "body": "b"}]),
+    )
     run("advance", flow_id=fid, event="record_answers", answers_json='{"q1":"x"}')
     run("advance", flow_id=fid, event="spec_written", spec="s")
-    r = run("advance", flow_id=fid, event="tickets_split",
-            tickets_json='[{"id":"t1","blocked_by":["t2"]},{"id":"t2","blocked_by":["t1"]}]')
+    r = run(
+        "advance",
+        flow_id=fid,
+        event="tickets_split",
+        tickets_json='[{"id":"t1","blocked_by":["t2"]},{"id":"t2","blocked_by":["t1"]}]',
+    )
     assert r["ok"] is False
     assert "依赖环" in r["error"]

@@ -43,7 +43,7 @@ class KanbanCard:
     priority: int = 0  # 0=low, 1=medium, 2=high, 3=critical
     assignee: str = ""  # agent name or "auto"
     depends_on: list[str] = field(default_factory=list)  # card IDs this depends on
-    blocked_by: list[str] = field(default_factory=list)   # card IDs blocking this
+    blocked_by: list[str] = field(default_factory=list)  # card IDs blocking this
     tags: list[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -52,25 +52,37 @@ class KanbanCard:
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id, "title": self.title, "description": self.description,
-            "status": self.status.value, "priority": self.priority,
-            "assignee": self.assignee, "depends_on": self.depends_on,
-            "blocked_by": self.blocked_by, "tags": self.tags,
-            "created_at": self.created_at, "updated_at": self.updated_at,
-            "completed_at": self.completed_at, "metadata": self.metadata,
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "status": self.status.value,
+            "priority": self.priority,
+            "assignee": self.assignee,
+            "depends_on": self.depends_on,
+            "blocked_by": self.blocked_by,
+            "tags": self.tags,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "completed_at": self.completed_at,
+            "metadata": self.metadata,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "KanbanCard":
         return cls(
-            id=d.get("id", ""), title=d.get("title", ""),
+            id=d.get("id", ""),
+            title=d.get("title", ""),
             description=d.get("description", ""),
             status=CardStatus(d.get("status", "backlog")),
-            priority=d.get("priority", 0), assignee=d.get("assignee", ""),
-            depends_on=d.get("depends_on", []), blocked_by=d.get("blocked_by", []),
-            tags=d.get("tags", []), created_at=d.get("created_at", time.time()),
+            priority=d.get("priority", 0),
+            assignee=d.get("assignee", ""),
+            depends_on=d.get("depends_on", []),
+            blocked_by=d.get("blocked_by", []),
+            tags=d.get("tags", []),
+            created_at=d.get("created_at", time.time()),
             updated_at=d.get("updated_at", time.time()),
-            completed_at=d.get("completed_at"), metadata=d.get("metadata", {}),
+            completed_at=d.get("completed_at"),
+            metadata=d.get("metadata", {}),
         )
 
 
@@ -162,10 +174,15 @@ class KanbanBoard:
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id, "name": self.name,
+            "id": self.id,
+            "name": self.name,
             "columns": [
-                {"name": c.name, "status": c.status.value, "wip_limit": c.wip_limit,
-                 "cards": [card.to_dict() for card in c.cards]}
+                {
+                    "name": c.name,
+                    "status": c.status.value,
+                    "wip_limit": c.wip_limit,
+                    "cards": [card.to_dict() for card in c.cards],
+                }
                 for c in self.columns
             ],
             "created_at": self.created_at,
@@ -173,8 +190,9 @@ class KanbanBoard:
 
     @classmethod
     def from_dict(cls, d: dict) -> "KanbanBoard":
-        board = cls(id=d.get("id", ""), name=d.get("name", ""),
-                    created_at=d.get("created_at", time.time()))
+        board = cls(
+            id=d.get("id", ""), name=d.get("name", ""), created_at=d.get("created_at", time.time())
+        )
         for col_data in d.get("columns", []):
             col = KanbanColumn(
                 name=col_data["name"],
@@ -196,8 +214,8 @@ class InboxMessage:
     """A message in the agent's inbox."""
 
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-    from_platform: str = ""   # "discord", "slack", "feishu", "system", "agent"
-    from_user: str = ""       # pseudo-anonymized user ID
+    from_platform: str = ""  # "discord", "slack", "feishu", "system", "agent"
+    from_user: str = ""  # pseudo-anonymized user ID
     subject: str = ""
     body: str = ""
     priority: int = 0
@@ -208,11 +226,16 @@ class InboxMessage:
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id, "from_platform": self.from_platform,
-            "from_user": self.from_user, "subject": self.subject,
-            "body": self.body, "priority": self.priority,
-            "read": self.read, "archived": self.archived,
-            "created_at": self.created_at, "metadata": self.metadata,
+            "id": self.id,
+            "from_platform": self.from_platform,
+            "from_user": self.from_user,
+            "subject": self.subject,
+            "body": self.body,
+            "priority": self.priority,
+            "read": self.read,
+            "archived": self.archived,
+            "created_at": self.created_at,
+            "metadata": self.metadata,
         }
 
 
@@ -244,11 +267,21 @@ class Inbox:
             json.dumps([m.__dict__ for m in self._messages], default=str, indent=2)
         )
 
-    def add(self, *, from_platform: str = "system", from_user: str = "",
-            subject: str = "", body: str = "", priority: int = 0) -> InboxMessage:
+    def add(
+        self,
+        *,
+        from_platform: str = "system",
+        from_user: str = "",
+        subject: str = "",
+        body: str = "",
+        priority: int = 0,
+    ) -> InboxMessage:
         msg = InboxMessage(
-            from_platform=from_platform, from_user=from_user,
-            subject=subject, body=body, priority=priority,
+            from_platform=from_platform,
+            from_user=from_user,
+            subject=subject,
+            body=body,
+            priority=priority,
         )
         self._messages.append(msg)
         self._save()
@@ -286,8 +319,13 @@ TEMPLATES: dict[str, dict] = {
         "name": "Hedge Fund Analysis",
         "description": "Quantitative hedge fund research & trading pipeline",
         "kanban_columns": ["Research", "Signal Dev", "Backtest", "Risk Review", "Live"],
-        "skills": ["bootstrap_sharpe", "walk_forward_optimization", "regime_change_detector",
-                   "tail_risk_analyzer", "scenario_stress_test"],
+        "skills": [
+            "bootstrap_sharpe",
+            "walk_forward_optimization",
+            "regime_change_detector",
+            "tail_risk_analyzer",
+            "scenario_stress_test",
+        ],
         "tools": ["git", "terminal", "filesystem"],
         "system_prompt": "You are a quantitative hedge fund analyst. Focus on risk-adjusted returns, regime detection, and factor attribution.",
         "default_config": {"model": "claude-sonnet-4-6", "budget_usd": 100.0, "mode": "build"},
@@ -353,7 +391,9 @@ def get_template(template_id: str) -> dict | None:
     return TEMPLATES.get(template_id)
 
 
-def apply_template(template_id: str, *, name: str = "", output_dir: Path | None = None) -> dict[str, Any]:
+def apply_template(
+    template_id: str, *, name: str = "", output_dir: Path | None = None
+) -> dict[str, Any]:
     """Apply a template — create kanban board + config + prompt.
 
     Returns dict with board, config, system_prompt.

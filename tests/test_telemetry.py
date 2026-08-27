@@ -34,9 +34,7 @@ def test_emitter_writes_audit_events(tmp_path):
     events = emitter.replay()
     assert len(events) == 5
     assert all(e["trace_id"] == "test_trace_123" for e in events)
-    assert [e["event_type"] for e in events] == [
-        "diagnose", "plan", "decide", "execute", "learn"
-    ]
+    assert [e["event_type"] for e in events] == ["diagnose", "plan", "decide", "execute", "learn"]
 
 
 def test_emitter_invalid_event_type_raises(tmp_path):
@@ -136,6 +134,7 @@ def test_api_export_unsupported_format(tmp_path):
     """不支持的导出格式应返回 error 状态 (不静默成功)。"""
     # 先写入一个 trace, 这样 export_trace 会先通过 not_found 检查, 再到达 fmt 检查
     from server.telemetry import TelemetryEmitter
+
     emitter = TelemetryEmitter(trace_id="fmt_test")
     emitter.sink.path = tmp_path / "telemetry.jsonl"
     emitter.diagnose(inputs={"symptom": "fmt_check"})

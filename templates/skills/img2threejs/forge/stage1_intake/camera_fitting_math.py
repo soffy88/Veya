@@ -73,7 +73,9 @@ def residual_components(
 
 
 def rms_reprojection_error(components: tuple[float, ...]) -> float:
-    return math.sqrt(sum(component * component for component in components) / (len(components) // 2))
+    return math.sqrt(
+        sum(component * component for component in components) / (len(components) // 2)
+    )
 
 
 def has_degenerate_world_geometry(correspondences: Sequence[NormalizedCorrespondence]) -> bool:

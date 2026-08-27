@@ -223,9 +223,7 @@ def test_gateway_master_brain_endpoints(gateway_client):
 
 
 def test_gateway_agent_run_text_and_task_contracts(gateway_client):
-    r = gateway_client.post(
-        "/api/v1/agent/run", json={"text": "你好", "session_id": "t1"}
-    )
+    r = gateway_client.post("/api/v1/agent/run", json={"text": "你好", "session_id": "t1"})
     assert r.status_code == 200
     body = r.json()
     assert body["status"] in ("success", "failed")
@@ -244,9 +242,7 @@ def test_gateway_agent_run_text_and_task_contracts(gateway_client):
 
 
 def test_gateway_agent_stream_sse(gateway_client):
-    with gateway_client.stream(
-        "POST", "/api/v1/agent/stream", json={"text": "流式测试"}
-    ) as resp:
+    with gateway_client.stream("POST", "/api/v1/agent/stream", json={"text": "流式测试"}) as resp:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
         frames = [ln for ln in resp.iter_lines() if ln.startswith("data: ")]

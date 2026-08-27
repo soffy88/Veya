@@ -19,6 +19,7 @@ from veya.agent_project import (
 
 # ── 1. 目录即 Agent ──────────────────────────────────────────────────
 
+
 def _make_agent(tmp_path: Path) -> Path:
     """构造一个符合约定布局的 agent 目录。"""
     root = tmp_path / "my-agent"
@@ -64,12 +65,11 @@ def test_read_instructions(tmp_path: Path):
 
 # ── 2. load_skill 渐进披露 ───────────────────────────────────────────
 
+
 def _make_skills(tmp_path: Path) -> Path:
     skills = tmp_path / "skills"
     skills.mkdir()
-    (skills / "forecast.md").write_text(
-        "使用天气工具回答天气问题。\n", encoding="utf-8"
-    )
+    (skills / "forecast.md").write_text("使用天气工具回答天气问题。\n", encoding="utf-8")
     pkg = skills / "research"
     pkg.mkdir()
     (pkg / "SKILL.md").write_text(
@@ -112,6 +112,7 @@ def test_skill_index_empty_dir():
 
 
 # ── 3. 声明式通道/调度 ──────────────────────────────────────────────
+
 
 def test_load_channels_json_and_source(tmp_path: Path):
     channels = tmp_path / "channels"
@@ -162,6 +163,7 @@ def json_dumps(data: dict) -> str:
 
 # ── skill_hub capabilities (Discovery-First) ─────────────────────────
 
+
 def test_skill_hub_capabilities(tmp_path: Path):
     """VeyaSkillHub.capabilities: 能力发现聚合视图 (md2wechat 语义)。"""
     from server.skill_hub import VeyaSkillHub
@@ -177,9 +179,7 @@ def test_skill_hub_capabilities(tmp_path: Path):
         '"entrypoint": "run.py", "parameters": {"type": "object", "properties": {}}}',
         encoding="utf-8",
     )
-    (pkg / "run.py").write_text(
-        "def main(**kwargs):\n    return 'sunny'\n", encoding="utf-8"
-    )
+    (pkg / "run.py").write_text("def main(**kwargs):\n    return 'sunny'\n", encoding="utf-8")
     hub.reload_skills()
 
     caps = hub.capabilities()

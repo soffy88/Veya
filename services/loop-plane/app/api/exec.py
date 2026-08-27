@@ -24,13 +24,19 @@ def _trace(request: Request) -> str:
 
 
 @router.post("/dispatch")
-async def dispatch(body: DispatchBody, request: Request, svc: ExecService = Depends(_service)) -> dict[str, Any]:
+async def dispatch(
+    body: DispatchBody, request: Request, svc: ExecService = Depends(_service)
+) -> dict[str, Any]:
     """硬化执行分发（mode 服务端收缩，白名单限制）。"""
     from app.deps import get_audit, get_store
 
     return svc.dispatch(
-        mode=body.mode, tool_name=body.tool_name, args=body.args,
-        trace_id=_trace(request), audit=get_audit(), store=get_store(),
+        mode=body.mode,
+        tool_name=body.tool_name,
+        args=body.args,
+        trace_id=_trace(request),
+        audit=get_audit(),
+        store=get_store(),
     )
 
 

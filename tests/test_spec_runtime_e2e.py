@@ -75,4 +75,7 @@ def test_p1_p3_runtime_closure(tmp_path, monkeypatch):
     assert "skill.executed" in topics
     assert "trajectory.recorded" in topics
     assert corrected_id and memory.get(record.memory_id).status == "deprecated"
-    assert read_trajectories(task.id, path=trajectory_path)[0]["acceptance_results"][0]["status"] == "passed"
+    assert (
+        read_trajectories(task.id, path=trajectory_path)[0]["acceptance_results"][0]["status"]
+        == "passed"
+    )

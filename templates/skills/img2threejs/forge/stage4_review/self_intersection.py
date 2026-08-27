@@ -97,7 +97,9 @@ def _normalize(vector: Vector3) -> Vector3 | None:
 
 
 RAY_DIRECTIONS: tuple[Vector3, ...] = tuple(
-    direction for direction in (_normalize(raw) for raw in _RAW_RAY_DIRECTIONS) if direction is not None
+    direction
+    for direction in (_normalize(raw) for raw in _RAW_RAY_DIRECTIONS)
+    if direction is not None
 )
 
 
@@ -116,7 +118,7 @@ def _triangles(indices: Any) -> list[tuple[int, int, int]]:
     else:
         if len(indices) % 3 != 0:
             raise ValueError("flat triangle indices must be a multiple of three")
-        groups = [indices[i:i + 3] for i in range(0, len(indices), 3)]
+        groups = [indices[i : i + 3] for i in range(0, len(indices), 3)]
     triangles: list[tuple[int, int, int]] = []
     for group in groups:
         if not isinstance(group, (list, tuple)) or len(group) != 3:
@@ -136,14 +138,20 @@ class _DirectionGrid:
     sample, so the build cost is amortised across the whole mesh.
     """
 
-    def __init__(self, direction: Vector3, vertices: list[Vector3], triangles: list[tuple[int, int, int]]) -> None:
+    def __init__(
+        self, direction: Vector3, vertices: list[Vector3], triangles: list[tuple[int, int, int]]
+    ) -> None:
         helper: Vector3 = (0.0, 0.0, 1.0) if abs(direction[2]) < 0.9 else (1.0, 0.0, 0.0)
-        axis_u = _normalize((
-            helper[1] * direction[2] - helper[2] * direction[1],
-            helper[2] * direction[0] - helper[0] * direction[2],
-            helper[0] * direction[1] - helper[1] * direction[0],
-        ))
-        if axis_u is None:  # unreachable for a unit direction, but a None basis would be silent nonsense
+        axis_u = _normalize(
+            (
+                helper[1] * direction[2] - helper[2] * direction[1],
+                helper[2] * direction[0] - helper[0] * direction[2],
+                helper[0] * direction[1] - helper[1] * direction[0],
+            )
+        )
+        if (
+            axis_u is None
+        ):  # unreachable for a unit direction, but a None basis would be silent nonsense
             raise ValueError("cannot build a basis for the ray direction")
         axis_v = (
             direction[1] * axis_u[2] - direction[2] * axis_u[1],
@@ -419,11 +427,13 @@ def analyze_mesh(
                 # A zero-length or malformed normal on one vertex is not a reason to abandon the
                 # good normals on every other vertex; fall back for this vertex and say how often.
                 normal_fallbacks += 1
-            outward = _normalize((
-                vertex[0] - centroid[0],
-                vertex[1] - centroid[1],
-                vertex[2] - centroid[2],
-            ))
+            outward = _normalize(
+                (
+                    vertex[0] - centroid[0],
+                    vertex[1] - centroid[1],
+                    vertex[2] - centroid[2],
+                )
+            )
         if outward is None:
             # A vertex sitting exactly on the centroid has no outward direction to step along.
             undecided += 1
@@ -437,7 +447,9 @@ def analyze_mesh(
         votes: list[bool] = []
         reliable = True
         for direction, grid in zip(RAY_DIRECTIONS, grids):
-            alignment = direction[0] * outward[0] + direction[1] * outward[1] + direction[2] * outward[2]
+            alignment = (
+                direction[0] * outward[0] + direction[1] * outward[1] + direction[2] * outward[2]
+            )
             if -TANGENT_COS_THRESHOLD < alignment < TANGENT_COS_THRESHOLD:
                 reliable = False
                 break
@@ -529,12 +541,17 @@ def _load_meshes(path: Path) -> list[dict[str, Any]]:
         if meshes is None:
             meshes = payload.get("components")
         if isinstance(meshes, dict):
-            return [dict(value, id=key) if isinstance(value, dict) else {"id": key} for key, value in meshes.items()]
+            return [
+                dict(value, id=key) if isinstance(value, dict) else {"id": key}
+                for key, value in meshes.items()
+            ]
         if isinstance(meshes, list):
             return meshes
         if isinstance(payload.get("vertices"), list):
             return [payload]
-    raise ValueError("input must be a mesh, an array of meshes, or an object with meshes/components")
+    raise ValueError(
+        "input must be a mesh, an array of meshes, or an object with meshes/components"
+    )
 
 
 def _format_summary(result: dict[str, Any]) -> str:
@@ -566,7 +583,9 @@ def _format_summary(result: dict[str, Any]) -> str:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("meshes", type=Path, help="JSON file: a mesh, an array of meshes, or {meshes: [...]}")
+    parser.add_argument(
+        "meshes", type=Path, help="JSON file: a mesh, an array of meshes, or {meshes: [...]}"
+    )
     parser.add_argument("--max-samples", type=int, default=MAX_SAMPLED_VERTICES)
     parser.add_argument("--epsilon", type=float, default=None)
     parser.add_argument("--json", action="store_true", help="print JSON instead of a summary")

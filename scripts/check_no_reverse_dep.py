@@ -162,8 +162,7 @@ def check_file(path: pathlib.Path, root: pathlib.Path) -> list[str]:
             # R2: 业务根
             if root_name in BUSINESS_ROOTS:
                 violations.append(
-                    f"{rel}:{lineno} R2 越界导入业务根 {root_name!r} "
-                    f"({owner_layer} 不得依赖上层)"
+                    f"{rel}:{lineno} R2 越界导入业务根 {root_name!r} ({owner_layer} 不得依赖上层)"
                 )
                 continue
             # veya.* 内部: rank 检查
@@ -205,13 +204,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.write_baseline:
         out = pathlib.Path(args.write_baseline)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("\n".join(all_violations) + ("\n" if all_violations else ""), encoding="utf-8")
+        out.write_text(
+            "\n".join(all_violations) + ("\n" if all_violations else ""), encoding="utf-8"
+        )
         print(f"[BASELINE] {len(all_violations)} 条违规已写入 {out}")
         return 0
 
     if args.baseline:
         baseline_path = pathlib.Path(args.baseline)
-        baseline = set(baseline_path.read_text(encoding="utf-8").splitlines()) if baseline_path.is_file() else set()
+        baseline = (
+            set(baseline_path.read_text(encoding="utf-8").splitlines())
+            if baseline_path.is_file()
+            else set()
+        )
         all_violations = [v for v in all_violations if v not in baseline]
 
     if all_violations:
@@ -221,7 +226,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if not args.quiet:
         total = sum(1 for _ in _iter_py_files(root))
-        print(f"[OK] {total} 个 3O 层文件全部满足单向依赖 (obase ← oprim ← oskill ← omodul ← oservi)。")
+        print(
+            f"[OK] {total} 个 3O 层文件全部满足单向依赖 (obase ← oprim ← oskill ← omodul ← oservi)。"
+        )
     return 0
 
 

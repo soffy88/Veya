@@ -26,6 +26,7 @@ from server.runtimes import (
 # 注册 (runtime 类型 + 幂等)
 # =========================================================================
 
+
 def test_runtime_type_in_agent_registry():
     """agent_registry 已扩展 runtime 类型 (主库改动)。"""
     from obase.agent_registry import REGISTRY_TYPES
@@ -59,6 +60,7 @@ def test_runtime_status_shape():
 # L1 — prime-agent (未接入 → 结构化)
 # =========================================================================
 
+
 @pytest.mark.asyncio
 async def test_prime_agent_unavailable_structured(monkeypatch):
     monkeypatch.delenv("PRIME_AGENT_MODULE", raising=False)
@@ -75,6 +77,7 @@ async def test_prime_agent_unavailable_structured(monkeypatch):
 # =========================================================================
 # L2 — pi bridge (真实 CLI 探测)
 # =========================================================================
+
 
 @pytest.mark.asyncio
 async def test_pi_bridge_init_and_health():
@@ -105,6 +108,7 @@ async def test_pi_bridge_dispatch_without_init_structured():
 # L3 — agentscope (已装则真实, 未装结构化; 事件映射翻译)
 # =========================================================================
 
+
 @pytest.mark.asyncio
 async def test_agentscope_bridge_init():
     try:
@@ -120,8 +124,7 @@ async def test_agentscope_bridge_init():
 
 def test_agentscope_event_translation():
     """事件映射表 (PRD §5): agentscope → veya event_bus 主题。"""
-    topic, payload = agentscope_bridge._translate_event(
-        {"type": "end", "taskId": "t1"})
+    topic, payload = agentscope_bridge._translate_event({"type": "end", "taskId": "t1"})
     assert topic == "agent.end"
     assert payload["source"] == "agentscope"
     assert payload["taskId"] == "t1"
@@ -133,6 +136,7 @@ def test_agentscope_event_translation():
 # =========================================================================
 # 端点
 # =========================================================================
+
 
 def test_operators_endpoint_runtime_health():
     from fastapi.testclient import TestClient

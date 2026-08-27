@@ -100,8 +100,9 @@ class ACPBackend:
                 fut.set_exception(ACPError("ACP 进程已退出"))
         self._pending.clear()
 
-    async def _request(self, method: str, params: dict[str, Any],
-                       timeout_s: float = 30.0) -> dict[str, Any]:
+    async def _request(
+        self, method: str, params: dict[str, Any], timeout_s: float = 30.0
+    ) -> dict[str, Any]:
         await self._ensure_proc()
         assert self._proc is not None and self._proc.stdin is not None
         rid = _next_id()
@@ -123,16 +124,21 @@ class ACPBackend:
         sid = res.get("sessionId", "")
         if not sid:
             raise ACPError("session/new 未返回 sessionId")
-        await self._request("session/init", {
-            "sessionId": sid,
-            "agent": self.agent,
-            "capabilities": {"text": True, "file": False, "audio": False},
-        }, timeout_s)
+        await self._request(
+            "session/init",
+            {
+                "sessionId": sid,
+                "agent": self.agent,
+                "capabilities": {"text": True, "file": False, "audio": False},
+            },
+            timeout_s,
+        )
         self._session_id = sid
         return sid
 
-    async def run(self, prompt: str, *, timeout_s: float = 600.0,
-                  task_id: str | None = None) -> dict[str, Any]:
+    async def run(
+        self, prompt: str, *, timeout_s: float = 600.0, task_id: str | None = None
+    ) -> dict[str, Any]:
         """完整任务: 建会话 → task/start → 等完成/超时 → 聚合文本。"""
         t0 = time.time()
         if self._session_id is None:
@@ -141,11 +147,15 @@ class ACPBackend:
         self._event_log.clear()
 
         tid = task_id or f"veya-{int(t0)}"
-        await self._request("task/start", {
-            "sessionId": self._session_id,
-            "prompt": prompt,
-            "taskId": tid,
-        }, timeout_s=30.0)
+        await self._request(
+            "task/start",
+            {
+                "sessionId": self._session_id,
+                "prompt": prompt,
+                "taskId": tid,
+            },
+            timeout_s=30.0,
+        )
 
         # 等待: 事件流出现 task/end 或超时
         deadline = time.time() + timeout_s
@@ -178,17 +188,20 @@ class ACPBackend:
         if self._session_id is None:
             return
         with contextlib.suppress(ACPError):
-            await self._request("task/cancel", {
-                "sessionId": self._session_id,
-                "taskId": task_id or "",
-            }, timeout_s=5.0)
+            await self._request(
+                "task/cancel",
+                {
+                    "sessionId": self._session_id,
+                    "taskId": task_id or "",
+                },
+                timeout_s=5.0,
+            )
 
     async def close(self) -> None:
         """session/close + 终止进程。"""
         if self._session_id is not None:
             with contextlib.suppress(ACPError):
-                await self._request("session/close", {"sessionId": self._session_id},
-                                    timeout_s=5.0)
+                await self._request("session/close", {"sessionId": self._session_id}, timeout_s=5.0)
             self._session_id = None
         if self._reader_task is not None:
             self._reader_task.cancel()

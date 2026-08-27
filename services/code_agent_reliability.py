@@ -23,15 +23,15 @@ from veya_loop.omodul.code_reliability_loop import (
 from services.code_sandbox_client import CodeSandboxClient
 from veya_loop import CodeTask, FailureSignature, PatchArtifact, run_code_reliability_loop
 
-GenerateFn = Callable[[CodeTask, FailureSignature | None, PatchArtifact | None],
-                      PatchArtifact]
+GenerateFn = Callable[[CodeTask, FailureSignature | None, PatchArtifact | None], PatchArtifact]
 
 
 def adapt_veya_generate(veya_generate: Callable[..., dict[str, str]]) -> GenerateFn:
     """把 veya_generate(spec, workspace, failure_context=None, tests=None) 适配成 Loop 契约。"""
 
-    def _gen(task: CodeTask, sig: FailureSignature | None,
-             parent: PatchArtifact | None) -> PatchArtifact:
+    def _gen(
+        task: CodeTask, sig: FailureSignature | None, parent: PatchArtifact | None
+    ) -> PatchArtifact:
         failure_context = None
         if sig is not None:
             failure_context = {

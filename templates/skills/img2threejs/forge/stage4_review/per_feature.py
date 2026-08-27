@@ -97,9 +97,7 @@ def evaluate_features(feature_targets, feature_scores):
                 any_gating_missing = True
         elif score < threshold:
             status = "below"
-            defects.append(
-                "below-threshold:%s(%s<%s)" % (fid, _fmt(score), _fmt(threshold))
-            )
+            defects.append("below-threshold:%s(%s<%s)" % (fid, _fmt(score), _fmt(threshold)))
             if gating:
                 any_gating_below = True
         else:
@@ -187,9 +185,7 @@ def _format_text(result):
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(
-        description="Per-feature verification for img2threejs review."
-    )
+    parser = argparse.ArgumentParser(description="Per-feature verification for img2threejs review.")
     parser.add_argument("--targets", required=True, help="JSON file of feature targets")
     parser.add_argument("--scores", required=True, help="JSON file of feature scores")
     parser.add_argument("--json", action="store_true", help="emit JSON result")

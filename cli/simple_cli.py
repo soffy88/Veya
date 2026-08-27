@@ -97,10 +97,14 @@ def setup_parser():
     generate_parser.add_argument("description", help="代码描述")
     generate_parser.add_argument("--language", default="python", help="编程语言")
     generate_parser.add_argument("--output", help="输出文件路径")
-    generate_parser.add_argument("--tests", action="append", default=[],
-                                 help="测试节点 (如 test_solve); 多次传入")
-    generate_parser.add_argument("--reliable", action="store_true",
-                                 help="走代码可靠性闭环 (CODE_RELIABILITY_LOOP=1 时默认开启)")
+    generate_parser.add_argument(
+        "--tests", action="append", default=[], help="测试节点 (如 test_solve); 多次传入"
+    )
+    generate_parser.add_argument(
+        "--reliable",
+        action="store_true",
+        help="走代码可靠性闭环 (CODE_RELIABILITY_LOOP=1 时默认开启)",
+    )
 
     # 协作任务命令
     collaborate_parser = subparsers.add_parser("collaborate", help="协作任务")
@@ -165,15 +169,13 @@ def _sample_generate(spec, workspace=None, failure_context=None, tests=None):
         # 修复轮: 按失败上下文给出"修对"的示例 (演示语义)
         return {
             "main.py": "def solve():\n    return 42\n",
-            "tests/test_main.py":
-                "from main import solve\n\n"
-                "def test_solve():\n    assert solve() == 42\n",
+            "tests/test_main.py": "from main import solve\n\n"
+            "def test_solve():\n    assert solve() == 42\n",
         }
     return {
         "main.py": "def solve():\n    return 0\n",
-        "tests/test_main.py":
-            "from main import solve\n\n"
-            "def test_solve():\n    assert solve() == 42\n",
+        "tests/test_main.py": "from main import solve\n\n"
+        "def test_solve():\n    assert solve() == 42\n",
     }
 
 
@@ -191,8 +193,9 @@ def _generate_with_reliability(args):
         audit_path=os.environ.get("CODE_RELIABILITY_AUDIT"),
     )
     if result.status == "merged_candidate":
-        print(f"[ok] merged_candidate  patch={result.patch.patch_id}  "
-              f"修复轮数={result.repairs_used}")
+        print(
+            f"[ok] merged_candidate  patch={result.patch.patch_id}  修复轮数={result.repairs_used}"
+        )
         for a in result.action_trace:
             print(f"  - {a['action']} (passed={a.get('passed')})")
         if args.output:
@@ -206,8 +209,10 @@ def _generate_with_reliability(args):
     if result.status == "clarify":
         print(f"[clarify] {result.clarify_message}")
         return False
-    print(f"[aborted] {result.signature.summary if result.signature else '未知'} "
-          f"fingerprint={result.signature.fingerprint if result.signature else '-'}")
+    print(
+        f"[aborted] {result.signature.summary if result.signature else '未知'} "
+        f"fingerprint={result.signature.fingerprint if result.signature else '-'}"
+    )
     for a in result.action_trace:
         print(f"  - {a['action']} (passed={a.get('passed')})")
     return False

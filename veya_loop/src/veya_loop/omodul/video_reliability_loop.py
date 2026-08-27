@@ -15,6 +15,15 @@ VideoSpec = _omodul.video_reliability_loop.VideoSpec
 VideoTask = _omodul.video_reliability_loop.VideoTask
 run_video_reliability_loop = _omodul.video_reliability_loop.run_video_reliability_loop
 
-__all__ = ["FailureKind", "FailureSignature", "VideoArtifact", "VideoEvalFn",
-           "VideoEvalResult", "VideoGenerateFn", "VideoLoopResult", "VideoSpec",
-           "VideoTask", "run_video_reliability_loop"]
+__all__ = [
+    "FailureKind",
+    "FailureSignature",
+    "VideoArtifact",
+    "VideoEvalFn",
+    "VideoEvalResult",
+    "VideoGenerateFn",
+    "VideoLoopResult",
+    "VideoSpec",
+    "VideoTask",
+    "run_video_reliability_loop",
+]

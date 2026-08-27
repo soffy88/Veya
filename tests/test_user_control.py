@@ -65,9 +65,7 @@ def test_freeze_blocks_writes_outside_allow_dir(isolated_guard, tmp_path):
             asyncio.run(
                 isolated_guard.acheck("write_file", {"filepath": "docs/x.md"}, source="test")
             )
-        asyncio.run(
-            isolated_guard.acheck("write_file", {"filepath": "src/ok.py"}, source="test")
-        )
+        asyncio.run(isolated_guard.acheck("write_file", {"filepath": "src/ok.py"}, source="test"))
         with pytest.raises(ToolDenied, match="explicit path"):
             asyncio.run(isolated_guard.acheck("hicode_run", {"task": "x"}, source="test"))
         asyncio.run(

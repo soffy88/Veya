@@ -90,9 +90,9 @@ driver = open_long_task(Path("~/.veya/loops"), goal_id="g1", budget_usd=5.0)
 await driver.ensure_goal("重构结算模块")
 
 # 方式 A: 手动每轮读写（宿主 master 循环）
-ctx = await driver.pre_round()               # 读投影: next_action + 配额检查
+ctx = await driver.pre_round()  # 读投影: next_action + 配额检查
 result = await engine.execute(ctx.prompt_suffix)  # 引擎实际动作
-await driver.post_round(result)              # 写 todo/evidence/配额（全落事件流）
+await driver.post_round(result)  # 写 todo/evidence/配额（全落事件流）
 
 # 方式 B: 一键编排（pre → engine → post，超支跳过引擎）
 result = await driver.run_round(engine.execute)

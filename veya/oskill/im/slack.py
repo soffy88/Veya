@@ -94,7 +94,9 @@ class SlackGateway:
         if self._reply_fn is None:
             self._reply_fn = self._default_reply(parsed["channel"])
 
-        task = _task_ref = asyncio.create_task(self._dispatch(parsed["text"], user_ref, parsed["channel"]))
+        task = _task_ref = asyncio.create_task(
+            self._dispatch(parsed["text"], user_ref, parsed["channel"])
+        )
         self._pending[user_ref] = task
         return {"ok": True, "user_ref": user_ref, "channel": parsed["channel"]}
 

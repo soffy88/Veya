@@ -34,6 +34,7 @@ from oskill._bayesian_belief_update import (
 # 1. Bayesian belief update – malicious intent must exceed 0.9 after 3 signals
 # ---------------------------------------------------------------------------
 
+
 def test_bayesian_belief_update_malicious_exceeds_0_9():
     """
     Hypotheses order (must match likelihood columns):
@@ -73,11 +74,13 @@ def test_bayesian_belief_update_malicious_exceeds_0_9():
 def test_bayesian_batch_update_equivalent():
     """Batch (product) update should match sequential for independent evidence."""
     prior = np.array([0.4, 0.3, 0.2, 0.1])
-    liks = np.array([
-        [0.1, 0.2, 0.3, 0.8],
-        [0.05, 0.15, 0.4, 0.85],
-        [0.02, 0.1, 0.25, 0.9],
-    ])
+    liks = np.array(
+        [
+            [0.1, 0.2, 0.3, 0.8],
+            [0.05, 0.15, 0.4, 0.85],
+            [0.02, 0.1, 0.25, 0.9],
+        ]
+    )
     batch_post = _bayesian_belief_update(prior, liks)
     seq_post = sequential_update(prior, [liks[i] for i in range(3)])
     np.testing.assert_allclose(batch_post, seq_post, atol=1e-10)
@@ -86,6 +89,7 @@ def test_bayesian_batch_update_equivalent():
 # ---------------------------------------------------------------------------
 # 2. Honeypot – reading DB_PASS_HONEYPOT must trigger 100 % interception
 # ---------------------------------------------------------------------------
+
 
 def test_honeypot_env_read_triggers_interception():
     """
@@ -124,6 +128,7 @@ print("PATH present:", "PATH" in os.environ)
 # ---------------------------------------------------------------------------
 # 3. Causal graph + do-calculus smoke tests
 # ---------------------------------------------------------------------------
+
 
 def test_causal_graph_store_roundtrip():
     store = CausalGraphStore()
@@ -184,14 +189,17 @@ def test_causal_fault_diagnose_finds_root_cause():
     )
     assert len(report.root_cause_candidates) >= 1
     assert report.confidence > 0.0
-    assert "external_api" in report.root_cause_candidates or \
-           "timeout_handler" in report.root_cause_candidates
+    assert (
+        "external_api" in report.root_cause_candidates
+        or "timeout_handler" in report.root_cause_candidates
+    )
     assert len(report.recommended_actions) >= 1
 
 
 # ---------------------------------------------------------------------------
 # 4. Full quantitative CPD path (do-calculus + VariableElimination)
 # ---------------------------------------------------------------------------
+
 
 def test_quantitative_do_calculus_reduces_failure_prob():
     """
@@ -263,7 +271,10 @@ def test_causal_fault_diagnose_quantitative_ranking():
     top = report.root_cause_candidates[0]
     top_res = next(i for i in report.interventions if i.node_id == top)
     assert top_res.effect_on_failure in (
-        "eliminates_failure", "strongly_reduces", "reduces", "on_causal_path"
+        "eliminates_failure",
+        "strongly_reduces",
+        "reduces",
+        "on_causal_path",
     )
 
 

@@ -74,7 +74,9 @@ def _bounds(vertices: list[list[float]]) -> tuple[list[float], list[float]]:
 class VoxelGrid:
     """A padded occupancy grid over the mesh, with solid/empty classification."""
 
-    def __init__(self, vertices: list[list[float]], faces: list[tuple[int, int, int]], resolution: int):
+    def __init__(
+        self, vertices: list[list[float]], faces: list[tuple[int, int, int]], resolution: int
+    ):
         low, high = _bounds(vertices)
         extent = max(high[axis] - low[axis] for axis in range(3)) or 1.0
         self.step = extent / resolution
@@ -82,9 +84,7 @@ class VoxelGrid:
         # it a mesh touching the bounding box would have no exterior seed on that face and its whole
         # interior would be misread as outside.
         self.low = [low[axis] - self.step for axis in range(3)]
-        self.dims = [
-            int(math.ceil((high[axis] - low[axis]) / self.step)) + 3 for axis in range(3)
-        ]
+        self.dims = [int(math.ceil((high[axis] - low[axis]) / self.step)) + 3 for axis in range(3)]
         self.surface: set[tuple[int, int, int]] = set()
         for face in faces:
             self._rasterize(vertices, face)
@@ -103,9 +103,7 @@ class VoxelGrid:
         and a gap in the surface shell lets the interior flood fill leak out and erase the model.
         """
         p0, p1, p2 = (vertices[i] for i in face)
-        longest = max(
-            math.dist(p0, p1), math.dist(p1, p2), math.dist(p2, p0)
-        )
+        longest = max(math.dist(p0, p1), math.dist(p1, p2), math.dist(p2, p0))
         steps = max(1, int(math.ceil(longest / (self.step * 0.5))))
         for i in range(steps + 1):
             for j in range(steps + 1 - i):
@@ -133,7 +131,9 @@ class VoxelGrid:
             x, y, z = queue.popleft()
             for dx, dy, dz, _ in _NEIGHBOURS:
                 nx, ny, nz = x + dx, y + dy, z + dz
-                if not (0 <= nx < self.dims[0] and 0 <= ny < self.dims[1] and 0 <= nz < self.dims[2]):
+                if not (
+                    0 <= nx < self.dims[0] and 0 <= ny < self.dims[1] and 0 <= nz < self.dims[2]
+                ):
                     continue
                 cell = (nx, ny, nz)
                 if cell in outside or cell in self.surface:
@@ -150,7 +150,9 @@ class VoxelGrid:
         return solid
 
 
-def _segment_voxels(grid: VoxelGrid, start: list[float], end: list[float]) -> set[tuple[int, int, int]]:
+def _segment_voxels(
+    grid: VoxelGrid, start: list[float], end: list[float]
+) -> set[tuple[int, int, int]]:
     """Voxels a bone segment passes through, sampled at half-voxel steps."""
     length = math.dist(start, end)
     steps = max(1, int(math.ceil(length / (grid.step * 0.5))))
@@ -162,7 +164,9 @@ def _segment_voxels(grid: VoxelGrid, start: list[float], end: list[float]) -> se
     return cells
 
 
-def geodesic_field(grid: VoxelGrid, sources: set[tuple[int, int, int]]) -> dict[tuple[int, int, int], float]:
+def geodesic_field(
+    grid: VoxelGrid, sources: set[tuple[int, int, int]]
+) -> dict[tuple[int, int, int], float]:
     """Dijkstra over solid voxels from a set of sources, in voxel units.
 
     Dijkstra rather than plain BFS because the 26-connected steps have three different lengths; BFS
@@ -271,9 +275,7 @@ def bind(
         "surfaceVoxelCount": len(grid.surface),
         "unreachableVertexCount": unreachable_vertices,
         "unreachableBones": unreachable_bones,
-        "maxWeightError": max(
-            abs(sum(row) - 1.0) for row in skin_weights
-        ) if skin_weights else 0.0,
+        "maxWeightError": max(abs(sum(row) - 1.0) for row in skin_weights) if skin_weights else 0.0,
     }
 
 
@@ -293,7 +295,11 @@ def euclidean_bind(
         ab = [b[k] - a[k] for k in range(3)]
         ap = [point[k] - a[k] for k in range(3)]
         denominator = sum(component * component for component in ab)
-        t = 0.0 if denominator <= 1e-12 else max(0.0, min(1.0, sum(ap[k] * ab[k] for k in range(3)) / denominator))
+        t = (
+            0.0
+            if denominator <= 1e-12
+            else max(0.0, min(1.0, sum(ap[k] * ab[k] for k in range(3)) / denominator))
+        )
         closest = [a[k] + ab[k] * t for k in range(3)]
         return math.dist(point, closest)
 
@@ -302,7 +308,12 @@ def euclidean_bind(
     skin_weights: list[list[float]] = []
     for vertex in vertices:
         scored = [
-            (1.0 / max(point_to_segment(vertex, bone["jointPos"], bone["tipPos"]), 1e-6) ** falloff_power, index)
+            (
+                1.0
+                / max(point_to_segment(vertex, bone["jointPos"], bone["tipPos"]), 1e-6)
+                ** falloff_power,
+                index,
+            )
             for index, bone in enumerate(bones)
         ]
         scored.sort(reverse=True)
@@ -315,8 +326,11 @@ def euclidean_bind(
             row_weights[slot] = weight / total
         skin_indices.append(row_indices)
         skin_weights.append(row_weights)
-    return {"skinIndices": skin_indices, "skinWeights": skin_weights,
-            "boneOrder": [str(bone.get("id")) for bone in bones]}
+    return {
+        "skinIndices": skin_indices,
+        "skinWeights": skin_weights,
+        "boneOrder": [str(bone.get("id")) for bone in bones],
+    }
 
 
 def _format_summary(result: dict[str, Any]) -> str:

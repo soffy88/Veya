@@ -40,9 +40,7 @@ async def run_agent(req: RunAgentRequest):
     try:
         from server.coordinator_master import master_coordinator
 
-        result = await master_coordinator.chat_stream(
-            req.input_text, session_id=req.session_id
-        )
+        result = await master_coordinator.chat_stream(req.input_text, session_id=req.session_id)
         session_id = result.get("session_id", req.session_id or "")
         status = result.get("status", "completed")
         error = result.get("error")
@@ -258,9 +256,7 @@ async def vscode_chat(req: ChatRequest):
     try:
         from server.coordinator_master import master_coordinator
 
-        result = await master_coordinator.chat_stream(
-            req.message, session_id=req.session_id
-        )
+        result = await master_coordinator.chat_stream(req.message, session_id=req.session_id)
         return {
             "session_id": result.get("session_id", req.session_id or ""),
             "response": _summarize_result(result),

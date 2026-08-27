@@ -25,7 +25,9 @@ class VeyaTaskManager:
         store = _obase.task_store.TaskStore(db_path=db or "~/.veya/tasks.db")
         self._manager = _omodul.task_manager.TaskManager(store=store)
 
-    def create_task(self, task_id: str, total_steps: int, initial_payload: dict | None = None) -> str:
+    def create_task(
+        self, task_id: str, total_steps: int, initial_payload: dict | None = None
+    ) -> str:
         return self._manager.create_task(task_id, total_steps, initial_payload)
 
     def checkpoint(

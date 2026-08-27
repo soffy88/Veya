@@ -64,8 +64,14 @@ ELEMENT_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     "obase.vad_pipeline": ("obase", ()),
     "obase.signed_token_session": ("oprim", ("ed25519_sign", "hmac_sha256")),
     "obase.media_scraper": ("oprim", ("media_extract", "media_probe")),
-    "debounced_memory_queue": ("obase", ("DebouncedMemoryQueue", "compress_context", "context_compact")),
-    "obase.debounced_memory_queue": ("obase", ("DebouncedMemoryQueue", "compress_context", "context_compact")),
+    "debounced_memory_queue": (
+        "obase",
+        ("DebouncedMemoryQueue", "compress_context", "context_compact"),
+    ),
+    "obase.debounced_memory_queue": (
+        "obase",
+        ("DebouncedMemoryQueue", "compress_context", "context_compact"),
+    ),
     "obase.harness_bridge": ("obase", ()),
     # oprim — agent-enhancement primitives
     "oprim.ast_extract_symbols": ("oskill", ("extract_symbols",)),
@@ -74,7 +80,10 @@ ELEMENT_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     "oprim.agent_prompt_synthesize": ("oskill", ("prompt_assemble", "build_subagent_prompt")),
     "oprim.git_worktree_merge": ("oskill", ("three_way_merge", "resolve_conflict")),
     "oprim.tmux_pane_create": ("oprim", ("tmux_pane_create", "spawn_pty", "bash_exec")),
-    "oprim.kanban_task_update": ("oprim", ("kanban_task_update", "apply_todo_update", "plan_to_todos")),
+    "oprim.kanban_task_update": (
+        "oprim",
+        ("kanban_task_update", "apply_todo_update", "plan_to_todos"),
+    ),
     "oprim.stt_transcribe_stream": ("oprim", ("transcribe_audio", "speech_to_text")),
     "oprim.tts_synthesize_stream": ("oprim", ("tts_synthesize", "text_to_speech")),
     "oprim.frontend_tool_forward": ("oprim", ("http_post_webhook",)),
@@ -84,16 +93,31 @@ ELEMENT_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     "oprim.replay_step_record": ("oprim", ("replay_step_record", "serialize_event", "write_event")),
     "oprim.media_content_parse": ("oprim", ("extract_main_content", "media_extract")),
     "oprim.media_publish_post": ("oprim", ("http_post_webhook", "http_post")),
-    "obase.support_bundle_pack": ("obase", ("support_bundle_pack", "dir_archive_to_targz", "archive_to_targz")),
-    "support_bundle_pack": ("obase", ("support_bundle_pack", "dir_archive_to_targz", "archive_to_targz")),
-    "oprim.support_bundle_pack": ("obase", ("support_bundle_pack", "dir_archive_to_targz", "archive_to_targz")),
+    "obase.support_bundle_pack": (
+        "obase",
+        ("support_bundle_pack", "dir_archive_to_targz", "archive_to_targz"),
+    ),
+    "support_bundle_pack": (
+        "obase",
+        ("support_bundle_pack", "dir_archive_to_targz", "archive_to_targz"),
+    ),
+    "oprim.support_bundle_pack": (
+        "obase",
+        ("support_bundle_pack", "dir_archive_to_targz", "archive_to_targz"),
+    ),
     # oskill — research / dispatch / evolution skills
     "oskill.repomap_gen": ("oskill", ("repo_map_build", "build_repo_context")),
     "oskill.hitl_instruction_steer": ("oskill", ()),
     "oskill.mcp_schema_adapter": ("oprim", ("mcp_tool_to_schema", "build_tool_schema")),
-    "oskill.deep_research_tree": ("oskill", ("deep_research_tree", "deep_read", "web_research", "researcher_workflow")),
+    "oskill.deep_research_tree": (
+        "oskill",
+        ("deep_research_tree", "deep_read", "web_research", "researcher_workflow"),
+    ),
     "oskill.dag_visual_layout": ("oskill", ("dag_visual_layout", "generate_svg_diagram")),
-    "oskill.leader_worker_dispatch": ("oskill", ("leader_worker_dispatch", "subagent_dispatch", "plan_decompose")),
+    "oskill.leader_worker_dispatch": (
+        "oskill",
+        ("leader_worker_dispatch", "subagent_dispatch", "plan_decompose"),
+    ),
     "oskill.contextual_reschedule": (
         "oskill",
         ("escalate_thinking_budget", "regime_dynamic_weight_adjustment"),
@@ -101,7 +125,10 @@ ELEMENT_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     "oskill.voice_interruption_handler": ("oskill", ()),
     "soul_self_evolution": ("oskill", ("soul_self_evolution",)),
     "oskill.soul_self_evolution": ("oskill", ("soul_self_evolution",)),
-    "oskill.worktree_conflict_resolve": ("oskill", ("worktree_conflict_resolve", "conflict_resolution", "resolve_conflict")),
+    "oskill.worktree_conflict_resolve": (
+        "oskill",
+        ("worktree_conflict_resolve", "conflict_resolution", "resolve_conflict"),
+    ),
     "oskill.harness_uniform_route": ("oprim", ("invoke",)),
     # omodul — approval / export / synthesis / swarm / media workflows
     "omodul.hitl_approval_workflow": ("omodul", ("parent_review",)),
@@ -161,21 +188,36 @@ ELEMENT_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     # adapter stands in — 3O-first, graceful degrade.
     # ------------------------------------------------------------------
     # obase — persistence / browser / network / skills infrastructure
-    "checkpoint_store": ("obase", ("CheckpointStore", "make_checkpoint", "restore_from_checkpoint")),
-    "obase.checkpoint_store": ("obase", ("CheckpointStore", "make_checkpoint", "restore_from_checkpoint")),
+    "checkpoint_store": (
+        "obase",
+        ("CheckpointStore", "make_checkpoint", "restore_from_checkpoint"),
+    ),
+    "obase.checkpoint_store": (
+        "obase",
+        ("CheckpointStore", "make_checkpoint", "restore_from_checkpoint"),
+    ),
     "browser_vision_runner": ("oprim", ("image_understand", "vlm_video_analyze")),
     "obase.browser_vision_runner": ("oprim", ("image_understand", "vlm_video_analyze")),
     "ssrf_safe_network": ("oprim", ("url_fetch_ssrf_safe", "url_safety_check", "http_fetch")),
     "obase.ssrf_safe_network": ("oprim", ("url_fetch_ssrf_safe", "url_safety_check", "http_fetch")),
     "skills_registry": ("obase", ("tool_registry", "ToolRegistry")),
     "obase.skills_registry": ("obase", ("tool_registry", "ToolRegistry")),
-    "adaptive_scraper": ("obase", ("adaptive_scraper", "extract_main_content", "media_extract", "fetch_rss")),
-    "obase.adaptive_scraper": ("obase", ("adaptive_scraper", "extract_main_content", "media_extract", "fetch_rss")),
+    "adaptive_scraper": (
+        "obase",
+        ("adaptive_scraper", "extract_main_content", "media_extract", "fetch_rss"),
+    ),
+    "obase.adaptive_scraper": (
+        "obase",
+        ("adaptive_scraper", "extract_main_content", "media_extract", "fetch_rss"),
+    ),
     "dlt_pipeline_store": ("oprim", ("write_rows", "open_meta_db")),
     "obase.dlt_pipeline_store": ("oprim", ("write_rows", "open_meta_db")),
     # oprim — TDD / checkpoint / browser / search / graph primitives
     "tdd_test_run": ("oprim", ("tdd_test_run", "_tdd_test_run", "bash_exec", "bash_exec_stream")),
-    "oprim.tdd_test_run": ("oprim", ("tdd_test_run", "_tdd_test_run", "bash_exec", "bash_exec_stream")),
+    "oprim.tdd_test_run": (
+        "oprim",
+        ("tdd_test_run", "_tdd_test_run", "bash_exec", "bash_exec_stream"),
+    ),
     "git_checkpoint_commit": (
         "oprim",
         ("_git_checkpoint_commit", "git_snapshot", "git_commit", "git_restore_snapshot"),
@@ -196,11 +238,23 @@ ELEMENT_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     "oprim.web_search_fetch": ("oprim", ("_web_search_fetch", "web_search", "searxng_search")),
     "code_graph_parse": (
         "oprim",
-        ("code_graph_parse", "_code_graph_parse", "repo_map_build", "scan_project_structure", "trace_dependency"),
+        (
+            "code_graph_parse",
+            "_code_graph_parse",
+            "repo_map_build",
+            "scan_project_structure",
+            "trace_dependency",
+        ),
     ),
     "oprim.code_graph_parse": (
         "oprim",
-        ("code_graph_parse", "_code_graph_parse", "repo_map_build", "scan_project_structure", "trace_dependency"),
+        (
+            "code_graph_parse",
+            "_code_graph_parse",
+            "repo_map_build",
+            "scan_project_structure",
+            "trace_dependency",
+        ),
     ),
     "adaptive_node_extract": (
         "oskill",
@@ -254,11 +308,21 @@ ELEMENT_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "graph_impact_analysis": (
         "oprim",
-        ("graph_impact_analysis", "_graph_impact_analysis", "graph_expand_retrieval", "trace_dependency"),
+        (
+            "graph_impact_analysis",
+            "_graph_impact_analysis",
+            "graph_expand_retrieval",
+            "trace_dependency",
+        ),
     ),
     "oskill.graph_impact_analysis": (
         "oprim",
-        ("graph_impact_analysis", "_graph_impact_analysis", "graph_expand_retrieval", "trace_dependency"),
+        (
+            "graph_impact_analysis",
+            "_graph_impact_analysis",
+            "graph_expand_retrieval",
+            "trace_dependency",
+        ),
     ),
     "smart_web_scraping": ("oprim", ("_smart_web_scraping", "extract_main_content", "parse_html")),
     "oskill.smart_web_scraping": (
@@ -327,21 +391,35 @@ ELEMENT_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     "team_plan_gen": ("oskill", ("team_plan_gen",)),
     "oskill.team_plan_gen": ("oskill", ("team_plan_gen",)),
     "team_lifecycle_workflow": ("omodul", ("team_lifecycle_workflow",)),
-    "omodul.team_lifecycle_workflow": ("omodul", ("team_lifecycle_workflow",)),    # --- Cindy capabilities (knowledge store / skill teach / scheduler / MCP) ---
+    "omodul.team_lifecycle_workflow": (
+        "omodul",
+        ("team_lifecycle_workflow",),
+    ),  # --- Cindy capabilities (knowledge store / skill teach / scheduler / MCP) ---
     "knowledge_store": ("obase", ("KnowledgeStore",)),
     "obase.knowledge_store": ("obase", ("KnowledgeStore",)),
     "skill_teach": ("oskill", ("skill_teach",)),
     "oskill.skill_teach": ("oskill", ("skill_teach",)),
     "recurring_scheduler": ("oskill", ("RecurringScheduler", "recurring_scheduler")),
     "oskill.recurring_scheduler": ("oskill", ("RecurringScheduler", "recurring_scheduler")),
-    "cindy_mcp_server": ("omodul", ("CindyMcpServer", "build_memory_mcp_server", "build_scheduler_mcp_server")),
-    "omodul.cindy_mcp_server": ("omodul", ("CindyMcpServer", "build_memory_mcp_server", "build_scheduler_mcp_server")),    # --- plugin registry + skills inject ---
+    "cindy_mcp_server": (
+        "omodul",
+        ("CindyMcpServer", "build_memory_mcp_server", "build_scheduler_mcp_server"),
+    ),
+    "omodul.cindy_mcp_server": (
+        "omodul",
+        ("CindyMcpServer", "build_memory_mcp_server", "build_scheduler_mcp_server"),
+    ),  # --- plugin registry + skills inject ---
     "plugin_registry": ("obase", ("PluginRegistry",)),
     "obase.plugin_registry": ("obase", ("PluginRegistry",)),
-    "scheduler_attempt_lifecycle": ("oskill", ("transition_attempt", "monthly_clamp", "retry_execute", "pre_run_knowledge_hook")),
-    "oskill.scheduler_attempt_lifecycle": ("oskill", ("transition_attempt", "monthly_clamp", "retry_execute", "pre_run_knowledge_hook")),
+    "scheduler_attempt_lifecycle": (
+        "oskill",
+        ("transition_attempt", "monthly_clamp", "retry_execute", "pre_run_knowledge_hook"),
+    ),
+    "oskill.scheduler_attempt_lifecycle": (
+        "oskill",
+        ("transition_attempt", "monthly_clamp", "retry_execute", "pre_run_knowledge_hook"),
+    ),
 }
-
 
 
 def resolve_element(spec: str) -> Any | None:
@@ -369,14 +447,12 @@ def resolve_element(spec: str) -> Any | None:
     return None
 
 
-
 def element_status() -> dict[str, str]:
     """Probe every spec element and report resolution status (for dry-run UI)."""
     out: dict[str, str] = {}
     for spec in ELEMENT_ALIASES:
         out[spec] = "resolved" if resolve_element(spec) is not None else "unavailable"
     return out
-
 
 
 def save_decision_trail(session_id: str, steps: list[dict], *, out_dir: Path | None = None) -> Path:
@@ -400,7 +476,6 @@ def save_decision_trail(session_id: str, steps: list[dict], *, out_dir: Path | N
     return path
 
 
-
 def load_decision_trail(session_id: str, *, trail_dir: Path | None = None) -> list[dict]:
     """Load a persisted decision trail (JSONL under ``~/.veya/trails``)."""
     trail_dir = trail_dir or Path.home() / ".veya" / "trails"
@@ -418,7 +493,6 @@ def load_decision_trail(session_id: str, *, trail_dir: Path | None = None) -> li
     return steps
 
 
-
 def new_session_id() -> str:
     """Fresh short session id (uuid7-style when obase available, else uuid4)."""
     try:
@@ -429,7 +503,6 @@ def new_session_id() -> str:
     except Exception:
         pass
     return uuid.uuid4().hex[:12]
-
 
 
 _G13_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -453,7 +526,6 @@ _G13_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
-
 _G14_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     # oprim — browser atomic operations
     "oprim.browser_navigate": ("oprim", ("action_navigate",)),
@@ -471,7 +543,6 @@ _G14_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
     # oservi — spawn orchestration
     "oservi.spawn_orchestrator": ("oservi", ("SubagentOrchestratorEngine",)),
 }
-
 
 
 ELEMENT_ALIASES.update(_G13_ALIASES)

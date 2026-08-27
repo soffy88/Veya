@@ -162,7 +162,12 @@ def _validate_history(history):
         if not isinstance(entry, dict):
             raise ValueError(f"history[{index}] must be an object")
         fidelity = entry.get("fidelity")
-        if isinstance(fidelity, bool) or not isinstance(fidelity, int | float) or not math.isfinite(fidelity) or not 0.0 <= fidelity <= 1.0:
+        if (
+            isinstance(fidelity, bool)
+            or not isinstance(fidelity, int | float)
+            or not math.isfinite(fidelity)
+            or not 0.0 <= fidelity <= 1.0
+        ):
             raise ValueError(f"history[{index}].fidelity must be a finite number in [0, 1]")
         _validate_tags(entry.get("defectTags"), f"history[{index}].defectTags")
         _routing_state(entry, index)
@@ -185,7 +190,12 @@ def _routing_state(entry, index=None):
         raise ValueError(f"{prefix}.divineEye must be an object")
     source = provenance if provenance is not None else entry
     fidelity = source.get("fidelity") if provenance is not None else entry.get("fidelity")
-    if isinstance(fidelity, bool) or not isinstance(fidelity, int | float) or not math.isfinite(fidelity) or not 0.0 <= fidelity <= 1.0:
+    if (
+        isinstance(fidelity, bool)
+        or not isinstance(fidelity, int | float)
+        or not math.isfinite(fidelity)
+        or not 0.0 <= fidelity <= 1.0
+    ):
         raise ValueError(f"{prefix}.divineEye.fidelity must be a finite number in [0, 1]")
     if provenance is not None and entry["fidelity"] != fidelity:
         raise ValueError(f"{prefix}.fidelity conflicts with divineEye provenance")
@@ -197,9 +207,19 @@ def _routing_state(entry, index=None):
         raise ValueError(f"{prefix}.divineEyeAction must be a string")
     if verdict is not None and not isinstance(verdict, str):
         raise ValueError(f"{prefix}.divineEyeVerdict must be a string")
-    pending_review = bool(entry.get("pendingReview", False)) or action not in (None, "continue") or verdict not in (None, "pass") or bool(hard_gates)
+    pending_review = (
+        bool(entry.get("pendingReview", False))
+        or action not in (None, "continue")
+        or verdict not in (None, "pass")
+        or bool(hard_gates)
+    )
     if provenance is not None:
-        expected = {"hardGateFailures": hard_gates, "divineEyeAction": action, "divineEyeVerdict": verdict, "pendingReview": pending_review}
+        expected = {
+            "hardGateFailures": hard_gates,
+            "divineEyeAction": action,
+            "divineEyeVerdict": verdict,
+            "pendingReview": pending_review,
+        }
         for key, value in expected.items():
             if key in entry and entry[key] != value:
                 raise ValueError(f"{prefix}.{key} conflicts with divineEye provenance")
@@ -220,9 +240,7 @@ def _is_finite_number(value):
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(
-        description="Bounded correction-loop stop policy (§3.6)."
-    )
+    parser = argparse.ArgumentParser(description="Bounded correction-loop stop policy (§3.6).")
     parser.add_argument("--history", required=True, help="path to JSON list of iterations")
     parser.add_argument("--target", type=float, default=0.85, help="target fidelity")
     parser.add_argument("--max-iter", type=int, default=6, help="hard iteration ceiling")
@@ -245,8 +263,7 @@ def main(argv):
             print(json.dumps(decision))
         else:
             print(
-                f"stop={decision['stop']} action={decision['action']} "
-                f"reason={decision['reason']}"
+                f"stop={decision['stop']} action={decision['action']} reason={decision['reason']}"
             )
         return 0 if not decision["stop"] else 1
     except Exception as exc:  # noqa: BLE001 - CLI boundary, surface any failure

@@ -41,8 +41,7 @@ def _pool_worker(params: dict) -> dict:
 
 def _test_pool_worker(strategy_code: str, asset_id: str, data_dir: str, params: dict) -> dict:
     """适配器测试用假 worker (模块级 → 可被 ProcessPool 子进程 pickle)."""
-    return {"params": params, "sharpe": float(params.get("window", 0)) / 10.0,
-            "total_return": 0.05}
+    return {"params": params, "sharpe": float(params.get("window", 0)) / 10.0, "total_return": 0.05}
 
 
 def test_run_grid_search_processpool_map():
@@ -51,7 +50,9 @@ def test_run_grid_search_processpool_map():
     progress: list[tuple[int, int]] = []
 
     results = oprim.run_grid_search(
-        _pool_worker, combos, max_workers=2,
+        _pool_worker,
+        combos,
+        max_workers=2,
         progress_callback=lambda done, total, latest: progress.append((done, total)),
     )
 
@@ -106,6 +107,7 @@ def test_build_heatmap_payload():
 # 二、Veya 适配 (QuantCoprocessor.execute_grid_search)
 # =========================================================================
 
+
 @pytest.fixture
 def fake_coprocessor(tmp_path):
     """换掉真实沙箱 worker → 进程池内跑假回测 (验证多核映射链路)."""
@@ -154,6 +156,7 @@ async def test_execute_grid_search_missing_data_raises(tmp_path):
 # 三、Automata 流水线 (Fire-and-Forget 工单)
 # =========================================================================
 
+
 @pytest.fixture
 async def fake_automata(tmp_path, monkeypatch):
     """最小 Automata: 假回测 + 假无头主脑 + 记录通知."""
@@ -164,9 +167,11 @@ async def fake_automata(tmp_path, monkeypatch):
         combos = oprim.expand_param_grid(param_grid)
         out = []
         for c in combos:
-            r = {"params": c,
-                 "sharpe": float(c["window"]) / 100.0 + (0.05 if c.get("risk") == 0.05 else 0.0),
-                 "total_return": 0.1}
+            r = {
+                "params": c,
+                "sharpe": float(c["window"]) / 100.0 + (0.05 if c.get("risk") == 0.05 else 0.0),
+                "total_return": 0.1,
+            }
             out.append(r)
             if progress_callback:
                 progress_callback(len(out), len(combos), r)

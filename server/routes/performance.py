@@ -17,8 +17,9 @@ from server import auth as auth_mod
 
 from veya.performance import create_incremental_computer, create_smart_cache
 
-router = APIRouter(prefix="/performance", tags=["performance"],
-              dependencies=[Depends(auth_mod.require_user)])
+router = APIRouter(
+    prefix="/performance", tags=["performance"], dependencies=[Depends(auth_mod.require_user)]
+)
 
 # 全局实例
 smart_cache = create_smart_cache(max_size=1000)
@@ -133,11 +134,30 @@ async def cache_warmup(data: str | None = None) -> dict[str, Any]:
 
 # AST 白名单: 只允许数字运算/比较/布尔, 禁止属性访问/调用/导入 (防 RCE)
 _SAFE_NODES = (
-    ast.Expression, ast.Constant, ast.Name, ast.Load,
-    ast.BinOp, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult,
-    ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
-    ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
-    ast.And, ast.Or, ast.Not, ast.BoolOp,
+    ast.Expression,
+    ast.Constant,
+    ast.Name,
+    ast.Load,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Mod,
+    ast.Pow,
+    ast.Compare,
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+    ast.And,
+    ast.Or,
+    ast.Not,
+    ast.BoolOp,
 )
 
 

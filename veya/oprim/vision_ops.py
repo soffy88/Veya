@@ -84,6 +84,7 @@ def _need_pil(op: str) -> None:
 # 区域解析 / 图像加载
 # ---------------------------------------------------------------------------
 
+
 def parse_region(text: str, width: int, height: int) -> tuple[int, int, int, int]:
     """'X1,Y1,X2,Y2' → 夹紧到图像内的合法框; 空框抛 ValueError。"""
     try:
@@ -132,6 +133,7 @@ def encode_png(image: Any) -> bytes:
 # 裁剪
 # ---------------------------------------------------------------------------
 
+
 def crop_bytes(
     image: Any,
     box: tuple[int, int, int, int],
@@ -144,9 +146,7 @@ def crop_bytes(
         raise ValueError("scale 须在 1-8")
     crop = image.crop(box)
     if int(scale) > 1:
-        crop = crop.resize(
-            (crop.width * int(scale), crop.height * int(scale)), Image.LANCZOS
-        )
+        crop = crop.resize((crop.width * int(scale), crop.height * int(scale)), Image.LANCZOS)
     fmt = "JPEG" if str(out_format).lower() in ("jpg", "jpeg") else "PNG"
     buffer = io.BytesIO()
     crop.save(buffer, format=fmt)
@@ -215,9 +215,7 @@ def row_energy(image: Any) -> tuple[list[float], list[float], float]:
 
     border_width = max(1, min(24, width // 18))
     left = analysis.crop((0, 0, border_width, height)).resize((1, height), Image.BOX)
-    right = analysis.crop((width - border_width, 0, width, height)).resize(
-        (1, height), Image.BOX
-    )
+    right = analysis.crop((width - border_width, 0, width, height)).resize((1, height), Image.BOX)
     edge_reference = Image.new("RGB", (2, height))
     edge_reference.paste(left, (0, 0))
     edge_reference.paste(right, (1, 0))
@@ -225,18 +223,14 @@ def row_energy(image: Any) -> tuple[list[float], list[float], float]:
     foreground_difference = ImageChops.difference(analysis, background)
     r_diff, g_diff, b_diff = foreground_difference.split()
     foreground_distance = ImageChops.lighter(ImageChops.lighter(r_diff, g_diff), b_diff)
-    foreground_mask = foreground_distance.point(
-        lambda v: 255 if v >= 14 else 0, mode="L"
-    )
+    foreground_mask = foreground_distance.point(lambda v: 255 if v >= 14 else 0, mode="L")
     occupancy_column = foreground_mask.resize((1, height), Image.BOX)
     occupancy = [float(v) for v in occupancy_column.tobytes()]
 
     radius = max(1, round(3 * scale))
     smoothed_edges = _rolling_mean(edges, radius)
     smoothed_occupancy = _rolling_mean(occupancy, radius)
-    energy = [
-        e + o * 0.55 for e, o in zip(smoothed_edges, smoothed_occupancy, strict=True)
-    ]
+    energy = [e + o * 0.55 for e, o in zip(smoothed_edges, smoothed_occupancy, strict=True)]
     return energy, smoothed_occupancy, scale
 
 
@@ -249,8 +243,7 @@ def resolve_split_sizes(
     overlap: int | None,
 ) -> tuple[int, int, int, int]:
     auto_target = round(
-        max(1400 if mode == "chat" else 1200,
-            min(2400, width * (1.75 if mode == "chat" else 1.45)))
+        max(1400 if mode == "chat" else 1200, min(2400, width * (1.75 if mode == "chat" else 1.45)))
     )
     target = target_height or auto_target
     minimum = min_height or max(600, round(target * 0.58))
@@ -352,20 +345,22 @@ def split_long_image(
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return {
-            "chunks": [{
-                "index": 1,
-                "core_top": 0,
-                "core_bottom": image.height,
-                "crop_top": 0,
-                "crop_bottom": image.height,
-                "top_overlap": 0,
-                "bottom_overlap": 0,
-                "cut_energy": None,
-                "cut_quality": None,
-                "top_safe_margin": None,
-                "bottom_safe_margin": None,
-                "image_bytes": buffer.getvalue(),
-            }],
+            "chunks": [
+                {
+                    "index": 1,
+                    "core_top": 0,
+                    "core_bottom": image.height,
+                    "crop_top": 0,
+                    "crop_bottom": image.height,
+                    "top_overlap": 0,
+                    "bottom_overlap": 0,
+                    "cut_energy": None,
+                    "cut_quality": None,
+                    "top_safe_margin": None,
+                    "bottom_safe_margin": None,
+                    "image_bytes": buffer.getvalue(),
+                }
+            ],
             "analysis_scale": 1.0,
             "safe_band_radius_px": 0.0,
         }
@@ -406,36 +401,37 @@ def split_long_image(
         top_safe_margin = (
             round(cut_details[index - 2][2] / scale) if index > 1 and cut_details else None
         )
-        bottom_safe_margin = (
-            round(detail[2] / scale) if detail[2] is not None else None
-        )
+        bottom_safe_margin = round(detail[2] / scale) if detail[2] is not None else None
         top_overlap = (
-            0 if not top or (top_safe_margin is not None and top_safe_margin > 0)
+            0
+            if not top or (top_safe_margin is not None and top_safe_margin > 0)
             else resolved_overlap
         )
         bottom_overlap = (
-            0 if bottom >= image.height
-            or (bottom_safe_margin is not None and bottom_safe_margin > 0)
+            0
+            if bottom >= image.height or (bottom_safe_margin is not None and bottom_safe_margin > 0)
             else resolved_overlap
         )
         crop_top = max(0, top - top_overlap)
         crop_bottom = min(image.height, bottom + bottom_overlap)
         buffer = io.BytesIO()
         image.crop((0, crop_top, image.width, crop_bottom)).save(buffer, format="PNG")
-        chunks.append({
-            "index": index,
-            "core_top": top,
-            "core_bottom": bottom,
-            "crop_top": crop_top,
-            "crop_bottom": crop_bottom,
-            "top_overlap": top_overlap,
-            "bottom_overlap": bottom_overlap,
-            "cut_energy": detail[0],
-            "cut_quality": detail[1],
-            "top_safe_margin": top_safe_margin,
-            "bottom_safe_margin": bottom_safe_margin,
-            "image_bytes": buffer.getvalue(),
-        })
+        chunks.append(
+            {
+                "index": index,
+                "core_top": top,
+                "core_bottom": bottom,
+                "crop_top": crop_top,
+                "crop_bottom": crop_bottom,
+                "top_overlap": top_overlap,
+                "bottom_overlap": bottom_overlap,
+                "cut_energy": detail[0],
+                "cut_quality": detail[1],
+                "top_safe_margin": top_safe_margin,
+                "bottom_safe_margin": bottom_safe_margin,
+                "image_bytes": buffer.getvalue(),
+            }
+        )
     return {
         "chunks": chunks,
         "analysis_scale": scale,
@@ -446,6 +442,7 @@ def split_long_image(
 # ---------------------------------------------------------------------------
 # 像素差分
 # ---------------------------------------------------------------------------
+
 
 def pixel_diff(
     original_path: str | Path,
@@ -479,8 +476,10 @@ def pixel_diff(
     for row in range(grid):
         for column in range(grid):
             box = (
-                round(column * width / grid), round(row * height / grid),
-                round((column + 1) * width / grid), round((row + 1) * height / grid),
+                round(column * width / grid),
+                round(row * height / grid),
+                round((column + 1) * width / grid),
+                round((row + 1) * height / grid),
             )
             if box[2] > box[0] and box[3] > box[1]:
                 mean = ImageStat.Stat(grey.crop(box)).mean[0]
@@ -506,6 +505,7 @@ def pixel_diff(
 # ---------------------------------------------------------------------------
 # 主色提取 / 候选色打分
 # ---------------------------------------------------------------------------
+
 
 def _hex_of(rgb: tuple[int, int, int]) -> str:
     return "#{:02X}{:02X}{:02X}".format(*rgb)
@@ -548,8 +548,7 @@ def dominant_colors(
             if _chebyshev(tuple(rgb), tuple(existing[0])) <= int(merge_tolerance):
                 total = existing[1] + count
                 existing[0] = [
-                    round((existing[0][i] * existing[1] + rgb[i] * count) / total)
-                    for i in range(3)
+                    round((existing[0][i] * existing[1] + rgb[i] * count) / total) for i in range(3)
                 ]
                 existing[1] = total
                 break
@@ -586,8 +585,7 @@ def score_color_candidates(
         )
     pixels_raw = crop.convert("RGB").tobytes()
     pixels = [
-        (pixels_raw[i], pixels_raw[i + 1], pixels_raw[i + 2])
-        for i in range(0, len(pixels_raw), 3)
+        (pixels_raw[i], pixels_raw[i + 1], pixels_raw[i + 2]) for i in range(0, len(pixels_raw), 3)
     ]
     parsed = [_parse_hex(c) for c in candidates][:32]
     rows = []
@@ -599,13 +597,15 @@ def score_color_candidates(
         mean_distance = sum(d for d in distances) / len(distances)
         share = within / len(pixels) * 100
         weighted = share / max(1.0, mean_distance + 1.0)
-        rows.append({
-            "color": _hex_of(rgb),
-            "share_pct": round(share, 2),
-            "mean_distance": round(mean_distance, 2),
-            "weighted_score_pct": round(weighted, 2),
-            "winner": False,
-        })
+        rows.append(
+            {
+                "color": _hex_of(rgb),
+                "share_pct": round(share, 2),
+                "mean_distance": round(mean_distance, 2),
+                "weighted_score_pct": round(weighted, 2),
+                "winner": False,
+            }
+        )
         if weighted > best_score:
             best_score = weighted
             winner = _hex_of(rgb)
@@ -624,6 +624,7 @@ def score_color_candidates(
 # ---------------------------------------------------------------------------
 # 前景提取 (连通分量)
 # ---------------------------------------------------------------------------
+
 
 def connected_components(ink: set, w: int, h: int) -> list[list[tuple[int, int]]]:
     """8 邻域连通分量, 按大小降序。"""
@@ -698,14 +699,22 @@ def extract_foreground(
 
     comps = connected_components(ink, x2 - x1, y2 - y1)
     min_size = max(len(comps[0]) * 0.02, 8)
-    main_box = (min(p[0] for p in comps[0]), min(p[1] for p in comps[0]),
-                max(p[0] for p in comps[0]), max(p[1] for p in comps[0]))
+    main_box = (
+        min(p[0] for p in comps[0]),
+        min(p[1] for p in comps[0]),
+        max(p[0] for p in comps[0]),
+        max(p[1] for p in comps[0]),
+    )
 
     def overlaps_main(c: list) -> bool:
         cx = [p[0] for p in c]
         cy = [p[1] for p in c]
-        return not (max(cx) < main_box[0] or min(cx) > main_box[2]
-                    or max(cy) < main_box[1] or min(cy) > main_box[3])
+        return not (
+            max(cx) < main_box[0]
+            or min(cx) > main_box[2]
+            or max(cy) < main_box[1]
+            or min(cy) > main_box[3]
+        )
 
     kept = [c for c in comps if len(c) >= min_size or overlaps_main(c)]
     if not keep_whites:
@@ -754,6 +763,7 @@ def _component_saturation(comp: Sequence[tuple[int, int]], px: Any, ox: int, oy:
 # 标注预览
 # ---------------------------------------------------------------------------
 
+
 def draw_labeled_preview(
     image: Any,
     items: Sequence[dict[str, Any]],
@@ -785,6 +795,7 @@ def draw_labeled_preview(
 TARGET_MIN_SIDE = 256
 _WHITE_FILLS = {"#ffffff", "#fff", "white"}
 
+
 def _strip_background(svg: str) -> str:
     """去掉 vtracer 为背景生成的全画布白色首路径 (上游同款后处理)。"""
     match = re.search(r"<path [^>]*/>", svg)
@@ -797,12 +808,12 @@ def _strip_background(svg: str) -> str:
 
 def _truncate_decimals(svg: str, places: int = 2) -> str:
     """压缩浮点位数 (SVG 体积/精度折中, 上游同款)。"""
-    return re.sub(
-        r"-?\d+\.\d{3,}", lambda m: f"{float(m.group()):.{places}f}", svg
-    )
+    return re.sub(r"-?\d+\.\d{3,}", lambda m: f"{float(m.group()):.{places}f}", svg)
 
 
-def _douglas_peucker(points: list[tuple[float, float]], epsilon: float) -> list[tuple[float, float]]:
+def _douglas_peucker(
+    points: list[tuple[float, float]], epsilon: float
+) -> list[tuple[float, float]]:
     if len(points) < 3:
         return points
     start, end = points[0], points[-1]
@@ -882,14 +893,22 @@ def _trace_vtracer(
         completed = subprocess.run(
             [
                 _find_vtracer_bin() or "vtracer",
-                "--input", src_path,
-                "--output", out_path,
-                "--colormode", "color" if color else "bw",
-                "--filter_speckle", "8",
-                "--corner_threshold", "40",
-                "--mode", "polygon" if polygon else "spline",
+                "--input",
+                src_path,
+                "--output",
+                out_path,
+                "--colormode",
+                "color" if color else "bw",
+                "--filter_speckle",
+                "8",
+                "--corner_threshold",
+                "40",
+                "--mode",
+                "polygon" if polygon else "spline",
             ],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if completed.returncode != 0:
             raise RuntimeError(
@@ -909,12 +928,19 @@ def _trace_vtracer(
             "或浅底深图先反色; color 是最后手段 (抗锯齿图会把每个灰阶拆成一条路径)。"
         )
         return "", {
-            "status": "empty", "engine": "vtracer", "path_count": 0,
-            "traced_scale": scale, "bytes": 0, "hint": hint,
+            "status": "empty",
+            "engine": "vtracer",
+            "path_count": 0,
+            "traced_scale": scale,
+            "bytes": 0,
+            "hint": hint,
         }
     return svg, {
-        "status": "generated", "engine": "vtracer", "path_count": path_count,
-        "traced_scale": scale, "bytes": len(svg.encode("utf-8")),
+        "status": "generated",
+        "engine": "vtracer",
+        "path_count": path_count,
+        "traced_scale": scale,
+        "bytes": len(svg.encode("utf-8")),
     }
 
 
@@ -938,8 +964,13 @@ def _trace_pil_fallback(
             if edge_px[x, y]:
                 ink.add((x, y))
     if not ink:
-        return "", {"status": "empty", "engine": "pil-fallback", "path_count": 0,
-                    "traced_scale": scale, "bytes": 0}
+        return "", {
+            "status": "empty",
+            "engine": "pil-fallback",
+            "path_count": 0,
+            "traced_scale": scale,
+            "bytes": 0,
+        }
 
     comps = connected_components(ink, w, h)
     min_size = max(len(comps[0]) * 0.02, 6)
@@ -976,7 +1007,8 @@ def _trace_pil_fallback(
         f'width="{w}" height="{h}">{"".join(paths)}</svg>'
     )
     return svg, {
-        "status": "generated", "engine": "pil-fallback",
+        "status": "generated",
+        "engine": "pil-fallback",
         "path_count": len(paths),
         "traced_scale": scale,
         "bytes": len(svg.encode("utf-8")),
@@ -1022,6 +1054,7 @@ def _trace_boundary(comp: Sequence[tuple[int, int]], w: int, h: int) -> list[tup
 # ---------------------------------------------------------------------------
 # OCR 文本合并 (块重叠去重)
 # ---------------------------------------------------------------------------
+
 
 def trim_outer_blank_lines(text: str) -> list[str]:
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
@@ -1072,7 +1105,12 @@ def merge_text_transcripts(texts: Sequence[str]) -> tuple[str, list[dict[str, An
             continue
         overlap, method = find_text_overlap(merged_lines, lines)
         merged_lines.extend(lines[overlap:] if overlap else lines)
-        audit.append({
-            "chunk": i + 1, "overlap": overlap, "method": method, "lines": len(lines),
-        })
+        audit.append(
+            {
+                "chunk": i + 1,
+                "overlap": overlap,
+                "method": method,
+                "lines": len(lines),
+            }
+        )
     return "\n".join(merged_lines) + "\n", audit

@@ -90,7 +90,11 @@ class VeyaDarwinEvolution:
         except Exception as exc:  # pragma: no cover
             return {"sharpe": None, "total_return": None, "error": str(exc)}
         if payload.get("status") != "success":
-            return {"sharpe": None, "total_return": None, "error": payload.get("traceback", "unknown")}
+            return {
+                "sharpe": None,
+                "total_return": None,
+                "error": payload.get("traceback", "unknown"),
+            }
         metrics = payload.get("metrics", {})
         return {
             "sharpe": metrics.get("sharpe_ratio"),
@@ -112,19 +116,25 @@ class VeyaDarwinEvolution:
             "突变方向(至少覆盖): 1) 调整平滑系数/窗口参数 2) 加入非线性惩罚项抑制过拟合 "
             "3) 改变信号构造但保持语义.\n"
             "严格要求: 每个变种是完整可运行的 Python 代码(定义 run_strategy(df)), "
-            "输出 JSON: {\"variants\": [\"<code1>\", \"<code2>\", \"<code3>\"]}\n"
+            '输出 JSON: {"variants": ["<code1>", "<code2>", "<code3>"]}\n'
             f"原始算子:\n```python\n{code}\n```"
         )
         try:
             resp = await llm_call([{"role": "user", "content": prompt}], max_tokens=8000)
             content = resp.get("content", "")
             if isinstance(content, list):
-                content = "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+                content = "".join(
+                    b.get("text", "")
+                    for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                )
             variants = self._extract_variants(content)
             # 只保留可解析的变种 (不变量: 变种必须能通过静态编译)
             return [v for v in variants if self._compiles(v)][:n]
         except Exception as exc:  # pragma: no cover
-            logger.warning("Genesis mutation failed (%s); falling back to deterministic mutation", exc)
+            logger.warning(
+                "Genesis mutation failed (%s); falling back to deterministic mutation", exc
+            )
             return []
 
     @staticmethod
@@ -180,7 +190,9 @@ class VeyaDarwinEvolution:
     def get_prd(self, op_id: str) -> str | None:
         return self._engine.get_prd(op_id)
 
-    def record_shadow(self, op_id: str, *, slippage: float, accuracy: float, extra: dict | None = None) -> dict:
+    def record_shadow(
+        self, op_id: str, *, slippage: float, accuracy: float, extra: dict | None = None
+    ) -> dict:
         return self._engine.record_shadow(op_id, slippage=slippage, accuracy=accuracy, extra=extra)
 
     async def evolve(self, op_id: str, *, force: bool = False) -> dict[str, Any]:

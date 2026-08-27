@@ -62,7 +62,9 @@ async def test_sub_agent_failure_returns_error_string():
     async def exploding(messages, **kwargs):
         raise RuntimeError("LLM down")
 
-    agent = VeyaSubAgent(role="DB Architect", context="x", api_key="sk-x", llm_fn=exploding, max_retries=1)
+    agent = VeyaSubAgent(
+        role="DB Architect", context="x", api_key="sk-x", llm_fn=exploding, max_retries=1
+    )
     result = await agent.execute("建表")
     assert result.startswith("Error executing task for DB Architect")
 
@@ -95,7 +97,9 @@ def _make_orchestrator(fake_llm=None, delay: float = 0.0):
     return SwarmOrchestrator(
         master_api_key="sk-x",
         llm_fn=fake_llm,
-        sub_agent_factory=lambda role, context: _FakeSubAgent(role=role, context=context, delay=delay),
+        sub_agent_factory=lambda role, context: _FakeSubAgent(
+            role=role, context=context, delay=delay
+        ),
         notify_delay=0.0,  # 测试不等待错开通知
     )
 
@@ -193,9 +197,7 @@ async def test_swarm_synthesis_failure_keeps_raw_outputs():
         raise RuntimeError("master died")
 
     orch = _make_orchestrator(fake_llm=exploding, delay=0.0)
-    result = await orch.run_swarm(
-        "目标", [{"role": "Worker", "instruction": "干活"}]
-    )
+    result = await orch.run_swarm("目标", [{"role": "Worker", "instruction": "干活"}])
     assert "MASTER SYNTHESIS FAILED" in result
     assert "OUTPUT[Worker]" in result  # 原始产物保留
 
@@ -215,7 +217,9 @@ def test_system_schemas_include_swarm(tmp_path):
     coord = MasterCoordinator(memory_bank=VeyaMemoryBank(storage_path=tmp_path / "m.json"))
     names = {s["function"]["name"] for s in coord.get_system_schemas()}
     assert "system_spawn_swarm" in names
-    schema = next(s for s in coord.get_system_schemas() if s["function"]["name"] == "system_spawn_swarm")
+    schema = next(
+        s for s in coord.get_system_schemas() if s["function"]["name"] == "system_spawn_swarm"
+    )
     params = schema["function"]["parameters"]
     assert params["required"] == ["overarching_goal", "sub_tasks"]
     assert params["properties"]["sub_tasks"]["type"] == "array"

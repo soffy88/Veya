@@ -72,6 +72,7 @@ def _migrate_permission_profiles(cfg: dict[str, Any]) -> dict[str, Any]:
 
 # ── 公共工具 ──────────────────────────────────────────────────────────
 
+
 def _get_installed_version() -> str:
     """尝试从 pip metadata 读取已安装版本。"""
     try:
@@ -87,9 +88,7 @@ def _get_latest_version() -> str | None:
     try:
         import urllib.request
 
-        with urllib.request.urlopen(
-            "https://pypi.org/pypi/veya/json", timeout=5
-        ) as resp:
+        with urllib.request.urlopen("https://pypi.org/pypi/veya/json", timeout=5) as resp:
             data = json.loads(resp.read().decode())
         return data["info"]["version"]
     except Exception:
@@ -108,6 +107,7 @@ def _needs_migration(cfg: dict[str, Any]) -> bool:
 
 
 # ── CLI: upgrade --check ──────────────────────────────────────────────
+
 
 def _build_upgrade_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -142,10 +142,16 @@ def run_upgrade(argv: list[str]) -> int:
         "current_code_version": CURRENT_VERSION,
         "needs_migration": needs_mig,
         "applicable_migrations": [
-            {"name": m["name"], "from": m["from_version"], "to": m["to_version"], "desc": m["description"]}
+            {
+                "name": m["name"],
+                "from": m["from_version"],
+                "to": m["to_version"],
+                "desc": m["description"],
+            }
             for m in applicable
         ],
-        "update_available": latest is not None and _version_tuple(latest) > _version_tuple(installed),
+        "update_available": latest is not None
+        and _version_tuple(latest) > _version_tuple(installed),
     }
 
     if args.json:
@@ -167,7 +173,9 @@ def run_upgrade(argv: list[str]) -> int:
     if applicable:
         print(f"\n  待迁移项 ({len(applicable)}):")
         for m in applicable:
-            print(f"    - {m['name']}: {m['from_version']} → {m['to_version']} ({m['description']})")
+            print(
+                f"    - {m['name']}: {m['from_version']} → {m['to_version']} ({m['description']})"
+            )
     else:
         print("\n  配置已是最新, 无需迁移")
 
@@ -190,6 +198,7 @@ def run_upgrade(argv: list[str]) -> int:
 
 
 # ── CLI: migrate ──────────────────────────────────────────────────────
+
 
 def _build_migrate_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -219,7 +228,12 @@ def run_migrate(argv: list[str]) -> int:
             "config_version": stored_version,
             "target_version": CURRENT_VERSION,
             "migrations": [
-                {"name": m["name"], "from": m["from_version"], "to": m["to_version"], "desc": m["description"]}
+                {
+                    "name": m["name"],
+                    "from": m["from_version"],
+                    "to": m["to_version"],
+                    "desc": m["description"],
+                }
                 for m in applicable
             ],
         }
@@ -229,7 +243,9 @@ def run_migrate(argv: list[str]) -> int:
             if applicable:
                 print("待执行迁移:")
                 for m in applicable:
-                    print(f"  - {m['name']}: {m['from_version']} → {m['to_version']} ({m['description']})")
+                    print(
+                        f"  - {m['name']}: {m['from_version']} → {m['to_version']} ({m['description']})"
+                    )
             else:
                 print("无待执行迁移。")
         return 0
@@ -251,6 +267,7 @@ def run_migrate(argv: list[str]) -> int:
 
 
 # ── 向后兼容: 旧 CLI 入口别名 ────────────────────────────────────────
+
 
 def run_upgrade_cli(argv: list[str]) -> int:
     """cli.main 兼容入口。"""

@@ -29,8 +29,16 @@ from server.plan_todo import _save as _save_plan
 _ITER_CAP = 3
 _GATE_CAP = 3  # QUALITY GATE 每激活失败上限
 _MUTATING = ("--write", "--fix", " -w ", "--in-place", "prettier --write")
-_VERIFY_ROOTS = ("implementation-defect", "test-defect", "contract-mismatch",
-                 "environmental", "实现缺陷", "测试缺陷", "契约不符", "环境问题")
+_VERIFY_ROOTS = (
+    "implementation-defect",
+    "test-defect",
+    "contract-mismatch",
+    "environmental",
+    "实现缺陷",
+    "测试缺陷",
+    "契约不符",
+    "环境问题",
+)
 
 
 def _pending_todos(plan: dict) -> list[dict]:
@@ -52,9 +60,24 @@ async def _run_engine(engine: str, prompt: str, timeout_s: float = 300.0) -> str
 
 def _has_defects(text: str) -> bool:
     t = (text or "").lower()
-    markers = ("缺陷", "问题", "bug", "错误", "失败", "不通过", "遗漏",
-               "风险", "无法", "broken", "error", "failed", "missing",
-               "不正确", "需修复", "需要修复")
+    markers = (
+        "缺陷",
+        "问题",
+        "bug",
+        "错误",
+        "失败",
+        "不通过",
+        "遗漏",
+        "风险",
+        "无法",
+        "broken",
+        "error",
+        "failed",
+        "missing",
+        "不正确",
+        "需修复",
+        "需要修复",
+    )
     return any(m in t for m in markers)
 
 
@@ -65,13 +88,15 @@ def _evidence_summary(text: str, limit: int = 300) -> str:
 
 def _cycle_ctx(plan: dict, todo: dict) -> str:
     """CRITIQUE 状态连续性 (--resume-last 等价物): 携带先前发现+仲裁+VERIFY 根因。"""
-    notes = [e.get("note", "") for e in todo.get("evidence", [])
-             if e.get("note", "").startswith("[graph-cycle]")]
+    notes = [
+        e.get("note", "")
+        for e in todo.get("evidence", [])
+        if e.get("note", "").startswith("[graph-cycle]")
+    ]
     prior = [n for n in notes if any(k in n for k in ("批判", "修复", "仲裁", "验证", "根因"))]
     if not prior:
         return ""
-    return ("先前回合上下文 (勿重复已裁决项, 如与以下冲突请指出):\n"
-            + "\n".join(prior[-5:]))
+    return "先前回合上下文 (勿重复已裁决项, 如与以下冲突请指出):\n" + "\n".join(prior[-5:])
 
 
 # ── PRE-FLIGHT 安全检查 ─────────────────────────────────────────────
@@ -82,7 +107,9 @@ async def _preflight(workdir: str | None, strict: bool) -> str:
     因引擎工作区常非 git); strict=True 时检查失败直接中止。
     """
     if not workdir:
-        return "" if strict else "ℹ PRE-FLIGHT: 未指定 workdir, 跳过 git/目录检查 (可传 workdir 启用)"
+        return (
+            "" if strict else "ℹ PRE-FLIGHT: 未指定 workdir, 跳过 git/目录检查 (可传 workdir 启用)"
+        )
     if not os.path.isdir(workdir):
         msg = f"⚠ PRE-FLIGHT: 目录不存在: {workdir}"
         return msg if strict else msg + " (继续, 引擎将自行创建)"
@@ -126,7 +153,8 @@ async def _sh(command: str, timeout_s: float = 60.0) -> tuple[int, str]:
     proc = None
     try:
         proc = await asyncio.create_subprocess_shell(
-            command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+            command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
         return proc.returncode or 0, out.decode("utf-8", "replace")[-4000:]
     except asyncio.TimeoutError:
@@ -139,9 +167,9 @@ async def _sh(command: str, timeout_s: float = 60.0) -> tuple[int, str]:
         return 1, f"[gate exec error: {exc}]"
 
 
-async def _quality_gate(command: str, workdir: str | None,
-                        implement_engine: str,
-                        log: list[str]) -> tuple[bool, str]:
+async def _quality_gate(
+    command: str, workdir: str | None, implement_engine: str, log: list[str]
+) -> tuple[bool, str]:
     """机械门: 执行 check-only 命令, 失败回实现引擎修复, ≤3 次/激活。
 
     返回 (pass?, note)。环境失败 (命令不存在/超时) 立即升级不消耗计数。
@@ -162,7 +190,8 @@ async def _quality_gate(command: str, workdir: str | None,
         if attempt < _GATE_CAP:
             fix_prompt = (
                 f"修复 QUALITY GATE 机械检查失败 (todo 实现相关):\n{out[:1500]}\n\n"
-                "只修复检查报出的问题, 完成后重新运行检查并给出结果。")
+                "只修复检查报出的问题, 完成后重新运行检查并给出结果。"
+            )
             try:
                 await _run_engine(implement_engine, fix_prompt)
             except Exception as exc:  # noqa: BLE001
@@ -172,14 +201,16 @@ async def _quality_gate(command: str, workdir: str | None,
 
 
 # ── DEBATE 三分类 ───────────────────────────────────────────────────
-async def _debate(critique_engine: str, crit_out: str, title: str,
-                  log: list[str], todo: dict) -> tuple[str, str]:
+async def _debate(
+    critique_engine: str, crit_out: str, title: str, log: list[str], todo: dict
+) -> tuple[str, str]:
     """DEBATE (原版 node 5): valid→refactor / debatable→反证 reinject / false-positive→理由。"""
     if not _has_defects(crit_out) or "无缺陷" in crit_out:
         return "pass", ""
     hedged = ("可能", "或许", "也许", "建议", "可以考虑", "might", "may", "could", "consider")
     if any(h in crit_out for h in hedged) and not any(
-            m in crit_out for m in ("必须", "会失败", "一定", "will fail", "must", "broken", "崩溃")):
+        m in crit_out for m in ("必须", "会失败", "一定", "will fail", "must", "broken", "崩溃")
+    ):
         counter = (
             f"批判者提出了以下可能站不住脚的问题:\n{crit_out[:2000]}\n\n"
             "请判断: 你坚持这些问题吗? 如果坚持请给具体证据 (哪行/哪个场景失败); "
@@ -188,8 +219,12 @@ async def _debate(critique_engine: str, crit_out: str, title: str,
         try:
             rebuttal = await _run_engine(critique_engine, counter)
             if any(k in rebuttal for k in ("撤回", "接受", "不坚持")):
-                todo["evidence"].append({"at": _now(),
-                                         "note": f"[graph-cycle] 反证后被批判者撤回: {_evidence_summary(rebuttal)}"})
+                todo["evidence"].append(
+                    {
+                        "at": _now(),
+                        "note": f"[graph-cycle] 反证后被批判者撤回: {_evidence_summary(rebuttal)}",
+                    }
+                )
                 return "pass", f"反证后被撤回: {_evidence_summary(rebuttal)}"
             return "refactor", rebuttal[:300]
         except Exception as exc:  # noqa: BLE001
@@ -199,9 +234,14 @@ async def _debate(critique_engine: str, crit_out: str, title: str,
 
 
 # ── VERIFY 功能验证 ─────────────────────────────────────────────────
-async def _verify(verify_command: str | None, workdir: str | None,
-                  critique_engine: str, title: str, todo: dict,
-                  log: list[str]) -> tuple[bool, str]:
+async def _verify(
+    verify_command: str | None,
+    workdir: str | None,
+    critique_engine: str,
+    title: str,
+    todo: dict,
+    log: list[str],
+) -> tuple[bool, str]:
     """VERIFY: 功能测试/验收 (与机械门分离)。
 
     - verify_command 给定 → 执行命令
@@ -253,10 +293,31 @@ async def _classify_root_cause(engine: str, title: str, fail_output: str) -> str
 
 # ── Elevated Assurance (3 fresh lens + fan-in + exit challenger) ──────
 _HIGH_RISK_MARKERS = (
-    "auth", "login", "password", "密码", "密钥", "secret", "token",
-    "payment", "支付", "钱包", "删除", "delete", "rm ", "并发", "race",
-    "security", "安全", "权限", "permission", "sudo", "root", "注入",
-    "injection", "sandbox", "隔离",
+    "auth",
+    "login",
+    "password",
+    "密码",
+    "密钥",
+    "secret",
+    "token",
+    "payment",
+    "支付",
+    "钱包",
+    "删除",
+    "delete",
+    "rm ",
+    "并发",
+    "race",
+    "security",
+    "安全",
+    "权限",
+    "permission",
+    "sudo",
+    "root",
+    "注入",
+    "injection",
+    "sandbox",
+    "隔离",
 )
 
 
@@ -291,8 +352,20 @@ def _fan_in(discoveries: list[str]) -> list[str]:
             if len(line) < 4 or any(m in line for m in ("[lens", "你是", "请用", "任务:")):
                 continue
             theme = ""
-            for m in ("缺陷", "问题", "错误", "风险", "不安全", "漏洞", "失败", "bug",
-                      "error", "risk", "missing", "broken"):
+            for m in (
+                "缺陷",
+                "问题",
+                "错误",
+                "风险",
+                "不安全",
+                "漏洞",
+                "失败",
+                "bug",
+                "error",
+                "risk",
+                "missing",
+                "broken",
+            ):
                 if m in line:
                     theme = m
                     break
@@ -303,8 +376,7 @@ def _fan_in(discoveries: list[str]) -> list[str]:
     return [f"[{t}] {l}" for t, l in norm if t]
 
 
-async def _exit_challenger(title: str, engines: list[str],
-                          todo: dict) -> tuple[bool, str]:
+async def _exit_challenger(title: str, engines: list[str], todo: dict) -> tuple[bool, str]:
     """终局挑战者: 实现已通过所有检查后, 换 fresh 视角找最后的问题。
 
     返回 (has_defects?, note)。有缺陷则回循环不 done (challenger 是硬门)。
@@ -320,16 +392,18 @@ async def _exit_challenger(title: str, engines: list[str],
     except Exception as exc:  # noqa: BLE001
         return False, f"challenger 失败: {exc}"
     if _has_defects(out) and "无缺陷" not in out:
-        todo["evidence"].append({"at": _now(),
-                                 "note": f"[graph-cycle] challenger 发现: {_evidence_summary(out)}"})
+        todo["evidence"].append(
+            {"at": _now(), "note": f"[graph-cycle] challenger 发现: {_evidence_summary(out)}"}
+        )
         return True, _evidence_summary(out)
     return False, ""
 
 
 def _pick_lens_engines(implement_engine: str, critique_engine: str) -> list[str]:
     """3 个 fresh lens 引擎: 优先独立于实现/批判引擎。"""
-    pool = [e for e in ("claude", "codex", "grok", "pi")
-            if e not in (implement_engine, critique_engine)]
+    pool = [
+        e for e in ("claude", "codex", "grok", "pi") if e not in (implement_engine, critique_engine)
+    ]
     if len(pool) >= 3:
         return pool[:3]
     # 不足则复用批判引擎 (仍 fresh, 无 continuity)
@@ -337,9 +411,9 @@ def _pick_lens_engines(implement_engine: str, critique_engine: str) -> list[str]
 
 
 # ── Review-only 模式 (只读审查报告) ─────────────────────────────────
-async def graph_review(plan_id: str,
-                       critique_engine: str = "claude",
-                       workdir: str | None = None) -> str:
+async def graph_review(
+    plan_id: str, critique_engine: str = "claude", workdir: str | None = None
+) -> str:
     """Review-only: 只读审查计划实现, 不写代码不修 bug, 输出审查报告。
 
     对每个未完成 todo 调批判引擎审查, 发现写入 evidence, todo 标 'reviewed'。
@@ -370,8 +444,9 @@ async def graph_review(plan_id: str,
             log.append(f"⚠ 审查失败: {exc}")
             continue
         todo["status"] = "reviewed"
-        todo["evidence"].append({"at": _now(),
-                                 "note": f"[graph-review] 审查报告: {_evidence_summary(out)}"})
+        todo["evidence"].append(
+            {"at": _now(), "note": f"[graph-review] 审查报告: {_evidence_summary(out)}"}
+        )
         _save_plan(plan)
         log.append(f"✅ [{tid}] {title} → reviewed: {_evidence_summary(out, 120)}")
         reviewed += 1
@@ -381,16 +456,18 @@ async def graph_review(plan_id: str,
 
 
 # ── 主循环 ──────────────────────────────────────────────────────────
-async def graph_cycle(plan_id: str,
-                      implement_engine: str = "codex",
-                      critique_engine: str = "claude",
-                      max_iterations: int = _ITER_CAP,
-                      workdir: str | None = None,
-                      quality_gate: str | None = None,
-                      verify_command: str | None = None,
-                      preflight: bool = True,
-                      mode: str = "full",
-                      elevated: bool | None = None) -> str:
+async def graph_cycle(
+    plan_id: str,
+    implement_engine: str = "codex",
+    critique_engine: str = "claude",
+    max_iterations: int = _ITER_CAP,
+    workdir: str | None = None,
+    quality_gate: str | None = None,
+    verify_command: str | None = None,
+    preflight: bool = True,
+    mode: str = "full",
+    elevated: bool | None = None,
+) -> str:
     """在计划的未完成 todo 上跑 实现→质量门→批判→仲裁→修复→验证 自纠正循环。
 
     参数:
@@ -413,7 +490,9 @@ async def graph_cycle(plan_id: str,
     if not todos:
         return f"graph_cycle: 计划 {plan_id} 无未完成任务, 无需循环"
 
-    log: list[str] = [f"🔄 graph-cycle 启动: {plan_id} (实现={implement_engine}, 批判={critique_engine}, mode={mode})"]
+    log: list[str] = [
+        f"🔄 graph-cycle 启动: {plan_id} (实现={implement_engine}, 批判={critique_engine}, mode={mode})"
+    ]
     if preflight:
         pf = await _preflight(workdir, strict=False)
         if pf:
@@ -433,24 +512,36 @@ async def graph_cycle(plan_id: str,
         if elevated_on:
             log.append(f"🛡 Elevated assurance 开启 (任务含高风险要素, 3 lens + challenger)")
             lens_engines = _pick_lens_engines(implement_engine, critique_engine)
-        fix_count = sum(1 for e in todo.get("evidence", [])
-                        if e.get("note", "").startswith("[graph-cycle] 修复完成"))
-        verify_fail_count = sum(1 for e in todo.get("evidence", [])
-                                if e.get("note", "").startswith("[graph-cycle] VERIFY 失败"))
+        fix_count = sum(
+            1
+            for e in todo.get("evidence", [])
+            if e.get("note", "").startswith("[graph-cycle] 修复完成")
+        )
+        verify_fail_count = sum(
+            1
+            for e in todo.get("evidence", [])
+            if e.get("note", "").startswith("[graph-cycle] VERIFY 失败")
+        )
         log.append(f"\n── todo [{todo_id}] {title} (已修复 {fix_count} 轮)")
         if fix_count >= max_iterations:
-            log.append(f"⚠ Anti-loop cutoff: todo [{todo_id}] 已修复 {fix_count} 轮仍有缺陷, "
-                       "停止并升级用户 (不假造解决)")
-            todo["evidence"].append({"at": _now(),
-                                     "note": "[graph-cycle] anti-loop cutoff: 停止升级用户"})
+            log.append(
+                f"⚠ Anti-loop cutoff: todo [{todo_id}] 已修复 {fix_count} 轮仍有缺陷, "
+                "停止并升级用户 (不假造解决)"
+            )
+            todo["evidence"].append(
+                {"at": _now(), "note": "[graph-cycle] anti-loop cutoff: 停止升级用户"}
+            )
             todo["status"] = "blocked"
             _save_plan(plan)
             break
         if verify_fail_count >= 2:
-            log.append(f"⚠ VERIFY 连续失败 {verify_fail_count} 次且批判无缺陷 → 升级用户 "
-                       "(验证不过但无缺陷可修, 不假造解决)")
-            todo["evidence"].append({"at": _now(),
-                                     "note": "[graph-cycle] verify 连续失败: 停止升级用户"})
+            log.append(
+                f"⚠ VERIFY 连续失败 {verify_fail_count} 次且批判无缺陷 → 升级用户 "
+                "(验证不过但无缺陷可修, 不假造解决)"
+            )
+            todo["evidence"].append(
+                {"at": _now(), "note": "[graph-cycle] verify 连续失败: 停止升级用户"}
+            )
             todo["status"] = "blocked"
             _save_plan(plan)
             break
@@ -479,8 +570,9 @@ async def graph_cycle(plan_id: str,
                 log.append(f"⚠ 实现失败: {exc}")
                 break
             todo["status"] = "in_progress"
-            todo["evidence"].append({"at": _now(),
-                                     "note": f"[graph-cycle] 实现完成: {_evidence_summary(impl_out)}"})
+            todo["evidence"].append(
+                {"at": _now(), "note": f"[graph-cycle] 实现完成: {_evidence_summary(impl_out)}"}
+            )
             _save_plan(plan)
             log.append(f"✅ 实现完成 ({implement_engine})")
             if not impl_out.strip():
@@ -494,7 +586,9 @@ async def graph_cycle(plan_id: str,
                 log.append("⛔ 机械门未过 → 升级, 不进入批判")
                 if "环境失败" in gate_note or "gate 3 次失败" in gate_note:
                     todo["status"] = "blocked"
-                    todo["evidence"].append({"at": _now(), "note": f"[graph-cycle] {gate_note[:200]}"})
+                    todo["evidence"].append(
+                        {"at": _now(), "note": f"[graph-cycle] {gate_note[:200]}"}
+                    )
                     _save_plan(plan)
                     break
                 continue
@@ -508,10 +602,14 @@ async def graph_cycle(plan_id: str,
                 discoveries.append(lens_out)
                 lens_log.append(f"  lens[{eng}]: {_evidence_summary(lens_out, 100)}")
             crit_out = "\n".join(
-                f"[{eng} lens] {d[:2000]}" for eng, d in zip(lens_engines, discoveries))
+                f"[{eng} lens] {d[:2000]}" for eng, d in zip(lens_engines, discoveries)
+            )
             merged = _fan_in(discoveries)
             log.append("🛡 3-lens 审查:\n" + "\n".join(lens_log))
-            log.append(f"🛡 fan-in 规范化后 {len(merged)} 条独立发现:" + "".join(f"\n  · {m[:120]}" for m in merged))
+            log.append(
+                f"🛡 fan-in 规范化后 {len(merged)} 条独立发现:"
+                + "".join(f"\n  · {m[:120]}" for m in merged)
+            )
             crit_out = "\n".join(merged) if merged else "无缺陷"
             crit_prompt = ""  # crit_out 已由 fan-in 产生, 不重复调批判引擎
         else:
@@ -539,9 +637,9 @@ async def graph_cycle(plan_id: str,
             )
             try:
                 fix_out = await _run_engine(implement_engine, fix_prompt)
-                todo["evidence"].append({
-                    "at": _now(),
-                    "note": f"[graph-cycle] 修复完成: {_evidence_summary(fix_out)}"})
+                todo["evidence"].append(
+                    {"at": _now(), "note": f"[graph-cycle] 修复完成: {_evidence_summary(fix_out)}"}
+                )
                 _save_plan(plan)
                 log.append(f"🔧 修复完成 ({implement_engine}) → 回质量门+批判")
             except Exception as exc:  # noqa: BLE001
@@ -551,18 +649,22 @@ async def graph_cycle(plan_id: str,
 
         # 5. VERIFY (无有效缺陷后)
         log.append(f"✅ 批判无有效缺陷/已撤回 → VERIFY{(' (' + detail + ')') if detail else ''}")
-        verify_ok, verify_note = await _verify(verify_command, workdir, critique_engine,
-                                               title, todo, log)
+        verify_ok, verify_note = await _verify(
+            verify_command, workdir, critique_engine, title, todo, log
+        )
         if not verify_ok:
             if "环境阻塞" in verify_note:
                 log.append(f"⛔ VERIFY 环境阻塞 → 升级 (不修复)")
                 todo["status"] = "blocked"
-                todo["evidence"].append({"at": _now(), "note": f"[graph-cycle] {verify_note[:200]}"})
+                todo["evidence"].append(
+                    {"at": _now(), "note": f"[graph-cycle] {verify_note[:200]}"}
+                )
                 _save_plan(plan)
                 break
             # 根因分类已附带 → 回 CRITIQUE (连续性携带), 不 done
-            todo["evidence"].append({"at": _now(),
-                                     "note": f"[graph-cycle] VERIFY 失败: {verify_note[:150]}"})
+            todo["evidence"].append(
+                {"at": _now(), "note": f"[graph-cycle] VERIFY 失败: {verify_note[:150]}"}
+            )
             _save_plan(plan)
             log.append("↩ 回批判循环 (VERIFY 失败, 根因已记录)")
             continue
@@ -575,15 +677,18 @@ async def graph_cycle(plan_id: str,
                 crit_out = f"challenger 发现: {ch_note}"
                 verdict, detail = await _debate(critique_engine, crit_out, title, log, todo)
                 if verdict == "refactor":
-                    todo["evidence"].append({"at": _now(),
-                                             "note": "[graph-cycle] challenger 触发回修"})
+                    todo["evidence"].append(
+                        {"at": _now(), "note": "[graph-cycle] challenger 触发回修"}
+                    )
                     _save_plan(plan)
                     continue
                 # challenger 意见被仲裁为 false-positive → 仍走 done
             else:
                 log.append("🛡 exit challenger 无发现 → 通过")
         todo["status"] = "done"
-        todo["evidence"].append({"at": _now(), "note": f"[graph-cycle] 验证通过: {verify_note[:200]}"})
+        todo["evidence"].append(
+            {"at": _now(), "note": f"[graph-cycle] 验证通过: {verify_note[:200]}"}
+        )
         _save_plan(plan)
         done_count += 1
 

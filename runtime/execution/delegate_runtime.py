@@ -20,7 +20,9 @@ class DelegateRuntime:
     events only.
     """
 
-    def __init__(self, guard: SpawnGuard, *, on_event: Callable[[dict[str, Any]], Any] | None = None):
+    def __init__(
+        self, guard: SpawnGuard, *, on_event: Callable[[dict[str, Any]], Any] | None = None
+    ):
         self.guard = guard
         self.on_event = on_event
 
@@ -54,7 +56,9 @@ class DelegateRuntime:
                 error_class="spawn_rejected",
                 error_message=str(exc),
             )
-            await self._emit({"type": "delegate.failed", "delegate_id": request.delegate_id, "error": str(exc)})
+            await self._emit(
+                {"type": "delegate.failed", "delegate_id": request.delegate_id, "error": str(exc)}
+            )
             return result
 
         await self._emit({"type": "delegate.started", "delegate_id": request.delegate_id})

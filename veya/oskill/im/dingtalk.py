@@ -21,6 +21,7 @@ from urllib.parse import quote_plus
 
 try:
     from fastapi import APIRouter, HTTPException, Request
+
     _HAS_FASTAPI = True
 except ImportError:
     _HAS_FASTAPI = False
@@ -118,6 +119,7 @@ class DingTalkGateway:
             hashlib.sha256,
         ).digest()
         import base64
+
         expected_b64 = base64.b64encode(expected).decode()
         return hmac.compare_digest(expected_b64, sign)
 
@@ -147,9 +149,14 @@ class DingTalkGateway:
 
         if self._runner and text_content:
             # Background: run agent and reply
-            _task_ref = asyncio.create_task(self._run_and_reply(
-                text_content, session_webhook, pseudo_id, sender_id,
-            ))
+            _task_ref = asyncio.create_task(
+                self._run_and_reply(
+                    text_content,
+                    session_webhook,
+                    pseudo_id,
+                    sender_id,
+                )
+            )
             _bg_tasks.add(_task_ref)
 
         return {
@@ -158,7 +165,11 @@ class DingTalkGateway:
         }
 
     async def _run_and_reply(
-        self, prompt: str, session_webhook: str, pseudo_id: str, sender_id: str,
+        self,
+        prompt: str,
+        session_webhook: str,
+        pseudo_id: str,
+        sender_id: str,
     ):
         """Run agent and send reply."""
         try:
@@ -172,7 +183,9 @@ class DingTalkGateway:
                 content = content.get("content", str(content))
             reply_text = str(content)[:5000]
 
-            await self._send_reply(session_webhook, reply_text if status == "completed" else f"❌ {reply_text[:500]}")
+            await self._send_reply(
+                session_webhook, reply_text if status == "completed" else f"❌ {reply_text[:500]}"
+            )
         except Exception as e:
             logger.error(f"DingTalk agent run failed: {e}")
             await self._send_reply(session_webhook, f"❌ 错误: {str(e)[:200]}")
@@ -217,6 +230,7 @@ class DingTalkGateway:
                     hashlib.sha256,
                 ).digest()
                 import base64
+
                 sign = base64.b64encode(sign).decode()
                 sign = quote_plus(sign)
 
@@ -255,13 +269,20 @@ def make_dingtalk_router(
     async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
         try:
             result = await master_coordinator.chat_stream(prompt, session_id=None, max_rounds=3)
-            return {"status": result.get("status", "failed"), "content": result.get("final_answer") or result.get("error", ""), "cost_usd": result.get("cost_usd", 0.0), "user_ref": user_ref}
+            return {
+                "status": result.get("status", "failed"),
+                "content": result.get("final_answer") or result.get("error", ""),
+                "cost_usd": result.get("cost_usd", 0.0),
+                "user_ref": user_ref,
+            }
         except Exception as exc:
             return {"status": "failed", "content": f"IM runner error: {exc}", "user_ref": user_ref}
 
     gateway = DingTalkGateway(
-        app_key=app_key, app_secret=app_secret,
-        webhook_url=webhook_url, webhook_secret=webhook_secret,
+        app_key=app_key,
+        app_secret=app_secret,
+        webhook_url=webhook_url,
+        webhook_secret=webhook_secret,
         runner=_default_runner,
     )
 
@@ -275,7 +296,12 @@ def make_dingtalk_router(
         # Verify group chat bot signature
         timestamp = request.headers.get("timestamp", "")
         sign = request.headers.get("sign", "")
-        if timestamp and sign and gateway.webhook_secret and not gateway.verify_signature(timestamp, sign):
+        if (
+            timestamp
+            and sign
+            and gateway.webhook_secret
+            and not gateway.verify_signature(timestamp, sign)
+        ):
             raise HTTPException(status_code=401, detail="Invalid signature")
 
         try:

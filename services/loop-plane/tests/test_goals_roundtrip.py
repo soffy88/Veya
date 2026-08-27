@@ -12,13 +12,16 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_t1_goal_create_and_project(client):
-    r = await client.post("/v1/loop/goals", json={
-        "objective": "构建登录页",
-        "todos": [
-            {"id": "t1", "title": "设计 UI"},
-            {"id": "t2", "title": "实现 API", "depends_on": ["t1"]},
-        ],
-    })
+    r = await client.post(
+        "/v1/loop/goals",
+        json={
+            "objective": "构建登录页",
+            "todos": [
+                {"id": "t1", "title": "设计 UI"},
+                {"id": "t2", "title": "实现 API", "depends_on": ["t1"]},
+            ],
+        },
+    )
     assert r.status_code == 201
     goal = r.json()
     assert goal["objective"] == "构建登录页"
@@ -45,14 +48,19 @@ async def test_t1_goal_create_and_project(client):
 
 @pytest.mark.asyncio
 async def test_t2_update_todo_appends_events(client, store):
-    r = await client.post("/v1/loop/goals", json={
-        "objective": "发布 v1",
-        "todos": [{"id": "t1", "title": "写测试"}],
-    })
+    r = await client.post(
+        "/v1/loop/goals",
+        json={
+            "objective": "发布 v1",
+            "todos": [{"id": "t1", "title": "写测试"}],
+        },
+    )
     goal_id = r.json()["goal_id"]
 
-    r2 = await client.post(f"/v1/loop/goals/{goal_id}/todos/t1",
-                           json={"status": "done", "evidence": "全部 42 个用例通过"})
+    r2 = await client.post(
+        f"/v1/loop/goals/{goal_id}/todos/t1",
+        json={"status": "done", "evidence": "全部 42 个用例通过"},
+    )
     assert r2.status_code == 200
     goal = r2.json()
     assert goal["todos"]["t1"]["status"] == "done"
@@ -71,10 +79,13 @@ async def test_t2_update_todo_appends_events(client, store):
 
 @pytest.mark.asyncio
 async def test_t3_claim_conflict(client):
-    r = await client.post("/v1/loop/goals", json={
-        "objective": "并行任务",
-        "todos": [{"id": "t1", "title": "独占 todo"}],
-    })
+    r = await client.post(
+        "/v1/loop/goals",
+        json={
+            "objective": "并行任务",
+            "todos": [{"id": "t1", "title": "独占 todo"}],
+        },
+    )
     goal_id = r.json()["goal_id"]
 
     r1 = await client.post(f"/v1/loop/goals/{goal_id}/todos/t1/claim", json={"lease_min": 45})
@@ -93,18 +104,22 @@ async def test_t3_claim_conflict(client):
 
 @pytest.mark.asyncio
 async def test_quota_gate_terminal(client):
-    r = await client.post("/v1/loop/goals", json={
-        "objective": "限额任务",
-        "todos": [{"id": "t1", "title": "第一步"}],
-    })
+    r = await client.post(
+        "/v1/loop/goals",
+        json={
+            "objective": "限额任务",
+            "todos": [{"id": "t1", "title": "第一步"}],
+        },
+    )
     goal_id = r.json()["goal_id"]
 
     sr = await client.post(f"/v1/loop/goals/{goal_id}/quota/should_run")
     assert sr.json()["should_run"] is True
 
     # spend 超预算 → 409
-    sp = await client.post(f"/v1/loop/goals/{goal_id}/quota/spend",
-                           json={"todo_id": "t1", "slots": 99})
+    sp = await client.post(
+        f"/v1/loop/goals/{goal_id}/quota/spend", json={"todo_id": "t1", "slots": 99}
+    )
     assert sp.status_code == 409
 
     # gate
@@ -127,10 +142,18 @@ def test_event_store_append_only_and_replay(data_dir):
     from app.infra.event_store import EventStore
 
     store = EventStore(data_dir, tenant_id="default")
-    store.append(aggregate_type="Goal", aggregate_id="g1", event_type="GoalCreated",
-                 payload={"objective": "x", "todos": []})
-    store.append(aggregate_type="Goal", aggregate_id="g1", event_type="TodoUpdated",
-                 payload={"todo_id": "t1", "status": "in_progress"})
+    store.append(
+        aggregate_type="Goal",
+        aggregate_id="g1",
+        event_type="GoalCreated",
+        payload={"objective": "x", "todos": []},
+    )
+    store.append(
+        aggregate_type="Goal",
+        aggregate_id="g1",
+        event_type="TodoUpdated",
+        payload={"todo_id": "t1", "status": "in_progress"},
+    )
 
     # 重新加载 → 重放一致
     store2 = EventStore(data_dir, tenant_id="default")

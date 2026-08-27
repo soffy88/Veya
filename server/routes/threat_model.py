@@ -14,10 +14,10 @@ router = APIRouter(prefix="/threat-model", tags=["threat-model"])
 
 
 class EvolveRequest(BaseModel):
-    signals: list[dict[str, Any]]                # [{"kind", "severity"}]
+    signals: list[dict[str, Any]]  # [{"kind", "severity"}]
     prior: list[float] | None = None
     quarantine_threshold: float = 0.7
-    profile_path: str | None = None           # 持久化画像(读旧先验/写新后验)
+    profile_path: str | None = None  # 持久化画像(读旧先验/写新后验)
     entity: str = "default"
 
 
@@ -44,7 +44,9 @@ async def threat_model_evolve(req: EvolveRequest) -> dict[str, Any]:
         )
     else:
         global_notifier.push(
-            "INFO", f"威胁监控: {req.entity}",
-            f"P(hostile)={result['hostile_prob']:.2f} (阈值 {req.quarantine_threshold})", {},
+            "INFO",
+            f"威胁监控: {req.entity}",
+            f"P(hostile)={result['hostile_prob']:.2f} (阈值 {req.quarantine_threshold})",
+            {},
         )
     return result

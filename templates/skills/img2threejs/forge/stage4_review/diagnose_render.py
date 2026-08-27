@@ -114,11 +114,18 @@ def proportion_delta(
     _dx, _dy, dw, dh = render_bbox
     ref_ar = rw / rh if rh else 0.0
     render_ar = dw / dh if dh else 0.0
-    aspect_ratio_delta = abs(ref_ar - render_ar) / ref_ar if ref_ar else (0.0 if render_ar == 0 else 1.0)
+    aspect_ratio_delta = (
+        abs(ref_ar - render_ar) / ref_ar if ref_ar else (0.0 if render_ar == 0 else 1.0)
+    )
     ref_area = rw * rh
     render_area = dw * dh
-    scale_delta = abs(ref_area - render_area) / ref_area if ref_area else (0.0 if render_area == 0 else 1.0)
-    return {"aspect_ratio_delta": round(aspect_ratio_delta, 4), "scale_delta": round(scale_delta, 4)}
+    scale_delta = (
+        abs(ref_area - render_area) / ref_area if ref_area else (0.0 if render_area == 0 else 1.0)
+    )
+    return {
+        "aspect_ratio_delta": round(aspect_ratio_delta, 4),
+        "scale_delta": round(scale_delta, 4),
+    }
 
 
 def bilateral_symmetry_error(mask: list[bool], size: int = MASK_GRID_SIZE) -> float:
@@ -185,10 +192,9 @@ def run_tier1(
 ) -> dict[str, Any]:
     reference_mask, reference_mask_warnings = load_mask(reference_path)
     render_mask, render_mask_warnings = load_mask(render_path)
-    mask_warnings = (
-        [f"reference: {w}" for w in reference_mask_warnings]
-        + [f"render: {w}" for w in render_mask_warnings]
-    )
+    mask_warnings = [f"reference: {w}" for w in reference_mask_warnings] + [
+        f"render: {w}" for w in render_mask_warnings
+    ]
 
     iou = silhouette_iou(reference_mask, render_mask)
     reference_bbox = bbox_of(reference_mask)
@@ -217,14 +223,17 @@ def run_tier1(
             f"threshold {ASPECT_RATIO_DELTA_THRESHOLD}"
         )
     if proportions["scale_delta"] > SCALE_DELTA_THRESHOLD:
-        failures.append(f"scale delta {proportions['scale_delta']:.3f} exceeds threshold {SCALE_DELTA_THRESHOLD}")
+        failures.append(
+            f"scale delta {proportions['scale_delta']:.3f} exceeds threshold {SCALE_DELTA_THRESHOLD}"
+        )
 
     if spec_path is not None:
         spec = load_spec(spec_path)
         recipes = [
             component["colorMaterialRecipe"]
             for component in spec.get("componentTree", [])
-            if isinstance(component, dict) and isinstance(component.get("colorMaterialRecipe"), dict)
+            if isinstance(component, dict)
+            and isinstance(component.get("colorMaterialRecipe"), dict)
         ]
         color_report = per_part_color_delta(recipes, render_path)
         gated = color_is_gated(pass_id)
@@ -264,20 +273,36 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--render", type=Path, required=True)
-    parser.add_argument("--spec", type=Path, help="ObjectSculptSpec JSON (for per-part color delta + recording the result)")
+    parser.add_argument(
+        "--spec",
+        type=Path,
+        help="ObjectSculptSpec JSON (for per-part color delta + recording the result)",
+    )
     parser.add_argument("--pass-id")
     parser.add_argument("--in-place", action="store_true", help="Record the result into --spec")
-    parser.add_argument("--out-spec", type=Path, help="Write the spec with the recorded result to this path")
-    parser.add_argument("--map-stripped-scene", type=Path, help="Write a scene JSON with material maps disabled")
-    parser.add_argument("--map-stripped-render", type=Path, help="Existing unlit/map-stripped render evidence")
+    parser.add_argument(
+        "--out-spec", type=Path, help="Write the spec with the recorded result to this path"
+    )
+    parser.add_argument(
+        "--map-stripped-scene", type=Path, help="Write a scene JSON with material maps disabled"
+    )
+    parser.add_argument(
+        "--map-stripped-render", type=Path, help="Existing unlit/map-stripped render evidence"
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     try:
-        emit_status(load_optional_spec(args.spec), next_command="diagnose_render.py", stream=sys.stderr if args.json else sys.stdout)
+        emit_status(
+            load_optional_spec(args.spec),
+            next_command="diagnose_render.py",
+            stream=sys.stderr if args.json else sys.stdout,
+        )
         if args.map_stripped_scene:
             scene = json.loads(args.map_stripped_scene.read_text(encoding="utf-8"))
-            args.map_stripped_scene.write_text(json.dumps(strip_material_maps(scene), indent=2) + "\n", encoding="utf-8")
+            args.map_stripped_scene.write_text(
+                json.dumps(strip_material_maps(scene), indent=2) + "\n", encoding="utf-8"
+            )
         spec_path = args.spec.expanduser().resolve() if args.spec else None
         result = run_tier1(
             args.reference.expanduser().resolve(),
@@ -287,7 +312,9 @@ def main(argv: list[str]) -> int:
         )
         if args.pass_id == "blockout":
             if not args.map_stripped_render:
-                result.setdefault("failures", []).append("blockout requires --map-stripped-render evidence")
+                result.setdefault("failures", []).append(
+                    "blockout requires --map-stripped-render evidence"
+                )
                 result["passed"] = False
             else:
                 result["mapStrippedRender"] = str(args.map_stripped_render)
@@ -296,7 +323,9 @@ def main(argv: list[str]) -> int:
             record_tier1_result(spec, result)
             output = spec_path if args.in_place else args.out_spec.expanduser().resolve()
             output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            output.write_text(
+                json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if result["passed"] else 1
     except Exception as exc:

@@ -171,7 +171,9 @@ def test_system_schemas_include_memory_tools(tmp_path):
     assert "system_remove_preference" in names
     assert "system_reload_skills" in names
     # save 工具的 schema 完整(rule/context 必填)
-    save_schema = next(s for s in coord.get_system_schemas() if s["function"]["name"] == "system_save_preference")
+    save_schema = next(
+        s for s in coord.get_system_schemas() if s["function"]["name"] == "system_save_preference"
+    )
     assert save_schema["function"]["parameters"]["required"] == ["rule", "context"]
 
 

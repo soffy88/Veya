@@ -50,6 +50,7 @@ _SNAPSHOT_LOADED = False
 
 try:
     from obase.checkpoint_store import CheckpointStore
+
     _CheckpointStore = CheckpointStore
     _SNAPSHOT_LOADED = True
     print(f"\n[veya_core] ✓ obase.checkpoint_store 加载成功 (via 3O_lib)")
@@ -59,6 +60,7 @@ except ImportError as e:
 
 
 # ── 降级实现 (内存级快照) ────────────────────────────────────────────
+
 
 class _MemorySnapshotStore:
     """内存级快照: 功能等价于 obase.checkpoint_store 但不持久化。"""
@@ -82,6 +84,7 @@ def _get_snapshot_store():
 
 
 # ── 业务管道定义 ──────────────────────────────────────────────────────
+
 
 class BusinessPipeline:
     """模拟 ETL 管道: 提取 → 转换 → 加载。
@@ -172,6 +175,7 @@ class BusinessPipeline:
 
 # ── API Server 入口函数 ──────────────────────────────────────────────────
 
+
 def run_pipeline_with_rollback(workspace_dir: str = "/tmp/veya_workspace") -> Dict[str, Any]:
     """供 api_server 调用的管道回滚入口。
 
@@ -193,16 +197,14 @@ if __name__ == "__main__":
     pipeline = BusinessPipeline()
     result = pipeline.run(source="test")
 
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"Pipeline Result: {result['status']}")
     if result.get("output"):
         print(result["output"])
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
 
     # ── 验收断言 ──────────────────────────────────────────────────
-    assert result["status"] == "rolled_back", (
-        f"Expected 'rolled_back', got '{result['status']}'"
-    )
+    assert result["status"] == "rolled_back", f"Expected 'rolled_back', got '{result['status']}'"
     assert "1,100" in result["data"], f"Expected '1,100' in data, got {result['data']}"
     assert "2,200" in result["data"], f"Expected '2,200' in data, got {result['data']}"
     print("\n✓ All assertions passed — 3O snapshot/rollback verified")

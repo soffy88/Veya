@@ -152,7 +152,12 @@ async def test_tool_execution_real(synth, monkeypatch):
 
     out = await master_tools.execute(
         "run_backtest_coprocessor",
-        {"strategy_code": _MA_STRATEGY, "asset_id": "AAPL", "start_date": "2022-01-01", "end_date": "2023-12-31"},
+        {
+            "strategy_code": _MA_STRATEGY,
+            "asset_id": "AAPL",
+            "start_date": "2022-01-01",
+            "end_date": "2023-12-31",
+        },
     )
     payload = json.loads(out)
     assert payload["status"] == "success"
@@ -198,7 +203,7 @@ async def test_full_loop_llm_quant_protocol(tmp_path, monkeypatch):
                         "content": (
                             "夏普比率 1.2, 最大回撤 -8%。\n\n"
                             '<veya-artifact type="react" title="回测面板">\n'
-                            "const chartData = {\"xAxis\": [\"2022-01-01\"], \"series\": [0.01]};\n"
+                            'const chartData = {"xAxis": ["2022-01-01"], "series": [0.01]};\n'
                             "</veya-artifact>"
                         ),
                     }

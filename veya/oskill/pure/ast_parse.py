@@ -22,7 +22,10 @@ def syntax_check(code: str) -> tuple[bool, str]:
     except SyntaxError as exc:
         line = exc.lineno or 0
         offset = exc.offset or 0
-        return False, f"语法错误 L{line}:{offset} — {exc.msg} ({exc.text and exc.text.strip() or ''})"
+        return (
+            False,
+            f"语法错误 L{line}:{offset} — {exc.msg} ({exc.text and exc.text.strip() or ''})",
+        )
 
 
 def find_definitions(code: str) -> list[dict]:

@@ -18,6 +18,7 @@ from server.board import BoardStore, BoardWorker, GitWorktree
 # BoardStore — 状态机与依赖
 # =========================================================================
 
+
 def test_board_crud_and_status_machine(tmp_path):
     store = BoardStore(tmp_path / "boards.json")
     store.create("b1", repo=str(tmp_path / "repo"))
@@ -51,6 +52,7 @@ def test_board_crud_and_status_machine(tmp_path):
 # GitWorktree — 真实 git 隔离/收敛/审查
 # =========================================================================
 
+
 @pytest.fixture
 def git_repo(tmp_path):
     repo = tmp_path / "repo"
@@ -77,8 +79,9 @@ def test_git_worktree_isolate_commit_diff_cleanup(git_repo):
     # 收敛: auto-commit 到独立分支
     sha = wt.commit(path, "card test")
     assert len(sha) >= 7
-    r = subprocess.run(["git", "branch", "--show-current"], cwd=path,
-                       capture_output=True, text=True)
+    r = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=path, capture_output=True, text=True
+    )
     assert r.stdout.strip() == branch
 
     # 审查: diff 统计可见
@@ -93,6 +96,7 @@ def test_git_worktree_isolate_commit_diff_cleanup(git_repo):
 # =========================================================================
 # BoardWorker — 依赖链自动触发
 # =========================================================================
+
 
 @pytest.mark.asyncio
 async def test_dependency_chain_auto_trigger(tmp_path, monkeypatch):
@@ -117,8 +121,7 @@ async def test_dependency_chain_auto_trigger(tmp_path, monkeypatch):
 
     store.create("b1", repo=str(repo))
     a = store.add_card("b1", title="A", prompt="A", engine="claude")
-    b = store.add_card("b1", title="B", prompt="B", engine="claude",
-                       depends_on=[a.id])
+    b = store.add_card("b1", title="B", prompt="B", engine="claude", depends_on=[a.id])
 
     # B 依赖 A 未完成 → 不能启动
     with pytest.raises(ValueError):
@@ -153,6 +156,7 @@ async def test_start_requires_repo_and_blocked_by_dependency(tmp_path):
 # API — 看板端点
 # =========================================================================
 
+
 @pytest.mark.asyncio
 async def test_board_api_flow(tmp_path, monkeypatch):
     from server import board as board_mod
@@ -179,31 +183,35 @@ async def test_board_api_flow(tmp_path, monkeypatch):
 
     client = TestClient(__import__("server.app", fromlist=["app"]).app)
 
-    r = client.post("/api/v1/board", json={"action": "create", "name": "b1",
-                                           "repo": str(repo)})
+    r = client.post("/api/v1/board", json={"action": "create", "name": "b1", "repo": str(repo)})
     assert r.status_code == 200 and r.json()["status"] == "created"
 
-    r = client.post("/api/v1/board", json={"action": "add_card", "board": "b1",
-                                           "title": "A", "prompt": "做 A"})
+    r = client.post(
+        "/api/v1/board", json={"action": "add_card", "board": "b1", "title": "A", "prompt": "做 A"}
+    )
     aid = r.json()["card_id"]
 
-    r = client.post("/api/v1/board", json={"action": "add_card", "board": "b1",
-                                           "title": "B", "prompt": "做 B",
-                                           "depends_on": [aid]})
+    r = client.post(
+        "/api/v1/board",
+        json={
+            "action": "add_card",
+            "board": "b1",
+            "title": "B",
+            "prompt": "做 B",
+            "depends_on": [aid],
+        },
+    )
     bid = r.json()["card_id"]
 
     # 依赖未满足 → start 400
-    r = client.post("/api/v1/board", json={"action": "start", "board": "b1",
-                                           "card_id": bid})
+    r = client.post("/api/v1/board", json={"action": "start", "board": "b1", "card_id": bid})
     assert r.status_code == 400
 
     # A start → done → trash → B 自动启动
-    r = client.post("/api/v1/board", json={"action": "start", "board": "b1",
-                                           "card_id": aid})
+    r = client.post("/api/v1/board", json={"action": "start", "board": "b1", "card_id": aid})
     assert r.status_code == 200
     await asyncio.sleep(0.05)
-    r = client.post("/api/v1/board", json={"action": "trash", "board": "b1",
-                                           "card_id": aid})
+    r = client.post("/api/v1/board", json={"action": "trash", "board": "b1", "card_id": aid})
     assert bid in r.json()["triggered"]
 
     r = client.post("/api/v1/board", json={"action": "status", "board": "b1"})

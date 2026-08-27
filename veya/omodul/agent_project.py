@@ -148,7 +148,9 @@ class SkillIndex:
             return []
         for path in sorted(root.iterdir()):
             if path.is_file() and path.name == "SKILL.md":
-                meta = _parse_skill_file(path, name=path.parent.name if path.parent != root else path.stem)
+                meta = _parse_skill_file(
+                    path, name=path.parent.name if path.parent != root else path.stem
+                )
                 if meta:
                     self._meta[meta.name] = meta
             elif path.is_dir() and (path / "SKILL.md").exists():
@@ -214,7 +216,9 @@ def _parse_skill_file(path: Path, *, name: str) -> SkillMeta | None:
         match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
         if match:
             front = match.group(1)
-            desc_match = re.search(r"(?:description|描述)\s*:\s*[\"']?(.+?)[\"']?\s*$", front, re.MULTILINE)
+            desc_match = re.search(
+                r"(?:description|描述)\s*:\s*[\"']?(.+?)[\"']?\s*$", front, re.MULTILINE
+            )
             if desc_match:
                 description = desc_match.group(1).strip()
     if not description:
@@ -251,8 +255,13 @@ class ChannelSpec:
     config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "kind": self.kind, "route": self.route,
-                "handler": self.handler, "config": self.config}
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "route": self.route,
+            "handler": self.handler,
+            "config": self.config,
+        }
 
 
 @dataclass(frozen=True)
@@ -272,8 +281,12 @@ class ScheduleSpec:
     description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "cron": self.cron, "handler": self.handler,
-                "description": self.description}
+        return {
+            "name": self.name,
+            "cron": self.cron,
+            "handler": self.handler,
+            "description": self.description,
+        }
 
 
 def load_channels(channels_dir: str | Path) -> list[ChannelSpec]:
@@ -296,25 +309,29 @@ def load_channels(channels_dir: str | Path) -> list[ChannelSpec]:
         if path.suffix == ".json":
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                channels.append(ChannelSpec(
-                    name=data.get("name", name),
-                    kind=data.get("kind", "http"),
-                    route=data.get("route"),
-                    handler=data.get("handler"),
-                    config=data.get("config", {}),
-                ))
+                channels.append(
+                    ChannelSpec(
+                        name=data.get("name", name),
+                        kind=data.get("kind", "http"),
+                        route=data.get("route"),
+                        handler=data.get("handler"),
+                        config=data.get("config", {}),
+                    )
+                )
             except (json.JSONDecodeError, OSError):
                 continue
         else:
             # 源码文件: 从默认导出/注释提取 kind
             text = path.read_text(encoding="utf-8")
             kind_match = re.search(r"(?:kind|type)\s*[:=]\s*[\"'](\w+)[\"']", text)
-            channels.append(ChannelSpec(
-                name=name,
-                kind=kind_match.group(1) if kind_match else "http",
-                route=path.stem,
-                handler=str(path),
-            ))
+            channels.append(
+                ChannelSpec(
+                    name=name,
+                    kind=kind_match.group(1) if kind_match else "http",
+                    route=path.stem,
+                    handler=str(path),
+                )
+            )
     return channels
 
 
@@ -338,22 +355,26 @@ def load_schedules(schedules_dir: str | Path) -> list[ScheduleSpec]:
         if path.suffix == ".json":
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                schedules.append(ScheduleSpec(
-                    name=data.get("name", name),
-                    cron=data.get("cron", ""),
-                    handler=data.get("handler", ""),
-                    description=data.get("description", ""),
-                ))
+                schedules.append(
+                    ScheduleSpec(
+                        name=data.get("name", name),
+                        cron=data.get("cron", ""),
+                        handler=data.get("handler", ""),
+                        description=data.get("description", ""),
+                    )
+                )
             except (json.JSONDecodeError, OSError):
                 continue
         else:
             text = path.read_text(encoding="utf-8")
             cron_match_ = re.search(r"cron\s*[:=]\s*[\"']([^\"']+)[\"']", text)
-            schedules.append(ScheduleSpec(
-                name=name,
-                cron=cron_match_.group(1) if cron_match_ else "",
-                handler=str(path),
-            ))
+            schedules.append(
+                ScheduleSpec(
+                    name=name,
+                    cron=cron_match_.group(1) if cron_match_ else "",
+                    handler=str(path),
+                )
+            )
     return schedules
 
 
@@ -421,6 +442,16 @@ def _field_match(pattern: str, value: int) -> bool:
         return False
 
 
-__all__ = ["AGENT_DIR_NAME", "AgentLayout", "ChannelSpec", "ScheduleSpec",
-           "SkillIndex", "SkillMeta", "cron_match", "discover_agent",
-           "load_channels", "load_schedules", "read_instructions"]
+__all__ = [
+    "AGENT_DIR_NAME",
+    "AgentLayout",
+    "ChannelSpec",
+    "ScheduleSpec",
+    "SkillIndex",
+    "SkillMeta",
+    "cron_match",
+    "discover_agent",
+    "load_channels",
+    "load_schedules",
+    "read_instructions",
+]

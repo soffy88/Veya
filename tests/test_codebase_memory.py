@@ -25,18 +25,16 @@ def _make_repo() -> pathlib.Path:
     (tmp / "app.py").write_text(
         "def helper(x):\n    return x + 1\n\n"
         "def main():\n    return helper(41)\n\n"
-        "def unused_fn():\n    return 0\n")
-    (tmp / "util.py").write_text(
-        "from app import helper\n\n"
-        "def run():\n    return helper(1)\n")
+        "def unused_fn():\n    return 0\n"
+    )
+    (tmp / "util.py").write_text("from app import helper\n\ndef run():\n    return helper(1)\n")
     return tmp
 
 
 @pytest.fixture()
 async def connector():
     repo = _make_repo()
-    c = CodebaseMemoryConnector(repo, bin_path=str(BIN),
-                                index_dir=str(repo / ".cbm-index"))
+    c = CodebaseMemoryConnector(repo, bin_path=str(BIN), index_dir=str(repo / ".cbm-index"))
     await c.start()
     yield c
     await c.close()
@@ -78,7 +76,7 @@ async def test_trace_callers_across_files(connector):
 async def test_blast_radius_aggregation(connector):
     await connector.ensure_indexed(force=True)
     radius = await connector.blast_radius(["helper"], depth=2)
-    assert radius["total_affected"] >= 2          # main + run
+    assert radius["total_affected"] >= 2  # main + run
     assert any("main" in c for c in radius["callers"])
     assert any("run" in c for c in radius["callers"])
 
@@ -87,7 +85,8 @@ async def test_blast_radius_aggregation(connector):
 async def test_query_cypher(connector):
     await connector.ensure_indexed(force=True)
     rows = await connector.query_cypher(
-        "MATCH (f:FUNCTION) WHERE f.name = 'helper' RETURN f.name LIMIT 5")
+        "MATCH (f:FUNCTION) WHERE f.name = 'helper' RETURN f.name LIMIT 5"
+    )
     # 服务端可能返回空行或结果 — 至少不抛异常
     assert isinstance(rows, list)
 
@@ -103,7 +102,7 @@ async def test_dual_channel_graph_first(connector):
 
     res = await connector.search("helper", top_k=5, fallback=vec_fallback)
     assert res["source"] == "graph"
-    assert called["vec"] == 0                    # 图谱命中不触发 fallback
+    assert called["vec"] == 0  # 图谱命中不触发 fallback
 
 
 @pytest.mark.asyncio
@@ -133,7 +132,7 @@ async def test_tool_adapters_batch(connector):
 
 def test_singleton_get_connector():
     c = get_connector()
-    assert c is get_connector()                  # 单例
+    assert c is get_connector()  # 单例
     assert c.workspace_root.exists()
 
 
@@ -141,15 +140,16 @@ def test_singleton_get_connector():
 async def test_missing_bin_degrades():
     c = CodebaseMemoryConnector("/tmp", bin_path="/nonexistent/bin")
     assert not c.available
-    await c.start()                              # 降级不抛
+    await c.start()  # 降级不抛
     assert not c.ready
     with pytest.raises(CodebaseMemoryError):
-        await c.search_symbols("x")              # 未就绪调用必须报错
+        await c.search_symbols("x")  # 未就绪调用必须报错
 
 
 # =========================================================================
 # 主脑工具面接线 + 每日增量索引 cron
 # =========================================================================
+
 
 @pytest.mark.asyncio
 async def test_wire_master_tools_idempotent(connector):
@@ -199,7 +199,7 @@ async def test_daily_reindex_job_runs_incremental(connector):
         schedule_daily_reindex(sched)
         job = sched.get_job("cbm_daily_reindex")
         assert job is not None
-        await job.func()                                 # 手动触发一次
-        assert connector._project                        # 索引状态保持
+        await job.func()  # 手动触发一次
+        assert connector._project  # 索引状态保持
     finally:
         sched.shutdown(wait=False)

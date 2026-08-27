@@ -9,22 +9,22 @@ import pytest
 from server.adversarial_chamber import VeyaAdversarialChamber
 
 BAD_CODE = (
-    'import pandas as pd\n'
-    'def run_strategy(df):\n'
+    "import pandas as pd\n"
+    "def run_strategy(df):\n"
     '    df["signal"] = df["close"].shift(-1) / df["close"] - 1\n'
     '    df["ma"] = df["close"].rolling(20).mean()\n'
     '    df["daily_return"] = df["close"].pct_change().fillna(0)\n'
     '    df["cum_return"] = (1 + df["daily_return"]).cumprod()\n'
-    '    return df\n'
+    "    return df\n"
 )
 
 GOOD_CODE = (
-    'def run_strategy(df):\n'
+    "def run_strategy(df):\n"
     '    df["ma"] = df["close"].rolling(20).mean().shift(1)\n'
     '    df["signal"] = (df["close"] > df["ma"]).astype(int)\n'
     '    df["daily_return"] = df["close"].pct_change().fillna(0)\n'
     '    df["cum_return"] = (1 + df["daily_return"]).cumprod()\n'
-    '    return df\n'
+    "    return df\n"
 )
 
 
@@ -36,6 +36,7 @@ def chamber(tmp_path) -> VeyaAdversarialChamber:
 # =========================================================================
 # 确定性模式 (离线安全, 可复现)
 # =========================================================================
+
 
 async def test_blocked_strategy_with_lookahead(chamber):
     """偷价策略 → blocked, 红队点出未来函数, 分数不达标."""
@@ -77,8 +78,9 @@ async def test_report_markdown_written(chamber):
 
 async def test_needs_review_on_warnings_only(chamber):
     """仅 WARNING (如 rolling 未滞后) → needs_review 或 approved, 但非 blocked."""
-    code = GOOD_CODE.replace('df["close"].rolling(20).mean().shift(1)',
-                             'df["close"].rolling(20).mean()')
+    code = GOOD_CODE.replace(
+        'df["close"].rolling(20).mean().shift(1)', 'df["close"].rolling(20).mean()'
+    )
     r = await chamber.review(code, strategy_name="leaky_ma")
     assert r["status"] in ("needs_review", "approved")
     assert r["violations"] == 0
@@ -89,6 +91,7 @@ async def test_needs_review_on_warnings_only(chamber):
 # =========================================================================
 # LLM 注入模式 (fake caller, 验证辩论调用链)
 # =========================================================================
+
 
 async def test_llm_mode_uses_injected_caller(tmp_path):
     """注入 fake LLM → 蓝/红/主脑三轮调用, 报告含模型输出."""

@@ -16,6 +16,11 @@ graph_fingerprint = _oprim._inference_cache.graph_fingerprint
 count_simple_paths_dag = _oprim._inference_cache.count_simple_paths_dag
 path_frequency_counts = _oprim._inference_cache.path_frequency_counts
 
-__all__ = ["InferenceCache", "count_simple_paths_dag", "get_intervention_cache",
-           "graph_fingerprint", "path_frequency_counts",
-           "set_intervention_cache_capacity"]
+__all__ = [
+    "InferenceCache",
+    "count_simple_paths_dag",
+    "get_intervention_cache",
+    "graph_fingerprint",
+    "path_frequency_counts",
+    "set_intervention_cache_capacity",
+]
