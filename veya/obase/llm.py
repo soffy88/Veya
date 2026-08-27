@@ -703,11 +703,7 @@ def _openrouter_128k_pool() -> list[dict[str, str]]:
     """veya1.2-128K 免费模型池: env 覆盖 OpenRouter 子池, 否则返回结构化候选。"""
     raw = os.environ.get("VEYA_OPENROUTER_128K_POOL", "").strip()
     if raw:
-        pool = [
-            {"provider": "openrouter", "model": m.strip()}
-            for m in raw.split(",")
-            if m.strip()
-        ]
+        pool = [{"provider": "openrouter", "model": m.strip()} for m in raw.split(",") if m.strip()]
         if pool:
             return pool
     return list(_OPENROUTER_128K_DEFAULT_POOL)
