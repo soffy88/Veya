@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-08-27T14:42:24Z",
+  "release_candidate_source_head": "93672b4b321d7dbd3f10f410869322cca12af1ec",
+  "head": "93672b4b321d7dbd3f10f410869322cca12af1ec",
+  "origin_main": "93672b4b321d7dbd3f10f410869322cca12af1ec",
+  "required_ci_run": "33070124298",
+  "required_ci_status": "success",
+  "release_smoke_run": "33068140493",
+  "release_smoke_status": "success",
+  "desktop_status": {
+    "workflow_run": "33068140434",
+    "dmg": "success",
+    "nsis": "success",
+    "deb": "cancelled_during_temporary_tag_cleanup",
+    "classification": "ancillary_non_blocking"
+  },
+  "public_health_status": {
+    "status": "pass",
+    "http_status": 200,
+    "url": "https://veya.aiinote.com/health",
+    "verified_at": "2026-08-27T14:41:46Z",
+    "reported": {
+      "web": "ok",
+      "gateway": "ok",
+      "backend": "ok",
+      "durable": "ok",
+      "personal_runtime": "ok",
+      "schema_version": 3,
+      "gold_gate": "PASS",
+      "gold_approved": 170,
+      "latest_eval_run": "personal-gold-12beca1fe0594232afc251749f27f102"
+    }
+  },
+  "durable_health_status": {
+    "status": "pass",
+    "http_status": 200,
+    "backend": "postgres",
+    "authority": "postgresql",
+    "enabled": true,
+    "healthy": true,
+    "db_connected": true,
+    "schema_version": 3,
+    "queue_depth": 0,
+    "active_leases": 0,
+    "pending_outbox": 0,
+    "quarantined_count": 0,
+    "reconciler": true
+  },
+  "personal_gold_status": {
+    "status": "pass",
+    "dataset_version": "personal-agent-gold-v1",
+    "approved": 170,
+    "total": 170,
+    "latest_eval_run": "personal-gold-12beca1fe0594232afc251749f27f102"
+  },
+  "direct_io": {
+    "total_findings": 409,
+    "known_baseline": 409,
+    "line_drift": 212,
+    "new_findings": 0,
+    "baseline_entries": 411,
+    "status": "pass"
+  },
+  "three_o_status": "pass",
+  "ruff_status": "pass",
+  "web_status": {
+    "svelte_check": "pass",
+    "build": "pass"
+  },
+  "optional_legacy_status": {
+    "full_suite_historical_failures": 18,
+    "direct_io_known_baseline": 409,
+    "security_nightly": "failure_non_blocking",
+    "security_nightly_reason": "optional workflow test collection missing networkx in workflow environment",
+    "required_release_blocker": false
+  },
+  "formal_tags_unchanged": true,
+  "temporary_release_direct_io_tags_remaining": false,
+  "protected_user_files": [
+    "tests/test_inferera_free_pool.py",
+    "veya/obase/_llm_config.py",
+    "veya/obase/llm.py"
+  ],
+  "remaining_blockers": [],
+  "recommendation": "RELEASE",
+  "secrets_included": false
+}
