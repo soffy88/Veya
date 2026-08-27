@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from veya.oprim.snapshot import (
     snapshot_commit,
@@ -250,7 +251,6 @@ class SessionTreeMgr:
         # 复制根→at_node 链上的节点（深拷贝内容）
         new_sid = self._id_fn()
         prefix: dict[str, dict[str, Any]] = {}
-        cur: str | None = at_node_id
         new_parent: str | None = None
         new_leaf = ""
         # 从根往下重建 parent 链
@@ -277,7 +277,7 @@ class SessionTreeMgr:
         self._save(
             new_sid,
             {
-                "root": new_leaf if new_parent is None else list(prefix)[0],
+                "root": new_leaf if new_parent is None else next(iter(prefix)),
                 "leaf": new_leaf,
                 "nodes": prefix,
                 "owner": tree.get("owner"),  # 分支延续原会话归属

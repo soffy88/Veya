@@ -24,7 +24,7 @@ def syntax_check(code: str) -> tuple[bool, str]:
         offset = exc.offset or 0
         return (
             False,
-            f"语法错误 L{line}:{offset} — {exc.msg} ({exc.text and exc.text.strip() or ''})",
+            f"语法错误 L{line}:{offset} — {exc.msg} ({(exc.text and exc.text.strip()) or ''})",
         )
 
 

@@ -10,9 +10,9 @@ from server.tool_registry import ToolExecutionError, master_tools
 
 @pytest.mark.asyncio
 async def test_hosted_run_in_sandbox_uses_opensandbox(monkeypatch, tmp_path):
+    from omodul.sandbox_broker import reset_broker
     from oprim._opensandbox import LoopbackOpenSandboxDriver, set_opensandbox_driver
     from oprim._sandbox_env import reset_sandbox_runtime
-    from omodul.sandbox_broker import reset_broker
 
     monkeypatch.setenv("VEYA_SANDBOX_PROFILE", "hosted")
     monkeypatch.setenv("VEYA_WORKSPACE", str(tmp_path))
@@ -28,9 +28,9 @@ async def test_hosted_run_in_sandbox_uses_opensandbox(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_hosted_run_in_sandbox_fails_without_driver(monkeypatch, tmp_path):
+    from omodul.sandbox_broker import reset_broker
     from oprim._opensandbox import set_opensandbox_driver
     from oprim._sandbox_env import reset_sandbox_runtime
-    from omodul.sandbox_broker import reset_broker
 
     monkeypatch.setenv("VEYA_SANDBOX_PROFILE", "hosted")
     monkeypatch.setenv("VEYA_WORKSPACE", str(tmp_path))

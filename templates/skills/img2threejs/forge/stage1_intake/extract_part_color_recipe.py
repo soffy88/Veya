@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extract_pbr_evidence import (  # noqa: E402
+from extract_pbr_evidence import (
     build_foreground_mask,
     clamp,
     clamp01,
@@ -29,12 +29,10 @@ from extract_pbr_evidence import (  # noqa: E402
     mask_bbox,
     representative_samples,
     resample_crop,
-    slugify,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
-from artifact_cache import cache_key, get_cached, manifest_path_for, put_cached  # noqa: E402
-
+from artifact_cache import cache_key, get_cached, manifest_path_for, put_cached
 
 # ---------- CIE L*a*b* conversion (sRGB, D65 reference white) ----------
 
@@ -80,10 +78,7 @@ def _srgb_to_linear(channel: float) -> float:
 
 def _linear_to_srgb(channel: float) -> float:
     c = clamp01(channel)
-    if c <= 0.0031308:
-        srgb = c * 12.92
-    else:
-        srgb = 1.055 * (c ** (1.0 / 2.4)) - 0.055
+    srgb = c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1.0 / 2.4) - 0.055
     return clamp(srgb * 255.0, 0.0, 255.0)
 
 
@@ -185,7 +180,7 @@ def lab_kmeans_palette(samples: list[tuple[float, float, float]], k: int) -> lis
             nearest = min(range(len(centers)), key=lambda idx: lab_distance(sample, centers[idx]))
             groups[nearest].append(sample)
         new_centers = []
-        for group, center in zip(groups, centers):
+        for group, center in zip(groups, centers, strict=False):
             if not group:
                 new_centers.append(center)
                 continue
@@ -212,7 +207,7 @@ def estimate_roughness_from_hotspot(
     This is a proxy measurement (spatial spread of the brightest foreground pixels),
     not a true BRDF fit, but it is a real measurement off the pixels rather than a
     heuristic default."""
-    foreground_lumas = [luma for luma, keep in zip(lumas, mask) if keep]
+    foreground_lumas = [luma for luma, keep in zip(lumas, mask, strict=False) if keep]
     if not foreground_lumas:
         return 0.7, "no foreground pixels; default mid-roughness"
     peak = max(foreground_lumas)
@@ -281,8 +276,8 @@ def _sample_axis(
         t = step / (steps - 1)
         x = start[0] + (end[0] - start[0]) * t
         y = start[1] + (end[1] - start[1]) * t
-        sx = min(size - 1, max(0, int(round(x))))
-        sy = min(size - 1, max(0, int(round(y))))
+        sx = min(size - 1, max(0, round(x)))
+        sy = min(size - 1, max(0, round(y)))
         index = sy * size + sx
         if not mask_grid[index]:
             return None
@@ -367,7 +362,6 @@ def build_recipe(
 ) -> dict[str, Any]:
     width, height, pixels, _load_warnings = load_image(crop_path)
     rgba_pixels = pixels
-    rgb_pixels = [(r, g, b) for r, g, b, _a in rgba_pixels]
     mask, _mask_diag, _mask_warnings = build_foreground_mask(width, height, rgba_pixels)
     bbox = mask_bbox(width, height, mask)
     sampled_pixels, sampled_mask = resample_crop(width, height, rgba_pixels, mask, bbox, size)
@@ -378,7 +372,7 @@ def build_recipe(
         for p in sampled_pixels
     ]
 
-    foreground_lab = [lab for lab, keep in zip(lab_grid, sampled_mask) if keep]
+    foreground_lab = [lab for lab, keep in zip(lab_grid, sampled_mask, strict=False) if keep]
     samples_for_kmeans = (
         representative_samples(foreground_lab, [True] * len(foreground_lab), limit=4000)
         if foreground_lab

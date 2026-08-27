@@ -1320,7 +1320,7 @@ CHARACTER_ACCESSORY_MATERIALS = [
 
 
 def make_character_build_passes() -> list:
-    base = make_pre_spec_assessment  # noqa: reference to keep import graph obvious
+    base = make_pre_spec_assessment
     passes = [
         {
             "id": "blockout",

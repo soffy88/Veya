@@ -11,7 +11,6 @@ import pytest
 
 from runtime.execution.durable import DurableExecutionRepository, WorkItemSpec
 
-
 PG_DSN = os.environ.get("VEYA_EXECUTION_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
     not PG_DSN or not PG_DSN.startswith(("postgres://", "postgresql://")),

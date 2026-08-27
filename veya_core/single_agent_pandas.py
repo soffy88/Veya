@@ -13,10 +13,9 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # ── 环境映射 ──────────────────────────────────────────────────────────
 _HICODE = Path(__file__).resolve().parent.parent
@@ -59,14 +58,13 @@ if _SANDBOX_POOL is None or _SANDBOX_OBSERVE is None:
     _FALLBACK = True
 
 
-def _fallback_sandbox_execute(code: str, timeout: float) -> Dict[str, Any]:
+def _fallback_sandbox_execute(code: str, timeout: float) -> dict[str, Any]:
     """降级方案: 使用 veya 内置沙箱执行不可信代码。
 
     模拟 3O O3 沙箱探针的隔离 + 观察行为。
     """
     import subprocess
     import tempfile
-    import time
 
     code_path = Path(tempfile.mkdtemp(prefix="veya_sandbox_")) / "exec.py"
     code_path.write_text(f"""
@@ -102,7 +100,7 @@ except Exception as e:
         shutil.rmtree(code_path.parent, ignore_errors=True)
 
 
-def run_complex_pandas_task(data_path: str = "dummy_data.csv") -> Dict[str, Any]:
+def run_complex_pandas_task(data_path: str = "dummy_data.csv") -> dict[str, Any]:
     """
     业务逻辑：高复杂度的 Pandas 清洗。
     为防止业务代码引发宿主机 OOM 或崩溃，将其包装进 3O 元素的隔离沙箱中。
@@ -120,10 +118,14 @@ def execute():
 
     if _FALLBACK:
         print("[veya_core] 3O O3 沙箱元素未挂载，使用 veya 内置沙箱降级执行")
+
         # 模拟探针：检查代码是否包含 execute() 函数
-        probe = lambda code, timeout: (
-            {"status": "success", "score": 1.0} if "execute()" in code else {"status": "error"}
-        )
+        def probe(code: str, timeout: float) -> dict[str, float | str]:
+            del timeout
+            return (
+                {"status": "success", "score": 1.0} if "execute()" in code else {"status": "error"}
+            )
+
         probe_result = probe(untrusted_business_code, 15.0)
         if probe_result["status"] != "success":
             return {"status": "error", "reason": "probe_validation_failed"}

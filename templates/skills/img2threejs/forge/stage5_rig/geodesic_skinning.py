@@ -84,7 +84,7 @@ class VoxelGrid:
         # it a mesh touching the bounding box would have no exterior seed on that face and its whole
         # interior would be misread as outside.
         self.low = [low[axis] - self.step for axis in range(3)]
-        self.dims = [int(math.ceil((high[axis] - low[axis]) / self.step)) + 3 for axis in range(3)]
+        self.dims = [math.ceil((high[axis] - low[axis]) / self.step) + 3 for axis in range(3)]
         self.surface: set[tuple[int, int, int]] = set()
         for face in faces:
             self._rasterize(vertices, face)
@@ -104,7 +104,7 @@ class VoxelGrid:
         """
         p0, p1, p2 = (vertices[i] for i in face)
         longest = max(math.dist(p0, p1), math.dist(p1, p2), math.dist(p2, p0))
-        steps = max(1, int(math.ceil(longest / (self.step * 0.5))))
+        steps = max(1, math.ceil(longest / (self.step * 0.5)))
         for i in range(steps + 1):
             for j in range(steps + 1 - i):
                 a = i / steps
@@ -155,7 +155,7 @@ def _segment_voxels(
 ) -> set[tuple[int, int, int]]:
     """Voxels a bone segment passes through, sampled at half-voxel steps."""
     length = math.dist(start, end)
-    steps = max(1, int(math.ceil(length / (grid.step * 0.5))))
+    steps = max(1, math.ceil(length / (grid.step * 0.5)))
     cells = set()
     for i in range(steps + 1):
         t = i / steps

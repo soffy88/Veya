@@ -31,7 +31,7 @@ _engine: DaemonEngine | None = None
 
 def gateway_engine(engine: DaemonEngine | None = None) -> DaemonEngine:
     """获取/替换网关引擎单例（测试注入用）。"""
-    global _engine  # noqa: PLW0603
+    global _engine
     if engine is not None:
         _engine = engine
     if _engine is None:

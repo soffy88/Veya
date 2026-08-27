@@ -21,7 +21,7 @@ _SUBMODULES = (
     "telegram",
     "wechat",
 )
-for _sub in _SUBMODULES:  # noqa: PLE001 — 子模块缺失不阻断 (门面尽力而为)
+for _sub in _SUBMODULES:
     try:
         _m = __import__(f"veya.oskill.im.{_sub}", fromlist=["x"])
         sys.modules[f"veya.im.{_sub}"] = _m

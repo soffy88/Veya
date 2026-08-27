@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
+from extract_pbr_evidence import build_foreground_mask, load_image
 
 # MeshPhysicalMaterial scalar presets per finish (see grimoire threejs_texture_reference.md)
 RECIPES: dict[str, dict[str, Any]] = {
@@ -198,11 +198,9 @@ def analyze(path: str | Path) -> dict[str, Any]:
 
     # ---- classify ----
     if mean_sat < 0.18:  # near-neutral / grey → metal or worn
-        if anisotropy > 1.9 and (
-            mean_lum > 95 or spec_frac > 0.03
+        if (anisotropy > 1.9 and (mean_lum > 95 or spec_frac > 0.03)) or (
+            spec_frac > 0.05 and mean_lum > 140
         ):  # bright directional = brushed metal
-            finish = "brushed-steel"
-        elif spec_frac > 0.05 and mean_lum > 140:  # bright smooth specular = polished steel
             finish = "brushed-steel"
         elif (
             mottle > 0.02 or mean_lum < 120

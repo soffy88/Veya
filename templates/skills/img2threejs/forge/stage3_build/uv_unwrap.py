@@ -291,7 +291,7 @@ def _conjugate_gradient(
 
     def multiply_transpose(y: list[float]) -> list[float]:
         out = [0.0] * unknowns
-        for row, weight in zip(rows, y):
+        for row, weight in zip(rows, y, strict=False):
             for column, value in row:
                 out[column] += value * weight
         return out
@@ -310,13 +310,13 @@ def _conjugate_gradient(
         step = residual_norm / denominator
         for i in range(unknowns):
             x[i] += step * direction[i]
-        residual = [a - step * b for a, b in zip(residual, multiply_transpose(md))]
+        residual = [a - step * b for a, b in zip(residual, multiply_transpose(md), strict=False)]
         new_norm = sum(value * value for value in residual)
         if new_norm <= tolerance:
             break
         beta = new_norm / residual_norm
         residual_norm = new_norm
-        direction = [r + beta * d for r, d in zip(residual, direction)]
+        direction = [r + beta * d for r, d in zip(residual, direction, strict=False)]
     return x
 
 
@@ -329,7 +329,6 @@ def lscm(
 ) -> dict[int, tuple[float, float]]:
     """Flatten one chart, returning UV per original vertex index."""
     chart_vertices = sorted({v for index in chart for v in faces[index]})
-    position = {v: i for i, v in enumerate(chart_vertices)}
     if len(chart_vertices) < 3:
         return {v: (0.0, 0.0) for v in chart_vertices}
 

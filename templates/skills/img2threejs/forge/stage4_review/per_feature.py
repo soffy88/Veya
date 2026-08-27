@@ -92,12 +92,12 @@ def evaluate_features(feature_targets, feature_scores):
 
         if score is None:
             status = "missing"
-            defects.append("missing-feature:%s" % fid)
+            defects.append(f"missing-feature:{fid}")
             if gating:
                 any_gating_missing = True
         elif score < threshold:
             status = "below"
-            defects.append("below-threshold:%s(%s<%s)" % (fid, _fmt(score), _fmt(threshold)))
+            defects.append(f"below-threshold:{fid}({_fmt(score)}<{_fmt(threshold)})")
             if gating:
                 any_gating_below = True
         else:
@@ -135,12 +135,12 @@ def evaluate_features(feature_targets, feature_scores):
 
 def _fmt(value):
     """Compact numeric formatting for defect strings (0.61, 0.75, ...)."""
-    text = ("%.4f" % float(value)).rstrip("0").rstrip(".")
+    text = f"{float(value):.4f}".rstrip("0").rstrip(".")
     return text if text else "0"
 
 
 def _load_targets(path):
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         data = json.load(handle)
     if isinstance(data, dict):
         return data.get("featureReviewTargets", [])
@@ -148,7 +148,7 @@ def _load_targets(path):
 
 
 def _load_scores(path):
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         data = json.load(handle)
     if not isinstance(data, dict):
         raise ValueError("scores file must be a JSON object {id: score-or-null}")
@@ -157,28 +157,21 @@ def _load_scores(path):
 
 def _format_text(result):
     lines = []
-    lines.append("passed: %s" % result["passed"])
-    lines.append("action: %s" % result["action"])
+    lines.append(f"passed: {result['passed']}")
+    lines.append(f"action: {result['action']}")
     lines.append("features:")
     for feature in result["features"]:
         score = feature["score"]
         score_text = "missing" if score is None else _fmt(score)
         gating = " [gating]" if feature["gating"] else ""
         lines.append(
-            "  - %s (%s): %s / %s -> %s%s"
-            % (
-                feature["id"],
-                feature["tier"],
-                score_text,
-                _fmt(feature["threshold"]),
-                feature["status"],
-                gating,
-            )
+            f"  - {feature['id']} ({feature['tier']}): {score_text} / "
+            f"{_fmt(feature['threshold'])} -> {feature['status']}{gating}"
         )
     if result["defects"]:
         lines.append("defects:")
         for defect in result["defects"]:
-            lines.append("  - %s" % defect)
+            lines.append(f"  - {defect}")
     else:
         lines.append("defects: none")
     return "\n".join(lines)
@@ -195,8 +188,8 @@ def main(argv):
         targets = _load_targets(args.targets)
         scores = _load_scores(args.scores)
         result = evaluate_features(targets, scores)
-    except Exception as exc:  # noqa: BLE001 - surface any failure cleanly
-        sys.stderr.write("error: %s\n" % exc)
+    except Exception as exc:
+        sys.stderr.write(f"error: {exc}\n")
         return 2
 
     if args.json:

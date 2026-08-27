@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from divine_eye import evaluate  # noqa: E402
+from divine_eye import evaluate
 
 
 def run_corpus(pairs: list[dict]) -> dict[str, Any]:
@@ -116,7 +116,7 @@ def main(argv: list[str]) -> int:
     try:
         pairs = json.loads(args.corpus.read_text(encoding="utf-8"))
         result = calibrate(pairs)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if args.json:

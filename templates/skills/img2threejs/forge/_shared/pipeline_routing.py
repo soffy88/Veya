@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-
 CONFIDENCE_THRESHOLD: Final[float] = 0.82
 TRACK_BY_KIND: Final[dict[str, str]] = {
     "weapon": "weapon-v1.4",

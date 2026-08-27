@@ -202,7 +202,7 @@ async def understand(
 
     try:
         raw = await llm(_SYSTEM_PROMPT, user_msg)
-    except Exception as exc:  # noqa: BLE001 — 判定失败也要收敛为 ask, 不裸露异常给调用方
+    except Exception as exc:
         return _force_ask(f"understand LLM 调用异常: {exc}")
 
     parsed = _parse(raw)
@@ -213,8 +213,8 @@ async def understand(
 
 __all__ = [
     "UnderstandResult",
-    "understand",
-    "validate_or_force_ask",
     "eager_act_result",
     "force_confirm_ask",
+    "understand",
+    "validate_or_force_ask",
 ]

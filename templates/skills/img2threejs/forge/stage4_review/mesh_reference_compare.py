@@ -239,9 +239,12 @@ def find_landmarks(points: list[tuple[float, float, float]]) -> dict[str, float]
             if curve[i] <= 0:
                 continue
             lo_i, hi_i = max(0, i - 3), min(n - 1, i + 3)
-            if curve[i] <= curve[lo_i] and curve[i] <= curve[hi_i]:
-                if best_width is None or curve[i] < best_width:
-                    best, best_width = i, curve[i]
+            if (
+                curve[i] <= curve[lo_i]
+                and curve[i] <= curve[hi_i]
+                and (best_width is None or curve[i] < best_width)
+            ):
+                best, best_width = i, curve[i]
         return (best / n) if best is not None else min(0.92, waist_h + 0.15)
 
     return {"ground": 0.0, "waist": waist, "neck": neck_above(waist), "top": 1.0}
@@ -334,7 +337,7 @@ def main() -> None:
         ref_marks = cand_marks = None
 
     rows, errors = [], []
-    for r, c in zip(ref, cand):
+    for r, c in zip(ref, cand, strict=False):
         if "width" not in r or "width" not in c:
             continue
         row = {

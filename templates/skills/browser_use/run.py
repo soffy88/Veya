@@ -27,10 +27,10 @@ def main(goal: str, url: str = "", max_steps: int = 10, **_: Any) -> dict[str, A
 
     # LLM 复用 Veya provider 链 (环境变量 ANTHROPIC/OPENAI/DASHSCOPE_API_KEY
     # 或 VEYA_LLM_ENDPOINT 指向 OpenAI 兼容本地端点)。
+    import asyncio
+
     from browser_use import Browser
     from browser_use.llm import LLM  # type: ignore[attr-defined]
-
-    import asyncio
 
     async def _run() -> dict[str, Any]:
         PROFILES_DIR.mkdir(parents=True, exist_ok=True)

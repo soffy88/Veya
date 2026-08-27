@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-
 VALID_SDF_PRIMITIVES = {"sphere", "capsule", "box", "cone", "ellipsoid"}
 VALID_SDF_OPERATIONS = {"smooth-union", "subtract", "intersect"}
 MAX_SDF_PRIMITIVES = 64
@@ -58,7 +57,7 @@ def _validate_positive(value: Any, label: str, errors: list[str], allow_zero: bo
     if not _is_number(value):
         errors.append(f"{label} must be numeric")
     elif float(value) < 0 or (not allow_zero and float(value) == 0):
-        errors.append(f"{label} must be greater than {0 if allow_zero else 0}")
+        errors.append(f"{label} must be greater than 0")
 
 
 def _validate_primitive(primitive: Any, index: int, ids: set[str], errors: list[str]) -> None:
@@ -187,7 +186,9 @@ def validate_sdf_descriptor(component_id: str, descriptor: Any, errors: list[str
                 and isinstance(maximum, list)
                 and len(minimum) == len(maximum) == 3
             ):
-                for index, (minimum_value, maximum_value) in enumerate(zip(minimum, maximum)):
+                for index, (minimum_value, maximum_value) in enumerate(
+                    zip(minimum, maximum, strict=False)
+                ):
                     if (
                         _is_number(minimum_value)
                         and _is_number(maximum_value)

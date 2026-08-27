@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, Literal
 
@@ -486,9 +486,7 @@ def create_app() -> FastAPI:
     async def agent_run(req: AgentRunRequest) -> AgentRunResponse:
         # 新 Agent OS 契约: text → 主脑 ReAct(同进程委托, 无网络跳转)
         if req.text is not None:
-            from server.coordinator_master import master_coordinator
-
-            from server.coordinator_master import DEFAULT_MAX_ROUNDS
+            from server.coordinator_master import DEFAULT_MAX_ROUNDS, master_coordinator
 
             result = await master_coordinator.chat_stream(
                 req.text,
@@ -520,9 +518,7 @@ def create_app() -> FastAPI:
             )
 
         # Agent OS master brain (legacy task contract → same brain as text)
-        from server.coordinator_master import master_coordinator
-
-        from server.coordinator_master import DEFAULT_MAX_ROUNDS
+        from server.coordinator_master import DEFAULT_MAX_ROUNDS, master_coordinator
 
         result = await master_coordinator.chat_stream(
             req.task,
@@ -1442,14 +1438,16 @@ def create_app() -> FastAPI:
         sid = session_id or new_session_id()
         agent = VoiceAgent(VoiceSessionConfig())
 
+        voice_tasks: set[asyncio.Task[None]] = set()
+
         def send_json_fire_and_forget(payload: dict[str, Any]) -> None:
             async def _send() -> None:
-                try:
+                with suppress(Exception):
                     await websocket.send_json(payload)
-                except Exception:
-                    pass  # 连接已断开等 — 回调本身不该炸掉语音循环
 
-            asyncio.create_task(_send())
+            task = asyncio.create_task(_send())
+            voice_tasks.add(task)
+            task.add_done_callback(voice_tasks.discard)
 
         async def llm_handler(messages: list[dict]) -> dict:
             result = await master_coordinator.chat_stream(messages[-1]["content"], session_id=sid)
@@ -1481,10 +1479,8 @@ def create_app() -> FastAPI:
         except WebSocketDisconnect:
             pass
         finally:
-            try:
+            with suppress(Exception):
                 await websocket.close()
-            except Exception:
-                pass
 
     # ==================================================================
     # G14 — Browser Automation Endpoints

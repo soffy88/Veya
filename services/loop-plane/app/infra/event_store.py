@@ -10,13 +10,13 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def new_id(prefix: str = "") -> str:
@@ -169,10 +169,9 @@ class AuditLog:
             "capability_nonce": capability_nonce,
         }
         line = json.dumps(entry, ensure_ascii=False)
-        with self._lock:
-            with open(self._path, "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-                fh.flush()
+        with self._lock, open(self._path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+            fh.flush()
         return entry["event_id"]
 
     def by_trace(self, trace_id: str) -> list[dict[str, Any]]:
@@ -192,4 +191,4 @@ class AuditLog:
         return out
 
 
-__all__ = ["AUDIT_PHASES", "AuditLog", "EVENT_TYPES", "EventStore", "new_id"]
+__all__ = ["AUDIT_PHASES", "EVENT_TYPES", "AuditLog", "EventStore", "new_id"]

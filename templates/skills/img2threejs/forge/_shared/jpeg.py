@@ -21,7 +21,7 @@ from __future__ import annotations
 import struct
 from math import cos, pi
 
-__all__ = ["decode_jpeg", "is_jpeg", "UnsupportedJpeg"]
+__all__ = ["UnsupportedJpeg", "decode_jpeg", "is_jpeg"]
 
 
 class UnsupportedJpeg(ValueError):
@@ -113,7 +113,7 @@ def is_jpeg(data: bytes) -> bool:
 class _BitReader:
     """MSB-first bit reader over entropy-coded data, unstuffing 0xFF 0x00."""
 
-    __slots__ = ("data", "pos", "bits", "nbits")
+    __slots__ = ("bits", "data", "nbits", "pos")
 
     def __init__(self, data: bytes, pos: int) -> None:
         self.data = data

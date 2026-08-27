@@ -20,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "forge" / "stage1_intake"))
 from extract_pbr_evidence import build_foreground_mask, load_image, write_png_rgb  # noqa: E402
 
-
 DEFAULT_AZIMUTHS = (0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0)
 DEFAULT_VALIDATION_VIEWS = (
     "albedo-unlit",

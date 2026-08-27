@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage1_intake"))
-from extract_pbr_evidence import build_foreground_mask, load_image, mask_bbox  # noqa: E402
+from extract_pbr_evidence import build_foreground_mask, load_image, mask_bbox
 
 
 def _row_span(mask: list[bool], width: int, y: int, x0: int, x1: int) -> tuple[int, int] | None:
@@ -71,11 +71,11 @@ def derive_lathe_profile(
     for i in range(samples):
         t = i / (samples - 1)
         if vertical:
-            y = int(round(y0 + t * (y1 - y0)))
+            y = round(y0 + t * (y1 - y0))
             span = _row_span(mask, width, y, x0, x1)
             pos = y - y0
         else:
-            x = int(round(x0 + t * (x1 - x0)))
+            x = round(x0 + t * (x1 - x0))
             span = _col_span(mask, width, height, x, y0, y1)
             pos = x - x0
         radius = 0.0 if span is None else (span[1] - span[0]) / 2.0
@@ -108,7 +108,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         result = derive_from_image(args.image.expanduser().resolve(), args.samples)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(

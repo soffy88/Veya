@@ -446,7 +446,7 @@ def analyze_mesh(
         excluded = incident[keys[vertex_index]]
         votes: list[bool] = []
         reliable = True
-        for direction, grid in zip(RAY_DIRECTIONS, grids):
+        for direction, grid in zip(RAY_DIRECTIONS, grids, strict=False):
             alignment = (
                 direction[0] * outward[0] + direction[1] * outward[1] + direction[2] * outward[2]
             )

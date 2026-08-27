@@ -120,7 +120,7 @@ def generate(args: argparse.Namespace) -> Path:
         ss_sampling_steps=12,
         slat_guidance_strength=3.0,
         slat_sampling_steps=12,
-        multiimage_algo="stochastic" if extra else "stochastic",
+        multiimage_algo="stochastic",
         mesh_simplify=args.mesh_simplify,
         texture_size=args.texture_size,
         api_name="/generate_and_extract_glb",
@@ -181,8 +181,8 @@ def write_obj(glb_path: Path, obj_path: Path) -> dict:
     )
     bounds = mesh.bounds
     return {
-        "vertices": int(len(mesh.vertices)),
-        "triangles": int(len(mesh.faces)),
+        "vertices": len(mesh.vertices),
+        "triangles": len(mesh.faces),
         "bbox_min": [round(float(v), 4) for v in bounds[0]],
         "bbox_max": [round(float(v), 4) for v in bounds[1]],
         "size": [round(float(v), 4) for v in (bounds[1] - bounds[0])],

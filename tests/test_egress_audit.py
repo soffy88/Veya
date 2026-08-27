@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from server.egress_audit import (
     destination_of,
     digest_of,

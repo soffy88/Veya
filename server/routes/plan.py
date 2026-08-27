@@ -86,7 +86,7 @@ async def plan_detail(plan_id: str) -> dict:
     try:
         with p.open(encoding="utf-8") as fp:
             plan = json.load(fp)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=f"计划读取失败: {exc}")
     plan["quota"] = await _quota_summary(plan)
     return plan

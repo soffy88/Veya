@@ -17,7 +17,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Kanban types
 # ---------------------------------------------------------------------------
@@ -68,7 +67,7 @@ class KanbanCard:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "KanbanCard":
+    def from_dict(cls, d: dict) -> KanbanCard:
         return cls(
             id=d.get("id", ""),
             title=d.get("title", ""),
@@ -106,7 +105,7 @@ class KanbanBoard:
     created_at: float = field(default_factory=time.time)
 
     @classmethod
-    def create_default(cls, name: str = "Default Board") -> "KanbanBoard":
+    def create_default(cls, name: str = "Default Board") -> KanbanBoard:
         return cls(
             name=name,
             columns=[
@@ -189,7 +188,7 @@ class KanbanBoard:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "KanbanBoard":
+    def from_dict(cls, d: dict) -> KanbanBoard:
         board = cls(
             id=d.get("id", ""), name=d.get("name", ""), created_at=d.get("created_at", time.time())
         )

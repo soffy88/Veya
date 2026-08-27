@@ -89,10 +89,6 @@ def apply(
     body = nl.join(updated_lines)
     if ended_with_nl and (body and not body.endswith(("\n", "\r\n"))):
         body += nl
-    if not ended_with_nl and body.endswith(nl) and not new_text.endswith("\n"):
-        # original had no trailing newline and we didn't intend to add one
-        if not replacement or not new_text.endswith("\n"):
-            pass
     return {
         "content": body,
         "start_line": i + 1,

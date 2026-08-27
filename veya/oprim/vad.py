@@ -10,7 +10,6 @@ Each function processes a single audio frame and returns a VADResult.
 
 from __future__ import annotations
 
-import math
 from typing import Literal
 
 from veya.oprim.audio import bytes_to_int16, compute_rms, linear_to_db
@@ -60,10 +59,7 @@ def vad_energy(
     # Determine state
     if energy_db > speech_threshold_db:
         _state["hangover_count"] = 0
-        if not _state["was_speech"]:
-            state = VADState.STARTING
-        else:
-            state = VADState.SPEECH
+        state = VADState.STARTING if not _state["was_speech"] else VADState.SPEECH
         _state["was_speech"] = True
         confidence = min(
             1.0,
@@ -124,8 +120,8 @@ def _ensure_silero():
             "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
         )
         # Cache model locally
-        import tempfile
         import os
+        import tempfile
 
         cache_dir = os.path.join(tempfile.gettempdir(), "veya_silero_vad")
         os.makedirs(cache_dir, exist_ok=True)

@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import re
 import tempfile
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from app.infra.event_store import AuditLog, EventStore, new_id
 

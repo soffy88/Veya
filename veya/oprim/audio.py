@@ -14,8 +14,6 @@ import io
 import math
 import struct
 import wave
-from typing import Literal
-
 
 # ---------------------------------------------------------------------------
 # PCM ↔ WAV conversion

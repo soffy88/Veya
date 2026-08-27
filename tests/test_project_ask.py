@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -421,7 +420,7 @@ async def test_project_ask_dsh_timeout_is_blocked(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(pa, "_resolve_dsh_bin", lambda: "/usr/bin/dsh")
 
     async def _timeout(bin_path, prompt, cwd, timeout_s):
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     monkeypatch.setattr(pa, "_dsh_exec", _timeout)
 

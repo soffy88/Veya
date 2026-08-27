@@ -52,7 +52,7 @@ def make_morph_target(
     deltas: list[list[float]] = []
     moved = 0
     largest = 0.0
-    for base, target in zip(base_vertices, target_vertices):
+    for base, target in zip(base_vertices, target_vertices, strict=False):
         delta = [target[axis] - base[axis] for axis in range(3)]
         magnitude = math.sqrt(sum(component * component for component in delta))
         if magnitude > epsilon:

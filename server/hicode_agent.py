@@ -22,6 +22,7 @@ Provider: 复用 veya 本地 opencode 网关 (127.0.0.1:10100/v1, OpenAI 兼容,
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -282,7 +283,7 @@ async def _run_hicode(
                 result = ev
                 break
             _emit_event(ev, on_event)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         raise HicodeUnavailable(
@@ -378,13 +379,13 @@ def _ensure_on_event(
         from server.events import _on_step_ctx
 
         cb = _on_step_ctx.get()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     if cb is None:
         return None
 
     def _bridge(ev: dict) -> None:
-        try:
+        with contextlib.suppress(Exception):
             cb(
                 {
                     "type": "hicode_progress",
@@ -393,8 +394,6 @@ def _ensure_on_event(
                     "detail": ev.get("detail"),
                 }
             )
-        except Exception:  # noqa: BLE001 — SSE 推送失败绝不拖垮任务
-            pass
 
     return _bridge
 
@@ -495,7 +494,7 @@ async def _execute_hicode_core_inner(
                 )
                 if res.get("status") != "error":
                     return _format_hicode_result(res)
-        except Exception as exc:  # noqa: BLE001 — serve 路径失败 → CLI 兜底
+        except Exception as exc:
             logger.info("hicode serve 不可用, 回退 CLI: %s", exc)
 
     # ── CLI 路径 (续做 / serve 不可达时的兜底) ──
@@ -533,7 +532,7 @@ async def _execute_hicode_core_inner(
             )
         except HicodeUnavailable as e:
             return f"hicode 执行失败: {e}"
-        except Exception as e:  # noqa: BLE001 — 工具边界兜底, 回喂主脑
+        except Exception as e:
             logger.exception("hicode_run unexpected error")
             return f"hicode 执行异常: {e}"
 
@@ -598,7 +597,7 @@ def _snapshot_workspace(ws: Path, task: str) -> str | None:
         if r2.returncode != 0:
             return None
         return r2.stdout.strip() or None
-    except Exception:  # noqa: BLE001 — 快照失败不阻塞执行
+    except Exception:
         logger.warning("snapshot failed for %s: git 不可用?", ws, exc_info=True)
         return None
 
@@ -629,12 +628,11 @@ async def hicode_rollback(workspace: str | None = None, ref: str | None = None) 
             target_hash = r.stdout.strip()
             before = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
             _git(ws, "reset", "--hard", target_hash)
-            after = _git(ws, "rev-parse", "HEAD").stdout.strip()[:12]
             return (
                 f"✅ 已回滚 {ws} 到 {target_hash[:12]} (此前 HEAD={before}).\n"
                 f"工作区文件已恢复到任务前状态。"
             )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return f"回滚失败: {e}"
 
 
@@ -649,7 +647,7 @@ def _current_sid() -> str | None:
         cb = _on_step_ctx.get()
         q = getattr(cb, "__self__", None)
         return getattr(q, "sid", None) or None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -661,7 +659,7 @@ def _register_session_task(tid: str) -> None:
             from server.coordinator_master import _session_task
 
             _session_task[sid] = tid
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
@@ -687,7 +685,7 @@ async def hicode_run(
             from server.graft_autocontext import attach_to_task
 
             task = attach_to_task(task)
-        except Exception:  # noqa: BLE001 — 上下文装配失败不挡编码
+        except Exception:
             pass
     # 续做/恢复: 会话状态在 workspace, 走 CLI 同步执行 (低频管理操作)
     if continue_ or session_id:
@@ -739,9 +737,9 @@ async def hicode_sessions(limit: int = 8) -> str:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=30)
+        out_b, _err_b = await asyncio.wait_for(proc.communicate(), timeout=30)
         data = json.loads((out_b or b"").decode("utf-8", "replace") or "{}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return f"无法列出会话: {e}"
     sessions = data.get("sessions", [])
     if not sessions:
@@ -822,9 +820,9 @@ async def hicode_review(
             detail = err_txt or text or f"exit {proc.returncode}"
             return f"评审失败: {detail[:300]}"
         return text
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return f"评审超时 ({timeout_sec}s), 可加大 timeout_sec 重试"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"评审失败: {exc}"
 
 

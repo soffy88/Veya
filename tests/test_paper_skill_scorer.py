@@ -45,7 +45,7 @@ def test_short_body_penalized():
 def test_missing_ref_attachment(tmp_path):
     md = _CLEAN + "\n查询时加载 `glossary.md` 与 `ku_index.md`。\n"
     (tmp_path / "glossary.md").write_text("term", encoding="utf-8")  # ku_index.md 缺失
-    score, problems = mechanical_score(md, skill_dir=tmp_path)
+    _score, problems = mechanical_score(md, skill_dir=tmp_path)
     assert any("ku_index.md" in p for p in problems)
     assert not any("glossary.md" in p for p in problems)
 

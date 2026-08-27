@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
-
-import importlib.util
 
 
 def _load(name: str, path: Path):

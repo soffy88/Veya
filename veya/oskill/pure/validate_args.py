@@ -87,9 +87,8 @@ def _check_value(value: Any, schema: Any, path: str, errors: list[str]) -> None:
             return
 
     # enum
-    if "enum" in schema:
-        if value not in schema["enum"]:
-            errors.append(f"{path}: 值 {value!r} 不在允许枚举 {schema['enum']} 内")
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(f"{path}: 值 {value!r} 不在允许枚举 {schema['enum']} 内")
     # 数值边界
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if "minimum" in schema and value < schema["minimum"]:
@@ -106,9 +105,8 @@ def _check_value(value: Any, schema: Any, path: str, errors: list[str]) -> None:
             errors.append(f"{path}: 长度 {len(value)} < minLength {schema['minLength']}")
         if "maxLength" in schema and len(value) > schema["maxLength"]:
             errors.append(f"{path}: 长度 {len(value)} > maxLength {schema['maxLength']}")
-        if "pattern" in schema:
-            if re.search(str(schema["pattern"]), value) is None:
-                errors.append(f"{path}: 不匹配 pattern {schema['pattern']!r}")
+        if "pattern" in schema and re.search(str(schema["pattern"]), value) is None:
+            errors.append(f"{path}: 不匹配 pattern {schema['pattern']!r}")
     # 数组
     if isinstance(value, list):
         if "minItems" in schema and len(value) < schema["minItems"]:
@@ -158,9 +156,7 @@ def _passes(value: Any, schema: Any) -> bool:
                 return False
     if "enum" in schema and value not in schema["enum"]:
         return False
-    if "const" in schema and value != schema["const"]:
-        return False
-    return True
+    return not ("const" in schema and value != schema["const"])
 
 
 def validate_args(args: Any, schema: dict) -> ValidationResult:

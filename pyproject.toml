@@ -152,6 +152,14 @@ known-first-party = ["veya", "server", "agents", "tools", "cli", "hooks", "regis
 [tool.ruff.lint.per-file-ignores]
 # 独立验证脚本（P4/P5 回归）：先 chdir 到仓库根再 import 项目模块，属有意为之。
 "run_*.py" = ["E402"]
+# These entry points intentionally prepend their local skill/3O roots to
+# sys.path before importing sibling modules.
+"templates/skills/img2threejs/forge/next.py" = ["E402"]
+"templates/skills/img2threejs/forge/report.py" = ["E402"]
+"templates/skills/img2threejs/forge/stage3_build/generate_threejs_factory.py" = ["E402"]
+# These phase tests load the vendored 3O libraries before importing elements.
+"tests/test_phase2.py" = ["E402"]
+"tests/test_phase4.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

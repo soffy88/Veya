@@ -28,6 +28,22 @@ from veya.oprim.audio import (
     split_into_frames,
     wav_to_pcm,
 )
+
+# 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑)
+from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
+from veya.oprim.event import emit_event
+from veya.oprim.fs import (
+    fs_delete,
+    fs_exists,
+    fs_listdir,
+    fs_read,
+    fs_read_text,
+    fs_write,
+    fs_write_text,
+)
+from veya.oprim.llm import llm_call, llm_stream
+from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
+from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list
 from veya.oprim.types import (
     AudioConfig,
     AudioFormat,
@@ -67,23 +83,7 @@ from veya.oprim.video import (
     validate_image,
 )
 
-# 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑)
-from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
-from veya.oprim.event import emit_event
-from veya.oprim.fs import (
-    fs_delete,
-    fs_exists,
-    fs_listdir,
-    fs_read,
-    fs_read_text,
-    fs_write,
-    fs_write_text,
-)
-from veya.oprim.llm import llm_call, llm_stream
-from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
-from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list
-
-__all__ = [
+__all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # Types
     "AudioConfig",
     "AudioFormat",

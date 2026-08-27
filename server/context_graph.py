@@ -46,7 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst);
 
 
 def _now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class ContextGraph:
@@ -222,13 +222,13 @@ graph = ContextGraph()
 
 __all__ = [
     "ContextGraph",
-    "graph",
-    "upsert_node",
     "add_edge",
-    "remove_node",
+    "graph",
     "neighbors",
+    "remove_node",
     "state_at",
     "summary",
+    "upsert_node",
 ]
 
 

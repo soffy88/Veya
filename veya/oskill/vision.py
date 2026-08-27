@@ -10,7 +10,6 @@ Supports: OpenAI (GPT-4V/gpt-4o), Anthropic (Claude 3), DashScope (qwen-vl).
 from __future__ import annotations
 
 import base64
-import json
 import os
 from typing import Any
 
@@ -22,11 +21,10 @@ except ImportError:
     httpx = None  # type: ignore
     _HAS_HTTPX = False
 
-from veya.oprim.types import ImageFrame, ImageFormat, VisionResult
+from veya.oprim.types import ImageFormat, VisionResult
 from veya.oprim.video import (
     detect_image_format,
     image_to_data_uri,
-    parse_data_uri,
     validate_image,
 )
 

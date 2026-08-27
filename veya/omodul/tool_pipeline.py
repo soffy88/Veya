@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import inspect
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from veya.oprim.event import emit_event
 from veya.oskill.pure.parse_tool_call import ToolCall, parse_tool_calls
@@ -208,7 +209,7 @@ class ToolPipeline:
                 output = await raw
             else:
                 output = raw
-        except Exception as exc:  # noqa: BLE001 — 工具异常统一包装
+        except Exception as exc:
             detail = f"{type(exc).__name__}: {exc}"
             _stage("exec", False, detail)
             return self._result(

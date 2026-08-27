@@ -27,8 +27,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
-from jpeg import UnsupportedJpeg, decode_jpeg, is_jpeg  # noqa: E402
-
+from jpeg import UnsupportedJpeg, decode_jpeg, is_jpeg
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -50,7 +49,7 @@ def percentile(values: list[float], fraction: float, fallback: float = 0.0) -> f
     if not values:
         return fallback
     ordered = sorted(values)
-    index = int(round(clamp01(fraction) * (len(ordered) - 1)))
+    index = round(clamp01(fraction) * (len(ordered) - 1))
     return ordered[index]
 
 
@@ -241,7 +240,7 @@ def delight(
     low_frequency = blur_scalar(lumas, width, height, blur_radius)
     out = bytearray()
     corrections: list[float] = []
-    for (red, green, blue, alpha), low in zip(pixels, low_frequency):
+    for (red, green, blue, alpha), low in zip(pixels, low_frequency, strict=False):
         shade = clamp(low, 0.05, 1.0)
         raw_scale = target / shade
         # strength blends between no correction (1.0) and the full normalization
@@ -346,9 +345,9 @@ def main(argv: list[str]) -> int:
                     "sharp specular highlights and hard shadow edges narrower than the blur radius will remain baked in",
                     "deep occlusion shadows (creases, undercuts) are only partially lifted",
                     "must be reviewed visually next to the source image before use as a projection albedo",
-                ]
-                + confidence_notes
-                + load_warnings,
+                    *confidence_notes,
+                    *load_warnings,
+                ],
                 "note": (
                     "If shadows or highlights are still visible in the output, try a larger --strength or a "
                     "smaller --blur-radius so the correction responds to tighter lighting gradients, then "

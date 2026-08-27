@@ -493,8 +493,8 @@ class VideoProcessor:
     def extract_metadata(self, video_path: str) -> dict[str, Any]:
         """Extract video metadata using ffprobe (requires ffmpeg)."""
         try:
-            import subprocess
             import json
+            import subprocess
 
             cmd = [
                 "ffprobe",

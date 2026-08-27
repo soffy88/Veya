@@ -8,8 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "_shared"))
 sys.path.insert(0, str(ROOT / "stage3_build"))
-from status_banner import emit_status
 from orchestrate_passes import completed_passes, current_pass, pass_order
+from status_banner import emit_status
 
 
 def main(argv: list[str]) -> int:

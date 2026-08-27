@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from server import auth as auth_mod
 
@@ -59,7 +59,7 @@ def _extract_pdf_text(path: Path, max_chars: int) -> str:
             if total >= max_chars:
                 break
         return "\n".join(parts)[:max_chars]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=f"PDF 解析失败: {exc}")
 
 
@@ -192,9 +192,8 @@ async def fs_upload(request: Request, name: str = "upload.bin") -> dict:
     传输: application/octet-stream 原始 body + x-file-name 头 (绕过 SvelteKit
     对 multipart form 的 CSRF 检查, 且二进制安全)。
     """
-    import uuid
-
     import urllib.parse
+    import uuid
 
     filename = urllib.parse.unquote(name) or "upload.bin"
     if not filename.strip():

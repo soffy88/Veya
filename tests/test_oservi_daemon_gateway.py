@@ -298,7 +298,7 @@ async def test_gateway_create_and_query(gateway_client):
 async def test_gateway_pause_resume_flow(gateway_client):
     from veya.oservi.gateway import gateway_engine
 
-    engine = gateway_engine()
+    gateway_engine()
     r = await gateway_client.post("/api/v1/3o/tasks", json={"user_input": "任务"})
     task_id = r.json()["task_id"]
     assert (await gateway_client.post(f"/api/v1/3o/tasks/{task_id}/pause")).status_code == 200

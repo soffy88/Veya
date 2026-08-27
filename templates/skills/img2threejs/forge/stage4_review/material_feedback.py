@@ -69,8 +69,8 @@ def propose_patch(
         target = comparison.get("render", {}).get("meanRgb")
         reference = comparison.get("reference", {}).get("meanRgb")
         if isinstance(reference, list) and len(reference) == 3:
-            changes["baseColor"] = "#%02X%02X%02X" % tuple(
-                max(0, min(255, int(value))) for value in reference
+            changes["baseColor"] = "#{:02X}{:02X}{:02X}".format(
+                *tuple(max(0, min(255, int(value))) for value in reference)
             )
             reasons.append(
                 "seed baseColor from the admitted reference crop; remove baked lighting in the next pass"

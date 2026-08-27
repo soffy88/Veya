@@ -98,13 +98,12 @@ def apply_unified_diff(src: str, diff: str) -> tuple[bool, str]:
         lines = lines[:idx] + new_block + lines[cursor:]
         # 校验新侧行数
         actual_new = sum(1 for h in hunk_lines if h.startswith(("+", " ")))
-        if actual_new != new_count and new_count != 0:
-            # 末行无换行的 diff 边界: 行数可以 ±1
-            if abs(actual_new - new_count) > 1:
-                return (
-                    False,
-                    f"hunk @@ -{old_start},{old_count} +{_new_start},{new_count} 新侧行数不一致",
-                )
+        # 末行无换行的 diff 边界: 行数可以 ±1
+        if new_count != 0 and actual_new != new_count and abs(actual_new - new_count) > 1:
+            return (
+                False,
+                f"hunk @@ -{old_start},{old_count} +{_new_start},{new_count} 新侧行数不一致",
+            )
     return True, "".join(lines)
 
 

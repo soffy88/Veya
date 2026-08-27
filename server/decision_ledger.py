@@ -49,7 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_decisions_created ON decisions(created_at);
 
 
 def _now() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _new_id() -> str:
@@ -261,13 +261,13 @@ ledger = DecisionLedger()
 
 __all__ = [
     "DecisionLedger",
-    "ledger",
-    "record_decision",
-    "trace_decision_chain",
-    "find_similar_decisions",
     "analyze_decision_impact",
     "check_decision_rules",
     "export_ledger",
+    "find_similar_decisions",
+    "ledger",
+    "record_decision",
+    "trace_decision_chain",
 ]
 
 
