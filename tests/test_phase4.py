@@ -19,6 +19,8 @@ load("omodul")
 load("oprim")
 load("oskill")
 
+pytestmark = [pytest.mark.quant, pytest.mark.optional_dependency, pytest.mark.slow]
+
 from obase.causal_graph_store import CausalGraphStore
 from omodul.multi_step_plan import multi_step_plan, update_cpd_from_repair
 from oprim._counterfactual_rollout import OBSERVE_ACTION, counterfactual_rollout
