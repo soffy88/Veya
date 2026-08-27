@@ -1,0 +1,116 @@
+{
+  "checked_at": "2026-08-27T06:24:24Z",
+  "commit": "bdeb1a825167c70eac65284cc10b6934842b61f1",
+  "origin_main": "bdeb1a825167c70eac65284cc10b6934842b61f1",
+  "ci_run_id": "33043176096",
+  "deployment": {
+    "container": "veya-backend",
+    "image": "veya-backend:latest",
+    "container_health": "healthy",
+    "backend_gateway": "http://127.0.0.1:8767"
+  },
+  "backend": {
+    "url": "http://127.0.0.1:8767/health",
+    "http_status": 200,
+    "body": {
+      "status": "ok",
+      "version": "0.5.1"
+    }
+  },
+  "mcp": {
+    "internal_url": "http://127.0.0.1:8767/api/v1/mcp/health",
+    "public_url": "https://veya.aiinote.com/api/v1/mcp/health",
+    "internal_http_status": 200,
+    "public_http_status": 200,
+    "body": {
+      "status": "ok",
+      "server": "veya-mcp",
+      "version": "0.1.0",
+      "tools_count": 170
+    }
+  },
+  "web": {
+    "internal_url": "http://127.0.0.1:3105/",
+    "public_url": "https://veya.aiinote.com/",
+    "internal_http_status": 200,
+    "public_http_status": 200
+  },
+  "durable": {
+    "url": "http://127.0.0.1:8767/health/execution-runtime",
+    "http_status": 200,
+    "enabled": true,
+    "backend": "postgres",
+    "authority": "postgresql",
+    "healthy": true,
+    "db_connected": true,
+    "schema_version": 3,
+    "queue_depth": 0,
+    "active_leases": 0,
+    "pending_outbox": 0,
+    "quarantined_count": 0,
+    "reconciler": true,
+    "reconciler_last_report": {
+      "scanned": 0,
+      "decisions": [],
+      "retry_safe": 0,
+      "quarantined": 0,
+      "manual_review": 0,
+      "completed_from_evidence": 0
+    },
+    "metrics": {
+      "jobs_enqueued": 114,
+      "jobs_claimed": 64,
+      "lease_expired": 16,
+      "lease_reclaimed": 20,
+      "fencing_rejected": 4,
+      "duplicate_completion_suppressed": 1,
+      "dangling_detected": 22,
+      "dangling_recovered": 20,
+      "side_effect_probe": 3,
+      "side_effect_quarantined": 0,
+      "outbox_replayed": 72,
+      "finalization_resumed": 3,
+      "partial_result_preserved": 3,
+      "scheduler_slot_utilization": 0.0001,
+      "queue_wait_ms": 116656
+    }
+  },
+  "personal_runtime": {
+    "url": "http://127.0.0.1:8767/health/personal-runtime",
+    "http_status": 200,
+    "enabled": true,
+    "backend": "postgres",
+    "authority": "postgresql",
+    "healthy": true,
+    "schema_version": 3,
+    "queue_depth": 0,
+    "pending_outbox": 0,
+    "quarantined_count": 0,
+    "reconciler_status": {
+      "enabled": true,
+      "status": "ok"
+    },
+    "gold_benchmark": {
+      "dataset_version": "personal-agent-gold-v1",
+      "approved_count": 170,
+      "gold_gate": "PASS",
+      "latest_eval_run": "personal-gold-12beca1fe0594232afc251749f27f102",
+      "git_sha": "8b07025289a933cac1674a898d8cc79a762b3d03",
+      "source": "approved_personal_agent_gold",
+      "observed_at": "metrics.gold_benchmark"
+    }
+  },
+  "public_health_route_note": {
+    "root_health_http_status": 500,
+    "execution_health_http_status": 500,
+    "scope": "public hostname",
+    "reason": "The public SvelteKit edge does not expose backend root health routes; backend health was verified on the production 8767 gateway and public MCP/Web routes were verified separately.",
+    "release_blocker": false
+  },
+  "status": "healthy",
+  "release_blockers": {
+    "durable_health": "cleared",
+    "optional_full_legacy_suite": "18 historical failures remain outside required CI"
+  },
+  "secrets_included": false
+}

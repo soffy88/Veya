@@ -73,3 +73,29 @@ formatted, overwritten, or pushed by this release freeze:
 - `tests/test_inferera_free_pool.py`
 - `veya/obase/_llm_config.py`
 - `veya/obase/llm.py`
+
+## Main CI Green Baseline
+
+- Date: `2026-08-27`
+- HEAD: `bdeb1a825167c70eac65284cc10b6934842b61f1`
+- Required CI run: `33043176096` — **success**
+- Required pytest: `1184 passed, 10 skipped, 0 new regressions`
+- Ruff format: **PASS**
+- Ruff lint: **PASS**
+- mypy: **PASS**
+- 3O reverse dependency: **PASS**
+- async contract: **PASS**
+- Frontend: `svelte-check` **PASS**; build **PASS**
+- Personal Gold gate: **PASS**, dataset `personal-agent-gold-v1`, approved `170/170`
+- Durable health: **PASS**, `enabled=true`, PostgreSQL authority, `healthy=true`,
+  schema `3`, queue `0`, active leases `0`, pending outbox `0`, quarantine `0`,
+  reconciler `ok`
+- Personal Runtime health: **PASS**, PostgreSQL authority, `healthy=true`,
+  Gold `170`, gate `PASS`, eval
+  `personal-gold-12beca1fe0594232afc251749f27f102`
+- Optional/full legacy status: **18 historical failures**, outside required CI;
+  retained and explicitly documented in
+  `docs/release-health/optional-suite-baseline-latest.md`
+- Protected user files excluded from this release documentation commit:
+  `tests/test_inferera_free_pool.py`, `veya/obase/_llm_config.py`,
+  `veya/obase/llm.py`
