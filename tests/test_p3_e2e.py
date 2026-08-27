@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [pytest.mark.optional_dependency, pytest.mark.slow]
+
 
 @pytest.mark.asyncio
 async def test_autonomous_workflow():

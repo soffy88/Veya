@@ -26,7 +26,10 @@ def _endpoint_reachable() -> bool:
 
 HAS_STRATUM = _endpoint_reachable()
 
-pytestmark = pytest.mark.skipif(not HAS_STRATUM, reason="stratum-api 不可达")
+pytestmark = [
+    pytest.mark.external,
+    pytest.mark.skipif(not HAS_STRATUM, reason="stratum-api 不可达"),
+]
 
 
 @pytest.fixture()

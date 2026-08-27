@@ -7,6 +7,8 @@ import pytest
 
 os.environ.setdefault("VEYA_SKIP_TEST_GATE", "1")
 
+pytestmark = pytest.mark.external
+
 
 @pytest.fixture(scope="module")
 def client():
