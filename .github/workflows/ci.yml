@@ -160,7 +160,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pytest-cov pgmpy
+          pip install pytest pytest-asyncio pytest-cov pgmpy tree-sitter==0.26.0 tree-sitter-python==0.25.0
           pip install -e ".[dev,server,tui]"
           pip install -e ./veya_loop
 
@@ -201,6 +201,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install .
+          # The checked-out 3O parser is exercised by the headless path, but
+          # its package is intentionally outside Veya's core wheel.
+          pip install tree-sitter==0.26.0 tree-sitter-python==0.25.0
 
       - name: Minimal install dependency hygiene (docs/VEYA_10_OF_10_PLAN.md §13.3/§28)
         run: python scripts/check_minimal_install.py
@@ -219,8 +222,10 @@ jobs:
         env:
           PYTHONPATH: "platform/3O/oprim:platform/3O/oskill:platform/3O/omodul:platform/3O/obase:platform/3O/oservi"
         run: |
+          set +e
           OUT=$(veya-headless --agent plan --text "做一个 3 步的部署计划" 2>&1)
           RC=$?
+          set -e
           echo "$OUT" | tail -30
           if [ $RC -ne 0 ]; then
             echo "SMOKE FAIL: veya-headless exited $RC"
@@ -256,6 +261,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+          pip install tree-sitter==0.26.0 tree-sitter-python==0.25.0
           pip install -e ./veya_loop
 
       - name: Run portable state/runtime smoke
@@ -327,7 +333,7 @@ jobs:
 
       - name: Install package + supply-chain tools
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip "setuptools>=83.0.0"
           pip install .
           pip install pip-audit cyclonedx-bom
 

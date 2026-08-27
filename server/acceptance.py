@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 from dataclasses import asdict, dataclass, field
@@ -10,6 +11,21 @@ from typing import Any, Literal
 
 CriterionType = Literal["command", "test", "file_exists", "schema", "manual", "llm_review"]
 CriterionStatus = Literal["pending", "passed", "failed", "blocked"]
+
+
+def _split_windows_command(command: str) -> list[str]:
+    """Split a command while preserving Windows paths and quoted arguments."""
+    return [
+        token[1:-1] if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'" else token
+        for token in shlex.split(command, posix=False)
+    ]
+
+
+def _split_command(command: str) -> list[str]:
+    """Parse a command into argv without invoking a shell on either platform."""
+    if os.name == "nt":
+        return _split_windows_command(command)
+    return shlex.split(command)
 
 
 @dataclass
@@ -80,7 +96,7 @@ def evaluate_criterion(
         command = str(item.get("command") or item.get("description") or "")
         try:
             completed = subprocess.run(
-                shlex.split(command),
+                _split_command(command),
                 cwd=root,
                 capture_output=True,
                 text=True,
