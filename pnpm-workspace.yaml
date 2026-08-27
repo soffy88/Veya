@@ -2,8 +2,8 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
-# PNPM 10 reads build-script approvals from the workspace file. Keep this
+# PNPM 10.26+ and PNPM 11 use an explicit build-policy map. Keep this
 # allowlist narrow: esbuild is the only dependency required by the web/desktop
 # build; no package-wide script execution is enabled.
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  esbuild: true
