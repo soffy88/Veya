@@ -1,7 +1,7 @@
 {
-  "checked_at": "2026-08-27T06:24:24Z",
-  "commit": "bdeb1a825167c70eac65284cc10b6934842b61f1",
-  "origin_main": "bdeb1a825167c70eac65284cc10b6934842b61f1",
+  "checked_at": "2026-08-27T06:52:54Z",
+  "commit": "4bcf412f3b03e79b55cc92b4e8f6dfbb84139ce7",
+  "origin_main_at_previous_probe": "cc3dbcc996e7102ef279d98cb9c5045d53356fae",
   "ci_run_id": "33043176096",
   "deployment": {
     "container": "veya-backend",
@@ -32,8 +32,24 @@
   "web": {
     "internal_url": "http://127.0.0.1:3105/",
     "public_url": "https://veya.aiinote.com/",
+    "public_health_url": "https://veya.aiinote.com/health",
     "internal_http_status": 200,
-    "public_http_status": 200
+    "public_http_status": 200,
+    "public_health_http_status": 200
+  },
+  "public_health": {
+    "url": "https://veya.aiinote.com/health",
+    "http_status": 200,
+    "status": "ok",
+    "web": "ok",
+    "gateway": "ok",
+    "backend": "ok",
+    "durable": "ok",
+    "personal_runtime": "ok",
+    "schema_version": 3,
+    "gold_gate": "PASS",
+    "gold_approved": 170,
+    "latest_eval_run": "personal-gold-12beca1fe0594232afc251749f27f102"
   },
   "durable": {
     "url": "http://127.0.0.1:8767/health/execution-runtime",
@@ -100,12 +116,13 @@
       "observed_at": "metrics.gold_benchmark"
     }
   },
-  "public_health_route_note": {
-    "root_health_http_status": 500,
-    "execution_health_http_status": 500,
-    "scope": "public hostname",
-    "reason": "The public SvelteKit edge does not expose backend root health routes; backend health was verified on the production 8767 gateway and public MCP/Web routes were verified separately.",
-    "release_blocker": false
+  "public_health_route": {
+    "implementation": "apps/web/src/routes/health/+server.ts",
+    "behavior": "probes backend, durable, and Personal Runtime in parallel; returns 200 only when all required probes are healthy and 503 degraded otherwise",
+    "secrets_exposed": false,
+    "previous_http_status": 500,
+    "current_http_status": 200,
+    "release_blocker": "cleared"
   },
   "status": "healthy",
   "release_blockers": {

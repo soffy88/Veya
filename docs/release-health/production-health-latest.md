@@ -1,7 +1,7 @@
 # Production Health Baseline
 
-Checked at `2026-08-27T06:24:24Z` against commit
-`bdeb1a825167c70eac65284cc10b6934842b61f1` (`origin/main` matched).
+Checked at `2026-08-27T06:52:54Z` against deployed web fix commit
+`4bcf412f3b03e79b55cc92b4e8f6dfbb84139ce7`.
 
 ## Result
 
@@ -16,6 +16,7 @@ verified independently.
 | Backend `/health` | PASS | HTTP 200, `{"status":"ok","version":"0.5.1"}` |
 | MCP health | PASS | Internal/public HTTP 200; `tools_count=170` |
 | Web | PASS | Internal/public HTTP 200 |
+| Public `/health` | PASS | HTTP 200; real backend/durable/Personal probes |
 | Durable enabled | PASS | `enabled=true` |
 | Durable authority | PASS | `backend=postgres`, `authority=postgresql` |
 | Database | PASS | `db_connected=true` |
@@ -37,13 +38,23 @@ with eval run `personal-gold-12beca1fe0594232afc251749f27f102`. The top-level
 `gold_benchmark` field is not populated by the current health payload; no value
 was invented or substituted.
 
-## Public route note
+## Public `/health`
 
-The public hostname returns HTTP 500 for `/health` and
-`/health/execution-runtime` because the SvelteKit edge does not expose the
-backend root health routes. This is recorded as an edge route visibility note,
-not as a durable-authority failure: the actual production backend gateway at
-`127.0.0.1:8767` returned HTTP 200 with the complete durable fields, while the
-public MCP health and Web root both returned HTTP 200.
+The former HTTP 500 came from the SvelteKit default route because Caddy sends
+the Veya hostname's non-API traffic to the Web service. The new
+`apps/web/src/routes/health/+server.ts` route probes `/health`,
+`/health/execution-runtime`, and `/health/personal-runtime` through the
+configured `VEYA_GATEWAY` and returns a sanitized aggregate. It returns HTTP
+200 only for a healthy aggregate and HTTP 503 with `status=degraded` when a
+dependency cannot be reached; it does not hard-code green status.
+
+Observed public response:
+
+```json
+{"status":"ok","web":"ok","gateway":"ok","backend":"ok","durable":"ok","personal_runtime":"ok","schema_version":3,"gold_gate":"PASS"}
+```
+
+The public MCP health and Web root also returned HTTP 200. The backend direct
+health endpoint at `127.0.0.1:8767` remained HTTP 200.
 
 No credentials, DSN, or secret values are included in this report.
