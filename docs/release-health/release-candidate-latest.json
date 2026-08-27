@@ -1,0 +1,85 @@
+{
+  "snapshot_version": 1,
+  "created_at": "2026-08-27T07:12:55Z",
+  "verified_head": "1a7470031bce75643d4175dfd4bbc7515d7e73cc",
+  "verified_origin_main": "1a7470031bce75643d4175dfd4bbc7515d7e73cc",
+  "ci": {
+    "run_id": "33047844480",
+    "status": "success",
+    "required_pytest": "1184 passed, 10 skipped",
+    "new_regressions": 0
+  },
+  "public_health": {
+    "url": "https://veya.aiinote.com/health",
+    "http_status": 200,
+    "status": "ok",
+    "web": "ok",
+    "gateway": "ok",
+    "backend": "ok",
+    "durable": "ok",
+    "personal_runtime": "ok",
+    "schema_version": 3,
+    "gold_gate": "PASS",
+    "gold_approved": 170,
+    "latest_eval_run": "personal-gold-12beca1fe0594232afc251749f27f102"
+  },
+  "backend_health": {
+    "http_status": 200,
+    "status": "ok",
+    "version": "0.5.1"
+  },
+  "durable_health": {
+    "http_status": 200,
+    "enabled": true,
+    "backend": "postgres",
+    "authority": "postgresql",
+    "healthy": true,
+    "db_connected": true,
+    "schema_version": 3,
+    "queue_depth": 0,
+    "active_leases": 0,
+    "pending_outbox": 0,
+    "quarantined_count": 0,
+    "reconciler": true
+  },
+  "personal_runtime_health": {
+    "http_status": 200,
+    "enabled": true,
+    "backend": "postgres",
+    "authority": "postgresql",
+    "healthy": true,
+    "schema_version": 3,
+    "gold_dataset": "personal-agent-gold-v1",
+    "gold_approved": 170,
+    "gold_gate": "PASS",
+    "latest_eval_run": "personal-gold-12beca1fe0594232afc251749f27f102"
+  },
+  "mcp": {
+    "http_status": 200,
+    "tools_count": 170
+  },
+  "web": {
+    "http_status": 200
+  },
+  "quality": {
+    "ruff_format": "PASS",
+    "ruff_lint": "PASS",
+    "frontend_svelte_check": "PASS",
+    "frontend_build": "PASS",
+    "personal_gold": "PASS"
+  },
+  "optional_full_legacy": {
+    "known_failures": 18,
+    "required_ci": false,
+    "new_personal_or_execution_regression": false
+  },
+  "required_release_blockers": 0,
+  "protected_uncommitted_files": [
+    "tests/test_inferera_free_pool.py",
+    "veya/obase/_llm_config.py",
+    "veya/obase/llm.py"
+  ],
+  "gold_data_modified": false,
+  "runtime_abi_modified": false,
+  "secrets_included": false
+}
