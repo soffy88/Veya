@@ -99,3 +99,19 @@ formatted, overwritten, or pushed by this release freeze:
 - Protected user files excluded from this release documentation commit:
   `tests/test_inferera_free_pool.py`, `veya/obase/_llm_config.py`,
   `veya/obase/llm.py`
+
+## Public Health Route Fix
+
+- Date: `2026-08-27`
+- Fix commit: `4bcf412f3b03e79b55cc92b4e8f6dfbb84139ce7`
+- Route: `apps/web/src/routes/health/+server.ts`
+- Root cause: Caddy routed non-API traffic to SvelteKit, where `/health` had no
+  route and SSR returned HTTP 500.
+- Public `/health`: HTTP `500 → 200`
+- Behavior: sanitized, real probes of backend, durable runtime, and Personal
+  Runtime; returns `503 degraded` when required probes fail.
+- Verified fields: `web=ok`, `backend=ok`, `durable=ok`,
+  `personal_runtime=ok`, `schema_version=3`, `gold_gate=PASS`,
+  `gold_approved=170`
+- Durable/Personal semantics, Gold dataset, Execution Runtime ABI, and release
+  tags were not changed.
