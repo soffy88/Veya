@@ -2,10 +2,5 @@
   "name": "veya-frontend-workspace",
   "private": true,
   "version": "0.1.0",
-  "description": "Veya Layer 4 frontend monorepo — apps (desktop Tauri / web SvelteKit) + packages (shared @veya/ui).",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  }
+  "description": "Veya Layer 4 frontend monorepo — apps (desktop Tauri / web SvelteKit) + packages (shared @veya/ui)."
 }
