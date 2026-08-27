@@ -160,7 +160,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pytest-cov pgmpy tree-sitter==0.26.0 tree-sitter-python==0.25.0
+          pip install pytest pytest-asyncio pytest-cov pgmpy tree-sitter==0.26.0 tree-sitter-python==0.25.0 chardet>=5.0 networkx>=3.6.1
           pip install -e ".[dev,server,tui]"
           pip install -e ./veya_loop
 
@@ -203,7 +203,7 @@ jobs:
           pip install .
           # The checked-out 3O parser is exercised by the headless path, but
           # its package is intentionally outside Veya's core wheel.
-          pip install tree-sitter==0.26.0 tree-sitter-python==0.25.0
+          pip install tree-sitter==0.26.0 tree-sitter-python==0.25.0 chardet>=5.0 networkx>=3.6.1
 
       - name: Minimal install dependency hygiene (docs/VEYA_10_OF_10_PLAN.md §13.3/§28)
         run: python scripts/check_minimal_install.py
@@ -261,7 +261,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-          pip install tree-sitter==0.26.0 tree-sitter-python==0.25.0
+          pip install tree-sitter==0.26.0 tree-sitter-python==0.25.0 chardet>=5.0 networkx>=3.6.1
           pip install -e ./veya_loop
 
       - name: Run portable state/runtime smoke
