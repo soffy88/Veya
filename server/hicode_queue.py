@@ -13,11 +13,13 @@ serve (hicode oservi) 是单活跃会话 (单 controller): 同一时刻只能跑
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger("hicode.queue")
 
@@ -126,22 +128,22 @@ class HicodeTaskQueue:
             try:
                 await client.cancel()
                 logger.info("hicode 队列: 已请求 serve cancel → %s", tid)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("hicode 队列: serve cancel 失败 %s: %s", tid, exc)
             # 2) 软停观察窗口: 12s 内 turn 未中断 → 硬重启 serve (真正停止)
             try:
                 await asyncio.wait_for(rec._done.wait(), timeout=12)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("hicode 队列: cancel 未中断 %s → 硬重启 serve", tid)
                 try:
                     if not await client.restart_serve():
                         logger.warning("hicode 队列: serve 重启未恢复健康")
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     logger.warning("hicode 队列: serve 硬重启失败 %s: %s", tid, exc)
                 # 等 worker 收尾 (events 断开 → run_task 返回)
                 try:
                     await asyncio.wait_for(rec._done.wait(), timeout=30)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning("hicode 队列: 任务 %s 硬停后仍未收尾", tid)
             return True
         return False
@@ -170,7 +172,7 @@ class HicodeTaskQueue:
             rec.updated_at = time.time()
             try:
                 await self._run_one(rec)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.exception("hicode 任务 %s 异常", tid)
                 rec.status = "failed"
                 rec.error = str(exc)[:400]
@@ -188,10 +190,8 @@ class HicodeTaskQueue:
                 rec.events.pop(0)
             # 实时推给所有 wait() 订阅者 (SSE 断线/回调异常绝不拖垮 worker)
             for w in list(rec._watchers):
-                try:
+                with contextlib.suppress(Exception):
                     w(ev)
-                except Exception:  # noqa: BLE001
-                    pass
 
         try:
             summary = await _execute_hicode_core(

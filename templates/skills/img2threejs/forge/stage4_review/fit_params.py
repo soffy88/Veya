@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 import json
 import math
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal

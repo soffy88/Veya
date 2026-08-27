@@ -145,7 +145,7 @@ async def test_optimize_persists_study(tmp_path, stub_sampler):
 async def test_invalid_space_raises():
     from server import hp_optimizer
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         await hp_optimizer._tool_optimize_parameters(
             space_json='{"x": {"type": "unknown"}}',
             objective_python="print(1.0)",

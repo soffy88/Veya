@@ -13,22 +13,15 @@ import asyncio
 import json
 import os
 import time
-from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from veya.oprim.browser import (
     BrowserAction,
     BrowserActionResult,
-    BrowserElement,
     BrowserPage,
-    build_selector,
     create_browser_context,
     screenshot_to_base64,
-    screenshot_to_data_uri,
 )
-
 
 # ---------------------------------------------------------------------------
 # Browser Session (stateful — manages one Playwright browser)

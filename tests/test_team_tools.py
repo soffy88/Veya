@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-import server.team_tools as tt
 import server.team_coord as team_coord
+import server.team_tools as tt
 
 
 @pytest.fixture(autouse=True)

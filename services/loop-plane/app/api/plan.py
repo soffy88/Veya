@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from app.domain.causal.service import audit_and_report, diagnose, plan_for_goal
 from app.schemas import DiagnoseBody, PlanGoalBody

@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from diagnose_render import (  # noqa: E402
+from diagnose_render import (
     bbox_of,
     bilateral_symmetry_error,
     load_mask,
@@ -47,13 +47,12 @@ from diagnose_render import (  # noqa: E402
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage1_intake"))
-from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
-
-from objectness import objectness_similarity  # noqa: E402  (stdlib OSIM-lite, same dir)
+from extract_pbr_evidence import build_foreground_mask, load_image
+from objectness import objectness_similarity
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
-from color_metrics import ciede2000, srgb_to_lab  # noqa: E402
-from image_hash import normalized_similarity, phash_from_image  # noqa: E402
+from color_metrics import ciede2000, srgb_to_lab
+from image_hash import normalized_similarity, phash_from_image
 
 # Hard-gate thresholds (shared with diagnose_render; calibratable in Phase 5).
 IOU_HARD_MIN = 0.85
@@ -183,7 +182,7 @@ def hue_zone_parity(
     ren = _banded_median_lab(render_png, axis, bands)
     matched = 0
     counted = 0
-    for a, b in zip(ref, ren):
+    for a, b in zip(ref, ren, strict=False):
         if a is None or b is None:
             continue
         counted += 1
@@ -233,7 +232,7 @@ def _sobel_edges(luma: list[float], size: int, thresh: float = 0.12) -> list[boo
     for y in range(1, size - 1):
         for x in range(1, size - 1):
 
-            def g(dx, dy):
+            def g(dx, dy, *, x=x, y=y):
                 return luma[(y + dy) * size + (x + dx)]
 
             gx = (g(-1, -1) + 2 * g(-1, 0) + g(-1, 1)) - (g(1, -1) + 2 * g(1, 0) + g(1, 1))
@@ -393,25 +392,29 @@ def evaluate(reference_png: Path, render_png: Path) -> dict[str, Any]:
     # downgrade the confident reject to a probe rather than hard-failing a faithful build.
     # Never rescues a scale-delta failure or a genuinely different object (low objectness).
     reconstruction_suspected = False
-    if hard_failures and objectness is not None and objectness >= RECON_OBJ_MIN:
-        if all("silhouette IoU" in f for f in hard_failures):
-            reconstruction_suspected = True
-            # Per-track calibration: silhouette IoU 0.85 is unreachable for a procedural-primitive
-            # reconstruction of a detailed photo (solid primitives structurally over-fill cutouts,
-            # serrations and AA curves), so IoU alone must not veto forever — otherwise the loop can
-            # only ever bounded-stop. When objectness confirms the same object AND the soft ensemble
-            # already meets the fidelity target AND scale/aspect are within gate, promote the
-            # IoU-only reject to a real pass; otherwise route to probe (human/VLM look). Genuinely
-            # wrong geometry still fails: low objectness isn't rescued at all, and a weak soft
-            # ensemble (< target) or an out-of-gate scale/aspect can only reach probe, never pass.
-            if (
-                fidelity >= FIDELITY_TARGET
-                and scale_delta <= SCALE_HARD_MAX
-                and aspect_delta <= ASPECT_SOFT_MAX
-            ):
-                verdict, action = "pass", "continue"
-            else:
-                verdict, action = "low-confidence", "probe"
+    if (
+        hard_failures
+        and objectness is not None
+        and objectness >= RECON_OBJ_MIN
+        and all("silhouette IoU" in f for f in hard_failures)
+    ):
+        reconstruction_suspected = True
+        # Per-track calibration: silhouette IoU 0.85 is unreachable for a procedural-primitive
+        # reconstruction of a detailed photo (solid primitives structurally over-fill cutouts,
+        # serrations and AA curves), so IoU alone must not veto forever — otherwise the loop can
+        # only ever bounded-stop. When objectness confirms the same object AND the soft ensemble
+        # already meets the fidelity target AND scale/aspect are within gate, promote the
+        # IoU-only reject to a real pass; otherwise route to probe (human/VLM look). Genuinely
+        # wrong geometry still fails: low objectness isn't rescued at all, and a weak soft
+        # ensemble (< target) or an out-of-gate scale/aspect can only reach probe, never pass.
+        if (
+            fidelity >= FIDELITY_TARGET
+            and scale_delta <= SCALE_HARD_MAX
+            and aspect_delta <= ASPECT_SOFT_MAX
+        ):
+            verdict, action = "pass", "continue"
+        else:
+            verdict, action = "low-confidence", "probe"
 
     return {
         "verdict": verdict,
@@ -458,7 +461,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         result = evaluate(args.reference.expanduser().resolve(), args.render.expanduser().resolve())
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if args.json:

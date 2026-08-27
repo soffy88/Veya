@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 
@@ -50,8 +50,8 @@ def _store(app: FastAPI):
 
 
 def _plan_service():
-    from app.domain.causal.service import CausalService
     from app.deps import get_audit, get_store
+    from app.domain.causal.service import CausalService
 
     return CausalService(store=get_store(), audit=get_audit())
 

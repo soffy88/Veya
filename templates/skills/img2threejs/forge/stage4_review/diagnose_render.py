@@ -27,13 +27,13 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage1_intake"))
-from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
-from extract_part_color_recipe import lab_distance, lab_kmeans_palette, srgb_to_lab  # noqa: E402
+from extract_part_color_recipe import lab_distance, lab_kmeans_palette, srgb_to_lab
+from extract_pbr_evidence import build_foreground_mask, load_image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage3_build"))
-from orchestrate_passes import DEFAULT_PASS_ORDER, load_spec  # noqa: E402
-from geometry_integrity import measure_geometry_integrity  # noqa: E402
-from status_banner import emit_status, load_optional_spec  # noqa: E402
+from geometry_integrity import measure_geometry_integrity
+from orchestrate_passes import DEFAULT_PASS_ORDER, load_spec
+from status_banner import emit_status, load_optional_spec
 
 
 def color_is_gated(pass_id: str | None) -> bool:
@@ -84,7 +84,7 @@ def load_mask(png_path: Path, size: int = MASK_GRID_SIZE) -> tuple[list[bool], l
 def silhouette_iou(reference_mask: list[bool], render_mask: list[bool]) -> float:
     intersection = 0
     union = 0
-    for ref, render in zip(reference_mask, render_mask):
+    for ref, render in zip(reference_mask, render_mask, strict=False):
         if ref or render:
             union += 1
             if ref and render:
@@ -149,7 +149,9 @@ def per_part_color_delta(recipes: list[dict[str, Any]], render_path: Path) -> di
         return {"checked": 0, "maxDeltaE": 0.0, "perComponent": []}
     width, height, pixels, _warnings = load_image(render_path)
     mask, _diag, _warn = build_foreground_mask(width, height, pixels)
-    foreground_lab = [srgb_to_lab((r, g, b)) for (r, g, b, _a), keep in zip(pixels, mask) if keep]
+    foreground_lab = [
+        srgb_to_lab((r, g, b)) for (r, g, b, _a), keep in zip(pixels, mask, strict=False) if keep
+    ]
     clusters = lab_kmeans_palette(foreground_lab, k=min(5, max(1, len(recipes))))
     results = []
     for recipe in recipes:

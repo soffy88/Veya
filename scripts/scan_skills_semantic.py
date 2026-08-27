@@ -25,7 +25,7 @@ import hashlib
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -119,14 +119,14 @@ async def _run(skills_dir: Path, *, only: str | None, full: bool, workers: int) 
 
     sem = asyncio.Semaphore(workers)
     scanned = await asyncio.gather(*(_scan_one(d, sem) for d in to_scan))
-    for skill_dir, result in zip(to_scan, scanned):
+    for skill_dir, result in zip(to_scan, scanned, strict=False):
         result["content_hash"] = _content_hash(skill_dir)
-        result["last_scanned"] = datetime.now(timezone.utc).isoformat()
+        result["last_scanned"] = datetime.now(UTC).isoformat()
 
     all_results = reused + scanned
     all_results.sort(key=lambda r: r["name"])
     return {
-        "generated": datetime.now(timezone.utc).isoformat(),
+        "generated": datetime.now(UTC).isoformat(),
         "skills_scanned": len(scanned),
         "skills_reused": len(reused),
         "results": all_results,

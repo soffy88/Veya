@@ -10,25 +10,20 @@ Supports multi-turn conversation, interruption handling, and streaming responses
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from veya.oprim.audio import split_into_frames
 from veya.oprim.types import (
-    AudioConfig,
     AudioFrame,
-    TurnDecision,
     TurnState,
-    VADResult,
-    VADState,
 )
-from veya.oprim.vad import build_vad_segments, vad_energy
-from veya.oskill.audio_io import AudioPipeline, MemoryAudioSink, MemoryAudioSource
+from veya.oprim.vad import vad_energy
+from veya.oskill.audio_io import AudioPipeline
 from veya.oskill.stt import speech_to_text
 from veya.oskill.tts import text_to_speech
 from veya.oskill.turn_detection import (
@@ -37,7 +32,6 @@ from veya.oskill.turn_detection import (
     TurnDetector,
     TurnHandlingConfig,
 )
-
 
 # ---------------------------------------------------------------------------
 # Types

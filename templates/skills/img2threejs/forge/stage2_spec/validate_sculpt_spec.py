@@ -13,17 +13,16 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage3_build"))
 from feature_acceptance_policy import feature_gate_failures, feature_review_policy
+from pipeline_routing import resolve_pipeline_routing, validate_pipeline_routing
 from sdf_primitives import validate_sdf_descriptor
 from subdivision import (
     ATTACHMENT_CYLINDER_SUBDIVISION_SOURCE_FACES,
     MAX_SUBDIVISION_ITERATIONS,
     MAX_SUBDIVISION_QUAD_FACES,
-    resolve_instanced_cluster_base,
     SUBDIVISION_SOURCE_FACE_ESTIMATES,
+    resolve_instanced_cluster_base,
 )
 from visual_hull import validate_visual_hull_descriptor
-from pipeline_routing import resolve_pipeline_routing, validate_pipeline_routing
-
 
 REQUIRED_TOP_LEVEL = {
     "targetName": str,

@@ -25,8 +25,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
-from jpeg import UnsupportedJpeg, decode_jpeg, is_jpeg  # noqa: E402
-
+from jpeg import UnsupportedJpeg, decode_jpeg, is_jpeg
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -71,7 +70,7 @@ def percentile(values: list[float], fraction: float, fallback: float = 0.0) -> f
     if not values:
         return fallback
     ordered = sorted(values)
-    index = int(round(clamp01(fraction) * (len(ordered) - 1)))
+    index = round(clamp01(fraction) * (len(ordered) - 1))
     return ordered[index]
 
 
@@ -259,7 +258,7 @@ def build_foreground_mask(
     threshold = max(24.0, background_noise * 2.4)
     mask: list[bool] = []
     if transparent_fraction > 0.03:
-        for red, green, blue, alpha in pixels:
+        for _red, _green, _blue, alpha in pixels:
             mask.append(alpha > 24)
     else:
         for red, green, blue, alpha in pixels:
@@ -335,7 +334,7 @@ def representative_samples(
     mask: list[bool],
     limit: int = 7000,
 ) -> list[tuple[int, int, int]]:
-    candidates = [pixel for pixel, keep in zip(pixels, mask) if keep]
+    candidates = [pixel for pixel, keep in zip(pixels, mask, strict=False) if keep]
     if not candidates:
         candidates = pixels
     if len(candidates) <= limit:
@@ -355,13 +354,13 @@ def kmeans_palette(samples: list[tuple[int, int, int]], k: int = 5) -> list[str]
             nearest = min(range(len(centers)), key=lambda idx: color_distance(sample, centers[idx]))
             groups[nearest].append(sample)
         new_centers: list[tuple[int, int, int]] = []
-        for group, center in zip(groups, centers):
+        for group, center in zip(groups, centers, strict=False):
             if not group:
                 new_centers.append(center)
                 continue
             new_centers.append(
                 tuple(
-                    int(round(sum(sample[channel] for sample in group) / len(group)))
+                    round(sum(sample[channel] for sample in group) / len(group))
                     for channel in range(3)
                 )
             )  # type: ignore[arg-type]
@@ -421,10 +420,13 @@ def make_maps(
     size: int,
     palette: list[str],
 ) -> tuple[dict[str, bytes], dict[str, Any]]:
-    masked_lumas = [srgb_luma(pixel) for pixel, keep in zip(pixels, mask) if keep]
+    masked_lumas = [srgb_luma(pixel) for pixel, keep in zip(pixels, mask, strict=False) if keep]
     fallback_luma = percentile(masked_lumas, 0.5, 0.55)
     fallback_color = hex_to_rgb(palette[0] if palette else "#8A7A5F")
-    lumas = [srgb_luma(pixel) if keep else fallback_luma for pixel, keep in zip(pixels, mask)]
+    lumas = [
+        srgb_luma(pixel) if keep else fallback_luma
+        for pixel, keep in zip(pixels, mask, strict=False)
+    ]
     blur_radius = max(4, min(28, size // 48))
     low_frequency = blur_scalar(lumas, size, blur_radius)
     p05 = percentile(masked_lumas, 0.05, 0.2)
@@ -432,7 +434,7 @@ def make_maps(
     value_range = max(0.08, p95 - p05)
     high_pass = [
         clamp((luma - low + value_range * 0.5) / value_range, 0.0, 1.0)
-        for luma, low in zip(lumas, low_frequency)
+        for luma, low in zip(lumas, low_frequency, strict=False)
     ]
     height = blur_scalar(high_pass, size, max(1, size // 256))
     gradient_values: list[float] = []
@@ -451,7 +453,7 @@ def make_maps(
     normal = bytearray()
     ao = bytearray()
     roughness_values: list[float] = []
-    for index, ((red, green, blue), keep) in enumerate(zip(pixels, mask)):
+    for index, ((red, green, blue), keep) in enumerate(zip(pixels, mask, strict=False)):
         luma = lumas[index]
         shade = clamp(low_frequency[index], 0.08, 1.0)
         scale = clamp((fallback_luma / shade) ** 0.42, 0.72, 1.35)
@@ -724,9 +726,7 @@ def merge_material_patch(spec: dict[str, Any], material_id: str, patch: dict[str
             key == "localOverrides"
             and isinstance(material.get(key), list)
             and isinstance(value, list)
-        ):
-            material[key].extend(value)
-        elif (
+        ) or (
             key == "shaderNotes" and isinstance(material.get(key), list) and isinstance(value, list)
         ):
             material[key].extend(value)

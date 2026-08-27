@@ -12,20 +12,9 @@ Following the 3O paradigm:
 - oservi → stateful engine skeletons (uses omodul modules)
 """
 
-from veya.omodul.voice_agent import (
-    VoiceAgent,
-    VoiceAgentState,
-    VoiceSessionConfig,
-    VoiceSessionResult,
-    run_voice_conversation,
-)
-from veya.omodul.vision_agent import (
-    VisionAgent,
-    VisionAgentState,
-    VisionSessionConfig,
-    VisionSessionResult,
-    run_vision_analysis,
-)
+# 阶段 4: 注入式流程控制核心 (session_tree / tool_pipeline / agent_loop / evidence_refine)
+from veya.omodul.agent_loop import AgentLoop, LoopResult
+from veya.omodul.evidence_refine import EvidenceRefine, RefineResult
 from veya.omodul.multimodal_agent import (
     MultiModalAgent,
     MultiModalSessionConfig,
@@ -33,14 +22,24 @@ from veya.omodul.multimodal_agent import (
     MultiModalState,
     run_multimodal_session,
 )
-
-# 阶段 4: 注入式流程控制核心 (session_tree / tool_pipeline / agent_loop / evidence_refine)
-from veya.omodul.agent_loop import AgentLoop, LoopResult
-from veya.omodul.evidence_refine import EvidenceRefine, RefineResult
 from veya.omodul.session_tree import SessionTreeMgr
 from veya.omodul.tool_pipeline import ToolPipeline, ToolRunResult, ToolSpec
+from veya.omodul.vision_agent import (
+    VisionAgent,
+    VisionAgentState,
+    VisionSessionConfig,
+    VisionSessionResult,
+    run_vision_analysis,
+)
+from veya.omodul.voice_agent import (
+    VoiceAgent,
+    VoiceAgentState,
+    VoiceSessionConfig,
+    VoiceSessionResult,
+    run_voice_conversation,
+)
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # Voice
     "VoiceAgent",
     "VoiceAgentState",

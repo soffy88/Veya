@@ -42,7 +42,7 @@ def _aligned_pixels(
     ww, wh, wp = render
     if (rw, rh) != (ww, wh):
         raise ValueError(f"pass dimensions differ: reference={rw}x{rh}, render={ww}x{wh}")
-    return list(zip(rp, wp))
+    return list(zip(rp, wp, strict=False))
 
 
 def _mask_from_id(
@@ -216,7 +216,7 @@ def main(argv: list[str]) -> int:
         )
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if not result["blockedClaims"] else 1
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(json.dumps({"passed": False, "error": str(exc)}, ensure_ascii=False))
         return 2
 

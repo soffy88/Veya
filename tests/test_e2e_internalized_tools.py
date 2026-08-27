@@ -14,12 +14,12 @@ graph_query) 的完整链路: schema 可见性 → 注册表按名取函数 (与
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+import server.user_control as uc
 from server import context_graph as cg_mod
 from server import decision_ledger as dl_mod
-import server.user_control as uc
 from server.context_graph import ContextGraph
 from server.decision_ledger import DecisionLedger
 from server.routes.legacy_agent import AgentAnswerRequest, agent_answer
@@ -45,7 +45,7 @@ async def _call(tool_name: str, **kwargs) -> str:
 
 def _utc_now() -> str:
     """与 server 内部 _now() 同格式 (秒级 Z), 保证时点快照字符串可比。"""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ── 0. 工具面可见性 ────────────────────────────────────────────────

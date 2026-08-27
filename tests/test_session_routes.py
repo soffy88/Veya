@@ -11,7 +11,6 @@ import pytest
 from fastapi import HTTPException
 
 from server.routes import session as session_routes
-from server.routes import sessions as sessions_routes
 from server.routes.session import (
     SessionCreateRequest,
     SessionForkRequest,

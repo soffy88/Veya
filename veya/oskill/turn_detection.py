@@ -10,10 +10,8 @@ Inspired by LiveKit Agents' TurnHandlingOptions + EndpointingOptions.
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 from veya.oprim.types import (
     AudioFrame,
@@ -21,10 +19,8 @@ from veya.oprim.types import (
     TurnState,
     VADResult,
     VADSegment,
-    VADState,
 )
-from veya.oprim.vad import build_vad_segments, vad_energy, vad_frame
-
+from veya.oprim.vad import build_vad_segments, vad_energy
 
 # ---------------------------------------------------------------------------
 # Turn detection configuration

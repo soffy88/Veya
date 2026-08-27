@@ -17,19 +17,13 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from veya.oprim.types import ImageFrame
-from veya.omodul.voice_agent import (
-    VoiceAgent,
-    VoiceAgentState,
-    VoiceSessionConfig,
-    VoiceSessionResult,
-)
 from veya.omodul.vision_agent import (
     VisionAgent,
     VisionSessionConfig,
-    VisionSessionResult,
 )
-
+from veya.omodul.voice_agent import (
+    VoiceSessionConfig,
+)
 
 # ---------------------------------------------------------------------------
 # Types

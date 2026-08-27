@@ -95,7 +95,7 @@ def close_all() -> None:
     同步语境下 async 闭包会收尾（无事件循环时用 asyncio.run）；
     事件循环内请用 ``await aclose_all()``。
     """
-    global _sandbox, _bus, _barrier, _kv, _llm  # noqa: PLW0603
+    global _sandbox, _bus, _barrier, _kv, _llm
     handles = [globals()[f"_{n}"] for n in ("sandbox", "bus", "barrier", "kv", "llm")]
     for handle in handles:
         if handle is None:
@@ -112,18 +112,19 @@ def close_all() -> None:
                     import warnings
 
                     warnings.warn(
-                        "close_all() 在事件循环内遇到 async 闭包 — 请用 await aclose_all()"
+                        "close_all() 在事件循环内遇到 async 闭包 — 请用 await aclose_all()",
+                        stacklevel=2,
                     )
                 except RuntimeError:
                     asyncio.run(result)
-        except Exception:  # noqa: BLE001 — 关闭失败不阻断
+        except Exception:
             pass
     _sandbox = _bus = _barrier = _kv = _llm = None
 
 
 async def aclose_all() -> None:
     """事件循环内关闭全部句柄并清空。"""
-    global _sandbox, _bus, _barrier, _kv, _llm  # noqa: PLW0603
+    global _sandbox, _bus, _barrier, _kv, _llm
     for name in ("sandbox", "bus", "barrier", "kv", "llm"):
         handle = globals().get(f"_{name}")
         if handle is None:
@@ -134,14 +135,14 @@ async def aclose_all() -> None:
                 result = closer()
                 if asyncio.iscoroutine(result):
                     await result
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
     _sandbox = _bus = _barrier = _kv = _llm = None
 
 
 def reset() -> None:
     """清空句柄与覆盖（测试隔离）。"""
-    global _sandbox, _bus, _barrier, _kv, _llm  # noqa: PLW0603
+    global _sandbox, _bus, _barrier, _kv, _llm
     _sandbox = _bus = _barrier = _kv = _llm = None
     _configured.clear()
 

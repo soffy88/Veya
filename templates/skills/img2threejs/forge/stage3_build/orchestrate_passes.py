@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "_shared"))
 from feature_acceptance_policy import feature_gate_failures
 from status_banner import emit_status
 
-
 DEFAULT_PASS_ORDER = [
     "blockout",
     "structural-pass",
@@ -238,9 +237,7 @@ def material_has_response(material: dict[str, Any]) -> bool:
         return True
     if number_from_layer(material.get("bump"), ("amplitude", "strength")) > 0:
         return True
-    if number_from_layer(material.get("displacement"), ("amplitude", "strength")) > 0:
-        return True
-    return False
+    return number_from_layer(material.get("displacement"), ("amplitude", "strength")) > 0
 
 
 def material_has_locality(material: dict[str, Any]) -> bool:
@@ -560,7 +557,7 @@ def check_pass(spec: dict[str, Any], requested_pass: str) -> tuple[bool, str, di
         if requested_pass in VISUAL_PASS_IDS and not has_passing_tier1_result(spec, requested_pass):
             return (
                 False,
-                f"Tier 1 diagnostics have not passed for this render — run diagnose_render.py first",
+                "Tier 1 diagnostics have not passed for this render — run diagnose_render.py first",
                 pipeline,
             )
         return True, f"pass {requested_pass!r} is the current unlocked pass", pipeline

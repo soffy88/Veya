@@ -23,7 +23,6 @@ import struct
 import sys
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Image format readers (pure stdlib, no PIL)
 # ---------------------------------------------------------------------------
@@ -52,10 +51,27 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
         length = struct.unpack(">H", data[idx : idx + 2])[0]
         if length < 2 or idx + length > len(data):
             return None
-        if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
-            if length >= 7:
-                height, width = struct.unpack(">HH", data[idx + 3 : idx + 7])
-                return width, height
+        if (
+            marker
+            in {
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
+            }
+            and length >= 7
+        ):
+            height, width = struct.unpack(">HH", data[idx + 3 : idx + 7])
+            return width, height
         idx += length
     return None
 

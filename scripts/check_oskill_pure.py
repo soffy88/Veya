@@ -26,7 +26,7 @@ import argparse
 import ast
 import pathlib
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 # ---- I/O 相关导入 (AST import 名 / 子模块前缀) ----
 IO_IMPORTS: tuple[str, ...] = (
@@ -153,9 +153,12 @@ def _call_is_io(node: ast.Call) -> bool:
             if attr in hits:
                 return True
         # os.environ / os.getenv 等: base 是 os 的调用
-        if isinstance(fn.value, ast.Attribute) and isinstance(fn.value.value, ast.Name):
-            if fn.value.value.id in ("os", "sys", "subprocess", "socket", "pathlib"):
-                return True
+        if (
+            isinstance(fn.value, ast.Attribute)
+            and isinstance(fn.value.value, ast.Name)
+            and fn.value.value.id in ("os", "sys", "subprocess", "socket", "pathlib")
+        ):
+            return True
     return False
 
 
@@ -192,9 +195,12 @@ def _module_assignments(tree: ast.Module) -> dict[str, ast.AST]:
             for t in node.targets:
                 if isinstance(t, ast.Name):
                     out[t.id] = node
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if node.value is not None:
-                out[node.target.id] = node
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            out[node.target.id] = node
     return out
 
 
@@ -222,22 +228,35 @@ def _is_mutated(tree: ast.Module, name: str) -> bool:
     for node in ast.walk(tree):
         if isinstance(node, ast.Global) and name in node.names:
             return True
-        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
-            if node.target.id == name:
-                return True
+        if (
+            isinstance(node, ast.AugAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == name
+        ):
+            return True
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for t in targets:
-                if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name):
-                    if t.value.id == name:
-                        return True
-                if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name):
-                    if t.value.id == name:
-                        return True
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                if node.func.value.id == name and node.func.attr in _MUTATORS:
+                if (
+                    isinstance(t, ast.Subscript)
+                    and isinstance(t.value, ast.Name)
+                    and t.value.id == name
+                ):
                     return True
+                if (
+                    isinstance(t, ast.Attribute)
+                    and isinstance(t.value, ast.Name)
+                    and t.value.id == name
+                ):
+                    return True
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == name
+            and node.func.attr in _MUTATORS
+        ):
+            return True
     return False
 
 
@@ -247,10 +266,10 @@ def _check_module_level_global(tree: ast.Module) -> list[str]:
     out: list[str] = []
     assigns = _module_assignments(tree)
     for name, node in assigns.items():
-        value = node.value if isinstance(node, ast.Assign) else node.value
+        value = node.value
         if value is None:
             continue
-        is_mutable_init = isinstance(value, MUTABLE_LITERALS) or isinstance(value, ast.Call)
+        is_mutable_init = isinstance(value, (MUTABLE_LITERALS, ast.Call))
         if is_mutable_init and _is_mutated(tree, name):
             out.append(f"module-level mutable state {name!r} at line {node.lineno}")
     # 模块级直接 mutating 调用 (x.append(...) 作为语句)
@@ -281,13 +300,12 @@ def check_file(path: pathlib.Path, root: pathlib.Path) -> tuple[list[str], bool]
                     violations.append(f"{rel}:{node.lineno} IO import {a.name!r}")
                 if top in NONDET_IMPORTS:
                     violations.append(f"{rel}:{node.lineno} NONDET import {a.name!r}")
-        elif isinstance(node, ast.ImportFrom):
-            if node.level == 0 and node.module:
-                top = node.module.split(".")[0]
-                if top in IO_IMPORTS:
-                    violations.append(f"{rel}:{node.lineno} IO import {node.module!r}")
-                if top in NONDET_IMPORTS:
-                    violations.append(f"{rel}:{node.lineno} NONDET import {node.module!r}")
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            top = node.module.split(".")[0]
+            if top in IO_IMPORTS:
+                violations.append(f"{rel}:{node.lineno} IO import {node.module!r}")
+            if top in NONDET_IMPORTS:
+                violations.append(f"{rel}:{node.lineno} NONDET import {node.module!r}")
 
     # global/nonlocal
     for node in ast.walk(tree):

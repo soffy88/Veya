@@ -43,7 +43,7 @@ from veya.oskill.vision import (
     analyze_images,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # STT
     "speech_to_text",
     "speech_to_text_streaming",

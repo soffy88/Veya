@@ -197,7 +197,7 @@ def _solve_linear_system(
     matrix: list[list[float]], right_hand_side: list[float]
 ) -> ParameterVector | None:
     dimension = len(right_hand_side)
-    augmented = [row.copy() + [right_hand_side[index]] for index, row in enumerate(matrix)]
+    augmented = [[*row.copy(), right_hand_side[index]] for index, row in enumerate(matrix)]
     largest_entry = max(abs(value) for row in matrix for value in row)
     pivot_tolerance = max(1.0, largest_entry) * 1e-12
     for column in range(dimension):

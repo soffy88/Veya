@@ -12,15 +12,18 @@ from typing import Final, TypedDict
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from forge._shared.pipeline_routing import (  # noqa: E402
+    resolve_pipeline_routing,
+)
 from forge._shared.spec_search import (  # noqa: E402
     CacheReadError,
     CacheValidationError,
     CacheWriteError,
     IndexBuildError,
     IndexRequest,
+    JsonValue,
     ProfileCachePathError,
     ProfileValidationError,
-    JsonValue,
     SearchOutputRequest,
     SerializedSearchMatch,
     SourceIngestionError,
@@ -30,14 +33,10 @@ from forge._shared.spec_search import (  # noqa: E402
     load_profile,
     serialize_search_results,
 )
-from forge._shared.pipeline_routing import (  # noqa: E402
-    resolve_pipeline_routing,
-)
 from forge.stage2_spec.new_sculpt_spec import (  # noqa: E402
     make_pre_spec_assessment,
     make_quality_contract,
 )
-
 
 COMPLEXITY_MINIMUMS = {
     "simple": {

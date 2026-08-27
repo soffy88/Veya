@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage1_intake"))
-from extract_pbr_evidence import load_image, build_foreground_mask, mask_bbox  # noqa: E402
+from extract_pbr_evidence import build_foreground_mask, load_image
 
 
 def silhouette_area_fraction(png_path: Path) -> float:

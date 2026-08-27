@@ -12,7 +12,7 @@ Pure Python 3.10+ stdlib. No pip installs.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Literal
 
 BindPose = Literal["T", "A"]
 Forward = Literal["+Z", "-Z"]
@@ -30,9 +30,9 @@ class Ellipsoid:
 @dataclass
 class IkSpec:
     is_effector: bool
-    target_bone_id: Optional[str] = None
-    rotation_min: Optional[tuple[float, float, float]] = None
-    rotation_max: Optional[tuple[float, float, float]] = None
+    target_bone_id: str | None = None
+    rotation_min: tuple[float, float, float] | None = None
+    rotation_max: tuple[float, float, float] | None = None
 
 
 @dataclass
@@ -40,18 +40,18 @@ class BoneSpec:
     """Mirrors PLAN_1.5 §6 `BoneSpec` field-for-field."""
 
     id: str
-    parent: Optional[str]
+    parent: str | None
     joint_pos: tuple[float, float, float]
-    component: Optional[str]
+    component: str | None
     role: Role
     chain: Chain
     # Optional. "Defaults to the child's jointPos" per the plan. That default
     # is well-defined only when the bone has exactly one child. See
     # RigSpec.resolve_tip_positions() for the reading chosen when a bone has
     # zero children (a leaf) or more than one.
-    tip_pos: Optional[tuple[float, float, float]] = None
+    tip_pos: tuple[float, float, float] | None = None
     ellipsoids: list[Ellipsoid] = field(default_factory=list)
-    ik: Optional[IkSpec] = None
+    ik: IkSpec | None = None
 
 
 @dataclass

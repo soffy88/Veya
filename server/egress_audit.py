@@ -14,7 +14,7 @@ import json
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -120,7 +120,7 @@ def record_egress(
     path = log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "owner_id": owner_id or "",
         "tool": tool,
         "destination": destination,
@@ -175,7 +175,4 @@ def destination_allowed(dest: str) -> bool:
     host = urlsplit(dest).hostname or ""
     if needle in allowed or host.lower() in allowed:
         return True
-    for item in allowed:
-        if host and (host == item or host.endswith("." + item)):
-            return True
-    return False
+    return any(host and (host == item or host.endswith("." + item)) for item in allowed)

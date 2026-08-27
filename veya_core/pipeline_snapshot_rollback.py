@@ -17,10 +17,9 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # ── Step 1: 环境映射 — 引入 3O 挂载仓库 ────────────────────────────
 _VEYA_CORE = Path(__file__).resolve().parent
@@ -53,10 +52,10 @@ try:
 
     _CheckpointStore = CheckpointStore
     _SNAPSHOT_LOADED = True
-    print(f"\n[veya_core] ✓ obase.checkpoint_store 加载成功 (via 3O_lib)")
+    print("\n[veya_core] ✓ obase.checkpoint_store 加载成功 (via 3O_lib)")
 except ImportError as e:
     print(f"\n[veya_core] ⚠ obase.checkpoint_store 未挂载: {e}")
-    print(f"[veya_core] 降级到内存快照模拟")
+    print("[veya_core] 降级到内存快照模拟")
 
 
 # ── 降级实现 (内存级快照) ────────────────────────────────────────────
@@ -66,13 +65,13 @@ class _MemorySnapshotStore:
     """内存级快照: 功能等价于 obase.checkpoint_store 但不持久化。"""
 
     def __init__(self):
-        self._store: Dict[str, Dict[str, Any]] = {}
+        self._store: dict[str, dict[str, Any]] = {}
 
-    def save(self, key: str, state: Dict[str, Any]) -> str:
+    def save(self, key: str, state: dict[str, Any]) -> str:
         self._store[key] = dict(state)
         return key
 
-    def load(self, key: str) -> Dict[str, Any] | None:
+    def load(self, key: str) -> dict[str, Any] | None:
         return self._store.get(key)
 
 
@@ -97,9 +96,9 @@ class BusinessPipeline:
     def __init__(self):
         self.store = _get_snapshot_store()
         self.pipeline_id = "etl-csv-001"
-        self.data: List[str] = []
+        self.data: list[str] = []
 
-    def extract(self, source: str) -> List[str]:
+    def extract(self, source: str) -> list[str]:
         """阶段 E: 从 CSV 源提取数据。"""
         if source == "test":
             return ["1,100", "2,200"]
@@ -125,21 +124,21 @@ class BusinessPipeline:
         self.data = list(state.get("data", []))
         return True
 
-    def transform(self, rows: List[str]) -> List[str]:
+    def transform(self, rows: list[str]) -> list[str]:
         """阶段 T: 数据转换 (此处模拟意外破坏)。"""
         # ⚠ 模拟 bug: 错误地将分隔符从逗号改为分号
         corrupted = [r.replace(",", ";") for r in rows]
         return corrupted
 
-    def validate(self, rows: List[str]) -> bool:
+    def validate(self, rows: list[str]) -> bool:
         """校验: 数据必须包含逗号分隔符。"""
         return all("," in r for r in rows)
 
-    def load(self, rows: List[str]) -> str:
+    def load(self, rows: list[str]) -> str:
         """阶段 L: 输出最终数据。"""
         return "\n".join(rows)
 
-    def run(self, source: str = "test") -> Dict[str, Any]:
+    def run(self, source: str = "test") -> dict[str, Any]:
         """执行完整管道：E → [Snapshot] → T → [Validate/Rollback] → L。"""
         # E: 提取
         self.data = self.extract(source)
@@ -176,7 +175,7 @@ class BusinessPipeline:
 # ── API Server 入口函数 ──────────────────────────────────────────────────
 
 
-def run_pipeline_with_rollback(workspace_dir: str = "/tmp/veya_workspace") -> Dict[str, Any]:
+def run_pipeline_with_rollback(workspace_dir: str = "/tmp/veya_workspace") -> dict[str, Any]:
     """供 api_server 调用的管道回滚入口。
 
     Args:

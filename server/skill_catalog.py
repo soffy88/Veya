@@ -16,11 +16,11 @@ SKILL.md 格式 (K-Dense/SkillsGate/agentskills.io 通用标准) 完全无感知
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
 import sqlite3
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -83,7 +83,7 @@ def _connect(path: str | None = None) -> sqlite3.Connection:
         "  mtime REAL NOT NULL"
         ")"
     )
-    try:
+    with contextlib.suppress(sqlite3.OperationalError):
         # trigram (非默认 unicode61): unicode61 把整段连续 CJK 字符当一个不可分割
         # token, 子串查询 (如 "需求弹性" 搜 "需求弹性理论...") 永远 MISS —— 这批
         # skill 里中文 concept-card 描述占相当比例, 必须能子串命中。trigram 按
@@ -92,8 +92,6 @@ def _connect(path: str | None = None) -> sqlite3.Connection:
         conn.execute(
             'CREATE VIRTUAL TABLE IF NOT EXISTS skills_fts USING fts5(name UNINDEXED, description, tokenize="trigram")'
         )
-    except sqlite3.OperationalError:
-        pass  # FTS5/trigram 编译选项缺失 (少见); search() 探测表是否存在, 优雅降级 LIKE
     return conn
 
 
@@ -186,7 +184,7 @@ def build_index(
                     stats.indexed += 1
                 else:
                     stats.updated += 1
-            except Exception:  # noqa: BLE001 — 单个 skill 解析失败不拖垮整批索引
+            except Exception:
                 stats.errors += 1
 
     # 磁盘上已删除的 skill 从索引里一并清理。

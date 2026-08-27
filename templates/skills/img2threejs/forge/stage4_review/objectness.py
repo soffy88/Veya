@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage1_intake"))
-from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
+from extract_pbr_evidence import build_foreground_mask, load_image
 
 GRID = 96  # canonical square the object bbox is resampled to
 CELLS = 8  # CELLS x CELLS spatial cells
@@ -114,7 +114,7 @@ def descriptor(path: str | Path) -> list[float]:
 
 
 def cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     if na < 1e-9 or nb < 1e-9:

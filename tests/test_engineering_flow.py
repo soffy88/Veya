@@ -31,7 +31,7 @@ def run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     return _load_main()
 
 
-def test_full_flow(run) -> None:  # noqa: ANN001
+def test_full_flow(run) -> None:
     r = run("start", idea="做个平台")
     fid = r["flow_id"]
     assert r["stage"] == "IDEA"
@@ -80,7 +80,7 @@ def test_full_flow(run) -> None:  # noqa: ANN001
     assert review["fail"] == ["hardcoded_secret"]
 
 
-def test_state_persists_across_calls(run, tmp_path: Path) -> None:  # noqa: ANN001
+def test_state_persists_across_calls(run, tmp_path: Path) -> None:
     r = run("start", idea="persist")
     fid = r["flow_id"]
     run(
@@ -98,7 +98,7 @@ def test_state_persists_across_calls(run, tmp_path: Path) -> None:  # noqa: ANN0
     assert data["spec"] == "s"
 
 
-def test_cycle_rejected(run) -> None:  # noqa: ANN001
+def test_cycle_rejected(run) -> None:
     r = run("start", idea="cycle")
     fid = r["flow_id"]
     run(

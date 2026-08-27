@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
+from extract_pbr_evidence import build_foreground_mask, load_image
 
 # Deterministic hue-name lookup over the HSV hue circle (degrees).
 _HUE_NAMES = [

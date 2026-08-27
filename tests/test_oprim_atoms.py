@@ -44,7 +44,6 @@ from veya.oprim import (
     snapshot_list,
 )
 
-
 # ---------------------------------------------------------------------------
 # fs 原子
 # ---------------------------------------------------------------------------
@@ -276,7 +275,6 @@ class asyncio_timeout:
     """minimal asyncio timeout context (3.11+ compatible)."""
 
     def __init__(self, seconds: float):
-        import asyncio
 
         self._seconds = seconds
 

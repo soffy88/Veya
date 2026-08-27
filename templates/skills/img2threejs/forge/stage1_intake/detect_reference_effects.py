@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage1_intake"))
-from extract_pbr_evidence import load_image, build_foreground_mask  # noqa: E402
+from extract_pbr_evidence import build_foreground_mask, load_image
 
 
 # --------------------------------------------------------------------------- #
@@ -263,7 +263,7 @@ def main(argv: list[str]) -> int:
         else:
             print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

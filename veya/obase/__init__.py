@@ -89,10 +89,28 @@ __manifest__: dict[str, dict[str, Any]] = {
     "container.configure": {"signature": "句柄注入 (sandbox/bus/barrier/kv/llm)", "since": "0.2.0"},
 }
 
-__all__ = ["__manifest__", "__version__"]
+__all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
+    "__manifest__",
+    "__version__",
+    "close_all",
+    "configure",
+    "get_barrier",
+    "get_bus",
+    "get_kv",
+    "get_llm",
+    "get_sandbox",
+    "reset",
+    "DaemonBus",
+    "Event",
+    "EventBarrier",
+    "KvStore",
+    "LlmClient",
+    "SandboxResult",
+    "VfsSandbox",
+]
 
 # 阶段 1: 句柄合同与全局单例句柄层
-from veya.obase.container import (  # noqa: E402
+from veya.obase.container import (
     close_all,
     configure,
     get_barrier,
@@ -102,7 +120,7 @@ from veya.obase.container import (  # noqa: E402
     get_sandbox,
     reset,
 )
-from veya.obase.interfaces import (  # noqa: E402
+from veya.obase.interfaces import (
     DaemonBus,
     Event,
     EventBarrier,

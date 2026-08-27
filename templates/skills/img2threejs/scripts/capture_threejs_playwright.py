@@ -20,13 +20,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from forge.stage4_review.render_bridge import (  # noqa: E402
+    PASS_IDS,
     find_capture,
     manifest_path,
     read_manifest,
     record_capture,
     record_capture_pass,
     record_reference_capture,
-    PASS_IDS,
     write_manifest,
 )
 

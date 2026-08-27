@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
-
 import veya_loop
+from fastapi import APIRouter
 
 router = APIRouter(tags=["health"])
 

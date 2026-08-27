@@ -1,1 +1,1 @@
-from veya.oskill.memory_store import *  # noqa: F401,F403 (rfc-12 门面 stub, 见 veya/memory_store.py)
+from veya.oskill.memory_store import *  # noqa: F403 (rfc-12 门面 stub, 见 veya/memory_store.py)

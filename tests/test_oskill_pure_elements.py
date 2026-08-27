@@ -38,7 +38,6 @@ from veya.oskill.pure.evaluate_stop_condition import (
 )
 from veya.oskill.pure.genetic_weight_calc import calc_weights, default_weights
 from veya.oskill.pure.parse_tool_call import (
-    ToolCall,
     extract_json_object,
     parse_tool_call_embed,
     parse_tool_calls,
@@ -46,14 +45,12 @@ from veya.oskill.pure.parse_tool_call import (
 from veya.oskill.pure.protocol_translate import (
     agent_messages_to_llm,
     llm_message_to_agent,
-    strip_empty_tool_calls,
 )
 from veya.oskill.pure.validate_args import (
     ValidationResult,
     schema_of_legacy,
     validate_args,
 )
-
 
 # ---------------------------------------------------------------------------
 # protocol_translate
@@ -114,7 +111,7 @@ def _msgs(n: int, role: str = "user") -> list[dict]:
 
 
 def test_sliding_window_keeps_system_pinned():
-    msgs = [{"role": "system", "content": "sys"}] + _msgs(10)
+    msgs = [{"role": "system", "content": "sys"}, *_msgs(10)]
     out = sliding_window(msgs, max_messages=5)
     assert out[0]["content"] == "sys"
     assert len(out) == 5
@@ -147,7 +144,7 @@ def test_truncate_to_token_budget():
 
 
 def test_truncate_keeps_system_pinned():
-    msgs = [{"role": "system", "content": "S" * 10}] + _msgs(50)
+    msgs = [{"role": "system", "content": "S" * 10}, *_msgs(50)]
     out = truncate_to_token_budget(msgs, max_tokens=20)
     assert out[0]["role"] == "system"
     assert out[-1]["content"] == "msg-49"
@@ -252,7 +249,7 @@ def test_apply_diff_noop():
     old = "same\ncontent\n"
     diff = make_unified_diff(old, old)
     assert diff == ""  # 无差异 → 空 diff
-    ok, result = apply_unified_diff(old, diff)
+    ok, _result = apply_unified_diff(old, diff)
     assert not ok  # 空 diff 无 hunk
 
 
