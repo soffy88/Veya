@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [pytest.mark.optional_dependency, pytest.mark.slow]
+
 
 @pytest.fixture
 async def coordinator():

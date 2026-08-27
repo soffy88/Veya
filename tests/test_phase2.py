@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 # Make the 3O package tree importable (single-layer: platform/3O/<lib>)
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,8 @@ load("obase")
 load("omodul")
 load("oprim")
 load("oskill")
+
+pytestmark = [pytest.mark.quant, pytest.mark.optional_dependency, pytest.mark.slow]
 
 from obase.causal_graph_store import CausalGraphStore
 from omodul.adversarial_honeypot_observe import (

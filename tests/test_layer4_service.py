@@ -25,6 +25,8 @@ from veya.server.manifests import (
     save_decision_trail,
 )
 
+pytestmark = pytest.mark.external
+
 # ---------------------------------------------------------------------------
 # Element registry tools
 # ---------------------------------------------------------------------------

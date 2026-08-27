@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 SKILLS_DIR = Path.home() / ".veya" / "skills"
+
+pytestmark = pytest.mark.optional_dependency
 
 
 def test_skill_pack_manifests_valid():

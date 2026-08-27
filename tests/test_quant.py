@@ -14,6 +14,8 @@ from server.quant_coprocessor import (
 )
 from server.tool_registry import master_tools
 
+pytestmark = [pytest.mark.quant, pytest.mark.optional_dependency, pytest.mark.slow]
+
 
 @pytest.fixture
 def synth(tmp_path):

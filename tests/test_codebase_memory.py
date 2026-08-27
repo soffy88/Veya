@@ -17,7 +17,10 @@ from server.codebase_memory import CodebaseMemoryConnector, CodebaseMemoryError,
 BIN = pathlib.Path.home() / ".local" / "bin" / "codebase-memory-mcp"
 HAS_BIN = BIN.exists() and BIN.is_file()
 
-pytestmark = pytest.mark.skipif(not HAS_BIN, reason="codebase-memory-mcp 二进制未安装")
+pytestmark = [
+    pytest.mark.external,
+    pytest.mark.skipif(not HAS_BIN, reason="codebase-memory-mcp 二进制未安装"),
+]
 
 
 def _make_repo() -> pathlib.Path:

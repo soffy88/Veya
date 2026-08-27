@@ -123,6 +123,13 @@ asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "--strict-markers -v"
+markers = [
+    "external: requires a separately running service, gateway, or provider",
+    "slow: exceeds the required fast-suite runtime budget",
+    "optional_dependency: requires an optional package or local installation",
+    "quant: requires the quantitative/market-data dependency stack",
+    "docker_required: requires a running Docker service",
+]
 
 # ---------------------------------------------------------------------------
 # Ruff (lint + format)

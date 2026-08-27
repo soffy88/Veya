@@ -3,6 +3,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = pytest.mark.external
+
 
 @pytest.fixture(scope="module")
 def client():
