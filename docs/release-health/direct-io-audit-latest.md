@@ -59,6 +59,7 @@ Observed result:
 ```
 
 The legacy `check_no_direct_io.py` remains compatible and uses the same stable
-baseline identity. A focused guardian run had 8 direct-I/O-related tests pass;
-the suite's one failure is the pre-existing broad reverse-dependency baseline
-drift (7 known 3O imports), unrelated to this audit.
+baseline identity. The focused direct-I/O guardian selection ran 5 tests and
+passed. The full guardian suite's separate failure is the pre-existing broad
+reverse-dependency baseline drift (7 known 3O imports), unrelated to this
+audit.
