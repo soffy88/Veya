@@ -1,4 +1,4 @@
-"""veya/multimodal — 3O 归位门面 (sys.modules 别名 → veya/oskill/multimodal)."""
+"""Compatibility facade that aliases ``veya.multimodal`` to the oskill module."""
 
 import sys
 
