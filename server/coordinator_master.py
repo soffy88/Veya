@@ -1045,7 +1045,11 @@ class MasterCoordinator:
                             },
                             session_id=sid,
                             task_id=task_id,
-                            topic="turn.completed" if not result.get("error") else "turn.failed",
+                            topic=(
+                                "turn.completed"
+                                if result is None or not result.get("error")
+                                else "turn.failed"
+                            ),
                         )
             # P4: 后台蒸馏本轮对话为长期记忆 (不阻塞回答)
             self._schedule_distill(sid)
@@ -1081,8 +1085,9 @@ class MasterCoordinator:
                     )
             return final_result
         finally:
+            current_task = asyncio.current_task()
             cancellation_requested = bool(result and result.get("status") == "cancelled") or bool(
-                asyncio.current_task() and asyncio.current_task().cancelling()
+                current_task and current_task.cancelling()
             )
             if cancellation_requested and task_id is not None:
                 # Cancellation can arrive during restore/injection, before the ReAct

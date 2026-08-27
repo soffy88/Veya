@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from server.events import append_canonical_event, current_task_id
 from server.tool_guard import ToolDenied as _ToolDenied
@@ -604,7 +604,8 @@ class MasterToolRegistry:
 
         def _checkpoint(stage: str) -> None:
             """Create a safe checkpoint around non-read-only physical work."""
-            if not current_task_id():
+            task_id = current_task_id()
+            if not task_id:
                 return
             with contextlib.suppress(Exception):
                 from server.permission_profiles import RiskLevel, classify_risk
@@ -613,7 +614,7 @@ class MasterToolRegistry:
                 if classify_risk(name, kwargs) == RiskLevel.R0:
                     return
                 checkpoint_id = uuid.uuid4().hex
-                task_store.set_checkpoint(current_task_id(), checkpoint_id, stage=stage)
+                task_store.set_checkpoint(task_id, checkpoint_id, stage=stage)
 
         _event("tool.requested")
         try:
@@ -2934,7 +2935,7 @@ def _register_internalized_tools(mt: Any) -> None:
                 objective=task,
                 context_ref=context_ref or None,
                 capability_scope=[tool_group] if tool_group else [],
-                acceptance=acceptance or [],
+                acceptance=cast("list[Any]", acceptance or []),
                 depth=depth,
                 estimated_tokens=max(1, min(int(max_rounds or 15), 40)) * 4096,
                 budget_usd=budget_usd,
@@ -2968,12 +2969,18 @@ def _register_internalized_tools(mt: Any) -> None:
         if acceptance:
             from pathlib import Path
 
+            from runtime.execution.models import AcceptanceResult
             from server.acceptance import evaluate_acceptance
 
             workspace = context_ref if Path(context_ref or ".").exists() else "."
-            delegate_result.acceptance_results = evaluate_acceptance(
-                acceptance, workspace=workspace
+            acceptance_for_eval = cast(
+                "list[Any] | None",
+                acceptance,
             )
+            delegate_result.acceptance_results = [
+                AcceptanceResult.from_value(item)
+                for item in evaluate_acceptance(acceptance_for_eval, workspace=workspace)
+            ]
         return json.dumps(delegate_result.to_dict(), ensure_ascii=False)
 
     async def _decision_record(
