@@ -34,7 +34,9 @@ jobs:
           python -m pip install --upgrade build
           pip install -e ".[dev,server,tui]"
           pip install -e ./veya_loop
-          pip install pytest-cov pgmpy tree-sitter==0.26.0 tree-sitter-python==0.25.0
+          pip install pytest-cov pgmpy tree-sitter==0.26.0 tree-sitter-python==0.25.0 'chardet>=5.0' 'networkx>=3.6.1' pillow asyncpg
+          pip install -e platform/3O/oprim
+          pip install cryptography argon2-cffi pyjwt bcrypt pyotp qrcode pgvector
           pip install mkdocs-material mkdocstrings[python]
 
       - name: Release preflight — state, safety, migration, coverage
