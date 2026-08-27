@@ -19,6 +19,7 @@ def project_run_goal_boss_mode(*args, **kwargs):
 
     return _run_boss(*args, **kwargs)
 
+
 __all__ = [
     "cancel_goal",
     "project_goal_status",

@@ -85,7 +85,9 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
         chunk_data = data[cursor + 8 : cursor + 8 + length]
         cursor += 12 + length
         if chunk_type == b"IHDR":
-            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
         elif chunk_type == b"IDAT":
             idat.extend(chunk_data)
         elif chunk_type == b"IEND":
@@ -174,7 +176,9 @@ def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
                 pass
         sips = shutil.which("sips")
         if not sips:
-            raise ValueError(f"could not decode {path.name} as PNG and sips is unavailable: {direct_error}") from direct_error
+            raise ValueError(
+                f"could not decode {path.name} as PNG and sips is unavailable: {direct_error}"
+            ) from direct_error
         with tempfile.TemporaryDirectory() as tmpdir:
             converted = Path(tmpdir) / "converted.png"
             result = subprocess.run(
@@ -184,7 +188,9 @@ def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
                 check=False,
             )
             if result.returncode != 0:
-                raise ValueError(result.stderr.strip() or result.stdout.strip() or "sips conversion failed")
+                raise ValueError(
+                    result.stderr.strip() or result.stdout.strip() or "sips conversion failed"
+                )
             return read_png(converted)
 
 
@@ -198,7 +204,14 @@ def composite_over_white(pixel: tuple[int, int, int, int]) -> tuple[int, int, in
     )
 
 
-def set_pixel(canvas: list[tuple[int, int, int]], width: int, height: int, x: int, y: int, color: tuple[int, int, int]) -> None:
+def set_pixel(
+    canvas: list[tuple[int, int, int]],
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+    color: tuple[int, int, int],
+) -> None:
     if 0 <= x < width and 0 <= y < height:
         canvas[y * width + x] = color
 
@@ -219,7 +232,14 @@ def draw_glyph(
                 continue
             for dy in range(scale):
                 for dx in range(scale):
-                    set_pixel(canvas, width, height, x0 + col_index * scale + dx, y0 + row_index * scale + dy, color)
+                    set_pixel(
+                        canvas,
+                        width,
+                        height,
+                        x0 + col_index * scale + dx,
+                        y0 + row_index * scale + dy,
+                        color,
+                    )
 
 
 def draw_text(
@@ -297,7 +317,9 @@ def build_overlay(image: Path, overlay_path: Path, heads: int) -> dict:
 
     center_x = MARGIN + width // 2
     draw_vline(canvas, canvas_w, canvas_h, center_x, 0, height, COLOR_CENTER)
-    draw_text(canvas, canvas_w, canvas_h, 4, max(0, min(height - 6, height // 2 - 3)), "C", COLOR_CENTER)
+    draw_text(
+        canvas, canvas_w, canvas_h, 4, max(0, min(height - 6, height // 2 - 3)), "C", COLOR_CENTER
+    )
 
     step = height / heads
     for i in range(1, heads):
@@ -420,7 +442,9 @@ def main(argv: list[str]) -> int:
     image = args.image.expanduser().resolve()
     if not image.exists():
         parser.error(f"{image} does not exist")
-    overlay_path = (args.overlay or image.with_name(f"{image.stem}-landmarks.png")).expanduser().resolve()
+    overlay_path = (
+        (args.overlay or image.with_name(f"{image.stem}-landmarks.png")).expanduser().resolve()
+    )
     out_path = (args.out or image.with_name(f"{image.stem}-anatomy.json")).expanduser().resolve()
     if not args.force:
         for existing in (overlay_path, out_path):

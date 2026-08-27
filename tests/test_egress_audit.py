@@ -14,7 +14,11 @@ from server.egress_audit import (
     verify_chain,
 )
 from server.tool_guard import ToolGuard
-from server.tool_guard_policies import _EGRESS_POLICY, egress_audit_policy, install_default_tool_policies
+from server.tool_guard_policies import (
+    _EGRESS_POLICY,
+    egress_audit_policy,
+    install_default_tool_policies,
+)
 
 
 def test_sanitize_strips_query_and_userinfo():
@@ -39,8 +43,12 @@ def test_digest_redacts_secrets():
 def test_hash_chain_appends_and_verifies(tmp_path, monkeypatch):
     log = tmp_path / "egress.jsonl"
     monkeypatch.setenv("VEYA_EGRESS_LOG", str(log))
-    a = record_egress(tool="fetch_url", destination="https://a.example/", digest="d1", owner_id="u1")
-    b = record_egress(tool="fetch_url", destination="https://b.example/", digest="d2", owner_id="u1")
+    a = record_egress(
+        tool="fetch_url", destination="https://a.example/", digest="d1", owner_id="u1"
+    )
+    b = record_egress(
+        tool="fetch_url", destination="https://b.example/", digest="d2", owner_id="u1"
+    )
     assert a["prev"] == "0" * 64
     assert b["prev"] == a["hash"]
     ok, reason = verify_chain(log)
@@ -61,10 +69,7 @@ def test_policy_records_then_allowlists(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_EGRESS_LOG", str(log))
     monkeypatch.setenv("VEYA_EGRESS_ENFORCE", "1")
     monkeypatch.setenv("VEYA_EGRESS_ALLOWLIST", "allowed.example")
-    assert (
-        egress_audit_policy("fetch_url", {"url": "https://allowed.example/x"}, "test")
-        is None
-    )
+    assert egress_audit_policy("fetch_url", {"url": "https://allowed.example/x"}, "test") is None
     deny = egress_audit_policy("fetch_url", {"url": "https://evil.example/x"}, "test")
     assert deny is not None and "egress denied" in deny
     ok, _ = verify_chain(log)

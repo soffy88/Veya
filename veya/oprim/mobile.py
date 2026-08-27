@@ -31,21 +31,21 @@ from typing import Any, Literal
 class MobileAction(StrEnum):
     """Mobile device actions supported via PWA bridge."""
 
-    TAP = "tap"              # Touch at coordinates
-    SWIPE = "swipe"          # Swipe gesture
-    TYPE = "type"            # Type text into focused element
-    SCROLL = "scroll"        # Scroll by pixels
+    TAP = "tap"  # Touch at coordinates
+    SWIPE = "swipe"  # Swipe gesture
+    TYPE = "type"  # Type text into focused element
+    SCROLL = "scroll"  # Scroll by pixels
     SCREENSHOT = "screenshot"  # Capture current screen
-    BACK = "back"            # Navigate back
-    REFRESH = "refresh"      # Refresh page
-    URL = "url"              # Navigate to URL
-    CAMERA = "camera"        # Capture photo (front/back)
+    BACK = "back"  # Navigate back
+    REFRESH = "refresh"  # Refresh page
+    URL = "url"  # Navigate to URL
+    CAMERA = "camera"  # Capture photo (front/back)
     GEOLOCATION = "geolocation"  # Get GPS coordinates
     CLIPBOARD = "clipboard"  # Read/write clipboard
     NOTIFICATION = "notification"  # Send push notification
-    VIBRATE = "vibrate"      # Haptic feedback
+    VIBRATE = "vibrate"  # Haptic feedback
     ORIENTATION = "orientation"  # Get device orientation
-    BATTERY = "battery"      # Get battery status
+    BATTERY = "battery"  # Get battery status
 
 
 @dataclass
@@ -64,7 +64,7 @@ class MobileElement:
 class MobileScreenshot:
     """A screenshot captured from the mobile device."""
 
-    data_base64: str       # PNG base64
+    data_base64: str  # PNG base64
     width: int = 0
     height: int = 0
     device_pixel_ratio: float = 1.0
@@ -76,12 +76,12 @@ class MobileActionSpec:
     """Specification for a single mobile action."""
 
     action: MobileAction
-    x: int | None = None       # Tap/swipe x coordinate
-    y: int | None = None       # Tap/swipe y coordinate
-    end_x: int | None = None   # Swipe end x
-    end_y: int | None = None   # Swipe end y
-    text: str | None = None    # Type text / URL
-    duration_ms: int = 300     # Gesture duration
+    x: int | None = None  # Tap/swipe x coordinate
+    y: int | None = None  # Tap/swipe y coordinate
+    end_x: int | None = None  # Swipe end x
+    end_y: int | None = None  # Swipe end y
+    text: str | None = None  # Type text / URL
+    duration_ms: int = 300  # Gesture duration
     selector: str | None = None  # CSS selector for element tap
 
 
@@ -111,11 +111,15 @@ def action_tap_element(selector: str) -> MobileActionSpec:
     return MobileActionSpec(action=MobileAction.TAP, selector=selector)
 
 
-def action_swipe(start_x: int, start_y: int, end_x: int, end_y: int, duration_ms: int = 300) -> MobileActionSpec:
+def action_swipe(
+    start_x: int, start_y: int, end_x: int, end_y: int, duration_ms: int = 300
+) -> MobileActionSpec:
     return MobileActionSpec(
         action=MobileAction.SWIPE,
-        x=start_x, y=start_y,
-        end_x=end_x, end_y=end_y,
+        x=start_x,
+        y=start_y,
+        end_x=end_x,
+        end_y=end_y,
         duration_ms=duration_ms,
     )
 

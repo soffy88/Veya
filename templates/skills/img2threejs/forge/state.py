@@ -85,7 +85,9 @@ def main(argv: list[str]) -> int:
         if args.command == "status":
             print_status(state, as_json=args.json)
         elif args.command == "mark":
-            mark_steps(state, args.step, status=args.status, evidence=args.evidence, reason=args.reason)
+            mark_steps(
+                state, args.step, status=args.status, evidence=args.evidence, reason=args.reason
+            )
             save_state(args.state, state)
             print_status(state)
         return 3 if state.get("status") == "stopped" else 0

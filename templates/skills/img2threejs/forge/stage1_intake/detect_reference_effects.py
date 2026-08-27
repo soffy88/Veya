@@ -216,10 +216,7 @@ def detect_highlight_glow(png_path: Path) -> dict[str, Any]:
             f"bloom is warranted"
         )
     elif hot_fraction <= 0.005:
-        reason = (
-            f"highlights are negligible (hotFraction {hot_fraction:.4f} <= 0.005); "
-            f"no bloom"
-        )
+        reason = f"highlights are negligible (hotFraction {hot_fraction:.4f} <= 0.005); no bloom"
     else:
         reason = (
             f"highlights present but only {halo_fraction:.2%} bloom outward "

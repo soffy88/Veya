@@ -20,7 +20,9 @@ def _store(tmp_path):
 
 def test_create_and_get(tmp_path):
     store = _store(tmp_path)
-    t = store.create(session_id="s1", title="写测试", objective="给 P1-03 写测试", workspace_id="ws1")
+    t = store.create(
+        session_id="s1", title="写测试", objective="给 P1-03 写测试", workspace_id="ws1"
+    )
 
     assert t.id.startswith("task_")
     assert t.status == "pending"
@@ -171,7 +173,17 @@ async def test_tasks_api_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(task_store.event_store, "path", tmp_path / "events.jsonl")
     task_store._tasks = {}
 
-    req = type("R", (), {"session_id": "s1", "title": "", "objective": "API 测试", "workspace_id": "ws1", "task_id": None})()
+    req = type(
+        "R",
+        (),
+        {
+            "session_id": "s1",
+            "title": "",
+            "objective": "API 测试",
+            "workspace_id": "ws1",
+            "task_id": None,
+        },
+    )()
     r = await create_task(req)
     assert r["status"] == "created"
     tid = r["task"]["id"]

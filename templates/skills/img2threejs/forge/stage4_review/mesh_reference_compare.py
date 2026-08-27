@@ -28,6 +28,7 @@ Reads .glb (uncompressed) with the standard library only, per this package's no-
 Usage:
     mesh_reference_compare.py REFERENCE.glb CANDIDATE.glb [--bands N] [--json]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,7 +58,7 @@ def read_glb_positions(path: Path) -> list[tuple[float, float, float]]:
     offset, gltf, binary = 12, None, None
     while offset < len(data):
         chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
-        body = data[offset + 8: offset + 8 + chunk_len]
+        body = data[offset + 8 : offset + 8 + chunk_len]
         if chunk_type == CHUNK_JSON:
             gltf = json.loads(body)
         elif chunk_type == CHUNK_BIN:
@@ -105,10 +106,22 @@ def read_glb_positions(path: Path) -> list[tuple[float, float, float]]:
         xy, xz, yz = qx * qy, qx * qz, qy * qz
         wx, wy, wz = qw * qx, qw * qy, qw * qz
         return [
-            (1 - 2 * (yy + zz)) * sx, (2 * (xy + wz)) * sx, (2 * (xz - wy)) * sx, 0.0,
-            (2 * (xy - wz)) * sy, (1 - 2 * (xx + zz)) * sy, (2 * (yz + wx)) * sy, 0.0,
-            (2 * (xz + wy)) * sz, (2 * (yz - wx)) * sz, (1 - 2 * (xx + yy)) * sz, 0.0,
-            tx, ty, tz, 1.0,
+            (1 - 2 * (yy + zz)) * sx,
+            (2 * (xy + wz)) * sx,
+            (2 * (xz - wy)) * sx,
+            0.0,
+            (2 * (xy - wz)) * sy,
+            (1 - 2 * (xx + zz)) * sy,
+            (2 * (yz + wx)) * sy,
+            0.0,
+            (2 * (xz + wy)) * sz,
+            (2 * (yz - wx)) * sz,
+            (1 - 2 * (xx + yy)) * sz,
+            0.0,
+            tx,
+            ty,
+            tz,
+            1.0,
         ]
 
     def multiply(a: list[float], b: list[float]) -> list[float]:
@@ -183,7 +196,7 @@ def width_curve(points: list[tuple[float, float, float]], slices: int = 160) -> 
     raw = [percentile(b, 0.95) - percentile(b, 0.05) if len(b) >= 20 else 0.0 for b in buckets]
     smoothed = []
     for i in range(slices):
-        window = raw[max(0, i - 2): min(slices, i + 3)]
+        window = raw[max(0, i - 2) : min(slices, i + 3)]
         smoothed.append(sum(window) / len(window))
     return smoothed
 
@@ -252,12 +265,18 @@ def landmark_bands(points: list[tuple[float, float, float]], per_segment: int) -
             continue
         xs = [p[0] for p in bucket]
         zs = [p[2] for p in bucket]
-        profile.append({
-            "band": i, "points": len(bucket), "lo": lo, "hi": hi,
-            "width": percentile(xs, 0.95) - percentile(xs, 0.05),
-            "depth": percentile(zs, 0.95) - percentile(zs, 0.05),
-            "centroidX": percentile(xs, 0.5), "centroidZ": percentile(zs, 0.5),
-        })
+        profile.append(
+            {
+                "band": i,
+                "points": len(bucket),
+                "lo": lo,
+                "hi": hi,
+                "width": percentile(xs, 0.95) - percentile(xs, 0.05),
+                "depth": percentile(zs, 0.95) - percentile(zs, 0.05),
+                "centroidX": percentile(xs, 0.5),
+                "centroidZ": percentile(zs, 0.5),
+            }
+        )
     return profile, marks
 
 
@@ -273,29 +292,36 @@ def band_profile(points: list[tuple[float, float, float]], bands: int) -> list[d
             continue
         xs = [p[0] for p in bucket]
         zs = [p[2] for p in bucket]
-        profile.append({
-            "band": i,
-            "points": len(bucket),
-            "width": percentile(xs, 0.95) - percentile(xs, 0.05),
-            "depth": percentile(zs, 0.95) - percentile(zs, 0.05),
-            "widthFull": max(xs) - min(xs),
-            "centroidX": percentile(xs, 0.5),
-            "centroidZ": percentile(zs, 0.5),
-        })
+        profile.append(
+            {
+                "band": i,
+                "points": len(bucket),
+                "width": percentile(xs, 0.95) - percentile(xs, 0.05),
+                "depth": percentile(zs, 0.95) - percentile(zs, 0.05),
+                "widthFull": max(xs) - min(xs),
+                "centroidX": percentile(xs, 0.5),
+                "centroidZ": percentile(zs, 0.5),
+            }
+        )
     return profile
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("reference", type=Path)
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--bands", type=int, default=20)
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--align", choices=("height", "landmarks"), default="landmarks",
-                        help="landmarks (default) bands between the waist and neck it "
-                             "finds in each mesh; height bands by raw percentage and "
-                             "only corresponds when both subjects share proportions")
+    parser.add_argument(
+        "--align",
+        choices=("height", "landmarks"),
+        default="landmarks",
+        help="landmarks (default) bands between the waist and neck it "
+        "finds in each mesh; height bands by raw percentage and "
+        "only corresponds when both subjects share proportions",
+    )
     args = parser.parse_args()
 
     ref_pts = normalise(read_glb_positions(args.reference))
@@ -315,8 +341,10 @@ def main() -> None:
             "band": r["band"],
             "lowPct": round(r["band"] / args.bands * 100),
             "highPct": round((r["band"] + 1) / args.bands * 100),
-            "refWidth": round(r["width"], 4), "candWidth": round(c["width"], 4),
-            "refDepth": round(r["depth"], 4), "candDepth": round(c["depth"], 4),
+            "refWidth": round(r["width"], 4),
+            "candWidth": round(c["width"], 4),
+            "refDepth": round(r["depth"], 4),
+            "candDepth": round(c["depth"], 4),
             "widthDelta": round(c["width"] - r["width"], 4),
             "depthDelta": round(c["depth"] - r["depth"], 4),
             "centroidXDelta": round(c["centroidX"] - r["centroidX"], 4),
@@ -327,11 +355,14 @@ def main() -> None:
 
     score = sum(errors) / (2 * len(errors)) if errors else 0.0
     report = {
-        "reference": str(args.reference), "candidate": str(args.candidate),
-        "bands": args.bands, "meanBandError": round(score, 5), "rows": rows,
+        "reference": str(args.reference),
+        "candidate": str(args.candidate),
+        "bands": args.bands,
+        "meanBandError": round(score, 5),
+        "rows": rows,
         "note": "0 = feet, 100 = top. Widths are 5-95 percentile, normalised by subject height, "
-                "so a thin prop cannot dominate. Both meshes are aligned on the ground plane, not "
-                "on the bounding-box top.",
+        "so a thin prop cannot dominate. Both meshes are aligned on the ground plane, not "
+        "on the bounding-box top.",
     }
 
     if args.json:
@@ -340,22 +371,30 @@ def main() -> None:
 
     if ref_marks:
         print(f"landmarks  reference: waist {ref_marks['waist']:.3f}  neck {ref_marks['neck']:.3f}")
-        print(f"landmarks  candidate: waist {cand_marks['waist']:.3f}  neck {cand_marks['neck']:.3f}")
+        print(
+            f"landmarks  candidate: waist {cand_marks['waist']:.3f}  neck {cand_marks['neck']:.3f}"
+        )
     print(f"reference: {args.reference.name}")
     print(f"candidate: {args.candidate.name}")
-    print(f"\n{'band':>10}{'ref w':>9}{'cand w':>9}{'Δw':>8}{'ref d':>9}{'cand d':>9}{'Δd':>8}"
-          f"{'Δcx':>8}{'Δcz':>8}")
+    print(
+        f"\n{'band':>10}{'ref w':>9}{'cand w':>9}{'Δw':>8}{'ref d':>9}{'cand d':>9}{'Δd':>8}"
+        f"{'Δcx':>8}{'Δcz':>8}"
+    )
     for row in rows:
-        print(f"{row['lowPct']:>4}-{row['highPct']:<5}"
-              f"{row['refWidth']:>9.3f}{row['candWidth']:>9.3f}{row['widthDelta']:>+8.3f}"
-              f"{row['refDepth']:>9.3f}{row['candDepth']:>9.3f}{row['depthDelta']:>+8.3f}"
-              f"{row['centroidXDelta']:>+8.3f}{row['centroidZDelta']:>+8.3f}")
+        print(
+            f"{row['lowPct']:>4}-{row['highPct']:<5}"
+            f"{row['refWidth']:>9.3f}{row['candWidth']:>9.3f}{row['widthDelta']:>+8.3f}"
+            f"{row['refDepth']:>9.3f}{row['candDepth']:>9.3f}{row['depthDelta']:>+8.3f}"
+            f"{row['centroidXDelta']:>+8.3f}{row['centroidZDelta']:>+8.3f}"
+        )
     print(f"\nmean band error = {score:.5f}")
     worst = sorted(rows, key=lambda r: -(abs(r["widthDelta"]) + abs(r["depthDelta"])))[:5]
     print("\nworst bands:")
     for row in worst:
-        print(f"  {row['lowPct']:>3}-{row['highPct']:<4}  Δw {row['widthDelta']:+.3f}   "
-              f"Δd {row['depthDelta']:+.3f}   Δcx {row['centroidXDelta']:+.3f}")
+        print(
+            f"  {row['lowPct']:>3}-{row['highPct']:<4}  Δw {row['widthDelta']:+.3f}   "
+            f"Δd {row['depthDelta']:+.3f}   Δcx {row['centroidXDelta']:+.3f}"
+        )
 
 
 if __name__ == "__main__":

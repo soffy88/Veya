@@ -44,14 +44,16 @@ def migrate_plans(plans_dir: Path, store, *, dry_run: bool = False) -> int:
             migrated += 1
             continue
         store.append(
-            aggregate_type="Goal", aggregate_id=goal_id,
+            aggregate_type="Goal",
+            aggregate_id=goal_id,
             event_type="GoalCreated",
             payload={"objective": plan.get("objective", ""), "todos": todos},
         )
         for todo in todos:
             if todo["status"] not in ("open",):
                 store.append(
-                    aggregate_type="Goal", aggregate_id=goal_id,
+                    aggregate_type="Goal",
+                    aggregate_id=goal_id,
                     event_type="TodoUpdated",
                     payload={"todo_id": todo["id"], "status": todo["status"]},
                 )

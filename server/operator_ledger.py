@@ -67,8 +67,12 @@ RUNTIME_LEDGER: dict[str, dict[str, str]] = {
 def runtime_ledger_summary() -> list[dict[str, Any]]:
     """运行时立项全貌 (立档查询)。"""
     return [
-        {"name": name, "layer": meta["layer"], "status": meta["status"],
-         "description": meta["desc"]}
+        {
+            "name": name,
+            "layer": meta["layer"],
+            "status": meta["status"],
+            "description": meta["desc"],
+        }
         for name, meta in RUNTIME_LEDGER.items()
     ]
 
@@ -76,6 +80,7 @@ def runtime_ledger_summary() -> list[dict[str, Any]]:
 # =========================================================================
 # 算子实现 (薄适配: 技能包/连接器 → 账本)
 # =========================================================================
+
 
 async def browser_use_agent(goal: str, url: str = "", max_steps: int = 10) -> dict[str, Any]:
     """外网行为层: 自然语言驱动浏览器 (browser-use)。"""
@@ -87,16 +92,22 @@ async def agent_reach_channel(channel: str, url: str, limit: int = 20) -> dict[s
     return await _call_skill_async("agent_reach", channel=channel, url=url, limit=limit)
 
 
-async def officecli_doc_engine(op: str, input: str = "", output: str = "",
-                               data_json: str = "",
-                               options: dict[str, Any] | None = None) -> dict[str, Any]:
+async def officecli_doc_engine(
+    op: str,
+    input: str = "",
+    output: str = "",
+    data_json: str = "",
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """交付物生产层: Office 文档创建/编辑/渲染 (写路径白名单 + 审计)。"""
-    return await _call_skill_async("officecli", op=op, input=input, output=output,
-                                   data_json=data_json, options=options)
+    return await _call_skill_async(
+        "officecli", op=op, input=input, output=output, data_json=data_json, options=options
+    )
 
 
-async def codebase_memory_graph(query: str, *, depth: int = 2,
-                                kind: str = "call_graph") -> dict[str, Any]:
+async def codebase_memory_graph(
+    query: str, *, depth: int = 2, kind: str = "call_graph"
+) -> dict[str, Any]:
     """内网代码智能层: 调用链/BlastRadius/死代码 (CodebaseMemoryConnector)。"""
     try:
         from server.codebase_memory import CodebaseMemoryConnector
@@ -144,6 +155,7 @@ async def _call_skill_async(name: str, **kwargs: Any) -> dict[str, Any]:
 # 账本注册 (幂等)
 # =========================================================================
 
+
 def register_operators(registry: AgentRegistry | None = None) -> dict[str, Any]:
     """把 4 算子固化进 3O 账本。返回 {registered, skipped}。"""
     reg = registry or AgentRegistry()
@@ -163,15 +175,13 @@ def register_operators(registry: AgentRegistry | None = None) -> dict[str, Any]:
         except RegistryConflictError:
             skipped.append(name)
 
-    return {"registered": registered, "skipped": skipped,
-            "total": len(_LEDGER), "ledger": _LEDGER}
+    return {"registered": registered, "skipped": skipped, "total": len(_LEDGER), "ledger": _LEDGER}
 
 
 def ledger_summary() -> list[dict[str, Any]]:
     """账本全貌 (PRD 附录/健康检查用)。"""
     return [
-        {"name": name, "layer": meta["layer"], "skill": meta["skill"],
-         "description": meta["desc"]}
+        {"name": name, "layer": meta["layer"], "skill": meta["skill"], "description": meta["desc"]}
         for name, meta in _LEDGER.items()
     ]
 
@@ -193,83 +203,139 @@ __all__ = [
 # =========================================================================
 
 REPLICA_LEDGER: dict[str, dict[str, str]] = {
-    "G3_mission_supervisor": {"layer": "omodul", "phase": "一(Vigla)",
-                              "desc": "Merge 前审计: 秘钥/路径/禁止操作三通道, verdict+审计",
-                              "status": "registered"},
-    "G4_mission_revert": {"layer": "omodul", "phase": "一(Vigla)",
-                          "desc": "多 Worker 工作区级一键回滚 + 坏改动隔离",
-                          "status": "registered"},
-    "G5_canonical_event_ingest": {"layer": "oprim", "phase": "一(Vigla)",
-                                  "desc": "vendor 原始字节 → 规范事件 + 指纹 + 回放",
-                                  "status": "registered"},
-    "G6_agent_bench_harness": {"layer": "oservi", "phase": "一(Vigla)",
-                               "desc": "确定性 mock 基准评测 (completion/pass/cost)",
-                               "status": "registered"},
-    "G1_artifact_preview": {"layer": "omodul", "phase": "二(workbench)",
-                            "desc": "Artifact 独立渲染+消毒+快照",
-                            "status": "registered"},
-    "G2_agent_team_monitor": {"layer": "oservi", "phase": "二(workbench)",
-                              "desc": "事件溯源团队实时监督",
-                              "status": "registered"},
-    "G7_skill_crystallize": {"layer": "omodul", "phase": "三(KiroCrew)",
-                             "desc": "教训→技能结晶入库 (查重+审计)",
-                             "status": "registered"},
-    "G8_trigger_register": {"layer": "oservi", "phase": "三(KiroCrew)",
-                            "desc": "cron/webhook/事件触发器统一注册",
-                            "status": "registered"},
+    "G3_mission_supervisor": {
+        "layer": "omodul",
+        "phase": "一(Vigla)",
+        "desc": "Merge 前审计: 秘钥/路径/禁止操作三通道, verdict+审计",
+        "status": "registered",
+    },
+    "G4_mission_revert": {
+        "layer": "omodul",
+        "phase": "一(Vigla)",
+        "desc": "多 Worker 工作区级一键回滚 + 坏改动隔离",
+        "status": "registered",
+    },
+    "G5_canonical_event_ingest": {
+        "layer": "oprim",
+        "phase": "一(Vigla)",
+        "desc": "vendor 原始字节 → 规范事件 + 指纹 + 回放",
+        "status": "registered",
+    },
+    "G6_agent_bench_harness": {
+        "layer": "oservi",
+        "phase": "一(Vigla)",
+        "desc": "确定性 mock 基准评测 (completion/pass/cost)",
+        "status": "registered",
+    },
+    "G1_artifact_preview": {
+        "layer": "omodul",
+        "phase": "二(workbench)",
+        "desc": "Artifact 独立渲染+消毒+快照",
+        "status": "registered",
+    },
+    "G2_agent_team_monitor": {
+        "layer": "oservi",
+        "phase": "二(workbench)",
+        "desc": "事件溯源团队实时监督",
+        "status": "registered",
+    },
+    "G7_skill_crystallize": {
+        "layer": "omodul",
+        "phase": "三(KiroCrew)",
+        "desc": "教训→技能结晶入库 (查重+审计)",
+        "status": "registered",
+    },
+    "G8_trigger_register": {
+        "layer": "oservi",
+        "phase": "三(KiroCrew)",
+        "desc": "cron/webhook/事件触发器统一注册",
+        "status": "registered",
+    },
 }
 
 
 def replica_ledger_summary() -> list[dict[str, Any]]:
     """三平台复刻账本全貌。"""
     return [
-        {"name": name, "layer": meta["layer"], "phase": meta["phase"],
-         "status": meta["status"], "description": meta["desc"]}
+        {
+            "name": name,
+            "layer": meta["layer"],
+            "phase": meta["phase"],
+            "status": meta["status"],
+            "description": meta["desc"],
+        }
         for name, meta in REPLICA_LEDGER.items()
     ]
 
+
 # LLM 智能路由算子 (veya1.2 别名, RouteLLM 3O 内化)
 ROUTER_LEDGER: dict[str, dict[str, str]] = {
-    "llm_router": {"layer": "oprim+oskill", "phase": "路由",
-                   "desc": "veya1.2 别名智能路由: 7 档 (quick/text/tool/code/reason/long/vision) "
-                           "+ 长文并行分派快速回答",
-                   "status": "registered"},
+    "llm_router": {
+        "layer": "oprim+oskill",
+        "phase": "路由",
+        "desc": "veya1.2 别名智能路由: 7 档 (quick/text/tool/code/reason/long/vision) "
+        "+ 长文并行分派快速回答",
+        "status": "registered",
+    },
 }
 
 
 def router_ledger_summary() -> list[dict[str, Any]]:
     return [
-        {"name": name, "layer": meta["layer"], "phase": meta["phase"],
-         "status": meta["status"], "description": meta["desc"]}
+        {
+            "name": name,
+            "layer": meta["layer"],
+            "phase": meta["phase"],
+            "status": meta["status"],
+            "description": meta["desc"],
+        }
         for name, meta in ROUTER_LEDGER.items()
     ]
 
+
 # 代码审查知识图谱算子 (CRG 3O 复刻)
 CODE_REVIEW_LEDGER: dict[str, dict[str, str]] = {
-    "code_review_graph": {"layer": "oprim+oskill", "phase": "代码智能",
-                          "desc": "CRG 知识图谱: 调用链/影响面/死代码/社区结构 (变更审查前置)",
-                          "status": "registered"},
+    "code_review_graph": {
+        "layer": "oprim+oskill",
+        "phase": "代码智能",
+        "desc": "CRG 知识图谱: 调用链/影响面/死代码/社区结构 (变更审查前置)",
+        "status": "registered",
+    },
 }
 
 
 def code_review_ledger_summary() -> list[dict[str, Any]]:
     return [
-        {"name": name, "layer": meta["layer"], "phase": meta["phase"],
-         "status": meta["status"], "description": meta["desc"]}
+        {
+            "name": name,
+            "layer": meta["layer"],
+            "phase": meta["phase"],
+            "status": meta["status"],
+            "description": meta["desc"],
+        }
         for name, meta in CODE_REVIEW_LEDGER.items()
     ]
 
+
 # Goal-Driven 长程编排算子
 GOAL_DRIVEN_LEDGER: dict[str, dict[str, str]] = {
-    "goal_driven_loop": {"layer": "oservi", "phase": "长程编排",
-                         "desc": "Goal-Driven while 循环: 子代理工作 → gate 验证 → 失活重启 → 达标停机",
-                         "status": "registered"},
+    "goal_driven_loop": {
+        "layer": "oservi",
+        "phase": "长程编排",
+        "desc": "Goal-Driven while 循环: 子代理工作 → gate 验证 → 失活重启 → 达标停机",
+        "status": "registered",
+    },
 }
 
 
 def goal_driven_ledger_summary() -> list[dict[str, Any]]:
     return [
-        {"name": name, "layer": meta["layer"], "phase": meta["phase"],
-         "status": meta["status"], "description": meta["desc"]}
+        {
+            "name": name,
+            "layer": meta["layer"],
+            "phase": meta["phase"],
+            "status": meta["status"],
+            "description": meta["desc"],
+        }
         for name, meta in GOAL_DRIVEN_LEDGER.items()
     ]

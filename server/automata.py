@@ -69,7 +69,9 @@ class VeyaAutomata:
         # 强引用: asyncio 只对裸 create_task 持弱引用, 防中途被 GC (同 chat_coordinator 模式)
         self._grid_tasks.add(task)
         task.add_done_callback(self._grid_tasks.discard)
-        logger.info("[automata] grid search task submitted: %s (%d combos)", task_id, len(param_grid))
+        logger.info(
+            "[automata] grid search task submitted: %s (%d combos)", task_id, len(param_grid)
+        )
         return task_id
 
     async def _run_grid_search_pipeline(
@@ -106,6 +108,7 @@ class VeyaAutomata:
 
             with contextlib.suppress(RuntimeError):  # 宿主 loop 已关闭
                 asyncio.run_coroutine_threadsafe(_push(), loop)
+
         # 2. 跑进程池 (execute_grid_search 内部已 run_in_executor, 事件循环不被阻塞)
         try:
             results = await quant_coprocessor.execute_grid_search(
@@ -113,14 +116,19 @@ class VeyaAutomata:
             )
         except Exception as exc:
             logger.warning("[automata] grid search %s failed: %s", task_id, exc)
-            global_notifier.push("ERROR", "网格搜索崩溃", str(exc), {"task_id": task_id, "session_id": session_id})
+            global_notifier.push(
+                "ERROR", "网格搜索崩溃", str(exc), {"task_id": task_id, "session_id": session_id}
+            )
             return
 
         # 3. 物理层规约 (Reduce): 夏普最高者
         best = _oprim.reduce_best(results)
         if best is None:
             global_notifier.push(
-                "ERROR", "网格搜索失败", "所有参数组合均报错", {"task_id": task_id, "session_id": session_id}
+                "ERROR",
+                "网格搜索失败",
+                "所有参数组合均报错",
+                {"task_id": task_id, "session_id": session_id},
             )
             return
 
@@ -170,7 +178,9 @@ class VeyaAutomata:
     def jobs_db_path(self) -> Path:
         return self._scheduler.jobs_db_path
 
-    def register_cron_task(self, cron_expr: str, task_prompt: str, task_id: str | None = None) -> str:
+    def register_cron_task(
+        self, cron_expr: str, task_prompt: str, task_id: str | None = None
+    ) -> str:
         # 多用户隔离: 注册时记录归属用户 (工具执行 task 内 auth contextvar 有效)
         from server.auth import current_user
 
@@ -197,12 +207,18 @@ class VeyaAutomata:
 
         uid = current_user()["user_id"] or ""
         jobs = self._scheduler.get_jobs()
-        return [j for j in jobs if not str(j.get("id", "")).startswith("cron_") or j.get("user_id", "") in ("", uid)]
+        return [
+            j
+            for j in jobs
+            if not str(j.get("id", "")).startswith("cron_") or j.get("user_id", "") in ("", uid)
+        ]
 
     def trigger_event(self, event_name: str, payload: dict) -> str:
         return self._scheduler.trigger_event(event_name, payload)
 
-    async def _run_headless_mission(self, trigger_context: str, task_prompt: str, user_id: str = "") -> str:
+    async def _run_headless_mission(
+        self, trigger_context: str, task_prompt: str, user_id: str = ""
+    ) -> str:
         return await self._scheduler._run_headless_mission(trigger_context, task_prompt, user_id)
 
     def get_recent_results(self, limit: int = 10) -> list[dict]:
@@ -234,7 +250,9 @@ def _default_headless_runner() -> Callable[[str], Awaitable[str]]:
             # 触发时注入归属用户 → 无头 agent 的会话/计划/通知按该用户隔离
             auth_mod.set_user({"user_id": user_id, "username": user_id[:12]})
         coordinator = MasterCoordinator()  # 用 .env / 环境变量的后台专属 Key
-        result = await coordinator.chat_stream(synthetic_prompt, session_id=f"auto_{uuid.uuid4().hex[:8]}")
+        result = await coordinator.chat_stream(
+            synthetic_prompt, session_id=f"auto_{uuid.uuid4().hex[:8]}"
+        )
         if result.get("status") == "success":
             return result.get("final_answer", "") or "(no answer)"
         return f"HEADLESS FAILED: {result.get('error', 'unknown')}"

@@ -38,7 +38,9 @@ def _row_span(mask: list[bool], width: int, y: int, x0: int, x1: int) -> tuple[i
     return (left, right)
 
 
-def _col_span(mask: list[bool], width: int, height: int, x: int, y0: int, y1: int) -> tuple[int, int] | None:
+def _col_span(
+    mask: list[bool], width: int, height: int, x: int, y0: int, y1: int
+) -> tuple[int, int] | None:
     top = bottom = None
     for y in range(y0, y1 + 1):
         if mask[y * width + x]:
@@ -109,8 +111,11 @@ def main(argv: list[str]) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else
-          f"axis={result['axis']} points={len(result['points'])}")
+    print(
+        json.dumps(result, indent=2, ensure_ascii=False)
+        if args.json
+        else f"axis={result['axis']} points={len(result['points'])}"
+    )
     return 0
 
 

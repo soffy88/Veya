@@ -62,7 +62,9 @@ async def test_memory_conflict_correction_supersede_and_forget(store):
     assert old["id"] in conflicting["conflicts_with"]
     with pytest.raises(PersonalRuntimeError, match="CONFLICT_REVIEW_REQUIRED"):
         await store.commit_memory_candidate(conflicting["id"])
-    corrected = await store.correct_memory(old["id"], "project tests use uv run pytest", source_event_ids=[event["id"]])
+    corrected = await store.correct_memory(
+        old["id"], "project tests use uv run pytest", source_event_ids=[event["id"]]
+    )
     assert (await store.get_memory(old["id"]))["status"] == "superseded"
     assert (await store.get_memory(corrected["new_id"]))["status"] == "active"
     assert (await store.search_memory("unittest", scope_id="ws")) == []
@@ -133,11 +135,20 @@ async def test_user_memory_scope_isolated_from_other_user_and_workspace(store):
 
 @pytest.mark.asyncio
 async def test_skill_teach_version_run_and_rollback(store):
-    v1 = await store.create_skill_candidate("pr-review", "Use the PR checklist", scope_type="workspace", scope_id="ws", created_by="u")
+    v1 = await store.create_skill_candidate(
+        "pr-review", "Use the PR checklist", scope_type="workspace", scope_id="ws", created_by="u"
+    )
     assert v1["source_event_ids"]
     await store.confirm_skill(v1["id"])
-    assert (await store.run_skill(v1["skill_id"], {"pr": 1}))['result_status'] == "complete"
-    v2 = await store.create_skill_candidate("pr-review", "Use the stricter PR checklist", scope_type="workspace", scope_id="ws", parent_version=1, created_by="u")
+    assert (await store.run_skill(v1["skill_id"], {"pr": 1}))["result_status"] == "complete"
+    v2 = await store.create_skill_candidate(
+        "pr-review",
+        "Use the stricter PR checklist",
+        scope_type="workspace",
+        scope_id="ws",
+        parent_version=1,
+        created_by="u",
+    )
     await store.confirm_skill(v2["id"])
     assert (await store.get_skill(v1["skill_id"]))["versions"][0]["version"] == 2
     await store.rollback_skill(v1["skill_id"], 1)
@@ -149,7 +160,9 @@ async def test_skill_teach_version_run_and_rollback(store):
 
 @pytest.mark.asyncio
 async def test_skill_safety_gate_blocks_unsafe_candidate(store):
-    candidate = await store.create_skill_candidate("unsafe", "run subprocess and rm -rf", scope_type="user", scope_id="u")
+    candidate = await store.create_skill_candidate(
+        "unsafe", "run subprocess and rm -rf", scope_type="user", scope_id="u"
+    )
     with pytest.raises(PersonalRuntimeError, match="SAFETY_HOLD"):
         await store.confirm_skill(candidate["id"])
 
@@ -176,21 +189,66 @@ async def test_skill_failed_run_is_recorded_without_activating_a_new_version(sto
 
 @pytest.mark.asyncio
 async def test_continuity_and_learning_gates(store):
-    snapshot = await store.save_continuity({"active_tasks": [{"id": "t1"}], "memory_refs": [], "skill_refs": []}, user_id="u", workspace_id="ws", source_event_cursor="42")
+    snapshot = await store.save_continuity(
+        {"active_tasks": [{"id": "t1"}], "memory_refs": [], "skill_refs": []},
+        user_id="u",
+        workspace_id="ws",
+        source_event_cursor="42",
+    )
     assert (await store.latest_continuity(user_id="u", workspace_id="ws"))["id"] == snapshot["id"]
     with pytest.raises(PersonalRuntimeError, match="LEARNING_THRESHOLD"):
-        await store.create_learning_candidate(pattern_id="single", scope="ws", evidence_task_ids=["t1"], evidence_trajectory_ids=["tr1"], observation="one failure", hypothesis="change", confidence=.9, candidate_type="skill", proposed_change={})
-    candidate = await store.create_learning_candidate(pattern_id="repeat", scope="ws", evidence_task_ids=["t1", "t2", "t3"], evidence_trajectory_ids=["tr1", "tr2", "tr3"], observation="repeated success", hypothesis="candidate only", confidence=.9, candidate_type="skill", proposed_change={})
+        await store.create_learning_candidate(
+            pattern_id="single",
+            scope="ws",
+            evidence_task_ids=["t1"],
+            evidence_trajectory_ids=["tr1"],
+            observation="one failure",
+            hypothesis="change",
+            confidence=0.9,
+            candidate_type="skill",
+            proposed_change={},
+        )
+    candidate = await store.create_learning_candidate(
+        pattern_id="repeat",
+        scope="ws",
+        evidence_task_ids=["t1", "t2", "t3"],
+        evidence_trajectory_ids=["tr1", "tr2", "tr3"],
+        observation="repeated success",
+        hypothesis="candidate only",
+        confidence=0.9,
+        candidate_type="skill",
+        proposed_change={},
+    )
     assert candidate["status"] == "candidate"
     with pytest.raises(PersonalRuntimeError, match="LEARNING_GATE"):
         await store.apply_learning(candidate["id"])
     with pytest.raises(PersonalRuntimeError, match="improvement_delta"):
-        await store.record_learning_eval(candidate["id"], baseline_ref="v1", candidate_ref="v2", result={"delta": 0.2}, passed=True)
-    await store.record_learning_eval(candidate["id"], baseline_ref="v1", candidate_ref="v2", result={"improvement_delta": 0.2}, passed=True)
+        await store.record_learning_eval(
+            candidate["id"],
+            baseline_ref="v1",
+            candidate_ref="v2",
+            result={"delta": 0.2},
+            passed=True,
+        )
+    await store.record_learning_eval(
+        candidate["id"],
+        baseline_ref="v1",
+        candidate_ref="v2",
+        result={"improvement_delta": 0.2},
+        passed=True,
+    )
     assert (await store.apply_learning(candidate["id"]))["status"] == "applied"
-    await store.record_learning_eval(candidate["id"], baseline_ref="v2", candidate_ref="v3", result={"improvement_delta": -0.1}, passed=False)
+    await store.record_learning_eval(
+        candidate["id"],
+        baseline_ref="v2",
+        candidate_ref="v3",
+        result={"improvement_delta": -0.1},
+        passed=False,
+    )
     assert (await store.get_learning(candidate["id"]))["status"] == "degraded"
-    assert (await store.rollback_learning(candidate["id"], reason="regression gate"))["status"] == "rolled_back"
+    assert (await store.rollback_learning(candidate["id"], reason="regression gate"))[
+        "status"
+    ] == "rolled_back"
     assert (await store.get_learning(candidate["id"]))["status"] == "rejected"
 
 
@@ -209,7 +267,11 @@ async def test_repeated_accepted_trajectories_create_candidate_only(store, tmp_p
                     "event_id": event_id,
                     "topic": "trajectory.recorded",
                     "task_id": task_id,
-                    "payload": {"task_id": task_id, "objective": "review a pull request", "outcome": "completed"},
+                    "payload": {
+                        "task_id": task_id,
+                        "objective": "review a pull request",
+                        "outcome": "completed",
+                    },
                 }
             )
             events_module.event_store.append(

@@ -19,6 +19,7 @@ def _clean_genesis_env(monkeypatch):
     for var in ("GENESIS_API_KEY", "GENESIS_MODEL", "GENESIS_PROVIDER", "GENESIS_ENDPOINT"):
         monkeypatch.delenv(var, raising=False)
 
+
 # ---------------------------------------------------------------------------
 # 1. 永久记忆系统 (Memory Bank)
 # ---------------------------------------------------------------------------
@@ -47,9 +48,7 @@ def test_memory_ledger_persistence(tmp_path):
 def test_memory_experience_jsonl_append(tmp_path):
     """经验: JSONL 追加式落盘,主文件落后也不丢。"""
     memory = GenesisMemory(storage_dir=tmp_path / "mem")
-    memory.record_experience(
-        "在 oprim 层引入 os 模块", "纯数学原则: oprim/oskill 禁止 I/O 模块"
-    )
+    memory.record_experience("在 oprim 层引入 os 模块", "纯数学原则: oprim/oskill 禁止 I/O 模块")
     memory.record_experience("沙箱 OOM", "大数组先估算内存")
 
     # JSONL 文件存在且两行
@@ -58,7 +57,8 @@ def test_memory_experience_jsonl_append(tmp_path):
 
     # 手动清空主文件,JSONL 仍能恢复经验(崩溃不丢)
     (tmp_path / "mem" / "memory.json").write_text(
-        json.dumps({"element_ledger": {}, "experience_log": [], "last_active": None}), encoding="utf-8"
+        json.dumps({"element_ledger": {}, "experience_log": [], "last_active": None}),
+        encoding="utf-8",
     )
     revived = GenesisMemory(storage_dir=tmp_path / "mem")
     assert len(revived.memory["experience_log"]) == 2
@@ -150,7 +150,9 @@ def test_forge_element_blocks_impure_import(three_o_root):
     assert not (three_o_root / "oprim" / "_io_leak.py").exists()
 
     # 显式 allow_impure=True 放行(Genesis 需自证理由)
-    result = tools.forge_element("oprim", "_io_leak.py", "import os\nVALUE = os.getcwd()\n", allow_impure=True)
+    result = tools.forge_element(
+        "oprim", "_io_leak.py", "import os\nVALUE = os.getcwd()\n", allow_impure=True
+    )
     assert "成功" in result
 
 
@@ -323,6 +325,7 @@ async def test_agent_failure_records_experience(three_o_root, tmp_path):
 @pytest.mark.asyncio
 async def test_agent_max_steps_abort(three_o_root, tmp_path):
     """超过最大认知步数 → Mission abort。"""
+
     async def looping_llm(messages, **kwargs):
         return _tool_response("search_library", {"query": "x"})
 
@@ -439,6 +442,7 @@ def test_agent_nim_config_from_env(three_o_root, tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_agent_llm_failure_does_not_crash(three_o_root, tmp_path):
     """LLM 网络/鉴权失败 → mission 返回 failed,实体不崩溃。"""
+
     async def exploding_llm(messages, **kwargs):
         raise RuntimeError("401 Unauthorized: invalid NIM key")
 

@@ -111,8 +111,12 @@ class _DirectionIndex:
         self.span_b = max(max_b - min_b, 1e-9)
         self.buckets: dict[tuple[int, int], list[int]] = {}
         for index, (lo_a, hi_a, lo_b, hi_b) in enumerate(boxes):
-            for cell_a in range(self._cell(lo_a, min_a, self.span_a), self._cell(hi_a, min_a, self.span_a) + 1):
-                for cell_b in range(self._cell(lo_b, min_b, self.span_b), self._cell(hi_b, min_b, self.span_b) + 1):
+            for cell_a in range(
+                self._cell(lo_a, min_a, self.span_a), self._cell(hi_a, min_a, self.span_a) + 1
+            ):
+                for cell_b in range(
+                    self._cell(lo_b, min_b, self.span_b), self._cell(hi_b, min_b, self.span_b) + 1
+                ):
                     self.buckets.setdefault((cell_a, cell_b), []).append(index)
 
     def _project(self, point) -> tuple[float, float]:
@@ -208,7 +212,9 @@ def point_inside(
     return "inside" if inside_votes * 2 > len(votes) else "outside"
 
 
-def _sample_points(vertices: list[list[float]], faces: list[tuple[int, int, int]]) -> list[list[float]]:
+def _sample_points(
+    vertices: list[list[float]], faces: list[tuple[int, int, int]]
+) -> list[list[float]]:
     """Vertices, plus edge midpoints and face centroids.
 
     Vertices alone are not enough, and the failure is not exotic. A bar driven through a block has
@@ -248,9 +254,15 @@ def analyze_pair(
         # Cheap rejection, and reported as such: "0 inside" from a test that never ran and "0 inside"
         # from a test that ran are different claims.
         return {
-            "a": name_a, "b": name_b, "boundsOverlap": False, "penetrating": False,
-            "insideVertexCount": 0, "undecidedVertexCount": 0,
-            "sampledVertexCount": 0, "totalVertexCount": len(a_samples), "samplingStride": 0,
+            "a": name_a,
+            "b": name_b,
+            "boundsOverlap": False,
+            "penetrating": False,
+            "insideVertexCount": 0,
+            "undecidedVertexCount": 0,
+            "sampledVertexCount": 0,
+            "totalVertexCount": len(a_samples),
+            "samplingStride": 0,
             "penetrationDepth": 0.0,
         }
 
@@ -275,8 +287,7 @@ def analyze_pair(
         # full closest-point query per vertex, and the box distance already separates a skimming
         # contact from a part sitting well inside another, which is the decision being made.
         depth = min(
-            min(vertex[axis] - b_box[0][axis], b_box[1][axis] - vertex[axis])
-            for axis in range(3)
+            min(vertex[axis] - b_box[0][axis], b_box[1][axis] - vertex[axis]) for axis in range(3)
         )
         if depth > deepest:
             deepest = depth
@@ -284,7 +295,9 @@ def analyze_pair(
             worst_points.append([round(component, 4) for component in vertex])
 
     return {
-        "a": name_a, "b": name_b, "boundsOverlap": True,
+        "a": name_a,
+        "b": name_b,
+        "boundsOverlap": True,
         "penetrating": inside > 0,
         "insideVertexCount": inside,
         "undecidedVertexCount": undecided,
@@ -307,14 +320,20 @@ def analyze_meshes(
 ) -> dict[str, Any]:
     """Every ordered pair, minus the pairs declared as legitimately in contact."""
     allowed = {frozenset(pair) for pair in (allowed_pairs or [])}
-    usable = [m for m in meshes if isinstance(m.get("vertices"), list) and m.get("vertices")
-              and isinstance(m.get("indices"), list) and len(m["indices"]) >= 3]
+    usable = [
+        m
+        for m in meshes
+        if isinstance(m.get("vertices"), list)
+        and m.get("vertices")
+        and isinstance(m.get("indices"), list)
+        and len(m["indices"]) >= 3
+    ]
     skipped = [str(m.get("name", "?")) for m in meshes if m not in usable]
 
     pairs: list[dict[str, Any]] = []
     failures: list[str] = []
     for i, first in enumerate(usable):
-        for second in usable[i + 1:]:
+        for second in usable[i + 1 :]:
             names = frozenset((str(first.get("name", "a")), str(second.get("name", "b"))))
             if names in allowed:
                 continue
@@ -343,7 +362,9 @@ def analyze_meshes(
 
 
 def _format_summary(result: dict[str, Any]) -> str:
-    lines = [f"meshes: {result['meshCount']}, pairs with overlapping bounds: {len(result['pairs'])}"]
+    lines = [
+        f"meshes: {result['meshCount']}, pairs with overlapping bounds: {len(result['pairs'])}"
+    ]
     if result["skippedMeshes"]:
         lines.append(f"skipped (no usable geometry): {result['skippedMeshes']}")
     for failure in result["failures"]:
@@ -355,14 +376,22 @@ def _format_summary(result: dict[str, Any]) -> str:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Detect one part passing through another.")
     parser.add_argument("meshes", type=Path)
-    parser.add_argument("--allow", action="append", default=[],
-                        help="a pair permitted to touch, as 'nameA,nameB' (repeatable)")
+    parser.add_argument(
+        "--allow",
+        action="append",
+        default=[],
+        help="a pair permitted to touch, as 'nameA,nameB' (repeatable)",
+    )
     parser.add_argument("--max-samples", type=int, default=MAX_SAMPLED_VERTICES)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
         payload = json.loads(args.meshes.read_text())
-        meshes = payload["meshes"] if isinstance(payload, dict) and isinstance(payload.get("meshes"), list) else [payload]
+        meshes = (
+            payload["meshes"]
+            if isinstance(payload, dict) and isinstance(payload.get("meshes"), list)
+            else [payload]
+        )
         allowed = [pair.split(",") for pair in args.allow]
         result = analyze_meshes(meshes, allowed, args.max_samples)
     except Exception as exc:

@@ -30,9 +30,13 @@ _FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 def _probe(video_path: str) -> dict:
     """ffprobe → {format, streams}。失败抛 RuntimeError。"""
     cmd = [
-        "ffprobe", "-v", "quiet",
-        "-print_format", "json",
-        "-show_format", "-show_streams",
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
         video_path,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -50,18 +54,23 @@ def _black_frame_ratio(video_path: str, duration_s: float) -> float:
     if duration_s <= 0:
         return 0.0
     cmd = [
-        _FFMPEG, "-v", "info", "-i", video_path,
-        "-vf", "blackdetect=d=0.4:pix_th=0.10",
-        "-f", "null", "-",
+        _FFMPEG,
+        "-v",
+        "info",
+        "-i",
+        video_path,
+        "-vf",
+        "blackdetect=d=0.4:pix_th=0.10",
+        "-f",
+        "null",
+        "-",
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     except Exception:
         return 0.0
     black_s = 0.0
-    for match in re.finditer(
-        r"black_start:([\d.]+) black_end:([\d.]+)", proc.stderr
-    ):
+    for match in re.finditer(r"black_start:([\d.]+) black_end:([\d.]+)", proc.stderr):
         start, end = float(match.group(1)), float(match.group(2))
         black_s += max(0.0, end - start)
     return min(1.0, black_s / duration_s)
@@ -92,15 +101,32 @@ def _ocr_frame_texts(video_path: str, duration_s: float) -> list[str]:
         t = duration_s * frac
         try:
             frame = subprocess.run(
-                [_FFMPEG, "-v", "quiet", "-ss", f"{t:.3f}", "-i", video_path,
-                 "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
-                capture_output=True, timeout=60,
+                [
+                    _FFMPEG,
+                    "-v",
+                    "quiet",
+                    "-ss",
+                    f"{t:.3f}",
+                    "-i",
+                    video_path,
+                    "-frames:v",
+                    "1",
+                    "-f",
+                    "image2pipe",
+                    "-vcodec",
+                    "png",
+                    "-",
+                ],
+                capture_output=True,
+                timeout=60,
             )
             if frame.returncode != 0 or not frame.stdout:
                 continue
             ocr = subprocess.run(
                 [tess, "-", "-", "-l", "chi_sim+eng", "--psm", "6"],
-                input=frame.stdout, capture_output=True, timeout=60,
+                input=frame.stdout,
+                capture_output=True,
+                timeout=60,
             )
             texts.append((ocr.stdout or b"").decode("utf-8", errors="replace").strip())
         except Exception:
@@ -144,18 +170,26 @@ def evaluate(request: dict) -> dict:
 
     # FILE_MISSING
     if not path.exists() or not path.is_file() or os.access(path, os.R_OK) is False:
-        issues.append({"code": "FILE_MISSING",
-                       "message": f"文件不存在或不可读: {video_path}",
-                       "severity": "high"})
+        issues.append(
+            {
+                "code": "FILE_MISSING",
+                "message": f"文件不存在或不可读: {video_path}",
+                "severity": "high",
+            }
+        )
         return _result(False, issues=issues)
 
     # FILE_TOO_LARGE
     size_mb = path.stat().st_size / (1024 * 1024)
     max_size_mb = float(spec.get("max_size_mb") or 100.0)
     if size_mb > max_size_mb:
-        issues.append({"code": "FILE_TOO_LARGE",
-                       "message": f"{size_mb:.1f}MB > {max_size_mb:.1f}MB",
-                       "severity": "high"})
+        issues.append(
+            {
+                "code": "FILE_TOO_LARGE",
+                "message": f"{size_mb:.1f}MB > {max_size_mb:.1f}MB",
+                "severity": "high",
+            }
+        )
 
     # PROBE_FAILED (吞掉内部错误, 记录到 stderr)
     stderr = ""
@@ -163,8 +197,9 @@ def evaluate(request: dict) -> dict:
         data = _probe(video_path)
     except Exception as exc:
         stderr = str(exc)
-        issues.append({"code": "PROBE_FAILED", "message": f"ffprobe 失败: {exc}",
-                       "severity": "high"})
+        issues.append(
+            {"code": "PROBE_FAILED", "message": f"ffprobe 失败: {exc}", "severity": "high"}
+        )
         return _result(False, issues=issues, stderr=stderr)
 
     fmt = data.get("format") or {}
@@ -189,42 +224,67 @@ def evaluate(request: dict) -> dict:
     min_dur = float(spec.get("min_duration_s") or 0.0)
     max_dur = float(spec.get("max_duration_s") or 0.0)
     if min_dur > 0 and duration_s < min_dur:
-        issues.append({"code": "DURATION_TOO_SHORT",
-                       "message": f"{duration_s:.2f}s < min {min_dur:.1f}s",
-                       "severity": "high"})
+        issues.append(
+            {
+                "code": "DURATION_TOO_SHORT",
+                "message": f"{duration_s:.2f}s < min {min_dur:.1f}s",
+                "severity": "high",
+            }
+        )
     if max_dur > 0 and duration_s > max_dur:
-        issues.append({"code": "DURATION_TOO_LONG",
-                       "message": f"{duration_s:.2f}s > max {max_dur:.1f}s",
-                       "severity": "high"})
+        issues.append(
+            {
+                "code": "DURATION_TOO_LONG",
+                "message": f"{duration_s:.2f}s > max {max_dur:.1f}s",
+                "severity": "high",
+            }
+        )
 
     # 分辨率
     min_w = int(spec.get("min_width") or 0)
     min_h = int(spec.get("min_height") or 0)
     if min_w > 0 and width < min_w:
-        issues.append({"code": "RESOLUTION_LOW",
-                       "message": f"{width} < min_width {min_w}",
-                       "severity": "high"})
+        issues.append(
+            {
+                "code": "RESOLUTION_LOW",
+                "message": f"{width} < min_width {min_w}",
+                "severity": "high",
+            }
+        )
     if min_h > 0 and height < min_h:
-        issues.append({"code": "RESOLUTION_LOW",
-                       "message": f"{height} < min_height {min_h}",
-                       "severity": "high"})
+        issues.append(
+            {
+                "code": "RESOLUTION_LOW",
+                "message": f"{height} < min_height {min_h}",
+                "severity": "high",
+            }
+        )
 
     # 比例白名单
     allowed = spec.get("aspect_ratios") or []
     ratio = _aspect_ratio(width, height)
     if allowed and not _aspect_allowed(ratio, allowed):
-        issues.append({"code": "ASPECT_NOT_ALLOWED",
-                       "message": f"比例 {ratio} 不在 {allowed} (±0.05)",
-                       "severity": "high"})
+        issues.append(
+            {
+                "code": "ASPECT_NOT_ALLOWED",
+                "message": f"比例 {ratio} 不在 {allowed} (±0.05)",
+                "severity": "high",
+            }
+        )
 
     # 音频
     if spec.get("require_audio", True) and audio_stream is None:
-        issues.append({"code": "NO_AUDIO", "message": "require_audio 但无音轨",
-                       "severity": "high"})
+        issues.append({"code": "NO_AUDIO", "message": "require_audio 但无音轨", "severity": "high"})
 
-    metrics = {"duration_s": round(duration_s, 3), "width": width, "height": height,
-               "fps": round(fps, 3), "has_audio": audio_stream is not None,
-               "size_mb": round(size_mb, 3), "ratio": ratio}
+    metrics = {
+        "duration_s": round(duration_s, 3),
+        "width": width,
+        "height": height,
+        "fps": round(fps, 3),
+        "has_audio": audio_stream is not None,
+        "size_mb": round(size_mb, 3),
+        "ratio": ratio,
+    }
 
     # ── v2 质量规则 (spec.quality 开关, 缺省全关 = v1 兼容) ────────────
     quality = spec.get("quality") or {}
@@ -235,9 +295,13 @@ def evaluate(request: dict) -> dict:
         black_ratio = _black_frame_ratio(video_path, duration_s)
         metrics["black_ratio"] = round(black_ratio, 4)
         if black_ratio > float(max_black):
-            issues.append({"code": "BLACK_FRAMES_TOO_MANY",
-                           "message": f"黑帧比例 {black_ratio:.2%} > 上限 {max_black:.0%}",
-                           "severity": "high"})
+            issues.append(
+                {
+                    "code": "BLACK_FRAMES_TOO_MANY",
+                    "message": f"黑帧比例 {black_ratio:.2%} > 上限 {max_black:.0%}",
+                    "severity": "high",
+                }
+            )
 
     # 响度 (整体 LUFS)
     min_loud = quality.get("min_loudness_lkfs")
@@ -247,13 +311,21 @@ def evaluate(request: dict) -> dict:
         if lkfs is not None:
             metrics["loudness_lkfs"] = round(lkfs, 2)
             if min_loud is not None and lkfs < float(min_loud):
-                issues.append({"code": "LOUDNESS_TOO_LOW",
-                               "message": f"响度 {lkfs:.1f} LUFS < 下限 {min_loud}",
-                               "severity": "high"})
+                issues.append(
+                    {
+                        "code": "LOUDNESS_TOO_LOW",
+                        "message": f"响度 {lkfs:.1f} LUFS < 下限 {min_loud}",
+                        "severity": "high",
+                    }
+                )
             if max_loud is not None and lkfs > float(max_loud):
-                issues.append({"code": "LOUDNESS_TOO_HIGH",
-                               "message": f"响度 {lkfs:.1f} LUFS > 上限 {max_loud}",
-                               "severity": "high"})
+                issues.append(
+                    {
+                        "code": "LOUDNESS_TOO_HIGH",
+                        "message": f"响度 {lkfs:.1f} LUFS > 上限 {max_loud}",
+                        "severity": "high",
+                    }
+                )
 
     # OCR 帧文本 (require_text 缺一不可; forbidden 任一即违禁)
     require_text = quality.get("ocr_require_text") or []
@@ -265,25 +337,51 @@ def evaluate(request: dict) -> dict:
         if require_text:
             missing = [w for w in require_text if w not in joined]
             if missing:
-                issues.append({"code": "OCR_TEXT_MISSING",
-                               "message": f"OCR 未检出: {missing}",
-                               "severity": "high"})
+                issues.append(
+                    {
+                        "code": "OCR_TEXT_MISSING",
+                        "message": f"OCR 未检出: {missing}",
+                        "severity": "high",
+                    }
+                )
         if forbidden:
             hits = [w for w in forbidden if w in joined]
             if hits:
-                issues.append({"code": "OCR_FORBIDDEN_FOUND",
-                               "message": f"OCR 检出违禁词: {hits}",
-                               "severity": "high"})
+                issues.append(
+                    {
+                        "code": "OCR_FORBIDDEN_FOUND",
+                        "message": f"OCR 检出违禁词: {hits}",
+                        "severity": "high",
+                    }
+                )
 
-    return _result(not issues, duration_s=duration_s, width=width, height=height,
-                   fps=fps, has_audio=audio_stream is not None, size_mb=size_mb,
-                   issues=issues, metrics=metrics, stderr=stderr)
+    return _result(
+        not issues,
+        duration_s=duration_s,
+        width=width,
+        height=height,
+        fps=fps,
+        has_audio=audio_stream is not None,
+        size_mb=size_mb,
+        issues=issues,
+        metrics=metrics,
+        stderr=stderr,
+    )
 
 
 def _result(passed: bool, **kw: Any) -> dict:
-    base = {"passed": passed, "duration_s": 0.0, "width": 0, "height": 0,
-            "fps": 0.0, "has_audio": False, "size_mb": 0.0,
-            "issues": [], "metrics": {}, "stderr": ""}
+    base = {
+        "passed": passed,
+        "duration_s": 0.0,
+        "width": 0,
+        "height": 0,
+        "fps": 0.0,
+        "has_audio": False,
+        "size_mb": 0.0,
+        "issues": [],
+        "metrics": {},
+        "stderr": "",
+    }
     base.update(kw)
     return base
 
@@ -293,11 +391,21 @@ def main() -> None:
     try:
         request = json.loads(raw or "{}")
     except json.JSONDecodeError as exc:
-        print(json.dumps({"passed": False,
-                          "issues": [{"code": "PROBE_FAILED",
-                                      "message": f"stdin JSON 解析失败: {exc}",
-                                      "severity": "high"}],
-                          "stderr": str(exc)}))
+        print(
+            json.dumps(
+                {
+                    "passed": False,
+                    "issues": [
+                        {
+                            "code": "PROBE_FAILED",
+                            "message": f"stdin JSON 解析失败: {exc}",
+                            "severity": "high",
+                        }
+                    ],
+                    "stderr": str(exc),
+                }
+            )
+        )
         return
     result = evaluate(request)
     print(json.dumps(result, ensure_ascii=False))

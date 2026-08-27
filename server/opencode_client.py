@@ -99,7 +99,8 @@ def _spawn_server(timeout_s: float) -> bool:
     try:
         proc = subprocess.Popen(
             [bin_path, "serve", "--port", str(port), "--hostname", "127.0.0.1"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
         _spawned.append(proc)
@@ -172,7 +173,10 @@ def _message_body(prompt: str, model: str, *, system: str | None = None) -> dict
 
 
 async def send_message(
-    prompt: str, model: str, *, timeout_s: float = 30.0,
+    prompt: str,
+    model: str,
+    *,
+    timeout_s: float = 30.0,
     system: str | None = None,
 ) -> dict[str, Any]:
     """HTTP 常驻会话发送 → 完整回复文本 (阻塞到完成)。失败抛异常。"""
@@ -182,15 +186,15 @@ async def send_message(
         sid = await get_or_create_session(client, model)
         try:
             r = await client.post(
-                f"/session/{sid}/message",
-                json=_message_body(prompt, model, system=system))
+                f"/session/{sid}/message", json=_message_body(prompt, model, system=system)
+            )
             r.raise_for_status()
         except Exception:
             _cache_drop(model)
             sid = await get_or_create_session(client, model)
             r = await client.post(
-                f"/session/{sid}/message",
-                json=_message_body(prompt, model, system=system))
+                f"/session/{sid}/message", json=_message_body(prompt, model, system=system)
+            )
             r.raise_for_status()
         data = r.json()
         text = _assistant_text(data)
@@ -220,7 +224,10 @@ def _parse_sse_data(line: str) -> dict[str, Any] | None:
 
 
 async def stream_send(
-    prompt: str, model: str, *, timeout_s: float = 30.0,
+    prompt: str,
+    model: str,
+    *,
+    timeout_s: float = 30.0,
     system: str | None = None,
 ) -> AsyncIterator[str]:
     """SSE 真流式: 逐 token delta。POST 与 /event 并行, session.idle 终止。
@@ -233,9 +240,8 @@ async def stream_send(
         sid = await get_or_create_session(client, model)
 
         post_task = asyncio.create_task(
-            client.post(
-                f"/session/{sid}/message",
-                json=_message_body(prompt, model, system=system)))
+            client.post(f"/session/{sid}/message", json=_message_body(prompt, model, system=system))
+        )
 
         saw_idle = False
         yielded = False
@@ -268,7 +274,7 @@ async def stream_send(
                                 continue
                             if len(text) > len(prev_text):
                                 yielded = True
-                                yield text[len(prev_text):]
+                                yield text[len(prev_text) :]
                                 prev_text = text
                     elif etype == "session.idle":
                         if props.get("sessionID") == sid:

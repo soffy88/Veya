@@ -81,12 +81,24 @@ def test_html_requires_factory(ref_image, tmp_path):
 
 def test_mark_out_of_order_rejected(ref_image, tmp_path):
     main(reference=ref_image, goal="g", action="init", workdir=str(tmp_path))
-    r = main(reference=ref_image, action="mark", step_id="spec-authoring", evidence="x", workdir=str(tmp_path))
+    r = main(
+        reference=ref_image,
+        action="mark",
+        step_id="spec-authoring",
+        evidence="x",
+        workdir=str(tmp_path),
+    )
     assert r["ok"] is False and "out-of-order" in r["error"]
 
 
 def test_mark_in_order_with_evidence(ref_image, tmp_path):
     main(reference=ref_image, goal="g", action="init", workdir=str(tmp_path))
-    r = main(reference=ref_image, action="mark", step_id="image-analysis", evidence="analysis.md", workdir=str(tmp_path))
+    r = main(
+        reference=ref_image,
+        action="mark",
+        step_id="image-analysis",
+        evidence="analysis.md",
+        workdir=str(tmp_path),
+    )
     assert r["ok"] is True
     assert r["currentStep"] == "reference-suitability"

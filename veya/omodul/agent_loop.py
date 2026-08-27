@@ -209,8 +209,7 @@ class AgentLoop:
             if self._budget_usd is not None and result.cost_usd > self._budget_usd:
                 result.stop_kind = "budget_exceeded"
                 result.stop_reason = (
-                    f"本轮估算成本 ${result.cost_usd:.6f} 超过预算上限 "
-                    f"${self._budget_usd:.6f}"
+                    f"本轮估算成本 ${result.cost_usd:.6f} 超过预算上限 ${self._budget_usd:.6f}"
                 )
                 result.error = result.stop_reason
                 result.final_answer = f"⚠ {result.stop_reason}"

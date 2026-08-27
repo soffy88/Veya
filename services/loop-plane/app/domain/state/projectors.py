@@ -124,7 +124,9 @@ def render_text(goal: dict[str, Any], *, brief: bool = False) -> str:
         dep = f" (depends: {', '.join(todo['depends_on'])})" if todo.get("depends_on") else ""
         evidence = f" evidence: {todo['evidence'][-1]}" if todo.get("evidence") else ""
         claim = f" claim: {todo['claim']['claimant']}" if todo.get("claim") else ""
-        lines.append(f"  - [{todo['status']}] {todo['title']} (id={todo['id']}){dep}{claim}{evidence}")
+        lines.append(
+            f"  - [{todo['status']}] {todo['title']} (id={todo['id']}){dep}{claim}{evidence}"
+        )
     if not brief:
         gates = goal.get("gates") or {}
         if gates:

@@ -43,6 +43,7 @@ def _ensure_goal_run_dir(project_root: str, goal_id: str) -> Path:
 
 # ── 核心持久化函数 ──────────────────────────────────────────────────────
 
+
 def save_goal_run(state: GoalRunState, project_root: str) -> None:
     """保存完整 goal_run 状态（taskgraph.json + GOAL.md + events.jsonl append）。"""
     run_dir = _ensure_goal_run_dir(project_root, state.goal_id)
@@ -94,7 +95,7 @@ def load_goal_run(project_root: str, goal_id: str) -> GoalRunState | None:
         content = goal_md_path.read_text(encoding="utf-8")
         for line in content.splitlines():
             if line.startswith("# Goal:"):
-                goal_text = line[len("# Goal:"):].strip()
+                goal_text = line[len("# Goal:") :].strip()
                 break
 
     state = GoalRunState.from_taskgraph_json(data, goal_text)
@@ -135,7 +136,9 @@ def append_event(project_root: str, goal_id: str, event: dict[str, Any]) -> None
         pass
 
 
-def write_final_summary(project_root: str, goal_id: str, summary: str, artifacts: list[str]) -> None:
+def write_final_summary(
+    project_root: str, goal_id: str, summary: str, artifacts: list[str]
+) -> None:
     """写入 final_summary.md（G3 Finalize 阶段）。"""
     run_dir = _goal_run_dir(project_root, goal_id)
     run_dir.mkdir(parents=True, exist_ok=True)

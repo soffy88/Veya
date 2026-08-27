@@ -126,15 +126,21 @@ def gate(
     # RULE 2: high spread across samples ⇒ uncertain → probe.
     if agg["maxSpread"] > VARIANCE_SPREAD_MAX:
         return {
-            "verdict": "uncertain", "action": "probe", "ranVlm": True,
-            "criteria": calibrated, "maxSpread": agg["maxSpread"],
+            "verdict": "uncertain",
+            "action": "probe",
+            "ranVlm": True,
+            "criteria": calibrated,
+            "maxSpread": agg["maxSpread"],
             "reason": f"VLM sample spread {agg['maxSpread']:.2f} > {VARIANCE_SPREAD_MAX} (unstable opinion)",
         }
     # RULE 4: evidence cross-check against geometry.
     if not evidence_consistent(agg.get("claimedClass"), geometry_class):
         return {
-            "verdict": "uncertain", "action": "probe", "ranVlm": True,
-            "criteria": calibrated, "claimedClass": agg.get("claimedClass"),
+            "verdict": "uncertain",
+            "action": "probe",
+            "ranVlm": True,
+            "criteria": calibrated,
+            "claimedClass": agg.get("claimedClass"),
             "reason": f"VLM claimed {agg.get('claimedClass')!r} contradicts geometry {geometry_class!r}",
         }
 
@@ -142,12 +148,20 @@ def gate(
     if not below:
         # All criteria satisfied. Confirm a pass, or RESCUE a soft near-threshold reject.
         eye_verdict = eye_result.get("verdict")
-        rescued = eye_verdict in ("low-confidence", "reject")  # soft (no hard failure — checked above)
+        rescued = eye_verdict in (
+            "low-confidence",
+            "reject",
+        )  # soft (no hard failure — checked above)
         return {
-            "verdict": "pass", "action": "continue", "ranVlm": True,
+            "verdict": "pass",
+            "action": "continue",
+            "ranVlm": True,
             "criteria": calibrated,
-            "reason": ("VLM criteria all ≥ min; soft-reject rescued (deterministic hard gates already passed)"
-                       if rescued else "VLM criteria all ≥ min; pass confirmed"),
+            "reason": (
+                "VLM criteria all ≥ min; soft-reject rescued (deterministic hard gates already passed)"
+                if rescued
+                else "VLM criteria all ≥ min; pass confirmed"
+            ),
         }
 
     # RULE 5: a criterion is below min → withhold. Route by which criterion.
@@ -158,15 +172,20 @@ def gate(
         "ranVlm": True,
         "criteria": calibrated,
         "below": below,
-        "reason": ("VLM objectness/semantic below min (conceptual — spec wrong)"
-                   if conceptual else "VLM structural/specular below min (execution — code wrong)"),
+        "reason": (
+            "VLM objectness/semantic below min (conceptual — spec wrong)"
+            if conceptual
+            else "VLM structural/specular below min (execution — code wrong)"
+        ),
     }
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--eye", required=True, type=Path, help="divine_eye result JSON")
-    parser.add_argument("--samples", type=Path, help="JSON list of VLM sample dicts (offline/testing)")
+    parser.add_argument(
+        "--samples", type=Path, help="JSON list of VLM sample dicts (offline/testing)"
+    )
     parser.add_argument("--geometry-class", default=None)
     parser.add_argument("--criteria-min", type=float, default=DEFAULT_CRITERIA_MIN)
     parser.add_argument("--json", action="store_true")
@@ -182,13 +201,21 @@ def main(argv: list[str]) -> int:
             if not all(isinstance(sample, dict) for sample in preloaded):
                 raise ValueError("--samples entries must be JSON objects")
             sampler = lambda i: preloaded[i % len(preloaded)]  # noqa: E731
-        result = gate(eye, sampler, n_samples=len(preloaded) if preloaded else 3,
-                      criteria_min=args.criteria_min, geometry_class=args.geometry_class)
+        result = gate(
+            eye,
+            sampler,
+            n_samples=len(preloaded) if preloaded else 3,
+            criteria_min=args.criteria_min,
+            geometry_class=args.geometry_class,
+        )
     except Exception as exc:  # noqa: BLE001
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(result, indent=2, ensure_ascii=False) if args.json
-          else f"{result['verdict'].upper()} → {result['action']}  (ranVlm={result['ranVlm']})")
+    print(
+        json.dumps(result, indent=2, ensure_ascii=False)
+        if args.json
+        else f"{result['verdict'].upper()} → {result['action']}  (ranVlm={result['ranVlm']})"
+    )
     return 0 if result["verdict"] == "pass" else 1
 
 

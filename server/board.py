@@ -35,14 +35,14 @@ class Card:
     prompt: str = ""
     status: str = "todo"  # todo | running | done | trash
     depends_on: list[str] = field(default_factory=list)  # 前置卡 id (全部 done 才能 start)
-    branch: str = ""          # 独立分支 card-<id>
-    worktree: str = ""        # worktree 绝对路径
-    engine: str = "claude"    # 执行引擎 (claude/codex/pi; master 走主脑)
+    branch: str = ""  # 独立分支 card-<id>
+    worktree: str = ""  # worktree 绝对路径
+    engine: str = "claude"  # 执行引擎 (claude/codex/pi; master 走主脑)
     model: str = ""
     exit_code: int | None = None
-    result: str = ""          # 输出摘要
+    result: str = ""  # 输出摘要
     error: str = ""
-    commit_sha: str = ""      # auto-commit 产物
+    commit_sha: str = ""  # auto-commit 产物
     created_at: float = field(default_factory=time.time)
     started_at: float = 0.0
     finished_at: float = 0.0
@@ -54,7 +54,7 @@ class Card:
 @dataclass
 class Board:
     name: str
-    repo: str = ""            # 主仓库绝对路径 (worktree 的源)
+    repo: str = ""  # 主仓库绝对路径 (worktree 的源)
     cards: dict[str, Card] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
 
@@ -71,6 +71,7 @@ class Board:
 # BoardStore — JSON 持久化
 # =========================================================================
 
+
 class BoardStore:
     """看板存储 (~/.veya/boards.json)。单文件全看板, 无外部依赖。"""
 
@@ -86,19 +87,22 @@ class BoardStore:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             for name, bd in data.items():
-                board = Board(name=name, repo=bd.get("repo", ""),
-                              created_at=bd.get("created_at", time.time()))
+                board = Board(
+                    name=name, repo=bd.get("repo", ""), created_at=bd.get("created_at", time.time())
+                )
                 for cid, cd in (bd.get("cards") or {}).items():
-                    board.cards[cid] = Card(**{k: v for k, v in cd.items()
-                                               if k in Card.__dataclass_fields__})
+                    board.cards[cid] = Card(
+                        **{k: v for k, v in cd.items() if k in Card.__dataclass_fields__}
+                    )
                 self._boards[name] = board
         except (json.JSONDecodeError, OSError):  # pragma: no cover
             pass
 
     def save(self) -> None:
         self._path.write_text(
-            json.dumps({n: b.to_dict() for n, b in self._boards.items()},
-                       ensure_ascii=False, indent=2),
+            json.dumps(
+                {n: b.to_dict() for n, b in self._boards.items()}, ensure_ascii=False, indent=2
+            ),
             encoding="utf-8",
         )
 
@@ -114,21 +118,39 @@ class BoardStore:
         return board
 
     def list(self) -> list[dict[str, Any]]:
-        return [{"name": b.name, "repo": b.repo, "cards": len(b.cards),
-                 "todo": sum(1 for c in b.cards.values() if c.status == "todo"),
-                 "running": sum(1 for c in b.cards.values() if c.status == "running"),
-                 "done": sum(1 for c in b.cards.values() if c.status == "done")}
-                for b in self._boards.values()]
+        return [
+            {
+                "name": b.name,
+                "repo": b.repo,
+                "cards": len(b.cards),
+                "todo": sum(1 for c in b.cards.values() if c.status == "todo"),
+                "running": sum(1 for c in b.cards.values() if c.status == "running"),
+                "done": sum(1 for c in b.cards.values() if c.status == "done"),
+            }
+            for b in self._boards.values()
+        ]
 
     # ── 卡片操作 ─────────────────────────────────────────────────────
-    def add_card(self, board: str, *, title: str, prompt: str,
-                 depends_on: list[str] | None = None, engine: str = "claude",
-                 model: str = "") -> Card:
+    def add_card(
+        self,
+        board: str,
+        *,
+        title: str,
+        prompt: str,
+        depends_on: list[str] | None = None,
+        engine: str = "claude",
+        model: str = "",
+    ) -> Card:
         b = self.get(board)
         if not b:
             raise KeyError(f"看板不存在: {board}")
-        card = Card(title=title, prompt=prompt, depends_on=list(depends_on or []),
-                    engine=engine, model=model)
+        card = Card(
+            title=title,
+            prompt=prompt,
+            depends_on=list(depends_on or []),
+            engine=engine,
+            model=model,
+        )
         b.cards[card.id] = card
         self.save()
         return card
@@ -148,27 +170,29 @@ class BoardStore:
         assert b is not None
         card = b.cards[card_id]
         # done 或 trash (已归档完成) 均视为满足
-        return all(b.cards[d].status in ("done", "trash")
-                   for d in card.depends_on if d in b.cards)
+        return all(b.cards[d].status in ("done", "trash") for d in card.depends_on if d in b.cards)
 
     def pending_dependencies(self, board: str, card_id: str) -> list[str]:
         b = self.get(board)
         assert b is not None
         card = b.cards[card_id]
-        return [d for d in card.depends_on
-                if d in b.cards and b.cards[d].status not in ("done", "trash")]
+        return [
+            d
+            for d in card.depends_on
+            if d in b.cards and b.cards[d].status not in ("done", "trash")
+        ]
 
     def downstream(self, board: str, card_id: str) -> list[str]:
         """依赖本卡的 todo 卡 (触发自动启动用)。"""
         b = self.get(board)
         assert b is not None
-        return [cid for cid, c in b.cards.items()
-                if card_id in c.depends_on and c.status == "todo"]
+        return [cid for cid, c in b.cards.items() if card_id in c.depends_on and c.status == "todo"]
 
 
 # =========================================================================
 # GitWorktree — 每卡独立工作树
 # =========================================================================
+
 
 class GitWorktree:
     """git worktree 封装: 创建 / 执行 / auto-commit / diff / 清理。"""
@@ -182,7 +206,9 @@ class GitWorktree:
         r = subprocess.run(
             ["git", *args],
             cwd=str(cwd or self.repo),
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if r.returncode != 0:
             raise RuntimeError(f"git {' '.join(args)} 失败: {r.stderr[-500:]}")
@@ -202,7 +228,10 @@ class GitWorktree:
         # 无改动时 git commit 会失败 → 空提交保持可追踪
         r = subprocess.run(
             ["git", "commit", "-m", message, "--allow-empty"],
-            cwd=wt, capture_output=True, text=True, timeout=60,
+            cwd=wt,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if r.returncode != 0:
             raise RuntimeError(f"commit 失败: {r.stderr[-500:]}")
@@ -213,7 +242,10 @@ class GitWorktree:
         branch = Path(wt).name if wt else ""
         r = subprocess.run(
             ["git", "diff", "--stat", f"{base}...{branch}"],
-            cwd=wt or self.repo, capture_output=True, text=True, timeout=60,
+            cwd=wt or self.repo,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         return {"stat": r.stdout.strip() or "(无差异)", "base": base}
 
@@ -228,6 +260,7 @@ class GitWorktree:
 # =========================================================================
 # BoardWorker — 异步执行 + 依赖链触发
 # =========================================================================
+
 
 class BoardWorker:
     """看板执行器: start 卡 (worktree 隔离执行) → auto-commit → 触发依赖链。"""
@@ -278,7 +311,8 @@ class BoardWorker:
         from server.engine_runner import run_engine
 
         result = await run_engine(
-            card.engine, card.prompt,
+            card.engine,
+            card.prompt,
             model=card.model or None,
             cwd=card.worktree or None,
             timeout_s=900.0,

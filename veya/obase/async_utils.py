@@ -11,9 +11,7 @@ from typing import Any, TypeVar
 _T = TypeVar("_T")
 
 
-async def run_sync_in_daemon_thread(
-    func: Callable[..., _T], /, *args: Any, **kwargs: Any
-) -> _T:
+async def run_sync_in_daemon_thread(func: Callable[..., _T], /, *args: Any, **kwargs: Any) -> _T:
     """Run blocking work without relying on asyncio's default executor.
 
     The Python 3.14 runtime used by Veya can stall while shutting down its

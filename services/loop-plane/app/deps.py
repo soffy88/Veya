@@ -13,7 +13,9 @@ _audit: AuditLog | None = None
 _settings: Settings | None = None
 
 
-def configure(settings: Settings, *, store: EventStore | None = None, audit: AuditLog | None = None) -> None:
+def configure(
+    settings: Settings, *, store: EventStore | None = None, audit: AuditLog | None = None
+) -> None:
     """测试/装配用：替换全局单例（可注入实例以共享内存索引）。"""
     global _store, _audit, _settings  # noqa: PLW0603
     _settings = settings

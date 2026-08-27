@@ -35,12 +35,18 @@ def test_trace_chain_and_impact(tmp_path: Path):
     dl, _ = _mk(tmp_path)
     a = dl.record_decision("understand", "优化一下这个项目", outcome="ask", confidence=0.3)
     b = dl.record_decision(
-        "project_task", "写代码创建 u5_chain.txt", outcome="completed",
-        confidence=0.9, parent_id=a,
+        "project_task",
+        "写代码创建 u5_chain.txt",
+        outcome="completed",
+        confidence=0.9,
+        parent_id=a,
     )
     c = dl.record_decision(
-        "project_task", "写代码创建另一个文件", outcome="completed",
-        confidence=0.85, parent_id=a,
+        "project_task",
+        "写代码创建另一个文件",
+        outcome="completed",
+        confidence=0.85,
+        parent_id=a,
     )
     chain = dl.trace_decision_chain(b)
     assert [x["id"] for x in chain] == [b, a]  # 最新在前, 上溯到根
@@ -140,6 +146,7 @@ def test_ask_question_timeout_uses_default(monkeypatch):
     from server import user_control as uc
 
     import server.user_control as uc_mod
+
     monkeypatch.setattr(uc_mod, "_QUESTION_TIMEOUT_S", 0.05)
 
     async def main():

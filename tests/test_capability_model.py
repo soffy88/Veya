@@ -152,20 +152,24 @@ def test_skill_confirm_changes_to_verified(tmp_path):
 def test_skill_confirm_non_candidate_raises(tmp_path):
     reg = SkillRegistry(_store(tmp_path))
     # Directly insert a verified skill (bypassing propose)
-    reg._store.put("skill", "s1", {
-        "skill_id": "s1",
-        "instructions": "test",
-        "version": 1,
-        "status": "verified",
-        "performance": {},
-        "applicable_when": [],
-        "not_applicable_when": [],
-        "required_tools": [],
-        "knowledge_refs": [],
-        "evaluators": [],
-        "benchmark_suite": None,
-        "provenance": "",
-    })
+    reg._store.put(
+        "skill",
+        "s1",
+        {
+            "skill_id": "s1",
+            "instructions": "test",
+            "version": 1,
+            "status": "verified",
+            "performance": {},
+            "applicable_when": [],
+            "not_applicable_when": [],
+            "required_tools": [],
+            "knowledge_refs": [],
+            "evaluators": [],
+            "benchmark_suite": None,
+            "provenance": "",
+        },
+    )
 
     try:
         reg.confirm_skill("s1")

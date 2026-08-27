@@ -21,11 +21,19 @@ MAX_INFLUENCES = 4
 
 
 def finite_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
 
 
 def vector3(value: Any, label: str, errors: list[str]) -> tuple[float, float, float] | None:
-    if not isinstance(value, list) or len(value) != 3 or not all(finite_number(item) for item in value):
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or not all(finite_number(item) for item in value)
+    ):
         errors.append(f"{label} must be a finite length-3 vector")
         return None
     return float(value[0]), float(value[1]), float(value[2])
@@ -34,7 +42,11 @@ def vector3(value: Any, label: str, errors: list[str]) -> tuple[float, float, fl
 def matrix16(value: Any, label: str, errors: list[str]) -> list[float] | None:
     if isinstance(value, list) and len(value) == 16 and all(finite_number(item) for item in value):
         flat = [float(item) for item in value]
-    elif isinstance(value, list) and len(value) == 4 and all(isinstance(row, list) and len(row) == 4 for row in value):
+    elif (
+        isinstance(value, list)
+        and len(value) == 4
+        and all(isinstance(row, list) and len(row) == 4 for row in value)
+    ):
         if not all(finite_number(item) for row in value for item in row):
             errors.append(f"{label} must contain only finite numbers")
             return None
@@ -43,9 +55,14 @@ def matrix16(value: Any, label: str, errors: list[str]) -> list[float] | None:
         errors.append(f"{label} must be a finite 4x4 matrix or flat length-16 matrix")
         return None
     last_row = flat[12:16]
-    if any(abs(actual - expected) > WEIGHT_TOLERANCE for actual, expected in zip(last_row, (0.0, 0.0, 0.0, 1.0))):
+    if any(
+        abs(actual - expected) > WEIGHT_TOLERANCE
+        for actual, expected in zip(last_row, (0.0, 0.0, 0.0, 1.0))
+    ):
         errors.append(f"{label} must have affine last row [0, 0, 0, 1]")
-    column_scales = [math.sqrt(sum(flat[row * 4 + column] ** 2 for row in range(3))) for column in range(3)]
+    column_scales = [
+        math.sqrt(sum(flat[row * 4 + column] ** 2 for row in range(3))) for column in range(3)
+    ]
     if any(scale <= EPSILON for scale in column_scales):
         errors.append(f"{label} contains a zero-scale basis column")
     return flat
@@ -112,7 +129,11 @@ def validate(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"parents[{index}] must be an integer parent index")
         elif parent < 0 or parent >= index:
             errors.append(f"parents[{index}] must satisfy 0 <= parent < child index")
-        elif index < len(joints) and parent < len(joints) and distance(joints[index], joints[parent]) <= EPSILON:
+        elif (
+            index < len(joints)
+            and parent < len(joints)
+            and distance(joints[index], joints[parent]) <= EPSILON
+        ):
             errors.append(f"joint {index} has zero-length parent bone {parent}")
 
     for index, matrix in enumerate(matrices):
@@ -138,9 +159,19 @@ def validate(payload: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"skinWeight[{vertex}] must have exactly {MAX_INFLUENCES} slots")
             continue
         for slot, joint in enumerate(indices):
-            if not isinstance(joint, int) or isinstance(joint, bool) or joint < 0 or joint >= joint_count:
+            if (
+                not isinstance(joint, int)
+                or isinstance(joint, bool)
+                or joint < 0
+                or joint >= joint_count
+            ):
                 errors.append(f"skinIndex[{vertex}][{slot}] points outside the joint array")
-            if finite_number(weights[slot]) and float(weights[slot]) > EPSILON and isinstance(joint, int) and 0 <= joint < joint_count:
+            if (
+                finite_number(weights[slot])
+                and float(weights[slot]) > EPSILON
+                and isinstance(joint, int)
+                and 0 <= joint < joint_count
+            ):
                 active_counts[joint] += 1
         if not all(finite_number(weight) and float(weight) >= 0 for weight in weights):
             errors.append(f"skinWeight[{vertex}] must contain finite non-negative values")
@@ -151,7 +182,11 @@ def validate(payload: dict[str, Any]) -> dict[str, Any]:
             if total <= EPSILON:
                 errors.append(f"skinWeight[{vertex}] must influence at least one joint")
 
-    unweighted = [names[index] if index < len(names) else str(index) for index, count in enumerate(active_counts) if count == 0]
+    unweighted = [
+        names[index] if index < len(names) else str(index)
+        for index, count in enumerate(active_counts)
+        if count == 0
+    ]
     if unweighted:
         warnings.append("joints with no active vertex influence: " + ", ".join(unweighted))
 

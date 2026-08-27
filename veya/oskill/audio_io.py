@@ -95,14 +95,10 @@ class AudioPipeline:
         self._running = True
 
         if self._input_callback:
-            self._tasks.append(
-                asyncio.create_task(self._run_input_loop(), name="audio_input")
-            )
+            self._tasks.append(asyncio.create_task(self._run_input_loop(), name="audio_input"))
 
         if self._output_callback:
-            self._tasks.append(
-                asyncio.create_task(self._run_output_loop(), name="audio_output")
-            )
+            self._tasks.append(asyncio.create_task(self._run_output_loop(), name="audio_output"))
 
     async def stop(self):
         """Stop the audio pipeline."""
@@ -147,9 +143,7 @@ class AudioPipeline:
         try:
             while self._running:
                 try:
-                    frame = await asyncio.wait_for(
-                        self._frame_queue.get(), timeout=1.0
-                    )
+                    frame = await asyncio.wait_for(self._frame_queue.get(), timeout=1.0)
                     self._output_callback(frame.data)
                 except asyncio.TimeoutError:
                     continue
@@ -159,9 +153,7 @@ class AudioPipeline:
     async def read_frame(self, timeout: float = 5.0) -> AudioFrame | None:
         """Read a single audio frame from the pipeline."""
         try:
-            return await asyncio.wait_for(
-                self._frame_queue.get(), timeout=timeout
-            )
+            return await asyncio.wait_for(self._frame_queue.get(), timeout=timeout)
         except asyncio.TimeoutError:
             return None
 
@@ -251,6 +243,7 @@ def list_audio_devices() -> list[AudioDevice]:
 
     try:
         import sounddevice as sd
+
         host_apis = sd.query_hostapis()
         default_input = sd.query_devices(kind="input")
         default_output = sd.query_devices(kind="output")
@@ -278,10 +271,18 @@ def list_audio_devices() -> list[AudioDevice]:
                 )
     except ImportError:
         # Fallback: virtual devices
-        devices.extend([
-            AudioDevice(name="Default Microphone", device_type=AudioDeviceType.MICROPHONE, is_default=True),
-            AudioDevice(name="Default Speaker", device_type=AudioDeviceType.SPEAKER, is_default=True),
-        ])
+        devices.extend(
+            [
+                AudioDevice(
+                    name="Default Microphone",
+                    device_type=AudioDeviceType.MICROPHONE,
+                    is_default=True,
+                ),
+                AudioDevice(
+                    name="Default Speaker", device_type=AudioDeviceType.SPEAKER, is_default=True
+                ),
+            ]
+        )
 
     return devices
 

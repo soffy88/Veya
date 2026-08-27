@@ -73,7 +73,7 @@ class RestartAdapter(ExecutionAdapter):
         return ["systemctl", "restart", target]
 
     def describe(self, target: str) -> str:
-        return (f"重启 {target} ({self.mode}, 宽限期 {self.grace_period_s}s)")
+        return f"重启 {target} ({self.mode}, 宽限期 {self.grace_period_s}s)"
 
     # ── 参考实现附带: 重启前健康检查 (可选, probe 失败可阻断派发) ──────
     def probe_argv(self, target: str) -> list[str]:
@@ -82,8 +82,7 @@ class RestartAdapter(ExecutionAdapter):
             return ["docker", "inspect", "-f", "{{.State.Running}}", target]
         return ["systemctl", "is-active", target]
 
-    def probe(self, target: str, executor: HardenedExecutor,
-              timeout_s: float = 10.0) -> bool:
+    def probe(self, target: str, executor: HardenedExecutor, timeout_s: float = 10.0) -> bool:
         """重启前探测: 服务是否存活。返回 bool (超时/非零 → False)。"""
         out = executor.execute(self.probe_argv(target), timeout_s=timeout_s)
         return out.ok and out.stdout.strip().lower() in ("active", "true")
@@ -95,7 +94,7 @@ def dispatch_via_adapter(
     *,
     contract: PermissionContract,
     executor: HardenedExecutor | None = None,
-    emitter: Any | None = None,          # oprim.AuditEmitter
+    emitter: Any | None = None,  # oprim.AuditEmitter
     actor: str = "",
     resource: str = "",
     probe_first: bool = False,
@@ -110,22 +109,35 @@ def dispatch_via_adapter(
     argv = adapter.build_argv(target, **params)
     notes = adapter.describe(target)
 
-    if (probe_first and executor is not None
-            and hasattr(adapter, "probe") and hasattr(adapter, "probe_argv")
-            and not adapter.probe(target, executor, timeout_s=probe_timeout_s)):
+    if (
+        probe_first
+        and executor is not None
+        and hasattr(adapter, "probe")
+        and hasattr(adapter, "probe_argv")
+        and not adapter.probe(target, executor, timeout_s=probe_timeout_s)
+    ):
         if emitter is not None:
-            emitter.decide(decision={"chosen_strategy": action,
-                                     "denied": True,
-                                     "reason": "probe 失败: 服务已不可用"},
-                           context={"notes": notes})
+            emitter.decide(
+                decision={
+                    "chosen_strategy": action,
+                    "denied": True,
+                    "reason": "probe 失败: 服务已不可用",
+                },
+                context={"notes": notes},
+            )
         return DispatchResult("denied", action, reason="probe failed: service unavailable")
 
     from .hardened import dispatch_intervention
 
     return dispatch_intervention(
-        action, argv,
-        contract=contract, executor=executor, emitter=emitter,
-        resource=resource, actor=actor, notes=notes,
+        action,
+        argv,
+        contract=contract,
+        executor=executor,
+        emitter=emitter,
+        resource=resource,
+        actor=actor,
+        notes=notes,
     )
 
 

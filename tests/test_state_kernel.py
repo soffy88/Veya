@@ -37,10 +37,13 @@ async def test_plan_create_status_update(tmp_path, monkeypatch):
     monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan, plan_status, update_todo
 
-    out = await create_plan("测试计划", [
-        {"title": "写代码", "id": "t1"},
-        {"title": "跑测试", "id": "t2", "depends_on": ["t1"]},
-    ])
+    out = await create_plan(
+        "测试计划",
+        [
+            {"title": "写代码", "id": "t1"},
+            {"title": "跑测试", "id": "t2", "depends_on": ["t1"]},
+        ],
+    )
     pid = _plan_id(out)
 
     status = await plan_status(pid)
@@ -74,10 +77,13 @@ async def test_quota_state_machine(tmp_path, monkeypatch):
     monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan, update_todo
 
-    out = await create_plan("Q", [
-        {"title": "a", "id": "t1"},
-        {"title": "b", "id": "t2", "depends_on": ["t1"]},
-    ])
+    out = await create_plan(
+        "Q",
+        [
+            {"title": "a", "id": "t1"},
+            {"title": "b", "id": "t2", "depends_on": ["t1"]},
+        ],
+    )
     pid = _plan_id(out)
 
     q1 = json.loads(await quota_should_run(pid))
@@ -117,10 +123,13 @@ async def test_gate_scoped(tmp_path, monkeypatch):
     monkeypatch.setattr("server.plan_todo._PLANS_ROOT", tmp_path / "plans")
     from server.plan_todo import create_plan, update_todo
 
-    out = await create_plan("G", [
-        {"title": "写代码", "id": "t1"},
-        {"title": "跑测试", "id": "t2", "depends_on": ["t1"]},
-    ])
+    out = await create_plan(
+        "G",
+        [
+            {"title": "写代码", "id": "t1"},
+            {"title": "跑测试", "id": "t2", "depends_on": ["t1"]},
+        ],
+    )
     pid = _plan_id(out)
 
     g = json.loads(await gate_check(pid, "跑测试"))
@@ -162,8 +171,7 @@ async def test_terminal_gate():
 @pytest.mark.asyncio
 async def test_boundary_scan(tmp_path):
     (tmp_path / "ok.py").write_text("print('hi')", encoding="utf-8")
-    (tmp_path / "secret.env").write_text(
-        "API_KEY=sk-abc12345678901234567890", encoding="utf-8")
+    (tmp_path / "secret.env").write_text("API_KEY=sk-abc12345678901234567890", encoding="utf-8")
     b = json.loads(await boundary_scan(str(tmp_path)))
     assert b["risk_level"] == "high"
     assert any("secret.env" in f["path"] for f in b["sensitive_files"])
@@ -174,8 +182,9 @@ async def test_long_read_chunks(tmp_path):
     from server.long_read import long_read
 
     doc = tmp_path / "doc.txt"
-    doc.write_text("\n".join(f"第{i}章 内容{j}" for i in range(30) for j in range(15)),
-                   encoding="utf-8")
+    doc.write_text(
+        "\n".join(f"第{i}章 内容{j}" for i in range(30) for j in range(15)), encoding="utf-8"
+    )
     out = await long_read(str(doc))
     assert "chunk[0]" in out and "chunk[1]" in out
     assert "总行数" in out

@@ -56,7 +56,9 @@ class EvidenceRefine:
         self._sandbox = sandbox
         self._barrier = barrier
 
-    async def verify(self, code: str, *, language: str = "python", max_iterations: int = 3) -> RefineResult:
+    async def verify(
+        self, code: str, *, language: str = "python", max_iterations: int = 3
+    ) -> RefineResult:
         """验证代码。language='python' 时先 AST 静态检查再沙箱执行。"""
         if not isinstance(code, str) or not code.strip():
             return RefineResult(ok=False, error="代码为空", evidence="空代码块")
@@ -68,11 +70,16 @@ class EvidenceRefine:
             ok, err = syntax_check(code)
             if not ok:
                 result = RefineResult(
-                    ok=False, error=f"语法检查失败: {err}",
+                    ok=False,
+                    error=f"语法检查失败: {err}",
                     evidence=f"SYNTAX ERROR\n{err}",
                     structure={"has_syntax_error": True},
                 )
-                emit_event("evidence_refine.result", {"ok": False, "stage": "syntax"}, barrier=self._barrier)
+                emit_event(
+                    "evidence_refine.result",
+                    {"ok": False, "stage": "syntax"},
+                    barrier=self._barrier,
+                )
                 return result
             structure = structure_summary(code)
         else:
@@ -90,9 +97,7 @@ class EvidenceRefine:
                     {"ok": True, "stage": "exec", "attempts": attempt},
                     barrier=self._barrier,
                 )
-                return RefineResult(
-                    ok=True, output=output, iterations=attempt, structure=structure
-                )
+                return RefineResult(ok=True, output=output, iterations=attempt, structure=structure)
             # 失败 → 收集证据（stderr 优先）
             detail = res.stderr.strip() or f"exit={res.exit_code}"
             evidence_lines.append(f"ATTEMPT {attempt}:\n{detail}")
@@ -118,10 +123,7 @@ class EvidenceRefine:
 
         agent_loop 把该提示并入下一轮 LLM 消息即完成「错误反馈 → 自我修复」闭环。
         """
-        hint = (
-            "你上一次生成的代码未通过验证。请根据以下证据修复代码, "
-            "只输出修复后的完整代码:\n\n"
-        )
+        hint = "你上一次生成的代码未通过验证。请根据以下证据修复代码, 只输出修复后的完整代码:\n\n"
         if code:
             snippet = code[:max_code_chars]
             hint += f"--- 待修复代码 ---\n```\n{snippet}\n```\n\n"

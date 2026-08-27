@@ -135,9 +135,7 @@ class TaskStore:
         event_store: EventStore | None = None,
         event_path: str | Path | None = None,
     ):
-        self.path = Path(
-            path or os.environ.get("VEYA_TASK_STORE_PATH", _DEFAULT_PATH)
-        ).expanduser()
+        self.path = Path(path or os.environ.get("VEYA_TASK_STORE_PATH", _DEFAULT_PATH)).expanduser()
         self._lock = threading.RLock()
         if event_store is not None:
             self.event_store = event_store
@@ -167,9 +165,7 @@ class TaskStore:
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".json.tmp")
-            tmp.write_text(
-                json.dumps(self._tasks, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            tmp.write_text(json.dumps(self._tasks, ensure_ascii=False, indent=2), encoding="utf-8")
             os.replace(tmp, self.path)
 
     def _append_task_event(

@@ -247,12 +247,16 @@ class DelegateResult:
     def __post_init__(self) -> None:
         self.stop_reason = normalize_stop_reason(self.stop_reason)
         self.status = classify_status(self.status, self.stop_reason)
-        self.evidence = [item if isinstance(item, Evidence) else Evidence(**item) for item in self.evidence]
+        self.evidence = [
+            item if isinstance(item, Evidence) else Evidence(**item) for item in self.evidence
+        ]
         self.assertions = [
             item if isinstance(item, Assertion) else Assertion(**item) for item in self.assertions
         ]
         self.artifacts = [ArtifactRef.from_value(item) for item in self.artifacts]
-        self.acceptance_results = [AcceptanceResult.from_value(item) for item in self.acceptance_results]
+        self.acceptance_results = [
+            AcceptanceResult.from_value(item) for item in self.acceptance_results
+        ]
 
     @classmethod
     def from_mapping(
@@ -273,7 +277,10 @@ class DelegateResult:
             summary=summary,
             evidence=list(value.get("evidence") or []),
             assertions=list(value.get("assertions") or []),
-            artifacts=[ArtifactRef.from_value(item, producer=producer) for item in value.get("artifacts", [])],
+            artifacts=[
+                ArtifactRef.from_value(item, producer=producer)
+                for item in value.get("artifacts", [])
+            ],
             acceptance_results=list(value.get("acceptance_results") or []),
             completed_work=list(value.get("completed_work") or []),
             unfinished_work=list(value.get("unfinished_work") or []),

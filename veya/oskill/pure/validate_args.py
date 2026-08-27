@@ -166,7 +166,9 @@ def _passes(value: Any, schema: Any) -> bool:
 def validate_args(args: Any, schema: dict) -> ValidationResult:
     """参数绝对校验：args 必须为对象，schema 为标准 JSON Schema。"""
     if not isinstance(args, dict):
-        return ValidationResult(ok=False, errors=[f"参数必须是 JSON 对象, 实际是 {_type_name(args)}"])
+        return ValidationResult(
+            ok=False, errors=[f"参数必须是 JSON 对象, 实际是 {_type_name(args)}"]
+        )
     errors: list[str] = []
     _check_value(args, schema, "$", errors)
     return ValidationResult(ok=not errors, errors=errors)

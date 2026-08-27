@@ -1,12 +1,12 @@
 """server/routes/backends.py — 多 backend 挂载 + Issue 自动拆解 (对标 OpenHands)。
 
-  GET  /api/v1/backends            注册表全貌 (发现 + 手动注册)
-  GET  /api/v1/backends/status     Canvas 状态聚合 (可用/忙碌/任务数)
-  POST /api/v1/backends/run        {name, prompt, cwd?, model?} 统一执行
-  POST /api/v1/backends/register   {name, kind, command, agent} 注册 ACP/CLI 后端
-  POST /api/v1/automation/issue-decompose
-        {repo_path, github?, issue_number?, body?, engine?}
-        GitHub issue (或直接 body) → 拆子任务 → 写 Kanban board → 自动执行
+GET  /api/v1/backends            注册表全貌 (发现 + 手动注册)
+GET  /api/v1/backends/status     Canvas 状态聚合 (可用/忙碌/任务数)
+POST /api/v1/backends/run        {name, prompt, cwd?, model?} 统一执行
+POST /api/v1/backends/register   {name, kind, command, agent} 注册 ACP/CLI 后端
+POST /api/v1/automation/issue-decompose
+      {repo_path, github?, issue_number?, body?, engine?}
+      GitHub issue (或直接 body) → 拆子任务 → 写 Kanban board → 自动执行
 """
 
 from __future__ import annotations
@@ -39,12 +39,12 @@ class BackendRegisterRequest(BaseModel):
 
 
 class IssueDecomposeRequest(BaseModel):
-    repo_path: str = ""           # 本地 git 仓库 (Kanban board 绑定)
-    github: str = ""              # "owner/repo" (可选, 拉取 issue)
+    repo_path: str = ""  # 本地 git 仓库 (Kanban board 绑定)
+    github: str = ""  # "owner/repo" (可选, 拉取 issue)
     issue_number: int = 0
-    body: str = ""                # 直接给 issue 内容 (跳过 GitHub 拉取)
+    body: str = ""  # 直接给 issue 内容 (跳过 GitHub 拉取)
     title: str = ""
-    board: str = ""               # 缺省自动命名 issue-<repo>-<n>
+    board: str = ""  # 缺省自动命名 issue-<repo>-<n>
     engine: str = "claude"
     auto_start: bool = True
 
@@ -65,8 +65,7 @@ async def register_backend(req: BackendRegisterRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"kind 可选: {BACKEND_KINDS}")
     if req.kind != "builtin" and not req.command:
         raise HTTPException(status_code=400, detail="cli/acp backend 需要 command")
-    spec = get_backend_registry().register(
-        req.name, req.kind, command=req.command, agent=req.agent)
+    spec = get_backend_registry().register(req.name, req.kind, command=req.command, agent=req.agent)
     return {"status": "registered", "backend": spec.to_dict()}
 
 
@@ -74,8 +73,8 @@ async def register_backend(req: BackendRegisterRequest) -> dict[str, Any]:
 async def run_backend(req: BackendRunRequest) -> dict[str, Any]:
     try:
         result = await get_backend_registry().run(
-            req.name, req.prompt, cwd=req.cwd or None,
-            model=req.model, timeout_s=req.timeout_s)
+            req.name, req.prompt, cwd=req.cwd or None, model=req.model, timeout_s=req.timeout_s
+        )
         result["http_status"] = "ok" if result.get("ok") else "failed"
         return result
     except KeyError as e:
@@ -100,12 +99,15 @@ def decompose_issue(body: str, title: str) -> list[dict[str, str]]:
     """
     tasks: list[dict[str, str]] = []
     for m in _MARKDOWN_ITEM.finditer(body):
-        tasks.append({"title": m.group(2).strip()[:80] or f"子任务 {len(tasks)+1}",
-                      "prompt": m.group(2).strip()[:500]})
+        tasks.append(
+            {
+                "title": m.group(2).strip()[:80] or f"子任务 {len(tasks) + 1}",
+                "prompt": m.group(2).strip()[:500],
+            }
+        )
     if not tasks:
         for m in _HEADING.finditer(body):
-            tasks.append({"title": m.group(1).strip()[:80],
-                          "prompt": m.group(1).strip()[:500]})
+            tasks.append({"title": m.group(1).strip()[:80], "prompt": m.group(1).strip()[:500]})
     if not tasks:
         tasks.append({"title": title or "issue 任务", "prompt": body[:500]})
     return tasks
@@ -124,7 +126,8 @@ async def issue_decompose(req: IssueDecomposeRequest) -> dict[str, Any]:
             gh = GitHubIntegration()
             owner, _, repo_name = req.github.partition("/")
             res = await gh._api_request(
-                "GET", f"/repos/{owner}/{repo_name}/issues/{req.issue_number}")
+                "GET", f"/repos/{owner}/{repo_name}/issues/{req.issue_number}"
+            )
             body = res.get("body") or ""
             title = res.get("title") or ""
         except Exception as e:
@@ -137,7 +140,9 @@ async def issue_decompose(req: IssueDecomposeRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="issue 无内容可拆")
 
     # 看板: 缺省自动命名
-    board_name = req.board or f"issue-{req.github.replace('/', '-') or 'local'}-{req.issue_number or 'x'}"
+    board_name = (
+        req.board or f"issue-{req.github.replace('/', '-') or 'local'}-{req.issue_number or 'x'}"
+    )
     store = get_board_store()
     worker = get_board_worker()
     if store.get(board_name) is None:
@@ -147,9 +152,13 @@ async def issue_decompose(req: IssueDecomposeRequest) -> dict[str, Any]:
     cards = []
     prev_id: str | None = None
     for t in tasks:
-        card = store.add_card(board_name, title=t["title"], prompt=t["prompt"],
-                              depends_on=[prev_id] if prev_id else None,
-                              engine=req.engine)
+        card = store.add_card(
+            board_name,
+            title=t["title"],
+            prompt=t["prompt"],
+            depends_on=[prev_id] if prev_id else None,
+            engine=req.engine,
+        )
         cards.append(card.id)
         prev_id = card.id
 
@@ -159,8 +168,9 @@ async def issue_decompose(req: IssueDecomposeRequest) -> dict[str, Any]:
             await worker.start_card(board_name, cards[0])
             started.append(cards[0])
         except ValueError as e:
-            raise HTTPException(status_code=400,
-                                detail=f"首卡启动失败 (仓库需为 git 仓库且已提交): {e}") from e
+            raise HTTPException(
+                status_code=400, detail=f"首卡启动失败 (仓库需为 git 仓库且已提交): {e}"
+            ) from e
 
     return {
         "status": "decomposed",

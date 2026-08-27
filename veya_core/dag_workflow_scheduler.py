@@ -47,12 +47,14 @@ _FALLBACK = False
 
 try:
     from obase.causal_graph_store import CausalGraphStore
+
     _CausalGraphStore = CausalGraphStore
 except ImportError:
     pass
 
 try:
     from obase.wfg_deadlock_detector import WaitForGraph
+
     _WaitForGraph = WaitForGraph
 except ImportError:
     pass
@@ -79,6 +81,7 @@ def _fallback_dag_workflow() -> Dict[str, Any]:
     # ── O1: DAG 拓扑校验 ──────────────────
     try:
         import networkx as nx
+
         G = nx.DiGraph()
         G.add_edge("Agent_A_Ingest", "Agent_B_Compute")
         G.add_edge("Agent_B_Compute", "Agent_C_Publish")
@@ -160,6 +163,7 @@ def _fallback_dag_workflow() -> Dict[str, Any]:
     try:
         from scipy.optimize import linear_sum_assignment
         import numpy as np
+
         cost = np.array(cost_matrix)
         row_ind, col_ind = linear_sum_assignment(cost)
         assignments = [(workers[r], tasks[c]) for r, c in zip(row_ind, col_ind)]
@@ -167,6 +171,7 @@ def _fallback_dag_workflow() -> Dict[str, Any]:
     except ImportError:
         # 暴力最优分配 (n=3 规模小)
         import itertools
+
         best_cost = float("inf")
         best_perm = None
         for perm in itertools.permutations(range(len(workers))):
@@ -245,9 +250,7 @@ if __name__ == "__main__":
     print(f"DAG Allocation Result: {res.get('status', 'unknown')}")
 
     assignments = (
-        res.get("assignments")
-        or res.get("pillars", {}).get("report", {}).get("assignments")
-        or []
+        res.get("assignments") or res.get("pillars", {}).get("report", {}).get("assignments") or []
     )
     print(f"Matches: {assignments}")
 

@@ -53,8 +53,7 @@ def _hevi_generate_fn(
             }
         adjusted_prompt = _adjusted_prompt(task, failure_context)
         provider = "hevi"
-        if (failure_context.get("preferred_action") == "SWITCH_PROVIDER"
-                and comfyui is not None):
+        if failure_context.get("preferred_action") == "SWITCH_PROVIDER" and comfyui is not None:
             provider = "comfyui"
             path = comfyui.generate(adjusted_prompt, task.spec, failure_context)
         else:
@@ -91,10 +90,23 @@ def run_veya_video_agent(
     task = VideoTask(
         task_id=task_id,
         prompt=prompt,
-        spec=VideoSpec(**{k: v for k, v in platform_spec.items() if k in
-                          ("min_duration_s", "max_duration_s", "min_width",
-                           "min_height", "aspect_ratios", "require_audio",
-                           "max_size_mb", "platform")}),
+        spec=VideoSpec(
+            **{
+                k: v
+                for k, v in platform_spec.items()
+                if k
+                in (
+                    "min_duration_s",
+                    "max_duration_s",
+                    "min_width",
+                    "min_height",
+                    "aspect_ratios",
+                    "require_audio",
+                    "max_size_mb",
+                    "platform",
+                )
+            }
+        ),
         workspace=workspace or {},
         max_repairs=max_repairs,
     )

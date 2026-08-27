@@ -89,13 +89,17 @@ def parse_glb(path: Path) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
         raise ValueError(f"GLB JSON chunk is invalid: {exc}") from exc
     if not isinstance(document, dict):
         raise ValueError("GLB JSON root must be an object")
-    return document, bin_payload, {
-        "version": version,
-        "declaredLength": declared_length,
-        "jsonChunkBytes": len(json_payload),
-        "binChunkBytes": len(bin_payload),
-        "chunks": chunks,
-    }
+    return (
+        document,
+        bin_payload,
+        {
+            "version": version,
+            "declaredLength": declared_length,
+            "jsonChunkBytes": len(json_payload),
+            "binChunkBytes": len(bin_payload),
+            "chunks": chunks,
+        },
+    )
 
 
 def _buffer_view_bytes(document: dict[str, Any], bin_payload: bytes, view_index: int) -> bytes:
@@ -106,7 +110,9 @@ def _buffer_view_bytes(document: dict[str, Any], bin_payload: bytes, view_index:
     if not isinstance(view, dict):
         raise ValueError(f"bufferView {view_index} is not an object")
     if view.get("buffer", 0) != 0:
-        raise ValueError("external/multi-buffer GLB references are not supported by the stdlib probe")
+        raise ValueError(
+            "external/multi-buffer GLB references are not supported by the stdlib probe"
+        )
     start = int(view.get("byteOffset", 0))
     length = int(view.get("byteLength", 0))
     end = start + length
@@ -141,7 +147,12 @@ def _accessor_bounds(
         raise ValueError(f"POSITION accessor {accessor_index} is not VEC3")
     minimum = accessor.get("min")
     maximum = accessor.get("max")
-    if isinstance(minimum, list) and isinstance(maximum, list) and len(minimum) == 3 and len(maximum) == 3:
+    if (
+        isinstance(minimum, list)
+        and isinstance(maximum, list)
+        and len(minimum) == 3
+        and len(maximum) == 3
+    ):
         return [float(v) for v in minimum], [float(v) for v in maximum], warnings
 
     count = int(accessor.get("count", 0))
@@ -203,11 +214,17 @@ def probe_glb(path: Path) -> dict[str, Any]:
     warnings: list[str] = []
     meshes = document.get("meshes", []) if isinstance(document.get("meshes", []), list) else []
     nodes = document.get("nodes", []) if isinstance(document.get("nodes", []), list) else []
-    materials = document.get("materials", []) if isinstance(document.get("materials", []), list) else []
+    materials = (
+        document.get("materials", []) if isinstance(document.get("materials", []), list) else []
+    )
     skins = document.get("skins", []) if isinstance(document.get("skins", []), list) else []
-    animations = document.get("animations", []) if isinstance(document.get("animations", []), list) else []
+    animations = (
+        document.get("animations", []) if isinstance(document.get("animations", []), list) else []
+    )
     scenes = document.get("scenes", []) if isinstance(document.get("scenes", []), list) else []
-    textures = document.get("textures", []) if isinstance(document.get("textures", []), list) else []
+    textures = (
+        document.get("textures", []) if isinstance(document.get("textures", []), list) else []
+    )
 
     mesh_records: list[dict[str, Any]] = []
     all_bounds: list[tuple[list[float], list[float]]] = []
@@ -216,7 +233,9 @@ def probe_glb(path: Path) -> dict[str, Any]:
         if not isinstance(mesh, dict):
             warnings.append(f"mesh {mesh_index} is not an object")
             continue
-        primitives = mesh.get("primitives", []) if isinstance(mesh.get("primitives", []), list) else []
+        primitives = (
+            mesh.get("primitives", []) if isinstance(mesh.get("primitives", []), list) else []
+        )
         primitive_records: list[dict[str, Any]] = []
         mesh_bounds: list[tuple[list[float], list[float]]] = []
         for primitive_index, primitive in enumerate(primitives):
@@ -224,7 +243,11 @@ def probe_glb(path: Path) -> dict[str, Any]:
             if not isinstance(primitive, dict):
                 warnings.append(f"mesh {mesh_index} primitive {primitive_index} is not an object")
                 continue
-            attributes = primitive.get("attributes", {}) if isinstance(primitive.get("attributes", {}), dict) else {}
+            attributes = (
+                primitive.get("attributes", {})
+                if isinstance(primitive.get("attributes", {}), dict)
+                else {}
+            )
             record: dict[str, Any] = {
                 "index": primitive_index,
                 "mode": primitive.get("mode", 4),
@@ -234,7 +257,9 @@ def probe_glb(path: Path) -> dict[str, Any]:
             position_accessor = attributes.get("POSITION")
             if position_accessor is not None:
                 try:
-                    minimum, maximum, accessor_warnings = _accessor_bounds(document, bin_payload, int(position_accessor))
+                    minimum, maximum, accessor_warnings = _accessor_bounds(
+                        document, bin_payload, int(position_accessor)
+                    )
                     record["positionBounds"] = {"min": minimum, "max": maximum}
                     mesh_bounds.append((minimum, maximum))
                     all_bounds.append((minimum, maximum))
@@ -242,7 +267,9 @@ def probe_glb(path: Path) -> dict[str, Any]:
                 except ValueError as exc:
                     warnings.append(f"mesh {mesh_index} primitive {primitive_index}: {exc}")
             else:
-                warnings.append(f"mesh {mesh_index} primitive {primitive_index} has no POSITION attribute")
+                warnings.append(
+                    f"mesh {mesh_index} primitive {primitive_index} has no POSITION attribute"
+                )
             primitive_records.append(record)
         mesh_record: dict[str, Any] = {
             "index": mesh_index,
@@ -269,12 +296,20 @@ def probe_glb(path: Path) -> dict[str, Any]:
             }
         )
     material_records = [
-        {"index": index, "name": material.get("name") or f"material-{index}", "alphaMode": material.get("alphaMode", "OPAQUE")}
+        {
+            "index": index,
+            "name": material.get("name") or f"material-{index}",
+            "alphaMode": material.get("alphaMode", "OPAQUE"),
+        }
         for index, material in enumerate(materials)
         if isinstance(material, dict)
     ]
     skeleton_records = [
-        {"index": index, "name": skin.get("name") or f"skin-{index}", "jointCount": len(skin.get("joints", []))}
+        {
+            "index": index,
+            "name": skin.get("name") or f"skin-{index}",
+            "jointCount": len(skin.get("joints", [])),
+        }
         for index, skin in enumerate(skins)
         if isinstance(skin, dict)
     ]
@@ -282,11 +317,17 @@ def probe_glb(path: Path) -> dict[str, Any]:
     if not meshes:
         warnings.append("GLB contains no meshes")
     if not bin_payload:
-        warnings.append("GLB contains no BIN payload; external buffers are not accepted by this probe")
+        warnings.append(
+            "GLB contains no BIN payload; external buffers are not accepted by this probe"
+        )
     if not materials:
-        warnings.append("GLB contains no materials; visual appearance must be inferred or supplied separately")
+        warnings.append(
+            "GLB contains no materials; visual appearance must be inferred or supplied separately"
+        )
     if not skins:
-        warnings.append("GLB contains no skin; this is acceptable for static reference geometry but not animation evidence")
+        warnings.append(
+            "GLB contains no skin; this is acceptable for static reference geometry but not animation evidence"
+        )
     semantic_decomposition = assess_semantic_decomposition(
         node_count=len(nodes),
         mesh_count=len(meshes),
@@ -298,7 +339,9 @@ def probe_glb(path: Path) -> dict[str, Any]:
         texture_count=len(textures),
     )
     if semantic_decomposition["status"] == "insufficient":
-        warnings.append("GLB metadata has no reliable semantic part boundaries; request multipart GLB or capture ID masks")
+        warnings.append(
+            "GLB metadata has no reliable semantic part boundaries; request multipart GLB or capture ID masks"
+        )
     return {
         "schemaVersion": 1,
         "kind": "glb-reference",
@@ -307,8 +350,12 @@ def probe_glb(path: Path) -> dict[str, Any]:
         "bytes": path.stat().st_size,
         "binary": binary,
         "asset": {
-            "version": document.get("asset", {}).get("version") if isinstance(document.get("asset"), dict) else None,
-            "generator": document.get("asset", {}).get("generator") if isinstance(document.get("asset"), dict) else None,
+            "version": document.get("asset", {}).get("version")
+            if isinstance(document.get("asset"), dict)
+            else None,
+            "generator": document.get("asset", {}).get("generator")
+            if isinstance(document.get("asset"), dict)
+            else None,
         },
         "scene": {
             "defaultScene": document.get("scene"),

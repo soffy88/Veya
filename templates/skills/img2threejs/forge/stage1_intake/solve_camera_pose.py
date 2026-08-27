@@ -112,14 +112,20 @@ def fit_camera_to_correspondences(
     normalized = _types.normalize_fit_input(correspondences, initial_camera)
     if _math.has_degenerate_world_geometry(normalized.correspondences):
         raise DegenerateCorrespondencesError(correspondence_count=len(normalized.correspondences))
-    initial_residuals = _math.residual_components(normalized.correspondences, normalized.initial_camera)
+    initial_residuals = _math.residual_components(
+        normalized.correspondences, normalized.initial_camera
+    )
     if initial_residuals is None:
         raise _invalid_initial_camera_error(normalized.correspondences, normalized.initial_camera)
     initial_error = _math.rms_reprojection_error(initial_residuals)
-    fit_state = _solver.fit_parameters(normalized.correspondences, normalized.initial_camera, _solver_limits())
+    fit_state = _solver.fit_parameters(
+        normalized.correspondences, normalized.initial_camera, _solver_limits()
+    )
     fitted_camera = _camera_parameters_payload(fit_state.parameters)
     residuals = _residual_diagnostics(normalized.correspondences, fit_state.parameters)
-    final_error = math.sqrt(sum(item["errorPixels"] * item["errorPixels"] for item in residuals) / len(residuals))
+    final_error = math.sqrt(
+        sum(item["errorPixels"] * item["errorPixels"] for item in residuals) / len(residuals)
+    )
     return {
         "version": "1.0",
         "sourceImage": "landmark-correspondences",
@@ -227,15 +233,25 @@ def _residual_diagnostics(
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("image", type=Path)
-    parser.add_argument("--fov-degrees", type=float, default=None, help="Override the default FOV guess")
+    parser.add_argument(
+        "--fov-degrees", type=float, default=None, help="Override the default FOV guess"
+    )
     parser.add_argument("--yaw", type=float, default=0.0, help="Orientation placeholder, degrees")
     parser.add_argument("--pitch", type=float, default=0.0, help="Orientation placeholder, degrees")
     parser.add_argument("--roll", type=float, default=0.0, help="Orientation placeholder, degrees")
-    parser.add_argument("--distance", type=float, default=None, help="Camera distance hint, scene units")
-    parser.add_argument("--height-offset", type=float, default=0.0, help="Camera Y offset hint, scene units")
-    parser.add_argument("--out", type=Path, help="Write the referenceCamera JSON block to this path")
+    parser.add_argument(
+        "--distance", type=float, default=None, help="Camera distance hint, scene units"
+    )
+    parser.add_argument(
+        "--height-offset", type=float, default=0.0, help="Camera Y offset hint, scene units"
+    )
+    parser.add_argument(
+        "--out", type=Path, help="Write the referenceCamera JSON block to this path"
+    )
     args = parser.parse_args(argv)
     image = args.image.expanduser().resolve()
     if not image.exists():

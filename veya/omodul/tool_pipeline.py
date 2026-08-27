@@ -108,14 +108,16 @@ class ToolPipeline:
         """OpenAI 格式工具声明（发给 LLM 的 tools 参数）。"""
         out: list[dict] = []
         for spec in sorted(self._tools.values(), key=lambda s: s.name):
-            out.append({
-                "type": "function",
-                "function": {
-                    "name": spec.name,
-                    "description": spec.description,
-                    "parameters": spec.schema or {"type": "object", "properties": {}},
-                },
-            })
+            out.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "parameters": spec.schema or {"type": "object", "properties": {}},
+                    },
+                }
+            )
         return out
 
     # ------------------------------------------------------------------ 管道
@@ -137,37 +139,66 @@ class ToolPipeline:
                 entry["detail"] = detail
             audit.append(entry)
             emit_event(
-                f"tool.pipeline.{stage}", {"ok": ok, "tool_name": call.name, "detail": detail},
+                f"tool.pipeline.{stage}",
+                {"ok": ok, "tool_name": call.name, "detail": detail},
                 barrier=self._barrier,
             )
 
         # 1. 解析（外部已解析则 error 直达）
         if call.error:
             _stage("parse", False, call.error)
-            return self._result(call, ok=False, error=call.error, rejected=True,
-                                reject_stage="parse", audit=audit, start=start)
+            return self._result(
+                call,
+                ok=False,
+                error=call.error,
+                rejected=True,
+                reject_stage="parse",
+                audit=audit,
+                start=start,
+            )
         _stage("parse", True, "tool_call 解析成功")
 
         # 2. 校验（幻觉拦截：参数不合格绝不执行）
         spec = self._tools.get(call.name)
         if spec is None:
             _stage("validate", False, f"工具 {call.name!r} 未注册")
-            return self._result(call, ok=False, error=f"工具 {call.name!r} 未注册",
-                                rejected=True, reject_stage="validate", audit=audit, start=start)
+            return self._result(
+                call,
+                ok=False,
+                error=f"工具 {call.name!r} 未注册",
+                rejected=True,
+                reject_stage="validate",
+                audit=audit,
+                start=start,
+            )
         if spec.schema is not None:
             vr = validate_args(call.arguments, spec.schema)
             if not vr.ok:
                 detail = "; ".join(vr.errors[:3])
                 _stage("validate", False, detail)
-                return self._result(call, ok=False, error=detail, rejected=True,
-                                    reject_stage="validate", audit=audit, start=start)
+                return self._result(
+                    call,
+                    ok=False,
+                    error=detail,
+                    rejected=True,
+                    reject_stage="validate",
+                    audit=audit,
+                    start=start,
+                )
         _stage("validate", True, "参数校验通过")
 
         # 3. 权限
         if self._permit is not None and not self._permit(call.name, call.arguments):
             _stage("authorize", False, "权限拒绝")
-            return self._result(call, ok=False, error="权限拒绝",
-                                rejected=True, reject_stage="authorize", audit=audit, start=start)
+            return self._result(
+                call,
+                ok=False,
+                error="权限拒绝",
+                rejected=True,
+                reject_stage="authorize",
+                audit=audit,
+                start=start,
+            )
         _stage("authorize", True, "权限通过")
 
         # 4. 执行
@@ -180,21 +211,33 @@ class ToolPipeline:
         except Exception as exc:  # noqa: BLE001 — 工具异常统一包装
             detail = f"{type(exc).__name__}: {exc}"
             _stage("exec", False, detail)
-            return self._result(call, ok=False, error=detail, rejected=False,
-                                audit=audit, start=start)
+            return self._result(
+                call, ok=False, error=detail, rejected=False, audit=audit, start=start
+            )
         _stage("exec", True, "执行成功")
 
         # 5. 包装
         wrapped = _wrap_output(output)
         _stage("wrap", True, "结果包装完成")
-        emit_event("tool.pipeline.result",
-                   {"ok": True, "tool_name": call.name, "output_preview": str(wrapped)[:200]},
-                   barrier=self._barrier)
+        emit_event(
+            "tool.pipeline.result",
+            {"ok": True, "tool_name": call.name, "output_preview": str(wrapped)[:200]},
+            barrier=self._barrier,
+        )
         return self._result(call, ok=True, output=wrapped, audit=audit, start=start)
 
-    def _result(self, call: ToolCall, *, ok: bool, audit: list[dict],
-                start: float, output: Any = None, error: str = "",
-                rejected: bool = False, reject_stage: str = "") -> ToolRunResult:
+    def _result(
+        self,
+        call: ToolCall,
+        *,
+        ok: bool,
+        audit: list[dict],
+        start: float,
+        output: Any = None,
+        error: str = "",
+        rejected: bool = False,
+        reject_stage: str = "",
+    ) -> ToolRunResult:
         return ToolRunResult(
             tool_name=call.name,
             ok=ok,

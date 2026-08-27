@@ -65,7 +65,9 @@ class InsufficientCorrespondencesError(Exception):
     actual: int
 
     def __str__(self) -> str:
-        return f"camera fit requires at least {self.required} correspondences; received {self.actual}"
+        return (
+            f"camera fit requires at least {self.required} correspondences; received {self.actual}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,7 +231,9 @@ def normalize_fit_input(
     """Parse the public fitting inputs before any geometry arithmetic occurs."""
     correspondence_items = tuple(correspondences)
     if len(correspondence_items) < MINIMUM_CORRESPONDENCES:
-        raise InsufficientCorrespondencesError(required=MINIMUM_CORRESPONDENCES, actual=len(correspondence_items))
+        raise InsufficientCorrespondencesError(
+            required=MINIMUM_CORRESPONDENCES, actual=len(correspondence_items)
+        )
     normalized_camera = _normalize_initial_camera(initial_camera)
     normalized_correspondences = tuple(
         _normalize_correspondence(correspondence, index)
@@ -239,8 +243,12 @@ def normalize_fit_input(
 
 
 def _normalize_initial_camera(camera: CameraInitialization) -> CameraParameters:
-    if not _is_positive_dimension(camera.image_width) or not _is_positive_dimension(camera.image_height):
-        raise InvalidCameraDimensionsError(image_width=camera.image_width, image_height=camera.image_height)
+    if not _is_positive_dimension(camera.image_width) or not _is_positive_dimension(
+        camera.image_height
+    ):
+        raise InvalidCameraDimensionsError(
+            image_width=camera.image_width, image_height=camera.image_height
+        )
     return CameraParameters(
         image_width=camera.image_width,
         image_height=camera.image_height,
@@ -252,7 +260,9 @@ def _normalize_initial_camera(camera: CameraInitialization) -> CameraParameters:
     )
 
 
-def _normalize_correspondence(correspondence: LandmarkCorrespondence, index: int) -> NormalizedCorrespondence:
+def _normalize_correspondence(
+    correspondence: LandmarkCorrespondence, index: int
+) -> NormalizedCorrespondence:
     prefix = f"correspondences[{index}]"
     return NormalizedCorrespondence(
         name=correspondence.name,
@@ -288,4 +298,8 @@ def _point3(values: Sequence[NumericScalar], field: str) -> Point3:
 
 
 def _is_numeric_sequence(values: Sequence[NumericScalar], length: int) -> bool:
-    return isinstance(values, Sequence) and not isinstance(values, str | bytes) and len(values) == length
+    return (
+        isinstance(values, Sequence)
+        and not isinstance(values, str | bytes)
+        and len(values) == length
+    )

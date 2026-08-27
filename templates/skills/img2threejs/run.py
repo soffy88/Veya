@@ -69,7 +69,15 @@ _WHITELIST: dict[str, tuple[str, list[str]]] = {
     ),
     "spec-authoring": (
         "stage2_spec/new_sculpt_spec.py",
-        ["{subject}", "--image", "{reference}", "--assessment", "assessment.json", "--out", "object-sculpt-spec.json"],
+        [
+            "{subject}",
+            "--image",
+            "{reference}",
+            "--assessment",
+            "assessment.json",
+            "--out",
+            "object-sculpt-spec.json",
+        ],
     ),
     "strict-validation": (
         "stage2_spec/validate_sculpt_spec.py",
@@ -79,13 +87,28 @@ _WHITELIST: dict[str, tuple[str, list[str]]] = {
         "stage3_build/generate_threejs_factory.py",
         ["object-sculpt-spec.json", "--out", "src/createObjectModel.ts", "--pass-id", "{pass_id}"],
     ),
-    "part-coverage": ("stage4_review/check_part_coverage.py", ["--spec", "object-sculpt-spec.json", "--manifest", "parts.json"]),
+    "part-coverage": (
+        "stage4_review/check_part_coverage.py",
+        ["--spec", "object-sculpt-spec.json", "--manifest", "parts.json"],
+    ),
 }
 
 # forge CLI 可直接调用的工具 (run 之外)
 _CLI_TOOLS: dict[str, list[str]] = {
-    "diagnose": ["stage4_review/diagnose_render.py", "--reference", "{reference}", "--render", "{render}"],
-    "tier1": ["stage4_review/diagnose_render.py", "--reference", "{reference}", "--render", "{render}"],
+    "diagnose": [
+        "stage4_review/diagnose_render.py",
+        "--reference",
+        "{reference}",
+        "--render",
+        "{render}",
+    ],
+    "tier1": [
+        "stage4_review/diagnose_render.py",
+        "--reference",
+        "{reference}",
+        "--render",
+        "{render}",
+    ],
 }
 
 
@@ -101,9 +124,7 @@ def _run_forge(script: str, args: list[str], workdir: Path) -> dict[str, Any]:
         return {"ok": False, "error": f"forge script missing: {script}"}
     cmd = [sys.executable, str(script_path), *args]
     try:
-        proc = subprocess.run(
-            cmd, cwd=workdir, capture_output=True, text=True, timeout=120
-        )
+        proc = subprocess.run(cmd, cwd=workdir, capture_output=True, text=True, timeout=120)
         tail = (proc.stdout or proc.stderr).strip().splitlines()[-8:]
         return {"ok": proc.returncode == 0, "exitCode": proc.returncode, "output": "\n".join(tail)}
     except subprocess.TimeoutExpired:
@@ -117,28 +138,69 @@ def _init_state(reference: str, goal: str, profile: str, workdir: str | None) ->
         return {"ok": True, "note": "状态已存在 (拒绝覆盖), 返回现有状态", **pipeline_status(state)}
     setup = [
         ("image-analysis", "Read grimoire/intake/image_analysis.md and analyze {reference}"),
-        ("reference-suitability", "Read grimoire/intake/validation_rubric.md and record a pass/conditional/reject verdict for {reference}"),
-        ("reference-admission", "python3 forge/stage1_intake/check_reference_admission.py {reference}"),
-        ("pre-spec-assessment", "python3 forge/stage2_spec/new_pre_spec_assessment.py \"<name>\" --image {reference} --out assessment.json"),
-        ("detail-inventory", "python3 forge/stage1_intake/build_detail_inventory.py {reference} --mode grid-3x3 --out-dir detail-inventory --out di.json"),
-        ("spec-authoring", "python3 forge/stage2_spec/new_sculpt_spec.py \"<name>\" --image {reference} --assessment assessment.json --out object-sculpt-spec.json"),
-        ("strict-validation", "python3 forge/stage2_spec/validate_sculpt_spec.py object-sculpt-spec.json --strict-quality"),
+        (
+            "reference-suitability",
+            "Read grimoire/intake/validation_rubric.md and record a pass/conditional/reject verdict for {reference}",
+        ),
+        (
+            "reference-admission",
+            "python3 forge/stage1_intake/check_reference_admission.py {reference}",
+        ),
+        (
+            "pre-spec-assessment",
+            'python3 forge/stage2_spec/new_pre_spec_assessment.py "<name>" --image {reference} --out assessment.json',
+        ),
+        (
+            "detail-inventory",
+            "python3 forge/stage1_intake/build_detail_inventory.py {reference} --mode grid-3x3 --out-dir detail-inventory --out di.json",
+        ),
+        (
+            "spec-authoring",
+            'python3 forge/stage2_spec/new_sculpt_spec.py "<name>" --image {reference} --assessment assessment.json --out object-sculpt-spec.json',
+        ),
+        (
+            "strict-validation",
+            "python3 forge/stage2_spec/validate_sculpt_spec.py object-sculpt-spec.json --strict-quality",
+        ),
     ]
     passes = [
-        ("build-current-pass", "python3 forge/stage3_build/generate_threejs_factory.py object-sculpt-spec.json --out src/createObjectModel.ts --pass-id {pass_id}"),
+        (
+            "build-current-pass",
+            "python3 forge/stage3_build/generate_threejs_factory.py object-sculpt-spec.json --out src/createObjectModel.ts --pass-id {pass_id}",
+        ),
         ("render-capture", "Render {pass_id} and capture the fixed review view plus orbit views"),
-        ("tier1-diagnostics", "python3 forge/stage4_review/diagnose_render.py --reference {reference} --render <shot> --pass-id {pass_id}"),
-        ("pass-gate-check", "python3 forge/stage3_build/orchestrate_passes.py check object-sculpt-spec.json --pass-id {pass_id}"),
-        ("ai-review-recorded", "Create the comparison sheet, inspect with agent vision, and append one review action"),
+        (
+            "tier1-diagnostics",
+            "python3 forge/stage4_review/diagnose_render.py --reference {reference} --render <shot> --pass-id {pass_id}",
+        ),
+        (
+            "pass-gate-check",
+            "python3 forge/stage3_build/orchestrate_passes.py check object-sculpt-spec.json --pass-id {pass_id}",
+        ),
+        (
+            "ai-review-recorded",
+            "Create the comparison sheet, inspect with agent vision, and append one review action",
+        ),
     ]
     final = [
-        ("part-coverage", "python3 forge/stage4_review/check_part_coverage.py --spec object-sculpt-spec.json --manifest parts.json"),
-        ("action-ready", "Verify explodable/clickable hierarchy, pivots, sockets, and root.userData.sculptRuntime"),
+        (
+            "part-coverage",
+            "python3 forge/stage4_review/check_part_coverage.py --spec object-sculpt-spec.json --manifest parts.json",
+        ),
+        (
+            "action-ready",
+            "Verify explodable/clickable hierarchy, pivots, sockets, and root.userData.sculptRuntime",
+        ),
     ]
     state = new_pipeline_state(
-        reference, setup, passes, final,
-        profile=profile, spec="object-sculpt-spec.json",
-        max_per_pass=3, max_total=6,
+        reference,
+        setup,
+        passes,
+        final,
+        profile=profile,
+        spec="object-sculpt-spec.json",
+        max_per_pass=3,
+        max_total=6,
         meta={"goal": goal},
     )
     save_pipeline_state(st, state)
@@ -151,7 +213,10 @@ def _run_step(workdir: str | None) -> dict[str, Any]:
     step = state.get("currentStep")
     entry = next((e for e in state["checklist"] if e["id"] == step), None)
     if entry is None or entry["scope"] not in ("setup", "pass", "final"):
-        return {"ok": False, "error": f"当前步骤 {step} 无白名单执行器 (需 agent 视觉/判断, 见 nextCommand)"}
+        return {
+            "ok": False,
+            "error": f"当前步骤 {step} 无白名单执行器 (需 agent 视觉/判断, 见 nextCommand)",
+        }
     spec = _WHITELIST.get(step)
     if spec is None:
         return {
@@ -160,20 +225,25 @@ def _run_step(workdir: str | None) -> dict[str, Any]:
             "nextCommand": pipeline_status(state).get("nextCommand"),
         }
     script, args = spec
-    filled = [a.format(
-        reference=str(state["artifacts"]["reference"]),
-        spec=str(state["artifacts"].get("spec") or "object-sculpt-spec.json"),
-        pass_id=str(state.get("currentPass") or "blockout"),
-        subject=str(state.get("meta", {}).get("goal", "subject"))[:40],
-    ) for a in args]
-    work = (Path(workdir).expanduser() if workdir else _HERE)
+    filled = [
+        a.format(
+            reference=str(state["artifacts"]["reference"]),
+            spec=str(state["artifacts"].get("spec") or "object-sculpt-spec.json"),
+            pass_id=str(state.get("currentPass") or "blockout"),
+            subject=str(state.get("meta", {}).get("goal", "subject"))[:40],
+        )
+        for a in args
+    ]
+    work = Path(workdir).expanduser() if workdir else _HERE
     result = _run_forge(script, filled, work)
     result["step"] = step
     result["status"] = pipeline_status(state)
     return result
 
 
-def _gate(reference: str, render: str, workdir: str | None, spec_path: str | None = None) -> dict[str, Any]:
+def _gate(
+    reference: str, render: str, workdir: str | None, spec_path: str | None = None
+) -> dict[str, Any]:
     """Tier-1 确定性视觉门 (主库原语): 渲染截图 vs 参考图。"""
     spec = None
     if spec_path:
@@ -213,9 +283,7 @@ def _review(
             "reason": "需要 vlm_sampler (veya 视觉档 qwen3.7-flash 或主脑看图打分), 未注入",
             "silhouette": hard,
         }
-    decision = run_vlm_consensus(
-        vlm_sampler, n_samples=n_samples, claimed_class=claimed_class
-    )
+    decision = run_vlm_consensus(vlm_sampler, n_samples=n_samples, claimed_class=claimed_class)
     return {"gate": "vlm-consensus", **decision, "silhouette": hard}
 
 
@@ -226,11 +294,15 @@ def _html(workdir: str | None) -> dict[str, Any]:
     无类型标注的简单 factory 直接剥离类型), 产出 index.html 供前端
     artifact type=threejs 渲染。
     """
-    work = (Path(workdir).expanduser() if workdir else _HERE)
+    work = Path(workdir).expanduser() if workdir else _HERE
     ts = work / "src" / "createObjectModel.ts"
     if not ts.is_file():
         return {"ok": False, "error": f"factory 不存在: {ts} (先 run build-current-pass)"}
-    js = _strip_types(ts.read_text(encoding="utf-8")) if ts.suffix == ".ts" else ts.read_text(encoding="utf-8")
+    js = (
+        _strip_types(ts.read_text(encoding="utf-8"))
+        if ts.suffix == ".ts"
+        else ts.read_text(encoding="utf-8")
+    )
     html = _WRAPPER.replace("__MODEL_JS__", js)
     out = work / "index.html"
     out.write_text(html, encoding="utf-8")
@@ -329,7 +401,14 @@ def main(
         if action == "review":
             if not render:
                 return {"ok": False, "error": "review 需要 render (渲染截图路径)"}
-            return _review(str(ref), render, workdir, n_samples=n_samples, claimed_class=claimed_class, vlm_sampler=vlm_sampler)
+            return _review(
+                str(ref),
+                render,
+                workdir,
+                n_samples=n_samples,
+                claimed_class=claimed_class,
+                vlm_sampler=vlm_sampler,
+            )
         if action == "html":
             return _html(workdir)
         return {"ok": False, "error": f"未知 action: {action}"}
@@ -340,4 +419,8 @@ def main(
 
 
 if __name__ == "__main__":
-    print(json.dumps(main(**dict(a.split("=", 1) for a in sys.argv[1:])), ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            main(**dict(a.split("=", 1) for a in sys.argv[1:])), ensure_ascii=False, indent=2
+        )
+    )

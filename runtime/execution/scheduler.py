@@ -80,7 +80,9 @@ class ContinuousReadyScheduler:
             item_id = str(item.id)
             started.add(item_id)
             state.queued = [value for value in state.queued if value != item_id]
-            state.running[item_id] = asyncio.create_task(execute(item), name=f"veya-runtime-{item_id}")
+            state.running[item_id] = asyncio.create_task(
+                execute(item), name=f"veya-runtime-{item_id}"
+            )
             state.available_slots = self.max_parallel - len(state.running)
             await emit({"type": "scheduler.task_started", "task_id": item_id})
 
@@ -123,10 +125,14 @@ class ContinuousReadyScheduler:
                         started.add(item_id)
                         failed.add(item_id)
                         errors[item_id] = RuntimeError("dependencies cannot be satisfied")
-                        await emit({"type": "delegate.failed", "task_id": item_id, "error": "unreachable"})
+                        await emit(
+                            {"type": "delegate.failed", "task_id": item_id, "error": "unreachable"}
+                        )
                     continue
                 break
-            done, _ = await asyncio.wait(list(state.running.values()), return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                list(state.running.values()), return_when=asyncio.FIRST_COMPLETED
+            )
             for task in done:
                 item_id = next(key for key, value in list(state.running.items()) if value is task)
                 await finish(task, item_id)

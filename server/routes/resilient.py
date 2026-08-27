@@ -75,7 +75,11 @@ async def run_resilient_task(req: AutonomousRunRequest) -> dict[str, Any]:
     )
 
     # 4. 状态机持久化: 记录当前步骤完成(事务化断点)
-    step_payload = {"output": result["content"], "tier_used": result["tier_used"], "model": result["model"]}
+    step_payload = {
+        "output": result["content"],
+        "tier_used": result["tier_used"],
+        "model": result["model"],
+    }
     task_manager.checkpoint(req.task_id, step_index=step_index, step_payload=step_payload)
     final = task_manager.get_resume_context(req.task_id)
 

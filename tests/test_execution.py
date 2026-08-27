@@ -29,6 +29,7 @@ def _run(coro):
 
 # ── 后端注册表 ───────────────────────────────────────────────────────
 
+
 def test_default_backends_registered():
     backends = list_exec_backends()
     assert {"fast-path", "local-safe", "python-module"} <= set(backends)
@@ -50,6 +51,7 @@ def test_register_overrides():
 
 # ── 快档 (fast-path) ─────────────────────────────────────────────────
 
+
 def test_fast_path_exec():
     async def _t():
         handle = await runtime_exec("echo hello", ExecOptions(backend="fast-path"))
@@ -63,7 +65,9 @@ def test_fast_path_exec():
 
 def test_fast_path_dangerous_blocked():
     async def _t():
-        return await (await runtime_exec("rm -rf /tmp/x", ExecOptions(backend="fast-path"))).result()
+        return await (
+            await runtime_exec("rm -rf /tmp/x", ExecOptions(backend="fast-path"))
+        ).result()
 
     result = _run(_t())
     assert result.status == STATUS_FAILED
@@ -72,9 +76,9 @@ def test_fast_path_dangerous_blocked():
 
 def test_fast_path_timeout():
     async def _t():
-        return await (await runtime_exec(
-            "sleep 5", ExecOptions(backend="fast-path", timeout_ms=200)
-        )).result()
+        return await (
+            await runtime_exec("sleep 5", ExecOptions(backend="fast-path", timeout_ms=200))
+        ).result()
 
     result = _run(_t())
     assert result.status == STATUS_FAILED
@@ -83,13 +87,14 @@ def test_fast_path_timeout():
 
 # ── 结构化档 (python-module) ─────────────────────────────────────────
 
+
 def test_python_module_structured_value():
     src = "def main(p):\n    return {'got': p['n'] * 2}\n"
 
     async def _t():
-        return await (await runtime_exec(
-            src, ExecOptions(backend="python-module", input={"n": 21})
-        )).result()
+        return await (
+            await runtime_exec(src, ExecOptions(backend="python-module", input={"n": 21}))
+        ).result()
 
     result = _run(_t())
     assert result.status == STATUS_COMPLETED
@@ -108,13 +113,16 @@ def test_python_module_result_var():
 
 # ── 重档 + 同步括号 (local-safe) ────────────────────────────────────
 
+
 def test_local_safe_pulls_products():
     async def _t(tmp: pathlib.Path):
         (tmp / "base.txt").write_text("base")
-        return await (await runtime_exec(
-            "echo prod > out.txt",
-            ExecOptions(backend="local-safe", cwd=str(tmp), out_paths=["out.txt"]),
-        )).result()
+        return await (
+            await runtime_exec(
+                "echo prod > out.txt",
+                ExecOptions(backend="local-safe", cwd=str(tmp), out_paths=["out.txt"]),
+            )
+        ).result()
 
     tmp = pathlib.Path(__import__("tempfile").mkdtemp(prefix="veya-test-"))
     try:
@@ -131,10 +139,12 @@ def test_local_safe_pulls_products():
 
 def test_local_safe_out_paths_filter():
     async def _t(tmp: pathlib.Path):
-        return await (await runtime_exec(
-            "echo a > a.txt && echo b > b.txt",
-            ExecOptions(backend="local-safe", cwd=str(tmp), out_paths=["a.txt"]),
-        )).result()
+        return await (
+            await runtime_exec(
+                "echo a > a.txt && echo b > b.txt",
+                ExecOptions(backend="local-safe", cwd=str(tmp), out_paths=["a.txt"]),
+            )
+        ).result()
 
     tmp = pathlib.Path(__import__("tempfile").mkdtemp(prefix="veya-test-"))
     try:
@@ -149,6 +159,7 @@ def test_local_safe_out_paths_filter():
 
 
 # ── 执行句柄生命周期 ────────────────────────────────────────────────
+
 
 def test_handle_status_and_kill():
     async def _t():
@@ -176,6 +187,7 @@ def test_handle_result_idempotent():
 
 
 # ── SyncBracket 单独 ─────────────────────────────────────────────────
+
 
 def test_sync_bracket_pull_only_new_files():
     tmp = pathlib.Path(__import__("tempfile").mkdtemp(prefix="veya-bracket-"))

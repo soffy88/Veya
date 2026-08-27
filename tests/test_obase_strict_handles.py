@@ -207,6 +207,7 @@ async def test_daemon_bus_pubsub():
     bus = InProcessDaemonBus()
     await bus.connect()
     try:
+
         async def collect() -> list[Event]:
             out = []
             async for ev in bus.subscribe("hicode_progress"):

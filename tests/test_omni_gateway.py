@@ -86,9 +86,7 @@ async def test_rpa_adapter_fallback(monkeypatch):
     monkeypatch.setattr("veya.omodul.browser_agent.BrowserAgent", FakeAgent)
     monkeypatch.setattr("veya.omodul.browser_agent.BrowserTaskConfig", lambda: "CFG")
 
-    adapter = SocialMediaRPAAdapter(
-        "小红书", "https://creator.xiaohongshu.com/publish/publish"
-    )
+    adapter = SocialMediaRPAAdapter("小红书", "https://creator.xiaohongshu.com/publish/publish")
     out = await adapter.push("复盘内容", payload={"title": "t", "image_path": "/tmp/pic.png"})
 
     assert captured["cfg"] == "CFG"
@@ -265,7 +263,11 @@ async def test_full_loop_master_dispatch(tmp_path, monkeypatch):
                                     "function": {
                                         "name": DISPATCH_TOOL_NAME,
                                         "arguments": json.dumps(
-                                            {"targets": ["feishu_workgroup"], "title": "复盘", "content": "AI 板块异动"}
+                                            {
+                                                "targets": ["feishu_workgroup"],
+                                                "title": "复盘",
+                                                "content": "AI 板块异动",
+                                            }
                                         ),
                                     },
                                 }
@@ -280,7 +282,9 @@ async def test_full_loop_master_dispatch(tmp_path, monkeypatch):
             "usage": {},
         }
 
-    coord = MasterCoordinator(memory_bank=VeyaMemoryBank(storage_path=tmp_path / "m.json"), llm_fn=fake_llm, max_rounds=3)
+    coord = MasterCoordinator(
+        memory_bank=VeyaMemoryBank(storage_path=tmp_path / "m.json"), llm_fn=fake_llm, max_rounds=3
+    )
 
     captured = {}
 

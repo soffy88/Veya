@@ -73,7 +73,9 @@ def _find_range(hashes: list[str], start_h: str, end_h: str) -> tuple[int, int]:
     return uniq[0]
 
 
-def apply(content: str, *, start_tag: str, new_text: str, end_tag: str | None = None) -> dict[str, Any]:
+def apply(
+    content: str, *, start_tag: str, new_text: str, end_tag: str | None = None
+) -> dict[str, Any]:
     start_h = parse_tag(start_tag)
     end_h = parse_tag(end_tag) if (end_tag or "").strip() else start_h
     nl = "\r\n" if "\r\n" in content else "\n"

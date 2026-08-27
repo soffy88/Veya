@@ -43,9 +43,7 @@ def _llm_sampler(backend: str) -> object:
                 )
             )
         else:  # veya1.2 别名路由 (默认)
-            result = asyncio.run(
-                _llm_call([{"role": "user", "content": prompt}], model="veya1.2")
-            )
+            result = asyncio.run(_llm_call([{"role": "user", "content": prompt}], model="veya1.2"))
         content = result["choices"][0]["message"]["content"]
         return str(content)
 
@@ -60,10 +58,7 @@ def _build_objective(objective_python: str) -> object:
     """
     from veya.sandbox import SandboxConfig, create_safe_executor
 
-    prefix = (
-        "import json\n"
-        "params = json.loads(r'''__VEYA_HP_PARAMS__''')\n"
-    )
+    prefix = "import json\nparams = json.loads(r'''__VEYA_HP_PARAMS__''')\n"
 
     def objective(params: dict) -> float:
         code = prefix.replace("__VEYA_HP_PARAMS__", json.dumps(params)) + objective_python
@@ -88,8 +83,7 @@ def _build_objective(objective_python: str) -> object:
         result = asyncio.run(_run())
         if result.get("exit_code") != 0:
             raise RuntimeError(
-                f"objective exit={result.get('exit_code')}: "
-                f"{result.get('stderr', '')[:400]}"
+                f"objective exit={result.get('exit_code')}: {result.get('stderr', '')[:400]}"
             )
         stdout = str(result.get("stdout", ""))
         lines = [ln.strip() for ln in stdout.splitlines() if ln.strip()]
@@ -114,9 +108,15 @@ def _parse_space(space_json: str) -> object:
     return _load_oprim().space_from_json(space_json)
 
 
-def _parse_arguments(space_json: str, objective_python: str, direction: str,
-                     n_trials: int, context: str, sampler: str,
-                     storage: str | None) -> dict:
+def _parse_arguments(
+    space_json: str,
+    objective_python: str,
+    direction: str,
+    n_trials: int,
+    context: str,
+    sampler: str,
+    storage: str | None,
+) -> dict:
     oprim = _load_oprim()
     space = _parse_space(space_json)
     if direction not in ("maximize", "minimize"):
@@ -155,15 +155,14 @@ async def _tool_optimize_parameters(
         storage = str(hp_dir / f"study_{int(time.time() * 1000)}.json")
 
     oprim = _load_oprim()
-    args = _parse_arguments(space_json, objective_python, direction,
-                            n_trials, context, sampler, storage)
+    args = _parse_arguments(
+        space_json, objective_python, direction, n_trials, context, sampler, storage
+    )
     study = oprim.HPStudy(seed=0, **args["study_kwargs"])
     study.space = args["space"]
 
     # 同步 optimize 在 worker 线程跑; sampler/objective 内部各自 asyncio.run
-    await asyncio.to_thread(
-        study.optimize, args["objective"], args["n_trials"], args["sampler"]
-    )
+    await asyncio.to_thread(study.optimize, args["objective"], args["n_trials"], args["sampler"])
 
     best = study.best_trial
     summary = {
@@ -206,11 +205,11 @@ def wire_master_tools() -> int:
                 "space_json": {
                     "type": "string",
                     "description": (
-                        "Parameter space as JSON object: {\"<name>\": {\"type\": "
-                        "\"float|int|categorical\", ...}}. float: low/high/log/context; "
+                        'Parameter space as JSON object: {"<name>": {"type": '
+                        '"float|int|categorical", ...}}. float: low/high/log/context; '
                         "int: low/high/log/context; categorical: choices/context. "
-                        "Example: {\"threshold\": {\"type\": \"float\", \"low\": 0.05, "
-                        "\"high\": 0.95, \"context\": \"decision threshold\"}}"
+                        'Example: {"threshold": {"type": "float", "low": 0.05, '
+                        '"high": 0.95, "context": "decision threshold"}}'
                     ),
                 },
                 "objective_python": {

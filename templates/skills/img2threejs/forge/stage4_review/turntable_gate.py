@@ -229,9 +229,7 @@ def analyze_turntable(
     # Reference = capture closest to azimuth 0 ("front"). Found by index (not
     # by tuple identity/equality) so duplicate (azimuth, path) pairs can't
     # accidentally exclude the wrong entry.
-    reference_index = min(
-        range(len(ordered)), key=lambda i: _circular_distance(ordered[i][0], 0.0)
-    )
+    reference_index = min(range(len(ordered)), key=lambda i: _circular_distance(ordered[i][0], 0.0))
     reference_azimuth, reference_path = ordered[reference_index]
     orbit_captures = [capture for i, capture in enumerate(ordered) if i != reference_index]
     orbit_paths = [path for _azimuth, path in orbit_captures]
@@ -247,7 +245,9 @@ def analyze_turntable(
             "degenerate": False,
         }
     }
-    for i, orbit_result in zip((i for i in range(len(ordered)) if i != reference_index), area_result["angles"]):
+    for i, orbit_result in zip(
+        (i for i in range(len(ordered)) if i != reference_index), area_result["angles"]
+    ):
         per_azimuth[i] = {
             "areaFraction": orbit_result["areaFraction"],
             "ratio": orbit_result["ratio"],
@@ -295,12 +295,7 @@ def analyze_turntable(
     # An unsegmentable capture blocks the gate regardless of `allow_holes`. `allow_holes` says "this
     # subject is allowed to have a through-hole"; it does not say "evaluate this render blind". Passing
     # here would be the exact defect this module was written to end, one layer further down.
-    passed = (
-        covered
-        and not degenerate
-        and not unsegmented
-        and (allow_holes or not any_holed)
-    )
+    passed = covered and not degenerate and not unsegmented and (allow_holes or not any_holed)
 
     return {
         "angles": angles,

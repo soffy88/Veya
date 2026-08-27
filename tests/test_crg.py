@@ -16,6 +16,7 @@ from oprim import _code_review_graph as crg  # noqa: E402
 # 原语 (mock CRG CLI)
 # =========================================================================
 
+
 def test_available_and_missing(monkeypatch):
 
     monkeypatch.setattr(crg, "crg_available", lambda: False)
@@ -51,12 +52,13 @@ def test_cli_bridge_mock(monkeypatch):
 def test_graph_ensure_lazy(monkeypatch):
     """懒构建: 图空 → register + build; 有图 → ready。"""
     calls: list[str] = []
-    monkeypatch.setattr(crg, "graph_status",
-                        lambda cwd="": {"ok": True, "nodes": 0})
-    monkeypatch.setattr(crg, "graph_register",
-                        lambda path, alias="": calls.append("register") or {"ok": True})
-    monkeypatch.setattr(crg, "graph_build",
-                        lambda cwd="", incremental=True: calls.append("build") or {"ok": True})
+    monkeypatch.setattr(crg, "graph_status", lambda cwd="": {"ok": True, "nodes": 0})
+    monkeypatch.setattr(
+        crg, "graph_register", lambda path, alias="": calls.append("register") or {"ok": True}
+    )
+    monkeypatch.setattr(
+        crg, "graph_build", lambda cwd="", incremental=True: calls.append("build") or {"ok": True}
+    )
 
     r = crg.graph_ensure("/tmp/repo")
     assert r["ready"] is True
@@ -65,10 +67,10 @@ def test_graph_ensure_lazy(monkeypatch):
 
 def test_graph_ensure_ready_skips_build(monkeypatch):
     calls: list[str] = []
-    monkeypatch.setattr(crg, "graph_status",
-                        lambda cwd="": {"ok": True, "nodes": 100})
-    monkeypatch.setattr(crg, "graph_build",
-                        lambda cwd="", incremental=True: calls.append("build") or {"ok": True})
+    monkeypatch.setattr(crg, "graph_status", lambda cwd="": {"ok": True, "nodes": 100})
+    monkeypatch.setattr(
+        crg, "graph_build", lambda cwd="", incremental=True: calls.append("build") or {"ok": True}
+    )
     r = crg.graph_ensure("/tmp/repo")
     assert r["ready"] is True
     assert calls == []
@@ -78,9 +80,11 @@ def test_graph_ensure_ready_skips_build(monkeypatch):
 # 技能包
 # =========================================================================
 
+
 def test_skill_pack_manifest():
-    manifest = json.loads((ROOT / "templates" / "skills" / "code_review_graph"
-                           / "manifest.json").read_text())
+    manifest = json.loads(
+        (ROOT / "templates" / "skills" / "code_review_graph" / "manifest.json").read_text()
+    )
     assert manifest["name"] == "code_review_graph"
     assert "impact" in manifest["parameters"]["properties"]["action"]["enum"]
     assert (ROOT / "templates" / "skills" / "code_review_graph" / "run.py").exists()
@@ -90,13 +94,15 @@ def test_skill_main_dispatches(monkeypatch):
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "crg_skill", ROOT / "templates" / "skills" / "code_review_graph" / "run.py")
+        "crg_skill", ROOT / "templates" / "skills" / "code_review_graph" / "run.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(mod)
 
-    monkeypatch.setattr(mod, "graph_query",
-                        lambda t, target, cwd="": {"ok": True, "type": t, "target": target})
+    monkeypatch.setattr(
+        mod, "graph_query", lambda t, target, cwd="": {"ok": True, "type": t, "target": target}
+    )
     r = mod.main("query", query_type="tests_for", target="auth.py")
     assert r["ok"] is True and r["type"] == "tests_for"
 
@@ -118,17 +124,29 @@ def test_ledger_registered():
 # 语义搜索原语 (graph_search / graph_semantic_search)
 # =========================================================================
 
+
 def test_graph_search_args_and_normalize(monkeypatch):
     """search: query + kind/limit 透传 CLI; 输出含 results。"""
     captured: list[list[str]] = []
 
     def fake_run(args, **kw):
         captured.append(args)
-        return {"ok": True, "status": "ok", "search_mode": "fts",
-                "summary": "Found 3", "results": [
-                    {"name": "llm_call", "qualified_name": "veya/llm.py::llm_call",
-                     "kind": "Function", "file_path": "veya/llm.py",
-                     "line_start": 157, "line_end": 167}]}
+        return {
+            "ok": True,
+            "status": "ok",
+            "search_mode": "fts",
+            "summary": "Found 3",
+            "results": [
+                {
+                    "name": "llm_call",
+                    "qualified_name": "veya/llm.py::llm_call",
+                    "kind": "Function",
+                    "file_path": "veya/llm.py",
+                    "line_start": 157,
+                    "line_end": 167,
+                }
+            ],
+        }
 
     monkeypatch.setattr(crg, "_run", fake_run)
     r = crg.graph_search("llm_call", kind="Function", limit=5)

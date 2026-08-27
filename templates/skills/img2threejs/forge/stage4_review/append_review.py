@@ -150,7 +150,9 @@ def review_completes_pass(spec: dict, entry: dict, pass_id: str) -> bool:
     if isinstance(viewpoints, list) and pass_id in VISUAL_PASS_IDS:
         if not {"thickness-axis", "long-axis"}.issubset(set(viewpoints)):
             return False
-    if pass_id in VISUAL_PASS_IDS and not (isinstance(visual, dict) and visual.get("renderScreenshot")):
+    if pass_id in VISUAL_PASS_IDS and not (
+        isinstance(visual, dict) and visual.get("renderScreenshot")
+    ):
         return False
     if pass_id in VISUAL_PASS_IDS:
         score = entry.get("aiVisionScore")
@@ -212,27 +214,63 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("spec", type=Path)
     parser.add_argument("--pass-id", required=True, help="Build pass being reviewed")
-    parser.add_argument("--fidelity", type=float, required=True, help="Estimated match score from 0 to 1")
+    parser.add_argument(
+        "--fidelity", type=float, required=True, help="Estimated match score from 0 to 1"
+    )
     parser.add_argument("--action", choices=sorted(VALID_ACTIONS), required=True)
     parser.add_argument("--summary", required=True, help="Short review summary")
     parser.add_argument("--matched", help="Semicolon-separated matched criteria")
     parser.add_argument("--mismatches", help="Semicolon-separated mismatches")
     parser.add_argument("--spec-fixes", help="Semicolon-separated spec refinement tasks")
     parser.add_argument("--code-fixes", help="Semicolon-separated code refinement tasks")
-    parser.add_argument("--evidence", help="Semicolon-separated screenshot/image/render paths or notes")
-    parser.add_argument("--reference-screenshot", help="Reference image/screenshot path or URL used for visual comparison")
-    parser.add_argument("--render-screenshot", help="Rendered browser screenshot path or URL for this pass")
-    parser.add_argument("--comparison-image", help="Side-by-side reference/render contact sheet reviewed by AI vision")
-    parser.add_argument("--ai-vision-score", type=float, help="AI vision visual match score from 0 to 1")
-    parser.add_argument("--layer-scores-json", help="JSON object with AI vision layer scores, e.g. silhouette/material/lighting")
-    parser.add_argument("--feature-reviews-json", help="JSON array or file path containing per-feature scores from the same full image pair")
-    parser.add_argument("--ai-vision-notes", help="AI vision critique explaining the score and mismatch root causes")
-    parser.add_argument("--visual-threshold", type=float, help="Override visual acceptance threshold for this review")
-    parser.add_argument("--camera-view", help="Camera/viewpoint label, e.g. front, three-quarter, side, close-up")
+    parser.add_argument(
+        "--evidence", help="Semicolon-separated screenshot/image/render paths or notes"
+    )
+    parser.add_argument(
+        "--reference-screenshot",
+        help="Reference image/screenshot path or URL used for visual comparison",
+    )
+    parser.add_argument(
+        "--render-screenshot", help="Rendered browser screenshot path or URL for this pass"
+    )
+    parser.add_argument(
+        "--comparison-image",
+        help="Side-by-side reference/render contact sheet reviewed by AI vision",
+    )
+    parser.add_argument(
+        "--ai-vision-score", type=float, help="AI vision visual match score from 0 to 1"
+    )
+    parser.add_argument(
+        "--layer-scores-json",
+        help="JSON object with AI vision layer scores, e.g. silhouette/material/lighting",
+    )
+    parser.add_argument(
+        "--feature-reviews-json",
+        help="JSON array or file path containing per-feature scores from the same full image pair",
+    )
+    parser.add_argument(
+        "--ai-vision-notes", help="AI vision critique explaining the score and mismatch root causes"
+    )
+    parser.add_argument(
+        "--visual-threshold",
+        type=float,
+        help="Override visual acceptance threshold for this review",
+    )
+    parser.add_argument(
+        "--camera-view", help="Camera/viewpoint label, e.g. front, three-quarter, side, close-up"
+    )
     parser.add_argument("--visual-notes", help="Short notes from screenshot comparison")
-    parser.add_argument("--map-stripped-render", help="Blockout render captured with all material maps disabled")
-    parser.add_argument("--review-viewpoints-json", help="JSON array or file containing review viewpoint labels")
-    parser.add_argument("--force-out-of-order", action="store_true", help="Record deliberate re-review outside the unlocked pass")
+    parser.add_argument(
+        "--map-stripped-render", help="Blockout render captured with all material maps disabled"
+    )
+    parser.add_argument(
+        "--review-viewpoints-json", help="JSON array or file containing review viewpoint labels"
+    )
+    parser.add_argument(
+        "--force-out-of-order",
+        action="store_true",
+        help="Record deliberate re-review outside the unlocked pass",
+    )
     parser.add_argument(
         "--cs2-review-json",
         help="Machine-readable CS2 review report JSON or a JSON file path",
@@ -262,14 +300,20 @@ def main(argv: list[str]) -> int:
 
     spec_path = args.spec.expanduser().resolve()
     spec = load_spec(spec_path)
-    emit_status(spec, next_command=f"forge/stage4_review/append_review.py {spec_path} --pass-id {args.pass_id}")
+    emit_status(
+        spec,
+        next_command=f"forge/stage4_review/append_review.py {spec_path} --pass-id {args.pass_id}",
+    )
     history = spec.setdefault("reviewHistory", [])
     if not isinstance(history, list):
         raise ValueError("reviewHistory must be an array")
     ids = pass_order(spec)
     completed: list[str] = []
     for pass_id in ids:
-        if any(isinstance(item, dict) and review_completes_pass(spec, item, pass_id) for item in history):
+        if any(
+            isinstance(item, dict) and review_completes_pass(spec, item, pass_id)
+            for item in history
+        ):
             completed.append(pass_id)
         else:
             break
@@ -280,8 +324,14 @@ def main(argv: list[str]) -> int:
             f"Complete {expected_pass!r} before recording {args.pass_id!r}, or use --force-out-of-order for deliberate re-review."
         )
     if args.pass_id == "blockout" and args.action == "continue" and not args.map_stripped_render:
-        raise ValueError("blockout cannot be credited without --map-stripped-render (unlit, map-stripped evidence)")
-    threshold = clamp_score(args.visual_threshold) if args.visual_threshold is not None else visual_acceptance_threshold(spec)
+        raise ValueError(
+            "blockout cannot be credited without --map-stripped-render (unlit, map-stripped evidence)"
+        )
+    threshold = (
+        clamp_score(args.visual_threshold)
+        if args.visual_threshold is not None
+        else visual_acceptance_threshold(spec)
+    )
     layer_scores = None
     if args.layer_scores_json:
         layer_scores = load_json_argument(args.layer_scores_json, "--layer-scores-json")
@@ -339,8 +389,7 @@ def main(argv: list[str]) -> int:
             ]
             if missing_layers:
                 raise ValueError(
-                    "--layer-scores-json is missing required layers: "
-                    + ", ".join(missing_layers)
+                    "--layer-scores-json is missing required layers: " + ", ".join(missing_layers)
                 )
 
     cs2_review = load_json_argument(args.cs2_review_json, "--cs2-review-json")
@@ -365,7 +414,9 @@ def main(argv: list[str]) -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "passId": args.pass_id,
         "estimatedFidelity": clamp_score(args.fidelity),
-        "aiVisionScore": clamp_score(args.ai_vision_score) if args.ai_vision_score is not None else None,
+        "aiVisionScore": clamp_score(args.ai_vision_score)
+        if args.ai_vision_score is not None
+        else None,
         "visualAcceptanceThreshold": threshold,
         "layerScores": layer_scores or {},
         "featureReviews": feature_reviews,
@@ -383,7 +434,9 @@ def main(argv: list[str]) -> int:
         entry["mapStrippedRender"] = args.map_stripped_render
     if args.review_viewpoints_json:
         viewpoints = load_json_argument(args.review_viewpoints_json, "--review-viewpoints-json")
-        if not isinstance(viewpoints, list) or not all(isinstance(value, str) for value in viewpoints):
+        if not isinstance(viewpoints, list) or not all(
+            isinstance(value, str) for value in viewpoints
+        ):
             raise ValueError("--review-viewpoints-json must be an array of viewpoint labels")
         entry["reviewViewpoints"] = viewpoints
         required = {"thickness-axis", "long-axis"}
@@ -395,9 +448,7 @@ def main(argv: list[str]) -> int:
     if args.pass_id in VISUAL_PASS_IDS and args.action == "continue":
         feature_failures = feature_gate_failures(spec, entry, args.pass_id)
         if feature_failures:
-            raise ValueError(
-                "feature-level AI vision gate failed: " + "; ".join(feature_failures)
-            )
+            raise ValueError("feature-level AI vision gate failed: " + "; ".join(feature_failures))
 
     has_visual_evidence = any(
         [

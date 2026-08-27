@@ -60,12 +60,20 @@ def test_rollout_orders_highest_impact_first():
     cpd_map = _cpd_map(dag)
 
     single = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=1,
-        cpd_map=cpd_map, beam_width=256, min_effective_delta=0.0,
+        dag,
+        failure_node="task_outcome",
+        horizon=1,
+        cpd_map=cpd_map,
+        beam_width=256,
+        min_effective_delta=0.0,
     )
     full = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=3,
-        cpd_map=cpd_map, beam_width=256, min_effective_delta=0.0,
+        dag,
+        failure_node="task_outcome",
+        horizon=3,
+        cpd_map=cpd_map,
+        beam_width=256,
+        min_effective_delta=0.0,
     )
     assert full.status == "ok"
     assert len(full.planned_actions) == 3
@@ -74,10 +82,7 @@ def test_rollout_orders_highest_impact_first():
     # 单步 ΔP 最大者 = 各候选单独干预的失败率降幅最大者
     ev = _StateEvaluator(dag, cpd_map, "task_outcome", "ok")
     p0 = ev.p_fault(frozenset())
-    deltas = {
-        n: p0 - ev.p_fault(frozenset({n}))
-        for n in dag.nodes if n != "task_outcome"
-    }
+    deltas = {n: p0 - ev.p_fault(frozenset({n})) for n in dag.nodes if n != "task_outcome"}
     assert full.planned_actions[0].node == max(deltas, key=deltas.get)
     # 与单步最优一致 (γ^0 权重最大 → 贪婪第一步成立)
     assert full.planned_actions[0].node == single.planned_actions[0].node
@@ -112,7 +117,9 @@ def test_rollout_discount_prefers_high_impact_first():
     low = "rate_limit"
 
     kw = dict(
-        failure_node="task_outcome", cpd_map=cpd_map, gamma=0.9,
+        failure_node="task_outcome",
+        cpd_map=cpd_map,
+        gamma=0.9,
         cost_lambda=0.05,
     )
     u_high_first = _sequence_utility(dag, sequence=(high, low), **kw)
@@ -131,12 +138,20 @@ def test_rollout_beam_pruning_keeps_best_first_action():
     cpd_map = _cpd_map(dag)
 
     narrow = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=3, cpd_map=cpd_map,
-        beam_width=2, min_effective_delta=0.0,
+        dag,
+        failure_node="task_outcome",
+        horizon=3,
+        cpd_map=cpd_map,
+        beam_width=2,
+        min_effective_delta=0.0,
     )
     wide = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=3, cpd_map=cpd_map,
-        beam_width=256, min_effective_delta=0.0,
+        dag,
+        failure_node="task_outcome",
+        horizon=3,
+        cpd_map=cpd_map,
+        beam_width=256,
+        min_effective_delta=0.0,
     )
     assert narrow.planned_actions[0].node == wide.planned_actions[0].node
     assert narrow.search_backend == "beam_pruned"
@@ -150,7 +165,10 @@ def test_rollout_min_effective_delta_filters():
     cpd_map = _cpd_map(dag)
 
     plan = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=3, cpd_map=cpd_map,
+        dag,
+        failure_node="task_outcome",
+        horizon=3,
+        cpd_map=cpd_map,
         min_effective_delta=0.99,  # 无任何干预能达到
     )
     assert plan.status == "no_actions"
@@ -165,8 +183,12 @@ def test_rollout_cost_sensitive_avoids_expensive_node():
 
     # 给 ΔP 最大者标天价成本
     plan = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=1, cpd_map=cpd_map,
-        cost_lambda=0.5, min_effective_delta=0.0,
+        dag,
+        failure_node="task_outcome",
+        horizon=1,
+        cpd_map=cpd_map,
+        cost_lambda=0.5,
+        min_effective_delta=0.0,
         action_cost={"db": 5.0, "external_api": 5.0, "rate_limit": 5.0},
         default_action_cost=0.01,
     )
@@ -186,12 +208,20 @@ def test_rollout_explore_bonus_prefers_uncertain_node():
 
     # A、B 收益相同 (对称), 但 B 不确定度高
     no_bonus = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=1, cpd_map=cpd_map,
-        min_effective_delta=0.0, explore_bonus=0.0,
+        dag,
+        failure_node="task_outcome",
+        horizon=1,
+        cpd_map=cpd_map,
+        min_effective_delta=0.0,
+        explore_bonus=0.0,
     )
     with_bonus = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=1, cpd_map=cpd_map,
-        min_effective_delta=0.0, explore_bonus=1.0,
+        dag,
+        failure_node="task_outcome",
+        horizon=1,
+        cpd_map=cpd_map,
+        min_effective_delta=0.0,
+        explore_bonus=1.0,
         uncertainty={"A": 0.1, "B": 0.9},
     )
     assert no_bonus.planned_actions[0].node in ("A", "B")
@@ -203,7 +233,9 @@ def test_rollout_structural_fallback():
     store = _build_diagnosis_graph()
     dag = store.get_graph()
     plan = counterfactual_rollout(
-        dag, failure_node="task_outcome", horizon=3,
+        dag,
+        failure_node="task_outcome",
+        horizon=3,
         cpd_map=None,
     )
     assert plan.status == "structural_only"

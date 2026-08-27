@@ -49,9 +49,12 @@ class SidecarRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name, "command": self.command, "state": self.state,
+            "name": self.name,
+            "command": self.command,
+            "state": self.state,
             "pid": self.proc.pid if self.proc and self.proc.poll() is None else None,
-            "failures": self.failures, "last_error": self.last_error[-200:],
+            "failures": self.failures,
+            "last_error": self.last_error[-200:],
         }
 
 
@@ -62,9 +65,14 @@ class SidecarManager:
         self._records: dict[str, SidecarRecord] = {}
 
     # ── 生命周期 ──────────────────────────────────────────────────────
-    def start(self, name: str, command: list[str], *,
-              health: Callable[[], bool] | None = None,
-              ready_timeout_s: float = 15.0) -> SidecarRecord:
+    def start(
+        self,
+        name: str,
+        command: list[str],
+        *,
+        health: Callable[[], bool] | None = None,
+        ready_timeout_s: float = 15.0,
+    ) -> SidecarRecord:
         """启动 sidecar: 二进制缺失 → 结构化错误; 启动后轮询健康。"""
         rec = self._records.get(name)
         if rec is not None and rec.proc is not None and rec.proc.poll() is None:
@@ -72,16 +80,22 @@ class SidecarManager:
 
         if shutil.which(command[0]) is None:
             raise RuntimeError(
-                f"sidecar '{name}' 不可用: 未找到 {command[0]} "
-                f"(安装后重试; 或检查 PATH)")
+                f"sidecar '{name}' 不可用: 未找到 {command[0]} (安装后重试; 或检查 PATH)"
+            )
 
         proc = subprocess.Popen(
-            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-        rec = SidecarRecord(name=name, command=command, proc=proc,
-                            started_at=time.time(),
-                            health=health or (lambda: True))
+        rec = SidecarRecord(
+            name=name,
+            command=command,
+            proc=proc,
+            started_at=time.time(),
+            health=health or (lambda: True),
+        )
         self._records[name] = rec
 
         # 健康轮询 (超时视为失败, 触发熔断计数)

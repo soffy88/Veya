@@ -53,10 +53,14 @@ def analyze(path: str, top: int = 10) -> dict:
     for route, pm_counter in route_provider.items():
         for pm, cnt in pm_counter.items():
             if cnt >= 5:
-                candidates.append({
-                    "route": route, "provider_model": pm, "count": cnt,
-                    "share": round(cnt / max(1, per_route[route]), 3),
-                })
+                candidates.append(
+                    {
+                        "route": route,
+                        "provider_model": pm,
+                        "count": cnt,
+                        "share": round(cnt / max(1, per_route[route]), 3),
+                    }
+                )
     candidates.sort(key=lambda c: -c["count"])
 
     return {
@@ -95,8 +99,10 @@ def main() -> int:
     if result["fixed_flow_candidates"]:
         print("\n[固定流程候选 (可固化走专用小模型)]")
         for c in result["fixed_flow_candidates"]:
-            print(f"  {c['route']:<10} {c['provider_model']:<40} "
-                  f"count={c['count']} share={c['share']}")
+            print(
+                f"  {c['route']:<10} {c['provider_model']:<40} "
+                f"count={c['count']} share={c['share']}"
+            )
     return 0
 
 

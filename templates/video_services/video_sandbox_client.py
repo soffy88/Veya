@@ -38,12 +38,15 @@ class VideoSandboxClient:
         host_dir = str(video_path.parent)
         container_path = f"{self._mount_root}/{video_path.name}"
 
-        payload = json.dumps(
-            {"video_path": container_path, "spec": spec}, ensure_ascii=False
-        )
+        payload = json.dumps({"video_path": container_path, "spec": spec}, ensure_ascii=False)
         cmd = [
-            self._docker, "run", "--rm", "-i", "--network=none",
-            "-v", f"{host_dir}:{self._mount_root}:ro",
+            self._docker,
+            "run",
+            "--rm",
+            "-i",
+            "--network=none",
+            "-v",
+            f"{host_dir}:{self._mount_root}:ro",
             self._image,
         ]
         proc = subprocess.run(
@@ -52,9 +55,13 @@ class VideoSandboxClient:
         if proc.returncode != 0:
             return VideoEvalResult(
                 passed=False,
-                issues=[{"code": "SANDBOX_ERROR",
-                         "message": f"docker exit={proc.returncode}: {proc.stderr[-300:]}",
-                         "severity": "high"}],
+                issues=[
+                    {
+                        "code": "SANDBOX_ERROR",
+                        "message": f"docker exit={proc.returncode}: {proc.stderr[-300:]}",
+                        "severity": "high",
+                    }
+                ],
                 stderr=proc.stderr,
             )
         try:
@@ -63,9 +70,13 @@ class VideoSandboxClient:
         except json.JSONDecodeError as exc:
             return VideoEvalResult(
                 passed=False,
-                issues=[{"code": "SANDBOX_ERROR",
-                         "message": f"沙箱输出非 JSON: {exc}",
-                         "severity": "high"}],
+                issues=[
+                    {
+                        "code": "SANDBOX_ERROR",
+                        "message": f"沙箱输出非 JSON: {exc}",
+                        "severity": "high",
+                    }
+                ],
                 stderr=proc.stdout[-500:],
             )
 
@@ -78,9 +89,10 @@ class LocalVideoEvaluator:
         evaluate_script: Path | None = None,
         timeout_s: float = 180.0,
     ) -> None:
-        self._script = Path(evaluate_script or (
-            Path(__file__).resolve().parents[2] / "infra" / "video_sandbox" / "evaluate.py"
-        ))
+        self._script = Path(
+            evaluate_script
+            or (Path(__file__).resolve().parents[2] / "infra" / "video_sandbox" / "evaluate.py")
+        )
         self._timeout = timeout_s
 
     def evaluate(self, video_path: Path, spec: dict[str, Any]) -> VideoEvalResult:
@@ -90,14 +102,21 @@ class LocalVideoEvaluator:
         )
         proc = subprocess.run(
             [os.sys.executable, str(self._script)],
-            input=payload, capture_output=True, text=True, timeout=self._timeout,
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=self._timeout,
         )
         if proc.returncode != 0:
             return VideoEvalResult(
                 passed=False,
-                issues=[{"code": "SANDBOX_ERROR",
-                         "message": f"evaluate.py exit={proc.returncode}: {proc.stderr[-300:]}",
-                         "severity": "high"}],
+                issues=[
+                    {
+                        "code": "SANDBOX_ERROR",
+                        "message": f"evaluate.py exit={proc.returncode}: {proc.stderr[-300:]}",
+                        "severity": "high",
+                    }
+                ],
                 stderr=proc.stderr,
             )
         try:
@@ -105,9 +124,13 @@ class LocalVideoEvaluator:
         except json.JSONDecodeError as exc:
             return VideoEvalResult(
                 passed=False,
-                issues=[{"code": "SANDBOX_ERROR",
-                         "message": f"沙箱输出非 JSON: {exc}",
-                         "severity": "high"}],
+                issues=[
+                    {
+                        "code": "SANDBOX_ERROR",
+                        "message": f"沙箱输出非 JSON: {exc}",
+                        "severity": "high",
+                    }
+                ],
                 stderr=proc.stdout[-500:],
             )
 

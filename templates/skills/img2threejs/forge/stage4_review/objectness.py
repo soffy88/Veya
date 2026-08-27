@@ -17,6 +17,7 @@ learned CNN-OSIM remains an optional V2 upgrade behind the same signal name.
 CLI:  objectness.py --reference REF --render RENDER [--json]
 API:  objectness_similarity(ref_path, render_path) -> float in [0,1]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,9 +30,9 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "stage1_intake"))
 from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
 
-GRID = 96   # canonical square the object bbox is resampled to
-CELLS = 8   # CELLS x CELLS spatial cells
-BINS = 9    # orientation bins over 0..180 (unsigned gradient)
+GRID = 96  # canonical square the object bbox is resampled to
+CELLS = 8  # CELLS x CELLS spatial cells
+BINS = 9  # orientation bins over 0..180 (unsigned gradient)
 
 
 def _to_gray(pixels: list[tuple[int, int, int, int]]) -> list[int]:
@@ -58,7 +59,9 @@ def _bbox(mask: list[bool], w: int, h: int) -> tuple[int, int, int, int]:
     return (minx, miny, maxx + 1, maxy + 1)
 
 
-def _resample_bbox(gray: list[int], w: int, h: int, box: tuple[int, int, int, int], n: int) -> list[float]:
+def _resample_bbox(
+    gray: list[int], w: int, h: int, box: tuple[int, int, int, int], n: int
+) -> list[float]:
     x0, y0, x1, y1 = box
     bw = max(1, x1 - x0)
     bh = max(1, y1 - y0)
@@ -131,7 +134,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     score = objectness_similarity(args.reference, args.render)
-    out: dict[str, Any] = {"objectness": round(score, 4), "grid": GRID, "cells": CELLS, "bins": BINS}
+    out: dict[str, Any] = {
+        "objectness": round(score, 4),
+        "grid": GRID,
+        "cells": CELLS,
+        "bins": BINS,
+    }
     if args.json:
         print(json.dumps(out))
     else:

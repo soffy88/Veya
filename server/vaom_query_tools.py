@@ -51,7 +51,9 @@ def memory_recall_project_lessons(query: str = "", scope: str = "") -> dict[str,
     # Existing isolated tests exercise the pre-v2 adapter without a durable
     # DSN. Production always has the PostgreSQL DSN and therefore cannot read
     # the legacy JSON authority.
-    if not os.environ.get("VEYA_EXECUTION_DATABASE_URL") and os.environ.get("VEYA_EXECUTION_PRODUCTION", "0") in {"", "0", "false", "off", "no"}:
+    if not os.environ.get("VEYA_EXECUTION_DATABASE_URL") and os.environ.get(
+        "VEYA_EXECUTION_PRODUCTION", "0"
+    ) in {"", "0", "false", "off", "no"}:
         from server.memory_controller import memory_controller
 
         records = memory_controller.search(query, scope=scope or None)
@@ -70,8 +72,20 @@ def memory_recall_project_lessons(query: str = "", scope: str = "") -> dict[str,
         from server import auth as auth_mod
 
         user_id = str(auth_mod.current_user().get("user_id") or "anonymous")
-        scope_type = {"global": "user", "user": "user", "project": "workspace", "workspace": "workspace", "session": "session"}.get(scope or "", scope or None)
-        scope_id = user_id if scope in {"global", "user"} else os.environ.get("VEYA_WORKSPACE") if scope in {"project", "workspace"} else None
+        scope_type = {
+            "global": "user",
+            "user": "user",
+            "project": "workspace",
+            "workspace": "workspace",
+            "session": "session",
+        }.get(scope or "", scope or None)
+        scope_id = (
+            user_id
+            if scope in {"global", "user"}
+            else os.environ.get("VEYA_WORKSPACE")
+            if scope in {"project", "workspace"}
+            else None
+        )
         personal = get_personal_runtime()
         records = personal.run_sync(
             personal.search_memory(query, scope_type=scope_type, scope_id=scope_id)

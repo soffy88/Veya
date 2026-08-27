@@ -80,10 +80,7 @@ class SqliteHistoryStore:
             # revision: 每次 save() 递增, INSERT-only, 旧 revision 永不删/改
             # (canonical event log; 见文件头 2026-08-24 说明)。msg_json 是该
             # revision 时刻的完整消息列表快照, 不是单条消息。
-            columns = {
-                row[1]
-                for row in conn.execute("PRAGMA table_info(turns)").fetchall()
-            }
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(turns)").fetchall()}
             if columns and "revision" not in columns:
                 # 0.6 的 turns(sid, idx, msg_json, ts, user_id) 是可迁移的旧
                 # projection。保留每条旧快照的顺序，转成新的 user/sid/revision

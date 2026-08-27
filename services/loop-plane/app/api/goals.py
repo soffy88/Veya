@@ -31,7 +31,9 @@ def _trace(request: Request) -> str:
 
 
 @router.post("/goals", status_code=201)
-async def create_goal(body: CreateGoalBody, request: Request, svc: GoalService = Depends(_service)) -> dict[str, Any]:
+async def create_goal(
+    body: CreateGoalBody, request: Request, svc: GoalService = Depends(_service)
+) -> dict[str, Any]:
     """创建 Goal + todos（≡ create_plan）。"""
     goal = svc.create_goal(
         body.objective,
@@ -57,11 +59,18 @@ async def get_goal(goal_id: str, svc: GoalService = Depends(_service)) -> dict[s
 
 
 @router.post("/goals/{goal_id}/todos/{todo_id}")
-async def update_todo(goal_id: str, todo_id: str, body: TodoUpdateBody, request: Request,
-                      svc: GoalService = Depends(_service)) -> dict[str, Any]:
+async def update_todo(
+    goal_id: str,
+    todo_id: str,
+    body: TodoUpdateBody,
+    request: Request,
+    svc: GoalService = Depends(_service),
+) -> dict[str, Any]:
     """更新 todo status + evidence（≡ update_todo）。"""
     try:
-        return svc.update_todo(goal_id, todo_id, body.status, body.evidence, trace_id=_trace(request))
+        return svc.update_todo(
+            goal_id, todo_id, body.status, body.evidence, trace_id=_trace(request)
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -69,8 +78,9 @@ async def update_todo(goal_id: str, todo_id: str, body: TodoUpdateBody, request:
 
 
 @router.post("/goals/{goal_id}/todos/{todo_id}/claim")
-async def claim_todo(goal_id: str, todo_id: str, body: ClaimBody | None = None,
-                     svc: GoalService = Depends(_service)) -> dict[str, Any]:
+async def claim_todo(
+    goal_id: str, todo_id: str, body: ClaimBody | None = None, svc: GoalService = Depends(_service)
+) -> dict[str, Any]:
     """claim + lease（未过期再 claim → 409）。"""
     try:
         return svc.claim(goal_id, todo_id, lease_min=body.lease_min if body else 45)
@@ -90,8 +100,9 @@ async def should_run(goal_id: str, svc: GoalService = Depends(_service)) -> dict
 
 
 @router.post("/goals/{goal_id}/quota/spend")
-async def spend(goal_id: str, body: SpendBody, request: Request,
-                svc: GoalService = Depends(_service)) -> dict[str, Any]:
+async def spend(
+    goal_id: str, body: SpendBody, request: Request, svc: GoalService = Depends(_service)
+) -> dict[str, Any]:
     """quota 记账（≡ quota_spend_slot）。"""
     try:
         return svc.spend(goal_id, body.todo_id, body.slots, trace_id=_trace(request))
@@ -102,7 +113,9 @@ async def spend(goal_id: str, body: SpendBody, request: Request,
 
 
 @router.post("/goals/{goal_id}/gates/check")
-async def gate_check(goal_id: str, body: GateCheckBody, svc: GoalService = Depends(_service)) -> dict[str, Any]:
+async def gate_check(
+    goal_id: str, body: GateCheckBody, svc: GoalService = Depends(_service)
+) -> dict[str, Any]:
     """scoped 决策检查（≡ gate_check）。"""
     try:
         return svc.gate_check(goal_id, body.gate_scope)
@@ -111,8 +124,9 @@ async def gate_check(goal_id: str, body: GateCheckBody, svc: GoalService = Depen
 
 
 @router.post("/goals/{goal_id}/terminal_check")
-async def terminal_check(goal_id: str, body: TerminalCheckBody,
-                         svc: GoalService = Depends(_service)) -> dict[str, Any]:
+async def terminal_check(
+    goal_id: str, body: TerminalCheckBody, svc: GoalService = Depends(_service)
+) -> dict[str, Any]:
     """terminal 动作：只返回「需审批」建议（≡ terminal_gate_check）。"""
     return svc.terminal_check(body.action, goal_id)
 

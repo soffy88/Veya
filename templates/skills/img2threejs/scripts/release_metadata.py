@@ -84,9 +84,21 @@ def parse_commits(commits_text: str) -> tuple[str, ...]:
 
 
 def change_sections(commits: tuple[str, ...]) -> str:
-    features = [commit.splitlines()[0].removeprefix("feat: ") for commit in commits if commit.lstrip().startswith("feat")]
-    fixes = [commit.splitlines()[0].removeprefix("fix: ") for commit in commits if commit.lstrip().startswith("fix")]
-    breaking = [commit.splitlines()[0] for commit in commits if "BREAKING CHANGE:" in commit or BREAKING_PATTERN.search(commit)]
+    features = [
+        commit.splitlines()[0].removeprefix("feat: ")
+        for commit in commits
+        if commit.lstrip().startswith("feat")
+    ]
+    fixes = [
+        commit.splitlines()[0].removeprefix("fix: ")
+        for commit in commits
+        if commit.lstrip().startswith("fix")
+    ]
+    breaking = [
+        commit.splitlines()[0]
+        for commit in commits
+        if "BREAKING CHANGE:" in commit or BREAKING_PATTERN.search(commit)
+    ]
     sections: list[str] = []
     if breaking:
         sections.extend(["### Breaking Changes", *(f"- {item}" for item in breaking), ""])
@@ -104,17 +116,23 @@ def replace_once(pattern: re.Pattern[str], text: str, replacement: str, descript
     return updated
 
 
-def update_changelog(changelog: str, plan: ReleasePlan, release_date: str, repository_url: str) -> str:
+def update_changelog(
+    changelog: str, plan: ReleasePlan, release_date: str, repository_url: str
+) -> str:
     heading = f"## [{plan.next}] — {release_date}\n\n{change_sections(plan.commits)}\n\n"
     heading_match = HEADING_PATTERN.search(changelog)
     if heading_match is None:
         raise ValueError("CHANGELOG.md must contain a version heading")
-    with_heading = changelog[:heading_match.start()] + heading + changelog[heading_match.start():]
+    with_heading = changelog[: heading_match.start()] + heading + changelog[heading_match.start() :]
     reference_match = REFERENCE_PATTERN.search(with_heading)
     if reference_match is None:
         raise ValueError("CHANGELOG.md must contain version reference links")
     reference = f"[{plan.next}]: {repository_url}/compare/v{plan.current}...v{plan.next}\n"
-    return with_heading[:reference_match.start()] + reference + with_heading[reference_match.start():]
+    return (
+        with_heading[: reference_match.start()]
+        + reference
+        + with_heading[reference_match.start() :]
+    )
 
 
 def apply_release(request: ReleaseRequest) -> ReleasePlan | None:
@@ -126,12 +144,18 @@ def apply_release(request: ReleaseRequest) -> ReleasePlan | None:
     changelog_path = request.root / "CHANGELOG.md"
     skill_text = skill_path.read_text(encoding="utf-8")
     current = parse_version(skill_text)
-    plan = ReleasePlan(current=current, next=current.bump(level), level=level, commits=request.commits)
+    plan = ReleasePlan(
+        current=current, next=current.bump(level), level=level, commits=request.commits
+    )
     updated_skill = replace_once(VERSION_PATTERN, skill_text, f"version: {plan.next}", "SKILL.md")
     readme_text = readme_path.read_text(encoding="utf-8")
-    updated_readme = replace_once(BADGE_PATTERN, readme_text, f"version-{plan.next}-green.svg", "README.md")
+    updated_readme = replace_once(
+        BADGE_PATTERN, readme_text, f"version-{plan.next}-green.svg", "README.md"
+    )
     changelog_text = changelog_path.read_text(encoding="utf-8")
-    updated_changelog = update_changelog(changelog_text, plan, request.release_date, request.repository_url)
+    updated_changelog = update_changelog(
+        changelog_text, plan, request.release_date, request.repository_url
+    )
     if request.dry_run:
         return plan
     skill_path.write_text(updated_skill, encoding="utf-8")
@@ -149,7 +173,9 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     arguments = parser.parse_args()
     commits = parse_commits(arguments.commits_file.read_text(encoding="utf-8"))
-    request = ReleaseRequest(arguments.root, commits, arguments.date, arguments.repository_url, arguments.dry_run)
+    request = ReleaseRequest(
+        arguments.root, commits, arguments.date, arguments.repository_url, arguments.dry_run
+    )
     plan = apply_release(request)
     if plan is None:
         print(json.dumps({"release": False}))

@@ -13,8 +13,9 @@ from pydantic import BaseModel
 
 from veya.collaboration import create_collaboration_manager
 
-router = APIRouter(prefix="/collaboration", tags=["collaboration"],
-              dependencies=[Depends(auth_mod.require_user)])
+router = APIRouter(
+    prefix="/collaboration", tags=["collaboration"], dependencies=[Depends(auth_mod.require_user)]
+)
 
 # 全局协作管理器
 collaboration_manager = create_collaboration_manager()

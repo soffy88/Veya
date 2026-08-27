@@ -82,34 +82,115 @@ ALLOWED_DIRS: tuple[str, ...] = (
 
 # 直接 I/O 的导入根
 IO_IMPORTS: tuple[str, ...] = (
-    "subprocess", "socket", "requests", "httpx", "aiohttp", "urllib",
-    "shutil", "tempfile", "pty", "fcntl", "select", "selectors",
+    "subprocess",
+    "socket",
+    "requests",
+    "httpx",
+    "aiohttp",
+    "urllib",
+    "shutil",
+    "tempfile",
+    "pty",
+    "fcntl",
+    "select",
+    "selectors",
 )
 
 # os.* 直连调用黑名单 (破坏/执行/读写类)
 OS_CALLS: tuple[str, ...] = (
-    "system", "popen", "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv",
-    "spawnve", "spawnvp", "spawnvpe", "execv", "execve", "execl", "execle",
-    "execlp", "execvp", "execvpe", "posix_spawn", "posix_spawnp",
-    "remove", "unlink", "mkdir", "makedirs", "rmdir", "removedirs",
-    "rename", "replace", "chmod", "chown", "symlink", "link", "listdir",
-    "scandir", "walk", "fdopen", "open", "write", "read", "chdir", "fchdir",
-    "setenv", "putenv", "kill", "killpg", "truncate", "ftruncate", "utime",
-    "startfile", "mkfifo", "mknod",
+    "system",
+    "popen",
+    "spawnl",
+    "spawnle",
+    "spawnlp",
+    "spawnlpe",
+    "spawnv",
+    "spawnve",
+    "spawnvp",
+    "spawnvpe",
+    "execv",
+    "execve",
+    "execl",
+    "execle",
+    "execlp",
+    "execvp",
+    "execvpe",
+    "posix_spawn",
+    "posix_spawnp",
+    "remove",
+    "unlink",
+    "mkdir",
+    "makedirs",
+    "rmdir",
+    "removedirs",
+    "rename",
+    "replace",
+    "chmod",
+    "chown",
+    "symlink",
+    "link",
+    "listdir",
+    "scandir",
+    "walk",
+    "fdopen",
+    "open",
+    "write",
+    "read",
+    "chdir",
+    "fchdir",
+    "setenv",
+    "putenv",
+    "kill",
+    "killpg",
+    "truncate",
+    "ftruncate",
+    "utime",
+    "startfile",
+    "mkfifo",
+    "mknod",
 )
 
 # pathlib.Path 直连方法
 PATH_METHODS: tuple[str, ...] = (
-    "read_text", "write_text", "read_bytes", "write_bytes", "open", "mkdir",
-    "unlink", "rename", "replace", "rmdir", "iterdir", "glob", "rglob",
-    "touch", "chmod", "symlink_to", "hardlink_to", "copy", "copyfile",
-    "readlink", "stat", "exists", "is_file", "is_dir",
+    "read_text",
+    "write_text",
+    "read_bytes",
+    "write_bytes",
+    "open",
+    "mkdir",
+    "unlink",
+    "rename",
+    "replace",
+    "rmdir",
+    "iterdir",
+    "glob",
+    "rglob",
+    "touch",
+    "chmod",
+    "symlink_to",
+    "hardlink_to",
+    "copy",
+    "copyfile",
+    "readlink",
+    "stat",
+    "exists",
+    "is_file",
+    "is_dir",
 )
 
 # shutil 直连
 SHUTIL_CALLS: tuple[str, ...] = (
-    "copy", "copy2", "copyfile", "copyfileobj", "copytree", "move", "rmtree",
-    "make_archive", "unpack_archive", "which", "disk_usage",
+    "copy",
+    "copy2",
+    "copyfile",
+    "copyfileobj",
+    "copytree",
+    "move",
+    "rmtree",
+    "make_archive",
+    "unpack_archive",
+    "which",
+    "disk_usage",
 )
 
 FILE_OPEN_MODES = ("w", "a", "r+", "w+", "a+", "x", "wb", "ab", "rb", "r")
@@ -149,7 +230,15 @@ def _call_kind(node: ast.Call) -> str | None:
             mode = "r"
             if node.args and len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
                 mode = str(node.args[1].value)
-            return "FILE_W" if (mode.startswith(("w", "a", "x", "r+", "w+", "a+")) or "b" in mode and mode.startswith(("w", "a"))) else "FILE_R"
+            return (
+                "FILE_W"
+                if (
+                    mode.startswith(("w", "a", "x", "r+", "w+", "a+"))
+                    or "b" in mode
+                    and mode.startswith(("w", "a"))
+                )
+                else "FILE_R"
+            )
         if fn.id == "input":
             return "STDIO"
         return None
@@ -166,21 +255,77 @@ def _call_kind(node: ast.Call) -> str | None:
         if base_name == "os" and attr in OS_CALLS:
             if attr in ("listdir", "scandir", "walk", "read", "fdopen", "open"):
                 return "FILE_R"
-            if attr in ("chmod", "chown", "utime", "kill", "killpg", "truncate", "ftruncate", "startfile"):
+            if attr in (
+                "chmod",
+                "chown",
+                "utime",
+                "kill",
+                "killpg",
+                "truncate",
+                "ftruncate",
+                "startfile",
+            ):
                 return "EXEC"
-            return "FILE_W" if attr in ("remove", "unlink", "mkdir", "makedirs", "rmdir", "removedirs", "rename", "replace", "symlink", "link", "write", "setenv", "putenv", "chdir", "fchdir", "mkfifo", "mknod") else "EXEC"
+            return (
+                "FILE_W"
+                if attr
+                in (
+                    "remove",
+                    "unlink",
+                    "mkdir",
+                    "makedirs",
+                    "rmdir",
+                    "removedirs",
+                    "rename",
+                    "replace",
+                    "symlink",
+                    "link",
+                    "write",
+                    "setenv",
+                    "putenv",
+                    "chdir",
+                    "fchdir",
+                    "mkfifo",
+                    "mknod",
+                )
+                else "EXEC"
+            )
         if base_name == "shutil" and attr in SHUTIL_CALLS:
             return "FILE_W"
         if base_name in ("Path", "PosixPath", "WindowsPath", "PurePath"):
-            return "FILE_R" if attr in ("read_text", "read_bytes", "readlink", "stat", "exists", "is_file", "is_dir", "iterdir", "glob", "rglob") else "FILE_W"
+            return (
+                "FILE_R"
+                if attr
+                in (
+                    "read_text",
+                    "read_bytes",
+                    "readlink",
+                    "stat",
+                    "exists",
+                    "is_file",
+                    "is_dir",
+                    "iterdir",
+                    "glob",
+                    "rglob",
+                )
+                else "FILE_W"
+            )
         # subprocess.run / socket.socket / httpx.get 等
         if base_name == "subprocess":
             return "EXEC"
         if base_name in ("socket", "requests", "httpx", "aiohttp", "urllib"):
             return "NET"
         # Path(...).open / (Path("x")).read_text —— 链式
-        if isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == "Path":
-            return "FILE_R" if attr in ("read_text", "read_bytes", "exists", "is_file", "is_dir") else "FILE_W"
+        if (
+            isinstance(base, ast.Call)
+            and isinstance(base.func, ast.Name)
+            and base.func.id == "Path"
+        ):
+            return (
+                "FILE_R"
+                if attr in ("read_text", "read_bytes", "exists", "is_file", "is_dir")
+                else "FILE_W"
+            )
     return None
 
 
@@ -233,7 +378,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.write_baseline:
         out = pathlib.Path(args.write_baseline)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("\n".join(all_violations) + ("\n" if all_violations else ""), encoding="utf-8")
+        out.write_text(
+            "\n".join(all_violations) + ("\n" if all_violations else ""), encoding="utf-8"
+        )
         print(f"[BASELINE] {len(all_violations)} 条直接 I/O 违规已写入 {out}")
         return 0
 
@@ -247,10 +394,14 @@ def main(argv: list[str] | None = None) -> int:
     if new:
         for v in sorted(new):
             print(f"[FAIL] {v}")
-        print(f"\n共 {len(new)} 处新增直接 I/O（存量 {len(all_violations) - len(new)} 条在基线内）。")
+        print(
+            f"\n共 {len(new)} 处新增直接 I/O（存量 {len(all_violations) - len(new)} 条在基线内）。"
+        )
         return 1
     if not args.quiet:
-        print(f"[OK] 业务层直接 I/O 检查通过（扫描 {len(targets)} 个目录, 基线放行 {len(all_violations)} 条存量）。")
+        print(
+            f"[OK] 业务层直接 I/O 检查通过（扫描 {len(targets)} 个目录, 基线放行 {len(all_violations)} 条存量）。"
+        )
     return 0
 
 

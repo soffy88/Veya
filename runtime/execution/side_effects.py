@@ -44,7 +44,9 @@ class SideEffectLedger:
             return previous.get("result")
         if row.get("state") == "unknown":
             if probe is None or capability not in {"status_probe", "idempotency_key"}:
-                raise DurableExecutionError("MANUAL_REVIEW_REQUIRED", "side effect outcome is unknown")
+                raise DurableExecutionError(
+                    "MANUAL_REVIEW_REQUIRED", "side effect outcome is unknown"
+                )
             probe_result = probe()
             if inspect.isawaitable(probe_result):
                 probe_result = await probe_result
@@ -60,9 +62,15 @@ class SideEffectLedger:
                 )
                 return probe_result.get("result")
             if probe_status not in {"not_found", "not_started"} and capability != "idempotency_key":
-                await self.repository.update_side_effect(operation_key, state="unknown", probe_result=probe_result, claim=claim)
-                raise DurableExecutionError("MANUAL_REVIEW_REQUIRED", "side effect probe is inconclusive")
-            await self.repository.update_side_effect(operation_key, state="started", probe_result=probe_result, claim=claim)
+                await self.repository.update_side_effect(
+                    operation_key, state="unknown", probe_result=probe_result, claim=claim
+                )
+                raise DurableExecutionError(
+                    "MANUAL_REVIEW_REQUIRED", "side effect probe is inconclusive"
+                )
+            await self.repository.update_side_effect(
+                operation_key, state="started", probe_result=probe_result, claim=claim
+            )
 
         await self.repository.update_side_effect(operation_key, state="started", claim=claim)
         try:

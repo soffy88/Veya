@@ -207,14 +207,15 @@ def test_hub_duplicate_name_last_wins(tmp_path):
         ),
         encoding="utf-8",
     )
-    (tmp_path / "other" / "run.py").write_text("def main():\n    return 'override'\n", encoding="utf-8")
+    (tmp_path / "other" / "run.py").write_text(
+        "def main():\n    return 'override'\n", encoding="utf-8"
+    )
     hub = VeyaSkillHub(skills_dir=tmp_path)
     assert hub.has("dup")
     # ②-A dispatcher: 真实技能名走 _all_skill_names, catalog 反映后加载覆盖
     assert "dup" in hub._all_skill_names()
     assert "dup2" in hub._all_skill_names()
-    run = next(s for s in hub.get_all_schemas()
-               if s["function"]["name"] == "run_skill")
+    run = next(s for s in hub.get_all_schemas() if s["function"]["name"] == "run_skill")
     assert "second" in run["function"]["description"]  # 后加载者覆盖生效
 
 
@@ -255,7 +256,11 @@ def test_create_skill_package_helper(tmp_path):
     pkg = create_skill_package(
         "crypto_tracker",
         "Fetch real-time BTC price",
-        {"type": "object", "properties": {"currency": {"type": "string"}}, "required": ["currency"]},
+        {
+            "type": "object",
+            "properties": {"currency": {"type": "string"}},
+            "required": ["currency"],
+        },
         skills_dir=tmp_path,
         code="def main(currency='usd'):\n    return {'currency': currency}\n",
     )
@@ -283,7 +288,11 @@ async def test_mcp_skill_http_bridge(tmp_path, monkeypatch):
                 "description": "Query internal JIRA",
                 "type": "mcp",
                 "endpoint": "http://127.0.0.1:9999",
-                "parameters": {"type": "object", "properties": {"issue": {"type": "string"}}, "required": ["issue"]},
+                "parameters": {
+                    "type": "object",
+                    "properties": {"issue": {"type": "string"}},
+                    "required": ["issue"],
+                },
             }
         ),
         encoding="utf-8",
@@ -444,7 +453,11 @@ async def test_master_routes_to_skill_hub(tmp_path):
     coord = MasterCoordinator(llm_fn=fake_llm, skill_hub=hub, max_rounds=3)
     result = await coord.chat_stream("测试", session_id="s2")
     assert result["status"] == "success"
-    assert result["tool_calls"][0] == {"tool": "flaky", "status": "failed", "error": "Skill 'flaky' main() failed: bad input 1"}
+    assert result["tool_calls"][0] == {
+        "tool": "flaky",
+        "status": "failed",
+        "error": "Skill 'flaky' main() failed: bad input 1",
+    }
     assert "[Tool flaky FAILED]" in calls[1][-1]["content"]
 
 
@@ -454,5 +467,5 @@ def test_master_inventory_includes_skills(tmp_path):
     hub = VeyaSkillHub(skills_dir=tmp_path)
     coord = MasterCoordinator(skill_hub=hub)
     prompt = coord.get_system_prompt()
-    assert "- greeter —" not in prompt      # dispatcher: 技能不进 system 提示
+    assert "- greeter —" not in prompt  # dispatcher: 技能不进 system 提示
     assert "- system_reload_skills —" in prompt

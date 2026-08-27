@@ -65,12 +65,16 @@ def test_oskill_pure_strict_flags_impure_file(tmp_path: Path):
     """/pure/ 目录下的文件必须强制纯净 — open() 直接失败。"""
     pkg = tmp_path / "pure"
     pkg.mkdir(parents=True)
-    (pkg / "impure.py").write_text(
-        "def f():\n    return open('x')\n", encoding="utf-8"
-    )
+    (pkg / "impure.py").write_text("def f():\n    return open('x')\n", encoding="utf-8")
     r = subprocess.run(
-        [sys.executable, str(SCRIPTS / "check_oskill_pure.py"), str(tmp_path),
-         "--targets", "pure", "--quiet"],
+        [
+            sys.executable,
+            str(SCRIPTS / "check_oskill_pure.py"),
+            str(tmp_path),
+            "--targets",
+            "pure",
+            "--quiet",
+        ],
         capture_output=True,
         text=True,
         timeout=120,
@@ -89,8 +93,14 @@ def test_oskill_pure_accepts_clean_module(tmp_path: Path):
         encoding="utf-8",
     )
     r = subprocess.run(
-        [sys.executable, str(SCRIPTS / "check_oskill_pure.py"), str(tmp_path),
-         "--targets", "pure", "--quiet"],
+        [
+            sys.executable,
+            str(SCRIPTS / "check_oskill_pure.py"),
+            str(tmp_path),
+            "--targets",
+            "pure",
+            "--quiet",
+        ],
         capture_output=True,
         text=True,
         timeout=120,
@@ -120,8 +130,14 @@ def test_direct_io_checker_detects_new_violation(tmp_path: Path):
         encoding="utf-8",
     )
     r = subprocess.run(
-        [sys.executable, str(SCRIPTS / "check_no_direct_io.py"), str(tmp_path),
-         "--targets", "server", "--quiet"],
+        [
+            sys.executable,
+            str(SCRIPTS / "check_no_direct_io.py"),
+            str(tmp_path),
+            "--targets",
+            "server",
+            "--quiet",
+        ],
         capture_output=True,
         text=True,
         timeout=120,
@@ -140,8 +156,14 @@ def test_direct_io_checker_allow_marker_exempts(tmp_path: Path):
         encoding="utf-8",
     )
     r = subprocess.run(
-        [sys.executable, str(SCRIPTS / "check_no_direct_io.py"), str(tmp_path),
-         "--targets", "server", "--quiet"],
+        [
+            sys.executable,
+            str(SCRIPTS / "check_no_direct_io.py"),
+            str(tmp_path),
+            "--targets",
+            "server",
+            "--quiet",
+        ],
         capture_output=True,
         text=True,
         timeout=120,

@@ -240,7 +240,9 @@ async def test_autonomous_route_full_flow(tmp_path, monkeypatch):
 
     # 注入独立引擎(测试隔离)
     resilient.task_manager = VeyaTaskManager(db_path=str(tmp_path / "tasks.db"))
-    resilient.model_router = VeyaModelRouter(flagship_api_key="k", llm_fn=_fake_llm_factory("economy-mini"))
+    resilient.model_router = VeyaModelRouter(
+        flagship_api_key="k", llm_fn=_fake_llm_factory("economy-mini")
+    )
     resilient.model_router._router = None  # 强制走默认? 直接注入
     from veya.platform import omodul as _l
 
@@ -253,13 +255,20 @@ async def test_autonomous_route_full_flow(tmp_path, monkeypatch):
         }
 
     resilient.model_router._router = om.model_router.ModelRouter(
-        flagship_caller=economy_llm, economy_caller=economy_llm, flagship_model="f", economy_model="e"
+        flagship_caller=economy_llm,
+        economy_caller=economy_llm,
+        flagship_model="f",
+        economy_model="e",
     )
 
     client = TestClient(app)
     resp = client.post(
         "/api/v1/autonomous/run",
-        json={"task_id": "grid_001", "data": "repo had 42 commits this week", "source": "github_webhook"},
+        json={
+            "task_id": "grid_001",
+            "data": "repo had 42 commits this week",
+            "source": "github_webhook",
+        },
     )
     assert resp.status_code == 200
     body = resp.json()

@@ -10,14 +10,14 @@ from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatu
 def test_plan_task_count_limit():
     """任务数 1 … max_leaf_tasks 约束。"""
     state = GoalRunState(goal_id="g1", goal_text="test", budget={"max_leaf_tasks": 40})
-    
+
     # 添加 41 个任务
     for i in range(41):
         tn = TaskNode(
-            id=f"t{i+1}",
-            title=f"任务{i+1}",
-            instruction=f"做 {i+1}",
-            acceptance=[f"验收 {i+1}"],
+            id=f"t{i + 1}",
+            title=f"任务{i + 1}",
+            instruction=f"做 {i + 1}",
+            acceptance=[f"验收 {i + 1}"],
             depends_on=[],
             assignee="hicode",
         )
@@ -54,13 +54,20 @@ def test_plan_acceptance_nonempty():
 def test_plan_depends_on_acyclic():
     """depends_on 无环（拓扑校验）。"""
     # 无环图
-    t1 = TaskNode(id="t1", title="A", instruction="A", acceptance=["a"], depends_on=[], assignee="hicode")
-    t2 = TaskNode(id="t2", title="B", instruction="B", acceptance=["b"], depends_on=["t1"], assignee="hicode")
-    t3 = TaskNode(id="t3", title="C", instruction="C", acceptance=["c"], depends_on=["t2"], assignee="hicode")
+    t1 = TaskNode(
+        id="t1", title="A", instruction="A", acceptance=["a"], depends_on=[], assignee="hicode"
+    )
+    t2 = TaskNode(
+        id="t2", title="B", instruction="B", acceptance=["b"], depends_on=["t1"], assignee="hicode"
+    )
+    t3 = TaskNode(
+        id="t3", title="C", instruction="C", acceptance=["c"], depends_on=["t2"], assignee="hicode"
+    )
 
     nodes = {"t1": t1, "t2": t2, "t3": t3}
     # Kahn 算法
     from collections import deque
+
     in_degree = {nid: len(n.depends_on) for nid, n in nodes.items()}
     zero_queue = deque([nid for nid, deg in in_degree.items() if deg == 0])
 
@@ -79,12 +86,19 @@ def test_plan_depends_on_acyclic():
 
 def test_plan_depends_on_cyclic_blocked():
     """有环 → blocked + reason（实际在 plan 阶段拦截）。"""
-    t1 = TaskNode(id="t1", title="A", instruction="A", acceptance=["a"], depends_on=["t3"], assignee="hicode")
-    t2 = TaskNode(id="t2", title="B", instruction="B", acceptance=["b"], depends_on=["t1"], assignee="hicode")
-    t3 = TaskNode(id="t3", title="C", instruction="C", acceptance=["c"], depends_on=["t2"], assignee="hicode")
+    t1 = TaskNode(
+        id="t1", title="A", instruction="A", acceptance=["a"], depends_on=["t3"], assignee="hicode"
+    )
+    t2 = TaskNode(
+        id="t2", title="B", instruction="B", acceptance=["b"], depends_on=["t1"], assignee="hicode"
+    )
+    t3 = TaskNode(
+        id="t3", title="C", instruction="C", acceptance=["c"], depends_on=["t2"], assignee="hicode"
+    )
 
     nodes = {"t1": t1, "t2": t2, "t3": t3}
     from collections import deque
+
     in_degree = {nid: len(n.depends_on) for nid, n in nodes.items()}
     zero_queue = deque([nid for nid, deg in in_degree.items() if deg == 0])
 
@@ -104,10 +118,14 @@ def test_plan_depends_on_cyclic_blocked():
 def test_plan_default_assignee():
     """默认所有 assignee = default_assignee。"""
     state = GoalRunState(goal_id="g1", goal_text="test", default_assignee="hicode")
-    
-    t1 = TaskNode(id="t1", title="A", instruction="A", acceptance=["a"], depends_on=[], assignee="hicode")
-    t2 = TaskNode(id="t2", title="B", instruction="B", acceptance=["b"], depends_on=[], assignee="hicode")
-    
+
+    t1 = TaskNode(
+        id="t1", title="A", instruction="A", acceptance=["a"], depends_on=[], assignee="hicode"
+    )
+    t2 = TaskNode(
+        id="t2", title="B", instruction="B", acceptance=["b"], depends_on=[], assignee="hicode"
+    )
+
     state.tasks = {"t1": t1, "t2": t2}
 
     # 验证所有任务 assignee 都是 default_assignee

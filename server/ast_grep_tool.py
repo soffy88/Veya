@@ -38,9 +38,7 @@ def resolve_bin() -> str | None:
     sg = shutil.which("sg")
     if sg:
         try:
-            out = subprocess.run(
-                [sg, "--version"], capture_output=True, text=True, timeout=5
-            )
+            out = subprocess.run([sg, "--version"], capture_output=True, text=True, timeout=5)
         except (OSError, subprocess.TimeoutExpired):
             return None
         blob = (out.stdout or "") + (out.stderr or "")
@@ -122,4 +120,10 @@ def search(
             "error": (proc.stderr or f"exit {proc.returncode}").strip(),
             "hits": hits,
         }
-    return {"ok": True, "updated": False, "lang": lang, "hits": hits, "n": len(hits) if isinstance(hits, list) else 1}
+    return {
+        "ok": True,
+        "updated": False,
+        "lang": lang,
+        "hits": hits,
+        "n": len(hits) if isinstance(hits, list) else 1,
+    }

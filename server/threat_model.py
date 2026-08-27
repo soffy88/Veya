@@ -40,7 +40,8 @@ class VeyaThreatModel:
             {status: quarantined|monitoring, posterior, hostile_prob,
              quarantined, signal_trail, profile_path, ...}
         """
-        inp = _omodul.ThreatModelInput(signals, prior=prior,
-                                       profile_path=profile_path, entity=entity)
+        inp = _omodul.ThreatModelInput(
+            signals, prior=prior, profile_path=profile_path, entity=entity
+        )
         cfg = _omodul.ThreatModelConfig(quarantine_threshold=quarantine_threshold)
         return await _omodul.threat_model_evolve(cfg, inp, self.output_dir)

@@ -15,6 +15,7 @@ Scope is deliberately narrow and honest about it:
 
 Returns the same shape as read_png(): (width, height, [(r, g, b, a), ...]).
 """
+
 from __future__ import annotations
 
 import struct
@@ -31,17 +32,76 @@ SOI, EOI, SOS, DQT, DHT, DRI = 0xD8, 0xD9, 0xDA, 0xDB, 0xC4, 0xDD
 SOF_BASELINE, SOF_EXTENDED, SOF_PROGRESSIVE = 0xC0, 0xC1, 0xC2
 
 ZIGZAG = (
-    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
-    12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
-    35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
-    58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+    0,
+    1,
+    8,
+    16,
+    9,
+    2,
+    3,
+    10,
+    17,
+    24,
+    32,
+    25,
+    18,
+    11,
+    4,
+    5,
+    12,
+    19,
+    26,
+    33,
+    40,
+    48,
+    41,
+    34,
+    27,
+    20,
+    13,
+    6,
+    7,
+    14,
+    21,
+    28,
+    35,
+    42,
+    49,
+    56,
+    57,
+    50,
+    43,
+    36,
+    29,
+    22,
+    15,
+    23,
+    30,
+    37,
+    44,
+    51,
+    58,
+    59,
+    52,
+    45,
+    38,
+    31,
+    39,
+    46,
+    53,
+    60,
+    61,
+    54,
+    47,
+    55,
+    62,
+    63,
 )
 
 # IDCT[u][x] = C(u)/2 * cos((2x+1) u pi / 16); applying it on rows then columns
 # yields the 1/4 scaling of the 2-D inverse DCT.
 _IDCT = [
-    [((0.353553390593273762 if u == 0 else 0.5) * cos((2 * x + 1) * u * pi / 16))
-     for x in range(8)]
+    [((0.353553390593273762 if u == 0 else 0.5) * cos((2 * x + 1) * u * pi / 16)) for x in range(8)]
     for u in range(8)
 ]
 
@@ -153,7 +213,7 @@ def _idct_2d(block: list[float]) -> list[float]:
     tmp = [0.0] * 64
     for y in range(8):
         row = y * 8
-        coeffs = block[row:row + 8]
+        coeffs = block[row : row + 8]
         if not any(coeffs[1:]):
             value = coeffs[0] * 0.353553390593273762
             for x in range(8):
@@ -185,7 +245,9 @@ def _idct_2d(block: list[float]) -> list[float]:
     return out
 
 
-def _axis_map(out_len: int, samp: int, samp_max: int, plane_len: int) -> list[tuple[int, int, float]]:
+def _axis_map(
+    out_len: int, samp: int, samp_max: int, plane_len: int
+) -> list[tuple[int, int, float]]:
     """Per-output-pixel (low, high, fraction) for triangular chroma upsampling.
 
     Subsampled chroma samples sit at the centre of the luma pixels they cover, so
@@ -210,8 +272,9 @@ def _axis_map(out_len: int, samp: int, samp_max: int, plane_len: int) -> list[tu
     return mapping
 
 
-def _bilinear(plane: list[float], row0: int, row1: int, yfrac: float,
-              xmap: tuple[int, int, float]) -> float:
+def _bilinear(
+    plane: list[float], row0: int, row1: int, yfrac: float, xmap: tuple[int, int, float]
+) -> float:
     x0, x1, xfrac = xmap
     top = plane[row0 + x0] + (plane[row0 + x1] - plane[row0 + x0]) * xfrac
     if yfrac == 0.0 and row0 == row1:
@@ -253,8 +316,8 @@ def decode_jpeg(data: bytes) -> tuple[int, int, list[tuple[int, int, int, int]]]
             continue
         if pos + 2 > len(data):
             break
-        seg_len = struct.unpack(">H", data[pos:pos + 2])[0]
-        segment = data[pos + 2:pos + seg_len]
+        seg_len = struct.unpack(">H", data[pos : pos + 2])[0]
+        segment = data[pos + 2 : pos + seg_len]
 
         if marker == SOF_PROGRESSIVE:
             raise UnsupportedJpeg("progressive JPEG is not supported by this decoder")
@@ -273,13 +336,15 @@ def decode_jpeg(data: bytes) -> tuple[int, int, list[tuple[int, int, int, int]]]
                 )
             components = []
             for i in range(count):
-                cid, sampling, tq = segment[6 + i * 3:9 + i * 3]
-                components.append({
-                    "id": cid,
-                    "h": sampling >> 4,
-                    "v": sampling & 15,
-                    "tq": tq,
-                })
+                cid, sampling, tq = segment[6 + i * 3 : 9 + i * 3]
+                components.append(
+                    {
+                        "id": cid,
+                        "h": sampling >> 4,
+                        "v": sampling & 15,
+                        "tq": tq,
+                    }
+                )
         elif marker == DQT:
             cursor = 0
             while cursor < len(segment):
@@ -289,7 +354,7 @@ def decode_jpeg(data: bytes) -> tuple[int, int, list[tuple[int, int, int, int]]]
                 values = [0] * 64
                 for i in range(64):
                     if precision:
-                        values[ZIGZAG[i]] = struct.unpack(">H", segment[cursor:cursor + 2])[0]
+                        values[ZIGZAG[i]] = struct.unpack(">H", segment[cursor : cursor + 2])[0]
                         cursor += 2
                     else:
                         values[ZIGZAG[i]] = segment[cursor]
@@ -300,10 +365,10 @@ def decode_jpeg(data: bytes) -> tuple[int, int, list[tuple[int, int, int, int]]]
             while cursor < len(segment):
                 tc_th = segment[cursor]
                 cursor += 1
-                counts = segment[cursor:cursor + 16]
+                counts = segment[cursor : cursor + 16]
                 cursor += 16
                 total = sum(counts)
-                symbols = segment[cursor:cursor + total]
+                symbols = segment[cursor : cursor + total]
                 cursor += total
                 table = _build_huffman(counts, symbols)
                 if tc_th >> 4:
@@ -316,7 +381,7 @@ def decode_jpeg(data: bytes) -> tuple[int, int, list[tuple[int, int, int, int]]]
             count = segment[0]
             scan_components = []
             for i in range(count):
-                cid, tables = segment[1 + i * 2:3 + i * 2]
+                cid, tables = segment[1 + i * 2 : 3 + i * 2]
                 for comp in components:
                     if comp["id"] == cid:
                         comp["dc"] = tables >> 4
@@ -421,12 +486,19 @@ def decode_jpeg(data: bytes) -> tuple[int, int, list[tuple[int, int, int, int]]]
         comp["xmap"] = _axis_map(width, comp["h"], h_max, comp["w"])
         comp["ymap"] = _axis_map(height, comp["v"], v_max, comp["h_px"])
 
-    y_plane, y_stride, y_xmap, y_ymap = (
-        y_c["plane"], y_c["stride"], y_c["xmap"], y_c["ymap"])
+    y_plane, y_stride, y_xmap, y_ymap = (y_c["plane"], y_c["stride"], y_c["xmap"], y_c["ymap"])
     cb_plane, cb_stride, cb_xmap, cb_ymap = (
-        cb_c["plane"], cb_c["stride"], cb_c["xmap"], cb_c["ymap"])
+        cb_c["plane"],
+        cb_c["stride"],
+        cb_c["xmap"],
+        cb_c["ymap"],
+    )
     cr_plane, cr_stride, cr_xmap, cr_ymap = (
-        cr_c["plane"], cr_c["stride"], cr_c["xmap"], cr_c["ymap"])
+        cr_c["plane"],
+        cr_c["stride"],
+        cr_c["xmap"],
+        cr_c["ymap"],
+    )
 
     for y in range(height):
         yy0, yy1, yfr = y_ymap[y]
@@ -439,10 +511,12 @@ def decode_jpeg(data: bytes) -> tuple[int, int, list[tuple[int, int, int, int]]]
             luma = _bilinear(y_plane, y_r0, y_r1, yfr, y_xmap[x])
             cb = _bilinear(cb_plane, cb_r0, cb_r1, cbyfr, cb_xmap[x]) - 128.0
             cr = _bilinear(cr_plane, cr_r0, cr_r1, cryfr, cr_xmap[x]) - 128.0
-            out.append((
-                _clamp(luma + 1.402 * cr),
-                _clamp(luma - 0.344136 * cb - 0.714136 * cr),
-                _clamp(luma + 1.772 * cb),
-                255,
-            ))
+            out.append(
+                (
+                    _clamp(luma + 1.402 * cr),
+                    _clamp(luma - 0.344136 * cb - 0.714136 * cr),
+                    _clamp(luma + 1.772 * cb),
+                    255,
+                )
+            )
     return width, height, out

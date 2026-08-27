@@ -17,7 +17,7 @@ from typing import Any
 
 from veya_loop.omodul.video_reliability_loop import VideoSpec
 
-DEFAULT_BASE_URL = "http://127.0.0.1:8000"   # hevi API (同机 dev / 服务内网)
+DEFAULT_BASE_URL = "http://127.0.0.1:8000"  # hevi API (同机 dev / 服务内网)
 
 
 class HeviGenerateClient:
@@ -34,8 +34,9 @@ class HeviGenerateClient:
         self._download_dir = download_dir or Path("/tmp/hevi_downloads")
         self._download_dir.mkdir(parents=True, exist_ok=True)
 
-    def generate(self, prompt: str, spec: VideoSpec,
-                 failure_context: dict[str, Any] | None = None) -> Path:
+    def generate(
+        self, prompt: str, spec: VideoSpec, failure_context: dict[str, Any] | None = None
+    ) -> Path:
         """真实出片: prompt → cues → hevi Lite 管线 → 本地视频路径。"""
         failure_context = failure_context or {}
         width, height = self._aspect_size(spec)
@@ -51,8 +52,10 @@ class HeviGenerateClient:
             "fps": 24,
             "output_name": "final.mp4",
             # 失败上下文注入: 时长不够 → 增加旁白量/提示保持时长。
-            "options": {"duration_hint_s": round(spec.min_duration_s, 1),
-                        "failure_kind": failure_context.get("kind", "")},
+            "options": {
+                "duration_hint_s": round(spec.min_duration_s, 1),
+                "failure_kind": failure_context.get("kind", ""),
+            },
         }
         req = urllib.request.Request(
             f"{self._base}/api/lite/generate",
@@ -67,9 +70,7 @@ class HeviGenerateClient:
             raise RuntimeError(f"hevi /api/lite/generate 失败: {exc}") from exc
 
         if result.get("status") != "completed":
-            raise RuntimeError(
-                f"hevi 出片失败: {result.get('status')} {result.get('error', '')}"
-            )
+            raise RuntimeError(f"hevi 出片失败: {result.get('status')} {result.get('error', '')}")
         video_path = result.get("video_path")
         if not video_path:
             raise RuntimeError("hevi 返回 completed 但无 video_path")
@@ -83,9 +84,7 @@ class HeviGenerateClient:
         # 容器/远端路径: 尝试下载 (hevi 需暴露文件端点时启用)。
         local = self._download_dir / video_path.name
         try:
-            urllib.request.urlretrieve(
-                f"{self._base}/api/files/{video_path.name}", local
-            )
+            urllib.request.urlretrieve(f"{self._base}/api/files/{video_path.name}", local)
             return local
         except Exception:
             # 不可达时返回原路径, 让沙箱以 FILE_MISSING 兜底并给出清晰签名。
@@ -103,8 +102,9 @@ class HeviGenerateClient:
         # 未知比例: 兜底 16:9
         return max(1280, base), 720
 
-    def _build_cues(self, prompt: str, spec: VideoSpec,
-                    failure_context: dict[str, Any]) -> list[dict[str, Any]]:
+    def _build_cues(
+        self, prompt: str, spec: VideoSpec, failure_context: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """prompt → 若干条 Lite cue。
 
         时长目标: cue 数随 min_duration_s 增加 (旁白量驱动时长)。
@@ -124,12 +124,14 @@ class HeviGenerateClient:
         cues: list[dict[str, Any]] = []
         for i, sentence in enumerate(sentences):
             title = sentence[:18] + ("…" if len(sentence) > 18 else "")
-            cues.append({
-                "index": i,
-                "narration": f"{sentence}{keep_duration_hint}",
-                "template": "card",
-                "props": {"title": title, "body": sentence, "fullscreen": False},
-            })
+            cues.append(
+                {
+                    "index": i,
+                    "narration": f"{sentence}{keep_duration_hint}",
+                    "template": "card",
+                    "props": {"title": title, "body": sentence, "fullscreen": False},
+                }
+            )
         return cues
 
 

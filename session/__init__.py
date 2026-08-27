@@ -125,7 +125,11 @@ class SessionManager:
         self._active: Session | None = None
 
     def create(
-        self, *, mode: str = "build", model: str = "claude-sonnet-4-6", cwd: str = "",
+        self,
+        *,
+        mode: str = "build",
+        model: str = "claude-sonnet-4-6",
+        cwd: str = "",
         parent_id: str | None = None,
     ) -> Session:
         sess = Session(mode=mode, model=model, cwd=cwd)

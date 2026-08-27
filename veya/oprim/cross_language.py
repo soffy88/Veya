@@ -439,7 +439,9 @@ class CrossLanguageTranslator:
             # source directories such as ``src`` and ``tests`` intact while
             # avoiding dependency/build trees that can contain millions of
             # files.
-            dirs[:] = [directory for directory in dirs if directory not in self._ANALYSIS_EXCLUDED_DIRS]
+            dirs[:] = [
+                directory for directory in dirs if directory not in self._ANALYSIS_EXCLUDED_DIRS
+            ]
             for file in files:
                 ext = Path(file).suffix
                 if ext in file_extensions:

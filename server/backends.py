@@ -28,9 +28,9 @@ class BackendSpec:
     """一个执行后端的注册信息。"""
 
     name: str
-    kind: str                    # builtin | cli | acp
+    kind: str  # builtin | cli | acp
     command: list[str] = field(default_factory=list)  # cli/acp: 可执行命令
-    agent: str = "general"       # acp: agent 名
+    agent: str = "general"  # acp: agent 名
     model: str = ""
     enabled: bool = True
     created_at: float = field(default_factory=time.time)
@@ -44,9 +44,12 @@ class BackendSpec:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name, "kind": self.kind,
-            "command": self.command, "agent": self.agent,
-            "model": self.model, "enabled": self.enabled,
+            "name": self.name,
+            "kind": self.kind,
+            "command": self.command,
+            "agent": self.agent,
+            "model": self.model,
+            "enabled": self.enabled,
             "available": self.available(),
         }
 
@@ -56,17 +59,30 @@ class BackendRegistry:
 
     def __init__(self) -> None:
         self._backends: dict[str, BackendSpec] = {}
-        self._running: dict[str, int] = {}   # backend name → 运行中任务数
+        self._running: dict[str, int] = {}  # backend name → 运行中任务数
         self._tasks: set[asyncio.Task] = set()
 
     # ── 注册/发现 ──────────────────────────────────────────────────────
-    def register(self, name: str, kind: str, *, command: list[str] | None = None,
-                 agent: str = "general", model: str = "",
-                 enabled: bool = True) -> BackendSpec:
+    def register(
+        self,
+        name: str,
+        kind: str,
+        *,
+        command: list[str] | None = None,
+        agent: str = "general",
+        model: str = "",
+        enabled: bool = True,
+    ) -> BackendSpec:
         if kind not in BACKEND_KINDS:
             raise ValueError(f"未知 backend kind: {kind}; 可选 {BACKEND_KINDS}")
-        spec = BackendSpec(name=name, kind=kind, command=list(command or []),
-                           agent=agent, model=model, enabled=enabled)
+        spec = BackendSpec(
+            name=name,
+            kind=kind,
+            command=list(command or []),
+            agent=agent,
+            model=model,
+            enabled=enabled,
+        )
         self._backends[name] = spec
         return spec
 
@@ -78,8 +94,7 @@ class BackendRegistry:
         if not self._container_env():
             for eng, bin_name in CLI_BACKENDS.items():
                 if shutil.which(bin_name):
-                    out.append(BackendSpec(
-                        name=eng, kind="cli", command=[bin_name], model=eng))
+                    out.append(BackendSpec(name=eng, kind="cli", command=[bin_name], model=eng))
         return out
 
     def list(self) -> list[dict[str, Any]]:
@@ -100,13 +115,25 @@ class BackendRegistry:
         for s in self.list():
             if s["name"] == name:
                 return self._backends.get(name) or BackendSpec(
-                    name=s["name"], kind=s["kind"], command=s["command"],
-                    agent=s["agent"], model=s["model"], enabled=s["enabled"])
+                    name=s["name"],
+                    kind=s["kind"],
+                    command=s["command"],
+                    agent=s["agent"],
+                    model=s["model"],
+                    enabled=s["enabled"],
+                )
         return None
 
     # ── 执行 ───────────────────────────────────────────────────────────
-    async def run(self, name: str, prompt: str, *, cwd: str | None = None,
-                  model: str = "", timeout_s: float = 600.0) -> dict[str, Any]:
+    async def run(
+        self,
+        name: str,
+        prompt: str,
+        *,
+        cwd: str | None = None,
+        model: str = "",
+        timeout_s: float = 600.0,
+    ) -> dict[str, Any]:
         """统一执行: builtin → 主脑; cli → engine_runner; acp → ACP 客户端。"""
         spec = self._find(name)
         if spec is None:
@@ -114,8 +141,11 @@ class BackendRegistry:
         if not spec.enabled:
             return {"ok": False, "backend": name, "error": "backend 已禁用"}
         if not spec.available():
-            return {"ok": False, "backend": name,
-                    "error": f"backend {name} 不可用 (CLI 未安装或命令无效)"}
+            return {
+                "ok": False,
+                "backend": name,
+                "error": f"backend {name} 不可用 (CLI 未安装或命令无效)",
+            }
 
         self._running[name] = self._running.get(name, 0) + 1
         try:
@@ -127,8 +157,7 @@ class BackendRegistry:
         finally:
             self._running[name] = max(0, self._running.get(name, 0) - 1)
 
-    async def _run_builtin(self, prompt: str, model: str,
-                           timeout_s: float) -> dict[str, Any]:
+    async def _run_builtin(self, prompt: str, model: str, timeout_s: float) -> dict[str, Any]:
         from server.coordinator import coordinator
 
         result = await asyncio.wait_for(
@@ -137,50 +166,76 @@ class BackendRegistry:
         )
         output = result.get("output") or result.get("squads") or ""
         ok = result.get("status") == "success"
-        return {"ok": ok, "backend": "master",
-                "output": str(output)[:4000] if output else "",
-                "error": "" if ok else str(result.get("error", "执行失败"))[:2000],
-                "duration_s": 0.0}
+        return {
+            "ok": ok,
+            "backend": "master",
+            "output": str(output)[:4000] if output else "",
+            "error": "" if ok else str(result.get("error", "执行失败"))[:2000],
+            "duration_s": 0.0,
+        }
 
-    async def _run_cli(self, spec: BackendSpec, prompt: str, cwd: str | None,
-                       model: str, timeout_s: float) -> dict[str, Any]:
+    async def _run_cli(
+        self, spec: BackendSpec, prompt: str, cwd: str | None, model: str, timeout_s: float
+    ) -> dict[str, Any]:
         from server.engine_runner import run_engine
 
-        result = await run_engine(spec.name, prompt, model=model or None,
-                                  cwd=cwd, timeout_s=timeout_s)
-        return {"ok": bool(result.get("ok")), "backend": spec.name,
-                "output": str(result.get("output", ""))[:4000],
-                "error": str(result.get("error", ""))[:2000],
-                "duration_s": float(result.get("duration_s", 0.0))}
+        result = await run_engine(
+            spec.name, prompt, model=model or None, cwd=cwd, timeout_s=timeout_s
+        )
+        return {
+            "ok": bool(result.get("ok")),
+            "backend": spec.name,
+            "output": str(result.get("output", ""))[:4000],
+            "error": str(result.get("error", ""))[:2000],
+            "duration_s": float(result.get("duration_s", 0.0)),
+        }
 
-    async def _run_acp(self, spec: BackendSpec, prompt: str, cwd: str | None,
-                       timeout_s: float) -> dict[str, Any]:
+    async def _run_acp(
+        self, spec: BackendSpec, prompt: str, cwd: str | None, timeout_s: float
+    ) -> dict[str, Any]:
         backend = ACPBackend(spec.command, agent=spec.agent, cwd=cwd)
         try:
             result = await backend.run(prompt, timeout_s=timeout_s)
-            return {"ok": True, "backend": spec.name,
-                    "output": str(result.get("output", ""))[:4000],
-                    "error": "", "duration_s": 0.0}
+            return {
+                "ok": True,
+                "backend": spec.name,
+                "output": str(result.get("output", ""))[:4000],
+                "error": "",
+                "duration_s": 0.0,
+            }
         except (ACPError, OSError) as e:
-            return {"ok": False, "backend": spec.name, "error": str(e)[:2000],
-                    "output": "", "duration_s": 0.0}
+            return {
+                "ok": False,
+                "backend": spec.name,
+                "error": str(e)[:2000],
+                "output": "",
+                "duration_s": 0.0,
+            }
         finally:
             await backend.close()
 
     # ── 状态聚合 (Canvas 视角) ─────────────────────────────────────────
     def status(self) -> list[dict[str, Any]]:
-        return [{
-            **s,
-            "busy": self._running.get(s["name"], 0) > 0,
-            "running_tasks": self._running.get(s["name"], 0),
-        } for s in self.list()]
+        return [
+            {
+                **s,
+                "busy": self._running.get(s["name"], 0) > 0,
+                "running_tasks": self._running.get(s["name"], 0),
+            }
+            for s in self.list()
+        ]
 
     def _find(self, name: str) -> BackendSpec | None:
         for s in self.list():
             if s["name"] == name:
                 return BackendSpec(
-                    name=s["name"], kind=s["kind"], command=s["command"],
-                    agent=s["agent"], model=s["model"], enabled=s["enabled"])
+                    name=s["name"],
+                    kind=s["kind"],
+                    command=s["command"],
+                    agent=s["agent"],
+                    model=s["model"],
+                    enabled=s["enabled"],
+                )
         return None
 
 

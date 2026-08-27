@@ -553,6 +553,7 @@ class ASTAnalyzer:
 
 # 便捷函数
 
+
 def _def_signature(node: ast.AST) -> str:
     """函数/方法 → 单行签名(上下文压缩核心)。"""
     try:

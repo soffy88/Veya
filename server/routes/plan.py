@@ -37,8 +37,9 @@ async def plan_list() -> dict:
     """列出所有计划 (最新在前) + quota 摘要。"""
     plans: list[dict] = []
     try:
-        files = sorted(glob.glob(os.path.join(_plans_dir(), "*.json")),
-                       key=os.path.getmtime, reverse=True)
+        files = sorted(
+            glob.glob(os.path.join(_plans_dir(), "*.json")), key=os.path.getmtime, reverse=True
+        )
     except OSError:
         files = []
     for f in files:
@@ -49,25 +50,28 @@ async def plan_list() -> dict:
             continue
         todos = plan.get("todos", [])
         done = sum(1 for t in todos if t.get("status") == "done")
-        plans.append({
-            "plan_id": plan.get("plan_id"),
-            "objective": plan.get("objective", ""),
-            "updated_at": plan.get("updated_at", ""),
-            "progress": {"done": done, "total": len(todos)},
-            "todos": [
-                {
-                    "id": t.get("id"), "title": t.get("title", ""),
-                    "status": t.get("status", "open"),
-                    "depends_on": t.get("depends_on", []),
-                    "assignee": t.get("assignee"),
-                    "claim": t.get("claim"),
-                    "evidence": t.get("evidence", [])[-3:],
-                }
-                for t in todos
-            ],
-            "spends": len(plan.get("spends", [])),
-            "quota": await _quota_summary(plan),
-        })
+        plans.append(
+            {
+                "plan_id": plan.get("plan_id"),
+                "objective": plan.get("objective", ""),
+                "updated_at": plan.get("updated_at", ""),
+                "progress": {"done": done, "total": len(todos)},
+                "todos": [
+                    {
+                        "id": t.get("id"),
+                        "title": t.get("title", ""),
+                        "status": t.get("status", "open"),
+                        "depends_on": t.get("depends_on", []),
+                        "assignee": t.get("assignee"),
+                        "claim": t.get("claim"),
+                        "evidence": t.get("evidence", [])[-3:],
+                    }
+                    for t in todos
+                ],
+                "spends": len(plan.get("spends", [])),
+                "quota": await _quota_summary(plan),
+            }
+        )
     return {"plans": plans, "total": len(plans)}
 
 

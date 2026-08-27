@@ -49,7 +49,15 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _versions() -> dict[str, str]:
-    names = ("mediapipe", "numpy", "opencv-contrib-python", "Pillow", "torch", "torchvision", "transformers")
+    names = (
+        "mediapipe",
+        "numpy",
+        "opencv-contrib-python",
+        "Pillow",
+        "torch",
+        "torchvision",
+        "transformers",
+    )
     versions: dict[str, str] = {}
     for name in names:
         try:
@@ -104,7 +112,12 @@ def _download(url: str, destination: Path) -> dict[str, Any]:
 
 
 def command_prefetch(args: argparse.Namespace) -> int:
-    from transformers import AutoImageProcessor, AutoModelForDepthEstimation, Sam2Model, Sam2Processor
+    from transformers import (
+        AutoImageProcessor,
+        AutoModelForDepthEstimation,
+        Sam2Model,
+        Sam2Processor,
+    )
 
     models_dir = Path(args.models_dir)
     hf_cache = Path(args.hf_cache)
@@ -113,7 +126,9 @@ def command_prefetch(args: argparse.Namespace) -> int:
 
     sam_processor = Sam2Processor.from_pretrained(SAM_MODEL, cache_dir=hf_cache, use_fast=False)
     sam_model = Sam2Model.from_pretrained(SAM_MODEL, cache_dir=hf_cache)
-    depth_processor = AutoImageProcessor.from_pretrained(DEPTH_MODEL, cache_dir=hf_cache, use_fast=False)
+    depth_processor = AutoImageProcessor.from_pretrained(
+        DEPTH_MODEL, cache_dir=hf_cache, use_fast=False
+    )
     depth_model = AutoModelForDepthEstimation.from_pretrained(DEPTH_MODEL, cache_dir=hf_cache)
 
     payload = {
@@ -179,8 +194,7 @@ def command_segment(args: argparse.Namespace) -> int:
     )
     original_sizes = inputs["original_sizes"].clone()
     model_inputs = {
-        key: value.to(device) if hasattr(value, "to") else value
-        for key, value in inputs.items()
+        key: value.to(device) if hasattr(value, "to") else value for key, value in inputs.items()
     }
     with torch.inference_mode():
         outputs = model(**model_inputs)
@@ -200,7 +214,9 @@ def command_segment(args: argparse.Namespace) -> int:
         "sourceSha256": _sha256(image_path),
         "output": str(output),
         "outputSha256": _sha256(output),
-        "prompt": {"positivePoints": [[round(float(px), 3), round(float(py), 3)] for px, py in points]},
+        "prompt": {
+            "positivePoints": [[round(float(px), 3), round(float(py), 3)] for px, py in points]
+        },
         "predictedIou": round(float(scores[best].item()), 6),
         "foregroundPixels": int((mask > 0).sum()),
         "imageSize": [image.width, image.height],
@@ -236,15 +252,19 @@ def command_depth(args: argparse.Namespace) -> int:
     model.eval()
     inputs = processor(images=image, return_tensors="pt")
     model_inputs = {
-        key: value.to(device) if hasattr(value, "to") else value
-        for key, value in inputs.items()
+        key: value.to(device) if hasattr(value, "to") else value for key, value in inputs.items()
     }
     with torch.inference_mode():
         outputs = model(**model_inputs)
-    result = processor.post_process_depth_estimation(
-        outputs,
-        target_sizes=[(image.height, image.width)],
-    )[0]["predicted_depth"].detach().cpu().numpy()
+    result = (
+        processor.post_process_depth_estimation(
+            outputs,
+            target_sizes=[(image.height, image.width)],
+        )[0]["predicted_depth"]
+        .detach()
+        .cpu()
+        .numpy()
+    )
     minimum = float(result.min())
     maximum = float(result.max())
     normalized = (result - minimum) / max(maximum - minimum, 1e-9)
@@ -285,11 +305,15 @@ def command_landmarks(args: argparse.Namespace) -> int:
     from mediapipe.tasks.python import vision
 
     image_path = Path(args.image).expanduser().resolve()
-    model_path = Path(args.model or Path(args.models_dir) / (
-        "face_landmarker.task" if args.kind == "face" else "pose_landmarker_lite.task"
-    ))
+    model_path = Path(
+        args.model
+        or Path(args.models_dir)
+        / ("face_landmarker.task" if args.kind == "face" else "pose_landmarker_lite.task")
+    )
     if not model_path.exists():
-        raise FileNotFoundError(f"missing MediaPipe model {model_path}; run the prefetch command first")
+        raise FileNotFoundError(
+            f"missing MediaPipe model {model_path}; run the prefetch command first"
+        )
     image = mp.Image.create_from_file(str(image_path))
     base = python.BaseOptions(
         model_asset_path=str(model_path),
@@ -307,12 +331,19 @@ def command_landmarks(args: argparse.Namespace) -> int:
         with vision.FaceLandmarker.create_from_options(options) as task:
             result = task.detect(image)
         landmarks = [
-            [{"x": p.x, "y": p.y, "z": p.z, "visibility": getattr(p, "visibility", None)} for p in face]
+            [
+                {"x": p.x, "y": p.y, "z": p.z, "visibility": getattr(p, "visibility", None)}
+                for p in face
+            ]
             for face in result.face_landmarks
         ]
         extras = {
-            "blendshapes": [[_category_payload(item) for item in face] for face in result.face_blendshapes],
-            "transformationMatrices": [matrix.tolist() for matrix in result.facial_transformation_matrixes],
+            "blendshapes": [
+                [_category_payload(item) for item in face] for face in result.face_blendshapes
+            ],
+            "transformationMatrices": [
+                matrix.tolist() for matrix in result.facial_transformation_matrixes
+            ],
         }
     else:
         options = vision.PoseLandmarkerOptions(
@@ -374,7 +405,12 @@ def build_parser() -> argparse.ArgumentParser:
     # forest render returned the sash alone at predictedIou 0.604. Several positive points spread over
     # head, torso and legs tell it they belong to ONE object.
     segment.add_argument(
-        "--point", nargs=2, type=float, metavar=("X", "Y"), action="append", dest="point",
+        "--point",
+        nargs=2,
+        type=float,
+        metavar=("X", "Y"),
+        action="append",
+        dest="point",
     )
     segment.add_argument("--out", required=True)
     segment.add_argument("--json-out")
@@ -388,7 +424,9 @@ def build_parser() -> argparse.ArgumentParser:
     depth.add_argument("--hf-cache", default=str(DEFAULT_HF_CACHE))
     depth.set_defaults(func=command_depth)
 
-    landmarks = subparsers.add_parser("landmarks", help="Extract face or pose landmarks with MediaPipe")
+    landmarks = subparsers.add_parser(
+        "landmarks", help="Extract face or pose landmarks with MediaPipe"
+    )
     landmarks.add_argument("kind", choices=("face", "pose"))
     landmarks.add_argument("image")
     landmarks.add_argument("--out", required=True)

@@ -17,6 +17,7 @@ from oservi.agent_team_monitor import TeamMonitor, monitor_team  # noqa: E402
 # G1 — Artifact 预览 (XSS 恶意样本集)
 # =========================================================================
 
+
 def test_sanitize_strips_script_and_events():
     evil = (
         '<p onclick="alert(1)">hi</p>'
@@ -39,16 +40,20 @@ def test_sanitize_drops_unknown_tags():
 
 
 def test_sanitize_svg_foreign_object():
-    evil = '<svg><foreignObject><iframe></iframe></foreignObject><rect/></svg>'
+    evil = "<svg><foreignObject><iframe></iframe></foreignObject><rect/></svg>"
     clean, _ = sanitize_markup(evil, "svg")
     assert "foreignObject" not in clean
     assert "rect" in clean  # 合法 SVG 保留
 
 
 def test_artifact_preview_echarts_json():
-    out = artifact_preview({"type": "echarts_json",
-                            "content": '{"title": {"text": "T"}, "series": [{"data": [1,2]}]}'},
-                           snapshot_dir=str(Path(__import__("tempfile").mkdtemp())))
+    out = artifact_preview(
+        {
+            "type": "echarts_json",
+            "content": '{"title": {"text": "T"}, "series": [{"data": [1,2]}]}',
+        },
+        snapshot_dir=str(Path(__import__("tempfile").mkdtemp())),
+    )
     assert out["renderable"] is True
     assert out["snapshot_id"].startswith("art_")
     assert out["issues"] == []
@@ -57,8 +62,7 @@ def test_artifact_preview_echarts_json():
 
 
 def test_artifact_preview_echarts_invalid():
-    out = artifact_preview({"type": "echarts_json", "content": "{not json"},
-                            snapshot_dir="/tmp")
+    out = artifact_preview({"type": "echarts_json", "content": "{not json"}, snapshot_dir="/tmp")
     assert out["renderable"] is False
     assert any("解析失败" in i for i in out["issues"])
 
@@ -70,9 +74,10 @@ def test_artifact_preview_unknown_type():
 
 
 def test_artifact_preview_markdown_safe():
-    out = artifact_preview({"type": "markdown",
-                            "content": "# 标题\n\n- [x] 任务\n<script>bad()</script>"},
-                           snapshot_dir="/tmp")
+    out = artifact_preview(
+        {"type": "markdown", "content": "# 标题\n\n- [x] 任务\n<script>bad()</script>"},
+        snapshot_dir="/tmp",
+    )
     assert "script" not in out["sanitized_content"].lower()
     assert out["renderable"] is True
 
@@ -81,14 +86,14 @@ def test_artifact_preview_markdown_safe():
 # G2 — 团队实时监督 (事件溯源投影)
 # =========================================================================
 
+
 def test_team_monitor_projects_state_from_events():
     bus = EventBus()
     monitor = TeamMonitor("t1", ["w1", "w2"], bus).start()
 
     bus.publish("agent.start", {"agent_id": "w1", "task": "写测试"})
     bus.publish("agent.message", {"agent_id": "w1", "message": "进度 50%"})
-    bus.publish("agent.end", {"agent_id": "w1", "status": "done",
-                              "artifacts": ["tests/test_a.py"]})
+    bus.publish("agent.end", {"agent_id": "w1", "status": "done", "artifacts": ["tests/test_a.py"]})
     bus.publish("agent.error", {"agent_id": "w2", "error": "超时"})
 
     state = monitor.live_state()
@@ -111,7 +116,7 @@ def test_team_monitor_replays_history():
 
     monitor = TeamMonitor("t2", ["w1"], bus).start()
     state = monitor.live_state()
-    assert state["w1"]["status"] == "done"   # 重放得出, 非静态
+    assert state["w1"]["status"] == "done"  # 重放得出, 非静态
 
 
 def test_team_monitor_event_stream():
@@ -144,6 +149,7 @@ def test_team_monitor_ignores_non_team_agents():
 # =========================================================================
 # 账本
 # =========================================================================
+
 
 def test_replica_ledger_phase_two_registered():
     from server.operator_ledger import replica_ledger_summary

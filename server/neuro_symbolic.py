@@ -40,29 +40,41 @@ class VeyaNeuroSymbolic:
             out["errors"] = [e.as_dict() for e in res.errors]
         if res.diffs:
             out["diffs"] = [
-                {"id": d.cid, "intent": d.intent, "rendered": d.rendered,
-                 "similarity": d.similarity,
-                 "blocked": d.blocked,
-                 "findings": [f.__dict__ for f in d.findings]}
+                {
+                    "id": d.cid,
+                    "intent": d.intent,
+                    "rendered": d.rendered,
+                    "similarity": d.similarity,
+                    "blocked": d.blocked,
+                    "findings": [f.__dict__ for f in d.findings],
+                }
                 for d in res.diffs
             ]
         if res.feasibility is not None:
             fe = res.feasibility
-            out["feasibility"] = {"status": fe.status, "checks": fe.checks,
-                                  "elapsed_ms": fe.elapsed_ms,
-                                  "reason_unknown": fe.reason_unknown}
+            out["feasibility"] = {
+                "status": fe.status,
+                "checks": fe.checks,
+                "elapsed_ms": fe.elapsed_ms,
+                "reason_unknown": fe.reason_unknown,
+            }
             if fe.mus is not None:
                 out["feasibility"]["mus"] = {
-                    "ids": fe.mus.mus, "verified": fe.mus.verified,
-                    "dropped": fe.mus.dropped, "checks": fe.mus.checks,
+                    "ids": fe.mus.mus,
+                    "verified": fe.mus.verified,
+                    "dropped": fe.mus.dropped,
+                    "checks": fe.mus.checks,
                 }
         if res.solution is not None:
             s = res.solution
-            out["solution"] = {"status": s.status, "assignment": s.assignment,
-                               "objective_value": s.objective_value,
-                               "relaxed_soft": s.relaxed_soft,
-                               "satisfied_soft": s.satisfied_soft,
-                               "elapsed_ms": s.elapsed_ms}
+            out["solution"] = {
+                "status": s.status,
+                "assignment": s.assignment,
+                "objective_value": s.objective_value,
+                "relaxed_soft": s.relaxed_soft,
+                "satisfied_soft": s.satisfied_soft,
+                "elapsed_ms": s.elapsed_ms,
+            }
         if res.repair is not None:
             out["repair"] = res.repair.as_dict()
         return out

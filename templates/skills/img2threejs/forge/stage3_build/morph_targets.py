@@ -82,7 +82,9 @@ def build_morph_set(
     if not isinstance(base_vertices, list) or not base_vertices:
         raise ValueError("base mesh must have vertices")
     built = [
-        make_morph_target(base_vertices, target["vertices"], str(target.get("name", f"morph{i}")), epsilon)
+        make_morph_target(
+            base_vertices, target["vertices"], str(target.get("name", f"morph{i}")), epsilon
+        )
         for i, target in enumerate(targets)
     ]
     return {
