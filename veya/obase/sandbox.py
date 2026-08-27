@@ -187,12 +187,6 @@ def profile_config(
 ) -> SandboxConfig:
     """Build one explicit resource/capability policy for a sandbox profile."""
     selected = profile if isinstance(profile, SandboxProfile) else SandboxProfile(profile)
-    base = {
-        "working_dir": working_dir,
-        "audit_enabled": True,
-        "reject_dangerous": True,
-        "profile": selected.value,
-    }
     if selected is SandboxProfile.READ_ONLY:
         return SandboxConfig(
             memory_limit=256 * 1024 * 1024,
@@ -200,7 +194,10 @@ def profile_config(
             time_limit=60,
             network_blocked=True,
             allow_write=False,
-            **base,
+            working_dir=working_dir,
+            audit_enabled=True,
+            reject_dangerous=True,
+            profile=selected.value,
         )
     if selected is SandboxProfile.TEST:
         return SandboxConfig(
@@ -209,7 +206,10 @@ def profile_config(
             time_limit=300,
             network_blocked=True,
             allow_write=True,
-            **base,
+            working_dir=working_dir,
+            audit_enabled=True,
+            reject_dangerous=True,
+            profile=selected.value,
         )
     if selected is SandboxProfile.BUILD:
         return SandboxConfig(
@@ -218,7 +218,10 @@ def profile_config(
             time_limit=600,
             network_blocked=True,
             allow_write=True,
-            **base,
+            working_dir=working_dir,
+            audit_enabled=True,
+            reject_dangerous=True,
+            profile=selected.value,
         )
     if selected is SandboxProfile.NETWORKED:
         return SandboxConfig(
@@ -227,7 +230,10 @@ def profile_config(
             time_limit=600,
             network_blocked=False,
             allow_write=False,
-            **base,
+            working_dir=working_dir,
+            audit_enabled=True,
+            reject_dangerous=True,
+            profile=selected.value,
         )
     return SandboxConfig(
         memory_limit=1024 * 1024 * 1024,
@@ -235,7 +241,10 @@ def profile_config(
         time_limit=900,
         network_blocked=False,
         allow_write=True,
-        **base,
+        working_dir=working_dir,
+        audit_enabled=True,
+        reject_dangerous=True,
+        profile=selected.value,
     )
 
 
