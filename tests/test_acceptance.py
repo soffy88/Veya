@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import sys
 
-from server.acceptance import evaluate_acceptance, evaluate_criterion, normalize_criteria
+from server.acceptance import (
+    _split_windows_command,
+    evaluate_acceptance,
+    evaluate_criterion,
+    normalize_criteria,
+)
 
 
 def test_file_exists_and_schema_are_deterministic(tmp_path):
@@ -34,6 +39,15 @@ def test_command_uses_argv_without_shell_and_manual_stays_blocked(tmp_path):
     )
     assert results[0]["status"] == "passed"
     assert results[1]["status"] == "blocked"
+
+
+def test_windows_command_split_preserves_executable_and_quoted_argument():
+    argv = _split_windows_command('"C:\\Program Files\\Python\\python.exe" -c \'print("ok")\'')
+    assert argv == [
+        r"C:\Program Files\Python\python.exe",
+        "-c",
+        'print("ok")',
+    ]
 
 
 def test_file_exists_rejects_workspace_escape(tmp_path):
