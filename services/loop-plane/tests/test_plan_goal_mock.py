@@ -8,10 +8,13 @@ import pytest
 @pytest.mark.asyncio
 async def test_t4_plan_goal_returns_report(client):
     """plan/goal → ranked_actions + trace_id（mock store 可用即通过）。"""
-    r = await client.post("/v1/loop/plan/goal", json={
-        "goal": "完成支付模块",
-        "criteria": "支持 3 种支付方式, 全链路测试通过",
-    })
+    r = await client.post(
+        "/v1/loop/plan/goal",
+        json={
+            "goal": "完成支付模块",
+            "criteria": "支持 3 种支付方式, 全链路测试通过",
+        },
+    )
     if r.status_code == 503:
         pytest.skip("veya_loop 因果符号不可用 (VEYA_LOOP_OPTIONAL)")
     assert r.status_code == 200
@@ -24,10 +27,13 @@ async def test_t4_plan_goal_returns_report(client):
 @pytest.mark.asyncio
 async def test_t5_diagnose_root_causes(client):
     """plan/diagnose → root_causes 结构合法。"""
-    r = await client.post("/v1/loop/plan/diagnose", json={
-        "symptom": "用户登录偶发 500",
-        "context": {"service": "auth", "window": "1h"},
-    })
+    r = await client.post(
+        "/v1/loop/plan/diagnose",
+        json={
+            "symptom": "用户登录偶发 500",
+            "context": {"service": "auth", "window": "1h"},
+        },
+    )
     if r.status_code == 503:
         pytest.skip("veya_loop 因果符号不可用 (VEYA_LOOP_OPTIONAL)")
     assert r.status_code == 200

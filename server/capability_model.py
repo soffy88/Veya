@@ -323,6 +323,7 @@ class SkillRegistry:
         # Ensure unique name in skill_hub
         try:
             from server.skill_hub import skill_hub
+
             if skill_hub.has(name):
                 safe_name = f"{name}-{uuid.uuid4().hex[:4]}"
         except Exception:
@@ -357,9 +358,7 @@ class SkillRegistry:
         full AST/static and semantic scanners; this gate covers the registry's
         text-based teaching path.
         """
-        source = "\n".join(
-            [spec.instructions, spec.execution_ref, *spec.required_tools]
-        ).lower()
+        source = "\n".join([spec.instructions, spec.execution_ref, *spec.required_tools]).lower()
         forbidden = (
             "rm -rf",
             "subprocess",
@@ -418,7 +417,6 @@ class SkillRegistry:
         self._record_event("skill.updated", spec, action="rejected")
         return True
 
-
     def benchmark(self, skill_id: str, metrics: dict[str, Any]) -> SkillSpec | None:
         spec = self.get_version(skill_id)
         if spec is None:
@@ -448,7 +446,9 @@ class SkillRegistry:
             spec.performance.setdefault("usage_evidence", []).extend(evidence)
         spec.updated_at = _now_iso()
         self._store.put("skill", skill_id, _to_record(spec))
-        self._record_event("skill.failed" if not success else "skill.executed", spec, evidence=evidence or [])
+        self._record_event(
+            "skill.failed" if not success else "skill.executed", spec, evidence=evidence or []
+        )
         return spec
 
     def promote(self, skill_id: str) -> bool:

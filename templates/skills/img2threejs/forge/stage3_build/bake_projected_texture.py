@@ -22,8 +22,17 @@ from pathlib import Path
 from typing import Any
 
 
-VALID_PROJECTION_MODES = ("perspective-camera-projection", "orthographic-front-projection", "triplanar-fallback")
-VALID_UNSEEN_STRATEGIES = ("mirror-symmetry", "palette-continue", "request-additional-view", "leave-unprojected")
+VALID_PROJECTION_MODES = (
+    "perspective-camera-projection",
+    "orthographic-front-projection",
+    "triplanar-fallback",
+)
+VALID_UNSEEN_STRATEGIES = (
+    "mirror-symmetry",
+    "palette-continue",
+    "request-additional-view",
+    "leave-unprojected",
+)
 
 
 def clamp01(value: float) -> float:
@@ -33,16 +42,22 @@ def clamp01(value: float) -> float:
 def load_camera(camera_arg: str | None) -> tuple[dict[str, Any] | None, list[str]]:
     warnings: list[str] = []
     if not camera_arg:
-        warnings.append("no --camera reference supplied; projection will use an identity/front camera assumption")
+        warnings.append(
+            "no --camera reference supplied; projection will use an identity/front camera assumption"
+        )
         return None, warnings
     path = Path(camera_arg).expanduser()
     if not path.exists():
-        warnings.append(f"--camera path {camera_arg!r} does not exist; recording it as an opaque reference id instead")
+        warnings.append(
+            f"--camera path {camera_arg!r} does not exist; recording it as an opaque reference id instead"
+        )
         return {"reference": camera_arg}, warnings
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
-        warnings.append(f"could not parse --camera JSON at {path}: {exc}; recording it as an opaque reference id")
+        warnings.append(
+            f"could not parse --camera JSON at {path}: {exc}; recording it as an opaque reference id"
+        )
         return {"reference": camera_arg}, warnings
     camera = data.get("referenceCamera", data) if isinstance(data, dict) else None
     if not isinstance(camera, dict):
@@ -66,7 +81,13 @@ def build_descriptor(args: argparse.Namespace) -> dict[str, Any]:
                 if isinstance(source_path, str):
                     args.reference_image = source_path
         if intake.get("state") != "proceed":
-            return {"projectedTextureBake": {"version": "1.0", "status": "request-input", "reason": f"intake state is {intake.get('state', 'unknown')}"}}
+            return {
+                "projectedTextureBake": {
+                    "version": "1.0",
+                    "status": "request-input",
+                    "reason": f"intake state is {intake.get('state', 'unknown')}",
+                }
+            }
     if not args.reference_image:
         raise ValueError("--reference-image or --manifest with a source view is required")
     camera, camera_warnings = load_camera(args.camera)
@@ -138,19 +159,35 @@ def build_descriptor(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--reference-image", help="Path to the original reference photo")
-    parser.add_argument("--manifest", type=Path, help="Validated cs2-intake.json with source view and camera evidence")
-    parser.add_argument("--delit-image", help="Path to a de-lit albedo produced by stage1_intake/delight_albedo.py, if available")
-    parser.add_argument("--camera", help="Path to a referenceCamera JSON produced by stage1_intake/solve_camera_pose.py")
-    parser.add_argument("--mesh-id", required=True, help="Identifier of the target mesh/node to project onto")
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="Validated cs2-intake.json with source view and camera evidence",
+    )
+    parser.add_argument(
+        "--delit-image",
+        help="Path to a de-lit albedo produced by stage1_intake/delight_albedo.py, if available",
+    )
+    parser.add_argument(
+        "--camera",
+        help="Path to a referenceCamera JSON produced by stage1_intake/solve_camera_pose.py",
+    )
+    parser.add_argument(
+        "--mesh-id", required=True, help="Identifier of the target mesh/node to project onto"
+    )
     parser.add_argument(
         "--projection-mode",
         choices=VALID_PROJECTION_MODES,
         default="perspective-camera-projection",
         help="Projection technique the Three.js runtime should use (default perspective-camera-projection)",
     )
-    parser.add_argument("--texture-size", type=int, default=1024, help="Target baked texture resolution (square)")
+    parser.add_argument(
+        "--texture-size", type=int, default=1024, help="Target baked texture resolution (square)"
+    )
     parser.add_argument(
         "--unseen-strategy",
         choices=VALID_UNSEEN_STRATEGIES,

@@ -126,7 +126,9 @@ class ExecHandle:
         backend: 后端 id。
     """
 
-    def __init__(self, exec_id: str, backend: str, runner: Callable[[], Awaitable[ExecResult]]) -> None:
+    def __init__(
+        self, exec_id: str, backend: str, runner: Callable[[], Awaitable[ExecResult]]
+    ) -> None:
         self.id = exec_id
         self.backend = backend
         self._runner = runner
@@ -306,9 +308,14 @@ class FastPathBackend(ExecBackend):
 
     async def exec(self, source: str, options: ExecOptions) -> ExecHandle:
         if is_dangerous_command(source):
+
             async def _runner() -> ExecResult:
-                return ExecResult(status=STATUS_FAILED, exit_code=1,
-                                  stderr=f"dangerous command blocked: {source[:120]}")
+                return ExecResult(
+                    status=STATUS_FAILED,
+                    exit_code=1,
+                    stderr=f"dangerous command blocked: {source[:120]}",
+                )
+
             return ExecHandle(f"fast-{uuid.uuid4().hex[:8]}", self.id, _runner)
         cwd = options.cwd or "."
         timeout = (options.timeout_ms or 0) / 1000 if options.timeout_ms else None
@@ -331,18 +338,29 @@ class FastPathBackend(ExecBackend):
                     )
                 except TimeoutError:
                     proc.kill()
-                    return ExecResult(STATUS_FAILED, None, stderr="timeout",
-                                      started_at=started, finished_at=time.time())
+                    return ExecResult(
+                        STATUS_FAILED,
+                        None,
+                        stderr="timeout",
+                        started_at=started,
+                        finished_at=time.time(),
+                    )
                 return ExecResult(
                     STATUS_COMPLETED if proc.returncode == 0 else STATUS_FAILED,
                     proc.returncode,
                     stdout=out.decode(errors="replace"),
                     stderr=err.decode(errors="replace"),
-                    started_at=started, finished_at=time.time(),
+                    started_at=started,
+                    finished_at=time.time(),
                 )
             except OSError as exc:
-                return ExecResult(STATUS_FAILED, None, stderr=str(exc),
-                                  started_at=started, finished_at=time.time())
+                return ExecResult(
+                    STATUS_FAILED,
+                    None,
+                    stderr=str(exc),
+                    started_at=started,
+                    finished_at=time.time(),
+                )
 
         handle = ExecHandle(f"fast-{uuid.uuid4().hex[:8]}", self.id, _runner)
         handle.start()
@@ -363,7 +381,9 @@ class LocalSafeBackend(ExecBackend):
     执行委托 veya.sandbox 语义 (subprocess + 超时 + 危险拦截)。
     """
 
-    def __init__(self, backend_id: str = "local-safe", *, sandbox_config: SandboxConfig | None = None) -> None:
+    def __init__(
+        self, backend_id: str = "local-safe", *, sandbox_config: SandboxConfig | None = None
+    ) -> None:
         super().__init__(backend_id)
         self.sandbox_config = sandbox_config or SandboxConfig(time_limit=120)
 
@@ -401,11 +421,15 @@ class LocalSafeBackend(ExecBackend):
                 sync = None
                 if options.sync:
                     sync = bracket.pull(isolated_root, out_paths=options.out_paths)
-                return ExecResult(status, code,
-                                  stdout=out.decode(errors="replace"),
-                                  stderr=err.decode(errors="replace"),
-                                  sync=sync,
-                                  started_at=started, finished_at=time.time())
+                return ExecResult(
+                    status,
+                    code,
+                    stdout=out.decode(errors="replace"),
+                    stderr=err.decode(errors="replace"),
+                    sync=sync,
+                    started_at=started,
+                    finished_at=time.time(),
+                )
             finally:
                 import shutil
 
@@ -458,8 +482,13 @@ class PythonModuleBackend(ExecBackend):
                     timeout=(options.timeout_ms or 0) / 1000 if options.timeout_ms else 60,
                 )
             except TimeoutError:
-                return ExecResult(STATUS_FAILED, None, stderr="timeout",
-                                  started_at=started, finished_at=time.time())
+                return ExecResult(
+                    STATUS_FAILED,
+                    None,
+                    stderr="timeout",
+                    started_at=started,
+                    finished_at=time.time(),
+                )
             stdout = out.decode(errors="replace")
             value = None
             marker = "__VEYA_VALUE__"
@@ -471,7 +500,8 @@ class PythonModuleBackend(ExecBackend):
                 stdout=stdout,
                 stderr=err.decode(errors="replace"),
                 value=value,
-                started_at=started, finished_at=time.time(),
+                started_at=started,
+                finished_at=time.time(),
             )
 
         handle = ExecHandle(f"mod-{uuid.uuid4().hex[:8]}", self.id, _runner)

@@ -53,9 +53,11 @@ class VeyaObserver:
         """
         base_dir = Path(base_dir)
         store = _oprim.SnapshotStore(str(self.snapshot_dir))
-        pool = _oprim.SandboxPool(size=max(1, min(max_parallel, 4)),
-                                  base_dir=str(self.snapshot_dir / "pool"),
-                                  isolation="netns")
+        pool = _oprim.SandboxPool(
+            size=max(1, min(max_parallel, 4)),
+            base_dir=str(self.snapshot_dir / "pool"),
+            isolation="netns",
+        )
 
         action_plans = []
         for p in plans:
@@ -63,17 +65,24 @@ class VeyaObserver:
             for a in p.get("actions", []):
                 rev = a.get("reversibility", "reversible")
                 comp = a.get("compensation")
-                acts.append(_oprim.Action(
-                    id=a["id"], kind=a["kind"], payload=a.get("payload", {}),
-                    reversibility=_oprim.Reversibility(rev),
-                    compensation=_oprim.Action(**comp) if comp else None,
-                    description=a.get("description", ""),
-                ))
-            action_plans.append(_oprim.ActionPlan(
-                id=p["id"], actions=acts,
-                prior=float(p.get("prior", 1.0)),
-                rationale=p.get("rationale", ""),
-            ))
+                acts.append(
+                    _oprim.Action(
+                        id=a["id"],
+                        kind=a["kind"],
+                        payload=a.get("payload", {}),
+                        reversibility=_oprim.Reversibility(rev),
+                        compensation=_oprim.Action(**comp) if comp else None,
+                        description=a.get("description", ""),
+                    )
+                )
+            action_plans.append(
+                _oprim.ActionPlan(
+                    id=p["id"],
+                    actions=acts,
+                    prior=float(p.get("prior", 1.0)),
+                    rationale=p.get("rationale", ""),
+                )
+            )
 
         # 缺省探针链: 冻结基线哈希(宿主侧) + 语法门 + unittest + diff 体积
         if probes is None:
@@ -86,8 +95,9 @@ class VeyaObserver:
                 if rel.startswith("test_"):
                     frozen[rel] = hashlib.sha256(content.encode()).hexdigest()
             probes = [
-                _oprim.py_syntax_gate([str(f.relative_to(base_dir))
-                                       for f in base_dir.rglob("*.py")][:8]),
+                _oprim.py_syntax_gate(
+                    [str(f.relative_to(base_dir)) for f in base_dir.rglob("*.py")][:8]
+                ),
                 _oprim.FileFrozenProbe(frozen) if frozen else None,
                 _oprim.unittest_probe(weight=3.0),
                 _oprim.DiffSizeProbe(baseline, weight=1.0),
@@ -95,14 +105,19 @@ class VeyaObserver:
             probes = [p for p in probes if p is not None]
 
         dv = [_oprim.Divergence(**d) for d in divergences]
-        cfg = _omodul.ObserverConfig(min_reward=min_reward,
-                                     stability_check=stability_check,
-                                     max_parallel=max_parallel)
+        cfg = _omodul.ObserverConfig(
+            min_reward=min_reward, stability_check=stability_check, max_parallel=max_parallel
+        )
 
         with pool:
             verdict = _omodul.run_observer_lookahead(
-                action_plans, str(base_dir), store, pool, probes,
-                config=cfg, divergences=dv,
+                action_plans,
+                str(base_dir),
+                store,
+                pool,
+                probes,
+                config=cfg,
+                divergences=dv,
             )
 
         out: dict[str, Any] = {
@@ -111,10 +126,16 @@ class VeyaObserver:
             "base_digest": verdict.base_digest,
             "summary": verdict.summary(),
             "ranked": [
-                {"plan_id": r.plan_id, "reward": r.reward, "gated": r.gated,
-                 "gate_failed": r.gate_failed, "stable": r.stable,
-                 "result_digest": r.result_digest, "elapsed_ms": r.elapsed_ms,
-                 "error": r.error}
+                {
+                    "plan_id": r.plan_id,
+                    "reward": r.reward,
+                    "gated": r.gated,
+                    "gate_failed": r.gate_failed,
+                    "stable": r.stable,
+                    "result_digest": r.result_digest,
+                    "elapsed_ms": r.elapsed_ms,
+                    "error": r.error,
+                }
                 for r in verdict.ranked
             ],
             "escalations": [e.__dict__ for e in verdict.escalations],
@@ -140,8 +161,7 @@ class VeyaObserver:
                     "HITL_REQUIRED",
                     "⚠️ 推演未达置信阈值",
                     f"{verdict.summary()} 请人工裁决",
-                    {"decision_id": verdict.decision_id,
-                     "escalations": out["escalations"]},
+                    {"decision_id": verdict.decision_id, "escalations": out["escalations"]},
                 )
         except Exception:  # pragma: no cover - 通知失败不阻断推演结果
             pass

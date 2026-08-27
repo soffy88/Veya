@@ -17,6 +17,7 @@ from typing import Any
 
 try:
     import httpx
+
     _HAS_HTTPX = True
 except ImportError:
     httpx = None  # type: ignore
@@ -93,18 +94,34 @@ async def text_to_speech(
 
     if provider == "openai":
         return await _tts_openai(
-            text, api_key, cfg["endpoint"], resolved_model, resolved_voice,
-            speed, format, timeout,
+            text,
+            api_key,
+            cfg["endpoint"],
+            resolved_model,
+            resolved_voice,
+            speed,
+            format,
+            timeout,
         )
     elif provider == "elevenlabs":
         return await _tts_elevenlabs(
-            text, api_key, cfg["endpoint"], resolved_model, resolved_voice,
+            text,
+            api_key,
+            cfg["endpoint"],
+            resolved_model,
+            resolved_voice,
             timeout,
         )
     elif provider == "dashscope":
         return await _tts_dashscope(
-            text, api_key, cfg["endpoint"], resolved_model, resolved_voice,
-            speed, format, timeout,
+            text,
+            api_key,
+            cfg["endpoint"],
+            resolved_model,
+            resolved_voice,
+            speed,
+            format,
+            timeout,
         )
     else:
         raise ValueError(f"Provider {provider} not implemented")

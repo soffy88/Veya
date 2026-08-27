@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any, Final
 
 from forge.stage1_intake.check_reference_admission import check_admission
-from forge.stage1_intake.cs2_foundation import enrich_manifest_with_metadata, normalize_cs2_metadata, resolve_identity
+from forge.stage1_intake.cs2_foundation import (
+    enrich_manifest_with_metadata,
+    normalize_cs2_metadata,
+    resolve_identity,
+)
 from forge.stage1_intake.cs2_review_contract import build_review_scene
 from forge.stage1_intake.detect_cs2 import detect_cs2_signals
 from forge.stage1_intake.probe_image import probe
@@ -23,17 +27,33 @@ UNSUPPORTED_FAMILIES: Final[frozenset[str]] = frozenset(
 # Knife subtypes that have a dedicated geometry adapter. A subtype absent here is
 # `unsupported-subtype`, never silently routed through another subtype's tree.
 KNIFE_SUBTYPES: Final[frozenset[str]] = frozenset(
-    {"karambit", "butterfly", "bayonet", "m9", "flip", "gut", "falchion", "bowie", "navaja",
-     "talon", "classic"}
+    {
+        "karambit",
+        "butterfly",
+        "bayonet",
+        "m9",
+        "flip",
+        "gut",
+        "falchion",
+        "bowie",
+        "navaja",
+        "talon",
+        "classic",
+    }
 )
 ROUTES: Final[frozenset[str]] = frozenset(
     {"reference-projection", "authored-texture", "procedural-finish"}
 )
-TIERS: Final[frozenset[str]] = frozenset(
-    {"image-only", "metadata-assisted", "exact-texture"}
-)
+TIERS: Final[frozenset[str]] = frozenset({"image-only", "metadata-assisted", "exact-texture"})
 STATES: Final[frozenset[str]] = frozenset(
-    {"proceed", "request-input", "fallback", "rejected", "unsupported-family", "unsupported-subtype"}
+    {
+        "proceed",
+        "request-input",
+        "fallback",
+        "rejected",
+        "unsupported-family",
+        "unsupported-subtype",
+    }
 )
 
 
@@ -70,9 +90,17 @@ def _classification_error(record: Any) -> str | None:
     refs = record.get("evidenceRefs")
     if not isinstance(family, str) or family not in SUPPORTED_FAMILIES | UNSUPPORTED_FAMILIES:
         return "classification itemFamily is missing or invalid"
-    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
+    if (
+        not isinstance(confidence, (int, float))
+        or isinstance(confidence, bool)
+        or not 0 <= confidence <= 1
+    ):
         return "classification confidence is missing or invalid"
-    if not isinstance(refs, list) or not refs or not all(isinstance(item, str) and item for item in refs):
+    if (
+        not isinstance(refs, list)
+        or not refs
+        or not all(isinstance(item, str) and item for item in refs)
+    ):
         return "classification evidenceRefs must contain at least one reference"
     if not isinstance(record.get("provider"), str) or not isinstance(record.get("version"), str):
         return "classification provider/version are required"
@@ -97,9 +125,21 @@ def build_manifest(
     explicit_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved = reference.expanduser().resolve()
-    technical: dict[str, Any] = probe(resolved) if resolved.exists() else {"path": str(resolved), "warnings": ["file does not exist"]}
-    admission: dict[str, Any] = check_admission(resolved) if resolved.exists() else {"admitted": False, "reasons": ["reference does not exist"]}
-    heuristic = _heuristic_signal(resolved) if resolved.exists() else {"is_cs2_candidate": False, "confidence": 0.0, "signals": []}
+    technical: dict[str, Any] = (
+        probe(resolved)
+        if resolved.exists()
+        else {"path": str(resolved), "warnings": ["file does not exist"]}
+    )
+    admission: dict[str, Any] = (
+        check_admission(resolved)
+        if resolved.exists()
+        else {"admitted": False, "reasons": ["reference does not exist"]}
+    )
+    heuristic = (
+        _heuristic_signal(resolved)
+        if resolved.exists()
+        else {"is_cs2_candidate": False, "confidence": 0.0, "signals": []}
+    )
     warnings: list[str] = []
     if heuristic.get("is_cs2_candidate"):
         warnings.append("heuristicSignal")
@@ -112,15 +152,17 @@ def build_manifest(
     manifest: dict[str, Any] = {
         "schemaVersion": SCHEMA_VERSION,
         "state": "rejected" if not admission.get("admitted") else "request-input",
-        "sourceViews": [{
-            "role": "reference",
-            "path": str(resolved),
-            "hash": admission.get("provenance", {}).get("pHash"),
-            "width": technical.get("width"),
-            "height": technical.get("height"),
-            "coverage": admission.get("provenance", {}).get("foregroundCoverage"),
-            "duplicate": admission.get("provenance", {}).get("duplicateOfHash") is not None,
-        }],
+        "sourceViews": [
+            {
+                "role": "reference",
+                "path": str(resolved),
+                "hash": admission.get("provenance", {}).get("pHash"),
+                "width": technical.get("width"),
+                "height": technical.get("height"),
+                "coverage": admission.get("provenance", {}).get("foregroundCoverage"),
+                "duplicate": admission.get("provenance", {}).get("duplicateOfHash") is not None,
+            }
+        ],
         "admission": admission,
         "probe": technical,
         "heuristicSignal": heuristic,
@@ -151,7 +193,10 @@ def build_manifest(
     manifest["classification"] = classification
     manifest["itemFamily"] = family
     manifest["subtype"] = subtype
-    manifest["identity"] = {"provenance": "classification-record", "confidence": classification["confidence"]}
+    manifest["identity"] = {
+        "provenance": "classification-record",
+        "confidence": classification["confidence"],
+    }
     manifest["confidence"] = {"overall": classification["confidence"], "hiddenRegions": 0.25}
     manifest["identity"] = resolve_identity(explicit_identity, metadata, classification)
     if family not in SUPPORTED_FAMILIES:
@@ -164,14 +209,24 @@ def build_manifest(
         manifest["state"] = "proceed"
         manifest["componentAdapter"] = "cs2-knife-v1"
     if metadata:
-        manifest = enrich_manifest_with_metadata(manifest, {"status": "resolved", "identity": metadata})
+        manifest = enrich_manifest_with_metadata(
+            manifest, {"status": "resolved", "identity": metadata}
+        )
         manifest["metadata"] = normalize_cs2_metadata(metadata)
         manifest["provenance"]["metadata"] = metadata.get("source", "provided")
     return manifest
 
 
 def validate_manifest(manifest: dict[str, Any]) -> bool:
-    required = {"schemaVersion", "state", "sourceViews", "admission", "exactnessTier", "route", "warnings"}
+    required = {
+        "schemaVersion",
+        "state",
+        "sourceViews",
+        "admission",
+        "exactnessTier",
+        "route",
+        "warnings",
+    }
     if not required.issubset(manifest):
         return False
     if manifest["schemaVersion"] != SCHEMA_VERSION or manifest["state"] not in STATES:
@@ -206,23 +261,38 @@ def persist_manifest(manifest: dict[str, Any], output: Path) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("reference", type=Path)
-    parser.add_argument("--classification", type=Path, help="offline authoritative classification JSON")
+    parser.add_argument(
+        "--classification", type=Path, help="offline authoritative classification JSON"
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--route", choices=sorted(ROUTES), default="reference-projection")
     parser.add_argument("--exactness-tier", choices=sorted(TIERS), default="image-only")
     parser.add_argument("--cs2-pipeline", choices=("legacy", "manifest-v1"), default="manifest-v1")
-    parser.add_argument("--resume", action="store_true", help="reuse a valid existing manifest at --out")
+    parser.add_argument(
+        "--resume", action="store_true", help="reuse a valid existing manifest at --out"
+    )
     args = parser.parse_args(argv)
     if args.resume and args.out.exists():
         existing = json.loads(args.out.read_text(encoding="utf-8"))
         if isinstance(existing, dict) and validate_manifest(existing):
-            print(json.dumps({"state": existing["state"], "out": str(args.out.resolve()), "resumed": True}, ensure_ascii=False))
+            print(
+                json.dumps(
+                    {"state": existing["state"], "out": str(args.out.resolve()), "resumed": True},
+                    ensure_ascii=False,
+                )
+            )
             return 0
-    classification = json.loads(args.classification.read_text(encoding="utf-8")) if args.classification else None
-    manifest = build_manifest(args.reference, classification, route=args.route, exactness_tier=args.exactness_tier)
+    classification = (
+        json.loads(args.classification.read_text(encoding="utf-8")) if args.classification else None
+    )
+    manifest = build_manifest(
+        args.reference, classification, route=args.route, exactness_tier=args.exactness_tier
+    )
     manifest["extensions"]["compatibilityMode"] = args.cs2_pipeline
     persist_manifest(manifest, args.out)
-    print(json.dumps({"state": manifest["state"], "out": str(args.out.resolve())}, ensure_ascii=False))
+    print(
+        json.dumps({"state": manifest["state"], "out": str(args.out.resolve())}, ensure_ascii=False)
+    )
     return 0 if manifest["state"] in {"proceed", "request-input", "fallback"} else 2
 
 

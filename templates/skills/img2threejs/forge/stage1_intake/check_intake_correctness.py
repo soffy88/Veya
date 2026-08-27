@@ -93,8 +93,14 @@ def decide(
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("assessment", type=Path, help="assessment/spec JSON with preSpecAssessment.objectClass")
-    parser.add_argument("--objectness", type=Path, help="optional objectness verdict JSON (matchesDeclaredClass/confidence/detectedClass)")
+    parser.add_argument(
+        "assessment", type=Path, help="assessment/spec JSON with preSpecAssessment.objectClass"
+    )
+    parser.add_argument(
+        "--objectness",
+        type=Path,
+        help="optional objectness verdict JSON (matchesDeclaredClass/confidence/detectedClass)",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 

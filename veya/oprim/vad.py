@@ -65,7 +65,10 @@ def vad_energy(
         else:
             state = VADState.SPEECH
         _state["was_speech"] = True
-        confidence = min(1.0, (energy_db - silence_threshold_db) / abs(speech_threshold_db - silence_threshold_db))
+        confidence = min(
+            1.0,
+            (energy_db - silence_threshold_db) / abs(speech_threshold_db - silence_threshold_db),
+        )
     elif energy_db < silence_threshold_db:
         if _state["was_speech"]:
             _state["hangover_count"] += 1
@@ -77,7 +80,10 @@ def vad_energy(
                 state = VADState.SPEECH  # hangover: still treat as speech
         else:
             state = VADState.SILENCE
-        confidence = 1.0 - min(1.0, (energy_db - silence_threshold_db) / abs(speech_threshold_db - silence_threshold_db))
+        confidence = 1.0 - min(
+            1.0,
+            (energy_db - silence_threshold_db) / abs(speech_threshold_db - silence_threshold_db),
+        )
     else:
         # In between thresholds
         state = VADState.SPEECH if _state["was_speech"] else VADState.SILENCE

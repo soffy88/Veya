@@ -29,6 +29,7 @@ from veya_loop import (
 # 1. 期望效用: 精确公式 + 权衡边界
 # =========================================================================
 
+
 def test_expected_utility_exact_formula():
     c = InterventionCandidate("a", delta_p=0.5, cost=0.2, risk=0.1)
     # U = ΔP − λ·C − ρ·risk
@@ -63,16 +64,17 @@ def test_selection_tiebreak_deterministic():
     c2 = InterventionCandidate("a", delta_p=0.5, cost=0.2)
     c3 = InterventionCandidate("c", delta_p=0.5, cost=0.1)
     r1 = select_intervention([c1, c2, c3], drop_negative=False)
-    r2 = select_intervention([c2, c3, c1], drop_negative=False)   # 乱序输入
-    assert [c.action_id for c, _ in r1.ranked] == \
-           [c.action_id for c, _ in r2.ranked], "排序必须与输入顺序无关"
+    r2 = select_intervention([c2, c3, c1], drop_negative=False)  # 乱序输入
+    assert [c.action_id for c, _ in r1.ranked] == [c.action_id for c, _ in r2.ranked], (
+        "排序必须与输入顺序无关"
+    )
     # 效用相同: 按 cost 升序 → c 排第一
     assert r1.ranked[0][0].action_id == "c"
 
 
 def test_drop_negative_boundary_at_zero():
     """u == 0 恰好被丢弃 (drop_negative 用 u > 0 判定)。"""
-    zero = InterventionCandidate("zero", delta_p=0.2, cost=0.2)   # u = 0.0
+    zero = InterventionCandidate("zero", delta_p=0.2, cost=0.2)  # u = 0.0
     pos = InterventionCandidate("pos", delta_p=0.3, cost=0.1)
     sel = select_intervention([zero, pos], drop_negative=True)
     assert sel.best is not None and sel.best.action_id == "pos"
@@ -84,8 +86,10 @@ def test_drop_negative_boundary_at_zero():
 
 def test_selection_empty_and_all_negative():
     assert select_intervention([]).best is None
-    bad = [InterventionCandidate("x", delta_p=0.1, cost=1.0),   # u = -0.9
-           InterventionCandidate("y", delta_p=0.0, cost=0.5)]   # u = -0.5
+    bad = [
+        InterventionCandidate("x", delta_p=0.1, cost=1.0),  # u = -0.9
+        InterventionCandidate("y", delta_p=0.0, cost=0.5),
+    ]  # u = -0.5
     sel = select_intervention(bad)
     assert sel.best is None
     assert len(sel.rejected) == 2
@@ -94,6 +98,7 @@ def test_selection_empty_and_all_negative():
 # =========================================================================
 # 2. CPD 更新: 收敛 / 平滑 / strength / version
 # =========================================================================
+
 
 def test_dirichlet_smoothing_never_reaches_01():
     """Dirichlet 先验平滑: 全是 fault 观测, p_fault 也 < 1 (不落极端)。"""
@@ -112,7 +117,7 @@ def test_ema_converges_and_alpha_bounds():
     """
     cpd = CategoricalCPD.uniform(["success", "fault"], parents=["mode"])
     for i in range(2000):
-        state = "fault" if i % 2 == 0 else "success"   # 确定性 50/50
+        state = "fault" if i % 2 == 0 else "success"  # 确定性 50/50
         cpd = update_cpd(cpd, "degraded", state, mode="ema", alpha=0.1)
     # 交替序列的 EMA 稳态在两个相位间振荡: 0.5263 (fault 后) / 0.4737 (success 后)
     assert abs(cpd.p_fault("degraded") - 0.5) < 0.05
@@ -122,14 +127,15 @@ def test_ema_converges_and_alpha_bounds():
         cpd2 = update_cpd(cpd2, "degraded", "fault", mode="ema", alpha=0.1)
     assert cpd2.p_fault("degraded") > 0.99
     with pytest.raises(ValueError):
-        update_cpd(cpd, "degraded", "fault", mode="ema", alpha=0.0)   # α 必须 > 0
+        update_cpd(cpd, "degraded", "fault", mode="ema", alpha=0.0)  # α 必须 > 0
     with pytest.raises(ValueError):
         update_cpd(cpd, "degraded", "fault", mode="ema", alpha=1.5)
 
 
 def test_strength_controls_update_magnitude():
-    cpd = CategoricalCPD(child_states=["success", "fault"],
-                         counts={"degraded": [50.0, 50.0]}, parents=["mode"])
+    cpd = CategoricalCPD(
+        child_states=["success", "fault"], counts={"degraded": [50.0, 50.0]}, parents=["mode"]
+    )
     weak = update_cpd(cpd, "degraded", "success", strength=1.0)
     strong = update_cpd(cpd, "degraded", "success", strength=100.0)
     assert strong.p_fault("degraded") < weak.p_fault("degraded")
@@ -150,6 +156,7 @@ def test_cpd_version_monotonic():
 # =========================================================================
 # 3. 审计链路: trace 隔离 / replay 确定性 / sink 一致性 / 派发事件序
 # =========================================================================
+
 
 def test_audit_trace_isolation():
     em = AuditEmitter(sink=MemorySink())
@@ -196,20 +203,18 @@ def test_dispatch_audit_chain_event_order():
     em = AuditEmitter(sink=sink)
 
     # 允许路径 (无执行器 → 仅派发); action 命名规范: 前缀:目标
-    res = dispatch_intervention("do:reboot", ["echo", "ok"],
-                                contract=contract, emitter=em)
+    res = dispatch_intervention("do:reboot", ["echo", "ok"], contract=contract, emitter=em)
     assert res.status == "approved_dispatched" and res.nonce
     events = em.replay()
     assert [e["event_type"] for e in events] == ["decide", "execute"]
     ex = events[1]["execution"]
     assert ex["primitive"] == "do:reboot"
-    assert ex["capability_nonce"] == res.nonce          # 审计与派发 nonce 一致
+    assert ex["capability_nonce"] == res.nonce  # 审计与派发 nonce 一致
 
     # 拒绝路径: 只写 decide (denied), 不写 execute
     sink2 = MemorySink()
     em2 = AuditEmitter(sink=sink2)
-    res2 = dispatch_intervention("danger:drop", ["rm", "-rf", "/"],
-                                 contract=contract, emitter=em2)
+    res2 = dispatch_intervention("danger:drop", ["rm", "-rf", "/"], contract=contract, emitter=em2)
     assert res2.status == "denied"
     ev2 = em2.replay()
     assert [e["event_type"] for e in ev2] == ["decide"]

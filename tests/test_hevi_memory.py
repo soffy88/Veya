@@ -69,7 +69,7 @@ async def test_tools_list(connector):
 @pytest.mark.asyncio
 async def test_generate_longvideo_call(connector):
     res = await connector.generate_longvideo("测试主题", duration="short")
-    assert isinstance(res, dict)          # 任务创建链路通 (可能返回任务 id 或错误详情)
+    assert isinstance(res, dict)  # 任务创建链路通 (可能返回任务 id 或错误详情)
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_wire_master_tools_idempotent(connector):
     # ②-B 网关: 每服务 1 个 mcp_<server> 网关 (全量顺序下可能已 wire → added=0)
     assert added >= 0
     assert master_tools.has("mcp_hevi")
-    assert await wire_master_tools(connector) == 0     # 幂等
+    assert await wire_master_tools(connector) == 0  # 幂等
 
 
 def test_singleton():
@@ -111,5 +111,5 @@ def test_singleton():
 async def test_missing_secret_degrades(monkeypatch):
     monkeypatch.setattr("server.hevi_memory._hevi_secret", lambda: "")
     c = HeviConnector()
-    await c.start()                       # 密钥缺失 → 降级不抛
+    await c.start()  # 密钥缺失 → 降级不抛
     assert not c.ready

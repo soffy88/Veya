@@ -30,16 +30,18 @@ networkx = pytest.importorskip("networkx")
 # 一、Emitter 本体: 统一 Schema
 # =========================================================================
 
+
 def test_emitter_writes_schema_and_jsonl_roundtrip(tmp_path):
     sink = oprim.JsonlSink(str(tmp_path / "audit.jsonl"))
     em = oprim.AuditEmitter(sink=sink)
 
     aid = em.decide(
         inputs={"graph_version": 3, "cpd_version": 5, "threat_level": 0.12},
-        decision={"chosen_strategy": "aggressive_repair",
-                  "utilities": {"do(external_api=ok)": 0.21, "do(retry)": 0.05}},
-        execution={"primitive": "circuit_break", "status": "ok",
-                   "capability_nonce": "abc123"},
+        decision={
+            "chosen_strategy": "aggressive_repair",
+            "utilities": {"do(external_api=ok)": 0.21, "do(retry)": 0.05},
+        },
+        execution={"primitive": "circuit_break", "status": "ok", "capability_nonce": "abc123"},
     )
     assert aid
 
@@ -78,12 +80,14 @@ def test_emitter_replay_by_trace_and_event_type_validation():
 # 二、closed_loop_intervene 挂载: 全链路审计
 # =========================================================================
 
+
 @pytest.mark.asyncio
 async def test_closed_loop_emits_full_chain(tmp_path):
     cpd = oskill.CategoricalCPD(
         child_states=["success", "fault"],
         counts={"degraded": [4.0, 6.0], "healthy": [8.0, 2.0]},
-        parents=["mode"], version=5,
+        parents=["mode"],
+        version=5,
     )
     interventions = [
         {"action_id": "do_mode=healthy", "target_value": "healthy", "cost": 0.1, "risk": 0.0},
@@ -93,12 +97,16 @@ async def test_closed_loop_emits_full_chain(tmp_path):
     audit_path = str(tmp_path / "audit.jsonl")
 
     inp = omodul.ClosedLoopInput(
-        cpd, interventions=interventions,
-        threat_level=0.12, capability_nonce="cap-001",
-        graph_version=3, notes="生产故障演练 #1",
+        cpd,
+        interventions=interventions,
+        threat_level=0.12,
+        capability_nonce="cap-001",
+        graph_version=3,
+        notes="生产故障演练 #1",
     )
-    cfg = omodul.ClosedLoopConfig(simulate=True, rounds=3, seed=0,
-                                  baseline_config="degraded", audit_path=audit_path)
+    cfg = omodul.ClosedLoopConfig(
+        simulate=True, rounds=3, seed=0, baseline_config="degraded", audit_path=audit_path
+    )
     result = await omodul.closed_loop_intervene(cfg, inp, out)
 
     # 事务返回 trace_id, 事后可回放
@@ -131,8 +139,7 @@ async def test_closed_loop_emits_full_chain(tmp_path):
     # 事后回答④: cpd_version 随轮次自增 (3 轮 → 5 → 8)
     cpd_versions = [e["inputs"]["cpd_version"] for e in events if e["event_type"] == "decide"]
     assert cpd_versions == [5, 6, 7]
-    learn_after = [e["learning"]["cpd_version_after"] for e in events
-                   if e["event_type"] == "learn"]
+    learn_after = [e["learning"]["cpd_version_after"] for e in events if e["event_type"] == "learn"]
     assert learn_after == [6, 7, 8]
     assert result["cpd_after"]["version"] == 8
 
@@ -142,11 +149,15 @@ async def test_closed_loop_no_audit_when_path_missing(tmp_path):
     """audit_path=None → 不写审计, 事务正常。"""
     cpd = oskill.CategoricalCPD(
         child_states=["success", "fault"],
-        counts={"degraded": [4.0, 6.0], "healthy": [8.0, 2.0]}, parents=["mode"])
+        counts={"degraded": [4.0, 6.0], "healthy": [8.0, 2.0]},
+        parents=["mode"],
+    )
     out = tmp_path / "reports"
     out.mkdir(parents=True, exist_ok=True)
-    inp = omodul.ClosedLoopInput(cpd, interventions=[
-        {"action_id": "do_mode=healthy", "target_value": "healthy", "cost": 0.1}])
+    inp = omodul.ClosedLoopInput(
+        cpd,
+        interventions=[{"action_id": "do_mode=healthy", "target_value": "healthy", "cost": 0.1}],
+    )
     cfg = omodul.ClosedLoopConfig(simulate=True, rounds=2)
     result = await omodul.closed_loop_intervene(cfg, inp, out)
     assert result["status"] == "executed"
@@ -157,10 +168,12 @@ async def test_closed_loop_no_audit_when_path_missing(tmp_path):
 # 三、multi_step_plan 挂载: 五节点审计 + 因果图版本
 # =========================================================================
 
+
 def _build_store():
     store = omodul.CausalGraphStore() if hasattr(omodul, "CausalGraphStore") else None
     if store is None:
         from obase.causal_graph_store import CausalGraphStore
+
         store = CausalGraphStore()
     store.add_node("api_gateway", p_fail=0.3)
     store.add_node("db", p_fail=0.2)
@@ -172,7 +185,7 @@ def _build_store():
 
 def test_multi_step_plan_emits_full_chain(tmp_path):
     store = _build_store()
-    version_before = store.version      # 2 节点 + 2 边 = 版本 5
+    version_before = store.version  # 2 节点 + 2 边 = 版本 5
     audit_path = str(tmp_path / "audit.jsonl")
 
     report = omodul.multi_step_plan(
@@ -229,6 +242,7 @@ def test_cpd_version_bumps_on_update():
 # 四、HTTP 回放层
 # =========================================================================
 
+
 def test_audit_route_replay(tmp_path, monkeypatch):
     # 先写一条真实链路 (走 closed_loop)
     import asyncio
@@ -239,24 +253,31 @@ def test_audit_route_replay(tmp_path, monkeypatch):
 
     cpd = oskill.CategoricalCPD(
         child_states=["success", "fault"],
-        counts={"degraded": [4.0, 6.0], "healthy": [8.0, 2.0]}, parents=["mode"])
+        counts={"degraded": [4.0, 6.0], "healthy": [8.0, 2.0]},
+        parents=["mode"],
+    )
     out = tmp_path / "reports"
     out.mkdir(parents=True, exist_ok=True)
     audit_path = str(tmp_path / "audit.jsonl")
-    inp = omodul.ClosedLoopInput(cpd, interventions=[
-        {"action_id": "do_mode=healthy", "target_value": "healthy", "cost": 0.1}],
-        capability_nonce="cap-route")
+    inp = omodul.ClosedLoopInput(
+        cpd,
+        interventions=[{"action_id": "do_mode=healthy", "target_value": "healthy", "cost": 0.1}],
+        capability_nonce="cap-route",
+    )
     cfg = omodul.ClosedLoopConfig(simulate=True, rounds=2, audit_path=audit_path)
     result = asyncio.run(omodul.closed_loop_intervene(cfg, inp, out))
     trace_id = result["audit_trace_id"]
 
     # 用同一审计目录的适配器 (monkeypatch 路由级目录到 tmp)
     import server.routes.audit as audit_route_mod
+
     audit_route_mod._audit = __import__("server.audit", fromlist=["VeyaAudit"]).VeyaAudit(
-        audit_dir=str(tmp_path))
+        audit_dir=str(tmp_path)
+    )
 
     # audit 路由已挂 require_user (强制登录) → 注册测试用户拿 token
     import server.auth as auth_mod
+
     monkeypatch.setattr(auth_mod, "_DB_PATH", tmp_path / "auth.db")
     auth_mod._init_db()  # monkeypatch 换库后需手动建表
 
@@ -270,8 +291,12 @@ def test_audit_route_replay(tmp_path, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["trace_id"] == trace_id
-    assert [e["event_type"] for e in body["events"]] == \
-        ["diagnose", "decide", "execute", "learn"] * 1 + ["decide", "execute", "learn"]
+    assert [e["event_type"] for e in body["events"]] == [
+        "diagnose",
+        "decide",
+        "execute",
+        "learn",
+    ] * 1 + ["decide", "execute", "learn"]
     # 取证字段
     assert body["events"][0]["inputs"]["cpd_version"] == 1
     assert body["events"][2]["execution"]["capability_nonce"] == "cap-route"

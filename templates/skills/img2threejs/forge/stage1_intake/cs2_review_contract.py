@@ -18,7 +18,11 @@ def build_review_scene(environment_hash: str) -> dict[str, Any]:
     return {
         "version": "cs2-knife-review-v1",
         "camera": {"fovDegrees": 40.0, "position": [0.0, 0.0, 3.0], "target": [0.0, 0.0, 0.0]},
-        "objectTransform": {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0]},
+        "objectTransform": {
+            "position": [0.0, 0.0, 0.0],
+            "rotation": [0.0, 0.0, 0.0],
+            "scale": [1.0, 1.0, 1.0],
+        },
         "environmentHash": environment_hash,
         "exposure": 1.0,
         "toneMapping": "ACESFilmic",
@@ -31,7 +35,19 @@ def build_review_scene(environment_hash: str) -> dict[str, Any]:
 
 
 def validate_review_scene(scene: dict[str, Any]) -> list[str]:
-    required = {"version", "camera", "objectTransform", "environmentHash", "exposure", "toneMapping", "resolution", "background", "rendererVersion", "thresholds", "orbitViewpoints"}
+    required = {
+        "version",
+        "camera",
+        "objectTransform",
+        "environmentHash",
+        "exposure",
+        "toneMapping",
+        "resolution",
+        "background",
+        "rendererVersion",
+        "thresholds",
+        "orbitViewpoints",
+    }
     errors = [f"missing {field}" for field in sorted(required - set(scene))]
     if scene.get("version") != "cs2-knife-review-v1":
         errors.append("unsupported review scene version")

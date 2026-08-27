@@ -46,9 +46,7 @@ class HicodeServeClient:
         async with httpx.AsyncClient(timeout=30) as c:
             r = await c.post(f"{self.base}{path}", json=payload or {})
             if r.status_code >= 400:
-                raise HicodeServeError(
-                    f"POST {path} → {r.status_code}: {r.text[:200]}"
-                )
+                raise HicodeServeError(f"POST {path} → {r.status_code}: {r.text[:200]}")
             return r
 
     async def submit(self, spec: str) -> None:
@@ -70,7 +68,9 @@ class HicodeServeClient:
         """
         try:
             proc = await asyncio.create_subprocess_exec(
-                "pkill", "-f", "hicode serve",
+                "pkill",
+                "-f",
+                "hicode serve",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -163,8 +163,9 @@ class HicodeServeClient:
             owner_id = str(current_user().get("user_id") or "")
         except Exception:
             owner_id = ""
-        async with broker.async_workspace(workspace), broker.async_slot(
-            "hicode_serve", owner_id=owner_id
+        async with (
+            broker.async_workspace(workspace),
+            broker.async_slot("hicode_serve", owner_id=owner_id),
         ):
             return await self._run_task_locked(
                 spec, on_event, approve_all=approve_all, timeout=timeout
@@ -182,8 +183,9 @@ class HicodeServeClient:
             await self.new_session()
             await self.set_approval_mode("auto" if approve_all else "ask")
             if on_event is not None:
-                on_event({"stage": "planning", "tool": None,
-                          "detail": "Hicode oservi 已就绪, 提交任务…"})
+                on_event(
+                    {"stage": "planning", "tool": None, "detail": "Hicode oservi 已就绪, 提交任务…"}
+                )
 
             q: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
@@ -276,31 +278,38 @@ def _bridge_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
                 args = json.loads(args)
             except json.JSONDecodeError:
                 args = {}
-        on_event({"stage": "executing", "tool": name,
-                  "detail": _tool_brief(name, args)})
+        on_event({"stage": "executing", "tool": name, "detail": _tool_brief(name, args)})
     elif kind == "tool_result":
         tool = ev.get("tool") or {}
         name = str(tool.get("name") or "tool")
         ms = tool.get("durationMs")
-        on_event({"stage": "executing", "tool": name,
-                  "detail": f"{name} 完成" + (f" ({ms}ms)" if ms else "")})
+        on_event(
+            {
+                "stage": "executing",
+                "tool": name,
+                "detail": f"{name} 完成" + (f" ({ms}ms)" if ms else ""),
+            }
+        )
     elif kind == "tool_progress":
         tool = ev.get("tool") or {}
         out = (tool.get("output") or "")[-40:]
-        on_event({"stage": "executing", "tool": tool.get("name") or "tool",
-                  "detail": out})
+        on_event({"stage": "executing", "tool": tool.get("name") or "tool", "detail": out})
     elif kind == "usage":
         u = ev.get("usage") or {}
         pt, ct = u.get("promptTokens"), u.get("completionTokens")
         if pt or ct:
-            on_event({"stage": "stats", "tool": None,
-                      "detail": f"tokens: in={pt} out={ct}"})
+            on_event({"stage": "stats", "tool": None, "detail": f"tokens: in={pt} out={ct}"})
     elif kind == "compaction_started":
         on_event({"stage": "planning", "tool": None, "detail": "上下文压缩中…"})
     elif kind == "approval_request":
         ap = ev.get("approval") or {}
-        on_event({"stage": "executing", "tool": ap.get("tool") or "tool",
-                  "detail": f"等待审批: {ap.get('subject') or ap.get('id')}"})
+        on_event(
+            {
+                "stage": "executing",
+                "tool": ap.get("tool") or "tool",
+                "detail": f"等待审批: {ap.get('subject') or ap.get('id')}",
+            }
+        )
 
 
 def _tool_brief(name: str, args: dict) -> str:

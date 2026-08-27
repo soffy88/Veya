@@ -16,16 +16,25 @@ import veya_loop as v
 # O1 四闸门: 校验 → 编译 → MaxSMT 可满足 → MUS
 # ---------------------------------------------------------------------------
 
+
 def _ir(vars_: list[dict], constraints: list[dict]) -> dict:
-    return {"version": "o1.ir/v1", "intent": "test",
-            "vars": vars_, "constraints": constraints}
+    return {"version": "o1.ir/v1", "intent": "test", "vars": vars_, "constraints": constraints}
 
 
 def test_gate_validate_compile_feasible() -> None:
-    ir = v.parse_ir(_ir(
-        [{"name": "x", "type": "int", "lo": 0, "hi": 10}],
-        [{"id": "c1", "kind": "hard", "intent": "x>=1",
-          "expr": {"op": ">=", "args": [{"var": "x"}, {"lit": 1}]}}]))
+    ir = v.parse_ir(
+        _ir(
+            [{"name": "x", "type": "int", "lo": 0, "hi": 10}],
+            [
+                {
+                    "id": "c1",
+                    "kind": "hard",
+                    "intent": "x>=1",
+                    "expr": {"op": ">=", "args": [{"var": "x"}, {"lit": 1}]},
+                }
+            ],
+        )
+    )
     assert v.validate(ir) == []
     compiled = v.compile_ir(ir)
     feas = v.check_feasible(compiled)
@@ -33,12 +42,25 @@ def test_gate_validate_compile_feasible() -> None:
 
 
 def test_gate_unsat_detected() -> None:
-    ir = v.parse_ir(_ir(
-        [{"name": "x", "type": "int", "lo": 0, "hi": 10}],
-        [{"id": "c1", "kind": "hard", "intent": "x<=0",
-          "expr": {"op": "<=", "args": [{"var": "x"}, {"lit": 0}]}},
-         {"id": "c2", "kind": "hard", "intent": "x>=1",
-          "expr": {"op": ">=", "args": [{"var": "x"}, {"lit": 1}]}}]))
+    ir = v.parse_ir(
+        _ir(
+            [{"name": "x", "type": "int", "lo": 0, "hi": 10}],
+            [
+                {
+                    "id": "c1",
+                    "kind": "hard",
+                    "intent": "x<=0",
+                    "expr": {"op": "<=", "args": [{"var": "x"}, {"lit": 0}]},
+                },
+                {
+                    "id": "c2",
+                    "kind": "hard",
+                    "intent": "x>=1",
+                    "expr": {"op": ">=", "args": [{"var": "x"}, {"lit": 1}]},
+                },
+            ],
+        )
+    )
     assert v.validate(ir) == []
     feas = v.check_feasible(v.compile_ir(ir))
     assert feas.status == "unsat"
@@ -56,10 +78,19 @@ def test_gate_mus_shrink() -> None:
 
 
 def test_gate_backtranslate_render() -> None:
-    ir = v.parse_ir(_ir(
-        [{"name": "x", "type": "int", "lo": 0, "hi": 10}],
-        [{"id": "c1", "kind": "hard", "intent": "x>=1",
-          "expr": {"op": ">=", "args": [{"var": "x"}, {"lit": 1}]}}]))
+    ir = v.parse_ir(
+        _ir(
+            [{"name": "x", "type": "int", "lo": 0, "hi": 10}],
+            [
+                {
+                    "id": "c1",
+                    "kind": "hard",
+                    "intent": "x>=1",
+                    "expr": {"op": ">=", "args": [{"var": "x"}, {"lit": 1}]},
+                }
+            ],
+        )
+    )
     # 回译闸门: 意图 ↔ 渲染相似度比对 (diff_all 内部处理 var_map)
     reports = v.diff_all(ir)
     assert reports and all(0.0 <= r.similarity <= 1.0 for r in reports)
@@ -69,12 +100,17 @@ def test_gate_backtranslate_render() -> None:
 # O2 分配 + VCG 支付 + 策略证明
 # ---------------------------------------------------------------------------
 
+
 def _problem() -> v.Problem:
     return v.Problem(
         tasks=[v.Task("t1", {"s1": 1.0}), v.Task("t2", {"s1": 1.0})],
         workers=[v.Worker("a", {"s1": 5.0}), v.Worker("b", {"s1": 4.0})],
-        bids=[v.Bid("a", "t1", 0.2), v.Bid("a", "t2", 0.2),
-              v.Bid("b", "t1", 0.25), v.Bid("b", "t2", 0.25)],
+        bids=[
+            v.Bid("a", "t1", 0.2),
+            v.Bid("a", "t2", 0.2),
+            v.Bid("b", "t1", 0.25),
+            v.Bid("b", "t2", 0.25),
+        ],
     )
 
 
@@ -103,6 +139,7 @@ def test_vcg_strategyproof_check() -> None:
 # O2 死锁: 等待图环 + 预检 + 受害者选择
 # ---------------------------------------------------------------------------
 
+
 def test_deadlock_cycle_and_precheck() -> None:
     wfg = v.WaitForGraph()
     wfg.add_wait("p1", "p2", resource="r1")
@@ -118,6 +155,7 @@ def test_deadlock_cycle_and_precheck() -> None:
 # ---------------------------------------------------------------------------
 # 博弈论: 纯纳什 / 囚徒困境
 # ---------------------------------------------------------------------------
+
 
 def test_pure_nash_prisoners_dilemma() -> None:
     g = v.prisoners_dilemma()
@@ -137,6 +175,7 @@ def test_pareto_vs_nash_report() -> None:
 # ---------------------------------------------------------------------------
 # O3 沙箱推演: PUCT 搜索 (自实现 WorldModel) + 快照
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CountModel:
@@ -191,9 +230,12 @@ def test_snapshot_commit_checkout() -> None:
 # P3 期望效用: drop_negative 语义
 # ---------------------------------------------------------------------------
 
+
 def test_expected_utility_drop_negative() -> None:
-    cands = [v.InterventionCandidate("cheap", delta_p=0.5, cost=0.1),
-             v.InterventionCandidate("wasteful", delta_p=0.3, cost=10.0)]
+    cands = [
+        v.InterventionCandidate("cheap", delta_p=0.5, cost=0.1),
+        v.InterventionCandidate("wasteful", delta_p=0.3, cost=10.0),
+    ]
     sel = v.select_intervention(cands, lambda_cost=1.0, drop_negative=True)
     assert sel.best is not None and sel.best.action_id == "cheap"
     assert sel.rejected, "负效用候选必须进入 rejected"

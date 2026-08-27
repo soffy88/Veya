@@ -89,7 +89,9 @@ def tiff_size(data: bytes) -> tuple[int, int] | None:
     for _ in range(entries):
         if cursor + 12 > len(data):
             return None
-        tag, value_type, count, raw_value = struct.unpack(f"{endian}HHII", data[cursor : cursor + 12])
+        tag, value_type, count, raw_value = struct.unpack(
+            f"{endian}HHII", data[cursor : cursor + 12]
+        )
         if value_type in {3, 4} and count == 1:
             value = raw_value if value_type == 4 else raw_value & 0xFFFF
             if tag == 256:
@@ -119,7 +121,14 @@ def detect_image_type(data: bytes) -> str | None:
 
 
 def detect_size(data: bytes) -> tuple[int, int] | None:
-    return png_size(data) or jpeg_size(data) or gif_size(data) or webp_size(data) or bmp_size(data) or tiff_size(data)
+    return (
+        png_size(data)
+        or jpeg_size(data)
+        or gif_size(data)
+        or webp_size(data)
+        or bmp_size(data)
+        or tiff_size(data)
+    )
 
 
 def probe(path: Path) -> dict:
@@ -139,7 +148,9 @@ def probe(path: Path) -> dict:
         if width < 512 or height < 512:
             warnings.append("low resolution; small geometry/material details may be unreliable")
         if aspect and (aspect > 3.0 or aspect < 0.33):
-            warnings.append("extreme aspect ratio; object may be cropped or surrounded by empty space")
+            warnings.append(
+                "extreme aspect ratio; object may be cropped or surrounded by empty space"
+            )
     return {
         "path": str(path),
         "type": image_type,

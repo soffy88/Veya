@@ -99,6 +99,7 @@ class SwarmOrchestrator:
                 llm_caller=_bound_llm,
                 temperature=temperature,
             )
+
         self._engine = _omodul.swarm_orchestrator.SwarmOrchestrator(
             llm_caller=_bound_llm,
             sub_agent_factory=sub_agent_factory or default_factory,

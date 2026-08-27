@@ -69,7 +69,9 @@ class VeyaModelRouter:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """根据任务元数据动态路由模型, 兼顾性能与成本。"""
-        return await self._router.completion(prompt, task_type=task_type, system_prompt=system_prompt, **kwargs)
+        return await self._router.completion(
+            prompt, task_type=task_type, system_prompt=system_prompt, **kwargs
+        )
 
     def get_stats(self) -> dict[str, Any]:
         return self._router.get_stats()

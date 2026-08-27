@@ -29,8 +29,7 @@ def list_skeletons() -> list[str]:
 class Injection:
     """注入点声明: kind + cardinality。"""
 
-    def __init__(self, kind: str, cardinality: str = "one",
-                 required: bool = True) -> None:
+    def __init__(self, kind: str, cardinality: str = "one", required: bool = True) -> None:
         self.kind = kind
         self.cardinality = cardinality
         self.required = required
@@ -44,6 +43,7 @@ class EngineSkeleton:
 
     skeleton_name: str = "base"
 
-    async def run(self, inject: dict[str, Any], trigger: dict[str, Any],
-                  config: dict[str, Any]) -> Any:
+    async def run(
+        self, inject: dict[str, Any], trigger: dict[str, Any], config: dict[str, Any]
+    ) -> Any:
         raise NotImplementedError

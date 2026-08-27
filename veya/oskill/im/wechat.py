@@ -22,6 +22,7 @@ import xml.etree.ElementTree as ET
 
 try:
     from fastapi import APIRouter, HTTPException, Request, Response
+
     _HAS_FASTAPI = True
 except ImportError:
     _HAS_FASTAPI = False
@@ -143,17 +144,24 @@ class WeChatGateway:
 
         if msg_type == "text" and self._runner and content:
             # Background: run agent and reply
-            _task_ref = asyncio.create_task(self._run_and_reply(
-                from_user, to_user, content, pseudo_id,
-            ))
+            _task_ref = asyncio.create_task(
+                self._run_and_reply(
+                    from_user,
+                    to_user,
+                    content,
+                    pseudo_id,
+                )
+            )
             _bg_tasks.add(_task_ref)
 
-        return self._text_reply(
-            from_user, to_user, f"收到消息，正在处理: _{content[:50]}..._"
-        )
+        return self._text_reply(from_user, to_user, f"收到消息，正在处理: _{content[:50]}..._")
 
     async def _run_and_reply(
-        self, from_user: str, to_user: str, prompt: str, pseudo_id: str,
+        self,
+        from_user: str,
+        to_user: str,
+        prompt: str,
+        pseudo_id: str,
     ):
         """Run agent and send reply via WeChat customer service API."""
         try:
@@ -221,12 +229,19 @@ def make_wechat_router(
     async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
         try:
             result = await master_coordinator.chat_stream(prompt, session_id=None, max_rounds=3)
-            return {"status": result.get("status", "failed"), "content": result.get("final_answer") or result.get("error", ""), "cost_usd": result.get("cost_usd", 0.0), "user_ref": user_ref}
+            return {
+                "status": result.get("status", "failed"),
+                "content": result.get("final_answer") or result.get("error", ""),
+                "cost_usd": result.get("cost_usd", 0.0),
+                "user_ref": user_ref,
+            }
         except Exception as exc:
             return {"status": "failed", "content": f"IM runner error: {exc}", "user_ref": user_ref}
 
     gateway = WeChatGateway(
-        app_id=app_id, app_secret=app_secret, token=token,
+        app_id=app_id,
+        app_secret=app_secret,
+        token=token,
         runner=_default_runner,
     )
 

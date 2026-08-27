@@ -29,12 +29,8 @@ _BINANCE_BASE = "https://api.binance.com"
 def register_vault_physical_tools(coordinator: Any) -> None:
     """把真实物理工具注册进主脑金库(幂等 — dict 赋值, 可安全重复调用)。"""
     coordinator.register_secure_tool("feishu_webhook", _feishu_webhook_callback)
-    coordinator.register_secure_tool(
-        "binance_signed_request", _binance_signed_request_callback
-    )
-    logger.info(
-        "[Vault] 物理工具已注册: feishu_webhook, binance_signed_request"
-    )
+    coordinator.register_secure_tool("binance_signed_request", _binance_signed_request_callback)
+    logger.info("[Vault] 物理工具已注册: feishu_webhook, binance_signed_request")
 
 
 async def _feishu_webhook_callback(

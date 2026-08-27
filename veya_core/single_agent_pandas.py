@@ -43,12 +43,14 @@ _FALLBACK = False
 
 try:
     from obase.local_sandbox_pool import LocalSandboxPool
+
     _SANDBOX_POOL = LocalSandboxPool
 except ImportError:
     pass
 
 try:
     from omodul.sandbox_observe_lookahead import sandbox_observe_lookahead
+
     _SANDBOX_OBSERVE = sandbox_observe_lookahead
 except ImportError:
     pass
@@ -70,7 +72,7 @@ def _fallback_sandbox_execute(code: str, timeout: float) -> Dict[str, Any]:
     code_path.write_text(f"""
 import sys, traceback
 try:
-{chr(10).join('    ' + line for line in code.strip().split(chr(10)))}
+{chr(10).join("    " + line for line in code.strip().split(chr(10)))}
     print("SANDBOX_OK:" + str(execute()))
 except Exception as e:
     print(f"SANDBOX_ERR:{{e}}")
@@ -80,7 +82,9 @@ except Exception as e:
     try:
         proc = subprocess.run(
             [sys.executable, str(code_path)],
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         stdout = proc.stdout
         if "SANDBOX_OK:" in stdout:
@@ -94,6 +98,7 @@ except Exception as e:
         return {"status": "timeout", "error": f"Execution exceeded {timeout}s"}
     finally:
         import shutil
+
         shutil.rmtree(code_path.parent, ignore_errors=True)
 
 
@@ -117,9 +122,7 @@ def execute():
         print("[veya_core] 3O O3 沙箱元素未挂载，使用 veya 内置沙箱降级执行")
         # 模拟探针：检查代码是否包含 execute() 函数
         probe = lambda code, timeout: (
-            {"status": "success", "score": 1.0}
-            if "execute()" in code
-            else {"status": "error"}
+            {"status": "success", "score": 1.0} if "execute()" in code else {"status": "error"}
         )
         probe_result = probe(untrusted_business_code, 15.0)
         if probe_result["status"] != "success":
@@ -133,9 +136,7 @@ def execute():
     config = {
         "sandbox_pool": sandbox_pool,
         "probe_op": lambda code, timeout: (
-            {"status": "success", "score": 1.0}
-            if "execute()" in code
-            else {"status": "error"}
+            {"status": "success", "score": 1.0} if "execute()" in code else {"status": "error"}
         ),
     }
 

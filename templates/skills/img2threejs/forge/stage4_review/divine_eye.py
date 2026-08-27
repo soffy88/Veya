@@ -61,8 +61,8 @@ SCALE_HARD_MAX = 0.08
 # Ensemble: fidelity target + disagreement (self-uncertainty) spread.
 FIDELITY_TARGET = 0.85
 DISAGREEMENT_SPREAD = 0.35  # if soft-signal spread exceeds this ⇒ low-confidence → probe
-ASPECT_SOFT_MAX = 0.05      # aspect-ratio delta allowed for a reconstruction-mode soft pass.
-RECON_OBJ_MIN = 0.48        # objectness ≥ this rescues an IoU-only hard reject → probe (recon mode).
+ASPECT_SOFT_MAX = 0.05  # aspect-ratio delta allowed for a reconstruction-mode soft pass.
+RECON_OBJ_MIN = 0.48  # objectness ≥ this rescues an IoU-only hard reject → probe (recon mode).
 #                            Separates same-object-different-framing (real pairs ~0.53–0.58) from a
 #                            genuinely different shape (~0.43). Rescue only ever downgrades reject→probe.
 # RESOLUTION CEILING, and it is a hard limit on what this module can ever report.
@@ -71,14 +71,16 @@ RECON_OBJ_MIN = 0.48        # objectness ≥ this rescues an IoU-only hard rejec
 # comparison happens. No threshold tuning recovers it. per_feature.py cannot compensate either: it
 # consumes a scores dict and never opens an image, so its critical-feature gate is sound and starved.
 # Feature-scale fidelity needs zoom patches instead: grimoire/review/divine_eye_microscope.md.
-LUMA_SIZE = 64   # SSIM / tonal / blowout / flat work on this downsampled luma grid
-EDGE_SIZE = 96   # edge overlap grid
-HUE_ZONE_DELTA_E = 2.3   # per-band CIEDE2000 "same hue zone" tolerance (Context Part 2.2)
-HUE_ZONE_BANDS = 8       # bands sampled along the axis for hue_zone_parity
-COLOR_SAMPLE = 160       # coarse per-axis subsample cap for colour helpers (perf on full-res refs)
+LUMA_SIZE = 64  # SSIM / tonal / blowout / flat work on this downsampled luma grid
+EDGE_SIZE = 96  # edge overlap grid
+HUE_ZONE_DELTA_E = 2.3  # per-band CIEDE2000 "same hue zone" tolerance (Context Part 2.2)
+HUE_ZONE_BANDS = 8  # bands sampled along the axis for hue_zone_parity
+COLOR_SAMPLE = 160  # coarse per-axis subsample cap for colour helpers (perf on full-res refs)
 
 
-def _banded_median_lab(png_path: Path, axis: str, bands: int) -> list[tuple[float, float, float] | None]:
+def _banded_median_lab(
+    png_path: Path, axis: str, bands: int
+) -> list[tuple[float, float, float] | None]:
     """Median CIELAB per foreground-masked band along the axis (axis 'u'=x, 'v'=y).
     Colour-aware (not luma) — used only by hue_zone_parity, which is report-only until calibrated."""
     width, height, pixels, _ = load_image(png_path)
@@ -111,7 +113,9 @@ def _banded_median_lab(png_path: Path, axis: str, bands: int) -> list[tuple[floa
         if not rs:
             out.append(None)
             continue
-        rs.sort(); gs.sort(); bs.sort()
+        rs.sort()
+        gs.sort()
+        bs.sort()
         m = len(rs) // 2
         out.append(srgb_to_lab((rs[m], gs[m], bs[m])))
     return out
@@ -121,6 +125,7 @@ def _foreground_hsv_stats(png_path: Path) -> tuple[float, float]:
     """Saturation-weighted mean (hueDeg, saturation) over the foreground. Colour-aware."""
     import colorsys
     import math as _m
+
     width, height, pixels, _ = load_image(png_path)
     mask, _meta, _warn = build_foreground_mask(width, height, pixels)
     sx = max(1, width // COLOR_SAMPLE)
@@ -162,12 +167,15 @@ def specular_wash(reference_png: Path, render_png: Path) -> dict[str, Any]:
         "hueDriftDeg": round(ref_to_cyan - ren_to_cyan, 1),
         "towardCyan": toward_cyan,
         "flagged": flagged,
-        "advice": "lower metalness / envMapIntensity (candy-coat dielectric recipe)" if flagged else None,
+        "advice": "lower metalness / envMapIntensity (candy-coat dielectric recipe)"
+        if flagged
+        else None,
     }
 
 
-def hue_zone_parity(reference_png: Path, render_png: Path, axis: str = "u",
-                    bands: int = HUE_ZONE_BANDS) -> float:
+def hue_zone_parity(
+    reference_png: Path, render_png: Path, axis: str = "u", bands: int = HUE_ZONE_BANDS
+) -> float:
     """Fraction of along-axis bands whose median colour matches the reference within CIEDE2000
     ≤ HUE_ZONE_DELTA_E. Catches "purple rendered blue" that luma/structure signals miss.
     Report-only (no ensemble weight) until calibrated on the labeled corpus."""
@@ -213,9 +221,9 @@ def global_ssim(a: list[float], b: list[float]) -> float:
     var_a = _mean([(x - mu_a) ** 2 for x in a])
     var_b = _mean([(x - mu_b) ** 2 for x in b])
     cov = _mean([(a[i] - mu_a) * (b[i] - mu_b) for i in range(n)])
-    c1, c2 = 0.01 ** 2, 0.03 ** 2
+    c1, c2 = 0.01**2, 0.03**2
     ssim = ((2 * mu_a * mu_b + c1) * (2 * cov + c2)) / (
-        (mu_a ** 2 + mu_b ** 2 + c1) * (var_a + var_b + c2)
+        (mu_a**2 + mu_b**2 + c1) * (var_a + var_b + c2)
     )
     return max(0.0, min(1.0, ssim))
 
@@ -224,8 +232,10 @@ def _sobel_edges(luma: list[float], size: int, thresh: float = 0.12) -> list[boo
     edges = [False] * (size * size)
     for y in range(1, size - 1):
         for x in range(1, size - 1):
+
             def g(dx, dy):
                 return luma[(y + dy) * size + (x + dx)]
+
             gx = (g(-1, -1) + 2 * g(-1, 0) + g(-1, 1)) - (g(1, -1) + 2 * g(1, 0) + g(1, 1))
             gy = (g(-1, -1) + 2 * g(0, -1) + g(1, -1)) - (g(-1, 1) + 2 * g(0, 1) + g(1, 1))
             if math.hypot(gx, gy) > thresh:
@@ -274,6 +284,7 @@ def tonal_parity(ref: list[float], ren: list[float], bins: int = 16) -> float:
             h[min(bins - 1, int(v * bins))] += 1
         tot = sum(h) or 1
         return [c / tot for c in h]
+
     ha, hb = hist(ref), hist(ren)
     l1 = sum(abs(ha[i] - hb[i]) for i in range(bins))
     return max(0.0, 1.0 - l1 / 2.0)  # L1 over two distributions ∈ [0,2]
@@ -393,7 +404,11 @@ def evaluate(reference_png: Path, render_png: Path) -> dict[str, Any]:
             # IoU-only reject to a real pass; otherwise route to probe (human/VLM look). Genuinely
             # wrong geometry still fails: low objectness isn't rescued at all, and a weak soft
             # ensemble (< target) or an out-of-gate scale/aspect can only reach probe, never pass.
-            if fidelity >= FIDELITY_TARGET and scale_delta <= SCALE_HARD_MAX and aspect_delta <= ASPECT_SOFT_MAX:
+            if (
+                fidelity >= FIDELITY_TARGET
+                and scale_delta <= SCALE_HARD_MAX
+                and aspect_delta <= ASPECT_SOFT_MAX
+            ):
                 verdict, action = "pass", "continue"
             else:
                 verdict, action = "low-confidence", "probe"
@@ -430,8 +445,8 @@ def evaluate(reference_png: Path, render_png: Path) -> dict[str, Any]:
         "reference": str(reference_png.resolve()),
         "render": str(render_png.resolve()),
         "note": "deterministic ensemble; zero VLM/token. hueZoneParity is REPORT-ONLY (colour-aware, "
-                "CIEDE2000) — not yet in the weighted fidelity; promote after corpus calibration. "
-                "VLM layer (§3.4) runs only if this passes.",
+        "CIEDE2000) — not yet in the weighted fidelity; promote after corpus calibration. "
+        "VLM layer (§3.4) runs only if this passes.",
     }
 
 
@@ -449,8 +464,10 @@ def main(argv: list[str]) -> int:
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
-        print(f"{result['verdict'].upper()} → {result['action']}  fidelity={result['fidelity']} "
-              f"(target {result['fidelityTarget']})")
+        print(
+            f"{result['verdict'].upper()} → {result['action']}  fidelity={result['fidelity']} "
+            f"(target {result['fidelityTarget']})"
+        )
         for f in result["hardGateFailures"]:
             print(f"  HARD: {f}")
     # exit 0 only on a clean pass; non-zero otherwise so a pipeline can gate on it.

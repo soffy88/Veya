@@ -23,7 +23,11 @@ from extract_pbr_evidence import build_foreground_mask, load_image, write_png_rg
 
 DEFAULT_AZIMUTHS = (0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0)
 DEFAULT_VALIDATION_VIEWS = (
-    "albedo-unlit", "neutral-studio", "grazing", "environment-reflection", "reference-beauty"
+    "albedo-unlit",
+    "neutral-studio",
+    "grazing",
+    "environment-reflection",
+    "reference-beauty",
 )
 
 
@@ -48,26 +52,29 @@ def build_view_plan(
     captures: list[dict[str, Any]] = []
     for view_name in views:
         for azimuth in azimuths:
-            captures.append({
-                "id": f"{region_id}-{view_name}-{int(_norm(azimuth)):03d}",
-                "componentId": component_id,
-                "regionId": region_id,
-                "view": view_name,
-                "camera": {
-                    "azimuthDegrees": _norm(azimuth),
-                    "elevationDegrees": elevation,
-                    "rollDegrees": 0.0,
-                    "target": list(target),
-                    "zoom": zoom,
-                },
-                "cropPolicy": {
-                    "mode": "visible-footprint",
-                    "paddingFraction": 0.12,
-                    "minCoverage": 0.03,
-                    "maxCoverage": 0.92,
-                    "microscope": view_name in {"grazing", "environment-reflection", "backlight-transmission"},
-                },
-            })
+            captures.append(
+                {
+                    "id": f"{region_id}-{view_name}-{int(_norm(azimuth)):03d}",
+                    "componentId": component_id,
+                    "regionId": region_id,
+                    "view": view_name,
+                    "camera": {
+                        "azimuthDegrees": _norm(azimuth),
+                        "elevationDegrees": elevation,
+                        "rollDegrees": 0.0,
+                        "target": list(target),
+                        "zoom": zoom,
+                    },
+                    "cropPolicy": {
+                        "mode": "visible-footprint",
+                        "paddingFraction": 0.12,
+                        "minCoverage": 0.03,
+                        "maxCoverage": 0.92,
+                        "microscope": view_name
+                        in {"grazing", "environment-reflection", "backlight-transmission"},
+                    },
+                }
+            )
     return {
         "schemaVersion": 1,
         "kind": "img2threejs.material-view-plan",
@@ -92,10 +99,14 @@ def build_view_plan(
     }
 
 
-def crop_visible_footprint(source: Path, bbox: dict[str, Any], output: Path, padding_fraction: float = 0.12) -> dict[str, Any]:
+def crop_visible_footprint(
+    source: Path, bbox: dict[str, Any], output: Path, padding_fraction: float = 0.12
+) -> dict[str, Any]:
     width, height, pixels, warnings = load_image(source)
     required = ("x", "y", "width", "height")
-    if not isinstance(bbox, dict) or not all(isinstance(bbox.get(key), (int, float)) for key in required):
+    if not isinstance(bbox, dict) or not all(
+        isinstance(bbox.get(key), (int, float)) for key in required
+    ):
         raise ValueError("visible-footprint bbox requires x, y, width and height")
     x, y, box_width, box_height = (float(bbox[key]) for key in required)
     if bbox.get("normalized") is True:
@@ -116,7 +127,9 @@ def crop_visible_footprint(source: Path, bbox: dict[str, Any], output: Path, pad
             red, green, blue, alpha = pixels[row * width + column]
             rgb.extend((red, green, blue) if alpha >= 16 else (0, 0, 0))
     write_png_rgb(output, crop_width, crop_height, bytes(rgb))
-    mask, diagnostics, mask_warnings = build_foreground_mask(crop_width, crop_height, [(*rgb[i:i + 3], 255) for i in range(0, len(rgb), 3)])
+    mask, diagnostics, mask_warnings = build_foreground_mask(
+        crop_width, crop_height, [(*rgb[i : i + 3], 255) for i in range(0, len(rgb), 3)]
+    )
     coverage = sum(mask) / max(1, len(mask))
     if coverage < 0.03:
         raise ValueError("visible footprint crop contains too little foreground")
@@ -126,7 +139,11 @@ def crop_visible_footprint(source: Path, bbox: dict[str, Any], output: Path, pad
         "coverage": round(coverage, 4),
         "diagnostics": diagnostics,
         "warnings": warnings + mask_warnings,
-        "readback": {"width": crop_width, "height": crop_height, "pixels": crop_width * crop_height},
+        "readback": {
+            "width": crop_width,
+            "height": crop_height,
+            "pixels": crop_width * crop_height,
+        },
     }
 
 
@@ -173,7 +190,16 @@ def main(argv: list[str]) -> int:
             result["capturePassed"] = all(item["passed"] for item in result["captureValidation"])
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        print(json.dumps({"out": str(args.out.resolve()), "views": len(result["views"]), "capturePassed": result.get("capturePassed", True)}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "out": str(args.out.resolve()),
+                    "views": len(result["views"]),
+                    "capturePassed": result.get("capturePassed", True),
+                },
+                indent=2,
+            )
+        )
         return 0 if result.get("capturePassed", True) else 2
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

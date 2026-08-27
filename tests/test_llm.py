@@ -273,8 +273,7 @@ async def test_provider_stream_openai_sse():
 @pytest.mark.asyncio
 async def test_provider_stream_local_endpoint_without_api_key(monkeypatch):
     sse = (
-        'data: {"choices":[{"delta":{"content":"local"},"finish_reason":null}]}\n\n'
-        "data: [DONE]\n\n"
+        'data: {"choices":[{"delta":{"content":"local"},"finish_reason":null}]}\n\ndata: [DONE]\n\n'
     )
 
     def handler(request: httpx.Request) -> httpx.Response:

@@ -19,6 +19,7 @@ import os
 
 try:
     from fastapi import APIRouter, HTTPException, Request, Response
+
     _HAS_FASTAPI = True
 except ImportError:
     _HAS_FASTAPI = False
@@ -142,9 +143,9 @@ class DiscordGateway:
 
             if self._runner and prompt:
                 # Background task: run agent and reply
-                _task_ref = asyncio.create_task(self._run_and_reply(
-                    channel_id, prompt, pseudo_id, user_name
-                ))
+                _task_ref = asyncio.create_task(
+                    self._run_and_reply(channel_id, prompt, pseudo_id, user_name)
+                )
                 _bg_tasks.add(_task_ref)
 
             # Return deferred response
@@ -165,7 +166,11 @@ class DiscordGateway:
         return {"type": 4, "data": {"content": "Unknown interaction type."}}
 
     async def _run_and_reply(
-        self, channel_id: str, prompt: str, pseudo_id: str, user_name: str,
+        self,
+        channel_id: str,
+        prompt: str,
+        pseudo_id: str,
+        user_name: str,
     ):
         """Run the agentic loop and post the result to Discord."""
         try:
@@ -266,7 +271,12 @@ def make_discord_router(
         # Verify signature
         signature = request.headers.get("X-Signature-Ed25519", "")
         timestamp = request.headers.get("X-Signature-Timestamp", "")
-        if signature and timestamp and gateway.public_key and not await gateway.verify_signature(body, signature, timestamp):
+        if (
+            signature
+            and timestamp
+            and gateway.public_key
+            and not await gateway.verify_signature(body, signature, timestamp)
+        ):
             raise HTTPException(status_code=401, detail="Invalid signature")
 
         try:

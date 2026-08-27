@@ -185,7 +185,11 @@ class BrowserSession:
             raise RuntimeError("Browser not started")
 
         if action.action == "navigate":
-            await page.goto(action.value or "about:blank", wait_until=action.wait_until, timeout=action.timeout_ms)
+            await page.goto(
+                action.value or "about:blank",
+                wait_until=action.wait_until,
+                timeout=action.timeout_ms,
+            )
             return self._page_snapshot(action)
 
         elif action.action == "click":
@@ -222,7 +226,9 @@ class BrowserSession:
                 text = await el.inner_text()
             else:
                 text = await page.inner_text("body")
-            return BrowserActionResult(success=True, action="extract_text", text=text, page_url=page.url)
+            return BrowserActionResult(
+                success=True, action="extract_text", text=text, page_url=page.url
+            )
 
         elif action.action == "extract_html":
             if action.selector:
@@ -230,7 +236,9 @@ class BrowserSession:
                 html = await el.inner_html()
             else:
                 html = await page.content()
-            return BrowserActionResult(success=True, action="extract_html", html=html, page_url=page.url)
+            return BrowserActionResult(
+                success=True, action="extract_html", html=html, page_url=page.url
+            )
 
         elif action.action == "scroll":
             parts = (action.value or "down:500").split(":", 1)
@@ -248,7 +256,9 @@ class BrowserSession:
             return BrowserActionResult(success=True, action="wait", page_url=page.url)
 
         elif action.action == "select":
-            el = await page.wait_for_selector(action.selector or "select", timeout=action.timeout_ms)
+            el = await page.wait_for_selector(
+                action.selector or "select", timeout=action.timeout_ms
+            )
             await el.select_option(action.value or "")
             return BrowserActionResult(success=True, action="select", page_url=page.url)
 
@@ -271,7 +281,9 @@ class BrowserSession:
                 page_url=page.url,
             )
 
-        return BrowserActionResult(success=False, action=action.action, error=f"Unknown action: {action.action}")
+        return BrowserActionResult(
+            success=False, action=action.action, error=f"Unknown action: {action.action}"
+        )
 
     def _page_snapshot(self, action: BrowserAction) -> BrowserActionResult:
         """Create a text snapshot of the current page."""
@@ -291,7 +303,9 @@ class BrowserSession:
         return await self.execute_action(BrowserAction(action="click", selector=selector))
 
     async def type_text(self, selector: str, text: str) -> BrowserActionResult:
-        return await self.execute_action(BrowserAction(action="type", selector=selector, value=text))
+        return await self.execute_action(
+            BrowserAction(action="type", selector=selector, value=text)
+        )
 
     async def screenshot(self, selector: str | None = None) -> BrowserActionResult:
         return await self.execute_action(BrowserAction(action="screenshot", selector=selector))

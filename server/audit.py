@@ -45,13 +45,16 @@ class VeyaAudit:
         for e in all_events:
             by_trace.setdefault(e.get("trace_id", "?"), []).append(e)
         out = []
-        for tid, evs in sorted(by_trace.items(), key=lambda kv: kv[1][-1]["ts"],
-                               reverse=True)[:limit]:
-            out.append({
-                "trace_id": tid,
-                "event_count": len(evs),
-                "event_types": [e["event_type"] for e in evs],
-                "first_ts": evs[0]["ts"],
-                "last_ts": evs[-1]["ts"],
-            })
+        for tid, evs in sorted(by_trace.items(), key=lambda kv: kv[1][-1]["ts"], reverse=True)[
+            :limit
+        ]:
+            out.append(
+                {
+                    "trace_id": tid,
+                    "event_count": len(evs),
+                    "event_types": [e["event_type"] for e in evs],
+                    "first_ts": evs[0]["ts"],
+                    "last_ts": evs[-1]["ts"],
+                }
+            )
         return {"traces": out, "total_events": len(all_events)}

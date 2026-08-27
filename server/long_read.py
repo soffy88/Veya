@@ -22,11 +22,12 @@ _SYMBOL_RE = re.compile(
     r"const\s+\w+\s*=|let\s+\w+\s*=|function\s+\w+|"
     r"interface\s+\w+|type\s+\w+\s*=|struct\s+\w+|enum\s+\w+)"
 )
-_LINE_BUDGET = 250       # 每块行数
-_CHAR_BUDGET = 12_000    # 每块字符上限 (超长行截断)
+_LINE_BUDGET = 250  # 每块行数
+_CHAR_BUDGET = 12_000  # 每块字符上限 (超长行截断)
 
 
 # ── 读取 ──────────────────────────────────────────────────────────────
+
 
 async def _read_text(path: str) -> tuple[str, str]:
     """返回 (文本, 来源描述)。支持本地文件 / http(s) URL。"""
@@ -74,7 +75,9 @@ def _extract_block(lines: list[str], focus: str = "") -> tuple[list[str], list[s
     headings: list[str] = []
     symbols: list[str] = []
     key_sents: list[str] = []
-    focus_kws = [k for k in re.split(r"[\s,，;；、|]+", focus.strip()) if len(k) >= 2] if focus else []
+    focus_kws = (
+        [k for k in re.split(r"[\s,，;；、|]+", focus.strip()) if len(k) >= 2] if focus else []
+    )
     for raw in lines:
         line = raw.rstrip()
         s = line.strip()
@@ -99,7 +102,7 @@ def _render_chunk_index(lines: list[str], chunks: list[tuple[int, int]], focus: 
     for ci, (s, e) in enumerate(chunks):
         block = lines[s:e]
         headings, symbols, sents = _extract_block(block, focus)
-        head = f"chunk[{ci}] 行 {s+1}-{e} ({sum(len(x)+1 for x in block)}字符)"
+        head = f"chunk[{ci}] 行 {s + 1}-{e} ({sum(len(x) + 1 for x in block)}字符)"
         if headings:
             head += f" | 标题: {'; '.join(headings[:4])}"
         if symbols:
@@ -140,8 +143,7 @@ async def _llm_summarize(chunk_text: str, source: str, focus: str) -> str:
         cfg = get_provider_config()
         prompt = (
             "以下是一段文本(来自: {src})。请用中文提炼要点, 300 字以内, "
-            "按「结论/关键信息/待办或疑问」三段。"
-            + (f" 重点关注: {focus}。" if focus else "")
+            "按「结论/关键信息/待办或疑问」三段。" + (f" 重点关注: {focus}。" if focus else "")
         ).format(src=source[:120])
         resp = await llm_call(
             [
@@ -152,9 +154,7 @@ async def _llm_summarize(chunk_text: str, source: str, focus: str) -> str:
         )
         content = resp.get("content") or ""
         if isinstance(content, list):
-            content = "".join(
-                c.get("text", "") for c in content if isinstance(c, dict)
-            )
+            content = "".join(c.get("text", "") for c in content if isinstance(c, dict))
         content = str(content).strip()
         if content and content.lower() not in ("none", "null"):
             return f"[语义摘要]\n{content[:3000]}"
@@ -164,6 +164,7 @@ async def _llm_summarize(chunk_text: str, source: str, focus: str) -> str:
 
 
 # ── 工具实现 ──────────────────────────────────────────────────────────
+
 
 async def long_read(
     path: str,
@@ -195,24 +196,27 @@ async def long_read(
         if summarize:
             summary = await _llm_summarize("\n".join(block), source, focus)
             return (
-                f"{source} chunk[{chunk_id}] 行 {s+1}-{e}\n{summary}\n"
-                + "[原文前 4000 字符]\n" + "\n".join(block)[:4000]
+                f"{source} chunk[{chunk_id}] 行 {s + 1}-{e}\n{summary}\n"
+                + "[原文前 4000 字符]\n"
+                + "\n".join(block)[:4000]
             )
         return (
-            f"{source} chunk[{chunk_id}] 行 {s+1}-{e} ({len(block)}行)\n"
+            f"{source} chunk[{chunk_id}] 行 {s + 1}-{e} ({len(block)}行)\n"
             + "\n".join(block)[:9000]
         )
 
     if summarize:
         s, e = chunks[0]
         summary = await _llm_summarize("\n".join(lines[s:e]), source, focus)
-        return f"{source} 共 {len(chunks)} 块; 首块语义摘要:\n{summary}\n\n" + _render_chunk_index(lines, chunks, focus)
+        return f"{source} 共 {len(chunks)} 块; 首块语义摘要:\n{summary}\n\n" + _render_chunk_index(
+            lines, chunks, focus
+        )
 
     info = (
         f"📄 {source}\n"
         f"总行数 {len(lines)}, 分 {len(chunks)} 块 (每块 ≤{_LINE_BUDGET}行 / ≤{_CHAR_BUDGET}字符)\n"
         f"用法: 深入某块 long_read(path, chunk_id=<n>); 语义摘要加 summarize=true;"
-        f" 关注点过滤加 focus=\"关键词\"。\n"
+        f' 关注点过滤加 focus="关键词"。\n'
     )
     outline = _render_outline(lines)
     index = _render_chunk_index(lines, chunks, focus)
@@ -220,6 +224,7 @@ async def long_read(
 
 
 # ── 注册 ──────────────────────────────────────────────────────────────
+
 
 def wire_master_tools() -> int:
     """把 long_read 注册进 master_tools (幂等)。返回新注册数量。"""
@@ -236,9 +241,18 @@ def wire_master_tools() -> int:
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "本地文件路径或 http(s) URL。"},
-                "focus": {"type": "string", "description": "可选。关注点关键词, 关键句提取只保留命中句。"},
-                "summarize": {"type": "boolean", "description": "可选。对目标块做语义摘要 (默认 false 零 LLM)。"},
-                "chunk_id": {"type": "integer", "description": "可选。>=0 时返回该块原文 (缺省 -1 = 只给骨架+索引)。"},
+                "focus": {
+                    "type": "string",
+                    "description": "可选。关注点关键词, 关键句提取只保留命中句。",
+                },
+                "summarize": {
+                    "type": "boolean",
+                    "description": "可选。对目标块做语义摘要 (默认 false 零 LLM)。",
+                },
+                "chunk_id": {
+                    "type": "integer",
+                    "description": "可选。>=0 时返回该块原文 (缺省 -1 = 只给骨架+索引)。",
+                },
                 "max_chunks": {"type": "integer", "description": "可选。最大分块数, 默认 120。"},
             },
             "required": ["path"],

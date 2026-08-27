@@ -93,9 +93,24 @@ CS2_DETAIL_MINIMUM = 9
 # obvious case. A miss here just means the agent (or the user) sets --cs2 explicitly --
 # vision/prompt-based detection beyond this heuristic is inherently the agent's judgment call.
 CS2_INTENT_KEYWORDS = (
-    "cs2", "csgo", "counter-strike", "counter strike", "weapon skin", "knife skin", "glove skin",
-    "doppler", "gamma doppler", "marble fade", "case hardened", "fade",
-    "karambit", "butterfly knife", "bayonet", "gut knife", "falchion", "bowie knife",
+    "cs2",
+    "csgo",
+    "counter-strike",
+    "counter strike",
+    "weapon skin",
+    "knife skin",
+    "glove skin",
+    "doppler",
+    "gamma doppler",
+    "marble fade",
+    "case hardened",
+    "fade",
+    "karambit",
+    "butterfly knife",
+    "bayonet",
+    "gut knife",
+    "falchion",
+    "bowie knife",
     "classic knife",
 )
 
@@ -122,6 +137,8 @@ class PreSpecPayloadRequired(TypedDict):
     preSpecAssessment: dict[str, JsonValue]
     qualityContract: dict[str, JsonValue]
     authoringInstruction: str
+
+
 class PreSpecPayload(PreSpecPayloadRequired, total=False):
     localSpecSearch: LocalSpecSearchPayload
 
@@ -136,6 +153,8 @@ def select_spec_collection(target_name: str, requested_collection: str | None) -
     if requested_collection:
         return requested_collection
     return "cs2" if detect_cs2_intent(target_name) else "core_3d"
+
+
 def search_local_specs(
     target_name: str,
     collection: str,
@@ -145,9 +164,7 @@ def search_local_specs(
     """Search local specs and return a portable evidence bundle for the assessment."""
     query = " ".join([target_name, *extra_terms]).strip()
     profile = load_profile(collection)
-    loaded = load_or_build_index(
-        IndexRequest(PROJECT_ROOT, collection, profile, force_reindex)
-    )
+    loaded = load_or_build_index(IndexRequest(PROJECT_ROOT, collection, profile, force_reindex))
     matches = serialize_search_results(
         loaded.index,
         SearchOutputRequest(query, DEFAULT_SPEC_SEARCH_LIMIT, DEFAULT_SPEC_SEARCH_SNIPPET_CHARS),
@@ -259,7 +276,7 @@ def main(argv: list[str]) -> int:
         choices=sorted(COMPLEXITY_MINIMUMS),
         default=None,
         help="Initial complexity estimate. Refine after visual inspection. "
-             "Default: ultra-complex for CS2 skins, moderate otherwise.",
+        "Default: ultra-complex for CS2 skins, moderate otherwise.",
     )
     parser.add_argument("--out", type=Path, help="Output JSON path")
     parser.add_argument("--force", action="store_true", help="Overwrite output file")
@@ -267,10 +284,12 @@ def main(argv: list[str]) -> int:
         "--cs2",
         action="store_true",
         help=f"CS2 weapon/knife/glove skin -- defaults complexity to ultra-complex (targetMinDetails 16); "
-             f"never below the {CS2_DETAIL_MINIMUM} floor even if --complexity is set lower.",
+        f"never below the {CS2_DETAIL_MINIMUM} floor even if --complexity is set lower.",
     )
     parser.add_argument("--manifest", type=Path, help="CS2 intake manifest")
-    parser.add_argument("--character", action="store_true", help="Use the character-v1.5 authoring track")
+    parser.add_argument(
+        "--character", action="store_true", help="Use the character-v1.5 authoring track"
+    )
     parser.add_argument(
         "--collection",
         help="Spec-search collection; defaults to cs2 for CS2 targets and core_3d otherwise.",
@@ -296,7 +315,9 @@ def main(argv: list[str]) -> int:
         if not isinstance(manifest, dict):
             parser.error("CS2 intake manifest must be a JSON object")
         if manifest.get("state") not in {"proceed", "fallback"}:
-            parser.error(f"CS2 intake is not ready for assessment: {manifest.get('state', 'unknown')}")
+            parser.error(
+                f"CS2 intake is not ready for assessment: {manifest.get('state', 'unknown')}"
+            )
         is_cs2 = True
     payload_object = make_payload(
         args.target_name,

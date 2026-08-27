@@ -16,6 +16,7 @@ import os
 
 try:
     from fastapi import APIRouter, HTTPException, Request, Response
+
     _HAS_FASTAPI = True
 except ImportError:
     _HAS_FASTAPI = False
@@ -63,7 +64,10 @@ class TelegramGateway:
         self._polling_task: asyncio.Task | None = None
 
     async def send_message(
-        self, chat_id: int | str, text: str, parse_mode: str = "Markdown",
+        self,
+        chat_id: int | str,
+        text: str,
+        parse_mode: str = "Markdown",
     ) -> dict | None:
         """Send a message to a Telegram chat."""
         if not self.bot_token:
@@ -93,6 +97,7 @@ class TelegramGateway:
             return
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=10) as client:
                 await client.post(
                     f"{TELEGRAM_API_BASE}/bot{self.bot_token}/sendChatAction",
@@ -160,15 +165,24 @@ class TelegramGateway:
 
         # Regular message — run agent
         if self._runner:
-            _task_ref = asyncio.create_task(self._process_message(
-                chat_id, text, pseudo_id, username,
-            ))
+            _task_ref = asyncio.create_task(
+                self._process_message(
+                    chat_id,
+                    text,
+                    pseudo_id,
+                    username,
+                )
+            )
             _bg_tasks.add(_task_ref)
 
         return None
 
     async def _process_message(
-        self, chat_id: int, text: str, pseudo_id: str, username: str,
+        self,
+        chat_id: int,
+        text: str,
+        pseudo_id: str,
+        username: str,
     ):
         """Process a user message through the agentic loop."""
         await self.send_typing(chat_id)
@@ -186,12 +200,7 @@ class TelegramGateway:
             reply = str(content)[:3800]
             cost = result.get("cost_usd", 0)
 
-            final = (
-                f"**{username}** asked:\n"
-                f"> _{text[:200]}..._\n\n"
-                f"{reply}\n\n"
-                f"💰 _${cost:.4f}_"
-            )
+            final = f"**{username}** asked:\n> _{text[:200]}..._\n\n{reply}\n\n💰 _${cost:.4f}_"
             await self.send_message(chat_id, final)
 
         except Exception as e:
@@ -266,12 +275,18 @@ def make_telegram_router(
     async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
         try:
             result = await master_coordinator.chat_stream(prompt, session_id=None, max_rounds=3)
-            return {"status": result.get("status", "failed"), "content": result.get("final_answer") or result.get("error", ""), "cost_usd": result.get("cost_usd", 0.0), "user_ref": user_ref}
+            return {
+                "status": result.get("status", "failed"),
+                "content": result.get("final_answer") or result.get("error", ""),
+                "cost_usd": result.get("cost_usd", 0.0),
+                "user_ref": user_ref,
+            }
         except Exception as exc:
             return {"status": "failed", "content": f"IM runner error: {exc}", "user_ref": user_ref}
 
     gateway = TelegramGateway(
-        bot_token=bot_token, webhook_url=webhook_url,
+        bot_token=bot_token,
+        webhook_url=webhook_url,
         runner=_default_runner,
     )
 

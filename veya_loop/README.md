@@ -106,13 +106,15 @@ print(report.strategy, report.recommended_actions)
 
 # ── 硬化派发: 授权 → 执行 → 审计 ─────────────────────────────────────
 contract = PermissionContract()
-contract.grant("do:*")                      # 授权所有干预动作
+contract.grant("do:*")  # 授权所有干预动作
 with HardenedExecutor() as executor:
     result = dispatch_intervention(
-        "do(db=ok)", ["python3", "-c", "print('repair ok')"],
-        contract=contract, executor=executor,
+        "do(db=ok)",
+        ["python3", "-c", "print('repair ok')"],
+        contract=contract,
+        executor=executor,
     )
-print(result.status, result.nonce)          # approved_executed cap_xxxx
+print(result.status, result.nonce)  # approved_executed cap_xxxx
 ```
 
 ## 文档

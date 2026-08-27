@@ -50,7 +50,9 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
         chunk_data = data[cursor + 8 : cursor + 8 + length]
         cursor += 12 + length
         if chunk_type == b"IHDR":
-            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
         elif chunk_type == b"IDAT":
             idat.extend(chunk_data)
         elif chunk_type == b"IEND":
@@ -139,7 +141,9 @@ def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
                 pass
         sips = shutil.which("sips")
         if not sips:
-            raise ValueError(f"could not decode {path.name} as PNG and sips is unavailable: {direct_error}") from direct_error
+            raise ValueError(
+                f"could not decode {path.name} as PNG and sips is unavailable: {direct_error}"
+            ) from direct_error
         with tempfile.TemporaryDirectory() as tmpdir:
             converted = Path(tmpdir) / "converted.png"
             result = subprocess.run(
@@ -149,11 +153,15 @@ def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
                 check=False,
             )
             if result.returncode != 0:
-                raise ValueError(result.stderr.strip() or result.stdout.strip() or "sips conversion failed")
+                raise ValueError(
+                    result.stderr.strip() or result.stdout.strip() or "sips conversion failed"
+                )
             return read_png(converted)
 
 
-def composite_over_checker(pixel: tuple[int, int, int, int], x: int, y: int) -> tuple[int, int, int]:
+def composite_over_checker(
+    pixel: tuple[int, int, int, int], x: int, y: int
+) -> tuple[int, int, int]:
     red, green, blue, alpha = pixel
     background = 238 if ((x // 12 + y // 12) % 2 == 0) else 210
     mix = alpha / 255.0
@@ -244,12 +252,22 @@ def create_sheet(
     fill_rect(canvas, canvas_w, gutter, gutter, panel_w, header_h, (40, 45, 48))
     fill_rect(canvas, canvas_w, gutter * 2 + panel_w, gutter, panel_w, header_h, (40, 45, 48))
     fill_rect(canvas, canvas_w, gutter, gutter + header_h, panel_w, panel_h, (230, 230, 230))
-    fill_rect(canvas, canvas_w, gutter * 2 + panel_w, gutter + header_h, panel_w, panel_h, (230, 230, 230))
+    fill_rect(
+        canvas, canvas_w, gutter * 2 + panel_w, gutter + header_h, panel_w, panel_h, (230, 230, 230)
+    )
     ref_panel = resize_cover(ref_w, ref_h, ref_pixels, panel_w, panel_h)
     ren_panel = resize_cover(ren_w, ren_h, ren_pixels, panel_w, panel_h)
     blit(canvas, canvas_w, ref_panel, panel_w, gutter, gutter + header_h)
     blit(canvas, canvas_w, ren_panel, panel_w, gutter * 2 + panel_w, gutter + header_h)
-    fill_rect(canvas, canvas_w, panel_w + gutter + gutter // 2, gutter, max(2, gutter // 5), canvas_h - gutter * 2, (170, 146, 92))
+    fill_rect(
+        canvas,
+        canvas_w,
+        panel_w + gutter + gutter // 2,
+        gutter,
+        max(2, gutter // 5),
+        canvas_h - gutter * 2,
+        (170, 146, 92),
+    )
     write_png_rgb(out, canvas_w, canvas_h, canvas)
     return {
         "comparisonImage": str(out.resolve()),
@@ -284,7 +302,11 @@ def main(argv: list[str]) -> int:
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(payload, indent=2, ensure_ascii=False) if args.json else payload["comparisonImage"])
+    print(
+        json.dumps(payload, indent=2, ensure_ascii=False)
+        if args.json
+        else payload["comparisonImage"]
+    )
     return 0
 
 

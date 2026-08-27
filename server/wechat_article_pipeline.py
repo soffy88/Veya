@@ -340,9 +340,7 @@ async def produce_wechat_article_tool(
     if not passed:
         lines.append("遗留问题:")
         for i in result["issues"]:
-            lines.append(
-                f"  - [{i.criterion}] {i.section or '整体'}: {i.detail}"
-            )
+            lines.append(f"  - [{i.criterion}] {i.section or '整体'}: {i.detail}")
     return "\n".join(lines)
 
 

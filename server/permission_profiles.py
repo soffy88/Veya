@@ -250,7 +250,11 @@ def decide(
 ) -> PermissionDecision:
     """按档位对一次工具调用做决策 (allow/deny/ask)。纯函数，无 IO。"""
     try:
-        p = profile if isinstance(profile, ProfileName) else ProfileName(str(profile).strip().upper())
+        p = (
+            profile
+            if isinstance(profile, ProfileName)
+            else ProfileName(str(profile).strip().upper())
+        )
     except ValueError:
         p = default_profile()
     risk = classify_risk(tool_name, kwargs)

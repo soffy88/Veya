@@ -13,8 +13,9 @@ from pydantic import BaseModel
 
 from veya.ast import create_ast_analyzer
 
-router = APIRouter(prefix="/analysis", tags=["analysis"],
-              dependencies=[Depends(auth_mod.require_user)])
+router = APIRouter(
+    prefix="/analysis", tags=["analysis"], dependencies=[Depends(auth_mod.require_user)]
+)
 
 # 全局 AST 分析器（实际应用中可以按需创建）
 ast_analyzer = create_ast_analyzer()

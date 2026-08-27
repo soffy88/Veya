@@ -64,8 +64,8 @@ def build_skill_package(agent_md: Path, out_dir: Path) -> dict[str, str]:
         },
     }
     (pkg / "manifest.json").write_text(
-        __import__("json").dumps(manifest, ensure_ascii=False, indent=2),
-        encoding="utf-8")
+        __import__("json").dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     run_py = f'''"""ECC 领域 Agent 技能包: {name} (自动导入, 只读资产)。
 
@@ -112,7 +112,7 @@ def main_cli() -> int:
 
     files = sorted(agents_dir.glob("*.md"))
     if args.limit:
-        files = files[:args.limit]
+        files = files[: args.limit]
 
     imported = 0
     skipped = 0

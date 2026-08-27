@@ -18,8 +18,9 @@ from oprim._code_review_graph import (
 )
 
 
-def main(action: str, query_type: str = "", target: str = "",
-         repo_path: str = "", **_: Any) -> dict[str, Any]:
+def main(
+    action: str, query_type: str = "", target: str = "", repo_path: str = "", **_: Any
+) -> dict[str, Any]:
     """执行 CRG 操作, 返回结构化结果。"""
     if action == "status":
         return graph_status()

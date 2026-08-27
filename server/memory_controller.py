@@ -452,18 +452,38 @@ class MemoryToolset:
         records = self.controller.search(query, scope=scope)
         return [r.canonical_dict() for r in records]
 
-    def write(self, content: str, *, type: str = "semantic", scope: str = "project",
-              entities: list[str] | None = None, keywords: list[str] | None = None,
-              provenance: str = "", trust_level: str = "unknown",
-              scope_type: str | None = None, scope_id: str | None = None,
-              memory_type: str | None = None, source_event_ids: list[str] | None = None,
-              tags: list[str] | None = None, confidence: float | None = None) -> dict[str, Any]:
+    def write(
+        self,
+        content: str,
+        *,
+        type: str = "semantic",
+        scope: str = "project",
+        entities: list[str] | None = None,
+        keywords: list[str] | None = None,
+        provenance: str = "",
+        trust_level: str = "unknown",
+        scope_type: str | None = None,
+        scope_id: str | None = None,
+        memory_type: str | None = None,
+        source_event_ids: list[str] | None = None,
+        tags: list[str] | None = None,
+        confidence: float | None = None,
+    ) -> dict[str, Any]:
         """写入新记忆 (observe)。"""
         record = self.controller.observe(
-            content, type=type, scope=scope, entities=entities,
-            keywords=keywords, provenance=provenance, trust_level=trust_level,
-            scope_type=scope_type, scope_id=scope_id, memory_type=memory_type,
-            source_event_ids=source_event_ids, tags=tags, confidence=confidence,
+            content,
+            type=type,
+            scope=scope,
+            entities=entities,
+            keywords=keywords,
+            provenance=provenance,
+            trust_level=trust_level,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            memory_type=memory_type,
+            source_event_ids=source_event_ids,
+            tags=tags,
+            confidence=confidence,
         )
         return record.canonical_dict()
 
@@ -471,21 +491,30 @@ class MemoryToolset:
         """修正一条现有记忆。"""
         new_id = self.controller.correct_record(memory_id, content=content, provenance=provenance)
         if new_id is None:
-            return {"status": "error", "error": f"memory not found or status not correctable: {memory_id}"}
+            return {
+                "status": "error",
+                "error": f"memory not found or status not correctable: {memory_id}",
+            }
         return {"status": "corrected", "memory_id": memory_id, "new_id": new_id}
 
     def supersede(self, memory_id: str, content: str, *, provenance: str = "") -> dict[str, Any]:
         """supersede 一条记忆: 标原记录 deprecated, 创建新 candidate 记录。"""
         new_id = self.controller.supersede(memory_id, content=content, provenance=provenance)
         if new_id is None:
-            return {"status": "error", "error": f"memory not found or status not supersedeable: {memory_id}"}
+            return {
+                "status": "error",
+                "error": f"memory not found or status not supersedeable: {memory_id}",
+            }
         return {"status": "superseded", "old_id": memory_id, "new_id": new_id}
 
     def forget(self, memory_id: str) -> dict[str, Any]:
         """软删除一条记忆为 forgotten，保留最小审计记录。"""
         ok = self.controller.forget(memory_id)
         if not ok:
-            return {"status": "error", "error": f"memory not found or status not forgettable: {memory_id}"}
+            return {
+                "status": "error",
+                "error": f"memory not found or status not forgettable: {memory_id}",
+            }
         return {"status": "forgotten", "memory_id": memory_id}
 
     def get(self, memory_id: str) -> dict[str, Any]:

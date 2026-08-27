@@ -30,14 +30,21 @@ def new_id(prefix: str = "") -> str:
 AGGREGATES = ("Goal", "Todo", "Experiment", "Skill", "Run")
 
 EVENT_TYPES = (
-    "GoalCreated", "GoalCompleted",
-    "TodoUpdated", "TodoClaimed", "TodoReleased",
+    "GoalCreated",
+    "GoalCompleted",
+    "TodoUpdated",
+    "TodoClaimed",
+    "TodoReleased",
     "EvidenceAppended",
-    "GateRequired", "GateResolved",
+    "GateRequired",
+    "GateResolved",
     "QuotaSpent",
-    "ExperimentStarted", "ExperimentCompleted",
-    "SkillReleased", "SkillRolledBack",
-    "ActionSucceeded", "ActionFailed",
+    "ExperimentStarted",
+    "ExperimentCompleted",
+    "SkillReleased",
+    "SkillRolledBack",
+    "ActionSucceeded",
+    "ActionFailed",
 )
 
 
@@ -115,9 +122,7 @@ class EventStore:
         return list(self._index.get((aggregate_type, aggregate_id), []))
 
     def aggregates(self, aggregate_type: str) -> list[str]:
-        return sorted(
-            agg_id for (atype, agg_id) in self._index if atype == aggregate_type
-        )
+        return sorted(agg_id for (atype, agg_id) in self._index if atype == aggregate_type)
 
 
 # ---------------------------------------------------------------------------

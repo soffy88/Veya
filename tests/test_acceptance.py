@@ -12,7 +12,12 @@ def test_file_exists_and_schema_are_deterministic(tmp_path):
     results = evaluate_acceptance(
         [
             {"id": "file", "type": "file_exists", "path": "result.txt"},
-            {"id": "schema", "type": "schema", "value": {"status": "ok"}, "required_keys": ["status"]},
+            {
+                "id": "schema",
+                "type": "schema",
+                "value": {"status": "ok"},
+                "required_keys": ["status"],
+            },
         ],
         workspace=tmp_path,
     )

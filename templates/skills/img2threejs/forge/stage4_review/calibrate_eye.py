@@ -35,15 +35,17 @@ def run_corpus(pairs: list[dict]) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for pair in pairs:
         result = evaluate(Path(pair["reference"]), Path(pair["render"]))
-        rows.append({
-            "label": pair.get("label", "unlabeled"),
-            "fidelity": result["fidelity"],
-            "verdict": result["verdict"],
-            "hardGateFailures": result["hardGateFailures"],
-            "signals": result["signals"],
-            "reference": pair["reference"],
-            "render": pair["render"],
-        })
+        rows.append(
+            {
+                "label": pair.get("label", "unlabeled"),
+                "fidelity": result["fidelity"],
+                "verdict": result["verdict"],
+                "hardGateFailures": result["hardGateFailures"],
+                "signals": result["signals"],
+                "reference": pair["reference"],
+                "render": pair["render"],
+            }
+        )
     return {"rows": rows, "signalStats": _signal_stats(rows)}
 
 
@@ -81,17 +83,15 @@ def separation(rows: list[dict]) -> dict[str, Any]:
         result["cleanSeparation"] = clean
         result["suggestedThreshold"] = round((min_good + max_bad) / 2, 4) if clean else None
         # absolute acceptance: every good passes at the current target, every bad rejected
-        result["allGoodPass"] = all(
-            r["verdict"] == "pass" for r in rows if r["label"] == "good"
-        )
-        result["allBadRejected"] = all(
-            r["verdict"] != "pass" for r in rows if r["label"] == "bad"
-        )
+        result["allGoodPass"] = all(r["verdict"] == "pass" for r in rows if r["label"] == "good")
+        result["allBadRejected"] = all(r["verdict"] != "pass" for r in rows if r["label"] == "bad")
         result["corpusAcceptable"] = result["allGoodPass"] and result["allBadRejected"]
     else:
         result["cleanSeparation"] = None
         result["corpusAcceptable"] = False
-        result["warning"] = "corpus needs BOTH good and bad pairs (else it only measures false-rejects)"
+        result["warning"] = (
+            "corpus needs BOTH good and bad pairs (else it only measures false-rejects)"
+        )
     return result
 
 
@@ -99,15 +99,18 @@ def calibrate(pairs: list[dict]) -> dict[str, Any]:
     corpus = run_corpus(pairs)
     corpus["separation"] = separation(corpus["rows"])
     corpus["reportOnly"] = True
-    corpus["note"] = ("report-only — flip to hard-gate ONLY when corpusAcceptable is true "
-                      "(all good pass, all bad rejected)")
+    corpus["note"] = (
+        "report-only — flip to hard-gate ONLY when corpusAcceptable is true "
+        "(all good pass, all bad rejected)"
+    )
     return corpus
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", required=True, type=Path,
-                        help="JSON list of {reference, render, label} pairs")
+    parser.add_argument(
+        "--corpus", required=True, type=Path, help="JSON list of {reference, render, label} pairs"
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -121,8 +124,10 @@ def main(argv: list[str]) -> int:
     else:
         sep = result["separation"]
         print(f"corpus: {result['signalStats']}")
-        print(f"separation: clean={sep.get('cleanSeparation')} acceptable={sep.get('corpusAcceptable')} "
-              f"suggestedThreshold={sep.get('suggestedThreshold')}")
+        print(
+            f"separation: clean={sep.get('cleanSeparation')} acceptable={sep.get('corpusAcceptable')} "
+            f"suggestedThreshold={sep.get('suggestedThreshold')}"
+        )
     # exit 0 only when the corpus cleanly validates the Eye
     return 0 if result["separation"].get("corpusAcceptable") else 1
 

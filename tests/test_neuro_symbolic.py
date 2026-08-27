@@ -22,67 +22,179 @@ OK_IR = {
     "version": "o1.ir/v1",
     "intent": "为订单服务的三个组件分配 CPU 资源池",
     "vars": [
-        {"name": "cpu_api", "type": "int", "desc": "API 服务的 CPU 核数", "unit": "核", "lo": 0, "hi": 64},
-        {"name": "cpu_worker", "type": "int", "desc": "Worker 服务的 CPU 核数", "unit": "核", "lo": 0, "hi": 64},
-        {"name": "cpu_db", "type": "int", "desc": "数据库的 CPU 核数", "unit": "核", "lo": 0, "hi": 64},
+        {
+            "name": "cpu_api",
+            "type": "int",
+            "desc": "API 服务的 CPU 核数",
+            "unit": "核",
+            "lo": 0,
+            "hi": 64,
+        },
+        {
+            "name": "cpu_worker",
+            "type": "int",
+            "desc": "Worker 服务的 CPU 核数",
+            "unit": "核",
+            "lo": 0,
+            "hi": 64,
+        },
+        {
+            "name": "cpu_db",
+            "type": "int",
+            "desc": "数据库的 CPU 核数",
+            "unit": "核",
+            "lo": 0,
+            "hi": 64,
+        },
         {"name": "replicas", "type": "int", "desc": "副本数", "unit": "个", "lo": 1, "hi": 10},
         {"name": "ha_enabled", "type": "bool", "desc": "是否开启高可用"},
     ],
     "constraints": [
-        {"id": "c_total", "kind": "hard", "origin": "user_msg#1",
-         "intent": "整个集群的 CPU 总量不超过 64 核",
-         "expr": {"op": "<=", "args": [
-             {"op": "sum", "args": [{"var": "cpu_api"}, {"var": "cpu_worker"}, {"var": "cpu_db"}]},
-             {"lit": 64}]}},
-        {"id": "c_api_min", "kind": "hard", "origin": "user_msg#1",
-         "intent": "API 服务至少分配 8 核",
-         "expr": {"op": ">=", "args": [{"var": "cpu_api"}, {"lit": 8}]}},
-        {"id": "c_db_min", "kind": "hard", "origin": "policy.yaml#L12",
-         "intent": "数据库至少分配 12 核",
-         "expr": {"op": ">=", "args": [{"var": "cpu_db"}, {"lit": 12}]}},
-        {"id": "c_worker_ratio", "kind": "hard", "origin": "user_msg#2",
-         "intent": "Worker 的核数至少是 API 的 2 倍",
-         "expr": {"op": ">=", "args": [
-             {"var": "cpu_worker"},
-             {"op": "*", "args": [{"lit": 2}, {"var": "cpu_api"}]}]}},
-        {"id": "c_ha_replicas", "kind": "hard", "protected": True, "origin": "policy.yaml#L30",
-         "intent": "若开启高可用, 副本数不得少于 3 个",
-         "expr": {"op": "implies", "args": [
-             {"var": "ha_enabled"},
-             {"op": ">=", "args": [{"var": "replicas"}, {"lit": 3}]}]}},
-        {"id": "p_worker_headroom", "kind": "soft", "weight": 5, "origin": "user_msg#3",
-         "intent": "尽量让 Worker 拿到 24 核以上的余量",
-         "expr": {"op": ">=", "args": [{"var": "cpu_worker"}, {"lit": 24}]}},
+        {
+            "id": "c_total",
+            "kind": "hard",
+            "origin": "user_msg#1",
+            "intent": "整个集群的 CPU 总量不超过 64 核",
+            "expr": {
+                "op": "<=",
+                "args": [
+                    {
+                        "op": "sum",
+                        "args": [{"var": "cpu_api"}, {"var": "cpu_worker"}, {"var": "cpu_db"}],
+                    },
+                    {"lit": 64},
+                ],
+            },
+        },
+        {
+            "id": "c_api_min",
+            "kind": "hard",
+            "origin": "user_msg#1",
+            "intent": "API 服务至少分配 8 核",
+            "expr": {"op": ">=", "args": [{"var": "cpu_api"}, {"lit": 8}]},
+        },
+        {
+            "id": "c_db_min",
+            "kind": "hard",
+            "origin": "policy.yaml#L12",
+            "intent": "数据库至少分配 12 核",
+            "expr": {"op": ">=", "args": [{"var": "cpu_db"}, {"lit": 12}]},
+        },
+        {
+            "id": "c_worker_ratio",
+            "kind": "hard",
+            "origin": "user_msg#2",
+            "intent": "Worker 的核数至少是 API 的 2 倍",
+            "expr": {
+                "op": ">=",
+                "args": [
+                    {"var": "cpu_worker"},
+                    {"op": "*", "args": [{"lit": 2}, {"var": "cpu_api"}]},
+                ],
+            },
+        },
+        {
+            "id": "c_ha_replicas",
+            "kind": "hard",
+            "protected": True,
+            "origin": "policy.yaml#L30",
+            "intent": "若开启高可用, 副本数不得少于 3 个",
+            "expr": {
+                "op": "implies",
+                "args": [
+                    {"var": "ha_enabled"},
+                    {"op": ">=", "args": [{"var": "replicas"}, {"lit": 3}]},
+                ],
+            },
+        },
+        {
+            "id": "p_worker_headroom",
+            "kind": "soft",
+            "weight": 5,
+            "origin": "user_msg#3",
+            "intent": "尽量让 Worker 拿到 24 核以上的余量",
+            "expr": {"op": ">=", "args": [{"var": "cpu_worker"}, {"lit": 24}]},
+        },
     ],
-    "objective": {"sense": "min", "intent": "总成本最小",
-                  "expr": {"op": "sum", "args": [{"var": "cpu_api"}, {"var": "cpu_worker"}, {"var": "cpu_db"}]}},
+    "objective": {
+        "sense": "min",
+        "intent": "总成本最小",
+        "expr": {
+            "op": "sum",
+            "args": [{"var": "cpu_api"}, {"var": "cpu_worker"}, {"var": "cpu_db"}],
+        },
+    },
 }
 
 UNSAT_IR = {
     "version": "o1.ir/v1",
     "intent": "在 32 核预算内分配三个组件(需求本身冲突)",
     "vars": [
-        {"name": "cpu_api", "type": "int", "desc": "API 服务的 CPU 核数", "unit": "核", "lo": 0, "hi": 64},
-        {"name": "cpu_worker", "type": "int", "desc": "Worker 服务的 CPU 核数", "unit": "核", "lo": 0, "hi": 64},
-        {"name": "cpu_db", "type": "int", "desc": "数据库的 CPU 核数", "unit": "核", "lo": 0, "hi": 64},
+        {
+            "name": "cpu_api",
+            "type": "int",
+            "desc": "API 服务的 CPU 核数",
+            "unit": "核",
+            "lo": 0,
+            "hi": 64,
+        },
+        {
+            "name": "cpu_worker",
+            "type": "int",
+            "desc": "Worker 服务的 CPU 核数",
+            "unit": "核",
+            "lo": 0,
+            "hi": 64,
+        },
+        {
+            "name": "cpu_db",
+            "type": "int",
+            "desc": "数据库的 CPU 核数",
+            "unit": "核",
+            "lo": 0,
+            "hi": 64,
+        },
         {"name": "replicas", "type": "int", "desc": "副本数", "unit": "个", "lo": 1, "hi": 10},
         {"name": "ha_enabled", "type": "bool", "desc": "是否开启高可用"},
     ],
     "constraints": [
-        {"id": "c_total", "kind": "hard", "origin": "user_msg#1",
-         "intent": "整个集群的 CPU 总量不超过 32 核",
-         "expr": {"op": "<=", "args": [
-             {"op": "sum", "args": [{"var": "cpu_api"}, {"var": "cpu_worker"}, {"var": "cpu_db"}]},
-             {"lit": 32}]}},
-        {"id": "c_api_min", "kind": "hard", "origin": "user_msg#2",
-         "intent": "API 服务至少分配 16 核",
-         "expr": {"op": ">=", "args": [{"var": "cpu_api"}, {"lit": 16}]}},
-        {"id": "c_worker_min", "kind": "hard", "origin": "user_msg#2",
-         "intent": "Worker 服务至少分配 16 核",
-         "expr": {"op": ">=", "args": [{"var": "cpu_worker"}, {"lit": 16}]}},
-        {"id": "c_db_min", "kind": "hard", "origin": "policy.yaml#L12",
-         "intent": "数据库至少分配 8 核",
-         "expr": {"op": ">=", "args": [{"var": "cpu_db"}, {"lit": 8}]}},
+        {
+            "id": "c_total",
+            "kind": "hard",
+            "origin": "user_msg#1",
+            "intent": "整个集群的 CPU 总量不超过 32 核",
+            "expr": {
+                "op": "<=",
+                "args": [
+                    {
+                        "op": "sum",
+                        "args": [{"var": "cpu_api"}, {"var": "cpu_worker"}, {"var": "cpu_db"}],
+                    },
+                    {"lit": 32},
+                ],
+            },
+        },
+        {
+            "id": "c_api_min",
+            "kind": "hard",
+            "origin": "user_msg#2",
+            "intent": "API 服务至少分配 16 核",
+            "expr": {"op": ">=", "args": [{"var": "cpu_api"}, {"lit": 16}]},
+        },
+        {
+            "id": "c_worker_min",
+            "kind": "hard",
+            "origin": "user_msg#2",
+            "intent": "Worker 服务至少分配 16 核",
+            "expr": {"op": ">=", "args": [{"var": "cpu_worker"}, {"lit": 16}]},
+        },
+        {
+            "id": "c_db_min",
+            "kind": "hard",
+            "origin": "policy.yaml#L12",
+            "intent": "数据库至少分配 8 核",
+            "expr": {"op": ">=", "args": [{"var": "cpu_db"}, {"lit": 8}]},
+        },
     ],
 }
 
@@ -91,32 +203,70 @@ UNSAT_IR = {
 # 一、闸门 1: 校验器 (纯, 无求解器)
 # =========================================================================
 
+
 def test_validator_catches_schema_errors():
     bad = {
-        "vars": [{"name": "x", "type": "int", "lo": 0, "hi": 10},
-                 {"name": "y", "type": "int", "lo": 5, "hi": 3}],  # 空定义域
+        "vars": [
+            {"name": "x", "type": "int", "lo": 0, "hi": 10},
+            {"name": "y", "type": "int", "lo": 5, "hi": 3},
+        ],  # 空定义域
         "constraints": [
-            {"id": "c1", "kind": "hard", "intent": "x 乘 y 不超过 20",
-             "expr": {"op": "<=", "args": [{"op": "*", "args": [{"var": "x"}, {"var": "y"}]}, {"lit": 20}]}},
-            {"id": "c2", "kind": "hard", "intent": "x 的平方根小于 3",
-             "expr": {"op": "sqrt", "args": [{"var": "x"}]}},
-            {"id": "c3", "kind": "hard", "intent": "z 至少为 1",
-             "expr": {"op": ">=", "args": [{"var": "z"}, {"lit": 1}]}},
-            {"id": "c4", "kind": "hard", "intent": "", "expr": {"op": "<=", "args": [{"var": "x"}, {"lit": 9}]}},
-            {"id": "c5", "kind": "hard", "intent": "x 除以 3 不超过 2",
-             "expr": {"op": "<=", "args": [{"op": "/", "args": [{"var": "x"}, {"lit": 3}]}, {"lit": 2}]}},
+            {
+                "id": "c1",
+                "kind": "hard",
+                "intent": "x 乘 y 不超过 20",
+                "expr": {
+                    "op": "<=",
+                    "args": [{"op": "*", "args": [{"var": "x"}, {"var": "y"}]}, {"lit": 20}],
+                },
+            },
+            {
+                "id": "c2",
+                "kind": "hard",
+                "intent": "x 的平方根小于 3",
+                "expr": {"op": "sqrt", "args": [{"var": "x"}]},
+            },
+            {
+                "id": "c3",
+                "kind": "hard",
+                "intent": "z 至少为 1",
+                "expr": {"op": ">=", "args": [{"var": "z"}, {"lit": 1}]},
+            },
+            {
+                "id": "c4",
+                "kind": "hard",
+                "intent": "",
+                "expr": {"op": "<=", "args": [{"var": "x"}, {"lit": 9}]},
+            },
+            {
+                "id": "c5",
+                "kind": "hard",
+                "intent": "x 除以 3 不超过 2",
+                "expr": {
+                    "op": "<=",
+                    "args": [{"op": "/", "args": [{"var": "x"}, {"lit": 3}]}, {"lit": 2}],
+                },
+            },
         ],
     }
     r = VeyaNeuroSymbolic.plan  # noqa: F841 - 走 oprim 原子层直接验证
     errs = oprim.validate(oprim.parse_ir(bad))
     codes = {e.code for e in errs}
-    assert {"E_NONLINEAR", "E_UNKNOWN_OP", "E_UNDEF_VAR", "E_NO_INTENT", "E_INT_DIV", "E_DOMAIN"} <= codes
+    assert {
+        "E_NONLINEAR",
+        "E_UNKNOWN_OP",
+        "E_UNDEF_VAR",
+        "E_NO_INTENT",
+        "E_INT_DIV",
+        "E_DOMAIN",
+    } <= codes
     assert all(e.hint for e in errs)  # hint 可回灌 LLM
 
 
 # =========================================================================
 # 二、MUS 收缩 (mock oracle, 与 z3 解耦)
 # =========================================================================
+
 
 def test_mus_shrink_converges_and_deterministic():
     true_mus = {"A", "B", "C"}
@@ -144,7 +294,7 @@ def test_mus_unknown_conservative_and_budget():
         return "unsat" if true_mus <= set(subset) else "sat"
 
     r = oprim.shrink_to_mus(flaky, ["A", "B", "C", "D"])
-    assert r.verified is False       # unknown 必须取消 verified
+    assert r.verified is False  # unknown 必须取消 verified
     # unknown 时保守处理: 要么保留该约束, 要么明确记录剔除但不再可信
     assert r.notes and "unknown" in r.notes[0]
 
@@ -159,22 +309,51 @@ def test_mus_unknown_conservative_and_budget():
 # 三、闸门 2: 回译 diff (抓翻译幻觉)
 # =========================================================================
 
+
 def test_backtranslate_catches_drift_and_direction():
     drift = {
-        "vars": [{"name": "cpu_api", "type": "int", "desc": "API 服务的 CPU 核数", "unit": "核", "lo": 0, "hi": 64},
-                 {"name": "cpu_worker", "type": "int", "desc": "Worker 服务的 CPU 核数", "unit": "核", "lo": 0, "hi": 64}],
+        "vars": [
+            {
+                "name": "cpu_api",
+                "type": "int",
+                "desc": "API 服务的 CPU 核数",
+                "unit": "核",
+                "lo": 0,
+                "hi": 64,
+            },
+            {
+                "name": "cpu_worker",
+                "type": "int",
+                "desc": "Worker 服务的 CPU 核数",
+                "unit": "核",
+                "lo": 0,
+                "hi": 64,
+            },
+        ],
         "constraints": [
-            {"id": "c_total", "kind": "hard", "intent": "整个集群的 CPU 总量不超过 64 核",
-             "expr": {"op": "<=", "args": [
-                 {"op": "+", "args": [{"var": "cpu_api"}, {"var": "cpu_worker"}]},
-                 {"lit": 46}]}},                                      # 64 → 46 常量漂移
-            {"id": "c_api_min", "kind": "hard", "intent": "API 服务至少分配 8 核",
-             "expr": {"op": "<=", "args": [{"var": "cpu_api"}, {"lit": 8}]}},   # 至少 → <= 方向翻转
+            {
+                "id": "c_total",
+                "kind": "hard",
+                "intent": "整个集群的 CPU 总量不超过 64 核",
+                "expr": {
+                    "op": "<=",
+                    "args": [
+                        {"op": "+", "args": [{"var": "cpu_api"}, {"var": "cpu_worker"}]},
+                        {"lit": 46},
+                    ],
+                },
+            },  # 64 → 46 常量漂移
+            {
+                "id": "c_api_min",
+                "kind": "hard",
+                "intent": "API 服务至少分配 8 核",
+                "expr": {"op": "<=", "args": [{"var": "cpu_api"}, {"lit": 8}]},
+            },  # 至少 → <= 方向翻转
         ],
     }
     r = VeyaNeuroSymbolic.plan(drift)
     assert r["ok"] is False
-    assert r["stage"] == "backtranslate"   # 进求解器之前就被拦下
+    assert r["stage"] == "backtranslate"  # 进求解器之前就被拦下
     codes = {f["code"] for d in r["diffs"] for f in d["findings"] if f["severity"] == "FAIL"}
     assert {"NUM_DRIFT", "DIR_FLIP"} <= codes
 
@@ -188,6 +367,7 @@ def test_backtranslate_clean_ir_not_blocked():
 # =========================================================================
 # 四、真 z3: 求解语义 + 期望数值
 # =========================================================================
+
 
 def test_ok_ir_optimal_solution_exact_numbers():
     r = VeyaNeuroSymbolic.plan(OK_IR)

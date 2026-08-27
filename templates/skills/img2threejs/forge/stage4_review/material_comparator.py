@@ -13,6 +13,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "forge" / "stage1_intake"))
 from extract_pbr_evidence import build_foreground_mask, load_image  # noqa: E402
+
 sys.path.insert(0, str(ROOT / "forge" / "_shared"))
 from color_metrics import delta_e_rgb  # noqa: E402
 
@@ -33,14 +34,18 @@ def _grid(path: Path) -> tuple[list[tuple[int, int, int]], list[bool], dict[str,
             red, green, blue, _alpha = pixels[index]
             values.append((red, green, blue))
             selected.append(mask[index])
-    return values, selected, {
-        "width": width,
-        "height": height,
-        "foregroundCoverage": round(sum(selected) / max(1, len(selected)), 4),
-        "warnings": warnings + mask_warnings,
-        "readback": True,
-        "diagnostics": diagnostics,
-    }
+    return (
+        values,
+        selected,
+        {
+            "width": width,
+            "height": height,
+            "foregroundCoverage": round(sum(selected) / max(1, len(selected)), 4),
+            "warnings": warnings + mask_warnings,
+            "readback": True,
+            "diagnostics": diagnostics,
+        },
+    )
 
 
 def _mean(values: list[tuple[int, int, int]], selected: list[bool]) -> tuple[int, int, int]:
@@ -91,11 +96,23 @@ def _expected_mismatch(expected: dict[str, Any] | None, features: dict[str, floa
     mismatches: list[str] = []
     prior = expected.get("renderPrior", expected)
     anisotropy_value = prior.get("anisotropy", 0.0) if isinstance(prior, dict) else 0.0
-    anisotropy = anisotropy_value.get("default", 0.0) if isinstance(anisotropy_value, dict) else anisotropy_value
-    if isinstance(anisotropy, (int, float)) and anisotropy > 0.5 and features["anisotropyProxy"] < 1.25:
+    anisotropy = (
+        anisotropy_value.get("default", 0.0)
+        if isinstance(anisotropy_value, dict)
+        else anisotropy_value
+    )
+    if (
+        isinstance(anisotropy, (int, float))
+        and anisotropy > 0.5
+        and features["anisotropyProxy"] < 1.25
+    ):
         mismatches.append("wrong-anisotropy")
     roughness_value = prior.get("roughness", 0.5) if isinstance(prior, dict) else 0.5
-    roughness = roughness_value.get("default", 0.5) if isinstance(roughness_value, dict) else roughness_value
+    roughness = (
+        roughness_value.get("default", 0.5)
+        if isinstance(roughness_value, dict)
+        else roughness_value
+    )
     if isinstance(roughness, (int, float)):
         # A roughness prior is only a cue here; image evidence cannot prove a scalar.
         if roughness < 0.2 and features["lumaVariance"] < 0.003:
@@ -122,8 +139,12 @@ def compare_material_crops(
     scores = {
         "baseColor": _similarity(delta_e, 0.0, 50.0),
         "meanLuma": _similarity(reference_features["meanLuma"], render_features["meanLuma"], 0.45),
-        "microstructure": _similarity(reference_features["lumaVariance"], render_features["lumaVariance"], 0.12),
-        "directionalResponse": _similarity(reference_features["anisotropyProxy"], render_features["anisotropyProxy"], 2.0),
+        "microstructure": _similarity(
+            reference_features["lumaVariance"], render_features["lumaVariance"], 0.12
+        ),
+        "directionalResponse": _similarity(
+            reference_features["anisotropyProxy"], render_features["anisotropyProxy"], 2.0
+        ),
     }
     scores["overall"] = round(
         scores["baseColor"] * 0.40
@@ -140,19 +161,36 @@ def compare_material_crops(
     if scores["microstructure"] < 0.62:
         mismatches.append("wrong-roughness-or-microstructure")
     mismatches.extend(_expected_mismatch(expected, render_features))
-    if expected and expected.get("family") in {"metal", "glass", "gemstone"} and render_features["lumaVariance"] < 0.002:
+    if (
+        expected
+        and expected.get("family") in {"metal", "glass", "gemstone"}
+        and render_features["lumaVariance"] < 0.002
+    ):
         mismatches.append("missing-environment-response")
     unique_mismatches = list(dict.fromkeys(mismatches))
     return {
         "schemaVersion": 1,
         "kind": "img2threejs.material-comparison",
         "materialId": material_id,
-        "reference": {"path": str(reference.resolve()), "meanRgb": reference_mean, "features": reference_features, **reference_meta},
-        "render": {"path": str(render.resolve()), "meanRgb": render_mean, "features": render_features, **render_meta},
+        "reference": {
+            "path": str(reference.resolve()),
+            "meanRgb": reference_mean,
+            "features": reference_features,
+            **reference_meta,
+        },
+        "render": {
+            "path": str(render.resolve()),
+            "meanRgb": render_mean,
+            "features": render_features,
+            **render_meta,
+        },
         "metrics": {"deltaE00": round(delta_e, 3), "scores": scores},
         "mismatches": unique_mismatches,
-        "passed": scores["overall"] >= 0.7 and not {"wrong-base-color", "missing-environment-response"} & set(unique_mismatches),
-        "nextAction": "continue" if scores["overall"] >= 0.7 and not unique_mismatches else "refine-code",
+        "passed": scores["overall"] >= 0.7
+        and not {"wrong-base-color", "missing-environment-response"} & set(unique_mismatches),
+        "nextAction": "continue"
+        if scores["overall"] >= 0.7 and not unique_mismatches
+        else "refine-code",
         "limitation": "Deterministic crop metrics are evidence; material identity still requires vision review for ambiguous cases.",
     }
 
@@ -167,10 +205,23 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         expected = json.loads(args.expected.read_text(encoding="utf-8")) if args.expected else None
-        result = compare_material_crops(args.reference, args.render, material_id=args.material_id, expected=expected)
+        result = compare_material_crops(
+            args.reference, args.render, material_id=args.material_id, expected=expected
+        )
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(json.dumps({"passed": result["passed"], "overall": result["metrics"]["scores"]["overall"], "mismatches": result["mismatches"]}, indent=2))
+        args.out.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(
+            json.dumps(
+                {
+                    "passed": result["passed"],
+                    "overall": result["metrics"]["scores"]["overall"],
+                    "mismatches": result["mismatches"],
+                },
+                indent=2,
+            )
+        )
         return 0 if result["passed"] else 2
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

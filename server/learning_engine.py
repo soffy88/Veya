@@ -204,7 +204,11 @@ class LearningEngine:
             payload = event["payload"]
             task_id = str(event.get("task_id") or payload.get("task_id") or "")
             objective = str(payload.get("objective") or "").strip()
-            if not task_id or not objective or payload.get("outcome") not in {"completed", "success"}:
+            if (
+                not task_id
+                or not objective
+                or payload.get("outcome") not in {"completed", "success"}
+            ):
                 continue
             if not evaluations.get(task_id, False):
                 continue
@@ -223,9 +227,7 @@ class LearningEngine:
                     "memory_ids": [],
                     "source_episode_ids": unique_tasks,
                     "source_event_ids": [
-                        str(event.get("event_id"))
-                        for event in events
-                        if event.get("event_id")
+                        str(event.get("event_id")) for event in events if event.get("event_id")
                     ],
                     "scope": scope or "project",
                 }

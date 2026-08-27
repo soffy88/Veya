@@ -220,11 +220,12 @@ def test_llm_call_veya12_alias_routes_to_gmi_by_default(monkeypatch):
 
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
     monkeypatch.setattr(
-        "os.environ", {
+        "os.environ",
+        {
             **__import__("os").environ,
             "GMI_API_KEY": "sk-test",
             "OPENROUTER_API_KEY": "sk-test",
-        }
+        },
     )
 
     result = asyncio.run(
@@ -234,11 +235,13 @@ def test_llm_call_veya12_alias_routes_to_gmi_by_default(monkeypatch):
             model="veya1.2",
         )
     )
-    assert seen == [{
-        "provider": "gmi",
-        "model": "MiniMaxAI/MiniMax-M3",
-        "endpoint": "https://api.gmi-serving.com/v1/chat/completions",
-    }]
+    assert seen == [
+        {
+            "provider": "gmi",
+            "model": "MiniMaxAI/MiniMax-M3",
+            "endpoint": "https://api.gmi-serving.com/v1/chat/completions",
+        }
+    ]
     assert result["choices"][0]["message"]["content"] == "routed-ok"
 
 
@@ -255,11 +258,12 @@ def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
 
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
     monkeypatch.setattr(
-        "os.environ", {
+        "os.environ",
+        {
             **__import__("os").environ,
             "GMI_API_KEY": "sk-test",
             "OPENROUTER_API_KEY": "sk-test",
-        }
+        },
     )
 
     result = asyncio.run(
@@ -292,8 +296,7 @@ def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
     monkeypatch.setattr(hllm.asyncio, "sleep", no_sleep)
     config = {
         "providers": {
-            provider: {"api_key": "test-key"}
-            for provider in ("tokenrouter", "bai", "inferera")
+            provider: {"api_key": "test-key"} for provider in ("tokenrouter", "bai", "inferera")
         }
     }
 
@@ -559,11 +562,12 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
     monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
     monkeypatch.setattr(
-        "os.environ", {
+        "os.environ",
+        {
             **__import__("os").environ,
             "GMI_API_KEY": "sk-test",
             "OPENROUTER_API_KEY": "sk-test",
-        }
+        },
     )
 
     result = asyncio.run(
@@ -574,11 +578,16 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
         )
     )
     # GMI + 双 OpenRouter 整轮重试 3 轮仍无效 → gpt-5.6-luna 兜底也重试 4 次
-    assert calls == [
-        "MiniMaxAI/MiniMax-M3",
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "minimax/minimax-m3:free",
-    ] * 3 + ["gpt-5.6-luna"] * 4
+    assert (
+        calls
+        == [
+            "MiniMaxAI/MiniMax-M3",
+            "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "minimax/minimax-m3:free",
+        ]
+        * 3
+        + ["gpt-5.6-luna"] * 4
+    )
     content = result["choices"][0]["message"]["content"]
     assert "veya1.2 免费池调用失败" in content
     assert "无效内容" in content
@@ -603,11 +612,12 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
     monkeypatch.setattr(
-        "os.environ", {
+        "os.environ",
+        {
             **__import__("os").environ,
             "GMI_API_KEY": "sk-test",
             "OPENROUTER_API_KEY": "sk-test",
-        }
+        },
     )
 
     result = asyncio.run(

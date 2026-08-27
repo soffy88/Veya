@@ -79,9 +79,7 @@ class DaemonBus(Protocol):
     ) -> dict[str, Any]:
         """同步式请求-响应：等待 register_handler 的处理结果，超时抛 TimeoutError。"""
 
-    async def register_handler(
-        self, topic: str, handler: Any
-    ) -> None:
+    async def register_handler(self, topic: str, handler: Any) -> None:
         """注册 topic 处理器（async (payload) -> dict）；重复注册覆盖。"""
 
 
@@ -104,9 +102,7 @@ class VfsSandbox(Protocol):
     async def execute(self, command: str, *, timeout: float | None = None) -> SandboxResult:
         """Shell 语义执行（仅限可信内部调用；不可信输入用 execute_args）。"""
 
-    async def execute_args(
-        self, argv: list[str], *, timeout: float | None = None
-    ) -> SandboxResult:
+    async def execute_args(self, argv: list[str], *, timeout: float | None = None) -> SandboxResult:
         """argv 数组执行：无 shell 注入面，危险命令执行前拦截。"""
 
     async def run_script(self, script: str, *, timeout: float | None = None) -> SandboxResult:

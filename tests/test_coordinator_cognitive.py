@@ -68,7 +68,10 @@ def test_system_prompt_core_rules():
     assert "VERIFY EVERYTHING" in COGNITIVE_SYSTEM_PROMPT
     assert "SELF-CORRECTION" in COGNITIVE_SYSTEM_PROMPT
     assert "NO HALLUCINATION" in COGNITIVE_SYSTEM_PROMPT
-    assert "Analyze Request -> Discover Context -> Formulate Plan -> Execute -> Test in Sandbox -> Finish" in COGNITIVE_SYSTEM_PROMPT
+    assert (
+        "Analyze Request -> Discover Context -> Formulate Plan -> Execute -> Test in Sandbox -> Finish"
+        in COGNITIVE_SYSTEM_PROMPT
+    )
     assert "patch_file" in COGNITIVE_SYSTEM_PROMPT
     assert "run_in_sandbox" in COGNITIVE_SYSTEM_PROMPT
 
@@ -115,7 +118,9 @@ async def test_successful_cognitive_loop(tmp_path):
         return _tool_response("finish", {"answer": "task complete: add() verified"})
 
     engine = VeyaCoordinator(max_retries=5, llm_fn=fake_llm)
-    result = await engine.execute_task("verify the add function", session_id="s1", project_path=str(tmp_path))
+    result = await engine.execute_task(
+        "verify the add function", session_id="s1", project_path=str(tmp_path)
+    )
 
     assert result["status"] == "success"
     assert result["final_answer"] == "task complete: add() verified"
@@ -182,7 +187,9 @@ async def test_hitl_after_max_retries(tmp_path):
         raise ToolExecutionError("exit_code=1\nstderr:\nRuntimeError: boom")
 
     engine._tool_run_sandbox = always_fail  # type: ignore[method-assign]
-    result = await engine.execute_task("do the impossible", session_id="s3", project_path=str(tmp_path))
+    result = await engine.execute_task(
+        "do the impossible", session_id="s3", project_path=str(tmp_path)
+    )
 
     assert result["status"] == "failed"
     assert result["hitl"] is True
@@ -200,6 +207,7 @@ async def test_hitl_after_max_retries(tmp_path):
 @pytest.mark.asyncio
 async def test_planning_transition(tmp_path):
     """submit_plan → PLANNING 阶段 + Decision Trail 落库。"""
+
     async def fake_llm(messages, **kwargs):
         turn = len([m for m in messages if m.get("role") == "assistant"])
         if turn == 0:
@@ -210,7 +218,9 @@ async def test_planning_transition(tmp_path):
         return _text_response("plan is ready")
 
     engine = VeyaCoordinator(max_retries=3, llm_fn=fake_llm)
-    result = await engine.execute_task("plan something", session_id="p1", project_path=str(tmp_path))
+    result = await engine.execute_task(
+        "plan something", session_id="p1", project_path=str(tmp_path)
+    )
 
     assert result["status"] == "success"
     assert engine._phase == CognitivePhase.DONE
@@ -255,9 +265,21 @@ def test_slice_context_preserves_message_pairing():
     messages = [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "hi"},
-        {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "read_file", "arguments": "{}"}}]},
-        {"role": "tool", "tool_call_id": "c1", "content": "[Tool read_file SUCCESS]\nResult:\n" + "z" * 2000},
-        {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "finish", "arguments": "{}"}}]},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"function": {"name": "read_file", "arguments": "{}"}}],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": "[Tool read_file SUCCESS]\nResult:\n" + "z" * 2000,
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"function": {"name": "finish", "arguments": "{}"}}],
+        },
         {"role": "tool", "tool_call_id": "c2", "content": "[Tool finish SUCCESS]"},
     ]
     engine = VeyaCoordinator(max_context_tokens=100)
@@ -283,7 +305,7 @@ async def test_read_skeleton_compression(tmp_path):
     src = (
         "import os\n\n"
         "def greet(name: str, punctuation: str = '!') -> str:\n"
-        "    \"\"\"Greet a user by name.\"\"\"\n"
+        '    """Greet a user by name."""\n'
         "    return f'Hello, {name}{punctuation}'\n\n"
         "class Calculator:\n"
         "    def add(self, a, b):\n"
@@ -304,7 +326,7 @@ async def test_read_skeleton_compression(tmp_path):
 @pytest.mark.asyncio
 async def test_ast_search_discovers_symbols(tmp_path):
     (tmp_path / "service.py").write_text(
-        "def fetch_user(user_id):\n    \"\"\"Fetch a user by id.\"\"\"\n    return {}\n"
+        'def fetch_user(user_id):\n    """Fetch a user by id."""\n    return {}\n'
     )
     engine = VeyaCoordinator()
     engine._project_path = str(tmp_path)
@@ -405,9 +427,7 @@ async def test_coordinator_handle_cognitive_routing():
     fake = AsyncMock()
     fake.execute_task.return_value = {"status": "success", "final_answer": "ok", "rounds": 2}
     with patch.object(coordinator, "_make_cognitive_engine", return_value=fake):
-        result = await coordinator.handle(
-            {"text": "hello", "mode": "cognitive"}, session_id="sess"
-        )
+        result = await coordinator.handle({"text": "hello", "mode": "cognitive"}, session_id="sess")
     assert result["status"] == "success"
     assert result["session_id"] == "sess"
     fake.execute_task.assert_awaited_once_with(
@@ -428,8 +448,9 @@ async def test_coordinator_handle_cognitive_routing():
         async def fake_run_squads(orchestrator, plan, *, session_id=None, command=None):
             return []
 
-        with patch.object(coordinator, "_decompose", new=fake_decompose), patch.object(
-            coordinator, "_run_squads", new=fake_run_squads
+        with (
+            patch.object(coordinator, "_decompose", new=fake_decompose),
+            patch.object(coordinator, "_run_squads", new=fake_run_squads),
         ):
             await coordinator.handle({"text": "hi"}, session_id="s2")
         m.assert_not_called()

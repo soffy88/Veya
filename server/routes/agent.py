@@ -10,8 +10,7 @@ from pydantic import BaseModel
 
 from agents import resolve_persona
 
-router = APIRouter(prefix="/agent", tags=["agent"],
-              dependencies=[Depends(auth_mod.require_user)])
+router = APIRouter(prefix="/agent", tags=["agent"], dependencies=[Depends(auth_mod.require_user)])
 
 
 class AgentInvokeRequest(BaseModel):

@@ -26,6 +26,7 @@ from veya_loop import (
 # 图: api + db 双因 → task_outcome (db 是已知真根因的故障注入)
 # =========================================================================
 
+
 def _two_cause_store(db_p_fail: float = 0.2, api_p_fail: float = 0.3) -> CausalGraphStore:
     store = CausalGraphStore()
     store.add_node("api_gateway", p_fail=api_p_fail)
@@ -39,6 +40,7 @@ def _two_cause_store(db_p_fail: float = 0.2, api_p_fail: float = 0.3) -> CausalG
 # =========================================================================
 # 1. 根因排序正确性
 # =========================================================================
+
 
 def test_diagnose_root_cause_recall_and_ranked():
     """真根因必须进入候选集; 结构排序必须确定可复现。
@@ -71,7 +73,7 @@ def test_single_cause_intervention_direction():
     assert r.effect_on_failure in ("eliminates_failure", "strongly_reduces", "reduces")
     assert r.delta_p_fault is not None and r.delta_p_fault > 0.05
     if r.p_fault_after_do is not None:
-        assert r.p_fault_after_do < 0.2      # do(db=ok) 后故障率显著回落
+        assert r.p_fault_after_do < 0.2  # do(db=ok) 后故障率显著回落
 
 
 def test_intervention_reduces_failure_probability():
@@ -91,19 +93,22 @@ def test_intervention_reduces_failure_probability():
 # 2. 确定性 (plan_id 可复现前提)
 # =========================================================================
 
+
 def test_diagnose_deterministic():
     store = _two_cause_store()
     r1 = causal_fault_diagnose("task failed: db timeout", store=store)
     r2 = causal_fault_diagnose("task failed: db timeout", store=store)
     assert r1.structured_summary == r2.structured_summary
     assert r1.root_cause_candidates == r2.root_cause_candidates
-    assert [i.delta_p_fault for i in r1.interventions] == \
-           [i.delta_p_fault for i in r2.interventions]
+    assert [i.delta_p_fault for i in r1.interventions] == [
+        i.delta_p_fault for i in r2.interventions
+    ]
 
 
 # =========================================================================
 # 3. 反事实推演 (counterfactual_rollout)
 # =========================================================================
+
 
 def test_counterfactual_rollout_ranks_cheapest_effective_first():
     store = _two_cause_store()
@@ -111,7 +116,9 @@ def test_counterfactual_rollout_ranks_cheapest_effective_first():
     cpd_map = build_binary_failure_cpd_map(g)
 
     report = counterfactual_rollout(
-        g, failure_node="task_outcome", cpd_map=cpd_map,
+        g,
+        failure_node="task_outcome",
+        cpd_map=cpd_map,
         action_cost={"db": 0.1, "api_gateway": 10.0},
     )
     # 结构: 返回含候选干预序列
@@ -126,13 +133,14 @@ def test_counterfactual_rollout_ranks_cheapest_effective_first():
 # 4. 贝叶斯信念边界
 # =========================================================================
 
+
 def test_belief_updater_bounds_and_prior():
     updater = BayesianBeliefUpdater(["benign", "malicious"])
-    assert updater.belief("malicious") == 0.5            # 均匀先验
+    assert updater.belief("malicious") == 0.5  # 均匀先验
     for _ in range(20):
-        updater.update([0.001, 0.999])                    # 极强恶意信号
+        updater.update([0.001, 0.999])  # 极强恶意信号
     p = updater.belief("malicious")
-    assert 0.0 < p <= 1.0                                 # 不越界
+    assert 0.0 < p <= 1.0  # 不越界
     assert p > 0.999
 
 
@@ -159,17 +167,14 @@ def test_belief_unknown_state_raises():
 # 5. 蜜罐探测面: 网络外发 / 良性边界
 # =========================================================================
 
+
 def test_honeypot_detects_network_exfil():
     """网络外发 (socket 创建+connect) → hostile。
 
     用 127.0.0.1: netns 无 lo → connect 立即拒绝, 不挂起;
     audit hook 在 socket 创建时已触发。
     """
-    evil = (
-        "import socket\n"
-        "s = socket.socket()\n"
-        "s.connect(('127.0.0.1', 1))\n"
-    )
+    evil = "import socket\ns = socket.socket()\ns.connect(('127.0.0.1', 1))\n"
     obs = adversarial_honeypot_observe(evil, timeout=10.0)
     assert obs.is_hostile is True
 
@@ -180,11 +185,7 @@ def test_honeypot_network_timeout_forensics():
     守护 obase.local_sandbox_pool 超时分支的 NETWORK_ATTEMPT 取证
     (修复前: connect 挂起拖到超时 → payload 丢弃 → hostile 漏报)。
     """
-    evil = (
-        "import socket, time\n"
-        "s = socket.socket()\n"
-        "time.sleep(999)\n"
-    )
+    evil = "import socket, time\ns = socket.socket()\ntime.sleep(999)\n"
     obs = adversarial_honeypot_observe(evil, timeout=3.0)
     assert obs.is_hostile is True, "超时 + 网络痕迹必须 hostile (防漏报回归)"
 

@@ -36,8 +36,8 @@ from typing import Any, Literal
 class ToolSpec:
     """Specification for an external CLI tool."""
 
-    name: str                      # e.g., "ripgrep"
-    cli_command: str               # e.g., "rg"
+    name: str  # e.g., "ripgrep"
+    cli_command: str  # e.g., "rg"
     description: str
     homepage: str = ""
     # Installation
@@ -168,10 +168,7 @@ class ToolManager:
 
     def check_required_by(self, capability: str) -> list[ToolStatus]:
         """Check all tools required by a specific veya capability."""
-        required = [
-            name for name, spec in _TOOL_REGISTRY.items()
-            if capability in spec.required_by
-        ]
+        required = [name for name, spec in _TOOL_REGISTRY.items() if capability in spec.required_by]
         return [self.check(name) for name in required]
 
     # ── Installation ───────────────────────────────────────────────────
@@ -194,7 +191,8 @@ class ToolManager:
         status = self.check(name)
         if status.installed:
             return InstallResult(
-                name=name, success=True,
+                name=name,
+                success=True,
                 message=f"Already installed: {spec.cli_command} v{status.version}",
             )
 
@@ -207,7 +205,8 @@ class ToolManager:
                 return result
 
         return InstallResult(
-            name=name, success=False,
+            name=name,
+            success=False,
             error=f"All install methods failed for {name}",
         )
 
@@ -247,18 +246,21 @@ class ToolManager:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             if result.returncode == 0:
                 return InstallResult(
-                    name=name, success=True,
+                    name=name,
+                    success=True,
                     message=f"Installed via {' '.join(cmd[:2])}",
                 )
             return InstallResult(
-                name=name, success=False,
+                name=name,
+                success=False,
                 error=result.stderr[:500],
             )
         except subprocess.TimeoutExpired:
             return InstallResult(name=name, success=False, error="Installation timed out")
         except FileNotFoundError:
             return InstallResult(
-                name=name, success=False,
+                name=name,
+                success=False,
                 error=f"Command not found: {cmd[0]}",
             )
 
@@ -268,7 +270,8 @@ class ToolManager:
         url = spec.direct_downloads.get(plat)
         if not url:
             return InstallResult(
-                name=name, success=False,
+                name=name,
+                success=False,
                 error=f"No direct download for platform: {plat}",
             )
 
@@ -288,7 +291,8 @@ class ToolManager:
                 if actual != expected_hash:
                     tmp.unlink()
                     return InstallResult(
-                        name=name, success=False,
+                        name=name,
+                        success=False,
                         error=f"SHA256 mismatch: expected {expected_hash[:16]}..., got {actual[:16]}...",
                     )
 
@@ -297,7 +301,8 @@ class ToolManager:
             tmp.rename(dest)
 
             return InstallResult(
-                name=name, success=True,
+                name=name,
+                success=True,
                 message=f"Downloaded {spec.cli_command} to {dest}",
             )
         except Exception as e:
@@ -321,7 +326,9 @@ class ToolManager:
         try:
             result = subprocess.run(
                 [spec.cli_command] + flags,
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             return result.stdout.strip().split("\n")[0][:100]
         except Exception:

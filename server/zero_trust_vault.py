@@ -96,7 +96,9 @@ class VeyaVault:
         vault_dir: str | Path | None = None,
         approval_timeout: float = _DEFAULT_APPROVAL_TIMEOUT,
     ):
-        vault_dir = Path(vault_dir or os.environ.get("VEYA_VAULT_DIR", _DEFAULT_VAULT_DIR)).expanduser()
+        vault_dir = Path(
+            vault_dir or os.environ.get("VEYA_VAULT_DIR", _DEFAULT_VAULT_DIR)
+        ).expanduser()
         _ensure_event_bridge()
         store = _obase.secrets_store.SecretsStore(vault_dir=vault_dir)
         self._skill = _oskill.zero_trust_vault.ZeroTrustVault(

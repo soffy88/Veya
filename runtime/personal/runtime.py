@@ -54,7 +54,9 @@ _FEATURE_FLAGS = (
 
 def _flag(name: str, default: bool = True) -> bool:
     value = os.environ.get(name)
-    return default if value is None else value.strip().lower() not in {"", "0", "false", "off", "no"}
+    return (
+        default if value is None else value.strip().lower() not in {"", "0", "false", "off", "no"}
+    )
 
 
 def _now() -> float:
@@ -525,11 +527,15 @@ class PersonalRuntimeStore:
             out[key.removesuffix("_json")] = _loads(raw, {} if key == "provenance_json" else [])
         status = str(out.get("status", ""))
         out["usable"] = status == "active"
-        out["exclusion_reason"] = None if out["usable"] else {
-            "superseded": "SUPERSEDED",
-            "forgotten": "FORGOTTEN",
-            "invalidated": "INVALIDATED",
-        }.get(status, "STATUS_NOT_ACTIVE")
+        out["exclusion_reason"] = (
+            None
+            if out["usable"]
+            else {
+                "superseded": "SUPERSEDED",
+                "forgotten": "FORGOTTEN",
+                "invalidated": "INVALIDATED",
+            }.get(status, "STATUS_NOT_ACTIVE")
+        )
         return out
 
     @staticmethod
@@ -854,9 +860,15 @@ class PersonalRuntimeStore:
                         candidate_id,
                     )
                 if sqlite:
-                    row = dict(conn.execute("SELECT * FROM memory_records WHERE id=?", (row["id"],)).fetchone())
+                    row = dict(
+                        conn.execute(
+                            "SELECT * FROM memory_records WHERE id=?", (row["id"],)
+                        ).fetchone()
+                    )
                 else:
-                    row = dict(await conn.fetchrow("SELECT * FROM memory_records WHERE id=$1", row["id"]))
+                    row = dict(
+                        await conn.fetchrow("SELECT * FROM memory_records WHERE id=$1", row["id"])
+                    )
                 return {
                     "status": "deduplicated",
                     "candidate_id": candidate_id,
@@ -2632,9 +2644,7 @@ class PersonalRuntimeStore:
                 scope=candidate_scope,
                 evidence_task_ids=sorted(unique),
                 evidence_trajectory_ids=[
-                    str(event.get("event_id"))
-                    for event in unique.values()
-                    if event.get("event_id")
+                    str(event.get("event_id")) for event in unique.values() if event.get("event_id")
                 ],
                 observation=f"Repeated accepted trajectory: {objective}",
                 hypothesis="The verified execution pattern may be reusable, pending replay evaluation.",
@@ -2987,14 +2997,19 @@ class PersonalRuntimeStore:
             active = [row for row in memory_rows if row.get("status") == "active"]
             fingerprints = [row.get("canonical_fingerprint") for row in active]
             duplicate_groups = len(fingerprints) - len(set(fingerprints))
-            provenance = sum(
-                bool(
-                    _loads(row.get("source_event_ids"), [])
-                    or _loads(row.get("source_session_ids"), [])
-                    or _loads(row.get("source_task_ids"), [])
+            provenance = (
+                sum(
+                    bool(
+                        _loads(row.get("source_event_ids"), [])
+                        or _loads(row.get("source_session_ids"), [])
+                        or _loads(row.get("source_task_ids"), [])
+                    )
+                    for row in memory_rows
                 )
-                for row in memory_rows
-            ) / len(memory_rows) if memory_rows else 1.0
+                / len(memory_rows)
+                if memory_rows
+                else 1.0
+            )
             conflict_candidates = sum(
                 bool(_loads(row.get("conflicts_with"), [])) for row in candidate_rows
             )
@@ -3002,7 +3017,9 @@ class PersonalRuntimeStore:
             successes = sum(row.get("result_status") == "complete" for row in skill_run_rows)
             failures = sum(row.get("result_status") == "failed" for row in skill_run_rows)
             partials = sum(row.get("result_status") == "partial" for row in skill_run_rows)
-            evaluated = sum(row.get("status") in {"validated", "rejected", "applied"} for row in learning_rows)
+            evaluated = sum(
+                row.get("status") in {"validated", "rejected", "applied"} for row in learning_rows
+            )
             validated = sum(row.get("status") in {"validated", "applied"} for row in learning_rows)
             deltas = []
             for row in learning_rows:
@@ -3016,7 +3033,9 @@ class PersonalRuntimeStore:
                 "memory_precision_inputs": len(active),
                 "provenance_coverage": provenance,
                 "duplicate_memory_rate": max(0, duplicate_groups) / len(active) if active else 0.0,
-                "memory_conflict_rate": conflict_candidates / len(candidate_rows) if candidate_rows else 0.0,
+                "memory_conflict_rate": conflict_candidates / len(candidate_rows)
+                if candidate_rows
+                else 0.0,
                 "memory_correction_success": 1.0 if corrections else None,
                 "memory_precision": None,
                 "memory_recall_when_needed": None,
@@ -3030,7 +3049,9 @@ class PersonalRuntimeStore:
                 "wrong_skill_activation_rate": None,
                 "skill_regression_rate": None,
                 "rollback_success_rate": 1.0 if rollbacks else None,
-                "learning_candidates": sum(row.get("status") == "candidate" for row in learning_rows),
+                "learning_candidates": sum(
+                    row.get("status") == "candidate" for row in learning_rows
+                ),
                 "learning_validated": validated,
                 "validated_candidate_rate": validated / evaluated if evaluated else None,
                 "candidate_precision": None,
@@ -3052,10 +3073,17 @@ class PersonalRuntimeStore:
 
             return _attach_gold_benchmark(await asyncio.to_thread(lambda: self._read_sqlite(read)))
         memory_rows = [dict(row) for row in await self._pool.fetch("SELECT * FROM memory_records")]
-        candidate_rows = [dict(row) for row in await self._pool.fetch("SELECT * FROM memory_candidates")]
+        candidate_rows = [
+            dict(row) for row in await self._pool.fetch("SELECT * FROM memory_candidates")
+        ]
         skill_run_rows = [dict(row) for row in await self._pool.fetch("SELECT * FROM skill_runs")]
-        learning_rows = [dict(row) for row in await self._pool.fetch("SELECT * FROM learning_records")]
-        event_types = [str(row["event_type"]) for row in await self._pool.fetch("SELECT event_type FROM personal_events")]
+        learning_rows = [
+            dict(row) for row in await self._pool.fetch("SELECT * FROM learning_records")
+        ]
+        event_types = [
+            str(row["event_type"])
+            for row in await self._pool.fetch("SELECT event_type FROM personal_events")
+        ]
         return _attach_gold_benchmark(
             calculate(memory_rows, candidate_rows, skill_run_rows, learning_rows, event_types)
         )
@@ -3128,10 +3156,12 @@ class PersonalRuntimeStore:
                 if self.backend == "sqlite":
                     await asyncio.to_thread(
                         self._sqlite_tx,
-                        lambda c, eid=event["id"]: c.execute(
-                            "UPDATE personal_outbox SET published_at=? WHERE event_id=? AND published_at IS NULL",
-                            (_now(), eid),
-                        ).rowcount,
+                        lambda c, eid=event["id"]: (
+                            c.execute(
+                                "UPDATE personal_outbox SET published_at=? WHERE event_id=? AND published_at IS NULL",
+                                (_now(), eid),
+                            ).rowcount
+                        ),
                     )
                 else:
                     await self._pg_tx(
@@ -3225,9 +3255,7 @@ class PersonalRuntimeStore:
                                     "SELECT COUNT(*) FROM side_effects WHERE state='manual_review'"
                                 ).fetchone()[0]
                             ),
-                            "reconciler_last_success": (
-                                lambda row: row[0] if row else None
-                            )(
+                            "reconciler_last_success": (lambda row: row[0] if row else None)(
                                 c.execute(
                                     "SELECT occurred_at FROM execution_events WHERE event_type IN ('recovery.completed','reconciliation.completed') ORDER BY occurred_at DESC LIMIT 1"
                                 ).fetchone()

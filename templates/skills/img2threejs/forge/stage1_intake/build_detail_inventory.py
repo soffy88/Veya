@@ -70,7 +70,9 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
         chunk_data = data[cursor + 8 : cursor + 8 + length]
         cursor += 12 + length
         if chunk_type == b"IHDR":
-            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
         elif chunk_type == b"IDAT":
             idat.extend(chunk_data)
         elif chunk_type == b"IEND":
@@ -159,7 +161,9 @@ def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
                 pass
         sips = shutil.which("sips")
         if not sips:
-            raise ValueError(f"could not decode {path.name} as PNG and sips is unavailable: {direct_error}") from direct_error
+            raise ValueError(
+                f"could not decode {path.name} as PNG and sips is unavailable: {direct_error}"
+            ) from direct_error
         with tempfile.TemporaryDirectory() as tmpdir:
             converted = Path(tmpdir) / "converted.png"
             result = subprocess.run(
@@ -169,7 +173,9 @@ def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
                 check=False,
             )
             if result.returncode != 0:
-                raise ValueError(result.stderr.strip() or result.stdout.strip() or "sips conversion failed")
+                raise ValueError(
+                    result.stderr.strip() or result.stdout.strip() or "sips conversion failed"
+                )
             return read_png(converted)
 
 
@@ -194,7 +200,9 @@ def parse_components(spec: str) -> list[tuple[str, float, float, float, float]]:
             raise ValueError(f"malformed --components entry (expected name:x,y,w,h): {part!r}")
         values = [float(v) for v in coords.split(",")]
         if len(values) != 4:
-            raise ValueError(f"malformed --components entry (expected 4 normalized values): {part!r}")
+            raise ValueError(
+                f"malformed --components entry (expected 4 normalized values): {part!r}"
+            )
         x, y, w, h = values
         zones.append((name.strip(), x, y, w, h))
     if not zones:
@@ -204,7 +212,9 @@ def parse_components(spec: str) -> list[tuple[str, float, float, float, float]]:
 
 def build_zones(mode: str, components_spec: str | None) -> list[dict]:
     if mode == "component-zones":
-        zones_spec = parse_components(components_spec) if components_spec else DEFAULT_COMPONENT_ZONES
+        zones_spec = (
+            parse_components(components_spec) if components_spec else DEFAULT_COMPONENT_ZONES
+        )
         return [
             {"id": name, "region": {"x": x, "y": y, "width": w, "height": h, "units": "normalized"}}
             for name, x, y, w, h in zones_spec

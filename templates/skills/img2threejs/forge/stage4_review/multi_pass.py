@@ -21,8 +21,7 @@ PASS_IDS = (
 def default_pass_records(prefix: str) -> dict[str, dict[str, Any]]:
     prefix = prefix.rstrip("/")
     return {
-        pass_id: {"path": f"{prefix}/{pass_id}.png", "status": "pending"}
-        for pass_id in PASS_IDS
+        pass_id: {"path": f"{prefix}/{pass_id}.png", "status": "pending"} for pass_id in PASS_IDS
     }
 
 

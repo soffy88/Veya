@@ -30,6 +30,7 @@ pytest.importorskip("pgmpy")
 # 工具: 约 10 节点链状因果图
 # =========================================================================
 
+
 def _build_chain(n: int = 10) -> CausalGraphStore:
     """链: n0 → n1 → ... → n9(=task_outcome), 每节点 p_fail=0.1。"""
     store = CausalGraphStore()
@@ -48,6 +49,7 @@ def _chain_dag(n: int = 10):
 # =========================================================================
 # 一、DP 路径计数正确性 (O(V+E) vs 暴力枚举)
 # =========================================================================
+
 
 def test_path_frequency_counts_matches_bruteforce():
     import networkx as nx
@@ -82,6 +84,7 @@ def test_count_simple_paths_dag_diamond():
 # 二、LRU 干预缓存: 命中可见 + 键隔离
 # =========================================================================
 
+
 def test_intervention_cache_hit_and_miss():
     from veya_loop import build_binary_failure_cpd_map
 
@@ -92,29 +95,49 @@ def test_intervention_cache_hit_and_miss():
 
     from veya_loop import _do_calculus_intervention as _dci
 
-    r1 = _dci(dag, target_node="n2", intervention_value="ok",
-              outcome_nodes=["task_outcome"], cpd_map=cpd_map)
+    r1 = _dci(
+        dag,
+        target_node="n2",
+        intervention_value="ok",
+        outcome_nodes=["task_outcome"],
+        cpd_map=cpd_map,
+    )
     assert r1["status"] == "ok"
     s1 = cache.stats()
     assert s1["misses"] == 1 and s1["hits"] == 0
 
     # 二次同干预 → cache_hit, 结果一致
-    r2 = _dci(dag, target_node="n2", intervention_value="ok",
-              outcome_nodes=["task_outcome"], cpd_map=cpd_map)
+    r2 = _dci(
+        dag,
+        target_node="n2",
+        intervention_value="ok",
+        outcome_nodes=["task_outcome"],
+        cpd_map=cpd_map,
+    )
     s2 = cache.stats()
     assert s2["hits"] == 1 and s2["misses"] == 1
     assert r2["post_intervention_distribution"] == r1["post_intervention_distribution"]
 
     # 不同干预节点 → miss
-    _dci(dag, target_node="n4", intervention_value="ok",
-         outcome_nodes=["task_outcome"], cpd_map=cpd_map)
+    _dci(
+        dag,
+        target_node="n4",
+        intervention_value="ok",
+        outcome_nodes=["task_outcome"],
+        cpd_map=cpd_map,
+    )
     assert cache.stats()["misses"] == 2
 
     # 图结构变了 → 指纹变 → 不命中
     dag2 = _chain_dag(5)
     dag2.add_edge("n0", "n3")
-    _dci(dag2, target_node="n2", intervention_value="ok",
-         outcome_nodes=["task_outcome"], cpd_map=cpd_map)
+    _dci(
+        dag2,
+        target_node="n2",
+        intervention_value="ok",
+        outcome_nodes=["task_outcome"],
+        cpd_map=cpd_map,
+    )
     assert cache.stats()["misses"] == 3
 
 
@@ -122,15 +145,27 @@ def test_enumerate_paths_false_existence_only():
     from veya_loop import _do_calculus_intervention as _dci
 
     dag = _chain_dag(5)
-    full = _dci(dag, target_node="n2", intervention_value="ok",
-                outcome_nodes=["task_outcome"], use_cache=False,
-                enumerate_paths=True)
-    slim = _dci(dag, target_node="n2", intervention_value="ok",
-                outcome_nodes=["task_outcome"], use_cache=False,
-                enumerate_paths=False)
+    full = _dci(
+        dag,
+        target_node="n2",
+        intervention_value="ok",
+        outcome_nodes=["task_outcome"],
+        use_cache=False,
+        enumerate_paths=True,
+    )
+    slim = _dci(
+        dag,
+        target_node="n2",
+        intervention_value="ok",
+        outcome_nodes=["task_outcome"],
+        use_cache=False,
+        enumerate_paths=False,
+    )
     # 存在性判断: num_paths 一致, 但 False 不携带路径列表
-    assert full["structural_effect_paths"][0]["num_paths"] == \
-        slim["structural_effect_paths"][0]["num_paths"]
+    assert (
+        full["structural_effect_paths"][0]["num_paths"]
+        == slim["structural_effect_paths"][0]["num_paths"]
+    )
     assert full["structural_effect_paths"][0]["paths"]
     assert slim["structural_effect_paths"][0]["paths"] == []
 
@@ -139,6 +174,7 @@ def test_enumerate_paths_false_existence_only():
 # 三、rollout: 残差缩放近似正确性 + 时延预算
 # =========================================================================
 
+
 def test_residual_approximation_close_to_exact():
     dag = _chain_dag(6)
     cpd_map = None
@@ -146,12 +182,22 @@ def test_residual_approximation_close_to_exact():
 
     cpd_map = build_binary_failure_cpd_map(dag)
 
-    exact = counterfactual_rollout(dag, failure_node="task_outcome",
-                                   horizon=2, cpd_map=cpd_map,
-                                   approx_second_step=False, use_cache=False)
-    approx = counterfactual_rollout(dag, failure_node="task_outcome",
-                                    horizon=2, cpd_map=cpd_map,
-                                    approx_second_step=True, use_cache=False)
+    exact = counterfactual_rollout(
+        dag,
+        failure_node="task_outcome",
+        horizon=2,
+        cpd_map=cpd_map,
+        approx_second_step=False,
+        use_cache=False,
+    )
+    approx = counterfactual_rollout(
+        dag,
+        failure_node="task_outcome",
+        horizon=2,
+        cpd_map=cpd_map,
+        approx_second_step=True,
+        use_cache=False,
+    )
     # 首动作一致 (深度 1 是精确的)
     assert exact.planned_actions[0].node == approx.planned_actions[0].node
     # 次步 ΔP 近似偏差有界 (残差缩放是一阶近似)
@@ -171,9 +217,14 @@ def test_rollout_latency_budget_and_cache_reuse():
     cache.clear()
 
     t0 = time.perf_counter()
-    r1 = counterfactual_rollout(dag, failure_node="task_outcome", horizon=2,
-                                cpd_map=cpd_map, approx_second_step=True,
-                                use_cache=True)
+    r1 = counterfactual_rollout(
+        dag,
+        failure_node="task_outcome",
+        horizon=2,
+        cpd_map=cpd_map,
+        approx_second_step=True,
+        use_cache=True,
+    )
     first_ms = (time.perf_counter() - t0) * 1000
     assert r1.planned_actions
     assert first_ms < 200, f"首次 rollout 超预算: {first_ms:.0f}ms"
@@ -181,9 +232,14 @@ def test_rollout_latency_budget_and_cache_reuse():
     # 二次同图规划: 深度 1 全部命中缓存 (hits 增长)
     hits_before = cache.stats()["hits"]
     t1 = time.perf_counter()
-    counterfactual_rollout(dag, failure_node="task_outcome", horizon=2,
-                           cpd_map=cpd_map, approx_second_step=True,
-                           use_cache=True)
+    counterfactual_rollout(
+        dag,
+        failure_node="task_outcome",
+        horizon=2,
+        cpd_map=cpd_map,
+        approx_second_step=True,
+        use_cache=True,
+    )
     second_ms = (time.perf_counter() - t1) * 1000
     assert cache.stats()["hits"] > hits_before
     assert second_ms < first_ms * 0.9 + 20, (second_ms, first_ms)
@@ -192,6 +248,7 @@ def test_rollout_latency_budget_and_cache_reuse():
 # =========================================================================
 # 四、diagnose / multi_step_plan 时延预算
 # =========================================================================
+
 
 def test_diagnose_latency_budget():
     store = _build_chain(10)
@@ -212,8 +269,9 @@ def test_multi_step_plan_latency_budget():
     cache = get_intervention_cache()
     cache.clear()
     t0 = time.perf_counter()
-    report = multi_step_plan("task failed: n7 timeout", store=store,
-                             horizon_override=2, execute=False)
+    report = multi_step_plan(
+        "task failed: n7 timeout", store=store, horizon_override=2, execute=False
+    )
     ms = (time.perf_counter() - t0) * 1000
     assert report.recommended_actions
     assert ms < 300, f"multi_step_plan 超软预算: {ms:.0f}ms"
@@ -222,6 +280,7 @@ def test_multi_step_plan_latency_budget():
 # =========================================================================
 # 五、调试入口可见性
 # =========================================================================
+
 
 def test_cache_stats_visible():
     stats = get_intervention_cache().stats()

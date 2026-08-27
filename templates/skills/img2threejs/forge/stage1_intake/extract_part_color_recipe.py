@@ -65,10 +65,10 @@ _BRADFORD_INV = (
 )
 
 
-def _matmul3(matrix: tuple[tuple[float, float, float], ...], vector: tuple[float, float, float]) -> tuple[float, float, float]:
-    return tuple(
-        sum(matrix[row][col] * vector[col] for col in range(3)) for row in range(3)
-    )  # type: ignore[return-value]
+def _matmul3(
+    matrix: tuple[tuple[float, float, float], ...], vector: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return tuple(sum(matrix[row][col] * vector[col] for col in range(3)) for row in range(3))  # type: ignore[return-value]
 
 
 def _srgb_to_linear(channel: float) -> float:
@@ -89,7 +89,7 @@ def _linear_to_srgb(channel: float) -> float:
 
 def _lab_f(t: float) -> float:
     delta = 6.0 / 29.0
-    if t > delta ** 3:
+    if t > delta**3:
         return t ** (1.0 / 3.0)
     return t / (3.0 * delta * delta) + 4.0 / 29.0
 
@@ -97,7 +97,7 @@ def _lab_f(t: float) -> float:
 def _lab_f_inv(t: float) -> float:
     delta = 6.0 / 29.0
     if t > delta:
-        return t ** 3
+        return t**3
     return 3.0 * delta * delta * (t - 4.0 / 29.0)
 
 
@@ -111,7 +111,9 @@ def xyz_to_rgb(xyz: tuple[float, float, float]) -> tuple[int, int, int]:
     return tuple(round(_linear_to_srgb(channel)) for channel in linear)  # type: ignore[return-value]
 
 
-def xyz_to_lab(xyz: tuple[float, float, float], white: tuple[float, float, float] = _D65) -> tuple[float, float, float]:
+def xyz_to_lab(
+    xyz: tuple[float, float, float], white: tuple[float, float, float] = _D65
+) -> tuple[float, float, float]:
     xr, yr, zr = (xyz[i] / white[i] for i in range(3))
     fx, fy, fz = _lab_f(xr), _lab_f(yr), _lab_f(zr)
     l_star = 116.0 * fy - 16.0
@@ -120,7 +122,9 @@ def xyz_to_lab(xyz: tuple[float, float, float], white: tuple[float, float, float
     return (l_star, a_star, b_star)
 
 
-def lab_to_xyz(lab: tuple[float, float, float], white: tuple[float, float, float] = _D65) -> tuple[float, float, float]:
+def lab_to_xyz(
+    lab: tuple[float, float, float], white: tuple[float, float, float] = _D65
+) -> tuple[float, float, float]:
     l_star, a_star, b_star = lab
     fy = (l_star + 16.0) / 116.0
     fx = fy + a_star / 500.0
@@ -167,6 +171,7 @@ def bradford_adapt(
 
 # ---------- Lab-space k-means palette ----------
 
+
 def lab_kmeans_palette(samples: list[tuple[float, float, float]], k: int) -> list[dict[str, Any]]:
     if not samples:
         return []
@@ -198,6 +203,7 @@ def lab_kmeans_palette(samples: list[tuple[float, float, float]], k: int) -> lis
 
 # ---------- Hotspot-based roughness (Cook-Torrance half-angle proxy) ----------
 
+
 def estimate_roughness_from_hotspot(
     lumas: list[float],
     mask: list[bool],
@@ -216,7 +222,9 @@ def estimate_roughness_from_hotspot(
     # fraction of pixels, since the percentile value itself then falls back into
     # the dark background range and every pixel spuriously satisfies ">= cutoff".
     near_peak_threshold = max(0.0, peak - 0.1)
-    hotspot_fraction = sum(1 for luma in foreground_lumas if luma >= near_peak_threshold) / len(foreground_lumas)
+    hotspot_fraction = sum(1 for luma in foreground_lumas if luma >= near_peak_threshold) / len(
+        foreground_lumas
+    )
     # A tight/sharp specular hotspot occupies a small fraction of the surface near
     # peak brightness; a broad/diffuse highlight covers much more of the surface.
     spread = clamp01(hotspot_fraction * 2.0)
@@ -231,6 +239,7 @@ def estimate_roughness_from_hotspot(
 
 
 # ---------- Material classification (rule-based, evidence-cited) ----------
+
 
 def classify_material(
     dominant_lab: tuple[float, float, float],
@@ -348,6 +357,7 @@ def detect_color_gradient(
 
 # ---------- Top-level recipe assembly ----------
 
+
 def build_recipe(
     component_id: str,
     crop_path: Path,
@@ -363,10 +373,17 @@ def build_recipe(
     sampled_pixels, sampled_mask = resample_crop(width, height, rgba_pixels, mask, bbox, size)
 
     lab_grid = [srgb_to_lab(pixel) for pixel in sampled_pixels]
-    lumas = [0.2126 * p[0] / 255.0 + 0.7152 * p[1] / 255.0 + 0.0722 * p[2] / 255.0 for p in sampled_pixels]
+    lumas = [
+        0.2126 * p[0] / 255.0 + 0.7152 * p[1] / 255.0 + 0.0722 * p[2] / 255.0
+        for p in sampled_pixels
+    ]
 
     foreground_lab = [lab for lab, keep in zip(lab_grid, sampled_mask) if keep]
-    samples_for_kmeans = representative_samples(foreground_lab, [True] * len(foreground_lab), limit=4000) if foreground_lab else []
+    samples_for_kmeans = (
+        representative_samples(foreground_lab, [True] * len(foreground_lab), limit=4000)
+        if foreground_lab
+        else []
+    )
     clusters = lab_kmeans_palette(samples_for_kmeans, k=3)
 
     if not clusters:
@@ -375,14 +392,20 @@ def build_recipe(
     dominant_lab = clusters[0]["center"]
     secondary_lab = clusters[1]["center"] if len(clusters) > 1 else dominant_lab
 
-    background_white = _D65  # neutral D65 assumption; refine with a metered gray card in future work
+    background_white = (
+        _D65  # neutral D65 assumption; refine with a metered gray card in future work
+    )
     dominant_adapted = bradford_adapt(dominant_lab, source_white=background_white)
     secondary_adapted = bradford_adapt(secondary_lab, source_white=background_white)
 
     roughness, hotspot_evidence = estimate_roughness_from_hotspot(lumas, sampled_mask)
 
     dominant_rgb = lab_to_rgb(dominant_adapted)
-    saturation = 0.0 if max(dominant_rgb) == 0 else (max(dominant_rgb) - min(dominant_rgb)) / max(dominant_rgb)
+    saturation = (
+        0.0
+        if max(dominant_rgb) == 0
+        else (max(dominant_rgb) - min(dominant_rgb)) / max(dominant_rgb)
+    )
     material_class, material_confidence = classify_material(dominant_adapted, saturation, roughness)
     if material_class_hint:
         material_class = material_class_hint
@@ -419,15 +442,19 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--material-class-hint")
     parser.add_argument("--target-threshold", type=float, default=0.7)
     parser.add_argument("--spec", type=Path, help="ObjectSculptSpec JSON to patch")
-    parser.add_argument("--in-place", action="store_true", help="Patch --spec in place when confidence passes")
+    parser.add_argument(
+        "--in-place", action="store_true", help="Patch --spec in place when confidence passes"
+    )
     parser.add_argument("--out-spec", type=Path, help="Write patched spec to this path")
     parser.add_argument("--allow-low-confidence", action="store_true")
-    parser.add_argument("--no-cache", action="store_true", help="Skip the hash-based extraction cache")
+    parser.add_argument(
+        "--no-cache", action="store_true", help="Skip the hash-based extraction cache"
+    )
     args = parser.parse_args(argv)
 
     try:
         crop_path = args.crop.expanduser().resolve()
-        cache_dir = (args.spec.expanduser().resolve().parent if args.spec else crop_path.parent)
+        cache_dir = args.spec.expanduser().resolve().parent if args.spec else crop_path.parent
         manifest_path = manifest_path_for(cache_dir, "color_recipe_cache.json")
         key = cache_key(crop_path, Path(__file__).resolve())
         cached = None if args.no_cache else get_cached(manifest_path, key)
@@ -459,7 +486,10 @@ def main(argv: list[str]) -> int:
             spec_path = args.spec.expanduser().resolve()
             spec = json.loads(spec_path.read_text(encoding="utf-8"))
             components = spec.get("componentTree", [])
-            target = next((c for c in components if isinstance(c, dict) and c.get("id") == args.component_id), None)
+            target = next(
+                (c for c in components if isinstance(c, dict) and c.get("id") == args.component_id),
+                None,
+            )
             if target is None:
                 raise ValueError(f"component {args.component_id!r} not found in spec componentTree")
             # cacheHit is a runtime diagnostic for this invocation, not evidence data —
@@ -473,15 +503,25 @@ def main(argv: list[str]) -> int:
             if "colorGradient" in recipe:
                 material_id = target.get("material")
                 material = next(
-                    (m for m in spec.get("materials", []) if isinstance(m, dict) and m.get("id") == material_id),
+                    (
+                        m
+                        for m in spec.get("materials", [])
+                        if isinstance(m, dict) and m.get("id") == material_id
+                    ),
                     None,
                 )
                 if material is not None:
                     material["colorGradient"] = recipe["colorGradient"]
-            output = spec_path if args.in_place else (args.out_spec.expanduser().resolve() if args.out_spec else None)
+            output = (
+                spec_path
+                if args.in_place
+                else (args.out_spec.expanduser().resolve() if args.out_spec else None)
+            )
             if output:
                 output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_text(json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                output.write_text(
+                    json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+                )
         print(json.dumps(recipe, indent=2, ensure_ascii=False))
         # Low confidence without --spec is informational only (nothing was patched,
         # so there's nothing to "fail"); the --spec low-confidence case already

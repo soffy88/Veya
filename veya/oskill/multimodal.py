@@ -354,7 +354,15 @@ class AudioProcessor:
     5. Silence detection and trimming
     """
 
-    SUPPORTED_FORMATS: ClassVar[set[str]] = {".wav", ".mp3", ".ogg", ".flac", ".aac", ".pcm", ".raw"}
+    SUPPORTED_FORMATS: ClassVar[set[str]] = {
+        ".wav",
+        ".mp3",
+        ".ogg",
+        ".flac",
+        ".aac",
+        ".pcm",
+        ".raw",
+    }
 
     def __init__(self):
         self.supported_formats = self.SUPPORTED_FORMATS
@@ -382,6 +390,7 @@ class AudioProcessor:
         """
         try:
             import wave
+
             with wave.open(audio_path, "rb") as wf:
                 frames = wf.getnframes()
                 rate = wf.getframerate()
@@ -415,6 +424,7 @@ class AudioProcessor:
             suffix = Path(audio_path).suffix.lower()
             if suffix == ".wav":
                 import wave
+
                 with wave.open(audio_path, "rb") as wf:
                     return wf.readframes(wf.getnframes())
             else:
@@ -488,8 +498,10 @@ class VideoProcessor:
 
             cmd = [
                 "ffprobe",
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_format",
                 "-show_streams",
                 video_path,
@@ -538,10 +550,14 @@ class VideoProcessor:
 
             cmd = [
                 "ffmpeg",
-                "-ss", str(timestamp_sec),
-                "-i", video_path,
-                "-vframes", "1",
-                "-q:v", "2",
+                "-ss",
+                str(timestamp_sec),
+                "-i",
+                video_path,
+                "-vframes",
+                "1",
+                "-q:v",
+                "2",
                 "-y",
                 tmp_path,
             ]
@@ -573,11 +589,13 @@ class VideoProcessor:
                 break
             frame_data = self.extract_frame(video_path, ts)
             if frame_data:
-                frames.append({
-                    "timestamp_sec": ts,
-                    "image_bytes": frame_data,
-                    "image_base64": base64.b64encode(frame_data).decode("utf-8"),
-                })
+                frames.append(
+                    {
+                        "timestamp_sec": ts,
+                        "image_bytes": frame_data,
+                        "image_base64": base64.b64encode(frame_data).decode("utf-8"),
+                    }
+                )
         return frames
 
     def analyze(self, video_path: str) -> MultimodalResult:

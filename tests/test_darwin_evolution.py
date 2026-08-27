@@ -11,12 +11,12 @@ import pytest
 from server.darwin_evolution import VeyaDarwinEvolution
 
 OPERATOR = (
-    'def run_strategy(df, alpha=0.3, window=20):\n'
+    "def run_strategy(df, alpha=0.3, window=20):\n"
     '    df["ma"] = df["close"].rolling(window).mean()\n'
     '    df["signal"] = alpha * (df["close"] / df["ma"] - 1)\n'
     '    df["daily_return"] = df["signal"].shift(1).fillna(0) * df["close"].pct_change().fillna(0)\n'
     '    df["cum_return"] = (1 + df["daily_return"]).cumprod()\n'
-    '    return df\n'
+    "    return df\n"
 )
 
 
@@ -52,6 +52,7 @@ def evolution(tmp_path) -> tuple[VeyaDarwinEvolution, FakeBacktest]:
 # 注册 + 影子测试 + 衰减检测
 # =========================================================================
 
+
 async def test_register_and_shadow_decay(evolution):
     evo, _ = evolution
     op_id = evo.register_operator(OPERATOR, "alpha_momentum")
@@ -74,6 +75,7 @@ async def test_register_and_shadow_decay(evolution):
 # =========================================================================
 # 进化闭环: 突变 → 并发回测 → 择优 → PRD
 # =========================================================================
+
 
 async def test_evolve_cycle_selects_best_variant(evolution):
     evo, fb = evolution
@@ -144,6 +146,7 @@ async def test_promote_without_candidate_raises(evolution):
 # =========================================================================
 # 通知注入 + 持久化恢复
 # =========================================================================
+
 
 async def test_evolve_notifies_prd_review(tmp_path):
     notified: list[dict] = []

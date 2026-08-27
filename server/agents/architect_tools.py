@@ -154,21 +154,27 @@ def validate_3o_purity(layer: str, code: str) -> tuple[bool, str]:
                     f"3O 纯度违规: oprim/oskill 层禁止引入 '{module}' "
                     f"(Pure Math/Logic ONLY)。如需 I/O 请改放 obase 层。",
                 )
-        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {
-            "open",
-            "eval",
-            "exec",
-            "__import__",
-        }:
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id
+            in {
+                "open",
+                "eval",
+                "exec",
+                "__import__",
+            }
+        ):
             return (
                 False,
-                f"3O 纯度违规: oprim/oskill 层禁止调用 {node.func.id}() "
-                f"(Pure Math/Logic ONLY)。",
+                f"3O 纯度违规: oprim/oskill 层禁止调用 {node.func.id}() (Pure Math/Logic ONLY)。",
             )
     return True, ""
 
 
-def _tool_schema(name: str, description: str, properties: dict, required: tuple[str, ...] = ()) -> dict:
+def _tool_schema(
+    name: str, description: str, properties: dict, required: tuple[str, ...] = ()
+) -> dict:
     return {
         "type": "function",
         "function": {
@@ -256,13 +262,14 @@ class ThreeOPhysicalTools:
                 "Read an existing element from a 3O layer.",
                 {
                     "layer": {"type": "string"},
-                    "element_name": {"type": "string", "description": "path relative to layer root"},
+                    "element_name": {
+                        "type": "string",
+                        "description": "path relative to layer root",
+                    },
                 },
                 ("layer", "element_name"),
             ),
-            _tool_schema(
-                "git_status", "Show git status of the 3O master library.", {}
-            ),
+            _tool_schema("git_status", "Show git status of the 3O master library.", {}),
             _tool_schema(
                 "git_commit",
                 "Commit all pending changes in the 3O master library with a message.",
@@ -304,7 +311,9 @@ class ThreeOPhysicalTools:
         return proc.stdout.strip()
 
     # ── 工具实现 ─────────────────────────────────────────────────────
-    def forge_element(self, layer: str, element_name: str, code: str, allow_impure: bool = False) -> str:
+    def forge_element(
+        self, layer: str, element_name: str, code: str, allow_impure: bool = False
+    ) -> str:
         """锻造元素: 纯度校验 → 写文件 → 返回状态(成功/失败均带原因)。"""
         target = self._resolve_element(layer, element_name)
         if layer in _MATH_LAYERS and not allow_impure:
@@ -351,7 +360,9 @@ class ThreeOPhysicalTools:
             if any(part in {"__pycache__", ".git", "tests", "docs"} for part in p.parts):
                 continue
             try:
-                for lineno, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                for lineno, line in enumerate(
+                    p.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+                ):
                     if pattern.search(line):
                         rel = p.relative_to(self.library_root)
                         hits.append(f"{rel}:{lineno}: {line.strip()[:120]}")

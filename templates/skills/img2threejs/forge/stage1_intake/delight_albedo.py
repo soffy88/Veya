@@ -80,7 +80,9 @@ def read_png(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]]]:
         chunk_data = data[cursor + 8 : cursor + 8 + length]
         cursor += 12 + length
         if chunk_type == b"IHDR":
-            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
         elif chunk_type == b"IDAT":
             idat.extend(chunk_data)
         elif chunk_type == b"IEND":
@@ -180,8 +182,12 @@ def load_image(path: Path) -> tuple[int, int, list[tuple[int, int, int, int]], l
             command = [sips, "-s", "format", "png", str(path), "--out", str(converted)]
             result = subprocess.run(command, capture_output=True, text=True, check=False)
             if result.returncode != 0:
-                raise ValueError(result.stderr.strip() or result.stdout.strip() or "sips conversion failed")
-            warnings.append("source image was converted to PNG with macOS sips before pixel extraction")
+                raise ValueError(
+                    result.stderr.strip() or result.stdout.strip() or "sips conversion failed"
+                )
+            warnings.append(
+                "source image was converted to PNG with macOS sips before pixel extraction"
+            )
             width, height, pixels = read_png(converted)
             return width, height, pixels, warnings
 
@@ -262,26 +268,38 @@ def delight(
     return bytes(out), stats
 
 
-def estimate_confidence(stats: dict[str, Any], strength: float, warnings: list[str]) -> tuple[float, list[str]]:
+def estimate_confidence(
+    stats: dict[str, Any], strength: float, warnings: list[str]
+) -> tuple[float, list[str]]:
     notes: list[str] = []
     luma_range = float(stats.get("lumaRangeBefore", 0.4))
     # a very large baked lighting range means more got corrected but also more
     # residual error is likely, since the box blur is only a crude lighting proxy
     range_penalty = clamp01((luma_range - 0.35) * 0.6)
     strength_bonus = clamp01(strength) * 0.15
-    confidence = clamp01(0.55 - range_penalty * 0.25 + strength_bonus - min(0.1, len(warnings) * 0.04))
+    confidence = clamp01(
+        0.55 - range_penalty * 0.25 + strength_bonus - min(0.1, len(warnings) * 0.04)
+    )
     confidence = min(0.72, confidence)  # single-image de-lighting is always capped
-    notes.append("single-image de-lighting cannot separate true albedo from baked light/AO/specular; confidence is capped")
+    notes.append(
+        "single-image de-lighting cannot separate true albedo from baked light/AO/specular; confidence is capped"
+    )
     if luma_range > 0.5:
-        notes.append("wide baked lighting range detected; expect visible residual shading after correction")
+        notes.append(
+            "wide baked lighting range detected; expect visible residual shading after correction"
+        )
     return round(confidence, 3), notes
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("image", type=Path)
     parser.add_argument("--out", type=Path, required=True, help="Output de-lit PNG path")
-    parser.add_argument("--report", type=Path, help="Write the JSON report to this path (also printed to stdout)")
+    parser.add_argument(
+        "--report", type=Path, help="Write the JSON report to this path (also printed to stdout)"
+    )
     parser.add_argument(
         "--strength",
         type=float,
@@ -303,7 +321,9 @@ def main(argv: list[str]) -> int:
 
     try:
         width, height, pixels, load_warnings = load_image(image)
-        blur_radius = args.blur_radius if args.blur_radius > 0 else max(6, min(48, min(width, height) // 20))
+        blur_radius = (
+            args.blur_radius if args.blur_radius > 0 else max(6, min(48, min(width, height) // 20))
+        )
         strength = clamp01(args.strength)
         delit_rgba, stats = delight(width, height, pixels, strength, blur_radius)
         write_png_rgba(out_path, width, height, delit_rgba)

@@ -71,9 +71,7 @@ async def test_postgres_global_parallel_limit_and_continuous_refill():
 
         await seed.start(claims[0])
         await seed.complete(claims[0], {"summary": claims[0].logical_key})
-        refill = await peers[0].claim_next(
-            "pg-global-refill", goal_run_id=run_id, lease_ttl_s=30
-        )
+        refill = await peers[0].claim_next("pg-global-refill", goal_run_id=run_id, lease_ttl_s=30)
         assert refill is not None
         run_items = await seed.list_work_items(run_id)
         assert sum(item["state"] in {"leased", "running"} for item in run_items) == 4
@@ -94,9 +92,7 @@ async def test_postgres_expiry_recovery_and_stale_fence_rejection():
     new_repo = await _repo()
     run_id = "test-pg-fence-" + uuid.uuid4().hex[:12]
     try:
-        await old_repo.create_goal_run(
-            goal_run_id=run_id, status="running", idempotency_key=run_id
-        )
+        await old_repo.create_goal_run(goal_run_id=run_id, status="running", idempotency_key=run_id)
         item = await old_repo.enqueue_work_item(
             WorkItemSpec(
                 goal_run_id=run_id,
@@ -138,7 +134,9 @@ async def test_postgres_expiry_recovery_and_stale_fence_rejection():
         with pytest.raises(DurableExecutionError, match="lease owner"):
             await old_repo.complete(old, {"stale": True})
         await new_repo.complete(current, {"summary": "new owner"})
-        assert (await new_repo.complete(current, {"summary": "new owner"}))["status"] == "idempotent"
+        assert (await new_repo.complete(current, {"summary": "new owner"}))[
+            "status"
+        ] == "idempotent"
         assert (await new_repo.metrics())["fencing_rejected"] >= 4
         assert item["id"] == current.work_item_id
     finally:
@@ -152,9 +150,7 @@ async def test_postgres_side_effect_probe_and_quarantine():
     ledger = SideEffectLedger(repo)
     run_id = "test-pg-effect-" + uuid.uuid4().hex[:12]
     try:
-        await repo.create_goal_run(
-            goal_run_id=run_id, status="running", idempotency_key=run_id
-        )
+        await repo.create_goal_run(goal_run_id=run_id, status="running", idempotency_key=run_id)
         item = await repo.enqueue_work_item(
             WorkItemSpec(
                 goal_run_id=run_id,
@@ -241,9 +237,7 @@ async def test_postgres_finalization_resume_from_checkpoint():
     second = await _repo()
     run_id = "test-pg-finalize-" + uuid.uuid4().hex[:12]
     try:
-        await first.create_goal_run(
-            goal_run_id=run_id, status="running", idempotency_key=run_id
-        )
+        await first.create_goal_run(goal_run_id=run_id, status="running", idempotency_key=run_id)
         await first.enqueue_work_item(
             WorkItemSpec(goal_run_id=run_id, logical_key="child", kind="agent_loop"),
             idempotency_key=f"{run_id}:child",

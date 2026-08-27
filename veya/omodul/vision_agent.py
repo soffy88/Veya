@@ -172,7 +172,7 @@ class VisionAgent:
         start = time.time()
         images: list[bytes] = []
 
-        for path in image_paths[:self.config.max_images]:
+        for path in image_paths[: self.config.max_images]:
             frame = load_image_frame(path)
             if frame is not None:
                 images.append(frame.data)
@@ -253,8 +253,8 @@ class VisionAgent:
         descriptions = [r.description for r in per_frame_results if r.description]
         summary_prompt = (
             f"Here are frame-by-frame descriptions of a video. "
-            f"Provide a cohesive summary of what happens:\n\n" +
-            "\n\n---\n\n".join(f"[Frame {i}]: {d}" for i, d in enumerate(descriptions))
+            f"Provide a cohesive summary of what happens:\n\n"
+            + "\n\n---\n\n".join(f"[Frame {i}]: {d}" for i, d in enumerate(descriptions))
         )
 
         summary = await analyze_image(
@@ -319,22 +319,32 @@ async def run_vision_analysis(
         image_data = getattr(input_data, "image_data", None)
 
         if image_path:
-            result = await agent.analyze_single(image_path, prompt=prompt, system_prompt=system_prompt)
+            result = await agent.analyze_single(
+                image_path, prompt=prompt, system_prompt=system_prompt
+            )
         elif image_data:
-            result = await agent.analyze_single(image_data, prompt=prompt, system_prompt=system_prompt)
+            result = await agent.analyze_single(
+                image_data, prompt=prompt, system_prompt=system_prompt
+            )
         else:
-            result = VisionSessionResult(state=VisionAgentState.ERROR, error="No image source provided")
+            result = VisionSessionResult(
+                state=VisionAgentState.ERROR, error="No image source provided"
+            )
 
     elif media_type == "images":
         image_paths = getattr(input_data, "image_paths", [])
-        result = await agent.analyze_multiple(image_paths, prompt=prompt, system_prompt=system_prompt)
+        result = await agent.analyze_multiple(
+            image_paths, prompt=prompt, system_prompt=system_prompt
+        )
 
     elif media_type == "video":
         video_path = getattr(input_data, "video_path", "")
         result = await agent.analyze_video(video_path, prompt=prompt, system_prompt=system_prompt)
 
     else:
-        result = VisionSessionResult(state=VisionAgentState.ERROR, error=f"Unknown media type: {media_type}")
+        result = VisionSessionResult(
+            state=VisionAgentState.ERROR, error=f"Unknown media type: {media_type}"
+        )
 
     # Save output
     output_dir = Path(output_dir)

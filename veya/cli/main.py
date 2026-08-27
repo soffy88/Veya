@@ -112,7 +112,11 @@ async def run_task(
     mode returns a plan stub without executing anything.
     """
     if dry_run:
-        return {"status": "dry_run", "plan": "Agent OS master brain (dry run)", "session_id": session_id}
+        return {
+            "status": "dry_run",
+            "plan": "Agent OS master brain (dry run)",
+            "session_id": session_id,
+        }
 
     # memory restore (decision trail) — resume path
     if resume:
@@ -131,7 +135,9 @@ async def run_task(
 
     result = await master_coordinator.chat_stream(task, session_id=session_id, max_rounds=3)
 
-    events = [{"event": "session_done", "session_id": result.get("session_id", "cli"), "ts": time.time()}]
+    events = [
+        {"event": "session_done", "session_id": result.get("session_id", "cli"), "ts": time.time()}
+    ]
     on_step(events[0])
 
     # persist decision trail

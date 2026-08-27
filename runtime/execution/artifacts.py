@@ -65,7 +65,14 @@ class ArtifactStore:
         self._artifacts.append(ref)
         return ref
 
-    def publish(self, source: str | Path, output_name: str, *, producer: str = "runtime", status: str = "draft") -> ArtifactRef:
+    def publish(
+        self,
+        source: str | Path,
+        output_name: str,
+        *,
+        producer: str = "runtime",
+        status: str = "draft",
+    ) -> ArtifactRef:
         source_path = Path(source).expanduser().resolve()
         if not source_path.exists() or not source_path.is_file():
             raise FileNotFoundError(source_path)
@@ -73,8 +80,13 @@ class ArtifactStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         source_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
         if target.exists():
-            if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != source_hash:
-                raise FileExistsError(f"immutable output already exists with different content: {target}")
+            if (
+                not target.is_file()
+                or hashlib.sha256(target.read_bytes()).hexdigest() != source_hash
+            ):
+                raise FileExistsError(
+                    f"immutable output already exists with different content: {target}"
+                )
             return self.register(Path("outputs") / output_name, producer=producer, status=status)
         temporary = target.with_name(f".{target.name}.{source_hash}.tmp")
         shutil.copy2(source_path, temporary)
@@ -86,7 +98,10 @@ class ArtifactStore:
 
     def record(self, ref: ArtifactRef) -> ArtifactRef:
         """Record an executor-produced reference without copying its file."""
-        if not any(existing.path == ref.path and existing.sha256 == ref.sha256 for existing in self._artifacts):
+        if not any(
+            existing.path == ref.path and existing.sha256 == ref.sha256
+            for existing in self._artifacts
+        ):
             self._artifacts.append(ref)
         return ref
 
@@ -102,7 +117,9 @@ class ArtifactStore:
                     return path
             else:
                 return path
-        temporary = path.with_name(f".{path.name}.{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}.tmp")
+        temporary = path.with_name(
+            f".{path.name}.{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}.tmp"
+        )
         temporary.write_text(encoded, encoding="utf-8")
         temporary.replace(path)
         return path

@@ -55,9 +55,7 @@ def module_cache_key(module_spec: dict, generator_source: Path) -> str:
     return f"{canonical_module_hash(module_spec)}:{file_sha256(generator_source)[:12]}"
 
 
-def get_module(
-    manifest_path: Path, module_spec: dict, generator_source: Path
-) -> str | None:
+def get_module(manifest_path: Path, module_spec: dict, generator_source: Path) -> str | None:
     """Return the cached generated code for this module, or None on a miss."""
     entry = get_cached(manifest_path, module_cache_key(module_spec, generator_source))
     if entry is None:
@@ -65,9 +63,7 @@ def get_module(
     return entry.get("code")
 
 
-def put_module(
-    manifest_path: Path, module_spec: dict, generator_source: Path, code: str
-) -> None:
+def put_module(manifest_path: Path, module_spec: dict, generator_source: Path, code: str) -> None:
     """Store generated code for this module under its (spec+generator) key."""
     put_cached(
         manifest_path,

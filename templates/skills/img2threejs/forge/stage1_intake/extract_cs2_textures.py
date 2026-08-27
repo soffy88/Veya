@@ -38,7 +38,9 @@ def source2viewer_available() -> bool:
     return shutil.which(SOURCE2VIEWER_BINARY) is not None
 
 
-def run_source2viewer(vpk: Path, out_dir: Path, filter_glob: str | None = None) -> subprocess.CompletedProcess:
+def run_source2viewer(
+    vpk: Path, out_dir: Path, filter_glob: str | None = None
+) -> subprocess.CompletedProcess:
     """Wrap the Source2Viewer-CLI extraction call. Raises FileNotFoundError if the binary is
     absent; returns the CompletedProcess otherwise (caller inspects returncode)."""
     cmd = [SOURCE2VIEWER_BINARY, "-i", str(vpk), "-o", str(out_dir), "-d", "-e", "vtex_c"]
@@ -72,43 +74,70 @@ def build_asset_records(out_dir: Path) -> list[dict]:
     for path in sorted(out_dir.rglob("*")):
         if path.is_file():
             record = classify_map_path(path)
-            record.update({"source": "local-vpk", "ipBoundary": "local-user-install-not-redistributable"})
+            record.update(
+                {"source": "local-vpk", "ipBoundary": "local-user-install-not-redistributable"}
+            )
             records.append(record)
     return records
 
 
-def extract(out_dir: Path, vpk: Path | None, roots: list[Path] | None, filter_glob: str | None) -> dict:
+def extract(
+    out_dir: Path, vpk: Path | None, roots: list[Path] | None, filter_glob: str | None
+) -> dict:
     if vpk is None:
         vpk = locate_cs2_vpk.locate_vpk(roots)
     if vpk is None:
-        return {"status": "fallback",
-                "reason": "no local CS2 VPK found; falling back to image-only reconstruction "
-                          "(exact texture likeness unavailable)"}
+        return {
+            "status": "fallback",
+            "reason": "no local CS2 VPK found; falling back to image-only reconstruction "
+            "(exact texture likeness unavailable)",
+        }
     if not source2viewer_available():
-        return {"status": "fallback",
-                "reason": f"{SOURCE2VIEWER_BINARY} not found on PATH; falling back to image-only "
-                          "reconstruction (exact texture likeness unavailable)"}
+        return {
+            "status": "fallback",
+            "reason": f"{SOURCE2VIEWER_BINARY} not found on PATH; falling back to image-only "
+            "reconstruction (exact texture likeness unavailable)",
+        }
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         result = run_source2viewer(vpk, out_dir, filter_glob)
     except OSError as exc:
-        return {"status": "fallback", "reason": f"{SOURCE2VIEWER_BINARY} failed to run ({exc}); "
-                "falling back to image-only reconstruction"}
+        return {
+            "status": "fallback",
+            "reason": f"{SOURCE2VIEWER_BINARY} failed to run ({exc}); "
+            "falling back to image-only reconstruction",
+        }
     if result.returncode != 0:
-        return {"status": "fallback",
-                "reason": f"{SOURCE2VIEWER_BINARY} exited {result.returncode}: "
-                          f"{(result.stderr or '').strip()[:200]}; falling back to image-only"}
-    return {"status": "ok", "vpk": str(vpk), "outDir": str(out_dir),
-            "maps": classify_extracted_maps(out_dir), "assets": build_asset_records(out_dir)}
+        return {
+            "status": "fallback",
+            "reason": f"{SOURCE2VIEWER_BINARY} exited {result.returncode}: "
+            f"{(result.stderr or '').strip()[:200]}; falling back to image-only",
+        }
+    return {
+        "status": "ok",
+        "vpk": str(vpk),
+        "outDir": str(out_dir),
+        "maps": classify_extracted_maps(out_dir),
+        "assets": build_asset_records(out_dir),
+    }
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, required=True, help="Output directory (gitignored cs2_textures/)")
+    parser.add_argument(
+        "--out", type=Path, required=True, help="Output directory (gitignored cs2_textures/)"
+    )
     parser.add_argument("--vpk", type=Path, help="Explicit pak01_dir.vpk path (skips locating)")
-    parser.add_argument("--root", type=Path, action="append", dest="roots",
-                        help="Steam root to search when --vpk is omitted (repeatable)")
-    parser.add_argument("--filter", dest="filter_glob", help="Source2Viewer -f filter, e.g. a paint kit name")
+    parser.add_argument(
+        "--root",
+        type=Path,
+        action="append",
+        dest="roots",
+        help="Steam root to search when --vpk is omitted (repeatable)",
+    )
+    parser.add_argument(
+        "--filter", dest="filter_glob", help="Source2Viewer -f filter, e.g. a paint kit name"
+    )
     parser.add_argument("--json", action="store_true", help="Emit a JSON result object")
     args = parser.parse_args(argv)
 

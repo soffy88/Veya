@@ -176,7 +176,7 @@ class BrowserAgent:
             # Execute planned actions
             step = 0
             extracted_texts: list[str] = []
-            for action in actions[:self.config.max_steps]:
+            for action in actions[: self.config.max_steps]:
                 result = await self._session.execute_action(action)
                 step += 1
 
@@ -189,6 +189,7 @@ class BrowserAgent:
                     break
 
                 import asyncio
+
                 await asyncio.sleep(self.config.wait_between_actions_ms / 1000)
 
             # Final screenshot
@@ -254,7 +255,9 @@ Return a JSON array of actions:
 ]
 """
         if extract_schema:
-            prompt += f"\nExtract data matching this JSON schema:\n{json.dumps(extract_schema, indent=2)}"
+            prompt += (
+                f"\nExtract data matching this JSON schema:\n{json.dumps(extract_schema, indent=2)}"
+            )
 
         if self.llm_handler:
             try:
@@ -266,9 +269,7 @@ Return a JSON array of actions:
 
         return [action_extract_text()]
 
-    async def _extract_structured(
-        self, text: str, schema: dict
-    ) -> dict[str, Any]:
+    async def _extract_structured(self, text: str, schema: dict) -> dict[str, Any]:
         """Use LLM to extract structured data from page text."""
         prompt = f"""Extract structured data from this web page content matching the schema.
 
@@ -294,6 +295,7 @@ Return ONLY valid JSON matching the schema."""
             return "[]"
         messages = [{"role": "user", "content": prompt}]
         import asyncio
+
         if asyncio.iscoroutinefunction(self.llm_handler):
             result = await self.llm_handler(messages)
         else:
@@ -310,7 +312,8 @@ Return ONLY valid JSON matching the schema."""
             pass
         # Try to extract JSON from markdown code block
         import re
-        match = re.search(r'```(?:json)?\s*(\[[\s\S]*?\])\s*```', response)
+
+        match = re.search(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", response)
         if match:
             try:
                 return json.loads(match.group(1))
@@ -325,7 +328,8 @@ Return ONLY valid JSON matching the schema."""
             return json.loads(response)
         except json.JSONDecodeError:
             import re
-            match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', response)
+
+            match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", response)
             if match:
                 try:
                     return json.loads(match.group(1))
@@ -410,9 +414,7 @@ async def run_browser_automation(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     for i, ss in enumerate(result.screenshots):
-        (output_dir / f"screenshot_{i}.png").write_bytes(
-            __import__("base64").b64decode(ss)
-        )
+        (output_dir / f"screenshot_{i}.png").write_bytes(__import__("base64").b64decode(ss))
 
     return {
         "status": "completed" if result.success else "error",

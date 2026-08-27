@@ -57,8 +57,14 @@ from obase.market_data import (  # noqa: E402,F401 — 主库资源 re-export
 # 时序协处理器 (沙箱)
 # =========================================================================
 
+
 def _build_sandbox_script(
-    strategy_code: str, asset_id: str, start_date: str, end_date: str, data_dir: str, oprim_root: str
+    strategy_code: str,
+    asset_id: str,
+    start_date: str,
+    end_date: str,
+    data_dir: str,
+    oprim_root: str,
 ) -> str:
     """组装沙箱子进程脚本: 加载全量数据 → exec 策略 → 主库指标 → 浓缩 JSON。
 
@@ -206,11 +212,17 @@ def _grid_pool_worker(
     stdout = (result.get("stdout") or "").strip()
     stderr = (result.get("stderr") or "").strip()
     if result.get("exit_code") != 0:
-        return {"params": params, "error": f"协处理器异常退出 (exit={result.get('exit_code')}): {stderr or stdout}"}
+        return {
+            "params": params,
+            "error": f"协处理器异常退出 (exit={result.get('exit_code')}): {stderr or stdout}",
+        }
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
-        return {"params": params, "error": f"could not parse result: {stdout[:500] or stderr[:500]}"}
+        return {
+            "params": params,
+            "error": f"could not parse result: {stdout[:500] or stderr[:500]}",
+        }
     if payload.get("status") != "success":
         return {"params": params, "error": payload.get("traceback", "unknown error")}
     return {

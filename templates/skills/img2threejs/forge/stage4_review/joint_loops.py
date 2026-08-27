@@ -194,7 +194,11 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         payload = json.loads(args.meshes.read_text())
-        meshes = payload["meshes"] if isinstance(payload, dict) and isinstance(payload.get("meshes"), list) else [payload]
+        meshes = (
+            payload["meshes"]
+            if isinstance(payload, dict) and isinstance(payload.get("meshes"), list)
+            else [payload]
+        )
         result = analyze_joint_loops(
             meshes, json.loads(args.bones.read_text()), args.min_loops, args.radius_scale
         )
