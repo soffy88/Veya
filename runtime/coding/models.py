@@ -121,6 +121,7 @@ class VerificationReport:
     task_id: str
     run_id: str
     commands_run: list[CommandResult] = field(default_factory=list)
+    sensor_results: list[dict[str, Any]] = field(default_factory=list)
     tests_passed: bool | None = None
     lint_passed: bool | None = None
     typecheck_passed: bool | None = None

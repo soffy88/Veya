@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from runtime.coding.tools import register_tools as _register_coding_tools
+from runtime.harness.tools import register_tools as _register_harness_tools
 from server.events import append_canonical_event, current_task_id
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
@@ -149,6 +150,13 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "coding_workspace_detect",
         "coding_worktree_status",
         "coding_diff",
+        # project harness context and evidence queries
+        "harness_guides_load",
+        "harness_guides_search",
+        "harness_guides_show",
+        "harness_sensor_list",
+        "harness_sensor_report",
+        "harness_ratchet_candidates",
         # Memory tools are read-only lookups; writes/corrections remain outside
         # this set and therefore never join a parallel batch.
         "memory_search",
@@ -4189,3 +4197,4 @@ if not master_tools.has("tool_search"):
 # PR-01..04 local coding product surface.  This is an additive capability
 # layer: it does not route requests or replace the single MasterAgent path.
 _register_coding_tools(master_tools)
+_register_harness_tools(master_tools)

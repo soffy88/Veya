@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -34,6 +35,11 @@ def _repo(tmp_path: Path) -> Path:
     (root / ".gitignore").write_text(".veya/\n", encoding="utf-8")
     (root / "app.py").write_text("print('base')\n", encoding="utf-8")
     (root / "pyproject.toml").write_text("[project]\ndependencies = ['pytest']\n", encoding="utf-8")
+    (root / "tests").mkdir()
+    (root / "tests" / "test_smoke.py").write_text(
+        "def test_smoke():\n    assert True\n",
+        encoding="utf-8",
+    )
     _git(root, "add", ".")
     _git(root, "commit", "-m", "initial")
     return root
@@ -86,18 +92,34 @@ def test_coding_tool_flow_emits_patch_verification_and_artifacts(tmp_path: Path)
 
     finalized = coding_finalize_patch(
         worktree,
-        verification={"tests_passed": True, "acceptance_passed": True},
+        verification={
+            "tests_passed": True,
+            "acceptance_passed": True,
+            "profile": "local_trusted",
+            "sensor_results": [tests["data"]["sensor_result"]],
+        },
         run_id="run-42",
     )
     assert finalized["status"] == "ok"
     assert finalized["data"]["patch"]["verified"] is True
     artifact_paths = [Path(item["path"]) for item in finalized["artifacts"]]
-    assert {path.name for path in artifact_paths} == {"patch.diff", "verification_report.json", "summary.md"}
+    assert {path.name for path in artifact_paths} == {
+        "harness_contract.json",
+        "patch.diff",
+        "sensor_report.json",
+        "verification_report.json",
+        "summary.md",
+    }
     output_root = root / ".veya" / "runs" / "task-42"
     assert all((output_root / path).is_file() for path in artifact_paths)
     manifest = Path(finalized["data"]["manifest_path"])
     assert manifest.is_file()
-    assert "No commit or remote operation was performed." in (root / ".veya" / "runs" / "task-42" / "outputs" / "summary.md").read_text(encoding="utf-8")
+    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+    assert any(item["kind"] == "sensor_report" for item in manifest_data["artifacts"])
+    assert finalized["data"]["verification_report"]["sensor_results"]
+    assert "No commit or remote operation was performed." in (
+        root / ".veya" / "runs" / "task-42" / "outputs" / "summary.md"
+    ).read_text(encoding="utf-8")
     assert _git(root, "branch", "--show-current") == "main"
 
 

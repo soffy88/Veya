@@ -6,6 +6,8 @@ cli/main.py — veya 交互入口(readline-based interactive loop)
     veya init                 # 首次运行向导 (接模型/选工作目录)
     veya start                # 一键启动本地服务 + 打开浏览器
     veya doctor               # 环境自检
+    veya harness doctor      # coding harness 自检
+    veya workspace doctor    # harness 自检别名
     veya --help               # 帮助
     echo "改 foo.py" | veya   # stdin 单次执行
 """
@@ -183,6 +185,11 @@ def _skill_command(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+
+    if len(argv) >= 2 and argv[0] in {"harness", "workspace"} and argv[1] == "doctor":
+        from cli.harness import run_harness_doctor_cli
+
+        return run_harness_doctor_cli(argv[2:])
 
     # 产品化子命令: veya init / start / doctor / upgrade / migrate
     if argv and argv[0] in _PRODUCT_COMMANDS:
