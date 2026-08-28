@@ -90,6 +90,13 @@ _R1_LOCAL_WRITE = frozenset(
         "memory_write",
         "write",
         "edit",
+        "coding_worktree_create",
+        "coding_apply_patch",
+        "coding_discard",
+        "coding_finalize_patch",
+        "harness_ratchet_approve",
+        "harness_ratchet_reject",
+        "harness_ratchet_apply",
     }
 )
 _R2_PROCESS_EXEC = frozenset(
@@ -105,6 +112,12 @@ _R2_PROCESS_EXEC = frozenset(
         "hicode_stop",
         "automation_run",
         "test_run",
+        "coding_run_command",
+        "coding_run_tests",
+        "coding_run_lint",
+        "coding_run_typecheck",
+        "coding_build",
+        "harness_sensor_run",
     }
 )
 _R3_NETWORK_WRITE = frozenset(

@@ -9,7 +9,7 @@ import subprocess
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from .models import CodingWorkspace
@@ -72,7 +72,7 @@ def _safe_repo_url(value: str | None) -> str | None:
     return value
 
 
-def _provider_for(repo_url: str | None) -> str:
+def _provider_for(repo_url: str | None) -> Literal["local", "github", "gitlab", "unknown"]:
     if not repo_url:
         return "local"
     host = (urlsplit(repo_url).hostname or "").lower()
@@ -97,7 +97,9 @@ def _project_metadata(root: Path) -> tuple[str, dict[str, Any]]:
 
 
 def _has_text(root: Path, names: tuple[str, ...], needle: str) -> bool:
-    return any(needle in _read_text(root / name).lower() for name in names if (root / name).is_file())
+    return any(
+        needle in _read_text(root / name).lower() for name in names if (root / name).is_file()
+    )
 
 
 def _dedupe(commands: list[str]) -> list[str]:
@@ -195,6 +197,8 @@ def infer_commands(
                 if script in scripts:
                     commands[field].append(_node_script_command(package_manager, script))
                     break
+    if (project_root / "tsconfig.json").is_file() and not commands["typecheck_commands"]:
+        commands["typecheck_commands"].append("tsc --noEmit")
 
     is_python = bool(pyproject_raw or (project_root / "requirements.txt").is_file())
     if is_python:
@@ -262,7 +266,9 @@ def detect_workspace(
 
     root = _find_repo_root(requested.resolve())
     root = root.resolve()
-    discovered_url = _safe_repo_url(repo_url) or _safe_repo_url(_git_value(root, "config", "--get", "remote.origin.url"))
+    discovered_url = _safe_repo_url(repo_url) or _safe_repo_url(
+        _git_value(root, "config", "--get", "remote.origin.url")
+    )
     current_branch = _git_value(root, "branch", "--show-current")
     default_branch = _git_value(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
     if default_branch and default_branch.startswith("origin/"):
