@@ -212,12 +212,32 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.baseline:
         baseline_path = pathlib.Path(args.baseline)
-        baseline = (
-            set(baseline_path.read_text(encoding="utf-8").splitlines())
+        baseline_lines = (
+            [
+                line
+                for line in baseline_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
             if baseline_path.is_file()
-            else set()
+            else []
         )
-        all_violations = [v for v in all_violations if v not in baseline]
+        import re as _re
+        from collections import Counter
+
+        # line-number-independent matching: strip ":N" after path
+        def _stable_key(f: str) -> str:
+            m = _re.match(r"^(.+?):\d+ (.+)$", f)
+            return m.group(1) + " " + m.group(2) if m else f
+
+        remaining = Counter(_stable_key(line) for line in baseline_lines)
+        new_violations: list[str] = []
+        for v in all_violations:
+            key = _stable_key(v)
+            if remaining[key]:
+                remaining[key] -= 1
+            else:
+                new_violations.append(v)
+        all_violations = new_violations
 
     if all_violations:
         for v in all_violations:
