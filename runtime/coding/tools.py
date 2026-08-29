@@ -953,6 +953,26 @@ def register_tools(registry: Any) -> int:
             effect_capability="manual_only",
         )
         added += 1
+
+    # PR-05: MasterAgent coding_task_run tool
+    if not registry.has("coding_task_run"):
+        from server.tools.coding_task import (
+            CODING_TASK_RUN_DESCRIPTION,
+            CODING_TASK_RUN_SCHEMA,
+            coding_task_run,
+        )
+
+        registry.register(
+            "coding_task_run",
+            CODING_TASK_RUN_DESCRIPTION,
+            CODING_TASK_RUN_SCHEMA,
+            coding_task_run,
+            max_result_chars=50000,
+            side_effect=SideEffect.LOCAL_WRITE,
+            effect_capability="manual_only",
+        )
+        added += 1
+
     return added
 
 
