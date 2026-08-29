@@ -250,29 +250,85 @@ _STUB_CONTENT = "LLM provider not configured — this is a shim response."
 # OpenCode-Go 主脑池，也不保留过期模型名或 VEYA_ZEN_FREE_POOL 覆盖项。
 _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
     {
-        "provider": "gmi",
-        "model": "MiniMaxAI/MiniMax-M3",
-        "endpoint": "https://api.gmi-serving.com/v1/chat/completions",
+        "provider": "bai",
+        "model": "deepseek-v4-flash",
+        "endpoint": "https://api.b.ai/v1",
     },
     {
-        "provider": "openrouter",
-        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "provider": "gmi-serving",
+        "model": "MiniMaxAI/MiniMax-M3",
+        "endpoint": "https://api.gmi-serving.com/v1",
     },
-    {"provider": "openrouter", "model": "minimax/minimax-m3:free"},
+    {
+        "provider": "scnet",
+        "model": "DeepSeek-V4-Flash",
+        "endpoint": "https://api.scnet.cn/api/llm/v1",
+    },
 ]
 
-# veya1.2-free: Pi gateway 当前已配置凭据的聊天免费模型 + Inferera 池。
-# tokenrouter/bai 的 key 由 scripts/veya_llm_gateway.py 从
-# ~/.pi/agent/models.json 注入；其它旧候选经实时请求探测不可用，已移除。
+# veya1.2-free: opencode-go 免费模型轮询 (不走 veya1.2 主脑代理)。
+# 端点统一指向本机 veya gateway (pid 8791) , opencode-go 走 chat/completions 协议。
+# key 由 scripts/veya_llm_gateway.py 从 ~/.pi/agent/opencode-keys.txt 轮询注入。
+# 5 个候选均经探活验证可用 (laguna-s-2.1-free 偶发 503, 轮询跳过即可) 。
 _VEYA12_FREE_POOL: list[dict[str, str]] = [
     {
-        "provider": "tokenrouter",
-        "model": "qwen/qwen3.8-max-free",
-        "endpoint": "https://api.tokenrouter.com/v1",
+        "provider": "openai",
+        "model": "opencode-go/hy3-free",
+        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
+    },
+    {
+        "provider": "openai",
+        "model": "opencode-go/nemotron-3.5-lightning-free",
+        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
+    },
+    {
+        "provider": "openai",
+        "model": "opencode-go/nemotron-3-ultra-free",
+        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
+    },
+    {
+        "provider": "openai",
+        "model": "opencode-go/laguna-s-2.1-free",
+        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
+    },
+    {
+        "provider": "openai",
+        "model": "opencode-go/ling-3.0-flash-fin-free",
+        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
+    },
+    {
+        "provider": "gmi-serving",
+        "model": "MiniMaxAI/MiniMax-M3",
+        "endpoint": "https://api.gmi-serving.com/v1",
     },
     {
         "provider": "bai",
         "model": "deepseek-v4-flash",
+        "endpoint": "https://api.b.ai/v1",
+    },
+    {
+        "provider": "bai",
+        "model": "glm-5.3-flash",
+        "endpoint": "https://api.b.ai/v1",
+    },
+    {
+        "provider": "bai",
+        "model": "mimo-v2.5",
+        "endpoint": "https://api.b.ai/v1",
+    },
+    {
+        "provider": "bai",
+        "model": "hy3",
+        "endpoint": "https://api.b.ai/v1",
+    },
+    {
+        "provider": "bai",
+        "model": "qwen3.8-flash",
+        "endpoint": "https://api.b.ai/v1",
+    },
+    {
+        "provider": "bai",
+        "model": "deepseek-v4-flash-vision-exp",
         "endpoint": "https://api.b.ai/v1",
     },
 ]
@@ -745,24 +801,23 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     # veya1.1 兼容别名 → veya1.2 OpenRouter 主脑池。
     if model in ("veya1.1", "veya-1.1") or provider == "veya1.1":
         return await _aliased_llm_call(messages, kwargs)
-    # veya1.2 主脑代理: OpenRouter 免费模型轮询
-    if model in ("veya1.2-flash", "veya-1.2-flash", "veya1.2") or provider in (
-        "veya1.2-flash",
-        "veya1.2",
-    ):
-        return await _veya12_flash_call(messages, kwargs)
-    # veya1.2-free 别名: Inferera/AIHubMix 免费模型轮询
+    # 长的子别名 (含后缀 -free/-vl/-128K) 必须在 veya1.2 之前判定,
+    # 避免被 user_config["provider"]="veya1.2" 填充后误中主脑代理。
     if model in ("veya1.2-free", "veya-1.2-free") or provider == "veya1.2-free":
         return await _veya12_free_call(messages, kwargs)
-    # veya1.2-vl 别名: openrouter 免费图像/视频理解模型轮询 (round-robin)
     if model in ("veya1.2-vl", "veya-1.2-vl") or provider == "veya1.2-vl":
         return await _veya12_vl_call(messages, kwargs)
-    # veya1.2-128K 别名: openrouter 剩余免费文本模型轮询 (round-robin)
     if model in ("veya1.2-128K", "veya1.2-128k", "veya-1.2-128K") or provider in (
         "veya1.2-128K",
         "veya1.2-128k",
     ):
         return await _veya12_128k_call(messages, kwargs)
+    # veya1.2 主脑代理: OpenRouter 免费模型轮询
+    if model in ("veya1.2-flash", "veya-1.2-flash") or model == "veya1.2" or provider in (
+        "veya1.2-flash",
+        "veya1.2",
+    ):
+        return await _veya12_flash_call(messages, kwargs)
     config = kwargs.get("config") or {}
     # 自定义 endpoint: 顶层 kwarg > config["endpoints"][provider] > config["base_url"](NVIDIA NIM 等)
     endpoint = (
