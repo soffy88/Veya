@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -105,3 +106,86 @@ def test_unsafe_sensor_command_blocks_doctor(tmp_path: Path):
 
     assert report.status == "HARNESS_BLOCKED"
     assert any("requires approval" in blocker for blocker in report.blockers)
+
+
+def test_quick_sensor_run_persists_and_rereads_evidence(tmp_path: Path):
+    root = _repo(tmp_path)
+    (root / "AGENTS.md").write_text(
+        """## BUILD
+- build: python3 -c "print('build')"
+## TEST
+- test: python3 -c "print('test')"
+## LINT
+- lint: python3 -c "print('lint')"
+## PERMISSIONS
+- Explicit permission and approval policy applies.
+""",
+        encoding="utf-8",
+    )
+
+    report = run_harness_doctor(
+        root,
+        run_sensors=True,
+        sensor_mode="quick",
+        doctor_run_id="doctor-persistence",
+        **_doctor_kwargs(),
+    )
+
+    assert report.status == "HARNESS_READY"
+    assert report.evidence_run_id == "doctor-persistence"
+    assert report.sensor_report_path is not None
+    assert report.verification_report_path is not None
+    sensor_report = json.loads(Path(report.sensor_report_path).read_text(encoding="utf-8"))
+    verification_report = json.loads(
+        Path(report.verification_report_path).read_text(encoding="utf-8")
+    )
+    assert sensor_report["run_id"] == "doctor-persistence"
+    assert sensor_report["results"]
+    required_fields = {
+        "run_id",
+        "workspace_id",
+        "guide_sources",
+        "sensor_id",
+        "command",
+        "status",
+        "exit_code",
+        "duration_ms",
+        "output_artifact",
+        "required",
+        "deterministic",
+        "started_at",
+        "completed_at",
+    }
+    assert required_fields <= set(sensor_report["results"][0])
+    assert verification_report["acceptance_passed"] is True
+    assert (root / ".veya/runs/doctor-persistence/artifact_manifest.json").is_file()
+
+
+def test_required_failed_sensor_is_blocked_from_persisted_evidence(tmp_path: Path):
+    root = _repo(tmp_path)
+    (root / "AGENTS.md").write_text(
+        """## BUILD
+- build: python3 -c "print('build')"
+## TEST
+- test: python3 -c "import sys; sys.exit(1)"
+## LINT
+- lint: python3 -c "print('lint')"
+## PERMISSIONS
+- Explicit permission and approval policy applies.
+""",
+        encoding="utf-8",
+    )
+
+    report = run_harness_doctor(
+        root,
+        run_sensors=True,
+        sensor_mode="quick",
+        doctor_run_id="doctor-failure",
+        **_doctor_kwargs(),
+    )
+
+    assert report.status == "HARNESS_BLOCKED"
+    assert report.sensor_report_path is not None
+    sensor_report = json.loads(Path(report.sensor_report_path).read_text(encoding="utf-8"))
+    assert sensor_report["acceptance_passed"] is False
+    assert any(item["status"] == "failed" for item in sensor_report["results"])

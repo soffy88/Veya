@@ -13,6 +13,9 @@ from runtime.coding.tools import (
     coding_worktree_create,
     register_tools,
 )
+from runtime.coding.workspace_detect import detect_workspace
+from runtime.harness.ratchet import RatchetStore
+from runtime.harness.sensors import sensors_for_workspace
 from server.tool_registry import MasterToolRegistry, master_tools
 
 
@@ -128,3 +131,71 @@ def test_coding_command_cannot_use_main_worktree(tmp_path: Path):
     result = coding_run_command(str(root), "python3 -c 'print(1)'")
     assert result["status"] == "failed"
     assert "Veya worktree" in result["evidence"][0]["message"]
+
+
+def test_failed_required_sensor_creates_candidate_without_auto_apply(tmp_path: Path):
+    root = _repo(tmp_path)
+    (root / "AGENTS.md").write_text(
+        """## BUILD
+- build: python3 -c "print('build')"
+## TEST
+- test: python3 -c "import sys; sys.exit(1)"
+## LINT
+- lint: python3 -c "print('lint')"
+## PERMISSIONS
+- Explicit permission and approval policy applies.
+""",
+        encoding="utf-8",
+    )
+    created = coding_worktree_create(str(root), "task-ratchet", "exercise failed sensor")
+    assert created["status"] == "ok"
+    worktree = created["data"]["worktree"]["path"]
+    try:
+        applied = coding_apply_patch(
+            worktree,
+            """--- a/app.py
++++ b/app.py
+@@ -1 +1 @@
+-print('base')
++print('base')  # harness dogfood
+""",
+        )
+        assert applied["status"] == "ok"
+        failed = coding_run_tests(
+            worktree,
+            'python3 -c "import sys; sys.exit(1)"',
+            profile="local_trusted",
+        )
+        assert failed["status"] == "failed"
+        failed_sensor = failed["data"]["sensor_result"]
+        all_sensors = sensors_for_workspace(detect_workspace(root))
+        supplied = [failed_sensor] + [
+            {
+                "sensor_id": sensor.id,
+                "status": "passed",
+                "exit_code": 0,
+                "evidence_ids": ["e-pass-" + sensor.id],
+            }
+            for sensor in all_sensors
+            if sensor.id != failed_sensor["sensor_id"]
+        ]
+        finalized = coding_finalize_patch(
+            worktree,
+            verification={
+                "acceptance_passed": True,
+                "profile": "local_trusted",
+                "sensor_results": supplied,
+            },
+            run_id="run-ratchet",
+        )
+        assert finalized["status"] == "partial"
+        candidate = finalized["data"]["ratchet_candidate"]
+        assert candidate["status"] == "candidate"
+        assert candidate["evidence_ids"]
+        assert not (root / ".veya" / "GUIDES.md").exists()
+        assert RatchetStore(root).list()[0].status == "candidate"
+    finally:
+        if Path(worktree).exists():
+            from runtime.coding.worktree import WorktreeManager
+
+            WorktreeManager(root).discard("task-ratchet", force=True)

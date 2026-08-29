@@ -11,6 +11,7 @@ import hashlib
 import json
 import subprocess
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -344,12 +345,14 @@ def _run_check(
             profile=profile,
             artifact_root=_artifact_root(target, task_id),
         )
+        started_at = datetime.now(UTC).isoformat()
         command_result = runner.run(
             selected,
             cwd=target,
             timeout_s=timeout_s,
             approved=approved,
         )
+        completed_at = datetime.now(UTC).isoformat()
     except Exception as exc:
         return _failed(f"{kind} check failed: {type(exc).__name__}: {exc}")
     sensor_status = {
@@ -367,6 +370,11 @@ def _run_check(
         evidence_ids=[f"command-result:{command_result.artifact_path or uuid.uuid4().hex}"],
         duration_ms=round(command_result.duration_ms),
         message=command_result.stderr or command_result.stdout,
+        command=command_result.command,
+        required=sensor.required if sensor else False,
+        deterministic=sensor.deterministic if sensor else True,
+        started_at=started_at,
+        completed_at=completed_at,
     )
     return _result(
         "ok" if command_result.status == "passed" else "failed",
@@ -602,6 +610,10 @@ def coding_finalize_patch(
             "outputs/sensor_report.json",
             json.dumps(
                 {
+                    "run_id": run_id,
+                    "workspace_id": workspace.id,
+                    "guide_sources": [guide.source_path for guide in guides],
+                    "mode": "coding",
                     "sensors": [sensor.to_dict() for sensor in sensors],
                     "results": sensor_results,
                     **sensor_gate,
