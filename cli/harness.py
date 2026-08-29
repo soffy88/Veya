@@ -14,9 +14,34 @@ def run_harness_doctor_cli(argv: list[str]) -> int:
     parser.add_argument(
         "--unattended", action="store_true", help="检查 unattended coding readiness"
     )
+    parser.add_argument(
+        "--run-sensors",
+        action="store_true",
+        help="运行安全的确定性 sensors 并持久化证据",
+    )
+    sensor_mode = parser.add_mutually_exclusive_group()
+    sensor_mode.add_argument(
+        "--quick",
+        action="store_true",
+        help="只运行低成本 required deterministic sensors",
+    )
+    sensor_mode.add_argument(
+        "--full",
+        action="store_true",
+        help="运行完整 deterministic sensor suite",
+    )
     parser.add_argument("--json", action="store_true", help="JSON 输出")
     args = parser.parse_args(argv)
-    report = run_harness_doctor(args.path, unattended=args.unattended)
+    run_sensors = args.run_sensors or args.quick or args.full
+    if run_sensors:
+        report = run_harness_doctor(
+            args.path,
+            unattended=args.unattended,
+            run_sensors=True,
+            sensor_mode="full" if args.full else "quick",
+        )
+    else:
+        report = run_harness_doctor(args.path, unattended=args.unattended)
     if args.json:
         print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
     else:
