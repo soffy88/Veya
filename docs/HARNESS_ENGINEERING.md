@@ -50,8 +50,16 @@ guide applications carry a marker for review and rollback.
 
 ```bash
 veya harness doctor --path .
-veya workspace doctor --path . --unattended --json
+veya harness doctor --path . --quick --json
+veya harness doctor --path . --full --json
 ```
+
+The default command only diagnoses. `--quick` runs low-cost required
+deterministic sensors; `--full` runs the complete deterministic suite. Both
+persist `sensor_report.json` and `verification_report.json` below
+`.veya/runs/<doctor_run_id>/outputs/` and make readiness from the reloaded
+evidence. Neither mode runs an LLM judge, accesses the network, installs
+dependencies or modifies source files.
 
 `HARNESS_READY` means the configured context and checks are available.
 `HARNESS_DEGRADED` means ordinary use may continue but unattended coding lacks

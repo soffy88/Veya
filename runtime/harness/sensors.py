@@ -6,10 +6,16 @@ import hashlib
 import json
 import uuid
 from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from runtime.coding.command_runner import CommandRunner, command_requires_approval, parse_command
+from runtime.coding.command_runner import (
+    CommandRunner,
+    command_may_use_network,
+    command_requires_approval,
+    parse_command,
+)
 from runtime.coding.models import CodingWorkspace
 from runtime.coding.worktree import WorktreeError, repo_root_for_worktree
 
@@ -54,6 +60,8 @@ def sensor_id_for(workspace_id: str, kind: str, command: str | None) -> str:
 def _sensor_kind(command: str, field: str | None = None) -> str:
     if field in {"lint", "test", "typecheck", "build"}:
         return field
+    if field == "format":
+        return "lint"
     lower = command.lower()
     if any(
         word in lower
@@ -84,9 +92,39 @@ def _sensor_name(command: str, kind: str) -> str:
     return executable.strip("`") or kind
 
 
+def _sensor_cost(command: str, kind: str, field: str | None) -> str:
+    lower = command.lower()
+    if field == "format":
+        return "medium"
+    if any(
+        marker in lower
+        for marker in (
+            "personal_agent_gold",
+            "tests/goal_run",
+            "goal_run",
+            "pnpm --dir apps/web build",
+            "npm --prefix apps/web run build",
+        )
+    ):
+        return "high"
+    if kind == "test" and lower.strip() in {
+        "pytest",
+        "npm test",
+        "pnpm test",
+        "yarn test",
+        "bun test",
+        "cargo test",
+        "go test ./...",
+    }:
+        return "high"
+    if kind in {"build", "typecheck"} or "tests/runtime" in lower:
+        return "medium"
+    return "low"
+
+
 def _make_sensor(workspace_id: str, command: str, *, field: str | None, required: bool) -> Sensor:
     kind = _sensor_kind(command, field)
-    cost = "low" if kind in {"schema", "test", "lint", "typecheck", "build"} else "medium"
+    cost = _sensor_cost(command, kind, field)
     return Sensor(
         id=sensor_id_for(workspace_id, kind, command),
         name=_sensor_name(command, kind),
@@ -188,19 +226,31 @@ def sensors_for_workspace(
 
         workspace_obj = detect_workspace(root)
     guide_list = list(guides) if guides is not None else load_guides(workspace_obj)
+    guide_cmds: GuideCommands = guide_commands(guide_list)
+    guide_values = guide_cmds.all()
     registry = SensorRegistry()
     for field in ("test_commands", "lint_commands", "typecheck_commands", "build_commands"):
-        for command in getattr(workspace_obj, field):
+        guide_field = field.removesuffix("_commands")
+        inferred_commands = [] if guide_values[guide_field] else getattr(workspace_obj, field)
+        for command in inferred_commands:
             registry.register(
                 _make_sensor(
                     workspace_id, command, field=field.removesuffix("_commands"), required=True
                 )
             )
-    guide_cmds: GuideCommands = guide_commands(guide_list)
-    for field, commands in guide_cmds.all().items():
+    for field in ("test", "lint", "typecheck", "build", "format"):
+        commands = guide_values[field]
         for command in commands:
             registry.register(
-                _make_sensor(workspace_id, command, field=field, required=True),
+                _make_sensor(
+                    workspace_id,
+                    command,
+                    field=field,
+                    # FORMAT is useful evidence, but it is not one of the
+                    # acceptance-required sensor classes.  This also lets a
+                    # protected user change remain a visible optional result.
+                    required=field != "format",
+                ),
                 replace=True,
             )
     # These are useful when a guide explicitly asks for a schema/build probe
@@ -239,12 +289,22 @@ def run_sensor(
     *,
     profile: str = "local_restricted",
     approved: bool = False,
+    run_id: str | None = None,
+    require_worktree: bool = True,
 ) -> SensorResult:
     """Run one sensor through the existing coding command runner."""
     target = Path(worktree_path).expanduser().resolve()
-    repo_root_for_worktree(target)
+    if not target.is_dir():
+        raise SensorRegistryError(f"sensor target is not a directory: {target}")
+    if require_worktree:
+        repo_root_for_worktree(target)
+    task_id = run_id or (_task_id_for_worktree(target) if require_worktree else "doctor")
+    if Path(task_id).name != task_id or task_id in {"", ".", ".."}:
+        raise SensorRegistryError("sensor run id must be a safe path component")
     evidence_id = "sensor-evidence-" + uuid.uuid4().hex[:12]
+    started_at = datetime.now(UTC).isoformat()
     if not sensor.command:
+        completed_at = datetime.now(UTC).isoformat()
         return SensorResult(
             sensor_id=sensor.id,
             status="skipped",
@@ -253,8 +313,12 @@ def run_sensor(
             evidence_ids=[evidence_id],
             duration_ms=0,
             message="sensor has no command; evidence is insufficient",
+            command=None,
+            required=sensor.required,
+            deterministic=sensor.deterministic,
+            started_at=started_at,
+            completed_at=completed_at,
         )
-    task_id = _task_id_for_worktree(target)
     runner = CommandRunner(
         target,
         profile=profile,
@@ -269,6 +333,7 @@ def run_sensor(
         status = "error"
     else:
         status = "error"
+    completed_at = datetime.now(UTC).isoformat()
     return SensorResult(
         sensor_id=sensor.id,
         status=status,  # type: ignore[arg-type]
@@ -277,6 +342,11 @@ def run_sensor(
         evidence_ids=[evidence_id],
         duration_ms=round(result.duration_ms),
         message=result.stderr or result.stdout,
+        command=result.command,
+        required=sensor.required,
+        deterministic=sensor.deterministic,
+        started_at=started_at,
+        completed_at=completed_at,
     )
 
 
@@ -321,7 +391,9 @@ def sensor_command_is_safe(sensor: Sensor) -> tuple[bool, str]:
     except ValueError as exc:
         return False, str(exc)
     if command_requires_approval(argv):
-        return False, "command requires explicit approval"
+        return False, "command requires approval (explicit approval is required)"
+    if command_may_use_network(argv):
+        return False, "command may use network; doctor sensors are offline-only"
     return True, "safe under command policy"
 
 

@@ -139,6 +139,11 @@ class SensorResult:
     evidence_ids: list[str] = field(default_factory=list)
     duration_ms: int = 0
     message: str = ""
+    command: str | None = None
+    required: bool = False
+    deterministic: bool = False
+    started_at: str | None = None
+    completed_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -209,6 +214,9 @@ class HarnessDoctorReport:
     checks: list[HarnessCheck] = field(default_factory=list)
     degraded_reasons: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
+    evidence_run_id: str | None = None
+    sensor_report_path: str | None = None
+    verification_report_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
