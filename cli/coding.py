@@ -157,17 +157,52 @@ async def _run_coding_task(
     # Extract coding task result from tool calls
     tool_calls = result.get("tool_calls", [])
     coding_result = None
+    _called_coding_task = False
 
     for tc in tool_calls:
         if tc.get("tool") == "coding_task_run":
+            _called_coding_task = True
             # Parse the tool result
             tool_result = tc.get("result", "")
+            if not tool_result:
+                # MasterAgent 的工具调用 trace 只有 {tool, status}, 不带结果
+                # payload; 真值在 durable CodingTask 存储里, 见下方兜底。
+                continue
             try:
                 coding_result = (
                     json.loads(tool_result) if isinstance(tool_result, str) else tool_result
                 )
             except json.JSONDecodeError:
                 coding_result = {"status": "failed", "error": "Invalid tool result"}
+
+    if _called_coding_task and not coding_result:
+        # 真实主链: MasterAgent 已调用 coding_task_run 且任务已 durable 落盘,
+        # 但返回的 tool_calls 不含结果 → 从 CodingTaskService (唯一持久权威)
+        # 读最近一次任务的结果, 而不是把主链行为降级为失败。
+        try:
+            from runtime.coding.task_service import CodingTaskService
+
+            service = CodingTaskService(str(workspace_path))
+            tasks = service.list_tasks()
+            if tasks:
+                latest = tasks[0]
+                final_result = latest.final_result or {}
+                coding_result = {
+                    "task_id": latest.task_id,
+                    "goal_run_id": latest.goal_run_id,
+                    "status": final_result.get("status") or latest.status,
+                    "verification_report_id": final_result.get("verification_report_id"),
+                    "artifact_ids": final_result.get("artifact_ids", []),
+                    "changed_files": final_result.get("changed_files", []),
+                    "final_summary": final_result.get("final_summary") or latest.objective,
+                    "acceptance_passed": bool(final_result.get("acceptance_passed")),
+                }
+        except Exception as exc:
+            coding_result = {
+                "status": "failed",
+                "error": f"coding_task_run 已调用但结果读取失败: {exc}",
+                "acceptance_passed": False,
+            }
 
     if not coding_result:
         # MasterAgent didn't call coding_task_run, return error
