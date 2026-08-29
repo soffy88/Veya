@@ -173,7 +173,11 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
         call_kwargs["provider"] = entry["provider"]
     if entry.get("endpoint"):
         call_kwargs["endpoint"] = entry["endpoint"]
-    if requested == "veya1.2-free" and _PI_PROVIDER_CONFIG:
+    # 所有 veya1.x 别名都注入 pi 的 provider key 池 (env 没设的 bai/scnet/gmi-serving 等
+    # 也能从 ~/.pi/agent/models.json 拿到 key)。get_api_key 优先 config > env,
+    # _PI_PROVIDER_CONFIG 已过滤掉以 '!' 开头的 shell 扩展 key (如 opencode-go),
+    # 不会覆盖 env 中的有效凭据。
+    if _PI_PROVIDER_CONFIG:
         call_kwargs["config"] = _PI_PROVIDER_CONFIG
     resp = await llm_call(messages, **call_kwargs)
     resp_id = f"{requested}-{int(time.time() * 1000)}"
