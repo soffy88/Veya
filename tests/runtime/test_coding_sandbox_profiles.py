@@ -31,7 +31,9 @@ def test_command_parser_rejects_shell_escape_and_runner_captures_redacted_artifa
         else:
             raise AssertionError(f"unsafe command accepted: {command}")
 
-    runner = CommandRunner(root, profile="local_restricted", artifact_root=root / ".veya" / "outputs")
+    runner = CommandRunner(
+        root, profile="local_restricted", artifact_root=root / ".veya" / "outputs"
+    )
     result = runner.run(
         ["python3", "-c", "import os; print(os.getenv('API_KEY', 'missing')); print('ok')"],
         env={"API_KEY": "do-not-leak"},

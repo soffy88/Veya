@@ -78,7 +78,7 @@ def test_detect_node_workspace_uses_lockfile_and_package_scripts(tmp_path: Path)
                     "deploy": "echo must not be inferred",
                 }
             }
-    ),
+        ),
         encoding="utf-8",
     )
     (root / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
