@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tempfile
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -33,8 +31,15 @@ def calculator_repo(tmp_path: Path) -> Path:
 
     # Initialize git repo
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True
+    )
 
     # Create calculator.py with bug
     calculator_py = repo / "calculator.py"
@@ -73,7 +78,9 @@ testpaths = ["."]
 
     # Initial commit
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True
+    )
 
     return repo
 
@@ -96,8 +103,7 @@ async def test_masteragent_calls_coding_task_run(calculator_repo: Path) -> None:
     assert "final_answer" in result or "tool_calls" in result
 
     # Check if coding_task_run was called
-    tool_calls = result.get("tool_calls", [])
-    coding_task_calls = [tc for tc in tool_calls if tc.get("tool") == "coding_task_run"]
+    # (tool_calls is inspected via master_tools.has below)
 
     # MasterAgent should have called coding_task_run
     # (If it didn't, it might have answered directly or used another tool)
@@ -125,7 +131,13 @@ async def test_coding_task_creates_goalrun(calculator_repo: Path) -> None:
     # Verify task was created with proper state
     assert state.task_id is not None
     assert state.workspace_path == str(calculator_repo)
-    assert state.status in ("created", "contract_ready", "worktree_ready", "goalrun_created", "running")
+    assert state.status in (
+        "created",
+        "contract_ready",
+        "worktree_ready",
+        "goalrun_created",
+        "running",
+    )
 
     # Verify worktree was created
     assert state.worktree_path is not None
@@ -137,7 +149,6 @@ async def test_coding_task_creates_goalrun(calculator_repo: Path) -> None:
 @pytest.mark.asyncio
 async def test_no_second_mainline(calculator_repo: Path) -> None:
     """Test that there is no second mainline - only MasterAgent is the semantic authority."""
-    from server.coordinator_master import master_coordinator
     from server.tool_registry import master_tools
 
     # Verify coding_task_run is a tool, not a separate agent
@@ -225,7 +236,6 @@ async def test_artifact_generation(calculator_repo: Path) -> None:
     # Check artifact directory structure
     runs_dir = calculator_repo / ".veya" / "runs" / task_id
     inputs_dir = runs_dir / "inputs"
-    outputs_dir = runs_dir / "outputs"
 
     # Inputs should have contract
     assert inputs_dir.exists()
@@ -241,9 +251,9 @@ async def test_artifact_generation(calculator_repo: Path) -> None:
 @pytest.mark.asyncio
 async def test_sensor_execution(calculator_repo: Path) -> None:
     """Test that required sensors are executed."""
+    from runtime.coding.workspace_detect import detect_workspace
     from runtime.harness.guides import load_guides
     from runtime.harness.sensors import sensors_for_workspace
-    from runtime.coding.workspace_detect import detect_workspace
 
     workspace = detect_workspace(str(calculator_repo))
     guides = load_guides(workspace)
@@ -267,7 +277,9 @@ async def test_verification_report_persisted(calculator_repo: Path) -> None:
         status="complete",
         summary="Test completed",
         stop_reason="completed",
-        evidence=[Evidence(id="ev-1", kind="test", source="pytest", content="passed", producer="test")],
+        evidence=[
+            Evidence(id="ev-1", kind="test", source="pytest", content="passed", producer="test")
+        ],
         artifacts=[],
         assertions=[],
         acceptance_results=[],
@@ -301,12 +313,12 @@ async def test_verification_report_persisted(calculator_repo: Path) -> None:
 
 
 __all__ = [
-    "test_masteragent_calls_coding_task_run",
+    "test_artifact_generation",
     "test_coding_task_creates_goalrun",
+    "test_durable_state_persistence",
+    "test_masteragent_calls_coding_task_run",
     "test_no_second_mainline",
     "test_result_returns_to_masteragent",
-    "test_durable_state_persistence",
-    "test_artifact_generation",
     "test_sensor_execution",
     "test_verification_report_persisted",
 ]

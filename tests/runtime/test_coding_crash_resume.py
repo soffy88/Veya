@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -24,15 +23,24 @@ def test_repo(tmp_path: Path) -> Path:
 
     # Initialize git repo
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True
+    )
 
     # Create a simple file
     (repo / "main.py").write_text("def hello():\n    return 'hello'\n", encoding="utf-8")
 
     # Initial commit
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True
+    )
 
     return repo
 
@@ -40,7 +48,12 @@ def test_repo(tmp_path: Path) -> Path:
 @pytest.mark.asyncio
 async def test_crash_01_kill_restart(test_repo: Path) -> None:
     """CRASH-01: Process crash → resume from durable state."""
-    from runtime.coding.task_service import CodingTaskRequest, CodingTaskService, CodingTaskStatus, _write_task_state
+    from runtime.coding.task_service import (
+        CodingTaskRequest,
+        CodingTaskService,
+        CodingTaskStatus,
+        _write_task_state,
+    )
 
     # Create initial task
     service = CodingTaskService(str(test_repo))
@@ -112,14 +125,19 @@ async def test_crash_02_no_duplicate_worktree(test_repo: Path) -> None:
     # Verify only one worktree exists for this task
     worktrees_dir = test_repo / ".veya" / "worktrees"
     if worktrees_dir.exists():
-        task_worktrees = [d for d in worktrees_dir.iterdir() if d.name.startswith("task-") and task_id in d.name]
+        task_worktrees = [
+            d for d in worktrees_dir.iterdir() if d.name.startswith("task-") and task_id in d.name
+        ]
         assert len(task_worktrees) <= 1
 
 
 @pytest.mark.asyncio
 async def test_crash_03_no_duplicate_completed_child(test_repo: Path) -> None:
     """CRASH-03: Completed children are not re-executed on resume."""
-    from runtime.coding.goalrun import load_delegate_result, persist_delegate_result, build_coding_delegate_result
+    from runtime.coding.goalrun import (
+        load_delegate_result,
+        persist_delegate_result,
+    )
     from runtime.execution.models import DelegateResult, Evidence
 
     task_id = "crash-03-test"
@@ -132,7 +150,9 @@ async def test_crash_03_no_duplicate_completed_child(test_repo: Path) -> None:
         status="complete",
         summary="Task completed",
         stop_reason="completed",
-        evidence=[Evidence(id="ev-1", kind="test", source="pytest", content="passed", producer="test")],
+        evidence=[
+            Evidence(id="ev-1", kind="test", source="pytest", content="passed", producer="test")
+        ],
         artifacts=[],
         assertions=[],
         acceptance_results=[],
@@ -335,8 +355,8 @@ __all__ = [
     "test_crash_01_kill_restart",
     "test_crash_02_no_duplicate_worktree",
     "test_crash_03_no_duplicate_completed_child",
-    "test_resume_preserves_contract",
-    "test_resume_preserves_artifacts",
     "test_resume_continues_from_checkpoint",
+    "test_resume_preserves_artifacts",
+    "test_resume_preserves_contract",
     "test_side_effect_ledger_continues",
 ]

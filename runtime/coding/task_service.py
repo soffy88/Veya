@@ -12,11 +12,12 @@ Recovery: On process crash, reads existing task.json, contract, worktree, goal_r
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -31,7 +32,7 @@ from runtime.harness.guides import load_guides
 from runtime.harness.sensors import sensors_for_workspace
 
 
-class CodingTaskStatus(str, Enum):
+class CodingTaskStatus(StrEnum):
     CREATED = "created"
     CONTRACT_READY = "contract_ready"
     WORKTREE_READY = "worktree_ready"
@@ -46,7 +47,7 @@ class CodingTaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class CodingTaskSource(str, Enum):
+class CodingTaskSource(StrEnum):
     CHAT = "chat"
     CLI = "cli"
     API = "api"
@@ -430,10 +431,8 @@ class CodingTaskService:
         if state.goal_run_id:
             from server.goal_run.runner import cancel_goal
 
-            try:
+            with contextlib.suppress(Exception):
                 await cancel_goal(str(self.project_root), state.goal_run_id)
-            except Exception:
-                pass
 
         state.status = CodingTaskStatus.CANCELLED.value
         _write_task_state(self.project_root, state)

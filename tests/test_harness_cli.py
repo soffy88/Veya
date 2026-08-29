@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -28,15 +27,24 @@ def test_repo(tmp_path: Path) -> Path:
 
     # Initialize git repo
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True
+    )
 
     # Create a simple file
     (repo / "main.py").write_text("def hello():\n    return 'hello'\n", encoding="utf-8")
 
     # Initial commit
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True
+    )
 
     return repo
 
@@ -65,7 +73,9 @@ def test_cli_01_objective(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> N
             ],
         }
 
-    monkeypatch.setattr("server.coordinator_master.master_coordinator.chat_stream", mock_chat_stream)
+    monkeypatch.setattr(
+        "server.coordinator_master.master_coordinator.chat_stream", mock_chat_stream
+    )
 
     # Run CLI
     result = run_coding_cli(["--path", str(test_repo), "Fix the bug"])
@@ -74,7 +84,9 @@ def test_cli_01_objective(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert result == 0
 
 
-def test_cli_02_json_output(test_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+def test_cli_02_json_output(
+    test_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
     """CLI-02: veya code --json returns stable schema."""
     from cli.coding import run_coding_cli
 
@@ -99,7 +111,9 @@ def test_cli_02_json_output(test_repo: Path, monkeypatch: pytest.MonkeyPatch, ca
             ],
         }
 
-    monkeypatch.setattr("server.coordinator_master.master_coordinator.chat_stream", mock_chat_stream)
+    monkeypatch.setattr(
+        "server.coordinator_master.master_coordinator.chat_stream", mock_chat_stream
+    )
 
     # Run CLI with --json
     result = run_coding_cli(["--path", str(test_repo), "--json", "Fix the bug"])
@@ -119,10 +133,9 @@ def test_cli_02_json_output(test_repo: Path, monkeypatch: pytest.MonkeyPatch, ca
 
 def test_cli_03_continue(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """CLI-03: veya code --continue resumes task."""
-    from runtime.coding.task_service import CodingTaskService, CodingTaskState, _write_task_state
+    from runtime.coding.task_service import CodingTaskState, _write_task_state
 
     # Create an existing task
-    service = CodingTaskService(str(test_repo))
     state = CodingTaskState(
         task_id="ct_resume_test",
         workspace_path=str(test_repo),
@@ -152,7 +165,9 @@ def test_cli_03_continue(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> No
             ],
         }
 
-    monkeypatch.setattr("server.coordinator_master.master_coordinator.chat_stream", mock_chat_stream)
+    monkeypatch.setattr(
+        "server.coordinator_master.master_coordinator.chat_stream", mock_chat_stream
+    )
 
     # Run CLI with --continue
     result = run_coding_cli(["--path", str(test_repo), "--continue", "ct_resume_test"])
@@ -163,8 +178,8 @@ def test_cli_03_continue(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_cli_04_status(test_repo: Path, capsys: pytest.CaptureFixture) -> None:
     """CLI-04: veya code --status shows task status."""
-    from runtime.coding.task_service import CodingTaskState, _write_task_state
     from cli.coding import run_coding_cli
+    from runtime.coding.task_service import CodingTaskState, _write_task_state
 
     # Create a task
     state = CodingTaskState(
@@ -191,8 +206,8 @@ def test_cli_04_status(test_repo: Path, capsys: pytest.CaptureFixture) -> None:
 
 def test_cli_05_diff(test_repo: Path, capsys: pytest.CaptureFixture) -> None:
     """CLI-05: veya code --diff shows task diff."""
-    from runtime.coding.task_service import CodingTaskService, CodingTaskState, _write_task_state
     from cli.coding import run_coding_cli
+    from runtime.coding.task_service import CodingTaskState, _write_task_state
 
     # Create a task with worktree
     state = CodingTaskState(
@@ -215,8 +230,8 @@ def test_cli_05_diff(test_repo: Path, capsys: pytest.CaptureFixture) -> None:
 
 def test_cli_06_artifacts(test_repo: Path, capsys: pytest.CaptureFixture) -> None:
     """CLI-06: veya code --artifacts lists task artifacts."""
-    from runtime.coding.task_service import CodingTaskState, _write_task_state
     from cli.coding import run_coding_cli
+    from runtime.coding.task_service import CodingTaskState, _write_task_state
 
     # Create a task with artifacts
     state = CodingTaskState(
@@ -245,9 +260,8 @@ def test_cli_07_exit_codes(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> 
     """CLI-07: Exit codes are correct."""
     from cli.coding import (
         EXIT_COMPLETED,
-        EXIT_PARTIAL,
         EXIT_FAILED,
-        EXIT_CANCELLED,
+        EXIT_PARTIAL,
         run_coding_cli,
     )
 
@@ -257,7 +271,9 @@ def test_cli_07_exit_codes(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> 
             "tool_calls": [
                 {
                     "tool": "coding_task_run",
-                    "result": json.dumps({"task_id": "t1", "status": "completed", "acceptance_passed": True}),
+                    "result": json.dumps(
+                        {"task_id": "t1", "status": "completed", "acceptance_passed": True}
+                    ),
                 }
             ],
         }
@@ -271,7 +287,9 @@ def test_cli_07_exit_codes(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> 
             "tool_calls": [
                 {
                     "tool": "coding_task_run",
-                    "result": json.dumps({"task_id": "t2", "status": "partial_completed", "acceptance_passed": False}),
+                    "result": json.dumps(
+                        {"task_id": "t2", "status": "partial_completed", "acceptance_passed": False}
+                    ),
                 }
             ],
         }
@@ -285,7 +303,9 @@ def test_cli_07_exit_codes(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> 
             "tool_calls": [
                 {
                     "tool": "coding_task_run",
-                    "result": json.dumps({"task_id": "t3", "status": "failed", "acceptance_passed": False}),
+                    "result": json.dumps(
+                        {"task_id": "t3", "status": "failed", "acceptance_passed": False}
+                    ),
                 }
             ],
         }
@@ -296,7 +316,7 @@ def test_cli_07_exit_codes(test_repo: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_cli_invalid_workspace(tmp_path: Path) -> None:
     """CLI exits with INVALID_WORKSPACE for non-git directory."""
-    from cli.coding import run_coding_cli, EXIT_INVALID_WORKSPACE
+    from cli.coding import EXIT_INVALID_WORKSPACE, run_coding_cli
 
     non_git_dir = tmp_path / "not_a_repo"
     non_git_dir.mkdir()
