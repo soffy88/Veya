@@ -168,9 +168,7 @@ class CommandRunner:
         requires_approval: bool = False,
     ) -> CommandResult:
         secret_values = [
-            value
-            for key, value in os.environ.items()
-            if _SECRET_NAME.search(key) and value
+            value for key, value in os.environ.items() if _SECRET_NAME.search(key) and value
         ]
         result = CommandResult(
             command=redact_text(command, secret_values=secret_values),
@@ -189,7 +187,9 @@ class CommandRunner:
             self.artifact_root.mkdir(parents=True, exist_ok=True)
             artifact = self.artifact_root / f"command-result-{uuid.uuid4().hex[:12]}.json"
             result.artifact_path = str(artifact)
-            artifact.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            artifact.write_text(
+                json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         return result
 
     def _docker_argv(self, argv: list[str], cwd: Path, network: str | None) -> list[str]:
@@ -220,7 +220,9 @@ class CommandRunner:
         """Use bubblewrap when available so local restricted means real isolation."""
         bubblewrap = shutil.which("bwrap")
         if not bubblewrap:
-            raise CommandPolicyError("local_restricted requires bubblewrap for filesystem/network isolation")
+            raise CommandPolicyError(
+                "local_restricted requires bubblewrap for filesystem/network isolation"
+            )
         wrapped = [
             bubblewrap,
             "--die-with-parent",
@@ -235,24 +237,26 @@ class CommandRunner:
         for private_path in ("/home", "/root", "/run"):
             if Path(private_path).is_dir():
                 wrapped.extend(["--tmpfs", private_path])
-        wrapped.extend([
-            "--bind",
-            str(self.workspace_root),
-            str(self.workspace_root),
-            "--chdir",
-            str(cwd),
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--unshare-net",
-            "--setenv",
-            "HOME",
-            "/tmp",
-            "--setenv",
-            "PYTHONNOUSERSITE",
-            "1",
-        ])
+        wrapped.extend(
+            [
+                "--bind",
+                str(self.workspace_root),
+                str(self.workspace_root),
+                "--chdir",
+                str(cwd),
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+                "--unshare-net",
+                "--setenv",
+                "HOME",
+                "/tmp",
+                "--setenv",
+                "PYTHONNOUSERSITE",
+                "1",
+            ]
+        )
         # A pytest temp workspace can itself live below /tmp.  In that case
         # the explicit workspace bind must remain visible; the read-only root
         # still prevents persistent writes elsewhere.  Production worktrees
@@ -275,7 +279,9 @@ class CommandRunner:
     ) -> CommandResult:
         started = time.monotonic()
         argv = parse_command(command)
-        command_text = command if isinstance(command, str) else " ".join(shlex.quote(item) for item in argv)
+        command_text = (
+            command if isinstance(command, str) else " ".join(shlex.quote(item) for item in argv)
+        )
         target = (Path(cwd).expanduser() if cwd else self.workspace_root).resolve()
         if not target.is_dir() or not _within(self.workspace_root, target):
             return self._result(

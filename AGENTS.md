@@ -291,3 +291,76 @@ docker ps | grep veya-backend                              # docker 侧
 - 线上紧急故障可先恢复服务，但恢复动作之外的一切改动仍需先征得同意。
 
 详细架构记录: `docs/ARCHITECTURE_STABLE.md`
+
+## Veya Coding Agent Harness Guide
+
+This short section is the executable project guide for Veya coding tasks. The
+architecture history above remains repository context; this section does not
+duplicate it.
+
+PROJECT: Veya
+LANGUAGE: Python / TypeScript
+ARCHITECTURE_AUTHORITY: `docs/ARCHITECTURE_STABLE.md`
+
+### BUILD
+
+- `pnpm --dir apps/web build`
+
+### TEST
+
+- `venv/bin/python -m pytest -q tests/runtime/test_execution_runtime.py`
+- `venv/bin/python -m pytest -q tests/goal_run`
+- `venv/bin/python -m evals.personal_agent_gold.gate`
+- `venv/bin/python -m pytest -q tests/runtime/test_harness_guides.py tests/runtime/test_harness_sensors.py tests/runtime/test_harness_ratchet.py tests/runtime/test_coding_harness_contract.py tests/runtime/test_harness_doctor.py tests/runtime/test_coding_workspace.py tests/runtime/test_coding_worktree.py tests/runtime/test_coding_sandbox_profiles.py tests/server/test_coding_tools.py tests/server/test_harness_tools.py tests/test_harness_cli.py`
+
+### LINT
+
+- `ruff check .`
+
+### FORMAT
+
+- `ruff format --check .`
+
+### TYPECHECK
+
+- `venv/bin/python -m mypy --config-file pyproject.toml --follow-imports=silent server/coordinator_master.py server/tool_registry.py`
+- `pnpm --dir apps/web check`
+
+### RULES
+
+- MasterAgent is the semantic authority.
+- GoalRun is the durable execution authority.
+- Do not add a second user-facing agent mainline.
+- Do not add a keyword semantic router.
+- Do not present fake frontend thinking or execution progress.
+- Preserve the Runtime ABI unless fixing a verified bug.
+- Do not casually modify Personal Gold labels.
+- Do not perform remote side effects without explicit approval.
+- Coding changes occur in an isolated worktree.
+- Required sensor failures cannot be claimed as verified.
+- The required CI equivalent is defined by `scripts/ci_test_suites.py` and the checked-in CI workflow.
+
+### PROTECTED FILES
+
+- `tests/test_inferera_free_pool.py`
+- `veya/obase/_llm_config.py`
+- `veya/obase/llm.py`
+
+### ANTI_PATTERNS
+
+- Do not create a second mainline.
+- Do not use blanket allow policies.
+- Do not bypass a CI gate.
+- Do not silently reset a baseline.
+- Do not report success after a sensor failure.
+- Do not directly modify protected user files.
+
+### SENSORS
+
+- Ruff
+- mypy
+- Runtime
+- GoalRun
+- Personal Gold
+- frontend check/build
+- direct-IO gate

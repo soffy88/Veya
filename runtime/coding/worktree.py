@@ -171,7 +171,9 @@ class WorktreeManager:
             changed.append(value)
         return changed
 
-    def status(self, task_id: str | None = None, *, path: str | Path | None = None) -> WorktreeRecord:
+    def status(
+        self, task_id: str | None = None, *, path: str | Path | None = None
+    ) -> WorktreeRecord:
         if (task_id is None) == (path is None):
             raise WorktreeError("provide exactly one of task_id or path")
         target = self._path_for(task_id) if task_id is not None else self._assert_owned_path(path)
@@ -203,7 +205,9 @@ class WorktreeManager:
         if target.exists():
             raise WorktreeError(f"worktree already exists: {target}")
         branch = _validate_branch_name(branch_name or branch_name_for(task_id, objective))
-        start_ref = base_ref or _git_command(self.repo_root, ["branch", "--show-current"]).strip() or "HEAD"
+        start_ref = (
+            base_ref or _git_command(self.repo_root, ["branch", "--show-current"]).strip() or "HEAD"
+        )
         _git_command(self.repo_root, ["rev-parse", "--verify", start_ref])
         self.base_dir.mkdir(parents=True, exist_ok=True)
         _git_command(
@@ -219,7 +223,9 @@ class WorktreeManager:
                 records.append(self.status(path=path))
         return records
 
-    def diff(self, task_id: str | None = None, *, path: str | Path | None = None) -> dict[str, str | list[str]]:
+    def diff(
+        self, task_id: str | None = None, *, path: str | Path | None = None
+    ) -> dict[str, str | list[str]]:
         record = self.status(task_id, path=path)
         target = Path(record.path)
         patch = _git_command(target, ["diff", "--no-ext-diff", "--binary", "HEAD"])
