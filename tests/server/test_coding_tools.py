@@ -50,7 +50,7 @@ def _repo(tmp_path: Path) -> Path:
 
 def test_coding_tools_register_additively_and_idempotently():
     registry = MasterToolRegistry()
-    assert register_tools(registry) == 12
+    assert register_tools(registry) == 13
     assert register_tools(registry) == 0
     names = set(registry.list_tools())
     assert {

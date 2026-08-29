@@ -22,7 +22,7 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
-_PRODUCT_COMMANDS = {"init", "start", "doctor", "upgrade", "migrate"}
+_PRODUCT_COMMANDS = {"init", "start", "doctor", "upgrade", "migrate", "code"}
 _VERSION = "0.6.0"
 
 
@@ -191,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_harness_doctor_cli(argv[2:])
 
-    # 产品化子命令: veya init / start / doctor / upgrade / migrate
+    # 产品化子命令: veya init / start / doctor / upgrade / migrate / code
     if argv and argv[0] in _PRODUCT_COMMANDS:
         from cli import product
         from commands import upgrade
@@ -207,6 +207,10 @@ def main(argv: list[str] | None = None) -> int:
             return upgrade.run_upgrade(argv)
         if cmd == "migrate":
             return upgrade.run_migrate(argv)
+        if cmd == "code":
+            from cli.coding import run_coding_cli
+
+            return run_coding_cli(argv)
 
     # Unified Session API CLI (P1-06). These commands use the same durable
     # history store as Web/MasterAgent; they do not maintain a CLI-only history.
