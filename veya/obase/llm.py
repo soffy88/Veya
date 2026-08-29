@@ -813,9 +813,14 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     ):
         return await _veya12_128k_call(messages, kwargs)
     # veya1.2 主脑代理: OpenRouter 免费模型轮询
-    if model in ("veya1.2-flash", "veya-1.2-flash") or model == "veya1.2" or provider in (
-        "veya1.2-flash",
-        "veya1.2",
+    if (
+        model in ("veya1.2-flash", "veya-1.2-flash")
+        or model == "veya1.2"
+        or provider
+        in (
+            "veya1.2-flash",
+            "veya1.2",
+        )
     ):
         return await _veya12_flash_call(messages, kwargs)
     config = kwargs.get("config") or {}
