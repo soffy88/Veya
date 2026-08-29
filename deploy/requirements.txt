@@ -54,7 +54,7 @@ jsonpath-ng==1.8.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 kiwisolver==1.5.0
-librt==0.13.0
+librt==0.15.0
 linkify-it-py==2.1.0
 lxml==6.1.1
 Markdown==3.10.3
