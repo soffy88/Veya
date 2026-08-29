@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
+
+import pytest
 
 from runtime.coding.command_runner import CommandPolicyError, CommandRunner, parse_command
 from runtime.coding.sandbox_profiles import get_sandbox_profile, list_sandbox_profiles
+
+RESTRICTED_SANDBOX_AVAILABLE = shutil.which("bwrap") is not None
 
 
 def test_profiles_are_explicit_and_do_not_mount_secrets():
@@ -19,6 +24,10 @@ def test_profiles_are_explicit_and_do_not_mount_secrets():
         assert all("secret" not in mount.target.lower() for mount in profile.mounts)
 
 
+@pytest.mark.skipif(
+    not RESTRICTED_SANDBOX_AVAILABLE,
+    reason="bubblewrap is required for local_restricted filesystem isolation",
+)
 def test_command_parser_rejects_shell_escape_and_runner_captures_redacted_artifact(tmp_path: Path):
     root = tmp_path / "worktree"
     root.mkdir()
@@ -53,6 +62,10 @@ def test_command_parser_rejects_shell_escape_and_runner_captures_redacted_artifa
     assert home_probe.stdout.strip() == "[]"
 
 
+@pytest.mark.skipif(
+    not RESTRICTED_SANDBOX_AVAILABLE,
+    reason="bubblewrap is required for local_restricted filesystem isolation",
+)
 def test_restricted_runner_denies_network_and_outside_cwd(tmp_path: Path):
     root = tmp_path / "worktree"
     root.mkdir()
@@ -79,6 +92,10 @@ def test_restricted_runner_denies_network_and_outside_cwd(tmp_path: Path):
     assert not outside_file.exists()
 
 
+@pytest.mark.skipif(
+    not RESTRICTED_SANDBOX_AVAILABLE,
+    reason="bubblewrap is required for local_restricted filesystem isolation",
+)
 def test_timeout_and_docker_command_boundary(tmp_path: Path):
     root = tmp_path / "worktree"
     root.mkdir()
