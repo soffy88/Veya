@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,15 +24,24 @@ def test_repo(tmp_path: Path) -> Path:
 
     # Initialize git repo
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True
+    )
 
     # Create a simple file
     (repo / "main.py").write_text("def hello():\n    return 'hello'\n", encoding="utf-8")
 
     # Initial commit
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True
+    )
 
     return repo
 
@@ -50,7 +58,9 @@ async def test_verify_01_all_required_pass(test_repo: Path) -> None:
         status="complete",
         summary="All tests passed",
         stop_reason="completed",
-        evidence=[Evidence(id="ev-1", kind="test", source="pytest", content="passed", producer="test")],
+        evidence=[
+            Evidence(id="ev-1", kind="test", source="pytest", content="passed", producer="test")
+        ],
         artifacts=[],
         assertions=[],
         acceptance_results=[],
@@ -88,7 +98,9 @@ async def test_verify_02_required_fail(test_repo: Path) -> None:
         status="partial",
         summary="Tests failed",
         stop_reason="acceptance_failed",
-        evidence=[Evidence(id="ev-1", kind="test", source="pytest", content="failed", producer="test")],
+        evidence=[
+            Evidence(id="ev-1", kind="test", source="pytest", content="failed", producer="test")
+        ],
         artifacts=[],
         assertions=[],
         acceptance_results=[],
@@ -96,7 +108,13 @@ async def test_verify_02_required_fail(test_repo: Path) -> None:
 
     # One required sensor failed
     sensor_results = [
-        {"id": "test", "name": "pytest", "status": "failed", "required": True, "error": "assertion failed"},
+        {
+            "id": "test",
+            "name": "pytest",
+            "status": "failed",
+            "required": True,
+            "error": "assertion failed",
+        },
         {"id": "lint", "name": "ruff", "status": "passed", "required": True},
     ]
 
@@ -118,7 +136,7 @@ async def test_verify_02_required_fail(test_repo: Path) -> None:
 async def test_verify_03_skipped_required(test_repo: Path) -> None:
     """VERIFY-03: Skipped required sensor → acceptance_passed=False."""
     from runtime.coding.finalize import finalize_coding_task
-    from runtime.execution.models import DelegateResult, Evidence
+    from runtime.execution.models import DelegateResult
 
     # Create delegate result
     delegate_result = DelegateResult(
@@ -134,7 +152,13 @@ async def test_verify_03_skipped_required(test_repo: Path) -> None:
 
     # One required sensor skipped
     sensor_results = [
-        {"id": "test", "name": "pytest", "status": "skipped", "required": True, "error": "command not found"},
+        {
+            "id": "test",
+            "name": "pytest",
+            "status": "skipped",
+            "required": True,
+            "error": "command not found",
+        },
         {"id": "lint", "name": "ruff", "status": "passed", "required": True},
     ]
 
@@ -155,7 +179,7 @@ async def test_verify_03_skipped_required(test_repo: Path) -> None:
 @pytest.mark.asyncio
 async def test_verify_04_artifact_manifest(test_repo: Path) -> None:
     """VERIFY-04: Artifact manifest is generated correctly."""
-    from runtime.coding.finalize import finalize_coding_task, generate_artifact_manifest
+    from runtime.coding.finalize import generate_artifact_manifest
 
     # Generate artifact manifest
     outputs_dir = test_repo / ".veya" / "runs" / "verify-04" / "outputs"
@@ -189,8 +213,20 @@ async def test_sensor_report_generation(test_repo: Path) -> None:
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
     sensor_results = [
-        {"id": "test", "name": "pytest", "status": "passed", "required": True, "output": "5 passed"},
-        {"id": "lint", "name": "ruff", "status": "failed", "required": True, "error": "unused import"},
+        {
+            "id": "test",
+            "name": "pytest",
+            "status": "passed",
+            "required": True,
+            "output": "5 passed",
+        },
+        {
+            "id": "lint",
+            "name": "ruff",
+            "status": "failed",
+            "required": True,
+            "error": "unused import",
+        },
         {"id": "typecheck", "name": "mypy", "status": "skipped", "required": False},
     ]
 
@@ -323,12 +359,12 @@ async def test_diff_patch_generation(test_repo: Path) -> None:
 
 
 __all__ = [
+    "test_diff_patch_generation",
+    "test_final_result_structure",
+    "test_sensor_report_generation",
+    "test_verification_report_structure",
     "test_verify_01_all_required_pass",
     "test_verify_02_required_fail",
     "test_verify_03_skipped_required",
     "test_verify_04_artifact_manifest",
-    "test_sensor_report_generation",
-    "test_verification_report_structure",
-    "test_final_result_structure",
-    "test_diff_patch_generation",
 ]

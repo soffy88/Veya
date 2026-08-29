@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tempfile
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -29,15 +27,24 @@ def test_repo(tmp_path: Path) -> Path:
 
     # Initialize git repo
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=repo, check=True, capture_output=True
+    )
 
     # Create a simple file
     (repo / "main.py").write_text("def hello():\n    return 'hello'\n", encoding="utf-8")
 
     # Initial commit
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"], cwd=repo, check=True, capture_output=True
+    )
 
     return repo
 
@@ -62,7 +69,13 @@ async def test_task_01_create(test_repo: Path) -> None:
     assert state.workspace_path == str(test_repo)
     assert state.objective == "Add a goodbye function"
     assert state.source == "cli"
-    assert state.status in ("created", "contract_ready", "worktree_ready", "goalrun_created", "running")
+    assert state.status in (
+        "created",
+        "contract_ready",
+        "worktree_ready",
+        "goalrun_created",
+        "running",
+    )
 
 
 @pytest.mark.asyncio
@@ -337,6 +350,7 @@ async def test_task_artifacts(test_repo: Path) -> None:
 
 
 __all__ = [
+    "test_list_tasks",
     "test_task_01_create",
     "test_task_02_persisted",
     "test_task_03_contract_before_worktree",
@@ -344,7 +358,6 @@ __all__ = [
     "test_task_05_resume",
     "test_task_06_cancellation",
     "test_task_07_partial_completion",
-    "test_worktree_isolation",
-    "test_list_tasks",
     "test_task_artifacts",
+    "test_worktree_isolation",
 ]
