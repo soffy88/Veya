@@ -152,7 +152,9 @@ OS_CALLS: tuple[str, ...] = (
     "mknod",
 )
 
-# pathlib.Path 直连方法
+# pathlib.Path 方法
+# "read_text" 等为方法调用 (I/O); "expanduser" 为 PurePath 纯字符串操作,
+# 无文件系统访问, 不构成直接 I/O.
 PATH_METHODS: tuple[str, ...] = (
     "read_text",
     "write_text",
@@ -179,6 +181,9 @@ PATH_METHODS: tuple[str, ...] = (
     "is_file",
     "is_dir",
 )
+
+# pathlib.Path 纯方法 (无 I/O, 不应报告)
+PATH_PURE_METHODS: tuple[str, ...] = ("expanduser",)
 
 # shutil 直连
 SHUTIL_CALLS: tuple[str, ...] = (
@@ -329,6 +334,9 @@ def _call_kind(node: ast.Call) -> str | None:
         if base_name == "shutil" and attr in SHUTIL_CALLS:
             return "FILE_W"
         if base_name in ("Path", "PosixPath", "WindowsPath", "PurePath"):
+            if attr in PATH_PURE_METHODS:
+                # 纯字符串/path 运算 (expanduser 等), 无文件系统访问
+                return None
             return (
                 "FILE_R"
                 if attr
@@ -357,6 +365,9 @@ def _call_kind(node: ast.Call) -> str | None:
             and isinstance(base.func, ast.Name)
             and base.func.id == "Path"
         ):
+            if attr in PATH_PURE_METHODS:
+                # 纯字符串/path 运算 (expanduser 等), 无文件系统访问
+                return None
             return (
                 "FILE_R"
                 if attr in ("read_text", "read_bytes", "exists", "is_file", "is_dir")
