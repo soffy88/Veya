@@ -155,9 +155,13 @@ def _record_retry_branch(
     if os.environ.get("VEYA_GOAL_RUN_BRANCH_ENABLED", "1") == "0":
         return
     try:
+        from runtime.state_authority.ownership import StateNamespace
+        from runtime.state_authority.session_projection import SessionProjectionWriter
         from veya.omodul.session_tree import default_session_tree_mirror
 
-        tree = default_session_tree_mirror()
+        tree = SessionProjectionWriter(
+            default_session_tree_mirror(), StateNamespace.EXECUTION, "GoalRunProjection"
+        )
         if task.session_tree_sid is None:
             sid = f"goalrun-{task.id}"
             tree.ensure_session(sid, system=f"goal_run task {task.id}: {task.title}")
