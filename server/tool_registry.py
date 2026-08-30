@@ -165,6 +165,7 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "memory_show_source",
         "skill_search",
         "skill_show",
+        "github_pr_fetch",
     }
 )
 
@@ -191,6 +192,10 @@ _TOOL_GROUPS: dict[str, str] = {
     "hicode_status": "code_exec",
     "hicode_tasks": "code_exec",
     "hicode_stop": "code_exec",
+    # GitHub PR review is a MasterAgent capability; only fetch is read-only.
+    "github_pr_fetch": "github_pr",
+    "github_pr_review_prepare": "github_pr",
+    "github_pr_post_review": "github_pr",
     # vision: 视觉取证/像素级图像操作
     "vision_glance": "vision",
     "vision_ground": "vision",
@@ -308,6 +313,7 @@ _GROUP_DESCRIPTIONS: dict[str, str] = {
     "wayfinding_github": "同一套探路概念落在真实 GitHub Issues 上 (wayfind_gh_*): map=issue, "
     "ticket=原生 sub-issue, blocking=原生 issue dependency — frontier 在 GitHub 网页上直接可见, "
     "不用调工具查。",
+    "github_pr": "GitHub PR review: fetch context, prepare an isolated verified draft, and publish only after explicit approval.",
     "long_task": "长程任务预算/进度治理 (goal_start/goal_add_todo/goal_status)。事件溯源 "
     "(GoalKernel), goal_start 后本 session 每轮自动追踪花费, 超支自动暂停。",
     "mcp_gateway": "兄弟服务网关 (mcp_hevi/mcp_stratum/mcp_od/mcp_codebase)。",
@@ -4198,3 +4204,9 @@ if not master_tools.has("tool_search"):
 # layer: it does not route requests or replace the single MasterAgent path.
 _register_coding_tools(master_tools)
 _register_harness_tools(master_tools)
+
+# PR-08 GitHub review surface.  This is an additive MasterAgent capability,
+# not a second agent or orchestration path.
+from server.github_pr_tools import register_tools as _register_github_pr_tools  # noqa: E402
+
+_register_github_pr_tools(master_tools)
