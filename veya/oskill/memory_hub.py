@@ -40,6 +40,12 @@ from oskill.rrf_retrieval import (
 
 _DEFAULT_HUB_PATH = Path.home() / ".veya" / "memory" / "hub.json"
 
+# This store contains L0/pipeline output only.  Final semantic facts belong to
+# server.memory_controller; the flag makes that boundary inspectable by the
+# state-authority doctor and tests.
+AUTHORITY_ROLE = "distillation/retrieval adapter"
+DURABLE_SEMANTIC_AUTHORITY = False
+
 L1Fn = Callable[[list], list[L1Atom]]
 L2Fn = Callable[[list[L1Atom]], list[L2Scenario]]
 L3Fn = Callable[[list[L2Scenario]], L3Persona]
