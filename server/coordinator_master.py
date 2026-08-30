@@ -1374,7 +1374,12 @@ class MasterCoordinator:
         如此)。tool_calls 走 append() 的 tool_calls 形参 (branch() 不支持, 统一走
         append(parent_id=...) 而不用 branch())。
         """
-        tree = self._session_tree
+        from runtime.state_authority.ownership import StateNamespace
+        from runtime.state_authority.session_projection import SessionProjectionWriter
+
+        tree = SessionProjectionWriter(
+            self._session_tree, StateNamespace.CONVERSATION, "SessionProjector"
+        )
         owner = self._history_owners.get(sid)
         tree.ensure_session(sid, owner=owner)
         path = tree.path(sid)

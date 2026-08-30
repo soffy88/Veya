@@ -191,6 +191,12 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_harness_doctor_cli(argv[2:])
 
+    # 只读 state authority 诊断: veya state doctor [--json]
+    if argv and argv[0] == "state" and len(argv) >= 2 and argv[1] == "doctor":
+        from runtime.state_authority.doctor import run_cli
+
+        return run_cli(argv[2:])
+
     # 产品化子命令: veya init / start / doctor / upgrade / migrate / code
     if argv and argv[0] in _PRODUCT_COMMANDS:
         from cli import product

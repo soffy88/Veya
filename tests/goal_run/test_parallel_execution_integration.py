@@ -47,24 +47,42 @@ def _make_state_with_tasks(*, parallel: bool, count: int = 3) -> GoalRunState:
 
 @pytest.mark.asyncio
 async def test_parallel_batch_runs_concurrently_not_serially(tmp_path, monkeypatch):
-    monkeypatch.setattr("server.goal_run.runner.execute_leaf_with_memory", _slow_leaf)
+    started = 0
+    active = 0
+    peak_active = 0
+    all_started = asyncio.Event()
+
+    async def concurrent_leaf(*_args, **_kwargs) -> LeafResult:
+        nonlocal started, active, peak_active
+        started += 1
+        active += 1
+        peak_active = max(peak_active, active)
+        if started == 3:
+            all_started.set()
+        try:
+            # A serial implementation cannot pass this barrier: the first
+            # task waits until all three eligible tasks have entered the leaf.
+            await asyncio.wait_for(all_started.wait(), timeout=1.0)
+        finally:
+            active -= 1
+        return LeafResult(status="completed", summary="done", artifacts=[])
+
+    monkeypatch.setattr("server.goal_run.runner.execute_leaf_with_memory", concurrent_leaf)
     monkeypatch.setattr("server.goal_run.runner.verify_task", _fake_verify)
     monkeypatch.setattr(
         "server.goal_run.runner._run_dual_axis_review", lambda *a, **kw: _immediate(None)
     )
     state = _make_state_with_tasks(parallel=True, count=3)
 
-    start = time.monotonic()
-    results = await asyncio.gather(
-        *(_process_one_task(t, state, str(tmp_path)) for t in state.tasks.values())
+    results = await asyncio.wait_for(
+        asyncio.gather(*(_process_one_task(t, state, str(tmp_path)) for t in state.tasks.values())),
+        timeout=2.0,
     )
-    elapsed = time.monotonic() - start
 
     assert all(r is None for r in results)
     assert all(t.status == TaskStatus.completed for t in state.tasks.values())
-    # 3 个任务各 sleep _SLEEP_S, 真并发的话总耗时应该接近 1 个任务的耗时,
-    # 远小于串行的 3 倍(留足够余量防止 CI 抖动误判)。
-    assert elapsed < _SLEEP_S * 2
+    assert started == 3
+    assert peak_active == 3
 
 
 @pytest.mark.asyncio
