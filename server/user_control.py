@@ -77,6 +77,7 @@ HIGH_IMPACT = frozenset(
         "hicode_stop",
         "produce_wechat_article",
         "github_pr_post_review",
+        "github_pr_create_draft",
     }
 )
 

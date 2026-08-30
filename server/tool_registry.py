@@ -166,6 +166,7 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "skill_search",
         "skill_show",
         "github_pr_fetch",
+        "github_issue_fetch",
     }
 )
 
@@ -196,6 +197,9 @@ _TOOL_GROUPS: dict[str, str] = {
     "github_pr_fetch": "github_pr",
     "github_pr_review_prepare": "github_pr",
     "github_pr_post_review": "github_pr",
+    "github_issue_fetch": "github_issue",
+    "github_issue_fix_prepare": "github_issue",
+    "github_pr_create_draft": "github_issue",
     # vision: 视觉取证/像素级图像操作
     "vision_glance": "vision",
     "vision_ground": "vision",
@@ -314,6 +318,7 @@ _GROUP_DESCRIPTIONS: dict[str, str] = {
     "ticket=原生 sub-issue, blocking=原生 issue dependency — frontier 在 GitHub 网页上直接可见, "
     "不用调工具查。",
     "github_pr": "GitHub PR review: fetch context, prepare an isolated verified draft, and publish only after explicit approval.",
+    "github_issue": "GitHub Issue fix: fetch context, prepare a verified isolated patch, and create a Draft PR only after explicit approval.",
     "long_task": "长程任务预算/进度治理 (goal_start/goal_add_todo/goal_status)。事件溯源 "
     "(GoalKernel), goal_start 后本 session 每轮自动追踪花费, 超支自动暂停。",
     "mcp_gateway": "兄弟服务网关 (mcp_hevi/mcp_stratum/mcp_od/mcp_codebase)。",
@@ -4210,3 +4215,9 @@ _register_harness_tools(master_tools)
 from server.github_pr_tools import register_tools as _register_github_pr_tools  # noqa: E402
 
 _register_github_pr_tools(master_tools)
+
+# PR-09 GitHub Issue workflow.  This remains on the single MasterAgent path;
+# remote branch and Draft PR creation are explicit-approval capabilities.
+from server.github_issue_tools import register_tools as _register_github_issue_tools  # noqa: E402
+
+_register_github_issue_tools(master_tools)
