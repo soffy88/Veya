@@ -269,7 +269,8 @@ _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
 # veya1.2-free: opencode-go 免费模型轮询 (不走 veya1.2 主脑代理)。
 # 端点统一指向本机 veya gateway (pid 8791) , opencode-go 走 chat/completions 协议。
 # key 由 scripts/veya_llm_gateway.py 从 ~/.pi/agent/opencode-keys.txt 轮询注入。
-# 5 个候选均经探活验证可用 (laguna-s-2.1-free 偶发 503, 轮询跳过即可) 。
+# 4 个 opencode-go free 候选 + gmi-serving/MiniMax-M3 + 6 个 bai 模型。
+# 上游偶发 503 / 慢响应由 _veya12_rr_call 的 12s 超时 + rejected-content 跳过处理。
 _VEYA12_FREE_POOL: list[dict[str, str]] = [
     {
         "provider": "openai",
@@ -279,11 +280,6 @@ _VEYA12_FREE_POOL: list[dict[str, str]] = [
     {
         "provider": "openai",
         "model": "opencode-go/nemotron-3.5-lightning-free",
-        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
-    },
-    {
-        "provider": "openai",
-        "model": "opencode-go/nemotron-3-ultra-free",
         "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
     },
     {
@@ -509,6 +505,8 @@ async def _veya12_rr_call(
                 "model": cand_model,
                 "tools": kwargs.get("tools"),
                 "default_content": default,
+                # 单候选超时: 免费模型上游波动大, 卡太久无意义 — 超时即跳下一个候选
+                "timeout": 12.0,
             }
             if cand.get("endpoint"):
                 call_kwargs["endpoint"] = cand["endpoint"]
@@ -520,13 +518,15 @@ async def _veya12_rr_call(
             msg = (resp.get("choices") or [{}])[0].get("message") or {}
             content = msg.get("content") or ""
             tool_calls = msg.get("tool_calls") or []
-            # tool_calls 场景 content 空是合法的; stub/字面 None 视为无效。
+            # tool_calls 场景 content 空是合法的; stub/字面 None 视作无效;
+            # 另外如果 content 包含 "rejected the request" (llm_call 兜底返回的 HTTP 报错)，说明底层被拒，也视为无效，跳过并换下一个候选
             if (
                 (not content.strip() and not tool_calls)
                 or content.strip().lower() in ("none", "null")
                 or (content.strip() and content.strip() == default and not tool_calls)
+                or ("rejected the request (HTTP" in content)
             ):
-                last_err = f"{cand_provider}/{cand_model} 返回无效内容: {content!r}"
+                last_err = f"{cand_provider}/{cand_model} 返回无效/错误内容: {content!r}"
                 continue
             resp.setdefault("usage", {})
             resp["router"] = {
