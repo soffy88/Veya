@@ -53,6 +53,7 @@ PLAN_ALLOW = frozenset(
         "mcp_stratum",
         "get_market_data_schema",
         "search_genesis_ledger",
+        "github_pr_fetch",
     }
 )
 
@@ -75,6 +76,7 @@ HIGH_IMPACT = frozenset(
         "hicode_rollback",
         "hicode_stop",
         "produce_wechat_article",
+        "github_pr_post_review",
     }
 )
 

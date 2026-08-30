@@ -197,6 +197,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_cli(argv[2:])
 
+    if len(argv) >= 2 and argv[0] == "gh" and argv[1] == "pr":
+        from cli.github_pr import run_github_pr_cli
+
+        return run_github_pr_cli(argv[2:])
+
     # 产品化子命令: veya init / start / doctor / upgrade / migrate / code
     if argv and argv[0] in _PRODUCT_COMMANDS:
         from cli import product
