@@ -303,6 +303,11 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
         _pending.pop(rid, None)
 
 
+async def request_approval(tool: str, kwargs: dict[str, Any]) -> bool:
+    """Request approval through the existing user-control pending store."""
+    return await _wait_approval(tool, kwargs) is None
+
+
 async def ask_question(question: str, options: list[str] | None = None) -> str:
     """OpenMausBot 提问卡片内化 (2026-08-16): bot 执行中向用户提问并等待文字回答。
 
