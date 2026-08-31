@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -184,6 +185,30 @@ async def test_artifact_endpoint_redacts_secret_values(
     encoded = json.dumps(result, ensure_ascii=False)
     assert "secret" not in encoded
     assert "Bearer [REDACTED]" in encoded
+
+
+@pytest.mark.asyncio
+async def test_workbench_coding_fallback_restores_without_task_projection(tmp_path: Path) -> None:
+    """A persisted CodingTask remains viewable when TaskStore is unavailable."""
+    events = EventStore(tmp_path / "events.jsonl")
+    tasks = TaskStore(tmp_path / "tasks.json", event_store=events)
+    projection = WorkbenchProjection(tasks=tasks, events=events, project_root=tmp_path)
+    projection._coding_state = lambda _task_id: SimpleNamespace(  # type: ignore[method-assign]
+        goal_run_id="goal-coding-fallback",
+        status="completed",
+        objective="verify fixture",
+        workspace_id=None,
+        created_at="2026-08-31T00:00:00+00:00",
+        updated_at="2026-08-31T00:00:01+00:00",
+        final_result={"status": "completed", "acceptance_passed": True},
+    )
+
+    view = await projection.build("task-coding-fallback")
+
+    assert view is not None
+    assert view["state"]["status"] == "completed"
+    assert view["goal_run"]["goal_run_id"] == "goal-coding-fallback"
+    assert view["usage"]["cost_usd"] == 0.0
 
 
 @pytest.mark.asyncio
