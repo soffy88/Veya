@@ -316,7 +316,9 @@ class WorkbenchProjection:
                     selected["event_id"] = _event_id(event)
                     selected["topic"] = str(event.get("topic") or "unknown")
                     records.append(selected)
-        return {"cost_usd": float(task.cost_usd or 0.0), "records": records[-100:]}
+        # CodingTask-only recovery can legitimately have no Task projection;
+        # usage is still a valid zero-cost view until a provider event exists.
+        return {"cost_usd": float(getattr(task, "cost_usd", 0.0) or 0.0), "records": records[-100:]}
 
     def _coding_state(self, task_id: str) -> Any | None:
         try:
