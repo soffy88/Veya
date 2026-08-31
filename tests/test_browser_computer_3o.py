@@ -200,6 +200,12 @@ def test_browser_takeover_policy_is_stateless_and_fail_closed() -> None:
         oskill.review_browser_takeover_need("click", context={"two_factor": True})["verdict"]
         == "REQUIRE_HUMAN_CONTROL"
     )
+    assert (
+        oskill.review_browser_takeover_need(
+            "browser-confirm-payment", context={"sensitive_confirmation": True}
+        )["verdict"]
+        == "REQUIRE_HUMAN_CONTROL"
+    )
 
 
 class _RecordingLedger:
