@@ -15,6 +15,7 @@ from runtime.execution.side_effects import SideEffectLedger
 from server.events import append_canonical_event, current_task_id
 from server.permission_profiles import (
     ProfileName,
+    RiskLevel,
     current_profile,
     decide,
     default_profile,
@@ -115,6 +116,12 @@ class ActionGatewayAdapter:
             resource=request.resource or "*",
             decision=decision,
         )
+        if request.effect != "read" and permission.risk == RiskLevel.R0:
+            return obase.ActionDecision(
+                verdict="REQUIRE_APPROVAL",
+                reason="non-read effect has no named permission profile",
+                request_id=request.request_id,
+            )
         if not request.context.get("side_effect_declared") and request.effect != "read":
             return obase.ActionDecision(
                 verdict="REQUIRE_APPROVAL",
