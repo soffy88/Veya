@@ -112,6 +112,12 @@ class ToolSpec:
     operation_version: str = "1"
 
 
+# These compatibility entries already own an internal ActionGateway boundary.
+# Product-task bridging must not wrap them a second time: the callable itself
+# is the canonical governed transaction for this entry point.
+_INTERNALLY_GOVERNED_TOOLS: frozenset[str] = frozenset({"browser_run"})
+
+
 # ================= 并发安全工具 (多工具并行执行白名单) ======================
 # 2026-08-17: 主链 ReAct 一轮可能返回多个 tool_call。默认逐个顺序执行；这份
 # 白名单里的工具是**纯只读、无副作用、彼此独立**的, 主库循环遇到「整批都在
@@ -647,6 +653,53 @@ class MasterToolRegistry:
             _event("tool.failed", error_type=type(exc).__name__)
             raise
         _checkpoint("before")
+        # Product tasks bind the existing PR-13 governance adapter at the
+        # coordinator boundary.  Keep direct registry callers compatible, but
+        # ensure every product-context static tool (including nested coding
+        # tools) crosses the same ActionGateway/SideEffectLedger boundary.
+        from server.tool_governance_adapter import current_task_governance
+
+        governance = current_task_governance()
+        if governance is not None and name not in _INTERNALLY_GOVERNED_TOOLS:
+            legacy_spec = self._tool_specs.get(name)
+            declared_effect = (
+                legacy_spec.side_effect.value if legacy_spec and legacy_spec.side_effect else None
+            )
+            effect_capability = legacy_spec.effect_capability if legacy_spec else "manual_only"
+            operation_version = legacy_spec.operation_version if legacy_spec else "1"
+            effective_timeout = parse_optional_timeout(
+                timeout_s, source=f"Tool '{name}' execute timeout_s"
+            )
+            if timeout_s is None:
+                effective_timeout = self._tool_timeouts.get(name, self._default_timeout_s)
+
+            async def governed_executor(**arguments: Any) -> Any:
+                execution = _invoke_callback(func, arguments)
+                if effective_timeout is None:
+                    return await execution
+                return await asyncio.wait_for(execution, timeout=effective_timeout)
+
+            try:
+                result = await governance.execute_native(
+                    name=name,
+                    arguments=kwargs,
+                    executor=governed_executor,
+                    schema=self._validators[name],
+                    declared_effect=declared_effect,
+                    effect_capability=effect_capability,
+                    operation_version=operation_version,
+                )
+                _checkpoint("after")
+                _event("tool.completed", governance="action_gateway", result_chars=len(result))
+                return result
+            except asyncio.CancelledError:
+                _checkpoint("after_cancelled")
+                _event("tool.cancelled", governance="action_gateway")
+                raise
+            except Exception as exc:
+                _checkpoint("after_failed")
+                _event("tool.failed", error_type=type(exc).__name__, governance="action_gateway")
+                raise
         # 统一守卫通道: 执行前过策略链 + 记决策轨迹 (缺省全放行, 零行为变化)。
         try:
             await _tool_guard.acheck(name, kwargs, source="master_tool")
