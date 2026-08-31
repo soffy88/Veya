@@ -22,14 +22,15 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 	import TaskCenterPanel from "$lib/components/TaskCenterPanel.svelte";
 	import PersonalContextPanel from "$lib/components/PersonalContextPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+	import ProductShell from "$lib/components/ProductShell.svelte";
 	import AuthGate from "$lib/components/AuthGate.svelte";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 
-	type View = "chat" | "dashboard" | "plan" | "git" | "graph" | "genesis" | "plugins" | "automation" | "board" | "tasks" | "personal";
+	type View = "bot" | "chat" | "dashboard" | "plan" | "git" | "graph" | "genesis" | "plugins" | "automation" | "board" | "tasks" | "personal";
 
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
-	let view = $state<View>("chat");
+	let view = $state<View>("bot");
 	let sidebarOpen = $state(false); // mobile drawer
 
 	function closeSidebar() {
@@ -37,6 +38,7 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 	}
 
 	const NAV: [View, string, typeof MessageSquare][] = [
+		["bot", "Veya Bot", Bot],
 		["chat", "对话", MessageSquare],
 		["dashboard", "Dashboard", LayoutDashboard],
 		["plan", "计划", ListTodo],
@@ -59,6 +61,11 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 	function newChat() {
 		sessionStore.newSession();
 		view = "chat";
+	}
+
+	function openTasks() {
+		view = "tasks";
+		closeSidebar();
 	}
 
 	function sessionTime(ts: number): string {
@@ -237,6 +244,9 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 
 		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "chat"}>
 			<ChatConsole />
+		</div>
+		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "bot"}>
+			<ProductShell onNewTask={newChat} onOpenSettings={() => (settingsOpen = true)} onOpenTasks={openTasks} />
 		</div>
 		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "dashboard"}>
 			<Dashboard />

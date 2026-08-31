@@ -48,6 +48,7 @@ from server.routes.performance import router as performance_router
 from server.routes.permission import router as permission_router
 from server.routes.personal_runtime import router as personal_runtime_router
 from server.routes.plan import router as plan_router
+from server.routes.product import router as product_router
 from server.routes.projects import router as projects_router
 from server.routes.prompt import router as prompt_router
 from server.routes.research import router as research_router
@@ -342,6 +343,7 @@ if _visualization_router is not None:
 app.include_router(cross_language_router)
 app.include_router(performance_router)
 app.include_router(personal_runtime_router)
+app.include_router(product_router)
 if _advanced_visualization_router is not None:
     app.include_router(_advanced_visualization_router)
 app.include_router(agent_collaboration_router)
