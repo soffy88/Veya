@@ -25,7 +25,7 @@ import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from server.skill_scan import scan_skill_source
 from server.skill_scan import summarize as _summarize_risk
@@ -535,7 +535,25 @@ class VeyaSkillHub:
         )
 
     async def execute(self, tool_name: str, kwargs: dict) -> str:
-        """主脑决定调用工具时,路由到这里执行。dispatcher 模式解包 run_skill/list_skills。"""
+        """Execute a skill through the active product governance context."""
+        from server.tool_governance_adapter import current_task_governance
+
+        governance = current_task_governance()
+        if governance is not None:
+            return await governance.execute_skill(
+                name=tool_name,
+                arguments=kwargs,
+                executor=lambda **arguments: self._execute_unmanaged(
+                    tool_name, arguments, authorize=False
+                ),
+                schema={},
+            )
+        return await self._execute_unmanaged(tool_name, kwargs)
+
+    async def _execute_unmanaged(
+        self, tool_name: str, kwargs: dict, *, authorize: bool = True
+    ) -> str:
+        """Compatibility dispatcher used outside product governance."""
         if self._dispatcher and tool_name == "list_skills":
             list_schema = self._dispatcher_schemas()[0]["function"]["parameters"]
             _validate_arguments(
@@ -544,7 +562,8 @@ class VeyaSkillHub:
                 _schema_validator(list_schema, owner="Skill dispatcher"),
                 owner="Skill dispatcher",
             )
-            await self._authorize(tool_name, kwargs)
+            if authorize:
+                await self._authorize(tool_name, kwargs)
             task = str(kwargs.get("task") or "").strip()
             if task:
                 top_k = kwargs.get("top_k")
@@ -563,7 +582,8 @@ class VeyaSkillHub:
             run_skill_schema = self._dispatcher_schemas()[1]["function"]["parameters"]
             run_skill_validator = _schema_validator(run_skill_schema, owner="Skill dispatcher")
             _validate_arguments("run_skill", kwargs, run_skill_validator, owner="Skill dispatcher")
-            await self._authorize(tool_name, kwargs)
+            if authorize:
+                await self._authorize(tool_name, kwargs)
             skill_name = kwargs.get("skill_name") or ""
             args = dict(kwargs.get("args") or {})
             executor = self._executors.get(skill_name)
@@ -587,18 +607,21 @@ class VeyaSkillHub:
                     args["goal"] = json.dumps(args, ensure_ascii=False)[:2000]
             _validate_arguments(skill_name, args, self._validators[skill_name], owner="Skill")
             # 保留 dispatcher 入口策略，同时按真实技能名再授权，支持细粒度策略。
-            await self._authorize(skill_name, args)
-            return await _invoke_callback(executor, args)
+            if authorize:
+                await self._authorize(skill_name, args)
+            return cast(str, await _invoke_callback(executor, args))
         executor = self._executors.get(tool_name)
         if executor is None:
             # 未知名称仍先过策略，避免拒绝策略下泄露技能目录/装载状态。
-            await self._authorize(tool_name, kwargs)
+            if authorize:
+                await self._authorize(tool_name, kwargs)
             raise ToolExecutionError(
                 f"Dynamic skill '{tool_name}' is not loaded. Available: {', '.join(self._all_skill_names())}"
             )
         _validate_arguments(tool_name, kwargs, self._validators[tool_name], owner="Skill")
-        await self._authorize(tool_name, kwargs)
-        return await _invoke_callback(executor, kwargs)
+        if authorize:
+            await self._authorize(tool_name, kwargs)
+        return cast(str, await _invoke_callback(executor, kwargs))
 
     def to_dict(self) -> dict:
         return {
@@ -678,7 +701,7 @@ def create_skill_package(
     pkg = base / name
     pkg.mkdir(parents=True, exist_ok=True)
 
-    manifest = {
+    manifest: dict[str, Any] = {
         "name": name,
         "description": description,
         "type": skill_type,
