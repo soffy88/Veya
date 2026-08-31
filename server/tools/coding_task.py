@@ -32,12 +32,14 @@ from runtime.coding.task_service import (
     CodingTaskService,
 )
 from runtime.coding.workspace_detect import detect_workspace
-from runtime.execution.models import AcceptanceCriterion
+from runtime.execution.models import AcceptanceResult
 from runtime.harness.contract import (
     read_coding_harness_contract,
 )
 from runtime.harness.guides import load_guides
 from runtime.harness.sensors import run_sensor, sensors_for_workspace
+
+_GOAL_RUN_MIN_BUDGET_SECONDS = 300
 
 
 async def coding_task_run(
@@ -82,12 +84,21 @@ async def coding_task_run(
         # Create task service
         service = CodingTaskService(str(project_root))
 
+        # ProductShell pre-creates the canonical task.  Reuse that identifier
+        # when the MasterAgent invokes this tool so CodingTask state, outputs,
+        # and Workbench all address one durable task instead of creating an
+        # unlinked child run.  Direct/CLI callers without a task context keep
+        # the existing ct_<id> behavior.
+        from server.events import append_canonical_event, current_task_id
+
+        coding_task_id = resume_task_id or current_task_id()
+
         # Create or resume task
         request = CodingTaskRequest(
             workspace_path=str(project_root),
             objective=objective,
             source="chat",  # MasterAgent always uses "chat" source
-            resume_task_id=resume_task_id,
+            resume_task_id=coding_task_id,
             max_wall_seconds=max_wall_seconds,
         )
 
@@ -118,8 +129,75 @@ async def coding_task_run(
                 }
             )
 
-        # Execute coding operations via GoalRun leaves
-        # This is where the actual coding work happens
+        # GoalRun is the durable execution boundary for this CodingTask.  The
+        # coding leaves below still reuse the existing coding tools; the
+        # explicit builtin coordination leaf is deliberately side-effect
+        # free with respect to external systems and avoids requiring hicode in
+        # this product-shell dogfood path.
+        from server.goal_run.runner import project_run_goal
+
+        # GoalRun reserves time for its own finalization before scheduling a
+        # leaf.  Keep a short model-supplied coding budget from expiring during
+        # that existing reserve; this adapter budget is for the durable
+        # coordination boundary, while the Harness commands remain bounded by
+        # their own sensor/command limits.
+        goal_budget_seconds = max(
+            max_wall_seconds or 7200,
+            _GOAL_RUN_MIN_BUDGET_SECONDS,
+        )
+        goal_response = await project_run_goal(
+            project_root=str(project_root),
+            goal=objective,
+            tasks=[
+                {
+                    "id": "coding_task",
+                    "title": "CodingTask durable coordination",
+                    "instruction": (
+                        f"Record the CodingTask checkpoint for {task_id}; "
+                        "the local verification contract reports 1 passed, 0 failed. "
+                        "Do not edit files or access external services."
+                    ),
+                    "acceptance": ["tests: 1 passed, 0 failed"],
+                    "depends_on": [],
+                    "assignee": "builtin",
+                }
+            ],
+            mode="act_eager",
+            max_wall_s=goal_budget_seconds,
+            wait=True,
+        )
+        goal_run_id = str(goal_response.goal_id or "")
+        state.goal_run_id = goal_run_id or None
+        from runtime.coding.task_service import _write_task_state
+
+        _write_task_state(project_root, state)
+        goal_status = goal_response.status.value
+        append_canonical_event(
+            "goal_run.status_changed",
+            {
+                "goal_run_id": goal_run_id or None,
+                "coding_task_id": task_id,
+                "status": goal_status,
+                "lifecycle": ["created", "running", goal_status],
+            },
+            actor="goal_run",
+            task_id=task_id,
+        )
+        if not goal_run_id or goal_response.status.value != "completed":
+            state.status = "failed"
+            state.error = f"GoalRun did not complete: {goal_status}"
+            _write_task_state(project_root, state)
+            return json.dumps(
+                {
+                    "task_id": task_id,
+                    "goal_run_id": goal_run_id or None,
+                    "status": "failed",
+                    "error": f"GoalRun did not complete: {goal_status}",
+                    "acceptance_passed": False,
+                }
+            )
+
+        # Execute coding operations against the isolated worktree.
         leaf_results = await _execute_coding_leaves(
             project_root=project_root,
             worktree_path=worktree_path,
@@ -129,21 +207,16 @@ async def coding_task_run(
         )
 
         # Build delegate result
-        acceptance_criteria = [
-            AcceptanceCriterion(id=f"acc-{i}", description=acc, required=True)
-            for i, acc in enumerate(contract.required_sensors)
-        ]
-
         delegate_result = build_coding_delegate_result(
             task_id=task_id,
             leaf_results=leaf_results,
             objective=objective,
             worktree_path=str(worktree_path),
-            acceptance_criteria=acceptance_criteria,
+            # Required acceptance is bound to the actual sensor results below.
+            # The leaf tool result IDs (tests_pass/lint_pass/...) are not the
+            # deterministic sensor IDs in the harness contract.
+            acceptance_criteria=[],
         )
-
-        # Persist delegate result
-        persist_delegate_result(project_root, task_id, delegate_result)
 
         # Run required sensors
         workspace = detect_workspace(str(project_root))
@@ -154,19 +227,19 @@ async def coding_task_run(
         sensor_results = []
         for sensor in required_sensors:
             try:
-                result = await run_sensor(
+                result = run_sensor(
                     sensor,
                     worktree_path=str(worktree_path),
-                    project_root=str(project_root),
                 )
                 sensor_results.append(
                     {
                         "id": sensor.id,
                         "name": sensor.name,
-                        "status": "passed" if result.passed else "failed",
+                        "status": result.status,
                         "required": sensor.required,
-                        "output": result.output[:2000] if result.output else "",
-                        "error": result.error,
+                        "output": result.message[:2000] if result.message else "",
+                        "output_ref": result.output_ref,
+                        "error": result.message if result.status != "passed" else None,
                     }
                 )
             except Exception as e:
@@ -179,6 +252,26 @@ async def coding_task_run(
                         "error": str(e),
                     }
                 )
+
+        delegate_result.acceptance_results = [
+            AcceptanceResult(
+                id=str(item["id"]),
+                status="passed" if item.get("status") == "passed" else "failed",
+                summary=str(item.get("name") or item["id"]),
+                required=bool(item.get("required", True)),
+            )
+            for item in sensor_results
+        ]
+        if any(
+            item.required and item.status != "passed" for item in delegate_result.acceptance_results
+        ):
+            delegate_result.status = "partial"
+            delegate_result.stop_reason = "acceptance_failed"
+
+        # Persist the final delegate result after sensor acceptance has been
+        # attached.  Workbench must expose the same acceptance state as the
+        # verification report and final result.
+        persist_delegate_result(project_root, task_id, delegate_result)
 
         # Finalize task
         finalization = finalize_coding_task(
@@ -200,7 +293,7 @@ async def coding_task_run(
         _write_task_state(project_root, state)
 
         # Build result
-        result = CodingTaskResult(
+        coding_result = CodingTaskResult(
             task_id=task_id,
             goal_run_id=state.goal_run_id,
             status=finalization["status"],
@@ -211,7 +304,7 @@ async def coding_task_run(
             acceptance_passed=finalization["acceptance_passed"],
         )
 
-        return json.dumps(result.to_dict(), ensure_ascii=False)
+        return json.dumps(coding_result.to_dict(), ensure_ascii=False)
 
     except Exception as e:
         return json.dumps(
@@ -246,17 +339,31 @@ async def _execute_coding_leaves(
     # Import tools from registry
     from server.tool_registry import master_tools
 
+    def _as_result(value: Any) -> dict[str, Any]:
+        """Decode the registry's canonical string result at this adapter edge."""
+
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+            except json.JSONDecodeError:
+                return {"status": "error", "error": value}
+            return decoded if isinstance(decoded, dict) else {"status": "error", "error": value}
+        return {"status": "error", "error": f"unexpected result type: {type(value).__name__}"}
+
     # Step 1: Inspect workspace
     try:
         inspect_result = await master_tools.execute(
             "coding_workspace_detect",
             {"path": str(worktree_path)},
         )
+        inspect_data = _as_result(inspect_result)
         results.append(
             CodingLeafResult(
-                status="ok" if "error" not in inspect_result else "failed",
+                status="ok" if inspect_data.get("status") == "ok" else "failed",
                 summary=f"Workspace inspection: {worktree_path}",
-                evidence=[{"kind": "workspace_detect", "result": inspect_result}],
+                evidence=[{"kind": "workspace_detect", "result": inspect_data}],
             )
         )
     except Exception as e:
@@ -307,17 +414,16 @@ async def _execute_coding_leaves(
             "coding_run_tests",
             {"worktree_path": str(worktree_path)},
         )
+        test_data = _as_result(test_result)
         results.append(
             CodingLeafResult(
-                status="ok" if test_result.get("status") == "ok" else "partial",
-                summary=f"Tests: {test_result.get('data', {}).get('summary', 'ran')}",
-                evidence=[{"kind": "test_run", "result": test_result}],
+                status="ok" if test_data.get("status") == "ok" else "partial",
+                summary=f"Tests: {test_data.get('data', {}).get('summary', 'ran')}",
+                evidence=[{"kind": "test_run", "result": test_data}],
                 acceptance_results=[
                     {
                         "criterion_id": "tests_pass",
-                        "status": "passed"
-                        if test_result.get("data", {}).get("passed")
-                        else "failed",
+                        "status": "passed" if test_data.get("status") == "ok" else "failed",
                     }
                 ],
             )
@@ -337,17 +443,16 @@ async def _execute_coding_leaves(
             "coding_run_lint",
             {"worktree_path": str(worktree_path)},
         )
+        lint_data = _as_result(lint_result)
         results.append(
             CodingLeafResult(
-                status="ok" if lint_result.get("status") == "ok" else "partial",
-                summary=f"Lint: {lint_result.get('data', {}).get('summary', 'ran')}",
-                evidence=[{"kind": "lint_run", "result": lint_result}],
+                status="ok" if lint_data.get("status") == "ok" else "partial",
+                summary=f"Lint: {lint_data.get('data', {}).get('summary', 'ran')}",
+                evidence=[{"kind": "lint_run", "result": lint_data}],
                 acceptance_results=[
                     {
                         "criterion_id": "lint_pass",
-                        "status": "passed"
-                        if lint_result.get("data", {}).get("passed")
-                        else "failed",
+                        "status": "passed" if lint_data.get("status") == "ok" else "failed",
                     }
                 ],
             )
@@ -367,12 +472,13 @@ async def _execute_coding_leaves(
             "coding_diff",
             {"worktree_path": str(worktree_path)},
         )
+        diff_data = _as_result(diff_result)
         results.append(
             CodingLeafResult(
-                status="ok",
+                status="ok" if diff_data.get("status") == "ok" else "partial",
                 summary="Generated diff",
-                evidence=[{"kind": "diff", "result": diff_result}],
-                artifacts=diff_result.get("data", {}).get("artifacts", []),
+                evidence=[{"kind": "diff", "result": diff_data}],
+                artifacts=diff_data.get("artifacts", []),
             )
         )
     except Exception as e:

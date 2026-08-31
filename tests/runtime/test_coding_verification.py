@@ -205,6 +205,52 @@ async def test_verify_04_artifact_manifest(test_repo: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_finalize_registers_product_outputs_in_manifest(test_repo: Path) -> None:
+    """Finalized verification must expose its generated outputs as artifacts."""
+    from runtime.coding.finalize import finalize_coding_task
+    from runtime.execution.models import DelegateResult
+
+    task_id = "verify-finalizer-artifacts"
+    delegate_result = DelegateResult(
+        delegate_id="delegate-finalizer-artifacts",
+        status="complete",
+        summary="verified",
+        stop_reason="completed",
+        evidence=[],
+        artifacts=[],
+        assertions=[],
+        acceptance_results=[],
+    )
+
+    result = finalize_coding_task(
+        project_root=test_repo,
+        task_id=task_id,
+        goal_run_id=None,
+        objective="Verify generated outputs are indexed",
+        worktree_path=test_repo,
+        delegate_result=delegate_result,
+        sensor_results=[{"id": "test", "status": "passed", "required": True}],
+    )
+
+    output_dir = test_repo / ".veya" / "runs" / task_id / "outputs"
+    manifest = json.loads((output_dir / "artifact_manifest.json").read_text(encoding="utf-8"))
+    verification = json.loads((output_dir / "verification_report.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "completed"
+    assert len(result["artifact_ids"]) == 5
+    assert manifest["count"] == 5
+    assert manifest["count"] == len(result["artifact_ids"])
+    assert verification["artifact_count"] == 5
+    assert {Path(item["path"]).name for item in manifest["artifacts"]} == {
+        "diff.patch",
+        "changed_files.json",
+        "sensor_report.json",
+        "verification_report.json",
+        "final_result.json",
+    }
+
+
+@pytest.mark.asyncio
 async def test_sensor_report_generation(test_repo: Path) -> None:
     """Test sensor report is generated correctly."""
     from runtime.coding.finalize import generate_sensor_report
