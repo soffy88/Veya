@@ -95,6 +95,31 @@ class ComputerSupervisorAdapter:
         result["worktree_path"] = str(target)
         return result
 
+    async def prepare_profile(
+        self,
+        profile: Any,
+        *,
+        attach: bool = False,
+        output_dir: Path | None = None,
+        on_step: Callable[[dict[str, Any]], Any] | None = None,
+    ) -> dict[str, Any]:
+        """Prepare an already-resolved profile for another 3O mechanism.
+
+        Browser Computer uses this narrow bridge so the existing Computer
+        Supervisor remains the only owner of computer lifecycle mutations.
+        """
+        self.run()
+        result = cast(
+            dict[str, Any],
+            await self.engine.prepare(
+                profile,
+                attach=attach,
+                output_dir=output_dir,
+                on_step=on_step,
+            ),
+        )
+        return result
+
     async def create(self, profile: Any) -> dict[str, Any]:
         return cast(dict[str, Any], await self.engine.create(profile))
 
