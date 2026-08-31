@@ -973,13 +973,42 @@ async def _tool_browser_run(
     except ImportError as exc:  # pragma: no cover — 依赖缺失
         raise ToolExecutionError(f"playwright 未安装,无法执行 browser_run: {exc}") from exc
 
+    from server.action_gateway_adapter import ActionGatewayAdapter
+
+    gateway = ActionGatewayAdapter()
     session = BrowserSession(headless=True)
     try:
         await session.start()
-        navigate = await session.execute_sequence(
-            [action_navigate(url, wait_until="domcontentloaded")]
+
+        async def governed(
+            name: str,
+            arguments: dict[str, Any],
+            physical: Callable[[], Any],
+            effect: SideEffect,
+        ) -> Any:
+            result = await gateway.execute(
+                name,
+                arguments,
+                lambda **_kwargs: physical(),
+                side_effect=effect,
+                effect_capability="manual_only" if effect is not SideEffect.PURE_READ else "none",
+                resource=f"browser:{url}",
+                source="browser_run",
+            )
+            if result.get("status") != "completed" or not result.get("executed"):
+                decision = result.get("decision") or {}
+                raise ToolExecutionError(
+                    f"browser_run: action denied or unavailable: {decision.get('reason', result.get('error', 'unknown'))}"
+                )
+            return result.get("result")
+
+        navigate_result = await governed(
+            "browser_navigate",
+            {"url": url},
+            lambda: session.execute_sequence([action_navigate(url, wait_until="domcontentloaded")]),
+            SideEffect.PURE_READ,
         )
-        if not navigate or not getattr(navigate[-1], "success", True):
+        if not navigate_result or not getattr(navigate_result[-1], "success", True):
             raise ToolExecutionError(f"browser_run: 导航失败 {url}")
         actions = {
             "extract_text": lambda: action_extract_text(selector),
@@ -992,8 +1021,18 @@ async def _tool_browser_run(
             raise ToolExecutionError(
                 f"browser_run: 未知 action '{action}'. Available: {', '.join(actions)}"
             )
-        results = await session.execute_sequence([actions[action]()])
-        last = results[-1]
+        effect = (
+            SideEffect.PURE_READ
+            if action in {"extract_text", "extract_html", "screenshot"}
+            else SideEffect.NETWORK_WRITE
+        )
+        last = await governed(
+            f"browser_{action}",
+            {"url": url, "selector": selector},
+            lambda: session.execute_sequence([actions[action]()]),
+            effect,
+        )
+        last = last[-1]
         return json.dumps(
             {
                 "url": last.page_url or url,

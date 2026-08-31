@@ -130,6 +130,11 @@ _R3_NETWORK_WRITE = frozenset(
         "network_post",
         "webhook_send",
         "http_post",
+        # Browser interactions can submit data or trigger remote effects.
+        "browser_click",
+        "browser_type",
+        "browser_download",
+        "browser_upload",
     }
 )
 _R4_DESTRUCTIVE = frozenset(

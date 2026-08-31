@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, cast
 
 from runtime.execution.side_effects import SideEffectLedger
 from server.events import append_canonical_event, current_task_id
@@ -54,6 +54,7 @@ class ActionGatewayAdapter:
         approval_resolver: Callable[..., Any] | None = None,
         audit_writer: Callable[..., Any] | None = None,
         policy_profile: ProfileName | str | None = None,
+        policy_hook: Callable[[Any], Any] | None = None,
     ) -> None:
         self.ledger = ledger
         self.goal_run_id = goal_run_id or current_task_id() or "veya:unbound"
@@ -61,6 +62,7 @@ class ActionGatewayAdapter:
         self._approval_resolver = approval_resolver
         self._audit_writer = audit_writer or self._append_event
         self._policy_profile = policy_profile
+        self._policy_hook = policy_hook
 
     @staticmethod
     def _append_event(record: Any) -> Any:
@@ -85,6 +87,18 @@ class ActionGatewayAdapter:
         return await request_approval(request.action, safe_arguments)
 
     def _evaluate_policy(self, request: Any) -> Any:
+        if self._policy_hook is not None:
+            try:
+                override = self._policy_hook(request)
+                if override is not None:
+                    return override
+            except Exception as exc:
+                obase = load("obase")
+                return obase.ActionDecision(
+                    verdict="DENY",
+                    reason=f"policy hook failed: {type(exc).__name__}",
+                    request_id=request.request_id,
+                )
         oskill = load("oskill")
         profile = self._policy_profile or current_profile() or default_profile()
         permission = decide(profile, request.action, dict(request.arguments))
@@ -139,6 +153,7 @@ class ActionGatewayAdapter:
         operation_version: str = "1",
         resource: str = "",
         source: str = "master_tool",
+        request_context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Govern and execute a Veya callable through the 3O chain."""
         obase = load("obase")
@@ -146,6 +161,11 @@ class ActionGatewayAdapter:
         oprim = load("oprim")
         oservi = load("oservi")
         effect = _effect_for(name, side_effect, classify=oskill.classify_action_effect)
+        context = {
+            "task_id": current_task_id(),
+            "side_effect_declared": side_effect is not None,
+        }
+        context.update(dict(request_context or {}))
         request = obase.ActionRequest(
             action=name,
             effect=effect,
@@ -153,10 +173,7 @@ class ActionGatewayAdapter:
             arguments=dict(kwargs or {}),
             actor="master",
             source=source,
-            context={
-                "task_id": current_task_id(),
-                "side_effect_declared": side_effect is not None,
-            },
+            context=context,
         )
 
         async def physical(request_value: Any) -> Any:
@@ -177,12 +194,15 @@ class ActionGatewayAdapter:
             config={},
             name="veya-action-gateway",
         )
-        return await engine.invoke(
-            request,
-            physical_executor=physical,
-            operation_key=f"veya:{name}:{operation_version}:{request.fingerprint}",
-            target_ref=resource or name,
-            capability=effect_capability,
+        return cast(
+            dict[str, Any],
+            await engine.invoke(
+                request,
+                physical_executor=physical,
+                operation_key=f"veya:{name}:{operation_version}:{request.fingerprint}",
+                target_ref=resource or name,
+                capability=effect_capability,
+            ),
         )
 
 
