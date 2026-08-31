@@ -104,6 +104,8 @@ async def cancel_task(task_id: str) -> dict[str, Any]:
 
         runtime = await cancel_session(task.session_id)
     task = store.cancel(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
     return {"status": task.status, "task": task.to_dict(), "runtime": runtime}
 
 
@@ -148,6 +150,7 @@ async def resume_task(
         result = await master_coordinator.chat_stream(
             req.text,
             session_id=task.session_id,
+            task_id=task_id,
             max_rounds=req.max_rounds,
         )
     except Exception as exc:
