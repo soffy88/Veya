@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from server.events import append_canonical_event, fire_step
+from server.events import append_canonical_event, current_task_id, fire_step
 
 _mode: contextvars.ContextVar[str] = contextvars.ContextVar("veya_mode", default="agent")
 _require_approval: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -259,6 +259,7 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
             {"request_id": rid, "tool_name": tool, "tool_args": pending.args},
             actor="system",
             session_id=sid or None,
+            task_id=current_task_id(),
         )
     try:
         try:
@@ -272,6 +273,7 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
                     {"request_id": rid, "tool_name": tool},
                     actor="user",
                     session_id=sid or None,
+                    task_id=current_task_id(),
                 )
             fire_step(
                 {
@@ -288,6 +290,7 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
                 {"request_id": rid, "tool_name": tool},
                 actor="user",
                 session_id=sid or None,
+                task_id=current_task_id(),
             )
         fire_step(
             {

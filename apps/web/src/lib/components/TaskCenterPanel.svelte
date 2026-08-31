@@ -300,6 +300,7 @@
 						<span>trace {selectedTask.trace_id ?? "—"}</span>
 						<span>事件 {selectedEvents.length}</span>
 					</div>
+					<a href={`/workbench/${encodeURIComponent(selectedTask.id)}`} class="mt-3 inline-flex items-center rounded-md border border-sky-500/30 px-2.5 py-1.5 text-xs text-sky-300 hover:bg-sky-500/10">打开统一 Workbench</a>
 				</div>
 				<button type="button" title="关闭详情" onclick={() => (selectedTask = null)} class="rounded-md p-1 text-terminal-dim hover:text-terminal-fg">
 					<X class="size-4" />

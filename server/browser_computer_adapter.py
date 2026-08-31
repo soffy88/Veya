@@ -14,8 +14,46 @@ from typing import Any, cast
 from runtime.execution.side_effects import SideEffectLedger
 from server.action_gateway_adapter import ActionGatewayAdapter
 from server.computer_supervisor_adapter import ComputerSupervisorAdapter, _computer_profile
+from server.events import append_canonical_event, current_task_id
 from server.tool_registry import SideEffect
 from veya.platform import load
+
+# Browser driver handles are intentionally process-local.  This registry is a
+# lookup for the existing adapter only; durable browser state remains owned by
+# the browser/computer implementation and is never mirrored into the
+# Workbench as an authority.
+_BROWSER_ADAPTERS: dict[str, BrowserComputerAdapter] = {}
+
+
+def register_browser_handle(handle: Any, adapter: BrowserComputerAdapter) -> None:
+    mapping_id = handle.get("session_id", "") if isinstance(handle, Mapping) else ""
+    session_id = str(getattr(handle, "session_id", "") or mapping_id)
+    if session_id:
+        _BROWSER_ADAPTERS[session_id] = adapter
+
+
+def get_browser_adapter(session_id: str) -> BrowserComputerAdapter | None:
+    return _BROWSER_ADAPTERS.get(str(session_id or ""))
+
+
+def _record_browser_event(topic: str, handle: Any, **payload: Any) -> None:
+    """Publish a task-scoped browser fact without creating browser storage."""
+
+    task_id = current_task_id()
+    if not task_id:
+        return
+    if isinstance(handle, Mapping):
+        safe_handle = dict(handle)
+    elif hasattr(handle, "to_dict"):
+        safe_handle = dict(handle.to_dict())
+    else:
+        safe_handle = {}
+    append_canonical_event(
+        topic,
+        {"browser_handle": safe_handle, **payload},
+        actor="system",
+        task_id=task_id,
+    )
 
 
 class BrowserComputerAdapter:
@@ -165,9 +203,15 @@ class BrowserComputerAdapter:
             ),
         )
         result["worktree_path"] = str(target)
+        browser_handle = result.get("browser") or result.get("handle")
+        register_browser_handle(browser_handle, self)
+        _record_browser_event(
+            "browser.session_prepared", browser_handle, status=result.get("status")
+        )
         return result
 
     async def status(self, handle: Any) -> dict[str, Any]:
+        register_browser_handle(handle, self)
         return cast(dict[str, Any], await self.engine.status(handle))
 
     async def stop_browser(self, handle: Any) -> dict[str, Any]:
@@ -177,10 +221,20 @@ class BrowserComputerAdapter:
         return cast(dict[str, Any], await self.engine.reset(handle))
 
     async def take_control(self, handle: Any) -> dict[str, Any]:
-        return cast(dict[str, Any], await self.engine.take_control(handle))
+        register_browser_handle(handle, self)
+        result = cast(dict[str, Any], await self.engine.take_control(handle))
+        _record_browser_event(
+            "browser.control_changed", result.get("handle") or handle, control_state="HUMAN_CONTROL"
+        )
+        return result
 
     async def return_control(self, handle: Any) -> dict[str, Any]:
-        return cast(dict[str, Any], await self.engine.return_control(handle))
+        register_browser_handle(handle, self)
+        result = cast(dict[str, Any], await self.engine.return_control(handle))
+        _record_browser_event(
+            "browser.control_changed", result.get("handle") or handle, control_state="AGENT_CONTROL"
+        )
+        return result
 
     @staticmethod
     def _session_state(status: Mapping[str, Any]) -> tuple[str, Mapping[str, Any]]:
@@ -204,6 +258,7 @@ class BrowserComputerAdapter:
         if not status.get("ok"):
             return status
         control_state, status_handle = self._session_state(status)
+        register_browser_handle(status_handle, self)
         request_context = dict(context or {})
         request_context.update(
             {
@@ -244,7 +299,14 @@ class BrowserComputerAdapter:
         result["browser_takeover"] = takeover
         if takeover["verdict"] != "ALLOW_AGENT":
             result["verdict"] = takeover["verdict"]
+        _record_browser_event(
+            "browser.action_completed",
+            status_handle,
+            action=normalized,
+            status=result.get("status"),
+            verdict=result.get("verdict"),
+        )
         return result
 
 
-__all__ = ["BrowserComputerAdapter"]
+__all__ = ["BrowserComputerAdapter", "get_browser_adapter", "register_browser_handle"]
