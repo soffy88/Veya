@@ -20,6 +20,7 @@ import time
 import uuid
 import weakref
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, cast
 
 from server import graft_autocontext as _graft_autocontext
@@ -617,6 +618,40 @@ class MasterCoordinator:
                     raise ToolExecutionError(
                         f"tool '{tool_name}' arguments invalid: {'; '.join(verdict.errors[:3])}"
                     )
+            from server.tool_governance_adapter import current_task_governance
+
+            governance = current_task_governance()
+            if governance is not None:
+                system_effects = {
+                    "system_save_preference": "local_write",
+                    "system_remove_preference": "local_write",
+                    "system_create_automation": "local_write",
+                    "system_remove_automation": "local_write",
+                    "system_spawn_swarm": "process",
+                    "system_reload_skills": "process",
+                    "system_workspace_reindex": "process",
+                    "system_secure_exec": "remote",
+                    "system_dispatch_omni_channel": "remote",
+                }
+
+                async def governed_system_executor(**arguments: Any) -> Any:
+                    execution = self._raw_handle_tool_call(tool_name, dict(arguments))
+                    if self._tool_timeout_s is None:
+                        return await execution
+                    return await asyncio.wait_for(execution, timeout=self._tool_timeout_s)
+
+                return await governance.execute_native(
+                    name=tool_name,
+                    arguments=args,
+                    executor=governed_system_executor,
+                    schema=parameters or {},
+                    declared_effect=system_effects.get(tool_name),
+                    effect_capability=(
+                        "idempotency_key"
+                        if tool_name.endswith(("preference", "automation"))
+                        else "manual_only"
+                    ),
+                )
             try:
                 await global_tool_guard.acheck(tool_name, args, source="master_system")
             except ToolDenied as denied:
@@ -854,6 +889,7 @@ class MasterCoordinator:
         event_context_tokens: (
             tuple[contextvars.Token, contextvars.Token, contextvars.Token] | None
         ) = None
+        governance_token: contextvars.Token | None = None
         telemetry: Any | None = None
         requested_task_id = task_id
         requested_task: Any | None = None
@@ -1028,8 +1064,20 @@ class MasterCoordinator:
             # not a tool visibility filter; the MasterAgent always receives the
             # complete registry.
             from server import tool_registry as _tr
+            from server.tool_governance_adapter import bind_task_governance, reset_task_governance
 
             _lite_token = _tr._current_master_session.set(sid)
+            if requested_task_id is not None:
+                governance_token = bind_task_governance(
+                    task_id=str(requested_task_id),
+                    session_id=sid,
+                    trace_id=trace_id,
+                    output_dir=Path(".veya")
+                    / "runs"
+                    / str(requested_task_id)
+                    / "outputs"
+                    / "tool_governance",
+                )
             try:
                 result = await self._agent.chat_stream(
                     user_prompt,
@@ -1049,6 +1097,8 @@ class MasterCoordinator:
                 }
                 raise
             finally:
+                if governance_token is not None:
+                    reset_task_governance(governance_token)
                 _tr._current_master_session.reset(_lite_token)
                 ckpt_task.cancel()
                 # CancelledError 是 BaseException, 不被 suppress(Exception) 捕获 → 显式列出
