@@ -117,6 +117,7 @@ def generate_verification_report(
     lint_results: dict[str, Any] | None = None,
     typecheck_results: dict[str, Any] | None = None,
     build_results: dict[str, Any] | None = None,
+    artifact_count: int | None = None,
 ) -> dict[str, Any]:
     """Generate verification_report.json."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -156,7 +157,9 @@ def generate_verification_report(
         "typecheck": typecheck_results or {},
         "build": build_results or {},
         "evidence_count": len(delegate_result.evidence),
-        "artifact_count": len(delegate_result.artifacts),
+        "artifact_count": (
+            len(delegate_result.artifacts) if artifact_count is None else artifact_count
+        ),
         "side_effect_count": 0,  # DelegateResult doesn't track side effects directly
     }
 
@@ -265,6 +268,23 @@ def finalize_coding_task(
     # 2. Generate sensor report
     generate_sensor_report(output_dir, sensor_results)
 
+    # The finalizer owns the required product artifacts.  Delegate leaves may
+    # contribute additional artifacts, but an empty delegate artifact list
+    # must not make the completed verification appear artifact-free.
+    core_artifact_names = (
+        ("diff.patch", "diff"),
+        ("changed_files.json", "changed_files"),
+        ("sensor_report.json", "sensor_report"),
+        ("verification_report.json", "verification_report"),
+        ("final_result.json", "final_result"),
+    )
+    delegate_artifact_paths = {str(artifact.path) for artifact in delegate_result.artifacts}
+    core_artifact_count = sum(
+        1
+        for name, _kind in core_artifact_names
+        if str(output_dir / name) not in delegate_artifact_paths
+    )
+
     # 3. Generate verification report
     verification_info = generate_verification_report(
         output_dir,
@@ -275,26 +295,41 @@ def finalize_coding_task(
         lint_results=lint_results,
         typecheck_results=typecheck_results,
         build_results=build_results,
+        artifact_count=len(delegate_result.artifacts) + core_artifact_count,
     )
 
-    # 4. Generate artifact manifest
+    # 4. Materialize the final result before writing the manifest so the
+    # manifest is a complete index of all user-visible finalization outputs.
+    final_status = (
+        "completed"
+        if delegate_result.status == "complete" and verification_info["acceptance_passed"]
+        else (
+            "partial_completed"
+            if delegate_result.status == "partial"
+            else "failed"
+            if delegate_result.status == "failed"
+            else "partial_completed"
+        )
+    )
     artifacts = [
         {"id": f"art_{i}_{uuid.uuid4().hex[:8]}", "path": str(a.path)}
         for i, a in enumerate(delegate_result.artifacts)
     ]
-    generate_artifact_manifest(output_dir, task_id, artifacts)
+    next_index = len(artifacts)
+    for name, kind in core_artifact_names:
+        path = output_dir / name
+        if any(str(item.get("path")) == str(path) for item in artifacts):
+            continue
+        artifacts.append(
+            {
+                "id": f"art_{next_index}_{uuid.uuid4().hex[:8]}",
+                "path": str(path),
+                "kind": kind,
+                "status": "verified" if verification_info["acceptance_passed"] else "partial",
+            }
+        )
+        next_index += 1
 
-    # 5. Determine final status
-    if delegate_result.status == "complete" and verification_info["acceptance_passed"]:
-        final_status = "completed"
-    elif delegate_result.status == "partial":
-        final_status = "partial_completed"
-    elif delegate_result.status == "failed":
-        final_status = "failed"
-    else:
-        final_status = "partial_completed"
-
-    # 6. Generate final result
     generate_final_result(
         output_dir,
         task_id,
@@ -311,6 +346,9 @@ def finalize_coding_task(
         build_results=build_results,
         known_failures=known_failures,
     )
+
+    # 5. Generate artifact manifest last; every listed path now exists.
+    generate_artifact_manifest(output_dir, task_id, artifacts)
 
     return {
         "status": final_status,

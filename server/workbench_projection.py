@@ -37,6 +37,7 @@ _ARTIFACT_NAMES = frozenset(
         "verification_report.json",
         "artifact_manifest.json",
         "final_result.json",
+        "delegate_result.json",
     }
 )
 _USAGE_KEYS = frozenset(
@@ -487,6 +488,7 @@ class WorkbenchProjection:
             changed_files = list(changed_files_report.get("files") or [])
         sensor_report = self._artifact_json(task_id, "sensor_report.json") or {}
         verification_report = self._artifact_json(task_id, "verification_report.json") or {}
+        delegate_result = self._artifact_json(task_id, "delegate_result.json") or {}
         task_status = getattr(coding_state, "status", None) or (
             task.status if task is not None else task_data.get("status")
         )
@@ -536,6 +538,7 @@ class WorkbenchProjection:
                         if key in verification_report
                     }
                 ),
+                "delegate_result": delegate_result,
             },
             "artifacts": self._artifact_names(task_id, coding_state, self.project_root),
             "usage": self._usage(task, events),

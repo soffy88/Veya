@@ -215,6 +215,7 @@ def _artifact_path(task_id: str, name: str) -> Path:
         "verification_report.json",
         "artifact_manifest.json",
         "final_result.json",
+        "delegate_result.json",
     }
     if name not in allowed or Path(name).name != name:
         raise HTTPException(status_code=404, detail="artifact not found")
