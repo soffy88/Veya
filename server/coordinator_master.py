@@ -807,6 +807,7 @@ class MasterCoordinator:
         user_prompt: str,
         *,
         session_id: str | None = None,
+        task_id: str | None = None,
         on_step: Callable | None = None,
         max_rounds: int | None = None,
         config: dict | None = None,
@@ -824,6 +825,8 @@ class MasterCoordinator:
         config/provider/model/endpoint 为请求级 LLM 覆盖(前端传入的 user key)。
         mode=plan: 只读; require_approval: 高影响工具等用户点批准。
         freeze_allow: 非 None 时设置本 session 写锁子目录 ("" = 解除 freeze)。
+        task_id: optional pre-created TaskStore projection used by the product
+            entry adapter; omitted callers retain passive per-turn creation.
         """
         llm_kwargs: dict[str, Any] = {}
         if config:
@@ -852,10 +855,27 @@ class MasterCoordinator:
             tuple[contextvars.Token, contextvars.Token, contextvars.Token] | None
         ) = None
         telemetry: Any | None = None
-        trace_id = uuid.uuid4().hex
+        requested_task_id = task_id
+        requested_task: Any | None = None
+        if requested_task_id:
+            from server.task_store import task_store
+
+            requested_task = task_store.get(requested_task_id)
+            if requested_task is None:
+                raise ValueError(f"task not found: {requested_task_id}")
+            if requested_task.session_id != (session_id or ""):
+                raise ValueError("task session does not match chat session")
+            trace_id = requested_task.trace_id or uuid.uuid4().hex
+        else:
+            trace_id = uuid.uuid4().hex
         turn_started = time.monotonic()
         result: dict[str, Any] | None = None
         try:
+            # Product entry creates the projection before execution so the
+            # canonical user message and all downstream tool events remain
+            # addressable by the same task id.
+            if requested_task_id:
+                task_token = _task_id_ctx.set(requested_task_id)
             sid_early = session_id or new_session_id()
             session_id = sid_early
             event_context_tokens = bind_event_context(
@@ -879,6 +899,7 @@ class MasterCoordinator:
                     {
                         "topic": "message.user_added",
                         "session_id": sid_early,
+                        "task_id": requested_task_id,
                         "trace_id": trace_id,
                         "turn_id": trace_id,
                         "actor": "user",
@@ -928,23 +949,44 @@ class MasterCoordinator:
             effective_rounds = max_rounds or self.max_rounds
             # P1 强上下文: 稳定 sid + 冷启动从持久层恢复历史 (重启/换进程不失忆)
             sid = session_id or sid_early
-            # P1-03 Task Center 被动登记 (A-04: 只投影不控制): 每轮会话创建一个
-            # task 记录, 后续由状态投影更新。纯副作用——try/except 包裹,
-            # 任何失败绝不拖垮主链 (与 _persist_history 同一纪律)。
-            task_id: str | None = None
-            with contextlib.suppress(Exception):
+            # P1-03 Task Center 被动登记 (A-04: 只投影不控制): ordinary turns
+            # create one projection here.  Product entry tasks arrive with a
+            # pre-created projection and must reuse it, never create a second
+            # TaskStore record for the same user action.
+            task_id = requested_task_id
+            if requested_task_id:
                 from server.task_store import task_store
 
-                task = task_store.create(
-                    session_id=sid,
-                    title=user_prompt.replace("\n", " ")[:40] or "任务",
-                    objective=user_prompt[:500],
-                    workspace_id=None,
-                    trace_id=trace_id,
-                )
-                task_id = task.id
-                task_token = _task_id_ctx.set(task.id)
-                task_store.update_status(task_id, "running")
+                task = requested_task
+                task_store.update_status(requested_task_id, "running")
+                with contextlib.suppress(Exception):
+                    from server.events import event_store
+
+                    event_store.append(
+                        {
+                            "topic": "turn.started",
+                            "session_id": sid,
+                            "task_id": requested_task_id,
+                            "trace_id": trace_id,
+                            "turn_id": trace_id,
+                            "actor": "system",
+                            "payload": {"objective": user_prompt[:500]},
+                        }
+                    )
+            else:
+                with contextlib.suppress(Exception):
+                    from server.task_store import task_store
+
+                    task = task_store.create(
+                        session_id=sid,
+                        title=user_prompt.replace("\n", " ")[:40] or "任务",
+                        objective=user_prompt[:500],
+                        workspace_id=None,
+                        trace_id=trace_id,
+                    )
+                    task_id = task.id
+                    task_token = _task_id_ctx.set(task.id)
+                    task_store.update_status(task_id, "running")
                 with contextlib.suppress(Exception):
                     from server.events import event_store
 

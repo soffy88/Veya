@@ -14,16 +14,18 @@
 	};
 
 	interface Props {
-		onNewTask: () => void;
 		onOpenSettings: () => void;
 		onOpenTasks: () => void;
 	}
 
-	let { onNewTask, onOpenSettings, onOpenTasks }: Props = $props();
+	let { onOpenSettings, onOpenTasks }: Props = $props();
 	let botState = $state<BotState | null>(null);
 	let workspace = $state("");
+	let taskObjective = $state("");
+	let taskInput = $state<HTMLTextAreaElement>();
 	let loading = $state(true);
 	let saving = $state(false);
+	let creatingTask = $state(false);
 	let error = $state("");
 	let saved = $state(false);
 
@@ -38,6 +40,40 @@
 		} else {
 			error = `Bot 状态加载失败 (${result.status})`;
 		}
+	}
+
+	async function createTask(): Promise<void> {
+		const objective = taskObjective.trim();
+		if (!objective) {
+			error = "请先输入任务目标";
+			taskInput?.focus();
+			return;
+		}
+		creatingTask = true;
+		error = "";
+		const result: ApiResult = await api("gateway", "api/v1/bot/tasks", {
+			method: "POST",
+			body: {
+				objective,
+				provider: apiKeyStore.provider,
+				model: apiKeyStore.model.trim() || apiKeyStore.current.defaultModel || undefined,
+				workspace_id: botState?.workspace?.path || undefined,
+				// Request-scoped provider config is consumed by MasterAgent and is
+				// never persisted in task state or returned by this endpoint.
+				config: apiKeyStore.asConfig(),
+			},
+		});
+		creatingTask = false;
+		if (result.ok && result.data && typeof result.data === "object") {
+			const taskId = (result.data as { task_id?: unknown }).task_id;
+			if (typeof taskId === "string" && taskId) {
+				window.location.assign(`/workbench/${encodeURIComponent(taskId)}`);
+				return;
+			}
+		}
+		error = result.data && typeof result.data === "object" && "detail" in result.data
+			? String((result.data as { detail?: unknown }).detail ?? "任务创建失败")
+			: `任务创建失败 (${result.status})`;
 	}
 
 	async function completeOnboarding(): Promise<void> {
@@ -83,7 +119,7 @@
 			</div>
 			<p class="mt-1 text-sm text-terminal-dim">你的长期任务入口：对话、执行、审批、验证和结果都回到同一条真实状态链。</p>
 		</div>
-		<button type="button" onclick={onNewTask} class="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110">
+		<button type="button" onclick={() => taskInput?.focus()} class="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110">
 			新建任务 <ArrowRight class="size-4" />
 		</button>
 	</div>
@@ -95,6 +131,23 @@
 	{#if loading}
 		<div class="flex items-center gap-2 rounded-xl border border-terminal-edge bg-terminal-panel p-5 text-sm text-terminal-dim"><RefreshCw class="size-4 animate-spin" />读取 Bot 状态…</div>
 	{:else if botState}
+		<section class="rounded-xl border border-sky-500/30 bg-sky-500/[0.05] p-5">
+			<div class="flex items-start gap-3">
+				<div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-300"><ArrowRight class="size-4" /></div>
+				<div class="min-w-0 flex-1">
+					<h3 class="text-sm font-semibold text-terminal-fg">New Task</h3>
+					<p class="mt-1 text-xs leading-relaxed text-terminal-dim">从这里创建真实任务；提交后进入现有 MasterAgent 和 Workbench 链路。</p>
+					<form class="mt-4 space-y-3" onsubmit={(event) => { event.preventDefault(); void createTask(); }}>
+						<textarea bind:this={taskInput} bind:value={taskObjective} rows="3" maxlength="20000" placeholder="描述你希望 Veya Bot 完成的任务…" class="w-full resize-y rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2.5 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60"></textarea>
+						<div class="flex flex-wrap items-center justify-between gap-3">
+							<span class="font-mono text-[10px] text-terminal-dim/70">Task → GoalRun → governed execution → verification → artifact</span>
+							<button type="submit" disabled={creatingTask || !taskObjective.trim()} class="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">{creatingTask ? "创建并启动…" : "创建并启动任务"}<ArrowRight class="size-3.5" /></button>
+						</div>
+					</form>
+				</div>
+			</div>
+		</section>
+
 		{#if botState.onboarding?.required}
 			<section class="rounded-xl border border-amber-500/30 bg-amber-500/[0.05] p-5">
 				<div class="flex items-start gap-3">

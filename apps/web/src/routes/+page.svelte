@@ -246,7 +246,7 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 			<ChatConsole />
 		</div>
 		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "bot"}>
-			<ProductShell onNewTask={newChat} onOpenSettings={() => (settingsOpen = true)} onOpenTasks={openTasks} />
+			<ProductShell onOpenSettings={() => (settingsOpen = true)} onOpenTasks={openTasks} />
 		</div>
 		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "dashboard"}>
 			<Dashboard />
