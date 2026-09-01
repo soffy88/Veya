@@ -1,6 +1,9 @@
+# LEGACY REFERENCE ONLY — not mounted or read by the production entrypoint.
+# The Veya-owned HicodeExecutorAdapter generates an isolated config under the
+# Veya runtime data root. This file remains only for historical compatibility.
 # hicode (reasonix CLI) — veya 容器内配置
 # 容器内 127.0.0.1 是容器自己; 宿主模型网关经 docker bridge 网关 192.168.16.1:10101 访问。
-# 状态目录由 REASONIX_STATE_HOME 指向 veya-data volume (配置目录只读挂载)。
+# 状态目录由 REASONIX_STATE_HOME 指向 Veya runtime data root。
 
 [agent]
 reasoning_language = "auto"
@@ -16,7 +19,8 @@ api_key_env = "REASONIX_LOCAL_KEY"
 context_window = 1000000
 
 # opencode-go 云端 (与 veya 免费池同源; 独立可用, 不依赖本地网关/反代)
-# key 由启动脚本写入 ~/.reasonix/.env (容器层), 不入 git
+# Production does not write keys here; credentials are late-bound by the
+# generated adapter config and inherited only by the child process.
 [[providers]]
 name        = "opencode-go"
 kind        = "openai"

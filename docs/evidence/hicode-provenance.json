@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "audit": {
+    "tested_head": "835b3143ac90de3c2fd709a95609a6b4446a0862",
+    "date": "2026-09-01",
+    "scope": "HiCode/Reasonix provenance, runtime, packaging, license, and execution topology",
+    "working_tree_verification": true
+  },
+  "final_classification": "MANAGED_WRAPPED_DEPENDENCY",
+  "upstream": {
+    "project_name": "Reasonix",
+    "package_name": "reasonix",
+    "repository_at_integration_era": "https://github.com/esengine/DeepSeek-Reasonix.git",
+    "historical_repository_metadata": "https://github.com/esengine/reasonix.git",
+    "license": "MIT",
+    "version_used_by_veya": "1.21.3",
+    "commit_used_by_veya": "6cc0d73405c3ad12c38753f117bdfa01417ab898",
+    "package_integrity": "sha512-F6aZEYvH+0FT9wmuBdC6F83S2xFY2KN6uKDoyb0mKrPtKQ8kid/VDXVQizGm7RGxdHjXI4NXbdhl+ybImhX1XQ==",
+    "nearest_public_release_before_first_veya_integration": {
+      "version": "1.21.3",
+      "commit": "6cc0d73405c3ad12c38753f117bdfa01417ab898",
+      "published_at": "2026-08-08T10:38:23.993Z",
+      "basis": "latest public npm release before first integration; Veya did not pin it"
+    },
+    "actual_version_confidence": "EXACT_LOCKFILE_AND_REGISTRY_VERIFIED",
+    "license_evidence": "upstream LICENSE identifies MIT License and Reasonix Contributors",
+    "managed_distribution_contract": "deploy/hicode-runtime/package.json + package-lock.json; official server image installs with npm ci"
+  },
+  "veya_history": {
+    "first_integration_commit": {
+      "commit": "7b8ad1c30a44441cb38818f2a948ad8d40e8997b",
+      "date": "2026-08-09T01:13:22Z",
+      "subject": "feat(reasonix): 集成 Reasonix 编码执行器 — 编程任务确定性路由执行"
+    },
+    "branding_rename_commit": {
+      "commit": "9f62163e8d0fae1957fc780b564ae025469954bd",
+      "date": "2026-08-10T01:08:27Z",
+      "subject": "refactor(hicode): Reasonix → hicode 全链路更名"
+    },
+    "major_followups": [
+      {"commit": "7482fba903f6ef76a277ece2699f872227811030", "change": "resume, SSE progress, checkpoint rollback"},
+      {"commit": "cc6fccb5dab41a31488e55f4457b7c793c61d13d", "change": "serve HTTP/SSE client and container service path"},
+      {"commit": "10335fb200e780642ce8d0988487460a79daf1bb", "change": "coding-task fallback to serve"},
+      {"commit": "126e375c92c01d654afba9cf0d0ece625e41a6ad", "change": "separate service CWD from writable hicode workspace"},
+      {"commit": "3e88c281", "change": "project_ask integration and workspace boundary"},
+      {"commit": "9b524ad1", "change": "GoalRun orchestration integration"}
+    ],
+    "upstream_source_copied_into_veya": false,
+    "upstream_source_submodule": false
+  },
+  "paths": [
+    {
+      "path": "server/hicode_agent.py",
+      "classification": "THIN_WRAPPER",
+      "origin": "Veya-owned HicodeExecutorAdapter around the managed external Reasonix executable",
+      "upstream_version": "1.21.3",
+      "upstream_commit": "6cc0d73405c3ad12c38753f117bdfa01417ab898",
+      "license": "MIT applies to external upstream; no upstream source copied here",
+      "modified_by_veya": true,
+      "runtime_required": true,
+      "evidence": "server/hicode_runtime.py owns managed-first discovery, version probe, config, environment, and command construction"
+    },
+    {
+      "path": "server/hicode_runtime.py",
+      "classification": "THIN_WRAPPER",
+      "origin": "Veya-owned managed-runtime locator/configuration/health adapter for Reasonix",
+      "upstream_version": "1.21.3",
+      "upstream_commit": "6cc0d73405c3ad12c38753f117bdfa01417ab898",
+      "license": "Veya MIT adapter; external Reasonix remains MIT",
+      "modified_by_veya": true,
+      "runtime_required": true,
+      "evidence": "HicodeExecutorAdapter; no Reasonix source copied into Veya"
+    },
+    {
+      "path": "server/hicode_serve.py",
+      "classification": "THIN_WRAPPER",
+      "origin": "Veya HTTP/SSE client for external reasonix serve",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": "MIT applies to external upstream; no upstream source copied here",
+      "modified_by_veya": true,
+      "runtime_required": true,
+      "evidence": "HICODE_SERVE_BASE and HTTP client; no embedded server"
+    },
+    {
+      "path": "server/hicode_queue.py",
+      "classification": "NATIVE_VEYA",
+      "origin": "Veya queue, cancellation, and session bookkeeping",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": "Veya MIT",
+      "modified_by_veya": true,
+      "runtime_required": true
+    },
+    {
+      "path": "deploy/hicode-entrypoint.sh",
+      "classification": "THIN_WRAPPER",
+      "origin": "Veya container launcher for external reasonix serve",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": "Veya launcher; external CLI retains MIT",
+      "modified_by_veya": true,
+      "runtime_required": true,
+      "evidence": "executes the pinned Veya-managed binary at /opt/veya/hicode-runtime/node_modules/.bin/reasonix"
+    },
+    {
+      "path": "deploy/hicode-container/config.toml",
+      "classification": "THIN_WRAPPER",
+      "origin": "Veya deployment config consumed by external reasonix CLI",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": "Veya deployment file; external CLI retains MIT",
+      "modified_by_veya": true,
+      "runtime_required": false,
+      "note": "Legacy reference only; production entrypoint no longer mounts or reads this file"
+    },
+    {
+      "path": "server/coordinator_master.py",
+      "classification": "NATIVE_VEYA",
+      "origin": "MasterAgent tool registration and orchestration",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": "Veya MIT",
+      "modified_by_veya": true,
+      "runtime_required": true
+    },
+    {
+      "path": "server/tools/coding_task.py",
+      "classification": "NATIVE_VEYA",
+      "origin": "Veya CodingTask/GoalRun/Harness adapter",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": "Veya MIT",
+      "modified_by_veya": true,
+      "runtime_required": true,
+      "note": "Current coding_task_run uses Veya coding tools and sensors; it does not invoke hicode"
+    },
+    {
+      "path": "runtime/coding/",
+      "classification": "NATIVE_VEYA",
+      "origin": "Veya CodingTask, worktree, verification, and artifact runtime",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": "Veya MIT",
+      "modified_by_veya": true,
+      "runtime_required": true
+    },
+    {
+      "path": "server/goal_run/",
+      "classification": "NATIVE_VEYA",
+      "origin": "Veya durable GoalRun authority and leaf orchestration",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": "Veya MIT",
+      "modified_by_veya": true,
+      "runtime_required": true
+    },
+    {
+      "path": "deploy/requirements.txt",
+      "classification": "UNKNOWN_PROVENANCE",
+      "origin": "comment-only historical line mentioning hicode==0.4.0",
+      "upstream_version": null,
+      "upstream_commit": null,
+      "license": null,
+      "modified_by_veya": true,
+      "runtime_required": false,
+      "note": "No dependency declaration; does not establish the Reasonix version"
+    }
+  ],
+  "runtime_topology": {
+    "public_entry": "MasterAgent tool hicode_run",
+    "veya_adapter": "server.hicode_agent.hicode_run",
+    "internal_support": ["HicodeTaskQueue", "HicodeServeClient"],
+    "upstream_derived_modules_in_veya": [],
+    "upstream_package_imported_by_python": false,
+    "external_executable": "reasonix",
+    "managed_runtime_root": "/opt/veya/hicode-runtime",
+    "managed_install_manifest": "deploy/hicode-runtime/package-lock.json",
+    "external_executable_discovery": ["Veya-managed runtime root", "explicit HICODE_BIN only outside production"],
+    "external_config_paths": ["<HICODE_RUNTIME_DATA_ROOT>/reasonix-home/.reasonix/config.toml"],
+    "external_state_env": ["REASONIX_STATE_HOME"],
+    "external_network_paths": ["HICODE_SERVE_BASE", "HICODE_PROXY_UPSTREAM", "provider base_url"],
+    "dynamic_install_or_clone_in_veya": false,
+    "developer_path_dependency": false,
+    "production_random_path_dependency": false,
+    "wheel_contains_upstream_implementation": false,
+    "wheel_contains_hicode_adapter": true,
+    "wheel_contains_required_3o_submodules": false,
+    "official_server_image_contains_required_3o_submodules": true
+  },
+  "official_server_image_verification": {
+    "image": "veya-hicode-audit-final:latest",
+    "image_digest": "sha256:148735af21d6e179c084bd6f7b8a1d2a3b01a7c74caa653c98b88925444424a7",
+    "build": "PASS: pinned Node base, Python dependencies, Veya package, 3O assembly, and managed Reasonix install",
+    "managed_reasonix_version": "1.21.3",
+    "container_smoke": "PASS: non-root container imported Veya and all 3O runtimes, generated secret-free config, and reported compatible managed Reasonix"
+  },
+  "residual_upstream_coupling": [
+    {"item": "reasonix executable", "classification": "REQUIRED_EXTERNAL_DEPENDENCY", "evidence": "official server image installs exact reasonix@1.21.3 from the checked-in lockfile"},
+    {"item": "npm install guidance", "classification": "FIXED", "evidence": "Veya release contract now uses deploy/hicode-runtime/package-lock.json; no @reasonix/cli instruction remains"},
+    {"item": "~/.reasonix config/state naming", "classification": "LICENSE_REQUIRED_REFERENCE", "evidence": "Reasonix-compatible child HOME is nested under Veya-owned HICODE_RUNTIME_DATA_ROOT; global ~/.reasonix is not used"},
+    {"item": "HICODE_* and REASONIX_* variables", "classification": "REQUIRED_EXTERNAL_DEPENDENCY", "evidence": "adapter and container config"},
+    {"item": "hicode branding", "classification": "REMOVABLE_LEGACY", "evidence": "public Veya name differs from external binary"},
+    {"item": "hicode==0.4.0 comment", "classification": "UNKNOWN_PROVENANCE", "evidence": "comment only; no matching package requirement"}
+  ],
+  "license_audit": {
+    "upstream_license": "MIT",
+    "upstream_copyright": "Copyright (c) 2026 Reasonix Contributors",
+    "veya_root_license": "MIT; Copyright (c) 2026 soffy88",
+    "upstream_license_file_vendored_in_veya": false,
+    "notice_status": "Reasonix URL, Contributors copyright, MIT license, pinned package/version, and Veya integration boundary are recorded in docs/HICODE_RUNTIME_CONTRACT.md and docs/evidence/hicode-upstream.json; npm package metadata/license ships in the official server image",
+    "review_required": false,
+    "review_reason": null
+  },
+  "clean_wheel_verification": {
+    "wheel": "veya-0.6.0-py3-none-any.whl",
+    "fresh_venv": true,
+    "upstream_separately_installed": false,
+    "repo_cwd_or_editable_install_used": false,
+    "manual_pythonpath_used": false,
+    "veya_cli_result": "veya 0.6.0",
+    "reasonix_python_distribution": false,
+    "reasonix_executable_in_clean_path": false,
+    "hicode_adapter_files_present": true,
+    "hicode_import_result": "PASS: clean wheel imports veya and server.hicode_runtime with no upstream Python package",
+    "hicode_status_with_existing_3o_assembly_and_clean_path": "PASS: official server image clean-container smoke",
+    "hicode_minimal_execution": "PASS: actual Reasonix 1.21.3 ran against a local streaming OpenAI-compatible fixture",
+    "isolated_worktree_execution": "PASS: managed runtime smoke used an isolated temporary workspace",
+    "coding_task_invocation": "Veya-native CodingTask path; not Hicode execution",
+    "goalrun_invocation": "Veya-native GoalRun path; not proof of Hicode internalization",
+    "harness_verification": "NOT_VERIFIED_THROUGH_HICODE",
+    "overall_result": "PASS_FOR_MANAGED_WRAPPED_CONTRACT"
+  },
+  "regression_evidence": {
+    "hicode_and_coding_regression": "16 passed in hicode managed-runtime/CLI/workspace regression; 144 passed in Runtime/GoalRun/Harness/Coding suite",
+    "runtime_goalrun_previous_release_suite": "289 passed, 5 skipped for unavailable PostgreSQL",
+    "personal_gold_previous_release_suite": "PASS",
+    "ruff_mypy_direct_io_3o_previous_release_suite": "PASS; direct-IO new=0",
+    "secret_isolation_previous_release_suite": "PASS",
+    "unexpected_network_bootstrap": "No Veya dynamic install/clone path found"
+  },
+  "required_fixes": []
+}

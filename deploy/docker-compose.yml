@@ -79,8 +79,10 @@ services:
       - OD_API_TOKEN=${OD_API_TOKEN:-}
       - OD_DAEMON_URL=${OD_DAEMON_URL:-http://192.168.16.1:17456}
       - VEYA_FRONTIER_ENDPOINT=${VEYA_FRONTIER_ENDPOINT:-http://192.168.16.1:10101/v1}
-      # hicode 编码执行器: 状态/工作区进 veya-data volume, 配置目录只读
-      - REASONIX_STATE_HOME=/home/soffy/.veya/reasonix-state
+      # hicode managed runtime: config/state live under the Veya data volume
+      - HICODE_MANAGED_RUNTIME_ROOT=/opt/veya/hicode-runtime
+      - HICODE_RUNTIME_DATA_ROOT=/home/soffy/.veya/hicode-runtime
+      - HICODE_PRODUCTION=1
       - HICODE_PROXY=1   # 容器内反代: 改 Host 头绕过 opencodex 来源校验
       # Vision Toolkit 路径白名单: 主脑视觉取证可读 /repo (veya 仓库) + 同级项目
       # + hicode 工作区 (像素差分 hicode 产物); 视觉模型走 hicode 反代 (见 oskill)
@@ -122,9 +124,7 @@ services:
       - /home/soffy/.opencode:/home/soffy/.opencode:ro
       # skill_hub 技能库 (宿主实时同步, 只读)
       - /home/soffy/.veya/skills:/home/soffy/.veya/skills:ro
-      # hicode 编码执行器配置 (容器内 base_url=宿主网关 192.168.16.1:10101)
-      # 单文件 ro 挂载 → ~/.reasonix/.env (容器层可写, 启动脚本写入 key)
-      - ../deploy/hicode-container/config.toml:/home/soffy/.reasonix/config.toml:ro
+      # hicode-entrypoint generates the isolated Reasonix config under veya-data.
       - ../deploy/hicode-entrypoint.sh:/app/hicode-entrypoint.sh:ro
       # Git 面板工作区: 宿主 veya 仓库根 (git status/diff/commit 操作真实仓库)
       - /data/soffy/projects/veya:/repo:rw

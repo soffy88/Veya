@@ -180,4 +180,4 @@ dsh --profile headless "在当前目录新建 hello.py，写 print('hi')"
 
 **边界确认**：续答轮曾出现 `confidence 0.72 < 0.75` 被硬约束降级 ask（LLM 已正确复述任务但置信差 0.03）——这是 §7.2 设计行为（宁可多问），不是 bug，未放宽阈值。
 
-**已知遗留**：dsh 路径仍受 §5.1 的 key 问题影响——`.env` 的 `DEEPSEEK_API_KEY` 对 dsh 无效（`dsh: AUTH: Authentication Fails`），门禁放行正常，要跑通 dsh 需换一把 dsh 认的公开 key（`~/.reasonix/.env` 的 `OPENCODE_API_KEY` 与 opencode 网关 key 是同一把，可尝试复用它）。
+**历史 smoke 记录（2026-08）**：dsh 路径曾受 §5.1 的 key 问题影响——`.env` 的 `DEEPSEEK_API_KEY` 对 dsh 无效（`dsh: AUTH: Authentication Fails`）。当前 HiCode managed contract 不读取全局 `~/.reasonix` 配置；生产凭据通过 Veya-owned runtime config 与执行时引用注入，详见 [`docs/HICODE_RUNTIME_CONTRACT.md`](HICODE_RUNTIME_CONTRACT.md)。
