@@ -146,12 +146,31 @@ async def resume_task(
         }
     from server.coordinator_master import master_coordinator
 
+    # Product Shell tasks must resume with the provider/model selected during
+    # onboarding.  The generic resume path otherwise falls back to the
+    # process-wide default provider, which can select the free-pool alias.
+    resume_llm: dict[str, str] = {}
+    from server.events import event_store
+
+    if event_store.read_all(task_id=task_id, topics={"product.task_submitted"}):
+        from server.product_shell import read_bot_state
+
+        provider_info = read_bot_state().get("provider")
+        if isinstance(provider_info, dict):
+            provider_id = str(provider_info.get("id") or "").strip()
+            provider_model = str(provider_info.get("model") or "").strip()
+            if provider_id:
+                resume_llm["provider"] = provider_id
+            if provider_model:
+                resume_llm["model"] = provider_model
+
     try:
         result = await master_coordinator.chat_stream(
             req.text,
             session_id=task.session_id,
             task_id=task_id,
             max_rounds=req.max_rounds,
+            **resume_llm,
         )
     except Exception as exc:
         append_canonical_event(
