@@ -1,6 +1,7 @@
 # Docker build context — 只发源码, 不发运行时产物 (context 从 2GB+ 降到 ~150MB)
 venv/
 .venv/
+node_modules/
 **/__pycache__/
 **/*.pyc
 

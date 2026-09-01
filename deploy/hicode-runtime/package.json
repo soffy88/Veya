@@ -1,0 +1,8 @@
+{
+  "name": "veya-managed-hicode-runtime",
+  "private": true,
+  "description": "Pinned Reasonix runtime managed by the Veya server image",
+  "dependencies": {
+    "reasonix": "1.21.3"
+  }
+}
