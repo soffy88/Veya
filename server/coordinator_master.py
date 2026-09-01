@@ -20,7 +20,6 @@ import time
 import uuid
 import weakref
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, cast
 
 from server import graft_autocontext as _graft_autocontext
@@ -1064,7 +1063,11 @@ class MasterCoordinator:
             # not a tool visibility filter; the MasterAgent always receives the
             # complete registry.
             from server import tool_registry as _tr
-            from server.tool_governance_adapter import bind_task_governance, reset_task_governance
+            from server.tool_governance_adapter import (
+                bind_task_governance,
+                default_task_governance_output_dir,
+                reset_task_governance,
+            )
 
             _lite_token = _tr._current_master_session.set(sid)
             if requested_task_id is not None:
@@ -1072,11 +1075,7 @@ class MasterCoordinator:
                     task_id=str(requested_task_id),
                     session_id=sid,
                     trace_id=trace_id,
-                    output_dir=Path(".veya")
-                    / "runs"
-                    / str(requested_task_id)
-                    / "outputs"
-                    / "tool_governance",
+                    output_dir=default_task_governance_output_dir(str(requested_task_id)),
                 )
             try:
                 result = await self._agent.chat_stream(

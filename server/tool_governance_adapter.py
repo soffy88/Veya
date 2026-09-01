@@ -61,6 +61,19 @@ def reset_task_governance(token: contextvars.Token) -> None:
     _task_governance_ctx.reset(token)
 
 
+def default_veya_output_root() -> Path:
+    """Return the persistent Veya output root when no deployment override exists."""
+
+    configured = os.environ.get("VEYA_OUTPUT_DIR", "").strip()
+    return Path(configured).expanduser() if configured else Path.home() / ".veya" / "runs"
+
+
+def default_task_governance_output_dir(task_id: str) -> Path:
+    """Return the task-scoped governance output directory."""
+
+    return default_veya_output_root() / task_id / "outputs" / "tool_governance"
+
+
 def _effect_for_legacy(name: str, declared: str | None, arguments: Mapping[str, Any]) -> str:
     """Map existing Veya metadata to the canonical 3O effect vocabulary."""
 
@@ -123,7 +136,7 @@ class TaskGovernanceContext:
                     work_item_id=self.task_id,
                     audit_writer=self._write_audit,
                     output_dir=self.output_dir
-                    or Path(".veya") / "runs" / self.task_id / "outputs" / "tool_governance",
+                    or default_task_governance_output_dir(self.task_id),
                 )
             if needs_ledger and self._ledger is None:
                 self._ledger = await self._build_ledger()
