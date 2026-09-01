@@ -7,8 +7,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from server.routes.debug_guard import require_nonproduction_debug
 
 router = APIRouter(prefix="/vscode", tags=["vscode"])
 
@@ -153,7 +155,7 @@ async def get_session(session_id: str):
         raise HTTPException(status_code=404, detail=f"Session not found: {e!s}")
 
 
-@router.post("/debug/start")
+@router.post("/debug/start", dependencies=[Depends(require_nonproduction_debug)])
 async def start_debug_session(session_id: str):
     """Start a debug session for VS Code"""
     try:
@@ -169,7 +171,7 @@ async def start_debug_session(session_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to start debug: {e!s}")
 
 
-@router.post("/debug/breakpoint")
+@router.post("/debug/breakpoint", dependencies=[Depends(require_nonproduction_debug)])
 async def add_breakpoint(session_id: str, file: str, line: int, condition: str | None = None):
     """Add a breakpoint in VS Code"""
     try:
