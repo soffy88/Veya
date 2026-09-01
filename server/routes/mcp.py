@@ -15,17 +15,16 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-import os
 import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from server.tool_governance_adapter import default_veya_output_root
 from veya.platform import load
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
@@ -84,7 +83,7 @@ def _task_context(name: str) -> Any:
     from server.tool_governance_adapter import TaskGovernanceContext
 
     task_id = f"mcp-rest-{_safe_id(name)}-{uuid.uuid4().hex[:12]}"
-    output_root = Path(os.environ.get("VEYA_OUTPUT_DIR", ".veya/runs"))
+    output_root = default_veya_output_root()
     return TaskGovernanceContext(
         task_id=task_id,
         session_id=f"mcp-rest-{_safe_id(name)}",
