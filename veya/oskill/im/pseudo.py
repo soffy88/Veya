@@ -15,10 +15,22 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
-# Default secret is derived from the environment; override with VEYA_PSEUDO_SECRET.
-_DEFAULT_SECRET = os.environ.get("VEYA_PSEUDO_SECRET", "veya-layer4-pseudo-anonymizer")
+# Development/test-only fallback.  Production startup rejects its use and
+# requires VEYA_PSEUDO_SECRET to be supplied by the deployment secret layer.
+_DEV_FALLBACK_SECRET = "veya-layer4-pseudo-anonymizer"
+
+
+def _production_mode() -> bool:
+    return os.environ.get("VEYA_EXECUTION_PRODUCTION", "").strip().lower() not in {
+        "",
+        "0",
+        "false",
+        "off",
+        "no",
+    }
 
 
 def _resolve_obase_anonymizer() -> Any | None:
@@ -47,7 +59,10 @@ class PseudoAnonymizer:
     _PREFIX = "u_"
 
     def __init__(self, secret: str | None = None) -> None:
-        self._secret = (secret or _DEFAULT_SECRET).encode("utf-8")
+        resolved = (secret or os.environ.get("VEYA_PSEUDO_SECRET", "")).strip()
+        if not resolved and _production_mode():
+            raise RuntimeError("VEYA_PSEUDO_SECRET is required in production")
+        self._secret = (resolved or _DEV_FALLBACK_SECRET).encode("utf-8")
 
     def anonymize(self, user_id: str) -> str:
         """Return a stable non-PII reference token for *user_id*."""
@@ -68,9 +83,9 @@ class _ObasedAnonymizer:
     def anonymize(self, user_id: str) -> str:
         fn = getattr(self._element, "anonymize", None)
         if callable(fn):
-            return fn(user_id)
+            return cast(str, fn(user_id))
         # some 3O elements expose a plain callable instead
-        return self._element(user_id)
+        return cast(Callable[[str], str], self._element)(user_id)
 
 
 def resolve_anonymizer() -> Any:
@@ -85,7 +100,7 @@ def anonymize_user_id(user_id: str, *, secret: str | None = None) -> str:
     """One-shot pseudo-anonymization: stable, non-PII reference token."""
     if secret is not None:
         return PseudoAnonymizer(secret=secret).anonymize(user_id)
-    return resolve_anonymizer().anonymize(user_id)
+    return cast(str, resolve_anonymizer().anonymize(user_id))
 
 
 __all__ = ["PseudoAnonymizer", "anonymize_user_id", "resolve_anonymizer"]

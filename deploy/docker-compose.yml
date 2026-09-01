@@ -21,8 +21,8 @@ services:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.2}
       # Production durable execution is configured in the root .env. If it is
       # enabled without PostgreSQL, startup fails closed before any claim.
-      - VEYA_DURABLE_EXECUTION=${VEYA_DURABLE_EXECUTION:-0}
-      - VEYA_EXECUTION_DATABASE_URL=${VEYA_EXECUTION_DATABASE_URL:-}
+      - VEYA_DURABLE_EXECUTION=${VEYA_DURABLE_EXECUTION:?VEYA_DURABLE_EXECUTION must be set to 1 in production}
+      - VEYA_EXECUTION_DATABASE_URL=${VEYA_EXECUTION_DATABASE_URL:?VEYA_EXECUTION_DATABASE_URL must be set to a PostgreSQL DSN in production}
       - VEYA_EXECUTION_PRODUCTION=${VEYA_EXECUTION_PRODUCTION:-1}
       - VEYA_EXECUTION_LEASE_TTL_S=${VEYA_EXECUTION_LEASE_TTL_S:-30}
       - VEYA_EXECUTION_HEARTBEAT_INTERVAL_S=${VEYA_EXECUTION_HEARTBEAT_INTERVAL_S:-10}
@@ -72,7 +72,7 @@ services:
       # 把 opencode key (与 OPENCODE_API_KEY 相同来源, 2026-08-16 接入)。
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://opencode.ai/zen/go/v1}
-      - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:-veya-dev-secret}
+      - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:?VEYA_PSEUDO_SECRET must be set in production}
       - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
       - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
       - HEVI_MCP_ENDPOINT=${HEVI_MCP_ENDPOINT:-http://192.168.16.1:8201/mcp/mcp}
