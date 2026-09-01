@@ -173,6 +173,7 @@ class TaskGovernanceContext:
         name: str,
         arguments: Mapping[str, Any],
         executor: Callable[..., Any],
+        grant: Any | None = None,
         schema: Mapping[str, Any] | None = None,
         declared_effect: str | None = None,
         effect_capability: str = "manual_only",
@@ -200,21 +201,21 @@ class TaskGovernanceContext:
             return await _invoke_callback(executor, dict(kwargs))
 
         adapter.register_native(spec, physical)
-        grant = self._grants.get(spec.identity)
-        if grant is None:
+        selected_grant = grant or self._grants.get(spec.identity)
+        if selected_grant is None:
             obase = load("obase")
-            grant = obase.Grant(
+            selected_grant = obase.Grant(
                 tool=spec.identity,
                 subject="master",
                 allowed_effects=frozenset({spec.effect}),
                 tool_version=spec.version,
             )
-            self._grants[spec.identity] = grant
+            self._grants[spec.identity] = selected_grant
         operation_key = _operation_key(self.task_id, name, arguments)
         result = await adapter.execute(
             name,
             arguments,
-            grant=grant,
+            grant=selected_grant,
             request_id=operation_key,
             operation_key=operation_key,
             target_ref=spec.identity,
