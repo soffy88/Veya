@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging as _logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
@@ -93,6 +93,52 @@ def _load_viz_routers() -> tuple[APIRouter | None, APIRouter | None]:
 _visualization_router, _advanced_visualization_router = _load_viz_routers()
 
 
+_PRODUCTION_SECRET_DEFAULTS = frozenset(
+    {
+        "veya-dev-secret",
+        "veya-layer4-pseudo-anonymizer",
+        "change-me",
+        "changeme",
+        "dev-secret",
+    }
+)
+
+
+def _env_enabled(value: object) -> bool:
+    return str(value or "").strip().lower() not in {"", "0", "false", "off", "no"}
+
+
+def validate_production_config(env: Mapping[str, str] | None = None) -> None:
+    """Reject production startup that would silently use local fallbacks.
+
+    This is intentionally a small Layer-4 startup guard.  Development and
+    test profiles retain their existing local fallbacks; the production
+    profile must opt into the PostgreSQL execution authority and provide its
+    pseudonymization secret explicitly.
+    """
+
+    values = os.environ if env is None else env
+    if not _env_enabled(values.get("VEYA_EXECUTION_PRODUCTION")):
+        return
+
+    errors: list[str] = []
+    pseudo_secret = str(values.get("VEYA_PSEUDO_SECRET") or "").strip()
+    if not pseudo_secret:
+        errors.append("VEYA_PSEUDO_SECRET is required")
+    elif pseudo_secret.lower() in _PRODUCTION_SECRET_DEFAULTS:
+        errors.append("VEYA_PSEUDO_SECRET must not use a development default")
+
+    if not _env_enabled(values.get("VEYA_DURABLE_EXECUTION")):
+        errors.append("VEYA_DURABLE_EXECUTION must be enabled")
+
+    database_url = str(values.get("VEYA_EXECUTION_DATABASE_URL") or "").strip()
+    if not database_url.startswith(("postgres://", "postgresql://")):
+        errors.append("VEYA_EXECUTION_DATABASE_URL must be a PostgreSQL DSN")
+
+    if errors:
+        raise RuntimeError("production configuration invalid: " + "; ".join(errors))
+
+
 async def _bounded_optional_start(
     start: Callable[[], Awaitable[object]], *, timeout_s: float = 10.0
 ) -> None:
@@ -103,7 +149,9 @@ async def _bounded_optional_start(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Infra.init(load_config())
+    config = load_config()
+    validate_production_config()
+    Infra.init(config)
     import logging
 
     _lg = logging.getLogger("veya.lifespan")
