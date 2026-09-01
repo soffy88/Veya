@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging as _logging
 import os
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
@@ -92,6 +93,14 @@ def _load_viz_routers() -> tuple[APIRouter | None, APIRouter | None]:
 _visualization_router, _advanced_visualization_router = _load_viz_routers()
 
 
+async def _bounded_optional_start(
+    start: Callable[[], Awaitable[object]], *, timeout_s: float = 10.0
+) -> None:
+    """Bound an optional integration handshake during backend startup."""
+
+    await asyncio.wait_for(start(), timeout=timeout_s)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Infra.init(load_config())
@@ -124,7 +133,11 @@ async def lifespan(app: FastAPI):
 
     try:
         stratum = get_stratum()
-        await stratum.start()
+        # Optional integrations must not hold the product listener hostage in
+        # a clean install where the companion service is absent.  The adapter
+        # still owns its transport timeout; this outer bound makes the
+        # Layer-4 startup contract fail fast and degrade explicitly.
+        await _bounded_optional_start(stratum.start)
         await wire_stratum(stratum)  # mcp_stratum_* → 主脑工具面
     except Exception:
         import logging
@@ -136,7 +149,9 @@ async def lifespan(app: FastAPI):
 
     try:
         hevi = get_hevi()
-        await hevi.start()
+        # An optional MCP service is not a reason to delay backend readiness
+        # for its full network timeout.
+        await _bounded_optional_start(hevi.start)
         await wire_hevi(hevi)  # mcp_hevi_* → 主脑工具面
     except Exception:
         import logging
