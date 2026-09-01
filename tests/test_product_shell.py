@@ -304,6 +304,55 @@ async def test_resume_keeps_the_original_product_task_projection(monkeypatch, tm
 
 
 @pytest.mark.asyncio
+async def test_product_task_resume_reuses_persisted_provider_binding(monkeypatch, tmp_path):
+    from server import events as events_module
+    from server.coordinator_master import master_coordinator
+    from server.events import EventStore
+    from server.routes import tasks as task_routes
+    from server.routes.tasks import TaskResumeRequest
+    from server.task_store import TaskStore
+
+    events = EventStore(tmp_path / "events.jsonl")
+    tasks = TaskStore(tmp_path / "tasks.json", event_store=events)
+    task = tasks.create(session_id="session-product-resume", title="Resume", objective="continue")
+    events.append(
+        {
+            "topic": "product.task_submitted",
+            "task_id": task.id,
+            "session_id": task.session_id,
+            "payload": {"entrypoint": "product_shell"},
+        }
+    )
+    calls: list[dict[str, Any]] = []
+
+    async def fake_chat_stream(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append({"args": args, "kwargs": kwargs})
+        return {"status": "completed", "error": None, "final_answer": "resumed"}
+
+    monkeypatch.setattr(task_routes, "task_store", tasks)
+    monkeypatch.setattr(events_module, "event_store", events)
+    monkeypatch.setattr(
+        product_shell,
+        "read_bot_state",
+        lambda: {"provider": {"id": "gmi", "model": "MiniMaxAI/MiniMax-M3"}},
+    )
+    monkeypatch.setattr(master_coordinator, "chat_stream", fake_chat_stream)
+
+    await task_routes.resume_task(
+        task.id,
+        TaskResumeRequest(text="continue the same task", max_rounds=2),
+    )
+
+    assert calls[0]["kwargs"] == {
+        "session_id": task.session_id,
+        "task_id": task.id,
+        "max_rounds": 2,
+        "provider": "gmi",
+        "model": "MiniMaxAI/MiniMax-M3",
+    }
+
+
+@pytest.mark.asyncio
 async def test_master_reuses_precreated_task_without_duplicate_projection(monkeypatch, tmp_path):
     from server import events as events_module
     from server.coordinator_master import MasterCoordinator
