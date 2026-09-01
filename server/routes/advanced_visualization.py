@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server.routes.debug_guard import require_nonproduction_debug
 from veya.advanced_visualization import (
     create_architecture_visualizer_enhanced,
     create_interactive_debugger_enhanced,
@@ -73,7 +74,7 @@ async def generate_3d_graph(request: Generate3DGraphRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"3D graph generation failed: {e!s}")
 
 
-@router.post("/debug/expression")
+@router.post("/debug/expression", dependencies=[Depends(require_nonproduction_debug)])
 async def debug_expression(request: DebugExpressionRequest) -> dict[str, Any]:
     """在调试上下文中评估表达式"""
     try:
@@ -83,7 +84,7 @@ async def debug_expression(request: DebugExpressionRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Expression evaluation failed: {e!s}")
 
 
-@router.post("/debug/step")
+@router.post("/debug/step", dependencies=[Depends(require_nonproduction_debug)])
 async def step_debug(request: StepDebugRequest) -> dict[str, Any]:
     """执行调试步进"""
     try:
@@ -95,7 +96,7 @@ async def step_debug(request: StepDebugRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Step debug failed: {e!s}")
 
 
-@router.post("/debug/edit-variable")
+@router.post("/debug/edit-variable", dependencies=[Depends(require_nonproduction_debug)])
 async def edit_variable(variable_name: str, new_value: Any) -> dict[str, Any]:
     """编辑变量值"""
     try:
@@ -109,7 +110,7 @@ async def edit_variable(variable_name: str, new_value: Any) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Edit variable failed: {e!s}")
 
 
-@router.get("/debug/state")
+@router.get("/debug/state", dependencies=[Depends(require_nonproduction_debug)])
 async def get_debug_state() -> dict[str, Any]:
     """获取调试状态"""
     try:

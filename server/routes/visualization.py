@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server.routes.debug_guard import require_nonproduction_debug
 from veya.visualization import create_code_graph
 
 router = APIRouter(prefix="/visualization", tags=["visualization"])
@@ -88,7 +89,7 @@ async def generate_architecture_diagram(components: list[dict[str, Any]]) -> dic
         raise HTTPException(status_code=500, detail=f"Architecture generation failed: {e!s}")
 
 
-@router.post("/debugger/breakpoint")
+@router.post("/debugger/breakpoint", dependencies=[Depends(require_nonproduction_debug)])
 async def add_breakpoint(file_path: str, line: int, condition: str | None = None) -> dict[str, Any]:
     """添加调试断点"""
     try:
@@ -106,7 +107,7 @@ async def add_breakpoint(file_path: str, line: int, condition: str | None = None
         raise HTTPException(status_code=500, detail=f"Failed to add breakpoint: {e!s}")
 
 
-@router.get("/debugger/state")
+@router.get("/debugger/state", dependencies=[Depends(require_nonproduction_debug)])
 async def get_debugger_state() -> dict[str, Any]:
     """获取调试器状态"""
     try:
