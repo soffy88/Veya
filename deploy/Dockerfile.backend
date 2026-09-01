@@ -67,7 +67,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN useradd -m -u 1000 soffy
 # Docker copies this directory into a newly-created named volume on first
 # mount; keep the managed Veya data root writable by the runtime user.
-RUN install -d -o soffy -g soffy /home/soffy/.veya
+RUN install -d -o soffy -g soffy \
+    /home/soffy/.veya \
+    /home/soffy/.veya/hicode-runtime \
+    /home/soffy/.veya/hicode-workspace
 COPY --chown=soffy:soffy deploy/ms-playwright/ /opt/ms-playwright/
 COPY LICENSE ./
 RUN pip install --no-cache-dir . && pip install --no-cache-dir -e ./veya_loop \
