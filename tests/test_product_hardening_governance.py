@@ -14,6 +14,7 @@ from server.skill_hub import VeyaSkillHub
 from server.tool_governance_adapter import (
     bind_task_governance,
     current_task_governance,
+    default_task_governance_output_dir,
     reset_task_governance,
 )
 from server.tool_registry import (
@@ -21,6 +22,12 @@ from server.tool_registry import (
     MasterToolRegistry,
     SideEffect,
 )
+
+
+def test_default_governance_output_uses_veya_data_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VEYA_OUTPUT_DIR", raising=False)
+    expected = Path.home() / ".veya" / "runs" / "task-1" / "outputs" / "tool_governance"
+    assert default_task_governance_output_dir("task-1") == expected
 
 
 def test_product_bridge_does_not_double_govern_browser_run() -> None:
