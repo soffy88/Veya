@@ -59,6 +59,9 @@ class MCPTool:
     description: str
     input_schema: dict[str, Any] = field(default_factory=dict)
     handler: Callable | None = None
+    # The server is a protocol mechanism, not a policy engine.  This
+    # declaration is consumed by the injected Layer-4 governed executor.
+    effect: str = "network"
 
 
 class MCPToolRegistry:
@@ -287,9 +290,17 @@ class MCPServer:
         app.include_router(router, prefix="/mcp")
     """
 
-    def __init__(self, name: str = "veya-mcp", version: str = "0.1.0"):
+    def __init__(
+        self,
+        name: str = "veya-mcp",
+        version: str = "0.1.0",
+        tool_executor: Callable[..., Any] | None = None,
+    ):
         self.name = name
         self.version = version
+        # Physical tool execution is injected by the owning application.  A
+        # bare protocol server must never become an ungoverned executor.
+        self._tool_executor = tool_executor
         self.tools = MCPToolRegistry()
         self.tools.register_veya_tools()
         self.tools.register_from_3o_elements()
@@ -330,40 +341,40 @@ class MCPServer:
                 "isError": True,
             }
 
-        if tool.handler is None:
-            # Try dynamic resolution
-            try:
-                from veya.server.manifests import resolve_element
-
-                spec_name = tool_name.replace("_", ".")
-                element = resolve_element(spec_name)
-                if element is not None:
-                    result = element(**arguments) if arguments else element()
-                    if hasattr(result, "__await__"):
-                        result = await result
-                    return {
-                        "content": [{"type": "text", "text": json.dumps(result, default=str)}],
-                    }
-            except Exception as e:
-                return {
-                    "content": [{"type": "text", "text": f"Tool execution failed: {e}"}],
-                    "isError": True,
-                }
+        if self._tool_executor is None:
             return {
-                "content": [{"type": "text", "text": f"No handler for tool: {tool_name}"}],
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "MCP tool execution is not configured through governance",
+                    }
+                ],
+                "isError": True,
+            }
+
+        grant = params.get("grant")
+        if not isinstance(grant, dict):
+            return {
+                "content": [{"type": "text", "text": "MCP tool call requires an explicit grant"}],
                 "isError": True,
             }
 
         try:
-            result = tool.handler(**arguments) if arguments else tool.handler()
+            result = self._tool_executor(
+                tool=tool,
+                arguments=arguments if isinstance(arguments, dict) else {},
+                grant=grant,
+                client_info=self._client_info,
+            )
             if hasattr(result, "__await__"):
                 result = await result
+            text = result if isinstance(result, str) else json.dumps(result, default=str)
             return {
-                "content": [{"type": "text", "text": str(result)}],
+                "content": [{"type": "text", "text": text}],
             }
-        except Exception as e:
+        except Exception:
             return {
-                "content": [{"type": "text", "text": f"Error: {e}"}],
+                "content": [{"type": "text", "text": "MCP tool execution failed"}],
                 "isError": True,
             }
 
@@ -424,11 +435,13 @@ class MCPServer:
                     result=result,
                 ).to_dict()
             )
-        except Exception as e:
+        except Exception as exc:
             return json.dumps(
                 JSONRPCResponse(
                     id=req.id,
-                    error={"code": -32603, "message": str(e)},
+                    # Never expose physical executor/credential exception
+                    # text through the protocol response.
+                    error={"code": -32603, "message": f"MCP request failed: {type(exc).__name__}"},
                 ).to_dict()
             )
 
@@ -497,9 +510,12 @@ class MCPServer:
 # ---------------------------------------------------------------------------
 
 
-def create_mcp_server(name: str = "veya-mcp") -> MCPServer:
-    """Create a configured MCP server."""
-    return MCPServer(name=name)
+def create_mcp_server(
+    name: str = "veya-mcp",
+    tool_executor: Callable[..., Any] | None = None,
+) -> MCPServer:
+    """Create a configured protocol server with an optional injected executor."""
+    return MCPServer(name=name, tool_executor=tool_executor)
 
 
 if __name__ == "__main__":

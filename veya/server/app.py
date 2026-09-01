@@ -17,7 +17,9 @@ log (SPEC §8 observability).
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, Literal
@@ -35,6 +37,73 @@ from veya.server.manifests import (
     new_session_id,
     save_decision_trail,
 )
+
+
+async def _governed_mcp_tool_call(
+    *,
+    tool: Any,
+    arguments: dict[str, Any],
+    grant: dict[str, Any],
+    client_info: dict[str, Any],
+) -> str:
+    """Execute an inbound MCP call through the existing Layer-4 gateway.
+
+    ``MCPServer`` owns only protocol dispatch.  This adapter owns the Veya
+    request binding and injects the already-canonical governance context; it
+    does not define policy, approval, audit, or ledger behavior.
+    """
+
+    del client_info  # Client metadata is not an authorization input.
+    from server.routes.mcp import _grant
+    from server.tool_governance_adapter import TaskGovernanceContext
+
+    task_id = f"mcp-jsonrpc-{uuid.uuid4().hex[:12]}"
+    context = TaskGovernanceContext(
+        task_id=task_id,
+        session_id=task_id,
+        trace_id=uuid.uuid4().hex,
+        output_dir=Path(".veya") / "runs" / task_id / "outputs" / "mcp",
+    )
+    parsed_grant = _grant(grant, missing_tool=f"native/{tool.name}@1")
+    effect = (
+        tool.effect
+        if tool.effect in {"read", "local_write", "process", "network", "remote", "destructive"}
+        else "network"
+    )
+
+    async def physical(**kwargs: Any) -> Any:
+        handler = tool.handler
+        if handler is None:
+            from veya.server.manifests import resolve_element
+
+            handler = resolve_element(tool.name.replace("_", "."))
+        if handler is None:
+            raise RuntimeError("MCP tool handler is unavailable")
+        result = handler(**kwargs) if kwargs else handler()
+        if inspect.isawaitable(result):
+            result = await result
+        from veya.platform import load
+
+        return load("obase").redact_payload(result)
+
+    return await context.execute_native(
+        name=tool.name,
+        arguments=arguments,
+        executor=physical,
+        grant=parsed_grant,
+        schema=tool.input_schema,
+        declared_effect=effect,
+        effect_capability="manual_only",
+    )
+
+
+def _create_governed_mcp_server() -> Any:
+    """Create the protocol server with the canonical Veya executor injected."""
+
+    from veya.mcp_server import create_mcp_server
+
+    return create_mcp_server(tool_executor=_governed_mcp_tool_call)
+
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -471,9 +540,7 @@ def create_app() -> FastAPI:
     except Exception:
         pass
     try:
-        from veya.mcp_server import create_mcp_server
-
-        mcp = create_mcp_server()
+        mcp = _create_governed_mcp_server()
         app.include_router(mcp.as_fastapi_router(), prefix="/mcp", tags=["MCP"])
     except Exception:
         pass
@@ -1753,18 +1820,14 @@ def create_app() -> FastAPI:
     @api.post("/api/v1/mcp/jsonrpc")
     async def mcp_jsonrpc(request: Request) -> dict[str, Any]:
         """MCP JSON-RPC 2.0 endpoint — compatible with Claude Desktop, Cursor, etc."""
-        from veya.mcp_server import create_mcp_server
-
-        server = create_mcp_server()
+        server = _create_governed_mcp_server()
         body = await request.body()
         response = await server.handle_request(body.decode())
         return json.loads(response)
 
     @api.get("/api/v1/mcp/health")
     async def mcp_health():
-        from veya.mcp_server import create_mcp_server
-
-        server = create_mcp_server()
+        server = _create_governed_mcp_server()
         return {
             "status": "ok",
             "server": server.name,
