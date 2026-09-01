@@ -1,10 +1,12 @@
-"""server.hicode_agent — Hicode 编码执行器集成装配层。
+"""server.hicode_agent — Veya's HiCode coding-executor integration.
 
-把 Hicode (Go 编码 Agent: 独立 planner / executor / sandbox / checkpoint,
-单二进制, MIT) 作为 veya 主脑的"代码动手执行器"接入:
+HiCode is the Veya product name for this integration.  The managed runtime is
+Reasonix, an external MIT-licensed executable.  The Veya-owned adapter in
+``server.hicode_runtime`` owns discovery, version health, configuration, and
+the child-process boundary; this module owns Veya task/event orchestration.
 
 - hicode_run   : 在隔离 workspace 里执行编程任务 (写/改代码、修 bug、跑测试)
-- hicode_status: 二进制 / workspace / 模型可用性诊断
+- hicode_status: managed runtime / workspace / model availability diagnostic
 
 3O 铁律: 机制 (hicode run 子进程协议) 在此装配层; 主脑只做路由决策
 (系统提示 SOP 见 coordinator_master._HOST_SOP_APPEND)。
@@ -12,11 +14,13 @@
 安全:
 - workspace 限定 HICODE_WORKSPACE (默认 ~/.veya/hicode-workspace),
   工具参数里的绝对路径必须位于根内, 防逃逸;
-- --auto 自动放行权限询问 (Hicode 自身有 sandbox / checkpoint / 循环守卫);
-- 二进制缺失时优雅降级 (工具返回安装指引, 不阻塞服务启动)。
+- --auto 自动放行权限询问 (Reasonix 自身有 sandbox / checkpoint / 循环守卫);
+- managed runtime 缺失或版本不匹配时 fail closed (工具返回明确诊断)。
 
-Provider: 复用 veya 本地 opencode 网关 (127.0.0.1:10100/v1, OpenAI 兼容,
-免鉴权, 模型 gpt-5.6-luna)。配置在 ~/.reasonix/config.toml (外部 reasonix CLI 契约, 不改名)。
+Provider: 默认复用 veya 本地 opencode 网关 (127.0.0.1:10100/v1, OpenAI
+兼容, 模型 gpt-5.6-luna)。配置由 Veya adapter 生成在 Veya runtime data
+root；不依赖用户全局 ~/.reasonix 配置。Reasonix remains the underlying
+MIT runtime; it is not claimed as Veya-native or fully internalized.
 """
 
 from __future__ import annotations
@@ -26,7 +30,6 @@ import contextlib
 import json
 import logging
 import os
-import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -37,12 +40,11 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
 
-from server.tool_registry import SideEffect
+from server.hicode_runtime import HicodeRuntimeError, get_hicode_executor
 
 logger = logging.getLogger("hicode")
 
 # ── 配置 (env 可覆盖) ─────────────────────────────────────────────────
-DEFAULT_BIN_HINT = os.environ.get("HICODE_BIN", "")  # 显式指定二进制; 空 = 自动解析 (PATH → ~/.nvm)
 DEFAULT_WORKSPACE = os.environ.get(
     "HICODE_WORKSPACE", str(Path.home() / ".veya" / "hicode-workspace")
 )
@@ -123,42 +125,15 @@ class HicodeUnavailable(RuntimeError):
 
 
 def _resolve_bin() -> str:
-    if DEFAULT_BIN_HINT:
-        p = Path(DEFAULT_BIN_HINT)
-        if p.is_file() and os.access(p, os.X_OK):
-            return str(p)
-        raise HicodeUnavailable(f"HICODE_BIN 指向的二进制不可执行: {p}")
-    found = shutil.which("reasonix")  # 外部 CLI 仍名 reasonix (hicode = veya 侧名称)
-    if found:
-        return found
-    # systemd 服务 PATH 可能不含 nvm bin → 兜底扫描
-    nvm_root = Path.home() / ".nvm" / "versions" / "node"
-    if nvm_root.is_dir():
-        candidates = sorted(
-            (d / "bin" / "reasonix" for d in nvm_root.iterdir() if d.is_dir()),
-            key=lambda p: p.stat().st_mtime if p.exists() else 0,
-            reverse=True,
-        )
-        for c in candidates:
-            if c.is_file() and os.access(c, os.X_OK):
-                return str(c)
-    raise HicodeUnavailable(
-        "hicode (reasonix CLI) 未安装。安装: npm i -g @reasonix/cli "
-        "(或设置 HICODE_BIN 指向二进制)。"
-    )
+    try:
+        return get_hicode_executor().resolve_binary()
+    except HicodeRuntimeError as exc:
+        raise HicodeUnavailable(str(exc)) from exc
 
 
 def _bin_version() -> str | None:
     try:
-        import subprocess
-
-        r = subprocess.run(
-            [_resolve_bin(), "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return (r.stdout or r.stderr).strip().splitlines()[-1] or None
+        return get_hicode_executor().probe_version(_resolve_bin())
     except Exception:
         return None
 
@@ -226,22 +201,24 @@ async def _run_hicode(
     stdout 逐行读 (不缓冲), stderr 并发收集仅作报错尾部。
     """
     bin_path = _resolve_bin()
+    try:
+        runtime = get_hicode_executor()
+        env = runtime.execution_environment()
+    except HicodeRuntimeError as exc:
+        raise HicodeUnavailable(str(exc)) from exc
     workspace.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
     _ensure_local_proxy()
     time.sleep(0.3)  # 代理首次启动等待
-    cmd = [
-        bin_path,
-        "run",
-        *args,
-        "--output-format",
-        "stream-json",
-        "--model",
-        DEFAULT_MODEL,
-        "--auto",
-        "--dir",
-        str(workspace),
-    ]
+    try:
+        cmd = runtime.run_command(
+            args,
+            model=DEFAULT_MODEL,
+            timeout=timeout,
+            executable=bin_path,
+        )
+    except HicodeRuntimeError as exc:
+        raise HicodeUnavailable(str(exc)) from exc
+    cmd.extend(["--dir", str(workspace)])
     if continue_:
         cmd.append("--continue")
     if resume_id:
@@ -726,6 +703,8 @@ async def hicode_sessions(limit: int = 8) -> str:
     """列出最近 hicode 会话 (可续做 / 查看 checkpoint)。"""
     try:
         bin_path = _resolve_bin()
+        get_hicode_executor().ensure_compatible(bin_path)
+        env = get_hicode_executor().execution_environment()
         ws = _workspace_root()
         ws.mkdir(parents=True, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
@@ -736,6 +715,7 @@ async def hicode_sessions(limit: int = 8) -> str:
             cwd=str(ws),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         out_b, _err_b = await asyncio.wait_for(proc.communicate(), timeout=30)
         data = json.loads((out_b or b"").decode("utf-8", "replace") or "{}")
@@ -755,22 +735,29 @@ async def hicode_sessions(limit: int = 8) -> str:
 
 
 async def hicode_status() -> str:
-    """诊断 hicode 执行器可用性 (二进制 / workspace / 模型)。"""
-    try:
-        bin_path = _resolve_bin()
-        version = _bin_version() or "?"
-        root = _workspace_root()
-        root.mkdir(parents=True, exist_ok=True)
+    """诊断 managed Reasonix / workspace / model (不泄露凭证)。"""
+    status = get_hicode_executor().status()
+    if not status.healthy:
         return (
-            "✅ hicode 可用\n"
-            f"  二进制: {bin_path}\n"
-            f"  版本: {version}\n"
-            f"  workspace: {root}\n"
-            f"  模型: {DEFAULT_MODEL} (本地网关; 容器内经反代 127.0.0.1:{_PROXY_PORT} 改写 Host)\n"
-            f"  最大步数: {DEFAULT_MAX_STEPS or '自动'}, 超时: {DEFAULT_TIMEOUT_SEC}s"
+            "hicode 不可用: managed_reasonix_available="
+            f"{str(status.managed_reasonix_available).lower()} "
+            f"version={status.managed_reasonix_version or 'unknown'} "
+            f"compatible={str(status.managed_reasonix_compatible).lower()} "
+            f"reason={status.error or 'unhealthy'}"
         )
-    except HicodeUnavailable as e:
-        return f"hicode 不可用: {e}"
+    root = _workspace_root()
+    root.mkdir(parents=True, exist_ok=True)
+    return (
+        "✅ hicode 可用\n"
+        f"  managed_reasonix_available: {str(status.managed_reasonix_available).lower()}\n"
+        f"  二进制: {status.executable}\n"
+        f"  版本: {status.managed_reasonix_version}\n"
+        f"  compatible: {str(status.managed_reasonix_compatible).lower()}\n"
+        f"  runtime config: {status.config_path}\n"
+        f"  workspace: {root}\n"
+        f"  模型: {DEFAULT_MODEL} (Veya-managed runtime config)\n"
+        f"  最大步数: {DEFAULT_MAX_STEPS or '自动'}, 超时: {DEFAULT_TIMEOUT_SEC}s"
+    )
 
 
 # ── AI 代码评审 (CLI review 子命令) ────────────────────────────────
@@ -793,18 +780,24 @@ async def hicode_review(
     try:
         ws = _resolve_workspace(workspace)
         bin_path = _resolve_bin()
-    except (ValueError, HicodeUnavailable) as e:
+        runtime = get_hicode_executor()
+        runtime.ensure_compatible(bin_path)
+    except (ValueError, HicodeUnavailable, HicodeRuntimeError) as e:
         return f"错误: {e}"
     ws.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
+    try:
+        env = get_hicode_executor().execution_environment()
+    except HicodeRuntimeError as exc:
+        return f"错误: {exc}"
     _ensure_local_proxy()
-    cmd = [bin_path, "review", "--model", DEFAULT_MODEL]
+    review_args: list[str] = []
     if commit:
-        cmd += ["--commit", commit]
+        review_args += ["--commit", commit]
     elif base and base != "HEAD":
-        cmd += ["--base", base]
+        review_args += ["--base", base]
     if instructions:
-        cmd += ["--instructions", instructions]
+        review_args += ["--instructions", instructions]
+    cmd = runtime.review_command(review_args, model=DEFAULT_MODEL, executable=bin_path)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -865,7 +858,7 @@ async def hicode_stop(task_id: str) -> str:
 
 async def wire_master_tools() -> int:
     """把 hicode 工具注册进 master_tools (幂等)。返回新注册数量。"""
-    from server.tool_registry import master_tools
+    from server.tool_registry import SideEffect, master_tools
 
     added = 0
     tools: list[tuple[str, str, dict, Any, int]] = [
@@ -1011,5 +1004,11 @@ async def wire_master_tools() -> int:
         )
         added += 1
     if added:
-        logger.info("wire hicode: 注册 %d 个工具 (bin=%s)", added, _resolve_bin())
+        status = get_hicode_executor().status()
+        logger.info(
+            "wire hicode: 注册 %d 个工具 (managed_reasonix_available=%s version=%s)",
+            added,
+            status.managed_reasonix_available,
+            status.managed_reasonix_version or "unknown",
+        )
     return added

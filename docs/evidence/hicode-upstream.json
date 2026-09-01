@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-09-01",
+  "product_name": "HiCode",
+  "product_boundary": "Veya coding executor integration",
+  "upstream": {
+    "project": "Reasonix",
+    "package": "reasonix",
+    "repository": "https://github.com/esengine/DeepSeek-Reasonix.git",
+    "version": "1.21.3",
+    "commit": "6cc0d73405c3ad12c38753f117bdfa01417ab898",
+    "registry": "https://registry.npmjs.org/reasonix/-/reasonix-1.21.3.tgz",
+    "integrity": "sha512-F6aZEYvH+0FT9wmuBdC6F83S2xFY2KN6uKDoyb0mKrPtKQ8kid/VDXVQizGm7RGxdHjXI4NXbdhl+ybImhX1XQ==",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 Reasonix Contributors",
+    "node_engine": ">=18"
+  },
+  "veya_managed_install": {
+    "manifest": "deploy/hicode-runtime/package.json",
+    "lockfile": "deploy/hicode-runtime/package-lock.json",
+    "install": "npm ci --prefix /opt/veya/hicode-runtime --omit=dev --ignore-scripts",
+    "binary": "/opt/veya/hicode-runtime/node_modules/.bin/reasonix",
+    "lockfile_sha512": "2d2b45e0f6d1a1132ec0eaf04b492db874aeba40edfef036be47b6913548073b1e38bf84b142412323299ccf0bb90430147e5d62eafc7fd23ae6674d03d76a9f"
+  },
+  "verification": {
+    "package_metadata": "reasonix@1.21.3 metadata matches repository, MIT license, bin, engine, and gitHead",
+    "package_install": "clean npm prefix installed and reported reasonix v1.21.3",
+    "source_policy": "Reasonix source is not vendored into Veya",
+    "runtime_policy": "production uses the Veya-managed prefix; HICODE_BIN is development-only override"
+  }
+}
