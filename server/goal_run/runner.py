@@ -10,6 +10,8 @@
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import logging
 import os
 import time
@@ -72,6 +74,108 @@ _MAX_STALL_TICKS = 3
 _MAX_PARALLEL_CONCURRENCY = 4
 _VALID_GOAL_MODES = frozenset({"auto", "act_eager", "ask_only"})
 _goal_cancel_events: dict[str, asyncio.Event] = {}
+
+
+class PlanReviewError(ValueError):
+    """A plan-review approval could not be applied to the current run."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def plan_review_request(state: GoalRunState) -> dict[str, str]:
+    """Return the stable approval identity for the current plan review."""
+
+    report = state.plan_review or {}
+    review = {key: value for key, value in report.items() if key != "resolution"}
+    encoded = json.dumps(review, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    version = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:24]
+    return {
+        "request_id": f"goal-plan-review:{state.goal_id}:{version}",
+        "version": version,
+    }
+
+
+def resolve_plan_review(
+    project_root: str,
+    goal_id: str,
+    *,
+    request_id: str,
+    expected_version: str,
+    approved: bool,
+) -> dict[str, Any]:
+    """Resolve one persisted plan-review request with stale/idempotency guards."""
+
+    state = load_goal_run(project_root, goal_id)
+    if state is None:
+        raise PlanReviewError("GOAL_RUN_NOT_FOUND")
+    report = state.plan_review or {}
+    if not report.get("blocked"):
+        raise PlanReviewError("PLAN_REVIEW_NOT_PENDING")
+
+    current = plan_review_request(state)
+    if request_id != current["request_id"] or expected_version != current["version"]:
+        raise PlanReviewError("STALE_PLAN_REVIEW")
+
+    existing = report.get("resolution")
+    if isinstance(existing, dict):
+        if (
+            existing.get("request_id") == request_id
+            and existing.get("version") == expected_version
+        ):
+            return {
+                "resolved": False,
+                "already_resolved": True,
+                "approved": bool(existing.get("approved")),
+                **current,
+            }
+        raise PlanReviewError("PLAN_REVIEW_ALREADY_RESOLVED")
+
+    if state.status != GoalStatus.awaiting_user:
+        raise PlanReviewError("PLAN_REVIEW_NOT_AWAITING_USER")
+
+    report["resolution"] = {
+        "request_id": request_id,
+        "version": expected_version,
+        "approved": bool(approved),
+        "actor": "user",
+        "resolved_at": datetime.now(UTC).isoformat(),
+    }
+    state.plan_review = report
+    save_goal_run(state, project_root)
+    append_event(
+        project_root,
+        goal_id,
+        {
+            "type": "plan_review_resolved",
+            "goal_id": goal_id,
+            "request_id": request_id,
+            "version": expected_version,
+            "approved": bool(approved),
+            "actor": "user",
+        },
+    )
+    return {"resolved": True, "already_resolved": False, "approved": bool(approved), **current}
+
+
+def _plan_review_blocked_response(state: GoalRunState) -> GoalRunResponse:
+    report = state.plan_review or {}
+    concerns = list((report.get("feasibility") or {}).get("concerns") or []) + list(
+        (report.get("safety") or {}).get("concerns") or []
+    )
+    return GoalRunResponse(
+        goal_id=state.goal_id,
+        status=GoalStatus.awaiting_user,
+        phase="plan_review_blocked",
+        interpretation=None,
+        questions=None,
+        goal_counts=state.snapshot_running(),
+        summary=None,
+        block_reason="; ".join(concerns) or "plan review rejected",
+        artifacts=None,
+        next_action="wait",
+    )
 
 
 def _emit_runtime_event(
@@ -258,21 +362,7 @@ async def _run_plan_review_gate(
 
     state.status = GoalStatus.awaiting_user
     save_goal_run(state, project_root)
-    concerns = list(report["feasibility"].get("concerns") or []) + list(
-        report["safety"].get("concerns") or []
-    )
-    return GoalRunResponse(
-        goal_id=state.goal_id,
-        status=GoalStatus.awaiting_user,
-        phase="plan_review_blocked",
-        interpretation=None,
-        questions=None,
-        goal_counts=state.snapshot_running(),
-        summary=None,
-        block_reason="; ".join(concerns) or "plan review rejected",
-        artifacts=None,
-        next_action="wait",
-    )
+    return _plan_review_blocked_response(state)
 
 
 def _record_trust_plane(
@@ -832,6 +922,10 @@ async def project_run_goal(
         blocked_response = await _run_plan_review_gate(state, goal, project_root)
         if blocked_response is not None:
             return blocked_response
+    elif state.plan_review.get("blocked") and (
+        (state.plan_review.get("resolution") or {}).get("approved") is not True
+    ):
+        return _plan_review_blocked_response(state)
 
     # ── G2: Loop 调度 + 执行 + 验收 ───────────────────────────────────
     # 设置最大并发: smart-ralph [P] marker 支持(见 memory

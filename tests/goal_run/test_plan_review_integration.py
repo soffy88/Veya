@@ -11,7 +11,11 @@ from __future__ import annotations
 import pytest
 
 from server.goal_run.models import GoalRunState, GoalStatus, TaskNode
-from server.goal_run.runner import _run_plan_review_gate
+from server.goal_run.runner import (
+    _run_plan_review_gate,
+    plan_review_request,
+    resolve_plan_review,
+)
 
 
 def _state_with_one_task(tmp_path) -> GoalRunState:
@@ -104,3 +108,38 @@ async def test_plan_review_exception_fails_open(tmp_path, monkeypatch):
 
     assert response is None
     assert state.status == GoalStatus.planning  # 没被拦, 状态未改成 awaiting_user
+
+
+@pytest.mark.asyncio
+async def test_plan_review_approval_is_versioned_and_idempotent(tmp_path, monkeypatch):
+    state = _state_with_one_task(tmp_path)
+
+    async def always_reject(**kwargs):
+        return {
+            "feasibility": {"verdict": "reject", "concerns": ["缺少验收"], "reasoning": "x"},
+            "safety": {"verdict": "approve", "concerns": [], "reasoning": "y"},
+            "blocked": True,
+        }
+
+    monkeypatch.setattr("server.goal_run.plan_review.dual_axis_plan_review", always_reject)
+    await _run_plan_review_gate(state, state.goal_text, str(tmp_path))
+
+    request = plan_review_request(state)
+    resolved = resolve_plan_review(
+        str(tmp_path),
+        state.goal_id,
+        request_id=request["request_id"],
+        expected_version=request["version"],
+        approved=True,
+    )
+    assert resolved["resolved"] is True
+    assert resolved["approved"] is True
+    duplicate = resolve_plan_review(
+        str(tmp_path),
+        state.goal_id,
+        request_id=request["request_id"],
+        expected_version=request["version"],
+        approved=True,
+    )
+    assert duplicate["already_resolved"] is True
+    assert sum(1 for line in (tmp_path / ".veya-project/goal-runs/g1/events.jsonl").read_text().splitlines() if "plan_review_resolved" in line) == 1

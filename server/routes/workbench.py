@@ -29,6 +29,13 @@ class ApprovalRequest(BaseModel):
     expected_version: str | None = Field(None, min_length=1, max_length=100)
 
 
+class PlanReviewApprovalRequest(BaseModel):
+    goal_id: str = Field(..., min_length=1, max_length=200)
+    request_id: str = Field(..., min_length=1, max_length=300)
+    expected_version: str = Field(..., min_length=1, max_length=100)
+    approved: bool
+
+
 class BrowserControlRequest(BaseModel):
     action: Literal["status", "takeover", "return_control"]
     browser_session_id: str | None = Field(None, max_length=200)
@@ -72,6 +79,72 @@ async def get_workbench_events(task_id: str) -> dict[str, Any]:
         "task_id": task_id,
         "version": view["state"]["version"],
         "events": view["timeline"],
+    }
+
+
+async def _plan_review_view(task_id: str) -> dict[str, Any]:
+    view = await _view_or_404(task_id)
+    goal_id = str(view["goal_run"].get("goal_run_id") or "")
+    if not goal_id:
+        raise HTTPException(status_code=404, detail="goal run not found")
+    from server.goal_run.runner import plan_review_request
+    from server.goal_run.store import load_goal_run
+
+    state = load_goal_run(str(projection.project_root), goal_id)
+    if state is None or state.plan_review is None:
+        raise HTTPException(status_code=404, detail="plan review not found")
+    request = plan_review_request(state)
+    report = state.plan_review
+    return {
+        "task_id": task_id,
+        "goal_id": goal_id,
+        "status": state.status.value,
+        "blocked": bool(report.get("blocked")),
+        **request,
+        "feasibility": {
+            "verdict": (report.get("feasibility") or {}).get("verdict"),
+            "concerns": list((report.get("feasibility") or {}).get("concerns") or []),
+        },
+        "safety": {
+            "verdict": (report.get("safety") or {}).get("verdict"),
+            "concerns": list((report.get("safety") or {}).get("concerns") or []),
+        },
+        "resolution": report.get("resolution"),
+    }
+
+
+@router.get("/{task_id}/plan-review")
+async def get_plan_review(task_id: str) -> dict[str, Any]:
+    """Read the current GoalRun plan-review request for user approval."""
+
+    return await _plan_review_view(task_id)
+
+
+@router.post("/{task_id}/plan-review")
+async def resolve_plan_review_approval(
+    task_id: str, request: PlanReviewApprovalRequest
+) -> dict[str, Any]:
+    """Resolve a plan review; task resume remains a separate canonical action."""
+
+    current = await _plan_review_view(task_id)
+    if request.goal_id != current["goal_id"]:
+        raise _stale("STALE_PLAN_REVIEW", expected=request.goal_id, actual=current["goal_id"])
+    from server.goal_run.runner import PlanReviewError, resolve_plan_review
+
+    try:
+        resolution = resolve_plan_review(
+            str(projection.project_root),
+            request.goal_id,
+            request_id=request.request_id,
+            expected_version=request.expected_version,
+            approved=request.approved,
+        )
+    except PlanReviewError as exc:
+        raise _stale(exc.code, expected=request.request_id, actual=current["request_id"])
+    return {
+        "task_id": task_id,
+        "resolution": resolution,
+        "plan_review": await _plan_review_view(task_id),
     }
 
 
