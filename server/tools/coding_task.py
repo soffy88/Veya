@@ -104,6 +104,7 @@ async def coding_task_run(
 
         state = await service.create_task(request)
         task_id = state.task_id
+        resume_goal_id = state.goal_run_id
 
         # Read contract
         contract = read_coding_harness_contract(project_root, task_id)
@@ -163,6 +164,7 @@ async def coding_task_run(
                 }
             ],
             mode="act_eager",
+            resume_goal_id=resume_goal_id,
             max_wall_s=goal_budget_seconds,
             wait=True,
         )
