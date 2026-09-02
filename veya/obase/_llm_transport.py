@@ -224,12 +224,13 @@ async def provider_stream(
     tools: list | None = None,
     max_tokens: int = 4096,
     endpoint: str | None = None,
+    api_key: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream a completion, yielding OpenAI-format delta events:
     ``{"choices": [{"delta": {"content": "..."}}]}``.
     """
     request_endpoint = endpoint or _ENDPOINTS.get(provider, _ENDPOINTS["openai"])
-    api_key = get_api_key(provider)
+    api_key = api_key or get_api_key(provider)
     if not api_key:
         if not _is_local_or_private(request_endpoint):
             raise ValueError(f"API key not set for provider '{provider}'")
