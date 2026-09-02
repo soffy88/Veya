@@ -7,6 +7,7 @@ This module binds the existing Computer Supervisor and Action Gateway to the
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -77,10 +78,19 @@ class BrowserComputerAdapter:
         omodul = load("omodul")
         oservi = load("oservi")
         oskill = load("oskill")
-        self.output_dir = output_dir
+        if output_dir is not None:
+            self.output_dir = output_dir
+        else:
+            configured_output = os.environ.get("VEYA_OUTPUT_DIR", "").strip()
+            base = (
+                Path(configured_output).expanduser()
+                if configured_output
+                else Path.home() / ".veya" / "runs"
+            )
+            self.output_dir = base / "browser"
         self.computer = ComputerSupervisorAdapter(
             name=f"{name}-computer",
-            output_dir=output_dir,
+            output_dir=self.output_dir,
         )
         self.browser_adapter = browser_adapter or obase.PlaywrightBrowserAdapter()
 
@@ -151,6 +161,7 @@ class BrowserComputerAdapter:
             audit_writer=audit_writer,
             policy_profile=policy_profile,
             policy_hook=takeover_policy,
+            output_dir=self.output_dir,
         )
         self.engine = oservi.BrowserComputerEngine(
             computer_prepare=computer_prepare,
@@ -163,7 +174,7 @@ class BrowserComputerAdapter:
             browser_set_control_state=self._browser_set_control_state,
             prepare_browser_session=omodul.prepare_browser_session,
             trigger={"on_demand": True},
-            config={"output_dir": str(output_dir) if output_dir else ".veya/browser"},
+            config={"output_dir": str(self.output_dir)},
             name=name,
         )
 

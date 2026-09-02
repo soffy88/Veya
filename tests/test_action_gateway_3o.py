@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
 
+from runtime.execution.durable import DurableExecutionRepository
+from runtime.execution.side_effects import SideEffectLedger
 from server.action_gateway_adapter import ActionGatewayAdapter
 from server.tool_registry import SideEffect
 from veya.platform import load
@@ -292,3 +295,48 @@ async def test_veya_adapter_assembles_existing_event_writer(tmp_path):
     assert result["status"] == "completed"
     assert result["executed"] is True
     assert len(audits) == 3
+
+
+@pytest.mark.asyncio
+async def test_veya_adapter_retry_uses_stable_side_effect_key(tmp_path):
+    repository = DurableExecutionRepository(sqlite_path=tmp_path / "ledger.sqlite3")
+    await repository.migrate()
+    adapter = ActionGatewayAdapter(
+        ledger=SideEffectLedger(repository),
+        goal_run_id="approval-goal",
+        work_item_id="approval-item",
+        approval_resolver=lambda _request: True,
+        policy_hook=lambda _request: obase.ActionDecision(
+            verdict="REQUIRE_APPROVAL", reason="targeted approval retry"
+        ),
+        audit_writer=lambda _record: None,
+    )
+    physical_calls = 0
+
+    async def physical(**_kwargs):
+        nonlocal physical_calls
+        physical_calls += 1
+        return {"ok": True}
+
+    first = await adapter.execute(
+        "publish",
+        {"probe": "stable-key"},
+        physical,
+        side_effect=SideEffect.EXTERNAL_MUTATION,
+        request_context={"side_effect_declared": True},
+    )
+    second = await adapter.execute(
+        "publish",
+        {"probe": "stable-key"},
+        physical,
+        side_effect=SideEffect.EXTERNAL_MUTATION,
+        request_context={"side_effect_declared": True},
+    )
+
+    with sqlite3.connect(tmp_path / "ledger.sqlite3") as connection:
+        committed = connection.execute(
+            "SELECT COUNT(*) FROM side_effects WHERE state='committed'"
+        ).fetchone()[0]
+    assert first["status"] == second["status"] == "completed"
+    assert physical_calls == 1
+    assert committed == 1
