@@ -7,8 +7,12 @@ callables.  It does not define a second policy, audit, or ledger store.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
+import os
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, cast
 
 from runtime.execution.side_effects import SideEffectLedger
@@ -56,6 +60,7 @@ class ActionGatewayAdapter:
         audit_writer: Callable[..., Any] | None = None,
         policy_profile: ProfileName | str | None = None,
         policy_hook: Callable[[Any], Any] | None = None,
+        output_dir: str | Path | None = None,
     ) -> None:
         self.ledger = ledger
         self.goal_run_id = goal_run_id or current_task_id() or "veya:unbound"
@@ -64,6 +69,16 @@ class ActionGatewayAdapter:
         self._audit_writer = audit_writer or self._append_event
         self._policy_profile = policy_profile
         self._policy_hook = policy_hook
+        if output_dir is not None:
+            self.output_dir = Path(output_dir).expanduser()
+        else:
+            configured_output = os.environ.get("VEYA_OUTPUT_DIR", "").strip()
+            base = (
+                Path(configured_output).expanduser()
+                if configured_output
+                else Path.home() / ".veya" / "runs"
+            )
+            self.output_dir = base / "action_gateway"
 
     @staticmethod
     def _append_event(record: Any) -> Any:
@@ -173,12 +188,30 @@ class ActionGatewayAdapter:
             "side_effect_declared": side_effect is not None,
         }
         context.update(dict(request_context or {}))
+        arguments = dict(kwargs or {})
+        stable_payload = {
+            "goal_run_id": self.goal_run_id,
+            "work_item_id": self.work_item_id,
+            "action": name,
+            "effect": effect,
+            "resource": resource or name,
+            "operation_version": operation_version,
+            "source": source,
+            "capability": effect_capability,
+            "arguments": obase.redact_value(arguments),
+        }
+        stable_digest = hashlib.sha256(
+            json.dumps(stable_payload, sort_keys=True, ensure_ascii=False, default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()[:24]
         request = obase.ActionRequest(
             action=name,
             effect=effect,
             resource=resource or name,
-            arguments=dict(kwargs or {}),
+            arguments=arguments,
             actor="master",
+            request_id=f"veya-operation:{stable_digest}",
             source=source,
             context=context,
         )
@@ -198,7 +231,7 @@ class ActionGatewayAdapter:
             audit_writer=self._audit_writer,
             side_effect_recorder=self._record_side_effect,
             trigger={"on_demand": True},
-            config={},
+            config={"output_dir": str(self.output_dir)},
             name="veya-action-gateway",
         )
         return cast(
@@ -206,7 +239,7 @@ class ActionGatewayAdapter:
             await engine.invoke(
                 request,
                 physical_executor=physical,
-                operation_key=f"veya:{name}:{operation_version}:{request.fingerprint}",
+                operation_key=f"veya:{self.goal_run_id}:{self.work_item_id}:{name}:{operation_version}:{stable_digest}",
                 target_ref=resource or name,
                 capability=effect_capability,
             ),

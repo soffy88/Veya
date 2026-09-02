@@ -135,8 +135,7 @@ class TaskGovernanceContext:
                     goal_run_id=self.task_id,
                     work_item_id=self.task_id,
                     audit_writer=self._write_audit,
-                    output_dir=self.output_dir
-                    or default_task_governance_output_dir(self.task_id),
+                    output_dir=self.output_dir or default_task_governance_output_dir(self.task_id),
                 )
             if needs_ledger and self._ledger is None:
                 self._ledger = await self._build_ledger()
@@ -333,6 +332,7 @@ class ToolGovernanceAdapter:
         policy_profile: str | None = None,
         output_dir: str | Path = ".veya/tool_governance",
     ) -> None:
+        self.output_dir = Path(output_dir)
         self._action_gateway = ActionGatewayAdapter(
             ledger=ledger,
             goal_run_id=goal_run_id,
@@ -340,8 +340,8 @@ class ToolGovernanceAdapter:
             approval_resolver=approval_resolver,
             audit_writer=audit_writer,
             policy_profile=policy_profile,
+            output_dir=self.output_dir,
         )
-        self.output_dir = Path(output_dir)
         self._specs: dict[str, Any] = {}
         self._native: dict[str, Callable[..., Any]] = {}
         self._mcp: dict[str, Any] = {}
