@@ -8,6 +8,7 @@ task store, browser store, or event store.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -90,7 +91,18 @@ async def _plan_review_view(task_id: str) -> dict[str, Any]:
     from server.goal_run.runner import plan_review_request
     from server.goal_run.store import load_goal_run
 
-    state = load_goal_run(str(projection.project_root), goal_id)
+    task = view.get("task") or {}
+    candidates = [task.get("workspace_id"), os.environ.get("VEYA_PROJECT_ROOT"), "/repo"]
+    project_root = next(
+        (
+            Path(str(candidate)).expanduser()
+            for candidate in candidates
+            if candidate
+            and (Path(str(candidate)).expanduser() / ".veya-project" / "goal-runs").is_dir()
+        ),
+        projection.project_root,
+    )
+    state = load_goal_run(str(project_root), goal_id)
     if state is None or state.plan_review is None:
         raise HTTPException(status_code=404, detail="plan review not found")
     request = plan_review_request(state)
@@ -131,9 +143,21 @@ async def resolve_plan_review_approval(
         raise _stale("STALE_PLAN_REVIEW", expected=request.goal_id, actual=current["goal_id"])
     from server.goal_run.runner import PlanReviewError, resolve_plan_review
 
+    task = current.get("task") or {}
+    candidates = [task.get("workspace_id"), os.environ.get("VEYA_PROJECT_ROOT"), "/repo"]
+    project_root = next(
+        (
+            Path(str(candidate)).expanduser()
+            for candidate in candidates
+            if candidate
+            and (Path(str(candidate)).expanduser() / ".veya-project" / "goal-runs").is_dir()
+        ),
+        projection.project_root,
+    )
+
     try:
         resolution = resolve_plan_review(
-            str(projection.project_root),
+            str(project_root),
             request.goal_id,
             request_id=request.request_id,
             expected_version=request.expected_version,
