@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from collections.abc import Mapping, Sequence
@@ -147,6 +149,31 @@ def _safe_environment(extra: Mapping[str, str] | None) -> dict[str, str]:
 
 def _within(root: Path, candidate: Path) -> bool:
     return candidate == root or root in candidate.parents
+
+
+def _nested_write_path_violation(argv: list[str], root: Path, cwd: Path) -> str | None:
+    """Reject explicit write targets outside the already-isolated worktree.
+
+    A managed coding runtime may already be inside its outer sandbox, where a
+    second namespace cannot be created.  Keep the important write boundary for
+    commands that pass their target path explicitly; ordinary relative writes
+    remain confined by the inherited outer sandbox and worktree cwd.
+    """
+    if os.environ.get(_SANDBOX_DEPTH_ENV) != "1":
+        return None
+    command_text = " ".join(argv[1:]).lower()
+    if not re.search(r"\b(?:open|write|touch|mkdir|unlink|remove|rename|replace)\b", command_text):
+        return None
+    for index, item in enumerate(argv[1:], start=1):
+        if index > 1 and argv[index - 1] in {"-c", "--command", "-e"}:
+            continue
+        if item.startswith("-") or ("/" not in item and "\\" not in item):
+            continue
+        candidate = Path(item).expanduser()
+        resolved = candidate if candidate.is_absolute() else cwd / candidate
+        if not _within(root, resolved.resolve(strict=False)):
+            return f"explicit write path must remain inside the task workspace: {item}"
+    return None
 
 
 class CommandRunner:
@@ -334,8 +361,21 @@ class CommandRunner:
                 duration_ms=(time.monotonic() - started) * 1000,
                 requires_approval=True,
             )
+        write_path_violation = _nested_write_path_violation(argv, self.workspace_root, target)
+        if write_path_violation:
+            return self._result(
+                command=command_text,
+                argv=argv,
+                cwd=target,
+                status="failed",
+                exit_code=None,
+                stderr=write_path_violation,
+                duration_ms=(time.monotonic() - started) * 1000,
+            )
         execution_argv = argv
         execution_cwd: str | None = str(target)
+        if Path(argv[0]).name == "pytest" and importlib.util.find_spec("pytest"):
+            execution_argv = [sys.executable, "-m", "pytest", *argv[1:]]
         if self.profile.executor == "docker":
             execution_argv = self._docker_argv(argv, target, network)
             execution_cwd = None
@@ -354,10 +394,16 @@ class CommandRunner:
                 )
             execution_cwd = None
         try:
+            environment = _safe_environment(env)
+            workspace_bin = self.workspace_root / "venv" / "bin"
+            if workspace_bin.is_dir():
+                environment["PATH"] = os.pathsep.join(
+                    [str(workspace_bin), environment.get("PATH", os.defpath)]
+                )
             completed = subprocess.run(
                 execution_argv,
                 cwd=execution_cwd,
-                env=_safe_environment(env),
+                env=environment,
                 check=False,
                 capture_output=True,
                 text=True,
