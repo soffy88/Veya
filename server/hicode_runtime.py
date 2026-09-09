@@ -288,6 +288,12 @@ class HicodeExecutorAdapter:
         env = os.environ.copy()
         env["HOME"] = str(self.reasonix_home)
         env["REASONIX_STATE_HOME"] = str(self.state_root)
+        # Reasonix already supplies the outer coding sandbox.  Mark that
+        # boundary so commands launched by the coding harness do not attempt a
+        # second bubblewrap namespace inside it; the command runner still
+        # enforces its policy and inherits the parent's filesystem/network
+        # isolation.
+        env["VEYA_SANDBOX_DEPTH"] = "1"
         return env
 
     def run_command(
