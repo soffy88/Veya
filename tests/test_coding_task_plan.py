@@ -47,8 +47,9 @@ def test_goal_run_plan_contains_only_unexecuted_verification_contract(tmp_path: 
     assert "acceptance_passed" not in serialized
     assert "candidates only, not pre-executed results" in instruction
     assert "identify every required sensor" in instruction
-    assert "primary test suite is available" in instruction
-    assert "explicit skipped reason for every required check not selected" in instruction
+    assert "authoritative stdout/stderr" in instruction
+    assert "Do not execute the canonical sensors from this delegate" in instruction
+    assert "No canonical verification result is claimed" in serialized
     assert "sensor-test (test): pytest -q tests" in instruction
     assert "sensor-lint (lint): ruff check ." in instruction
     for artifact in (
