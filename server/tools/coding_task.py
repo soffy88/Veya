@@ -107,27 +107,28 @@ def _build_goal_run_task(
             f"against the isolated worktree {worktree_path}.\n"
             f"Read the harness contract at {contract_path}.\n"
             "Inspect the repository and harness metadata to identify every required "
-            "sensor. If a primary test suite is available, run that test sensor as the "
-            "minimum meaningful verification set; otherwise select the least invasive "
-            "available required check and report that no test suite was available. The "
-            "available canonical checks are listed below (candidates only, not "
-            "pre-executed results):\n"
+            "sensor and prepare the executable verification plan. The enclosing coding "
+            "harness, after this GoalRun completes, runs the canonical sensors outside "
+            "this delegate and owns their authoritative stdout/stderr, exit status, "
+            "duration, and evidence artifacts. Do not execute the canonical sensors "
+            "from this delegate: that would duplicate the harness inside a nested "
+            "sandbox. The available canonical checks are listed below (candidates only, "
+            "not pre-executed results):\n"
             f"{available_checks}\n"
-            "Run the selected command only after inspecting the worktree, and capture "
-            "stdout/stderr, exit status, duration, and an evidence reference. Record "
-            "an explicit skipped reason for every required check not selected, and make "
-            "the reported acceptance reflect the observed result(s). If the objective requires a source "
-            "change, report that this read-only task cannot perform it. Do not claim "
-            "any check passed before its command has completed. "
+            "Execute only read-only metadata inspection needed to build this plan, and "
+            "capture its stdout/stderr, exit status, duration, and evidence reference. "
+            "Do not claim any canonical check passed or failed here; the enclosing "
+            "harness will collect those real results after GoalRun. If the objective "
+            "requires a source change, report that this read-only task cannot perform "
+            "it. "
             f"The enclosing coding harness will derive final acceptance from observed "
             f"results and write {artifacts} under {output_dir}."
         ),
         "acceptance": [
-            "The requested coding objective is executed in the isolated worktree, or a concrete blocker is reported.",
-            "Every required sensor is discovered from the harness metadata; the primary test sensor is executed when available, or its absence is explicitly reported.",
-            "Every selected verification check has observed stdout/stderr, exit status, duration, and an evidence reference, and every unselected required check has an explicit skipped reason.",
-            "The reported acceptance reflects the observed verification result(s), not a planned or fabricated result.",
-            "No verification check is marked passed unless its command has actually completed successfully.",
+            "The isolated worktree and harness contract are inspected, or a concrete blocker is reported.",
+            "Every required sensor is discovered from the harness metadata and included as a candidate in the executable verification plan.",
+            "Metadata inspection has observed stdout/stderr, exit status, duration, and an evidence reference.",
+            "No canonical verification result is claimed before the enclosing harness executes that sensor.",
         ],
         "depends_on": [],
         "assignee": "hicode",
