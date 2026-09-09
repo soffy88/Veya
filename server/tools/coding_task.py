@@ -16,6 +16,8 @@ GoalRun handles durable execution, NOT semantic authority.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +42,96 @@ from runtime.harness.guides import load_guides
 from runtime.harness.sensors import run_sensor, sensors_for_workspace
 
 _GOAL_RUN_MIN_BUDGET_SECONDS = 300
+
+
+def _prepare_worktree_dependencies(project_root: Path, worktree_path: Path) -> None:
+    """Expose existing ignored toolchain directories inside the worktree.
+
+    Git worktrees intentionally contain tracked files only, while the coding
+    harness commands use the repository's ignored virtualenv and frontend
+    installs.  Read-only symlinks keep the isolated source tree intact without
+    claiming a verification result or copying mutable dependency trees.
+    """
+    if (project_root / ".gitmodules").is_file():
+        result = subprocess.run(
+            ["git", "-C", str(worktree_path), "submodule", "update", "--init", "--recursive"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(f"worktree submodule initialization failed: {detail[:1000]}")
+
+    for relative_path in (Path("venv"), Path("node_modules"), Path("apps/web/node_modules")):
+        source = project_root / relative_path
+        target = worktree_path / relative_path
+        if not source.is_dir() or target.exists() or target.is_symlink():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(source, target_is_directory=True)
+
+
+def _build_goal_run_task(
+    *,
+    task_id: str,
+    objective: str,
+    worktree_path: Path,
+    contract_path: Path,
+    output_dir: Path,
+    sensors: list[Any],
+) -> dict[str, Any]:
+    """Build an executable, pre-verification GoalRun task.
+
+    The plan describes checks and evidence to collect; it must not encode any
+    result before the isolated worktree has actually been verified.  The
+    caller still runs the canonical sensors after GoalRun and derives the
+    final coding acceptance from those observed results.
+    """
+    available_checks = "\n".join(
+        f"- {sensor.id} ({sensor.kind}): {sensor.command or '[no command; record skipped reason]'}"
+        for sensor in sensors
+    )
+    artifacts = (
+        "verification_report.json, sensor_report.json, changed_files.json, "
+        "final_result.json, artifact_manifest.json"
+    )
+    return {
+        "id": "coding_task",
+        "title": "Execute isolated coding task and record observed verification",
+        "instruction": (
+            f"Task objective: {objective}\n"
+            f"Execute the coding task for task {task_id} "
+            f"against the isolated worktree {worktree_path}.\n"
+            f"Read the harness contract at {contract_path}.\n"
+            "Inspect the repository and harness metadata to identify every required "
+            "sensor. If a primary test suite is available, run that test sensor as the "
+            "minimum meaningful verification set; otherwise select the least invasive "
+            "available required check and report that no test suite was available. The "
+            "available canonical checks are listed below (candidates only, not "
+            "pre-executed results):\n"
+            f"{available_checks}\n"
+            "Run the selected command only after inspecting the worktree, and capture "
+            "stdout/stderr, exit status, duration, and an evidence reference. Record "
+            "an explicit skipped reason for every required check not selected, and make "
+            "the reported acceptance reflect the observed result(s). If the objective requires a source "
+            "change, report that this read-only task cannot perform it. Do not claim "
+            "any check passed before its command has completed. "
+            f"The enclosing coding harness will derive final acceptance from observed "
+            f"results and write {artifacts} under {output_dir}."
+        ),
+        "acceptance": [
+            "The requested coding objective is executed in the isolated worktree, or a concrete blocker is reported.",
+            "Every required sensor is discovered from the harness metadata; the primary test sensor is executed when available, or its absence is explicitly reported.",
+            "Every selected verification check has observed stdout/stderr, exit status, duration, and an evidence reference, and every unselected required check has an explicit skipped reason.",
+            "The reported acceptance reflects the observed verification result(s), not a planned or fabricated result.",
+            "No verification check is marked passed unless its command has actually completed successfully.",
+        ],
+        "depends_on": [],
+        "assignee": "hicode",
+    }
 
 
 async def coding_task_run(
@@ -130,11 +222,20 @@ async def coding_task_run(
                 }
             )
 
+        _prepare_worktree_dependencies(project_root, worktree_path)
+        workspace = detect_workspace(str(project_root))
+        guides = load_guides(workspace)
+        sensors = sensors_for_workspace(workspace, guides)
+        required_sensors = [sensor for sensor in sensors if sensor.required]
+        contract_path = (
+            project_root / ".veya" / "runs" / task_id / "inputs" / "harness_contract.json"
+        )
+        worktree_output_dir = worktree_path / ".veya" / "runs" / task_id / "outputs"
+
         # GoalRun is the durable execution boundary for this CodingTask.  The
-        # coding leaves below still reuse the existing coding tools; the
-        # explicit builtin coordination leaf is deliberately side-effect
-        # free with respect to external systems and avoids requiring hicode in
-        # this product-shell dogfood path.
+        # task plan runs in the isolated worktree.  No verification result is
+        # asserted here; the final acceptance below is derived from the
+        # canonical sensor results collected after the boundary completes.
         from server.goal_run.runner import project_run_goal
 
         # GoalRun reserves time for its own finalization before scheduling a
@@ -147,21 +248,17 @@ async def coding_task_run(
             _GOAL_RUN_MIN_BUDGET_SECONDS,
         )
         goal_response = await project_run_goal(
-            project_root=str(project_root),
+            project_root=str(worktree_path),
             goal=objective,
             tasks=[
-                {
-                    "id": "coding_task",
-                    "title": "CodingTask durable coordination",
-                    "instruction": (
-                        f"Record the CodingTask checkpoint for {task_id}; "
-                        "the local verification contract reports 1 passed, 0 failed. "
-                        "Do not edit files or access external services."
-                    ),
-                    "acceptance": ["tests: 1 passed, 0 failed"],
-                    "depends_on": [],
-                    "assignee": "builtin",
-                }
+                _build_goal_run_task(
+                    task_id=task_id,
+                    objective=objective,
+                    worktree_path=worktree_path,
+                    contract_path=contract_path,
+                    output_dir=worktree_output_dir,
+                    sensors=required_sensors,
+                )
             ],
             mode="act_eager",
             resume_goal_id=resume_goal_id,
@@ -220,12 +317,8 @@ async def coding_task_run(
             acceptance_criteria=[],
         )
 
-        # Run required sensors
-        workspace = detect_workspace(str(project_root))
-        guides = load_guides(workspace)
-        sensors = sensors_for_workspace(workspace, guides)
-        required_sensors = [s for s in sensors if s.required]
-
+        # Run required sensors against the isolated worktree.  These observed
+        # results, not the GoalRun plan text, own the final acceptance fact.
         sensor_results = []
         for sensor in required_sensors:
             try:

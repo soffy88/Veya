@@ -40,6 +40,7 @@ _SECRET_ASSIGNMENT = re.compile(
     r"(?i)(\b(?:api[_-]?key|authorization|password|passwd|secret|token)\b\s*[=:]\s*)([^\s,;]+)"
 )
 _BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
+_SANDBOX_DEPTH_ENV = "VEYA_SANDBOX_DEPTH"
 
 
 def parse_command(command: str | Sequence[str]) -> list[str]:
@@ -122,12 +123,25 @@ def redact_text(value: str, *, secret_values: Sequence[str] = ()) -> str:
 
 def _safe_environment(extra: Mapping[str, str] | None) -> dict[str, str]:
     """Keep useful process settings while excluding credential-shaped values."""
-    allowed = {"LANG", "LC_ALL", "PATH", "PATHEXT", "SYSTEMROOT", "TMPDIR"}
+    allowed = {
+        "LANG",
+        "LC_ALL",
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "TMPDIR",
+        _SANDBOX_DEPTH_ENV,
+    }
     environment = {key: value for key, value in os.environ.items() if key in allowed}
     for key, value in (extra or {}).items():
         if _SECRET_NAME.search(key):
             continue
         environment[str(key)] = str(value)
+    # The marker is injected only by our bubblewrap wrapper.  Preserve the
+    # inherited marker even if a caller supplied a conflicting extra value so
+    # a nested coding harness cannot accidentally escape the parent sandbox.
+    if os.environ.get(_SANDBOX_DEPTH_ENV) == "1":
+        environment[_SANDBOX_DEPTH_ENV] = "1"
     return environment
 
 
@@ -253,6 +267,9 @@ class CommandRunner:
                 "HOME",
                 "/tmp",
                 "--setenv",
+                _SANDBOX_DEPTH_ENV,
+                "1",
+                "--setenv",
                 "PYTHONNOUSERSITE",
                 "1",
             ]
@@ -322,7 +339,7 @@ class CommandRunner:
         if self.profile.executor == "docker":
             execution_argv = self._docker_argv(argv, target, network)
             execution_cwd = None
-        elif self.profile.id == "local_restricted":
+        elif self.profile.id == "local_restricted" and os.environ.get(_SANDBOX_DEPTH_ENV) != "1":
             try:
                 execution_argv = self._local_restricted_argv(argv, target)
             except CommandPolicyError as exc:
