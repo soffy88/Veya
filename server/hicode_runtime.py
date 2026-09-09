@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -288,6 +289,9 @@ class HicodeExecutorAdapter:
         env = os.environ.copy()
         env["HOME"] = str(self.reasonix_home)
         env["REASONIX_STATE_HOME"] = str(self.state_root)
+        env["PATH"] = os.pathsep.join(
+            [str(Path(sys.executable).resolve().parent), env.get("PATH", os.defpath)]
+        )
         # Reasonix already supplies the outer coding sandbox.  Mark that
         # boundary so commands launched by the coding harness do not attempt a
         # second bubblewrap namespace inside it; the command runner still
