@@ -820,6 +820,7 @@ async def project_run_goal(
     parent_goal_clarification: str | None = None,
     max_wall_s: int | None = None,
     wait: bool = True,
+    integration_adapter: Any | None = None,
 ) -> GoalRunResponse:
     """project_run_goal 主入口（M4 规格）。
 
@@ -1014,6 +1015,7 @@ async def project_run_goal(
             cancel_event=cancel_event,
             durable_repository=durable_context[0] if durable_context else None,
             durable_worker_id=durable_context[1] if durable_context else None,
+            integration_adapter=integration_adapter,
         )
     finally:
         reset_breaker(breaker_token)
@@ -1101,7 +1103,14 @@ def _finalize_episode(state: Any, project_root: str, *, outcome: str) -> None:
         # The old JSON MemoryController remains available to isolated 0.9
         # tests, but production GoalRun candidate extraction must use the same
         # durable Personal Runtime authority as the rest of the application.
-        if os.environ.get("VEYA_EXECUTION_DATABASE_URL"):
+        durable_enabled = os.environ.get("VEYA_DURABLE_EXECUTION", "0").strip().lower() not in {
+            "",
+            "0",
+            "false",
+            "no",
+            "off",
+        }
+        if os.environ.get("VEYA_EXECUTION_DATABASE_URL") and durable_enabled:
             from runtime.personal import get_personal_runtime
             from server.goal_run.trust_plane import read_task_episode, read_trust_plane_records
 
@@ -1156,9 +1165,12 @@ async def _run_loop_and_finalize(
     cancel_event: asyncio.Event | None = None,
     durable_repository: DurableExecutionRepository | None = None,
     durable_worker_id: str | None = None,
+    integration_adapter: Any | None = None,
 ) -> GoalRunResponse:
     total_wall_s = float(state.budget.get("max_wall_s", 7200))
     harness_adapter = GoalRunHarnessAdapter.attach(state, project_root)
+    if integration_adapter is not None:
+        await integration_adapter.before_execution(state, project_root)
     finalization = FinalizationController(
         total_wall_s,
         min_reserve_s=float(state.budget.get("finalization_min_reserve_s", 180)),
@@ -1203,6 +1215,8 @@ async def _run_loop_and_finalize(
     )
     safety_response: GoalRunResponse | None = None
     _write_execution_checkpoint(state, project_root, [])
+    if integration_adapter is not None:
+        integration_adapter.checkpoint(state, project_root, reason="goal_run_started")
     harness_adapter.observe()
     harness_adapter.persist(reason="goal_run_started")
 
@@ -1269,6 +1283,8 @@ async def _run_loop_and_finalize(
 
                 async def _run_guarded(current_task: Any = task):
                     async def execute_current(_cancel: asyncio.Event):
+                        if integration_adapter is not None:
+                            await integration_adapter.before_iteration(state, project_root, current_task)
                         if durable_repository is None or durable_worker_id is None:
                             return await _process_one_task(current_task, state, project_root)
                         claim = await durable_repository.claim_next(
@@ -1423,6 +1439,8 @@ async def _run_loop_and_finalize(
                     return safety_response
                 goal_no_progress.reset()
             _write_execution_checkpoint(state, project_root, list(active))
+            if integration_adapter is not None:
+                integration_adapter.checkpoint(state, project_root, reason="task_round")
             save_goal_run(state, project_root)
             continue
 
@@ -1609,6 +1627,8 @@ async def _run_loop_and_finalize(
             resumed=state.finalization_started,
         )
     _write_execution_checkpoint(state, project_root, [], str(manifest_path))
+    if integration_adapter is not None:
+        integration_adapter.checkpoint(state, project_root, reason="finalized")
     save_goal_run(state, project_root)
     _emit_runtime_event(
         state,
