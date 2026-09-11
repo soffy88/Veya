@@ -315,6 +315,15 @@ class TaskGovernanceContext:
             return _to_str(result.get("result"), limit=8000)
         error = result.get("error")
         error_type = error.get("type") if isinstance(error, Mapping) else "ToolGovernanceError"
+        if result.get("attempted"):
+            physical_type = str(result.get("physical_error_type") or error_type)
+            physical_message = str(
+                result.get("physical_error_message")
+                or (error.get("message") if isinstance(error, Mapping) else "tool execution failed")
+            )[:2000]
+            raise RuntimeError(
+                f"tool '{name}' execution failed ({physical_type}): {physical_message}"
+            )
         raise RuntimeError(f"tool '{name}' was not executed ({error_type})")
 
 
