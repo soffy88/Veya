@@ -24,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
+from runtime.provider_reliability import ReliableProviderAdapter
 from server import graft_autocontext as _graft_autocontext
 from server.events import (
     _on_step_ctx,
@@ -828,6 +829,7 @@ class MasterCoordinator:
         session_tree: Any | None = None,
         memory_store: Any | None = None,
         compact_llm_fn: Callable | None = None,
+        reliable_provider_adapter: ReliableProviderAdapter | None = None,
     ):
         """初始化主脑(装配 veya 组件 → 委托主库引擎)。
 
@@ -873,6 +875,7 @@ class MasterCoordinator:
 
             self.omni_gateway = _default_omni_gateway
         self._llm_fn = llm_fn or llm_call
+        self._reliable_provider_adapter = reliable_provider_adapter or ReliableProviderAdapter()
         self.max_rounds = max_rounds
         self.temperature = temperature
         self._long_task_factory = long_task_factory
@@ -1330,15 +1333,58 @@ class MasterCoordinator:
                 return msgs
 
         async def _call(msgs: list) -> Any:
-            return await self._llm_fn(
-                _compact(msgs),
-                config=merged_cfg,
-                model=req_model or self.model,
-                provider=req_provider or self.provider,
-                endpoint=req_endpoint or self.endpoint,
-                tools=tools,
+            compacted = _compact(msgs)
+            call_kwargs = {
+                "config": merged_cfg,
+                "model": req_model or self.model,
+                "provider": req_provider or self.provider,
+                "endpoint": req_endpoint or self.endpoint,
+                "tools": tools,
                 **kwargs,
+            }
+
+            async def call_provider(provider_name: str) -> Any:
+                return await self._llm_fn(
+                    compacted,
+                    **{**call_kwargs, "provider": provider_name},
+                )
+
+            # Only product/canonical execution is reliability-bound. Ordinary
+            # chat and maintenance calls retain their existing facade path.
+            canonical_task_id = _CANONICAL_TASK_CTX.get()
+            # Capability classification is a semantic prelude.  Reliability
+            # binding starts only after MasterAgent has selected the execution
+            # capability, so its structured decision contract is untouched.
+            if not canonical_task_id or _CAPABILITY_CTX.get() is None:
+                return await self._llm_fn(compacted, **call_kwargs)
+            configured_provider = req_provider or self.provider
+            if configured_provider is None:
+                configured_provider = get_provider_config(merged_cfg)[0]
+            candidates = [str(configured_provider)]
+            for fallback in merged_cfg.get("fallback_providers", []) or []:
+                if str(fallback) not in candidates:
+                    candidates.append(str(fallback))
+            provider, response, continuity = await self._reliable_provider_adapter.call(
+                call_provider,
+                candidates,
+                requirements={
+                    "context_size": len(compacted),
+                    "tool_requirements": bool(tools),
+                    "structured_output": bool(tools),
+                },
+                goal_run_id=_pending_goal_id_ctx.get() or str(canonical_task_id),
+                context={
+                    "messages": compacted,
+                    "tools": tools,
+                    "config": merged_cfg,
+                    "goal_run_id": _pending_goal_id_ctx.get() or str(canonical_task_id),
+                    "canonical_task_id": str(canonical_task_id),
+                },
             )
+            if isinstance(response, dict):
+                response.setdefault("_veya_provider", provider)
+                response.setdefault("_veya_continuity", continuity)
+            return response
 
         force_initial_tool_call = _FORCE_INITIAL_TOOL_CALL_CTX.get()
         if force_initial_tool_call:
