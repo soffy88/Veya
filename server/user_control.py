@@ -18,7 +18,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from server.events import append_canonical_event, current_task_id, fire_step
+from server.events import (
+    append_canonical_event,
+    append_observability_event,
+    current_task_id,
+    fire_step,
+)
 
 _mode: contextvars.ContextVar[str] = contextvars.ContextVar("veya_mode", default="agent")
 _require_approval: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -261,6 +266,20 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
             session_id=sid or None,
             task_id=current_task_id(),
         )
+        append_observability_event(
+            "approval.suspended",
+            payload={
+                "request_id": rid,
+                "tool_name": tool,
+                "reason": f"Approval required for '{tool}'",
+            },
+            actor="system",
+            session_id=sid or None,
+            task_id=current_task_id(),
+            tool=tool,
+            action=tool,
+            status="suspended",
+        )
     try:
         try:
             await asyncio.wait_for(pending.event.wait(), timeout=_APPROVAL_TIMEOUT_S)
@@ -274,6 +293,20 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
                     actor="user",
                     session_id=sid or None,
                     task_id=current_task_id(),
+                )
+                append_observability_event(
+                    "approval.resumed",
+                    payload={
+                        "request_id": rid,
+                        "tool_name": tool,
+                        "decision": "approved",
+                    },
+                    actor="user",
+                    session_id=sid or None,
+                    task_id=current_task_id(),
+                    tool=tool,
+                    action=tool,
+                    status="resumed",
                 )
             fire_step(
                 {

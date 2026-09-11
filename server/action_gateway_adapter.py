@@ -118,6 +118,19 @@ class ActionGatewayAdapter:
         oskill = load("oskill")
         profile = self._policy_profile or current_profile() or default_profile()
         permission = decide(profile, request.action, dict(request.arguments))
+        # ProductShell binds interactive tasks to the existing user-control
+        # approval store.  Preserve that request-local decision even when the
+        # ambient permission profile would otherwise allow a local write.
+        if request.effect != "read":
+            from server.user_control import HIGH_IMPACT, require_approval
+
+            if require_approval() and request.action in HIGH_IMPACT:
+                obase = load("obase")
+                return obase.ActionDecision(
+                    verdict="REQUIRE_APPROVAL",
+                    reason="interactive task requires user approval",
+                    request_id=request.request_id,
+                )
         decision = {
             "allow": "ALLOW",
             "deny": "DENY",
