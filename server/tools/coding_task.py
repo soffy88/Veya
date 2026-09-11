@@ -181,7 +181,7 @@ async def coding_task_run(
         # and Workbench all address one durable task instead of creating an
         # unlinked child run.  Direct/CLI callers without a task context keep
         # the existing ct_<id> behavior.
-        from server.events import append_canonical_event, current_task_id
+        from server.events import append_canonical_event, current_event_context, current_task_id
 
         coding_task_id = resume_task_id or current_task_id()
 
@@ -236,7 +236,14 @@ async def coding_task_run(
         # task plan runs in the isolated worktree.  No verification result is
         # asserted here; the final acceptance below is derived from the
         # canonical sensor results collected after the boundary completes.
+        from server.goal_run.canonical_worker import CanonicalWorkerAdapter
         from server.goal_run.runner import project_run_goal
+
+        integration_adapter = CanonicalWorkerAdapter.for_capability(
+            task_id=task_id,
+            objective=objective,
+            capability=current_event_context().get("capability"),
+        )
 
         # GoalRun reserves time for its own finalization before scheduling a
         # leaf.  Keep a short model-supplied coding budget from expiring during
@@ -264,6 +271,7 @@ async def coding_task_run(
             resume_goal_id=resume_goal_id,
             max_wall_s=goal_budget_seconds,
             wait=True,
+            integration_adapter=integration_adapter,
         )
         goal_run_id = str(goal_response.goal_id or "")
         state.goal_run_id = goal_run_id or None

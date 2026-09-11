@@ -821,6 +821,12 @@ async def project_run_goal(
     max_wall_s: int | None = None,
     wait: bool = True,
     integration_adapter: Any | None = None,
+    capability: str | None = None,
+    knowledge_plan: Any | None = None,
+    retriever: Any | None = None,
+    provider_router: Any | None = None,
+    provider_request: Any | None = None,
+    provider_candidates: list[str] | None = None,
 ) -> GoalRunResponse:
     """project_run_goal 主入口（M4 规格）。
 
@@ -847,6 +853,25 @@ async def project_run_goal(
             block_reason=f"unknown mode {mode!r}, must be one of {sorted(_VALID_GOAL_MODES)}",
             artifacts=None,
             next_action="none",
+        )
+
+    # MasterAgent binds the semantic capability in the request context.  The
+    # GoalRun entry consumes that decision only to assemble its integration
+    # projection; GoalRun remains the sole execution authority.
+    if integration_adapter is None:
+        from server.events import current_event_context
+        from server.goal_run.canonical_worker import CanonicalWorkerAdapter
+
+        resolved_capability = capability or current_event_context().get("capability")
+        integration_adapter = CanonicalWorkerAdapter.for_capability(
+            task_id=resume_goal_id or "goal_run",
+            objective=goal,
+            capability=resolved_capability,
+            knowledge_plan=knowledge_plan,
+            retriever=retriever,
+            provider_router=provider_router,
+            provider_request=provider_request,
+            provider_candidates=provider_candidates,
         )
 
     start_ts = time.time()
