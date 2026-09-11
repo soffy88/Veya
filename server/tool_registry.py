@@ -70,6 +70,20 @@ _current_master_session: contextvars.ContextVar[str | None] = contextvars.Contex
     "veya_master_session", default=None
 )
 
+_current_write_root: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "veya_write_root", default=None
+)
+
+
+def bind_write_root(root: str | Path | None) -> contextvars.Token:
+    """Bind the task workspace for governed local writes."""
+
+    return _current_write_root.set(Path(root).expanduser().resolve() if root else None)
+
+
+def reset_write_root(token: contextvars.Token) -> None:
+    _current_write_root.reset(token)
+
 
 _delegation_depth_ctx: contextvars.ContextVar[int] = contextvars.ContextVar(
     "veya_delegation_depth", default=0
@@ -1181,7 +1195,12 @@ def _resolve_write_path(filepath: str, *, must_exist: bool = False) -> Path:
     与读根 (VEYA_WORKSPACE, 项目/代码只读) 分离: 主脑「存储文件」写到这里,
     读文件照旧读项目代码。防逃逸同 _resolve_path。
     """
-    root = Path(os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work"))).resolve()
+    bound_root = _current_write_root.get()
+    root = (
+        bound_root
+        if bound_root is not None
+        else Path(os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work"))).resolve()
+    )
     root.mkdir(parents=True, exist_ok=True)
     p = Path(filepath)
     if not p.is_absolute():

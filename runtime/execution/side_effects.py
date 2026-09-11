@@ -78,6 +78,17 @@ class SideEffectLedger:
             if inspect.isawaitable(result):
                 result = await result
         except Exception as exc:
+            # Deterministic local tool failures did not create an external
+            # side effect. Keep their evidence retryable instead of marking
+            # the operation as an unknown external outcome.
+            if type(exc).__name__ == "ToolExecutionError":
+                await self.repository.update_side_effect(
+                    operation_key,
+                    state="failed",
+                    probe_result={"status": "failed", "error": str(exc)},
+                    claim=claim,
+                )
+                raise
             # A provider exception after the call boundary is deliberately
             # unknown; callers may classify a preflight failure separately.
             await self.repository.update_side_effect(

@@ -37,6 +37,21 @@ from typing import Any
 # Canonical Event Model §4 — Schema 版本 (关键结构变更时递增)
 _SCHEMA_VERSION = 1
 
+# P0 execution facts share the canonical event envelope and the trajectory
+# projection.  They are deliberately a fixed vocabulary: these facts are
+# observability only and do not drive routing or execution.
+_OBSERVABILITY_TOPICS = frozenset(
+    {
+        "capability.decision",
+        "tool.call",
+        "tool.result",
+        "approval.suspended",
+        "approval.resumed",
+        "replan.started",
+        "replan.completed",
+    }
+)
+
 # §4 定义的最小事件类型白名单
 _MINIMAL_EVENTS = frozenset(
     {
@@ -143,6 +158,7 @@ _MINIMAL_EVENTS = frozenset(
         "finalization.partial_completed",
         "outbox.published",
         "migration.comparison",
+        *_OBSERVABILITY_TOPICS,
     }
 )
 
@@ -243,6 +259,12 @@ _event_trace_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _event_turn_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "event_turn_id", default=None
 )
+_event_capability_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "event_capability", default=None
+)
+_observability_events_ctx: contextvars.ContextVar[list[dict[str, Any]] | None] = (
+    contextvars.ContextVar("observability_events", default=None)
+)
 
 
 def current_task_id() -> str | None:
@@ -276,7 +298,87 @@ def current_event_context() -> dict[str, str | None]:
         "trace_id": _event_trace_ctx.get(),
         "turn_id": _event_turn_ctx.get(),
         "task_id": current_task_id(),
+        "capability": _event_capability_ctx.get(),
     }
+
+
+def bind_event_capability(capability: str | None) -> contextvars.Token:
+    """Bind the semantic capability for passive lifecycle telemetry."""
+    return _event_capability_ctx.set(capability)
+
+
+def reset_event_capability(token: contextvars.Token) -> None:
+    _event_capability_ctx.reset(token)
+
+
+def bind_observability_events() -> contextvars.Token:
+    """Start collecting this request's P0 facts for the existing trajectory."""
+    return _observability_events_ctx.set([])
+
+
+def reset_observability_events(token: contextvars.Token) -> None:
+    _observability_events_ctx.reset(token)
+
+
+def current_observability_events() -> list[dict[str, Any]]:
+    """Return a snapshot of P0 facts collected in the current request."""
+    return list(_observability_events_ctx.get() or [])
+
+
+def append_observability_event(
+    topic: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    actor: str = "system",
+    session_id: str | None = None,
+    trace_id: str | None = None,
+    turn_id: str | None = None,
+    task_id: str | None = None,
+    goal_run_id: str | None = None,
+    capability: str | None = None,
+    tool: str | None = None,
+    action: str | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
+    """Persist one P0 fact through the existing canonical event store.
+
+    The common fields live in the payload as well as the envelope's
+    ``task_id``/``trace_id`` so trajectory consumers and event consumers can
+    use the same shape.  This function is intentionally passive: persistence
+    failures are handled by the caller exactly like other event writes.
+    """
+    if topic not in _OBSERVABILITY_TOPICS:
+        raise ValueError(f"unsupported observability topic: {topic}")
+    context = current_event_context()
+    resolved_task_id = task_id or context["task_id"]
+    resolved_trace_id = (
+        trace_id or context["trace_id"] or context["session_id"] or resolved_task_id or "unknown"
+    )
+    resolved_capability = capability or context["capability"]
+    fields: dict[str, Any] = {
+        "task_id": resolved_task_id,
+        "trace_id": resolved_trace_id,
+        "goal_run_id": goal_run_id,
+        "capability": resolved_capability,
+        "tool": tool,
+        "action": action if action is not None else tool,
+        "status": status,
+    }
+    event_payload = dict(payload or {})
+    event_payload.update(fields)
+    event = append_canonical_event(
+        topic,
+        event_payload,
+        actor=actor,
+        session_id=session_id,
+        trace_id=resolved_trace_id,
+        turn_id=turn_id,
+        task_id=resolved_task_id,
+    )
+    collected = _observability_events_ctx.get()
+    if collected is not None:
+        collected.append(event)
+    return event
 
 
 def append_canonical_event(
