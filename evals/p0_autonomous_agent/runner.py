@@ -407,7 +407,7 @@ def _score_case(spec: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any
         later_call = any(
             _tool_name(event) == resumed_tool
             for event in evidence["p0_events"][resumed_index + 1 :]
-            if _topic(event) == "tool.call"
+            if _topic(event) in {"tool.call", "tool.completed", "tool.result"}
         )
         approval_ok = (
             same_action
