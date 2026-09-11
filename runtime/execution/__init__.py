@@ -47,6 +47,16 @@ from .scheduler import ContinuousReadyScheduler, SchedulerRun
 from .side_effects import SideEffectLedger
 from .spawn_guard import SpawnGuard, SpawnRejected
 from .worker import WorkerHost
+from .long_running import (
+    BudgetExhausted,
+    DuplicateFailedAction,
+    HarnessError,
+    LongRunBudget,
+    LongRunCheckpointStore,
+    LongRunState,
+    LongRunningHarness,
+    ProgressObservation,
+)
 
 __all__ = [
     "AcceptanceCriterion",
@@ -84,6 +94,14 @@ __all__ = [
     "StopReason",
     "WorkItemSpec",
     "WorkerHost",
+    "BudgetExhausted",
+    "DuplicateFailedAction",
+    "HarnessError",
+    "LongRunBudget",
+    "LongRunCheckpointStore",
+    "LongRunState",
+    "LongRunningHarness",
+    "ProgressObservation",
     "build_operation_key",
     "calculate_finalization_reserve",
     "canonical_json",
