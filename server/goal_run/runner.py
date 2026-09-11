@@ -38,6 +38,8 @@ from runtime.execution.models import (
 from runtime.execution.no_progress import NoProgressGuard
 from runtime.execution.spawn_guard import SpawnGuard
 from server.capability_model import performance_store
+from server.goal_run.git_diff import current_head
+from server.goal_run.harness_adapter import GoalRunHarnessAdapter
 from server.goal_run.leaf import execute_leaf_with_memory
 from server.goal_run.models import (
     GoalRunResponse,
@@ -120,10 +122,7 @@ def resolve_plan_review(
 
     existing = report.get("resolution")
     if isinstance(existing, dict):
-        if (
-            existing.get("request_id") == request_id
-            and existing.get("version") == expected_version
-        ):
+        if existing.get("request_id") == request_id and existing.get("version") == expected_version:
             return {
                 "resolved": False,
                 "already_resolved": True,
@@ -444,8 +443,6 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
     state.running_ids.add(task.id)
     state.completed_ids.discard(task.id)
 
-    from server.goal_run.git_diff import current_head
-
     before_ref = current_head(project_root)
     try:
         leaf_result = await execute_leaf_with_memory(
@@ -567,6 +564,17 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
         task.status = TaskStatus.ready
         # 可在 instruction 中记录上轮失败原因
         new_instruction = f"{task.instruction}\n\n(上轮验收失败: {verify_result.reason})"
+        with contextlib.suppress(Exception):
+            _emit_runtime_event(
+                state,
+                project_root,
+                "replan.started",
+                task_id=task.id,
+                action="retry",
+                status="started",
+                reason=verify_result.reason,
+                retry_attempt=task.retries,
+            )
         _record_retry_branch(
             task,
             leaf_summary=leaf_result.summary,
@@ -574,6 +582,16 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
             new_instruction=new_instruction,
         )
         task.instruction = new_instruction
+        with contextlib.suppress(Exception):
+            _emit_runtime_event(
+                state,
+                project_root,
+                "replan.completed",
+                task_id=task.id,
+                action="retry",
+                status="completed",
+                retry_attempt=task.retries,
+            )
         return None
 
     # 重试用尽：blocked
@@ -1140,6 +1158,7 @@ async def _run_loop_and_finalize(
     durable_worker_id: str | None = None,
 ) -> GoalRunResponse:
     total_wall_s = float(state.budget.get("max_wall_s", 7200))
+    harness_adapter = GoalRunHarnessAdapter.attach(state, project_root)
     finalization = FinalizationController(
         total_wall_s,
         min_reserve_s=float(state.budget.get("finalization_min_reserve_s", 180)),
@@ -1184,6 +1203,8 @@ async def _run_loop_and_finalize(
     )
     safety_response: GoalRunResponse | None = None
     _write_execution_checkpoint(state, project_root, [])
+    harness_adapter.observe()
+    harness_adapter.persist(reason="goal_run_started")
 
     async def cancel_active() -> None:
         for child in active.values():
@@ -1232,6 +1253,8 @@ async def _run_loop_and_finalize(
                 reserve_s=finalization.reserve_s,
             )
             _write_execution_checkpoint(state, project_root, list(active))
+            harness_adapter.observe()
+            harness_adapter.persist(reason="task_round")
             save_goal_run(state, project_root)
 
         if finalization.started and (remaining_s <= 0 or operator_stop) and active:
