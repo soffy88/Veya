@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import uuid
 from typing import Any
 
@@ -20,6 +21,8 @@ from server.product_shell import configure_bot, read_bot_state
 from server.session_identity import new_session_id
 from server.task_store import task_store
 from veya.history_store import default_history_store
+
+logger = logging.getLogger("veya.product")
 
 router = APIRouter(prefix="/api/v1/bot", tags=["product"])
 
@@ -83,12 +86,26 @@ async def _run_product_task(
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # pragma: no cover - defensive process boundary
+        # Log the full exception with context so we can diagnose the root cause
+        logger.error(
+            "Product task failed",
+            exc_info=True,
+            extra={
+                "task_id": task_id,
+                "session_id": session_id,
+                "objective": objective,
+                "provider": provider,
+                "model": model,
+                "config_keys": list(config.keys()) if config else [],
+                "error_type": type(exc).__name__,
+            }
+        )
         with contextlib.suppress(Exception):
             task_store.update_status(task_id, "failed")
             task = task_store.get(task_id)
             append_canonical_event(
                 "product.task_failed",
-                {"error_type": type(exc).__name__},
+                {"error_type": type(exc).__name__, "error_msg": str(exc)[:500]},
                 actor="system",
                 session_id=session_id,
                 trace_id=task.trace_id if task is not None else None,
