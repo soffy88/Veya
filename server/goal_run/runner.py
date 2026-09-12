@@ -1541,6 +1541,42 @@ async def _run_loop_and_finalize(
     cancelled = sum(1 for task in state.tasks.values() if task.status == TaskStatus.cancelled)
     has_partial_work = bool(state.unfinished_work or blocked or cancelled or completed < total)
     final_status = GoalStatus.partial_completed if has_partial_work else GoalStatus.completed
+    if integration_adapter is not None and hasattr(integration_adapter, "finalize_candidate"):
+        verdict = await integration_adapter.finalize_candidate(state, project_root)
+        if verdict is not None and verdict.outcome != "PASS":
+            if verdict.outcome == "FAIL":
+                harness_adapter.harness.replan(verdict.summary or "verification_failed")
+                harness_adapter.persist(reason="verification_failed_replan")
+                # Re-enter the existing GoalRun scheduler on the next resume;
+                # the verifier does not own a retry loop.
+                for task in state.tasks.values():
+                    if task.status == TaskStatus.completed:
+                        task.status = TaskStatus.ready
+                        task.retries += 1
+                state.completed_ids.clear()
+                state.status = GoalStatus.recovering
+            else:
+                state.status = GoalStatus.blocked
+            state.last_stop_reason = verdict.summary or verdict.outcome
+            save_goal_run(state, project_root)
+            return GoalRunResponse(
+                goal_id=state.goal_id,
+                status=state.status,
+                phase="blocked" if state.status == GoalStatus.blocked else "running",
+                interpretation=u.interpretation if u else goal,
+                questions=None,
+                goal_counts={
+                    "pending": sum(1 for task in state.tasks.values() if task.status == TaskStatus.pending),
+                    "running": len(state.running_ids),
+                    "completed": completed,
+                    "blocked": blocked,
+                    "cancelled": cancelled,
+                },
+                summary=verdict.summary,
+                block_reason=state.last_stop_reason,
+                artifacts=None,
+                next_action="replan" if verdict.outcome == "FAIL" else "none",
+            )
     state.status = final_status
 
     _emit_runtime_event(state, project_root, "fanin.started")

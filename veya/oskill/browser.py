@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from veya.oprim.browser import (
@@ -82,12 +83,38 @@ class BrowserSession:
     def history(self) -> list[BrowserActionResult]:
         return self._action_history
 
+    @staticmethod
+    def _browser_roots() -> list[Path]:
+        """Return existing Playwright roots, preferring an explicit valid root."""
+        configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+        repository = Path(__file__).resolve().parents[2] / "deploy" / "ms-playwright"
+        candidates = [Path(configured)] if configured and configured != "0" else []
+        candidates.extend([repository, Path("/opt/ms-playwright")])
+        roots: list[Path] = []
+        for candidate in candidates:
+            if candidate in roots or not candidate.is_dir():
+                continue
+            if any(candidate.glob("chromium-*/chrome-*/chrome")):
+                roots.append(candidate)
+        return roots
+
+    @classmethod
+    def _configure_playwright_browsers(cls) -> Path | None:
+        """Point Playwright at the already-installed Browser Computer bundle."""
+        roots = cls._browser_roots()
+        if not roots:
+            return None
+        root = roots[0]
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(root)
+        return root
+
     async def start(self) -> None:
         """Start the browser session."""
         if self._started:
             return
 
         try:
+            self._configure_playwright_browsers()
             from playwright.async_api import async_playwright
         except ImportError:
             raise RuntimeError(
@@ -98,6 +125,12 @@ class BrowserSession:
 
         browser_launcher = getattr(self._playwright, self._browser_type)
         launch_kwargs: dict[str, Any] = {"headless": self._config["headless"]}
+        executable = Path(browser_launcher.executable_path)
+        if executable.is_file():
+            # Pass the path resolved by the installed Playwright package. This
+            # keeps browser_run on the one existing Browser Computer runtime
+            # even when a stale/missing default cache path is present.
+            launch_kwargs["executable_path"] = str(executable)
         # 容器/打包/CI 环境 (无 user namespace 或 /dev/shm 受限):
         # Chromium 自身 sandbox 会报 "Failed to move to new namespace" /
         # "cannot write to /dev/shm" → 显式关闭并禁用 dev-shm

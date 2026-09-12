@@ -82,6 +82,26 @@ veya-headless --agent plan --text "设计一个数据管道"   # 无头模式
 | Ollama（本地） | — | `veya init` 自动探测 `localhost:11434`，免 Key |
 | 任意 OpenAI 兼容端点 | `VEYA_LLM_ENDPOINT` | NIM / vLLM / 代理网关等 |
 
+### NVIDIA NIM key pool
+
+The following model aliases use the shared Stratum NIM key pool and rotate
+keys round-robin independently for each model:
+
+| Alias | NVIDIA model |
+| --- | --- |
+| `veya-M3-nv` | `minimaxai/minimax-m3` |
+| `veya-DeepSeek-V4-Flash-nv` | `deepseek-ai/deepseek-v4-flash-0731` |
+| `veya-Qwen3.5-397B-nv` | `qwen/qwen3.5-397b-a17b` |
+| `veya-Kimi-K2.6-nv` | `moonshotai/kimi-k2.6` |
+| `veya-GLM5.1-nv` | `z-ai/glm5.1` |
+
+Set `VEYA_NVIDIA_NIM_KEYS_FILE` to the Stratum `aii/.pipeline_keys.json`
+path, or provide `NVIDIA_NIM_KEY_POOL` as a comma-separated key list. The
+Compose deployment mounts the key file read-only; no key is stored in Veya.
+Model IDs can be overridden with `VEYA_NIM_M3_MODEL`,
+`VEYA_NIM_DEEPSEEK_MODEL`, `VEYA_NIM_QWEN_MODEL`, `VEYA_NIM_KIMI_MODEL`, or
+`VEYA_NIM_GLM_MODEL` if NVIDIA changes a catalog ID.
+
 `veya init` 会把 Key 写入 `~/.veya/.env`（chmod 600）与工作区 `.env`。
 没有 Key 时自动降级为离线 stub 响应（可先体验完整流程）。
 

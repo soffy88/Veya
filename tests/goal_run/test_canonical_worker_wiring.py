@@ -4,7 +4,7 @@ import pytest
 
 from runtime.knowledge_reliability import Evidence, RetrievalPlan
 from runtime.provider_reliability import ReliableProviderAdapter
-from runtime.verification.models import VerificationSpec
+from runtime.verification.models import EvidenceBundle, VerificationSpec, VerificationVerdict
 from server.coordinator_master import _CANONICAL_TASK_CTX, _CAPABILITY_CTX, MasterCoordinator
 from server.events import bind_event_capability, reset_event_capability
 from server.goal_run.canonical_worker import CanonicalWorkerAdapter
@@ -17,6 +17,41 @@ from server.goal_run.verify import VerifyResult
 class _VerificationStub:
     async def generate_verification_spec(self, task_id, goal_run_id, head_sha, *, feature_name):
         return VerificationSpec.create_for_task(task_id, goal_run_id, head_sha)
+
+
+class _AcceptanceStub(_VerificationStub):
+    def __init__(self):
+        self.outcomes = ["FAIL", "PASS"]
+        self.bundles = []
+
+    async def collect_evidence_bundle(self, task_id, goal_run_id, head_sha, spec, *, artifact_store):
+        bundle = EvidenceBundle(
+            task_id=task_id,
+            goal_run_id=goal_run_id,
+            head_sha=head_sha,
+            verification_spec_version=spec.version,
+            verification_spec_hash=spec.spec_hash,
+        )
+        self.bundles.append(bundle)
+        return bundle
+
+    async def run_independent_verifier(self, spec, bundle, head_sha):
+        outcome = self.outcomes.pop(0)
+        factory = VerificationVerdict.create_pass if outcome == "PASS" else VerificationVerdict.create_fail
+        kwargs = {
+            "task_id": spec.task_id,
+            "goal_run_id": spec.goal_run_id,
+            "head_sha": head_sha,
+            "spec_hash": spec.spec_hash,
+            "bundle_hash": bundle.bundle_hash,
+            "criteria_results": {},
+            "negative_case_results": {},
+            "cleanup_verified": True,
+            "summary": outcome,
+        }
+        if outcome == "FAIL":
+            kwargs["missing_evidence"] = ["candidate"]
+        return factory(**kwargs)
 
 
 @pytest.mark.asyncio
@@ -202,3 +237,55 @@ async def test_master_bound_llm_uses_reliable_adapter_for_canonical_execution():
     assert response["choices"][0]["message"]["tool_calls"]
     assert [item[0] for item in calls] == ["provider-a", "provider-b"]
     assert calls[0][2] == calls[1][2]
+
+
+@pytest.mark.asyncio
+async def test_acceptance_fail_replans_and_reverifies_same_goal_run(tmp_path, monkeypatch):
+    (tmp_path / ".veya-project").mkdir()
+    monkeypatch.setenv("VEYA_GOAL_RUN_PLAN_REVIEW_ENABLED", "0")
+    engine = _AcceptanceStub()
+
+    async def leaf(*_args, **_kwargs):
+        return LeafResult(status="completed", summary="candidate", artifacts=[])
+
+    async def verify(*_args, **_kwargs):
+        return VerifyResult(passed=True, summary="task verified")
+
+    monkeypatch.setattr("server.goal_run.runner.execute_leaf_with_memory", leaf)
+    monkeypatch.setattr("server.goal_run.runner.verify_task", verify)
+    adapter = CanonicalWorkerAdapter(
+        task_id="acceptance-task",
+        objective="acceptance integration",
+        verification_engine=engine,
+        verification_required=True,
+    )
+    task = {
+        "id": "candidate",
+        "title": "candidate",
+        "instruction": "produce candidate",
+        "acceptance": ["candidate"],
+        "depends_on": [],
+        "assignee": "hicode",
+    }
+    first = await project_run_goal(
+        project_root=str(tmp_path),
+        goal="acceptance integration",
+        tasks=[task],
+        mode="act_eager",
+        wait=True,
+        integration_adapter=adapter,
+    )
+    second = await project_run_goal(
+        project_root=str(tmp_path),
+        goal="acceptance integration",
+        tasks=[task],
+        mode="act_eager",
+        resume_goal_id=first.goal_id,
+        wait=True,
+        integration_adapter=adapter,
+    )
+
+    assert first.status.value == "recovering"
+    assert second.status.value == "completed"
+    assert len(engine.bundles) == 2
+    assert engine.bundles[0].bundle_hash != engine.bundles[1].bundle_hash

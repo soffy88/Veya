@@ -19,6 +19,10 @@ services:
     command: ["sh", "/app/hicode-entrypoint.sh"]
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.2}
+      # Shared read-only Stratum NVIDIA NIM key pool; aliases veya-*-nv rotate
+      # these keys independently per model. Override the path on other hosts.
+      - VEYA_NVIDIA_NIM_KEYS_FILE=${VEYA_NVIDIA_NIM_KEYS_FILE:-/home/soffy/projects/stratum/aii/.pipeline_keys.json}
+      - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY:-}
       # Production durable execution is configured in the root .env. If it is
       # enabled without PostgreSQL, startup fails closed before any claim.
       - VEYA_DURABLE_EXECUTION=${VEYA_DURABLE_EXECUTION:?VEYA_DURABLE_EXECUTION must be set to 1 in production}
@@ -128,6 +132,7 @@ services:
       - ../deploy/hicode-entrypoint.sh:/app/hicode-entrypoint.sh:ro
       # Git 面板工作区: 宿主 veya 仓库根 (git status/diff/commit 操作真实仓库)
       - /data/soffy/projects/veya:/repo:rw
+      - ${STRATUM_NIM_KEYS_FILE:-/data/soffy/projects/stratum/aii/.pipeline_keys.json}:/home/soffy/projects/stratum/aii/.pipeline_keys.json:ro
       # 宿主同级项目 (hemal/stratum/aegis 等) — 此前完全没挂进容器, 主脑连
       # list_files 都会报 "escapes workspace root"。容器内路径与宿主一致
       # (/home/soffy/projects), 便于按宿主路径直接引用/映射。

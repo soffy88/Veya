@@ -3294,6 +3294,12 @@ class DurableExecutionRepository:
                 decision = "RETRY_SAFE"
                 state = "retry_wait"
                 recovered = 0
+            elif item["state"] == "running" and not item["result_json"]:
+                # Running work_item with expired lease but no result yet:
+                # allow retry so it can be re-claimed with a fresh lease/token
+                decision = "RETRY_SAFE"
+                state = "retry_wait"
+                recovered = 0
             else:
                 decision = (
                     "QUARANTINED_UNKNOWN"
@@ -4455,11 +4461,39 @@ class DurableExecutionRepository:
             return await asyncio.to_thread(lambda: self._sqlite_read(read_metrics))
 
         async def read_metrics_pg(conn: Any) -> dict[str, int | float]:
-            rows = await conn.fetch(
-                "SELECT event_type,COUNT(*) AS count FROM execution_events GROUP BY event_type"
+            # P0 fix: metrics queries can block on large tables (28K+ rows).
+            # Wrap each query with a hard timeout to prevent them from
+            # blocking task execution. metrics are observability, not
+            # part of the durable consistency path.
+            async def _fetch_with_timeout(coro, default, label, timeout_s):
+                # P0 fix: Return degraded marker on timeout instead of 0/[] 
+                # to avoid misrepresenting actual metrics values as zero.
+                try:
+                    return await asyncio.wait_for(coro, timeout=timeout_s)
+                except asyncio.TimeoutError:
+                    import logging as _l
+                    _l.getLogger("veya.durable").warning(
+                        f"metrics query {label} timeout ({timeout_s}s), marking as degraded"
+                    )
+                    # Return special marker prefixed with __degraded__ 
+                    # instead of 0 to distinguish from real zeros
+                    return f"__degraded__{label}"
+
+            rows = await _fetch_with_timeout(
+                conn.fetch(
+                    "SELECT event_type,COUNT(*) AS count FROM execution_events GROUP BY event_type"
+                ),
+                default=[],
+                label="event_type counts",
+                timeout_s=2.0,
             )
-            decisions = await conn.fetch(
-                "SELECT decision,COUNT(*) AS count FROM recovery_decisions GROUP BY decision"
+            decisions = await _fetch_with_timeout(
+                conn.fetch(
+                    "SELECT decision,COUNT(*) AS count FROM recovery_decisions GROUP BY decision"
+                ),
+                default=[],
+                label="recovery_decisions",
+                timeout_s=2.0,
             )
             event_rows = [(str(row["event_type"]), int(row["count"])) for row in rows]
             event_rows.extend(
@@ -4468,42 +4502,64 @@ class DurableExecutionRepository:
             event_rows.append(
                 ("recovery.decision.total", sum(int(row["count"]) for row in decisions))
             )
-            pending = int(
-                await conn.fetchval(
+            pending_result = await _fetch_with_timeout(
+                conn.fetchval(
                     "SELECT COUNT(*) FROM execution_outbox WHERE published_at IS NULL"
-                )
+                ),
+                default="__degraded_outbox_pending__",
+                label="outbox pending",
+                timeout_s=1.0,
             )
-            replayed = int(
-                await conn.fetchval(
+            pending = -1 if isinstance(pending_result, str) and pending_result.startswith("__degraded__") else int(pending_result)
+            replayed_result = await _fetch_with_timeout(
+                conn.fetchval(
                     "SELECT COALESCE(SUM(CASE WHEN publish_attempts > 1 THEN publish_attempts - 1 ELSE 0 END),0) FROM execution_outbox"
-                )
+                ),
+                default="__degraded_outbox_replayed__",
+                label="outbox replayed",
+                timeout_s=1.0,
             )
-            probes = int(
-                await conn.fetchval(
+            replayed = -1 if isinstance(replayed_result, str) and replayed_result.startswith("__degraded__") else int(replayed_result)
+            probes_result = await _fetch_with_timeout(
+                conn.fetchval(
                     "SELECT COUNT(*) FROM side_effects WHERE probe_result_json IS NOT NULL"
-                )
+                ),
+                default="__degraded_side_effects_probes__",
+                label="side_effects probes",
+                timeout_s=1.0,
             )
-            quarantined = int(
-                await conn.fetchval(
+            probes = -1 if isinstance(probes_result, str) and probes_result.startswith("__degraded__") else int(probes_result)
+            quarantined_result = await _fetch_with_timeout(
+                conn.fetchval(
                     "SELECT COUNT(*) FROM work_items WHERE state='quarantined_unknown'"
-                )
+                ),
+                default="__degraded_work_items_quarantined__",
+                label="work_items quarantined",
+                timeout_s=1.0,
             )
-            timing_rows = [
-                dict(row)
-                for row in await conn.fetch(
+            quarantined = -1 if isinstance(quarantined_result, str) and quarantined_result.startswith("__degraded__") else int(quarantined_result)
+            timing_result = await _fetch_with_timeout(
+                conn.fetch(
                     "SELECT wi.goal_run_id,wi.created_at AS item_created,wi.updated_at AS item_updated,"
                     "el.acquired_at,el.released_at,gr.budget_json "
                     "FROM work_items wi JOIN goal_runs gr ON gr.id=wi.goal_run_id "
                     "LEFT JOIN execution_leases el ON el.work_item_id=wi.id"
-                )
-            ]
-            wait_rows = [
-                dict(row)
-                for row in await conn.fetch(
+                ),
+                default="__degraded_timing_rows__",
+                label="work_items+goal_runs+leases timing",
+                timeout_s=2.0,
+            )
+            timing_rows = [] if isinstance(timing_result, str) and timing_result.startswith("__degraded__") else [dict(row) for row in timing_result]
+            wait_result = await _fetch_with_timeout(
+                conn.fetch(
                     "SELECT wi.created_at AS item_created,wa.created_at AS attempt_created "
                     "FROM work_attempts wa JOIN work_items wi ON wi.id=wa.work_item_id"
-                )
-            ]
+                ),
+                default="__degraded_work_attempts_waits__",
+                label="work_attempts waits",
+                timeout_s=1.0,
+            )
+            wait_rows = [] if isinstance(wait_result, str) and wait_result.startswith("__degraded__") else [dict(row) for row in wait_result]
             return from_rows(
                 event_rows,
                 pending=pending,

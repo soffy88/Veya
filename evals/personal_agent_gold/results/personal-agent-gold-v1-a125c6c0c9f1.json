@@ -127,7 +127,7 @@
     "hard": 41,
     "medium": 62
   },
-  "eval_run_id": "personal-gold-75d821339ad44f00abc06469ab8244d9",
+  "eval_run_id": "personal-gold-ba7c128f5b844ecdaa99b184fdbab4e9",
   "failure_count": 0,
   "feature_flags": {
     "VEYA_CONTINUITY_V1": "default:true",
@@ -140,7 +140,7 @@
     "VEYA_SKILL_V2": "default:true",
     "VEYA_SKILL_VERSIONING": "default:true"
   },
-  "git_sha": "5961d67c49bebc49343869232ef9b2a1ccbcd6a3",
+  "git_sha": "a125c6c0c9f19f4f89ea0b4863250c745b3af3fe",
   "hardest_failures": [],
   "judge": {
     "human_gold_required": true,
@@ -2464,5 +2464,5 @@
     }
   },
   "status": "PASS",
-  "timestamp": "2026-08-31T20:53:35.862336+00:00"
+  "timestamp": "2026-08-30T13:42:03.918752+00:00"
 }

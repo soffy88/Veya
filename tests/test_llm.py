@@ -367,6 +367,35 @@ async def test_llm_call_real_path(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_llm_call_closes_direct_and_proxy_clients(monkeypatch):
+    created = []
+
+    class TrackingClient:
+        def __init__(self, **kwargs):
+            self.closed = False
+            created.append(self)
+
+        async def aclose(self):
+            self.closed = True
+
+    async def fake_provider_call(client, provider, **kwargs):
+        assert not client.closed
+        return _make_openai_completion("closed safely")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-123")
+    monkeypatch.setenv("VEYA_LLM_PROVIDER", "openai")
+    monkeypatch.setattr(hllm.httpx, "AsyncClient", TrackingClient)
+    monkeypatch.setattr(hllm, "_custom_proxy_url", lambda _provider: "http://proxy")
+    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
+
+    result = await hllm.llm_call([{"role": "user", "content": "hi"}])
+
+    assert result["choices"][0]["message"]["content"] == "closed safely"
+    assert len(created) == 2
+    assert all(client.closed for client in created)
+
+
+@pytest.mark.asyncio
 async def test_llm_call_ollama_default_without_api_key(monkeypatch):
     monkeypatch.setenv("VEYA_LLM_PROVIDER", "ollama")
     monkeypatch.setenv("VEYA_LLM_MODEL", "qwen38-9b-q5")
