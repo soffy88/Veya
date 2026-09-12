@@ -47,6 +47,13 @@ async def run_formal(ctx: dict, target_s: float) -> dict:
     t0 = ctx["t0"]
     run = await CanonicalRun(ctx).build()
     ctx["canonical"] = run
+    # The production ContextEngine deliberately accepts a summarizer at its
+    # boundary.  The mechanics harness already owns a deterministic,
+    # network-free extractive summarizer; bind that existing test contract to
+    # the SAME engine used by the canonical GoalRun before pressure is driven.
+    from .scenarios import _extractive_summary
+
+    run.worker.context_engine.llm_summarizer = _extractive_summary
     monitor = InvariantMonitor(collector)
     monitor.watch_coordinator(run.coordinator)
     monitor.watch_verifier(run.worker.verification_engine)
@@ -77,6 +84,17 @@ async def run_formal(ctx: dict, target_s: float) -> dict:
         "ledger_repeats": 0,
         "approval_gated": False,
         "finalized": False,
+        "pressure_checks": 0,
+        "pressure_hits": 0,
+        "compaction_plan_count": 0,
+        "compaction_execution_count": 0,
+        "context_token_peak": 0,
+        "context_budget": run.worker.context_engine.budget.max_tokens,
+        "compaction_trigger_ratio": run.worker.context_engine.budget.trigger_ratio,
+        "compaction_trigger_threshold_tokens": int(
+            run.worker.context_engine.budget.max_tokens
+            * run.worker.context_engine.budget.trigger_ratio
+        ),
     }
 
     async def steady_action() -> None:
@@ -100,21 +118,57 @@ async def run_formal(ctx: dict, target_s: float) -> dict:
             "artifact": ev.artifact_relpath,
             "prev_digest": state["chain_digest"],
             "action_status": status,
+            # These are production-owned action/result and task projections,
+            # retained as real context traffic so pressure reflects the
+            # canonical seam's actual evidence, not a synthetic counter.
+            "canonical_action": record,
+            "tool_result": out["result_str"],
+            "task_artifacts": list(
+                getattr(run.state.tasks.get(run.task_id), "artifacts", []) or []
+            ),
         }
         text = json.dumps(obs, sort_keys=True)
         from runtime.context.models import ContextLayer
+
+        result_data = record.get("result") or {}
+        result_body = result_data.get("result") if isinstance(result_data, dict) else {}
+        artifact_ref = result_body.get("artifact") if isinstance(result_body, dict) else None
+        if artifact_ref:
+            run.worker.context_engine.add_artifact_ref(str(artifact_ref))
+        for evidence_ref in result_data.get("evidence_refs", []) if isinstance(result_data, dict) else []:
+            run.worker.context_engine.add_evidence_ref(str(evidence_ref))
 
         run.worker.context_engine.append_to_layer(
             ContextLayer.L2_OBSERVATIONS, [obs], token_estimate=max(1, len(text) // 4)
         )
         collector.count("context_appends")
         state["context_cycles"] += 1
-        if run.worker.context_engine.should_compact():
+        pressure = run.worker.context_engine.assess_pressure()
+        state["pressure_checks"] += 1
+        state["context_token_peak"] = max(
+            state["context_token_peak"], pressure.current_tokens
+        )
+        if pressure.is_under_pressure:
+            state["pressure_hits"] += 1
+            collector.emit(
+                "context_pressure",
+                current_tokens=pressure.current_tokens,
+                threshold_tokens=int(
+                    pressure.budget_tokens * pressure.trigger_ratio
+                ),
+            )
             plan = run.worker.context_engine.build_compaction_plan()
+            state["compaction_plan_count"] += 1
             run.worker.context_engine.execute_compaction(plan)
+            state["compaction_execution_count"] += 1
             collector.count("compactions")
             state["compactions"] += 1
-            collector.emit("compaction", at_action=state["actions"])
+            collector.emit(
+                "compaction",
+                at_action=state["actions"],
+                tokens_before=pressure.current_tokens,
+                tokens_after=run.worker.context_engine.state.total_tokens,
+            )
         if state["actions"] % 25 == 0:
             run.harness_adapter.persist(reason="soak_periodic")
             run.worker.checkpoint(run.state, str(run.project_root), reason="soak_periodic")
@@ -207,6 +261,13 @@ async def run_formal(ctx: dict, target_s: float) -> dict:
             raise _Controlled("formal controlled tool failure")
         except _Controlled as exc:
             harness.record_action_failure(tool, bad, str(exc))
+            run.worker.context_engine.add_unresolved_failure(
+                {
+                    "failure_id": "formal-replan-probe",
+                    "message": str(exc),
+                    "goal_run_id": run.state.goal_id,
+                }
+            )
         state["failures_recorded"] += 1
         harness.replan("formal_controlled_failure")
         collector.count("replans")
@@ -225,6 +286,10 @@ async def run_formal(ctx: dict, target_s: float) -> dict:
         resumed = await run.restart_supervisors("supervisor-a", "supervisor-b")
         assert resumed["same_computer"] and resumed["same_goalrun"]
         assert len(run.harness_adapter.harness.state.observations) >= pre_obs
+        # Restore creates a fresh ContextEngine instance for the same
+        # GoalRun; rebind the harness-owned deterministic summarizer at that
+        # real Supervisor-B boundary before pressure can execute.
+        run.worker.context_engine.llm_summarizer = _extractive_summary
         monitor.watch_verifier(run.worker.verification_engine)
         state["restarts"] += 1
         collector.count("checkpoints")
@@ -407,17 +472,16 @@ def _drift_audit(run: Any, preserved_base: dict, l1_base: str, l4_base: str) -> 
     from runtime.context.models import ContextLayer
 
     preserved_now = dataclasses.asdict(run.worker.context_engine.state.preserved)
-    kept = all(
-        preserved_now.get(k) == preserved_base.get(k)
-        for k in (
-            "objective",
-            "verification_spec_ref",
-            "computer_id",
-            "goal_run_id",
-            "artifact_refs",
-            "evidence_refs",
-        )
+    exact_keys = ("objective", "verification_spec_ref", "computer_id", "goal_run_id")
+    exact_kept = all(preserved_now.get(k) == preserved_base.get(k) for k in exact_keys)
+    # New artifact/evidence/failure refs may be recorded during the run.  The
+    # invariant is that compaction preserves every ref that already existed.
+    ref_keys = ("artifact_refs", "evidence_refs", "unresolved_failures")
+    refs_kept = all(
+        all(item in preserved_now.get(k, []) for item in preserved_base.get(k, []))
+        for k in ref_keys
     )
+    kept = exact_kept and refs_kept
     l1_ok = _layer_hash(run, ContextLayer.L1_ACTIVE_GOAL_PLAN) == l1_base
     l4_ok = _layer_hash(run, ContextLayer.L4_EVIDENCE_ARTIFACTS) == l4_base
     summaries = 0
