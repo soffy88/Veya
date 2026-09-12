@@ -830,6 +830,7 @@ class MasterCoordinator:
         memory_store: Any | None = None,
         compact_llm_fn: Callable | None = None,
         reliable_provider_adapter: ReliableProviderAdapter | None = None,
+        canonical_action_adapter: Any | None = None,
     ):
         """初始化主脑(装配 veya 组件 → 委托主库引擎)。
 
@@ -876,6 +877,12 @@ class MasterCoordinator:
             self.omni_gateway = _default_omni_gateway
         self._llm_fn = llm_fn or llm_call
         self._reliable_provider_adapter = reliable_provider_adapter or ReliableProviderAdapter()
+        # Canonical I4 seam, installed by the durable GoalRun owner.  When
+        # bound, every MasterAgent tool decision executes through the bound
+        # GoalRun (GoalRun -> ActionGateway); MasterAgent performs zero
+        # direct physical execution.  Deliberately an adapter reference, not
+        # another executor or state machine.
+        self._canonical_action_adapter = canonical_action_adapter
         self.max_rounds = max_rounds
         self.temperature = temperature
         self._long_task_factory = long_task_factory
@@ -1125,6 +1132,25 @@ class MasterCoordinator:
             args.setdefault("title", "")
             args.setdefault("content", "")
         observe("tool.call", status="started", tool_args=str(args)[:200])
+        canonical_adapter = getattr(self, "_canonical_action_adapter", None)
+        if canonical_adapter is not None:
+            try:
+                canonical_result = await canonical_adapter.execute(tool_name, args)
+            except Exception as exc:
+                observe("tool.result", status="failed", error=str(exc)[:200])
+                mark_replan_started(str(exc))
+                raise ToolExecutionError(str(exc)) from exc
+            if canonical_result.status != "completed" or not canonical_result.executed:
+                failure = canonical_result.failure_evidence or (
+                    {"status": canonical_result.status},
+                )
+                error = json.dumps(failure, ensure_ascii=False, default=str)
+                observe("tool.result", status="failed", error=error[:200])
+                mark_replan_started(error)
+                raise ToolExecutionError(error)
+            result = str(canonical_result.result)
+            observe("tool.result", status="completed", result=result[:200])
+            return result
         if tool_name.startswith("system_"):
             from server.tool_guard import ToolDenied, global_tool_guard
             from veya.oskill.pure.validate_args import validate_args
@@ -1216,6 +1242,15 @@ class MasterCoordinator:
             observe("tool.result", status="failed", error=str(exc)[:200])
             mark_replan_started(str(exc))
             raise
+
+    def bind_canonical_action_adapter(self, adapter: Any | None) -> None:
+        """Route this MasterAgent instance through one GoalRun adapter.
+
+        Bound (canonical I4 path): every tool decision goes GoalRun ->
+        ActionGateway with zero direct physical execution by MasterAgent.
+        Unbound (None): the pre-existing direct execution path is preserved.
+        """
+        self._canonical_action_adapter = adapter
 
     def _bind_history_owner(self, sid: str) -> None:
         """热历史补 user 维度：sid 跨账号复用时先驱逐上一账号缓存。"""

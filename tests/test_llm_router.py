@@ -278,7 +278,7 @@ def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
 
 
 def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
-    """veya1.2-free 只保留实时探测可用的 Pi provider，再轮询 Inferera。"""
+    """veya1.2-free 只轮询已验证且未耗尽的候选。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
@@ -296,7 +296,7 @@ def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
     monkeypatch.setattr(hllm.asyncio, "sleep", no_sleep)
     config = {
         "providers": {
-            provider: {"api_key": "test-key"} for provider in ("tokenrouter", "bai", "inferera")
+            provider: {"api_key": "test-key"} for provider in ("gmi-serving", "bai")
         }
     }
 
@@ -310,9 +310,9 @@ def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
     )
 
     assert seen == [
-        {"provider": "tokenrouter", "model": "qwen/qwen3.8-max-free"},
+        {"provider": "openai", "model": "opencode-go/nemotron-3.5-lightning-free"},
+        {"provider": "gmi-serving", "model": "MiniMaxAI/MiniMax-M3"},
         {"provider": "bai", "model": "deepseek-v4-flash"},
-        {"provider": "inferera", "model": "coding-glm-4.7-free"},
     ]
     assert result["choices"][0]["message"]["content"] == "free-pool-ok"
 

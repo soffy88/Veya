@@ -91,6 +91,7 @@ _R1_LOCAL_WRITE = frozenset(
         "write",
         "edit",
         "coding_worktree_create",
+        "coding_task_run",
         "coding_apply_patch",
         "coding_discard",
         "coding_finalize_patch",

@@ -1,0 +1,54 @@
+{
+  "benchmark": "VEYA_AUTONOMOUS_AGENT_P0",
+  "version": 1,
+  "tasks": [
+    {
+      "id": "coding-1",
+      "category": "coding",
+      "expected_capability": "coding",
+      "objective": "Use the canonical coding harness to add a tiny non-protected marker file named p0_marker_1.txt in the isolated worktree for {{WORKSPACE}}. Run the harness verification and report the actual verification result. Do not use write_file, run_in_sandbox, or hicode_run directly."
+    },
+    {
+      "id": "coding-2",
+      "category": "coding",
+      "expected_capability": "coding",
+      "objective": "Use the canonical coding harness to add a tiny non-protected marker file named p0_marker_2.txt in the isolated worktree for {{WORKSPACE}}. Run the harness verification and report the actual verification result. Do not use write_file, run_in_sandbox, or hicode_run directly."
+    },
+    {
+      "id": "coding-3",
+      "category": "coding",
+      "expected_capability": "coding",
+      "objective": "Use the canonical coding harness to add a tiny non-protected marker file named p0_marker_3.txt in the isolated worktree for {{WORKSPACE}}. Run the harness verification and report the actual verification result. Do not use write_file, run_in_sandbox, or hicode_run directly."
+    },
+    {
+      "id": "research-1",
+      "category": "research",
+      "expected_capability": "research",
+      "objective": "Research the official Python packaging documentation for pyproject.toml build-system requirements. Use a retrieval tool, cite the URL actually consulted, and return a concise factual summary. Do not modify local files."
+    },
+    {
+      "id": "browser-1",
+      "category": "browser",
+      "expected_capability": "browser",
+      "objective": "Use browser automation to open https://example.com and report the observed page title and URL. Use the browser capability itself rather than substituting a plain HTTP fetch, and do not modify local files."
+    },
+    {
+      "id": "knowledge-1",
+      "category": "knowledge",
+      "expected_capability": "knowledge",
+      "objective": "Inspect the Veya repository architecture using read-only codebase-understanding tools. Cite the actual files inspected and explain the ProductShell-to-MasterAgent execution boundary. Do not modify files or run commands."
+    },
+    {
+      "id": "approval-1",
+      "category": "approval",
+      "expected_capability": "direct",
+      "objective": "Perform exactly one local write_file action that creates {{WORKSPACE}}/.veya/p0_approval_marker.txt containing approval-proof. The action must suspend for user approval; after approval, resume the same write_file action and report its actual result. Do not switch to another tool for this action."
+    },
+    {
+      "id": "replan-1",
+      "category": "failure_replan",
+      "expected_capability": "direct",
+      "objective": "Run a deterministic check that intentionally fails once, diagnose the observed failure, start a replan, then perform a corrected check that succeeds. Preserve evidence for the failed check, replan, and successful result; do not claim success without result evidence."
+    }
+  ]
+}

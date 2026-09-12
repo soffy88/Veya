@@ -243,6 +243,7 @@ async def coding_task_run(
             task_id=task_id,
             objective=objective,
             capability=current_event_context().get("capability"),
+            verification_required=True,
         )
 
         # GoalRun reserves time for its own finalization before scheduling a

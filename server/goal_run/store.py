@@ -114,9 +114,34 @@ def append_event(project_root: str, goal_id: str, event: dict[str, Any]) -> None
     # GoalRun keeps its project-local audit file, while the runtime projection
     # receives the same fact in the canonical EventStore for cross-entry replay.
     try:
-        from server.events import current_event_context, event_store
+        from server.events import (
+            _OBSERVABILITY_TOPICS,
+            append_observability_event,
+            current_event_context,
+            event_store,
+        )
 
         raw_type = str(event.get("type") or event.get("event") or "")
+        if raw_type in _OBSERVABILITY_TOPICS:
+            context = current_event_context()
+            append_observability_event(
+                raw_type,
+                payload={
+                    key: value
+                    for key, value in event.items()
+                    if key not in {"type", "event", "task_id", "goal_id"}
+                },
+                actor=str(event.get("actor") or "goal_run"),
+                session_id=context["session_id"],
+                trace_id=context["trace_id"] or goal_id,
+                task_id=event.get("task_id") or context["task_id"],
+                goal_run_id=goal_id,
+                capability=event.get("capability"),
+                tool=event.get("tool"),
+                action=event.get("action"),
+                status=event.get("status"),
+            )
+            return
         if raw_type in {"goal_started", "run_started", "understand_start"}:
             topic = "goal.started"
         elif raw_type in {"goal_completed", "run_completed", "completed"}:

@@ -8,14 +8,13 @@ def test_inferera_provider_uses_openai_compatible_chat_endpoint():
     assert hllm._API_KEY_ENV["inferera"] == "INFERERA_API_KEY"
 
 
-def test_inferera_free_pool_contains_live_chat_catalog_without_image_model():
+def test_inferera_free_pool_excludes_depleted_models():
     inferera_models = [
         entry["model"] for entry in hllm._VEYA12_FREE_POOL if entry["provider"] == "inferera"
     ]
-    expected_free = set(hllm._INFERERA_FREE_MODELS) - set(hllm._INFERERA_128K_MODELS)
 
-    assert len(inferera_models) == len(expected_free) == 20
-    assert set(inferera_models) == expected_free
+    assert hllm._INFERERA_FREE_MODELS == ()
+    assert inferera_models == []
     assert "gpt-image-2-free" not in inferera_models
 
 
@@ -33,18 +32,12 @@ def test_small_inferera_models_move_to_veya12_128k():
     )
 
 
-def test_veya12_free_keeps_only_live_pi_candidates():
-    legacy = [entry for entry in hllm._VEYA12_FREE_POOL if entry["provider"] != "inferera"]
-
-    assert legacy == [
-        {
-            "provider": "tokenrouter",
-            "model": "qwen/qwen3.8-max-free",
-            "endpoint": "https://api.tokenrouter.com/v1",
-        },
-        {
-            "provider": "bai",
-            "model": "deepseek-v4-flash",
-            "endpoint": "https://api.b.ai/v1",
-        },
+def test_veya12_free_keeps_only_verified_candidates():
+    assert [(entry["provider"], entry["model"]) for entry in hllm._VEYA12_FREE_POOL] == [
+        ("openai", "opencode-go/nemotron-3.5-lightning-free"),
+        ("gmi-serving", "MiniMaxAI/MiniMax-M3"),
+        ("bai", "deepseek-v4-flash"),
+        ("bai", "hy3"),
+        ("bai", "qwen3.8-flash"),
+        ("bai", "deepseek-v4-flash-vision-exp"),
     ]

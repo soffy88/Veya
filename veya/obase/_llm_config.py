@@ -70,6 +70,7 @@ _API_KEY_ENV: dict[str, str] = {
     "moonshot": "MOONSHOT_API_KEY",
     "zhipu": "ZHIPU_API_KEY",
     "opencode-go": "OPENCODE_API_KEY",
+    "flatkey": "FLATKEY_API_KEY",
 }
 
 _DEFAULT_PROVIDER = "veya1.2"

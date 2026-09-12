@@ -40,6 +40,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -242,6 +243,142 @@ def _container_gateway_ip_for_proxy() -> str:
 
 _STUB_CONTENT = "LLM provider not configured — this is a shim response."
 
+# NVIDIA NIM aliases backed by the shared Stratum key pool.  The model ids are
+# deliberately kept in one table so aliases remain stable when an upstream
+# NIM model name is changed through an environment override.
+_NVIDIA_NIM_ENDPOINT = "https://integrate.api.nvidia.com/v1/chat/completions"
+_NVIDIA_NIM_ALIASES: dict[str, str] = {
+    "veya-m3-nv": "minimaxai/minimax-m3",
+    # NVIDIA deprecated the unversioned endpoint and now exposes the live
+    # Flash deployment under the dated model id.
+    "veya-deepseek-v4-flash-nv": "deepseek-ai/deepseek-v4-flash-0731",
+    "veya-qwen3.5-397b-nv": "qwen/qwen3.5-397b-a17b",
+    "veya-kimi-k2.6-nv": "moonshotai/kimi-k2.6",
+    "veya-glm5.1-nv": "z-ai/glm5.1",
+}
+_NVIDIA_NIM_MODEL_ENV: dict[str, str] = {
+    "veya-m3-nv": "VEYA_NIM_M3_MODEL",
+    "veya-deepseek-v4-flash-nv": "VEYA_NIM_DEEPSEEK_MODEL",
+    "veya-qwen3.5-397b-nv": "VEYA_NIM_QWEN_MODEL",
+    "veya-kimi-k2.6-nv": "VEYA_NIM_KIMI_MODEL",
+    "veya-glm5.1-nv": "VEYA_NIM_GLM_MODEL",
+}
+_nvidia_nim_cursors: dict[str, int] = {alias: 0 for alias in _NVIDIA_NIM_ALIASES}
+_nvidia_nim_cursor_lock = threading.Lock()
+
+
+def _nvidia_nim_keys() -> list[str]:
+    """Load NIM keys without ever logging or exposing their values.
+
+    ``NVIDIA_NIM_KEY_POOL``/``NIM_KEY_POOL`` are preferred for containers;
+    otherwise read the Stratum pipeline key file.  The file is intentionally
+    not committed and can be mounted read-only into the Veya container.
+    """
+    raw = os.environ.get("NVIDIA_NIM_KEY_POOL") or os.environ.get("NIM_KEY_POOL")
+    if raw:
+        values = raw.split(",")
+    else:
+        values = []
+        configured = os.environ.get("VEYA_NVIDIA_NIM_KEYS_FILE", "")
+        paths = [configured] if configured else []
+        paths.extend(
+            [
+                "/data/soffy/projects/stratum/aii/.pipeline_keys.json",
+                "/home/soffy/projects/stratum/aii/.pipeline_keys.json",
+                str(Path(__file__).resolve().parents[4] / "stratum" / "aii" / ".pipeline_keys.json"),
+            ]
+        )
+        for candidate in paths:
+            if not candidate:
+                continue
+            try:
+                data = json.loads(Path(candidate).read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            if isinstance(data, dict):
+                values = list(data.values())
+                break
+    keys: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = str(value).strip()
+        if key and key not in seen:
+            keys.append(key)
+            seen.add(key)
+    if not keys:
+        single = os.environ.get("NVIDIA_NIM_API_KEY", "").strip()
+        if single:
+            keys.append(single)
+    return keys
+
+
+def _nvidia_nim_model(alias: str) -> str:
+    return os.environ.get(_NVIDIA_NIM_MODEL_ENV[alias], "").strip() or _NVIDIA_NIM_ALIASES[alias]
+
+
+def _next_nvidia_nim_index(alias: str, size: int) -> int:
+    with _nvidia_nim_cursor_lock:
+        index = _nvidia_nim_cursors[alias] % size
+        _nvidia_nim_cursors[alias] = (index + 1) % size
+        return index
+
+
+async def _nvidia_nim_call(messages: list[dict], kwargs: dict, alias: str) -> dict:
+    """Call one NIM model, rotating through the shared Stratum keys per request."""
+    keys = _nvidia_nim_keys()
+    if not keys:
+        return {
+            "choices": [{"message": {"role": "assistant", "content": f"{alias} 未配置 NVIDIA NIM key"}}],
+            "usage": {}, "error": True,
+        }
+    start = _next_nvidia_nim_index(alias, len(keys))
+    timeout = kwargs.get("timeout", 120.0)
+    attempts = min(len(keys), max(1, int(kwargs.get("retries", 2)) + 1))
+    last_error = ""
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for offset in range(attempts):
+            key = keys[(start + offset) % len(keys)]
+            try:
+                response = await provider_call(
+                    client, "openai", model=_nvidia_nim_model(alias), messages=messages,
+                    tools=kwargs.get("tools"), max_tokens=kwargs.get("max_tokens", 4096),
+                    temperature=kwargs.get("temperature"), endpoint=_NVIDIA_NIM_ENDPOINT,
+                    api_key=key, tool_choice=kwargs.get("tool_choice"),
+                )
+                response.setdefault("router", {})
+                response["router"].update({"route": "nvidia-nim-key-rr", "alias": alias, "model": _nvidia_nim_model(alias)})
+                return response
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = str(exc)
+    return {
+        "choices": [{"message": {"role": "assistant", "content": f"{alias} 调用失败: {last_error}"}}],
+        "usage": {}, "error": True,
+    }
+
+
+async def _nvidia_nim_stream(messages: list[dict], kwargs: dict, alias: str) -> AsyncIterator[dict]:
+    """Streaming counterpart of :func:`_nvidia_nim_call`."""
+    keys = _nvidia_nim_keys()
+    if not keys:
+        yield {"choices": [{"delta": {"content": f"{alias} 未配置 NVIDIA NIM key"}}]}
+        yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        return
+    key = keys[_next_nvidia_nim_index(alias, len(keys))]
+    async with httpx.AsyncClient(timeout=kwargs.get("timeout", 120.0)) as client:
+        try:
+            async for event in provider_stream(
+                client, "openai", model=_nvidia_nim_model(alias), messages=messages,
+                tools=kwargs.get("tools"), max_tokens=kwargs.get("max_tokens", 4096),
+                endpoint=_NVIDIA_NIM_ENDPOINT, api_key=key,
+            ):
+                yield event
+            return
+        except (httpx.HTTPError, ValueError) as exc:
+            content = f"{alias} 调用失败: {exc}"
+    for word in content.split():
+        yield {"choices": [{"delta": {"content": word + " "}}]}
+    yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+
 # ---------------------------------------------------------------------------
 # Veya 1.2 主脑代理: GMI 默认 + OpenRouter 故障轮询 (round-robin)
 # ---------------------------------------------------------------------------
@@ -267,121 +404,64 @@ _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
 ]
 
 # veya1.2-free: opencode-go 免费模型轮询 (不走 veya1.2 主脑代理)。
-# 端点统一指向本机 veya gateway (pid 8791) , opencode-go 走 chat/completions 协议。
+# 端点统一指向本机 veya gateway，端口由 VEYA_GATEWAY_PORT 控制；opencode-go
+# 走 chat/completions 协议。默认 8791 保持旧版常驻服务兼容。
 # key 由 scripts/veya_llm_gateway.py 从 ~/.pi/agent/opencode-keys.txt 轮询注入。
-# 4 个 opencode-go free 候选 + gmi-serving/MiniMax-M3 + 6 个 bai 模型。
-# 上游偶发 503 / 慢响应由 _veya12_rr_call 的 12s 超时 + rejected-content 跳过处理。
+# 1 个已验证的 opencode-go free 候选 + gmi-serving/MiniMax-M3 + 4 个已验证的
+# bai 模型。失效/额度耗尽的候选从活动池移除，避免每次请求重复撞失败端点。
+# 上游偶发慢响应由 _veya12_rr_call 的 12s 超时 + rejected-content 跳过处理。
+_VEYA_GATEWAY_PORT = os.environ.get("VEYA_GATEWAY_PORT", "8791").strip() or "8791"
+_VEYA_GATEWAY_CHAT_ENDPOINT = f"http://127.0.0.1:{_VEYA_GATEWAY_PORT}/v1/chat/completions"
+
 _VEYA12_FREE_POOL: list[dict[str, str]] = [
     {
         "provider": "openai",
-        "model": "opencode-go/hy3-free",
-        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
-    },
-    {
-        "provider": "openai",
         "model": "opencode-go/nemotron-3.5-lightning-free",
-        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
-    },
-    {
-        "provider": "openai",
-        "model": "opencode-go/laguna-s-2.1-free",
-        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
-    },
-    {
-        "provider": "openai",
-        "model": "opencode-go/ling-3.0-flash-fin-free",
-        "endpoint": "http://127.0.0.1:8791/v1/chat/completions",
+        "endpoint": _VEYA_GATEWAY_CHAT_ENDPOINT,
+        "source": "opencode-go",
     },
     {
         "provider": "gmi-serving",
         "model": "MiniMaxAI/MiniMax-M3",
         "endpoint": "https://api.gmi-serving.com/v1",
+        "source": "gmi-serving",
     },
     {
         "provider": "bai",
         "model": "deepseek-v4-flash",
         "endpoint": "https://api.b.ai/v1",
-    },
-    {
-        "provider": "bai",
-        "model": "glm-5.3-flash",
-        "endpoint": "https://api.b.ai/v1",
-    },
-    {
-        "provider": "bai",
-        "model": "mimo-v2.5",
-        "endpoint": "https://api.b.ai/v1",
+        "source": "bai",
     },
     {
         "provider": "bai",
         "model": "hy3",
         "endpoint": "https://api.b.ai/v1",
+        "source": "bai",
     },
     {
         "provider": "bai",
         "model": "qwen3.8-flash",
         "endpoint": "https://api.b.ai/v1",
+        "source": "bai",
     },
     {
         "provider": "bai",
         "model": "deepseek-v4-flash-vision-exp",
         "endpoint": "https://api.b.ai/v1",
+        "source": "bai",
+    },
+    {
+        # flatkey.ai · DeepSeek V4 Flash (用户标注免费档; key 来自 FLATKEY_API_KEY env)
+        "provider": "flatkey",
+        "model": "deepseek-v4-flash",
+        "endpoint": "https://router.flatkey.ai/v1",
+        "source": "flatkey",
     },
 ]
 
-# AIHubMix/Inferera public model catalog snapshot (2026-08-25).  The image-only
-# gpt-image-2-free entry is intentionally excluded: veya1.2-free uses the
-# chat/completions contract, while image generation has a separate API.
-_INFERERA_FREE_MODELS: tuple[str, ...] = (
-    "coding-glm-4.6-free",
-    "coding-glm-4.7-free",
-    "coding-glm-5-free",
-    "coding-glm-5-turbo-free",
-    "coding-glm-5.1-free",
-    "coding-glm-5.2-free",
-    "coding-kimi-k3-free",
-    "coding-minimax-m2-free",
-    "coding-minimax-m2.1-free",
-    "coding-minimax-m2.5-free",
-    "coding-minimax-m2.7-free",
-    "coding-minimax-m3-free",
-    "dots-3-note-preview-free",
-    "gemini-3-flash-preview-free",
-    "gemini-3.5-flash-lite-free",
-    "gemini-3.6-flash-free",
-    "gemini-3.7-flash-free",
-    "gemma-4-26b-a4b-it-free",
-    "gemma-4-31b-it-free",
-    "glm-4.7-flash-free",
-    "gpt-4.1-free",
-    "gpt-4.1-mini-free",
-    "gpt-4.1-nano-free",
-    "gpt-4o-free",
-    "gpt-5.5-free",
-    "gpt-oss-20b-free",
-    "k2.6-code-preview-free",
-    "kimi-for-coding-free",
-    "laguna-s-2.1-free",
-    "laguna-xs-2.1-free",
-    "lfm-2.5-2.6b-free",
-    "ling-3.0-flash-free",
-    "ling-3.0-tiny-free",
-    "mimo-v2-flash-free",
-    "nemotron-3-nano-30b-a3b-free",
-    "nemotron-3-nano-omni-30b-a3b-reasoning-free",
-    "nemotron-3-super-120b-a12b-free",
-    "nemotron-3-ultra-550b-a55b-free",
-    "nemotron-3.5-content-safety-free",
-    "nemotron-3.5-lightning-free",
-    "nemotron-nano-12b-v2-vl-free",
-    "nemotron-nano-9b-v2-free",
-    "north-mini-code-free",
-    "qwen3.6-plus-preview-free",
-    "xiaomi-mimo-v2-omni-free",
-    "xiaomi-mimo-v2-pro-free",
-    "xiaomi-mimo-v2.5-free",
-    "xiaomi-mimo-v2.5-pro-free",
-)
+# Inferera 免费额度在 2026-08-30 探测时已耗尽，所有原 free-only 候选均从
+# veya1.2-free 活动池删除；保留空快照名，防止后续代码误把旧列表重新注册。
+_INFERERA_FREE_MODELS: tuple[str, ...] = ()
 # Inferera catalog entries with context strictly below 512K.  These are moved
 # to veya1.2-128K; dots-3-note-preview-free is exactly 512K and stays here.
 _INFERERA_128K_MODELS: tuple[str, ...] = (
@@ -415,11 +495,6 @@ _INFERERA_128K_MODELS: tuple[str, ...] = (
     "xiaomi-mimo-v2.5-pro-free",
 )
 _INFERERA_128K_MODEL_SET = frozenset(_INFERERA_128K_MODELS)
-_VEYA12_FREE_POOL.extend(
-    {"provider": "inferera", "model": model}
-    for model in _INFERERA_FREE_MODELS
-    if model not in _INFERERA_128K_MODEL_SET
-)
 
 # 进程内轮询游标 (asyncio 单线程, 普通 int 自增即可) — 跨调用推进以摊额度。
 _zen_rr_cursor = 0
@@ -429,6 +504,12 @@ _veya12_free_rr_cursor = 0
 def _veya12_pool() -> list[dict[str, str]]:
     """Veya 1.2 主脑池: GMI MiniMax M3 优先，OpenRouter 免费模型兜底。"""
     return list(_VEYA12_DEFAULT_POOL)
+
+
+def _replace_veya12_free_pool(pool: list[dict[str, str]]) -> None:
+    """Atomically replace the runtime free pool after lifecycle reconciliation."""
+    global _VEYA12_FREE_POOL
+    _VEYA12_FREE_POOL = [dict(entry) for entry in pool if entry.get("provider") and entry.get("model")]
 
 
 async def _frontier_fallback(messages: list[dict], kwargs: dict, *, reason: str) -> dict | None:
@@ -586,9 +667,29 @@ async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
 
 
 async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
-    """veya1.2-free: Inferera/AIHubMix 免费模型轮询。"""
+    """veya1.2-free: lifecycle-managed free-model round robin."""
     global _veya12_free_rr_cursor
     pool = list(_VEYA12_FREE_POOL)
+    if not pool:
+        fb = await _frontier_fallback(
+            messages,
+            kwargs,
+            reason="veya1.2-free pool empty after lifecycle reconciliation",
+        )
+        if fb is not None:
+            return fb
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "veya1.2-free 免费池当前没有健康模型",
+                    }
+                }
+            ],
+            "usage": {},
+            "error": True,
+        }
     start = _veya12_free_rr_cursor % len(pool)
     _veya12_free_rr_cursor = (_veya12_free_rr_cursor + 1) % len(pool)
     return await _veya12_rr_call(
@@ -798,6 +899,9 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     provider, model = get_provider_config(
         kwargs.get("config"), provider=kwargs.get("provider"), model=kwargs.get("model")
     )
+    nim_alias = (model or provider).lower()
+    if nim_alias in _NVIDIA_NIM_ALIASES:
+        return await _nvidia_nim_call(messages, kwargs, nim_alias)
     # veya1.1 兼容别名 → veya1.2 OpenRouter 主脑池。
     if model in ("veya1.1", "veya-1.1") or provider == "veya1.1":
         return await _aliased_llm_call(messages, kwargs)
@@ -864,10 +968,14 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     # 双通道客户端: 直连 + 代理兜底 (自定义海外端点被 GFW 间歇重置时)
     # 内置 provider (dashscope 等国内直连) 不走代理; 容器内经桥 17890 → 宿主 7890。
     proxy = _custom_proxy_url(provider)
-    clients: list[httpx.AsyncClient] = [httpx.AsyncClient(timeout=timeout)]
-    if proxy:
-        clients.append(httpx.AsyncClient(timeout=timeout, proxy=proxy))
+    clients: list[httpx.AsyncClient] = []
     try:
+        # AsyncClient owns sockets, SSL contexts, and connection-pool state.
+        # Keep construction inside the lifecycle block so partially-created
+        # client lists are also cleaned up when the process is FD constrained.
+        clients.append(httpx.AsyncClient(timeout=timeout))
+        if proxy:
+            clients.append(httpx.AsyncClient(timeout=timeout, proxy=proxy))
         last_exc: Exception | None = None
         for attempt in range(retries + 1):
             client = clients[attempt % len(clients)]
@@ -926,6 +1034,14 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
             "choices": [{"message": {"role": "assistant", "content": content}}],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
+    finally:
+        # Do not rely on AsyncClient.__del__: its async transport cannot be
+        # deterministically closed by GC, which previously leaked one or more
+        # sockets per request and exhausted the gateway's 1024-FD limit.
+        if clients:
+            await asyncio.gather(
+                *(client.aclose() for client in clients), return_exceptions=True
+            )
 
 
 async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]:
@@ -933,6 +1049,11 @@ async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]
     provider, model = get_provider_config(
         kwargs.get("config"), provider=kwargs.get("provider"), model=kwargs.get("model")
     )
+    nim_alias = (model or provider).lower()
+    if nim_alias in _NVIDIA_NIM_ALIASES:
+        async for event in _nvidia_nim_stream(messages, kwargs, nim_alias):
+            yield event
+        return
     config = kwargs.get("config") or {}
     endpoint = (
         kwargs.get("endpoint")

@@ -295,9 +295,18 @@ class AgentApprovalRequest(BaseModel):
 
 @router.post("/api/v1/agent/approval")
 async def agent_approval(req: AgentApprovalRequest) -> dict:
-    """Web 聊天: 批准或拒绝一次高影响工具。"""
+    """Web 聊天: 批准或拒绝一次高影响工具。
+
+    Benchmark / headless callers resolve approvals without a browser session.
+    The approval resolver is an in-process store, so the identity context is
+    only needed for downstream per-user projections — bind the same
+    anonymous identity the task was created with instead of leaving the
+    request context empty, which made every poll miss the pending action.
+    """
+    from server import auth as auth_mod
     from server.user_control import resolve_approval
 
+    auth_mod.set_user(auth_mod.current_user())
     ok = resolve_approval(req.request_id, req.approved)
     return {"ok": ok, "request_id": req.request_id, "approved": req.approved}
 
