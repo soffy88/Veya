@@ -60,28 +60,72 @@ async def _run_product_task(
     model: str | None,
     config: dict[str, Any],
     user: dict[str, Any],
+    project_root: str,
 ) -> None:
-    """Run one accepted task through the existing MasterAgent entry point."""
+    """Run one accepted task through the single GoalRun semantic loop."""
 
     # Background asyncio tasks do not run FastAPI dependency cleanup, so bind
     # the same user explicitly before MasterAgent touches history or memory.
     auth_mod.set_user(user)
-    from server.coordinator_master import _active_streams, master_coordinator
+    from server.coordinator_master import master_coordinator
+    from server.goal_run.canonical_worker import CanonicalWorkerAdapter
+    from server.goal_run.runner import project_run_goal
 
-    runner = asyncio.current_task()
-    if runner is not None:
-        _active_streams[session_id] = runner
     try:
-        await master_coordinator.chat_stream(
-            objective,
-            session_id=session_id,
+        semantic_llm_kwargs: dict[str, Any] = {}
+        if config:
+            semantic_llm_kwargs["config"] = config
+        if provider:
+            semantic_llm_kwargs["provider"] = provider
+        if model:
+            semantic_llm_kwargs["model"] = model
+
+        async def execute_bound_action(request: Any) -> Any:
+            """Adapt the canonical request to the existing coordinator tool ABI."""
+            return await master_coordinator.handle_tool_call(request.tool, request.arguments)
+
+        adapter = CanonicalWorkerAdapter(
             task_id=task_id,
-            config=config or None,
-            provider=provider,
-            model=model,
-            # Product tasks are interactive: existing user_control/Workbench
-            # approval is used for high-impact actions.
-            require_approval=True,
+            objective=objective,
+            feature_name="product_canonical",
+            verification_required=True,
+            semantic_agent=master_coordinator._agent,
+            semantic_session_id=session_id,
+            semantic_llm_kwargs=semantic_llm_kwargs,
+            gateway_executor=execute_bound_action,
+        )
+        response = await project_run_goal(
+            project_root=project_root,
+            goal=objective,
+            tasks=[
+                {
+                    "id": task_id,
+                    "title": objective[:80],
+                    "instruction": objective,
+                    "acceptance": [],
+                    "assignee": "builtin",
+                }
+            ],
+            mode="act_eager",
+            max_wall_s=3600,
+            integration_adapter=adapter,
+            semantic_llm_kwargs=semantic_llm_kwargs,
+        )
+        task_store.update_status(
+            task_id,
+            "completed" if response.status.value == "completed" else response.status.value,
+        )
+        append_canonical_event(
+            "product.task_finished",
+            {
+                "entrypoint": "product_shell",
+                "goal_run_id": response.goal_id,
+                "status": response.status.value,
+            },
+            actor="goal_run",
+            session_id=session_id,
+            trace_id=task_store.get(task_id).trace_id if task_store.get(task_id) else None,
+            task_id=task_id,
         )
     except asyncio.CancelledError:
         raise
@@ -111,9 +155,6 @@ async def _run_product_task(
                 trace_id=task.trace_id if task is not None else None,
                 task_id=task_id,
             )
-    finally:
-        if runner is not None and _active_streams.get(session_id) is runner:
-            _active_streams.pop(session_id, None)
 
 
 def _retain_product_task(task: asyncio.Task[Any]) -> None:
@@ -158,8 +199,8 @@ async def create_product_task(
 
     Session and Task projections are created before execution starts, so the
     caller can immediately open the existing Workbench by ``task_id``.  The
-    task runner is still ``MasterCoordinator.chat_stream``; this endpoint is
-    only the Layer-4 product entry adapter.
+    transport is kept at the product-shell boundary; execution is owned by
+    the existing GoalRun semantic loop.
     """
 
     objective = req.objective.strip()
@@ -204,6 +245,7 @@ async def create_product_task(
             model=req.model,
             config=dict(req.config),
             user=dict(user),
+            project_root=req.workspace_id or "/repo",
         )
     )
     _retain_product_task(background)
