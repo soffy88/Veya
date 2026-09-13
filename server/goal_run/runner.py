@@ -536,6 +536,18 @@ async def _process_one_task(
             summary=leaf_result.block_reason or "delegate did not complete",
             reason=leaf_result.block_reason or "delegate did not complete",
         )
+    elif integration_adapter is not None and getattr(
+        integration_adapter, "verification_required", False
+    ):
+        # Canonical adapters hand the candidate to the frozen Verification OS
+        # below.  Do not run the legacy free-form task verifier as a second,
+        # pre-I2 acceptance gate; it can invent a default criterion and stop a
+        # successful canonical action before EvidenceBundle/IndependentVerifier.
+        verify_result = VerifyResult(
+            passed=True,
+            summary="canonical action observed; deferred to IndependentVerifier",
+            reason="canonical_acceptance_deferred",
+        )
     else:
         verify_result = await verify_task(task, leaf_result.summary, project_root)
 
@@ -548,6 +560,11 @@ async def _process_one_task(
     if verify_result.passed:
         task.status = TaskStatus.completed
         task.stop_reason = "completed"
+        # A recoverable action failure records unfinished work so a stopped
+        # run can resume.  Once this same task has completed successfully,
+        # that marker is stale and must not force the GoalRun into
+        # partial_completed during finalization.
+        task.unfinished_work.clear()
         state.completed_ids.add(task.id)
         task.review_findings = await _run_dual_axis_review(task, project_root, before_ref)
 

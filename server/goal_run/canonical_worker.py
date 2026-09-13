@@ -421,11 +421,23 @@ class CanonicalWorkerAdapter:
         state.budget["semantic_prior_result"] = result.to_dict()
         if result.status != "completed" or not result.executed:
             failure = result.failure_evidence[0] if result.failure_evidence else {}
+            failure_evidence = [
+                {
+                    "id": f"failure-{result.action_id}",
+                    "kind": "failure",
+                    "source": "goal_run.canonical_action",
+                    "content": json.dumps(
+                        item, ensure_ascii=False, default=str
+                    ),
+                    "producer": "goal_run",
+                }
+                for item in result.failure_evidence
+            ]
             return LeafResult(
                 status="blocked",
                 summary="",
                 block_reason=str(failure.get("error") or result.status),
-                evidence=[dict(item) for item in result.failure_evidence],
+                evidence=failure_evidence,
                 stop_reason="exception",
                 unfinished_work=[task.instruction],
             )
