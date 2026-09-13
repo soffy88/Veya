@@ -133,7 +133,7 @@ async def g1_plan(
         tasks = _generate_tasks_rules(interpretation, assumptions, default_assignee, max_leaf_tasks)
 
     # ── 构造 GoalRunState ──
-    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+    goal_id = goal_id or f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     state = GoalRunState(
         goal_id=goal_id,
         goal_text=goal_text,
