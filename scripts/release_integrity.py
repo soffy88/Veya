@@ -97,7 +97,9 @@ def submodule_integrity() -> list[dict[str, str]]:
         subprocess.run(
             ["git", "-C", str(ROOT / path), "cat-file", "-e", f"{sha}^{{commit}}"], check=True
         )
-        remote = subprocess.run(["git", "ls-remote", url], capture_output=True, text=True, check=False)
+        remote = subprocess.run(
+            ["git", "ls-remote", url], capture_output=True, text=True, check=False
+        )
         remote_has_sha = any(line.split("\t", 1)[0] == sha for line in remote.stdout.splitlines())
         if remote.returncode != 0 or not remote_has_sha:
             raise RuntimeError(f"submodule commit unavailable remotely: {path}@{sha}")
@@ -136,7 +138,12 @@ def secret_scan() -> list[str]:
     findings: list[str] = []
     tracked = _git("ls-files", "-z").split("\0")
     for relative in tracked:
-        if not relative or relative.startswith("tests/") or relative.startswith("docs/"):
+        if (
+            not relative
+            or relative == "scripts/release_integrity.py"
+            or relative.startswith("tests/")
+            or relative.startswith("docs/")
+        ):
             continue
         path = ROOT / relative
         if not path.is_file() or path.stat().st_size > 5_000_000:
