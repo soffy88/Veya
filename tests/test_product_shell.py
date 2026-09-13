@@ -369,6 +369,29 @@ async def test_master_reuses_precreated_task_without_duplicate_projection(monkey
     )
 
     async def text_llm(_messages: list[dict[str, Any]], **_kwargs: Any) -> dict[str, Any]:
+        if any(
+            tool.get("function", {}).get("name") == "system_classify_capability"
+            for tool in (_kwargs.get("tools") or [])
+            if isinstance(tool, dict)
+        ):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "system_classify_capability",
+                                        "arguments": '{"capability":"direct","execution_mode":"direct"}',
+                                    }
+                                }
+                            ],
+                        }
+                    }
+                ],
+                "usage": {},
+            }
         return {
             "choices": [{"message": {"role": "assistant", "content": "done"}}],
             "usage": {},
