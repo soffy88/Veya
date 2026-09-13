@@ -51,6 +51,16 @@ from .models import (
     StopReason,
 )
 from .outbox import OutboxPublisher
+from .production_hardening import (
+    AdmissionLease,
+    AdmissionRejected,
+    BudgetAccount,
+    HardeningLimits,
+    ProductionControlPlane,
+)
+from .production_hardening import (
+    BudgetExhausted as ProductionBudgetExhausted,
+)
 from .reconciler import Reconciler
 from .runtime import DurableExecutionRuntime, DurableRuntimeConfig, get_durable_runtime
 from .scheduler import ContinuousReadyScheduler, SchedulerRun
@@ -61,10 +71,13 @@ from .worker import WorkerHost
 __all__ = [
     "AcceptanceCriterion",
     "AcceptanceResult",
+    "AdmissionLease",
+    "AdmissionRejected",
     "ArtifactManifest",
     "ArtifactRef",
     "ArtifactStore",
     "Assertion",
+    "BudgetAccount",
     "BudgetExhausted",
     "ClaimEnvelope",
     "ContinuousReadyScheduler",
@@ -83,6 +96,7 @@ __all__ = [
     "FanInBatch",
     "FinalizationController",
     "FinalizationObserver",
+    "HardeningLimits",
     "HarnessError",
     "LongRunBudget",
     "LongRunCheckpointStore",
@@ -90,6 +104,8 @@ __all__ = [
     "LongRunningHarness",
     "OutboxMessage",
     "OutboxPublisher",
+    "ProductionBudgetExhausted",
+    "ProductionControlPlane",
     "ProgressObservation",
     "Reconciler",
     "ReconciliationReport",
