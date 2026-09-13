@@ -1,0 +1,25 @@
+[project]
+name = "veya-3o-runtime"
+version = "0.1.0"
+description = "Composed runtime for the 3O production packages"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "obase",
+    "omodul",
+    "oskill[storage]",
+    "oprim[epub,llm]",
+    "fastapi>=0.110",
+    "psycopg2-binary>=2.9",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+obase = { workspace = true }
+omodul = { workspace = true }
+oskill = { workspace = true }
+oprim = { workspace = true }
+
+[tool.uv.workspace]
+members = ["obase", "omodul", "oskill", "oprim"]
