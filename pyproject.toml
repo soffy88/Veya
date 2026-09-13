@@ -2,7 +2,7 @@
 name = "veya"
 version = "0.6.0"
 description = "veya — open agent runtime for persistent, tool-using, verifiable AI (coding is the first surface, not the final definition)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 classifiers = [
     "License :: OSI Approved :: MIT License",
@@ -77,6 +77,11 @@ viz = [
 server = [
     "veya[quant]",
     "veya[viz]",
+    "obase==0.31.0",
+    "oprim==3.23.0",
+    "oskill==4.14.0",
+    "omodul==1.49.0",
+    "oservi==1.4.0",
     "tree-sitter==0.25.2",
     "tree-sitter-python==0.25.0",
 ]
@@ -92,6 +97,13 @@ veya-simple = "cli.simple_cli:main"
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv.sources]
+obase = { path = "platform/3O/obase" }
+oprim = { path = "platform/3O/oprim" }
+oskill = { path = "platform/3O/oskill" }
+omodul = { path = "platform/3O/omodul" }
+oservi = { path = "platform/3O/oservi" }
 
 [build-system]
 requires = ["hatchling"]
