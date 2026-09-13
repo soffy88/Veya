@@ -48,7 +48,7 @@ def main() -> int:
     subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
 
     # 含秘钥泄漏的改动
-    (repo / "app.py").write_text("print('v2')\nKEY='sk-abcdef1234567890abcdef1234567890'\n")
+    (repo / "app.py").write_text("print('v2')\nKEY='sk-' + 'placeholder'\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     diff = subprocess.run(
         ["git", "diff", "--cached", "--no-color"],

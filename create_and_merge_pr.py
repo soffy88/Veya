@@ -2,8 +2,7 @@ import os
 
 import requests
 
-# 设置 GITHUB_TOKEN 环境变量
-os.environ["GITHUB_TOKEN"] = "REDACTED_CREDENTIAL"
+# Supply the token out of band. Never commit credentials into source or logs.
 
 
 def create_pull_request(owner, repo, title, body, base, head):
@@ -36,16 +35,16 @@ def merge_pull_request(owner, repo, pr_number):
         print(f"Failed to merge pull request: {response.status_code} {response.text}")
 
 
-# 创建 Pull Request
-pr_number = create_pull_request(
-    "soffy88",
-    "example-repo",
-    "Add new line to README",
-    "This is a test PR",
-    "main",
-    "feature-branch",
-)
-
-# 合并 Pull Request
-if pr_number is not None:
-    merge_pull_request("soffy88", "example-repo", pr_number)
+if __name__ == "__main__":
+    if not os.environ.get("GITHUB_TOKEN"):
+        raise SystemExit("GITHUB_TOKEN must be provided through the environment")
+    pr_number = create_pull_request(
+        "soffy88",
+        "example-repo",
+        "Add new line to README",
+        "This is a test PR",
+        "main",
+        "feature-branch",
+    )
+    if pr_number is not None:
+        merge_pull_request("soffy88", "example-repo", pr_number)

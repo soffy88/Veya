@@ -8,46 +8,46 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.34.0",
-    "httpx>=0.28.1",
-    "aiohttp>=3.14.3",
-    "python-dotenv>=1.0.0",
-    "python-multipart>=0.0.9",  # G17: FastAPI 表单/文件上传支持
-    "structlog>=24.0",  # 3O obase 主库 core 依赖(轻量, 装配通道 veya.platform 所需)
-    "apscheduler>=3.10,<4",  # Veya Automata: 后台定时/事件调度(Agent OS)
-    "croniter>=2.0",  # cron 调度工具被 GoalRun/工具注册路径直接导入
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.1",
+    "httpx==0.28.1",
+    "aiohttp==3.14.3",
+    "python-dotenv==1.2.2",
+    "python-multipart==0.0.32",  # G17: FastAPI 表单/文件上传支持
+    "structlog==26.1.0",  # 3O obase 主库 core 依赖
+    "apscheduler==3.11.3",  # Veya Automata: 后台定时/事件调度
+    "croniter==6.2.4",  # cron 调度工具
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
-    "mkdocs>=1.6.0",
-    "mkdocs-material>=9.5.0",
-    "mkdocstrings[python]>=0.26.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "mkdocs==1.6.1",
+    "mkdocs-material==9.7.7",
+    "mkdocstrings[python]==1.0.0",
 ]
 # G17: 按需可选依赖(不默认安装,避免无用依赖膨胀)
 interactive = [
-    "prompt-toolkit>=3.0.0",  # 增强交互式 CLI(行编辑/补全/历史)
+    "prompt-toolkit==3.0.53",  # 增强交互式 CLI(行编辑/补全/历史)
 ]
 settings = [
-    "pydantic-settings>=2.0.0",  # 若接入 pydantic 配置管理(现用自研 loader)
+    "pydantic-settings==2.14.2",  # 若接入 pydantic 配置管理(现用自研 loader)
 ]
 sandbox = [
-    "opensandbox>=0.1.0",  # hosted multi-user execution plane (optional)
+    "opensandbox==0.1.16",  # hosted multi-user execution plane (optional)
 ]
 vision = [
-    "pillow>=10.0.0",   # 图像原子操作 (裁剪/切分/差分/主色/报图)
+    "pillow==12.3.0",   # 图像原子操作 (裁剪/切分/差分/主色/报图)
     # vtracer pip 包 0.6.15 在 CPython 3.14 下段错误 → 不装包, 用独立 CLI 二进制
     # (~/.veya/bin/vtracer, 见 docs/ops/TOOLCHAIN_SETUP.md §2.2), 缺失时 PIL 降级
-    "httpx>=0.27.0",    # 视觉 LLM 客户端
+    "httpx==0.28.1",    # 视觉 LLM 客户端
 ]
 # 2026-08-24 (docs/dev/rfc-07-dependency-hygiene.md): cli/main.py 的 TUI 启动路径
 # 已经是 try/except 包住的懒加载 + 失败自动回退 readline loop, textual 不装也不影响
 # 任何 server/核心 CLI 路径, 是这轮调研里唯一验证过安全可挪的一个。
 tui = [
-    "textual>=0.60.0",
+    "textual==8.2.8",
 ]
 # 2026-08-24 §2 (docs/dev/rfc-07-dependency-hygiene.md): 用 sys.meta_path find_spec
 # 拦截验证过——cli/(veya/veya-headless/veya-simple)完全不 import server.app,
@@ -59,18 +59,19 @@ tui = [
 # requirements.txt 已经独立锁定这六个包的版本, pyproject.toml 这里删减跟
 # Dockerfile.backend 的构建结果无关。
 quant = [
-    "pandas>=2.0",  # Quant Coprocessor: 海量行情数据处理(控制面/数据面分离)
-    "numpy>=1.26",  # Quant Coprocessor: 向量化指标计算
-    "pyarrow>=15.0",  # Quant Coprocessor: parquet 高速 I/O(pd.read_parquet 引擎)
+    "pandas==3.0.5",  # Quant Coprocessor: 海量行情数据处理(控制面/数据面分离)
+    "numpy==2.2.6; python_version < '3.14'",  # Quant Coprocessor: 向量化指标计算
+    "numpy==2.5.1; python_version >= '3.14'",  # Quant Coprocessor: 向量化指标计算
+    "pyarrow==25.0.0",  # Quant Coprocessor: parquet 高速 I/O(pd.read_parquet 引擎)
 ]
 # 2026-08-24 §3 (docs/dev/rfc-07-dependency-hygiene.md): server/app.py 通过
 # routes/visualization.py + routes/advanced_visualization.py 对 veya.visualization/
 # veya.advanced_visualization 是真 eager import (find_spec 拦截验证过, 直接拉红)。
 # 只有跑 server.app (FastAPI 服务) 才需要; CLI 不受影响。
 viz = [
-    "networkx>=3.6.1",
-    "matplotlib>=3.11.1",
-    "plotly>=6.9.0",
+    "networkx==3.6.1",
+    "matplotlib==3.11.1",
+    "plotly==6.9.0",
 ]
 # 跑 server.app (FastAPI 服务, 而不是纯 CLI) 需要上面 quant + viz 两组全装。
 server = [

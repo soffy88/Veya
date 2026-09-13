@@ -96,9 +96,9 @@
         "publish": "vsce publish"
     },
     "devDependencies": {
-        "@types/vscode": "^1.75.0",
-        "eslint": "^8.0.0",
-        "vsce": "^2.0.0"
+        "@types/vscode": "1.75.0",
+        "eslint": "8.0.0",
+        "vsce": "2.0.0"
     },
     "dependencies": {}
 }
