@@ -50,6 +50,13 @@ from .models import (
     SpawnBudget,
     StopReason,
 )
+from .observability import (
+    ExecutionMetrics,
+    HealthReadiness,
+    IncidentRecovery,
+    SLOCalculator,
+    TraceCorrelator,
+)
 from .outbox import OutboxPublisher
 from .production_hardening import (
     AdmissionLease,
@@ -93,11 +100,14 @@ __all__ = [
     "Evidence",
     "ExecutionCheckpoint",
     "ExecutionCheckpointStore",
+    "ExecutionMetrics",
     "FanInBatch",
     "FinalizationController",
     "FinalizationObserver",
     "HardeningLimits",
     "HarnessError",
+    "HealthReadiness",
+    "IncidentRecovery",
     "LongRunBudget",
     "LongRunCheckpointStore",
     "LongRunState",
@@ -109,6 +119,7 @@ __all__ = [
     "ProgressObservation",
     "Reconciler",
     "ReconciliationReport",
+    "SLOCalculator",
     "SchedulerRun",
     "SharedTaskContext",
     "SideEffectLedger",
@@ -116,6 +127,7 @@ __all__ = [
     "SpawnGuard",
     "SpawnRejected",
     "StopReason",
+    "TraceCorrelator",
     "WorkItemSpec",
     "WorkerHost",
     "build_operation_key",
