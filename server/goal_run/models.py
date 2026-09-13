@@ -211,6 +211,10 @@ class RoutineState:
     started_count: int = 0
     last_trigger_ref: str | None = None
     canonical_goal_run_id: str | None = None
+    # P2-C: pinned catalog version plus consumed trigger identities. A consumed
+    # identity never starts again — restart-safe without a second scheduler.
+    version: int = 1
+    consumed_trigger_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -223,6 +227,8 @@ class RoutineState:
             started_count=int(value.get("started_count") or 0),
             last_trigger_ref=value.get("last_trigger_ref"),
             canonical_goal_run_id=value.get("canonical_goal_run_id"),
+            version=int(value.get("version") or 1),
+            consumed_trigger_ids=list(value.get("consumed_trigger_ids") or []),
         )
 
 
@@ -237,7 +243,11 @@ class RoutineStatus(StrEnum):
 
 @dataclass
 class RoutineSpec:
-    """A routine trigger. No execution authority; hands off to GoalRun."""
+    """A routine trigger. No execution authority; hands off to GoalRun.
+
+    P2-C: exactly one target (skill, playbook, or goal template). Disabled
+    routines never dispatch.
+    """
 
     routine_id: str
     trigger_topic: str
@@ -245,6 +255,12 @@ class RoutineSpec:
     goal_run_id: str | None = None
     timeout_s: int = 3600
     max_steps: int = 10
+    version: int = 1
+    enabled: bool = True
+    target_skill_id: str | None = None
+    target_playbook_id: str | None = None
+    goal_template: str = ""
+    evidence_requirements: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -258,6 +274,12 @@ class RoutineSpec:
             goal_run_id=value.get("goal_run_id"),
             timeout_s=int(value.get("timeout_s") or 3600),
             max_steps=int(value.get("max_steps") or 10),
+            version=int(value.get("version") or 1),
+            enabled=bool(value.get("enabled", True)),
+            target_skill_id=value.get("target_skill_id"),
+            target_playbook_id=value.get("target_playbook_id"),
+            goal_template=str(value.get("goal_template") or ""),
+            evidence_requirements=list(value.get("evidence_requirements") or []),
         )
 
 

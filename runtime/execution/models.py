@@ -525,6 +525,9 @@ SKILL_ACCEPTANCE_AUTHORITY = 0
 PLAYBOOK_EXECUTION_AUTHORITY = 0
 """P2-B: playbooks order steps; they never execute them."""
 
+ROUTINE_EXECUTION_AUTHORITY = 0
+"""P2-C: routines trigger only; they never execute."""
+
 
 def assert_delegate_result_acceptance_authority_zero(
     delegate_result: DelegateResult,
@@ -593,6 +596,11 @@ def assert_skill_acceptance_authority_zero() -> None:
 def assert_playbook_execution_authority_zero() -> None:
     """Assert that playbooks never execute (P2-B)."""
     assert PLAYBOOK_EXECUTION_AUTHORITY == 0, "PLAYBOOK_EXECUTION_AUTHORITY must stay 0"
+
+
+def assert_routine_execution_authority_zero() -> None:
+    """Assert that routines never execute (P2-C)."""
+    assert ROUTINE_EXECUTION_AUTHORITY == 0, "ROUTINE_EXECUTION_AUTHORITY must stay 0"
 
 
 def assert_second_execution_authority_zero(count: int = SECOND_EXECUTION_AUTHORITY) -> None:
