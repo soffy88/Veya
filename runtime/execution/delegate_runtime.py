@@ -238,3 +238,156 @@ class DelegateRuntime:
             }
         )
         return result
+
+    async def run_cross_bot(
+        self,
+        request: DelegateRequest,
+        operation: Callable[[asyncio.Event], Awaitable[DelegateResult | dict[str, Any]]],
+        *,
+        source_bot_id: str,
+        target_bot_id: str,
+        target_goal_run_id: str,
+    ) -> DelegateResult:
+        """Run semantic work for another bot through the existing runtime.
+
+        This is deliberately a sibling of :meth:`run`, not another executor:
+        the runtime admits and records one delegation while ``operation`` is
+        Bot B's semantic callback.  If B needs a physical action, that
+        callback must call B's already-bound GoalRun/ActionGateway path.  No
+        source context, computer, checkpoint, ledger, or evidence object is
+        passed by this method; only request fields and explicit refs cross the
+        boundary.
+        """
+        if source_bot_id != self.bot_id:
+            raise ValueError("source bot does not own this delegation runtime")
+        if not target_bot_id or target_bot_id == source_bot_id:
+            raise ValueError("cross-bot delegation requires a distinct target bot")
+        if not target_goal_run_id:
+            raise ValueError("cross-bot delegation requires Bot B's GoalRun")
+        if request.source_bot_id != source_bot_id or request.target_bot_id != target_bot_id:
+            raise ValueError("delegation provenance does not match source/target bots")
+        if request.target_goal_run_id != target_goal_run_id:
+            raise ValueError("delegation provenance does not match target GoalRun")
+        if request.parent_trace_id != self.goal_run_id:
+            raise ValueError("delegation parent does not match Bot A GoalRun")
+
+        # Reuse the same admission, timeout, cancellation, duplicate, and
+        # lifecycle machinery.  The normal run() path remains strict P3-A
+        # same-bot/same-GoalRun behavior; this method is the explicit P3-B
+        # cross-bot exception and still owns no physical execution.
+        stored = self._completed.get(request.delegate_id)
+        if stored is not None and stored.status == "complete":
+            return stored
+        assert_parallel_execution_authority_single(PARALLEL_EXECUTION_AUTHORITY_COUNT)
+        assert_second_execution_authority_zero(SECOND_EXECUTION_AUTHORITY)
+        assert_subagent_execution_authority_zero()
+        assert_subagent_acceptance_authority_zero()
+        assert_subagent_goalrun_creation_zero(SUBAGENT_GOALRUN_CREATION)
+        assert_subagent_direct_physical_execution_zero(0)
+        await self.guard.pre_check(
+            depth=request.depth,
+            estimated_tokens=request.estimated_tokens,
+            estimated_cost_usd=request.budget_usd or 0.0,
+        )
+        await self._emit(
+            {
+                "type": "delegate.started",
+                "delegate_id": request.delegate_id,
+                "source_bot_id": source_bot_id,
+                "target_bot_id": target_bot_id,
+                "goal_run_id": target_goal_run_id,
+            }
+        )
+        self._attempts[request.delegate_id] = self._attempts.get(request.delegate_id, 0) + 1
+        await self._record_state(
+            {
+                "delegate_id": request.delegate_id,
+                "parent_goal_run_id": self.goal_run_id,
+                "goal_run_id": target_goal_run_id,
+                "source_bot_id": source_bot_id,
+                "target_bot_id": target_bot_id,
+                "bot_id": target_bot_id,
+                "status": "running",
+                "request_ref": request.delegate_id,
+                "result_ref": None,
+                "evidence_refs": list(request.evidence_refs),
+                "attempt": self._attempts[request.delegate_id],
+                "replan": False,
+                "stopped_at": None,
+            }
+        )
+        started_at = time.monotonic()
+        try:
+            raw = await self.guard.run(
+                request.delegate_id,
+                operation,
+                depth=request.depth,
+                estimated_tokens=request.estimated_tokens,
+                estimated_cost_usd=request.budget_usd or 0.0,
+                timeout_s=request.timeout_s,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            result = DelegateResult(
+                delegate_id=request.delegate_id,
+                status="failed",
+                stop_reason="exception",
+                child_trace_id=request.parent_trace_id,
+                error_class=type(exc).__name__,
+                error_message=str(exc),
+                source_bot_id=source_bot_id,
+                target_bot_id=target_bot_id,
+                goal_run_id=target_goal_run_id,
+                evidence_refs=list(request.evidence_refs),
+            )
+        else:
+            result = (
+                raw
+                if isinstance(raw, DelegateResult)
+                else delegate_result_from_mapping(request, raw)
+            )
+            result.duration_ms = result.duration_ms or round(
+                (time.monotonic() - started_at) * 1000
+            )
+            result.source_bot_id = source_bot_id
+            result.target_bot_id = target_bot_id
+            result.goal_run_id = target_goal_run_id
+            if not result.evidence_refs:
+                result.evidence_refs = list(request.evidence_refs)
+        if result.status == "complete":
+            self._completed[request.delegate_id] = result
+        await self._emit(
+            {
+                "type": "delegate.completed" if result.status == "complete" else f"delegate.{result.status}",
+                "delegate_id": request.delegate_id,
+                "source_bot_id": source_bot_id,
+                "target_bot_id": target_bot_id,
+                "goal_run_id": target_goal_run_id,
+                "evidence_refs": list(result.evidence_refs),
+            }
+        )
+        await self._record_state(
+            {
+                "delegate_id": request.delegate_id,
+                "parent_goal_run_id": self.goal_run_id,
+                "goal_run_id": target_goal_run_id,
+                "source_bot_id": source_bot_id,
+                "target_bot_id": target_bot_id,
+                "bot_id": target_bot_id,
+                "status": result.status,
+                "request_ref": request.delegate_id,
+                "result_ref": request.delegate_id,
+                "evidence_refs": list(result.evidence_refs),
+                "attempt": self._attempts.get(request.delegate_id, 1),
+                "replan": False,
+                "stopped_at": time.time(),
+            }
+        )
+        return result
+
+    def restore_completed(self, results: list[DelegateResult]) -> None:
+        """Restore completed results from the existing GoalRun projection."""
+        for result in results:
+            if result.status == "complete":
+                self._completed[result.delegate_id] = result

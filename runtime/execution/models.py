@@ -221,6 +221,12 @@ class DelegateRequest:
     deadline: datetime | None = None
     # P3-A: the bot that owns this delegate. Must match the runtime's bot.
     bot_id: str = DEFAULT_BOT_ID
+    # P3-B: explicit cross-bot provenance. These fields are routing metadata,
+    # not access to the source bot's durable state.
+    source_bot_id: str = DEFAULT_BOT_ID
+    target_bot_id: str | None = None
+    target_goal_run_id: str | None = None
+    evidence_refs: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
@@ -248,6 +254,12 @@ class DelegateResult:
     child_trace_id: str = ""
     error_class: str | None = None
     error_message: str | None = None
+    # P3-B provenance. A delegate result is transport/output only; it is not
+    # an acceptance verdict and cannot finalize the parent GoalRun.
+    source_bot_id: str = DEFAULT_BOT_ID
+    target_bot_id: str = DEFAULT_BOT_ID
+    goal_run_id: str = ""
+    evidence_refs: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.stop_reason = normalize_stop_reason(self.stop_reason)
@@ -262,6 +274,8 @@ class DelegateResult:
         self.acceptance_results = [
             AcceptanceResult.from_value(item) for item in self.acceptance_results
         ]
+        if not self.evidence_refs:
+            self.evidence_refs = [item.sha256 for item in self.evidence if item.sha256]
 
     @classmethod
     def from_mapping(
@@ -271,6 +285,10 @@ class DelegateResult:
         *,
         child_trace_id: str = "",
         producer: str = "delegate",
+        source_bot_id: str = DEFAULT_BOT_ID,
+        target_bot_id: str = DEFAULT_BOT_ID,
+        goal_run_id: str = "",
+        evidence_refs: list[str] | None = None,
     ) -> DelegateResult:
         """Adapt existing AgentLoop/Hicode-shaped dictionaries."""
         summary = str(value.get("summary") or value.get("final_answer") or "")
@@ -296,6 +314,10 @@ class DelegateResult:
             child_trace_id=str(value.get("child_trace_id") or child_trace_id),
             error_class=value.get("error_class"),
             error_message=value.get("error_message") or value.get("error"),
+            source_bot_id=str(value.get("source_bot_id") or source_bot_id),
+            target_bot_id=str(value.get("target_bot_id") or target_bot_id),
+            goal_run_id=str(value.get("goal_run_id") or goal_run_id),
+            evidence_refs=list(value.get("evidence_refs") or evidence_refs or []),
         )
 
     def to_dict(self) -> dict[str, Any]:

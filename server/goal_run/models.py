@@ -118,6 +118,10 @@ class DelegateState:
     stopped_at: float | None = None
     # P3-A: the bot that owns this delegate. Cross-bot resume is refused.
     bot_id: str = DEFAULT_BOT_ID
+    # P3-B: explicit cross-bot provenance; refs only, never durable objects.
+    source_bot_id: str = DEFAULT_BOT_ID
+    target_bot_id: str = DEFAULT_BOT_ID
+    goal_run_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -135,6 +139,9 @@ class DelegateState:
             replan=bool(value.get("replan", False)),
             stopped_at=value.get("stopped_at"),
             bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
+            source_bot_id=str(value.get("source_bot_id") or value.get("bot_id") or DEFAULT_BOT_ID),
+            target_bot_id=str(value.get("target_bot_id") or value.get("bot_id") or DEFAULT_BOT_ID),
+            goal_run_id=value.get("goal_run_id"),
         )
 
 
