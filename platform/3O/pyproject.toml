@@ -7,7 +7,7 @@ dependencies = [
     "obase",
     "omodul",
     "oskill[storage]",
-    "oprim[epub,llm]",
+    "oprim[epub,llm,text-embedding]",
     "fastapi>=0.110",
     "psycopg2-binary>=2.9",
 ]
