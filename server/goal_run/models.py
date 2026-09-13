@@ -9,9 +9,10 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass, field
+import os
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
 
 
@@ -97,6 +98,197 @@ class TaskNode:
 
 
 @dataclass
+class DelegateState:
+    """Persistent projection of one delegate inside its parent GoalRun.
+
+    P2-A §8: durable record only — no execution authority, no scheduler,
+    no new GoalRun. The parent GoalRunState remains the single source of truth.
+    """
+
+    delegate_id: str
+    parent_goal_run_id: str
+    status: str = "running"  # running | complete | partial | failed | blocked
+    request_ref: str | None = None
+    result_ref: str | None = None
+    evidence_refs: list[str] = field(default_factory=list)
+    attempt: int = 0
+    replan: bool = False
+    stopped_at: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> DelegateState:
+        return cls(
+            delegate_id=str(value.get("delegate_id") or ""),
+            parent_goal_run_id=str(value.get("parent_goal_run_id") or ""),
+            status=str(value.get("status") or "running"),
+            request_ref=value.get("request_ref"),
+            result_ref=value.get("result_ref"),
+            evidence_refs=list(value.get("evidence_refs") or []),
+            attempt=int(value.get("attempt") or 0),
+            replan=bool(value.get("replan", False)),
+            stopped_at=value.get("stopped_at"),
+        )
+
+
+@dataclass
+class FanInState:
+    """Persistent projection of one fan-in inside its parent GoalRun.
+
+    P2-A §8: tracks expected vs reconciled delegates; the reconciled verdict
+    is a worker outcome, never an acceptance verdict.
+    """
+
+    fanin_id: str
+    expected_delegate_ids: list[str] = field(default_factory=list)
+    completed_delegate_ids: list[str] = field(default_factory=list)
+    partial_delegate_ids: list[str] = field(default_factory=list)
+    failed_delegate_ids: list[str] = field(default_factory=list)
+    blocked_delegate_ids: list[str] = field(default_factory=list)
+    reconciled_result_ref: str | None = None
+    completed_at: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> FanInState:
+        return cls(
+            fanin_id=str(value.get("fanin_id") or ""),
+            expected_delegate_ids=list(value.get("expected_delegate_ids") or []),
+            completed_delegate_ids=list(value.get("completed_delegate_ids") or []),
+            partial_delegate_ids=list(value.get("partial_delegate_ids") or []),
+            failed_delegate_ids=list(value.get("failed_delegate_ids") or []),
+            blocked_delegate_ids=list(value.get("blocked_delegate_ids") or []),
+            reconciled_result_ref=value.get("reconciled_result_ref"),
+            completed_at=value.get("completed_at"),
+        )
+
+
+@dataclass
+class PlaybookState:
+    """Persistent projection of a playbook run inside the SAME GoalRun.
+
+    P2-A §4/§8: a playbook is a reusable ordered capability template. It never
+    spawns a nested GoalRun and never owns acceptance.
+    """
+
+    playbook_id: str
+    active_step: str | None = None
+    completed_steps: list[str] = field(default_factory=list)
+    step_result_refs: dict[str, str] = field(default_factory=dict)
+    evidence_refs: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> PlaybookState:
+        return cls(
+            playbook_id=str(value.get("playbook_id") or ""),
+            active_step=value.get("active_step"),
+            completed_steps=list(value.get("completed_steps") or []),
+            step_result_refs=dict(value.get("step_result_refs") or {}),
+            evidence_refs=list(value.get("evidence_refs") or []),
+        )
+
+
+@dataclass
+class RoutineState:
+    """Persistent projection of a routine trigger inside its GoalRun.
+
+    P2-A §5/§8: a routine only triggers; the persistent bot hands off to the
+    canonical GoalRun path. It must not create a new GoalRun when one already
+    exists for the same objective.
+    """
+
+    routine_id: str
+    trigger_metadata: dict[str, Any] = field(default_factory=dict)
+    started_count: int = 0
+    last_trigger_ref: str | None = None
+    canonical_goal_run_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> RoutineState:
+        return cls(
+            routine_id=str(value.get("routine_id") or ""),
+            trigger_metadata=dict(value.get("trigger_metadata") or {}),
+            started_count=int(value.get("started_count") or 0),
+            last_trigger_ref=value.get("last_trigger_ref"),
+            canonical_goal_run_id=value.get("canonical_goal_run_id"),
+        )
+
+
+class RoutineStatus(StrEnum):
+    triggered = "triggered"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    blocked = "blocked"
+    skipped = "skipped"
+
+
+@dataclass
+class RoutineSpec:
+    """A routine trigger. No execution authority; hands off to GoalRun."""
+
+    routine_id: str
+    trigger_topic: str
+    objective: str
+    goal_run_id: str | None = None
+    timeout_s: int = 3600
+    max_steps: int = 10
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> RoutineSpec:
+        return cls(
+            routine_id=str(value.get("routine_id") or ""),
+            trigger_topic=str(value.get("trigger_topic") or ""),
+            objective=str(value.get("objective") or ""),
+            goal_run_id=value.get("goal_run_id"),
+            timeout_s=int(value.get("timeout_s") or 3600),
+            max_steps=int(value.get("max_steps") or 10),
+        )
+
+
+ROUTINE_TRIGGER_TOPICS = frozenset(
+    {
+        "schedule.trigger",
+        "event.arrive",
+        "user.request",
+        "system.idle",
+    }
+)
+
+ROUTINE_MAX_STARTED: int = int(os.environ.get("VEYA_ROUTINE_MAX_STARTED", "1"))
+"""P2-A §5: max routines started; default 1 keeps one canonical GoalRun."""
+
+P2_DURABLE_SCHEDULER_COUNT = 0
+"""P2-A §8: no second durable scheduler is introduced."""
+
+GOALRUN_DURABLE_AUTHORITY = 1
+"""P2-A §8: the single canonical GoalRun is the durable source of truth."""
+
+PERSISTENCE_PROJECTION_FIELDS = frozenset(
+    {
+        "delegate_states",
+        "fanin_states",
+        "playbook_states",
+        "routine_states",
+    }
+)
+"""P2-A §8: the only durable P2 projections — no second scheduler."""
+
+
+@dataclass
 class GoalRunState:
     """goal_run 的完整运行时状态（落盘以 taskgraph.json + events.jsonl）。
 
@@ -138,6 +330,18 @@ class GoalRunState:
     unfinished_work: list[str] = field(default_factory=list)
     last_stop_reason: str | None = field(default=None)
     runtime_checkpoint: dict[str, Any] | None = field(default=None)
+    # P2-A §4: playbook — reusable ordered template in the SAME GoalRun.
+    playbook_id: str | None = field(default=None)
+    playbook_steps: dict[str, dict[str, Any]] = field(default_factory=dict)
+    current_playbook_step: str | None = field(default=None)
+    playbook_entry_at: float | None = field(default=None)
+    # P2-A §5: routines trigger only; they never own execution.
+    routines: dict[str, RoutineSpec] = field(default_factory=dict)
+    # P2-A §8: durable projections tied to this parent GoalRun.
+    delegate_states: dict[str, DelegateState] = field(default_factory=dict)
+    fanin_states: dict[str, FanInState] = field(default_factory=dict)
+    playbook_states: dict[str, PlaybookState] = field(default_factory=dict)
+    routine_states: dict[str, RoutineState] = field(default_factory=dict)
 
     def to_taskgraph_json(self) -> dict[str, Any]:
         """转为 taskgraph.json 格式（用于落盘/序列化）。"""
@@ -184,6 +388,23 @@ class GoalRunState:
             "unfinished_work": self.unfinished_work,
             "last_stop_reason": self.last_stop_reason,
             "runtime_checkpoint": self.runtime_checkpoint,
+            "playbook_id": self.playbook_id,
+            "playbook_steps": self.playbook_steps,
+            "current_playbook_step": self.current_playbook_step,
+            "playbook_entry_at": self.playbook_entry_at,
+            "routines": {routine_id: spec.to_dict() for routine_id, spec in self.routines.items()},
+            "delegate_states": {
+                delegate_id: item.to_dict() for delegate_id, item in self.delegate_states.items()
+            },
+            "fanin_states": {
+                fanin_id: item.to_dict() for fanin_id, item in self.fanin_states.items()
+            },
+            "playbook_states": {
+                playbook_id: item.to_dict() for playbook_id, item in self.playbook_states.items()
+            },
+            "routine_states": {
+                routine_id: item.to_dict() for routine_id, item in self.routine_states.items()
+            },
             "tasks": tasks_list,
         }
 
@@ -206,6 +427,36 @@ class GoalRunState:
         state.unfinished_work = list(data.get("unfinished_work") or [])
         state.last_stop_reason = data.get("last_stop_reason")
         state.runtime_checkpoint = data.get("runtime_checkpoint")
+        # P2-A §4/§5/§8: additive projections; old files without them load fine.
+        state.playbook_id = data.get("playbook_id")
+        state.playbook_steps = dict(data.get("playbook_steps") or {})
+        state.current_playbook_step = data.get("current_playbook_step")
+        state.playbook_entry_at = data.get("playbook_entry_at")
+        state.routines = {
+            routine_id: RoutineSpec.from_dict(spec)
+            for routine_id, spec in dict(data.get("routines") or {}).items()
+            if isinstance(spec, dict)
+        }
+        state.delegate_states = {
+            delegate_id: DelegateState.from_dict(item)
+            for delegate_id, item in dict(data.get("delegate_states") or {}).items()
+            if isinstance(item, dict)
+        }
+        state.fanin_states = {
+            fanin_id: FanInState.from_dict(item)
+            for fanin_id, item in dict(data.get("fanin_states") or {}).items()
+            if isinstance(item, dict)
+        }
+        state.playbook_states = {
+            playbook_id: PlaybookState.from_dict(item)
+            for playbook_id, item in dict(data.get("playbook_states") or {}).items()
+            if isinstance(item, dict)
+        }
+        state.routine_states = {
+            routine_id: RoutineState.from_dict(item)
+            for routine_id, item in dict(data.get("routine_states") or {}).items()
+            if isinstance(item, dict)
+        }
 
         for td in data.get("tasks", []):
             tn = TaskNode(
