@@ -117,25 +117,25 @@ def submodule_integrity() -> list[dict[str, str]]:
 
 def source_sbom(submodules: list[dict[str, str]]) -> dict[str, Any]:
     components: list[dict[str, str]] = []
-    lock = ROOT / "uv.lock"
-    current: dict[str, str] | None = None
-    for line in lock.read_text().splitlines():
-        if line == "[[package]]":
-            if current:
-                components.append(current)
-            current = {}
-        elif current is not None:
-            name = re.match(r'name = "([^"]+)"', line)
-            version = re.match(r'version = "([^"]+)"', line)
-            source = re.match(r'source = \{ registry = "([^"]+)"', line)
-            if name:
-                current["name"] = name.group(1)
-            elif version:
-                current["version"] = version.group(1)
-            elif source:
-                current["source"] = source.group(1)
-    if current:
-        components.append(current)
+    for lock in (ROOT / "uv.lock", ROOT / "veya_loop/uv.lock", ROOT / "services/loop-plane/uv.lock"):
+        current: dict[str, str] | None = None
+        for line in lock.read_text().splitlines():
+            if line == "[[package]]":
+                if current:
+                    components.append(current)
+                current = {}
+            elif current is not None:
+                name = re.match(r'name = "([^"]+)"', line)
+                version = re.match(r'version = "([^"]+)"', line)
+                source = re.match(r'source = \{ (?:registry|directory) = "([^"]+)"', line)
+                if name:
+                    current["name"] = name.group(1)
+                elif version:
+                    current["version"] = version.group(1)
+                elif source:
+                    current["source"] = source.group(1)
+        if current:
+            components.append(current)
     components.extend(
         {"name": row["path"], "version": row["sha"], "source": row["url"]} for row in submodules
     )
@@ -202,6 +202,8 @@ def generate(output: Path) -> dict[str, Any]:
                 ROOT / "uv.lock",
                 ROOT / "veya_loop/pyproject.toml",
                 ROOT / "veya_loop/uv.lock",
+                ROOT / "services/loop-plane/pyproject.toml",
+                ROOT / "services/loop-plane/uv.lock",
                 ROOT / "pnpm-lock.yaml",
             ]
         },
