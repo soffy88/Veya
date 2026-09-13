@@ -814,6 +814,9 @@ async def _prepare_durable_goal(
                 task.execute_result = str(
                     result["delegate_result"].get("summary") or task.execute_result or ""
                 )
+            canonical_action = result.get("canonical_action") if isinstance(result, dict) else None
+            if isinstance(canonical_action, dict):
+                state.budget["last_canonical_action"] = canonical_action
             task.status = TaskStatus.completed
             state.completed_ids.add(task.id)
             state.running_ids.discard(task.id)
@@ -1390,6 +1393,7 @@ async def _run_loop_and_finalize(
                                         "status": "completed",
                                         "summary": current_task.execute_result or "",
                                         "delegate_result": current_task.delegate_result,
+                                        "canonical_action": state.budget.get("last_canonical_action"),
                                     },
                                 )
                             elif current_task.status == TaskStatus.ready:
