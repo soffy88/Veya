@@ -102,7 +102,10 @@ async def _run_product_task(
                     "id": task_id,
                     "title": objective[:80],
                     "instruction": objective,
-                    "acceptance": ["actual canonical action result is observed"],
+                    # Product acceptance is owned by the frozen VerificationSpec
+                    # below; duplicating it as a free-form task-level LLM check
+                    # would make the transport decide acceptance before I2.
+                    "acceptance": [],
                     "assignee": "builtin",
                 }
             ],
