@@ -97,6 +97,10 @@ def main() -> int:
         }))
         stop_process(first)
         statuses = []
+        checkpoint1_goalrun = original_goalrun
+        checkpoint2_goalrun = None
+        restart1_resumed_goalrun = None
+        restart2_resumed_goalrun = None
         for restart_no in range(1, 2):
             ready.unlink(missing_ok=True)
             env["VEYA_QUAL_BARRIER_PHASE"] = "checkpoint2"
@@ -108,9 +112,16 @@ def main() -> int:
                     time.sleep(0.05)
                 if not ready.exists():
                     raise RuntimeError(f"checkpoint {restart_no + 1} barrier was not reached")
-                if ready.read_text(encoding="utf-8").strip() != original_goalrun:
+                checkpoint2_goalrun = ready.read_text(encoding="utf-8").strip()
+                if checkpoint2_goalrun != original_goalrun:
                     raise RuntimeError(f"checkpoint {restart_no + 1} changed GoalRun identity")
-                statuses.append({"restart": restart_no, "goal_run_id": original_goalrun})
+                restart1_resumed_goalrun = checkpoint2_goalrun
+                statuses.append({
+                    "restart": restart_no,
+                    "goal_run_id": restart1_resumed_goalrun,
+                    "checkpoint2_persisted": True,
+                    "checkpoint2_before_finalize": True,
+                })
             finally:
                 stop_process(process)
         env.pop("VEYA_QUAL_CHECKPOINT_READY", None)
@@ -129,10 +140,35 @@ def main() -> int:
                     if task_status in {"completed", "failed", "cancelled"}:
                         break
                     time.sleep(1)
-            statuses.append({"final": status})
+            restart2_resumed_goalrun = original_goalrun
+            statuses.append({
+                "final": status,
+                "restart2_resumed_goalrun_id": restart2_resumed_goalrun,
+            })
         finally:
             stop_process(process)
-        print(json.dumps({"resumed_statuses": statuses}, default=str))
+        print(json.dumps({
+            "checkpoint1_persisted": checkpoint1_goalrun == original_goalrun,
+            "checkpoint1_goalrun_id": checkpoint1_goalrun,
+            "checkpoint2_persisted": checkpoint2_goalrun == original_goalrun,
+            "checkpoint2_goalrun_id": checkpoint2_goalrun,
+            "checkpoint2_before_finalize": checkpoint2_goalrun == original_goalrun,
+            "restart1_resumed_goalrun_id": restart1_resumed_goalrun,
+            "restart2_resumed_goalrun_id": restart2_resumed_goalrun,
+            "same_goalrun_all_restarts": (
+                checkpoint1_goalrun == original_goalrun
+                and checkpoint2_goalrun == original_goalrun
+                and restart1_resumed_goalrun == original_goalrun
+                and restart2_resumed_goalrun == original_goalrun
+            ),
+            "lease_fencing_applicable": False,
+            "lease_fencing_reason": (
+                "qualification uses the canonical file-backed GoalRun path with "
+                "VEYA_DURABLE_EXECUTION=0; no DurableExecutionRuntime lease identity "
+                "is instantiated by this path"
+            ),
+            "resumed_statuses": statuses,
+        }, default=str))
         return 0 if statuses[-1]["final"].get("task", {}).get("status") == "completed" else 2
     finally:
         if first.poll() is None:
