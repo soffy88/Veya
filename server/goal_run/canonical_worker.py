@@ -380,10 +380,12 @@ class CanonicalWorkerAdapter:
         from server.goal_run.leaf import LeafResult
 
         session_id = self.semantic_session_id or state.goal_id
+        prior_result = (state.budget or {}).get("semantic_prior_result")
         decision = await self.semantic_agent.semantic_step(
             task.instruction,
             session_id=session_id,
             llm_kwargs=self.semantic_llm_kwargs or None,
+            prior_result=prior_result if isinstance(prior_result, dict) else None,
         )
         if decision.get("kind") != "action" or not decision.get("tool"):
             return LeafResult(
@@ -412,6 +414,11 @@ class CanonicalWorkerAdapter:
         await self.semantic_agent.observe_action_result(
             result.to_dict(), session_id=session_id
         )
+        # Keep the observed result in the existing GoalRun durable envelope so
+        # the next scheduler iteration can make a semantic replan from the
+        # actual failure/result.  This is continuation state, not a second
+        # execution loop or an acceptance decision.
+        state.budget["semantic_prior_result"] = result.to_dict()
         if result.status != "completed" or not result.executed:
             failure = result.failure_evidence[0] if result.failure_evidence else {}
             return LeafResult(
