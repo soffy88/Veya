@@ -284,6 +284,17 @@ async def lifespan(app: FastAPI):
         )
     except Exception:
         _lg.exception("wire 汇总日志失败")
+    # Reconcile checkpointed product GoalRuns after all canonical tools are
+    # wired.  This discovers durable state and re-enters the existing runner;
+    # the in-process asyncio task itself is never treated as durable.
+    try:
+        from server.routes.product import recover_product_tasks
+
+        recovered_product_tasks = await recover_product_tasks()
+        if recovered_product_tasks:
+            _lg.warning("product GoalRun startup recovery resumed %d run(s)", recovered_product_tasks)
+    except Exception:
+        _lg.exception("product GoalRun startup recovery failed")
     # Crash-safe execution is opt-in until PostgreSQL migrations and cohort
     # policy are enabled.  When enabled, startup reconciliation completes
     # before any durable worker is allowed to claim work.

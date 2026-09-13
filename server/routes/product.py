@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -51,6 +52,81 @@ class ProductTaskRequest(BaseModel):
 _product_tasks: set[asyncio.Task[Any]] = set()
 
 
+def _find_resumable_goal_run(task: Any) -> Any | None:
+    """Find the existing checkpoint for one non-terminal product task."""
+    if not task.workspace_id:
+        return None
+    from server.goal_run.models import GoalStatus
+    from server.goal_run.store import load_goal_run
+
+    runs_root = Path(task.workspace_id) / ".veya-project" / "goal-runs"
+    if not runs_root.is_dir():
+        return None
+    for taskgraph in sorted(runs_root.glob("*/taskgraph.json")):
+        goal_id = taskgraph.parent.name
+        state = load_goal_run(task.workspace_id, goal_id)
+        if state is None or state.status in {
+            GoalStatus.completed,
+            GoalStatus.failed,
+            GoalStatus.cancelled,
+            GoalStatus.blocked,
+        }:
+            continue
+        if task.id not in state.tasks:
+            continue
+        checkpoint = state.runtime_checkpoint or {}
+        context_checkpoint = (
+            Path(task.workspace_id)
+            / ".veya"
+            / "runs"
+            / state.goal_id
+            / "context_checkpoint.json"
+        )
+        if checkpoint or context_checkpoint.exists():
+            return state
+    return None
+
+
+async def recover_product_tasks() -> int:
+    """Resume checkpointed product GoalRuns through the existing runner.
+
+    This is startup discovery only.  The resumed ``project_run_goal`` call
+    remains the sole GoalRun execution authority; no asyncio task is treated
+    as durable state and no new GoalRun is created here.
+    """
+    recovered = 0
+    from server.goal_run.models import GoalStatus
+
+    for task in task_store.list(limit=500):
+        if task.status in {"completed", "failed", "cancelled"}:
+            continue
+        state = _find_resumable_goal_run(task)
+        if state is None or state.status in {
+            GoalStatus.completed,
+            GoalStatus.failed,
+            GoalStatus.cancelled,
+            GoalStatus.blocked,
+        }:
+            continue
+        task_store.update_status(task.id, "running")
+        background = asyncio.create_task(
+            _run_product_task(
+                task_id=task.id,
+                session_id=task.session_id,
+                objective=task.objective,
+                provider=None,
+                model=None,
+                config={},
+                user={"user_id": "startup-recovery"},
+                project_root=task.workspace_id or "/repo",
+                resume_goal_id=state.goal_id,
+            )
+        )
+        _retain_product_task(background)
+        recovered += 1
+    return recovered
+
+
 async def _run_product_task(
     *,
     task_id: str,
@@ -61,6 +137,7 @@ async def _run_product_task(
     config: dict[str, Any],
     user: dict[str, Any],
     project_root: str,
+    resume_goal_id: str | None = None,
 ) -> None:
     """Run one accepted task through the single GoalRun semantic loop."""
 
@@ -113,6 +190,7 @@ async def _run_product_task(
             max_wall_s=3600,
             integration_adapter=adapter,
             semantic_llm_kwargs=semantic_llm_kwargs,
+            resume_goal_id=resume_goal_id,
         )
         task_store.update_status(
             task_id,
