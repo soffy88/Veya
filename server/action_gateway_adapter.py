@@ -15,6 +15,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
+from runtime.bot_scope import DEFAULT_BOT_ID
 from runtime.execution.side_effects import SideEffectLedger
 from server.events import append_canonical_event, current_task_id
 from server.permission_profiles import (
@@ -61,10 +62,14 @@ class ActionGatewayAdapter:
         policy_profile: ProfileName | str | None = None,
         policy_hook: Callable[[Any], Any] | None = None,
         output_dir: str | Path | None = None,
+        # P3-A: the bot that owns this gateway binding. Its side effects are
+        # recorded under this bot and never replayed by another bot.
+        bot_id: str = DEFAULT_BOT_ID,
     ) -> None:
         self.ledger = ledger
         self.goal_run_id = goal_run_id or current_task_id() or "veya:unbound"
         self.work_item_id = work_item_id or self.goal_run_id
+        self.bot_id = bot_id
         self._approval_resolver = approval_resolver
         self._audit_writer = audit_writer or self._append_event
         self._policy_profile = policy_profile
@@ -175,6 +180,7 @@ class ActionGatewayAdapter:
             request=request.to_dict(),
             provider=kwargs["provider"],
             capability=str(kwargs.get("capability", "manual_only")),
+            bot_id=self.bot_id,
         )
 
     async def execute(

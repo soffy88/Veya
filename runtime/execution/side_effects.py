@@ -6,6 +6,8 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from runtime.bot_scope import DEFAULT_BOT_ID
+
 from .durable import ClaimEnvelope, DurableExecutionError, DurableExecutionRepository
 
 
@@ -28,6 +30,8 @@ class SideEffectLedger:
         capability: str = "manual_only",
         probe: Callable[[], Awaitable[dict[str, Any]] | dict[str, Any]] | None = None,
         claim: ClaimEnvelope | None = None,
+        # P3-A: the owning bot. Reusing another bot's operation key is refused.
+        bot_id: str = DEFAULT_BOT_ID,
     ) -> Any:
         row = await self.repository.declare_side_effect(
             goal_run_id=goal_run_id,
@@ -38,6 +42,7 @@ class SideEffectLedger:
             request=request,
             capability=capability,
             claim=claim,
+            bot_id=bot_id,
         )
         previous = _decode_probe(row.get("probe_result_json"))
         if row.get("state") == "committed":

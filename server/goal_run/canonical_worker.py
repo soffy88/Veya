@@ -20,6 +20,7 @@ from runtime.provider_reliability import ReliableProviderAdapter
 from runtime.verification import EvidenceBundle, EvidenceItem, VerificationEngine
 from server.action_gateway_adapter import ActionGatewayAdapter
 from server.goal_run.action_protocol import CanonicalActionRequest, CanonicalActionResult
+from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.git_diff import current_head
 
 
@@ -87,6 +88,8 @@ class CanonicalWorkerAdapter:
         """
         if request.goal_run_id != state.goal_id:
             raise ValueError("canonical action belongs to a different GoalRun")
+        # P3-A: SAME Bot — another bot's action never executes in this GoalRun.
+        require_same_bot(request.bot_id, state.bot_id, f"action:{request.action_id}")
         if self.computer_id and request.computer_ref not in {None, self.computer_id}:
             raise ValueError("canonical action targets a different PersistentComputer")
 
@@ -292,16 +295,19 @@ class CanonicalWorkerAdapter:
 
         db_path = root / ".veya" / "persistent_computers.sqlite3"
         self.computer_store = PersistentComputerStore(db_path)
-        existing = self.computer_store.get_computer_for_goal_run(state.goal_id)
+        existing = self.computer_store.get_computer_for_goal_run(state.goal_id, bot_id=state.bot_id)
         computer = existing or self.computer_store.create_computer(
             owner_id=self.task_id,
             workspace_ref=str(root),
             browser_profile_ref=f"profile:{self.task_id}",
             downloads_ref=str(root / ".veya" / "runs" / self.task_id / "downloads"),
             computer_id=f"computer:{self.task_id}",
+            bot_id=state.bot_id,
         )
         if existing is None:
-            self.computer_store.link_goal_run(state.goal_id, computer.computer_id, self.task_id)
+            self.computer_store.link_goal_run(
+                state.goal_id, computer.computer_id, self.task_id, bot_id=state.bot_id
+            )
         self.computer_id = computer.computer_id
         self._spec_hash = getattr(self.spec, "spec_hash", None)
         state.budget["computer_id"] = self.computer_id
@@ -311,6 +317,7 @@ class CanonicalWorkerAdapter:
             self.context_engine = ContextEngine.load_checkpoint(
                 run_dir / "context_checkpoint.json",
                 persistent_computer_store=self.computer_store,
+                bot_id=state.bot_id,
             )
             if self.context_engine.state.goal_run_id != state.goal_id:
                 raise RuntimeError("context checkpoint is bound to a different GoalRun")
@@ -319,6 +326,7 @@ class CanonicalWorkerAdapter:
                 goal_run_id=state.goal_id,
                 computer_id=self.computer_id,
                 persistent_computer_store=self.computer_store,
+                bot_id=state.bot_id,
             )
         self.context_engine.update_preserved_objective(self.objective)
         self.context_engine.update_preserved_verification_spec(str(spec_path))
@@ -345,6 +353,7 @@ class CanonicalWorkerAdapter:
             approval_resolver=self.approval_resolver,
             policy_hook=self.policy_hook,
             output_dir=root / ".veya" / "action_gateway",
+            bot_id=state.bot_id,
         )
         if self.knowledge_plan is not None:
             self.knowledge_runtime = KnowledgeRuntime(self.knowledge_plan)
@@ -401,6 +410,10 @@ class CanonicalWorkerAdapter:
             self.spec,
             artifact_store=ArtifactStore(project_root, state.goal_id),
         )
+        # P3-A: evidence from another bot can never finalize this GoalRun.
+        # Unattributed evidence is claimed by this GoalRun (re-hashed);
+        # foreign-attributed evidence is refused fail-closed.
+        bundle = bundle.scoped_to(state.bot_id)
         for task in state.tasks.values():
             for index, evidence in enumerate(task.evidence):
                 bundle = bundle.add_evidence(
@@ -428,6 +441,7 @@ class CanonicalWorkerAdapter:
             **(state.runtime_checkpoint or {}),
             "canonical_worker": {
                 "goal_run_id": state.goal_id,
+                "bot_id": state.bot_id,
                 "computer_id": self.computer_id,
                 "verification_spec_path": state.budget.get("verification_spec_path"),
                 "context_checkpoint": str(self._checkpoint_path),
@@ -463,6 +477,7 @@ class MasterAgentActionAdapter:
         context_ref: str | None = None,
         approval: dict[str, Any] | None = None,
         executor: Any,
+        bot_id: str | None = None,
     ) -> None:
         self.goal_run_id = goal_run_id
         self.task_id = task_id
@@ -470,6 +485,10 @@ class MasterAgentActionAdapter:
         self.context_ref = context_ref
         self.approval = dict(approval or {})
         self.executor = executor
+        # P3-A: actions built by this adapter carry the owning bot.
+        from server.goal_run.bot_identity import DEFAULT_BOT_ID
+
+        self.bot_id = bot_id if bot_id is not None else DEFAULT_BOT_ID
 
     def request(self, tool: str, arguments: dict[str, Any]) -> CanonicalActionRequest:
         import hashlib
@@ -488,6 +507,7 @@ class MasterAgentActionAdapter:
             context_ref=self.context_ref,
             approval=self.approval,
             idempotency_key=f"{self.goal_run_id}:{action_id}",
+            bot_id=self.bot_id,
         )
 
     async def execute(self, tool: str, arguments: dict[str, Any]) -> CanonicalActionResult:

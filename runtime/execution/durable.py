@@ -22,7 +22,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .schema import POSTGRES_SCHEMA, POSTGRES_UPGRADES, SCHEMA_VERSION, SQLITE_SCHEMA
+from runtime.bot_scope import DEFAULT_BOT_ID
+
+from .schema import (
+    POSTGRES_ADDITIVE_COLUMNS,
+    POSTGRES_SCHEMA,
+    POSTGRES_UPGRADES,
+    SCHEMA_VERSION,
+    SQLITE_SCHEMA,
+)
 
 TERMINAL_WORK_STATES = frozenset({"succeeded", "failed", "cancelled", "quarantined_unknown"})
 TERMINAL_GOAL_STATES = frozenset(
@@ -281,6 +289,10 @@ class DurableExecutionRepository:
                 )
                 for statement in POSTGRES_SCHEMA:
                     await conn.execute(statement)
+                # P3-A additive columns: idempotent, applied on every migrate
+                # (no SCHEMA_VERSION bump) so pre-P3-A databases gain bot_id.
+                for statement in POSTGRES_ADDITIVE_COLUMNS:
+                    await conn.execute(statement)
                 current_version = await conn.fetchval(
                     "SELECT COALESCE(MAX(version),0) FROM execution_schema_meta"
                 )
@@ -327,6 +339,15 @@ class DurableExecutionRepository:
             try:
                 for statement in SQLITE_SCHEMA:
                     conn.execute(statement)
+                # P3-A upgrade: databases created before bot isolation lack
+                # side_effects.bot_id; backfill the column with the default bot.
+                columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(side_effects)").fetchall()
+                }
+                if "bot_id" not in columns:
+                    conn.execute(
+                        "ALTER TABLE side_effects ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'veya-default'"
+                    )
                 conn.execute(
                     "INSERT OR IGNORE INTO execution_schema_meta(version, applied_at) VALUES(?,?)",
                     (SCHEMA_VERSION, time.time()),
@@ -1368,8 +1389,13 @@ class DurableExecutionRepository:
         capability: str = "manual_only",
         probe_policy: str | None = None,
         claim: ClaimEnvelope | None = None,
+        bot_id: str = DEFAULT_BOT_ID,
     ) -> dict[str, Any]:
-        """Record intent before an external call, returning the existing row on retry."""
+        """Record intent before an external call, returning the existing row on retry.
+
+        P3-A: the row records the owning bot. Reusing an operation key owned
+        by another bot is refused (``CROSS_BOT_DENIED``) instead of replayed.
+        """
         if not operation_key or request is None:
             raise DurableExecutionError(
                 "INVALID_SIDE_EFFECT", "operation key and request are required"
@@ -1407,10 +1433,18 @@ class DurableExecutionRepository:
                     raise DurableExecutionError(
                         "IDEMPOTENCY_CONFLICT", "operation key has a different capability policy"
                     )
+                # P3-A: never replay another bot's side effect (fail-closed).
+                # Rows written before bot isolation carry the default bot.
+                owner_bot_id = dict(row).get("bot_id") or "veya-default"
+                if owner_bot_id != bot_id:
+                    raise DurableExecutionError(
+                        "CROSS_BOT_DENIED",
+                        f"operation key is owned by bot {owner_bot_id!r}, not {bot_id!r}",
+                    )
                 return dict(row)
             effect_id = new_id()
             conn.execute(
-                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,bot_id,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     effect_id,
                     goal_run_id,
@@ -1421,6 +1455,7 @@ class DurableExecutionRepository:
                     "declared",
                     request_hash,
                     probe_policy or capability,
+                    bot_id,
                     now,
                     now,
                 ),
@@ -1479,10 +1514,17 @@ class DurableExecutionRepository:
                     raise DurableExecutionError(
                         "IDEMPOTENCY_CONFLICT", "operation key has a different capability policy"
                     )
+                # P3-A: never replay another bot's side effect (fail-closed).
+                owner_bot_id = dict(row).get("bot_id") or "veya-default"
+                if owner_bot_id != bot_id:
+                    raise DurableExecutionError(
+                        "CROSS_BOT_DENIED",
+                        f"operation key is owned by bot {owner_bot_id!r}, not {bot_id!r}",
+                    )
                 return dict(row)
             effect_id = new_id()
             await conn.execute(
-                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,first_seen_at,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,'declared',$7,$8,$9,$9)",
+                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,bot_id,first_seen_at,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,'declared',$7,$8,$9,$10,$10)",
                 effect_id,
                 goal_run_id,
                 work_item_id,
@@ -1491,6 +1533,7 @@ class DurableExecutionRepository:
                 target_ref,
                 request_hash,
                 probe_policy or capability,
+                bot_id,
                 now,
             )
             await self._pg_event(

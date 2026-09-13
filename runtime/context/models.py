@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
+from runtime.bot_scope import DEFAULT_BOT_ID
+
 
 class ContextLayer(Enum):
     """Context layers from most to least volatile."""
@@ -74,13 +76,32 @@ class PreservedItems:
     computer_id: str = ""
     goal_run_id: str = ""
     feature_map_ref: str = ""
+    # P3-A: the bot that owns this context. Cross-bot access is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PreservedItems:
-        return cls(**data)
+        known = {
+            "objective",
+            "verification_spec_ref",
+            "active_plan",
+            "current_step",
+            "unresolved_failures",
+            "important_observations",
+            "artifact_refs",
+            "evidence_refs",
+            "computer_id",
+            "goal_run_id",
+            "feature_map_ref",
+            "bot_id",
+        }
+        return cls(
+            **{key: value for key, value in data.items() if key in known and key != "bot_id"},
+            bot_id=str(data.get("bot_id") or DEFAULT_BOT_ID),
+        )
 
     def is_empty(self) -> bool:
         return not any(
@@ -144,11 +165,14 @@ class ContextState:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     version: str = "1.0"
+    # P3-A: the bot that owns this context. Cross-bot access is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "goal_run_id": self.goal_run_id,
             "computer_id": self.computer_id,
+            "bot_id": self.bot_id,
             "layers": {k.value: v.to_dict() for k, v in self.layers.items()},
             "preserved": self.preserved.to_dict(),
             "compaction_history": [c.to_dict() for c in self.compaction_history],
@@ -179,6 +203,9 @@ class ContextState:
             created_at=data.get("created_at", datetime.now(UTC).isoformat()),
             updated_at=data.get("updated_at", datetime.now(UTC).isoformat()),
             version=data.get("version", "1.0"),
+            bot_id=str(
+                data.get("bot_id") or (preserved.bot_id if preserved else "") or DEFAULT_BOT_ID
+            ),
         )
 
     def get_layer(self, layer: ContextLayer) -> LayerContent:
