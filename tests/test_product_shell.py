@@ -211,17 +211,17 @@ async def test_product_task_entry_creates_canonical_task_and_delegates_to_master
 
 
 @pytest.mark.asyncio
-async def test_product_task_runner_passes_existing_task_identity_to_master(monkeypatch):
-    from server.coordinator_master import master_coordinator
+async def test_product_task_runner_binds_existing_goalrun_semantic_loop(monkeypatch, tmp_path):
     from server.routes import product as product_routes
+    from server.goal_run.models import GoalRunResponse, GoalStatus
 
     calls: list[dict[str, Any]] = []
 
-    async def fake_chat_stream(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    async def fake_project_run_goal(*args: Any, **kwargs: Any) -> GoalRunResponse:
         calls.append({"args": args, "kwargs": kwargs})
-        return {"final_answer": "ok", "error": None}
+        return GoalRunResponse(goal_id="goal-product-1", status=GoalStatus.completed, phase="finalized")
 
-    monkeypatch.setattr(master_coordinator, "chat_stream", fake_chat_stream)
+    monkeypatch.setattr("server.goal_run.runner.project_run_goal", fake_project_run_goal)
     await product_routes._run_product_task(
         task_id="task-product-1",
         session_id="session-product-1",
@@ -230,17 +230,16 @@ async def test_product_task_runner_passes_existing_task_identity_to_master(monke
         model="fixture-model",
         config={},
         user={"user_id": "product-test"},
+        project_root=str(tmp_path),
     )
 
-    assert calls[0]["args"] == ("safe task",)
-    assert calls[0]["kwargs"] == {
-        "session_id": "session-product-1",
-        "task_id": "task-product-1",
-        "config": None,
-        "provider": "ollama",
-        "model": "fixture-model",
-        "require_approval": True,
-    }
+    assert calls[0]["args"] == ()
+    kwargs = calls[0]["kwargs"]
+    assert kwargs["goal"] == "safe task"
+    assert kwargs["project_root"] == str(tmp_path)
+    assert kwargs["integration_adapter"].semantic_agent is not None
+    assert kwargs["integration_adapter"].semantic_session_id == "session-product-1"
+    assert kwargs["semantic_llm_kwargs"] == {"provider": "ollama", "model": "fixture-model"}
 
 
 def test_goal_run_events_keep_product_task_context(monkeypatch, tmp_path):

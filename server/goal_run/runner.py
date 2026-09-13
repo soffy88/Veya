@@ -431,7 +431,12 @@ def _record_performance_sample(task: Any, *, success: bool) -> None:
         )
 
 
-async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRunResponse | None:
+async def _process_one_task(
+    task: Any,
+    state: Any,
+    project_root: str,
+    integration_adapter: Any | None = None,
+) -> GoalRunResponse | None:
     """单个任务的执行→验收→重试/完成/双轴审查全流程。抽成独立协程是为了让
     [P] 批次能用 asyncio.gather 并发跑(见 memory project_veya_pi_gap_audit
     smart-ralph 内化)——不是把这段逻辑重写了一遍, 只是从内联 for 循环体挪出来。
@@ -445,13 +450,26 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
 
     before_ref = current_head(project_root)
     try:
-        leaf_result = await execute_leaf_with_memory(
-            project_root=project_root,
-            instruction=task.instruction,
-            acceptance=task.acceptance,
-            assignee=task.assignee,
-            constitution_text=state.constitution,
-        )
+        if integration_adapter is not None and hasattr(
+            integration_adapter, "execute_semantic_task"
+        ):
+            leaf_result = await integration_adapter.execute_semantic_task(state, task)
+            if leaf_result is None:
+                leaf_result = await execute_leaf_with_memory(
+                    project_root=project_root,
+                    instruction=task.instruction,
+                    acceptance=task.acceptance,
+                    assignee=task.assignee,
+                    constitution_text=state.constitution,
+                )
+        else:
+            leaf_result = await execute_leaf_with_memory(
+                project_root=project_root,
+                instruction=task.instruction,
+                acceptance=task.acceptance,
+                assignee=task.assignee,
+                constitution_text=state.constitution,
+            )
     except asyncio.CancelledError:
         task.status = TaskStatus.cancelled
         task.stop_reason = "cancelled"
@@ -827,6 +845,11 @@ async def project_run_goal(
     provider_router: Any | None = None,
     provider_request: Any | None = None,
     provider_candidates: list[str] | None = None,
+    semantic_agent: Any | None = None,
+    semantic_session_id: str | None = None,
+    semantic_llm_kwargs: dict[str, Any] | None = None,
+    gateway_executor: Any | None = None,
+    verification_required: bool = False,
 ) -> GoalRunResponse:
     """project_run_goal 主入口（M4 规格）。
 
@@ -872,6 +895,11 @@ async def project_run_goal(
             provider_router=provider_router,
             provider_request=provider_request,
             provider_candidates=provider_candidates,
+            semantic_agent=semantic_agent,
+            semantic_session_id=semantic_session_id,
+            semantic_llm_kwargs=semantic_llm_kwargs,
+            gateway_executor=gateway_executor,
+            verification_required=verification_required,
         )
 
     start_ts = time.time()
@@ -1311,7 +1339,12 @@ async def _run_loop_and_finalize(
                         if integration_adapter is not None:
                             await integration_adapter.before_iteration(state, project_root, current_task)
                         if durable_repository is None or durable_worker_id is None:
-                            return await _process_one_task(current_task, state, project_root)
+                            return await _process_one_task(
+                                current_task,
+                                state,
+                                project_root,
+                                integration_adapter=integration_adapter,
+                            )
                         claim = await durable_repository.claim_next(
                             durable_worker_id,
                             capabilities={"*"},
@@ -1326,7 +1359,12 @@ async def _run_loop_and_finalize(
                             )
                         await durable_repository.start(claim)
                         try:
-                            response = await _process_one_task(current_task, state, project_root)
+                            response = await _process_one_task(
+                                current_task,
+                                state,
+                                project_root,
+                                integration_adapter=integration_adapter,
+                            )
                             if current_task.status == TaskStatus.completed:
                                 await durable_repository.complete(
                                     claim,

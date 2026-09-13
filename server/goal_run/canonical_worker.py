@@ -43,6 +43,10 @@ class CanonicalWorkerAdapter:
         verification_required: bool = False,
         approval_resolver: Any | None = None,
         policy_hook: Any | None = None,
+        semantic_agent: Any | None = None,
+        semantic_session_id: str | None = None,
+        semantic_llm_kwargs: dict[str, Any] | None = None,
+        gateway_executor: Any | None = None,
     ) -> None:
         self.task_id = task_id
         self.objective = objective
@@ -67,6 +71,10 @@ class CanonicalWorkerAdapter:
         self.verdict: Any | None = None
         self.approval_resolver = approval_resolver
         self.policy_hook = policy_hook
+        self.semantic_agent = semantic_agent
+        self.semantic_session_id = semantic_session_id
+        self.semantic_llm_kwargs = dict(semantic_llm_kwargs or {})
+        self.gateway_executor = gateway_executor
         self.execution_repository: DurableExecutionRepository | None = None
         self.action_gateway: ActionGatewayAdapter | None = None
 
@@ -358,6 +366,67 @@ class CanonicalWorkerAdapter:
         if self.knowledge_plan is not None:
             self.knowledge_runtime = KnowledgeRuntime(self.knowledge_plan)
         self.checkpoint(state, project_root, reason="before_first_action")
+
+    async def execute_semantic_task(self, state: Any, task: Any) -> Any:
+        """Execute one MasterAgent semantic step through this GoalRun.
+
+        This is an adapter over the existing worker path: the model chooses a
+        tool, while ``execute_canonical_action`` remains the only physical
+        boundary.  No loop or acceptance decision is introduced here.
+        """
+        if self.semantic_agent is None or self.gateway_executor is None:
+            return None
+        from server.goal_run.leaf import LeafResult
+
+        session_id = self.semantic_session_id or state.goal_id
+        decision = await self.semantic_agent.semantic_step(
+            task.instruction,
+            session_id=session_id,
+            llm_kwargs=self.semantic_llm_kwargs or None,
+        )
+        if decision.get("kind") != "action" or not decision.get("tool"):
+            return LeafResult(
+                status="blocked",
+                summary=str(decision.get("content") or "MasterAgent returned no action"),
+                block_reason="semantic_step did not return an executable action",
+                stop_reason="exception",
+                unfinished_work=[task.instruction],
+            )
+        request_adapter = MasterAgentActionAdapter(
+            goal_run_id=state.goal_id,
+            task_id=task.id,
+            computer_ref=self.computer_id,
+            context_ref=str(self._checkpoint_path) if self._checkpoint_path else None,
+            executor=lambda request: self.execute_canonical_action(
+                state, request, gateway_executor=self.gateway_executor
+            ),
+            bot_id=state.bot_id,
+        )
+        request = request_adapter.request(
+            str(decision["tool"]), dict(decision.get("arguments") or {})
+        )
+        result = await self.execute_canonical_action(
+            state, request, gateway_executor=self.gateway_executor
+        )
+        await self.semantic_agent.observe_action_result(
+            result.to_dict(), session_id=session_id
+        )
+        if result.status != "completed" or not result.executed:
+            failure = result.failure_evidence[0] if result.failure_evidence else {}
+            return LeafResult(
+                status="blocked",
+                summary="",
+                block_reason=str(failure.get("error") or result.status),
+                evidence=[dict(item) for item in result.failure_evidence],
+                stop_reason="exception",
+                unfinished_work=[task.instruction],
+            )
+        return LeafResult(
+            status="completed",
+            summary=str(result.result or "canonical action completed"),
+            evidence=[{"action_id": result.action_id, "result": result.result}],
+            stop_reason="completed",
+        )
 
     async def before_iteration(self, state: Any, project_root: str, task: Any) -> None:
         if self.spec is not None and not self.spec.verify_immutable():
