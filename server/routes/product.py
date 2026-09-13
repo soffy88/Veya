@@ -87,6 +87,7 @@ async def _run_product_task(
         adapter = CanonicalWorkerAdapter(
             task_id=task_id,
             objective=objective,
+            feature_name="product_canonical",
             verification_required=True,
             semantic_agent=master_coordinator._agent,
             semantic_session_id=session_id,

@@ -7,6 +7,7 @@ existing P1 components to one GoalRun.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -424,7 +425,17 @@ class CanonicalWorkerAdapter:
         return LeafResult(
             status="completed",
             summary=str(result.result or "canonical action completed"),
-            evidence=[{"action_id": result.action_id, "result": result.result}],
+            evidence=[
+                {
+                    "id": f"action-{result.action_id}",
+                    "kind": "observation",
+                    "source": "goal_run.canonical_action",
+                    "content": json.dumps(
+                        result.to_dict(), ensure_ascii=False, default=str
+                    ),
+                    "producer": "goal_run",
+                }
+            ],
             stop_reason="completed",
         )
 
@@ -479,6 +490,26 @@ class CanonicalWorkerAdapter:
             self.spec,
             artifact_store=ArtifactStore(project_root, state.goal_id),
         )
+        action_record = (state.budget or {}).get("last_canonical_action")
+        if isinstance(action_record, dict):
+            action_request = action_record.get("request") or {}
+            action_result = action_record.get("result") or {}
+            if action_result.get("status") == "completed" and action_result.get("executed"):
+                bundle = bundle.add_evidence(
+                    EvidenceItem(
+                        id="canonical-action-observed",
+                        kind="observation",
+                        source="goal_run.canonical_action",
+                        content=json.dumps(action_result, ensure_ascii=False, default=str),
+                        producer="goal_run",
+                        metadata={
+                            "criterion_id": "ac-canonical_action_observed",
+                            "action_id": action_request.get("action_id"),
+                            "goal_run_id": state.goal_id,
+                            "bot_id": state.bot_id,
+                        },
+                    )
+                )
         # P3-A: evidence from another bot can never finalize this GoalRun.
         # Unattributed evidence is claimed by this GoalRun (re-hashed);
         # foreign-attributed evidence is refused fail-closed.

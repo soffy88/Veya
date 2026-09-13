@@ -82,6 +82,33 @@ class VerificationEngine:
             project_root=str(self.project_root),
             features=[
                 FeatureMapEntry(
+                    feature="product_canonical",
+                    entry_points=[
+                        FeatureEntryPoint(
+                            id="product_task",
+                            type="api",
+                            path="server/routes/product.py",
+                            description="Execute one product task through GoalRun",
+                        ),
+                    ],
+                    preconditions=["GoalRun and canonical action protocol are available"],
+                    actions=[
+                        FeatureAction(
+                            id="canonical_action",
+                            name="Execute a canonical action",
+                            description="MasterAgent selects an action executed by GoalRun",
+                        ),
+                    ],
+                    success_evidence=[
+                        FeatureSuccessEvidence(
+                            id="canonical_action_observed",
+                            kind="assertion",
+                            description="A GoalRun-owned canonical action result is observed",
+                            validation="action result is bound to the GoalRun",
+                        ),
+                    ],
+                ),
+                FeatureMapEntry(
                     feature="veya_cli",
                     entry_points=[
                         FeatureEntryPoint(
