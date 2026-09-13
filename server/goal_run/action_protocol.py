@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from runtime.bot_scope import DEFAULT_BOT_ID
+
 
 @dataclass(frozen=True)
 class CanonicalActionRequest:
@@ -27,6 +29,8 @@ class CanonicalActionRequest:
     approval: dict[str, Any] = field(default_factory=dict)
     idempotency_key: str = ""
     evidence_refs: tuple[str, ...] = ()
+    # P3-A: the bot that owns this action. Must match the executing GoalRun.
+    bot_id: str = DEFAULT_BOT_ID
 
     def __post_init__(self) -> None:
         if not self.action_id or not self.goal_run_id or not self.task_id or not self.tool:
@@ -37,6 +41,7 @@ class CanonicalActionRequest:
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
         value["evidence_refs"] = list(self.evidence_refs)
+        value["bot_id"] = self.bot_id
         return value
 
     @classmethod
@@ -53,6 +58,7 @@ class CanonicalActionRequest:
             approval=dict(value.get("approval") or {}),
             idempotency_key=str(value.get("idempotency_key") or ""),
             evidence_refs=tuple(str(item) for item in value.get("evidence_refs") or ()),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
         )
 
 

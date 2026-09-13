@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
+from runtime.bot_scope import DEFAULT_BOT_ID
+
 ComputerLifecycleState = Literal[
     "created",
     "running",
@@ -70,13 +72,25 @@ class CheckpointRef:
     size_bytes: int
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     metadata: dict[str, Any] = field(default_factory=dict)
+    # P3-A: the bot that owns this checkpoint. Cross-bot access is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CheckpointRef:
-        return cls(**data)
+        return cls(
+            checkpoint_id=data["checkpoint_id"],
+            computer_id=data["computer_id"],
+            goal_run_id=data.get("goal_run_id"),
+            path=data["path"],
+            sha256=data["sha256"],
+            size_bytes=data["size_bytes"],
+            created_at=data.get("created_at", datetime.now(UTC).isoformat()),
+            metadata=data.get("metadata", {}),
+            bot_id=str(data.get("bot_id") or DEFAULT_BOT_ID),
+        )
 
 
 @dataclass(frozen=True)
@@ -109,6 +123,8 @@ class PersistentComputer:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_active_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     version: str = "1.0"
+    # P3-A: the bot that owns this computer. Cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -124,6 +140,7 @@ class PersistentComputer:
             "created_at": self.created_at,
             "last_active_at": self.last_active_at,
             "version": self.version,
+            "bot_id": self.bot_id,
         }
 
     @classmethod
@@ -141,6 +158,7 @@ class PersistentComputer:
             created_at=data.get("created_at", datetime.now(UTC).isoformat()),
             last_active_at=data.get("last_active_at", datetime.now(UTC).isoformat()),
             version=data.get("version", "1.0"),
+            bot_id=str(data.get("bot_id") or DEFAULT_BOT_ID),
         )
 
     def compute_hash(self) -> str:
@@ -170,6 +188,7 @@ class PersistentComputer:
                 created_at=self.created_at,
                 last_active_at=datetime.now(UTC).isoformat(),
                 version=self.version,
+                bot_id=self.bot_id,
             )
         return self
 
@@ -189,6 +208,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def with_checkpoint(self, checkpoint: CheckpointRef) -> PersistentComputer:
@@ -206,6 +226,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def with_state(self, state: ComputerLifecycleState) -> PersistentComputer:
@@ -223,6 +244,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def with_browser_profile(self, browser_profile_ref: str) -> PersistentComputer:
@@ -240,6 +262,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def with_downloads(self, downloads_ref: str) -> PersistentComputer:
@@ -257,6 +280,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def add_credential(self, credential: CredentialRef) -> PersistentComputer:
@@ -276,6 +300,7 @@ class PersistentComputer:
                 created_at=self.created_at,
                 last_active_at=datetime.now(UTC).isoformat(),
                 version=self.version,
+                bot_id=self.bot_id,
             )
         return self
 
@@ -295,6 +320,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
 

@@ -7,6 +7,8 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from runtime.bot_scope import DEFAULT_BOT_ID, require_same_bot
+
 from .adapters import delegate_result_from_mapping
 from .models import (
     PARALLEL_EXECUTION_AUTHORITY_COUNT,
@@ -48,11 +50,14 @@ class DelegateRuntime:
         on_event: Callable[[dict[str, Any]], Any] | None = None,
         goal_run_id: str | None = None,
         on_delegate_state: Callable[[dict[str, Any]], Any] | None = None,
+        bot_id: str | None = None,
     ):
         self.guard = guard
         self.on_event = on_event
         self.goal_run_id = goal_run_id
         self.on_delegate_state = on_delegate_state
+        # P3-A: when set, only delegates owned by this bot may run here.
+        self.bot_id = bot_id if bot_id is not None else DEFAULT_BOT_ID
         self._completed: dict[str, DelegateResult] = {}
         self._attempts: dict[str, int] = {}
 
@@ -96,6 +101,8 @@ class DelegateRuntime:
                 "delegate belongs to a different GoalRun: "
                 f"{request.parent_trace_id!r} != {effective_goal_run_id!r}"
             )
+        # P3-A: SAME Bot — a delegate owned by another bot never runs here.
+        require_same_bot(request.bot_id, self.bot_id, f"delegate:{request.delegate_id}")
         # Duplicate execution guard: a completed delegate is never re-run.
         stored = self._completed.get(request.delegate_id)
         if stored is not None and stored.status == "complete":
@@ -125,6 +132,7 @@ class DelegateRuntime:
                 {
                     "delegate_id": request.delegate_id,
                     "parent_goal_run_id": effective_goal_run_id or request.parent_trace_id,
+                    "bot_id": self.bot_id,
                     "status": result.status,
                     "request_ref": request.delegate_id,
                     "result_ref": request.delegate_id,
@@ -142,6 +150,7 @@ class DelegateRuntime:
             {
                 "delegate_id": request.delegate_id,
                 "parent_goal_run_id": effective_goal_run_id or request.parent_trace_id,
+                "bot_id": self.bot_id,
                 "status": "running",
                 "request_ref": request.delegate_id,
                 "result_ref": None,
@@ -216,6 +225,7 @@ class DelegateRuntime:
             {
                 "delegate_id": request.delegate_id,
                 "parent_goal_run_id": effective_goal_run_id or request.parent_trace_id,
+                "bot_id": self.bot_id,
                 "status": result.status,
                 "request_ref": request.delegate_id,
                 "result_ref": request.delegate_id,

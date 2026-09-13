@@ -15,6 +15,8 @@ from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Any
 
+from server.goal_run.bot_identity import DEFAULT_BOT_ID
+
 
 class GoalStatus(Enum):
     planning = "planning"
@@ -114,6 +116,8 @@ class DelegateState:
     attempt: int = 0
     replan: bool = False
     stopped_at: float | None = None
+    # P3-A: the bot that owns this delegate. Cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -130,6 +134,7 @@ class DelegateState:
             attempt=int(value.get("attempt") or 0),
             replan=bool(value.get("replan", False)),
             stopped_at=value.get("stopped_at"),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
         )
 
 
@@ -149,6 +154,8 @@ class FanInState:
     blocked_delegate_ids: list[str] = field(default_factory=list)
     reconciled_result_ref: str | None = None
     completed_at: float | None = None
+    # P3-A: the bot that owns this fan-in. Cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -164,6 +171,7 @@ class FanInState:
             blocked_delegate_ids=list(value.get("blocked_delegate_ids") or []),
             reconciled_result_ref=value.get("reconciled_result_ref"),
             completed_at=value.get("completed_at"),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
         )
 
 
@@ -181,6 +189,8 @@ class PlaybookState:
     step_result_refs: dict[str, str] = field(default_factory=dict)
     evidence_refs: list[str] = field(default_factory=list)
     version: int = 1  # P2-B: pinned registry version, restored on resume.
+    # P3-A: the bot that owns this playbook run. Cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -194,6 +204,7 @@ class PlaybookState:
             step_result_refs=dict(value.get("step_result_refs") or {}),
             evidence_refs=list(value.get("evidence_refs") or []),
             version=int(value.get("version") or 1),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
         )
 
 
@@ -215,6 +226,8 @@ class RoutineState:
     # identity never starts again — restart-safe without a second scheduler.
     version: int = 1
     consumed_trigger_ids: list[str] = field(default_factory=list)
+    # P3-A: the bot that owns this routine trigger. Cross-bot dispatch is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -229,6 +242,7 @@ class RoutineState:
             canonical_goal_run_id=value.get("canonical_goal_run_id"),
             version=int(value.get("version") or 1),
             consumed_trigger_ids=list(value.get("consumed_trigger_ids") or []),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
         )
 
 
@@ -261,6 +275,8 @@ class RoutineSpec:
     target_playbook_id: str | None = None
     goal_template: str = ""
     evidence_requirements: list[str] = field(default_factory=list)
+    # P3-A: the bot that owns this routine. Only that bot's GoalRun may dispatch it.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -280,6 +296,7 @@ class RoutineSpec:
             target_playbook_id=value.get("target_playbook_id"),
             goal_template=str(value.get("goal_template") or ""),
             evidence_requirements=list(value.get("evidence_requirements") or []),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
         )
 
 
@@ -323,6 +340,9 @@ class GoalRunState:
     goal_id: str
     goal_text: str  # 原始用户目标文本
     constitution: str = ""
+    # P3-A: the persistent bot that owns this GoalRun. Every durable object
+    # derived from this run inherits it; cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
     status: GoalStatus = GoalStatus.planning
     default_assignee: str = "hicode"
     budget: dict[str, int] = field(
@@ -404,6 +424,7 @@ class GoalRunState:
         return {
             "version": 2,
             "goal_id": self.goal_id,
+            "bot_id": self.bot_id,
             "status": self.status.value,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
@@ -443,6 +464,7 @@ class GoalRunState:
     def from_taskgraph_json(cls, data: dict[str, Any], goal_text: str) -> GoalRunState:
         """从 taskgraph.json 反序列化（用于 resume）。"""
         state = cls(goal_id=data.get("goal_id", ""), goal_text=goal_text)
+        state.bot_id = str(data.get("bot_id") or DEFAULT_BOT_ID)
         state.status = GoalStatus(data.get("status", "planning"))
         state.default_assignee = data.get("default_assignee", "hicode")
         state.budget = data.get("budget", state.budget)

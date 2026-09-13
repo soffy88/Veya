@@ -17,6 +17,7 @@ from runtime.execution.models import (
     ROUTINE_EXECUTION_AUTHORITY,
     assert_routine_execution_authority_zero,
 )
+from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import (
     ROUTINE_MAX_STARTED,
     ROUTINE_TRIGGER_TOPICS,
@@ -64,6 +65,8 @@ def dispatch_trigger(
     for spec in specs:
         if not spec.enabled or spec.trigger_topic != topic:
             continue
+        # P3-A: another bot's routine never dispatches into this GoalRun.
+        require_same_bot(state.bot_id, spec.bot_id, f"routine:{spec.routine_id}")
         entry = state.routine_states.get(spec.routine_id)
         if entry is not None and entry.canonical_goal_run_id not in (None, state.goal_id):
             raise ValueError(
@@ -79,6 +82,7 @@ def dispatch_trigger(
                 routine_id=spec.routine_id,
                 canonical_goal_run_id=state.goal_id,
                 version=spec.version,
+                bot_id=state.bot_id,
             )
             state.routine_states[spec.routine_id] = entry
         entry.version = spec.version

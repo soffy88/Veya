@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 
+from server.goal_run.bot_identity import DEFAULT_BOT_ID, require_same_bot
 from server.goal_run.models import ROUTINE_TRIGGER_TOPICS, RoutineSpec
 
 
@@ -46,9 +47,14 @@ def validate_routine_spec(spec: RoutineSpec) -> list[str]:
 
 
 class RoutineRegistry:
-    """In-memory routine catalog with optional JSON file persistence."""
+    """In-memory routine catalog with optional JSON file persistence.
 
-    def __init__(self, storage_path: str | Path | None = None):
+    P3-A: a registry may be scoped to one bot (``bot_id``). A scoped
+    registry only holds that bot's routines and only serves that bot's
+    lookups; an unscoped registry keeps the pre-P3-A shared behavior.
+    """
+
+    def __init__(self, storage_path: str | Path | None = None, bot_id: str | None = None):
         self.storage_path = (
             Path(storage_path)
             if storage_path is not None
@@ -59,6 +65,7 @@ class RoutineRegistry:
                 )
             ).expanduser()
         )
+        self.bot_id = bot_id if bot_id is not None else DEFAULT_BOT_ID
         self._items: dict[str, RoutineSpec] = {}
         self._load()
 
@@ -92,6 +99,8 @@ class RoutineRegistry:
         errors = validate_routine_spec(spec)
         if errors:
             raise ValueError(f"invalid routine {spec.routine_id!r}: " + "; ".join(errors))
+        # P3-A: a routine owned by another bot never enters this bot's catalog.
+        require_same_bot(spec.bot_id, self.bot_id, f"routine:{spec.routine_id}")
         self._items[spec.routine_id] = spec
         self._save()
 
@@ -117,12 +126,18 @@ class RoutineRegistry:
         self._save()
         return True
 
-    def lookup(self, trigger_topic: str) -> list[RoutineSpec]:
-        """Enabled routines for one trigger topic (structural match only)."""
+    def lookup(self, trigger_topic: str, *, bot_id: str | None = None) -> list[RoutineSpec]:
+        """Enabled routines for one trigger topic (structural match only).
+
+        P3-A: only this registry bot's routines are served; an explicit
+        ``bot_id`` that is not this bot is refused fail-closed.
+        """
+        if bot_id is not None:
+            require_same_bot(bot_id, self.bot_id, "routine-registry")
         return [
             spec
             for spec in self._items.values()
-            if spec.enabled and spec.trigger_topic == trigger_topic
+            if spec.enabled and spec.trigger_topic == trigger_topic and spec.bot_id == self.bot_id
         ]
 
 

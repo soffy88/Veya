@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import GoalRunState
 
 # ── 目录与文件名常量 ────────────────────────────────────────────────────
@@ -74,8 +75,14 @@ def save_goal_run(state: GoalRunState, project_root: str) -> None:
     # 调用方应在状态变更后调用 append_event，这里不再写入事件
 
 
-def load_goal_run(project_root: str, goal_id: str) -> GoalRunState | None:
-    """加载 goal_run 状态（从 taskgraph.json 反序列化）。"""
+def load_goal_run(
+    project_root: str, goal_id: str, *, bot_id: str | None = None
+) -> GoalRunState | None:
+    """加载 goal_run 状态（从 taskgraph.json 反序列化）。
+
+    P3-A: when ``bot_id`` is given, a GoalRun owned by another bot is
+    refused fail-closed instead of returned.
+    """
     run_dir = Path(project_root) / _GOAL_RUNS_DIR / goal_id
     taskgraph_path = run_dir / _TASKGRAPH_JSON
 
@@ -99,6 +106,8 @@ def load_goal_run(project_root: str, goal_id: str) -> GoalRunState | None:
                 break
 
     state = GoalRunState.from_taskgraph_json(data, goal_text)
+    if bot_id is not None:
+        require_same_bot(bot_id, state.bot_id, f"goal-run:{goal_id}")
     return state
 
 

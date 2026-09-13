@@ -12,6 +12,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from runtime.bot_scope import DEFAULT_BOT_ID
+
 DelegateStatus = Literal["complete", "partial", "failed", "paused", "cancelled"]
 StopReason = Literal[
     "completed",
@@ -217,6 +219,8 @@ class DelegateRequest:
     workspace: str = ""
     output_paths: list[str] = field(default_factory=list)
     deadline: datetime | None = None
+    # P3-A: the bot that owns this delegate. Must match the runtime's bot.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)

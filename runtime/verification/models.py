@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from runtime.bot_scope import DEFAULT_BOT_ID, require_same_bot
+
 VerificationStatus = Literal["pending", "running", "passed", "failed", "blocked"]
 VerdictOutcome = Literal["PASS", "FAIL", "BLOCKED"]
 HarnessOperation = Literal["doctor", "launch", "drive", "snapshot", "trace", "cleanup"]
@@ -530,6 +532,7 @@ class EvidenceBundle:
     - goal_run_id
     - HEAD SHA
     - verification_spec version
+    - bot_id (P3-A: cross-bot evidence is refused at finalize)
     """
     version: str = "1.0"
     bundle_id: str = ""
@@ -541,6 +544,7 @@ class EvidenceBundle:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     evidence: list[EvidenceItem] = field(default_factory=list)
     bundle_hash: str = ""
+    bot_id: str = DEFAULT_BOT_ID
 
     def __post_init__(self):
         if not self.bundle_id:
@@ -565,6 +569,7 @@ class EvidenceBundle:
             verification_spec_hash=self.verification_spec_hash,
             created_at=self.created_at,
             evidence=new_evidence,
+            bot_id=self.bot_id,
         )
 
     def get_evidence_by_kind(self, kind: str) -> list[EvidenceItem]:
@@ -590,6 +595,36 @@ class EvidenceBundle:
             self.goal_run_id == goal_run_id and
             self.head_sha == head_sha and
             self.verification_spec_hash == spec_hash
+        )
+
+    def is_bound_to_bot(self, bot_id: str) -> bool:
+        """Check if bundle is bound to the given bot (P3-A)."""
+        return self.bot_id == bot_id
+
+    def scoped_to(self, bot_id: str) -> EvidenceBundle:
+        """Return this bundle attributed to ``bot_id`` (P3-A).
+
+        A bundle that already declares another bot's ownership is refused
+        fail-closed. A bundle with undeclared ownership (the default bot)
+        is claimed by the collecting GoalRun, which re-hashes it so
+        integrity verification covers the attribution.
+        """
+        if self.bot_id != DEFAULT_BOT_ID:
+            require_same_bot(bot_id, self.bot_id, f"evidence-bundle:{self.bundle_id}")
+            return self
+        if bot_id == DEFAULT_BOT_ID:
+            return self
+        return EvidenceBundle(
+            version=self.version,
+            bundle_id=self.bundle_id,
+            task_id=self.task_id,
+            goal_run_id=self.goal_run_id,
+            head_sha=self.head_sha,
+            verification_spec_version=self.verification_spec_version,
+            verification_spec_hash=self.verification_spec_hash,
+            created_at=self.created_at,
+            evidence=list(self.evidence),
+            bot_id=bot_id,
         )
 
 
