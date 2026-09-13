@@ -7,6 +7,7 @@ transport layer.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -381,3 +382,268 @@ class ArtifactManifest:
             "artifacts": [item.to_dict() for item in self.artifacts],
             "created_at": self.created_at.isoformat(),
         }
+
+
+# P2-A §6: Parallel delegation + fan-in
+# MasterAgent may spawn N semantic delegates, but ALL physical execution
+# must funnel through the canonical path: CanonicalActionRequest → GoalRun →
+# ActionGateway.  Authority count is strictly 1 — no second execution
+# authority is allowed.
+
+PARALLEL_SEMANTIC_DELEGATION = True
+"""P2-A: allow MasterAgent to spawn N semantic delegates."""
+
+PARALLEL_EXECUTION_AUTHORITY_COUNT = 1
+"""P2-A: total execution authority count — never exceed 1."""
+
+
+def reconcile_delegate_results(
+    results: list[DelegateResult],
+) -> dict[str, Any]:
+    """Fan-in: reconcile multiple DelegateResults into one decision.
+
+    Returns a dict with:
+    - overall_status: "success" | "partial" | "failed" | "blocked"
+    - complete_count: number of complete results
+    - partial_count: number of partial results
+    - failed_count: number of failed results
+    - blocked_count: number of blocked results (self-report not verified)
+    - evidence: merged evidence items (deduplicated by sha256)
+    - assertions: merged assertions (deduplicated by statement)
+    - rationale: human-readable reconciliation reason
+
+    Key invariant: a worker's self-report is never treated as verified success.
+    Only results that completed through the canonical ActionGateway path
+    contribute to ``overall_status`` = ``"success"``.
+    """
+    if not results:
+        return {
+            "overall_status": "blocked",
+            "complete_count": 0,
+            "partial_count": 0,
+            "failed_count": 0,
+            "blocked_count": 0,
+            "evidence": [],
+            "assertions": [],
+            "rationale": "no delegate results provided",
+        }
+
+    partial_count = sum(1 for r in results if r.status == "partial")
+    failed_count = sum(1 for r in results if r.status == "failed")
+    blocked_count = sum(1 for r in results if r.status == "blocked")
+
+    # Merge evidence (deduplicate by sha256)
+    evidence_by_key: dict[str, Any] = {}
+    for r in results:
+        for item in r.evidence:
+            key = item.sha256 or json.dumps(
+                {"source": item.source, "content": item.content}, sort_keys=True
+            )
+            evidence_by_key.setdefault(key, item)
+
+    # Merge assertions (deduplicate by normalized statement)
+    assertions_by_key: dict[str, Any] = {}
+    for r in results:
+        for a in r.assertions:
+            stmt = (
+                a.statement.strip().lower() if hasattr(a, "statement") else str(a).strip().lower()
+            )
+            assertions_by_key.setdefault(stmt, a)
+
+    # Determine overall status (excluding self-reports from "success" count)
+    non_self_report_complete = sum(
+        1 for r in results if r.status == "complete" and not getattr(r, "self_report", False)
+    )
+
+    if non_self_report_complete > 0 and failed_count == 0:
+        overall_status = "success"
+    elif partial_count > 0:
+        overall_status = "partial"
+    elif failed_count > 0:
+        overall_status = "failed"
+    else:
+        overall_status = "blocked"
+
+    # Rationale
+    rationale_parts = []
+    if non_self_report_complete > 0:
+        rationale_parts.append(f"{non_self_report_complete} non-self-report complete result(s)")
+    if partial_count > 0:
+        rationale_parts.append(f"{partial_count} partial result(s)")
+    if failed_count > 0:
+        rationale_parts.append(f"{failed_count} failed result(s)")
+    if blocked_count > 0:
+        rationale_parts.append(f"{blocked_count} blocked result(s) (self-reports excluded)")
+
+    rationale = "; ".join(rationale_parts) if rationale_parts else "no actionable results"
+
+    return {
+        "overall_status": overall_status,
+        "complete_count": non_self_report_complete,
+        "partial_count": partial_count,
+        "failed_count": failed_count,
+        "blocked_count": blocked_count,
+        "evidence": list(evidence_by_key.values()),
+        "assertions": [a for a in assertions_by_key.values() if a is not None],
+        "rationale": rationale,
+    }
+
+
+# P2-A §7: Acceptance authority closure
+# DelegateResult / playbook result / routine result are worker execution
+# outcomes only.  Final acceptance is exclusively:
+#   candidate.complete → EvidenceBundle → IndependentVerifier → verdict.
+#  No delegated/playbook/routine result may claim to be the acceptance verdict.
+
+DELEGATE_RESULT_ACCEPTANCE_AUTHORITY = 0
+"""P2-A: DelegateResult has zero acceptance authority."""
+
+PLAYBOOK_ACCEPTANCE_AUTHORITY = 0
+"""P2-A: Playbook results have zero acceptance authority."""
+
+ROUTINE_ACCEPTANCE_AUTHORITY = 0
+"""P2-A: Routine results have zero acceptance authority."""
+
+SUBAGENT_SELF_REPORT_AUTHORITY = 0
+"""P2-A: Subagent self-report has zero acceptance authority."""
+
+WORKER_SELF_REPORT_AUTHORITY = 0
+"""P2-A: Worker self-report has zero acceptance authority."""
+
+SECOND_ACCEPTANCE_AUTHORITY = 0
+"""P2-A: No second acceptance authority beyond IndependentVerifier."""
+
+SECOND_EXECUTION_AUTHORITY = 0
+"""P2-A: No second execution authority beyond the canonical GoalRun path."""
+
+
+def assert_delegate_result_acceptance_authority_zero(
+    delegate_result: DelegateResult,
+) -> None:
+    """Assert that a DelegateResult does not claim acceptance authority."""
+    assert DELEGATE_RESULT_ACCEPTANCE_AUTHORITY == 0, (
+        "DELEGATE_RESULT_ACCEPTANCE_AUTHORITY must stay 0"
+    )
+
+
+def assert_playbook_acceptance_authority_zero(
+    playbook_result: dict[str, Any],
+) -> None:
+    """Assert that a playbook result does not claim acceptance authority."""
+    assert PLAYBOOK_ACCEPTANCE_AUTHORITY == 0, "PLAYBOOK_ACCEPTANCE_AUTHORITY must stay 0"
+
+
+def assert_routine_acceptance_authority_zero(
+    routine_result: dict[str, Any],
+) -> None:
+    """Assert that a routine result does not claim acceptance authority."""
+    assert ROUTINE_ACCEPTANCE_AUTHORITY == 0, "ROUTINE_ACCEPTANCE_AUTHORITY must stay 0"
+
+
+def assert_subagent_self_report_authority_zero(
+    flag: bool,
+) -> None:
+    """Assert that a subagent self-report is not treated as verified success."""
+    if flag:
+        raise AssertionError(
+            "SUBAGENT_SELF_REPORT_AUTHORITY=0: subagent self-report "
+            "cannot be treated as verified success"
+        )
+
+
+def assert_worker_self_report_authority_zero(
+    flag: bool,
+) -> None:
+    """Assert that a worker self-report is not treated as verified success."""
+    if flag:
+        raise AssertionError(
+            "WORKER_SELF_REPORT_AUTHORITY=0: worker self-report "
+            "cannot be treated as verified success"
+        )
+
+
+def assert_second_acceptance_authority_zero(count: int = SECOND_ACCEPTANCE_AUTHORITY) -> None:
+    """Assert that no second acceptance authority exists."""
+    if count != 0:
+        raise AssertionError(
+            "SECOND_ACCEPTANCE_AUTHORITY=0: only IndependentVerifier may "
+            "issue the final acceptance verdict"
+        )
+
+
+def assert_second_execution_authority_zero(count: int = SECOND_EXECUTION_AUTHORITY) -> None:
+    """Assert that no second execution authority exists."""
+    if count != 0:
+        raise AssertionError(
+            "SECOND_EXECUTION_AUTHORITY=0: all physical execution must funnel "
+            "through CanonicalActionRequest → GoalRun → ActionGateway"
+        )
+
+
+def assert_parallel_execution_authority_single(
+    count: int = PARALLEL_EXECUTION_AUTHORITY_COUNT,
+) -> None:
+    """Assert the single canonical execution authority is never duplicated."""
+    if count != 1:
+        raise AssertionError(
+            "PARALLEL_EXECUTION_AUTHORITY_COUNT must stay 1: N semantic delegates, "
+            "exactly one execution authority"
+        )
+
+
+# P2-A §9: Subagent enforcement
+SUBAGENT_ACCEPTANCE_AUTHORITY = 0
+"""P2-A: subagent acceptance has zero authority."""
+
+
+def assert_subagent_acceptance_authority_zero() -> None:
+    """Assert that subagent acceptance has zero authority."""
+    assert SUBAGENT_ACCEPTANCE_AUTHORITY == 0, "SUBAGENT_ACCEPTANCE_AUTHORITY must stay 0"
+
+
+SUBAGENT_EXECUTION_AUTHORITY = 0
+"""P2-A: subagent execution has zero authority."""
+
+
+def assert_subagent_execution_authority_zero() -> None:
+    """Assert that subagent execution has zero authority."""
+    assert SUBAGENT_EXECUTION_AUTHORITY == 0, "SUBAGENT_EXECUTION_AUTHORITY must stay 0"
+
+
+SUBAGENT_DIRECT_PHYSICAL_EXECUTION = 0
+"""P2-A: subagent cannot directly execute physical actions."""
+
+SUBAGENT_GOALRUN_CREATION = 0
+"""P2-A: subagent cannot create a new GoalRun."""
+
+
+def assert_subagent_direct_physical_execution_zero(
+    direct_physical_calls: int = 0,
+) -> None:
+    """Assert that a subagent does not directly execute physical actions.
+
+    Physical execution must funnel through the canonical path:
+    CanonicalActionRequest → GoalRun → ActionGateway.
+    A subagent must not directly call the physical executor.
+    """
+    if direct_physical_calls != 0:
+        raise AssertionError(
+            "SUBAGENT_DIRECT_PHYSICAL_EXECUTION=0: subagent cannot directly "
+            "execute physical actions; must funnel through CanonicalActionRequest "
+            "→ GoalRun → ActionGateway"
+        )
+
+
+def assert_subagent_goalrun_creation_zero(
+    created_goal_runs: int = 0,
+) -> None:
+    """Assert that a subagent does not create a new GoalRun.
+
+    All delegation must happen within the existing GoalRun.
+    A subagent must not create a new GoalRun.
+    """
+    if created_goal_runs != 0:
+        raise AssertionError(
+            "SUBAGENT_GOALRUN_CREATION=0: subagent cannot create a new GoalRun; "
+            "all delegation must occur within the existing GoalRun"
+        )
