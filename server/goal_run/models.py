@@ -180,6 +180,7 @@ class PlaybookState:
     completed_steps: list[str] = field(default_factory=list)
     step_result_refs: dict[str, str] = field(default_factory=dict)
     evidence_refs: list[str] = field(default_factory=list)
+    version: int = 1  # P2-B: pinned registry version, restored on resume.
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -192,6 +193,7 @@ class PlaybookState:
             completed_steps=list(value.get("completed_steps") or []),
             step_result_refs=dict(value.get("step_result_refs") or {}),
             evidence_refs=list(value.get("evidence_refs") or []),
+            version=int(value.get("version") or 1),
         )
 
 
@@ -335,6 +337,10 @@ class GoalRunState:
     playbook_steps: dict[str, dict[str, Any]] = field(default_factory=dict)
     current_playbook_step: str | None = field(default=None)
     playbook_entry_at: float | None = field(default=None)
+    # P2-B: active skill/playbook pins (id+version+step) for restart resume.
+    active_skill_id: str | None = field(default=None)
+    active_skill_version: int | None = field(default=None)
+    active_playbook_version: int | None = field(default=None)
     # P2-A §5: routines trigger only; they never own execution.
     routines: dict[str, RoutineSpec] = field(default_factory=dict)
     # P2-A §8: durable projections tied to this parent GoalRun.
@@ -392,6 +398,9 @@ class GoalRunState:
             "playbook_steps": self.playbook_steps,
             "current_playbook_step": self.current_playbook_step,
             "playbook_entry_at": self.playbook_entry_at,
+            "active_skill_id": self.active_skill_id,
+            "active_skill_version": self.active_skill_version,
+            "active_playbook_version": self.active_playbook_version,
             "routines": {routine_id: spec.to_dict() for routine_id, spec in self.routines.items()},
             "delegate_states": {
                 delegate_id: item.to_dict() for delegate_id, item in self.delegate_states.items()
@@ -432,6 +441,9 @@ class GoalRunState:
         state.playbook_steps = dict(data.get("playbook_steps") or {})
         state.current_playbook_step = data.get("current_playbook_step")
         state.playbook_entry_at = data.get("playbook_entry_at")
+        state.active_skill_id = data.get("active_skill_id")
+        state.active_skill_version = data.get("active_skill_version")
+        state.active_playbook_version = data.get("active_playbook_version")
         state.routines = {
             routine_id: RoutineSpec.from_dict(spec)
             for routine_id, spec in dict(data.get("routines") or {}).items()

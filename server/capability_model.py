@@ -78,6 +78,13 @@ class SkillSpec:
     applicable_when: list[str] = field(default_factory=list)
     not_applicable_when: list[str] = field(default_factory=list)
     required_tools: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
+    # P2-B: machine-checkable contract. All defaulted so older records load.
+    input_schema: dict[str, Any] = field(default_factory=dict)
+    output_schema: dict[str, Any] = field(default_factory=dict)
+    preconditions: list[str] = field(default_factory=list)
+    evidence_requirements: list[str] = field(default_factory=list)
+    failure_contract: dict[str, Any] = field(default_factory=dict)
     knowledge_refs: list[str] = field(default_factory=list)
     evaluators: list[str] = field(default_factory=list)
     benchmark_suite: str | None = None
@@ -290,6 +297,56 @@ class SkillRegistry:
         r = self._store.get("skill", skill_id)
         return SkillSpec(**r) if r else None
 
+    def get(self, skill_id: str, version: int | None = None) -> SkillSpec | None:
+        """Fetch one skill by id. Version pinning is advisory: the store keeps
+        the latest confirmed record per id; a mismatch returns None instead of
+        a wrong version."""
+        spec = self.get_version(skill_id)
+        if spec is None:
+            return None
+        if version is not None and spec.version != version:
+            return None
+        return spec
+
+    def list(self, *, include_deprecated: bool = False) -> list[SkillSpec]:
+        items = [SkillSpec(**r) for r in self._store.all("skill")]
+        if include_deprecated:
+            return items
+        return [i for i in items if i.status != "deprecated"]
+
+    def query(
+        self,
+        *,
+        capabilities: list[str] | None = None,
+        tools: list[str] | None = None,
+        preconditions: list[str] | None = None,
+        include_candidates: bool = False,
+    ) -> list[SkillSpec]:
+        """Contract-based discovery for MasterAgent selection.
+
+        Matching is purely structural (capability/tool/precondition sets) —
+        never substring or keyword matching on free text, so no keyword hard
+        routing can hide here. Deprecated skills never match.
+        """
+        want_caps = set(capabilities or [])
+        want_tools = set(tools or [])
+        have_pre = set(preconditions or [])
+        matches: list[SkillSpec] = []
+        for record in self._store.all("skill"):
+            spec = SkillSpec(**record)
+            if spec.status == "deprecated":
+                continue
+            if not include_candidates and spec.status == "candidate":
+                continue
+            if want_caps and not want_caps.issubset(set(spec.capabilities)):
+                continue
+            if want_tools and not want_tools.issubset(set(spec.required_tools)):
+                continue
+            if not set(spec.preconditions).issubset(have_pre):
+                continue
+            matches.append(spec)
+        return matches
+
     def register_candidate(self, spec: SkillSpec) -> None:
         spec.status = "candidate"
         spec.updated_at = _now_iso()
@@ -473,6 +530,239 @@ class SkillRegistry:
         self._record_event("skill.updated", spec, action="rollback")
 
 
+_SIMPLE_SCHEMA_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,),
+    "number": (int, float),
+    "integer": (int,),
+    "boolean": (bool,),
+    "array": (list,),
+    "object": (dict,),
+}
+
+
+def validate_skill_input(spec: SkillSpec, args: dict[str, Any]) -> list[str]:
+    """Validate caller args against a skill's input_schema (P2-B).
+
+    Minimal deterministic subset of JSON Schema: object `required` and
+    per-property `type`. An empty schema imposes no constraints. Returns a
+    list of human-readable errors; empty means valid.
+    """
+    schema = spec.input_schema or {}
+    if not schema:
+        return []
+    errors: list[str] = []
+    if not isinstance(args, dict):
+        return ["args must be an object"]
+    for name in schema.get("required", []) or []:
+        if name not in args:
+            errors.append(f"missing required field: {name}")
+    properties = schema.get("properties", {}) or {}
+    for name, subschema in properties.items():
+        if name not in args:
+            continue
+        want = (subschema or {}).get("type")
+        if not want:
+            continue
+        allowed = _SIMPLE_SCHEMA_TYPES.get(str(want))
+        if allowed is None:
+            continue
+        value = args[name]
+        if (isinstance(value, bool) and want in {"number", "integer"}) or not isinstance(
+            value, allowed
+        ):
+            errors.append(f"field {name!r} must be {want}")
+    return errors
+
+
+@dataclass
+class PlaybookStep:
+    """One ordered step of an execution template (P2-B)."""
+
+    step_id: str
+    instruction: str = ""
+    skill_id: str | None = None
+    depends_on: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> PlaybookStep:
+        return cls(
+            step_id=str(value.get("step_id") or ""),
+            instruction=str(value.get("instruction") or ""),
+            skill_id=value.get("skill_id"),
+            depends_on=list(value.get("depends_on") or []),
+        )
+
+
+@dataclass
+class PlaybookSpec:
+    """Reusable ordered skill/semantic-step template (P2-B).
+
+    A playbook never owns execution authority and never spawns a nested
+    GoalRun: steps run sequentially inside the SAME GoalRun through the
+    canonical action path.
+    """
+
+    playbook_id: str
+    version: int = 1
+    description: str = ""
+    steps: list[PlaybookStep] = field(default_factory=list)
+    required_tools: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
+    preconditions: list[str] = field(default_factory=list)
+    evidence_requirements: list[str] = field(default_factory=list)
+    status: str = "candidate"  # candidate | verified | deprecated
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        value = asdict(self)
+        value["steps"] = [
+            item.to_dict() if isinstance(item, PlaybookStep) else item for item in self.steps
+        ]
+        return value
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> PlaybookSpec:
+        steps = [
+            item if isinstance(item, PlaybookStep) else PlaybookStep.from_dict(item)
+            for item in (value.get("steps") or [])
+        ]
+        return cls(
+            playbook_id=str(value.get("playbook_id") or ""),
+            version=int(value.get("version") or 1),
+            description=str(value.get("description") or ""),
+            steps=steps,
+            required_tools=list(value.get("required_tools") or []),
+            capabilities=list(value.get("capabilities") or []),
+            preconditions=list(value.get("preconditions") or []),
+            evidence_requirements=list(value.get("evidence_requirements") or []),
+            status=str(value.get("status") or "candidate"),
+            updated_at=str(value.get("updated_at") or _now_iso()),
+        )
+
+
+def validate_playbook_steps(
+    steps: list[PlaybookStep | dict[str, Any]],
+    *,
+    known_skill_ids: set[str] | None = None,
+) -> list[str]:
+    """Validate an ordered step list without executing anything (P2-B).
+
+    Checks: non-empty, unique step_ids, depends_on references known steps,
+    referenced skill_ids exist (when a skill catalog is supplied). No DAG
+    engine is built here - execution stays a sequential SAME-GoalRun walk.
+    """
+    errors: list[str] = []
+    normalized = [
+        item if isinstance(item, PlaybookStep) else PlaybookStep.from_dict(item)
+        for item in (steps or [])
+    ]
+    if not normalized:
+        return ["playbook must declare at least one step"]
+    seen: set[str] = set()
+    for step in normalized:
+        if not step.step_id:
+            errors.append("step with empty step_id")
+            continue
+        if step.step_id in seen:
+            errors.append(f"duplicate step_id: {step.step_id}")
+        seen.add(step.step_id)
+    for step in normalized:
+        for dep in step.depends_on:
+            if dep not in seen:
+                errors.append(f"step {step.step_id!r} depends on unknown step {dep!r}")
+        if (
+            known_skill_ids is not None
+            and step.skill_id not in (None, "")
+            and step.skill_id not in known_skill_ids
+        ):
+            errors.append(f"step {step.step_id!r} references unknown skill {step.skill_id!r}")
+    return errors
+
+
+class PlaybookRegistry:
+    """register/get/list plus contract-based query for execution templates."""
+
+    def __init__(
+        self,
+        store: _JsonRegistryStore | None = None,
+        skills: SkillRegistry | None = None,
+    ):
+        self._store = store or _JsonRegistryStore()
+        self._skills = skills
+
+    def register_candidate(self, spec: PlaybookSpec) -> None:
+        known = None
+        if self._skills is not None:
+            known = {item.skill_id for item in self._skills.list(include_deprecated=True)}
+        errors = validate_playbook_steps(spec.steps, known_skill_ids=known)
+        if errors:
+            raise ValueError(f"invalid playbook {spec.playbook_id}: " + "; ".join(errors))
+        spec.status = "candidate"
+        spec.updated_at = _now_iso()
+        self._store.put("playbook", spec.playbook_id, spec.to_dict())
+
+    def get(self, playbook_id: str, version: int | None = None) -> PlaybookSpec | None:
+        record = self._store.get("playbook", playbook_id)
+        if not record:
+            return None
+        spec = PlaybookSpec.from_dict(record)
+        if version is not None and spec.version != version:
+            return None
+        return spec
+
+    def list(self, *, include_deprecated: bool = False) -> list[PlaybookSpec]:
+        items = [PlaybookSpec.from_dict(r) for r in self._store.all("playbook")]
+        if include_deprecated:
+            return items
+        return [i for i in items if i.status != "deprecated"]
+
+    def query(
+        self,
+        *,
+        capabilities: list[str] | None = None,
+        tools: list[str] | None = None,
+        preconditions: list[str] | None = None,
+        include_candidates: bool = False,
+    ) -> list[PlaybookSpec]:
+        """Contract-based discovery, mirroring SkillRegistry.query.
+
+        Structural matching only - no keyword or substring matching.
+        """
+        want_caps = set(capabilities or [])
+        want_tools = set(tools or [])
+        have_pre = set(preconditions or [])
+        matches: list[PlaybookSpec] = []
+        for record in self._store.all("playbook"):
+            spec = PlaybookSpec.from_dict(record)
+            if spec.status == "deprecated":
+                continue
+            if not include_candidates and spec.status == "candidate":
+                continue
+            if want_caps and not want_caps.issubset(set(spec.capabilities)):
+                continue
+            if want_tools and not want_tools.issubset(set(spec.required_tools)):
+                continue
+            if not set(spec.preconditions).issubset(have_pre):
+                continue
+            matches.append(spec)
+        return matches
+
+    def deprecate(self, playbook_id: str) -> None:
+        record = self._store.get("playbook", playbook_id)
+        if not record:
+            return
+        spec = PlaybookSpec.from_dict(record)
+        spec.status = "deprecated"
+        spec.updated_at = _now_iso()
+        self._store.put("playbook", playbook_id, spec.to_dict())
+
+
+_KIND_TO_CLS["playbook"] = PlaybookSpec
+
+
 class KnowledgeRegistry:
     """search, import_pack, provenance, invalidate。"""
 
@@ -642,6 +932,7 @@ class PerformanceStore:
 _shared_store = _JsonRegistryStore()
 capability_registry = CapabilityRegistry(_shared_store)
 skill_registry = SkillRegistry(_shared_store)
+playbook_registry = PlaybookRegistry(_shared_store, skills=skill_registry)
 knowledge_registry = KnowledgeRegistry(_shared_store)
 harness_registry = HarnessRegistry(_shared_store)
 performance_store = PerformanceStore()

@@ -516,6 +516,15 @@ SECOND_ACCEPTANCE_AUTHORITY = 0
 SECOND_EXECUTION_AUTHORITY = 0
 """P2-A: No second execution authority beyond the canonical GoalRun path."""
 
+SKILL_EXECUTION_AUTHORITY = 0
+"""P2-B: skills describe how to do work; they never execute it."""
+
+SKILL_ACCEPTANCE_AUTHORITY = 0
+"""P2-B: skills never accept work; only IndependentVerifier verdicts accept."""
+
+PLAYBOOK_EXECUTION_AUTHORITY = 0
+"""P2-B: playbooks order steps; they never execute them."""
+
 
 def assert_delegate_result_acceptance_authority_zero(
     delegate_result: DelegateResult,
@@ -569,6 +578,21 @@ def assert_second_acceptance_authority_zero(count: int = SECOND_ACCEPTANCE_AUTHO
             "SECOND_ACCEPTANCE_AUTHORITY=0: only IndependentVerifier may "
             "issue the final acceptance verdict"
         )
+
+
+def assert_skill_execution_authority_zero() -> None:
+    """Assert that skills never execute (P2-B)."""
+    assert SKILL_EXECUTION_AUTHORITY == 0, "SKILL_EXECUTION_AUTHORITY must stay 0"
+
+
+def assert_skill_acceptance_authority_zero() -> None:
+    """Assert that skills never accept (P2-B)."""
+    assert SKILL_ACCEPTANCE_AUTHORITY == 0, "SKILL_ACCEPTANCE_AUTHORITY must stay 0"
+
+
+def assert_playbook_execution_authority_zero() -> None:
+    """Assert that playbooks never execute (P2-B)."""
+    assert PLAYBOOK_EXECUTION_AUTHORITY == 0, "PLAYBOOK_EXECUTION_AUTHORITY must stay 0"
 
 
 def assert_second_execution_authority_zero(count: int = SECOND_EXECUTION_AUTHORITY) -> None:
