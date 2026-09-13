@@ -867,6 +867,7 @@ async def project_run_goal(
     semantic_llm_kwargs: dict[str, Any] | None = None,
     gateway_executor: Any | None = None,
     verification_required: bool = False,
+    goal_id: str | None = None,
 ) -> GoalRunResponse:
     """project_run_goal 主入口（M4 规格）。
 
@@ -992,6 +993,7 @@ async def project_run_goal(
             budget=budget,
             project_root=project_root,
             explicit_tasks=tasks,
+            goal_id=goal_id,
         )
 
         if state.started_at is None:

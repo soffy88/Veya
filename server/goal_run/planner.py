@@ -90,6 +90,7 @@ async def g1_plan(
     max_leaf_tasks: int | None = None,
     project_root: str | None = None,
     explicit_tasks: list[dict[str, Any]] | None = None,
+    goal_id: str | None = None,
 ) -> tuple[GoalRunState, GoalRunResponse]:
     """G1 Plan：根据 interpretation 生成任务图 taskgraph.json。
 
@@ -119,6 +120,7 @@ async def g1_plan(
             default_assignee=default_assignee,
             budget=budget,
             max_leaf_tasks=max_leaf_tasks,
+            goal_id=goal_id,
         )
         if spec_state is not None:
             return spec_state
@@ -217,6 +219,7 @@ async def _g1_from_speckit(
     default_assignee: str,
     budget: dict[str, int],
     max_leaf_tasks: int,
+    goal_id: str | None = None,
 ) -> tuple[GoalRunState, GoalRunResponse] | None:
     """When .speckit/{tasks,constitution}.md exist, compile that SSOT."""
     from pathlib import Path
@@ -228,7 +231,7 @@ async def _g1_from_speckit(
         return None
     if not (root / ".speckit" / "constitution.md").is_file():
         return None
-    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+    goal_id = goal_id or f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     rec = await phase_spec_driven_plan(
         {
             "goal_id": goal_id,

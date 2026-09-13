@@ -11,12 +11,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from server.routes.debug_guard import require_nonproduction_debug
-from veya.visualization import create_code_graph
-
 router = APIRouter(prefix="/visualization", tags=["visualization"])
 
-# 全局代码图谱（实际应用中应使用缓存）
-code_graph = create_code_graph()
+# Optional visual dependencies are loaded only when a visual endpoint is used.
+# Importing the router must remain safe for the core runtime.
+code_graph: Any | None = None
+
+
+def _code_graph() -> Any:
+    global code_graph
+    if code_graph is None:
+        from veya.visualization import create_code_graph
+
+        code_graph = create_code_graph()
+    return code_graph
 
 
 class GenerateGraphRequest(BaseModel):
@@ -44,18 +52,18 @@ async def generate_code_graph(request: GenerateGraphRequest) -> dict[str, Any]:
                     type=symbol.get("type", ""),
                     attributes={"file": symbol.get("file", "")},
                 )
-                code_graph.add_node(node)
+                _code_graph().add_node(node)
 
         # 计算指标
-        metrics = code_graph.calculate_metrics()
+        metrics = _code_graph().calculate_metrics()
 
         # 根据格式返回
         if request.output_format == "cytoscape":
-            output = code_graph.export_to_cytoscape()
+            output = _code_graph().export_to_cytoscape()
         elif request.output_format == "json":
-            output = code_graph.export_to_json()
+            output = _code_graph().export_to_json()
         elif request.output_format == "image":
-            image_data = code_graph.generate_image()
+            image_data = _code_graph().generate_image()
             output = {"image": image_data} if image_data else {"error": "Failed to generate image"}
         else:
             output = {"error": f"Unsupported format: {request.output_format}"}
@@ -69,7 +77,7 @@ async def generate_code_graph(request: GenerateGraphRequest) -> dict[str, Any]:
 async def get_graph_metrics() -> dict[str, Any]:
     """获取图谱指标"""
     try:
-        metrics = code_graph.calculate_metrics()
+        metrics = _code_graph().calculate_metrics()
         return {"status": "success", "metrics": metrics}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get metrics: {e!s}")

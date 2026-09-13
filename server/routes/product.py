@@ -61,6 +61,7 @@ async def _run_product_task(
     config: dict[str, Any],
     user: dict[str, Any],
     project_root: str,
+    resume_goal_id: str | None = None,
 ) -> None:
     """Run one accepted task through the single GoalRun semantic loop."""
 
@@ -113,6 +114,8 @@ async def _run_product_task(
             max_wall_s=3600,
             integration_adapter=adapter,
             semantic_llm_kwargs=semantic_llm_kwargs,
+            goal_id=task_id if resume_goal_id is None else None,
+            resume_goal_id=resume_goal_id,
         )
         task_store.update_status(
             task_id,
@@ -258,4 +261,43 @@ async def create_product_task(
         "session_id": session_id,
         "trace_id": trace_id,
         "workbench_url": f"/workbench/{task.id}",
+    }
+
+
+@router.post("/tasks/{task_id}/resume")
+async def resume_product_task(
+    task_id: str,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """Resume the product task's original durable GoalRun after restart."""
+    task = task_store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+    submitted = [
+        event
+        for event in task_store.event_store.read_all(task_id=task_id)
+        if event.get("topic") == "product.task_submitted"
+    ]
+    if submitted and submitted[-1].get("actor") != user.get("user_id"):
+        raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+    background = asyncio.create_task(
+        _run_product_task(
+            task_id=task.id,
+            session_id=task.session_id,
+            objective=task.objective,
+            provider=None,
+            model=None,
+            config={},
+            user=dict(user),
+            project_root=task.workspace_id or "/repo",
+            resume_goal_id=task.id,
+        )
+    )
+    _retain_product_task(background)
+    return {
+        "status": "accepted",
+        "task_id": task.id,
+        "session_id": task.session_id,
+        "goal_run_id": task.id,
+        "resumed": True,
     }
