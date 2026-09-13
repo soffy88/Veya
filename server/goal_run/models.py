@@ -163,6 +163,10 @@ class FanInState:
     completed_at: float | None = None
     # P3-A: the bot that owns this fan-in. Cross-bot resume is refused.
     bot_id: str = DEFAULT_BOT_ID
+    # P3-C: conflict observations and owner resolution are durable fan-in
+    # projection only; they never create a vote or acceptance authority.
+    conflict_refs: list[str] = field(default_factory=list)
+    resolved_by_bot_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -179,6 +183,8 @@ class FanInState:
             reconciled_result_ref=value.get("reconciled_result_ref"),
             completed_at=value.get("completed_at"),
             bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
+            conflict_refs=list(value.get("conflict_refs") or []),
+            resolved_by_bot_id=value.get("resolved_by_bot_id"),
         )
 
 

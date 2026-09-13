@@ -19,11 +19,21 @@ from .durable import (
     content_hash,
     new_id,
 )
-from .fanin import FanInBatch, fan_in
+from .fanin import FanInBatch, fan_in, reconcile_multi_bot_results
 from .finalization import (
     FinalizationController,
     FinalizationObserver,
     calculate_finalization_reserve,
+)
+from .long_running import (
+    BudgetExhausted,
+    DuplicateFailedAction,
+    HarnessError,
+    LongRunBudget,
+    LongRunCheckpointStore,
+    LongRunningHarness,
+    LongRunState,
+    ProgressObservation,
 )
 from .models import (
     AcceptanceCriterion,
@@ -47,16 +57,6 @@ from .scheduler import ContinuousReadyScheduler, SchedulerRun
 from .side_effects import SideEffectLedger
 from .spawn_guard import SpawnGuard, SpawnRejected
 from .worker import WorkerHost
-from .long_running import (
-    BudgetExhausted,
-    DuplicateFailedAction,
-    HarnessError,
-    LongRunBudget,
-    LongRunCheckpointStore,
-    LongRunState,
-    LongRunningHarness,
-    ProgressObservation,
-)
 
 __all__ = [
     "AcceptanceCriterion",
@@ -65,12 +65,14 @@ __all__ = [
     "ArtifactRef",
     "ArtifactStore",
     "Assertion",
+    "BudgetExhausted",
     "ClaimEnvelope",
     "ContinuousReadyScheduler",
     "DelegateRequest",
     "DelegateResult",
     "DelegateRuntime",
     "DelegateStatus",
+    "DuplicateFailedAction",
     "DurableExecutionError",
     "DurableExecutionRepository",
     "DurableExecutionRuntime",
@@ -81,8 +83,14 @@ __all__ = [
     "FanInBatch",
     "FinalizationController",
     "FinalizationObserver",
+    "HarnessError",
+    "LongRunBudget",
+    "LongRunCheckpointStore",
+    "LongRunState",
+    "LongRunningHarness",
     "OutboxMessage",
     "OutboxPublisher",
+    "ProgressObservation",
     "Reconciler",
     "ReconciliationReport",
     "SchedulerRun",
@@ -94,14 +102,6 @@ __all__ = [
     "StopReason",
     "WorkItemSpec",
     "WorkerHost",
-    "BudgetExhausted",
-    "DuplicateFailedAction",
-    "HarnessError",
-    "LongRunBudget",
-    "LongRunCheckpointStore",
-    "LongRunState",
-    "LongRunningHarness",
-    "ProgressObservation",
     "build_operation_key",
     "calculate_finalization_reserve",
     "canonical_json",
@@ -109,4 +109,5 @@ __all__ = [
     "fan_in",
     "get_durable_runtime",
     "new_id",
+    "reconcile_multi_bot_results",
 ]

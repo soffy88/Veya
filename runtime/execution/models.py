@@ -260,6 +260,10 @@ class DelegateResult:
     target_bot_id: str = DEFAULT_BOT_ID
     goal_run_id: str = ""
     evidence_refs: list[str] = field(default_factory=list)
+    # Semantic proposals only. They are carried to the owner for conflict
+    # handling; neither field is executable or an acceptance verdict.
+    proposed_actions: list[dict[str, Any]] = field(default_factory=list)
+    side_effect_intents: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.stop_reason = normalize_stop_reason(self.stop_reason)
@@ -318,6 +322,10 @@ class DelegateResult:
             target_bot_id=str(value.get("target_bot_id") or target_bot_id),
             goal_run_id=str(value.get("goal_run_id") or goal_run_id),
             evidence_refs=list(value.get("evidence_refs") or evidence_refs or []),
+            proposed_actions=[dict(item) for item in value.get("proposed_actions") or []],
+            side_effect_intents=[
+                dict(item) for item in value.get("side_effect_intents") or []
+            ],
         )
 
     def to_dict(self) -> dict[str, Any]:
