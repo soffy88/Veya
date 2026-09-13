@@ -22,7 +22,8 @@ dependencies = [
     "numpy==2.2.6; python_version < '3.14'",
     "numpy==2.5.1; python_version >= '3.14'",
     "networkx==3.6.1",
-    "scipy==1.18.0",
+    "scipy==1.16.3; python_version < '3.12'",
+    "scipy==1.18.0; python_version >= '3.12'",
 ]
 
 [project.optional-dependencies]

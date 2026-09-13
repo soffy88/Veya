@@ -5,14 +5,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import platform
 import re
 import subprocess
 import sys
 import tomllib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+GENERATED_PARTS = {"node_modules", ".venv", "venv", "dist", "build", ".svelte-kit"}
 PINNED = re.compile(r"^[A-Za-z0-9_.-]+(?:\[[^]]+\])?==[^=;]+(?:;\s*.+)?$")
 JS_PINNED = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 SECRET = re.compile(
@@ -33,11 +36,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _version(command: str) -> str:
+    result = subprocess.run(command.split(), capture_output=True, text=True, check=False)
+    return result.stdout.strip() or result.stderr.strip()
+
+
 def dependency_pins() -> dict[str, Any]:
     python_deps: list[str] = []
     for path in sorted(ROOT.glob("**/pyproject.toml")):
         if (
-            "node_modules" in path.parts
+            GENERATED_PARTS.intersection(path.parts)
             or "platform" in path.parts
             or "templates" in path.parts
             or "docs" in path.parts
@@ -48,7 +56,7 @@ def dependency_pins() -> dict[str, Any]:
         for group in project.get("project", {}).get("optional-dependencies", {}).values():
             python_deps.extend(group)
     for path in sorted(ROOT.glob("**/requirements*.txt")):
-        if "node_modules" in path.parts:
+        if GENERATED_PARTS.intersection(path.parts):
             continue
         python_deps.extend(
             line.strip()
@@ -57,7 +65,7 @@ def dependency_pins() -> dict[str, Any]:
         )
     js_deps: list[tuple[str, str]] = []
     for path in sorted(ROOT.glob("**/package.json")):
-        if "node_modules" in path.parts:
+        if GENERATED_PARTS.intersection(path.parts):
             continue
         data = json.loads(path.read_text())
         for group in ("dependencies", "devDependencies"):
@@ -165,14 +173,40 @@ def generate(output: Path) -> dict[str, Any]:
     sbom = source_sbom(submodules)
     output.mkdir(parents=True, exist_ok=True)
     (output / "sbom.json").write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n")
+    artifact_files = [
+        path
+        for root in (ROOT / "dist", ROOT / "apps/web/build", ROOT / "apps/web/.svelte-kit/output")
+        if root.exists()
+        for path in root.rglob("*")
+        if path.is_file() and output not in path.parents
+    ]
     manifest = {
         "source_sha": _git("rev-parse", "HEAD"),
+        "generated_at": datetime.now(UTC).isoformat(),
+        "toolchain": {
+            "python": platform.python_version(),
+            "node": _version("node --version"),
+            "pnpm": _version("pnpm --version"),
+            "uv": _version("uv --version"),
+        },
+        "build_commands": [
+            "pnpm install --frozen-lockfile --ignore-scripts",
+            "pnpm --dir apps/web build",
+            "python -m build",
+        ],
         "submodules": submodules,
         "dependency_manifests": {
             str(path.relative_to(ROOT)): _sha256(path)
-            for path in [ROOT / "pyproject.toml", ROOT / "uv.lock", ROOT / "pnpm-lock.yaml"]
+            for path in [
+                ROOT / "pyproject.toml",
+                ROOT / "uv.lock",
+                ROOT / "veya_loop/pyproject.toml",
+                ROOT / "veya_loop/uv.lock",
+                ROOT / "pnpm-lock.yaml",
+            ]
         },
         "sbom_sha256": _sha256(output / "sbom.json"),
+        "artifacts": {str(path.relative_to(ROOT)): _sha256(path) for path in artifact_files},
     }
     (output / "provenance.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     manifest["provenance_sha256"] = _sha256(output / "provenance.json")
