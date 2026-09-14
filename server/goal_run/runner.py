@@ -86,6 +86,57 @@ class PlanReviewError(ValueError):
         self.code = code
 
 
+async def _claim_durable_goal_task(
+    repository: DurableExecutionRepository,
+    worker_id: str,
+    state: GoalRunState,
+    current_task: Any,
+) -> Any:
+    """Claim the current durable leaf, honoring its existing retry delay.
+
+    ``_process_one_task`` keeps a recoverable branch ready locally while the
+    durable repository records the completed attempt as ``retry_wait``.  The
+    next pass through the existing GoalRun loop must wait for that same item
+    to become claimable instead of treating the temporary claim miss as a
+    missing work item.
+    """
+
+    while True:
+        claim = await repository.claim_next(
+            worker_id,
+            capabilities={"*"},
+            kinds={"goal_leaf"},
+            goal_run_id=state.goal_id,
+            logical_key=current_task.id,
+            lease_ttl_s=30,
+        )
+        if claim is not None:
+            return claim
+
+        durable_items = await repository.list_work_items(state.goal_id)
+        durable_item = next(
+            (
+                item
+                for item in durable_items
+                if item.get("logical_key") == current_task.id
+                and item.get("kind", "goal_leaf") == "goal_leaf"
+            ),
+            None,
+        )
+        if durable_item is None or durable_item.get("state") != "retry_wait":
+            raise DurableExecutionError(
+                "NOT_FOUND", f"no durable claim for {current_task.id}"
+            )
+
+        next_ready_at = durable_item.get("next_ready_at")
+        if next_ready_at is None:
+            raise DurableExecutionError(
+                "INVALID_STATE", f"retry item has no next_ready_at for {current_task.id}"
+            )
+        delay = max(0.05, min(float(next_ready_at) - time.time(), 1.0))
+        await asyncio.sleep(delay)
+
+
 def plan_review_request(state: GoalRunState) -> dict[str, str]:
     """Return the stable approval identity for the current plan review."""
 
@@ -1365,18 +1416,12 @@ async def _run_loop_and_finalize(
                                 project_root,
                                 integration_adapter=integration_adapter,
                             )
-                        claim = await durable_repository.claim_next(
+                        claim = await _claim_durable_goal_task(
+                            durable_repository,
                             durable_worker_id,
-                            capabilities={"*"},
-                            kinds={"goal_leaf"},
-                            goal_run_id=state.goal_id,
-                            logical_key=current_task.id,
-                            lease_ttl_s=30,
+                            state,
+                            current_task,
                         )
-                        if claim is None:
-                            raise DurableExecutionError(
-                                "NOT_FOUND", f"no durable claim for {current_task.id}"
-                            )
                         await durable_repository.start(claim)
                         try:
                             response = await _process_one_task(
