@@ -1,0 +1,37 @@
+version: 1
+elements:
+  - id: code_knowledge_graph
+    repo: omodul
+    version: 1
+    canonical_import: omodul.code_knowledge_graph
+    canonical_export: CodeKnowledgeGraph
+  - id: experiment_engine
+    repo: omodul
+    version: 1
+    canonical_import: omodul.experiment_engine
+    canonical_export: ExperimentEngine
+  - id: accepted_progress_projection
+    repo: omodul
+    version: 1
+    canonical_import: omodul.accepted_progress_projection
+    canonical_export: AcceptedProgressProjection
+  - id: persistent_agent_session
+    repo: oservi
+    version: 1
+    canonical_import: oservi.persistent_agent_session
+    canonical_export: PersistentAgentSession
+  - id: workspace_fleet
+    repo: oservi
+    version: 1
+    canonical_import: oservi.workspace_fleet
+    canonical_export: WorkspaceFleet
+  - id: observation_journal
+    repo: oservi
+    version: 1
+    canonical_import: oservi.observation_journal
+    canonical_export: ObservationJournal
+  - id: skill_distribution_provider
+    repo: oskill
+    version: 1
+    canonical_import: oskill.skill_distribution_provider
+    canonical_export: SkillDistributionProvider
