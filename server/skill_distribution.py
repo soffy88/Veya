@@ -262,11 +262,13 @@ class SkillDistribution:
         store_root: str | Path | None = None,
         *,
         emit: Callable[[str, dict[str, Any]], Any] | None = None,
+        registry: Any | None = None,
     ) -> None:
         self.store_root = (
             Path(store_root).expanduser().resolve() if store_root else Path.home() / ".veya"
         )
         self._emit = emit
+        self._registry_override = registry
 
     # -- state ----------------------------------------------------------
     def _path(self) -> Path:
@@ -298,6 +300,13 @@ class SkillDistribution:
         if self._emit is None:
             return
         self._emit(topic, dict(payload))
+
+    def _registry(self) -> Any:
+        if self._registry_override is not None:
+            return self._registry_override
+        from server.capability_model import skill_registry
+
+        return skill_registry
 
     # -- import -----------------------------------------------------------
     async def import_package(
@@ -389,7 +398,7 @@ class SkillDistribution:
     def _propose_registry(
         self, item: Mapping[str, Any], source: SourceProvenance
     ) -> SkillDistributionRecord:
-        from server.capability_model import SkillSpec, skill_registry
+        from server.capability_model import SkillSpec
 
         spec = SkillSpec(
             skill_id=str(item["skill_id"]),
@@ -398,7 +407,7 @@ class SkillDistribution:
             not_applicable_when=list(item.get("not_applicable_when") or []),
             provenance=item["provenance"],
         )
-        skill_registry.register_candidate(spec)
+        self._registry().register_candidate(spec)
         return SkillDistributionRecord(
             skill_id=spec.skill_id,
             backend="registry",
@@ -454,9 +463,7 @@ class SkillDistribution:
         }
 
     def _qualify_registry(self, skill_id: str) -> dict[str, Any]:
-        from server.capability_model import skill_registry
-
-        spec = skill_registry.get_version(skill_id)
+        spec = self._registry().get_version(skill_id)
         if spec is None:
             return {"eligible": False, "reasons": ["unknown skill"]}
         if spec.status != "candidate":
@@ -516,14 +523,12 @@ class SkillDistribution:
         )
 
     def _promote_registry(self, skill_id: str) -> SkillDistributionRecord:
-        from server.capability_model import skill_registry
-
-        spec = skill_registry.get_version(skill_id)
+        spec = self._registry().get_version(skill_id)
         if spec is None:
             raise ValueError(f"unknown skill: {skill_id!r}")
         if spec.status != "candidate":
             raise ValueError(f"only candidates promote (status={spec.status})")
-        confirmed = skill_registry.confirm_skill(skill_id)
+        confirmed = self._registry().confirm_skill(skill_id)
         if confirmed is None:
             raise ValueError(f"promotion refused by registry scan: {skill_id!r}")
         return SkillDistributionRecord(
@@ -599,9 +604,7 @@ class SkillDistribution:
                 "version": candidate["version"],
                 "phase": "proposed",
             }
-        from server.capability_model import skill_registry
-
-        spec = skill_registry.propose_skill(description, config)
+        spec = self._registry().propose_skill(description, config)
         self._event(
             "skill.imported",
             {
@@ -673,9 +676,7 @@ class SkillDistribution:
                 "version": spec["version"],
                 "phase": spec["status"],
             }
-        from server.capability_model import skill_registry
-
-        registered = skill_registry.confirm_skill(skill_id)
+        registered = self._registry().confirm_skill(skill_id)
         if registered is None:
             return {
                 "status": "not_found",
@@ -765,9 +766,7 @@ class SkillDistribution:
                 "trust": "trusted",
                 "backend": "personal",
             }
-        from server.capability_model import skill_registry
-
-        spec = skill_registry.get_version(skill_id)
+        spec = self._registry().get_version(skill_id)
         if (
             spec is None
             or classify_registry_spec(spec.status, spec.trust_status)
@@ -867,9 +866,7 @@ class SkillDistribution:
                 "execution_type": str(row.get("execution_type", "prompt")),
                 "execution_ref": str(row.get("execution_ref", "")),
             }
-        from server.capability_model import skill_registry
-
-        spec = skill_registry.get_version(skill_id)
+        spec = self._registry().get_version(skill_id)
         if spec is None:
             raise ValueError(f"active version vanished: {skill_id!r}")
         return {
@@ -962,14 +959,12 @@ class SkillDistribution:
                 raise ValueError(f"refusing rollback to blocked version: {skill_id!r} v{version}")
             result = await store.rollback_skill(skill_id, version)
         else:
-            from server.capability_model import skill_registry
-
-            spec = skill_registry.get_version(skill_id)
+            spec = self._registry().get_version(skill_id)
             if spec is None:
                 raise ValueError(f"unknown skill: {skill_id!r}")
             # Single-version store cannot restore history: deprecating the
             # current version is the only honest rollback here.
-            skill_registry.rollback(skill_id)
+            self._registry().rollback(skill_id)
             result = {"status": "rolled_back", "skill_id": skill_id, "version": None}
         self._event(
             "skill.rollback", {"skill_id": skill_id, "backend": resolved, "version": version}
@@ -984,12 +979,10 @@ class SkillDistribution:
 
             result = await get_personal_runtime().deprecate_skill(skill_id)
         else:
-            from server.capability_model import skill_registry
-
-            updated = skill_registry.set_trust_status(skill_id, "blocked")
+            updated = self._registry().set_trust_status(skill_id, "blocked")
             if updated is None:
                 raise ValueError(f"unknown skill: {skill_id!r}")
-            skill_registry.rollback(skill_id)
+            self._registry().rollback(skill_id)
             result = {"status": "revoked", "skill_id": skill_id}
         self._event("skill.revoked", {"skill_id": skill_id, "backend": resolved})
         return result
