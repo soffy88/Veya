@@ -1,0 +1,39 @@
+name: 3O Pin Governance
+
+on:
+  push:
+    paths:
+      - "platform/3O/**"
+      - "platform/3O/CANONICAL_PINS.json"
+      - "scripts/check_3o_canonical_pins.py"
+      - "tests/runtime/test_3o_canonical_pin_governance.py"
+  pull_request:
+    paths:
+      - "platform/3O/**"
+      - "platform/3O/CANONICAL_PINS.json"
+      - "scripts/check_3o_canonical_pins.py"
+      - "tests/runtime/test_3o_canonical_pin_governance.py"
+
+jobs:
+  pin-governance:
+    name: Canonical pin governance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test runner
+        run: python -m pip install pytest
+
+      - name: Canonical pin governance gate
+        run: python scripts/check_3o_canonical_pins.py
+
+      - name: Governance regression tests
+        run: python -m pytest -q tests/runtime/test_3o_canonical_pin_governance.py

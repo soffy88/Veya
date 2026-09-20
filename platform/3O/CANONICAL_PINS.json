@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "obase": {
+    "sha": "678c3a7dd5730544c4b40e2c0039f7050cc7617f",
+    "qualification": "canonical-lineage-reconciled",
+    "required_contracts": [
+      {
+        "module": "obase.action",
+        "file": "obase/action.py",
+        "symbols": ["ActionDecision", "ActionRequest", "AuditRecord", "PolicyRule"]
+      },
+      {
+        "module": "obase.provider_routing",
+        "file": "obase/provider_routing.py",
+        "symbols": ["ProviderSpec", "ProtocolFamily", "tool_kind_to_protocol_family"]
+      },
+      {
+        "module": "obase.tool_governance",
+        "file": "obase/tool_governance.py",
+        "symbols": ["ToolSpec", "redact_payload"]
+      },
+      {
+        "module": "obase.agent_registry",
+        "file": "obase/agent_registry.py",
+        "symbols": ["AgentRegistry", "register_agent", "registry"]
+      },
+      {
+        "module": "obase.harness_adapter",
+        "file": "obase/harness_adapter.py",
+        "symbols": ["HarnessAdapter", "register_harness_adapters"]
+      },
+      {
+        "module": "obase.acp_adapter",
+        "file": "obase/acp_adapter.py",
+        "symbols": ["ACPAgentAdapter"]
+      },
+      {
+        "module": "obase.a2a_adapter",
+        "file": "obase/a2a_adapter.py",
+        "symbols": ["A2AAgentAdapter"]
+      }
+    ]
+  },
+  "omodul": {
+    "sha": "0f431108959f35a1cc4fa6423e92ba3eab01365e",
+    "qualification": "parent-pinned",
+    "required_contracts": []
+  },
+  "oprim": {
+    "sha": "c7a9c0212120ae38d9361772b515ec42b0a8eb9b",
+    "qualification": "parent-pinned",
+    "required_contracts": []
+  },
+  "oservi": {
+    "sha": "919fa0ca7eae11c445abf5ee505ab40dab2b89a5",
+    "qualification": "parent-pinned",
+    "required_contracts": []
+  }
+}
