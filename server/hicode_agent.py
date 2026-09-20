@@ -40,7 +40,9 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
 
+from server import exec_process
 from server.hicode_runtime import HicodeRuntimeError, get_hicode_executor
+from server.process_guard import executor_spawn_kwargs
 
 logger = logging.getLogger("hicode")
 
@@ -230,7 +232,9 @@ async def _run_hicode(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
+        **executor_spawn_kwargs(),
     )
+    exec_process.record_current(os.environ.get(exec_process.PIDFILE_ENV, ""), proc, str(workspace))
     stderr_lines: list[str] = []
 
     async def _drain_stderr() -> None:

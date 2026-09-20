@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Playwright Chromium 运行库 (无头浏览器抓取通道)
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
     libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-    libasound2 libpango-1.0-0 libcairo2 \
+    libasound2 libpango-1.0-0 libcairo2 libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 依赖(从 pyproject 全量安装, 含 apscheduler/pandas/numpy/pyarrow/scipy/cryptography)
@@ -56,6 +56,14 @@ COPY deploy/hicode-runtime/package.json deploy/hicode-runtime/package-lock.json 
 RUN npm ci --prefix /opt/veya/hicode-runtime --omit=dev --ignore-scripts \
     && /opt/veya/hicode-runtime/node_modules/.bin/reasonix --version \
       | grep -Fx 'reasonix v1.21.3'
+# DSH (DeepSeek Harness) executor — the shell/ops execution plane. Pinned exact
+# version, installed from a checked-in lockfile. DSH holds NO provider
+# credential: it talks to the Veya LLM gateway (see server/dsh_plane.py).
+COPY deploy/dsh-runtime/package.json deploy/dsh-runtime/package-lock.json /opt/veya/dsh-runtime/
+RUN npm ci --prefix /opt/veya/dsh-runtime --omit=dev --ignore-scripts \
+    && ln -sfn /opt/veya/dsh-runtime/node_modules/.bin/dsh /usr/local/bin/dsh \
+    && dsh --help >/dev/null \
+    && which dsh
 # 3O 主库装配通道 is part of the server-image contract, not a host PATH hack.
 ENV PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi
 ENV VEYA_WORKSPACE=/app

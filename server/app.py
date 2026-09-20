@@ -38,6 +38,7 @@ from server.routes.integrations import router as integrations_router
 from server.routes.legacy_agent import router as legacy_agent_router
 from server.routes.master import router as master_router
 from server.routes.mcp import router as mcp_router
+from server.routes.remote_mcp import router as remote_mcp_router
 from server.routes.models import router as models_router
 from server.routes.multimodal import router as multimodal_router
 from server.routes.neuro_symbolic import router as neuro_symbolic_router
@@ -339,7 +340,9 @@ async def lifespan(app: FastAPI):
 
         recovered_product_tasks = await recover_product_tasks()
         if recovered_product_tasks:
-            _lg.warning("product GoalRun startup recovery resumed %d run(s)", recovered_product_tasks)
+            _lg.warning(
+                "product GoalRun startup recovery resumed %d run(s)", recovered_product_tasks
+            )
     except Exception:
         _lg.exception("product GoalRun startup recovery failed")
     yield
@@ -422,6 +425,7 @@ if _advanced_visualization_router is not None:
     app.include_router(_advanced_visualization_router)
 app.include_router(agent_collaboration_router)
 app.include_router(mcp_router)
+app.include_router(remote_mcp_router)
 app.include_router(auth_router)
 app.include_router(auth_key_router)
 app.include_router(init_router)

@@ -1,0 +1,46 @@
+# Veya Remote MCP — host service (user systemd)
+#
+# Install (host, user scope):
+#   cp deploy/systemd/veya-remote-mcp.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now veya-remote-mcp
+#
+# It binds 127.0.0.1 ONLY. Public access must go through a reverse proxy
+# (see deploy/caddy/veya-remote-mcp.caddy) — never expose the port directly.
+
+[Unit]
+Description=Veya Remote MCP gateway (127.0.0.1 only, reverse-proxied at /mcp)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/soffy/projects/veya
+Environment=VEYA_REMOTE_TOKENS_FILE=%h/.veya/remote_tokens.json
+Environment=VEYA_REMOTE_AUDIT_LOG=%h/.veya/remote_audit.jsonl
+Environment=VEYA_REMOTE_SESSION_TTL_S=1800
+Environment=VEYA_REMOTE_MAX_SESSIONS=64
+# Managed Hicode/Reasonix runtime (Veya Local runs on the host, so the
+# official image's /opt/veya/hicode-runtime is extracted to a host path).
+Environment=HICODE_MANAGED_RUNTIME_ROOT=/home/soffy/.veya/hicode-managed-runtime
+Environment=HICODE_RUNTIME_DATA_ROOT=/home/soffy/.veya/hicode-runtime
+Environment=HICODE_REASONIX_BASE_URL=http://127.0.0.1:8791/v1
+Environment=HICODE_REASONIX_MODEL=opencode-go/deepseek-v4.1-flash
+Environment=HICODE_REASONIX_API_KEY_ENV=OPENCODE_API_KEY
+# Read/write roots for the Veya Local workstream: projects (veya, hevi, ...) and
+# the canonical 3O repos. Writes still go through each repo's isolated worktree.
+Environment=VEYA_WORKSPACE_EXTRA_DIRS=/data/soffy/projects:/home/soffy/deploy/3O
+# DSH executor plane (dedicated file, not global service env). Model routing
+# stays on the Veya LLM gateway; DSH holds no third-party provider credential.
+EnvironmentFile=-%h/.config/veya/dsh.env
+EnvironmentFile=-%h/.veya/hicode.env
+# Reasonix is a Node script (`#!/usr/bin/env node`); give the service a stable
+# node path (nvm version dirs are not on the systemd user default PATH).
+Environment=PATH=/home/soffy/.veya/hicode-runtime/bin:/home/soffy/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONPATH=/data/soffy/projects/veya:/data/soffy/projects/veya/platform/3O/oprim:/data/soffy/projects/veya/platform/3O/obase:/data/soffy/projects/veya/platform/3O/omodul:/data/soffy/projects/veya/platform/3O/oskill:/data/soffy/projects/veya/platform/3O/oservi
+ExecStart=/data/soffy/projects/veya/venv/bin/python -m veya.remote serve --host 127.0.0.1 --port 8790
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -183,12 +183,16 @@ def _container_codex_usable() -> bool:
 
 
 def _container_dsh_usable() -> bool:
-    """容器内 dsh 精确探测: 二进制 + DEEPSEEK_API_KEY (docker-compose 已把 DEEPSEEK_BASE_URL
-    覆盖到 opencode-go 网关, key 复用同一份 opencode key, 无独立凭据文件可查, 只能查 env)。
+    """容器内 dsh 探测: 二进制 + DSH 执行面开关（不再依赖 DeepSeek 凭据）。
+
+    DSH 是 Veya 的执行器，模型/credential 由 :8791 网关持有（见 server/dsh_plane.py），
+    所以可用性只看“二进制在不在 + 执行面是否启用”，不看任何 DEEPSEEK_API_KEY。
     """
     if not _IN_CONTAINER:
         return True
-    return bool(os.environ.get("DEEPSEEK_API_KEY")) and shutil.which("dsh") is not None
+    from server.dsh_plane import is_enabled
+
+    return is_enabled() and shutil.which("dsh") is not None
 
 
 def _container_opencode_bin() -> str | None:

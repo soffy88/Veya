@@ -42,7 +42,9 @@ import shutil
 import time
 from typing import Any
 
+from server import dsh_plane, exec_process
 from server.events import fire_step
+from server.process_guard import executor_spawn_kwargs
 from server.project_store import ProjectAskResponse, ProjectStore, to_project_status
 from server.project_understand import (
     UnderstandResult,
@@ -205,20 +207,25 @@ def _resolve_dsh_bin() -> str | None:
 async def _dsh_exec(bin_path: str, prompt: str, cwd: str, timeout_s: int) -> tuple[int, str, str]:
     """拉起 dsh headless 子进程执行 prompt。
 
-    官方形态 (apps/cli/README, 2026-08 核实): `dsh --profile headless "<task>"`
+    官方形态: `dsh --profile headless [--patch <overlay>] "<task>"`
     ——一次性任务: 新会话 → 跑完 → 打印最终回答 → 退出; 没有 `run --brief-file`
     这种子命令, 任务是位置参数字符串, 不是文件 flag。cwd=项目根 (workspace root)。
+
+    DSH 是 Veya 的执行器而非独立模型路由: 模型/endpoint/占位 credential 全部由
+    专用配置 server/dsh_plane.py (`~/.config/veya/dsh.env`) 决定, 一律指向 Veya
+    LLM gateway; session 落在持久用户态目录, 不使用 /tmp。
     独立小函数, 便于测试直接 monkeypatch 掉, 不依赖真 dsh 二进制。
     """
+    cfg = dsh_plane.load_config()
     proc = await asyncio.create_subprocess_exec(
-        bin_path,
-        "--profile",
-        "headless",
-        prompt,
+        *dsh_plane.dsh_argv(bin_path, prompt, cfg),
         cwd=cwd,
+        env=dsh_plane.subprocess_env(cfg),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **executor_spawn_kwargs(),
     )
+    exec_process.record_current(os.environ.get(exec_process.PIDFILE_ENV, ""), proc, cwd)
     try:
         out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except TimeoutError:
@@ -277,6 +284,11 @@ async def _run_dsh(
     prompt = brief
     if len(prompt) > _DSH_PROMPT_CHAR_LIMIT:
         prompt = prompt[:_DSH_PROMPT_CHAR_LIMIT] + "\n...[truncated]"
+
+    if not dsh_plane.is_enabled():
+        reason = "dsh disabled (DSH_RUNTIME)"
+        (run_dir / "worker.log").write_text(reason, encoding="utf-8")
+        return ProjectAskResponse(task_id=task_id, status="blocked", block_reason=reason)
 
     bin_path = _resolve_dsh_bin()
     if not bin_path:

@@ -4332,3 +4332,10 @@ _register_github_pr_tools(master_tools)
 from server.github_issue_tools import register_tools as _register_github_issue_tools  # noqa: E402
 
 _register_github_issue_tools(master_tools)
+
+# Dual/Auto Supervision Runtime surface (mission/report/review). Additive
+# orchestration metadata over the existing GoalRun/MasterAgent execution path;
+# it is not a second agent mainline and does not execute work itself.
+from server.supervision_tools import register_tools as _register_supervision_tools  # noqa: E402
+
+_register_supervision_tools(master_tools)

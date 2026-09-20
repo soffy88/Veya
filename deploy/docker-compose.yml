@@ -5,6 +5,51 @@ name: veya
 version: '3.8'
 
 services:
+  # ── Internal Veya LLM Gateway (executor model routing) ─────────────
+  # Compose-network only: NO published port, unreachable from the host. The host
+  # keeps its own loopback instance (127.0.0.1:8791) for host-side runtimes.
+  # Same canonical implementation as the systemd unit (scripts/veya_llm_gateway.py);
+  # the script is mounted because the image ships no scripts/ directory.
+  veya-llm-gateway:
+    image: veya-backend:latest
+    container_name: veya-gateway-internal
+    working_dir: /app
+    command: ["python", "scripts/veya_llm_gateway.py", "--host", "0.0.0.0", "--port", "8791"]
+    volumes:
+      - ../scripts:/app/scripts:ro
+    env_file:
+      - ../.env
+    networks:
+      - veya-net
+    # The image healthcheck probes the app port (8765); this service serves 8791.
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8791/v1/models"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Durable execution database (PostgreSQL) ────────────────────────
+  # Required by VEYA_DURABLE_EXECUTION=1. No fallback to SQLite in production.
+  veya-db:
+    image: postgres:16-alpine
+    container_name: veya-db
+    environment:
+      POSTGRES_DB: ${VEYA_EXECUTION_DB_NAME:?VEYA_EXECUTION_DB_NAME must be set}
+      POSTGRES_USER: ${VEYA_EXECUTION_DB_USER:?VEYA_EXECUTION_DB_USER must be set}
+      POSTGRES_PASSWORD: ${VEYA_EXECUTION_DB_PASSWORD:?VEYA_EXECUTION_DB_PASSWORD must be set}
+    volumes:
+      # Existing production execution-database volume (real historical data).
+      - veya-execution-pg-data:/var/lib/postgresql/data
+    networks:
+      - veya-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
   # ── FastAPI Backend (veya server) ───────────────────
   backend:
     image: veya-backend:latest
@@ -70,12 +115,16 @@ services:
       - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
       - INFERERA_API_KEY=${INFERERA_API_KEY:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
-      # dsh (DeepSeek Harness) 走 opencode-go 网关: dsh-llm-deepseek 支持
-      # DEEPSEEK_BASE_URL 覆盖官方 endpoint (源码确认, 进程环境变量优先级最高),
-      # DeepSeek API 本身是 OpenAI 兼容协议, opencode-go 代理同样兼容, 复用同一
-      # 把 opencode key (与 OPENCODE_API_KEY 相同来源, 2026-08-16 接入)。
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://opencode.ai/zen/go/v1}
+      # DSH executor plane: model routing and credentials belong to the internal
+      # Veya LLM gateway service (`veya-llm-gateway`, see below). The backend holds
+      # no third-party provider credential for DSH — only a placeholder the local
+      # gateway ignores.
+      - DSH_RUNTIME=ENABLED
+      - DSH_PROVIDER=VEYA_LOCAL_GATEWAY
+      - DSH_BASE_URL=http://veya-llm-gateway:8791/v1
+      - DSH_MODEL=${DSH_MODEL:-opencode-go/deepseek-v4.1-flash}
+      - DSH_SESSION_DIR=/opt/veya/dsh-state
+      - DEEPSEEK_API_KEY=veya-local-gateway
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:?VEYA_PSEUDO_SECRET must be set in production}
       - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
       - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
@@ -148,6 +197,9 @@ services:
 volumes:
   veya-data:
     name: deploy_veya-data
+    external: true
+  veya-execution-pg-data:
+    name: veya-execution-pg-data
     external: true
 
 networks:
