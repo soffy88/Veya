@@ -360,6 +360,12 @@ async def lifespan(app: FastAPI):
         await get_connector().close()
     except Exception:
         pass
+    try:
+        from server.acp_mcp_delivery import get_acp_mcp_delivery
+
+        await get_acp_mcp_delivery().close_all()
+    except Exception:
+        _lg.exception("acp/mcp delivery shutdown detach failed")
     automata.shutdown()
 
 

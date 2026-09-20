@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -21,6 +22,21 @@ from server.acp_client import ACPBackend, ACPError
 BACKEND_KINDS = ("builtin", "cli", "acp")
 
 CLI_BACKENDS = {"claude": "claude", "codex": "codex", "pi": "pi", "opencode": "opencode"}
+
+
+def _backend_event_emit(topic: str, payload: dict[str, Any]) -> None:
+    """Best-effort audit for backend-driven delivery edges.
+
+    Runs outside request context; a failing event sink must never break
+    execution, so failures are logged (the delivery record itself always
+    persists in the assembly for inspection).
+    """
+    try:
+        from server.events import append_canonical_event
+
+        append_canonical_event(topic, payload, actor="system")
+    except Exception:
+        logging.getLogger("veya.backends").warning("backend delivery audit emit failed: %s", topic)
 
 
 @dataclass
@@ -193,8 +209,20 @@ class BackendRegistry:
     async def _run_acp(
         self, spec: BackendSpec, prompt: str, cwd: str | None, timeout_s: float
     ) -> dict[str, Any]:
+        from server.acp_mcp_delivery import default_mcp_sources, get_acp_mcp_delivery
+
         backend = ACPBackend(spec.command, agent=spec.agent, cwd=cwd)
+        delivery = get_acp_mcp_delivery(emit=_backend_event_emit)
         try:
+            session_id = await backend.start_session()
+            await delivery.open_session(
+                session_id,
+                backend_kind="acp",
+                reuse_key=f"{spec.name}:{cwd or ''}",
+                sources=default_mcp_sources(),
+                on_close_transport=backend.close,
+                owner=f"backend:{spec.name}",
+            )
             result = await backend.run(prompt, timeout_s=timeout_s)
             return {
                 "ok": True,
