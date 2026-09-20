@@ -473,62 +473,21 @@ async def skill_propose_ep(req: SkillTeachRequest) -> dict[str, Any]:
 
     Creates a skill spec with status "candidate" — not yet verified.
     Frontend must call /api/v1/skill/confirm or /api/v1/skill/reject
-    to finalize.
+    to finalize. Continuity decisions run through the canonical
+    distribution lifecycle; backend-native response shapes are preserved.
     """
-    import os
+    from pathlib import Path
 
-    if os.environ.get("VEYA_EXECUTION_DATABASE_URL"):
-        from runtime.personal import get_personal_runtime
-        from server import auth as auth_mod
+    from server.events import append_canonical_event
+    from server.skill_distribution import SkillDistribution
 
-        user = auth_mod.current_user()
-        config = req.config or {}
-        scope_type = str(config.get("scope_type") or "workspace")
-        scope_id = (
-            str(user["user_id"])
-            if scope_type == "user"
-            else str(config.get("scope_id") or os.environ.get("VEYA_WORKSPACE", "default"))
-        )
-        name = str(
-            config.get("name") or req.description[:50].strip().replace(" ", "-") or "taught-skill"
-        )
-        event = await get_personal_runtime().record_event(
-            "skill.teaching_instruction",
-            {"name": name, "description": req.description},
-            workspace_id=scope_id if scope_type == "workspace" else None,
-        )
-        candidate = await get_personal_runtime().create_skill_candidate(
-            name,
-            req.description,
-            scope_type=scope_type,
-            scope_id=scope_id if scope_type in {"user", "workspace"} else str(user["user_id"]),
-            trigger_examples=config.get("trigger_examples") or [],
-            parameters_schema=config.get("parameters_schema")
-            or {"type": "object", "properties": {}},
-            execution_type=str(config.get("execution_type") or "prompt"),
-            execution_ref=str(config.get("execution_ref") or ""),
-            source_event_ids=[event["id"]],
-            created_by=str(user["user_id"]),
-        )
-        return {
-            "status": "candidate",
-            "skill_id": candidate["skill_id"],
-            "skill_version_id": candidate["id"],
-            "description": candidate["description"],
-            "version": candidate["version"],
-            "phase": "proposed",
-        }
-    from server.capability_model import skill_registry
-
-    spec = skill_registry.propose_skill(req.description, req.config or {})
-    return {
-        "status": spec.status,
-        "skill_id": spec.skill_id,
-        "description": spec.instructions,
-        "version": spec.version,
-        "phase": "proposed",
-        "message": "Skill candidate created. Call /api/v1/skill/confirm to verify or /api/v1/skill/reject to discard.",
-    }
+    user = auth_mod.current_user()
+    user_id = str(user["user_id"])
+    distribution = SkillDistribution(
+        store_root=Path.home() / ".veya",
+        emit=lambda topic, payload: append_canonical_event(topic, payload, actor=user_id),
+    )
+    return await distribution.propose_teach(req.description, req.config or {}, user_id)
 
 
 @router.post("/api/v1/skill/confirm")
@@ -537,65 +496,21 @@ async def skill_confirm_ep(req: SkillConfirmRequest) -> dict[str, Any]:
 
     Changes status from "candidate" to "verified" — the skill is now
     permanently in the registry and discoverable by the model.
+    Promotion runs through the canonical distribution lifecycle; backend-
+    native response shapes are preserved.
     """
-    import os
+    from pathlib import Path
 
-    if os.environ.get("VEYA_EXECUTION_DATABASE_URL"):
-        from runtime.personal import PersonalRuntimeError, get_personal_runtime
+    from server.events import append_canonical_event
+    from server.skill_distribution import SkillDistribution
 
-        store = get_personal_runtime()
-        user = auth_mod.current_user()
-        skill = await store.get_skill(req.skill_id, versions=True)
-        version_id = req.skill_id
-        if skill:
-            candidate = next(
-                (v for v in skill.get("versions", []) if v.get("status") == "candidate"), None
-            )
-            if candidate:
-                version_id = str(candidate["id"])
-        version = await store.get_skill_version(version_id)
-        if version is None or (
-            version.get("scope_type") == "user"
-            and str(version.get("scope_id")) != str(user["user_id"])
-        ):
-            return {
-                "status": "not_found",
-                "skill_id": req.skill_id,
-                "error": "Skill candidate not found",
-            }
-        try:
-            spec = await store.confirm_skill(version_id)
-        except PersonalRuntimeError as exc:
-            return {
-                "status": "error",
-                "skill_id": req.skill_id,
-                "code": exc.code,
-                "error": str(exc),
-            }
-        return {
-            "status": "confirmed",
-            "skill_id": spec["skill_id"],
-            "skill_version_id": version_id,
-            "description": spec["description"],
-            "version": spec["version"],
-            "phase": spec["status"],
-        }
-    from server.capability_model import skill_registry
-
-    spec = skill_registry.confirm_skill(req.skill_id)
-    if spec is None:
-        return {
-            "status": "not_found",
-            "skill_id": req.skill_id,
-            "error": "Skill candidate not found",
-        }
-    return {
-        "status": "confirmed",
-        "skill_id": spec.skill_id,
-        "description": spec.instructions,
-        "version": spec.version,
-        "phase": spec.status,
-    }
+    user = auth_mod.current_user()
+    user_id = str(user["user_id"])
+    distribution = SkillDistribution(
+        store_root=Path.home() / ".veya",
+        emit=lambda topic, payload: append_canonical_event(topic, payload, actor=user_id),
+    )
+    return await distribution.confirm(req.skill_id, user_id)
 
 
 @router.post("/api/v1/skill/reject")

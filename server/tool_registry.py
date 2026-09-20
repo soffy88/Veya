@@ -3979,11 +3979,23 @@ async def _tool_skill_run(skill_id: str, params: dict[str, Any] | None = None) -
         skill = await get_personal_runtime().get_skill(skill_id)
         if skill is None or not _personal_user_visible(skill, user_id):
             return {"status": "not_found", "skill_id": skill_id}
+        # D6 distribution gate: ACTIVE + TRUSTED + BOUND/VISIBLE, then run.
+        # Explicit cross-scope bindings grant what creation scope alone denies.
+        from server.skill_distribution import SkillDistribution
+
+        await SkillDistribution().materialize(
+            skill_id,
+            str(skill.get("scope_type", "user")),
+            str(skill.get("scope_id", user_id)),
+            backend="personal",
+        )
         return await get_personal_runtime().run_skill(
             skill_id, params, task_id=task_id, trace_id=trace_id
         )
     except PersonalRuntimeError as exc:
         return {"status": "error", "code": exc.code, "error": str(exc)}
+    except ValueError as exc:
+        return {"status": "error", "code": "SAFETY_HOLD", "error": str(exc)}
 
 
 async def _tool_skill_update(

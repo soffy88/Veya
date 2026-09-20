@@ -458,6 +458,23 @@ class SkillRegistry:
         self._record_event("skill.created", spec)
         return spec
 
+    def set_trust_status(self, skill_id: str, trust_status: str) -> SkillSpec | None:
+        """Set the trust state of one skill (D6 revoke path).
+
+        Only the trust field changes; status/version/history are untouched.
+        Allowed values: ``trusted`` | ``review_required`` | ``blocked``.
+        """
+        if trust_status not in {"trusted", "review_required", "blocked"}:
+            raise ValueError(f"unknown trust status: {trust_status!r}")
+        spec = self.get_version(skill_id)
+        if spec is None:
+            return None
+        spec.trust_status = trust_status
+        spec.updated_at = _now_iso()
+        self._store.put("skill", skill_id, _to_record(spec))
+        self._record_event("skill.updated", spec, action="trust", trust_status=trust_status)
+        return spec
+
     def reject_skill(self, skill_id: str) -> bool:
         """Reject a previously proposed skill candidate.
 
