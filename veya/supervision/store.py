@@ -214,3 +214,33 @@ class MissionStore:
         if not latest:
             return None
         return max(latest.values(), key=lambda item: float(item.get("at", 0.0)))
+
+    def authority_for_execution(self, mission_id: str, iteration: int) -> dict[str, str]:
+        """Project real execution_id and goalrun_id from the durable handle into mission authority.
+
+        This is the canonical source that the frontend reads via the HTTP API. It
+        never invents IDs; it only maps what the execution loop already persisted.
+        """
+        handle = self.execution_for(mission_id, iteration)
+        if handle is None:
+            return {}
+        return {
+            "execution_id": str(handle.get("execution_id", "")),
+            "goalrun_id": str(handle.get("goalrun_id", "")),
+            "iteration": str(iteration),
+        }
+
+    def link_execution_authority(self, mission_id: str, iteration: int) -> Mission:
+        """Copy durable execution_id/goalrun_id/iteration into mission.authority.
+
+        Canonical source of truth for the frontend via HTTP inspect. This is
+        a projection only: no new ID is created and no execution side effect
+        happens.
+        """
+        authority = self.authority_for_execution(mission_id, iteration)
+        mission = self.load(mission_id)
+        if mission is None:
+            raise KeyError(f"unknown mission: {mission_id}")
+        for key, value in authority.items():
+            mission.authority[key] = value
+        return self.save(mission)

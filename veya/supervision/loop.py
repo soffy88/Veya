@@ -200,6 +200,9 @@ class MissionLoop:
         pidfile = exec_process.pidfile_for(self.store.mission_dir(mission_id), iteration)
         started_at = time.time()
         mission.status = MissionStatus.executing
+        # Project execution_id to mission authority for external visibility
+        mission.authority["execution_id"] = execution_id
+        mission.authority["iteration"] = iteration
         self.store.save(mission)
         self.store.append_execution(
             mission_id,
@@ -266,9 +269,12 @@ class MissionLoop:
                 "state": STATE_COMPLETED,
             },
         )
+        # Project execution_id and goalrun_id to mission authority
+        mission.authority["execution_id"] = execution_id
+        mission.authority["iteration"] = iteration
         if report.goalrun_id:
             mission.authority["goalrun_id"] = report.goalrun_id
-            self.store.save(mission)
+        self.store.save(mission)
         self.store.append_event(
             mission_id, "EXECUTOR_COMPLETED", {"iteration": iteration, "execution_id": execution_id}
         )

@@ -135,6 +135,14 @@ class ExternalSupervisor:
         self.store.append_report(report)
         self.store.append_event(mission_id, "EXECUTOR_COMPLETED", {"iteration": iteration})
 
+        # Project execution_id to mission authority for external visibility
+        execution_id = f"{mission_id}:{iteration}"
+        mission.authority["execution_id"] = execution_id
+        mission.authority["iteration"] = iteration
+        if report.goalrun_id:
+            mission.authority["goalrun_id"] = report.goalrun_id
+        self.store.save(mission)
+
         supervisor = mission.authority["active_supervisor"]
         if supervisor == str(SupervisionMode.external):
             mission.status = MissionStatus.waiting_external_supervisor

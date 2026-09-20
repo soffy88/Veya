@@ -7,6 +7,9 @@
  *  * execution is always an explicit user action (`startMission`), and starting
  *    is idempotent per mission while a run is already in flight;
  *  * nothing here derives mission status — the backend value is displayed as-is.
+ *
+ * P9B: state-affecting events trigger a debounced, coalesced refresh of the
+ * canonical data. Unknown events are appended but do not trigger refresh.
  */
 
 import {
@@ -85,6 +88,37 @@ export function createMissionListStore() {
   };
 }
 
+/** Canonical event topics that change visible state.
+ *
+ * Mirrors the runtime event topics emitted by `veya/supervision`
+ * (loop, external, retask, router, reviewer). Audit with:
+ *   grep -rE 'MISSION_|EXECUTION_|REPORT_|REVIEW_|ESCALATION_|SUPERVISOR_|EVIDENCE_' v
+ * Unknown events are displayed but never trigger a refresh.
+ */
+export const STATE_AFFECTING_TOPICS: ReadonlySet<string> = new Set([
+  "MISSION_CREATED",
+  "MISSION_STARTED",
+  "SUPERVISOR_SELECTED",
+  "SUPERVISION_MODE_CHANGED",
+  "SUPERVISOR_SWITCHED",
+  "EXECUTOR_STARTED",
+  "EXECUTION_STARTED",
+  "EXECUTION_COMPLETED",
+  "EXECUTOR_COMPLETED",
+  "EXECUTION_INTERRUPTED",
+  "EXECUTION_PROCESS_GROUP_TERMINATED",
+  "REPORT_CREATED",
+  "EVIDENCE_COLLECTED",
+  "REVIEW_COMPLETED",
+  "RETASK_CREATED",
+  "ESCALATED",
+  "MISSION_ACCEPTED",
+  "MISSION_DONE",
+  "MISSION_BLOCKED",
+  "MISSION_CANCELLED",
+  "JEV_DECISION",
+]);
+
 /** Detail store for one mission. */
 export function createMissionDetailStore(missionId: string) {
   let state = $state<MissionDetailState>(emptyDetail());
@@ -92,8 +126,18 @@ export function createMissionDetailStore(missionId: string) {
   let streamError = $state<string | null>(null);
   let disposeStream: (() => void) | null = null;
 
-  /** Read-only refresh: reports, reviews, escalations, events, mission. */
-  async function load(): Promise<void> {
+  // P9B refresh coalescing: burst events collapse into one trailing request.
+  let refreshInFlight = false;
+  let refreshPending = false;
+  const REFRESH_DEBOUNCE_MS = 150;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Read-only refresh: reports, reviews, escalations, events, mission.
+   *
+   * Used both for explicit reloads and for SSE-driven auto-refresh.
+   * `force` bypasses coalescing (explicit UI refresh).
+   */
+  async function load(force = false): Promise<void> {
     state.loading = true;
     state.error = null;
     const [inspect, report, reviews, escalations] = await Promise.all([
@@ -108,6 +152,46 @@ export function createMissionDetailStore(missionId: string) {
     if (reviews.ok) state.reviews = reviews.data?.reviews ?? [];
     if (escalations.ok) state.escalations = escalations.data?.escalations ?? [];
     state.loading = false;
+    // Drain a debounced auto-refresh if one was queued while this ran.
+    if (!force && refreshPending) {
+      refreshPending = false;
+      refreshAfterDebounce();
+    }
+  }
+
+  /** Debounce + coalesce: multiple events in 150ms → 1 refresh.
+   *  If a refresh is in flight when events arrive, exactly one trailing
+   *  refresh is queued after the in-flight one finishes (max 1 pending).
+   */
+  function refreshAfterDebounce(): void {
+    if (refreshTimer !== null) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      if (refreshInFlight) {
+        refreshPending = true;
+        return;
+      }
+      void refreshCanonical();
+    }, REFRESH_DEBOUNCE_MS);
+  }
+
+  async function refreshCanonical(): Promise<void> {
+    if (refreshInFlight) return;
+    refreshInFlight = true;
+    try {
+      await load();
+    } finally {
+      refreshInFlight = false;
+      if (refreshPending) {
+        refreshPending = false;
+        refreshAfterDebounce();
+      }
+    }
+  }
+
+  /** Classify whether an event should trigger a canonical data refresh. */
+  function isStateAffecting(event: MissionEvent): boolean {
+    return STATE_AFFECTING_TOPICS.has(event.topic ?? "");
   }
 
   /** Live events (SSE, polling fallback). Resumes from the count already held. */
@@ -120,6 +204,7 @@ export function createMissionDetailStore(missionId: string) {
       {
         onEvent: (event) => {
           state.events = [...state.events, event];
+          if (isStateAffecting(event)) refreshAfterDebounce();
         },
         onError: (message) => {
           streamError = message;
@@ -131,6 +216,9 @@ export function createMissionDetailStore(missionId: string) {
   function dispose(): void {
     disposeStream?.();
     disposeStream = null;
+    if (refreshTimer !== null) clearTimeout(refreshTimer);
+    refreshInFlight = false;
+    refreshPending = false;
   }
 
   /** Explicit user action — the only path that can start an execution. */
@@ -190,6 +278,7 @@ export function createMissionDetailStore(missionId: string) {
     retry,
     applyReview,
     switchMode,
+    refreshCanonical,
   };
 }
 
