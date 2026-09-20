@@ -249,10 +249,19 @@ def run_preflight(
         lines.append("OBASE_IMPORT_ORIGIN=PASS")
 
         if check_omodul:
-            omodul_dir = root / "platform" / "3O" / OMODUL_DIRNAME
+            three_o = root / "platform" / "3O"
+            # Mirror the backend container import surface: omodul pulls
+            # oprim/oskill at import time, so the probe needs them too.
+            # Only existing directories are added (fixtures stay minimal).
+            probe_dirs = [
+                str(candidate)
+                for name in (OMODUL_DIRNAME, "obase", "oprim", "oskill")
+                if (candidate := three_o / name).is_dir()
+            ]
+            omodul_dir = three_o / OMODUL_DIRNAME
             omodul_check = verify_module_import(
                 OMODUL_DIRNAME,
-                [str(omodul_dir), str(obase_dir)],
+                probe_dirs or [str(omodul_dir), str(obase_dir)],
                 None,
                 python_exe=python_exe,
                 cwd=root,
