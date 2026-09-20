@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "obase": {
-    "sha": "678c3a7dd5730544c4b40e2c0039f7050cc7617f",
+    "sha": "9fa1f44cf9c73e3af55be2d604ff7e2668faa9ba",
     "qualification": "canonical-lineage-reconciled",
     "required_contracts": [
       {
