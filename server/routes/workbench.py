@@ -206,23 +206,93 @@ async def control_workbench_task(task_id: str, request: TaskControlRequest) -> d
             expected=request.expected_version,
             actual=view["state"]["version"],
         )
-    if task_store.get(task_id) is not None:
+    if request.action == "cancel":
+        if task_store.get(task_id) is not None:
+            from server.routes import tasks as task_routes
+
+            await task_routes.cancel_task(task_id)
+        else:
+            from runtime.coding.task_service import CodingTaskService
+
+            service = CodingTaskService(projection.project_root)
+            result = await service.cancel_task(task_id)
+            if result is None:
+                raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+        return await _view_or_404(task_id)
+
+    # Manual resume/retry (human present): classify intent, decide through
+    # the canonical D3 policy, refuse BLOCKED with 409, else delegate with
+    # existing mechanics unchanged.
+    from runtime.execution.resume import (
+        ResumeDecisionStore,
+        ResumeDisposition,
+        decide_resume_disposition,
+        record_resume_decision,
+    )
+
+    stored_task = task_store.get(task_id)
+    if stored_task is not None:
         from server.routes import tasks as task_routes
         from server.routes.tasks import TaskResumeRequest
 
-        if request.action == "cancel":
-            await task_routes.cancel_task(task_id)
-        else:
-            await task_routes.resume_task(task_id, TaskResumeRequest(text=None, max_rounds=None))
+        trigger = "user_rerun" if stored_task.status == "failed" else "manual_resume"
+        decision = decide_resume_disposition(
+            trigger=trigger,
+            task_id=task_id,
+            session_id=stored_task.session_id,
+            checkpoint_id=stored_task.latest_checkpoint_id,
+            checkpoint_lineage_match=True,
+            resume_capable=True,
+            metadata={"prior_status": stored_task.status},
+        )
+        run_dir = Path(projection.project_root) / ".veya" / "runs" / task_id
+        ResumeDecisionStore(run_dir).record(decision)
+        record_resume_decision(
+            decision,
+            emit=lambda topic, payload: append_canonical_event(
+                topic, payload, actor="user", session_id=stored_task.session_id, task_id=task_id
+            ),
+        )
+        if decision.disposition is ResumeDisposition.BLOCKED:
+            raise _stale("RESUME_BLOCKED", expected=task_id, actual=decision.disposition.value)
+        await task_routes.resume_task(task_id, TaskResumeRequest(text=None, max_rounds=None))
     else:
-        from runtime.coding.task_service import CodingTaskService
+        from runtime.coding.task_service import (
+            CodingTaskService,
+            CodingTaskStatus,
+            WorktreeError,
+        )
 
         service = CodingTaskService(projection.project_root)
-        result = (
-            await service.cancel_task(task_id)
-            if request.action == "cancel"
-            else await service.resume_task(task_id)
+        state = service.get_task_state(task_id)
+        if state is None:
+            raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
+        trigger = (
+            "user_rerun"
+            if state.status
+            in (
+                CodingTaskStatus.FAILED.value,
+                CodingTaskStatus.PARTIAL_COMPLETED.value,
+                CodingTaskStatus.CANCELLED.value,
+            )
+            else "manual_resume"
         )
+        try:
+            result = await service.resume_task(
+                task_id,
+                trigger=trigger,
+                emit=lambda topic, payload: append_canonical_event(
+                    topic, payload, actor="user", task_id=task_id
+                ),
+            )
+        except WorktreeError as exc:
+            if getattr(exc, "resume_decision", None) is not None:
+                raise _stale(
+                    "RESUME_BLOCKED",
+                    expected=task_id,
+                    actual=exc.resume_decision.get("disposition"),
+                )
+            raise
         if result is None:
             raise HTTPException(status_code=404, detail=f"task not found: {task_id}")
     return await _view_or_404(task_id)

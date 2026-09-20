@@ -124,9 +124,7 @@ async def _claim_durable_goal_task(
             None,
         )
         if durable_item is None or durable_item.get("state") != "retry_wait":
-            raise DurableExecutionError(
-                "NOT_FOUND", f"no durable claim for {current_task.id}"
-            )
+            raise DurableExecutionError("NOT_FOUND", f"no durable claim for {current_task.id}")
 
         next_ready_at = durable_item.get("next_ready_at")
         if next_ready_at is None:
@@ -787,6 +785,10 @@ def _write_execution_checkpoint(
         ),
         artifact_manifest_ref=artifact_manifest_ref,
         finalization_started=state.finalization_started,
+        # D3: stamp lineage + verification at write time — the snapshot is
+        # derived from live authoritative state, so it is verifiable.
+        lineage_id=state.goal_id,
+        verified=True,
     )
     state.runtime_checkpoint = checkpoint.to_dict()
     store = ExecutionCheckpointStore(Path(project_root) / ".veya" / "runs" / state.goal_id)
@@ -1408,7 +1410,9 @@ async def _run_loop_and_finalize(
                 async def _run_guarded(current_task: Any = task):
                     async def execute_current(_cancel: asyncio.Event):
                         if integration_adapter is not None:
-                            await integration_adapter.before_iteration(state, project_root, current_task)
+                            await integration_adapter.before_iteration(
+                                state, project_root, current_task
+                            )
                         if durable_repository is None or durable_worker_id is None:
                             return await _process_one_task(
                                 current_task,
@@ -1438,7 +1442,9 @@ async def _run_loop_and_finalize(
                                         "status": "completed",
                                         "summary": current_task.execute_result or "",
                                         "delegate_result": current_task.delegate_result,
-                                        "canonical_action": state.budget.get("last_canonical_action"),
+                                        "canonical_action": state.budget.get(
+                                            "last_canonical_action"
+                                        ),
                                     },
                                 )
                             elif current_task.status == TaskStatus.ready:
@@ -1670,7 +1676,9 @@ async def _run_loop_and_finalize(
                 interpretation=u.interpretation if u else goal,
                 questions=None,
                 goal_counts={
-                    "pending": sum(1 for task in state.tasks.values() if task.status == TaskStatus.pending),
+                    "pending": sum(
+                        1 for task in state.tasks.values() if task.status == TaskStatus.pending
+                    ),
                     "running": len(state.running_ids),
                     "completed": completed,
                     "blocked": blocked,

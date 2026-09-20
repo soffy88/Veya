@@ -69,6 +69,18 @@ from .production_hardening import (
     BudgetExhausted as ProductionBudgetExhausted,
 )
 from .reconciler import Reconciler
+from .resume import (
+    CHECKPOINT_SCHEMA_VERSION,
+    RESUME_DECIDED_TOPIC,
+    ResumeDecision,
+    ResumeDecisionStore,
+    ResumeDisposition,
+    ResumeTrigger,
+    decide_resume_disposition,
+    record_resume_decision,
+    rejection_evidence_from_harness,
+    verify_execution_checkpoint,
+)
 from .runtime import DurableExecutionRuntime, DurableRuntimeConfig, get_durable_runtime
 from .scheduler import ContinuousReadyScheduler, SchedulerRun
 from .side_effects import SideEffectLedger
@@ -76,6 +88,8 @@ from .spawn_guard import SpawnGuard, SpawnRejected
 from .worker import WorkerHost
 
 __all__ = [
+    "CHECKPOINT_SCHEMA_VERSION",
+    "RESUME_DECIDED_TOPIC",
     "AcceptanceCriterion",
     "AcceptanceResult",
     "AdmissionLease",
@@ -119,6 +133,10 @@ __all__ = [
     "ProgressObservation",
     "Reconciler",
     "ReconciliationReport",
+    "ResumeDecision",
+    "ResumeDecisionStore",
+    "ResumeDisposition",
+    "ResumeTrigger",
     "SLOCalculator",
     "SchedulerRun",
     "SharedTaskContext",
@@ -134,8 +152,12 @@ __all__ = [
     "calculate_finalization_reserve",
     "canonical_json",
     "content_hash",
+    "decide_resume_disposition",
     "fan_in",
     "get_durable_runtime",
     "new_id",
     "reconcile_multi_bot_results",
+    "record_resume_decision",
+    "rejection_evidence_from_harness",
+    "verify_execution_checkpoint",
 ]

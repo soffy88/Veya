@@ -323,9 +323,7 @@ class DelegateResult:
             goal_run_id=str(value.get("goal_run_id") or goal_run_id),
             evidence_refs=list(value.get("evidence_refs") or evidence_refs or []),
             proposed_actions=[dict(item) for item in value.get("proposed_actions") or []],
-            side_effect_intents=[
-                dict(item) for item in value.get("side_effect_intents") or []
-            ],
+            side_effect_intents=[dict(item) for item in value.get("side_effect_intents") or []],
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -399,6 +397,11 @@ class ExecutionCheckpoint:
     pending_task_ids: list[str] = field(default_factory=list)
     artifact_manifest_ref: str | None = None
     finalization_started: bool = False
+    # D3 resume-disposition verification floor (all optional: old payloads
+    # keep constructing; unverified checkpoints simply never recover).
+    lineage_id: str | None = None
+    verified: bool = False
+    schema_version: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

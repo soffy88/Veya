@@ -78,6 +78,7 @@ class CodingTaskResult:
     changed_files: list[str]
     final_summary: str
     acceptance_passed: bool
+    resume_decision: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -90,6 +91,7 @@ class CodingTaskResult:
             "changed_files": self.changed_files,
             "final_summary": self.final_summary,
             "acceptance_passed": self.acceptance_passed,
+            "resume_decision": self.resume_decision,
         }
 
 
@@ -374,12 +376,41 @@ class CodingTaskService:
         )
 
     async def resume_task(
-        self, task_id: str, new_leaves: list[dict[str, Any]] | None = None
+        self,
+        task_id: str,
+        new_leaves: list[dict[str, Any]] | None = None,
+        *,
+        trigger: str = "process_recovery",
+        expected_goal_run_id: str | None = None,
+        emit: Any | None = None,
     ) -> CodingTaskResult:
-        """Resume a coding task from its durable state."""
+        """Resume a coding task from its durable state.
+
+        Continuity is decided by the canonical D3 policy
+        (``runtime.execution.resume.decide_resume_disposition``), never by
+        local if/else: terminal-failed tasks are not auto-retried, foreign
+        lineages are never recovered, and explicit user reruns never replay
+        the old goal premise. Every non-trivial path records its decision
+        durably (restart-safe) and carries it on the returned result.
+        """
+        from runtime.execution.resume import (
+            ResumeDecisionStore,
+            ResumeDisposition,
+            decide_resume_disposition,
+            record_resume_decision,
+        )
+
         state = _read_task_state(self.project_root, task_id)
         if not state:
             raise WorktreeError(f"Task not found: {task_id}")
+
+        store = ResumeDecisionStore(_task_dir(self.project_root, task_id))
+
+        def _record(decision: Any) -> Any:
+            stored = store.record(decision)
+            if emit is not None:
+                record_resume_decision(decision, emit=emit)
+            return stored
 
         if state.status in (CodingTaskStatus.COMPLETED.value, CodingTaskStatus.CANCELLED.value):
             # Return existing result
@@ -395,13 +426,50 @@ class CodingTaskService:
                 acceptance_passed=result.get("acceptance_passed", False),
             )
 
+        resumable_statuses = {
+            CodingTaskStatus.CREATED.value,
+            CodingTaskStatus.CONTRACT_READY.value,
+            CodingTaskStatus.WORKTREE_READY.value,
+            CodingTaskStatus.GOALRUN_CREATED.value,
+            CodingTaskStatus.RUNNING.value,
+            CodingTaskStatus.VERIFYING.value,
+            CodingTaskStatus.FINALIZING.value,
+            CodingTaskStatus.WAITING_APPROVAL.value,
+        }
+        lineage_match = expected_goal_run_id is None or state.goal_run_id == expected_goal_run_id
+        decision = decide_resume_disposition(
+            trigger=trigger,
+            task_id=task_id,
+            run_id=state.goal_run_id,
+            checkpoint_id=f"coding-task-state:{task_id}",
+            checkpoint_verified=state.status in resumable_statuses,
+            checkpoint_lineage_match=lineage_match,
+            resume_capable=False,
+            metadata={"prior_status": state.status, "fresh_leaves": bool(new_leaves)},
+        )
+        stored = _record(decision)
+        if decision.disposition is ResumeDisposition.BLOCKED:
+            refusal = WorktreeError(f"Resume refused ({decision.reason}): {task_id}")
+            refusal.resume_decision = stored
+            raise refusal
+
         # Restore status to RUNNING
         state.status = CodingTaskStatus.RUNNING.value
         _write_task_state(self.project_root, state)
 
         # If new leaves provided, run them
         if new_leaves:
-            return await self.run_task(task_id, new_leaves, goal_run_id=state.goal_run_id)
+            # Fresh user retry: never resume the old goal premise as the new
+            # run's starting point; the old goal_run_id stays on record for
+            # audit only.
+            fresh = decision.disposition is ResumeDisposition.FRESH_USER_RETRY
+            result = await self.run_task(
+                task_id,
+                new_leaves,
+                goal_run_id=None if fresh else state.goal_run_id,
+            )
+            result.resume_decision = stored
+            return result
 
         # Otherwise just return current state
         result = state.final_result or {}
@@ -414,6 +482,7 @@ class CodingTaskService:
             changed_files=result.get("changed_files", []),
             final_summary="Resumed",
             acceptance_passed=result.get("acceptance_passed", False),
+            resume_decision=stored,
         )
 
     async def cancel_task(self, task_id: str) -> CodingTaskState:

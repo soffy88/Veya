@@ -142,11 +142,64 @@ class LongRunningHarness:
         cls,
         checkpoint_store: LongRunCheckpointStore,
         budget: LongRunBudget | None = None,
+        *,
+        expected_goal_run_id: str | None = None,
+        emit: Any | None = None,
         **kwargs: Any,
     ) -> LongRunningHarness:
+        """Recover from the durable checkpoint under the D3 resume policy.
+
+        A verified same-lineage checkpoint recovers; a missing checkpoint in
+        this authoritative local store is permanent loss (fresh start, old
+        lineage retired by abandonment); a present-but-unreadable checkpoint
+        BLOCKS (a torn crash write must never be guessed as fresh or valid).
+        Non-recovery outcomes keep raising ``HarnessError`` — now carrying
+        the recorded disposition — so existing callers keep their contract.
+        """
+        from runtime.execution.resume import (
+            ResumeDecisionStore,
+            ResumeDisposition,
+            decide_resume_disposition,
+            record_resume_decision,
+        )
+
+        found = checkpoint_store.path.exists()
         state = checkpoint_store.read()
+        run_root = checkpoint_store.path.parent.parent
+        store = ResumeDecisionStore(run_root)
+
         if state is None:
-            raise HarnessError("checkpoint not found or invalid")
+            decision = decide_resume_disposition(
+                trigger="resume_rejected",
+                run_id=expected_goal_run_id,
+                rejection_evidence="permanent" if not found else None,
+                metadata={"checkpoint_path": str(checkpoint_store.path)},
+            )
+            store.record(decision)  # durable audit; deduped by decision key
+            if emit is not None:
+                record_resume_decision(decision, emit=emit)
+            raise HarnessError(
+                f"checkpoint not found or invalid "
+                f"(disposition={decision.disposition.value}, reason={decision.reason})"
+            )
+
+        lineage_match = expected_goal_run_id is None or state.goal_run_id == expected_goal_run_id
+        decision = decide_resume_disposition(
+            trigger="process_recovery",
+            run_id=state.goal_run_id,
+            checkpoint_id=f"long-run-state:{state.goal_run_id}",
+            checkpoint_verified=state.status in {"running", "suspended", "recovering", "blocked"},
+            checkpoint_lineage_match=lineage_match,
+            metadata={"prior_status": state.status},
+        )
+        store.record(decision)  # durable audit; deduped by decision key
+        if emit is not None:
+            record_resume_decision(decision, emit=emit)
+        if decision.disposition is not ResumeDisposition.RECOVER_CHECKPOINT:
+            raise HarnessError(
+                f"recovery refused "
+                f"(disposition={decision.disposition.value}, reason={decision.reason})"
+            )
         return cls(state, budget, checkpoint_store=checkpoint_store, **kwargs)
 
     def checkpoint(self, *, reason: str = "periodic") -> Path | None:
