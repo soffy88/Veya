@@ -15,6 +15,13 @@ async function forward(event: Parameters<RequestHandler>[0]): Promise<Response> 
   const path = event.params.path ?? "";
   const target = `${BASE}/api/v1/${path}${event.url.search}`;
   const init: RequestInit = { method: event.request.method, headers: {} };
+  // Forward the caller's credentials: authenticated endpoints (auth, supervision,
+  // agent) authorize per user, and dropping Authorization would silently turn
+  // every logged-in request into an anonymous one.
+  const authz = event.request.headers.get("authorization");
+  if (authz) (init.headers as Record<string, string>)["authorization"] = authz;
+  const cookie = event.request.headers.get("cookie");
+  if (cookie) (init.headers as Record<string, string>)["cookie"] = cookie;
   if (event.request.method !== "GET" && event.request.method !== "HEAD") {
     const ct = event.request.headers.get("content-type") ?? "";
     if (ct) (init.headers as Record<string, string>)["content-type"] = ct;
@@ -42,10 +49,22 @@ async function forward(event: Parameters<RequestHandler>[0]): Promise<Response> 
       return gatewayGuideResponse(BASE, probe.detail);
     }
   }
+  const contentType = upstream.headers.get("content-type") ?? "application/json";
+  // Streaming responses (SSE) must pass through unbuffered: reading them with
+  // .text() would hold the whole stream and the browser would never see events.
+  if (contentType.includes("text/event-stream") && upstream.body) {
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        "content-type": contentType,
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+        "x-accel-buffering": "no",
+      },
+    });
+  }
   const text = await upstream.text();
-  const headers: Record<string, string> = {
-    "content-type": upstream.headers.get("content-type") ?? "application/json",
-  };
+  const headers: Record<string, string> = { "content-type": contentType };
   return new Response(text, { status: upstream.status, headers });
 }
 

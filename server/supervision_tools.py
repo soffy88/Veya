@@ -88,6 +88,31 @@ def veya_escalation_list(project_root: str, mission_id: str) -> dict[str, Any]:
     return {"escalations": _facade(project_root).list_escalations(mission_id)}
 
 
+def veya_mission_set_mode(project_root: str, mission_id: str, mode: str) -> dict[str, Any]:
+    """Thin wrapper over MissionStore.set_supervision_mode (same mission_id/lineage)."""
+
+    facade = _facade(project_root)
+    mission = facade.store.set_supervision_mode(mission_id, str(mode))
+    facade.store.append_event(
+        mission_id, "SUPERVISION_MODE_CHANGED", {"mode": str(mission.supervision_mode)}
+    )
+    return {"mission": mission.to_dict()}
+
+
+def veya_reviews(project_root: str, mission_id: str) -> dict[str, Any]:
+    """Read-only review history (canonical store, oldest first)."""
+
+    store = MissionStore(project_root)
+    return {"reviews": [review.to_dict() for review in store.reviews(mission_id)]}
+
+
+def veya_events(project_root: str, mission_id: str) -> dict[str, Any]:
+    """Read-only mission event log (canonical store, oldest first)."""
+
+    store = MissionStore(project_root)
+    return {"events": store.events(mission_id)}
+
+
 _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
     (
         "veya_mission_create",
@@ -211,6 +236,43 @@ _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
             "required": ["project_root", "mission_id"],
         },
         veya_escalation_list,
+        "pure_read",
+    ),
+    (
+        "veya_mission_set_mode",
+        "切换 Mission 监督模式（external/internal/auto），保持同一 mission_id 与 lineage。",
+        {
+            "type": "object",
+            "properties": {
+                "project_root": {"type": "string"},
+                "mission_id": {"type": "string"},
+                "mode": {"type": "string", "enum": ["external", "internal", "auto"]},
+            },
+            "required": ["project_root", "mission_id", "mode"],
+        },
+        veya_mission_set_mode,
+        "local_write",
+    ),
+    (
+        "veya_reviews",
+        "读取 Mission 的 review 历史（只读，canonical store）。",
+        {
+            "type": "object",
+            "properties": {"project_root": {"type": "string"}, "mission_id": {"type": "string"}},
+            "required": ["project_root", "mission_id"],
+        },
+        veya_reviews,
+        "pure_read",
+    ),
+    (
+        "veya_events",
+        "读取 Mission 的事件流（只读，canonical store）。",
+        {
+            "type": "object",
+            "properties": {"project_root": {"type": "string"}, "mission_id": {"type": "string"}},
+            "required": ["project_root", "mission_id"],
+        },
+        veya_events,
         "pure_read",
     ),
 )

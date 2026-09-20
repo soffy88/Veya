@@ -17,6 +17,9 @@ services:
     command: ["python", "scripts/veya_llm_gateway.py", "--host", "0.0.0.0", "--port", "8791"]
     volumes:
       - ../scripts:/app/scripts:ro
+      # The image ships an older veya/; the gateway must run the repo's canonical
+      # client code (it injects the upstream session header the model needs).
+      - ../veya:/app/veya:ro
     env_file:
       - ../.env
     networks:
@@ -123,8 +126,10 @@ services:
       - DSH_PROVIDER=VEYA_LOCAL_GATEWAY
       - DSH_BASE_URL=http://veya-llm-gateway:8791/v1
       - DSH_MODEL=${DSH_MODEL:-opencode-go/deepseek-v4.1-flash}
-      - DSH_SESSION_DIR=/opt/veya/dsh-state
+      - DSH_SESSION_DIR=/home/soffy/.veya/dsh-state
       - DEEPSEEK_API_KEY=veya-local-gateway
+      # Web supervision workspace authorization roots (fail closed when unset).
+      - VEYA_WEB_WORKSPACE_ROOTS=${VEYA_WEB_WORKSPACE_ROOTS:-}
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:?VEYA_PSEUDO_SECRET must be set in production}
       - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
       - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
@@ -149,6 +154,9 @@ services:
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
     volumes:
       - veya-data:/home/soffy/.veya
+      # Web supervision missions execute inside user workspaces; only this
+      # directory is mapped (never all of /data), read-write, path preserved.
+      - /data/soffy/projects:/data/soffy/projects
       # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) — 镜像重建后由 requirements.txt
       # 提供; 当前阶段从宿主 deploy/hevi_deps 挂载 (容器层不可写, 镜像未含)
       - ../deploy/hevi_deps:/home/soffy/hevi_deps:ro

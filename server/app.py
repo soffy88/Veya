@@ -13,6 +13,7 @@ from config.loader import load_config
 from server.assembly import Infra
 from server.routes.adversarial import router as adversarial_router
 from server.routes.agent import router as agent_router
+from server.routes.supervision import router as supervision_router
 from server.routes.agent_collaboration import router as agent_collaboration_router
 from server.routes.analysis import router as analysis_router
 from server.routes.audit import router as audit_router
@@ -399,6 +400,7 @@ app.include_router(permission_router)
 app.include_router(session_router)
 app.include_router(tool_router)
 app.include_router(agent_router)
+app.include_router(supervision_router)
 app.include_router(models_router)
 app.include_router(security_router)
 app.include_router(vscode_router)
