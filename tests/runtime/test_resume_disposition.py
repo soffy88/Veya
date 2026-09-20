@@ -8,6 +8,8 @@ idempotency, restart survival, and real wiring through CodingTaskService
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from runtime.execution.models import ExecutionCheckpoint
@@ -264,6 +266,8 @@ def test_record_emits_canonical_topic():
 def _write_coding_state(project_root, task_id, status, goal_run_id="goal-1"):
     from runtime.coding.task_service import CodingTaskState, _write_task_state
 
+    worktree = Path(project_root) / "wt"
+    worktree.mkdir(parents=True, exist_ok=True)
     state = CodingTaskState(
         task_id=task_id,
         workspace_path=str(project_root),
@@ -272,7 +276,7 @@ def _write_coding_state(project_root, task_id, status, goal_run_id="goal-1"):
         source="test",
         status=status,
         goal_run_id=goal_run_id,
-        worktree_path=str(project_root / "wt"),
+        worktree_path=str(worktree),
     )
     _write_task_state(project_root, state)
     return state
