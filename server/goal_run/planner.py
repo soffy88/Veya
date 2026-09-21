@@ -90,6 +90,7 @@ async def g1_plan(
     max_leaf_tasks: int | None = None,
     project_root: str | None = None,
     explicit_tasks: list[dict[str, Any]] | None = None,
+    agent_identity: dict[str, Any] | None = None,
 ) -> tuple[GoalRunState, GoalRunResponse]:
     """G1 Plan：根据 interpretation 生成任务图 taskgraph.json。
 
@@ -139,6 +140,19 @@ async def g1_plan(
         default_assignee=default_assignee,
         budget=budget,
     )
+    # D8: freeze run-identity snapshot at creation (refs only; None = adhoc).
+    if agent_identity:
+        for _k in (
+            "agent_definition_id",
+            "agent_definition_version",
+            "agent_deployment_id",
+            "agent_deployment_revision",
+            "agent_runtime_id",
+            "agent_session_id",
+            "agent_instance_id",
+        ):
+            if agent_identity.get(_k) is not None:
+                setattr(state, _k, agent_identity.get(_k))
 
     for tn in tasks:
         state.tasks[tn["id"]] = TaskNode(

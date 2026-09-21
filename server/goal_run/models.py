@@ -403,6 +403,15 @@ class GoalRunState:
     fanin_states: dict[str, FanInState] = field(default_factory=dict)
     playbook_states: dict[str, PlaybookState] = field(default_factory=dict)
     routine_states: dict[str, RoutineState] = field(default_factory=dict)
+    # D8: frozen run-identity snapshot (refs only; never a second run store).
+    # Set once at creation via stamp; resume paths must preserve verbatim.
+    agent_definition_id: str | None = field(default=None)
+    agent_definition_version: int | None = field(default=None)
+    agent_deployment_id: str | None = field(default=None)
+    agent_deployment_revision: int | None = field(default=None)
+    agent_runtime_id: str | None = field(default=None)
+    agent_session_id: str | None = field(default=None)
+    agent_instance_id: str | None = field(default=None)
 
     def to_taskgraph_json(self) -> dict[str, Any]:
         """转为 taskgraph.json 格式（用于落盘/序列化）。"""
@@ -457,6 +466,13 @@ class GoalRunState:
             "active_skill_id": self.active_skill_id,
             "active_skill_version": self.active_skill_version,
             "active_playbook_version": self.active_playbook_version,
+            "agent_definition_id": self.agent_definition_id,
+            "agent_definition_version": self.agent_definition_version,
+            "agent_deployment_id": self.agent_deployment_id,
+            "agent_deployment_revision": self.agent_deployment_revision,
+            "agent_runtime_id": self.agent_runtime_id,
+            "agent_session_id": self.agent_session_id,
+            "agent_instance_id": self.agent_instance_id,
             "routines": {routine_id: spec.to_dict() for routine_id, spec in self.routines.items()},
             "delegate_states": {
                 delegate_id: item.to_dict() for delegate_id, item in self.delegate_states.items()
@@ -501,6 +517,14 @@ class GoalRunState:
         state.active_skill_id = data.get("active_skill_id")
         state.active_skill_version = data.get("active_skill_version")
         state.active_playbook_version = data.get("active_playbook_version")
+        # D8: run-identity snapshot; old files without them load fine (None).
+        state.agent_definition_id = data.get("agent_definition_id")
+        state.agent_definition_version = data.get("agent_definition_version")
+        state.agent_deployment_id = data.get("agent_deployment_id")
+        state.agent_deployment_revision = data.get("agent_deployment_revision")
+        state.agent_runtime_id = data.get("agent_runtime_id")
+        state.agent_session_id = data.get("agent_session_id")
+        state.agent_instance_id = data.get("agent_instance_id")
         state.routines = {
             routine_id: RoutineSpec.from_dict(spec)
             for routine_id, spec in dict(data.get("routines") or {}).items()

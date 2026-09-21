@@ -306,6 +306,7 @@ class CodingTaskService:
         leaf_sequence: list[dict[str, Any]],
         *,
         goal_run_id: str | None = None,
+        agent_deployment_id: str | None = None,
     ) -> CodingTaskResult:
         """Execute a coding task's leaf sequence.
 
@@ -319,6 +320,23 @@ class CodingTaskService:
         if goal_run_id:
             state.goal_run_id = goal_run_id
             _write_task_state(self.project_root, state)
+
+        # D8: optional deployment gate (fail closed on unavailable runtime).
+        if agent_deployment_id is not None:
+            from pathlib import Path as _Path
+
+            from server.agent_definition import AgentDefinitionStore as _ADStore
+            from server.agent_definition import resolve_agent_deployment as _resolve
+
+            _resolution = _resolve(
+                _ADStore(_Path(self.project_root) / ".veya"),
+                deployment_id=agent_deployment_id,
+            )
+            if not _resolution.runtime_available:
+                raise WorktreeError(
+                    f"runtime unavailable for deployment {agent_deployment_id}: "
+                    f"{_resolution.runtime_id}"
+                )
 
         # Execute each leaf
         all_evidence: list[dict[str, Any]] = []

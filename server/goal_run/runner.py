@@ -262,6 +262,38 @@ def _explicit_understanding(goal: str, mode: str) -> UnderstandResult:
     )
 
 
+async def _validate_run_dependencies(store: Any, resolution: Any) -> str | None:
+    """Revalidate D6/D7 refs at run start (fail closed on revoked).
+
+    Returns a block reason or None. Live authority state is consulted;
+    nothing is cached, so a revoke between promotion and run start blocks.
+    """
+    try:
+        from server.capability_model import CapabilityRegistry
+        from server.skill_distribution import SkillDistribution
+    except Exception as exc:
+        return f"dependency gate unavailable: {exc}"
+    try:
+        definition = store.get_definition(resolution.definition_id, resolution.definition_version)
+        if definition is None:
+            return "definition version missing"
+        for skill_id in list(definition.skill_refs or ()):
+            try:
+                await SkillDistribution().materialize(
+                    skill_id, "agent-run", "run-start", backend="registry"
+                )
+            except Exception as exc:
+                return f"revoked/untrusted skill blocks run: {skill_id} ({exc})"
+        cap_reg = CapabilityRegistry()
+        for cap_id in list(definition.capability_refs or ()):
+            spec = cap_reg.get(cap_id)
+            if spec is None or spec.status != "verified":
+                return f"capability not verified blocks run: {cap_id}"
+        return None
+    except Exception as exc:
+        return f"dependency gate failed: {exc}"
+
+
 async def _constitution_guard(
     state: GoalRunState,
     task: Any,
@@ -923,6 +955,10 @@ async def project_run_goal(
     semantic_llm_kwargs: dict[str, Any] | None = None,
     gateway_executor: Any | None = None,
     verification_required: bool = False,
+    agent_deployment_id: str | None = None,
+    agent_definition_id: str | None = None,
+    agent_session_id: str | None = None,
+    agent_instance_id: str | None = None,
 ) -> GoalRunResponse:
     """project_run_goal 主入口（M4 规格）。
 
@@ -1025,9 +1061,76 @@ async def project_run_goal(
             next_action="none",
         )
 
+    # ── D8: agent deployment resolution (new runs only; resume preserves) ──
+    _agent_identity: dict[str, Any] | None = None
+    if not (resume_goal_id and state is not None) and (
+        agent_deployment_id is not None or agent_definition_id is not None
+    ):
+        from server.agent_definition import (
+            AgentDefinitionStore,
+            resolve_agent_deployment,
+            stamp_run_identity,
+        )
+
+        _store = AgentDefinitionStore(Path(project_root) / ".veya")
+        try:
+            _resolution = resolve_agent_deployment(
+                _store,
+                deployment_id=agent_deployment_id,
+                definition_id=agent_definition_id,
+            )
+        except ValueError as exc:
+            return GoalRunResponse(
+                goal_id="",
+                status=GoalStatus.blocked,
+                phase="rejected",
+                interpretation=u.interpretation,
+                questions=None,
+                goal_counts=None,
+                summary=None,
+                block_reason=f"agent resolution failed: {exc}",
+                artifacts=None,
+                next_action="none",
+            )
+        if not _resolution.runtime_available:
+            return GoalRunResponse(
+                goal_id="",
+                status=GoalStatus.blocked,
+                phase="rejected",
+                interpretation=u.interpretation,
+                questions=None,
+                goal_counts=None,
+                summary=None,
+                block_reason=f"runtime unavailable: {_resolution.runtime_id}",
+                artifacts=None,
+                next_action="none",
+            )
+        # D6/D7 fresh revalidation at run start (fail closed on revoked).
+        _dep_block = await _validate_run_dependencies(_store, _resolution)
+        if _dep_block is not None:
+            return GoalRunResponse(
+                goal_id="",
+                status=GoalStatus.blocked,
+                phase="rejected",
+                interpretation=u.interpretation,
+                questions=None,
+                goal_counts=None,
+                summary=None,
+                block_reason=_dep_block,
+                artifacts=None,
+                next_action="none",
+            )
+        _identity = stamp_run_identity(
+            _resolution,
+            session_id=agent_session_id or semantic_session_id,
+            agent_instance_id=agent_instance_id,
+        )
+        _agent_identity = _identity.to_dict()
+
     # ── G1: Plan 任务图生成 ────────────────────────────────────────────
     if resume_goal_id and state is not None:
         # 恢复已有任务图；不得重新规划或重复创建任务。
+        # D8: resume preserves the frozen identity snapshot verbatim.
         pass
     else:
         # 生成任务图
@@ -1048,12 +1151,21 @@ async def project_run_goal(
             budget=budget,
             project_root=project_root,
             explicit_tasks=tasks,
+            agent_identity=_agent_identity,
         )
 
         if state.started_at is None:
             state.started_at = datetime.now(UTC)
         # 保存 state
         save_goal_run(state, project_root)
+        if _agent_identity:
+            with contextlib.suppress(Exception):
+                _emit_runtime_event(
+                    state,
+                    project_root,
+                    "agent.run_bound",
+                    **_agent_identity,
+                )
 
     # 如果是 resume，保持原有状态
     if resume_goal_id and state:

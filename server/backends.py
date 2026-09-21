@@ -149,8 +149,9 @@ class BackendRegistry:
         cwd: str | None = None,
         model: str = "",
         timeout_s: float = 600.0,
+        agent_runtime_id: str | None = None,
     ) -> dict[str, Any]:
-        """统一执行: builtin → 主脑; cli → engine_runner; acp → ACP 客户端。"""
+        """统一执行: builtin → 主脑; cli → engine_runner; acp → ACP 客户端."""
         spec = self._find(name)
         if spec is None:
             raise KeyError(f"backend 不存在: {name}")
@@ -162,6 +163,17 @@ class BackendRegistry:
                 "backend": name,
                 "error": f"backend {name} 不可用 (CLI 未安装或命令无效)",
             }
+        # D8: optional runtime gate against the canonical D1 descriptor.
+        if agent_runtime_id is not None:
+            from server.agent_definition import check_runtime_available
+
+            _rt = check_runtime_available(agent_runtime_id)
+            if not _rt.get("available"):
+                return {
+                    "ok": False,
+                    "backend": name,
+                    "error": f"runtime unavailable: {agent_runtime_id}",
+                }
 
         self._running[name] = self._running.get(name, 0) + 1
         try:
