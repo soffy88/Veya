@@ -28,6 +28,7 @@ HarnessOperation = Literal["doctor", "launch", "drive", "snapshot", "trace", "cl
 @dataclass(frozen=True)
 class AcceptanceCriterion:
     """Single acceptance criterion in a VerificationSpec."""
+
     id: str
     description: str
     required: bool = True
@@ -40,6 +41,7 @@ class AcceptanceCriterion:
 @dataclass(frozen=True)
 class UserJourney:
     """A user journey in a VerificationSpec."""
+
     id: str
     name: str
     steps: list[str]
@@ -54,6 +56,7 @@ class UserJourney:
 @dataclass(frozen=True)
 class RequiredEvidence:
     """Required evidence specification."""
+
     id: str
     kind: Literal["artifact", "log", "trace", "snapshot", "metric", "test_result"]
     description: str
@@ -67,6 +70,7 @@ class RequiredEvidence:
 @dataclass(frozen=True)
 class NegativeCase:
     """Negative test case specification."""
+
     id: str
     description: str
     trigger: str
@@ -80,6 +84,7 @@ class NegativeCase:
 @dataclass(frozen=True)
 class CleanupAction:
     """Cleanup action specification."""
+
     id: str
     description: str
     trigger: Literal["always", "on_failure", "on_success"]
@@ -97,6 +102,7 @@ class VerificationSpec:
     Once execution begins, the worker MUST NOT silently lower acceptance criteria.
     This spec is frozen at creation and bound to the GoalRun.
     """
+
     version: str = "1.0"
     spec_id: str = ""
     task_id: str = ""
@@ -119,6 +125,8 @@ class VerificationSpec:
 
     # Feature map reference
     feature_map_id: str = ""
+    verification_profile_id: str = ""
+    verification_profile_version: str = ""
 
     # Metadata
     spec_hash: str = ""
@@ -126,11 +134,17 @@ class VerificationSpec:
 
     def __post_init__(self):
         if not self.spec_id:
-            object.__setattr__(self, 'spec_id', f"vspec-{hashlib.sha256(self.task_id.encode()).hexdigest()[:12]}")
+            object.__setattr__(
+                self, "spec_id", f"vspec-{hashlib.sha256(self.task_id.encode()).hexdigest()[:12]}"
+            )
         if not self.spec_hash:
             # Hash everything except the hash itself
-            data = {k: v for k, v in asdict(self).items() if k != 'spec_hash'}
-            object.__setattr__(self, 'spec_hash', hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32])
+            data = {k: v for k, v in asdict(self).items() if k != "spec_hash"}
+            object.__setattr__(
+                self,
+                "spec_hash",
+                hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32],
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -148,6 +162,8 @@ class VerificationSpec:
         negative_cases: list[NegativeCase] | None = None,
         cleanup_actions: list[CleanupAction] | None = None,
         feature_map_id: str = "",
+        verification_profile_id: str = "",
+        verification_profile_version: str = "",
     ) -> VerificationSpec:
         """Factory to create a VerificationSpec for a task."""
         return cls(
@@ -160,11 +176,13 @@ class VerificationSpec:
             negative_cases=negative_cases or [],
             cleanup_actions=cleanup_actions or [],
             feature_map_id=feature_map_id,
+            verification_profile_id=verification_profile_id,
+            verification_profile_version=verification_profile_version,
         )
 
     def verify_immutable(self) -> bool:
         """Verify this spec hasn't been modified since creation."""
-        data = {k: v for k, v in asdict(self).items() if k != 'spec_hash'}
+        data = {k: v for k, v in asdict(self).items() if k != "spec_hash"}
         current_hash = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
         return current_hash == self.spec_hash
 
@@ -177,16 +195,14 @@ class VerificationSpec:
             for c in data.get("acceptance_criteria", [])
         ]
         user_journeys = [
-            UserJourney(**j) if isinstance(j, dict) else j
-            for j in data.get("user_journeys", [])
+            UserJourney(**j) if isinstance(j, dict) else j for j in data.get("user_journeys", [])
         ]
         required_evidence = [
             RequiredEvidence(**e) if isinstance(e, dict) else e
             for e in data.get("required_evidence", [])
         ]
         negative_cases = [
-            NegativeCase(**n) if isinstance(n, dict) else n
-            for n in data.get("negative_cases", [])
+            NegativeCase(**n) if isinstance(n, dict) else n for n in data.get("negative_cases", [])
         ]
         cleanup_actions = [
             CleanupAction(**c) if isinstance(c, dict) else c
@@ -207,6 +223,7 @@ class VerificationSpec:
     def load(cls, path: str | Path) -> VerificationSpec:
         """Load VerificationSpec from JSON file."""
         import json
+
         path = Path(path)
         data = json.loads(path.read_text())
         return cls.from_dict(data)
@@ -215,6 +232,7 @@ class VerificationSpec:
 @dataclass(frozen=True)
 class FeatureEntryPoint:
     """Entry point for a feature."""
+
     id: str
     type: Literal["cli", "api", "ui", "webhook", "schedule"]
     path: str
@@ -227,6 +245,7 @@ class FeatureEntryPoint:
 @dataclass(frozen=True)
 class FeatureAction:
     """Action within a feature."""
+
     id: str
     name: str
     description: str
@@ -240,6 +259,7 @@ class FeatureAction:
 @dataclass(frozen=True)
 class FeatureSuccessEvidence:
     """Success evidence for a feature."""
+
     id: str
     kind: Literal["assertion", "artifact", "log_pattern", "state_change", "metric"]
     description: str
@@ -252,6 +272,7 @@ class FeatureSuccessEvidence:
 @dataclass(frozen=True)
 class FeatureFailureState:
     """Failure/empty state for a feature."""
+
     id: str
     trigger: str
     expected_behavior: str
@@ -264,6 +285,7 @@ class FeatureFailureState:
 @dataclass(frozen=True)
 class FeatureMapEntry:
     """Single feature entry in a FeatureMap."""
+
     feature: str
     entry_points: list[FeatureEntryPoint] = field(default_factory=list)
     preconditions: list[str] = field(default_factory=list)
@@ -272,6 +294,7 @@ class FeatureMapEntry:
     failure_states: list[FeatureFailureState] = field(default_factory=list)
     cleanup: list[str] = field(default_factory=list)
     related_features: list[str] = field(default_factory=list)
+    verification_profile_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -291,6 +314,7 @@ class FeatureMap:
     - cleanup: What to clean up
     - related_features: Cross-references
     """
+
     version: str = "1.0"
     map_id: str = ""
     project_root: str = ""
@@ -300,10 +324,18 @@ class FeatureMap:
 
     def __post_init__(self):
         if not self.map_id:
-            object.__setattr__(self, 'map_id', f"fmap-{hashlib.sha256(self.project_root.encode()).hexdigest()[:12]}")
+            object.__setattr__(
+                self,
+                "map_id",
+                f"fmap-{hashlib.sha256(self.project_root.encode()).hexdigest()[:12]}",
+            )
         if not self.map_hash:
-            data = {k: v for k, v in asdict(self).items() if k != 'map_hash'}
-            object.__setattr__(self, 'map_hash', hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32])
+            data = {k: v for k, v in asdict(self).items() if k != "map_hash"}
+            object.__setattr__(
+                self,
+                "map_hash",
+                hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32],
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -315,7 +347,7 @@ class FeatureMap:
         return None
 
     def verify_immutable(self) -> bool:
-        data = {k: v for k, v in asdict(self).items() if k != 'map_hash'}
+        data = {k: v for k, v in asdict(self).items() if k != "map_hash"}
         current_hash = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
         return current_hash == self.map_hash
 
@@ -323,6 +355,7 @@ class FeatureMap:
 @dataclass(frozen=True)
 class ControlHarnessImplementation:
     """Implementation of a single harness operation."""
+
     operation: HarnessOperation
     command: str
     description: str
@@ -349,6 +382,7 @@ class ControlHarnessRef:
     If the harness doesn't exist, it can be generated incrementally
     but MUST be self-testable.
     """
+
     version: str = "1.0"
     harness_id: str = ""
     project_root: str = ""
@@ -361,10 +395,18 @@ class ControlHarnessRef:
 
     def __post_init__(self):
         if not self.harness_id:
-            object.__setattr__(self, 'harness_id', f"harness-{hashlib.sha256(self.project_root.encode()).hexdigest()[:12]}")
+            object.__setattr__(
+                self,
+                "harness_id",
+                f"harness-{hashlib.sha256(self.project_root.encode()).hexdigest()[:12]}",
+            )
         if not self.harness_hash:
-            data = {k: v for k, v in asdict(self).items() if k != 'harness_hash'}
-            object.__setattr__(self, 'harness_hash', hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32])
+            data = {k: v for k, v in asdict(self).items() if k != "harness_hash"}
+            object.__setattr__(
+                self,
+                "harness_hash",
+                hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32],
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -376,7 +418,7 @@ class ControlHarnessRef:
         return None
 
     def verify_immutable(self) -> bool:
-        data = {k: v for k, v in asdict(self).items() if k != 'harness_hash'}
+        data = {k: v for k, v in asdict(self).items() if k != "harness_hash"}
         current_hash = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
         return current_hash == self.harness_hash
 
@@ -433,19 +475,23 @@ class ControlHarnessRef:
         for op_name in ["doctor", "launch", "drive", "snapshot", "trace", "cleanup"]:
             # Simple check: does the harness have this function?
             if f"def {op_name}" in content or f"async def {op_name}" in content:
-                operations.append(ControlHarnessImplementation(
-                    operation=op_name,  # type: ignore
-                    command=f"python {harness_path} {op_name}",
-                    description=f"Run {op_name} operation",
-                    required=True,
-                ))
+                operations.append(
+                    ControlHarnessImplementation(
+                        operation=op_name,  # type: ignore
+                        command=f"python {harness_path} {op_name}",
+                        description=f"Run {op_name} operation",
+                        required=True,
+                    )
+                )
             else:
-                operations.append(ControlHarnessImplementation(
-                    operation=op_name,  # type: ignore
-                    command="",
-                    description=f"MISSING: {op_name} operation not implemented",
-                    required=True,
-                ))
+                operations.append(
+                    ControlHarnessImplementation(
+                        operation=op_name,  # type: ignore
+                        command="",
+                        description=f"MISSING: {op_name} operation not implemented",
+                        required=True,
+                    )
+                )
 
         return operations
 
@@ -505,6 +551,7 @@ class ControlHarnessRef:
 @dataclass(frozen=True)
 class EvidenceItem:
     """Single piece of evidence in an EvidenceBundle."""
+
     id: str
     kind: Literal["artifact", "log", "trace", "snapshot", "metric", "test_result", "observation"]
     source: str
@@ -534,6 +581,7 @@ class EvidenceBundle:
     - verification_spec version
     - bot_id (P3-A: cross-bot evidence is refused at finalize)
     """
+
     version: str = "1.0"
     bundle_id: str = ""
     task_id: str = ""
@@ -548,10 +596,18 @@ class EvidenceBundle:
 
     def __post_init__(self):
         if not self.bundle_id:
-            object.__setattr__(self, 'bundle_id', f"evbundle-{hashlib.sha256(f'{self.task_id}:{self.goal_run_id}'.encode()).hexdigest()[:12]}")
+            object.__setattr__(
+                self,
+                "bundle_id",
+                f"evbundle-{hashlib.sha256(f'{self.task_id}:{self.goal_run_id}'.encode()).hexdigest()[:12]}",
+            )
         if not self.bundle_hash:
-            data = {k: v for k, v in asdict(self).items() if k != 'bundle_hash'}
-            object.__setattr__(self, 'bundle_hash', hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32])
+            data = {k: v for k, v in asdict(self).items() if k != "bundle_hash"}
+            object.__setattr__(
+                self,
+                "bundle_hash",
+                hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32],
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -578,7 +634,7 @@ class EvidenceBundle:
     def verify_integrity(self) -> bool:
         """Verify bundle integrity and binding."""
         # Check hash
-        data = {k: v for k, v in asdict(self).items() if k != 'bundle_hash'}
+        data = {k: v for k, v in asdict(self).items() if k != "bundle_hash"}
         current_hash = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
         if current_hash != self.bundle_hash:
             return False
@@ -591,10 +647,10 @@ class EvidenceBundle:
     def is_bound_to(self, task_id: str, goal_run_id: str, head_sha: str, spec_hash: str) -> bool:
         """Check if bundle is bound to the given context."""
         return (
-            self.task_id == task_id and
-            self.goal_run_id == goal_run_id and
-            self.head_sha == head_sha and
-            self.verification_spec_hash == spec_hash
+            self.task_id == task_id
+            and self.goal_run_id == goal_run_id
+            and self.head_sha == head_sha
+            and self.verification_spec_hash == spec_hash
         )
 
     def is_bound_to_bot(self, bot_id: str) -> bool:
@@ -636,6 +692,7 @@ class VerificationVerdict:
     Worker self-reported success CANNOT override verifier verdict.
     Verdict becomes stale when HEAD changes.
     """
+
     version: str = "1.0"
     verdict_id: str = ""
     task_id: str = ""
@@ -656,12 +713,20 @@ class VerificationVerdict:
 
     def __post_init__(self):
         if not self.verdict_id:
-            object.__setattr__(self, 'verdict_id', f"verdict-{hashlib.sha256(f'{self.task_id}:{self.goal_run_id}:{self.head_sha_at_verdict}'.encode()).hexdigest()[:12]}")
+            object.__setattr__(
+                self,
+                "verdict_id",
+                f"verdict-{hashlib.sha256(f'{self.task_id}:{self.goal_run_id}:{self.head_sha_at_verdict}'.encode()).hexdigest()[:12]}",
+            )
         if not self.verified_at:
-            object.__setattr__(self, 'verified_at', datetime.now(UTC).isoformat())
+            object.__setattr__(self, "verified_at", datetime.now(UTC).isoformat())
         if not self.verdict_hash:
-            data = {k: v for k, v in asdict(self).items() if k != 'verdict_hash'}
-            object.__setattr__(self, 'verdict_hash', hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32])
+            data = {k: v for k, v in asdict(self).items() if k != "verdict_hash"}
+            object.__setattr__(
+                self,
+                "verdict_hash",
+                hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32],
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -672,7 +737,7 @@ class VerificationVerdict:
 
     def verify_integrity(self) -> bool:
         """Verify verdict integrity."""
-        data = {k: v for k, v in asdict(self).items() if k != 'verdict_hash'}
+        data = {k: v for k, v in asdict(self).items() if k != "verdict_hash"}
         current_hash = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
         return current_hash == self.verdict_hash
 
@@ -766,6 +831,108 @@ def get_current_head_sha(project_root: str | Path) -> str:
         return "unknown"
 
 
+@dataclass(frozen=True)
+class VerificationFlow:
+    """Deterministic, named verification flow owned by a profile."""
+
+    id: str
+    description: str = ""
+    preconditions: list[str] = field(default_factory=list)
+    steps: list[str] = field(default_factory=list)
+    expected_results: list[str] = field(default_factory=list)
+    evidence_types: list[str] = field(default_factory=list)
+    timeout: int = 60
+
+
+@dataclass(frozen=True)
+class VerificationInvariant:
+    """Machine-checkable invariant; the checker is never an LLM decision."""
+
+    id: str
+    expression: str
+    severity: Literal["low", "medium", "high", "critical"] = "high"
+    required: bool = True
+
+
+@dataclass(frozen=True)
+class VerificationProfile:
+    """Project-level verification contract layered on the existing spec."""
+
+    id: str
+    version: str = "1.0"
+    scope: str = "project"
+    seed_actions: list[str] = field(default_factory=list)
+    flows: list[VerificationFlow] = field(default_factory=list)
+    invariants: list[VerificationInvariant] = field(default_factory=list)
+    evidence_requirements: list[RequiredEvidence] = field(default_factory=list)
+    proof_collectors: list[str] = field(default_factory=list)
+    environment_requirements: list[str] = field(default_factory=list)
+    destructive: bool = False
+    production_safe: bool = False
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def flow(self, flow_id: str) -> VerificationFlow | None:
+        return next((item for item in self.flows if item.id == flow_id), None)
+
+
+@dataclass(frozen=True)
+class VerificationGateResult:
+    """Deterministic acceptance result for a profile and collected proof."""
+
+    passed: bool
+    profile_id: str
+    profile_version: str
+    flows_run: list[str] = field(default_factory=list)
+    invariants_checked: list[str] = field(default_factory=list)
+    proof_artifacts: list[dict[str, Any]] = field(default_factory=list)
+    unresolved_failures: list[str] = field(default_factory=list)
+
+
+class VerificationGate:
+    """Final acceptance gate; missing required proof is a hard failure."""
+
+    def __init__(self, profile: VerificationProfile) -> None:
+        self.profile = profile
+
+    def evaluate(
+        self,
+        *,
+        flows_run: list[str],
+        invariant_results: dict[str, bool],
+        proof_artifacts: list[dict[str, Any]],
+    ) -> VerificationGateResult:
+        required_flows = {flow.id for flow in self.profile.flows}
+        missing_flows = sorted(required_flows - set(flows_run))
+        required_evidence = {
+            item.id for item in self.profile.evidence_requirements if item.required
+        }
+        present_evidence = {str(item.get("id", item.get("type", ""))) for item in proof_artifacts}
+        missing_evidence = sorted(required_evidence - present_evidence)
+        failed_invariants = sorted(
+            item.id
+            for item in self.profile.invariants
+            if item.required and invariant_results.get(item.id) is not True
+        )
+        failures = [
+            *(f"missing flow: {item}" for item in missing_flows),
+            *(f"missing proof: {item}" for item in missing_evidence),
+            *(f"failed invariant: {item}" for item in failed_invariants),
+        ]
+        return VerificationGateResult(
+            passed=not failures,
+            profile_id=self.profile.id,
+            profile_version=self.profile.version,
+            flows_run=list(flows_run),
+            invariants_checked=sorted(invariant_results),
+            proof_artifacts=list(proof_artifacts),
+            unresolved_failures=failures,
+        )
+
+
 __all__ = [
     "AcceptanceCriterion",
     "CleanupAction",
@@ -784,6 +951,11 @@ __all__ = [
     "RequiredEvidence",
     "UserJourney",
     "VerdictOutcome",
+    "VerificationFlow",
+    "VerificationGate",
+    "VerificationGateResult",
+    "VerificationInvariant",
+    "VerificationProfile",
     "VerificationSpec",
     "VerificationStatus",
     "VerificationVerdict",

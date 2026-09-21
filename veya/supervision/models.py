@@ -205,6 +205,49 @@ class Mission:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     status: MissionStatus = MissionStatus.created
+    # P15 policy/version pins.  Defaults keep pre-P15 mission documents valid.
+    verification_profile_id: str = ""
+    verification_profile_version: str = ""
+    autonomy_level: str = ""
+    autonomy_policy_version: str = ""
+    role_id: str = ""
+    role_contract_version: str = ""
+    playbook_id: str = ""
+    playbook_version: str = ""
+
+    def __post_init__(self) -> None:
+        # Existing missions had only a free-form autonomy mapping.  Preserve
+        # the conservative behavior while making the effective level explicit.
+        if not self.autonomy_level:
+            self.autonomy_level = str(self.autonomy.get("level") or "draft")
+        if not self.autonomy_policy_version:
+            self.autonomy_policy_version = str(self.autonomy.get("policy_version") or "1.0")
+
+    def pin_doctrine(
+        self,
+        *,
+        verification_profile_id: str = "",
+        verification_profile_version: str = "",
+        autonomy_level: str | None = None,
+        autonomy_policy_version: str | None = None,
+        role_id: str = "",
+        role_contract_version: str = "",
+        playbook_id: str = "",
+        playbook_version: str = "",
+    ) -> None:
+        """Pin policy versions for this Mission; execution code owns enforcement."""
+        if autonomy_level is not None:
+            self.autonomy_level = autonomy_level
+        if autonomy_policy_version is not None:
+            self.autonomy_policy_version = autonomy_policy_version
+        self.verification_profile_id = verification_profile_id
+        self.verification_profile_version = verification_profile_version
+        self.role_id = role_id
+        self.role_contract_version = role_contract_version
+        self.playbook_id = playbook_id
+        self.playbook_version = playbook_version
+        self.autonomy["level"] = self.autonomy_level
+        self.autonomy["policy_version"] = self.autonomy_policy_version
 
     def touch(self) -> None:
         self.updated_at = time.time()
@@ -226,6 +269,14 @@ class Mission:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "status": str(self.status),
+            "verification_profile_id": self.verification_profile_id,
+            "verification_profile_version": self.verification_profile_version,
+            "autonomy_level": self.autonomy_level,
+            "autonomy_policy_version": self.autonomy_policy_version,
+            "role_id": self.role_id,
+            "role_contract_version": self.role_contract_version,
+            "playbook_id": self.playbook_id,
+            "playbook_version": self.playbook_version,
         }
 
     @classmethod
@@ -246,6 +297,14 @@ class Mission:
             created_at=float(data.get("created_at", time.time())),
             updated_at=float(data.get("updated_at", time.time())),
             status=MissionStatus(data.get("status", "CREATED")),
+            verification_profile_id=str(data.get("verification_profile_id", "")),
+            verification_profile_version=str(data.get("verification_profile_version", "")),
+            autonomy_level=str(data.get("autonomy_level", "")),
+            autonomy_policy_version=str(data.get("autonomy_policy_version", "")),
+            role_id=str(data.get("role_id", "")),
+            role_contract_version=str(data.get("role_contract_version", "")),
+            playbook_id=str(data.get("playbook_id", "")),
+            playbook_version=str(data.get("playbook_version", "")),
         )
 
 

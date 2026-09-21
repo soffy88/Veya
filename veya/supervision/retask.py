@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from runtime.verification.models import VerificationGateResult
+
 from .models import (
     EscalationCode,
     ExecutionReport,
@@ -72,6 +74,7 @@ def plan_retask(
     iteration: int = 0,
     budget: MissionBudget | None = None,
     report: ExecutionReport | None = None,
+    verification: VerificationGateResult | None = None,
 ) -> RetaskOutcome:
     budget = budget or mission.budget
 
@@ -81,6 +84,11 @@ def plan_retask(
             return RetaskOutcome(
                 MissionStatus.blocked,
                 reason="cannot complete: unresolved failures/blockers remain",
+            )
+        if mission.verification_profile_id and (verification is None or not verification.passed):
+            return RetaskOutcome(
+                MissionStatus.blocked,
+                reason="cannot complete: required verification gate did not pass",
             )
         status = (
             MissionStatus.done if review.decision is ReviewDecision.done else MissionStatus.accepted
@@ -122,11 +130,18 @@ def apply_review(
     *,
     iteration: int = 0,
     report: ExecutionReport | None = None,
+    verification: VerificationGateResult | None = None,
 ) -> RetaskOutcome:
     """Persist the review, transition the mission, and emit the retask event."""
 
     store.append_review(review)
-    outcome = plan_retask(review, mission=mission, iteration=iteration, report=report)
+    outcome = plan_retask(
+        review,
+        mission=mission,
+        iteration=iteration,
+        report=report,
+        verification=verification,
+    )
     store.set_status(mission.mission_id, outcome.mission_status)
     store.append_event(
         mission.mission_id,
