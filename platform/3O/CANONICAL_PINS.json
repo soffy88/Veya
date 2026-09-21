@@ -55,5 +55,10 @@
     "sha": "919fa0ca7eae11c445abf5ee505ab40dab2b89a5",
     "qualification": "parent-pinned",
     "required_contracts": []
+  },
+  "oskill": {
+    "sha": "300481c31e9c968518da582d0ed2a886c0152631",
+    "qualification": "parent-pinned",
+    "required_contracts": []
   }
 }
