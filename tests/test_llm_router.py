@@ -204,12 +204,11 @@ def test_call_aliased_long_parallel():
 # =========================================================================
 
 
-def test_llm_call_veya12_alias_routes_to_gmi_by_default(monkeypatch):
-    """veya1.2 主脑代理默认命中 GMI MiniMax M3。"""
+def test_llm_call_veya12_alias_routes_to_opencode_go_by_default(monkeypatch):
+    """veya1.2 主脑代理默认命中 opencode-go DeepSeek V4.1 Flash。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
-    hllm._zen_rr_cursor = 0
 
     async def fake_provider_call(client, provider, **kw):
         seen.append({"provider": provider, "model": kw["model"], "endpoint": kw.get("endpoint")})
@@ -223,7 +222,7 @@ def test_llm_call_veya12_alias_routes_to_gmi_by_default(monkeypatch):
         "os.environ",
         {
             **__import__("os").environ,
-            "GMI_API_KEY": "sk-test",
+            "OPENCODE_API_KEY": "sk-test",
             "OPENROUTER_API_KEY": "sk-test",
         },
     )
@@ -237,20 +236,19 @@ def test_llm_call_veya12_alias_routes_to_gmi_by_default(monkeypatch):
     )
     assert seen == [
         {
-            "provider": "gmi",
-            "model": "MiniMaxAI/MiniMax-M3",
-            "endpoint": "https://api.gmi-serving.com/v1/chat/completions",
+            "provider": "opencode-go",
+            "model": "deepseek-v4.1-flash",
+            "endpoint": "https://opencode.ai/zen/go/v1/chat/completions",
         }
     ]
     assert result["choices"][0]["message"]["content"] == "routed-ok"
 
 
 def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
-    """旧 veya1.1 名称仍可用，但实际走新的 veya1.2 GMI 主池。"""
+    """旧 veya1.1 名称仍可用，但实际走新的 veya1.2 opencode-go 主池。"""
     from veya import llm as hllm
 
     seen: list[dict] = []
-    hllm._zen_rr_cursor = 0
 
     async def fake_provider_call(client, provider, **kw):
         seen.append({"provider": provider, "model": kw["model"]})
@@ -261,7 +259,7 @@ def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
         "os.environ",
         {
             **__import__("os").environ,
-            "GMI_API_KEY": "sk-test",
+            "OPENCODE_API_KEY": "sk-test",
             "OPENROUTER_API_KEY": "sk-test",
         },
     )
@@ -273,7 +271,7 @@ def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
             model="veya1.1",
         )
     )
-    assert seen == [{"provider": "gmi", "model": "MiniMaxAI/MiniMax-M3"}]
+    assert seen == [{"provider": "opencode-go", "model": "deepseek-v4.1-flash"}]
     assert result["choices"][0]["message"]["content"] == "compat-ok"
 
 
@@ -295,9 +293,7 @@ def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
     monkeypatch.setattr(hllm.asyncio, "sleep", no_sleep)
     config = {
-        "providers": {
-            provider: {"api_key": "test-key"} for provider in ("gmi-serving", "bai")
-        }
+        "providers": {provider: {"api_key": "test-key"} for provider in ("gmi-serving", "bai")}
     }
 
     result = asyncio.run(
@@ -545,11 +541,10 @@ def test_get_provider_config_no_user_config(monkeypatch):
 
 
 def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
-    """GMI + OpenRouter 池返回空 → 重试 → frontier 失败时给明确错误。"""
+    """opencode-go + OpenRouter 池返回空 → 重试 → frontier 失败时给明确错误。"""
     from veya import llm as hllm
 
     calls: list[str] = []
-    hllm._zen_rr_cursor = 0
 
     async def flaky_provider_call(client, provider, **kw):
         calls.append(kw["model"])
@@ -565,7 +560,7 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
         "os.environ",
         {
             **__import__("os").environ,
-            "GMI_API_KEY": "sk-test",
+            "OPENCODE_API_KEY": "sk-test",
             "OPENROUTER_API_KEY": "sk-test",
         },
     )
@@ -577,11 +572,11 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
             model="veya1.2",
         )
     )
-    # GMI + 双 OpenRouter 整轮重试 3 轮仍无效 → gpt-5.6-luna 兜底也重试 4 次
+    # opencode-go + 双 OpenRouter 整轮重试 3 轮仍无效 → gpt-5.6-luna 兜底也重试 4 次
     assert (
         calls
         == [
-            "MiniMaxAI/MiniMax-M3",
+            "deepseek-v4.1-flash",
             "nvidia/nemotron-3-ultra-550b-a55b:free",
             "minimax/minimax-m3:free",
         ]
@@ -590,7 +585,7 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
     )
     content = result["choices"][0]["message"]["content"]
     assert "veya1.2 免费池调用失败" in content
-    assert "无效内容" in content
+    assert "无效" in content
     assert result.get("error") is True
 
 
@@ -599,11 +594,10 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
     from veya import llm as hllm
 
     calls: list[str] = []
-    hllm._zen_rr_cursor = 0
 
     async def flaky_provider_call(client, provider, **kw):
         calls.append(kw["model"])
-        if kw["model"] == "MiniMaxAI/MiniMax-M3":
+        if kw["model"] == "deepseek-v4.1-flash":
             return {"choices": [{"message": {"role": "assistant", "content": "None"}}], "usage": {}}
         return {
             "choices": [{"message": {"role": "assistant", "content": "备用模型正常回复"}}],
@@ -615,7 +609,7 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
         "os.environ",
         {
             **__import__("os").environ,
-            "GMI_API_KEY": "sk-test",
+            "OPENCODE_API_KEY": "sk-test",
             "OPENROUTER_API_KEY": "sk-test",
         },
     )
@@ -628,8 +622,138 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
         )
     )
     assert calls == [
-        "MiniMaxAI/MiniMax-M3",
+        "deepseek-v4.1-flash",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
     ]
     assert result["choices"][0]["message"]["content"] == "备用模型正常回复"
     assert not result.get("error")
+
+
+def test_llm_call_veya_dp41_jev113_direct_executor(monkeypatch):
+    """Alias can skip advisor and route directly to the canonical executor."""
+    from veya import llm as hllm
+
+    seen: list[dict] = []
+
+    async def fake_provider_call(client, provider, **kw):
+        seen.append(
+            {
+                "provider": provider,
+                "model": kw["model"],
+                "endpoint": kw.get("endpoint"),
+                "tools": kw.get("tools"),
+            }
+        )
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "executor-ok"}}],
+            "usage": {},
+        }
+
+    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
+    monkeypatch.setattr(
+        "os.environ",
+        {
+            **__import__("os").environ,
+            "OPENCODE_API_KEY": "sk-test",
+        },
+    )
+
+    tools = [{"type": "function", "function": {"name": "workspace_info", "parameters": {}}}]
+    result = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "inspect the workspace"}],
+            provider="veya-dp4.1-jev-1.13",
+            model="veya-dp4.1-jev-1.13",
+            tools=tools,
+            veya_skip_advisor=True,
+        )
+    )
+
+    assert seen == [
+        {
+            "provider": "opencode-go",
+            "model": "deepseek-v4.1-flash",
+            "endpoint": "https://opencode.ai/zen/go/v1/chat/completions",
+            "tools": tools,
+        }
+    ]
+    assert result["choices"][0]["message"]["content"] == "executor-ok"
+    assert result["router"]["route"] == "veya-dp41-jev113-direct"
+    assert result["router"]["advisor"] is None
+
+
+def test_llm_call_veya_dp41_jev113_advisor_then_executor(monkeypatch):
+    """Alias runs read-only advisor first, then the tool-capable executor."""
+    from veya import llm as hllm
+
+    seen: list[dict] = []
+
+    async def fake_provider_call(client, provider, **kw):
+        seen.append(
+            {
+                "provider": provider,
+                "model": kw["model"],
+                "endpoint": kw.get("endpoint"),
+                "tools": kw.get("tools"),
+                "max_tokens": kw.get("max_tokens"),
+            }
+        )
+        if provider == "opencode":
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                '{"intent":"review","complexity":"medium",'
+                                '"needs_tools":true,"relevant_context":[],'
+                                '"ignore_context":[],"plan":["inspect","verify"],'
+                                '"risk":"low","confidence":0.9}'
+                            ),
+                        }
+                    }
+                ],
+                "usage": {},
+            }
+        return {
+            "choices": [{"message": {"role": "assistant", "content": "final-ok"}}],
+            "usage": {},
+        }
+
+    monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
+    monkeypatch.setattr(
+        "os.environ",
+        {
+            **__import__("os").environ,
+            "OPENCODE_API_KEY": "sk-test",
+        },
+    )
+
+    tools = [{"type": "function", "function": {"name": "git_status", "parameters": {}}}]
+    result = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "review current changes"}],
+            provider="veya-dp4.1-jev-1.13",
+            model="veya-dp4.1-jev-1.13",
+            tools=tools,
+        )
+    )
+
+    assert seen[0] == {
+        "provider": "opencode",
+        "model": "jev-1.13-free",
+        "endpoint": "https://opencode.ai/zen/v1/chat/completions",
+        "tools": None,
+        "max_tokens": 300,
+    }
+    assert seen[1] == {
+        "provider": "opencode-go",
+        "model": "deepseek-v4.1-flash",
+        "endpoint": "https://opencode.ai/zen/go/v1/chat/completions",
+        "tools": tools,
+        "max_tokens": 4096,
+    }
+    assert result["choices"][0]["message"]["content"] == "final-ok"
+    assert result["router"]["route"] == "veya-dp41-jev113"
+    assert result["router"]["advisor"] == {"provider": "opencode", "model": "jev-1.13-free"}
+    assert result["router"]["advisory_confidence"] == 0.9

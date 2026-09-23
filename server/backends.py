@@ -186,10 +186,10 @@ class BackendRegistry:
             self._running[name] = max(0, self._running.get(name, 0) - 1)
 
     async def _run_builtin(self, prompt: str, model: str, timeout_s: float) -> dict[str, Any]:
-        from server.coordinator import coordinator
+        from server.coordinator_master import master_coordinator
 
         result = await asyncio.wait_for(
-            coordinator.handle({"text": prompt, "persona": "build"}),
+            master_coordinator.chat_stream(prompt, model=model or None),
             timeout=timeout_s,
         )
         output = result.get("output") or result.get("squads") or ""

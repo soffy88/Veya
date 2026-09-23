@@ -285,7 +285,9 @@ def _nvidia_nim_keys() -> list[str]:
             [
                 "/data/soffy/projects/stratum/aii/.pipeline_keys.json",
                 "/home/soffy/projects/stratum/aii/.pipeline_keys.json",
-                str(Path(__file__).resolve().parents[4] / "stratum" / "aii" / ".pipeline_keys.json"),
+                str(
+                    Path(__file__).resolve().parents[4] / "stratum" / "aii" / ".pipeline_keys.json"
+                ),
             ]
         )
         for candidate in paths:
@@ -328,8 +330,11 @@ async def _nvidia_nim_call(messages: list[dict], kwargs: dict, alias: str) -> di
     keys = _nvidia_nim_keys()
     if not keys:
         return {
-            "choices": [{"message": {"role": "assistant", "content": f"{alias} 未配置 NVIDIA NIM key"}}],
-            "usage": {}, "error": True,
+            "choices": [
+                {"message": {"role": "assistant", "content": f"{alias} 未配置 NVIDIA NIM key"}}
+            ],
+            "usage": {},
+            "error": True,
         }
     start = _next_nvidia_nim_index(alias, len(keys))
     timeout = kwargs.get("timeout", 120.0)
@@ -340,19 +345,34 @@ async def _nvidia_nim_call(messages: list[dict], kwargs: dict, alias: str) -> di
             key = keys[(start + offset) % len(keys)]
             try:
                 response = await provider_call(
-                    client, "openai", model=_nvidia_nim_model(alias), messages=messages,
-                    tools=kwargs.get("tools"), max_tokens=kwargs.get("max_tokens", 4096),
-                    temperature=kwargs.get("temperature"), endpoint=_NVIDIA_NIM_ENDPOINT,
-                    api_key=key, tool_choice=kwargs.get("tool_choice"),
+                    client,
+                    "openai",
+                    model=_nvidia_nim_model(alias),
+                    messages=messages,
+                    tools=kwargs.get("tools"),
+                    max_tokens=kwargs.get("max_tokens", 4096),
+                    temperature=kwargs.get("temperature"),
+                    endpoint=_NVIDIA_NIM_ENDPOINT,
+                    api_key=key,
+                    tool_choice=kwargs.get("tool_choice"),
                 )
                 response.setdefault("router", {})
-                response["router"].update({"route": "nvidia-nim-key-rr", "alias": alias, "model": _nvidia_nim_model(alias)})
+                response["router"].update(
+                    {
+                        "route": "nvidia-nim-key-rr",
+                        "alias": alias,
+                        "model": _nvidia_nim_model(alias),
+                    }
+                )
                 return response
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = str(exc)
     return {
-        "choices": [{"message": {"role": "assistant", "content": f"{alias} 调用失败: {last_error}"}}],
-        "usage": {}, "error": True,
+        "choices": [
+            {"message": {"role": "assistant", "content": f"{alias} 调用失败: {last_error}"}}
+        ],
+        "usage": {},
+        "error": True,
     }
 
 
@@ -367,9 +387,14 @@ async def _nvidia_nim_stream(messages: list[dict], kwargs: dict, alias: str) -> 
     async with httpx.AsyncClient(timeout=kwargs.get("timeout", 120.0)) as client:
         try:
             async for event in provider_stream(
-                client, "openai", model=_nvidia_nim_model(alias), messages=messages,
-                tools=kwargs.get("tools"), max_tokens=kwargs.get("max_tokens", 4096),
-                endpoint=_NVIDIA_NIM_ENDPOINT, api_key=key,
+                client,
+                "openai",
+                model=_nvidia_nim_model(alias),
+                messages=messages,
+                tools=kwargs.get("tools"),
+                max_tokens=kwargs.get("max_tokens", 4096),
+                endpoint=_NVIDIA_NIM_ENDPOINT,
+                api_key=key,
             ):
                 yield event
             return
@@ -379,28 +404,24 @@ async def _nvidia_nim_stream(messages: list[dict], kwargs: dict, alias: str) -> 
         yield {"choices": [{"delta": {"content": word + " "}}]}
     yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 
+
 # ---------------------------------------------------------------------------
-# Veya 1.2 主脑代理: GMI 默认 + OpenRouter 故障轮询 (round-robin)
-# ---------------------------------------------------------------------------
-# 首选 GMI MiniMax M3；GMI 失败时再轮询两个 OpenRouter 免费模型。
-# 凭据分别由 GMI_API_KEY / OPENROUTER_API_KEY 注入；不回退到旧的
-# OpenCode-Go 主脑池，也不保留过期模型名或 VEYA_ZEN_FREE_POOL 覆盖项。
+# Veya 1.2 主脑代理:
+# 首选 opencode-go / deepseek-v4.1-flash + OpenRouter 免费兜底。
+# GMI MiniMax M3 已于 2026-09 移除: 上游持续 402 Insufficient balance。
+# Advisor + Executor 架构保留为独立 alias veya-dp4.1-jev-1.13，
+# 不改变固化的 veya1.2 单一主入口路由语义。
 _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
     {
-        "provider": "bai",
-        "model": "deepseek-v4-flash",
-        "endpoint": "https://api.b.ai/v1",
+        "provider": "opencode-go",
+        "model": "deepseek-v4.1-flash",
+        "endpoint": "https://opencode.ai/zen/go/v1",
     },
     {
-        "provider": "gmi-serving",
-        "model": "MiniMaxAI/MiniMax-M3",
-        "endpoint": "https://api.gmi-serving.com/v1",
+        "provider": "openrouter",
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
     },
-    {
-        "provider": "scnet",
-        "model": "DeepSeek-V4-Flash",
-        "endpoint": "https://api.scnet.cn/api/llm/v1",
-    },
+    {"provider": "openrouter", "model": "minimax/minimax-m3:free"},
 ]
 
 # veya1.2-free: opencode-go 免费模型轮询 (不走 veya1.2 主脑代理)。
@@ -497,19 +518,22 @@ _INFERERA_128K_MODELS: tuple[str, ...] = (
 _INFERERA_128K_MODEL_SET = frozenset(_INFERERA_128K_MODELS)
 
 # 进程内轮询游标 (asyncio 单线程, 普通 int 自增即可) — 跨调用推进以摊额度。
-_zen_rr_cursor = 0
+# veya1.2 主脑池不轮转 (固定从首位 opencode-go 开始, 其余为有序兜底);
+# 仅 veya1.2-free 免费池仍用游标摊额度。
 _veya12_free_rr_cursor = 0
 
 
 def _veya12_pool() -> list[dict[str, str]]:
-    """Veya 1.2 主脑池: GMI MiniMax M3 优先，OpenRouter 免费模型兜底。"""
+    """Veya 1.2 主脑池: opencode-go DeepSeek V4.1 Flash 优先, 其余依次兜底。"""
     return list(_VEYA12_DEFAULT_POOL)
 
 
 def _replace_veya12_free_pool(pool: list[dict[str, str]]) -> None:
     """Atomically replace the runtime free pool after lifecycle reconciliation."""
     global _VEYA12_FREE_POOL
-    _VEYA12_FREE_POOL = [dict(entry) for entry in pool if entry.get("provider") and entry.get("model")]
+    _VEYA12_FREE_POOL = [
+        dict(entry) for entry in pool if entry.get("provider") and entry.get("model")
+    ]
 
 
 async def _frontier_fallback(messages: list[dict], kwargs: dict, *, reason: str) -> dict | None:
@@ -649,20 +673,16 @@ async def _veya12_rr_call(
 
 
 async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
-    """veya1.2: GMI MiniMax M3 优先，OpenRouter 免费模型兜底。"""
-    global _zen_rr_cursor
-    pool = _veya12_pool()
-    start = _zen_rr_cursor % len(pool)
-    _zen_rr_cursor = (_zen_rr_cursor + 1) % len(pool)
+    """veya1.2: opencode-go DeepSeek V4.1 Flash 优先，OpenRouter 依次兜底。"""
     return await _veya12_rr_call(
         messages,
         kwargs,
-        pool=pool,
-        start=start,
+        pool=_veya12_pool(),
+        start=0,
         alias="veya1.2",
-        route="gmi-openrouter-rr",
+        route="opencode-openrouter-ordered",
         pool_label="免费池",
-        fallback_reason="veya1.2 GMI/OpenRouter pool empty → gpt-5.6-luna",
+        fallback_reason="veya1.2 opencode-go/OpenRouter pool empty → gpt-5.6-luna",
     )
 
 
@@ -884,6 +904,249 @@ async def _veya12_128k_call(messages: list[dict], kwargs: dict) -> dict:
     )
 
 
+async def _veya_dp41_jev113_call(messages: list[dict], kwargs: dict) -> dict:
+    """veya-dp4.1-jev-1.13: Advisor (jev-1.13-free) + Executor (deepseek-v4.1-flash).
+
+    Advisor (opencode/jev-1.13-free, Zen SystemOne):
+      - Read-only: classifies intent, complexity, prunes context, gives micro-plan
+      - Outputs structured JSON advisory (≤300 tokens)
+      - No tools, no side effects
+
+    Executor (opencode-go/deepseek-v4.1-flash, Zen Go):
+      - Final authority, all tools
+      - Receives filtered context + advisory
+      - Can override advisory if confidence < 0.65 or tool evidence conflicts
+
+    Policy:
+      - advisor_on: new_task, context_over_threshold, replan_after_failure, pre_compaction
+      - advisor_skip: simple_followup, tool_continuation, deterministic_action
+      - advisor_confidence_threshold: 0.65
+    """
+    # Check if we should skip advisor based on kwargs hints
+    skip_advisor = kwargs.get("veya_skip_advisor", False)
+    if skip_advisor:
+        # Direct to executor
+        return await _call_executor_direct(messages, kwargs)
+
+    # Step 1: Call Advisor (jev-1.13-free)
+    advisor_kwargs = dict(kwargs)
+    advisor_kwargs.update(
+        {
+            "provider": "opencode",
+            "model": "jev-1.13-free",
+            "endpoint": "https://opencode.ai/zen/v1",
+            "max_tokens": 300,
+            "temperature": 0.1,
+            "tools": None,  # Advisor has no tools
+            "default_content": "{}",
+        }
+    )
+    # Build advisory prompt
+    advisory_prompt = _build_advisory_prompt(messages, kwargs)
+    advisor_messages = [
+        {"role": "system", "content": _ADVISOR_SYSTEM_PROMPT},
+        {"role": "user", "content": advisory_prompt},
+    ]
+
+    advisor_resp = await llm_call(advisor_messages, **advisor_kwargs)
+    advisory = _parse_advisory(advisor_resp)
+
+    # Step 2: Decide whether to use advisory
+    confidence = advisory.get("confidence", 0.0)
+    if confidence < 0.65:
+        logger.info(
+            f"veya-dp41-jev113: advisor confidence {confidence:.2f} < 0.65, skipping advisory"
+        )
+        return await _call_executor_direct(messages, kwargs)
+
+    # Step 3: Filter context based on advisory
+    filtered_messages = _filter_context_by_advisory(messages, advisory)
+
+    # Step 4: Call Executor (deepseek-v4.1-flash) with filtered context + advisory
+    executor_kwargs = dict(kwargs)
+    executor_kwargs.update(
+        {
+            "provider": "opencode-go",
+            "model": "deepseek-v4.1-flash",
+            "endpoint": "https://opencode.ai/zen/go/v1",
+            "tools": kwargs.get("tools"),  # Executor gets all tools
+        }
+    )
+
+    # Inject advisory into system prompt
+    system_prompt = _build_executor_system_prompt(advisory)
+    executor_messages = [
+        {"role": "system", "content": system_prompt},
+        *filtered_messages,
+    ]
+
+    executor_resp = await llm_call(executor_messages, **executor_kwargs)
+    # Add routing trace for gateway
+    executor_resp["router"] = {
+        "route": "veya-dp41-jev113",
+        "alias": "veya-dp4.1-jev-1.13",
+        "model": "deepseek-v4.1-flash",  # upstream model for gateway routing trace
+        "advisor": {"provider": "opencode", "model": "jev-1.13-free"},
+        "executor": {"provider": "opencode-go", "model": "deepseek-v4.1-flash"},
+        "advisory_confidence": confidence,
+        "advisory_intent": advisory.get("intent"),
+        "advisory_complexity": advisory.get("complexity"),
+        "context_filtered": len(filtered_messages)
+        != len([m for m in messages if m.get("role") != "system"]),
+    }
+    return executor_resp
+
+
+async def _call_executor_direct(messages: list[dict], kwargs: dict) -> dict:
+    """Call executor directly without advisor."""
+    executor_kwargs = dict(kwargs)
+    executor_kwargs.update(
+        {
+            "provider": "opencode-go",
+            "model": "deepseek-v4.1-flash",
+            "endpoint": "https://opencode.ai/zen/go/v1",
+            "tools": kwargs.get("tools"),
+        }
+    )
+    resp = await llm_call(messages, **executor_kwargs)
+    resp["router"] = {
+        "route": "veya-dp41-jev113-direct",
+        "alias": "veya-dp4.1-jev-1.13",
+        "model": "deepseek-v4.1-flash",
+        "advisor": None,
+        "executor": {"provider": "opencode-go", "model": "deepseek-v4.1-flash"},
+        "advisory_confidence": 0.0,
+    }
+    return resp
+
+
+def _build_advisory_prompt(messages: list[dict], kwargs: dict) -> str:
+    """Build the prompt for the advisor model."""
+    # Extract current user request (last user message)
+    user_request = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            user_request = m.get("content", "")
+            break
+
+    # Build context summary (last N messages, truncated)
+    context_summary = _summarize_context(messages, max_chars=4000)
+
+    return f"""CURRENT USER REQUEST:
+{user_request}
+
+SESSION CONTEXT SUMMARY:
+{context_summary}
+
+AVAILABLE TOOLS:
+{json.dumps([t.get("function", {}).get("name", "") for t in (kwargs.get("tools") or [])], ensure_ascii=False)}
+
+Analyze and output JSON advisory (max 300 tokens)."""
+
+
+def _parse_advisory(resp: dict) -> dict:
+    """Parse advisory JSON from advisor response."""
+    try:
+        content = (resp.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        # Try to extract JSON from content
+        import re
+
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if match:
+            parsed = json.loads(match.group())
+            if isinstance(parsed, dict):
+                return parsed
+    except Exception as e:
+        logger.warning(f"veya-dp41-jev113: failed to parse advisory: {e}")
+    return {
+        "intent": "unknown",
+        "complexity": "medium",
+        "needs_tools": True,
+        "relevant_context": [],
+        "ignore_context": [],
+        "plan": [],
+        "risk": "medium",
+        "confidence": 0.0,
+    }
+
+
+def _filter_context_by_advisory(messages: list[dict], advisory: dict) -> list[dict]:
+    """Filter messages based on advisory's relevant_context/ignore_context."""
+    relevant = advisory.get("relevant_context", [])
+    ignore = advisory.get("ignore_context", [])
+
+    # Keep system message
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    other_msgs = [m for m in messages if m.get("role") != "system"]
+
+    # Simple filter: if relevant_context specifies keywords, keep messages containing them
+    # If ignore_context specifies keywords, drop messages containing them
+    filtered = []
+    for m in other_msgs:
+        content = str(m.get("content", ""))
+        if any(kw.lower() in content.lower() for kw in ignore):
+            continue
+        if relevant and not any(kw.lower() in content.lower() for kw in relevant):
+            continue
+        filtered.append(m)
+
+    return system_msgs + filtered
+
+
+def _summarize_context(messages: list[dict], max_chars: int = 4000) -> str:
+    """Summarize recent context for advisor."""
+    # Take last ~10 messages, truncate each
+    recent = messages[-10:]
+    parts = []
+    total = 0
+    for m in recent:
+        role = m.get("role", "")
+        content = str(m.get("content", ""))[:500]
+        part = f"[{role}] {content}"
+        if total + len(part) > max_chars:
+            break
+        parts.append(part)
+        total += len(part)
+    return "\n".join(parts) if parts else "(no context)"
+
+
+def _build_executor_system_prompt(advisory: dict) -> str:
+    """Build system prompt for executor with advisory injected."""
+    advisory_json = json.dumps(advisory, ensure_ascii=False, indent=2)
+    return f"""You are the primary executor. You have final authority.
+
+ADVISORY (from context router, confidence={advisory.get("confidence", 0):.2f}):
+{advisory_json}
+
+Rules:
+- Advisory is guidance, not command. If confidence < 0.65 or tool evidence conflicts, ignore it.
+- Execute the plan using available tools.
+- Produce the final answer."""
+
+
+_ADVISOR_SYSTEM_PROMPT = """You are a context router and micro-planner for a coding agent.
+Your job is to analyze the user request and session context, then output a concise JSON advisory.
+
+Output format (JSON only, ≤300 tokens):
+{
+  "intent": "code_fix|refactor|explore|debug|write|review|other",
+  "complexity": "low|medium|high",
+  "needs_tools": true|false,
+  "relevant_context": ["keyword1", "keyword2", ...],
+  "ignore_context": ["keyword1", "keyword2", ...],
+  "plan": ["step1", "step2", "step3"],
+  "risk": "low|medium|high",
+  "confidence": 0.0~1.0
+}
+
+Rules:
+- relevant_context: keywords to KEEP from session history
+- ignore_context: keywords to DROP from session history
+- plan: 3-5 atomic steps for the executor
+- confidence: your certainty this advisory is correct (0.0-1.0)
+- Be concise. No prose."""
+
+
 async def _aliased_llm_call(messages: list[dict], kwargs: dict) -> dict:
     """兼容旧的 veya1.1 名称，统一转到 Veya 1.2 OpenRouter 代理。"""
     return await _veya12_flash_call(messages, kwargs)
@@ -916,6 +1179,12 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         "veya1.2-128k",
     ):
         return await _veya12_128k_call(messages, kwargs)
+    # veya-dp4.1-jev-1.13: Advisor (jev-1.13-free) + Executor (deepseek-v4.1-flash)
+    if model in ("veya-dp4.1-jev-1.13", "veya-dp4.1-jev-1.13-free") or provider in (
+        "veya-dp4.1-jev-1.13",
+        "veya-dp4.1-jev-1.13-free",
+    ):
+        return await _veya_dp41_jev113_call(messages, kwargs)
     # veya1.2 主脑代理: OpenRouter 免费模型轮询
     if (
         model in ("veya1.2-flash", "veya-1.2-flash")
@@ -1039,9 +1308,7 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         # deterministically closed by GC, which previously leaked one or more
         # sockets per request and exhausted the gateway's 1024-FD limit.
         if clients:
-            await asyncio.gather(
-                *(client.aclose() for client in clients), return_exceptions=True
-            )
+            await asyncio.gather(*(client.aclose() for client in clients), return_exceptions=True)
 
 
 async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]:

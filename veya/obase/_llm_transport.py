@@ -10,8 +10,10 @@ the sibling ``_llm_config`` / ``_llm_protocol`` modules.
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -22,6 +24,49 @@ from veya.obase._llm_protocol import (
     _normalize_chat_endpoint,
     prepare_messages_for_provider,
 )
+
+
+def _is_opencode_endpoint(endpoint: str) -> bool:
+    """endpoint 是否指向 opencode zen 网关（opencode-go / opencode）。"""
+    host = (urlparse(endpoint).hostname or "").lower()
+    return host == "opencode.ai" or host.endswith(".opencode.ai")
+
+
+def _opencode_session_headers(endpoint: str) -> dict[str, str]:
+    """opencode zen 网关要求 ``x-opencode-session``。
+
+    缺失该头时网关直接 ``400 MissingSessionID``（"cannot be routed efficiently"），
+    与 key、模型名无关。该头只用于网关侧的会话路由，任何非空 id 均可；
+    这里按请求生成一个随机 id，不依赖 OpenCode 客户端的会话概念。
+    """
+    if not _is_opencode_endpoint(endpoint):
+        return {}
+    return {"x-opencode-session": uuid.uuid4().hex}
+
+
+def _opencode_thinking_messages(messages: list, endpoint: str) -> list:
+    """zen 的 thinking 模型要求 assistant 的 tool_calls 轮次回传 reasoning_content。
+
+    ``deepseek-v4.1-flash`` 等以 thinking 模式运行；只要历史里带 tool_calls 的
+    assistant 消息缺少 ``reasoning_content``，下一次请求就会被上游直接
+    ``400 The `reasoning_content` in the thinking mode must be passed back``。
+    veya 的历史只保留 content/tool_calls（reasoning 不回灌上下文，以免与其它
+    provider 不兼容并爆炸上下文），因此仅在 opencode.ai 端点上补空串占位。
+    """
+    if not _is_opencode_endpoint(endpoint):
+        return messages
+    patched: list = []
+    for msg in messages:
+        if (
+            isinstance(msg, dict)
+            and msg.get("role") == "assistant"
+            and msg.get("tool_calls")
+            and "reasoning_content" not in msg
+        ):
+            patched.append({**msg, "reasoning_content": ""})
+        else:
+            patched.append(msg)
+    return patched
 
 
 async def _call_openai_compat(
@@ -39,7 +84,7 @@ async def _call_openai_compat(
 ) -> httpx.Response:
     body: dict[str, Any] = {
         "model": model,
-        "messages": messages,
+        "messages": _opencode_thinking_messages(messages, endpoint),
         "max_tokens": max_tokens,
         "stream": stream,
     }
@@ -52,14 +97,13 @@ async def _call_openai_compat(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    headers.update(_opencode_session_headers(endpoint))
     # 私网 endpoint (容器经 docker0 网关访问宿主桥) — 目标服务按 Host 头校验
     # 本机回环 (opencodex origin_rejected): 补 Host=127.0.0.1 让桥转发后放行。
     if _is_local_or_private(endpoint) and not endpoint.startswith(
         ("http://localhost", "http://127.0.0.1", "http://0.0.0.0")
     ):
         try:
-            from urllib.parse import urlparse
-
             _port = urlparse(endpoint).port or 80
             headers["Host"] = f"127.0.0.1:{_port}"
         except Exception:

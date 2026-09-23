@@ -12,7 +12,7 @@ main service environment:
       DSH_RUNTIME=ENABLED
       DSH_PROVIDER=VEYA_LOCAL_GATEWAY
       DSH_BASE_URL=http://127.0.0.1:8791/v1
-      DSH_MODEL=opencode-go/deepseek-v4.1-flash
+      DSH_MODEL=veya1.2
       DSH_SESSION_DIR=/home/soffy/.local/state/veya/dsh
       # only because the dsh binary itself insists on a non-empty key
       DEEPSEEK_API_KEY=veya-local-gateway
@@ -35,7 +35,7 @@ DEFAULT_PROFILES_SRC = Path("~/.dsh/profiles")
 DEFAULT_BASE_URL = "http://127.0.0.1:8791/v1"
 # Placeholder credential: the local gateway is the credential holder, DSH is not.
 DEFAULT_API_KEY = "veya-local-gateway"
-DEFAULT_MODEL = "opencode-go/deepseek-v4.1-flash"
+DEFAULT_MODEL = "veya1.2"
 DEFAULT_PROFILE = "headless"
 
 _DISABLED_VALUES = {"0", "false", "no", "off", "disabled", "none"}
