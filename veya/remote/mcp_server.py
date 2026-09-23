@@ -14,6 +14,7 @@ from typing import Any
 
 from .audit import RemoteAudit
 from .auth import RemoteAuth, RemoteAuthError
+from .execution import ExecutionStore
 from .models import RemoteCallResult, RemoteErrorCode
 from .session import RemoteSessionError, RemoteSessionManager
 from .tool_adapter import RemoteToolAdapter
@@ -82,7 +83,9 @@ class RemoteMCPGateway:
             )
 
         if method == "initialize":
-            return await self._initialize(request_id, params, authorization, remote_addr)
+            return await self._initialize(
+                request_id, params, authorization, remote_addr, session_header
+            )
         if method in {"notifications/initialized", "notifications/cancelled"}:
             return None
         if method == "ping":
@@ -104,7 +107,23 @@ class RemoteMCPGateway:
         params: dict[str, Any],
         authorization: str | None,
         remote_addr: str | None,
+        session_header: str | None = None,
     ) -> dict[str, Any]:
+        try:
+            await self.adapter.initialize()
+        except Exception as exc:
+            self.audit.record(
+                tool="initialize",
+                status="startup_recovery_failed",
+                error_code="STARTUP_RECOVERY_FAILED",
+                remote_addr=remote_addr,
+            )
+            return _rpc_error(
+                request_id,
+                _JSONRPC_ERROR["INTERNAL"],
+                f"remote startup recovery failed: {exc}",
+                error_code="STARTUP_RECOVERY_FAILED",
+            )
         try:
             token = self.auth.verify(authorization)
         except RemoteAuthError as exc:
@@ -123,17 +142,27 @@ class RemoteMCPGateway:
             if requested_protocol in SUPPORTED_PROTOCOL_VERSIONS
             else PROTOCOL_VERSION
         )
+        resume_id = params.get("session_id") or params.get("sessionId") or session_header
+        resumed = bool(resume_id)
         try:
-            session = self.sessions.create(
-                token,
-                workspace=params.get("workspace"),
-                client_info=params.get("clientInfo") or {},
-            )
+            if resume_id:
+                session = self.sessions.reconnect(str(resume_id))
+                if session.token_id != token.token_id:
+                    raise RemoteSessionError("AUTH_DENIED", "session does not belong to this token")
+                if params.get("workspace"):
+                    self.sessions.bind_workspace(session, str(params["workspace"]))
+                session.client_info = dict(params.get("clientInfo") or session.client_info)
+            else:
+                session = self.sessions.create(
+                    token,
+                    workspace=params.get("workspace"),
+                    client_info=params.get("clientInfo") or {},
+                )
         except RemoteSessionError as exc:
             return _rpc_error(request_id, _JSONRPC_ERROR["AUTH"], exc.message, error_code=exc.code)
         self.audit.record(
             tool="initialize",
-            status="session_created",
+            status="session_resumed" if resumed else "session_created",
             session_id=session.session_id,
             principal=session.principal,
             token_id=session.token_id,
@@ -185,14 +214,19 @@ class RemoteMCPGateway:
             return denied.to_rpc(request_id)
 
         name = str(params.get("name") or "")
-        arguments = params.get("arguments") or {}
-        if not isinstance(arguments, dict):
+        raw_arguments = params.get("arguments") or {}
+        if not isinstance(raw_arguments, dict):
             return _rpc_error(
                 request_id, _JSONRPC_ERROR["INVALID_PARAMS"], "arguments must be an object"
             )
+        # Keep the per-call value in the argument contract.  Binding the
+        # session is useful for subsequent calls, but dropping this field here
+        # makes downstream adapters re-resolve from mutable session state and
+        # loses the required explicit > session > default precedence.
+        arguments = dict(raw_arguments)
 
         # An explicit, authorized workspace switch is allowed per call.
-        requested_workspace = params.get("workspace") or arguments.pop("workspace", None)
+        requested_workspace = params.get("workspace") or arguments.get("workspace")
         if requested_workspace:
             try:
                 self.sessions.bind_workspace(session, str(requested_workspace))
@@ -208,6 +242,11 @@ class RemoteMCPGateway:
                         message=exc.message,
                     ),
                 )
+            # A top-level MCP workspace and an arguments.workspace must have
+            # one canonical value at the adapter boundary.  The session bind
+            # above performs authorization/canonicalization; adapter-side
+            # resolution performs the same fail-closed filesystem checks.
+            arguments["workspace"] = str(requested_workspace)
 
         binding = self.adapter.binding(name)
         effect = str(binding.effect) if binding else None
@@ -361,11 +400,19 @@ def create_gateway(
     auth = auth if auth is not None else RemoteAuth.from_env()
     if audit is None:
         audit = RemoteAudit(os.environ.get("VEYA_REMOTE_AUDIT_LOG") or None)
-    adapter = adapter if adapter is not None else RemoteToolAdapter(redact=audit.redact)
+    adapter = (
+        adapter
+        if adapter is not None
+        else RemoteToolAdapter(
+            redact=audit.redact,
+            execution_store=ExecutionStore.from_env(default_persistent=True),
+        )
+    )
     if sessions is None:
         sessions = RemoteSessionManager(
             ttl_s=float(os.environ.get("VEYA_REMOTE_SESSION_TTL_S", "3600")),
             max_sessions=int(os.environ.get("VEYA_REMOTE_MAX_SESSIONS", "8")),
+            default_workspace=os.environ.get("VEYA_WORKSPACE_ROOT") or None,
         )
     return RemoteMCPGateway(
         auth=auth,

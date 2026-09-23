@@ -76,6 +76,14 @@ export interface Mission {
   created_at: number;
   updated_at: number;
   status: MissionStatus;
+  verification_profile_id: string;
+  verification_profile_version: string;
+  autonomy_level: string;
+  autonomy_policy_version: string;
+  role_id: string;
+  role_contract_version: string;
+  playbook_id: string;
+  playbook_version: string;
 }
 
 export interface ExecutionReport {
@@ -117,6 +125,7 @@ export interface SupervisorReview {
   iteration: number;
   supervisor: "external" | "internal" | string;
   decision: ReviewDecision;
+  correction_scope: string;
   reason: string;
   next_task: string | null;
   constraints_delta: string[];

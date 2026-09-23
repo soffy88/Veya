@@ -28,7 +28,16 @@ Environment=HICODE_REASONIX_MODEL=opencode-go/deepseek-v4.1-flash
 Environment=HICODE_REASONIX_API_KEY_ENV=OPENCODE_API_KEY
 # Read/write roots for the Veya Local workstream: projects (veya, hevi, ...) and
 # the canonical 3O repos. Writes still go through each repo's isolated worktree.
-Environment=VEYA_WORKSPACE_EXTRA_DIRS=/data/soffy/projects:/home/soffy/deploy/3O
+Environment=VEYA_WORKSPACE_ROOT=/data/soffy/projects
+Environment=VEYA_WORKSPACE=/data/soffy/projects
+Environment=VEYA_WORKSPACE_EXTRA_DIRS=/data/soffy/projects
+# The remote gateway binds an explicit, token-authorized workspace per call and
+# always passes it to Hicode. Hicode's own sandbox root must therefore cover the
+# authorized projects; the remote WorkspacePolicy remains the real boundary.
+Environment=HICODE_WORKSPACE=/data/soffy/projects
+# Durable execution records: process.status survives a caller disconnect and a
+# gateway restart (reconnect by execution_id).
+Environment=VEYA_REMOTE_EXECUTION_STORE=%h/.veya/remote_executions
 # DSH executor plane (dedicated file, not global service env). Model routing
 # stays on the Veya LLM gateway; DSH holds no third-party provider credential.
 EnvironmentFile=-%h/.config/veya/dsh.env

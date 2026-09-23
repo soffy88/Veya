@@ -54,6 +54,11 @@ _PATH_EXT = {
     "lock",
 }
 _MAX_ITEMS = 50
+_BENIGN_COMPLETION_SUMMARY_RE = re.compile(
+    r"\d+\s*/\s*\d+\s+subtasks?\s+completed\s*"
+    r"\(\s*0\s+failed,\s*0\s+blocked\s*\)",
+    re.I,
+)
 
 
 def _text_of(state: Any) -> str:
@@ -131,7 +136,7 @@ def _project_text_evidence(
 
     if _FAILURE_RE.search(text):
         for line in text.splitlines():
-            if _FAILURE_RE.search(line):
+            if _FAILURE_RE.search(line) and not _BENIGN_COMPLETION_SUMMARY_RE.search(line):
                 failures.append({"kind": "text_signal", "detail": line.strip()[:300]})
                 if len(failures) > 20:
                     break

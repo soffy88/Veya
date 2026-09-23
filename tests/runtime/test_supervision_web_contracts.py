@@ -49,17 +49,15 @@ def _union_values(name: str) -> set[str]:
 
 
 def test_mission_fields_match_backend():
-    canonical = set(
-        Mission(mission_id="m", goal="g").to_dict().keys()
-    )
+    canonical = set(Mission(mission_id="m", goal="g").to_dict().keys())
     assert _interface_fields("Mission") == canonical
 
 
 def test_execution_report_fields_match_backend():
     canonical = set(
-        ExecutionReport(
-            mission_id="m", iteration=0, objective="o", status="executed"
-        ).to_dict().keys()
+        ExecutionReport(mission_id="m", iteration=0, objective="o", status="executed")
+        .to_dict()
+        .keys()
     )
     assert _interface_fields("ExecutionReport") == canonical
 
@@ -68,7 +66,9 @@ def test_supervisor_review_fields_match_backend():
     canonical = set(
         SupervisorReview(
             mission_id="m", iteration=0, supervisor="internal", decision=ReviewDecision.accept
-        ).to_dict().keys()
+        )
+        .to_dict()
+        .keys()
     )
     assert _interface_fields("SupervisorReview") == canonical
 

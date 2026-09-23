@@ -18,10 +18,36 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .models import ExecutionReport, Mission, ReviewDecision, SupervisorReview
+from .models import CORRECTION_SCOPES, ExecutionReport, Mission, ReviewDecision, SupervisorReview
 
 ReviewLLM = Callable[[str], Awaitable[str]]
 _DECISIONS = {str(d) for d in ReviewDecision}
+_DECISION_BY_LOWER = {d.lower(): d for d in _DECISIONS}
+_RAW_REVIEW_KEYS = frozenset(
+    {"stdout", "stderr", "prompt", "raw_prompt", "worker_prompt", "event_stream", "events"}
+)
+_REPORT_KEYS = frozenset(
+    {
+        "mission_id",
+        "iteration",
+        "objective",
+        "status",
+        "changes",
+        "tests",
+        "artifacts",
+        "runtime_evidence",
+        "git_diff_summary",
+        "failures",
+        "unresolved_risks",
+        "deviations",
+        "blocked_items",
+        "jev_decisions",
+        "executor_summary",
+        "proposed_next_action",
+        "plan",
+        "plan_version",
+    }
+)
 
 
 class SupervisorUnavailable(RuntimeError):
@@ -50,6 +76,40 @@ class ReviewContext:
         }
 
 
+def _bounded_value(value: Any, *, depth: int = 0) -> Any:
+    """Keep review input evidence-shaped; raw logs/prompts never cross this boundary."""
+
+    if depth > 3:
+        return str(value)[:400]
+    if isinstance(value, dict):
+        return {
+            str(key): _bounded_value(item, depth=depth + 1)
+            for key, item in value.items()
+            if str(key).lower() not in _RAW_REVIEW_KEYS
+        }
+    if isinstance(value, (list, tuple)):
+        return [_bounded_value(item, depth=depth + 1) for item in list(value)[:50]]
+    if isinstance(value, str):
+        return value[:800]
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    return str(value)[:400]
+
+
+def _bounded_report(report: dict[str, Any], mission: Mission) -> dict[str, Any]:
+    """Project the canonical report into the bounded reviewer contract."""
+
+    bounded = {
+        str(key): _bounded_value(value) for key, value in report.items() if str(key) in _REPORT_KEYS
+    }
+    plan = mission.authority.get("plan")
+    if not isinstance(plan, list):
+        plan = (mission.policies.execution_policy or {}).get("subtasks") or []
+    bounded["plan"] = _bounded_value(plan)
+    bounded["plan_version"] = int(mission.authority.get("plan_version", 1))
+    return bounded
+
+
 class InternalSupervisor:
     name = "internal"
 
@@ -58,13 +118,18 @@ class InternalSupervisor:
 
     # ── review ──────────────────────────────────────────────────────
     def build_review_context(self, mission: Mission, report: ExecutionReport) -> ReviewContext:
+        bounded = _bounded_report(report.to_dict(), mission)
         return ReviewContext(
             mission_id=mission.mission_id,
             goal=mission.goal,
             acceptance_criteria=list(mission.acceptance_criteria),
             constraints=list(mission.constraints),
-            report=report.to_dict(),
-            evidence=list(report.runtime_evidence) + list(report.artifacts) + list(report.tests),
+            report=bounded,
+            evidence=(
+                list(bounded.get("runtime_evidence") or [])
+                + list(bounded.get("artifacts") or [])
+                + list(bounded.get("tests") or [])
+            ),
         )
 
     async def review(self, mission: Mission, report: ExecutionReport) -> SupervisorReview:
@@ -91,8 +156,11 @@ def _review_prompt(context: ReviewContext) -> str:
         "acceptance criteria, execution report and evidence. Do not assume the "
         "executor's summary is correct. Reply with a single JSON object and nothing "
         "else, using exactly these keys: decision (one of "
-        f"{sorted(_DECISIONS)}), reason, next_task, constraints_delta, "
+        f"{sorted(_DECISIONS)}), correction_scope (one of {sorted(CORRECTION_SCOPES)}), "
+        "reason, next_task, constraints_delta, "
         "acceptance_delta, required_evidence, risk_notes, confidence.\n"
+        "Use decision REVISE with correction_scope PLAN for plan-level correction; "
+        "there is no separate REPLAN decision.\n"
         "Evidence and plan:\n" + json.dumps(context.payload(), ensure_ascii=False)
     )
 
@@ -128,10 +196,14 @@ def _parse_review(
     supervisor: str,
 ) -> SupervisorReview:
     parsed = _extract_json(raw)
-    if not isinstance(parsed, dict) or str(parsed.get("decision", "")) not in _DECISIONS:
+    if not isinstance(parsed, dict):
+        parsed = {}
+    decision = _DECISION_BY_LOWER.get(str(parsed.get("decision", "")).strip().lower())
+    scope = str(parsed.get("correction_scope", "TASK")).strip().upper()
+    if decision is None or scope not in CORRECTION_SCOPES:
         # A reviewer that cannot produce a valid verdict is a signal to escalate,
         # never a silent ACCEPT.
-        return SupervisorReview(
+        review = SupervisorReview(
             mission_id=mission.mission_id,
             iteration=report.iteration,
             supervisor=supervisor,
@@ -139,11 +211,14 @@ def _parse_review(
             reason="reviewer output was not a valid SupervisorReview",
             risk_notes=["unparseable reviewer output"],
         )
-    return SupervisorReview(
+        review.raw_review = {"raw_text": str(raw)[:20_000], "parsed": parsed}
+        return review
+    review = SupervisorReview(
         mission_id=mission.mission_id,
         iteration=report.iteration,
         supervisor=supervisor,
-        decision=ReviewDecision(str(parsed["decision"])),
+        decision=ReviewDecision(decision),
+        correction_scope=scope,
         reason=str(parsed.get("reason", "")),
         next_task=parsed.get("next_task"),
         constraints_delta=[str(x) for x in parsed.get("constraints_delta") or []],
@@ -152,6 +227,78 @@ def _parse_review(
         risk_notes=[str(x) for x in parsed.get("risk_notes") or []],
         confidence=parsed.get("confidence"),
     )
+    review.raw_review = {"raw_text": str(raw)[:20_000], "parsed": parsed}
+    return review
 
 
-__all__ = ["InternalSupervisor", "ReviewContext", "SupervisorUnavailable"]
+def _valid_review(raw: str) -> dict[str, Any] | None:
+    """Strict SupervisorReview validation: JSON object + canonical decision."""
+
+    parsed = _extract_json(raw)
+    if not isinstance(parsed, dict):
+        return None
+    canonical = _DECISION_BY_LOWER.get(str(parsed.get("decision", "")).strip().lower())
+    if canonical is None:
+        return None
+    scope = str(parsed.get("correction_scope", "TASK")).strip().upper()
+    if scope not in CORRECTION_SCOPES:
+        return None
+    parsed["decision"] = canonical
+    parsed["correction_scope"] = scope
+    return parsed
+
+
+_REPAIR_SUFFIX = (
+    "\n\nYour previous response did not conform to SupervisorReview. "
+    "Return ONLY one valid JSON object matching this schema and nothing else: "
+    '{"decision":"ACCEPT|CONTINUE|REVISE|RETRY|ROLLBACK|ESCALATE|DONE",'
+    '"correction_scope":"TASK|PLAN","reason":"string",'
+    '"next_task":null,"constraints_delta":[],"acceptance_delta":[],'
+    '"required_evidence":[],"risk_notes":[],"confidence":null}'
+)
+
+
+def strict_reviewer_llm(
+    base: Callable[[str], Awaitable[str]], *, recorder: dict[str, Any] | None = None
+) -> Callable[[str], Awaitable[str]]:
+    """Strict structured-output wrapper for a reviewer LLM.
+
+    Parse -> validate against the canonical ``SupervisorReview`` decision set ->
+    at most ONE repair request. A second failure is fail-closed (ESCALATE), never
+    an infinite retry and never a decision guessed from prose.
+    """
+
+    state = recorder if recorder is not None else {}
+    state.setdefault("request_count", 0)
+    state.setdefault("repair_retry", False)
+    state.setdefault("parse_attempt_1", None)
+    state.setdefault("parse_attempt_2", None)
+
+    async def _llm(prompt: str) -> str:
+        state["request_count"] += 1
+        parsed = _valid_review(await base(prompt))
+        state["parse_attempt_1"] = parsed is not None
+        if parsed is not None:
+            return json.dumps(parsed)
+        state["repair_retry"] = True
+        state["request_count"] += 1
+        parsed2 = _valid_review(await base(prompt + _REPAIR_SUFFIX))
+        state["parse_attempt_2"] = parsed2 is not None
+        if parsed2 is not None:
+            return json.dumps(parsed2)
+        return json.dumps(
+            {
+                "decision": "ESCALATE",
+                "reason": "reviewer output did not conform to SupervisorReview after repair",
+            }
+        )
+
+    return _llm
+
+
+__all__ = [
+    "InternalSupervisor",
+    "ReviewContext",
+    "SupervisorUnavailable",
+    "strict_reviewer_llm",
+]

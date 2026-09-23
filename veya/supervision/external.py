@@ -159,6 +159,7 @@ class ExternalSupervisor:
     def apply_review(self, mission_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         mission = self.require(mission_id)
         review = SupervisorReview.from_dict({"mission_id": mission_id, **payload})
+        review.raw_review = dict(payload)
         if not review.supervisor:
             review.supervisor = str(
                 mission.authority.get("active_supervisor") or mission.supervision_mode
@@ -168,9 +169,10 @@ class ExternalSupervisor:
         outcome: RetaskOutcome = _apply_review(
             self.store, mission, review, iteration=iteration, report=report
         )
-        if outcome.next_task is not None:
+        if outcome.next_task is not None or outcome.correction_scope == "PLAN":
             mission = self.require(mission_id)
             mission.authority["iteration"] = iteration + 1
+            mission.status = outcome.mission_status
             self.store.save(mission)
         return {
             "status": str(outcome.mission_status),
@@ -196,7 +198,8 @@ class ExternalSupervisor:
         return report.to_dict() if report else None
 
     def list_escalations(self, mission_id: str) -> list[dict[str, Any]]:
-        return [e for e in self.store.events(mission_id) if e.get("topic") == "ESCALATED"]
+        events: list[dict[str, Any]] = list(self.store.events(mission_id))
+        return [event for event in events if event.get("topic") == "ESCALATED"]
 
     def artifact_ref(self, mission_id: str, iteration: int | None = None) -> list[dict[str, Any]]:
         report = (

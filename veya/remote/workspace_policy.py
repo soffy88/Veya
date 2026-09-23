@@ -190,8 +190,14 @@ class WorkspacePolicy:
                     "WORKSPACE_DENIED", f"path is a protected location: {text!r}"
                 )
         if for_write:
-            git_dir = self.root / ".git"
-            inside_git = resolved == git_dir or git_dir in resolved.parents
+            # The bound root may be a non-Git parent containing several repos.
+            # Protect every nested repository's metadata, not only
+            # ``bound_root/.git``.
+            try:
+                relative_parts = resolved.relative_to(self.root).parts
+            except ValueError:  # containment was checked above; defensive only
+                relative_parts = ()
+            inside_git = ".git" in relative_parts
             if inside_git and not self.permissions.destructive:
                 raise WorkspacePolicyError(
                     "POLICY_BLOCKED", "writing .git internals requires destructive capability"

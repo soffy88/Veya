@@ -1,0 +1,29 @@
+# Veya Remote MCP — public route (PUBLISHED)
+#
+# The veya site is served by the **aegis Caddy** container (`aegis-caddy`), site
+# block `:8093` for veya.aiinote.com. Its Caddyfile lives at
+#   /data/soffy/projects/aegis/Caddyfile
+# and is bind-mounted into the container, so it is edited by the operator
+# (no root) and reloaded with:
+#   docker exec aegis-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+#
+# Applied idempotently by:  deploy/apply_remote_mcp_caddy.sh
+#
+# Reachability: `aegis-caddy` is containerized, so it reaches the host through
+# the docker bridge gateway. The Remote MCP service itself stays loopback-only
+# (127.0.0.1:8790); a socat relay exposes it on the bridge only:
+#   veya-remote-mcp-bridge.service: 172.18.0.1:8792 -> 127.0.0.1:8790
+#
+# Inserted BEFORE the veya site's existing `handle /mcp/*` (which still points
+# at the Veya backend 172.18.0.1:8767 and is unchanged):
+#
+#     handle /mcp {
+#         reverse_proxy 172.18.0.1:8792
+#     }
+#     handle /mcp/health {
+#         reverse_proxy 172.18.0.1:8792
+#     }
+#
+# Verify:
+#   curl -s https://veya.aiinote.com/mcp/health
+#   # -> {"status":"ok", ..., "auth_configured":true, "tools":17}

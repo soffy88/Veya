@@ -30,6 +30,19 @@ def canonical_workspace(path: str | Path) -> str:
     return str(Path(path).expanduser().resolve())
 
 
+def workspace_is_authorized(
+    workspace: str | Path, allowed_roots: tuple[str, ...] | list[str]
+) -> bool:
+    """Return True when workspace is an authorized root or a descendant."""
+
+    requested = Path(canonical_workspace(workspace))
+    for item in allowed_roots:
+        root = Path(canonical_workspace(item))
+        if requested == root or root in requested.parents:
+            return True
+    return False
+
+
 class RemoteSessionManager:
     """In-memory registry of active remote sessions."""
 
@@ -38,10 +51,14 @@ class RemoteSessionManager:
         *,
         ttl_s: float = 3600.0,
         max_sessions: int = 8,
+        default_workspace: str | Path | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._ttl_s = max(30.0, float(ttl_s))
         self._max_sessions = max(1, int(max_sessions))
+        self._default_workspace = (
+            canonical_workspace(default_workspace) if default_workspace is not None else None
+        )
         self._clock = clock
         self._sessions: dict[str, RemoteSession] = {}
         self._lock = threading.Lock()
@@ -53,6 +70,12 @@ class RemoteSessionManager:
     @property
     def max_sessions(self) -> int:
         return self._max_sessions
+
+    @property
+    def default_workspace(self) -> str | None:
+        """Configured default for new sessions, if the deployment supplies one."""
+
+        return self._default_workspace
 
     # ── lifecycle ───────────────────────────────────────────────────
     def create(
@@ -68,13 +91,30 @@ class RemoteSessionManager:
                 "WORKSPACE_DENIED", "token has no authorized workspaces (fail closed)"
             )
         if workspace is None:
-            active = allowed[0]
+            # Deployment policy is authoritative for the default.  Falling back
+            # to the first token entry is retained only for embedded/test
+            # managers that do not provide a configured default; it prevents an
+            # old token ordering from silently selecting the wrong repository in
+            # the production gateway.
+            active = self._default_workspace or allowed[0]
+            if not workspace_is_authorized(active, list(allowed)):
+                raise RemoteSessionError(
+                    "WORKSPACE_DENIED",
+                    f"configured default workspace is not authorized: {active}",
+                )
         else:
             requested = canonical_workspace(workspace)
-            if requested not in allowed:
+            if not workspace_is_authorized(requested, list(allowed)):
                 raise RemoteSessionError(
                     "WORKSPACE_DENIED",
                     f"workspace is not authorized for this principal: {requested}",
+                )
+            if self._default_workspace is not None and not workspace_is_authorized(
+                requested, (self._default_workspace,)
+            ):
+                raise RemoteSessionError(
+                    "WORKSPACE_DENIED",
+                    f"workspace is outside configured root: {requested}",
                 )
             active = requested
         now = self._clock()
@@ -150,11 +190,19 @@ class RemoteSessionManager:
     # ── workspace binding ───────────────────────────────────────────
     def bind_workspace(self, session: RemoteSession, workspace: str) -> str:
         requested = canonical_workspace(workspace)
-        if requested not in session.workspaces:
+        if not workspace_is_authorized(requested, list(session.workspaces)):
             raise RemoteSessionError(
                 "WORKSPACE_DENIED", f"workspace switch not authorized: {requested}"
             )
+        if self._default_workspace is not None and not workspace_is_authorized(
+            requested, (self._default_workspace,)
+        ):
+            raise RemoteSessionError(
+                "WORKSPACE_DENIED",
+                f"workspace is outside configured root: {requested}",
+            )
         session.active_workspace = requested
+        session.explicit_workspace = requested
         return requested
 
     def bind_worktree(self, session: RemoteSession, workspace: str, worktree_path: str) -> None:

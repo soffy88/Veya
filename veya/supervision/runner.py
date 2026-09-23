@@ -67,6 +67,14 @@ async def canonical_runner(mission: Any, *, dispatch: Dispatch | None = None) ->
     )
 
 
+def _execution_mode(mission: Any) -> str:
+    """Explicit L2 execution mode (``execution_policy.mode``). No auto-guessing."""
+
+    policies = getattr(mission, "policies", None)
+    execution = getattr(policies, "execution_policy", None) or {}
+    return str(execution.get("mode") or "").strip().lower()
+
+
 def runner_with(dispatch: Dispatch) -> Callable[[Any], Awaitable[Any]]:
     async def _run(mission: Any) -> Any:
         return await canonical_runner(mission, dispatch=dispatch)
@@ -74,4 +82,30 @@ def runner_with(dispatch: Dispatch) -> Callable[[Any], Awaitable[Any]]:
     return _run
 
 
-__all__ = ["canonical_runner", "runner_with"]
+def select_runner(
+    *,
+    orchestrated_dispatch: Any = None,
+    orchestrated_decompose: Any = None,
+) -> Callable[[Any], Awaitable[Any]]:
+    """One runner selection for the ONE MissionLoop.
+
+    ``execution_policy.mode=veya_orchestrated`` routes to the L2 orchestration
+    scheduler over the L1 substrate; every other mode keeps the existing
+    canonical project dispatch. No second loop, no shadow state.
+    """
+
+    async def _run(mission: Any) -> Any:
+        if _execution_mode(mission) == "veya_orchestrated" and orchestrated_dispatch is not None:
+            from .orchestrated import orchestrated_runner
+
+            return await orchestrated_runner(
+                mission,
+                dispatch=orchestrated_dispatch,
+                decompose=orchestrated_decompose,
+            )
+        return await canonical_runner(mission)
+
+    return _run
+
+
+__all__ = ["canonical_runner", "executor_hint", "runner_with", "select_runner"]

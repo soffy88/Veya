@@ -126,9 +126,11 @@ def test_high_level_mcp_bindings_share_the_same_server() -> None:
     }
     for mcp_name, canonical in expected.items():
         assert BINDING_INDEX[mcp_name].veya_tool == canonical
-    # 17 low-level + 9 supervision, one server
-    assert len(BINDINGS) == 26
-    assert not any(b.veya_tool is None for b in BINDINGS if not b.name.startswith("process."))
+    # 17 low-level + 9 supervision + 1 L1 dispatch, one server
+    assert len(BINDINGS) == 27
+    assert not any(
+        b.veya_tool is None for b in BINDINGS if not b.name.startswith(("process.", "worker."))
+    )
 
 
 def test_canonical_supervision_tools_register() -> None:

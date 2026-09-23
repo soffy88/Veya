@@ -123,6 +123,9 @@ class RemoteSession:
     client_info: dict[str, Any] = field(default_factory=dict)
     # canonical workspace -> isolated worktree path, when created
     worktrees: dict[str, str] = field(default_factory=dict)
+    # Explicit per-call workspace request (P0-A/J). When set, status/cancel must
+    # not observe an execution whose workspace identity differs.
+    explicit_workspace: str | None = None
 
     def is_expired(self, now: float | None = None) -> bool:
         return (now if now is not None else time.time()) >= self.expires_at

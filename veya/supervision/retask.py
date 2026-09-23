@@ -9,7 +9,10 @@ WAITING_EXTERNAL_SUPERVISOR.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import dataclass, field
+from typing import Any
 
 from runtime.verification.models import VerificationGateResult
 
@@ -36,6 +39,11 @@ _REDO_DECISIONS = {
     ReviewDecision.rollback,
 }
 
+# These are concrete L1 worker identities, not semantic routing choices.  A
+# retask may preserve one of them, but it must never silently fall back to
+# Hicode when the identity is absent or invalid.
+_RETASK_WORKERS = frozenset({"hicode", "dsh", "pi", "grok", "codex"})
+
 
 @dataclass
 class RetaskOutcome:
@@ -43,6 +51,9 @@ class RetaskOutcome:
     next_task: ExecutionTask | None = None
     escalation_code: EscalationCode | None = None
     reason: str = ""
+    correction_scope: str = "TASK"
+    plan_version: int | None = None
+    retask_lineage: dict[str, Any] = field(default_factory=dict)
 
 
 def _detect_escalation(review: SupervisorReview) -> EscalationCode | None:
@@ -53,18 +64,205 @@ def _detect_escalation(review: SupervisorReview) -> EscalationCode | None:
     return None
 
 
-def _task_from_review(review: SupervisorReview, mission: Mission) -> ExecutionTask | None:
-    objective = (review.next_task or "").strip()
-    if not objective:
+def _normalize_next_task(raw: Any) -> str | None:
+    """Normalize only the structured next_task shape already emitted by review."""
+
+    if isinstance(raw, str):
+        value = raw.strip()
+        return value or None
+    if isinstance(raw, dict):
+        objective = raw.get("objective")
+        if isinstance(objective, str) and objective.strip():
+            return objective.strip()
+    return None
+
+
+def _normalize_worker(raw: Any) -> str | None:
+    if not isinstance(raw, str):
         return None
+    worker = raw.strip().lower()
+    return worker if worker in _RETASK_WORKERS else None
+
+
+def _relative_artifacts(raw: Any) -> list[str] | None:
+    if raw is None:
+        return []
+    values = [raw] if isinstance(raw, str) else raw
+    if not isinstance(values, (list, tuple)):
+        return None
+    result: list[str] = []
+    for value in values:
+        path = str(value).strip()
+        parts = path.replace("\\", "/").split("/")
+        if not path or path.startswith("/") or ".." in parts:
+            return None
+        if path not in result:
+            result.append(path)
+    return result
+
+
+def _review_id(review: SupervisorReview) -> str:
+    encoded = json.dumps(review.to_dict(), sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _l1_entries(report: ExecutionReport | None) -> list[dict[str, Any]]:
+    if report is None:
+        return []
+    return [
+        item
+        for item in report.runtime_evidence
+        if isinstance(item, dict) and item.get("kind") == "l1_execution"
+    ]
+
+
+def _original_child_metadata(
+    report: ExecutionReport | None,
+    *,
+    worker: str | None,
+    parent_subtask_id: str | None,
+) -> dict[str, Any] | None:
+    """Resolve the original logical child without choosing a worker implicitly."""
+
+    entries = _l1_entries(report)
+    if not entries and report is not None:
+        # Lightweight/canonical runners may expose the task graph through the
+        # report change projection without emitting an L1 execution envelope.
+        # Preserve that authoritative assignee identity for retask lineage;
+        # never invent a worker when the report does not provide one.
+        entries = [
+            {
+                "task_id": item.get("task_id"),
+                "subtask_id": item.get("task_id"),
+                "worker": item.get("assignee"),
+                "required_artifacts": item.get("required_artifacts") or [],
+                "dependency_context": item.get("dependency_context") or {},
+            }
+            for item in report.changes
+            if isinstance(item, dict) and item.get("task_id")
+        ]
+    if parent_subtask_id:
+        entries = [item for item in entries if str(item.get("subtask_id")) == parent_subtask_id]
+    if worker:
+        entries = [item for item in entries if _normalize_worker(item.get("worker")) == worker]
+    if len(entries) != 1:
+        return None
+    return entries[0]
+
+
+def _task_from_review(
+    review: SupervisorReview, mission: Mission, report: ExecutionReport | None = None
+) -> tuple[ExecutionTask | None, dict[str, Any]]:
+    raw = review.next_task
+    objective = _normalize_next_task(raw)
+    structured: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    worker_key = next(
+        (key for key in ("worker", "worker_type", "executor") if key in structured),
+        None,
+    )
+    explicit_worker = _normalize_worker(structured.get(worker_key)) if worker_key else None
+    parent_subtask_id = (
+        str(structured.get("parent_subtask_id")) if structured.get("parent_subtask_id") else None
+    )
+    source = _original_child_metadata(
+        report,
+        worker=explicit_worker if worker_key is None or explicit_worker is not None else None,
+        parent_subtask_id=parent_subtask_id,
+    )
+    worker = (
+        explicit_worker
+        if worker_key is not None
+        else _normalize_worker(source.get("worker") if source else None)
+    )
+    if worker_key is not None and explicit_worker is None:
+        source = None
+    if source is not None and parent_subtask_id is None:
+        parent_subtask_id = str(source.get("subtask_id")) if source.get("subtask_id") else None
+    required_from_source = source.get("required_artifacts") if source else []
+    if "required_artifacts" in structured:
+        required_artifacts = _relative_artifacts(structured.get("required_artifacts"))
+    else:
+        required_artifacts = _relative_artifacts(required_from_source)
+    dependency_context = structured.get("dependency_context")
+    if not isinstance(dependency_context, dict):
+        dependency_context = {}
+    if source and isinstance(source.get("dependency_context"), dict):
+        dependency_context = {**source["dependency_context"], **dependency_context}
+    if structured.get("depends_on") is not None:
+        dependency_context = {
+            **dependency_context,
+            "depends_on": list(structured.get("depends_on") or []),
+        }
+    dependency_ids = {str(value) for value in dependency_context.get("depends_on", []) if value}
+    if report is not None and dependency_ids and "dependency_artifacts" not in dependency_context:
+        dependency_artifacts = [
+            dict(item)
+            for item in report.artifacts
+            if isinstance(item, dict)
+            and str(item.get("subtask_id") or item.get("task_id") or "") in dependency_ids
+            and item.get("materialized_path")
+        ]
+        if dependency_artifacts:
+            dependency_context = {
+                **dependency_context,
+                "dependency_artifacts": dependency_artifacts,
+            }
+    artifact_acceptance = structured.get("artifact_acceptance_criteria")
+    if not isinstance(artifact_acceptance, list):
+        artifact_acceptance = [
+            f"materialized required artifact exists: {path}" for path in required_artifacts or []
+        ]
+    lineage = {
+        "raw_next_task": raw,
+        "normalized_next_task": objective,
+        "source_review_id": _review_id(review),
+        "original_child_execution_id": (
+            str(source.get("execution_id")) if source and source.get("execution_id") else None
+        ),
+        "retask_child_execution_id": None,
+        "parent_subtask_id": parent_subtask_id,
+        "plan_version": int(mission.authority.get("plan_version", 1)),
+        "correction_index": int(mission.authority.get("correction_index", 0)) + 1,
+        "worker_type": worker,
+        "required_artifacts": required_artifacts if required_artifacts is not None else [],
+        "artifact_acceptance_criteria": [str(item) for item in artifact_acceptance],
+        "dependency_context": dependency_context,
+    }
+    if not objective:
+        lineage["retask_block_reason"] = "RETASK_BLOCKED_INVALID_NEXT_TASK"
+        return None, lineage
+    if worker is None:
+        lineage["retask_block_reason"] = "RETASK_BLOCKED_WORKER_UNRESOLVED"
+        return None, lineage
+    if report is not None and source is None:
+        lineage["retask_block_reason"] = "RETASK_BLOCKED_ORIGINAL_SUBTASK_UNRESOLVED"
+        return None, lineage
+    if required_artifacts is None:
+        lineage["retask_block_reason"] = "RETASK_BLOCKED_INVALID_REQUIRED_ARTIFACTS"
+        return None, lineage
+    task_id = str(structured.get("task_id") or f"{mission.mission_id}-it{review.iteration + 1}")
+    acceptance = structured.get("acceptance")
+    acceptance_items = [str(item) for item in acceptance] if isinstance(acceptance, list) else []
     side_effect = SideEffectClass.write
     return ExecutionTask(
-        task_id=f"{mission.mission_id}-it{review.iteration + 1}",
+        task_id=task_id,
         objective=objective,
-        executor=ExecutorKind.hicode,
-        acceptance=list(review.required_evidence) + list(review.acceptance_delta),
+        # Concrete L1 identity is carried in inputs/lineage because the
+        # canonical ExecutorKind enum is intentionally broader than the L1
+        # worker registry (Pi/Grok are valid workers too).
+        executor=ExecutorKind.worker,
+        inputs={
+            "worker_type": worker,
+            "required_artifacts": list(required_artifacts),
+            "artifact_acceptance_criteria": [str(item) for item in artifact_acceptance],
+            "dependency_context": dependency_context,
+            "dependency_artifacts": list(dependency_context.get("dependency_artifacts") or []),
+        },
+        acceptance=acceptance_items
+        + list(review.required_evidence)
+        + list(review.acceptance_delta),
         side_effect_class=side_effect,
-    )
+    ), lineage
 
 
 def plan_retask(
@@ -112,13 +310,35 @@ def plan_retask(
                 MissionStatus.blocked,
                 reason=f"iteration budget exhausted ({budget.max_iterations})",
             )
-        task = _task_from_review(review, mission)
+        if review.correction_scope == "PLAN":
+            if review.decision is not ReviewDecision.revise:
+                return RetaskOutcome(
+                    MissionStatus.blocked,
+                    reason="plan-level correction requires the canonical REVISE decision",
+                    correction_scope="PLAN",
+                )
+            return RetaskOutcome(
+                MissionStatus.retasking,
+                reason=review.reason or "plan-level correction requested",
+                correction_scope="PLAN",
+                plan_version=int(mission.authority.get("plan_version", 1)) + 1,
+            )
+        task, lineage = _task_from_review(review, mission, report)
         if task is None:
             return RetaskOutcome(
                 MissionStatus.blocked,
-                reason=f"{review.decision} review carried no next_task",
+                reason=str(
+                    lineage.get("retask_block_reason") or "RETASK_BLOCKED_INVALID_NEXT_TASK"
+                ),
+                retask_lineage=lineage,
             )
-        return RetaskOutcome(MissionStatus.retasking, next_task=task, reason=review.reason)
+        return RetaskOutcome(
+            MissionStatus.retasking,
+            next_task=task,
+            reason=review.reason,
+            correction_scope="TASK",
+            retask_lineage=lineage,
+        )
 
     return RetaskOutcome(MissionStatus.blocked, reason="unrecognized review decision")
 
@@ -134,6 +354,7 @@ def apply_review(
 ) -> RetaskOutcome:
     """Persist the review, transition the mission, and emit the retask event."""
 
+    store.append_raw_review(review)
     store.append_review(review)
     outcome = plan_retask(
         review,
@@ -142,6 +363,8 @@ def apply_review(
         report=report,
         verification=verification,
     )
+    if outcome.correction_scope == "PLAN":
+        _request_plan_revision(store, mission, review, iteration, outcome)
     store.set_status(mission.mission_id, outcome.mission_status)
     store.append_event(
         mission.mission_id,
@@ -153,7 +376,23 @@ def apply_review(
         },
     )
     if outcome.next_task is not None:
-        store.append_event(mission.mission_id, "RETASK_CREATED", outcome.next_task.to_dict())
+        pending = outcome.next_task.to_dict()
+        pending.update(outcome.retask_lineage)
+        mission.authority["pending_task_retask"] = pending
+        mission.status = outcome.mission_status
+        store.save(mission)
+        store.append_event(mission.mission_id, "RETASK_CREATED", pending)
+    elif outcome.correction_scope == "PLAN":
+        store.append_event(
+            mission.mission_id,
+            "PLAN_REVISION_REQUESTED",
+            {
+                "base_plan_version": int(mission.authority.get("plan_version", 1)),
+                "reason": review.reason,
+                "decision": str(review.decision),
+                "correction_scope": "PLAN",
+            },
+        )
     if outcome.escalation_code is not None:
         store.append_event(
             mission.mission_id,
@@ -161,6 +400,50 @@ def apply_review(
             {"code": str(outcome.escalation_code), "reason": outcome.reason},
         )
     return outcome
+
+
+def _current_plan(mission: Mission) -> list[dict[str, object]]:
+    plan = mission.authority.get("plan")
+    if not isinstance(plan, list):
+        plan = (mission.policies.execution_policy or {}).get("subtasks") or []
+    return [dict(item) for item in plan if isinstance(item, dict)]
+
+
+def _request_plan_revision(
+    store: MissionStore,
+    mission: Mission,
+    review: SupervisorReview,
+    iteration: int,
+    outcome: RetaskOutcome,
+) -> None:
+    """Persist a plan correction request without running a second runtime."""
+
+    current = _current_plan(mission)
+    version = int(mission.authority.get("plan_version", 1))
+    history = mission.authority.setdefault("plan_history", [])
+    if current and not any(int(item.get("version", -1)) == version for item in history):
+        history.append(
+            {
+                "version": version,
+                "plan": current,
+                "preserved_reason": review.reason,
+                "iteration": iteration,
+            }
+        )
+    mission.authority["pending_plan_revision"] = {
+        "base_version": version,
+        "reason": review.reason,
+        "next_task": review.next_task,
+        "decision": str(review.decision),
+        "correction_scope": "PLAN",
+    }
+    mission.authority.setdefault("plan_version", version)
+    mission.authority["last_correction_scope"] = "PLAN"
+    # ``outcome.plan_version`` is the version that the canonical planner must
+    # produce next; the current plan remains authoritative until then.
+    if outcome.plan_version is not None:
+        mission.authority["pending_plan_version"] = outcome.plan_version
+    store.save(mission)
 
 
 __all__ = ["RetaskOutcome", "apply_review", "plan_retask"]

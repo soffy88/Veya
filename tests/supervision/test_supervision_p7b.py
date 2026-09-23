@@ -13,11 +13,23 @@ _SUCCESS = {"done", "accepted", "success", "succeeded", "pass", "passed", "compl
 
 def _state(summary: str = "ok") -> types.SimpleNamespace:
     node = types.SimpleNamespace(
-        title="t", assignee="dsh", status="completed", acceptance=["ok"], verify_summary="passed",
-        artifacts=[], evidence=[], retries=0, block_reason=None, unfinished_work=[],
+        title="t",
+        assignee="dsh",
+        status="completed",
+        acceptance=["ok"],
+        verify_summary="passed",
+        artifacts=[],
+        evidence=[],
+        retries=0,
+        block_reason=None,
+        unfinished_work=[],
     )
     return types.SimpleNamespace(
-        goal_id="gr-1", status="executed", tasks={"t": node}, final_summary=summary, unfinished_work=[]
+        goal_id="gr-1",
+        status="executed",
+        tasks={"t": node},
+        final_summary=summary,
+        unfinished_work=[],
     )
 
 
@@ -107,7 +119,12 @@ def test_same_execution_id_after_restart(tmp_path):
     assert handle is None
     MissionStore(tmp_path).append_execution(
         mission_id,
-        {"execution_id": f"{mission_id}:0", "iteration": 0, "executor": "dsh", "state": STATE_RUNNING},
+        {
+            "execution_id": f"{mission_id}:0",
+            "iteration": 0,
+            "executor": "dsh",
+            "state": STATE_RUNNING,
+        },
     )
     # after "restart" the deterministic id is unchanged (no new random identity)
     assert MissionStore(tmp_path).execution_for(mission_id, 0)["execution_id"] == f"{mission_id}:0"
@@ -129,7 +146,12 @@ def test_lost_job_false_success_zero(tmp_path):
     mission_id = _mission(tmp_path, executor="dsh")
     MissionStore(tmp_path).append_execution(
         mission_id,
-        {"execution_id": f"{mission_id}:0", "iteration": 0, "executor": "dsh", "state": STATE_RUNNING},
+        {
+            "execution_id": f"{mission_id}:0",
+            "iteration": 0,
+            "executor": "dsh",
+            "state": STATE_RUNNING,
+        },
     )
     import asyncio
 

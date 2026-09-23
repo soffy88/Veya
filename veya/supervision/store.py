@@ -9,9 +9,11 @@ only references ``goalrun_id`` / ``checkpoint_id`` / artifact refs / reviews.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
+from builtins import list as builtins_list
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,7 @@ _MISSIONS_DIR = ".veya-project/missions"
 _MISSION_JSON = "mission.json"
 _EVENTS_JSONL = "events.jsonl"
 _REVIEWS_JSONL = "reviews.jsonl"
+_RAW_REVIEWS_JSONL = "raw_reviews.jsonl"
 _REPORTS_JSONL = "reports.jsonl"
 _EXECUTIONS_JSONL = "executions.jsonl"
 
@@ -116,7 +119,7 @@ class MissionStore:
         with (directory / _EVENTS_JSONL).open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    def events(self, mission_id: str) -> list[dict[str, Any]]:
+    def events(self, mission_id: str) -> builtins_list[dict[str, Any]]:
         path = self.mission_dir(mission_id) / _EVENTS_JSONL
         if not path.is_file():
             return []
@@ -131,7 +134,35 @@ class MissionStore:
         with (directory / _REVIEWS_JSONL).open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(review.to_dict(), ensure_ascii=False) + "\n")
 
-    def reviews(self, mission_id: str) -> list[SupervisorReview]:
+    def append_raw_review(self, review: SupervisorReview) -> None:
+        """Persist the reviewer payload beside, but outside, canonical Review."""
+
+        directory = self._ensure_dir(review.mission_id)
+        canonical = review.to_dict()
+        review_id = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        record = {
+            "review_id": review_id,
+            "mission_id": review.mission_id,
+            "iteration": review.iteration,
+            "raw_review": review.raw_review,
+            "normalized_review": canonical,
+        }
+        with (directory / _RAW_REVIEWS_JSONL).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def raw_reviews(self, mission_id: str) -> builtins_list[dict[str, Any]]:
+        path = self.mission_dir(mission_id) / _RAW_REVIEWS_JSONL
+        if not path.is_file():
+            return []
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def reviews(self, mission_id: str) -> builtins_list[SupervisorReview]:
         path = self.mission_dir(mission_id) / _REVIEWS_JSONL
         if not path.is_file():
             return []
@@ -156,7 +187,7 @@ class MissionStore:
             {"iteration": report.iteration, "status": report.status},
         )
 
-    def reports(self, mission_id: str) -> list[ExecutionReport]:
+    def reports(self, mission_id: str) -> builtins_list[ExecutionReport]:
         path = self.mission_dir(mission_id) / _REPORTS_JSONL
         if not path.is_file():
             return []
@@ -189,11 +220,11 @@ class MissionStore:
         with (directory / _EXECUTIONS_JSONL).open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    def executions(self, mission_id: str) -> list[dict[str, Any]]:
+    def executions(self, mission_id: str) -> builtins_list[dict[str, Any]]:
         path = self.mission_dir(mission_id) / _EXECUTIONS_JSONL
         if not path.is_file():
             return []
-        out: list[dict[str, Any]] = []
+        out: builtins_list[dict[str, Any]] = []
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
@@ -213,7 +244,8 @@ class MissionStore:
             latest[key] = {**latest.get(key, {}), **record}
         if not latest:
             return None
-        return max(latest.values(), key=lambda item: float(item.get("at", 0.0)))
+        selected = max(latest.values(), key=lambda item: float(dict(item).get("at", 0.0)))
+        return dict(selected)
 
     def authority_for_execution(self, mission_id: str, iteration: int) -> dict[str, str]:
         """Project real execution_id and goalrun_id from the durable handle into mission authority.

@@ -63,6 +63,9 @@ class ReviewDecision(StrEnum):
     done = "DONE"
 
 
+CORRECTION_SCOPES = frozenset({"TASK", "PLAN"})
+
+
 class EscalationCode(StrEnum):
     """The ONLY reasons a mission may interrupt the owner (spec §23)."""
 
@@ -388,6 +391,7 @@ class SupervisorReview:
     iteration: int
     supervisor: str  # "external" | "internal"
     decision: ReviewDecision
+    correction_scope: str = "TASK"
     reason: str = ""
     next_task: str | None = None
     constraints_delta: list[str] = field(default_factory=list)
@@ -396,6 +400,15 @@ class SupervisorReview:
     risk_notes: list[str] = field(default_factory=list)
     confidence: float | None = None
     created_at: float = field(default_factory=time.time)
+    # Audit-only reviewer payload. It is intentionally excluded from the
+    # canonical ReviewDecision serialization and never becomes authority.
+    raw_review: Any = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        scope = str(self.correction_scope or "TASK").strip().upper()
+        if scope not in CORRECTION_SCOPES:
+            raise ValueError(f"unknown correction scope: {scope}")
+        self.correction_scope = scope
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -403,6 +416,7 @@ class SupervisorReview:
             "iteration": self.iteration,
             "supervisor": self.supervisor,
             "decision": str(self.decision),
+            "correction_scope": self.correction_scope,
             "reason": self.reason,
             "next_task": self.next_task,
             "constraints_delta": list(self.constraints_delta),
@@ -420,6 +434,7 @@ class SupervisorReview:
             iteration=int(data.get("iteration", 0)),
             supervisor=str(data.get("supervisor", "")),
             decision=ReviewDecision(data["decision"]),
+            correction_scope=str(data.get("correction_scope", "TASK")),
             reason=str(data.get("reason", "")),
             next_task=data.get("next_task"),
             constraints_delta=[str(x) for x in data.get("constraints_delta") or []],

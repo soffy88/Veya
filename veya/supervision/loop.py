@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -44,6 +45,12 @@ _WAITING = {
     MissionStatus.waiting_owner,
 }
 
+PlanRevisionPlanner = Callable[[Any], Awaitable[Any]]
+
+
+class PlanRevisionUnavailable(RuntimeError):
+    """A plan correction cannot silently fall back to task-level retasking."""
+
 
 @dataclass
 class MissionLoop:
@@ -52,8 +59,142 @@ class MissionLoop:
     runner: MissionRunner
     internal: InternalSupervisor | None = None
     jev: Any = None
+    planner: PlanRevisionPlanner | None = None
     external_available: bool = True
     _external: ExternalSupervisor | None = field(default=None, repr=False)
+
+    async def _prepare_plan(self, mission: Any) -> bool:
+        """Create or revise the plan through the injected canonical planner."""
+
+        execution = mission.policies.execution_policy
+        current = execution.get("subtasks")
+        pending = mission.authority.get("pending_plan_revision")
+        pending_task = mission.authority.get("pending_task_retask")
+        orchestrated = str(execution.get("mode") or "").lower() == "veya_orchestrated"
+        needs_initial_plan = orchestrated and not current and self.planner is not None
+
+        if current and "plan" not in mission.authority:
+            mission.authority["plan"] = [dict(item) for item in current if isinstance(item, dict)]
+            mission.authority.setdefault("plan_version", 1)
+            self.store.save(mission)
+
+        if orchestrated and isinstance(pending_task, dict):
+            # The canonical retask handler owns the correction task.  Project
+            # that task into the existing L2 plan for this next iteration;
+            # the original report/plan remains preserved in mission history.
+            worker = (
+                str(pending_task.get("worker_type") or pending_task.get("worker") or "")
+                .strip()
+                .lower()
+            )
+            from .orchestrated import L1_WORKERS
+
+            if worker not in L1_WORKERS:
+                reason = "RETASK_BLOCKED_WORKER_UNRESOLVED"
+                mission.status = MissionStatus.blocked
+                mission.authority["retask_block_reason"] = reason
+                self.store.save(mission)
+                self.store.append_event(
+                    mission.mission_id,
+                    "RETASK_BLOCKED_WORKER_UNRESOLVED",
+                    {"worker_type": pending_task.get("worker_type")},
+                )
+                return False
+            required_artifacts = list(pending_task.get("required_artifacts") or [])
+            dependency_context = pending_task.get("dependency_context")
+            if not isinstance(dependency_context, dict):
+                dependency_context = {}
+            retask_lineage = {
+                key: pending_task.get(key)
+                for key in (
+                    "raw_next_task",
+                    "normalized_next_task",
+                    "source_review_id",
+                    "original_child_execution_id",
+                    "retask_child_execution_id",
+                    "parent_subtask_id",
+                    "plan_version",
+                    "correction_index",
+                    "worker_type",
+                    "required_artifacts",
+                    "artifact_acceptance_criteria",
+                    "dependency_context",
+                )
+                if key in pending_task
+            }
+            retask_lineage["worker_type"] = worker
+            retask_lineage["required_artifacts"] = required_artifacts
+            retask_lineage["dependency_context"] = dependency_context
+            execution["subtasks"] = [
+                {
+                    "task_id": str(pending_task.get("task_id") or f"{mission.mission_id}-retask"),
+                    "objective": str(pending_task.get("objective") or mission.goal),
+                    "worker": worker,
+                    "depends_on": [],
+                    "acceptance": list(pending_task.get("acceptance") or []),
+                    "required_artifacts": required_artifacts,
+                    "inputs": {
+                        "retask_lineage": retask_lineage,
+                        "dependency_context": dependency_context,
+                        "dependency_artifacts": list(
+                            dependency_context.get("dependency_artifacts") or []
+                        ),
+                    },
+                }
+            ]
+            mission.authority["active_retask_lineage"] = retask_lineage
+            mission.authority.pop("pending_task_retask", None)
+            self.store.save(mission)
+            return True
+
+        if not pending and not needs_initial_plan:
+            return True
+        if self.planner is None:
+            raise PlanRevisionUnavailable("canonical planner is required for plan correction")
+
+        planned = await self.planner(mission)
+        raw_plan = []
+        for item in planned or []:
+            if isinstance(item, dict):
+                raw_plan.append(dict(item))
+            elif hasattr(item, "to_dict"):
+                raw_plan.append(dict(item.to_dict()))
+        if not raw_plan:
+            raise PlanRevisionUnavailable("canonical planner returned an empty plan")
+
+        base_version = int(mission.authority.get("plan_version", 0))
+        if pending:
+            plan_version = int(pending.get("base_version", base_version)) + 1
+            event = "PLAN_REVISED"
+            reason = str(pending.get("reason") or "plan correction")
+        else:
+            plan_version = 1
+            event = "PLAN_CREATED"
+            reason = "initial canonical plan"
+        execution["subtasks"] = raw_plan
+        mission.authority["plan"] = raw_plan
+        mission.authority["plan_version"] = plan_version
+        mission.authority["plan_revision_reason"] = reason
+        if pending:
+            mission.authority["last_plan_revision"] = {
+                "from_version": base_version,
+                "to_version": plan_version,
+                "reason": reason,
+                "correction_scope": "PLAN",
+            }
+            mission.authority.pop("pending_plan_revision", None)
+            mission.authority.pop("pending_plan_version", None)
+        self.store.save(mission)
+        self.store.append_event(
+            mission.mission_id,
+            event,
+            {
+                "plan_version": plan_version,
+                "reason": reason,
+                "correction_scope": "PLAN" if pending else None,
+            },
+        )
+        return True
 
     def facade(self) -> ExternalSupervisor:
         if self._external is None:
@@ -170,7 +311,31 @@ class MissionLoop:
 
     async def _dispatch_iteration(self, mission: Any, iteration: int) -> ExecutionReport:
         """Run one iteration behind a durable handle (written *before* the executor)."""
+        prepared = await self._prepare_plan(mission)
         mission_id = mission.mission_id
+        if not prepared:
+            reason = str(
+                mission.authority.get("retask_block_reason") or "RETASK_BLOCKED_WORKER_UNRESOLVED"
+            )
+            return ExecutionReport(
+                mission_id=mission_id,
+                iteration=iteration,
+                objective=mission.goal,
+                status="blocked",
+                blocked_items=[{"reason": reason}],
+                proposed_next_action="escalate",
+                executor_summary=reason,
+            )
+        current = self.store.load(mission_id)
+        if current is not None and current.status is MissionStatus.cancelled:
+            return ExecutionReport(
+                mission_id=mission_id,
+                iteration=iteration,
+                objective=mission.goal,
+                status="cancelled",
+                executor_summary="Mission cancelled before dispatch",
+                runtime_evidence=[{"source": "mission_cancel", "dispatch": "skipped"}],
+            )
         execution_id = f"{mission_id}:{iteration}"
         handle = self.store.execution_for(mission_id, iteration)
 
@@ -251,6 +416,45 @@ class MissionLoop:
                 "pgid": proc_record.get("pgid"),
             },
         )
+        active_retask = mission.authority.get("active_retask_lineage")
+        if isinstance(active_retask, dict):
+            previous_report = (
+                self.store.get_report(mission_id, iteration - 1) if iteration > 0 else None
+            )
+            if previous_report is not None:
+                report.runtime_evidence.append(
+                    {
+                        "kind": "retask_original_evidence",
+                        "original_iteration": previous_report.iteration,
+                        "original_execution_ids": [
+                            item.get("execution_id")
+                            for item in previous_report.runtime_evidence
+                            if isinstance(item, dict)
+                            and item.get("kind") == "l1_execution"
+                            and item.get("execution_id")
+                        ],
+                        "failures": list(previous_report.failures)[:20],
+                        "blocked_items": list(previous_report.blocked_items)[:20],
+                        "artifacts": list(previous_report.artifacts)[:50],
+                        "runtime_evidence": list(previous_report.runtime_evidence)[:50],
+                    }
+                )
+            child_execution_id = next(
+                (
+                    item.get("execution_id")
+                    for item in report.runtime_evidence
+                    if isinstance(item, dict)
+                    and item.get("kind") == "l1_execution"
+                    and str(item.get("worker", "")).lower()
+                    == str(active_retask.get("worker_type") or "").lower()
+                    and item.get("execution_id")
+                ),
+                None,
+            )
+            lineage = dict(active_retask)
+            lineage["retask_child_execution_id"] = child_execution_id
+            report.runtime_evidence.append({"kind": "retask_lineage", **lineage})
+            mission.authority["active_retask_lineage"] = lineage
         self.store.append_report(report)
         self.store.append_execution(
             mission_id,
@@ -274,6 +478,9 @@ class MissionLoop:
         mission.authority["iteration"] = iteration
         if report.goalrun_id:
             mission.authority["goalrun_id"] = report.goalrun_id
+        current = self.store.load(mission_id)
+        if current is not None and current.status is MissionStatus.cancelled:
+            mission.status = MissionStatus.cancelled
         self.store.save(mission)
         self.store.append_event(
             mission_id, "EXECUTOR_COMPLETED", {"iteration": iteration, "execution_id": execution_id}
@@ -319,6 +526,10 @@ class MissionLoop:
             report = await self._dispatch_iteration(mission, iteration)
         else:
             self._settle_completed_handle(mission, iteration, report)
+
+        current = self.store.load(mission_id)
+        if current is not None and current.status is MissionStatus.cancelled:
+            return self._snapshot(mission_id, "cancelled")
 
         # 1b) Jev fast decisions (advisory only; a provider failure must not
         # break the loop, and a low-confidence critical call escalates ownership).
@@ -396,12 +607,31 @@ class MissionLoop:
                 return self._snapshot(mission_id, "switched_to_external")
 
         outcome = apply_review(self.store, mission, review, iteration=iteration, report=report)
-        if outcome.next_task is not None:
+        if outcome.next_task is not None or outcome.correction_scope == "PLAN":
             fresh = self.store.load(mission_id)
             if fresh is not None:
                 fresh.authority["iteration"] = iteration + 1
                 self.store.save(fresh)
         return self._snapshot(mission_id, str(outcome.mission_status))
+
+    async def cancel(self, mission_id: str) -> dict[str, Any]:
+        """Cancel the Mission and its active canonical L1 children once."""
+
+        mission = self.store.load(mission_id)
+        if mission is None:
+            raise KeyError(f"unknown mission: {mission_id}")
+        if mission.status is MissionStatus.cancelled:
+            return self._snapshot(mission_id, "already_cancelled")
+        mission.status = MissionStatus.cancelled
+        self.store.save(mission)
+        self.store.append_event(mission_id, "MISSION_CANCELLED", {})
+        cancel = getattr(self.runner, "cancel", None)
+        if callable(cancel):
+            result = cancel(mission_id)
+            if hasattr(result, "__await__"):
+                await result
+        self.store.append_event(mission_id, "ACTIVE_CHILDREN_CANCEL_REQUESTED", {})
+        return self._snapshot(mission_id, "cancelled")
 
     # ── resume / run ────────────────────────────────────────────────
     async def resume(self, mission_id: str) -> dict[str, Any]:
