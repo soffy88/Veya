@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import json
 import os
+import secrets
 import sys
 from typing import Any
 
@@ -139,7 +140,7 @@ async def run(url: str, token: str, workspace: str) -> int:
         )
 
         probe = "tests/_remote_public_probe.py"
-        secret = "sk-abcdefghijklmnopqrstuvwxyz012345"
+        secret = secrets.token_urlsafe(24)
         write = await call("file.write", {"path": probe, "content": f"TOKEN={secret}\n"})
         record("PUBLIC_MCP_FILE_WRITE", write.get("ok") is True)
 
