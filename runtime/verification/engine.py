@@ -125,7 +125,11 @@ class VerificationEngine:
                             name="Run CLI command",
                             description="Execute a Veya CLI command",
                             input_schema={"command": "string", "args": "array"},
-                            output_schema={"exit_code": "integer", "stdout": "string", "stderr": "string"},
+                            output_schema={
+                                "exit_code": "integer",
+                                "stdout": "string",
+                                "stderr": "string",
+                            },
                         ),
                     ],
                     success_evidence=[
@@ -253,33 +257,39 @@ class VerificationEngine:
         # Build acceptance criteria from feature map
         acceptance_criteria = []
         for _i, evidence in enumerate(feature.success_evidence):
-            acceptance_criteria.append(AcceptanceCriterion(
-                id=f"ac-{evidence.id}",
-                description=f"Success evidence: {evidence.description}",
-                required=True,
-                kind="functional",
-            ))
+            acceptance_criteria.append(
+                AcceptanceCriterion(
+                    id=f"ac-{evidence.id}",
+                    description=f"Success evidence: {evidence.description}",
+                    required=True,
+                    kind="functional",
+                )
+            )
 
         # Add negative cases as acceptance criteria
         for _i, neg in enumerate(feature.failure_states):
-            acceptance_criteria.append(AcceptanceCriterion(
-                id=f"ac-negative-{neg.id}",
-                description=f"Negative case: {neg.expected_behavior}",
-                required=True,
-                kind="negative",
-            ))
+            acceptance_criteria.append(
+                AcceptanceCriterion(
+                    id=f"ac-negative-{neg.id}",
+                    description=f"Negative case: {neg.expected_behavior}",
+                    required=True,
+                    kind="negative",
+                )
+            )
 
         # User journeys from feature actions
         user_journeys = []
         for action in feature.actions:
-            user_journeys.append(UserJourney(
-                id=f"journey-{action.id}",
-                name=action.name,
-                steps=[f"Call {action.name}"],
-                preconditions=feature.preconditions,
-                expected_outcome=f"Action {action.name} completes successfully",
-                negative_cases=[n.expected_behavior for n in feature.failure_states],
-            ))
+            user_journeys.append(
+                UserJourney(
+                    id=f"journey-{action.id}",
+                    name=action.name,
+                    steps=[f"Call {action.name}"],
+                    preconditions=feature.preconditions,
+                    expected_outcome=f"Action {action.name} completes successfully",
+                    negative_cases=[n.expected_behavior for n in feature.failure_states],
+                )
+            )
 
         # Required evidence
         required_evidence = [
@@ -418,26 +428,34 @@ class VerificationEngine:
         if artifact_store:
             manifest = artifact_store.manifest()
             for artifact in manifest.artifacts:
-                bundle = bundle.add_evidence(EvidenceItem(
-                    id=f"artifact-{artifact.path}",
-                    kind="artifact",
-                    source="artifact_store",
-                    content=f"Artifact: {artifact.path} (sha256={artifact.sha256})",
-                    producer="artifact_store",
-                    metadata={"path": artifact.path, "kind": artifact.kind, "sha256": artifact.sha256},
-                ))
+                bundle = bundle.add_evidence(
+                    EvidenceItem(
+                        id=f"artifact-{artifact.path}",
+                        kind="artifact",
+                        source="artifact_store",
+                        content=f"Artifact: {artifact.path} (sha256={artifact.sha256})",
+                        producer="artifact_store",
+                        metadata={
+                            "path": artifact.path,
+                            "kind": artifact.kind,
+                            "sha256": artifact.sha256,
+                        },
+                    )
+                )
 
         # Collect from harness operations (snapshots, traces)
         for op_name in ["snapshot", "trace"]:
             result = await self.run_harness_operation(op_name, task_id, goal_run_id)  # type: ignore[arg-type]
-            bundle = bundle.add_evidence(EvidenceItem(
-                id=f"harness-{op_name}",
-                kind="snapshot" if op_name == "snapshot" else "trace",
-                source=f"harness.{op_name}",
-                content=json.dumps(result),
-                producer="control_harness",
-                metadata={"operation": op_name, "result": result},
-            ))
+            bundle = bundle.add_evidence(
+                EvidenceItem(
+                    id=f"harness-{op_name}",
+                    kind="snapshot" if op_name == "snapshot" else "trace",
+                    source=f"harness.{op_name}",
+                    content=json.dumps(result),
+                    producer="control_harness",
+                    metadata={"operation": op_name, "result": result},
+                )
+            )
 
         # Collect from GoalRun durable repo if available
         if self.durable_repo:
@@ -495,7 +513,9 @@ class VerificationEngine:
             # Check if evidence exists for this criterion
             found = False
             for evidence in bundle.evidence:
-                if criterion.id in evidence.id or criterion.id in evidence.metadata.get("criterion_id", ""):
+                if criterion.id in evidence.id or criterion.id in evidence.metadata.get(
+                    "criterion_id", ""
+                ):
                     found = True
                     break
             criteria_results[criterion.id] = found
@@ -526,9 +546,7 @@ class VerificationEngine:
 
         # Determine outcome
         all_required_passed = all(
-            criteria_results.get(c.id, False)
-            for c in spec.acceptance_criteria
-            if c.required
+            criteria_results.get(c.id, False) for c in spec.acceptance_criteria if c.required
         )
         all_negative_handled = all(negative_case_results.values())
 
@@ -588,7 +606,9 @@ class VerificationEngine:
         if spec_path.exists():
             spec = VerificationSpec.load(spec_path)
         else:
-            spec = await self.generate_verification_spec(task_id, goal_run_id, head_sha, feature_name=feature_name)
+            spec = await self.generate_verification_spec(
+                task_id, goal_run_id, head_sha, feature_name=feature_name
+            )
 
         # 2. Run harness operations to collect evidence
         artifact_store = ArtifactStore(self.project_root, task_id)
@@ -610,7 +630,9 @@ class VerificationEngine:
         await self.run_harness_operation("cleanup", task_id, goal_run_id)
 
         # 3. Collect evidence bundle
-        bundle = await self.collect_evidence_bundle(task_id, goal_run_id, head_sha, spec, artifact_store=artifact_store)
+        bundle = await self.collect_evidence_bundle(
+            task_id, goal_run_id, head_sha, spec, artifact_store=artifact_store
+        )
         # 4. Independent verification
         verdict = await self.run_independent_verifier(spec, bundle, head_sha)
 

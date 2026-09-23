@@ -87,7 +87,9 @@ class PersistentComputerStore:
             conn.row_factory = sqlite3.Row
             conn.executescript(self.SCHEMA)
             # P3-A upgrade: databases created before bot isolation lack bot_id.
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(persistent_computers)")}
+            columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(persistent_computers)")
+            }
             if "bot_id" not in columns:
                 conn.execute(
                     "ALTER TABLE persistent_computers ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'veya-default'"
@@ -179,7 +181,9 @@ class PersistentComputerStore:
                     computer.downloads_ref,
                     json.dumps([c.to_dict() for c in computer.credential_refs]),
                     json.dumps(computer.goal_run_refs),
-                    json.dumps(computer.checkpoint_ref.to_dict() if computer.checkpoint_ref else None),
+                    json.dumps(
+                        computer.checkpoint_ref.to_dict() if computer.checkpoint_ref else None
+                    ),
                     computer.lifecycle_state,
                     computer.created_at,
                     computer.last_active_at,
@@ -210,7 +214,9 @@ class PersistentComputerStore:
                 return computer
             return None
 
-    def get_computer_by_owner_workspace(self, owner_id: str, workspace_ref: str) -> PersistentComputer | None:
+    def get_computer_by_owner_workspace(
+        self, owner_id: str, workspace_ref: str
+    ) -> PersistentComputer | None:
         """Get a computer by owner and workspace (for idempotent create)."""
         computer_id = generate_computer_id(owner_id, workspace_ref)
         return self.get_computer(computer_id)
@@ -235,7 +241,9 @@ class PersistentComputerStore:
                     computer.downloads_ref,
                     json.dumps([c.to_dict() for c in computer.credential_refs]),
                     json.dumps(computer.goal_run_refs),
-                    json.dumps(computer.checkpoint_ref.to_dict() if computer.checkpoint_ref else None),
+                    json.dumps(
+                        computer.checkpoint_ref.to_dict() if computer.checkpoint_ref else None
+                    ),
                     computer.lifecycle_state,
                     computer.last_active_at,
                     computer.version,
@@ -267,7 +275,12 @@ class PersistentComputerStore:
             )
             return bool(cursor.rowcount > 0)
 
-    def list_computers(self, owner_id: str | None = None, state: ComputerLifecycleState | None = None, bot_id: str | None = None) -> list[PersistentComputer]:
+    def list_computers(
+        self,
+        owner_id: str | None = None,
+        state: ComputerLifecycleState | None = None,
+        bot_id: str | None = None,
+    ) -> list[PersistentComputer]:
         """List computers with optional filters."""
         query = "SELECT * FROM persistent_computers WHERE 1=1"
         params: list[Any] = []
@@ -297,6 +310,7 @@ class PersistentComputerStore:
         """Create a new session for a computer."""
         if session_id is None:
             import uuid
+
             session_id = f"sess-{uuid.uuid4().hex[:24]}"
 
         now = datetime.now(UTC).isoformat()
@@ -365,7 +379,9 @@ class PersistentComputerStore:
             return bool(cursor.rowcount > 0)
 
     # GoalRun correlation
-    def link_goal_run(self, goal_run_id: str, computer_id: str, owner_id: str, bot_id: str | None = None) -> bool:
+    def link_goal_run(
+        self, goal_run_id: str, computer_id: str, owner_id: str, bot_id: str | None = None
+    ) -> bool:
         """Link a GoalRun to a computer.
 
         P3-A: when ``bot_id`` is given, linking a computer owned by another
@@ -441,7 +457,9 @@ class PersistentComputerStore:
                 )
         return True
 
-    def get_computer_for_goal_run(self, goal_run_id: str, *, bot_id: str | None = None) -> PersistentComputer | None:
+    def get_computer_for_goal_run(
+        self, goal_run_id: str, *, bot_id: str | None = None
+    ) -> PersistentComputer | None:
         """Get the computer associated with a GoalRun.
 
         P3-A: when ``bot_id`` is given, a computer owned by another bot is
@@ -466,7 +484,9 @@ class PersistentComputerStore:
             return [row["goal_run_id"] for row in rows]
 
     # Credential management
-    def add_credential(self, computer_id: str, credential: CredentialRef) -> PersistentComputer | None:
+    def add_credential(
+        self, computer_id: str, credential: CredentialRef
+    ) -> PersistentComputer | None:
         """Add a credential reference to a computer."""
         computer = self.get_computer(computer_id)
         if not computer:
@@ -483,7 +503,9 @@ class PersistentComputerStore:
         return self.update_computer(updated)
 
     # Checkpoint management
-    def set_checkpoint(self, computer_id: str, checkpoint: CheckpointRef) -> PersistentComputer | None:
+    def set_checkpoint(
+        self, computer_id: str, checkpoint: CheckpointRef
+    ) -> PersistentComputer | None:
         """Set a checkpoint for a computer.
 
         P3-A: a checkpoint owned by another bot is never attached.
@@ -497,7 +519,9 @@ class PersistentComputerStore:
         updated = computer.with_checkpoint(checkpoint)
         return self.update_computer(updated)
 
-    def get_checkpoint(self, computer_id: str, *, bot_id: str | None = None) -> CheckpointRef | None:
+    def get_checkpoint(
+        self, computer_id: str, *, bot_id: str | None = None
+    ) -> CheckpointRef | None:
         """Get the latest checkpoint for a computer.
 
         P3-A: when ``bot_id`` is given, a checkpoint owned by another bot is
@@ -512,7 +536,9 @@ class PersistentComputerStore:
         return None
 
     # State transitions
-    def set_state(self, computer_id: str, state: ComputerLifecycleState) -> PersistentComputer | None:
+    def set_state(
+        self, computer_id: str, state: ComputerLifecycleState
+    ) -> PersistentComputer | None:
         """Set the lifecycle state of a computer."""
         computer = self.get_computer(computer_id)
         if not computer:

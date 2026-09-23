@@ -238,6 +238,7 @@ class TestPersistentComputerStore:
 
         # Verify no plaintext in stored data by checking the DB directly
         import sqlite3
+
         with sqlite3.connect(str(temp_db.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
@@ -289,6 +290,7 @@ class TestPersistentComputerStore:
 
         # Small delay to ensure timestamp difference
         import time
+
         time.sleep(0.01)
 
         temp_db.touch(computer.computer_id)
@@ -545,8 +547,6 @@ class TestRecovery:
         final = PersistentComputerStore(temp_db_path)
         assert final.get_computer(original_id) is not None
         assert len(final.list_computers(owner_id="user1")) == 1
-
-
 
 
 if __name__ == "__main__":

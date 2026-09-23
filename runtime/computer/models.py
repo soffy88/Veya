@@ -24,6 +24,7 @@ ComputerLifecycleState = Literal[
 
 class CredentialType(Enum):
     """Types of credentials stored in the computer."""
+
     API_KEY = "api_key"
     OAUTH_TOKEN = "oauth_token"
     SSH_KEY = "ssh_key"
@@ -35,6 +36,7 @@ class CredentialType(Enum):
 @dataclass(frozen=True)
 class CredentialRef:
     """Reference to a credential (never stores plaintext)."""
+
     ref_id: str
     type: CredentialType
     name: str
@@ -64,6 +66,7 @@ class CredentialRef:
 @dataclass(frozen=True)
 class CheckpointRef:
     """Reference to a checkpoint."""
+
     checkpoint_id: str
     computer_id: str
     goal_run_id: str | None
@@ -111,6 +114,7 @@ class PersistentComputer:
     - last_active_at: Last activity timestamp
     - version: Schema version
     """
+
     computer_id: str
     owner_id: str
     workspace_ref: str
@@ -153,7 +157,9 @@ class PersistentComputer:
             downloads_ref=data.get("downloads_ref"),
             credential_refs=[CredentialRef.from_dict(c) for c in data.get("credential_refs", [])],
             goal_run_refs=data.get("goal_run_refs", []),
-            checkpoint_ref=CheckpointRef.from_dict(data["checkpoint_ref"]) if data.get("checkpoint_ref") else None,
+            checkpoint_ref=CheckpointRef.from_dict(data["checkpoint_ref"])
+            if data.get("checkpoint_ref")
+            else None,
             lifecycle_state=data.get("lifecycle_state", "created"),
             created_at=data.get("created_at", datetime.now(UTC).isoformat()),
             last_active_at=data.get("last_active_at", datetime.now(UTC).isoformat()),
@@ -164,11 +170,14 @@ class PersistentComputer:
     def compute_hash(self) -> str:
         """Compute deterministic hash of the computer state (excluding timestamps)."""
         data = {
-            k: v for k, v in self.to_dict().items()
+            k: v
+            for k, v in self.to_dict().items()
             if k not in ("created_at", "last_active_at", "checkpoint_ref")
         }
         if data.get("checkpoint_ref"):
-            data["checkpoint_ref"] = {k: v for k, v in data["checkpoint_ref"].items() if k != "created_at"}
+            data["checkpoint_ref"] = {
+                k: v for k, v in data["checkpoint_ref"].items() if k != "created_at"
+            }
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
 
     def add_goal_run(self, goal_run_id: str) -> PersistentComputer:
@@ -327,6 +336,7 @@ class PersistentComputer:
 @dataclass(frozen=True)
 class ComputerSession:
     """Active session metadata for a running computer."""
+
     session_id: str
     computer_id: str
     owner_id: str

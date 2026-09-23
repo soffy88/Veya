@@ -381,7 +381,7 @@ class CommandRunner:
             execution_cwd = None
         elif self.profile.id == "local_restricted" and os.environ.get(_SANDBOX_DEPTH_ENV) != "1":
             try:
-                execution_argv = self._local_restricted_argv(argv, target)
+                execution_argv = self._local_restricted_argv(execution_argv, target)
             except CommandPolicyError as exc:
                 return self._result(
                     command=command_text,
