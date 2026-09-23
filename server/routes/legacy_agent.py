@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,7 +17,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
-from server.events import _to_envelope
 
 router = APIRouter(tags=["legacy-agent"])
 
@@ -95,24 +93,18 @@ async def legacy_agent_run(
 
     _ = user  # Depends 已把 auth.current_user() contextvar 设好, 下游按此隔离
 
-    if req.engine != "master":
-        from server.engine_runner import run_engine
-
-        res = await run_engine(
-            req.engine, req.text or req.task or "", model=req.model, timeout_s=600.0
-        )
-        return LegacyAgentRunResponse(
-            session_id=req.session_id or _new_session_id(),
-            status="success" if res["ok"] else "failed",
-            result=res.get("output") or res.get("error") or "",
-            cost_usd=0.0,
-        )
-
-    if req.text is not None:
+    if req.text is not None or req.task is not None:
         from server.coordinator_master import DEFAULT_MAX_ROUNDS
 
+        prompt = req.text or req.task or ""
+        if req.engine != "master":
+            prompt = (
+                f"兼容请求指定了 legacy engine={req.engine}。"
+                "仍由 canonical MasterAgent 统一处理，不要启动独立 engine/LLM。\n"
+                f"用户任务：{prompt}"
+            )
         result = await master_coordinator.chat_stream(
-            req.text,
+            prompt,
             session_id=req.session_id or None,
             max_rounds=DEFAULT_MAX_ROUNDS,
             config=req.config or None,
@@ -134,7 +126,7 @@ async def legacy_agent_run(
     raw_uid = req.student_id or req.user_id
     if raw_uid:
         try:
-            from veya.im.pseudo import anonymize_user_id
+            from veya.im.pseudo import anonymize_user_id  # type: ignore[import-untyped]
 
             user_ref = anonymize_user_id(raw_uid)
         except Exception:
@@ -177,22 +169,13 @@ async def legacy_agent_stream(
     """旧协议 SSE 流 → 新主脑事件流 (text_delta / tool_call / master_done)。"""
     from server.chat_stream import new_agent_stream_events
 
-    if req.engine != "master":
-        from server.engine_runner import stream_engine
-
-        async def _engine_events():
-            async for evt in stream_engine(
-                req.engine, req.text or req.task or "", model=req.model, timeout_s=600.0
-            ):
-                yield f"data: {json.dumps(_to_envelope(evt), ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(
-            _engine_events(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
     prompt = req.text if req.text is not None else (req.task or "")
+    if req.engine != "master":
+        prompt = (
+            f"兼容请求指定了 legacy engine={req.engine}。"
+            "仍由 canonical MasterAgent 统一处理，不要启动独立 engine/LLM。\n"
+            f"用户任务：{prompt}"
+        )
     session_id = req.session_id or _new_session_id()
     return StreamingResponse(
         new_agent_stream_events(

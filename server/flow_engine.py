@@ -1,8 +1,7 @@
-"""server/flow_engine.py — Phase 2 (manifest mapping) + Phase 3 (Genesis execution + assembly).
+"""server/flow_engine.py — independent HITL workflow plane.
 
-Phase 1 (requirement research/proposal) lives in server.coordinator.RequirementCoordinator,
-which reuses the full ReAct/reflection loop. Phase 2 is a single tool-forced LLM call (no
-loop needed — one structured translation), and Phase 3 drives server.agents.genesis_agent.GenesisAgent
+Phase 1 is a single structured proposal call (no generic ReAct authority). Phase 2 is a
+single tool-forced LLM call (no loop needed — one structured translation), and Phase 3 drives server.agents.genesis_agent.GenesisAgent
 per manifest element, then does the final assembly call with the caller's own key/config —
 the "cognitive decoupling" point: GENESIS_API_KEY forges the elements, the user's own key
 glues them together.
@@ -65,6 +64,69 @@ _MANIFEST_TOOL_SCHEMA = {
         },
     },
 }
+
+_REQUIREMENT_SYSTEM_PROMPT = (
+    "You are the requirement proposal capability in the independent HITL workflow plane. "
+    "Analyze the request and call 'propose_requirement' exactly once. Do not execute tools, "
+    "write files, or run a generic ReAct loop."
+)
+
+_REQUIREMENT_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "propose_requirement",
+        "description": "Submit a structured requirement proposal for user approval.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "context_analysis": {"type": "string"},
+                "core_features": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["title", "context_analysis", "core_features"],
+        },
+    },
+}
+
+
+async def propose_requirement(
+    prompt: str,
+    *,
+    session_id: str,
+    model: str | None = None,
+    provider: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> RequirementDoc:
+    """Phase 1 HITL proposal; explicitly not a production ReAct entrypoint."""
+    response = await llm_call(
+        [
+            {"role": "system", "content": _REQUIREMENT_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        tools=[_REQUIREMENT_TOOL_SCHEMA],
+        model=model,
+        provider=provider,
+        config=config,
+        max_tokens=2048,
+    )
+    choice = (response.get("choices") or [{}])[0]
+    tool_calls = (choice.get("message") or {}).get("tool_calls") or []
+    if not tool_calls:
+        raise ValueError("propose_requirement: model returned no tool call")
+    raw_args = (tool_calls[0].get("function") or {}).get("arguments") or "{}"
+    try:
+        parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+        doc = RequirementDoc.model_validate(parsed)
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise ValueError(
+            f"propose_requirement: invalid requirement returned by model: {exc}"
+        ) from exc
+    emit(
+        session_id,
+        "requirement_doc",
+        {"requirement_doc": doc.model_dump(), "execution_plane": "workflow"},
+    )
+    return doc
 
 
 async def propose_manifest(

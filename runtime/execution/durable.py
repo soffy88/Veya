@@ -4509,16 +4509,17 @@ class DurableExecutionRepository:
             # blocking task execution. metrics are observability, not
             # part of the durable consistency path.
             async def _fetch_with_timeout(coro, default, label, timeout_s):
-                # P0 fix: Return degraded marker on timeout instead of 0/[] 
+                # P0 fix: Return degraded marker on timeout instead of 0/[]
                 # to avoid misrepresenting actual metrics values as zero.
                 try:
                     return await asyncio.wait_for(coro, timeout=timeout_s)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     import logging as _l
+
                     _l.getLogger("veya.durable").warning(
                         f"metrics query {label} timeout ({timeout_s}s), marking as degraded"
                     )
-                    # Return special marker prefixed with __degraded__ 
+                    # Return special marker prefixed with __degraded__
                     # instead of 0 to distinguish from real zeros
                     return f"__degraded__{label}"
 
@@ -4546,14 +4547,16 @@ class DurableExecutionRepository:
                 ("recovery.decision.total", sum(int(row["count"]) for row in decisions))
             )
             pending_result = await _fetch_with_timeout(
-                conn.fetchval(
-                    "SELECT COUNT(*) FROM execution_outbox WHERE published_at IS NULL"
-                ),
+                conn.fetchval("SELECT COUNT(*) FROM execution_outbox WHERE published_at IS NULL"),
                 default="__degraded_outbox_pending__",
                 label="outbox pending",
                 timeout_s=1.0,
             )
-            pending = -1 if isinstance(pending_result, str) and pending_result.startswith("__degraded__") else int(pending_result)
+            pending = (
+                -1
+                if isinstance(pending_result, str) and pending_result.startswith("__degraded__")
+                else int(pending_result)
+            )
             replayed_result = await _fetch_with_timeout(
                 conn.fetchval(
                     "SELECT COALESCE(SUM(CASE WHEN publish_attempts > 1 THEN publish_attempts - 1 ELSE 0 END),0) FROM execution_outbox"
@@ -4562,7 +4565,11 @@ class DurableExecutionRepository:
                 label="outbox replayed",
                 timeout_s=1.0,
             )
-            replayed = -1 if isinstance(replayed_result, str) and replayed_result.startswith("__degraded__") else int(replayed_result)
+            replayed = (
+                -1
+                if isinstance(replayed_result, str) and replayed_result.startswith("__degraded__")
+                else int(replayed_result)
+            )
             probes_result = await _fetch_with_timeout(
                 conn.fetchval(
                     "SELECT COUNT(*) FROM side_effects WHERE probe_result_json IS NOT NULL"
@@ -4571,16 +4578,23 @@ class DurableExecutionRepository:
                 label="side_effects probes",
                 timeout_s=1.0,
             )
-            probes = -1 if isinstance(probes_result, str) and probes_result.startswith("__degraded__") else int(probes_result)
+            probes = (
+                -1
+                if isinstance(probes_result, str) and probes_result.startswith("__degraded__")
+                else int(probes_result)
+            )
             quarantined_result = await _fetch_with_timeout(
-                conn.fetchval(
-                    "SELECT COUNT(*) FROM work_items WHERE state='quarantined_unknown'"
-                ),
+                conn.fetchval("SELECT COUNT(*) FROM work_items WHERE state='quarantined_unknown'"),
                 default="__degraded_work_items_quarantined__",
                 label="work_items quarantined",
                 timeout_s=1.0,
             )
-            quarantined = -1 if isinstance(quarantined_result, str) and quarantined_result.startswith("__degraded__") else int(quarantined_result)
+            quarantined = (
+                -1
+                if isinstance(quarantined_result, str)
+                and quarantined_result.startswith("__degraded__")
+                else int(quarantined_result)
+            )
             timing_result = await _fetch_with_timeout(
                 conn.fetch(
                     "SELECT wi.goal_run_id,wi.created_at AS item_created,wi.updated_at AS item_updated,"
@@ -4592,7 +4606,11 @@ class DurableExecutionRepository:
                 label="work_items+goal_runs+leases timing",
                 timeout_s=2.0,
             )
-            timing_rows = [] if isinstance(timing_result, str) and timing_result.startswith("__degraded__") else [dict(row) for row in timing_result]
+            timing_rows = (
+                []
+                if isinstance(timing_result, str) and timing_result.startswith("__degraded__")
+                else [dict(row) for row in timing_result]
+            )
             wait_result = await _fetch_with_timeout(
                 conn.fetch(
                     "SELECT wi.created_at AS item_created,wa.created_at AS attempt_created "
@@ -4602,7 +4620,11 @@ class DurableExecutionRepository:
                 label="work_attempts waits",
                 timeout_s=1.0,
             )
-            wait_rows = [] if isinstance(wait_result, str) and wait_result.startswith("__degraded__") else [dict(row) for row in wait_result]
+            wait_rows = (
+                []
+                if isinstance(wait_result, str) and wait_result.startswith("__degraded__")
+                else [dict(row) for row in wait_result]
+            )
             return from_rows(
                 event_rows,
                 pending=pending,

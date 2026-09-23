@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -16,8 +17,40 @@ class SideEffectLedger:
 
     def __init__(self, repository: DurableExecutionRepository):
         self.repository = repository
+        self._operation_locks: dict[str, asyncio.Lock] = {}
 
     async def execute(
+        self,
+        *,
+        goal_run_id: str,
+        work_item_id: str,
+        operation_key: str,
+        operation_type: str,
+        target_ref: str,
+        request: Any,
+        provider: Callable[[], Awaitable[Any] | Any],
+        capability: str = "manual_only",
+        probe: Callable[[], Awaitable[dict[str, Any]] | dict[str, Any]] | None = None,
+        claim: ClaimEnvelope | None = None,
+        bot_id: str = DEFAULT_BOT_ID,
+    ) -> Any:
+        lock = self._operation_locks.setdefault(operation_key, asyncio.Lock())
+        async with lock:
+            return await self._execute_unlocked(
+                goal_run_id=goal_run_id,
+                work_item_id=work_item_id,
+                operation_key=operation_key,
+                operation_type=operation_type,
+                target_ref=target_ref,
+                request=request,
+                provider=provider,
+                capability=capability,
+                probe=probe,
+                claim=claim,
+                bot_id=bot_id,
+            )
+
+    async def _execute_unlocked(
         self,
         *,
         goal_run_id: str,
@@ -82,6 +115,18 @@ class SideEffectLedger:
             result = provider()
             if inspect.isawaitable(result):
                 result = await result
+        except asyncio.CancelledError:
+            # Cancellation after the provider boundary is not evidence that
+            # the external effect did not happen. Persist UNKNOWN before
+            # propagating cancellation so recovery can probe/reconcile instead
+            # of replaying a possibly committed effect.
+            await self.repository.update_side_effect(
+                operation_key,
+                state="unknown",
+                probe_result={"status": "unknown", "error_class": "CancelledError"},
+                claim=claim,
+            )
+            raise
         except Exception as exc:
             # Deterministic local tool failures did not create an external
             # side effect. Keep their evidence retryable instead of marking

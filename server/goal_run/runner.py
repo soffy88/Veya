@@ -647,7 +647,15 @@ async def _process_one_task(
         # partial_completed during finalization.
         task.unfinished_work.clear()
         state.completed_ids.add(task.id)
-        task.review_findings = await _run_dual_axis_review(task, project_root, before_ref)
+        # Typed execution adapters must not make terminalization depend on an
+        # advisory, global-LLM code review.  The adapter may opt out while its
+        # canonical evidence/verification contract remains authoritative.
+        if integration_adapter is not None and getattr(
+            integration_adapter, "skip_advisory_code_review", False
+        ):
+            task.review_findings = None
+        else:
+            task.review_findings = await _run_dual_axis_review(task, project_root, before_ref)
 
         from server.goal_run.git_diff import capture_task_diff
 
@@ -1176,13 +1184,28 @@ async def project_run_goal(
     # project_veya_pi_gap_audit): G1 出图后、G2 执行前跑一遍, 拦下还没烧执行
     # 预算, 比事后审更值。plan_review is None 才跑(resume 场景不重复审)。
     if state.plan_review is None:
-        blocked_response = await _run_plan_review_gate(state, goal, project_root)
+        if integration_adapter is not None and getattr(
+            integration_adapter, "skip_plan_review", False
+        ):
+            state.plan_review = {"skipped": "typed durable adapter"}
+            save_goal_run(state, project_root)
+            blocked_response = None
+        else:
+            blocked_response = await _run_plan_review_gate(state, goal, project_root)
         if blocked_response is not None:
             return blocked_response
     elif state.plan_review.get("blocked") and (
         (state.plan_review.get("resolution") or {}).get("approved") is not True
     ):
         return _plan_review_blocked_response(state)
+
+    # Re-admit a leaf that was owned by a dead process incarnation.
+    if resume_goal_id and state is not None:
+        for task in state.tasks.values():
+            if task.status in (TaskStatus.running, TaskStatus.verifying):
+                task.status = TaskStatus.ready
+                state.running_ids.discard(task.id)
+        save_goal_run(state, project_root)
 
     # ── G2: Loop 调度 + 执行 + 验收 ───────────────────────────────────
     # 设置最大并发: smart-ralph [P] marker 支持(见 memory

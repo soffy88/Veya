@@ -132,24 +132,25 @@ def reconcile_multi_bot_results(
     compare_group(
         "action",
         [
-            (str(item.get("logical_operation") or item.get("action_id") or _fingerprint(item)), item)
+            (
+                str(item.get("logical_operation") or item.get("action_id") or _fingerprint(item)),
+                item,
+            )
             for result in results
             for item in result.proposed_actions
         ],
     )
     compare_group(
         "evidence",
-        [
-            (str(item.id), item)
-            for result in results
-            for item in result.evidence
-        ],
+        [(str(item.id), item) for result in results for item in result.evidence],
     )
     compare_group(
         "side_effect",
         [
             (
-                str(item.get("operation_key") or item.get("logical_operation") or _fingerprint(item)),
+                str(
+                    item.get("operation_key") or item.get("logical_operation") or _fingerprint(item)
+                ),
                 item,
             )
             for result in results

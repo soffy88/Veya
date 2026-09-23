@@ -411,9 +411,7 @@ class CanonicalWorkerAdapter:
         result = await self.execute_canonical_action(
             state, request, gateway_executor=self.gateway_executor
         )
-        await self.semantic_agent.observe_action_result(
-            result.to_dict(), session_id=session_id
-        )
+        await self.semantic_agent.observe_action_result(result.to_dict(), session_id=session_id)
         # Keep the observed result in the existing GoalRun durable envelope so
         # the next scheduler iteration can make a semantic replan from the
         # actual failure/result.  This is continuation state, not a second
@@ -426,9 +424,7 @@ class CanonicalWorkerAdapter:
                     "id": f"failure-{result.action_id}",
                     "kind": "failure",
                     "source": "goal_run.canonical_action",
-                    "content": json.dumps(
-                        item, ensure_ascii=False, default=str
-                    ),
+                    "content": json.dumps(item, ensure_ascii=False, default=str),
                     "producer": "goal_run",
                 }
                 for item in result.failure_evidence
@@ -449,9 +445,7 @@ class CanonicalWorkerAdapter:
                     "id": f"action-{result.action_id}",
                     "kind": "observation",
                     "source": "goal_run.canonical_action",
-                    "content": json.dumps(
-                        result.to_dict(), ensure_ascii=False, default=str
-                    ),
+                    "content": json.dumps(result.to_dict(), ensure_ascii=False, default=str),
                     "producer": "goal_run",
                 }
             ],

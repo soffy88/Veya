@@ -10,10 +10,42 @@ Each function processes a single audio frame and returns a VADResult.
 
 from __future__ import annotations
 
+import math
+import struct
 from typing import Literal
 
-from veya.oprim.audio import bytes_to_int16, compute_rms, linear_to_db
 from veya.oprim.types import AudioFrame, VADResult, VADSegment, VADState
+
+# ---------------------------------------------------------------------------
+# Local DSP helpers (module-private).
+#
+# 3O: oprim -> oprim 禁止互调，所以这里不 import veya.oprim.audio。
+# 这三个函数是无状态纯数学（PCM 解包 / RMS / dB 换算），canonical 实现仍在
+# veya/oprim/audio.py（bytes_to_int16 / compute_rms / linear_to_db），行为由
+# tests/test_oprim_vad_dsp.py 锁定一致，防漂移。
+# ---------------------------------------------------------------------------
+
+
+def _bytes_to_int16(data: bytes) -> list[int]:
+    """Convert raw PCM bytes to a list of 16-bit signed integers."""
+    count = len(data) // 2
+    return list(struct.unpack(f"<{count}h", data[: count * 2]))
+
+
+def _compute_rms(samples: list[int]) -> float:
+    """Compute root-mean-square of 16-bit integer samples."""
+    if not samples:
+        return 0.0
+    sum_sq = sum(float(s * s) for s in samples)
+    return math.sqrt(sum_sq / len(samples))
+
+
+def _linear_to_db(rms: float, ref: float = 32767.0) -> float:
+    """Convert linear RMS to decibels relative to reference."""
+    if rms <= 0:
+        return -96.0  # effectively silence floor
+    return 20.0 * math.log10(rms / ref)
+
 
 # ---------------------------------------------------------------------------
 # Energy-based VAD (always available)
@@ -52,9 +84,9 @@ def vad_energy(
         _state = {"hangover_count": 0, "was_speech": False}
 
     # Compute energy
-    samples = bytes_to_int16(frame.data)
-    rms_val = compute_rms(samples)
-    energy_db = linear_to_db(rms_val)
+    samples = _bytes_to_int16(frame.data)
+    rms_val = _compute_rms(samples)
+    energy_db = _linear_to_db(rms_val)
 
     # Determine state
     if energy_db > speech_threshold_db:
@@ -199,7 +231,7 @@ def vad_silero(
             else:
                 state = VADState.SILENCE
 
-        energy_db = linear_to_db(compute_rms(bytes_to_int16(frame.data)))
+        energy_db = _linear_to_db(_compute_rms(_bytes_to_int16(frame.data)))
 
         return VADResult(
             state=state,

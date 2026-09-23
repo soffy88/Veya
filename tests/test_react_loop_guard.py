@@ -6,7 +6,6 @@ import asyncio
 import json
 
 import pytest
-
 from oservi.master_agent import MasterAgent
 
 
@@ -242,7 +241,9 @@ async def test_minimal_research_task_continues_from_fetch_to_final() -> None:
 
     async def llm(messages, **_kwargs):
         calls.append(list(messages))
-        return _tool_response("fetch_url", {}) if len(calls) == 1 else _text_response("final research")
+        return (
+            _tool_response("fetch_url", {}) if len(calls) == 1 else _text_response("final research")
+        )
 
     agent = _agent(tools)
     agent._llm_caller = llm

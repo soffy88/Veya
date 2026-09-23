@@ -59,15 +59,24 @@ Graft 默认不预注入（`VEYA_GRAFT_CONTEXT=1` 才恢复每轮注入）；编
 （设计/方案类任务零工具直答、工具失败不重试）是给模型的**行为规范**，
 不是程序判断——模型自己决定听不听。
 
-### 2.2 LLM 层 = veya1.2 GMI 主模型 + OpenRouter 兜底代理
+### 2.2 LLM 层 = veya1.2 opencode-go 主模型 + OpenRouter 兜底代理
 
-- `provider=veya1.2`（前端/主脑默认）→ `veya/llm.py` 优先调用 GMI：
-  - endpoint: `https://api.gmi-serving.com/v1/chat/completions`
-  - key: `GMI_API_KEY`（用户提供，容器已注入）
-  - model: `MiniMaxAI/MiniMax-M3`
-- GMI 失败后才轮询 OpenRouter 免费模型（`OPENROUTER_API_KEY`）：
-  `nvidia/nemotron-3-ultra-550b-a55b:free` → `minimax/minimax-m3:free`。
-- 旧 `veya1.1` 仅作为兼容别名，转发到相同的 veya1.2 池；旧 opencode-go 主脑候选已移除。
+- `provider=veya1.2`（前端/主脑默认）→ `veya/llm.py` **按顺序**调用：
+  - **首选** opencode-go / `deepseek-v4.1-flash`：
+    - endpoint: `https://opencode.ai/zen/go/v1/chat/completions`
+    - key: `OPENCODE_API_KEY`（env）→ `~/.local/share/opencode/auth.json` 兜底
+    - **必须带 `x-opencode-session` 头**（zen 网关缺它直接 400 MissingSessionID），
+      由 `veya/obase/_llm_transport.py::_opencode_session_headers` 按 endpoint 自动注入。
+    - **thinking 模式必须回传 `reasoning_content`**：`deepseek-v4.1-flash` 以 thinking
+      模式运行，历史里带 `tool_calls` 的 assistant 消息一旦缺该字段，下一次请求就被
+      上游 `400 ... thinking mode must be passed back`。veya 历史不保留 reasoning
+      （避开与其它 provider 不兼容 + 上下文爆炸），由
+      `_opencode_thinking_messages` 仅在 opencode.ai 端点上补空串占位。
+  - **失败依次兜底** OpenRouter 免费模型（`OPENROUTER_API_KEY`）：
+    `nvidia/nemotron-3-ultra-550b-a55b:free` → `minimax/minimax-m3:free`。
+- GMI MiniMax M3 已于 2026-09 从主脑池移除：上游持续 `402 Insufficient balance`。
+- 池内整轮仍无效 / 空回复 → 本地 `gpt-5.6-luna` 兜底 + 结构化错误（见 §2.3）。
+- 旧 `veya1.1` 仅作为兼容别名，转发到相同的 veya1.2 池。
 - **禁止**重新引入 oskill `router.call_aliased`（quality-gate 升级、模型切换、
   并行分派）——它是空回复的诱因（实测裸 URL 直连 200 有内容，走路由器就空）。
 
@@ -119,12 +128,24 @@ MasterAgent ReAct，且本文档从未同步更新，导致文档与生产行为
 - 多端同步接口改回读 `veya.history_store`（`coordinator_master._persist_history`
   权威写入源），与唯一主链重新对齐。
 
+### 2.6 ProductShell 与 `/chat` 的单一 intelligence authority（2026-09-22）
+
+- ProductShell 的 `task_id` 只绑定任务、trace、权限、workspace 和执行状态；它不触发
+  语义 classifier，也不改变 MasterAgent 的工具面。
+- `MasterCoordinator.get_system_schemas()` 与 `get_all_tool_schemas()` 始终返回 canonical
+  完整工具面。MasterAgent 自己决定直答、工具调用、GoalRun、delegation 或 Hicode。
+- `/chat` 是兼容 response/artifact protocol 的薄适配器，调用同一个
+  `MasterCoordinator.chat_stream()`；它不拥有独立的 `llm_call`、ReAct、tool registry
+  或 history store。artifact 规则只是 request-local prompt augmentation。
+- 因此所有 user-facing intelligence 请求都满足：`USER → one MasterAgent ReAct →
+  tools/GoalRun/delegation/Hicode → evidence/verification/final answer`。
+
 ## 3. 关键部署配置（勿改）
 
 | 配置 | 值 | 位置 |
 |---|---|---|
-| 默认 provider/model | `veya1.2`（= GMI MiniMax M3，OpenRouter 兜底） | 前端 `settings.svelte.ts` / 容器 env |
-| GMI_API_KEY | 用户 key | 容器 env（根目录 `.env`，Compose 使用 `--env-file .env`） |
+| 默认 provider/model | `veya1.2`（= opencode-go DeepSeek V4.1 Flash，OpenRouter 免费模型兜底） | 前端 `settings.svelte.ts` / 容器 env |
+| OPENCODE_API_KEY | opencode-go key；**须指向有余额的 key**（无则回落到 auth.json） | 容器 env（根目录 `.env`，Compose 使用 `--env-file .env`） |
 | OPENROUTER_API_KEY | 兜底 key | 容器 env（根目录 `.env`，Compose 使用 `--env-file .env`） |
 | VEYA_FRONTIER_ENDPOINT | `http://192.168.16.1:10101/v1`（容器内） | docker-compose env |
 | gpt-5.6-luna 兜底 | 核心工具面（`_core_tool_schemas`） | `veya/llm.py` |

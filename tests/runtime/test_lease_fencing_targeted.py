@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
-from runtime.execution.durable import ClaimEnvelope, DurableExecutionRepository
+from runtime.execution.durable import DurableExecutionRepository
 
 
 @pytest.mark.asyncio
@@ -13,7 +11,7 @@ async def test_lease_fencing_prevents_stale_owner_mutations(tmp_path):
     await repo.connect()
     try:
         await repo.create_goal_run(goal_run_id="run-fence", idempotency_key="run-fence")
-        item = await repo.enqueue_work_item(
+        await repo.enqueue_work_item(
             {
                 "goal_run_id": "run-fence",
                 "logical_key": "task-1",
@@ -35,13 +33,17 @@ async def test_lease_fencing_prevents_stale_owner_mutations(tmp_path):
         assert new_claim.lease_token == 2
 
         # Stale worker-1 attempts start/heartbeat/complete -> all fenced out
-        with pytest.raises(Exception, match="claim is no longer current|fencing token is no longer current"):
+        with pytest.raises(
+            Exception, match=r"claim is no longer current|fencing token is no longer current"
+        ):
             await repo.start(old_claim)
 
-        with pytest.raises(Exception, match="heartbeat rejected|heartbeat is no longer current"):
+        with pytest.raises(Exception, match=r"heartbeat rejected|heartbeat is no longer current"):
             await repo.heartbeat(old_claim)
 
-        with pytest.raises(Exception, match="claim is no longer current|fencing token is no longer current"):
+        with pytest.raises(
+            Exception, match=r"claim is no longer current|fencing token is no longer current"
+        ):
             await repo.complete(old_claim, {"summary": "stale work"})
 
         # New worker-2 completes successfully

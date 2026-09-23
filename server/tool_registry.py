@@ -177,6 +177,14 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "harness_sensor_list",
         "harness_sensor_report",
         "harness_ratchet_candidates",
+        # Supervision metadata queries are pure reads over the canonical
+        # MissionStore and are safe to run alongside other independent reads.
+        "veya_mission_inspect",
+        "veya_report_latest",
+        "veya_report_get",
+        "veya_escalation_list",
+        "veya_reviews",
+        "veya_events",
         # Memory tools are read-only lookups; writes/corrections remain outside
         # this set and therefore never join a parallel batch.
         "memory_search",
@@ -371,7 +379,7 @@ _TOOL_TIMEOUT_ENV = "VEYA_TOOL_TIMEOUT_S"
 
 def parse_optional_timeout(value: float | str | None, *, source: str) -> float | None:
     """把可选超时归一化为秒；空值/0 表示不设限。"""
-    if value in (None, ""):
+    if value is None or value == "":
         return None
     try:
         timeout = float(value)

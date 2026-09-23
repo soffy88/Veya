@@ -21,7 +21,6 @@ import time
 import uuid
 import weakref
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any, cast
 
 from runtime.provider_reliability import ReliableProviderAdapter
@@ -30,12 +29,10 @@ from server.events import (
     _on_step_ctx,
     _task_id_ctx,
     append_observability_event,
-    bind_event_capability,
     bind_event_context,
     bind_observability_events,
     current_observability_events,
     fire_step,
-    reset_event_capability,
     reset_event_context,
     reset_observability_events,
 )
@@ -79,23 +76,12 @@ _pending_goal_id_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVa
     "veya_pending_goal_id", default=None
 )
 
-# Capability and execution mode for the current session.
-# Set during capability decision phase of chat_stream.
-_CAPABILITY_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "veya_capability", default=None
-)
-_EXECUTION_MODE_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "veya_execution_mode", default=None
-)
 # Canonical task_id → if set, this is a product-shell canonical task
 _CANONICAL_TASK_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "veya_canonical_task", default=None
 )
-_POST_DECISION_EXECUTION_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "veya_post_decision_execution", default=None
-)
-_FORCE_INITIAL_TOOL_CALL_CTX: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "veya_force_initial_tool_call", default=False
+_REQUEST_SYSTEM_CONTEXT_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "veya_request_system_context", default=None
 )
 # A mutable request-local marker lets sequential ReAct rounds (and child tasks
 # used for a read-only batch) share the fact that a tool failure is awaiting a
@@ -106,340 +92,9 @@ _REPLAN_STATE_CTX: contextvars.ContextVar[dict[str, Any] | None] = contextvars.C
 )
 
 
-# Capability hierarchy: priority order for tool selection.
-# When MasterAgent selects a capability, only tools in that capability's scope are visible.
-# GoalRun authority: once a GoalRun is created, the model cannot bypass to legacy tools.
-_CAPABILITY_TOOL_GROUPS: dict[str, set[str] | None] = {
-    # coding: complex coding tasks → coding_task_run → GoalRun harness
-    # Excludes write_file, run_in_sandbox, hicode_run (bypassable shortcuts)
-    "coding": {
-        "coding_task_run",
-        "coding_workspace_detect",
-        "coding_worktree_create",
-        "coding_worktree_status",
-        "coding_diff",
-        "coding_apply_patch",
-        "coding_discard",
-        "coding_run_command",
-        "coding_run_tests",
-        "coding_run_lint",
-        "coding_run_typecheck",
-        "coding_build",
-        "coding_finalize_patch",
-        "project_ask",
-        "project_status",
-        "project_eng_gates",
-        "ask_user",
-        "goal_start",
-        "goal_add_todo",
-        "goal_status",
-        "memory_search",
-        "memory_get",
-        "skill_search",
-        "skill_show",
-    },
-    # browser: web automation
-    "browser": {
-        "browser_run",
-        "fetch_url",
-        "ask_user",
-    },
-    # computer: sandboxed execution for evidence
-    "computer": {
-        "run_in_sandbox",
-        # Local computer actions may include a user-approved file write. The
-        # existing user-control and Action Gateway layers still gate it.
-        "write_file",
-        "read_file_ast",
-        "list_files",
-        "grep",
-        "ask_user",
-    },
-    # research: knowledge retrieval
-    "research": {
-        "fetch_url",
-        "browser_run",
-        "mcp_stratum",
-        "search_genesis_ledger",
-        "memory_search",
-        "ask_user",
-    },
-    # knowledge: codebase understanding
-    "knowledge": {
-        "read_file_ast",
-        "read_hashline",
-        "list_files",
-        "grep",
-        "ast_grep_search",
-        "assemble_code_context",
-        "mcp_codebase",
-        "memory_search",
-        "memory_get",
-        "skill_search",
-        "skill_show",
-        "ask_user",
-    },
-    # delegate: external workflows
-    "delegate": {
-        "delegate_to_genesis",
-        "evolve_solution",
-        "ask_user",
-    },
-    # ask_user: clarification
-    "ask_user": {
-        "ask_user",
-    },
-    # direct: general purpose, no restrictions
-    "direct": None,  # None = all tools visible
-}
-
-# The clarification tool remains available in every goal capability. Other
-# system tools stay out of a scoped goal surface; exposing them lets the model
-# satisfy a coding goal with a generic system call instead of its harness.
-_ALWAYS_VISIBLE_TOOLS: set[str] = {"ask_user"}
-
-
-def _get_tools_for_capability(
-    capability: str | None,
-    all_schemas: list[dict],
-    execution_mode: str | None = None,
-) -> list[dict]:
-    """Filter goal-mode tool schemas to the selected capability's scope."""
-    if execution_mode is None:
-        execution_mode = _EXECUTION_MODE_CTX.get()
-    if execution_mode != "goal":
-        return list(all_schemas)
-    allowed = _CAPABILITY_TOOL_GROUPS.get(capability)
-    if allowed is None:
-        # "direct" or unknown: all tools visible
-        return list(all_schemas)
-
-    always_visible = _ALWAYS_VISIBLE_TOOLS
-    allowed_with_always = allowed | always_visible
-
-    return [s for s in all_schemas if s.get("function", {}).get("name") in allowed_with_always]
-
-
-_CAPABILITIES = frozenset(
-    {"coding", "browser", "computer", "research", "knowledge", "delegate", "direct"}
-)
-_EXECUTION_MODES = frozenset({"goal", "direct"})
-_CAPABILITY_DECISION_TOOL_NAME = "system_classify_capability"
-_CAPABILITY_DECISION_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        # The existing local-model fallback preserves system_* schemas. This
-        # is still a classifier-only protocol tool; it is never executable in
-        # the post-decision tool surface.
-        "name": _CAPABILITY_DECISION_TOOL_NAME,
-        "description": "Return the semantic capability and execution mode for the user request.",
-        "strict": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "capability": {"type": "string", "enum": sorted(_CAPABILITIES)},
-                "execution_mode": {"type": "string", "enum": sorted(_EXECUTION_MODES)},
-            },
-            "required": ["capability", "execution_mode"],
-            "additionalProperties": False,
-        },
-    },
-}
-
-
-@dataclass(frozen=True)
-class CapabilityDecision:
-    capability: str
-    execution_mode: str
-
-
-class CapabilityDecisionError(ValueError):
-    """Raised when the real provider does not return a valid decision."""
-
-
-def _structured_objects(value: Any) -> list[dict[str, Any]]:
-    """Yield JSON objects embedded in provider output without inferring intent.
-
-    Providers vary in whether they return a function argument object, a JSON
-    string, fenced JSON, or a text content block.  This helper only decodes
-    JSON objects; the caller still validates both enum fields below.  In
-    particular, it never searches for capability words in natural language.
-    """
-    if isinstance(value, dict):
-        return [value]
-    if not isinstance(value, str):
-        return []
-
-    text = value.strip()
-    if not text:
-        return []
-    candidates = [text]
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if len(lines) >= 3 and lines[0].lstrip().startswith("```") and lines[-1].strip() == "```":
-            candidates.insert(0, "\n".join(lines[1:-1]).strip())
-
-    decoder = json.JSONDecoder()
-    objects: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        with contextlib.suppress(json.JSONDecodeError):
-            decoded = json.loads(candidate)
-            if isinstance(decoded, dict):
-                key = json.dumps(decoded, sort_keys=True, ensure_ascii=False)
-                if key not in seen:
-                    objects.append(decoded)
-                    seen.add(key)
-                continue
-        # Tolerate a short provider preamble/trailer around one JSON object,
-        # while still requiring the object itself to be valid JSON.
-        for index, char in enumerate(candidate):
-            if char != "{":
-                continue
-            with contextlib.suppress(json.JSONDecodeError):
-                decoded, _end = decoder.raw_decode(candidate[index:])
-                if isinstance(decoded, dict):
-                    key = json.dumps(decoded, sort_keys=True, ensure_ascii=False)
-                    if key not in seen:
-                        objects.append(decoded)
-                        seen.add(key)
-    return objects
-
-
-def _parse_capability_decision(response: Any) -> CapabilityDecision:
-    """Parse only the structured provider result; never infer from the prompt."""
-    if not isinstance(response, dict):
-        raise CapabilityDecisionError("capability provider returned a non-object response")
-
-    choices = response.get("choices")
-    message = choices[0].get("message") if isinstance(choices, list) and choices else None
-    if not isinstance(message, dict):
-        raise CapabilityDecisionError("capability provider returned no assistant message")
-
-    decision_candidates: list[dict[str, Any]] = []
-    tool_calls = message.get("tool_calls")
-    if isinstance(tool_calls, list):
-        for tool_call in tool_calls:
-            if not isinstance(tool_call, dict):
-                continue
-            function = tool_call.get("function")
-            if not isinstance(function, dict) or function.get("name") not in {
-                _CAPABILITY_DECISION_TOOL_NAME,
-                "classify_capability",  # compatibility with pre-P0 providers
-            }:
-                continue
-            decision_candidates.extend(_structured_objects(function.get("arguments")))
-            break
-
-    for legacy_call in (message.get("function_call"), message.get("tool_call")):
-        if not isinstance(legacy_call, dict):
-            continue
-        if legacy_call.get("name") not in {_CAPABILITY_DECISION_TOOL_NAME, "classify_capability"}:
-            continue
-        decision_candidates.extend(_structured_objects(legacy_call.get("arguments")))
-
-    content = message.get("content")
-    if isinstance(content, str):
-        decision_candidates.extend(_structured_objects(content))
-    elif isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict):
-                decision_candidates.extend(_structured_objects(block.get("text")))
-                decision_candidates.extend(_structured_objects(block.get("content")))
-                decision_candidates.extend(_structured_objects(block.get("input")))
-                decision_candidates.extend(_structured_objects(block.get("arguments")))
-
-    for decision_data in decision_candidates:
-        capability = decision_data.get("capability")
-        execution_mode = decision_data.get("execution_mode")
-        if capability in _CAPABILITIES and execution_mode in _EXECUTION_MODES:
-            return CapabilityDecision(capability=capability, execution_mode=execution_mode)
-
-    if not decision_candidates:
-        raise CapabilityDecisionError("capability provider returned no structured decision")
-    raise CapabilityDecisionError("capability provider returned an invalid structured decision")
-
-
-async def _decide_capability(
-    user_prompt: str,
-    mode: str | None = None,
-    *,
-    product_task: bool = False,
-    llm_caller: Callable[..., Any] | None = None,
-    llm_kwargs: dict[str, Any] | None = None,
-) -> CapabilityDecision:
-    """Ask the configured real model for a structured semantic decision.
-
-    The classifier is deliberately separate from execution: it sees no
-    execution tools and its response is accepted only when it matches the
-    declared schema. A provider failure is surfaced instead of becoming an
-    accidental ``direct`` decision.
-    """
-    caller = llm_caller or llm_call
-    task_kind = "ProductShell task" if product_task else "ordinary conversational turn"
-    request_mode = mode or "agent"
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are the semantic capability classifier for Veya. Understand the user's "
-                "intent and requested outcome; do not classify by literal keyword or regex. "
-                f"Return exactly one {_CAPABILITY_DECISION_TOOL_NAME} tool call and no prose.\n\n"
-                "Capability meanings:\n"
-                "- coding: create or modify software and use the coding harness\n"
-                "- browser: interact with a web page through browser automation\n"
-                "- computer: operate a local computer or sandbox for evidence\n"
-                "- research: retrieve and synthesize external information\n"
-                "- knowledge: inspect or explain existing code, files, or durable knowledge\n"
-                "- delegate: hand work to an external delegated workflow\n"
-                "- direct: answer a genuinely simple request that needs no tool and no GoalRun\n\n"
-                "Use execution_mode=goal for an actionable, multi-step, tool-using, or "
-                "verifiable request. Use execution_mode=direct only when the request is truly "
-                "simple and needs neither tools nor GoalRun. A ProductShell task is not "
-                "automatically direct: decide from its actual intent, and use goal when it "
-                "needs work, retrieval, interaction, or verification.\n"
-                "A scenario label such as approval, recovery, or benchmark is not a capability; "
-                "classify the underlying requested action.\n"
-                f"Request origin: {task_kind}. Request mode: {request_mode}."
-            ),
-        },
-        {"role": "user", "content": user_prompt},
-    ]
-    request_kwargs = dict(llm_kwargs or {})
-    request_kwargs.update(
-        {
-            "tools": [_CAPABILITY_DECISION_TOOL],
-            "tool_choice": {
-                "type": "function",
-                "function": {"name": _CAPABILITY_DECISION_TOOL_NAME},
-            },
-            "max_tokens": 256,
-            "temperature": 0,
-        }
-    )
-    last_error: CapabilityDecisionError | None = None
-    for attempt in range(2):
-        try:
-            response = await caller(messages, **request_kwargs)
-            return _parse_capability_decision(response)
-        except CapabilityDecisionError as exc:
-            last_error = exc
-        except Exception as exc:
-            last_error = CapabilityDecisionError(
-                f"capability provider call failed: {type(exc).__name__}: {exc}"
-            )
-        if attempt == 0:
-            messages = [
-                *messages,
-                {
-                    "role": "user",
-                    "content": (
-                        f"Retry once: return the required {_CAPABILITY_DECISION_TOOL_NAME} tool call with "
-                        "both enum fields and no prose."
-                    ),
-                },
-            ]
-    raise last_error or CapabilityDecisionError("capability decision failed")
+# Tool schemas are never selected by a pre-Master semantic classifier.
+# MasterAgent receives its canonical complete surface and decides whether to answer,
+# call a tool, start GoalRun, delegate, or invoke Hicode.
 
 
 def _default_long_task_factory() -> Any:
@@ -639,30 +294,6 @@ Docs / PDF / notes / search: `mcp_stratum_*`.
 # STATE
 Unattended wake: `system_quota_should_run`. High-impact: the user may have to approve in the UI — if a tool returns "user denied" or "plan mode", stop and explain.
 
-# CAPABILITY HIERARCHY (enforcement, not guidance)
-Every canonical ProductShell task begins with a semantic capability decision. The classifier MUST
-return the capability choice before execution, using the special structured call:
-
-CAPABILITY DECISION:
-capability: coding | browser | computer | research | knowledge | delegate | direct
-execution_mode: goal | direct
-
-This decision determines the available tool surface for the entire task:
-- coding + goal → ONLY coding_task_run and harness tools visible. write_file/run_in_sandbox/hicode_run HIDDEN.
-- coding + direct → hicode_run visible (for ad-hoc coding without harness)
-- browser → browser_run, fetch_url only
-- computer → run_in_sandbox, read-only tools only (evidence generation)
-- research → fetch_url, browser_run, search tools
-- knowledge → read_file_ast, grep, list_files, mcp_codebase
-- delegate → delegate_to_genesis, evolve_solution
-- direct → all tools (general purpose)
-
-CRITICAL RULES:
-1. Canonical product tasks: execution_mode defaults to "goal" (verifiable), but capability is SEMANTICALLY decided from the task objective, NOT hardcoded to coding.
-2. Once GoalRun created, model CANNOT bypass back to legacy tools. Task ends ONLY on verification PASS or explicit failure.
-3. Approval pending → suspend current action. Resume SAME action after approval. No tool switching allowed.
-4. Tool failure → diagnose/replan within same capability. Do not switch capabilities mid-task.
-5. Verification fail → continue/replan within GoalRun. Do not end task.
 """
 
 # 主库 SOP 常量 re-export(兼容既有 import)
@@ -1020,7 +651,9 @@ class MasterCoordinator:
         replan_state = _REPLAN_STATE_CTX.get()
 
         def action_key(name: str, arguments: dict[str, Any]) -> str:
-            return f"{name}\0{json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)}"
+            return (
+                f"{name}\0{json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)}"
+            )
 
         def observe(
             topic: str,
@@ -1278,8 +911,8 @@ class MasterCoordinator:
         请求级 config/model/provider/endpoint(如前端传入的 user API key)
         优先于实例配置, 未提供则回落实例/环境默认。
 
-        入口仍只有一个大模型。执行请求使用当前 capability/execution-mode
-        的工具上下文；能力分类请求本身不进入执行历史。
+        入口只有一个大模型。所有 user-facing 请求都使用同一个
+        MasterAgent ReAct 调用边界；任务元数据不会改变其工具面。
 
         绝不静默 (LLM 边界最后一环): 模型返回空/'None' → 带温和原生
         提示退避重试; 仍空则返回可见提示 (opencode 网关抖动已被
@@ -1290,12 +923,9 @@ class MasterCoordinator:
         req_provider = kwargs.pop("provider", None)
         req_endpoint = kwargs.pop("endpoint", None)
         tools = kwargs.pop("tools", None)
-        post_decision_context = _POST_DECISION_EXECUTION_CTX.get()
         replan_state = _REPLAN_STATE_CTX.get()
         failure_evidence = (
-            replan_state.get("failure_evidence", [])
-            if isinstance(replan_state, dict)
-            else []
+            replan_state.get("failure_evidence", []) if isinstance(replan_state, dict) else []
         )
         if failure_evidence and messages:
             evidence_lines = "\n".join(
@@ -1317,9 +947,8 @@ class MasterCoordinator:
                     ),
                 },
             ]
-        if post_decision_context and messages:
-            # Keep the continuation request-local. Do not persist it in the
-            # MasterAgent conversation history or expose it as user content.
+        request_system_context = _REQUEST_SYSTEM_CONTEXT_CTX.get()
+        if request_system_context and messages:
             messages = [dict(message) for message in messages]
             for index, message in enumerate(messages):
                 if message.get("role") != "system":
@@ -1328,13 +957,13 @@ class MasterCoordinator:
                 if isinstance(content, str):
                     messages[index] = {
                         **message,
-                        "content": f"{content}\n\n{post_decision_context}",
+                        "content": f"{content}\n\n{request_system_context}",
                     }
                 else:
-                    messages.insert(0, {"role": "system", "content": post_decision_context})
+                    messages.insert(0, {"role": "system", "content": request_system_context})
                 break
             else:
-                messages.insert(0, {"role": "system", "content": post_decision_context})
+                messages.insert(0, {"role": "system", "content": request_system_context})
         # 附件图片只改请求副本，不能污染/持久化 canonical history。
         images = _pending_images_ctx.get()
         if images and messages:
@@ -1387,10 +1016,7 @@ class MasterCoordinator:
             # Only product/canonical execution is reliability-bound. Ordinary
             # chat and maintenance calls retain their existing facade path.
             canonical_task_id = _CANONICAL_TASK_CTX.get()
-            # Capability classification is a semantic prelude.  Reliability
-            # binding starts only after MasterAgent has selected the execution
-            # capability, so its structured decision contract is untouched.
-            if not canonical_task_id or _CAPABILITY_CTX.get() is None:
+            if not canonical_task_id:
                 return await self._llm_fn(compacted, **call_kwargs)
             configured_provider = req_provider or self.provider
             if configured_provider is None:
@@ -1421,18 +1047,10 @@ class MasterCoordinator:
                 response.setdefault("_veya_continuity", continuity)
             return response
 
-        force_initial_tool_call = _FORCE_INITIAL_TOOL_CALL_CTX.get()
-        if force_initial_tool_call:
-            # This is a one-shot constraint for the first post-classification
-            # request. Later ReAct rounds must be free to return the summary.
-            _FORCE_INITIAL_TOOL_CALL_CTX.set(False)
-            kwargs["tool_choice"] = "required"
-
         async def _call_with_reliability(initial_messages: list) -> Any:
             if self._llm_fn is not llm_call:
                 return await _call(initial_messages)
-            # 生产默认 llm: 空/'None' 且无 tool_calls → 带温和提示重试
-            # (带短退避 — free 池网关空响应多为瞬时抖动, 1-3 秒后自愈)
+            # 生产默认 llm: 空/'None' 且无 tool_calls → 带温和提示退避重试。
             call_messages = initial_messages
             backoffs = (0.0, 1.5, 3.0)
             for attempt, delay in enumerate(backoffs, start=1):
@@ -1446,15 +1064,13 @@ class MasterCoordinator:
                 ):
                     return resp
                 if attempt < len(backoffs):
-                    # 不污染会话历史: 仅本次调用附加温和提示
                     call_messages = [
                         *call_messages,
                         {
                             "role": "user",
                             "content": (
                                 "(系统提示: 你刚才返回了空/无效内容。请直接用中文"
-                                "回答用户, 或调用你判断需要的工具; 不要输出 "
-                                "None/空/null。)"
+                                "回答用户, 或调用你判断需要的工具; 不要输出 None/空/null。)"
                             ),
                         },
                     ]
@@ -1463,9 +1079,7 @@ class MasterCoordinator:
                     {
                         "message": {
                             "role": "assistant",
-                            "content": (
-                                "⚠ 模型连续返回空内容 (网关抖动)。请重试, 或在上方更换模型。"
-                            ),
+                            "content": "⚠ 模型连续返回空内容 (网关抖动)。请重试, 或在上方更换模型。",
                         }
                     }
                 ],
@@ -1473,27 +1087,6 @@ class MasterCoordinator:
             }
 
         response = await _call_with_reliability(messages)
-        if force_initial_tool_call:
-            message = (response.get("choices") or [{}])[0].get("message") or {}
-            if not message.get("tool_calls"):
-                response = await _call_with_reliability(
-                    [
-                        *messages,
-                        {
-                            "role": "system",
-                            "content": (
-                                "The capability decision is context only. This goal task must "
-                                "now execute through one of the available scoped tools. "
-                                "Return a tool call; do not answer with a final summary yet."
-                            ),
-                        },
-                    ]
-                )
-                message = (response.get("choices") or [{}])[0].get("message") or {}
-                if not message.get("tool_calls"):
-                    raise ToolExecutionError(
-                        "goal execution produced no tool call after capability decision"
-                    )
         return response
 
     def _cost_calculator(self, response: dict) -> float:
@@ -1532,16 +1125,13 @@ class MasterCoordinator:
         return str(self._agent.get_system_prompt())
 
     def get_system_schemas(self) -> list[dict]:
-        # Apply capability filtering based on session context
-        capability = _CAPABILITY_CTX.get()
-        all_schemas = self._raw_get_system_schemas()
-        return _get_tools_for_capability(capability, all_schemas, _EXECUTION_MODE_CTX.get())
+        return cast(list[dict], self._raw_get_system_schemas())
 
     def get_all_tool_schemas(self) -> list[dict]:
-        # Apply capability filtering based on session context
-        capability = _CAPABILITY_CTX.get()
-        all_schemas = self._raw_get_all_tool_schemas()
-        return _get_tools_for_capability(capability, all_schemas, _EXECUTION_MODE_CTX.get())
+        # The canonical MasterAgent always receives the complete registered
+        # surface. Tool selection is its ReAct decision, never a host-side
+        # semantic capability projection.
+        return cast(list[dict], self._raw_get_all_tool_schemas())
 
     def register_secure_tool(self, tool_name: str, callback: Callable) -> None:
         self._agent.register_secure_tool(tool_name, callback)
@@ -1565,6 +1155,7 @@ class MasterCoordinator:
         mode: str | None = None,
         require_approval: bool = False,
         freeze_allow: str | None = None,
+        system_context: str | None = None,
     ) -> dict[str, Any]:
         """主脑主入口(委托主库 ReAct 循环)。
 
@@ -1584,7 +1175,7 @@ class MasterCoordinator:
             llm_kwargs["model"] = model
         if endpoint:
             llm_kwargs["endpoint"] = endpoint
-        # Resolve task_id early for capability decision and event context.
+        # Resolve task_id early for deterministic event/task ownership.
         requested_task_id = task_id
         requested_task: Any | None = None
         if requested_task_id:
@@ -1598,53 +1189,12 @@ class MasterCoordinator:
             trace_id = requested_task.trace_id or uuid.uuid4().hex
         else:
             trace_id = uuid.uuid4().hex
-        # P0 minimal validation: record capability and tool usage for benchmark verification.
-        p0_capability_decisions: list[dict[str, Any]] = []
-
-        # 附件图片 (base64 data URI) → 请求级 ContextVar，避免全局单例串图。
+        # ProductShell task_id is deterministic execution metadata only. It binds
+        # the task/event owner; it never selects semantics or changes the tool surface.
         image_token = _pending_images_ctx.set(tuple(images) if images else None)
-        # on_step 经 contextvar 桥接: 主库 notify=fire_step 会自动命中。
-        # SSE 链路 (new_agent_stream_events) 已 set(queue.on_step) 且不传参数
-        # on_step → 参数为 None 时保留外层 contextvar, 否则覆盖 (master/chat 直调)。
+        system_context_token = _REQUEST_SYSTEM_CONTEXT_CTX.set(system_context)
         token = _on_step_ctx.set(on_step if on_step is not None else _on_step_ctx.get())
-        # Capability and execution mode context for ProductShell tool scoping.
-        # Ordinary chat remains the frozen single MasterAgent mainline; the
-        # product adapter opts into the capability boundary by passing task_id.
-        capability_context_token = _CAPABILITY_CTX.set(None)
-        execution_mode_context_token = _EXECUTION_MODE_CTX.set(None)
-        canonical_task_context_token = _CANONICAL_TASK_CTX.set(None)
-        try:
-            capability: str | None = None
-            if requested_task_id:
-                _CANONICAL_TASK_CTX.set(requested_task_id)
-                decision = await _decide_capability(
-                    user_prompt,
-                    mode=mode,
-                    product_task=True,
-                    llm_caller=self._bound_llm,
-                    llm_kwargs=llm_kwargs,
-                )
-                capability = decision.capability
-                _CAPABILITY_CTX.set(capability)
-                _EXECUTION_MODE_CTX.set(decision.execution_mode)
-                p0_capability_decisions.append(
-                    {
-                        "timestamp": time.time(),
-                        "task_id": requested_task_id,
-                        "trace_id": trace_id,
-                        "capability": capability,
-                        "execution_mode": decision.execution_mode,
-                        "prompt": user_prompt[:100],
-                        "mode": mode,
-                    }
-                )
-        except BaseException:
-            _CANONICAL_TASK_CTX.reset(canonical_task_context_token)
-            _EXECUTION_MODE_CTX.reset(execution_mode_context_token)
-            _CAPABILITY_CTX.reset(capability_context_token)
-            _on_step_ctx.reset(token)
-            _pending_images_ctx.reset(image_token)
-            raise
+        canonical_task_context_token = _CANONICAL_TASK_CTX.set(requested_task_id)
         from server import user_control as _uc
 
         uc_tokens = None
@@ -1658,26 +1208,10 @@ class MasterCoordinator:
         ) = None
         governance_token: contextvars.Token | None = None
         telemetry: Any | None = None
-        initial_tool_call_token: contextvars.Token | None = None
-        requested_task_id = task_id
-        requested_task: Any | None = None
-        if requested_task_id:
-            from server.task_store import task_store
-
-            requested_task = task_store.get(requested_task_id)
-            if requested_task is None:
-                raise ValueError(f"task not found: {requested_task_id}")
-            if requested_task.session_id != (session_id or ""):
-                raise ValueError("task session does not match chat session")
-            trace_id = requested_task.trace_id or uuid.uuid4().hex
-        else:
-            trace_id = uuid.uuid4().hex
         turn_started = time.monotonic()
         result: dict[str, Any] | None = None
-        capability_event_token = bind_event_capability(capability)
         observability_events_token = bind_observability_events()
         replan_context_token = _REPLAN_STATE_CTX.set({})
-        post_decision_token: contextvars.Token | None = None
         try:
             # Product entry creates the projection before execution so the
             # canonical user message and all downstream tool events remain
@@ -1820,33 +1354,6 @@ class MasterCoordinator:
                         task_id=task_id,
                         topic="turn.started",
                     )
-            with contextlib.suppress(Exception):
-                append_observability_event(
-                    "capability.decision",
-                    task_id=task_id,
-                    capability=capability,
-                    action="select_capability",
-                    status="selected",
-                    payload={
-                        "execution_mode": _EXECUTION_MODE_CTX.get(),
-                        "mode": mode,
-                        "prompt": user_prompt[:500],
-                    },
-                    actor="master",
-                )
-            post_decision_token = _POST_DECISION_EXECUTION_CTX.set(
-                "CAPABILITY DECISION ALREADY COMPLETE.\n"
-                f"Selected capability: {capability}. Execution mode: "
-                f"{_EXECUTION_MODE_CTX.get()}.\n"
-                "Continue executing the user's objective now. Do not emit a capability "
-                "decision or treat the classification as the final answer. Use the available "
-                "scoped tools and return the actual result after execution."
-            )
-            if requested_task_id and _EXECUTION_MODE_CTX.get() == "goal":
-                # The first execution response is not allowed to terminate the
-                # task after classification. _bound_llm consumes this one-shot
-                # flag and restores ordinary ReAct behavior for later rounds.
-                initial_tool_call_token = _FORCE_INITIAL_TOOL_CALL_CTX.set(True)
             lt = _SteeringLongTaskDriver(sid, self._agent, lt)  # 总是包一层, 接住运行中的 steering
             self._bind_history_owner(sid)
             await self._restore_history(sid)
@@ -1859,8 +1366,8 @@ class MasterCoordinator:
             # 长任务无损恢复: 循环运行期间定时快照 (主库在 _histories[sid] 原地
             # 累积每轮消息), 进程被杀也只丢最后一个快照间隔, 而非整轮工作。
             ckpt_task = asyncio.create_task(self._checkpoint_loop(sid))
-            # Keep the active session available to goal tools. Tool visibility is
-            # already constrained by the capability context above.
+            # Keep the active session available to goal tools. The canonical
+            # MasterAgent receives the complete registry and chooses actions.
             from server import tool_registry as _tr
             from server.tool_governance_adapter import (
                 bind_task_governance,
@@ -2025,13 +1532,8 @@ class MasterCoordinator:
             if vision_ctx is not None:
                 with contextlib.suppress(Exception):
                     _vision_session_ctx.reset(vision_ctx)
-            if post_decision_token is not None:
-                _POST_DECISION_EXECUTION_CTX.reset(post_decision_token)
-            if initial_tool_call_token is not None:
-                _FORCE_INITIAL_TOOL_CALL_CTX.reset(initial_tool_call_token)
             reset_observability_events(observability_events_token)
             _REPLAN_STATE_CTX.reset(replan_context_token)
-            reset_event_capability(capability_event_token)
             if goal_id_token is not None:
                 _pending_goal_id_ctx.reset(goal_id_token)
             if task_token is not None:
@@ -2040,9 +1542,8 @@ class MasterCoordinator:
                 reset_event_context(event_context_tokens)
             _on_step_ctx.reset(token)
             _pending_images_ctx.reset(image_token)
+            _REQUEST_SYSTEM_CONTEXT_CTX.reset(system_context_token)
             _CANONICAL_TASK_CTX.reset(canonical_task_context_token)
-            _EXECUTION_MODE_CTX.reset(execution_mode_context_token)
-            _CAPABILITY_CTX.reset(capability_context_token)
 
     async def _restore_history(self, sid: str) -> None:
         """冷启动: 若进程内热缓存无此 sid, 从持久层恢复对话历史。

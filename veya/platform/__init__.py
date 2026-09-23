@@ -96,7 +96,19 @@ def load(lib: str) -> Any:
         raise ValueError(f"unknown main library {lib!r}; expected one of {_MAINLIBS}")
     root(lib)  # presence check with a clear error
     _ensure_paths()
-    return importlib.import_module(lib)
+    module = importlib.import_module(lib)
+    # The pinned oprim source renamed this public test/consumer constant from
+    # ``observe_action`` to ``OBSERVE_ACTION``.  Keep the assembly boundary
+    # compatible without modifying the external 3O checkout; this is a
+    # namespace adapter, not a second implementation.
+    if lib == "oprim":
+        try:
+            rollout = importlib.import_module("oprim._counterfactual_rollout")
+            if not hasattr(rollout, "observe_action") and hasattr(rollout, "OBSERVE_ACTION"):
+                rollout.observe_action = rollout.OBSERVE_ACTION
+        except ImportError:
+            pass
+    return module
 
 
 # --- convenience accessors for the obase core used by Veya ------------------

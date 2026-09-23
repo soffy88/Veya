@@ -183,7 +183,9 @@ PATH_METHODS: tuple[str, ...] = (
 )
 
 # pathlib.Path 纯方法 (无 I/O, 不应报告)
-PATH_PURE_METHODS: tuple[str, ...] = ("expanduser",)
+# expanduser: 纯字符串操作; home: 只读 $HOME env, 无 syscall/FS 访问
+# (Phase 1 triage D: Path.home() 不是 I/O, 之前误报 4 处)。
+PATH_PURE_METHODS: tuple[str, ...] = ("expanduser", "home")
 
 # shutil 直连
 SHUTIL_CALLS: tuple[str, ...] = (

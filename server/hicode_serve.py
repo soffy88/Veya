@@ -24,6 +24,8 @@ from typing import Any
 
 import httpx
 
+from server.hicode_host_boundary import hicode_host_gate
+
 logger = logging.getLogger("hicode.serve")
 
 SERVE_BASE = os.environ.get("HICODE_SERVE_BASE", "http://127.0.0.1:8768")
@@ -156,9 +158,6 @@ class HicodeServeClient:
                     "--model opencode-go &` 启动。"
                 ),
             }
-        from veya.platform import load
-
-        broker = load("omodul").get_broker()
         try:
             from server.auth import current_user
 
@@ -166,8 +165,8 @@ class HicodeServeClient:
         except Exception:
             owner_id = ""
         async with (
-            broker.async_workspace(workspace),
-            broker.async_slot("hicode_serve", owner_id=owner_id),
+            hicode_host_gate().async_workspace(workspace),
+            hicode_host_gate().async_slot("hicode_serve", owner_id=owner_id),
         ):
             return await self._run_task_locked(
                 spec, on_event, approve_all=approve_all, timeout=timeout

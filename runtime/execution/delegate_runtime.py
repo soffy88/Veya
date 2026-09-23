@@ -347,9 +347,7 @@ class DelegateRuntime:
                 if isinstance(raw, DelegateResult)
                 else delegate_result_from_mapping(request, raw)
             )
-            result.duration_ms = result.duration_ms or round(
-                (time.monotonic() - started_at) * 1000
-            )
+            result.duration_ms = result.duration_ms or round((time.monotonic() - started_at) * 1000)
             result.source_bot_id = source_bot_id
             result.target_bot_id = target_bot_id
             result.goal_run_id = target_goal_run_id
@@ -359,7 +357,9 @@ class DelegateRuntime:
             self._completed[request.delegate_id] = result
         await self._emit(
             {
-                "type": "delegate.completed" if result.status == "complete" else f"delegate.{result.status}",
+                "type": "delegate.completed"
+                if result.status == "complete"
+                else f"delegate.{result.status}",
                 "delegate_id": request.delegate_id,
                 "source_bot_id": source_bot_id,
                 "target_bot_id": target_bot_id,

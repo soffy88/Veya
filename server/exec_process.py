@@ -1,5 +1,8 @@
 """Execution process-group ownership.
 
+# 3O-IO-ALLOW: infrastructure boundary owns /proc identity inspection, pidfile
+# persistence, and process-group signalling for durable execution recovery.
+
 An executor is spawned in its own process group (`start_new_session=True`) and the
 group identity is recorded durably next to the mission, so reconciliation can
 terminate exactly the processes that belong to one execution — instead of

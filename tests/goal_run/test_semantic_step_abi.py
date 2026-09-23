@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from oservi.master_agent import MasterAgent
 
 
@@ -146,7 +145,6 @@ async def test_semantic_step_observes_result_for_next_model_decision():
 
     assert second["kind"] == "candidate"
     assert any(
-        message.get("role") == "tool"
-        and message.get("tool_call_id") == first["action_id"]
+        message.get("role") == "tool" and message.get("tool_call_id") == first["action_id"]
         for message in agent._histories["semantic-observe"]
     )

@@ -212,14 +212,16 @@ async def test_product_task_entry_creates_canonical_task_and_delegates_to_master
 
 @pytest.mark.asyncio
 async def test_product_task_runner_binds_existing_goalrun_semantic_loop(monkeypatch, tmp_path):
-    from server.routes import product as product_routes
     from server.goal_run.models import GoalRunResponse, GoalStatus
+    from server.routes import product as product_routes
 
     calls: list[dict[str, Any]] = []
 
     async def fake_project_run_goal(*args: Any, **kwargs: Any) -> GoalRunResponse:
         calls.append({"args": args, "kwargs": kwargs})
-        return GoalRunResponse(goal_id="goal-product-1", status=GoalStatus.completed, phase="finalized")
+        return GoalRunResponse(
+            goal_id="goal-product-1", status=GoalStatus.completed, phase="finalized"
+        )
 
     monkeypatch.setattr("server.goal_run.runner.project_run_goal", fake_project_run_goal)
     await product_routes._run_product_task(

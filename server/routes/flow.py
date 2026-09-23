@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from typing import Any
 
@@ -10,9 +11,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from server import flow_engine
-from server.coordinator import coordinator
+from server.flow_goal_run import GenesisGoalRunAdapter, phase3_task
+from server.goal_run import project_run_goal
 from server.schemas import GenesisManifest, RequirementDoc
-from server.sse import get_or_create_queue
 
 router = APIRouter()
 
@@ -47,18 +48,22 @@ class Phase3Request(BaseModel):
 @router.post("/flow/phase1")
 async def flow_phase1(req: Phase1Request) -> dict[str, Any]:
     sid = req.session_id or str(uuid.uuid4())
-    queue = get_or_create_queue(sid)
-
-    command = {
-        "mode": "requirement",
-        "text": req.prompt,
-        "project_path": req.project_path,
-        "model": req.model,
-        "provider": req.provider,
-        "config": req.config,
+    try:
+        doc = await flow_engine.propose_requirement(
+            req.prompt,
+            session_id=sid,
+            model=req.model,
+            provider=req.provider,
+            config=req.config,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "status": "proposed",
+        "session_id": sid,
+        "execution_plane": "workflow",
+        "requirement_doc": doc.model_dump(),
     }
-    result = await coordinator.handle(command, session_id=sid, on_step=queue.on_step)
-    return result
 
 
 @router.post("/flow/phase2")
@@ -78,9 +83,31 @@ async def flow_phase2(req: Phase2Request) -> dict[str, Any]:
 
 @router.post("/flow/phase3")
 async def flow_phase3(req: Phase3Request) -> dict[str, Any]:
+    project_root = str(req.config.get("project_root") or os.environ.get("VEYA_PROJECT_ROOT") or ".")
+
+    async def _run_durable() -> None:
+        await project_run_goal(
+            project_root=project_root,
+            goal=f"Genesis workflow {req.manifest.mission_id}",
+            tasks=[phase3_task(req.manifest)],
+            mode="act_eager",
+            max_wall_s=7200,
+            integration_adapter=GenesisGoalRunAdapter(
+                req.manifest, config=req.config, project_root=project_root
+            ),
+        )
+
     task = asyncio.create_task(
-        flow_engine.run_phase3(req.manifest, session_id=req.session_id, config=req.config)
+        _run_durable(),
+        name=f"veya-flow-phase3-{req.manifest.mission_id}",
     )
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
-    return {"status": "started", "session_id": req.session_id}
+    return {
+        "status": "started",
+        "execution_plane": "workflow",
+        "durability": "goal_run",
+        "session_id": req.session_id,
+        "mission_id": req.manifest.mission_id,
+        "project_root": project_root,
+    }

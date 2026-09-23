@@ -180,9 +180,7 @@ async def test_postgres_stale_finalizer_fence_rejected():
         assert current.lease_token == stale.lease_token + 1
         await new_repo.start(current)
 
-        with pytest.raises(
-            DurableExecutionError, match="finalization lease is no longer current"
-        ):
+        with pytest.raises(DurableExecutionError, match="finalization lease is no longer current"):
             await old_repo.complete_finalization(
                 stale,
                 {"answer": "stale"},

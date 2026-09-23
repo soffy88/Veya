@@ -409,3 +409,8 @@ veya/oskill/vision_toolkit.py:29 EXEC/NET import 'httpx'
 veya/oskill/vision_toolkit.py:86 EXEC/NET import 'urllib.error'
 veya/oskill/vision_toolkit.py:87 EXEC/NET import 'urllib.request'
 veya/oskill/vision_toolkit.py:91 NET urllib.request.urlopen
+server/goal_run/routine_registry.py:88 FILE_W open
+server/goal_run/routine_registry.py:96 FILE_W os.replace
+server/tools/coding_task.py:20 EXEC/NET import 'subprocess'
+server/tools/coding_task.py:56 EXEC subprocess.run
+veya/oskill/browser.py:90 FILE_W Path(__file__).resolve

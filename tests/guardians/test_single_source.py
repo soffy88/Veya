@@ -49,13 +49,10 @@ KNOWN_SYMBOLS: dict[str, str] = {
     "file_read": "pending audit",
     "file_read_range": "pending audit",
     "file_write": "pending audit",
-    "git_diff": "pending audit",
-    "git_status": "pending audit",
     "glob_match": "pending audit",
     "http_fetch": "pending audit",
     "llm_call": "pending audit (Veya layer is a superset: streaming/multimodal)",
     "llm_stream": "pending audit",
-    "lsp_diagnostics": "pending audit",
     "make_checkpoint": "pending audit",
     "match_permission_rule": "pending audit",
     "mcp_call_tool": "pending audit",
@@ -148,6 +145,25 @@ def test_provider_registry_delegates_to_obase() -> None:
     assert ProviderRegistry._d().__class__.__module__.startswith("obase")
     pr = ProviderRegistry.get()
     assert ProviderRegistry.get() is pr  # singleton
+
+
+def test_legacy_compat_omodul_exports_are_canonical() -> None:
+    """Legacy high-layer compat names must be aliases, never Veya implementations."""
+    import veya.compat as compat
+    from veya.platform import omodul
+
+    main = omodul()
+    for name in (
+        "SubagentConfig",
+        "SubagentInput",
+        "compact_session",
+        "execute_tool",
+        "init_project",
+        "process_prompt",
+        "run_subagent",
+        "run_subagent_task",
+    ):
+        assert getattr(compat, name) is getattr(main, name)
 
 
 # --------------------------------------------------------------------------

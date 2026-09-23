@@ -76,11 +76,7 @@ def _find_resumable_goal_run(task: Any) -> Any | None:
             continue
         checkpoint = state.runtime_checkpoint or {}
         context_checkpoint = (
-            Path(task.workspace_id)
-            / ".veya"
-            / "runs"
-            / state.goal_id
-            / "context_checkpoint.json"
+            Path(task.workspace_id) / ".veya" / "runs" / state.goal_id / "context_checkpoint.json"
         )
         if checkpoint or context_checkpoint.exists():
             return state
@@ -223,7 +219,7 @@ async def _run_product_task(
                 "model": model,
                 "config_keys": list(config.keys()) if config else [],
                 "error_type": type(exc).__name__,
-            }
+            },
         )
         with contextlib.suppress(Exception):
             task_store.update_status(task_id, "failed")

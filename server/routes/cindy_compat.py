@@ -12,8 +12,8 @@ Agent OS 主 app (server/app.py) 的 Caddy 反代把 /api/v1/* 打到本 app —
 
 from __future__ import annotations
 
-import contextlib
-from typing import Any, Literal
+import uuid
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -138,17 +138,22 @@ async def plugin_manage(req: PluginActionRequest) -> dict[str, Any]:
 
     reg = PluginRegistry()
     if req.action == "install":
-        return reg.install(req.name, req.version, req.capabilities, req.source)
+        return cast(
+            dict[str, Any], reg.install(req.name, req.version, req.capabilities, req.source)
+        )
     if req.action == "uninstall":
-        return reg.uninstall(req.name)
+        return cast(dict[str, Any], reg.uninstall(req.name))
     if req.action == "list":
         return {"plugins": reg.list_installed(), "count": reg.count()}
     if req.action == "toggle":
-        return reg.toggle(req.name, req.enabled)
+        return cast(dict[str, Any], reg.toggle(req.name, req.enabled))
     if req.action == "configure":
-        return reg.configure(req.name, req.config)
+        return cast(dict[str, Any], reg.configure(req.name, req.config))
     if req.action == "publish":
-        return reg.publish_to_marketplace(req.name, req.description, req.author, req.tags)
+        return cast(
+            dict[str, Any],
+            reg.publish_to_marketplace(req.name, req.description, req.author, req.tags),
+        )
     if req.action == "marketplace":
         return {"marketplace": reg.list_marketplace(), "installed": reg.list_installed()}
     return {"status": "failed", "error": f"unknown action: {req.action}"}
@@ -228,22 +233,23 @@ async def goal_driven_run_ep(req: GoalDrivenRequest) -> dict[str, Any]:
 
     from omodul.long_task_driver import open_long_task
 
-    from veya.llm import llm_call
+    from server.coordinator_master import master_coordinator
 
     loop_dir = _P.home() / ".veya" / "loops"
     driver = open_long_task(loop_dir, goal_id=req.goal_id, budget_usd=5.0)
 
     async def _engine(prompt_suffix: str) -> dict[str, Any]:
-        result = await llm_call(
-            [{"role": "user", "content": f"继续长程任务: {prompt_suffix}"}],
-            provider="veya1.2",
-            model="veya1.2",
-            timeout=120,
+        result = await master_coordinator.chat_stream(
+            f"继续长程任务: {prompt_suffix}",
+            session_id=f"goal-driven-{req.goal_id}",
+            max_rounds=12,
         )
-        content = ""
-        with contextlib.suppress(KeyError, IndexError):
-            content = str(result["choices"][0]["message"].get("content", ""))
-        return {"ok": bool(content), "output": content or "", "cost_usd": 0.0}
+        content = str(result.get("final_answer", ""))
+        return {
+            "ok": result.get("status") == "success",
+            "output": content,
+            "cost_usd": float(result.get("cost_usd", 0.0)),
+        }
 
     if req.step:
         outcome = await driver.run_round(_engine)
@@ -298,21 +304,25 @@ class SpecExecuteRequest(BaseModel):
 async def spec_execute_ep(req: SpecExecuteRequest) -> dict[str, Any]:
     from oskill.spec_execute import SpecExecutor, render_preset
 
+    from server.coordinator_master import master_coordinator
+
     text = req.spec
     if req.preset:
         text = render_preset(req.preset, req.variables)
     executor = SpecExecutor()
-    # 装配层注入: implementer 用主脑 llm_call (stub 兼容)
-    from veya.llm import llm_call
+    session_prefix = f"spec-execute-{uuid.uuid4().hex}"
 
     async def _implementer(task: str, idx: int) -> dict[str, Any]:
-        result = await llm_call([{"role": "user", "content": task}])
-        content = ""
-        with contextlib.suppress(KeyError, IndexError):
-            content = result["choices"][0]["message"].get("content", "")
-        return {"ok": bool(content), "output": content[:2000]}
+        result = await master_coordinator.chat_stream(
+            task,
+            session_id=f"{session_prefix}-{idx}",
+            max_rounds=12,
+        )
+        content = str(result.get("final_answer", ""))
+        return {"ok": result.get("status") == "success", "output": content[:2000]}
 
-    return await executor.execute(text, implementer=_implementer)
+    result = await executor.execute(text, implementer=_implementer)
+    return dict(result)
 
 
 @router.get("/api/v1/spec/presets")
@@ -323,8 +333,8 @@ async def spec_presets() -> dict[str, Any]:
 
 
 # =========================================================================
-# POST /api/v1/browser/run — 浏览器自动化 (engine 选择 + 回退)
-#   engine=browser_use (默认): 自然语言目标; 未装/失败回退 omodul (playwright)
+# POST /api/v1/browser/run — 浏览器自动化兼容入口
+#   请求交给 canonical MasterAgent，由其自主选择已注册的浏览器工具。
 # =========================================================================
 
 
@@ -340,52 +350,27 @@ class BrowserRunCompatRequest(BaseModel):
 
 @router.post("/api/v1/browser/run")
 async def browser_run_compat(req: BrowserRunCompatRequest) -> dict[str, Any]:
-    if req.engine == "browser_use":
-        try:
-            from browser_use import Agent
-        except ImportError:
-            pass  # 未装 → 回退 omodul
-        else:
-            try:
-                import asyncio as _asyncio
-                import os as _os
+    from server.coordinator_master import master_coordinator
 
-                from langchain_openai import ChatOpenAI
-
-                endpoint = _os.environ.get("VEYA_LLM_ENDPOINT", "")
-                model = _os.environ.get("VEYA_LLM_MODEL", "gpt-4o-mini")
-                llm = (
-                    ChatOpenAI(model=model, base_url=endpoint, api_key="local")
-                    if endpoint
-                    else ChatOpenAI(model=model)
-                )
-
-                async def _run_bu() -> dict[str, Any]:
-                    agent = Agent(
-                        task=req.instruction,
-                        llm=llm,
-                        max_steps=req.max_steps,
-                        headless=req.headless,
-                    )
-                    result = await agent.run()
-                    return {
-                        "engine": "browser_use",
-                        "status": "success",
-                        "steps": len(getattr(result, "history", [])),
-                        "output": str(getattr(result, "final_result", ""))[:4000],
-                    }
-
-                return await _asyncio.run(_run_bu())
-            except Exception as exc:
-                fallback = await _omodul_browser(req)
-                return {
-                    "engine": "browser_use",
-                    "status": "fallback",
-                    "reason": f"browser_use 执行失败, 回退 omodul: {exc}",
-                    **fallback,
-                }
-
-    return await _omodul_browser(req)
+    target = req.url or "当前页面"
+    schema = f"\n提取 schema: {req.extract_schema}" if req.extract_schema else ""
+    prompt = (
+        "请使用 canonical MasterAgent 可用的浏览器工具完成以下请求。"
+        f"目标 URL: {target}\n操作要求: {req.instruction}{schema}\n"
+        f"最多执行 {req.max_steps} 步，超时 {req.timeout_ms}ms；返回可核验结果。"
+    )
+    result = await master_coordinator.chat_stream(
+        prompt,
+        session_id=f"browser-compat-{uuid.uuid4().hex}",
+        max_rounds=max(1, req.max_steps),
+    )
+    return {
+        "engine": "masteragent",
+        "status": result.get("status", "error"),
+        "steps": result.get("rounds", 0),
+        "output": str(result.get("final_answer", ""))[:4000],
+        "tool_calls": result.get("tool_calls", []),
+    }
 
 
 async def _omodul_browser(req: BrowserRunCompatRequest) -> dict[str, Any]:
@@ -457,7 +442,9 @@ async def skills_inject_ep(req: SkillTeachRequest) -> dict[str, Any]:
     from oskill.skills_dynamic_inject import skills_dynamic_inject
 
     ctx = {"system_prompt": "", "tools": [], "config": {}}
-    result = skills_dynamic_inject(ctx, context=req.config or {})
+    result: dict[str, Any] = cast(
+        dict[str, Any], skills_dynamic_inject(ctx, context=req.config or {})
+    )
     result["session_id"] = uuid.uuid4().hex
     return result
 

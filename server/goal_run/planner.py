@@ -10,6 +10,7 @@
 
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from server.goal_run.models import GoalRunResponse, GoalRunState, GoalStatus, TaskNode
 from server.project_understand import UnderstandResult
@@ -132,7 +133,11 @@ async def g1_plan(
         tasks = _generate_tasks_rules(interpretation, assumptions, default_assignee, max_leaf_tasks)
 
     # ── 构造 GoalRunState ──
-    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+    # The timestamp is useful for operator-facing ordering, but is not an
+    # identity: concurrent admissions can enter this function in one second.
+    # Keep the readable prefix and add entropy so runs cannot share a
+    # taskgraph directory or the process-local cancellation event.
+    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:12]}"
     state = GoalRunState(
         goal_id=goal_id,
         goal_text=goal_text,
@@ -235,14 +240,17 @@ async def _g1_from_speckit(
     """When .speckit/{tasks,constitution}.md exist, compile that SSOT."""
     from pathlib import Path
 
-    from omodul.phase_spec_driven_plan import phase_spec_driven_plan
-
     root = Path(project_root)
     if not (root / ".speckit" / "tasks.md").is_file():
         return None
     if not (root / ".speckit" / "constitution.md").is_file():
         return None
-    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+    # The 3O planner is only required for a real Speckit project.  Keep the
+    # explicit-task GoalRun path usable in lightweight/runtime environments
+    # without importing an unrelated optional 3O dependency.
+    from omodul.phase_spec_driven_plan import phase_spec_driven_plan
+
+    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:12]}"
     rec = await phase_spec_driven_plan(
         {
             "goal_id": goal_id,

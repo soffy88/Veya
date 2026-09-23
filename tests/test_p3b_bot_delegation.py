@@ -107,9 +107,7 @@ async def test_cross_bot_duplicate_and_restart_resume_do_not_repeat_work():
             "evidence_refs": ["b-artifact-ref"],
         }
 
-    runtime_a = DelegateRuntime(
-        SpawnGuard(SpawnBudget()), goal_run_id=GOAL_A, bot_id=BOT_A
-    )
+    runtime_a = DelegateRuntime(SpawnGuard(SpawnBudget()), goal_run_id=GOAL_A, bot_id=BOT_A)
     first = await runtime_a.run_cross_bot(
         request,
         operation,
@@ -121,9 +119,7 @@ async def test_cross_bot_duplicate_and_restart_resume_do_not_repeat_work():
 
     # Simulate Supervisor restart by constructing a fresh runtime and
     # restoring the completed result from the existing GoalRun projection.
-    runtime_b = DelegateRuntime(
-        SpawnGuard(SpawnBudget()), goal_run_id=GOAL_A, bot_id=BOT_A
-    )
+    runtime_b = DelegateRuntime(SpawnGuard(SpawnBudget()), goal_run_id=GOAL_A, bot_id=BOT_A)
     runtime_b.restore_completed([first])
     resumed = await runtime_b.run_cross_bot(
         request,
