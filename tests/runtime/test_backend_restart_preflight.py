@@ -7,7 +7,6 @@ Uses temporary fixture trees and injectable runners only; the real
 from __future__ import annotations
 
 import importlib.util
-import os
 import shutil
 import subprocess
 import sys
@@ -256,10 +255,13 @@ def test_real_import_origin_pass_and_failure(tmp_path: Path):
     )
     assert check.ok and check.origin is not None
     assert "tree" in check.origin
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(tmp_path / "nowhere")
-    rc, _, _ = preflight.default_import_runner(
-        [sys.executable, "-c", "import obase.action"], env, tmp_path
+    shadowed = preflight.verify_module_import(
+        "obase.action",
+        [str(tmp_path / "nowhere")],
+        obase_dir,
+        python_exe=sys.executable,
+        cwd=tmp_path,
     )
-    assert rc != 0
+    assert not shadowed.ok
+    assert "shadowing:" in shadowed.error or "import failed" in shadowed.error
     print("P10_REAL_IMPORT=PASS")

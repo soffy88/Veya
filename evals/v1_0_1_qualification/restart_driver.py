@@ -134,11 +134,7 @@ def main() -> int:
     # Do not carry the operator shell's credentials or PYTHONPATH into the
     # qualification application.  The repository root is the import cwd and
     # every stateful path below is run-scoped.
-    env = {
-        key: os.environ[key]
-        for key in ("PATH", "LANG", "LC_ALL", "TERM")
-        if key in os.environ
-    }
+    env = {key: os.environ[key] for key in ("PATH", "LANG", "LC_ALL", "TERM") if key in os.environ}
     env["HOME"] = str(isolated_home)
     env["PYTHONUNBUFFERED"] = "1"
     env.update(
@@ -202,24 +198,28 @@ def main() -> int:
         task_id = str(payload["task_id"])
         trace_id = str(payload["trace_id"])
         if failure_mode:
-            status = wait_for_task_terminal(
-                base_url, task_id, first, timeout_s=180
-            )
+            status = wait_for_task_terminal(base_url, task_id, first, timeout_s=180)
             events = read_json_lines(runtime_events)
-            print(json.dumps({
-                "task_id": task_id,
-                "trace_id": trace_id,
-                "failure_injected": any(
-                    event.get("event") == "qualification.injected_failure"
-                    for event in events
-                ),
-                "model_decisions": [
-                    event for event in events
-                    if event.get("event") == "qualification.model_decision"
-                ],
-                "runtime_events": events,
-                "final": status,
-            }, default=str))
+            print(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "trace_id": trace_id,
+                        "failure_injected": any(
+                            event.get("event") == "qualification.injected_failure"
+                            for event in events
+                        ),
+                        "model_decisions": [
+                            event
+                            for event in events
+                            if event.get("event") == "qualification.model_decision"
+                        ],
+                        "runtime_events": events,
+                        "final": status,
+                    },
+                    default=str,
+                )
+            )
             return 0 if status.get("task", {}).get("status") == "completed" else 2
         deadline = time.time() + 120
         while not ready.exists() and time.time() < deadline:
@@ -238,12 +238,16 @@ def main() -> int:
         lease_initial = last_lease(lease_ready)
         if lease_initial is None:
             raise RuntimeError("initial goal-leaf lease was not observed")
-        print(json.dumps({
-            "task_id": task_id,
-            "trace_id": trace_id,
-            "original_goalrun_id": original_goalrun,
-            "checkpoint_persisted": True,
-        }))
+        print(
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "trace_id": trace_id,
+                    "original_goalrun_id": original_goalrun,
+                    "checkpoint_persisted": True,
+                }
+            )
+        )
         stop_process(first)
         wait_port_free(port)
         wait_for_lease_expiry()
@@ -267,16 +271,22 @@ def main() -> int:
                         time.sleep(1)
                 restart1_resumed_goalrun = original_goalrun
                 lease_restart1 = last_lease(lease_ready)
-                print(json.dumps({
-                    "checkpoint1_persisted": checkpoint1_goalrun == original_goalrun,
-                    "checkpoint1_goalrun_id": checkpoint1_goalrun,
-                    "restart1_resumed_goalrun_id": restart1_resumed_goalrun,
-                    "same_goalrun_after_restart": restart1_resumed_goalrun == original_goalrun,
-                    "lease_initial": lease_initial,
-                    "lease_restart1": lease_restart1,
-                    "runtime_events": read_json_lines(runtime_events),
-                    "final": status,
-                }, default=str))
+                print(
+                    json.dumps(
+                        {
+                            "checkpoint1_persisted": checkpoint1_goalrun == original_goalrun,
+                            "checkpoint1_goalrun_id": checkpoint1_goalrun,
+                            "restart1_resumed_goalrun_id": restart1_resumed_goalrun,
+                            "same_goalrun_after_restart": restart1_resumed_goalrun
+                            == original_goalrun,
+                            "lease_initial": lease_initial,
+                            "lease_restart1": lease_restart1,
+                            "runtime_events": read_json_lines(runtime_events),
+                            "final": status,
+                        },
+                        default=str,
+                    )
+                )
                 return 0 if status.get("task", {}).get("status") == "completed" else 2
             finally:
                 stop_process(process)
@@ -294,9 +304,7 @@ def main() -> int:
             try:
                 wait_http(f"{base_url}/health", process)
                 deadline = time.time() + 60
-                checkpoint2 = wait_for_checkpoint(
-                    runtime_events, 60, reason="task_round"
-                )
+                checkpoint2 = wait_for_checkpoint(runtime_events, 60, reason="task_round")
                 checkpoint2_goalrun = str(checkpoint2.get("goal_run_id") or "")
                 if checkpoint2_goalrun != original_goalrun:
                     raise RuntimeError(f"checkpoint {restart_no + 1} changed GoalRun identity")
@@ -304,13 +312,15 @@ def main() -> int:
                 if lease_restart1 is None:
                     raise RuntimeError("restart 1 goal-leaf lease was not observed")
                 restart1_resumed_goalrun = checkpoint2_goalrun
-                statuses.append({
-                    "restart": restart_no,
-                    "goal_run_id": restart1_resumed_goalrun,
-                    "checkpoint2_persisted": True,
-                    "checkpoint2_before_finalize": True,
-                    "lease": last_lease(lease_ready),
-                })
+                statuses.append(
+                    {
+                        "restart": restart_no,
+                        "goal_run_id": restart1_resumed_goalrun,
+                        "checkpoint2_persisted": True,
+                        "checkpoint2_before_finalize": True,
+                        "lease": last_lease(lease_ready),
+                    }
+                )
             finally:
                 stop_process(process)
                 wait_port_free(port)
@@ -325,9 +335,7 @@ def main() -> int:
             status = {}
             with httpx.Client(timeout=5) as client:
                 for _ in range(60):
-                    status = client.get(
-                        f"{base_url}/api/v1/tasks/{task_id}"
-                    ).json()
+                    status = client.get(f"{base_url}/api/v1/tasks/{task_id}").json()
                     task_status = status.get("task", {}).get("status")
                     if task_status in {"completed", "failed", "cancelled"}:
                         break
@@ -336,38 +344,45 @@ def main() -> int:
             lease_restart2 = last_lease(lease_ready, kind="finalize")
             if lease_restart2 is None:
                 raise RuntimeError("restart 2 finalization lease was not observed")
-            statuses.append({
-                "final": status,
-                "restart2_resumed_goalrun_id": restart2_resumed_goalrun,
-                "lease": lease_restart2,
-            })
+            statuses.append(
+                {
+                    "final": status,
+                    "restart2_resumed_goalrun_id": restart2_resumed_goalrun,
+                    "lease": lease_restart2,
+                }
+            )
         finally:
             stop_process(process)
-        print(json.dumps({
-            "checkpoint1_persisted": checkpoint1_goalrun == original_goalrun,
-            "checkpoint1_goalrun_id": checkpoint1_goalrun,
-            "checkpoint2_persisted": checkpoint2_goalrun == original_goalrun,
-            "checkpoint2_goalrun_id": checkpoint2_goalrun,
-            "checkpoint2_before_finalize": checkpoint2_goalrun == original_goalrun,
-            "restart1_resumed_goalrun_id": restart1_resumed_goalrun,
-            "restart2_resumed_goalrun_id": restart2_resumed_goalrun,
-            "same_goalrun_all_restarts": (
-                checkpoint1_goalrun == original_goalrun
-                and checkpoint2_goalrun == original_goalrun
-                and restart1_resumed_goalrun == original_goalrun
-                and restart2_resumed_goalrun == original_goalrun
-            ),
-            "lease_fencing_applicable": True,
-            "lease_fencing_reason": (
-                "production-equivalent qualification uses PostgreSQL DurableExecutionRuntime "
-                "with queue claim and lease fencing enabled"
-            ),
-            "lease_initial": lease_initial,
-            "lease_restart1": lease_restart1,
-            "lease_restart2": lease_restart2,
-            "runtime_events": read_json_lines(runtime_events),
-            "resumed_statuses": statuses,
-        }, default=str))
+        print(
+            json.dumps(
+                {
+                    "checkpoint1_persisted": checkpoint1_goalrun == original_goalrun,
+                    "checkpoint1_goalrun_id": checkpoint1_goalrun,
+                    "checkpoint2_persisted": checkpoint2_goalrun == original_goalrun,
+                    "checkpoint2_goalrun_id": checkpoint2_goalrun,
+                    "checkpoint2_before_finalize": checkpoint2_goalrun == original_goalrun,
+                    "restart1_resumed_goalrun_id": restart1_resumed_goalrun,
+                    "restart2_resumed_goalrun_id": restart2_resumed_goalrun,
+                    "same_goalrun_all_restarts": (
+                        checkpoint1_goalrun == original_goalrun
+                        and checkpoint2_goalrun == original_goalrun
+                        and restart1_resumed_goalrun == original_goalrun
+                        and restart2_resumed_goalrun == original_goalrun
+                    ),
+                    "lease_fencing_applicable": True,
+                    "lease_fencing_reason": (
+                        "production-equivalent qualification uses PostgreSQL DurableExecutionRuntime "
+                        "with queue claim and lease fencing enabled"
+                    ),
+                    "lease_initial": lease_initial,
+                    "lease_restart1": lease_restart1,
+                    "lease_restart2": lease_restart2,
+                    "runtime_events": read_json_lines(runtime_events),
+                    "resumed_statuses": statuses,
+                },
+                default=str,
+            )
+        )
         return 0 if statuses[-1]["final"].get("task", {}).get("status") == "completed" else 2
     finally:
         if first.poll() is None:

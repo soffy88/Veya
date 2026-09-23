@@ -117,7 +117,11 @@ def submodule_integrity() -> list[dict[str, str]]:
 
 def source_sbom(submodules: list[dict[str, str]]) -> dict[str, Any]:
     components: list[dict[str, str]] = []
-    for lock in (ROOT / "uv.lock", ROOT / "veya_loop/uv.lock", ROOT / "services/loop-plane/uv.lock"):
+    for lock in (
+        ROOT / "uv.lock",
+        ROOT / "veya_loop/uv.lock",
+        ROOT / "services/loop-plane/uv.lock",
+    ):
         current: dict[str, str] | None = None
         for line in lock.read_text().splitlines():
             if line == "[[package]]":
@@ -221,8 +225,19 @@ def generate(output: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / "dist" / "release-integrity")
+    parser.add_argument(
+        "--check-secrets-only",
+        action="store_true",
+        help="Scan tracked release sources for credential patterns and exit non-zero on findings.",
+    )
     args = parser.parse_args()
     try:
+        if args.check_secrets_only:
+            findings = secret_scan()
+            if findings:
+                raise RuntimeError(f"secret findings: {findings}")
+            print("SECRET_SCAN=PASS")
+            return 0
         print(json.dumps(generate(args.output), indent=2, sort_keys=True))
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"release integrity failed: {exc}", file=sys.stderr)

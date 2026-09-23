@@ -272,11 +272,15 @@ docker ps | grep veya-backend                              # docker 侧
 **已固化的设计决策（不要"优化"回去）：**
 1. **入口只有一个大模型，零程序判断**：无前置路由、无工具面分层/裁藏、无 URL 预抓、
    无 hicode 关键词兜底。长任务/工具选择全由模型自主判断。
-2. **LLM 层 = GMI MiniMax M3 主模型 + OpenRouter 兜底**：`veya1.2` 默认调
-   `https://api.gmi-serving.com/v1/chat/completions`（用户自己的 `GMI_API_KEY`），
-   模型为 `MiniMaxAI/MiniMax-M3`；失败后轮询 Nemotron 3 Ultra / MiniMax M3
-   免费模型（`OPENROUTER_API_KEY`）+ 空回复降级本地
-   `gpt-5.6-luna`（宿主桥 192.168.16.1:10101，**裁剪为核心工具面**）+ 结构化错误。
+2. **LLM 层 = opencode-go DeepSeek V4.1 Flash 主模型 + 兜底**：`veya1.2` 默认调
+   `https://opencode.ai/zen/go/v1/chat/completions`（`OPENCODE_API_KEY`，auth.json
+   兜底；该网关强制要求 `x-opencode-session` 头，且 thinking 模式要求历史里带
+   `tool_calls` 的 assistant 消息回传 `reasoning_content`——两者都由
+   `veya/obase/_llm_transport.py` 按 endpoint 自动补齐），模型为 `deepseek-v4.1-flash`；
+   失败后依次退到 OpenRouter 免费模型（`OPENROUTER_API_KEY`），整轮仍无效/空回复再降级
+   本地 `gpt-5.6-luna`（宿主桥 192.168.16.1:10101，**裁剪为核心工具面**）+ 结构化错误。
+   GMI MiniMax M3 已于 2026-09 从主脑池移除（上游持续 402 Insufficient balance）。
+   前端默认 provider = `veya1.2`（单一入口，保留兜底）。
    **禁止**重新引入 oskill 复杂路由器（quality-gate 升级/模型切换/并行分派）。
 3. **可靠性护栏（非判断，保留）**：轮次上限（防死循环）、空回复可见提示、
    前端 error 态（绝不静默空白）、"任务开始/思考…"徽章不展示。

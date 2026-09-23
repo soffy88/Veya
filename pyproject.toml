@@ -27,6 +27,24 @@ dev = [
     "mkdocs-material==9.7.7",
     "mkdocstrings[python]==1.0.0",
 ]
+# Single reproducible dependency surface for isolated-worktree qualification.
+# Keep these here (rather than relying on deploy/requirements.txt or host tools)
+# so CI, Local worktrees, and ``uv sync --extra qualification`` resolve the
+# same test/runtime graph.
+qualification = [
+    "veya[server]",
+    "veya[dev]",
+    "veya[tui]",
+    "veya[interactive]",
+    "veya[settings]",
+    "veya[sandbox]",
+    "veya[vision]",
+    "veya-loop",
+    "pytest-cov==7.0.0",
+    "ruff==0.16.1",
+    "mypy==1.19.1",
+    "docker==7.1.0",
+]
 # G17: 按需可选依赖(不默认安装,避免无用依赖膨胀)
 interactive = [
     "prompt-toolkit==3.0.53",  # 增强交互式 CLI(行编辑/补全/历史)
@@ -99,6 +117,7 @@ veya-simple = "cli.simple_cli:main"
 allow-direct-references = true
 
 [tool.uv.sources]
+veya-loop = { path = "veya_loop" }
 obase = { path = "platform/3O/obase" }
 oprim = { path = "platform/3O/oprim" }
 oskill = { path = "platform/3O/oskill" }
@@ -192,7 +211,7 @@ indent-style = "space"
 # mypy
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.12"   # numpy/plotly stubs 用 3.12 语法;代码 3.11 兼容由独立 AST 检查把关
+python_version = "3.12"   # 项目 requires-python >=3.12；类型检查与运行时基线统一为 3.12
 warn_return_any = true
 warn_unused_configs = true
 warn_redundant_casts = true

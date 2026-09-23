@@ -141,6 +141,8 @@ services:
       - HICODE_MANAGED_RUNTIME_ROOT=/opt/veya/hicode-runtime
       - HICODE_RUNTIME_DATA_ROOT=/home/soffy/.veya/hicode-runtime
       - HICODE_PRODUCTION=1
+      - HICODE_PRODUCTION_RUNTIME_MODE=MOUNTED
+      - HICODE_PRODUCTION_REQUIRES_HOST_MOUNT=YES
       - HICODE_PROXY=1   # 容器内反代: 改 Host 头绕过 opencodex 来源校验
       # Vision Toolkit 路径白名单: 主脑视觉取证可读 /repo (veya 仓库) + 同级项目
       # + hicode 工作区 (像素差分 hicode 产物); 视觉模型走 hicode 反代 (见 oskill)
@@ -154,6 +156,10 @@ services:
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
     volumes:
       - veya-data:/home/soffy/.veya
+      # Production Python is created inside the image.  Only the approved
+      # Reasonix Node authority is host-mounted; never overlay the runtime
+      # root, because that relocates the non-relocatable Python venv.
+      - ${HICODE_REASONIX_HOST_RUNTIME_ROOT:-/home/soffy/.veya/hicode-managed-runtime}/node_modules:/opt/veya/hicode-runtime/node_modules:ro
       # Web supervision missions execute inside user workspaces; only this
       # directory is mapped (never all of /data), read-write, path preserved.
       - /data/soffy/projects:/data/soffy/projects

@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""docs/VEYA_10_OF_10_PLAN.md §3 / PR-01: architecture/manifest.yaml 现状校验。
+"""Enforce the repository architecture manifest.
 
-只读报告模式（不改运行行为）：
+The manifest is a build invariant, not a report-only document:
 1. kernel.master_entry / canonical_* / compat_facades 里的模块必须真实可 import。
 2. deprecated[].known_importers 跟仓库现状做 diff——报告"清单说有但代码里没了"
    （该更新清单）和"代码里新增但清单没记"（该核实是不是新漂移）两类偏差。
 3. forbidden_imports（当前为空）非空时，用 AST 扫描真的拉红违规 import。
 
 用法：python scripts/check_architecture_manifest.py [root]
-退出码：0 = 通过（含"只有报告没有强制项"的情况）；1 = manifest 结构错误或 forbidden_imports 违规。
+退出码：0 = 通过；1 = manifest 结构错误或 forbidden_imports 违规。
 """
 
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
 import sys
 
@@ -21,16 +22,22 @@ import yaml
 
 
 def _iter_py_files(root: pathlib.Path):
-    return sorted(p for p in root.rglob("*.py") if "__pycache__" not in p.parts)
+    source_dirs = {"server", "runtime", "commands", "cli", "hooks", "registries", "tools", "veya"}
+    files = [path for path in root.glob("*.py")]
+    for name in source_dirs:
+        directory = root / name
+        if not directory.is_dir():
+            continue
+        for current, dirnames, filenames in os.walk(directory):
+            dirnames[:] = [name for name in dirnames if name != "__pycache__"]
+            files.extend(pathlib.Path(current) / name for name in filenames if name.endswith(".py"))
+    return sorted(files)
 
 
 def _find_importers(root: pathlib.Path, target: str) -> set[str]:
     """扫描 root 下所有 .py 文件, 找出真的 import 了 target 模块的文件 (点分模块名)。"""
     found: set[str] = set()
-    skip_dirs = {"venv", "node_modules", ".git", "platform", "docs", "site", "deploy"}
     for path in _iter_py_files(root):
-        if any(part in skip_dirs for part in path.parts):
-            continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (SyntaxError, UnicodeDecodeError):
@@ -120,7 +127,12 @@ def main(root_arg: str = ".") -> int:
             print("  -", e)
         return 1
 
-    print(f"[OK] architecture manifest 结构校验通过 ({len(reports)} 条现状提示, 0 条强制违规)")
+    for line in reports:
+        if line.startswith("[WARN]"):
+            print("[FAIL] architecture manifest drift requires manifest update:")
+            print("  -", line)
+            return 1
+    print(f"[OK] architecture manifest enforced ({len(reports)} 条现状提示, 0 条违规)")
     return 0
 
 

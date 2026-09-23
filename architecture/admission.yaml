@@ -1,0 +1,87 @@
+# Canonical Admission contract.
+#
+# This file classifies externally callable intelligence/control surfaces.  A
+# surface may have many transports, but it must have exactly one admission
+# class and authority.  Capability endpoints remain typed commands or read
+# projections; they are not alternate semantic brains.
+
+version: 1
+
+semantic_ingress:
+  - path: /chat
+    authority: server.chat_coordinator
+    delegates_to: server.coordinator_master
+  - path: /prompt
+    authority: server.coordinator_master
+  - path: /master/chat
+    authority: server.coordinator_master
+  - path: /agent/invoke
+    authority: server.coordinator_master
+  - path: /vscode/chat
+    authority: server.coordinator_master
+  - path: /api/v1/agent/run
+    authority: server.coordinator_master
+  - path: /api/v1/agent/stream
+    authority: server.coordinator_master
+  - path: /api/v1/voice/ws
+    authority: server.coordinator_master
+  - path: /im/*
+    authority: server.coordinator_master
+  - path: /mcp/ask
+    authority: server.coordinator_master
+
+typed_command:
+  - path: /session/{session_id}/resume
+    authority: canonical_goal_run
+  - path: /api/v1/tasks/{task_id}/resume
+    authority: canonical_goal_run
+  - path: /api/v1/tasks/{task_id}/cancel
+    authority: canonical_task_control
+  - path: /api/v1/bot/tasks
+    authority: canonical_goal_run
+  - path: /api/v1/backends/run
+    authority: canonical_backend_adapter
+  - path: /tool
+    authority: governed_tool_adapter
+  - path: /tools/*
+    authority: governed_tool_adapter
+  - path: /flow/*
+    authority: workflow_plane
+  - path: /research
+    authority: typed_research_capability
+  - path: /api/v1/autonomous/*
+    authority: typed_workflow_plane
+  - path: /agent-collaboration/*
+    authority: typed_workflow_plane
+  - path: /automata/*
+    authority: durable_automata
+  - path: /api/v1/permission/*
+    authority: action_gateway
+  - path: /mcp/*
+    authority: governed_mcp_adapter
+
+read_only_query:
+  - path: /health*
+    authority: health_projection
+  - path: /master/tools
+    authority: capability_projection
+  - path: /sessions/*
+    authority: session_projection
+  - path: /session/*
+    authority: session_projection
+  - path: /api/v1/tasks/*
+    authority: task_projection
+  - path: /api/v1/sessions/*
+    authority: session_projection
+  - path: /api/v1/plan/*
+    authority: plan_projection
+  - path: /api/v1/backends
+    authority: backend_projection
+  - path: /api/v1/backends/status
+    authority: backend_projection
+
+invariants:
+  semantic_ingress_must_delegate_to_master: true
+  typed_commands_must_not_infer_user_intent: true
+  read_only_queries_must_not_start_work: true
+  unknown_surface_is_rejected: true

@@ -231,8 +231,17 @@ def main(argv: list[str] | None = None) -> int:
     for key, value in result.items():
         print(f"{key.upper()}={value}")
     duration_ok = result["elapsed_s"] >= target and result["elapsed_s"] <= 600
-    required_ok = result["bot_count"] >= 3 and result["delegations"] >= 2 and result["fanin"] >= 1 and result["conflicts"] >= 1
-    return 0 if duration_ok and required_ok and result["verdict"] == "PASS" and result["finalized"] else 2
+    required_ok = (
+        result["bot_count"] >= 3
+        and result["delegations"] >= 2
+        and result["fanin"] >= 1
+        and result["conflicts"] >= 1
+    )
+    return (
+        0
+        if duration_ok and required_ok and result["verdict"] == "PASS" and result["finalized"]
+        else 2
+    )
 
 
 if __name__ == "__main__":

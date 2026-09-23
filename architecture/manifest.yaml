@@ -1,9 +1,8 @@
 # Veya architecture truth source (docs/VEYA_10_OF_10_PLAN.md §3, PR-01).
 #
 # 记录的是 2026-08-24 逐项核实过的现状（读代码验证过，不是照抄计划文档里的示例）。
-# 目前只做只读报告（见 scripts/check_architecture_manifest.py），forbidden_imports 留空——
-# server.coordinator 仍被 4 个真实路由引用，现在就 hard-fail 会拉红生产路径；先如实记录，
-# 迁移完成后再收紧（对应计划里的 PR-03/PR-04）。
+# P0-1 已完成旧 coordinator 生产入口退役；server.coordinator 仅保留 archive
+# compatibility，生产代码不得再 import 它。
 #
 # server.coordinator 退役背景的完整叙事（为什么 flow.py 不能直接收编、历次复核记录）见
 # docs/graveyard.md「意图分类 + DAG 分解」条目——这份文件只记当前事实快照，不重复叙事,
@@ -46,22 +45,22 @@ compat_facades:
 #                                 需要人拍板, 不在这次评估范围内执行。
 deprecated:
   - name: server.coordinator
-    status: still-wired
+    status: archived
     replacement: server.coordinator_master
-    known_importers:
-      - server.backends
-      - server.routes.session
-      - server.routes.flow
-      - server.routes.prompt
+    known_importers: []
     note: >-
-      I-01 违规：MasterCoordinator 之外第二条能处理完整请求的路径。4 个调用点难度不同
-      （见上面注释），backends.py 最容易迁、flow.py 更可能该标 workflow plane 而不是迁移、
-      session.py resume 卡在检查点数据格式不兼容——不能标 forbidden。
+      仅供历史 checkpoint/test compatibility；不得作为生产 cognition 或 execution entrypoint。
 
 planes:
   chat:
     authority: server.coordinator_master
+  flow_phase1:
+    authority: server.flow_engine.propose_requirement
+    execution_plane: workflow
+    generic_react_authority: false
 
-# 暂不启用强制门禁：一旦上面 deprecated 清单里的 known_importers 清空，把对应模块
-# 挪到这里，check_architecture_manifest.py 才会真正拉红新增的违规 import。
-forbidden_imports: []
+# P0-1 gate: this forbidden import is enforced by check_architecture_manifest.py;
+# later P0-5 will add the broader single-master hard gate.
+forbidden_imports:
+  - from: server
+    to: server.coordinator

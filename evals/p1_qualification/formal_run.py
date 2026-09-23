@@ -135,7 +135,9 @@ async def run_formal(ctx: dict, target_s: float) -> dict:
         artifact_ref = result_body.get("artifact") if isinstance(result_body, dict) else None
         if artifact_ref:
             run.worker.context_engine.add_artifact_ref(str(artifact_ref))
-        for evidence_ref in result_data.get("evidence_refs", []) if isinstance(result_data, dict) else []:
+        for evidence_ref in (
+            result_data.get("evidence_refs", []) if isinstance(result_data, dict) else []
+        ):
             run.worker.context_engine.add_evidence_ref(str(evidence_ref))
 
         run.worker.context_engine.append_to_layer(
@@ -145,17 +147,13 @@ async def run_formal(ctx: dict, target_s: float) -> dict:
         state["context_cycles"] += 1
         pressure = run.worker.context_engine.assess_pressure()
         state["pressure_checks"] += 1
-        state["context_token_peak"] = max(
-            state["context_token_peak"], pressure.current_tokens
-        )
+        state["context_token_peak"] = max(state["context_token_peak"], pressure.current_tokens)
         if pressure.is_under_pressure:
             state["pressure_hits"] += 1
             collector.emit(
                 "context_pressure",
                 current_tokens=pressure.current_tokens,
-                threshold_tokens=int(
-                    pressure.budget_tokens * pressure.trigger_ratio
-                ),
+                threshold_tokens=int(pressure.budget_tokens * pressure.trigger_ratio),
             )
             plan = run.worker.context_engine.build_compaction_plan()
             state["compaction_plan_count"] += 1

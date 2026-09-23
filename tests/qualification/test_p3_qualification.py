@@ -11,9 +11,7 @@ def test_no_fake_sleep_in_p3_harness() -> None:
     for path in root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         assert not any(
-            isinstance(node, ast.Attribute)
-            and node.attr == "sleep"
-            for node in ast.walk(tree)
+            isinstance(node, ast.Attribute) and node.attr == "sleep" for node in ast.walk(tree)
         ), path
 
 

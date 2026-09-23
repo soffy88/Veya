@@ -65,13 +65,11 @@ def install_checkpoint_barrier() -> None:
                 "ts": time.time(),
             }
         )
-        should_block = (
-            barrier_phase == "checkpoint1" and reason == "before_first_action"
-        ) or (barrier_phase == "checkpoint2" and reason == "task_round")
+        should_block = (barrier_phase == "checkpoint1" and reason == "before_first_action") or (
+            barrier_phase == "checkpoint2" and reason == "task_round"
+        )
         if should_block:
-            Path(ready_path).write_text(
-                f"{state.goal_id}\n", encoding="utf-8"
-            )
+            Path(ready_path).write_text(f"{state.goal_id}\n", encoding="utf-8")
             while not Path(release_path).exists():
                 time.sleep(0.05)
         return result
@@ -118,10 +116,7 @@ def install_one_shot_execution_failure() -> None:
     state = {"used": False}
 
     async def execute(self, name, kwargs, executor, *args, **call_kwargs):
-        if (
-            not state["used"]
-            and call_kwargs.get("source") == "goal_run_canonical_action"
-        ):
+        if not state["used"] and call_kwargs.get("source") == "goal_run_canonical_action":
 
             async def fail_once(**arguments):
                 if not state["used"]:
@@ -141,9 +136,7 @@ def install_one_shot_execution_failure() -> None:
                 return result
 
             executor = fail_once
-        return await original_execute(
-            self, name, kwargs, executor, *args, **call_kwargs
-        )
+        return await original_execute(self, name, kwargs, executor, *args, **call_kwargs)
 
     ActionGatewayAdapter.execute = execute
 
@@ -166,8 +159,7 @@ def install_deterministic_qualification_model() -> None:
         has_failure_evidence = any(
             isinstance(message, dict)
             and (
-                "REAL FAILURE EVIDENCE from this task"
-                in str(message.get("content") or "")
+                "REAL FAILURE EVIDENCE from this task" in str(message.get("content") or "")
                 or (
                     message.get("role") == "tool"
                     and '"status": "failed"' in str(message.get("content") or "")
