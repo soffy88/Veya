@@ -24,19 +24,8 @@
 		X,
 	} from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
-	import FlowConsole from "$lib/components/FlowConsole.svelte";
-	import Dashboard from "$lib/components/Dashboard.svelte";
-	import PlanBoard from "$lib/components/PlanBoard.svelte";
-	import GitPanel from "$lib/components/GitPanel.svelte";
-	import ProjectMap from "$lib/components/ProjectMap.svelte";
-	import PluginPanel from "$lib/components/PluginPanel.svelte";
-	import AutomationPanel from "$lib/components/AutomationPanel.svelte";
-	import KanbanPanel from "$lib/components/KanbanPanel.svelte";
-	import TaskCenterPanel from "$lib/components/TaskCenterPanel.svelte";
-	import PersonalContextPanel from "$lib/components/PersonalContextPanel.svelte";
-	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
-	import ProductShell from "$lib/components/ProductShell.svelte";
-	import SearchPalette from "$lib/components/SearchPalette.svelte";
+											import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+		import SearchPalette from "$lib/components/SearchPalette.svelte";
 	import AuthGate from "$lib/components/AuthGate.svelte";
 	import { api, type ApiResult } from "$lib/api";
 	import { sessionStore } from "$lib/sessionStore.svelte";
@@ -63,7 +52,18 @@
 		updated_at: string;
 	};
 
-	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
+	let flowConsole = $state<any>();
+	let ProductShellView = $state<any>(null);
+	let FlowConsoleView = $state<any>(null);
+	let DashboardView = $state<any>(null);
+	let PlanBoardView = $state<any>(null);
+	let GitPanelView = $state<any>(null);
+	let ProjectMapView = $state<any>(null);
+	let PluginPanelView = $state<any>(null);
+	let AutomationPanelView = $state<any>(null);
+	let KanbanPanelView = $state<any>(null);
+	let TaskCenterPanelView = $state<any>(null);
+	let PersonalContextPanelView = $state<any>(null);
 	let settingsOpen = $state(false);
 	let searchOpen = $state(false);
 	let moreOpen = $state(false);
@@ -110,6 +110,44 @@
 		view === "chat" ? "Chat" : view === "bot" ? "Work" : (ADVANCED_LABELS[view] ?? "Veya"),
 	);
 
+	async function ensureView(next: View): Promise<void> {
+		switch (next) {
+			case "bot":
+				if (!ProductShellView) ProductShellView = (await import("$lib/components/ProductShell.svelte")).default;
+				break;
+			case "dashboard":
+				if (!DashboardView) DashboardView = (await import("$lib/components/Dashboard.svelte")).default;
+				break;
+			case "plan":
+				if (!PlanBoardView) PlanBoardView = (await import("$lib/components/PlanBoard.svelte")).default;
+				break;
+			case "git":
+				if (!GitPanelView) GitPanelView = (await import("$lib/components/GitPanel.svelte")).default;
+				break;
+			case "graph":
+				if (!ProjectMapView) ProjectMapView = (await import("$lib/components/ProjectMap.svelte")).default;
+				break;
+			case "genesis":
+				if (!FlowConsoleView) FlowConsoleView = (await import("$lib/components/FlowConsole.svelte")).default;
+				break;
+			case "plugins":
+				if (!PluginPanelView) PluginPanelView = (await import("$lib/components/PluginPanel.svelte")).default;
+				break;
+			case "automation":
+				if (!AutomationPanelView) AutomationPanelView = (await import("$lib/components/AutomationPanel.svelte")).default;
+				break;
+			case "board":
+				if (!KanbanPanelView) KanbanPanelView = (await import("$lib/components/KanbanPanel.svelte")).default;
+				break;
+			case "tasks":
+				if (!TaskCenterPanelView) TaskCenterPanelView = (await import("$lib/components/TaskCenterPanel.svelte")).default;
+				break;
+			case "personal":
+				if (!PersonalContextPanelView) PersonalContextPanelView = (await import("$lib/components/PersonalContextPanel.svelte")).default;
+				break;
+		}
+	}
+
 	function closeSidebar(): void {
 		sidebarOpen = false;
 	}
@@ -117,7 +155,9 @@
 	function selectNav(next: View): void {
 		view = next;
 		moreOpen = false;
-		if (next === "genesis") flowConsole?.newFlow();
+		void ensureView(next).then(() => {
+			if (next === "genesis") requestAnimationFrame(() => flowConsole?.newFlow());
+		});
 		closeSidebar();
 	}
 
@@ -128,8 +168,7 @@
 	}
 
 	function newWork(): void {
-		view = "bot";
-		closeSidebar();
+		selectNav("bot");
 	}
 
 	function openTasks(): void {
@@ -234,7 +273,7 @@
 			<span class="flex size-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-600 font-mono text-sm font-bold text-white">V</span>
 			<div class="min-w-0 flex-1">
 				<h1 class="text-sm font-semibold tracking-tight">Veya</h1>
-				<p class="text-[11px] text-terminal-dim">Personal Intelligence</p>
+				<p class="text-xs text-terminal-dim">Personal Intelligence</p>
 			</div>
 			<button
 				type="button"
@@ -270,7 +309,7 @@
 		>
 			<Search class="size-4" />
 			<span class="flex-1">搜索</span>
-			<kbd class="rounded border border-white/10 px-1.5 py-0.5 font-mono text-[9px] text-white/30">⌘K</kbd>
+			<kbd class="rounded border border-white/10 px-1.5 py-0.5 font-mono text-[10px] text-white/35">⌘K</kbd>
 		</button>
 
 		<nav class="mt-3 grid grid-cols-2 gap-1 px-2.5">
@@ -289,10 +328,10 @@
 		</nav>
 
 		<div class="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-			<div class="px-2 pb-1 text-[11px] font-medium text-white/35">Recent</div>
+			<div class="px-2 pb-1 text-xs font-medium text-white/40">Recent</div>
 
 			{#if recentTasks.length > 0}
-				<div class="mt-1 px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-violet-300/50">Work</div>
+				<div class="mt-1 px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-violet-300/60">Work</div>
 				{#each recentTasks as task (task.id)}
 					<button
 						type="button"
@@ -307,9 +346,9 @@
 			{/if}
 
 			{#if sessionStore.sessions.length > 0}
-				<div class="mt-2 px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-sky-300/50">Chats</div>
+				<div class="mt-2 px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-sky-300/60">Chats</div>
 				{#each sessionGroups as group (group.label)}
-					<div class="px-2 pb-1 pt-2 text-[10px] text-terminal-dim/45">{group.label}</div>
+					<div class="px-2 pb-1 pt-2 text-[11px] text-terminal-dim/60">{group.label}</div>
 					{#each group.sessions as session (session.sid)}
 						<div
 							class="group relative flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 transition {session.sid === sessionStore.activeSid && view === 'chat'
@@ -357,7 +396,7 @@
 
 			{#if moreOpen}
 				<div class="absolute bottom-12 left-2.5 z-50 w-[236px] rounded-xl border border-white/10 bg-[#121212] p-1.5 shadow-2xl">
-					<div class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-white/30">Workspace</div>
+					<div class="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wider text-white/40">Workspace</div>
 					{#each PRODUCT_MORE as [id, label, Icon] (id)}
 						<button
 							type="button"
@@ -368,7 +407,7 @@
 						</button>
 					{/each}
 					<div class="my-1 border-t border-white/[0.06]"></div>
-					<div class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-white/30">Developer tools</div>
+					<div class="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wider text-white/40">Developer tools</div>
 					{#each DEVELOPER_MORE as [id, label, Icon] (id)}
 						<button
 							type="button"
@@ -423,7 +462,7 @@
 			>
 				<Search class="size-3.5" />
 				搜索
-				<kbd class="font-mono text-[9px] text-white/25">⌘K</kbd>
+				<kbd class="font-mono text-[10px] text-white/30">⌘K</kbd>
 			</button>
 			<AuthGate />
 			<button
@@ -441,33 +480,33 @@
 			<ChatConsole />
 		</div>
 		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "bot"}>
-			<ProductShell onOpenSettings={() => (settingsOpen = true)} onOpenTasks={openTasks} />
+			{#if ProductShellView}
+				<ProductShellView onOpenSettings={() => (settingsOpen = true)} onOpenTasks={openTasks} />
+			{:else if view === "bot"}
+				<div class="flex flex-1 items-center justify-center text-sm text-terminal-dim">正在加载 Work…</div>
+			{/if}
 		</div>
-		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "dashboard"}>
-			<Dashboard />
-		</div>
-		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "plan"}>
-			<PlanBoard />
-		</div>
-		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "git"}>
-			<GitPanel />
-		</div>
-		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "graph"}>
-			<ProjectMap />
-		</div>
-		<div class="flex min-h-0 flex-1 flex-col" class:hidden={view !== "genesis"}>
-			<FlowConsole bind:this={flowConsole} />
-		</div>
-		{#if view === "plugins"}
-			<div class="flex-1 overflow-y-auto p-6"><PluginPanel /></div>
+
+		{#if view === "dashboard"}
+			<div class="flex min-h-0 flex-1 flex-col">{#if DashboardView}<DashboardView />{:else}<div class="p-6 text-sm text-terminal-dim">正在加载…</div>{/if}</div>
+		{:else if view === "plan"}
+			<div class="flex min-h-0 flex-1 flex-col">{#if PlanBoardView}<PlanBoardView />{:else}<div class="p-6 text-sm text-terminal-dim">正在加载…</div>{/if}</div>
+		{:else if view === "git"}
+			<div class="flex min-h-0 flex-1 flex-col">{#if GitPanelView}<GitPanelView />{:else}<div class="p-6 text-sm text-terminal-dim">正在加载…</div>{/if}</div>
+		{:else if view === "graph"}
+			<div class="flex min-h-0 flex-1 flex-col">{#if ProjectMapView}<ProjectMapView />{:else}<div class="p-6 text-sm text-terminal-dim">正在加载…</div>{/if}</div>
+		{:else if view === "genesis"}
+			<div class="flex min-h-0 flex-1 flex-col">{#if FlowConsoleView}<FlowConsoleView bind:this={flowConsole} />{:else}<div class="p-6 text-sm text-terminal-dim">正在加载…</div>{/if}</div>
+		{:else if view === "plugins"}
+			<div class="flex-1 overflow-y-auto p-6">{#if PluginPanelView}<PluginPanelView />{:else}<div class="text-sm text-terminal-dim">正在加载…</div>{/if}</div>
 		{:else if view === "automation"}
-			<div class="flex-1 overflow-y-auto p-6"><AutomationPanel /></div>
+			<div class="flex-1 overflow-y-auto p-6">{#if AutomationPanelView}<AutomationPanelView />{:else}<div class="text-sm text-terminal-dim">正在加载…</div>{/if}</div>
 		{:else if view === "board"}
-			<div class="flex-1 overflow-y-auto"><KanbanPanel /></div>
+			<div class="flex-1 overflow-y-auto">{#if KanbanPanelView}<KanbanPanelView />{:else}<div class="p-6 text-sm text-terminal-dim">正在加载…</div>{/if}</div>
 		{:else if view === "tasks"}
-			<div class="flex-1 overflow-hidden"><TaskCenterPanel /></div>
+			<div class="flex-1 overflow-hidden">{#if TaskCenterPanelView}<TaskCenterPanelView />{:else}<div class="p-6 text-sm text-terminal-dim">正在加载…</div>{/if}</div>
 		{:else if view === "personal"}
-			<div class="flex-1 overflow-hidden"><PersonalContextPanel /></div>
+			<div class="flex-1 overflow-hidden">{#if PersonalContextPanelView}<PersonalContextPanelView />{:else}<div class="p-6 text-sm text-terminal-dim">正在加载…</div>{/if}</div>
 		{/if}
 	</section>
 </main>

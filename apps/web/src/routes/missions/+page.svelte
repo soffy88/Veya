@@ -37,14 +37,14 @@
 <div class="mx-auto w-full max-w-5xl p-6">
 	<header class="mb-6 flex items-center justify-between">
 		<div>
-			<h1 class="text-2xl font-semibold">任务</h1>
-			<p class="text-sm opacity-70">监督模式、执行器与实时状态均来自 Veya 后端</p>
+			<h1 class="text-2xl font-semibold">Work 历史</h1>
+			<p class="text-sm opacity-70">查看长期工作的真实状态、阻塞原因和结果。</p>
 		</div>
 		<div class="flex items-center gap-2">
 			<button class="btn" onclick={() => void store.load()} disabled={store.loading}>
 				<RefreshCw size={16} class={store.loading ? "animate-spin" : ""} /> 刷新
 			</button>
-			<a class="btn btn-primary" href="/missions/new"><Plus size={16} /> 新建任务</a>
+			<a class="btn btn-primary" href="/missions/new"><Plus size={16} /> 新建 Work</a>
 		</div>
 	</header>
 
@@ -53,7 +53,7 @@
 	{:else if store.loading && !store.missions.length}
 		<div class="card p-6 text-sm opacity-70">加载中…</div>
 	{:else if !store.missions.length}
-		<div class="card p-6 text-sm opacity-70">还没有任务。点击「新建任务」开始。</div>
+		<div class="card p-6 text-sm opacity-70">还没有 Work。点击「新建 Work」开始。</div>
 	{:else}
 		<ul class="space-y-3">
 			{#each store.missions as mission (mission.mission_id)}
@@ -65,18 +65,27 @@
 								<span class="badge" data-tone={statusTone(mission.status)}>
 									{statusLabel(mission.status)}
 								</span>
-								<span>监督：{supervisionModeLabel(mission.supervision_mode)}</span>
-								<span>当前监督者：{String(mission.authority?.active_supervisor ?? mission.supervision_mode)}</span>
-								<span>执行器：{executorOf(mission)}</span>
-								<span>iteration：{String(mission.authority?.iteration ?? 0)}</span>
+
+
+
+
 								<span>更新：{relativeTime(mission.updated_at)}</span>
 							</div>
+							<details class="mt-2">
+								<summary class="cursor-pointer text-xs opacity-50">Developer details</summary>
+								<div class="mt-1 grid gap-1 text-xs opacity-60">
+									<span>supervision_mode: {mission.supervision_mode}</span>
+									<span>active_supervisor: {String(mission.authority?.active_supervisor ?? mission.supervision_mode)}</span>
+									<span>iteration: {String(mission.authority?.iteration ?? 0)}</span>
+									<span>updated_at: {String(mission.updated_at)}</span>
+								</div>
+							</details>
 							{#if blockingReason(mission)}
 								<div class="mt-2 text-xs text-amber-400">受阻：{blockingReason(mission)}</div>
 							{/if}
 						</div>
 						<a class="btn shrink-0" href={`/missions/${mission.mission_id}`}>
-							查看详情 <ArrowRight size={14} />
+							打开 Work <ArrowRight size={14} />
 						</a>
 					</div>
 				</li>

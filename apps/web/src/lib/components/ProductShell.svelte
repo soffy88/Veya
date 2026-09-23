@@ -114,7 +114,7 @@
 			<div class="flex flex-wrap items-center gap-2">
 			<h2 class="text-lg font-semibold text-terminal-fg">{botState?.bot?.name ?? "Veya Work"}</h2>
 				{#if botState?.bot?.lifecycle}
-					<span class="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] text-terminal-dim">{botState.bot.lifecycle}</span>
+					<span class="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-terminal-dim">{botState.bot.lifecycle}</span>
 				{/if}
 			</div>
 			<p class="mt-1 text-sm text-terminal-dim">把目标交给 Veya；它会在后台执行，并在需要你确认时回来找你。</p>
@@ -140,7 +140,7 @@
 					<form class="mt-4 space-y-3" onsubmit={(event) => { event.preventDefault(); void createTask(); }}>
 						<textarea bind:this={taskInput} bind:value={taskObjective} rows="3" maxlength="20000" placeholder="描述你希望 Veya 完成的任务…" class="w-full resize-y rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2.5 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60"></textarea>
 						<div class="flex flex-wrap items-center justify-between gap-3">
-							<span class="font-mono text-[10px] text-terminal-dim/70">后台执行 · 可恢复 · 自动验证</span>
+							<span class="text-[11px] text-terminal-dim/80">后台执行 · 可恢复 · 自动验证</span>
 							<button type="submit" disabled={creatingTask || !taskObjective.trim()} class="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">{creatingTask ? "正在启动…" : "开始工作"}<ArrowRight class="size-3.5" /></button>
 						</div>
 					</form>

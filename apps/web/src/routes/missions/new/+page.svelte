@@ -23,8 +23,8 @@
 
 	const MODES: Array<{ value: SupervisionMode; label: string; hint: string }> = [
 		{ value: "auto", label: "自动", hint: "由 Veya 决定监督者（可运行时切换）" },
-		{ value: "external", label: "ChatGPT 监督", hint: "每轮等你/ChatGPT 审查后再继续" },
-		{ value: "internal", label: "Veya 自主", hint: "Veya 自主设计、执行、审查、返工" },
+		{ value: "external", label: "每轮确认（ChatGPT 监督）", hint: "每轮结束后等待外部审查再继续" },
+		{ value: "internal", label: "自主执行（Veya 自主）", hint: "Veya 自主设计、执行、审查和返工" },
 	];
 
 	const EXECUTORS: Array<{ value: ExecutorKind | ""; label: string }> = [
@@ -73,12 +73,12 @@
 </script>
 
 <div class="mx-auto w-full max-w-2xl p-6">
-	<h1 class="mb-1 text-2xl font-semibold">新建任务</h1>
-	<p class="mb-6 text-sm opacity-70">写目标、选执行方式，其余交给 Veya 的监督运行时。</p>
+	<h1 class="mb-1 text-2xl font-semibold">新建 Work</h1>
+	<p class="mb-6 text-sm opacity-70">描述目标并选择运行方式，其余交给 Veya。</p>
 
 	<div class="card space-y-5 p-5">
 		<label class="block">
-			<span class="mb-1 block text-sm font-medium">任务目标 *</span>
+			<span class="mb-1 block text-sm font-medium">目标 *</span>
 			<textarea
 				class="input w-full"
 				rows="3"
@@ -88,7 +88,7 @@
 		</label>
 
 		<fieldset>
-			<legend class="mb-2 text-sm font-medium">执行方式</legend>
+			<legend class="mb-2 text-sm font-medium">运行方式</legend>
 			<div class="space-y-2">
 				{#each MODES as option (option.value)}
 					<label class="flex cursor-pointer items-start gap-3 rounded border p-3">
@@ -103,7 +103,7 @@
 		</fieldset>
 
 		<label class="block">
-			<span class="mb-1 block text-sm font-medium">执行器</span>
+			<span class="mb-1 block text-sm font-medium">执行引擎</span>
 			<select class="input w-full" bind:value={executor}>
 				{#each EXECUTORS as option (option.value)}
 					<option value={option.value}>{option.label}</option>
@@ -141,7 +141,7 @@
 
 		<button class="btn btn-primary w-full" onclick={() => void submit()} disabled={busy}>
 			{#if busy}
-				<Loader2 size={16} class="animate-spin" /> 正在创建并启动…
+				<Loader2 size={16} class="animate-spin" /> 正在启动…
 			{:else}
 				<Play size={16} /> 开始
 			{/if}
