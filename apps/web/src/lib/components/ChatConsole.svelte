@@ -321,7 +321,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				return {
 					Icon: HelpCircle,
 					cls: "text-sky-300 bg-sky-400/10 border-sky-400/30",
-					label: "❓ 主脑提问",
+					label: "❓ Veya 需要确认",
 				};
 			case "project_understand_ask": {
 				const qs = Array.isArray(ev.questions) ? (ev.questions as unknown[]).length : 0;
@@ -448,7 +448,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					status: text.trim() ? "done" : "error",
 					text,
 					cost,
-					error: text.trim() ? undefined : "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。",
+					error: text.trim() ? undefined : "Veya 未返回任何内容 (模型/网关异常)。请重试或更换模型。",
 				});
 			} else if (
 				kind === "tool_call" ||
@@ -713,7 +713,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				sid,
 				lastText.trim()
 					? { status: "done" }
-					: { status: "error", error: "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。" },
+					: { status: "error", error: "Veya 未返回任何内容 (模型/网关异常)。请重试或更换模型。" },
 			);
 		} catch (e) {
 			const aborted = aborter?.signal.aborted;
@@ -999,7 +999,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 						<HelpCircle class="size-4 text-sky-300" />
 					</span>
 					<div class="min-w-0 flex-1">
-						<div class="font-mono text-[10px] uppercase tracking-wider text-sky-400/80">主脑提问</div>
+						<div class="font-mono text-[10px] uppercase tracking-wider text-sky-400/80">Veya 需要确认</div>
 						<div class="mt-1 text-[13px] leading-relaxed text-terminal-fg">{pendingQuestion.question}</div>
 						{#if pendingQuestion.options.length > 0}
 							<div class="mt-2 flex flex-wrap gap-1.5">
@@ -1032,7 +1032,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 							>回答</button>
 						</div>
 						<div class="mt-1.5 font-mono text-[10px] text-white/30">
-							不回答的话主脑会在 5 分钟后按默认假设继续，不会卡住
+							不回答时，Veya 会在 5 分钟后按默认假设继续，不会卡住
 						</div>
 					</div>
 				</div>
@@ -1043,7 +1043,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				<button
 					type="button"
 					onclick={() => (attachMenuOpen = !attachMenuOpen)}
-					title="插入…"
+					title="工具与附件"
 					class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white {attachMenuOpen ||
 					fileTreeOpen ||
 					dictating
@@ -1053,7 +1053,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					<Plus class="size-4 transition-transform {attachMenuOpen ? 'rotate-45' : ''}" />
 				</button>
 				{#if attachMenuOpen}
-					<div class="absolute bottom-10 left-0 z-50 w-52 overflow-hidden rounded-xl border border-terminal-edge bg-terminal-panel shadow-2xl">
+					<div class="absolute bottom-10 left-0 z-50 w-60 overflow-hidden rounded-xl border border-terminal-edge bg-terminal-panel shadow-2xl">
 						<button
 							type="button"
 							onclick={() => {
@@ -1101,6 +1101,38 @@ import CollapsibleText from "./CollapsibleText.svelte";
 						>
 							<Phone class="size-3.5" /> 语音通话
 						</button>
+						<div class="my-1 border-t border-white/10"></div>
+						<div class="px-3 pb-1 pt-1 font-mono text-[9px] uppercase tracking-wider text-white/30">模型与执行</div>
+						<div class="px-2 py-1.5">
+							<ModelPicker />
+						</div>
+						<button
+							type="button"
+							onclick={() => (planMode = !planMode)}
+							title="计划模式只读探索，确认后再切回执行"
+							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] transition hover:bg-white/10 {planMode ? 'text-sky-300' : 'text-white/70 hover:text-white'}"
+						>
+							<ListTodo class="size-3.5" /> {planMode ? "计划模式 · 开" : "计划模式"}
+						</button>
+						{#if profileOptions.length > 0}
+							<label class="flex items-center gap-2 px-3 py-2 font-mono text-[11px] text-white/70">
+								<Wrench class="size-3.5 shrink-0" />
+								<span class="shrink-0">权限</span>
+								<select
+									class="min-w-0 flex-1 bg-transparent text-right text-terminal-fg outline-none"
+									bind:value={permissionProfile}
+									onchange={() => void setPermissionProfile(permissionProfile)}
+									disabled={busy}
+								>
+									{#each profileOptions as opt (opt.name)}
+										<option value={opt.name}>{opt.name}</option>
+									{/each}
+								</select>
+							</label>
+						{/if}
+						{#if profileError}
+							<div class="px-3 pb-2 font-mono text-[10px] text-rose-400">{profileError}</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -1136,40 +1168,14 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				</button>
 			{/if}
 		</div>
-		<div class="mt-1.5 flex items-center gap-3 px-1 font-mono text-[10px] text-white/25">
-			<span class="flex items-center gap-1.5">
-				<span class="size-1.5 rounded-full {apiKeyStore.api_key ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
-				<ModelPicker />
-			</span>
-			<button
-				type="button"
-				onclick={() => (planMode = !planMode)}
-				title="计划模式：只读探索，确认后再切回执行"
-				class="rounded-md border px-1.5 py-0.5 transition {planMode
-					? 'border-sky-500/50 bg-sky-500/15 text-sky-300'
-					: 'border-white/10 text-white/35 hover:text-white/70'}"
-			>{planMode ? "计划" : "执行"}</button>
+		<div class="mt-1.5 flex items-center gap-2 px-1 font-mono text-[10px] text-white/25">
+			{#if planMode}
+				<span class="rounded-md border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-sky-300">计划模式</span>
+			{/if}
+			{#if dictating}
+				<span class="rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-rose-300">正在听</span>
+			{/if}
 			<span class="flex-1"></span>
-			{#if profileOptions.length > 0}
-				<label
-					title="权限档位 (P1-05 / P3-01): READ_ONLY=全禁写, DEVELOPMENT=本地写放行, PRODUCTION=写与执行需批准"
-					class="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] text-terminal-dim"
-				>
-					<select
-						class="bg-transparent text-terminal-fg outline-none"
-						bind:value={permissionProfile}
-						onchange={() => void setPermissionProfile(permissionProfile)}
-						disabled={busy}
-					>
-						{#each profileOptions as opt (opt.name)}
-							<option value={opt.name}>{opt.name}</option>
-						{/each}
-					</select>
-				</label>
-			{/if}
-			{#if profileError}
-				<span class="font-mono text-[10px] text-rose-400">{profileError}</span>
-			{/if}
 			<span class="hidden md:inline">Enter 发送 · Shift+Enter 换行 · ↑ 编辑{ busy ? " · Esc 停止" : "" }</span>
 		</div>
 	</div>
@@ -1182,8 +1188,8 @@ import CollapsibleText from "./CollapsibleText.svelte";
 			<div class="flex flex-col items-center gap-4">
 				<div class="flex size-12 items-center justify-center rounded-2xl bg-white font-mono text-lg font-bold text-black">V</div>
 				<div class="text-center">
-					<h2 class="text-xl font-medium text-terminal-fg">和 Veya 主脑对话</h2>
-					<p class="mt-1 text-sm text-white/40">直接描述任务，主脑会实时调用工具并流式返回结果</p>
+					<h2 class="text-xl font-medium text-terminal-fg">有什么可以帮你？</h2>
+					<p class="mt-1 text-sm text-white/40">直接描述你的需求，Veya 会在需要时使用工具并实时返回结果</p>
 				</div>
 				<div class="flex flex-wrap items-center justify-center gap-2">
 					{#each SUGGESTIONS as s (s)}

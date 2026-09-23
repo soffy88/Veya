@@ -1,15 +1,28 @@
 <script lang="ts">
-	/**
-	 * Veya Web — human chat + Genesis construction + plugins + automation.
-	 *
-	 * Five views:
-	 *   chat     → ChatConsole  (human ⇄ Master Brain, streaming, multi-session)
-	 *   genesis  → FlowConsole  (master-model → Genesis 施工通道, 非人机对话)
-	 *   plugins  → PluginPanel
-	 *   automation → AutomationPanel
-	 *   board    → KanbanPanel  (多 Agent 编排看板: worktree 隔离 + 依赖链)
-	 */
-import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageSquare, Network, Package, Clock, Settings, Trash2, Plus, Columns3, Menu, X, SquareCheckBig } from "lucide-svelte";
+	import { onMount } from "svelte";
+	import { goto } from "$app/navigation";
+	import {
+		Bot,
+		Brain,
+		Clock,
+		Columns3,
+		Cpu,
+		GitBranch,
+		Hammer,
+		LayoutDashboard,
+		ListTodo,
+		Menu,
+		MessageSquare,
+		MoreHorizontal,
+		Network,
+		Package,
+		Plus,
+		Search,
+		Settings,
+		SquareCheckBig,
+		Trash2,
+		X,
+	} from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
 	import FlowConsole from "$lib/components/FlowConsole.svelte";
 	import Dashboard from "$lib/components/Dashboard.svelte";
@@ -23,48 +36,118 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 	import PersonalContextPanel from "$lib/components/PersonalContextPanel.svelte";
 	import SettingsPanel from "$lib/components/SettingsPanel.svelte";
 	import ProductShell from "$lib/components/ProductShell.svelte";
+	import SearchPalette from "$lib/components/SearchPalette.svelte";
 	import AuthGate from "$lib/components/AuthGate.svelte";
+	import { api, type ApiResult } from "$lib/api";
 	import { sessionStore } from "$lib/sessionStore.svelte";
 
-	type View = "bot" | "chat" | "dashboard" | "plan" | "git" | "graph" | "genesis" | "plugins" | "automation" | "board" | "tasks" | "personal";
+	type View =
+		| "bot"
+		| "chat"
+		| "dashboard"
+		| "plan"
+		| "git"
+		| "graph"
+		| "genesis"
+		| "plugins"
+		| "automation"
+		| "board"
+		| "tasks"
+		| "personal";
+
+	type RecentTask = {
+		id: string;
+		title: string;
+		objective: string;
+		status: string;
+		updated_at: string;
+	};
 
 	let flowConsole: ReturnType<typeof FlowConsole> | undefined = $state();
 	let settingsOpen = $state(false);
-	let view = $state<View>("bot");
-	let sidebarOpen = $state(false); // mobile drawer
+	let searchOpen = $state(false);
+	let moreOpen = $state(false);
+	let view = $state<View>("chat");
+	let sidebarOpen = $state(false);
+	let recentTasks = $state<RecentTask[]>([]);
 
-	function closeSidebar() {
-		sidebarOpen = false;
-	}
+	const PRIMARY: [View, string, typeof MessageSquare][] = [
+		["chat", "Chat", MessageSquare],
+		["bot", "Work", Bot],
+	];
 
-	const NAV: [View, string, typeof MessageSquare][] = [
-		["bot", "Veya Bot", Bot],
-		["chat", "对话", MessageSquare],
+	const PRODUCT_MORE: [View, string, typeof MessageSquare][] = [
+		["tasks", "任务", SquareCheckBig],
+		["automation", "自动化", Clock],
+		["plugins", "Apps", Package],
+		["personal", "个人上下文", Brain],
+	];
+
+	const DEVELOPER_MORE: [View, string, typeof MessageSquare][] = [
 		["dashboard", "Dashboard", LayoutDashboard],
 		["plan", "计划", ListTodo],
 		["git", "Git", GitBranch],
 		["graph", "图谱", Network],
-		["genesis", "Genesis 施工", Hammer],
-		["plugins", "插件", Package],
-		["automation", "自动化", Clock],
+		["genesis", "Genesis", Hammer],
 		["board", "看板", Columns3],
-		["tasks", "任务", SquareCheckBig],
-		["personal", "个人上下文", Brain],
 	];
 
-	function selectNav(v: View) {
-		view = v;
-		if (v === "genesis") flowConsole?.newFlow();
+	const ADVANCED_LABELS: Partial<Record<View, string>> = {
+		dashboard: "Dashboard",
+		plan: "计划",
+		git: "Git",
+		graph: "图谱",
+		genesis: "Genesis",
+		plugins: "Apps",
+		automation: "自动化",
+		board: "看板",
+		tasks: "任务",
+		personal: "个人上下文",
+	};
+
+	const primaryMode = $derived(view === "bot" ? "work" : view === "chat" ? "chat" : "advanced");
+	const headerTitle = $derived(
+		view === "chat" ? "Chat" : view === "bot" ? "Work" : (ADVANCED_LABELS[view] ?? "Veya"),
+	);
+
+	function closeSidebar(): void {
+		sidebarOpen = false;
+	}
+
+	function selectNav(next: View): void {
+		view = next;
+		moreOpen = false;
+		if (next === "genesis") flowConsole?.newFlow();
 		closeSidebar();
 	}
 
-	function newChat() {
+	function newChat(): void {
 		sessionStore.newSession();
 		view = "chat";
+		closeSidebar();
 	}
 
-	function openTasks() {
-		view = "tasks";
+	function newWork(): void {
+		view = "bot";
+		closeSidebar();
+	}
+
+	function openTasks(): void {
+		selectNav("tasks");
+	}
+
+	function selectFromSearch(next: string): void {
+		selectNav(next as View);
+	}
+
+	function openSession(sid: string): void {
+		sessionStore.open(sid);
+		view = "chat";
+		closeSidebar();
+	}
+
+	function openTask(taskId: string): void {
+		void goto(`/workbench/${encodeURIComponent(taskId)}`);
 		closeSidebar();
 	}
 
@@ -76,7 +159,32 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 		return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 	}
 
-	// 会话按最近活跃时间分组 (Claude/ChatGPT 式侧边栏): 今天/昨天/7天内/30天内/更早
+	function taskTime(value: string): string {
+		const d = new Date(value);
+		if (Number.isNaN(d.getTime())) return "";
+		return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+	}
+
+	async function loadRecentTasks(): Promise<void> {
+		const result: ApiResult = await api("gateway", "api/v1/tasks", {
+			method: "GET",
+			query: { limit: 8 },
+		});
+		if (result.ok && result.data && typeof result.data === "object") {
+			recentTasks = ((result.data as { tasks?: RecentTask[] }).tasks ?? [])
+				.slice()
+				.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
+				.slice(0, 6);
+		}
+	}
+
+	function handleGlobalKeydown(event: KeyboardEvent): void {
+		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+			event.preventDefault();
+			searchOpen = true;
+		}
+	}
+
 	const DAY_MS = 86400000;
 	function startOfDay(d: Date): number {
 		return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
@@ -91,19 +199,24 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 			"30 天内": [],
 			"更早": [],
 		};
-		for (const s of sessionStore.sessions) {
-			if (s.ts >= today0) buckets["今天"].push(s);
-			else if (s.ts >= today0 - DAY_MS) buckets["昨天"].push(s);
-			else if (s.ts >= today0 - 7 * DAY_MS) buckets["7 天内"].push(s);
-			else if (s.ts >= today0 - 30 * DAY_MS) buckets["30 天内"].push(s);
-			else buckets["更早"].push(s);
+		for (const session of sessionStore.sessions.slice(0, 18)) {
+			if (session.ts >= today0) buckets["今天"].push(session);
+			else if (session.ts >= today0 - DAY_MS) buckets["昨天"].push(session);
+			else if (session.ts >= today0 - 7 * DAY_MS) buckets["7 天内"].push(session);
+			else if (session.ts >= today0 - 30 * DAY_MS) buckets["30 天内"].push(session);
+			else buckets["更早"].push(session);
 		}
-		return labels.map((label) => ({ label, sessions: buckets[label] })).filter((g) => g.sessions.length > 0);
+		return labels.map((label) => ({ label, sessions: buckets[label] })).filter((group) => group.sessions.length > 0);
+	});
+
+	onMount(() => {
+		void loadRecentTasks();
 	});
 </script>
 
+<svelte:window onkeydown={handleGlobalKeydown} />
+
 <main class="flex h-dvh overflow-hidden">
-	<!-- ── mobile backdrop ────────────────────────────────────────── -->
 	{#if sidebarOpen}
 		<div
 			class="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
@@ -112,21 +225,20 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 		></div>
 	{/if}
 
-	<!-- ── sidebar (drawer on mobile, static on desktop) ──────────── -->
 	<aside
-		class="fixed inset-y-0 left-0 z-50 flex w-60 shrink-0 flex-col border-r border-white/5 bg-[#0a0a0a] transition-transform duration-200 ease-out md:static md:translate-x-0 {sidebarOpen
+		class="fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col border-r border-white/[0.06] bg-[#0a0a0a] transition-transform duration-200 ease-out md:static md:translate-x-0 {sidebarOpen
 			? 'translate-x-0'
 			: '-translate-x-full'}"
 	>
-		<div class="flex items-center gap-2 px-4 py-4">
-			<span class="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-violet-600 font-mono text-sm font-bold text-white">V</span>
-			<div class="flex-1">
-				<h1 class="text-sm font-semibold leading-tight tracking-tight">Veya</h1>
-				<p class="text-xs text-terminal-dim">Agent OS</p>
+		<div class="flex items-center gap-2.5 px-4 py-4">
+			<span class="flex size-8 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-600 font-mono text-sm font-bold text-white">V</span>
+			<div class="min-w-0 flex-1">
+				<h1 class="text-sm font-semibold tracking-tight">Veya</h1>
+				<p class="text-[11px] text-terminal-dim">Personal Intelligence</p>
 			</div>
 			<button
 				type="button"
-				title="关闭菜单"
+				aria-label="关闭菜单"
 				onclick={closeSidebar}
 				class="rounded-md p-1.5 text-terminal-dim transition hover:bg-white/10 hover:text-terminal-fg md:hidden"
 			>
@@ -134,70 +246,39 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 			</button>
 		</div>
 
+		<div class="grid grid-cols-2 gap-1.5 px-2.5">
+			<button
+				type="button"
+				onclick={newChat}
+				class="flex items-center justify-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-2 text-xs font-medium text-white transition hover:bg-white/15"
+			>
+				<Plus class="size-3.5" /> Chat
+			</button>
+			<button
+				type="button"
+				onclick={newWork}
+				class="flex items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-2 text-xs font-medium text-white/80 transition hover:bg-white/[0.06]"
+			>
+				<Plus class="size-3.5" /> Work
+			</button>
+		</div>
+
 		<button
 			type="button"
-			onclick={newChat}
-			class="mx-2.5 mt-1 flex items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/20"
+			onclick={() => (searchOpen = true)}
+			class="mx-2.5 mt-2 flex items-center gap-2 rounded-lg border border-white/[0.08] px-3 py-2 text-left text-sm text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
 		>
-			<Plus class="size-4" />
-			新对话
+			<Search class="size-4" />
+			<span class="flex-1">搜索</span>
+			<kbd class="rounded border border-white/10 px-1.5 py-0.5 font-mono text-[9px] text-white/30">⌘K</kbd>
 		</button>
 
-		{#if view === "chat"}
-			<div class="flex min-h-0 flex-1 flex-col">
-				<div class="flex-1 overflow-y-auto px-2 pb-2">
-					{#if sessionStore.sessions.length === 0}
-						<div class="px-4 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wider text-terminal-dim/60">会话</div>
-						<p class="px-2 py-3 font-mono text-xs text-terminal-dim/60">暂无历史会话</p>
-					{:else}
-						{#each sessionGroups as group (group.label)}
-							<div class="px-2 pb-1 pt-3 font-mono text-[10px] uppercase tracking-wider text-terminal-dim/60">{group.label}</div>
-							{#each group.sessions as s (s.sid)}
-								<div
-									class="group relative flex cursor-pointer flex-col gap-0.5 rounded-lg px-3 py-2 transition {s.sid === sessionStore.activeSid
-										? 'bg-white/10'
-										: 'hover:bg-white/5'}"
-									role="button"
-									tabindex="0"
-									onclick={() => sessionStore.open(s.sid)}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') sessionStore.open(s.sid);
-									}}
-								>
-									<span class="truncate pr-6 text-[13px] text-terminal-fg">{s.title}</span>
-									<span class="flex items-center justify-between font-mono text-[10px] text-terminal-dim/70">
-										<span>{sessionTime(s.ts)}</span>
-										{#if s.cost > 0}
-											<span>${s.cost.toFixed(4)}</span>
-										{/if}
-									</span>
-									<button
-										type="button"
-										title="删除会话"
-										onclick={(e) => {
-											e.stopPropagation();
-											sessionStore.remove(s.sid);
-										}}
-										class="absolute right-1.5 top-1.5 hidden rounded-md p-1 text-terminal-dim transition hover:bg-rose-500/20 hover:text-rose-400 group-hover:block"
-									>
-										<Trash2 class="size-3.5" />
-									</button>
-								</div>
-							{/each}
-						{/each}
-					{/if}
-				</div>
-			</div>
-		{:else}
-			<div class="flex-1"></div>
-		{/if}
-
-		<nav class="flex flex-col gap-0.5 p-2.5">
-			{#each NAV as [id, label, Icon] (id)}
+		<nav class="mt-3 grid grid-cols-2 gap-1 px-2.5">
+			{#each PRIMARY as [id, label, Icon] (id)}
 				<button
 					type="button"
 					onclick={() => selectNav(id)}
-					class="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition {view === id
+					class="flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-sm transition {view === id
 						? 'bg-white/10 text-terminal-fg'
 						: 'text-terminal-dim hover:bg-white/5 hover:text-terminal-fg'}"
 				>
@@ -207,38 +288,152 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 			{/each}
 		</nav>
 
-		<div class="border-t border-white/5 p-2.5">
-			<div class="flex flex-col gap-1 text-xs text-terminal-dim">
-				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-sky-500"></span>Master Brain :9120</span>
-				<span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-violet-500"></span>Genesis 3O 施工</span>
-			</div>
+		<div class="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+			<div class="px-2 pb-1 text-[11px] font-medium text-white/35">Recent</div>
+
+			{#if recentTasks.length > 0}
+				<div class="mt-1 px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-violet-300/50">Work</div>
+				{#each recentTasks as task (task.id)}
+					<button
+						type="button"
+						onclick={() => openTask(task.id)}
+						class="group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-white/[0.05]"
+					>
+						<SquareCheckBig class="size-3.5 shrink-0 text-violet-300/70" />
+						<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">{task.title}</span>
+						<span class="shrink-0 text-[9px] text-terminal-dim/60">{taskTime(task.updated_at)}</span>
+					</button>
+				{/each}
+			{/if}
+
+			{#if sessionStore.sessions.length > 0}
+				<div class="mt-2 px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-sky-300/50">Chats</div>
+				{#each sessionGroups as group (group.label)}
+					<div class="px-2 pb-1 pt-2 text-[10px] text-terminal-dim/45">{group.label}</div>
+					{#each group.sessions as session (session.sid)}
+						<div
+							class="group relative flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 transition {session.sid === sessionStore.activeSid && view === 'chat'
+								? 'bg-white/[0.07]'
+								: 'hover:bg-white/[0.05]'}"
+							role="button"
+							tabindex="0"
+							onclick={() => openSession(session.sid)}
+							onkeydown={(event) => {
+								if (event.key === "Enter" || event.key === " ") openSession(session.sid);
+							}}
+						>
+							<MessageSquare class="size-3.5 shrink-0 text-sky-300/65" />
+							<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">{session.title}</span>
+							<span class="shrink-0 text-[9px] text-terminal-dim/50">{sessionTime(session.ts)}</span>
+							<button
+								type="button"
+								aria-label="删除会话"
+								onclick={(event) => {
+									event.stopPropagation();
+									sessionStore.remove(session.sid);
+								}}
+								class="absolute right-1.5 hidden rounded-md p-1 text-terminal-dim hover:bg-rose-500/15 hover:text-rose-300 group-hover:block"
+							>
+								<Trash2 class="size-3.5" />
+							</button>
+						</div>
+					{/each}
+				{/each}
+			{:else if recentTasks.length === 0}
+				<p class="px-2 py-4 text-xs text-terminal-dim/60">还没有最近工作。</p>
+			{/if}
+		</div>
+
+		<div class="relative border-t border-white/[0.06] p-2.5">
+			<button
+				type="button"
+				onclick={() => (moreOpen = !moreOpen)}
+				class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
+				aria-expanded={moreOpen}
+			>
+				<MoreHorizontal class="size-4" />
+				<span class="flex-1">更多</span>
+			</button>
+
+			{#if moreOpen}
+				<div class="absolute bottom-12 left-2.5 z-50 w-[236px] rounded-xl border border-white/10 bg-[#121212] p-1.5 shadow-2xl">
+					<div class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-white/30">Workspace</div>
+					{#each PRODUCT_MORE as [id, label, Icon] (id)}
+						<button
+							type="button"
+							onclick={() => selectNav(id)}
+							class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-terminal-dim hover:bg-white/[0.06] hover:text-terminal-fg"
+						>
+							<Icon class="size-4" /> {label}
+						</button>
+					{/each}
+					<div class="my-1 border-t border-white/[0.06]"></div>
+					<div class="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-white/30">Developer tools</div>
+					{#each DEVELOPER_MORE as [id, label, Icon] (id)}
+						<button
+							type="button"
+							onclick={() => selectNav(id)}
+							class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-terminal-dim hover:bg-white/[0.06] hover:text-terminal-fg"
+						>
+							<Icon class="size-4" /> {label}
+						</button>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</aside>
 
-	<!-- ── main ───────────────────────────────────────────────────── -->
 	<section class="flex min-w-0 flex-1 flex-col overflow-hidden">
-		<header class="flex shrink-0 items-center gap-4 px-6 py-3">
+		<header class="flex h-14 shrink-0 items-center gap-3 border-b border-white/[0.05] px-3 md:px-5">
 			<button
 				type="button"
-				title="打开菜单"
+				aria-label="打开菜单"
 				onclick={() => (sidebarOpen = true)}
-				class="rounded-lg border border-terminal-edge p-2 text-terminal-dim transition hover:border-sky-500/40 hover:text-terminal-fg md:hidden"
+				class="rounded-lg p-2 text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg md:hidden"
 			>
 				<Menu class="size-5" />
 			</button>
-			<div class="flex items-center gap-2">
-				<Cpu class="size-4 text-sky-400" />
-				<span class="text-sm font-semibold text-terminal-fg">Veya Workspace</span>
+
+			<div class="flex min-w-0 items-center gap-2">
+				<Cpu class="size-4 shrink-0 text-sky-400" />
+				<span class="truncate text-sm font-medium text-terminal-fg">{headerTitle}</span>
 			</div>
+
+			{#if primaryMode !== "advanced"}
+				<div class="ml-2 hidden items-center rounded-lg bg-white/[0.05] p-0.5 sm:flex">
+					<button
+						type="button"
+						onclick={() => selectNav("chat")}
+						class="rounded-md px-3 py-1.5 text-xs transition {view === 'chat' ? 'bg-white/10 text-white' : 'text-terminal-dim hover:text-white'}"
+					>Chat</button>
+					<button
+						type="button"
+						onclick={() => selectNav("bot")}
+						class="rounded-md px-3 py-1.5 text-xs transition {view === 'bot' ? 'bg-white/10 text-white' : 'text-terminal-dim hover:text-white'}"
+					>Work</button>
+				</div>
+			{/if}
+
 			<span class="flex-1"></span>
+
+			<button
+				type="button"
+				onclick={() => (searchOpen = true)}
+				class="hidden items-center gap-2 rounded-lg border border-white/[0.08] px-2.5 py-1.5 text-xs text-terminal-dim transition hover:bg-white/[0.04] hover:text-terminal-fg sm:flex"
+			>
+				<Search class="size-3.5" />
+				搜索
+				<kbd class="font-mono text-[9px] text-white/25">⌘K</kbd>
+			</button>
 			<AuthGate />
 			<button
 				type="button"
 				onclick={() => (settingsOpen = true)}
-				class="flex items-center gap-1.5 rounded-lg border border-terminal-edge px-3 py-1.5 text-sm text-terminal-dim transition hover:border-sky-500/40 hover:text-terminal-fg"
+				class="rounded-lg p-2 text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
+				aria-label="设置"
+				title="设置"
 			>
 				<Settings class="size-4" />
-				模型
 			</button>
 		</header>
 
@@ -267,6 +462,7 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 			<div class="flex-1 overflow-y-auto p-6"><PluginPanel /></div>
 		{:else if view === "automation"}
 			<div class="flex-1 overflow-y-auto p-6"><AutomationPanel /></div>
+		{:else if view === "board"}
 			<div class="flex-1 overflow-y-auto"><KanbanPanel /></div>
 		{:else if view === "tasks"}
 			<div class="flex-1 overflow-hidden"><TaskCenterPanel /></div>
@@ -276,4 +472,10 @@ import { Bot, Brain, Cpu, GitBranch, Hammer, LayoutDashboard, ListTodo, MessageS
 	</section>
 </main>
 
+<SearchPalette
+	open={searchOpen}
+	onClose={() => (searchOpen = false)}
+	onOpenChat={() => (view = "chat")}
+	onSelectView={selectFromSearch}
+/>
 <SettingsPanel open={settingsOpen} onClose={() => (settingsOpen = false)} />
