@@ -46,13 +46,24 @@ export async function api(
   const headers: Record<string, string> = {};
   if (opts.body !== undefined) headers["content-type"] = "application/json";
   if (token) headers.authorization = `Bearer ${token}`;
-  const res = await fetch(`${prefix}${path.replace(/^\/+/, "")}${qs}`, {
-    method: opts.method ?? "POST",
-    headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
 
-  const text = await res.text();
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(`${prefix}${path.replace(/^\/+/, "")}${qs}`, {
+      method: opts.method ?? "POST",
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+    text = await res.text();
+  } catch {
+    // Network-level failure (offline, DNS, aborted request). Callers branch on
+    // the ApiResult shape, so report it as a failed result instead of throwing:
+    // an escaping rejection leaves the UI with no error state at all and shows
+    // up as an unhandled promise rejection.
+    return { ok: false, status: 0, data: "network request failed" };
+  }
+
   let data: unknown = text;
   if (text) {
     try {
