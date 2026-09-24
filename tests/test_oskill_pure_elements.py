@@ -470,11 +470,14 @@ def test_stop_completed_on_direct_answer():
     assert d.stop and d.kind == "completed"
 
 
-def test_stop_max_rounds():
+def test_stop_max_rounds_removed():
+    # max_rounds no longer controls termination (semantic state-driven now)
+    # With tool_calls present, should continue regardless of round count
     d = evaluate_stop_condition(
         round_count=10, max_rounds=10, tool_calls=[{"name": "x"}], last_content=""
     )
-    assert d.stop and d.kind == "max_rounds"
+    assert not d.stop
+    assert d.kind == "continue"
 
 
 def test_stop_fatal_error_wins():

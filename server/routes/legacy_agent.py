@@ -93,34 +93,8 @@ async def legacy_agent_run(
 
     _ = user  # Depends 已把 auth.current_user() contextvar 设好, 下游按此隔离
 
-    if req.text is not None or req.task is not None:
-        from server.coordinator_master import DEFAULT_MAX_ROUNDS
-
-        prompt = req.text or req.task or ""
-        if req.engine != "master":
-            prompt = (
-                f"兼容请求指定了 legacy engine={req.engine}。"
-                "仍由 canonical MasterAgent 统一处理，不要启动独立 engine/LLM。\n"
-                f"用户任务：{prompt}"
-            )
-        result = await master_coordinator.chat_stream(
-            prompt,
-            session_id=req.session_id or None,
-            max_rounds=DEFAULT_MAX_ROUNDS,
-            config=req.config or None,
-            provider=req.provider,
-            model=req.model,
-            mode=req.agent_mode,
-            require_approval=_WEB_REQUIRE_APPROVAL,
-            freeze_allow=req.freeze_allow,
-        )
-        return LegacyAgentRunResponse(
-            session_id=result.get("session_id") or req.session_id or _new_session_id(),
-            status=result.get("status", "failed"),
-            result=result.get("final_answer") or result.get("error", ""),
-            cost_usd=result.get("cost_usd", 0.0),
-        )
-
+    # Dry-run is resolved at admission, before either compatibility execution
+    # branch.  This prevents mixed text/task requests from invoking the brain.
     session_id = req.session_id or _new_session_id()
     user_ref = None
     raw_uid = req.student_id or req.user_id
@@ -139,12 +113,34 @@ async def legacy_agent_run(
             user_ref=user_ref,
         )
 
-    from server.coordinator_master import DEFAULT_MAX_ROUNDS
+    if req.text is not None or req.task is not None:
+        prompt = req.text or req.task or ""
+        if req.engine != "master":
+            prompt = (
+                f"兼容请求指定了 legacy engine={req.engine}。"
+                "仍由 canonical MasterAgent 统一处理，不要启动独立 engine/LLM。\n"
+                f"用户任务：{prompt}"
+            )
+        result = await master_coordinator.chat_stream(
+            prompt,
+            session_id=req.session_id or None,
+            config=req.config or None,
+            provider=req.provider,
+            model=req.model,
+            mode=req.agent_mode,
+            require_approval=_WEB_REQUIRE_APPROVAL,
+            freeze_allow=req.freeze_allow,
+        )
+        return LegacyAgentRunResponse(
+            session_id=result.get("session_id") or req.session_id or _new_session_id(),
+            status=result.get("status", "failed"),
+            result=result.get("final_answer") or result.get("error", ""),
+            cost_usd=result.get("cost_usd", 0.0),
+        )
 
     result = await master_coordinator.chat_stream(
         req.task or "",
         session_id=session_id,
-        max_rounds=DEFAULT_MAX_ROUNDS,
         config=req.config or None,
         provider=req.provider,
         model=req.model,

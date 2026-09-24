@@ -255,7 +255,7 @@ async def control_workbench_task(task_id: str, request: TaskControlRequest) -> d
         )
         if decision.disposition is ResumeDisposition.BLOCKED:
             raise _stale("RESUME_BLOCKED", expected=task_id, actual=decision.disposition.value)
-        await task_routes.resume_task(task_id, TaskResumeRequest(text=None, max_rounds=None))
+        await task_routes.resume_task(task_id, TaskResumeRequest(text=None))
     else:
         from runtime.coding.task_service import (
             CodingTaskService,

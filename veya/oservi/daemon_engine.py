@@ -11,7 +11,7 @@ DaemonBus 集成（阶段 3 oprim_daemon 原子接通真实链路）:
     start() 后自动注册 daemon.pause / daemon.resume / daemon.status 处理器，
     任何经 bus 的调用（oprim.daemon.daemon_pause(bus=...)）即可挂起/恢复/查询。
 
-注入: bus / barrier / llm / pipeline / tree / system_prompt / max_rounds
+注入: bus / barrier / llm / pipeline / tree / system_prompt
 """
 
 from __future__ import annotations
@@ -87,8 +87,8 @@ class DaemonEngine:
         pipeline_factory: Callable[[], ToolPipeline] | None = None,
         tree: SessionTreeMgr | None = None,
         system_prompt: str = "",
-        max_rounds: int = 10,
         goal_bridge: Any = None,
+        **_legacy_kwargs: Any,
     ) -> None:
         self._bus = bus
         self._barrier = barrier
@@ -96,7 +96,6 @@ class DaemonEngine:
         self._pipeline_factory = pipeline_factory or ToolPipeline
         self._tree = tree or SessionTreeMgr()
         self._system_prompt = system_prompt
-        self._max_rounds = max_rounds
         self._tasks: dict[str, TaskState] = {}
         self._drivers: dict[str, asyncio.Task] = {}
         self._relay_task: asyncio.Task | None = None
@@ -171,7 +170,6 @@ class DaemonEngine:
                 tree=self._tree,
                 barrier=self._barrier,
                 system_prompt=self._system_prompt,
-                max_rounds=self._max_rounds,
                 gate=self._make_gate(state),
             )
             driver = asyncio.create_task(

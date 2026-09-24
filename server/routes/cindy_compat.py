@@ -242,7 +242,6 @@ async def goal_driven_run_ep(req: GoalDrivenRequest) -> dict[str, Any]:
         result = await master_coordinator.chat_stream(
             f"继续长程任务: {prompt_suffix}",
             session_id=f"goal-driven-{req.goal_id}",
-            max_rounds=12,
         )
         content = str(result.get("final_answer", ""))
         return {
@@ -316,7 +315,6 @@ async def spec_execute_ep(req: SpecExecuteRequest) -> dict[str, Any]:
         result = await master_coordinator.chat_stream(
             task,
             session_id=f"{session_prefix}-{idx}",
-            max_rounds=12,
         )
         content = str(result.get("final_answer", ""))
         return {"ok": result.get("status") == "success", "output": content[:2000]}
@@ -362,7 +360,6 @@ async def browser_run_compat(req: BrowserRunCompatRequest) -> dict[str, Any]:
     result = await master_coordinator.chat_stream(
         prompt,
         session_id=f"browser-compat-{uuid.uuid4().hex}",
-        max_rounds=max(1, req.max_steps),
     )
     return {
         "engine": "masteragent",

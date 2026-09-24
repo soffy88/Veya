@@ -1,9 +1,13 @@
-"""3O-PURE — evaluate_stop_condition: 完成/最大轮次/致命错误判断。
+"""3O-PURE — evaluate_stop_condition: 语义化完成/阻塞/错误/无进展判断。
 
 从现有主循环逻辑纯函数化（master_agent 的停止分支 + 空回复兜底检测）：
 - 致命错误 → 立即停止（kind=fatal_error）；
-- 达到最大轮次 → 停止（kind=max_rounds）；
-- 无 tool_calls → 任务完成；内容为空/None/null 视为 invalid_response；
+- 语义完成 → 停止（kind=completed）；
+- 被阻塞 → 停止（kind=blocked）；
+- 用户取消 → 停止（kind=cancelled）；
+- 安全/资源耗尽 → 停止（kind=safety_resource_exhausted）；
+- 无进展检测 → 停止（kind=no_progress_detected）；
+- 无效响应 → 停止（kind=invalid_response）；
 - 否则 → 继续（kind=continue）。
 
 纯函数：所有输入显式传参，无 I/O、无全局、无随机。
@@ -28,7 +32,7 @@ class StopDecision:
 
     stop: bool
     reason: str = ""
-    kind: str = "continue"  # continue | completed | max_rounds | fatal_error | invalid_response
+    kind: str = "continue"  # continue | completed | blocked | cancelled | fatal_error | safety_resource_exhausted | no_progress_detected | invalid_response
 
 
 def is_invalid_response(content: Any) -> bool:
@@ -42,40 +46,60 @@ def is_invalid_response(content: Any) -> bool:
 
 def evaluate_stop_condition(
     *,
-    round_count: int,
-    max_rounds: int,
+    round_count: int = 0,
     tool_calls: list | None = None,
     last_content: Any = None,
     last_error: str | None = None,
     fatal_error: str | None = None,
     completed_content: Any = None,
+    blocked_reason: str | None = None,
+    cancelled: bool = False,
+    safety_resource_exhausted: str | None = None,
+    no_progress_detected: str | None = None,
+    **_legacy_kwargs: Any,
 ) -> StopDecision:
-    """主循环停止判断。
+    """主循环停止判断（语义化）。
 
     参数:
-        round_count: 已执行轮次（0 起）
-        max_rounds: 轮次上限（<=0 视为无上限）
+        round_count: 已执行轮次（0 起，仅作 telemetry）
         tool_calls: 本轮 LLM 输出中的 tool_calls（空列表 = 直接回答）
         last_content: 本轮 assistant 内容
         last_error: 本轮工具执行错误（非致命）
         fatal_error: 致命错误（LLM 调用失败/基础设施故障）
         completed_content: 显式完成内容（若有则优先视为完成）
+        blocked_reason: 被阻塞原因（需用户输入/权限/credential/审批）
+        cancelled: 用户显式取消
+        safety_resource_exhausted: 安全/资源耗尽原因（wall-clock/预算/配额）
+        no_progress_detected: 无进展检测原因（循环/重复无新证据）
     """
     if fatal_error:
         return StopDecision(stop=True, reason=f"致命错误: {fatal_error}", kind="fatal_error")
+
+    if cancelled:
+        return StopDecision(stop=True, reason="用户取消", kind="cancelled")
+
+    if safety_resource_exhausted:
+        return StopDecision(
+            stop=True,
+            reason=f"安全/资源限制: {safety_resource_exhausted}",
+            kind="safety_resource_exhausted",
+        )
+
+    if no_progress_detected:
+        return StopDecision(
+            stop=True,
+            reason=f"无进展检测: {no_progress_detected}",
+            kind="no_progress_detected",
+        )
+
+    if blocked_reason:
+        return StopDecision(stop=True, reason=f"被阻塞: {blocked_reason}", kind="blocked")
 
     if completed_content is not None:
         return StopDecision(
             stop=True,
             reason="模型显式输出完成标记",
             kind="completed",
-        )
-
-    if max_rounds > 0 and round_count >= max_rounds:
-        return StopDecision(
-            stop=True,
-            reason=f"达到最大轮次 {max_rounds}",
-            kind="max_rounds",
         )
 
     has_tools = isinstance(tool_calls, list) and len(tool_calls) > 0

@@ -38,11 +38,11 @@ class DaemonGoalRunAdapter:
         pipeline_factory: Callable[[], ToolPipeline],
         tool_specs: dict[str, tuple[Callable[..., Any], dict | None]],
         system_prompt: str,
-        max_rounds: int,
         pause_events: dict[str, Any],
         resume_events: dict[str, Any],
         project_root: str,
         projection: Callable[[str, Any], None] | None = None,
+        **_legacy_kwargs: Any,
     ) -> None:
         self._llm = llm
         self._tree = tree
@@ -50,7 +50,6 @@ class DaemonGoalRunAdapter:
         self._pipeline_factory = pipeline_factory
         self._tool_specs = tool_specs
         self._system_prompt = system_prompt
-        self._max_rounds = max_rounds
         self._pause_events = pause_events
         self._resume_events = resume_events
         self._project_root = project_root
@@ -97,7 +96,6 @@ class DaemonGoalRunAdapter:
             tree=self._tree,
             barrier=self._barrier,
             system_prompt=self._system_prompt,
-            max_rounds=self._max_rounds,
             gate=gate,
         )
         result = await loop.run(spec["user_input"], session_id=session_id)
@@ -175,7 +173,6 @@ class DaemonGoalRunBridge:
             pipeline_factory=engine._pipeline_factory,
             tool_specs=tool_specs,
             system_prompt=engine._system_prompt,
-            max_rounds=engine._max_rounds,
             pause_events=engine._pause_events,
             resume_events=engine._resume_events,
             project_root=engine._project_root,

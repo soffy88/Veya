@@ -35,8 +35,8 @@ async def test_strict_chat_budget_is_hard_stop(tmp_path):
         kv_path=str(tmp_path / "budget.db"),
     )
 
-    assert result["status"] == "failed"
-    assert result["stop_kind"] == "budget_exceeded"
+    assert result["status"] == "safety_resource_exhausted"
+    assert result["stop_kind"] == "safety_resource_exhausted"
     assert result["cost_usd"] == 0.25
     assert result["tool_calls"] == []
 

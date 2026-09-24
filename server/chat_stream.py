@@ -64,12 +64,9 @@ async def new_agent_stream_events(
         if user:
             auth_mod.set_user(user)
         # 必须 return 结果 — _finish 靠它补发 final (丢了则永远发兜底假象)
-        from server.coordinator_master import DEFAULT_MAX_ROUNDS
-
         return await master_coordinator.chat_stream(
             text,
             session_id=sid,
-            max_rounds=DEFAULT_MAX_ROUNDS,
             config=config,
             provider=provider,
             model=model,

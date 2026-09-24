@@ -178,7 +178,7 @@ def _default_runner():
     async def runner(text: str, user_ref: str):
         from server.coordinator_master import master_coordinator
 
-        result = await master_coordinator.chat_stream(text, session_id=None, max_rounds=3)
+        result = await master_coordinator.chat_stream(text, session_id=None)
         turn = result.get("final_answer") or result.get("error", "")
         yield {"event": "session_start", "user_ref": user_ref, "ts": time.time()}
         yield {"event": "result", "content": turn, "cost": result.get("cost_usd", 0.0)}

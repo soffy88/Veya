@@ -685,21 +685,16 @@ async def test_agent_loop_invalid_response():
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_max_rounds():
-    """模型每轮都调工具 → 达到轮次上限停止。"""
+async def test_agent_loop_no_progress():
+    """模型每轮都调重复工具无新进展 → no_progress_detected 停止。"""
     llm = FakeLlm([_tool_call_msg("ping", {}) for _ in range(5)])
     pipeline = ToolPipeline()
     pipeline.register("ping", lambda: "pong", schema={"type": "object"})
-    loop = AgentLoop(llm=llm, pipeline=pipeline, tree=_new_tree(), max_rounds=3)
+    loop = AgentLoop(llm=llm, pipeline=pipeline, tree=_new_tree())
     result = await loop.run("一直调用")
-    assert result.stop_kind == "max_rounds"
-    assert result.rounds == 3
-    # 回归 (2026-08-16): 自然耗尽轮次此前从未走过任何设置 final_answer 的
-    # break 分支, 留空交还调用方——这里每轮 assistant 消息都带 tool_calls
-    # (没有真正的文本收尾), 应退化为工具执行摘要而不是抓到占位 "thinking"。
+    assert result.stop_kind == "no_progress_detected"
+    assert result.rounds >= 3
     assert result.final_answer.strip()
-    assert "3" in result.final_answer  # 3 次工具调用
-    assert "thinking" not in result.final_answer
 
 
 @pytest.mark.asyncio

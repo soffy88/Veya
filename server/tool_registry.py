@@ -3015,11 +3015,12 @@ def _register_internalized_tools(mt: Any) -> None:
     async def _agent_loop_run(
         task: str,
         tool_group: str | None = None,
-        max_rounds: int = 15,
         context_ref: str = "",
         acceptance: list[dict[str, Any]] | None = None,
         budget_usd: float | None = None,
         deadline: str | None = None,
+        estimated_tokens: int | None = None,
+        **_legacy_kwargs: Any,
     ) -> str:
         from runtime.execution.delegate_runtime import DelegateRuntime
         from runtime.execution.models import DelegateRequest, SpawnBudget
@@ -3080,7 +3081,7 @@ def _register_internalized_tools(mt: Any) -> None:
                 capability_scope=[tool_group] if tool_group else [],
                 acceptance=cast("list[Any]", acceptance or []),
                 depth=depth,
-                estimated_tokens=max(1, min(int(max_rounds or 15), 40)) * 4096,
+                estimated_tokens=estimated_tokens or 65536,
                 budget_usd=budget_usd,
                 timeout_s=5400,
                 workspace=context_ref or ".",
@@ -3090,7 +3091,6 @@ def _register_internalized_tools(mt: Any) -> None:
                 return await run_strict_chat(
                     child_task,
                     session_id=sid,
-                    max_rounds=max(1, min(int(max_rounds or 15), 40)),
                     tool_schemas=mt.get_resident_schemas(session_id=sid),
                     tool_executor=mt.execute,
                     budget_usd=budget_usd,
@@ -3376,9 +3376,9 @@ def _register_internalized_tools(mt: Any) -> None:
                             "意图理解/派工/监督/审查这几个常驻工具。"
                         ),
                     },
-                    "max_rounds": {
+                    "estimated_tokens": {
                         "type": "integer",
-                        "description": "子任务最多轮次, 默认 15, 上限 40。",
+                        "description": "可选预估 token 消耗上限，默认 65536。",
                     },
                     "context_ref": {
                         "type": "string",

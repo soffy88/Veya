@@ -144,7 +144,6 @@ async def run_strict_chat(
     session_id: str | None = None,
     on_step: Callable | None = None,
     llm_kwargs: dict | None = None,
-    max_rounds: int = 10,
     system_prompt: str = "",
     llm: Any = None,
     context_providers: list[Callable[[str, str], Awaitable[str]]] | None = None,
@@ -155,6 +154,7 @@ async def run_strict_chat(
     llm_caller: Callable | None = None,
     budget_usd: float | None = None,
     deadline: str | datetime | None = None,
+    **_legacy_kwargs: Any,
 ) -> dict:
     """omodul.AgentLoop 执行原语：用 AgentLoop 心脏跑一段隔离对话/子任务。
 
@@ -166,6 +166,9 @@ async def run_strict_chat(
     veya-data volume 跨重启；隔离子任务用临时 session_id, 不与主链历史混）。
     tool_schemas/tool_executor: 可选的工具认知面与统一执行入口；应成对
     注入。缺省使用 master_tools 的 schema + execute，确保 ToolGuard 不被绕过。
+
+    子任务终止由语义条件 (completed/blocked/cancelled/fatal_error/
+    safety_resource_exhausted/no_progress_detected/invalid_response) 决定。
 
     返回形态：{status, final_answer, rounds, tool_calls, session_id,
     stop_kind, loop_plane}。
@@ -258,7 +261,6 @@ async def run_strict_chat(
         tree=SessionTreeMgr(kv=_session_kv(kv_path)),
         barrier=barrier,
         system_prompt=system_prompt,
-        max_rounds=max_rounds,
         budget_usd=budget_usd,
         cost_calculator=_response_cost,
         context_providers=context_providers,
@@ -315,7 +317,26 @@ async def run_strict_chat(
         if node.get("role") == "tool":
             meta = node.get("meta") or {}
             tool_trace.append({"tool": meta.get("tool", ""), "ok": meta.get("ok", False)})
-    _status = "success" if result.stop_kind in ("completed", "max_rounds") else "failed"
+
+    # Map semantic stop kinds to appropriate status
+    completed_kinds = {"completed"}
+    failed_kinds = {"fatal_error", "invalid_response", "no_progress_detected"}
+    cancelled_kinds = {"cancelled"}
+    blocked_kinds = {"blocked"}
+    safety_kinds = {"safety_resource_exhausted"}
+
+    if result.stop_kind in completed_kinds:
+        _status = "success"
+    elif result.stop_kind in cancelled_kinds:
+        _status = "cancelled"
+    elif result.stop_kind in blocked_kinds:
+        _status = "blocked"
+    elif result.stop_kind in safety_kinds:
+        _status = "safety_resource_exhausted"
+    elif result.stop_kind in failed_kinds:
+        _status = "failed"
+    else:
+        _status = "failed"  # default for unknown
     # docs/VEYA_P1_P3_IMPLEMENTATION_SPEC.md §16 Trajectory (P2-09): 委托子任务
     # 有始有终、跟主链热路径隔离, 是"非 GoalRun 路径"里唯一现在就能安全接的一处
     # (对比 chat_stream() 见 server/trajectory.py 模块 docstring 的范围边界说明)。
@@ -357,13 +378,16 @@ async def run_strict(
     tools: ToolRegistry | None = None,
     llm: Any = None,
     system_prompt: str = "",
-    max_rounds: int = 10,
+    **_legacy_kwargs: Any,
 ) -> LoopResult:
     """用严格 3O 心脏执行一轮对话。
 
     - llm=None → container.get_llm()（obase LlmClient，默认适配 veya.obase.llm）
     - tools 注册到 ToolPipeline（五步管道：解析→校验→权限→执行→包装）
     - 返回 LoopResult（含 session_id / final_answer / stop_kind / snapshot）
+
+    终止由语义条件 (completed/blocked/cancelled/fatal_error/
+    safety_resource_exhausted/no_progress_detected/invalid_response) 决定。
     """
     pipeline = ToolPipeline()
     for name, (fn, schema) in (tools or {}).items():
@@ -373,7 +397,6 @@ async def run_strict(
         llm=llm,
         pipeline=pipeline,
         system_prompt=system_prompt,
-        max_rounds=max_rounds,
     )
     return await loop.run(user_prompt, session_id=session_id)
 

@@ -336,7 +336,6 @@ def _format_hicode_result(res: dict) -> str:
 # floor 抬到 16384 (是上限非成本, 短回答不多花) + 按末条 user 消息长度放大, 夹到 ceiling。
 _MASTER_TOK_FLOOR = int(os.environ.get("VEYA_MASTER_MAX_TOKENS_FLOOR", "16384"))
 _MASTER_TOK_CEILING = int(os.environ.get("VEYA_MASTER_MAX_TOKENS_CEILING", "32768"))
-DEFAULT_MAX_ROUNDS = int(os.environ.get("VEYA_MASTER_MAX_ROUNDS", "20"))
 
 
 def _last_user_len(messages: list) -> int:
@@ -453,7 +452,6 @@ class MasterCoordinator:
         vault: Any | None = None,
         omni_gateway: Any | None = None,
         llm_fn: Callable | None = None,
-        max_rounds: int = DEFAULT_MAX_ROUNDS,
         temperature: float = 0.2,
         long_task_factory: Callable[[], Any] | None = None,
         history_store: Any | None = None,
@@ -462,6 +460,7 @@ class MasterCoordinator:
         compact_llm_fn: Callable | None = None,
         reliable_provider_adapter: ReliableProviderAdapter | None = None,
         canonical_action_adapter: Any | None = None,
+        **_legacy_kwargs: Any,
     ):
         """初始化主脑(装配 veya 组件 → 委托主库引擎)。
 
@@ -514,7 +513,6 @@ class MasterCoordinator:
         # direct physical execution.  Deliberately an adapter reference, not
         # another executor or state machine.
         self._canonical_action_adapter = canonical_action_adapter
-        self.max_rounds = max_rounds
         self.temperature = temperature
         self._long_task_factory = long_task_factory
         self._compact_llm_fn = compact_llm_fn
@@ -563,7 +561,6 @@ class MasterCoordinator:
             rag_factory=lambda: self.rag_engine,
             omni_gateway=self.omni_gateway,
             notify=fire_step,
-            max_rounds=max_rounds,
             temperature=temperature,
             cost_calculator=self._cost_calculator,
             system_prompt=_slim_master_prompt(_oservi.MASTER_SYSTEM_PROMPT) + _HOST_SOP_APPEND,
@@ -1146,7 +1143,6 @@ class MasterCoordinator:
         session_id: str | None = None,
         task_id: str | None = None,
         on_step: Callable | None = None,
-        max_rounds: int | None = None,
         config: dict | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -1156,6 +1152,7 @@ class MasterCoordinator:
         require_approval: bool = False,
         freeze_allow: str | None = None,
         system_context: str | None = None,
+        **_legacy_kwargs: Any,
     ) -> dict[str, Any]:
         """主脑主入口(委托主库 ReAct 循环)。
 
@@ -1277,7 +1274,7 @@ class MasterCoordinator:
             # 工具面全量透传 — 模型自主决定: 直接回答, 或调用哪个工具
             # (hicode_run / fetch_url / browser_run / mcp_* 都是模型
             # 自己的选择)。程序不预判、不裁藏、不预抓、不代做长任务。
-            # 唯一保留的是轮次上限 (防物理死循环, 不限制智能)。
+            # 轮次计数仅作 telemetry (tracing/metrics)，不决定产品终止。
             # goal_id 只在模型自己调过 goal_start 后才存在 (server/goal_tools.py
             # 写入 server/goal_session_map)；没调过的会话这里永远是 None，
             # _default_long_task_factory 见到 None 直接返回 None，长程任务钩子
@@ -1288,7 +1285,6 @@ class MasterCoordinator:
             lt = None
             if self._long_task_factory is not None:
                 lt = self._long_task_factory()
-            effective_rounds = max_rounds or self.max_rounds
             # P1 强上下文: 稳定 sid + 冷启动从持久层恢复历史 (重启/换进程不失忆)
             sid = session_id or sid_early
             # P1-03 Task Center 被动登记 (A-04: 只投影不控制): ordinary turns
@@ -1390,7 +1386,6 @@ class MasterCoordinator:
                 result = await self._agent.chat_stream(
                     user_prompt,
                     session_id=sid,
-                    max_rounds=effective_rounds,
                     llm_kwargs=llm_kwargs or None,
                     long_task=lt,
                 )
@@ -1426,7 +1421,11 @@ class MasterCoordinator:
                             "cancelled"
                             if result is not None and result.get("status") == "cancelled"
                             else (
-                                "completed" if result and result.get("error") is None else "failed"
+                                "completed"
+                                if result
+                                and result.get("error") is None
+                                and result.get("status") in ("success", "completed")
+                                else "failed"
                             ),
                         )
                         if result and isinstance(result.get("cost_usd"), (int, float)):
@@ -1442,13 +1441,25 @@ class MasterCoordinator:
                             execution={
                                 "status": "cancelled"
                                 if result and result.get("status") == "cancelled"
-                                else ("failed" if result and result.get("error") else "completed")
+                                else (
+                                    "failed"
+                                    if result
+                                    and (
+                                        result.get("error")
+                                        or result.get("status") not in ("success", "completed")
+                                    )
+                                    else "completed"
+                                )
                             },
                             session_id=sid,
                             task_id=task_id,
                             topic=(
                                 "turn.completed"
-                                if result is None or not result.get("error")
+                                if result is None
+                                or (
+                                    not result.get("error")
+                                    and result.get("status") in ("success", "completed")
+                                )
                                 else "turn.failed"
                             ),
                         )
@@ -1473,11 +1484,13 @@ class MasterCoordinator:
                 with contextlib.suppress(Exception):
                     from server.trajectory import append_trajectory, build_trajectory
 
+                    status = final_result.get("status", "failed")
+                    outcome = "completed" if status in ("success", "completed") else "failed"
                     append_trajectory(
                         build_trajectory(
                             task_id=task_id,
                             objective=user_prompt,
-                            outcome="failed" if final_result.get("error") else "completed",
+                            outcome=outcome,
                             tool_calls=list(final_result.get("tool_calls") or []),
                             duration_ms=round((time.monotonic() - turn_started) * 1000),
                             cost_usd=float(final_result.get("cost_usd") or 0.0),
