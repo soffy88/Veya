@@ -44,12 +44,11 @@
 		| "tasks"
 		| "personal";
 
-	type RecentTask = {
-		id: string;
+	type RecentWork = {
+		key: string;
 		title: string;
-		objective: string;
-		status: string;
-		updated_at: string;
+		href: string;
+		updatedMs: number;
 	};
 
 	let flowConsole = $state<any>();
@@ -69,7 +68,7 @@
 	let moreOpen = $state(false);
 	let view = $state<View>("chat");
 	let sidebarOpen = $state(false);
-	let recentTasks = $state<RecentTask[]>([]);
+	let recentWorks = $state<RecentWork[]>([]);
 
 	const PRIMARY: [View, string, typeof MessageSquare][] = [
 		["chat", "Chat", MessageSquare],
@@ -77,7 +76,7 @@
 	];
 
 	const PRODUCT_MORE: [View, string, typeof MessageSquare][] = [
-		["tasks", "任务", SquareCheckBig],
+		["tasks", "Work 历史", SquareCheckBig],
 		["automation", "自动化", Clock],
 		["plugins", "Apps", Package],
 		["personal", "个人上下文", Brain],
@@ -101,7 +100,7 @@
 		plugins: "Apps",
 		automation: "自动化",
 		board: "看板",
-		tasks: "任务",
+		tasks: "Work 历史",
 		personal: "个人上下文",
 	};
 
@@ -185,8 +184,8 @@
 		closeSidebar();
 	}
 
-	function openTask(taskId: string): void {
-		void goto(`/workbench/${encodeURIComponent(taskId)}`);
+	function openWork(href: string): void {
+		void goto(href);
 		closeSidebar();
 	}
 
@@ -198,23 +197,29 @@
 		return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 	}
 
-	function taskTime(value: string): string {
+	function workTime(value: number): string {
 		const d = new Date(value);
 		if (Number.isNaN(d.getTime())) return "";
 		return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 	}
 
-	async function loadRecentTasks(): Promise<void> {
-		const result: ApiResult = await api("gateway", "api/v1/tasks", {
-			method: "GET",
-			query: { limit: 8 },
-		});
-		if (result.ok && result.data && typeof result.data === "object") {
-			recentTasks = ((result.data as { tasks?: RecentTask[] }).tasks ?? [])
-				.slice()
-				.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
-				.slice(0, 6);
+	async function loadRecentWork(): Promise<void> {
+		const [taskResult, missionResult]: ApiResult[] = await Promise.all([
+			api("gateway", "api/v1/tasks", { method: "GET", query: { limit: 8 } }),
+			api("gateway", "api/v1/supervision/missions", { method: "GET" }),
+		]);
+		const rows: RecentWork[] = [];
+		if (taskResult.ok && taskResult.data && typeof taskResult.data === "object") {
+			for (const task of ((taskResult.data as { tasks?: Array<{ id: string; title: string; updated_at: string }> }).tasks ?? [])) {
+				rows.push({ key: `task:${task.id}`, title: task.title, href: `/workbench/${encodeURIComponent(task.id)}`, updatedMs: Date.parse(task.updated_at) || 0 });
+			}
 		}
+		if (missionResult.ok && missionResult.data && typeof missionResult.data === "object") {
+			for (const mission of ((missionResult.data as { missions?: Array<{ mission_id: string; goal: string; updated_at: number }> }).missions ?? [])) {
+				rows.push({ key: `mission:${mission.mission_id}`, title: mission.goal, href: `/missions/${encodeURIComponent(mission.mission_id)}`, updatedMs: Number(mission.updated_at || 0) * 1000 });
+			}
+		}
+		recentWorks = rows.sort((x, y) => y.updatedMs - x.updatedMs).slice(0, 6);
 	}
 
 	function handleGlobalKeydown(event: KeyboardEvent): void {
@@ -249,7 +254,10 @@
 	});
 
 	onMount(() => {
-		void loadRecentTasks();
+		void loadRecentWork();
+		const requestedView = new URLSearchParams(window.location.search).get("view");
+		if (requestedView === "tasks") selectNav("tasks");
+		else if (requestedView === "work") selectNav("bot");
 	});
 </script>
 
@@ -330,17 +338,17 @@
 		<div class="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
 			<div class="px-2 pb-1 text-xs font-medium text-white/40">Recent</div>
 
-			{#if recentTasks.length > 0}
+			{#if recentWorks.length > 0}
 				<div class="mt-1 px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-violet-300/60">Work</div>
-				{#each recentTasks as task (task.id)}
+				{#each recentWorks as work (work.key)}
 					<button
 						type="button"
-						onclick={() => openTask(task.id)}
+						onclick={() => openWork(work.href)}
 						class="group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-white/[0.05]"
 					>
 						<SquareCheckBig class="size-3.5 shrink-0 text-violet-300/70" />
-						<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">{task.title}</span>
-						<span class="shrink-0 text-[9px] text-terminal-dim/60">{taskTime(task.updated_at)}</span>
+						<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">{work.title}</span>
+						<span class="shrink-0 text-[9px] text-terminal-dim/60">{workTime(work.updatedMs)}</span>
 					</button>
 				{/each}
 			{/if}
@@ -378,7 +386,7 @@
 						</div>
 					{/each}
 				{/each}
-			{:else if recentTasks.length === 0}
+			{:else if recentWorks.length === 0}
 				<p class="px-2 py-4 text-xs text-terminal-dim/60">还没有最近工作。</p>
 			{/if}
 		</div>

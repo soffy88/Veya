@@ -35,7 +35,8 @@ def test_web_mission_list_ui():
         "updated_at",
     ):
         assert field in LIST, field
-    assert "/missions/new" in LIST and "/missions/${mission.mission_id}" in LIST
+    assert 'href="/?view=work"' in LIST
+    assert "/missions/${mission.mission_id}" in LIST
 
 
 def test_web_mission_create_ui_three_mode_selector():

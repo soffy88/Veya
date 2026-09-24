@@ -102,15 +102,6 @@
 			</div>
 		</fieldset>
 
-		<label class="block">
-			<span class="mb-1 block text-sm font-medium">执行引擎</span>
-			<select class="input w-full" bind:value={executor}>
-				{#each EXECUTORS as option (option.value)}
-					<option value={option.value}>{option.label}</option>
-				{/each}
-			</select>
-		</label>
-
 		<button class="text-xs underline opacity-70" onclick={() => (advanced = !advanced)}>
 			{advanced ? "收起高级设置" : "高级设置"}
 		</button>
@@ -118,10 +109,18 @@
 		{#if advanced}
 			<div class="space-y-4 border-t pt-4">
 				<label class="block">
-					<span class="mb-1 block text-sm font-medium">workspace</span>
+					<span class="mb-1 block text-sm font-medium">执行引擎</span>
+					<select class="input w-full" bind:value={executor}>
+						{#each EXECUTORS as option (option.value)}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+				</label>
+				<label class="block">
+					<span class="mb-1 block text-sm font-medium">工作目录</span>
 					<input class="input w-full" bind:value={workspace} placeholder="/data/soffy/projects/<repo>" />
 					<span class="mt-1 block text-xs opacity-70">
-						留空使用服务端默认授权 workspace；未授权的路径会被后端拒绝（403）。
+						留空使用默认授权目录；只有高级场景才需要手动指定。
 					</span>
 				</label>
 				<label class="block">

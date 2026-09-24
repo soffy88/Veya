@@ -27,7 +27,16 @@
 				const tool = String(ev.tool_name ?? "tool");
 				if (tool === "memory_search") return { Icon: Brain, tone: "text-violet-300", label: "读取记忆" };
 				if (tool === "skill_run") return { Icon: Sparkles, tone: "text-amber-300", label: "运行 Skill" };
-				return { Icon: Wrench, tone: "text-amber-300", label: tool };
+				if (tool.includes("file_read")) return { Icon: Code2, tone: "text-cyan-300", label: "读取文件" };
+				if (tool.includes("file_search")) return { Icon: Code2, tone: "text-cyan-300", label: "搜索代码" };
+				if (tool.includes("file_write") || tool.includes("file_patch")) return { Icon: Code2, tone: "text-cyan-300", label: "更新文件" };
+				if (tool.includes("shell_exec")) return { Icon: Wrench, tone: "text-amber-300", label: "执行命令" };
+				if (tool.includes("git_")) return { Icon: History, tone: "text-sky-300", label: "检查 Git" };
+				if (tool.includes("test_run")) return { Icon: CheckCircle2, tone: "text-emerald-300", label: "运行测试" };
+				if (tool.includes("build_run")) return { Icon: CheckCircle2, tone: "text-emerald-300", label: "构建项目" };
+				if (tool.includes("hicode")) return { Icon: Code2, tone: "text-emerald-300", label: "执行代码任务" };
+				if (tool.includes("workspace")) return { Icon: Wrench, tone: "text-amber-300", label: "检查工作区" };
+				return { Icon: Wrench, tone: "text-amber-300", label: "使用工具" };
 			}
 			case "tool_error":
 				return { Icon: CircleAlert, tone: "text-rose-300", label: `${String(ev.tool_name ?? "工具")} 失败` };
@@ -82,12 +91,21 @@
 				.join("\n")
 				.slice(0, 600);
 		}
-		if (ev.type === "tool_call" && ev.tool_args != null) {
-			try {
-				return JSON.stringify(ev.tool_args).slice(0, 300);
-			} catch {
-				return "";
-			}
+		if (ev.type === "tool_call" && ev.tool_args && typeof ev.tool_args === "object") {
+			const args = ev.tool_args as Record<string, unknown>;
+			const fields: Array<[string, string]> = [
+				["path", "文件"],
+				["query", "查询"],
+				["pattern", "搜索"],
+				["url", "页面"],
+				["task", "任务"],
+				["target", "目标"],
+			];
+			return fields
+				.filter(([key]) => args[key] != null && String(args[key]).trim())
+				.slice(0, 2)
+				.map(([key, label]) => `${label}：${String(args[key]).slice(0, 180)}`)
+				.join("\n");
 		}
 		if (ev.type === "finalization.started") {
 			return `保留 ${String(ev.reserve_s ?? "-")}s 用于收尾`;

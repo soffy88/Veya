@@ -71,7 +71,7 @@
 <main class="min-h-dvh overflow-y-auto bg-[#080808] px-4 py-5 text-terminal-fg md:px-8">
 	<div class="mx-auto max-w-5xl space-y-5">
 		<header class="flex flex-wrap items-start gap-3 border-b border-white/[0.07] pb-5">
-			<a href="/missions" class="mt-0.5 inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-terminal-edge px-3 text-sm text-terminal-dim hover:text-terminal-fg">
+			<a href="/?view=tasks" class="mt-0.5 inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-terminal-edge px-3 text-sm text-terminal-dim hover:text-terminal-fg">
 				<ArrowLeft class="size-4" /> Work
 			</a>
 			<div class="min-w-0 flex-1">

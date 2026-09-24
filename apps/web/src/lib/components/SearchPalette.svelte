@@ -24,6 +24,13 @@
 		updated_at: string;
 	};
 
+	type SearchMission = {
+		mission_id: string;
+		goal: string;
+		status: string;
+		updated_at: number;
+	};
+
 	type SearchProject = {
 		id: string;
 		name: string;
@@ -56,6 +63,7 @@
 	let { open, onClose, onOpenChat, onSelectView }: Props = $props();
 	let query = $state("");
 	let tasks = $state<SearchTask[]>([]);
+	let missions = $state<SearchMission[]>([]);
 	let projects = $state<SearchProject[]>([]);
 	let files = $state<FileEntry[]>([]);
 	let artifacts = $state<SearchArtifact[]>([]);
@@ -65,7 +73,7 @@
 
 	const shortcuts = [
 		{ label: "Work", hint: "创建或继续长期工作", view: "bot" },
-		{ label: "任务", hint: "查看任务历史与恢复状态", view: "tasks" },
+		{ label: "Work 历史", hint: "查看全部工作、状态与恢复入口", view: "tasks" },
 		{ label: "自动化", hint: "管理自动化与后台流程", view: "automation" },
 		{ label: "Apps", hint: "查看插件与连接能力", view: "plugins" },
 		{ label: "个人上下文", hint: "查看 Personal Runtime", view: "personal" },
@@ -106,14 +114,18 @@
 		loadAttempted = true;
 		loading = true;
 
-		const [taskResult, projectResult, fileResult]: ApiResult[] = await Promise.all([
+		const [taskResult, missionResult, projectResult, fileResult]: ApiResult[] = await Promise.all([
 			api("gateway", "api/v1/tasks", { method: "GET", query: { limit: 100 } }),
+			api("gateway", "api/v1/supervision/missions", { method: "GET" }),
 			api("gateway", "projects", { method: "GET" }),
 			api("gateway", "api/v1/fs/tree", { method: "GET" }),
 		]);
 
 		if (taskResult.ok && taskResult.data && typeof taskResult.data === "object") {
 			tasks = ((taskResult.data as { tasks?: SearchTask[] }).tasks ?? []).slice(0, 100);
+		}
+		if (missionResult.ok && missionResult.data && typeof missionResult.data === "object") {
+			missions = ((missionResult.data as { missions?: SearchMission[] }).missions ?? []).slice(0, 100);
 		}
 		if (projectResult.ok && projectResult.data && typeof projectResult.data === "object") {
 			projects = ((projectResult.data as { projects?: SearchProject[] }).projects ?? []).slice(0, 100);
@@ -147,6 +159,10 @@
 		if (!normalizedQuery) return tasks.slice(0, 6);
 		return tasks.filter((task) => contains(`${task.title} ${task.objective}`)).slice(0, 8);
 	});
+	const matchedMissions = $derived.by(() => {
+		if (!normalizedQuery) return missions.slice(0, 4);
+		return missions.filter((mission) => contains(`${mission.goal} ${mission.status}`)).slice(0, 8);
+	});
 	const matchedProjects = $derived.by(() => {
 		if (!normalizedQuery) return projects.slice(0, 4);
 		return projects.filter((project) => contains(`${project.name} ${project.id}`)).slice(0, 8);
@@ -167,6 +183,7 @@
 	const resultCount = $derived(
 		matchedSessions.length +
 			matchedTasks.length +
+			matchedMissions.length +
 			matchedProjects.length +
 			matchedFiles.length +
 			matchedArtifacts.length +
@@ -184,6 +201,16 @@
 		void goto(`/workbench/${encodeURIComponent(taskId)}`);
 	}
 
+	function openMission(missionId: string): void {
+		onClose();
+		void goto(`/missions/${encodeURIComponent(missionId)}`);
+	}
+
+	function workStatusLabel(status: string): string {
+		const labels: Record<string, string> = { pending: "待处理", running: "执行中", waiting_approval: "等待你确认", completed: "已完成", failed: "失败", cancelled: "已取消", CREATED: "已创建", DESIGNING: "设计中", EXECUTING: "执行中", REVIEWING: "审查中", WAITING_EXTERNAL_SUPERVISOR: "等待外部审查", WAITING_OWNER: "等待你处理", ACCEPTED: "已接受", DONE: "已完成", FAILED: "失败", CANCELLED: "已取消" };
+		return labels[status] ?? status;
+	}
+
 	function openArtifact(artifact: SearchArtifact): void {
 		onClose();
 		void goto(
@@ -193,6 +220,16 @@
 
 	function insertFile(path: string): void {
 		window.dispatchEvent(new CustomEvent("veya:insert-chat-text", { detail: `@${path} ` }));
+		onOpenChat();
+		onClose();
+	}
+
+	function openProject(project: SearchProject): void {
+		window.dispatchEvent(
+			new CustomEvent("veya:insert-chat-text", {
+				detail: `关于项目「${project.name}」(${project.id})：`,
+			}),
+		);
 		onOpenChat();
 		onClose();
 	}
@@ -257,7 +294,7 @@
 					{/each}
 				{/if}
 
-				{#if matchedTasks.length > 0}
+				{#if matchedTasks.length > 0 || matchedMissions.length > 0}
 					<div class="px-2 pb-1 pt-4 text-xs font-medium text-white/40">Work</div>
 					{#each matchedTasks as task (task.id)}
 						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openTask(task.id)}>
@@ -266,7 +303,17 @@
 								<span class="block truncate text-sm text-terminal-fg">{task.title}</span>
 								<span class="block truncate text-xs text-terminal-dim">{task.objective}</span>
 							</span>
-							<span class="shrink-0 text-xs text-terminal-dim">{task.status}</span>
+							<span class="shrink-0 text-xs text-terminal-dim">{workStatusLabel(task.status)}</span>
+						</button>
+					{/each}
+					{#each matchedMissions as mission (mission.mission_id)}
+						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openMission(mission.mission_id)}>
+							<SquareCheckBig class="size-4 shrink-0 text-violet-300" />
+							<span class="min-w-0 flex-1">
+								<span class="block overflow-hidden text-ellipsis whitespace-nowrap text-sm text-terminal-fg">{mission.goal}</span>
+								<span class="block text-xs text-terminal-dim">受监督的长期 Work</span>
+							</span>
+							<span class="shrink-0 text-xs text-terminal-dim">{workStatusLabel(mission.status)}</span>
 						</button>
 					{/each}
 				{/if}
@@ -274,14 +321,14 @@
 				{#if matchedProjects.length > 0}
 					<div class="px-2 pb-1 pt-4 text-xs font-medium text-white/40">Projects</div>
 					{#each matchedProjects as project (project.id)}
-						<div class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5">
+						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openProject(project)}>
 							<Boxes class="size-4 shrink-0 text-emerald-300" />
 							<span class="min-w-0 flex-1">
-								<span class="block truncate text-sm text-terminal-fg">{project.name}</span>
-								<span class="block truncate text-xs text-terminal-dim">{project.id}</span>
+								<span class="block overflow-hidden text-ellipsis whitespace-nowrap text-sm text-terminal-fg">{project.name}</span>
+								<span class="block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-terminal-dim">{project.id}</span>
 							</span>
-							<span class="shrink-0 text-xs text-terminal-dim">{project.session_count ?? 0} chats</span>
-						</div>
+							<span class="shrink-0 text-xs text-terminal-dim">在 Chat 中使用</span>
+						</button>
 					{/each}
 				{/if}
 

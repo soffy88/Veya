@@ -44,7 +44,7 @@
 			<button class="btn" onclick={() => void store.load()} disabled={store.loading}>
 				<RefreshCw size={16} class={store.loading ? "animate-spin" : ""} /> 刷新
 			</button>
-			<a class="btn btn-primary" href="/missions/new"><Plus size={16} /> 新建 Work</a>
+			<a class="btn btn-primary" href="/?view=work"><Plus size={16} /> 新建 Work</a>
 		</div>
 	</header>
 
