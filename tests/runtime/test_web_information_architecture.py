@@ -73,3 +73,42 @@ def test_heavy_surfaces_are_lazy_loaded() -> None:
         "PersonalContextPanel.svelte",
     ):
         assert f'await import("$lib/components/{component}")' in MAIN
+
+
+def test_main_shell_deep_links_are_ssr_safe() -> None:
+    assert 'import { browser } from "$app/environment"' in MAIN
+    assert 'if (!browser) return;' in MAIN
+    assert 'window.location.search' in MAIN
+
+
+def test_workbench_default_activity_is_human_readable() -> None:
+    assert "INTERNAL_ACTIVITY_TOPICS" in WORKBENCH
+    assert "activityLabel(event)" in WORKBENCH
+    assert 'class="mt-0.5 block text-xs text-terminal-dim"' in WORKBENCH
+    assert "min-h-11" in WORKBENCH
+
+
+def test_primary_mobile_actions_use_44px_targets() -> None:
+    assert "min-h-11" in TASKS
+    assert "size-11" in TASKS
+    assert "min-h-11" in MISSION_NEW
+
+
+def test_chat_cleanup_is_ssr_safe() -> None:
+    assert 'if (typeof window !== "undefined") window.removeEventListener' in CHAT
+
+
+def test_work_cards_resist_unbroken_long_text() -> None:
+    assert "min-h-52 min-w-0 flex-col" in TASKS
+    assert "[overflow-wrap:anywhere]" in TASKS
+
+
+def test_search_palette_traps_keyboard_focus() -> None:
+    assert "dialogEl" in SEARCH
+    assert 'event.key !== "Tab"' in SEARCH
+    assert "event.preventDefault()" in SEARCH
+    assert "focusable[nextIndex]?.focus()" in SEARCH
+
+
+def test_shell_navigation_uses_touch_sized_controls() -> None:
+    assert MAIN.count("min-h-11") >= 9

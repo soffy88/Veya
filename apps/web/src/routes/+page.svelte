@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
+	import { browser } from "$app/environment";
 	import {
 		Bot,
 		Brain,
@@ -255,6 +256,7 @@
 
 	onMount(() => {
 		void loadRecentWork();
+		if (!browser) return;
 		const requestedView = new URLSearchParams(window.location.search).get("view");
 		if (requestedView === "tasks") selectNav("tasks");
 		else if (requestedView === "work") selectNav("bot");
@@ -297,14 +299,14 @@
 			<button
 				type="button"
 				onclick={newChat}
-				class="flex items-center justify-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-2 text-xs font-medium text-white transition hover:bg-white/15"
+				class="flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-xs font-medium text-white transition hover:bg-white/15"
 			>
 				<Plus class="size-3.5" /> Chat
 			</button>
 			<button
 				type="button"
 				onclick={newWork}
-				class="flex items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-2 text-xs font-medium text-white/80 transition hover:bg-white/[0.06]"
+				class="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-xs font-medium text-white/80 transition hover:bg-white/[0.06]"
 			>
 				<Plus class="size-3.5" /> Work
 			</button>
@@ -313,7 +315,7 @@
 		<button
 			type="button"
 			onclick={() => (searchOpen = true)}
-			class="mx-2.5 mt-2 flex items-center gap-2 rounded-lg border border-white/[0.08] px-3 py-2 text-left text-sm text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
+			class="mx-2.5 mt-2 flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] px-3 text-left text-sm text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
 		>
 			<Search class="size-4" />
 			<span class="flex-1">搜索</span>
@@ -325,7 +327,7 @@
 				<button
 					type="button"
 					onclick={() => selectNav(id)}
-					class="flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-sm transition {view === id
+					class="flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 text-sm transition {view === id
 						? 'bg-white/10 text-terminal-fg'
 						: 'text-terminal-dim hover:bg-white/5 hover:text-terminal-fg'}"
 				>
@@ -344,7 +346,7 @@
 					<button
 						type="button"
 						onclick={() => openWork(work.href)}
-						class="group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-white/[0.05]"
+						class="group flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left transition hover:bg-white/[0.05]"
 					>
 						<SquareCheckBig class="size-3.5 shrink-0 text-violet-300/70" />
 						<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">{work.title}</span>
@@ -359,7 +361,7 @@
 					<div class="px-2 pb-1 pt-2 text-[11px] text-terminal-dim/60">{group.label}</div>
 					{#each group.sessions as session (session.sid)}
 						<div
-							class="group relative flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 transition {session.sid === sessionStore.activeSid && view === 'chat'
+							class="group relative flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 transition {session.sid === sessionStore.activeSid && view === 'chat'
 								? 'bg-white/[0.07]'
 								: 'hover:bg-white/[0.05]'}"
 							role="button"
@@ -395,7 +397,7 @@
 			<button
 				type="button"
 				onclick={() => (moreOpen = !moreOpen)}
-				class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
+				class="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
 				aria-expanded={moreOpen}
 			>
 				<MoreHorizontal class="size-4" />
@@ -409,7 +411,7 @@
 						<button
 							type="button"
 							onclick={() => selectNav(id)}
-							class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-terminal-dim hover:bg-white/[0.06] hover:text-terminal-fg"
+							class="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm text-terminal-dim hover:bg-white/[0.06] hover:text-terminal-fg"
 						>
 							<Icon class="size-4" /> {label}
 						</button>
@@ -420,7 +422,7 @@
 						<button
 							type="button"
 							onclick={() => selectNav(id)}
-							class="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-terminal-dim hover:bg-white/[0.06] hover:text-terminal-fg"
+							class="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm text-terminal-dim hover:bg-white/[0.06] hover:text-terminal-fg"
 						>
 							<Icon class="size-4" /> {label}
 						</button>
@@ -451,12 +453,12 @@
 					<button
 						type="button"
 						onclick={() => selectNav("chat")}
-						class="rounded-md px-3 py-1.5 text-xs transition {view === 'chat' ? 'bg-white/10 text-white' : 'text-terminal-dim hover:text-white'}"
+						class="min-h-11 rounded-md px-3 text-xs transition {view === 'chat' ? 'bg-white/10 text-white' : 'text-terminal-dim hover:text-white'}"
 					>Chat</button>
 					<button
 						type="button"
 						onclick={() => selectNav("bot")}
-						class="rounded-md px-3 py-1.5 text-xs transition {view === 'bot' ? 'bg-white/10 text-white' : 'text-terminal-dim hover:text-white'}"
+						class="min-h-11 rounded-md px-3 text-xs transition {view === 'bot' ? 'bg-white/10 text-white' : 'text-terminal-dim hover:text-white'}"
 					>Work</button>
 				</div>
 			{/if}
@@ -466,7 +468,7 @@
 			<button
 				type="button"
 				onclick={() => (searchOpen = true)}
-				class="hidden items-center gap-2 rounded-lg border border-white/[0.08] px-2.5 py-1.5 text-xs text-terminal-dim transition hover:bg-white/[0.04] hover:text-terminal-fg sm:flex"
+				class="hidden min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] px-2.5 text-xs text-terminal-dim transition hover:bg-white/[0.04] hover:text-terminal-fg sm:flex"
 			>
 				<Search class="size-3.5" />
 				搜索

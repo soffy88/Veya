@@ -102,7 +102,7 @@
 			</div>
 		</fieldset>
 
-		<button class="text-xs underline opacity-70" onclick={() => (advanced = !advanced)}>
+		<button class="min-h-11 rounded-lg px-2 text-sm text-terminal-dim underline hover:bg-white/[0.04]" onclick={() => (advanced = !advanced)}>
 			{advanced ? "收起高级设置" : "高级设置"}
 		</button>
 
@@ -138,7 +138,7 @@
 			<div class="rounded border border-red-500/40 p-3 text-sm text-red-400">{error}</div>
 		{/if}
 
-		<button class="btn btn-primary w-full" onclick={() => void submit()} disabled={busy}>
+		<button class="btn btn-primary min-h-11 w-full" onclick={() => void submit()} disabled={busy}>
 			{#if busy}
 				<Loader2 size={16} class="animate-spin" /> 正在启动…
 			{:else}

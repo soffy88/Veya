@@ -70,6 +70,7 @@
 	let loading = $state(false);
 	let loadAttempted = $state(false);
 	let inputEl = $state<HTMLInputElement>();
+	let dialogEl = $state<HTMLDivElement>();
 
 	const shortcuts = [
 		{ label: "Work", hint: "创建或继续长期工作", view: "bot" },
@@ -240,7 +241,30 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent): void {
-		if (event.key === "Escape") onClose();
+		if (event.key === "Escape") {
+			onClose();
+			return;
+		}
+		if (event.key !== "Tab" || !dialogEl) return;
+
+		const focusable = Array.from(
+			dialogEl.querySelectorAll<HTMLElement>(
+				'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+			),
+		).filter((element) => element.getClientRects().length > 0);
+		if (focusable.length === 0) return;
+
+		const active = document.activeElement as HTMLElement | null;
+		const index = active ? focusable.indexOf(active) : -1;
+		const nextIndex = event.shiftKey
+			? index <= 0
+				? focusable.length - 1
+				: index - 1
+			: index < 0 || index >= focusable.length - 1
+				? 0
+				: index + 1;
+		event.preventDefault();
+		focusable[nextIndex]?.focus();
 	}
 </script>
 
@@ -257,6 +281,7 @@
 
 		<div
 			class="relative flex max-h-[78vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#101010] shadow-2xl"
+			bind:this={dialogEl}
 			role="dialog"
 			tabindex="-1"
 			aria-modal="true"

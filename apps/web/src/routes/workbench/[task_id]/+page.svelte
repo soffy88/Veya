@@ -54,6 +54,44 @@
 		return "text-sky-300";
 	}
 
+	const INTERNAL_ACTIVITY_TOPICS = new Set([
+		"trajectory.recorded",
+		"checkpoint.created",
+		"tool.requested",
+		"tool.started",
+		"tool.completed",
+		"tool_call",
+		"master_round",
+	]);
+
+	const activityEntries = $derived.by(() => {
+		const rows = Array.isArray(view?.timeline) ? view.timeline : [];
+		return rows.filter((event: AnyRecord) => !INTERNAL_ACTIVITY_TOPICS.has(String(event?.topic ?? ""))).slice(-20).reverse();
+	});
+
+	function activityLabel(event: AnyRecord): string {
+		const message = String(event?.payload?.message ?? "").trim();
+		if (message && !/^[a-z0-9_.:/-]+$/i.test(message)) return message;
+		const topic = String(event?.topic ?? "");
+		const labels: Record<string, string> = {
+			"message.assistant_added": "Veya 更新了结果",
+			"message.user_added": "收到你的消息",
+			"task.updated": "工作状态已更新",
+			"task.completed": "工作已完成",
+			"task.failed": "工作执行失败",
+			"task.cancelled": "工作已取消",
+			"master_rounds_exhausted": "本轮执行已结束",
+			"completed": "完成一个执行阶段",
+			"failed": "执行阶段失败",
+			"approval.requested": "需要你的确认",
+			"approval.resolved": "确认已处理",
+			"artifact.created": "生成了新产物",
+			"artifact.verified": "产物已验证",
+		};
+		const status = String(event?.payload?.status ?? "").trim();
+		return labels[topic] ?? (status ? statusLabel(status) : "工作进度已更新");
+	}
+
 	function formatTime(value: unknown): string {
 		if (!value) return "—";
 		const date = new Date(typeof value === "number" ? value * 1000 : String(value));
@@ -149,7 +187,7 @@
 <main class="min-h-dvh overflow-y-auto bg-[#080808] px-3 pb-24 pt-3 text-terminal-fg sm:px-4 sm:pb-24 sm:pt-5 md:px-8 md:pb-6">
 	<div class="mx-auto max-w-6xl space-y-4">
 		<header class="flex flex-wrap items-start gap-3 border-b border-white/10 pb-4">
-			<a href="/" class="inline-flex items-center gap-1.5 rounded-lg border border-terminal-edge px-2.5 py-1.5 text-xs text-terminal-dim hover:text-terminal-fg"><ArrowLeft class="size-3.5" /> 返回</a>
+			<a href="/" class="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-terminal-edge px-3 text-sm text-terminal-dim hover:text-terminal-fg"><ArrowLeft class="size-3.5" /> 返回</a>
 			<div class="min-w-0 flex-1">
 				<p class="text-[11px] uppercase tracking-[0.18em] text-violet-300/70">Work</p>
 				<h1 class="truncate text-lg font-semibold">{view?.task?.title ?? taskId}</h1>
@@ -158,7 +196,7 @@
 			{#if view}
 				<span class="text-xs {statusClass(view.state?.status)}">● {statusLabel(view.state?.status)}</span>
 			{/if}
-			<button type="button" class="rounded-lg border border-terminal-edge p-2 text-terminal-dim hover:text-terminal-fg disabled:opacity-40" onclick={() => void loadWorkbench()} disabled={loading} title="刷新任务状态"><RefreshCw class="size-4 {loading ? 'animate-spin' : ''}" /></button>
+			<button type="button" class="inline-flex size-11 items-center justify-center rounded-lg border border-terminal-edge text-terminal-dim hover:text-terminal-fg disabled:opacity-40" onclick={() => void loadWorkbench()} disabled={loading} title="刷新任务状态"><RefreshCw class="size-4 {loading ? 'animate-spin' : ''}" /></button>
 		</header>
 
 		{#if error}<div class="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</div>{/if}
@@ -174,9 +212,9 @@
 					</div>
 
 					<div class="rounded-xl border border-terminal-edge bg-white/[0.02] p-4">
-						<div class="mb-3 flex items-center gap-2"><Eye class="size-4 text-violet-400" /><h2 class="text-sm font-semibold">活动</h2><span class="text-xs text-terminal-dim">{view.state?.event_count ?? 0} 项</span></div>
-						{#if view.timeline?.length}<div class="max-h-[520px] space-y-1 overflow-y-auto pr-1">{#each [...view.timeline].slice(-20).reverse() as event (event.event_id)}<div class="flex items-start gap-3 rounded-lg px-2.5 py-2 hover:bg-white/[0.025]"><span class="mt-2 size-1.5 shrink-0 rounded-full bg-white/30"></span><span class="min-w-0 flex-1"><span class="block text-sm text-terminal-fg">{String(event.payload?.message ?? event.payload?.status ?? event.topic)}</span><span class="mt-0.5 block text-[11px] text-terminal-dim">{formatTime(event.ts)}{#if event.actor}<span class="ml-1.5 opacity-60">· {event.actor}</span>{/if}</span></span></div>{/each}</div>
-						{:else}<p class="text-sm text-terminal-dim">任务开始后，关键步骤会显示在这里。</p>{/if}
+						<div class="mb-3 flex items-center gap-2"><Eye class="size-4 text-violet-400" /><h2 class="text-sm font-semibold">活动</h2><span class="text-xs text-terminal-dim">最近 {activityEntries.length} 项</span></div>
+						{#if activityEntries.length}<div class="max-h-[520px] space-y-1 overflow-y-auto pr-1">{#each activityEntries as event (event.event_id)}<div class="flex items-start gap-3 rounded-lg px-2.5 py-2 hover:bg-white/[0.025]"><span class="mt-2 size-1.5 shrink-0 rounded-full bg-white/30"></span><span class="min-w-0 flex-1"><span class="block text-sm text-terminal-fg">{activityLabel(event)}</span><span class="mt-0.5 block text-xs text-terminal-dim">{formatTime(event.ts)}</span></span></div>{/each}</div>
+						{:else}<p class="text-sm text-terminal-dim">任务开始后，关键进展会显示在这里。</p>{/if}
 					</div>
 				</section>
 
@@ -214,7 +252,7 @@
 						<div class="mb-3 flex items-center justify-between gap-2"><h2 class="text-sm font-semibold">结果</h2>{#if view.verification?.acceptance_passed === true}<span class="text-xs text-emerald-300">验证通过</span>{:else if view.verification?.acceptance_passed === false}<span class="text-xs text-rose-300">验证未通过</span>{:else}<span class="text-xs text-terminal-dim">等待结果</span>{/if}</div>{#if view.verification?.changed_files?.length}<p class="mb-3 text-xs text-terminal-dim">已变更 {view.verification.changed_files.length} 个文件</p>{/if}{#if view.artifacts?.length}<div class="mt-3 space-y-1">{#each view.artifacts as item (item.name)}<button type="button" class="flex min-h-10 w-full items-center justify-between rounded-lg border border-white/5 px-3 py-2 text-left text-xs text-sky-300 hover:bg-white/5 disabled:opacity-40" onclick={() => void openArtifact(item.name)} disabled={!item.available || artifactBusy}><span>{item.name}</span><ExternalLink class="size-3" /></button>{/each}</div>{:else}<p class="mt-3 text-xs text-terminal-dim">任务产生的文件和报告会显示在这里。</p>{/if}
 					</section>
 
-					<button type="button" class="flex w-full items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.015] px-3 py-2.5 text-left text-xs text-terminal-dim hover:bg-white/[0.03] hover:text-terminal-fg" onclick={() => (developerOpen = !developerOpen)} aria-expanded={developerOpen}><Code2 class="size-4" /><span class="flex-1">Developer details</span><ChevronDown class="size-4 transition-transform {developerOpen ? 'rotate-180' : ''}" /></button>
+					<button type="button" class="flex min-h-11 w-full items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.015] px-3 text-left text-xs text-terminal-dim hover:bg-white/[0.03] hover:text-terminal-fg" onclick={() => (developerOpen = !developerOpen)} aria-expanded={developerOpen}><Code2 class="size-4" /><span class="flex-1">Developer details</span><ChevronDown class="size-4 transition-transform {developerOpen ? 'rotate-180' : ''}" /></button>
 
 					{#if developerOpen}
 					<section class="rounded-xl border border-terminal-edge bg-white/[0.02] p-4">

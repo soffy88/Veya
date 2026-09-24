@@ -244,7 +244,7 @@
 		</div>
 
 		{#if workspaces.length > 0}
-			<label class="flex min-h-10 items-center gap-2 rounded-lg border border-terminal-edge px-3 text-xs text-terminal-dim">
+			<label class="flex min-h-11 items-center gap-2 rounded-lg border border-terminal-edge px-3 text-xs text-terminal-dim">
 				<FolderOpen class="size-3.5" />
 				<select class="max-w-40 bg-transparent text-terminal-fg outline-none" bind:value={workspaceFilter}>
 					<option value="">全部工作区</option>
@@ -257,7 +257,7 @@
 
 		<button
 			type="button"
-			class="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-terminal-edge px-3 text-sm text-terminal-dim hover:text-terminal-fg disabled:opacity-50"
+			class="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-terminal-edge px-3 text-sm text-terminal-dim hover:text-terminal-fg disabled:opacity-50"
 			onclick={() => void fetchWork()}
 			disabled={busy}
 		>
@@ -300,7 +300,7 @@
 		{:else}
 			<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 				{#each visibleItems as item (item.key)}
-					<article class="flex min-h-52 flex-col rounded-2xl border border-white/[0.07] bg-white/[0.018] p-4 transition hover:border-white/[0.13] hover:bg-white/[0.025]">
+					<article class="flex min-h-52 min-w-0 flex-col rounded-2xl border border-white/[0.07] bg-white/[0.018] p-4 transition hover:border-white/[0.13] hover:bg-white/[0.025]">
 						<div class="flex items-start gap-3">
 							<div class="min-w-0 flex-1">
 								<div class="flex flex-wrap items-center gap-2">
@@ -309,8 +309,8 @@
 										<span class="inline-flex items-center gap-1 text-[12px] text-amber-300"><CircleAlert class="size-3.5" />需要你处理</span>
 									{/if}
 								</div>
-								<h3 class="mt-3 line-clamp-2 text-[15px] font-medium leading-5 text-terminal-fg">{item.title}</h3>
-								<p class="mt-1 line-clamp-2 text-sm leading-5 text-terminal-dim">{item.objective}</p>
+								<h3 class="mt-3 line-clamp-2 [overflow-wrap:anywhere] text-[15px] font-medium leading-5 text-terminal-fg">{item.title}</h3>
+								<p class="mt-1 line-clamp-2 [overflow-wrap:anywhere] text-sm leading-5 text-terminal-dim">{item.objective}</p>
 							</div>
 						</div>
 
@@ -337,7 +337,7 @@
 							<div class="mt-3 flex items-center gap-2">
 								<button
 									type="button"
-									class="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 text-sm text-terminal-fg hover:bg-white/15"
+									class="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 text-sm text-terminal-fg hover:bg-white/15"
 									onclick={() => void goto(item.href)}
 								>
 									打开 <ArrowRight class="size-3.5" />
@@ -345,7 +345,7 @@
 								{#if canResume(item)}
 									<button
 										type="button"
-										class="inline-flex size-10 items-center justify-center rounded-lg border border-sky-500/30 text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
+										class="inline-flex size-11 items-center justify-center rounded-lg border border-sky-500/30 text-sky-300 hover:bg-sky-500/10 disabled:opacity-40"
 										title="继续 Work"
 										aria-label="继续 Work"
 										disabled={actionBusy !== ""}
@@ -357,7 +357,7 @@
 								{#if canCancel(item)}
 									<button
 										type="button"
-										class="inline-flex size-10 items-center justify-center rounded-lg border border-rose-500/25 text-rose-300 hover:bg-rose-500/10 disabled:opacity-40"
+										class="inline-flex size-11 items-center justify-center rounded-lg border border-rose-500/25 text-rose-300 hover:bg-rose-500/10 disabled:opacity-40"
 										title="取消 Work"
 										aria-label="取消 Work"
 										disabled={actionBusy !== ""}

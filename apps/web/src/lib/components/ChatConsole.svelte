@@ -488,7 +488,7 @@ import WorkProcess from "./WorkProcess.svelte";
 	});
 	onDestroy(() => {
 		if (notifyStore.streamHandler === applyMirrorEvent) notifyStore.streamHandler = undefined;
-		window.removeEventListener("veya:insert-chat-text", insertChatContext);
+		if (typeof window !== "undefined") window.removeEventListener("veya:insert-chat-text", insertChatContext);
 	});
 
 	async function pumpSse(res: Response, onFrame: (data: string) => void) {
