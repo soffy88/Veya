@@ -17,7 +17,6 @@
 		MoreHorizontal,
 		Network,
 		Package,
-		Plus,
 		Search,
 		Settings,
 		SquareCheckBig,
@@ -161,16 +160,6 @@
 		closeSidebar();
 	}
 
-	function newChat(): void {
-		sessionStore.newSession();
-		view = "chat";
-		closeSidebar();
-	}
-
-	function newWork(): void {
-		selectNav("bot");
-	}
-
 	function openTasks(): void {
 		selectNav("tasks");
 	}
@@ -294,48 +283,6 @@
 				<X class="size-5" />
 			</button>
 		</div>
-
-		<div class="grid grid-cols-2 gap-1.5 px-2.5">
-			<button
-				type="button"
-				onclick={newChat}
-				class="flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-white/10 px-2.5 text-xs font-medium text-white transition hover:bg-white/15"
-			>
-				<Plus class="size-3.5" /> Chat
-			</button>
-			<button
-				type="button"
-				onclick={newWork}
-				class="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-xs font-medium text-white/80 transition hover:bg-white/[0.06]"
-			>
-				<Plus class="size-3.5" /> Work
-			</button>
-		</div>
-
-		<button
-			type="button"
-			onclick={() => (searchOpen = true)}
-			class="mx-2.5 mt-2 flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] px-3 text-left text-sm text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
-		>
-			<Search class="size-4" />
-			<span class="flex-1">搜索</span>
-			<kbd class="rounded border border-white/10 px-1.5 py-0.5 font-mono text-[10px] text-white/35">⌘K</kbd>
-		</button>
-
-		<nav class="mt-3 grid grid-cols-2 gap-1 px-2.5">
-			{#each PRIMARY as [id, label, Icon] (id)}
-				<button
-					type="button"
-					onclick={() => selectNav(id)}
-					class="flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-2 text-sm transition {view === id
-						? 'bg-white/10 text-terminal-fg'
-						: 'text-terminal-dim hover:bg-white/5 hover:text-terminal-fg'}"
-				>
-					<Icon class="size-4" />
-					{label}
-				</button>
-			{/each}
-		</nav>
 
 		<div class="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
 			<div class="px-2 pb-1 text-xs font-medium text-white/40">Recent</div>
@@ -474,6 +421,7 @@
 				搜索
 				<kbd class="font-mono text-[10px] text-white/30">⌘K</kbd>
 			</button>
+
 			<AuthGate />
 			<button
 				type="button"

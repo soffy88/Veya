@@ -60,6 +60,7 @@ import WorkProcess from "./WorkProcess.svelte";
 	let permissionProfile = $state("");
 	let profileOptions = $state<{ name: string; description: string }[]>([]);
 	let profileError = $state("");
+	let approvalError = $state("");
 	let pendingApproval = $state<{
 		request_id: string;
 		tool_name: string;
@@ -277,6 +278,7 @@ import WorkProcess from "./WorkProcess.svelte";
 		sessionStore.newSession();
 		input = "";
 		pendingApproval = null;
+		approvalError = "";
 		pendingQuestion = null;
 		questionAnswer = "";
 	}
@@ -404,6 +406,7 @@ import WorkProcess from "./WorkProcess.svelte";
 					if (last) last.steps = [...last.steps, ev as ToolStep];
 				}
 			} else if (kind === "permission_request") {
+				approvalError = "";
 				pendingApproval = {
 					request_id: String(ev.request_id ?? ""),
 					tool_name: String(ev.tool_name ?? "tool"),
@@ -631,12 +634,21 @@ import WorkProcess from "./WorkProcess.svelte";
 	async function resolveApproval(approved: boolean) {
 		const req = pendingApproval;
 		if (!req) return;
-		pendingApproval = null;
-		await fetch(`${API_BASE}/api/v1/agent/approval`, {
-			method: "POST",
-			headers: { "content-type": "application/json", ...authHeader() },
-			body: JSON.stringify({ request_id: req.request_id, approved }),
-		}).catch(() => {});
+		approvalError = "";
+		try {
+			const res = await fetch(`${API_BASE}/api/v1/agent/approval`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...authHeader() },
+				body: JSON.stringify({ request_id: req.request_id, approved }),
+			});
+			if (!res.ok) {
+				approvalError = `审批提交失败 (HTTP ${res.status})，请重试。`;
+				return;
+			}
+			pendingApproval = null;
+		} catch {
+			approvalError = "审批提交失败，请检查网络后重试。";
+		}
 	}
 
 	async function resolveQuestion(answer: string) {
@@ -857,6 +869,7 @@ import WorkProcess from "./WorkProcess.svelte";
 			<div class="mb-2 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
 				<span class="min-w-0 flex-1 text-xs text-amber-200">
 					{pendingApproval.reason}
+					{#if approvalError}<span class="mt-1 block text-rose-300">{approvalError}</span>{/if}
 				</span>
 				<button
 					type="button"
@@ -998,8 +1011,8 @@ import WorkProcess from "./WorkProcess.svelte";
 								<span class="shrink-0">权限</span>
 								<select
 									class="min-w-0 flex-1 bg-transparent text-right text-terminal-fg outline-none"
-									bind:value={permissionProfile}
-									onchange={() => void setPermissionProfile(permissionProfile)}
+									value={permissionProfile}
+									onchange={(event) => void setPermissionProfile((event.currentTarget as HTMLSelectElement).value)}
 									disabled={busy}
 								>
 									{#each profileOptions as opt (opt.name)}

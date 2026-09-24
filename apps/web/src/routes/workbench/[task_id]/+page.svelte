@@ -126,8 +126,9 @@
 		});
 		busy = "";
 		if (!result.ok) {
-			error = result.status === 409 ? "审批已过期，已刷新当前状态。" : `审批失败 (HTTP ${result.status})`;
+			const approvalError = result.status === 409 ? "审批已过期，已刷新当前状态。" : `审批失败 (HTTP ${result.status})`;
 			await loadWorkbench();
+			if (!error) error = approvalError;
 			return;
 		}
 		view = result.data as AnyRecord;
