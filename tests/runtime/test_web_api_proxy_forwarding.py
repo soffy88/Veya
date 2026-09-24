@@ -35,3 +35,19 @@ def test_proxy_streams_sse_unbuffered():
     assert "text/event-stream" in PROXY
     assert "upstream.body" in PROXY
     assert '"x-accel-buffering": "no"' in PROXY
+
+
+PROJECT_PROXY = Path("apps/web/src/routes/projects/+server.ts").read_text(encoding="utf-8")
+
+
+def test_project_proxy_targets_gateway_projects_route():
+    assert 'const target = `${BASE}/projects${event.url.search}`;' in PROJECT_PROXY
+    assert "export const GET" in PROJECT_PROXY
+    assert "export const POST" in PROJECT_PROXY
+
+
+def test_project_proxy_forwards_credentials_only():
+    assert 'event.request.headers.get("authorization")' in PROJECT_PROXY
+    assert 'event.request.headers.get("cookie")' in PROJECT_PROXY
+    assert "event.request.headers.forEach" not in PROJECT_PROXY
+    assert "new Headers(event.request.headers)" not in PROJECT_PROXY

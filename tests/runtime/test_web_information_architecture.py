@@ -131,3 +131,8 @@ def test_workbench_terminal_states_are_human_readable() -> None:
     assert 'started: "已开始"' in WORKBENCH
     assert 'view.state?.status === "completed"' in WORKBENCH
     assert '工作已完成' in WORKBENCH
+
+
+def test_workbench_action_controls_use_touch_sized_targets() -> None:
+    assert "min-h-10" not in WORKBENCH
+    assert "min-h-11" in WORKBENCH
