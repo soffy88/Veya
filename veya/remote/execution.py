@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import threading
 import time
@@ -34,6 +35,8 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 
 class ExecutionPhase(StrEnum):
@@ -687,6 +690,9 @@ class DurableJobManager:
         self.outbox = outbox
         self.recovery_runner_factory = recovery_runner_factory
         self.recovery_failures: list[dict[str, Any]] = []
+        # Durable-write failures must be observable; a swallowed projection
+        # write can silently lose a terminal/recovery transition.
+        self.persistence_failures: list[dict[str, Any]] = []
         self._records: dict[str, ExecutionRecord] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._monitors: dict[str, asyncio.Task[None]] = {}
@@ -793,8 +799,23 @@ class DurableJobManager:
 
     def _persist(self, record: ExecutionRecord) -> None:
         record.updated_at = time.time()
-        with contextlib.suppress(Exception):
+        try:
             self.store.save(record)
+        except Exception as exc:
+            failure = {
+                "execution_id": record.execution_id,
+                "phase": record.phase,
+                "status": record.status,
+                "error": f"{type(exc).__name__}: {exc}",
+                "ts": time.time(),
+            }
+            self.persistence_failures.append(failure)
+            del self.persistence_failures[:-20]
+            _logger.exception(
+                "remote execution projection persist failed for %s (phase=%s)",
+                record.execution_id,
+                record.phase,
+            )
 
     # ── submit ──────────────────────────────────────────────────────
     def submit(
@@ -1782,9 +1803,14 @@ class DurableJobManager:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-        # Admission may not have created a GoalRun yet.  Leave the request
-        # marked for the adapter; it will project cancellation if admitted.
-        if not record.is_terminal and record.goal_run_id:
+        # Explicit cancellation must always converge the remote projection.
+        # If a canonical GoalRun exists it owns the business transition and is
+        # commanded above; otherwise there is no business authority left to
+        # preserve, so the projection itself is finished.  Leaving a
+        # goal_run_id-less record non-terminal (e.g. an orphan L1 parent whose
+        # process died during dispatch) would leak a stale projection that no
+        # operator retry can ever clear.
+        if not record.is_terminal:
             self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
         return record
 

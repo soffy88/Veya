@@ -688,8 +688,22 @@ class RemoteToolAdapter:
         self.startup_recovery_report: dict[str, Any] = {
             "started": False,
             "recovered": 0,
+            "pending_recovery": 0,
+            "recovery_degraded": False,
             "failures": [],
         }
+
+    def _projection_is_live(self, record: Any, now: float) -> bool:
+        """True when a worker still owns the non-terminal projection lease."""
+        if record.is_terminal:
+            return False
+        if record.status == "QUEUED" and record.heartbeat_at is None:
+            # Admitted but the worker has not written its first heartbeat yet.
+            return True
+        return (
+            record.heartbeat_at is not None
+            and now - record.heartbeat_at <= self.jobs.heartbeat_timeout_s
+        )
 
     async def initialize(self) -> dict[str, Any]:
         """Initialize the projection and trigger canonical GoalRun recovery.
@@ -697,6 +711,14 @@ class RemoteToolAdapter:
         This is lifecycle wiring only.  Durable recovery remains implemented
         by ``DurableJobManager.recover_unfinished`` and GoalRun; the adapter
         never resumes a provider or changes a business state itself.
+
+        A non-terminal projection that cannot be auto-replayed is a *degraded*
+        recovery state, not a fatal startup state.  The projection keeps its
+        original identity and stays visible so the control plane
+        (``process.status`` / ``process.cancel`` / explicit resume) can
+        converge it.  Failing startup here would make the documented
+        "explicit operator retry" impossible to perform and would take the
+        whole data plane offline.
         """
         async with self._startup_lock:
             if self._startup_complete:
@@ -706,54 +728,36 @@ class RemoteToolAdapter:
             if self._startup_error is not None:
                 raise RuntimeError("remote startup recovery failed") from self._startup_error
             try:
-                unfinished = self.jobs.unfinished_count()
-                if unfinished and self.jobs.recovery_runner_factory is None:
+                records = self.jobs.unfinished_records()
+                if records and self.jobs.recovery_runner_factory is None:
                     now = time.time()
-                    # A just-admitted GoalRun can be persisted between its
-                    # projection write and the worker's first heartbeat
-                    # update.  Treat a fresh non-terminal heartbeat as live;
-                    # an actual crashed process becomes recoverable only after
-                    # that lease window expires.
-                    live = all(
-                        (record.status == "QUEUED" and record.heartbeat_at is None)
-                        or (
-                            record.heartbeat_at is not None
-                            and now - record.heartbeat_at <= self.jobs.heartbeat_timeout_s
-                            and not record.is_terminal
-                        )
-                        for record in self.jobs.unfinished_records()
-                    )
-                    if not live:
-                        raise RuntimeError(
-                            f"{unfinished} stale remote projection(s) require a recovery runner"
-                        )
-                    # A second adapter in the same process is a reconnecting
-                    # projection, not a new owner.  Leave the live GoalRun
-                    # untouched and make the deferred state explicit.
+                    live = sum(1 for record in records if self._projection_is_live(record, now))
+                    pending = len(records) - live
                     self.startup_recovery_report = {
                         "started": True,
                         "recovered": 0,
-                        "deferred_live": unfinished,
+                        "deferred_live": live,
+                        "pending_recovery": pending,
+                        "recovery_degraded": pending > 0,
                         "failures": [],
                     }
                     self._startup_complete = True
                     return dict(self.startup_recovery_report)
                 recovered = await self.jobs.recover_unfinished()
+                failures = list(self.jobs.recovery_failures)
                 self.startup_recovery_report = {
                     "started": True,
                     "recovered": recovered,
-                    "failures": list(self.jobs.recovery_failures),
+                    "pending_recovery": len(failures),
+                    "recovery_degraded": bool(failures),
+                    "failures": failures,
                 }
-                if self.jobs.recovery_failures:
-                    raise RuntimeError(
-                        f"{len(self.jobs.recovery_failures)} remote recovery item(s) failed"
-                    )
                 self._startup_complete = True
                 return dict(self.startup_recovery_report)
             except BaseException as exc:
                 self._startup_error = exc
                 self.startup_recovery_report = {
-                    "started": True,
+                    "started": False,
                     "recovered": 0,
                     "failures": list(self.jobs.recovery_failures),
                     "error": str(exc),

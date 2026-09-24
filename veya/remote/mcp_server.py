@@ -406,6 +406,10 @@ def create_gateway(
         else RemoteToolAdapter(
             redact=audit.redact,
             execution_store=ExecutionStore.from_env(default_persistent=True),
+            # No canonical recovery-runner factory exists: provider closures
+            # are intentionally not serialized.  Startup therefore runs
+            # DEGRADED for stale projections (never fatal) and the control
+            # plane converges them; do not invent a replay authority here.
         )
     )
     if sessions is None:
