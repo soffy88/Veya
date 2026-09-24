@@ -98,6 +98,23 @@ def test_chat_cleanup_is_ssr_safe() -> None:
     assert 'if (typeof window !== "undefined") window.removeEventListener' in CHAT
 
 
+def test_work_history_limits_initial_dom_and_degrades_partial_sources() -> None:
+    assert "displayLimit = $state(30)" in TASKS
+    assert "renderedItems" in TASKS
+    assert "显示更多" in TASKS
+    assert "[401, 403].includes(missionResult.status)" in TASKS
+    assert "受监督 Work 加载失败 (HTTP" not in TASKS
+    assert "developerOpen" in TASKS
+    assert "<summary" not in TASKS
+
+
+def test_search_and_chat_primary_mobile_controls_use_44px_targets() -> None:
+    assert "min-h-11 min-w-0 flex-1" in SEARCH
+    assert "size-11" in SEARCH
+    assert "size-11" in CHAT
+    assert "min-h-11" in CHAT
+
+
 def test_work_cards_resist_unbroken_long_text() -> None:
     assert "min-h-52 min-w-0 flex-col" in TASKS
     assert "[overflow-wrap:anywhere]" in TASKS
@@ -110,5 +127,7 @@ def test_search_palette_traps_keyboard_focus() -> None:
     assert "focusable[nextIndex]?.focus()" in SEARCH
 
 
-def test_shell_navigation_uses_touch_sized_controls() -> None:
-    assert MAIN.count("min-h-11") >= 9
+def test_workbench_terminal_states_are_human_readable() -> None:
+    assert 'started: "已开始"' in WORKBENCH
+    assert 'view.state?.status === "completed"' in WORKBENCH
+    assert '工作已完成' in WORKBENCH

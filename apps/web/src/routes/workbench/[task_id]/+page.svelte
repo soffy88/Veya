@@ -30,6 +30,9 @@
 		partial_completed: "部分完成",
 		quarantined: "已隔离",
 		not_started: "未开始",
+		started: "已开始",
+		success: "已完成",
+		succeeded: "已完成",
 	};
 
 	const taskId = $derived(routeData.taskId);
@@ -249,7 +252,7 @@
 
 
 					<section class="rounded-xl border border-terminal-edge bg-white/[0.02] p-4">
-						<div class="mb-3 flex items-center justify-between gap-2"><h2 class="text-sm font-semibold">结果</h2>{#if view.verification?.acceptance_passed === true}<span class="text-xs text-emerald-300">验证通过</span>{:else if view.verification?.acceptance_passed === false}<span class="text-xs text-rose-300">验证未通过</span>{:else}<span class="text-xs text-terminal-dim">等待结果</span>{/if}</div>{#if view.verification?.changed_files?.length}<p class="mb-3 text-xs text-terminal-dim">已变更 {view.verification.changed_files.length} 个文件</p>{/if}{#if view.artifacts?.length}<div class="mt-3 space-y-1">{#each view.artifacts as item (item.name)}<button type="button" class="flex min-h-10 w-full items-center justify-between rounded-lg border border-white/5 px-3 py-2 text-left text-xs text-sky-300 hover:bg-white/5 disabled:opacity-40" onclick={() => void openArtifact(item.name)} disabled={!item.available || artifactBusy}><span>{item.name}</span><ExternalLink class="size-3" /></button>{/each}</div>{:else}<p class="mt-3 text-xs text-terminal-dim">任务产生的文件和报告会显示在这里。</p>{/if}
+						<div class="mb-3 flex items-center justify-between gap-2"><h2 class="text-sm font-semibold">结果</h2>{#if view.verification?.acceptance_passed === true}<span class="text-xs text-emerald-300">验证通过</span>{:else if view.verification?.acceptance_passed === false}<span class="text-xs text-rose-300">验证未通过</span>{:else if view.state?.status === "completed"}<span class="text-xs text-emerald-300">工作已完成</span>{:else if view.state?.status === "failed"}<span class="text-xs text-rose-300">执行失败</span>{:else}<span class="text-xs text-terminal-dim">等待结果</span>{/if}</div>{#if view.verification?.changed_files?.length}<p class="mb-3 text-xs text-terminal-dim">已变更 {view.verification.changed_files.length} 个文件</p>{/if}{#if view.artifacts?.length}<div class="mt-3 space-y-1">{#each view.artifacts as item (item.name)}<button type="button" class="flex min-h-10 w-full items-center justify-between rounded-lg border border-white/5 px-3 py-2 text-left text-xs text-sky-300 hover:bg-white/5 disabled:opacity-40" onclick={() => void openArtifact(item.name)} disabled={!item.available || artifactBusy}><span>{item.name}</span><ExternalLink class="size-3" /></button>{/each}</div>{:else}<p class="mt-3 text-xs text-terminal-dim">任务产生的文件和报告会显示在这里。</p>{/if}
 					</section>
 
 					<button type="button" class="flex min-h-11 w-full items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.015] px-3 text-left text-xs text-terminal-dim hover:bg-white/[0.03] hover:text-terminal-fg" onclick={() => (developerOpen = !developerOpen)} aria-expanded={developerOpen}><Code2 class="size-4" /><span class="flex-1">Developer details</span><ChevronDown class="size-4 transition-transform {developerOpen ? 'rotate-180' : ''}" /></button>

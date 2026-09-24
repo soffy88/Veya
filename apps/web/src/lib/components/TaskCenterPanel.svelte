@@ -73,6 +73,8 @@
 	let error = $state("");
 	let busy = $state(false);
 	let actionBusy = $state("");
+	let displayLimit = $state(30);
+	let developerOpen = $state(false);
 
 	function taskTone(status: string): string {
 		if (status === "completed") return "ok";
@@ -176,6 +178,7 @@
 	}
 
 	const visibleItems = $derived(items.filter(matchesFilter));
+	const renderedItems = $derived(visibleItems.slice(0, displayLimit));
 
 	async function fetchWork(): Promise<void> {
 		busy = true;
@@ -191,8 +194,8 @@
 		}
 		if (missionResult.ok && missionResult.data) {
 			missions = missionResult.data.missions ?? [];
-		} else if (!error) {
-			error = `受监督 Work 加载失败 (HTTP ${missionResult.status})`;
+		} else if (!error && ![401, 403].includes(missionResult.status)) {
+			error = "部分 Work 暂时无法加载，请稍后刷新。";
 		}
 		busy = false;
 	}
@@ -246,7 +249,7 @@
 		{#if workspaces.length > 0}
 			<label class="flex min-h-11 items-center gap-2 rounded-lg border border-terminal-edge px-3 text-xs text-terminal-dim">
 				<FolderOpen class="size-3.5" />
-				<select class="max-w-40 bg-transparent text-terminal-fg outline-none" bind:value={workspaceFilter}>
+				<select aria-label="工作区" class="max-w-40 bg-transparent text-terminal-fg outline-none" bind:value={workspaceFilter}>
 					<option value="">全部工作区</option>
 					{#each workspaces as workspace (workspace)}
 						<option value={workspace}>{workspace}</option>
@@ -263,6 +266,13 @@
 		>
 			<RefreshCw class="size-4 {busy ? 'animate-spin' : ''}" /> 刷新
 		</button>
+		<button
+			type="button"
+			class="inline-flex min-h-11 items-center rounded-lg border border-terminal-edge px-3 text-sm text-terminal-dim hover:text-terminal-fg"
+			onclick={() => (developerOpen = !developerOpen)}
+		>
+			{developerOpen ? "隐藏开发者信息" : "开发者信息"}
+		</button>
 	</header>
 
 	<div class="flex gap-1 overflow-x-auto border-b border-white/[0.05] px-4 py-2 md:px-6">
@@ -275,8 +285,8 @@
 		] as option (option[0])}
 			<button
 				type="button"
-				class="shrink-0 rounded-full px-3 py-1.5 text-xs transition {filter === option[0] ? 'bg-white/10 text-white' : 'text-terminal-dim hover:bg-white/[0.05] hover:text-terminal-fg'}"
-				onclick={() => (filter = option[0] as Filter)}
+				class="min-h-11 shrink-0 rounded-full px-3 text-xs transition {filter === option[0] ? 'bg-white/10 text-white' : 'text-terminal-dim hover:bg-white/[0.05] hover:text-terminal-fg'}"
+				onclick={() => { filter = option[0] as Filter; displayLimit = 30; }}
 			>
 				{option[1]}
 			</button>
@@ -299,7 +309,7 @@
 			</div>
 		{:else}
 			<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-				{#each visibleItems as item (item.key)}
+				{#each renderedItems as item (item.key)}
 					<article class="flex min-h-52 min-w-0 flex-col rounded-2xl border border-white/[0.07] bg-white/[0.018] p-4 transition hover:border-white/[0.13] hover:bg-white/[0.025]">
 						<div class="flex items-start gap-3">
 							<div class="min-w-0 flex-1">
@@ -368,20 +378,26 @@
 								{/if}
 							</div>
 
-							<details class="mt-2">
-								<summary class="cursor-pointer py-1 text-xs text-terminal-dim/70 hover:text-terminal-dim">Developer details</summary>
-								<div class="mt-1 space-y-1 rounded-lg bg-black/15 p-2.5 font-mono text-[11px] text-terminal-dim">
+							{#if developerOpen}
+								<div class="mt-2 space-y-1 rounded-lg bg-black/15 p-2.5 font-mono text-[11px] text-terminal-dim">
 									<div>source: {item.kind}</div>
 									<div class="break-all">id: {item.id}</div>
 									{#if item.cost !== null}<div>cost: $ {item.cost.toFixed(6)}</div>{/if}
 									{#if item.checkpoint}<div class="break-all">checkpoint: {item.checkpoint}</div>{/if}
 									{#if item.trace}<div class="break-all">trace: {item.trace}</div>{/if}
 								</div>
-							</details>
+							{/if}
 						</div>
 					</article>
 				{/each}
 			</div>
+			{#if visibleItems.length > renderedItems.length}
+				<div class="mt-4 flex justify-center">
+					<button type="button" class="min-h-11 rounded-lg border border-terminal-edge px-4 text-sm text-terminal-dim hover:bg-white/[0.04] hover:text-terminal-fg" onclick={() => (displayLimit += 30)}>
+						显示更多（还有 {visibleItems.length - renderedItems.length} 项）
+					</button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>

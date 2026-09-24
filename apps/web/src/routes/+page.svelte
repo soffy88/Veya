@@ -438,7 +438,7 @@
 				type="button"
 				aria-label="打开菜单"
 				onclick={() => (sidebarOpen = true)}
-				class="rounded-lg p-2 text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg md:hidden"
+				class="inline-flex size-11 items-center justify-center rounded-lg text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg md:hidden"
 			>
 				<Menu class="size-5" />
 			</button>
@@ -478,7 +478,7 @@
 			<button
 				type="button"
 				onclick={() => (settingsOpen = true)}
-				class="rounded-lg p-2 text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
+				class="inline-flex size-11 items-center justify-center rounded-lg text-terminal-dim transition hover:bg-white/[0.05] hover:text-terminal-fg"
 				aria-label="设置"
 				title="设置"
 			>

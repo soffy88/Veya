@@ -900,13 +900,13 @@ import WorkProcess from "./WorkProcess.svelte";
 										void resolveQuestion(questionAnswer.trim());
 									}
 								}}
-								class="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-2.5 py-1.5 text-sm text-terminal-fg outline-none placeholder:text-white/30 focus:border-sky-500/50"
+								class="min-h-11 min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-2.5 text-sm text-terminal-fg outline-none placeholder:text-white/30 focus:border-sky-500/50"
 							/>
 							<button
 								type="button"
 									onclick={() => void resolveQuestion(questionAnswer.trim())}
 									disabled={!questionAnswer.trim()}
-									class="rounded-lg bg-sky-500/90 px-2.5 py-1.5 text-xs text-black transition hover:bg-sky-400 disabled:opacity-30"
+									class="min-h-11 rounded-lg bg-sky-500/90 px-3 text-xs text-black transition hover:bg-sky-400 disabled:opacity-30"
 							>回答</button>
 						</div>
 						<div class="mt-1.5 text-xs text-white/35">
@@ -922,7 +922,7 @@ import WorkProcess from "./WorkProcess.svelte";
 					type="button"
 					onclick={() => (attachMenuOpen = !attachMenuOpen)}
 					title="工具与附件"
-					class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white {attachMenuOpen ||
+					class="mb-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white {attachMenuOpen ||
 					fileTreeOpen ||
 					dictating
 						? 'border-sky-500/40 text-sky-400'
@@ -939,7 +939,7 @@ import WorkProcess from "./WorkProcess.svelte";
 								attachMenuOpen = false;
 							}}
 							title="点击文件注入 @path"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
 						>
 							<Folder class="size-3.5" /> 工作区文件
 						</button>
@@ -950,7 +950,7 @@ import WorkProcess from "./WorkProcess.svelte";
 								attachMenuOpen = false;
 							}}
 							title="语音听写"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-white/10 {dictating
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-white/10 {dictating
 								? 'text-rose-400'
 								: 'text-white/70 hover:text-white'}"
 						>
@@ -963,7 +963,7 @@ import WorkProcess from "./WorkProcess.svelte";
 								attachMenuOpen = false;
 							}}
 							title="文本类直接读, 图片随消息发送"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
 						>
 							<Paperclip class="size-3.5" /> 上传文件/图片
 						</button>
@@ -975,7 +975,7 @@ import WorkProcess from "./WorkProcess.svelte";
 								attachMenuOpen = false;
 							}}
 							title="连续可打断的实时语音对话"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
 						>
 							<Phone class="size-3.5" /> 语音通话
 						</button>
@@ -988,7 +988,7 @@ import WorkProcess from "./WorkProcess.svelte";
 							type="button"
 							onclick={() => (planMode = !planMode)}
 							title="计划模式只读探索，确认后再切回执行"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-white/10 {planMode ? 'text-sky-300' : 'text-white/70 hover:text-white'}"
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-white/10 {planMode ? 'text-sky-300' : 'text-white/70 hover:text-white'}"
 						>
 							<ListTodo class="size-3.5" /> {planMode ? "计划模式 · 开" : "计划模式"}
 						</button>
@@ -1023,14 +1023,14 @@ import WorkProcess from "./WorkProcess.svelte";
 				disabled={busy}
 				onkeydown={onKeydown}
 				oninput={onTextareaInput}
-				class="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] text-terminal-fg outline-none placeholder:text-white/30 disabled:opacity-50"
+				class="max-h-[200px] min-h-11 min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] text-terminal-fg outline-none placeholder:text-white/30 disabled:opacity-50"
 			></textarea>
 			{#if busy}
 				<button
 					type="button"
 					onclick={stop}
 					title="停止生成 (Esc)"
-					class="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
+					class="mb-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
 				>
 					<Square class="size-4 fill-current" />
 				</button>
@@ -1040,7 +1040,7 @@ import WorkProcess from "./WorkProcess.svelte";
 					onclick={() => void send()}
 					disabled={!input.trim()}
 					title="发送 (Enter)"
-					class="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white text-black transition hover:bg-white/85 disabled:opacity-30"
+					class="mb-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-black transition hover:bg-white/85 disabled:opacity-30"
 				>
 					<Send class="size-4" />
 				</button>
@@ -1074,7 +1074,7 @@ import WorkProcess from "./WorkProcess.svelte";
 						<button
 							type="button"
 							onclick={() => void send(s)}
-							class="rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 transition hover:border-white/30 hover:text-white"
+							class="min-h-11 rounded-full border border-white/10 px-4 text-sm text-white/60 transition hover:border-white/30 hover:text-white"
 						>
 							{s}
 						</button>

@@ -208,7 +208,7 @@
 	}
 
 	function workStatusLabel(status: string): string {
-		const labels: Record<string, string> = { pending: "待处理", running: "执行中", waiting_approval: "等待你确认", completed: "已完成", failed: "失败", cancelled: "已取消", CREATED: "已创建", DESIGNING: "设计中", EXECUTING: "执行中", REVIEWING: "审查中", WAITING_EXTERNAL_SUPERVISOR: "等待外部审查", WAITING_OWNER: "等待你处理", ACCEPTED: "已接受", DONE: "已完成", FAILED: "失败", CANCELLED: "已取消" };
+		const labels: Record<string, string> = { pending: "待处理", running: "执行中", waiting_approval: "等待你确认", verifying: "验证中", finalizing: "收尾中", partial_completed: "部分完成", completed: "已完成", failed: "失败", cancelled: "已取消", CREATED: "已创建", ROUTING_SUPERVISOR: "准备中", DESIGNING: "设计中", PLANNING: "规划中", EXECUTING: "执行中", COLLECTING_EVIDENCE: "收集证据", FAST_DECISION: "决策中", REVIEWING: "审查中", RETASKING: "返工中", WAITING_EXTERNAL_SUPERVISOR: "等待外部审查", WAITING_OWNER: "等待你处理", ACCEPTED: "已接受", DONE: "已完成", BLOCKED: "已阻塞", FAILED: "失败", CANCELLED: "已取消" };
 		return labels[status] ?? status;
 	}
 
@@ -292,14 +292,14 @@
 				<input
 					bind:this={inputEl}
 					bind:value={query}
-					class="min-w-0 flex-1 bg-transparent text-[15px] text-terminal-fg outline-none placeholder:text-white/30"
+					class="min-h-11 min-w-0 flex-1 bg-transparent text-[15px] text-terminal-fg outline-none placeholder:text-white/30"
 					placeholder="搜索对话、Work、项目、文件和产物…"
 					aria-label="搜索 Veya"
 				/>
 				<kbd class="hidden rounded-md border border-white/10 px-1.5 py-0.5 text-[11px] text-white/35 sm:inline">Esc</kbd>
 				<button
 					type="button"
-					class="rounded-md p-1 text-white/40 hover:bg-white/5 hover:text-white/80 sm:hidden"
+					class="inline-flex size-11 items-center justify-center rounded-lg text-white/40 hover:bg-white/5 hover:text-white/80 sm:hidden"
 					aria-label="关闭搜索"
 					onclick={onClose}
 				>
@@ -311,7 +311,7 @@
 				{#if matchedSessions.length > 0}
 					<div class="px-2 pb-1 pt-2 text-xs font-medium text-white/40">对话</div>
 					{#each matchedSessions as session (session.sid)}
-						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openSession(session.sid)}>
+						<button type="button" class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openSession(session.sid)}>
 							<MessageSquare class="size-4 shrink-0 text-sky-300" />
 							<span class="min-w-0 flex-1 truncate text-sm text-terminal-fg">{session.title}</span>
 							<ArrowRight class="size-3.5 shrink-0 text-white/25" />
@@ -322,7 +322,7 @@
 				{#if matchedTasks.length > 0 || matchedMissions.length > 0}
 					<div class="px-2 pb-1 pt-4 text-xs font-medium text-white/40">Work</div>
 					{#each matchedTasks as task (task.id)}
-						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openTask(task.id)}>
+						<button type="button" class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openTask(task.id)}>
 							<SquareCheckBig class="size-4 shrink-0 text-violet-300" />
 							<span class="min-w-0 flex-1">
 								<span class="block truncate text-sm text-terminal-fg">{task.title}</span>
@@ -332,7 +332,7 @@
 						</button>
 					{/each}
 					{#each matchedMissions as mission (mission.mission_id)}
-						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openMission(mission.mission_id)}>
+						<button type="button" class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openMission(mission.mission_id)}>
 							<SquareCheckBig class="size-4 shrink-0 text-violet-300" />
 							<span class="min-w-0 flex-1">
 								<span class="block overflow-hidden text-ellipsis whitespace-nowrap text-sm text-terminal-fg">{mission.goal}</span>
@@ -346,7 +346,7 @@
 				{#if matchedProjects.length > 0}
 					<div class="px-2 pb-1 pt-4 text-xs font-medium text-white/40">Projects</div>
 					{#each matchedProjects as project (project.id)}
-						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openProject(project)}>
+						<button type="button" class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openProject(project)}>
 							<Boxes class="size-4 shrink-0 text-emerald-300" />
 							<span class="min-w-0 flex-1">
 								<span class="block overflow-hidden text-ellipsis whitespace-nowrap text-sm text-terminal-fg">{project.name}</span>
@@ -360,7 +360,7 @@
 				{#if matchedFiles.length > 0}
 					<div class="px-2 pb-1 pt-4 text-xs font-medium text-white/40">Files</div>
 					{#each matchedFiles as file (file.path)}
-						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => insertFile(file.path)}>
+						<button type="button" class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => insertFile(file.path)}>
 							<FileText class="size-4 shrink-0 text-amber-200" />
 							<span class="min-w-0 flex-1">
 								<span class="block truncate text-sm text-terminal-fg">{file.name}</span>
@@ -374,7 +374,7 @@
 				{#if matchedArtifacts.length > 0}
 					<div class="px-2 pb-1 pt-4 text-xs font-medium text-white/40">Artifacts</div>
 					{#each matchedArtifacts as artifact (`${artifact.taskId}:${artifact.name}`)}
-						<button type="button" disabled={!artifact.available} class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06] disabled:opacity-40" onclick={() => openArtifact(artifact)}>
+						<button type="button" disabled={!artifact.available} class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06] disabled:opacity-40" onclick={() => openArtifact(artifact)}>
 							<PackageCheck class="size-4 shrink-0 text-cyan-300" />
 							<span class="min-w-0 flex-1">
 								<span class="block truncate text-sm text-terminal-fg">{artifact.name}</span>
@@ -388,7 +388,7 @@
 				{#if matchedShortcuts.length > 0}
 					<div class="px-2 pb-1 pt-4 text-xs font-medium text-white/40">功能</div>
 					{#each matchedShortcuts as item (item.view)}
-						<button type="button" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openShortcut(item.view)}>
+						<button type="button" class="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-white/[0.06]" onclick={() => openShortcut(item.view)}>
 							<LayoutGrid class="size-4 shrink-0 text-white/45" />
 							<span class="min-w-0 flex-1">
 								<span class="block text-sm text-terminal-fg">{item.label}</span>
