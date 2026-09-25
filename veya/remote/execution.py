@@ -39,6 +39,17 @@ from typing import Any
 _logger = logging.getLogger(__name__)
 
 
+def _normalize_execution_cap(value: Any) -> int | None:
+    """Positive hard cap, or ``None`` for unlimited execution admission."""
+    if value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
 class ExecutionPhase(StrEnum):
     """Canonical lifecycle (external contract, stable)."""
 
@@ -102,6 +113,8 @@ DIRECT_PHASE_ORDER: dict[str, int] = {
 _DIRECT_TAIL_BYTES = 32_000
 _FAILURE_DETAIL_BYTES = 4_000
 _MAX_EVENTS = 40
+_MAX_FAILURE_HISTORY = 20
+_RAW_FAILURE_EVIDENCE_BYTES = 8_000
 
 _LEGACY_STATE = {
     ExecutionStatus.QUEUED: "PENDING",
@@ -225,6 +238,9 @@ class ExecutionRecord:
     failure_detail: str | None = None
     failure_message: str | None = None
     provider_error_code: str | None = None
+    raw_failure_evidence: dict[str, Any] | None = None
+    failure_history: list[dict[str, Any]] = field(default_factory=list)
+    round_history: list[dict[str, Any]] = field(default_factory=list)
     last_event: dict[str, Any] | None = None
     # L1 parallel dispatch: a parent only aggregates; children carry parent_execution_id.
     role: str = "worker"
@@ -297,8 +313,8 @@ class ExecutionRecord:
             # Lifecycle (P0-D/E).
             "status": status,
             "phase": self.phase,
-            "current_step": self.current_step,
-            "total_steps": self.total_steps,
+            "current_step": max(self.current_step, self.tool_call_count),
+            "total_steps": self.total_steps or self.max_steps or None,
             "message": self.message,
             "current_activity": self.current_activity,
             "execution_mode": self.execution_mode,
@@ -328,15 +344,25 @@ class ExecutionRecord:
             "context_budget": dict(self.context_budget),
             "selected_capability_ids": list(self.selected_capability_ids),
             "selected_skill_ids": list(self.selected_skill_ids),
-            "failure_class": self.failure_class,
-            "failure_source": self.failure_source,
-            "failure_detail": self.failure_detail,
-            "failure_message": (
-                self.failure_message
-                or (self.message if status in {"BLOCKED", "FAILED"} else None)
-                or None
-            ),
-            "provider_error_code": self.provider_error_code or self.error,
+            "failure_class": self.failure_class if status in {"BLOCKED", "FAILED"} else None,
+            "failure_source": self.failure_source if status in {"BLOCKED", "FAILED"} else None,
+            "failure_detail": self.failure_detail if status in {"BLOCKED", "FAILED"} else None,
+            "failure_message": self.failure_message if status in {"BLOCKED", "FAILED"} else None,
+            "provider_error_code": (self.provider_error_code or self.error)
+            if status in {"BLOCKED", "FAILED"}
+            else None,
+            "raw_failure_evidence": dict(self.raw_failure_evidence or {})
+            if status in {"BLOCKED", "FAILED"}
+            else None,
+            "failure_history": list(self.failure_history),
+            "round_history": list(self.round_history),
+            "progress": {
+                "unit": "tool_calls" if self.tool_call_count else "steps",
+                "current": max(self.current_step, self.tool_call_count),
+                "total": self.total_steps or self.max_steps or None,
+                "tool_calls": self.tool_call_count,
+                "model_requests": self.model_request_count,
+            },
             "last_event": dict(self.last_event or (self.events[-1] if self.events else {})),
             "active_tool_pid": self.active_tool_pid,
             "process_group_id": self.process_group_id,
@@ -588,9 +614,24 @@ class ProgressReporter:
             skill_ids=skill_ids,
         )
 
-    def failure(self, *, failure_class: str, source: str = "worker", detail: str = "") -> None:
+    def failure(
+        self,
+        *,
+        failure_class: str,
+        source: str = "worker",
+        detail: str = "",
+        code: str | None = None,
+        raw_evidence: dict[str, Any] | None = None,
+        round_index: int | None = None,
+    ) -> None:
         self._manager.set_failure(
-            self._execution_id, failure_class=failure_class, source=source, detail=detail
+            self._execution_id,
+            failure_class=failure_class,
+            source=source,
+            detail=detail,
+            code=code,
+            raw_evidence=raw_evidence,
+            round_index=round_index,
         )
 
     def output(self, stream: str, text: str) -> None:
@@ -678,6 +719,9 @@ class DurableJobManager:
         heartbeat_interval_s: float = 5.0,
         heartbeat_timeout_s: float = 60.0,
         max_jobs: int = 512,
+        max_executions: int | None = None,
+        max_session_executions: int | None = None,
+        max_workspace_executions: int | None = None,
         worker_registry: Any = None,
         outbox: Any = None,
         recovery_runner_factory: Callable[[ExecutionRecord], Runner] | None = None,
@@ -686,6 +730,15 @@ class DurableJobManager:
         self.heartbeat_interval_s = max(0.01, float(heartbeat_interval_s))
         self.heartbeat_timeout_s = max(self.heartbeat_interval_s * 2, float(heartbeat_timeout_s))
         self._max_jobs = max(1, int(max_jobs))
+        # ``None`` means unlimited admission.  Running durable executions must
+        # not block new RPCs, status queries, or new execution submission; an
+        # explicit positive integer is an operator safety valve, never a
+        # scheduler for the MCP data plane.
+        self._execution_limits = (
+            _normalize_execution_cap(max_executions),
+            _normalize_execution_cap(max_session_executions),
+            _normalize_execution_cap(max_workspace_executions),
+        )
         self.worker_registry = worker_registry
         self.outbox = outbox
         self.recovery_runner_factory = recovery_runner_factory
@@ -818,7 +871,48 @@ class DurableJobManager:
             )
 
     # ── submit ──────────────────────────────────────────────────────
-    def submit(
+    def submit(self, **kwargs: Any) -> ExecutionRecord:
+        """Atomically admit against existing execution projections.
+
+        Terminal records consume no capacity.  There is no separate slot
+        counter to leak on cancellation, failure, or reconciliation.
+        Control-plane status and cancellation never acquire execution slots.
+        """
+        session = kwargs["session"]
+        binding = kwargs["binding"]
+        workspace = getattr(binding, "repo_identity", "") or getattr(
+            binding, "requested_realpath", ""
+        )
+        with self._lock:
+            key = kwargs.get("idempotency_key")
+            if key:
+                for record in self._records.values():
+                    if (
+                        record.idempotency_key == key
+                        and record.session_id == session.session_id
+                        and (record.repo_identity or record.requested_realpath) == workspace
+                    ):
+                        return record
+            active = [
+                record
+                for record in self._records.values()
+                if not record.is_terminal and record.role != "parent"
+            ]
+            counts = (
+                len(active),
+                sum(r.session_id == session.session_id for r in active),
+                sum((r.repo_identity or r.requested_realpath) == workspace for r in active),
+            )
+            for scope, count, limit in zip(
+                ("global", "session", "workspace"), counts, self._execution_limits, strict=True
+            ):
+                if limit is not None and count >= limit:
+                    raise ExecutionError(
+                        "LIMIT_EXCEEDED", f"{scope} active execution limit reached"
+                    )
+            return self._submit_locked(**kwargs)
+
+    def _submit_locked(
         self,
         *,
         session: Any,
@@ -843,11 +937,6 @@ class DurableJobManager:
         preferred_worker_runtime_id: str | None = None,
         idempotency_key: str | None = None,
     ) -> ExecutionRecord:
-        if idempotency_key:
-            with self._lock:
-                for existing in self._records.values():
-                    if existing.idempotency_key == idempotency_key:
-                        return existing
         if execution_type == str(ExecutionType.DIRECT):
             execution_id = f"direct_{uuid.uuid4().hex}"
             initial_phase = "QUEUED"
@@ -1152,14 +1241,51 @@ class DurableJobManager:
         failure_class: str,
         source: str = "worker",
         detail: str = "",
+        code: str | None = None,
+        raw_evidence: dict[str, Any] | None = None,
+        round_index: int | None = None,
     ) -> None:
-        """Canonical failure taxonomy (B11) — never just FAILED+message."""
+        """Persist the first canonical failure plus bounded immutable evidence history."""
 
         record = self._record_for_update(execution_id)
-        record.failure_class = failure_class
-        record.failure_source = source
-        record.failure_detail = str(detail)[:_FAILURE_DETAIL_BYTES]
-        record.failure_message = record.failure_message or record.failure_detail
+        detail_text = str(detail)[:_FAILURE_DETAIL_BYTES]
+        evidence: dict[str, Any] | None = None
+        if raw_evidence:
+            try:
+                encoded = json.dumps(raw_evidence, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                encoded = json.dumps({"repr": repr(raw_evidence)}, ensure_ascii=False)
+            if len(encoded.encode("utf-8", "replace")) > _RAW_FAILURE_EVIDENCE_BYTES:
+                encoded = encoded.encode("utf-8", "replace")[-_RAW_FAILURE_EVIDENCE_BYTES:].decode(
+                    "utf-8", "replace"
+                )
+                evidence = {"truncated": True, "tail": encoded}
+            else:
+                loaded = json.loads(encoded)
+                evidence = loaded if isinstance(loaded, dict) else {"value": loaded}
+        event = {
+            "ts": time.time(),
+            "failure_class": str(failure_class),
+            "source": str(source),
+            "detail": detail_text,
+            "provider_error_code": str(code or failure_class),
+            "raw_failure_evidence": evidence,
+            "recovered": False,
+        }
+        record.failure_history.append(event)
+        del record.failure_history[: max(0, len(record.failure_history) - _MAX_FAILURE_HISTORY)]
+        if round_index is not None:
+            record.round_history.append({**event, "round_index": int(round_index)})
+            del record.round_history[: max(0, len(record.round_history) - _MAX_FAILURE_HISTORY)]
+        # First error wins for the current failed attempt. Wrappers may add history,
+        # but cannot replace the provider/runtime root cause.
+        if record.failure_class is None:
+            record.failure_class = str(failure_class)
+            record.failure_source = str(source)
+            record.failure_detail = detail_text
+            record.failure_message = detail_text or str(failure_class)
+            record.provider_error_code = str(code or failure_class)
+            record.raw_failure_evidence = evidence
         self._persist(record)
 
     def set_continuity_field(self, execution_id: str, **fields: Any) -> None:
@@ -1210,12 +1336,14 @@ class DurableJobManager:
         """
         from pathlib import Path
 
-        # GoalRun's canonical runtime imports the mounted 3O packages by
-        # their stable top-level names.  Loading obase injects all canonical
-        # package paths without importing optional provider modules.
+        # Source worktrees can intentionally contain uninitialized 3O gitlinks.
+        # Keep L0/L1 admission available in that state; 3O-dependent GoalRun
+        # paths fail at their own capability boundary instead of blocking every
+        # direct command before execution starts.
         from veya import platform
 
-        platform.load("obase")
+        if platform.available("obase"):
+            platform.load("obase")
         from server.goal_run.leaf import LeafResult
         from server.goal_run.runner import project_run_goal
 
@@ -1271,16 +1399,32 @@ class DurableJobManager:
                     raise
                 except Exception as exc:
                     if isinstance(exc, ExecutionBlocked):
-                        record.error = exc.code
-                        record.provider_error_code = exc.code
-                        record.failure_class = "execution_blocked"
-                        record.failure_detail = exc.message[:_FAILURE_DETAIL_BYTES]
+                        error_code = exc.code
+                        failure_class = "execution_blocked"
+                        detail = exc.message[:_FAILURE_DETAIL_BYTES]
+                    elif isinstance(exc, ExecutionError):
+                        error_code = exc.code
+                        failure_class = exc.code
+                        detail = exc.message[:_FAILURE_DETAIL_BYTES]
                     else:
-                        record.error = str(exc)[:_FAILURE_DETAIL_BYTES]
-                        record.failure_class = "provider_failure"
-                        record.failure_detail = record.error
-                    record.failure_source = "remote_execution"
-                    manager._persist(record)
+                        error_code = type(exc).__name__
+                        failure_class = "provider_failure"
+                        detail = str(exc)[:_FAILURE_DETAIL_BYTES]
+                    record.error = error_code
+                    if record.failure_class is None:
+                        manager.set_failure(
+                            record.execution_id,
+                            failure_class=failure_class,
+                            source="remote_execution",
+                            detail=detail,
+                            code=error_code,
+                            raw_evidence={
+                                "exception_type": type(exc).__name__,
+                                "detail": detail,
+                            },
+                        )
+                    else:
+                        manager._persist(record)
                     return LeafResult(
                         status="blocked",
                         summary="",
@@ -1288,6 +1432,28 @@ class DurableJobManager:
                         stop_reason="provider_error",
                     )
                 record.result_summary = str(summary or "")
+                summary_lines = record.result_summary.splitlines()
+                hicode_recovery_paused = bool(summary_lines) and (
+                    summary_lines[0].strip().lower().startswith("recovery_paused:")
+                    or (
+                        len(summary_lines) >= 2
+                        and "hicode" in summary_lines[0].lower()
+                        and summary_lines[1].strip().lower().startswith("recovery_paused:")
+                    )
+                )
+                if record.execution_type == "hicode" and hicode_recovery_paused:
+                    record.error = "HICODE_RECOVERY_PAUSED"
+                    record.provider_error_code = "HICODE_RECOVERY_PAUSED"
+                    record.failure_class = "execution_blocked"
+                    record.failure_source = "hicode_runtime"
+                    record.failure_detail = "Hicode provider ended in recovery_paused before completing the requested work"
+                    manager._persist(record)
+                    return LeafResult(
+                        status="blocked",
+                        summary=record.result_summary,
+                        block_reason=record.failure_detail,
+                        stop_reason="recovery_paused",
+                    )
                 record.worker_final_claim = True
                 record.heartbeat_at = time.time()
                 if record.active_process_count > 0 or record.pending_commands > 0:
@@ -1421,14 +1587,35 @@ class DurableJobManager:
         if error is not None:
             record.error = error
         if status in {str(ExecutionStatus.BLOCKED), str(ExecutionStatus.FAILED)}:
-            record.failure_message = str(record.message or status)[:800]
-            record.provider_error_code = str(record.error or "") or None
+            # Terminalization must never convert the last progress narration into
+            # the public root error. Preserve an earlier typed failure verbatim.
             if record.failure_class is None:
-                record.failure_class = record.provider_error_code or status
-            if record.failure_source is None:
+                stable_code = str(error or status)
+                explicit_detail = str(error or message or status)[:_FAILURE_DETAIL_BYTES]
+                record.failure_class = stable_code
                 record.failure_source = "execution"
-            if record.failure_detail is None:
-                record.failure_detail = record.failure_message
+                record.failure_detail = explicit_detail
+                record.failure_message = explicit_detail
+                record.provider_error_code = stable_code
+        elif status == str(ExecutionStatus.COMPLETED):
+            # A recovered round is historical evidence, not the current terminal state.
+            if record.failure_class is not None:
+                recovered_at = time.time()
+                for item in record.failure_history:
+                    if not item.get("recovered"):
+                        item["recovered"] = True
+                        item["recovered_at"] = recovered_at
+                for item in record.round_history:
+                    if not item.get("recovered"):
+                        item["recovered"] = True
+                        item["recovered_at"] = recovered_at
+            record.failure_class = None
+            record.failure_source = None
+            record.failure_detail = None
+            record.failure_message = None
+            record.provider_error_code = None
+            record.raw_failure_evidence = None
+            record.error = None
         terminal_event = {
             "ts": record.completed_at,
             "kind": "terminal",
@@ -1438,6 +1625,13 @@ class DurableJobManager:
         record.events.append(terminal_event)
         record.last_event = terminal_event
         self._persist(record)
+        if record.parent_execution_id is None and record.worktree_path:
+            try:
+                from runtime.coding.worktree import teardown_worktree
+
+                teardown_worktree(record.worktree_path, execution_status=str(status))
+            except Exception:
+                pass
 
     # ── progress ────────────────────────────────────────────────────
     def _record_for_update(self, execution_id: str) -> ExecutionRecord:
@@ -1636,6 +1830,11 @@ class DurableJobManager:
         now = time.time()
         if count:
             record.tool_call_count += 1
+            # Tool calls are the only universally observable unit for L1 workers.
+            # Never project 0/0 after real work has occurred.
+            record.current_step = max(record.current_step, record.tool_call_count)
+            if record.total_steps <= 0 and record.max_steps:
+                record.total_steps = int(record.max_steps)
         record.last_tool_activity_at = now
         record.last_activity_at = now
         if activity:
@@ -1761,9 +1960,12 @@ class DurableJobManager:
         execution_id: str,
         *,
         token_id: str,
+        session_id: str | None = None,
         workspace_realpath: str | None = None,
     ) -> ExecutionRecord:
         record = self.status(execution_id, token_id=token_id, workspace_realpath=workspace_realpath)
+        if session_id is not None and record.session_id != session_id:
+            raise ExecutionError("TOOL_DENIED", "execution belongs to another session")
         if record.is_terminal:
             return record  # idempotent
         # L1 parent: stop new dispatch, cancel every active child, then the parent.
@@ -1771,7 +1973,10 @@ class DurableJobManager:
             for child_id in list(record.child_execution_ids):
                 try:
                     await self.cancel(
-                        child_id, token_id=token_id, workspace_realpath=workspace_realpath
+                        child_id,
+                        token_id=token_id,
+                        session_id=session_id,
+                        workspace_realpath=workspace_realpath,
                     )
                 except ExecutionError:
                     continue

@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from runtime.coding.worktree import teardown_worktree
+
 from .orchestrated import Dispatch, Subtask, SubtaskResult
 
 INTERNAL_TOKEN_ID = "internal-mission"
@@ -93,6 +95,11 @@ class L1Bridge:
         # workspace path to a relative path before dispatch.
         started_at = time.monotonic()
         task_text = _sanitize_objective(subtask.objective, self.workspace)
+        # Snapshot the isolation repo *before* dispatch. The child worktree is
+        # created from it with ``git worktree add``, i.e. a clean checkout at
+        # HEAD that never inherits the workspace's uncommitted state, so this
+        # snapshot is the child's pre-worker state and cannot race the worker.
+        baseline = await asyncio.to_thread(_git_baseline, self.workspace)
         dispatch_inputs = dict(subtask.inputs)
         if subtask.required_artifacts:
             dispatch_inputs["required_artifacts"] = list(subtask.required_artifacts)
@@ -132,14 +139,9 @@ class L1Bridge:
         self._active_parent_execution_ids.add(parent_execution_id)
         try:
             deadline = time.time() + self.timeout_s
-            baseline: dict[str, Any] | None = None
             while time.time() < deadline:
                 payload = await self._status(parent_execution_id)
                 children = payload.get("children") or []
-                if children and baseline is None:
-                    worktree = str(children[0].get("worker_workspace") or "")
-                    if worktree:
-                        baseline = await asyncio.to_thread(_git_baseline, worktree)
                 if children and all(str(c.get("status")) in _TERMINAL for c in children):
                     child = children[0]
                     worktree = str(child.get("worker_workspace") or "")
@@ -154,6 +156,13 @@ class L1Bridge:
                         baseline=baseline,
                     )
                     status = str(child.get("status"))
+                    cleanup_evidence = (
+                        await asyncio.to_thread(
+                            teardown_worktree, worktree, execution_status=status
+                        )
+                        if worktree
+                        else None
+                    )
                     failure_message = (
                         _bounded_text(
                             child.get("failure_message")
@@ -175,6 +184,7 @@ class L1Bridge:
                         "execution_id": execution_id,
                         "status": status,
                         "workspace": worktree,
+                        "worktree_cleanup": cleanup_evidence,
                         "failure_class": child.get("failure_class"),
                         "failure_source": child.get("failure_source"),
                         "failure_message": failure_message,
@@ -222,6 +232,29 @@ class L1Bridge:
                         )
                     else:
                         artifact_requirement = "OPTIONAL"
+                    if status == "COMPLETED" and missing_required_artifacts:
+                        status = "BLOCKED"
+                        failure_message = "required artifacts missing: " + ", ".join(
+                            missing_required_artifacts
+                        )
+                        failure_detail = failure_message
+                        child_evidence["provider_status"] = "COMPLETED"
+                        child_evidence["status"] = status
+                        child_evidence["failure_class"] = "ARTIFACT_REQUIREMENT_UNSATISFIED"
+                        child_evidence["failure_source"] = "l1_bridge"
+                        child_evidence["failure_message"] = failure_message
+                        child_evidence["failure_detail"] = failure_detail
+                        child_failure = {
+                            "kind": "child_failure",
+                            "subtask_id": subtask.task_id,
+                            "execution_id": execution_id,
+                            "worker": child.get("worker_type"),
+                            "status": status,
+                            "failure_class": "ARTIFACT_REQUIREMENT_UNSATISFIED",
+                            "failure_source": "l1_bridge",
+                            "failure_message": failure_message,
+                            "failure_detail": failure_detail,
+                        }
                     dependency_ready = status == "COMPLETED" and not missing_required_artifacts
                     artifact_evidence = {
                         "kind": "artifact_requirement",
@@ -249,8 +282,8 @@ class L1Bridge:
                         error=child.get("error"),
                         elapsed_ms=child.get("elapsed_ms")
                         or round((time.monotonic() - started_at) * 1000, 3),
-                        failure_class=child.get("failure_class"),
-                        failure_source=child.get("failure_source"),
+                        failure_class=child_evidence.get("failure_class"),
+                        failure_source=child_evidence.get("failure_source"),
                         failure_message=failure_message,
                         failure_detail=failure_detail,
                         provider_error_code=child.get("provider_error_code"),
@@ -344,7 +377,8 @@ def _artifact_manifest(
     root = Path(worktree)
     if not (root / ".git").exists():
         return []
-    baseline = baseline or _git_baseline(worktree)
+    if baseline is None:
+        baseline = _git_baseline(worktree)
     try:
         status_proc = subprocess.run(
             ["git", "-C", worktree, "status", "--porcelain=v1", "--untracked-files=all"],
@@ -370,7 +404,6 @@ def _artifact_manifest(
         parts = line.split("\t", 1)
         if len(parts) == 2:
             status_by_path.setdefault(parts[1].strip(), parts[0].strip())
-    baseline_paths = set(baseline.get("paths") or [])
     entries: list[dict[str, Any]] = []
     for rel, status in sorted(status_by_path.items()):
         relative = Path(rel)
@@ -379,8 +412,12 @@ def _artifact_manifest(
         source = (root / relative).resolve()
         if root.resolve() not in source.parents and source != root.resolve():
             continue
-        if rel in baseline_paths and not baseline.get("clean"):
-            continue
+        # No baseline exclusion here on purpose. A child worktree is created by
+        # ``git worktree add`` as a clean checkout at HEAD, so every path git
+        # reports in it was produced by this lane's worker. Excluding paths seen
+        # in a baseline snapshot is unsound: a snapshot taken after the worker
+        # wrote (the observed race) silently dropped the real artifact, which
+        # made required artifacts look missing and blocked dependent subtasks.
         exists = source.is_file()
         try:
             data = source.read_bytes() if exists else b""
@@ -434,6 +471,23 @@ def _artifact_manifest(
             "manifest_hash": manifest_hash,
         },
     )
+    try:
+        full_diff_proc = subprocess.run(
+            ["git", "-C", worktree, "diff", "HEAD", "--"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if full_diff_proc.returncode == 0 and full_diff_proc.stdout:
+            patch_dest = Path(artifacts_root).resolve() / execution_id / "diff.patch"
+            try:
+                patch_dest.parent.mkdir(parents=True, exist_ok=True)
+                patch_dest.write_text(full_diff_proc.stdout, encoding="utf-8")
+            except OSError:
+                pass
+    except (OSError, subprocess.SubprocessError):
+        pass
     return entries
 
 
