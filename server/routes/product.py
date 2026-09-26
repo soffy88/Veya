@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -51,6 +52,77 @@ class ProductTaskRequest(BaseModel):
 _product_tasks: set[asyncio.Task[Any]] = set()
 
 
+def _find_resumable_goal_run(task: Any) -> Any | None:
+    """Find the existing checkpoint for one non-terminal product task."""
+    if not task.workspace_id:
+        return None
+    from server.goal_run.models import GoalStatus
+    from server.goal_run.store import load_goal_run
+
+    runs_root = Path(task.workspace_id) / ".veya-project" / "goal-runs"
+    if not runs_root.is_dir():
+        return None
+    for taskgraph in sorted(runs_root.glob("*/taskgraph.json")):
+        goal_id = taskgraph.parent.name
+        state = load_goal_run(task.workspace_id, goal_id)
+        if state is None or state.status in {
+            GoalStatus.completed,
+            GoalStatus.failed,
+            GoalStatus.cancelled,
+            GoalStatus.blocked,
+        }:
+            continue
+        if task.id not in state.tasks:
+            continue
+        checkpoint = state.runtime_checkpoint or {}
+        context_checkpoint = (
+            Path(task.workspace_id) / ".veya" / "runs" / state.goal_id / "context_checkpoint.json"
+        )
+        if checkpoint or context_checkpoint.exists():
+            return state
+    return None
+
+
+async def recover_product_tasks() -> int:
+    """Resume checkpointed product GoalRuns through the existing runner.
+
+    This is startup discovery only.  The resumed ``project_run_goal`` call
+    remains the sole GoalRun execution authority; no asyncio task is treated
+    as durable state and no new GoalRun is created here.
+    """
+    recovered = 0
+    from server.goal_run.models import GoalStatus
+
+    for task in task_store.list(limit=500):
+        if task.status in {"completed", "failed", "cancelled"}:
+            continue
+        state = _find_resumable_goal_run(task)
+        if state is None or state.status in {
+            GoalStatus.completed,
+            GoalStatus.failed,
+            GoalStatus.cancelled,
+            GoalStatus.blocked,
+        }:
+            continue
+        task_store.update_status(task.id, "running")
+        background = asyncio.create_task(
+            _run_product_task(
+                task_id=task.id,
+                session_id=task.session_id,
+                objective=task.objective,
+                provider=None,
+                model=None,
+                config={},
+                user={"user_id": "startup-recovery"},
+                project_root=task.workspace_id or "/repo",
+                resume_goal_id=state.goal_id,
+            )
+        )
+        _retain_product_task(background)
+        recovered += 1
+    return recovered
+
+
 async def _run_product_task(
     *,
     task_id: str,
@@ -60,28 +132,77 @@ async def _run_product_task(
     model: str | None,
     config: dict[str, Any],
     user: dict[str, Any],
+    project_root: str,
+    resume_goal_id: str | None = None,
 ) -> None:
-    """Run one accepted task through the existing MasterAgent entry point."""
+    """Run one accepted task through the single GoalRun semantic loop."""
 
     # Background asyncio tasks do not run FastAPI dependency cleanup, so bind
     # the same user explicitly before MasterAgent touches history or memory.
     auth_mod.set_user(user)
-    from server.coordinator_master import _active_streams, master_coordinator
+    from server.coordinator_master import master_coordinator
+    from server.goal_run.canonical_worker import CanonicalWorkerAdapter
+    from server.goal_run.runner import project_run_goal
 
-    runner = asyncio.current_task()
-    if runner is not None:
-        _active_streams[session_id] = runner
     try:
-        await master_coordinator.chat_stream(
-            objective,
-            session_id=session_id,
+        semantic_llm_kwargs: dict[str, Any] = {}
+        if config:
+            semantic_llm_kwargs["config"] = config
+        if provider:
+            semantic_llm_kwargs["provider"] = provider
+        if model:
+            semantic_llm_kwargs["model"] = model
+
+        async def execute_bound_action(request: Any) -> Any:
+            """Adapt the canonical request to the existing coordinator tool ABI."""
+            return await master_coordinator.handle_tool_call(request.tool, request.arguments)
+
+        adapter = CanonicalWorkerAdapter(
             task_id=task_id,
-            config=config or None,
-            provider=provider,
-            model=model,
-            # Product tasks are interactive: existing user_control/Workbench
-            # approval is used for high-impact actions.
-            require_approval=True,
+            objective=objective,
+            feature_name="product_canonical",
+            verification_required=True,
+            semantic_agent=master_coordinator._agent,
+            semantic_session_id=session_id,
+            semantic_llm_kwargs=semantic_llm_kwargs,
+            gateway_executor=execute_bound_action,
+        )
+        response = await project_run_goal(
+            project_root=project_root,
+            goal=objective,
+            tasks=[
+                {
+                    "id": task_id,
+                    "title": objective[:80],
+                    "instruction": objective,
+                    # Product acceptance is owned by the frozen VerificationSpec
+                    # below; duplicating it as a free-form task-level LLM check
+                    # would make the transport decide acceptance before I2.
+                    "acceptance": [],
+                    "assignee": "builtin",
+                }
+            ],
+            mode="act_eager",
+            max_wall_s=3600,
+            integration_adapter=adapter,
+            semantic_llm_kwargs=semantic_llm_kwargs,
+            resume_goal_id=resume_goal_id,
+        )
+        task_store.update_status(
+            task_id,
+            "completed" if response.status.value == "completed" else response.status.value,
+        )
+        append_canonical_event(
+            "product.task_finished",
+            {
+                "entrypoint": "product_shell",
+                "goal_run_id": response.goal_id,
+                "status": response.status.value,
+            },
+            actor="goal_run",
+            session_id=session_id,
+            trace_id=task_store.get(task_id).trace_id if task_store.get(task_id) else None,
+            task_id=task_id,
         )
     except asyncio.CancelledError:
         raise
@@ -98,7 +219,7 @@ async def _run_product_task(
                 "model": model,
                 "config_keys": list(config.keys()) if config else [],
                 "error_type": type(exc).__name__,
-            }
+            },
         )
         with contextlib.suppress(Exception):
             task_store.update_status(task_id, "failed")
@@ -111,9 +232,6 @@ async def _run_product_task(
                 trace_id=task.trace_id if task is not None else None,
                 task_id=task_id,
             )
-    finally:
-        if runner is not None and _active_streams.get(session_id) is runner:
-            _active_streams.pop(session_id, None)
 
 
 def _retain_product_task(task: asyncio.Task[Any]) -> None:
@@ -158,8 +276,8 @@ async def create_product_task(
 
     Session and Task projections are created before execution starts, so the
     caller can immediately open the existing Workbench by ``task_id``.  The
-    task runner is still ``MasterCoordinator.chat_stream``; this endpoint is
-    only the Layer-4 product entry adapter.
+    transport is kept at the product-shell boundary; execution is owned by
+    the existing GoalRun semantic loop.
     """
 
     objective = req.objective.strip()
@@ -204,6 +322,7 @@ async def create_product_task(
             model=req.model,
             config=dict(req.config),
             user=dict(user),
+            project_root=req.workspace_id or "/repo",
         )
     )
     _retain_product_task(background)

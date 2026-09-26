@@ -24,6 +24,10 @@ def delegate_result_from_mapping(
         value,
         child_trace_id=request.parent_trace_id,
         producer=producer,
+        source_bot_id=request.source_bot_id,
+        target_bot_id=request.target_bot_id or request.bot_id,
+        goal_run_id=request.target_goal_run_id or request.parent_trace_id,
+        evidence_refs=request.evidence_refs,
     )
 
 
@@ -44,6 +48,10 @@ def delegate_result_from_leaf(request: DelegateRequest, leaf: Any) -> DelegateRe
         completed_work=list(getattr(leaf, "completed_work", []) or []),
         unfinished_work=list(getattr(leaf, "unfinished_work", []) or []),
         child_trace_id=request.parent_trace_id,
+        source_bot_id=request.source_bot_id,
+        target_bot_id=request.target_bot_id or request.bot_id,
+        goal_run_id=request.target_goal_run_id or request.parent_trace_id,
+        evidence_refs=request.evidence_refs,
         error_class=None if status == "completed" else "leaf_failed",
         error_message=getattr(leaf, "block_reason", None),
     )

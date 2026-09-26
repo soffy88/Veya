@@ -97,8 +97,6 @@ async def test_sandbox_rlimit_restored_after_capped_execution():
     # Heavy module imports must still succeed after the capped run.
     import plotly  # noqa: F401
 
-    assert True
-
 
 @pytest.mark.asyncio
 async def test_sandbox_host_rlimit_never_lowered():

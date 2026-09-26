@@ -152,6 +152,102 @@ async def test_start_requires_repo_and_blocked_by_dependency(tmp_path):
         await worker.start_card("b1", a.id)
 
 
+@pytest.mark.asyncio
+async def test_recover_running_card_uses_persisted_worktree(tmp_path, monkeypatch):
+    store = BoardStore(tmp_path / "boards.json")
+    worker = BoardWorker(store)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store.create("b1", repo=str(repo))
+    card = store.add_card("b1", title="A", prompt="A")
+    card.status = "running"
+    card.worktree = str(tmp_path / "worktree")
+    Path(card.worktree).mkdir()
+    store.save()
+
+    async def fake_execute(self, board, card):
+        card.status = "done"
+        card.exit_code = 0
+
+    monkeypatch.setattr(BoardWorker, "_execute", fake_execute)
+    assert await worker.recover_running_cards() == 1
+    await asyncio.sleep(0.05)
+    assert store.get("b1").cards[card.id].status == "done"
+
+
+@pytest.mark.asyncio
+async def test_recover_running_card_missing_worktree_fails_closed(tmp_path):
+    store = BoardStore(tmp_path / "boards.json")
+    worker = BoardWorker(store)
+    store.create("b1", repo=str(tmp_path / "repo"))
+    card = store.add_card("b1", title="A", prompt="A")
+    card.status = "running"
+    card.worktree = str(tmp_path / "missing")
+    store.save()
+
+    assert await worker.recover_running_cards() == 0
+    assert card.exit_code == 1
+    assert "worktree is missing" in card.error
+
+
+@pytest.mark.asyncio
+async def test_board_card_uses_persisted_goalrun_authority(tmp_path, monkeypatch):
+    """A real Board card is admitted and finalized by one persisted GoalRun.
+
+    The provider is deterministic, but the GoalRun runner, taskgraph store,
+    identity binding, and terminal projection are real.  This guards against
+    reintroducing BoardWorker's former direct provider execution path.
+    """
+    from server.goal_run.store import load_goal_run
+
+    store = BoardStore(tmp_path / "boards.json")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    (repo / "base.txt").write_text("base\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
+    store.create("proof", repo=str(repo))
+    card = store.add_card("proof", title="board proof", prompt="return a result")
+    worker = BoardWorker(store)
+    provider_calls = 0
+
+    async def fake_run_engine(*args, **kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
+        assert kwargs["cwd"]
+        return {"ok": True, "output": "board provider completed", "error": ""}
+
+    monkeypatch.setattr("server.engine_runner.run_engine", fake_run_engine)
+    await worker.start_card("proof", card.id)
+
+    for _ in range(200):
+        if store.get("proof").cards[card.id].status == "done":
+            break
+        await asyncio.sleep(0.01)
+
+    persisted = store.get("proof").cards[card.id]
+    assert persisted.status == "done"
+    assert persisted.exit_code == 0
+    assert provider_calls == 1
+    assert persisted.goal_run_id == f"board:proof:{card.id}"
+    assert persisted.task_id == f"board-task:{card.id}"
+    assert persisted.session_id == "board-session:proof"
+    state = load_goal_run(persisted.worktree, persisted.goal_run_id)
+    assert state is not None
+    assert state.status.value == "completed"
+    assert state.tasks[persisted.task_id].status.value == "completed"
+    assert (
+        Path(persisted.worktree)
+        / ".veya-project"
+        / "goal-runs"
+        / persisted.goal_run_id
+        / "taskgraph.json"
+    ).exists()
+
+
 # =========================================================================
 # API — 看板端点
 # =========================================================================

@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from agents import resolve_persona
 from server import auth as auth_mod
 
 router = APIRouter(prefix="/agent", tags=["agent"], dependencies=[Depends(auth_mod.require_user)])
@@ -22,21 +21,26 @@ class AgentInvokeRequest(BaseModel):
 
 @router.post("/invoke")
 async def invoke_agent(req: AgentInvokeRequest) -> dict[str, Any]:
-    from server.assembly import assemble_main_agent
+    from agents import resolve_persona
+    from server.coordinator_master import master_coordinator
 
     try:
-        resolve_persona(req.persona)  # validates persona
+        resolve_persona(req.persona)  # validate the typed compatibility field
     except Exception:
         raise HTTPException(status_code=400, detail=f"Unknown persona: {req.persona!r}")
 
-    engine = assemble_main_agent(persona=req.persona, session_ctx=req.config)
-    messages = [{"role": "user", "content": req.text}]
-    result = await engine.run_turn(messages)
+    result = await master_coordinator.chat_stream(
+        req.text,
+        session_id=req.session_id or None,
+        config=req.config or None,
+        system_context=f"Requested persona: {req.persona}",
+    )
     return {
         "status": result.get("status", "completed"),
-        "output": result.get("turn_result"),
+        "output": result.get("final_answer") or result.get("error", ""),
         "cost_usd": result.get("cost_usd", 0.0),
         "persona": req.persona,
+        "session_id": result.get("session_id") or req.session_id or "",
     }
 
 

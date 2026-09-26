@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -64,7 +65,8 @@ class VeyaAutomata:
         task_id = f"grid_search_{uuid.uuid4().hex[:8]}"
         self._loop = asyncio.get_running_loop()
         task = asyncio.create_task(
-            self._run_grid_search_pipeline(task_id, asset_id, strategy_code, param_grid, session_id)
+            self._run_grid_search_goal(task_id, asset_id, strategy_code, param_grid, session_id),
+            name=f"veya-grid-search-{task_id}",
         )
         # 强引用: asyncio 只对裸 create_task 持弱引用, 防中途被 GC (同 chat_coordinator 模式)
         self._grid_tasks.add(task)
@@ -73,6 +75,35 @@ class VeyaAutomata:
             "[automata] grid search task submitted: %s (%d combos)", task_id, len(param_grid)
         )
         return task_id
+
+    async def _run_grid_search_goal(
+        self,
+        task_id: str,
+        asset_id: str,
+        strategy_code: str,
+        param_grid: dict[str, Any],
+        session_id: str | None,
+    ) -> None:
+        """Run the durable GoalRun leaf behind the process-local carrier task."""
+        from server.automata_goal_run import GridSearchGoalRunAdapter, grid_search_task
+        from server.goal_run.runner import project_run_goal
+
+        project_root = os.environ.get("VEYA_PROJECT_ROOT", ".")
+        await project_run_goal(
+            project_root=project_root,
+            goal=f"Grid search {asset_id}",
+            tasks=[grid_search_task(task_id, asset_id, strategy_code, param_grid, session_id)],
+            mode="act_eager",
+            max_wall_s=7200,
+            integration_adapter=GridSearchGoalRunAdapter(
+                asset_id=asset_id,
+                strategy_code=strategy_code,
+                param_grid=param_grid,
+                session_id=session_id,
+                project_root=project_root,
+                execute_callback=self._scheduler.execute_callback,
+            ),
+        )
 
     async def _run_grid_search_pipeline(
         self,

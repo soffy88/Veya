@@ -75,23 +75,17 @@ async def test_resume_session_rejects_other_users_checkpoint():
 
 
 @pytest.mark.asyncio
-async def test_resume_session_owner_can_resume_own_checkpoint(monkeypatch):
+async def test_resume_session_owner_with_noncanonical_checkpoint_is_blocked():
     await _save_as(_ALICE, "sid3")
 
-    async def _fake_resume(self, run_state):
-        return {"status": "resumed", "session_id": run_state.session_id}
-
-    import server.coordinator as coordinator_mod
-
-    monkeypatch.setattr(coordinator_mod.Coordinator, "resume", _fake_resume)
-
     result = await resume_session("sid3", user=_ALICE)
-    assert result["status"] == "resumed"
+    assert result["status"] == "blocked"
+    assert "canonical GoalRun" in result["block_reason"]
 
 
 @pytest.mark.asyncio
-async def test_resume_session_legacy_checkpoint_without_owner_is_not_blocked(monkeypatch):
-    """旧数据 (无 owner 记录) 不因这次修复变得不可恢复——向后兼容。"""
+async def test_resume_session_legacy_checkpoint_without_owner_is_blocked_safely():
+    """旧数据仍可通过归属校验，但无 GoalRun 元数据时必须 fail closed。"""
     import json
 
     from server.checkpoint import _CKPT_DIR
@@ -102,12 +96,6 @@ async def test_resume_session_legacy_checkpoint_without_owner_is_not_blocked(mon
         + "\n"
     )
 
-    async def _fake_resume(self, run_state):
-        return {"status": "resumed"}
-
-    import server.coordinator as coordinator_mod
-
-    monkeypatch.setattr(coordinator_mod.Coordinator, "resume", _fake_resume)
-
     result = await resume_session("legacy-sid2", user=_BOB)
-    assert result["status"] == "resumed"
+    assert result["status"] == "blocked"
+    assert "canonical GoalRun" in result["block_reason"]

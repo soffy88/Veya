@@ -23,11 +23,11 @@
     "svelte": "^5.0.0"
   },
   "devDependencies": {
-    "lucide-svelte": "^1.0.1",
-    "svelte": "^5.0.0",
-    "svelte-check": "^4.0.0",
-    "tailwindcss": "^4.3.3",
-    "typescript": "~5.6.2",
-    "vite": "^8.0.16"
+    "lucide-svelte": "1.0.1",
+    "svelte": "5.56.8",
+    "svelte-check": "4.7.4",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.6.3",
+    "vite": "8.2.0"
   }
 }

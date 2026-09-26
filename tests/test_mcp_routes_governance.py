@@ -285,3 +285,34 @@ def test_mcp_rest_module_has_no_direct_tool_transport_call() -> None:
     assert "mcp_call_tool" not in source
     assert "ToolGovernanceAdapter" in source
     assert "entry.adapter.execute" in source
+
+
+@pytest.mark.asyncio
+async def test_mcp_call_unknown_server_stays_404(
+    route_fixture: tuple[_RouteMcpClient, EventStore],
+) -> None:
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as missing:
+        await mcp.mcp_call_route(mcp.MCPCallRequest(server="ghost", tool="search"))
+    assert getattr(missing.value, "status_code", None) == 404
+
+
+@pytest.mark.asyncio()
+async def test_mcp_call_known_but_disconnected_is_409_not_404(
+    route_fixture: tuple[_RouteMcpClient, EventStore],
+) -> None:
+    """Route cache miss defers to canonical truth (D5D §8)."""
+    from fastapi import HTTPException
+
+    from veya.platform import load
+
+    obase = load("obase")
+    obase.McpClientRegistry.clear()
+    try:
+        obase.McpClientRegistry.register("known-srv", _RouteMcpClient())
+        with pytest.raises(HTTPException) as stale:
+            await mcp.mcp_call_route(mcp.MCPCallRequest(server="known-srv", tool="search"))
+        assert getattr(stale.value, "status_code", None) == 409
+    finally:
+        obase.McpClientRegistry.clear()

@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,7 +17,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
-from server.events import _to_envelope
 
 router = APIRouter(tags=["legacy-agent"])
 
@@ -62,6 +60,8 @@ class LegacyAgentRunRequest(BaseModel):
         None,
         description="Session write freeze: relative subdir still writable; empty string clears freeze",
     )
+    turn_id: str | None = Field(None, description="Run/turn identity")
+    run_id: str | None = Field(None, description="Run/turn identity alias")
 
 
 class LegacyAgentRunResponse(BaseModel):
@@ -95,26 +95,37 @@ async def legacy_agent_run(
 
     _ = user  # Depends 已把 auth.current_user() contextvar 设好, 下游按此隔离
 
-    if req.engine != "master":
-        from server.engine_runner import run_engine
+    # Dry-run is resolved at admission, before either compatibility execution
+    # branch.  This prevents mixed text/task requests from invoking the brain.
+    session_id = req.session_id or _new_session_id()
+    user_ref = None
+    raw_uid = req.student_id or req.user_id
+    if raw_uid:
+        try:
+            from veya.im.pseudo import anonymize_user_id  # type: ignore[import-untyped]
 
-        res = await run_engine(
-            req.engine, req.text or req.task or "", model=req.model, timeout_s=600.0
-        )
+            user_ref = anonymize_user_id(raw_uid)
+        except Exception:
+            user_ref = f"u_{abs(hash(raw_uid)) % 10**8:08d}"
+    if req.mode == "dry_run":
         return LegacyAgentRunResponse(
-            session_id=req.session_id or _new_session_id(),
-            status="success" if res["ok"] else "failed",
-            result=res.get("output") or res.get("error") or "",
-            cost_usd=0.0,
+            session_id=session_id,
+            status="dry_run",
+            plan={"name": "Agent OS master brain", "skeleton": "master_agent"},
+            user_ref=user_ref,
         )
 
-    if req.text is not None:
-        from server.coordinator_master import DEFAULT_MAX_ROUNDS
-
+    if req.text is not None or req.task is not None:
+        prompt = req.text or req.task or ""
+        if req.engine != "master":
+            prompt = (
+                f"兼容请求指定了 legacy engine={req.engine}。"
+                "仍由 canonical MasterAgent 统一处理，不要启动独立 engine/LLM。\n"
+                f"用户任务：{prompt}"
+            )
         result = await master_coordinator.chat_stream(
-            req.text,
+            prompt,
             session_id=req.session_id or None,
-            max_rounds=DEFAULT_MAX_ROUNDS,
             config=req.config or None,
             provider=req.provider,
             model=req.model,
@@ -129,30 +140,9 @@ async def legacy_agent_run(
             cost_usd=result.get("cost_usd", 0.0),
         )
 
-    session_id = req.session_id or _new_session_id()
-    user_ref = None
-    raw_uid = req.student_id or req.user_id
-    if raw_uid:
-        try:
-            from veya.im.pseudo import anonymize_user_id
-
-            user_ref = anonymize_user_id(raw_uid)
-        except Exception:
-            user_ref = f"u_{abs(hash(raw_uid)) % 10**8:08d}"
-    if req.mode == "dry_run":
-        return LegacyAgentRunResponse(
-            session_id=session_id,
-            status="dry_run",
-            plan={"name": "Agent OS master brain", "skeleton": "master_agent"},
-            user_ref=user_ref,
-        )
-
-    from server.coordinator_master import DEFAULT_MAX_ROUNDS
-
     result = await master_coordinator.chat_stream(
         req.task or "",
         session_id=session_id,
-        max_rounds=DEFAULT_MAX_ROUNDS,
         config=req.config or None,
         provider=req.provider,
         model=req.model,
@@ -177,27 +167,20 @@ async def legacy_agent_stream(
     """旧协议 SSE 流 → 新主脑事件流 (text_delta / tool_call / master_done)。"""
     from server.chat_stream import new_agent_stream_events
 
-    if req.engine != "master":
-        from server.engine_runner import stream_engine
-
-        async def _engine_events():
-            async for evt in stream_engine(
-                req.engine, req.text or req.task or "", model=req.model, timeout_s=600.0
-            ):
-                yield f"data: {json.dumps(_to_envelope(evt), ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(
-            _engine_events(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
     prompt = req.text if req.text is not None else (req.task or "")
+    if req.engine != "master":
+        prompt = (
+            f"兼容请求指定了 legacy engine={req.engine}。"
+            "仍由 canonical MasterAgent 统一处理，不要启动独立 engine/LLM。\n"
+            f"用户任务：{prompt}"
+        )
     session_id = req.session_id or _new_session_id()
+    turn_id = req.turn_id or req.run_id
     return StreamingResponse(
         new_agent_stream_events(
             prompt,
             session_id,
+            turn_id=turn_id,
             config=req.config or None,
             provider=req.provider,
             model=req.model,
@@ -219,6 +202,7 @@ async def legacy_agent_stream(
 
 class LegacyAgentStopRequest(BaseModel):
     session_id: str | None = Field(None, description="SSE 会话 id (stream 请求的 session_id)")
+    turn_id: str | None = Field(None, description="可选: 针对特定 turn_id 的停止")
 
 
 @router.post("/api/v1/agent/stop")
@@ -233,19 +217,21 @@ async def legacy_agent_stop(req: LegacyAgentStopRequest) -> dict:
 
     if not req.session_id:
         return {"cancelled": "none", "error": "session_id required"}
-    return await cancel_session(req.session_id)
+    return await cancel_session(req.session_id, turn_id=req.turn_id)
 
 
 @router.get("/api/v1/agent/stream_status")
-async def legacy_agent_stream_status(session_id: str) -> dict:
+async def legacy_agent_stream_status(session_id: str, turn_id: str | None = None) -> dict:
     """会话对应的后台主脑任务是否仍在跑 (前端断流重连前先探活)。
 
     SSE 推流与后台任务解耦 (见 server/chat_stream.py) — 任务完成/取消后
     再重连 GET /stream/{sid} 只会拿到一个空队列, 永远等不到新事件, 白白
     挂起。前端靠这个先判断"值不值得重连", 不值得就直接发新消息。
     """
-    from server.coordinator_master import _active_streams
+    from server.coordinator_master import _active_streams, _cancelled_turn_ids
 
+    if turn_id and turn_id in _cancelled_turn_ids.get(session_id, set()):
+        return {"active": False, "status": "cancelled"}
     task = _active_streams.get(session_id)
     return {"active": task is not None and not task.done()}
 

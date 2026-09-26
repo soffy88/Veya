@@ -305,12 +305,21 @@ def _move(name: str, *, to_location: str, target_root: str, db: str | None) -> b
 
 
 def promote(name: str, *, db: str | None = None) -> bool:
-    """冷存储 → 热路径 (等价于 README 手写的 mv 命令, 但会同步更新索引)。"""
+    """冷存储 → 热路径 (等价于 README 手写的 mv 命令, 但会同步更新索引)。
+
+    D6 boundary: this moves files between hot/cold cache locations only.
+    It is NOT runtime activation — a hot skill still needs the distribution
+    lifecycle (verified + trusted + bound + active) before execution.
+    """
     return _move(name, to_location="hot", target_root=hot_dir(), db=db)
 
 
 def demote(name: str, *, db: str | None = None) -> bool:
-    """热路径 → 冷存储 (反向, 释放常驻 token)。"""
+    """热路径 → 冷存储 (反向, 释放常驻 token)。
+
+    D6 boundary: cache demotion only, unrelated to lifecycle DEPRECATED/
+    REVOKED states (those live in the skill authorities, not the cache).
+    """
     return _move(name, to_location="cold", target_root=cold_dir(), db=db)
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ class ReliableProviderAdapter:
         self.provider_router = provider_router
         self.failure_threshold = max(1, failure_threshold)
         self.health: dict[str, ProviderHealth] = {}
+        self.transient_retry_delays = (2.0, 4.0, 8.0)
 
     def _health(self, name: str) -> ProviderHealth:
         return self.health.setdefault(name, ProviderHealth())
@@ -73,26 +75,42 @@ class ReliableProviderAdapter:
         last: Exception | None = None
         for name in self.select(candidates, requirements):
             health = self._health(name)
-            started = time.perf_counter()
-            try:
-                result = await request(name)
-                if result is None or result == "":
-                    health.empty += 1
-                    raise ValueError("empty provider response")
-                if not isinstance(result, (dict, str)):
-                    health.malformed += 1
-                    raise ValueError("malformed provider response")
-            except Exception as exc:
-                last = exc
-                kind = self._classify(exc)
-                setattr(health, kind, getattr(health, kind) + 1)
-                health.failure_streak += 1
-                health.unhealthy = health.failure_streak >= self.failure_threshold
+            for attempt in range(len(self.transient_retry_delays) + 1):
+                started = time.perf_counter()
+                try:
+                    result = await request(name)
+                    if result is None or result == "":
+                        health.empty += 1
+                        raise ValueError("empty provider response")
+                    if not isinstance(result, (dict, str)):
+                        health.malformed += 1
+                        raise ValueError("malformed provider response")
+                except Exception as exc:
+                    from server.hicode_cooldown import ModelCooldown, classify_upstream_failure
+
+                    failure = classify_upstream_failure(
+                        {
+                            "status_code": getattr(exc, "status_code", None),
+                            "message": str(exc),
+                        }
+                    )
+                    if failure is not None:
+                        health.failure_streak += 1
+                        health.last_latency_ms = (time.perf_counter() - started) * 1000
+                        raise ModelCooldown(failure) from exc
+                    last = exc
+                    kind = self._classify(exc)
+                    setattr(health, kind, getattr(health, kind) + 1)
+                    health.failure_streak += 1
+                    health.unhealthy = health.failure_streak >= self.failure_threshold
+                    health.last_latency_ms = (time.perf_counter() - started) * 1000
+                    if kind != "server_error" or attempt >= len(self.transient_retry_delays):
+                        break
+                    await asyncio.sleep(self.transient_retry_delays[attempt])
+                    continue
+                health.success += 1
+                health.failure_streak = 0
+                health.unhealthy = False
                 health.last_latency_ms = (time.perf_counter() - started) * 1000
-                continue
-            health.success += 1
-            health.failure_streak = 0
-            health.unhealthy = False
-            health.last_latency_ms = (time.perf_counter() - started) * 1000
-            return name, result, {"goal_run_id": goal_run_id, "context": dict(context)}
+                return name, result, {"goal_run_id": goal_run_id, "context": dict(context)}
         raise RuntimeError(f"all providers failed: {last}")

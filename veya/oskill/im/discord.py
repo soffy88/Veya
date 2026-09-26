@@ -244,7 +244,7 @@ def make_discord_router(
 
     async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
         try:
-            result = await master_coordinator.chat_stream(prompt, session_id=None, max_rounds=3)
+            result = await master_coordinator.chat_stream(prompt, session_id=None)
             return {
                 "status": result.get("status", "failed"),
                 "content": result.get("final_answer") or result.get("error", ""),

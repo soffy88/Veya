@@ -12,6 +12,19 @@ from .models import ArtifactManifest, ArtifactRef
 _RUN_PARTS = ("inputs", "workspace", "outputs", "evidence", "checkpoints", "trajectories")
 
 
+def write_json_file(path: str | Path, value: object) -> Path:
+    """Atomically write a runtime-owned JSON artifact at an approved path."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(value, ensure_ascii=False, indent=2, default=str)
+    temporary = target.with_name(
+        f".{target.name}.{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}.tmp"
+    )
+    temporary.write_text(encoded, encoding="utf-8")
+    temporary.replace(target)
+    return target
+
+
 class ArtifactStore:
     """Owns ``.veya/runs/<task_id>`` without deciding semantic completion."""
 
@@ -123,6 +136,10 @@ class ArtifactStore:
         temporary.write_text(encoded, encoding="utf-8")
         temporary.replace(path)
         return path
+
+    def write_json(self, relative: str | Path, value: object) -> Path:
+        """Write one task-scoped JSON artifact through the artifact owner."""
+        return write_json_file(self.path(relative), value)
 
     @staticmethod
     def is_final(ref: ArtifactRef) -> bool:

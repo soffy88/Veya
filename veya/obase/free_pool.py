@@ -173,18 +173,22 @@ class FreePoolLifecycle:
             inactive_by_source: dict[str, list[PoolEntry]] = {}
             for entry in candidates.values():
                 key = entry_key(entry)
-                record = self._records.get(key)
-                if record is None or record.get("active") or key in self._seed_keys:
+                existing_record = self._records.get(key)
+                if (
+                    existing_record is None
+                    or existing_record.get("active")
+                    or key in self._seed_keys
+                ):
                     to_probe.append(entry)
                 else:
                     source = str(entry.get("source") or entry.get("provider") or "").lower()
                     inactive_by_source.setdefault(source, []).append(entry)
             retry_day = int(now // 86400)
-            for source, entries in inactive_by_source.items():
+            for _source, entries in inactive_by_source.items():
                 batch_size = self._inactive_retry_per_source
                 batch_count = max(1, (len(entries) + batch_size - 1) // batch_size)
-                batch = retry_day % batch_count
-                start = batch * batch_size
+                batch_index = retry_day % batch_count
+                start = batch_index * batch_size
                 to_probe.extend(entries[start : start + batch_size])
 
             # 分批并发探测 (BATCH_SIZE=8): 避免 asgiogather 一次性发起 50+ 请求造成
@@ -193,18 +197,18 @@ class FreePoolLifecycle:
             BATCH_SIZE = 8
             probe_by_key: dict[str, tuple[bool, str]] = {}
             for start in range(0, len(to_probe), BATCH_SIZE):
-                batch = to_probe[start:start + BATCH_SIZE]
+                probe_batch = to_probe[start : start + BATCH_SIZE]
                 results = await asyncio.gather(
-                    *(self._probe_one(entry, probe) for entry in batch)
+                    *(self._probe_one(entry, probe) for entry in probe_batch)
                 )
-                for entry, result in zip(batch, results, strict=True):
+                for entry, result in zip(probe_batch, results, strict=True):
                     probe_by_key[entry_key(entry)] = result
             for order, entry in enumerate(candidates.values()):
                 key = entry_key(entry)
-                result = probe_by_key.get(key)
-                if result is None:
+                probe_result = probe_by_key.get(key)
+                if probe_result is None:
                     continue
-                ok, error = result
+                ok, error = probe_result
                 key = entry_key(entry)
                 record = self._records.setdefault(
                     key,
@@ -238,7 +242,8 @@ class FreePoolLifecycle:
             # state file and can enter on a later refresh if earlier routes
             # disappear.
             active_keys = [
-                key for key, record in sorted(
+                key
+                for key, record in sorted(
                     self._records.items(), key=lambda item: int(item[1].get("order", 10**9))
                 )
                 if record.get("active")

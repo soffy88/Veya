@@ -52,9 +52,21 @@ class SSEQueue:
     def __init__(self, session_id: str = "") -> None:
         self.sid = session_id
         self._q: asyncio.Queue[dict | None] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+        self._subscribers: set[asyncio.Queue[dict | None]] = set()
+        self._closed = False
         self._event_id = 0
         # 环形缓冲区：存 (event_id, envelope) 供重连补发
         self._replay_buffer: deque[tuple[int, dict]] = deque(maxlen=_REPLAY_BUFFER_SIZE)
+
+    def subscribe(self) -> asyncio.Queue[dict | None]:
+        q: asyncio.Queue[dict | None] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+        self._subscribers.add(q)
+        if self._closed:
+            q.put_nowait(None)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue[dict | None]) -> None:
+        self._subscribers.discard(q)
 
     def on_step(self, event_dict: dict) -> None:
         """Synchronous callback for engine on_step hooks.
@@ -96,8 +108,24 @@ class SSEQueue:
                 except asyncio.QueueEmpty:
                     pass
 
+        # 广播给全部订阅者
+        for sub_q in list(self._subscribers):
+            try:
+                sub_q.put_nowait(envelope)
+            except asyncio.QueueFull:
+                try:
+                    sub_q.get_nowait()
+                    sub_q.put_nowait(envelope)
+                except asyncio.QueueEmpty:
+                    pass
+
     def close(self) -> None:
-        self._q.put_nowait(None)  # sentinel
+        self._closed = True
+        with contextlib.suppress(asyncio.QueueFull):
+            self._q.put_nowait(None)  # sentinel
+        for sub_q in list(self._subscribers):
+            with contextlib.suppress(asyncio.QueueFull):
+                sub_q.put_nowait(None)
 
     def _replay_from(self, last_event_id: int) -> list[dict]:
         """Return events with id > last_event_id from replay buffer."""
@@ -113,9 +141,10 @@ class SSEQueue:
         - 背压事件透传给前端
         - finally 清理会话队列
         """
-        # 0. 若客户端在连接时即已断开，直接返回（并清理队列）
+        # 0. 若客户端在连接时即已断开，直接返回
         if request is not None and await request.is_disconnected():
-            _queues.pop(self.sid, None)
+            if not self._subscribers:
+                _queues.pop(self.sid, None)
             return
 
         # 1. 读取 Last-Event-ID 头（标准 SSE 重连机制）
@@ -134,10 +163,11 @@ class SSEQueue:
                 payload = json.dumps(env, ensure_ascii=False)
                 yield f"id: {env['id']}\ndata: {payload}\n\n"
 
+        sub_q = self.subscribe()
         try:
             while True:
                 try:
-                    item = await asyncio.wait_for(self._q.get(), timeout=_HEARTBEAT_S)
+                    item = await asyncio.wait_for(sub_q.get(), timeout=_HEARTBEAT_S)
                 except TimeoutError:
                     if request is not None and await request.is_disconnected():
                         return
@@ -153,8 +183,10 @@ class SSEQueue:
                 payload = json.dumps(item, ensure_ascii=False)
                 yield f"id: {event_id}\ndata: {payload}\n\n"
         finally:
-            # 消费结束/断开/取消 → 清理会话队列, 防 _queues 无限增长
-            _queues.pop(self.sid, None)
+            self.unsubscribe(sub_q)
+            # 消费结束/断开/取消 → 若已关闭且无活跃订阅者则清理
+            if self._closed and not self._subscribers:
+                _queues.pop(self.sid, None)
 
 
 # In-memory registry: session_id → SSEQueue

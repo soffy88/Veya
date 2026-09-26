@@ -11,15 +11,16 @@ DaemonBus 集成（阶段 3 oprim_daemon 原子接通真实链路）:
     start() 后自动注册 daemon.pause / daemon.resume / daemon.status 处理器，
     任何经 bus 的调用（oprim.daemon.daemon_pause(bus=...)）即可挂起/恢复/查询。
 
-注入: bus / barrier / llm / pipeline / tree / system_prompt / max_rounds
+注入: bus / barrier / llm / pipeline / tree / system_prompt
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -54,6 +55,7 @@ class TaskState:
 
     task_id: str
     user_input: str
+    goal_id: str = ""
     status: TaskStatus = TaskStatus.PENDING
     session_id: str = ""
     error: str = ""
@@ -85,7 +87,8 @@ class DaemonEngine:
         pipeline_factory: Callable[[], ToolPipeline] | None = None,
         tree: SessionTreeMgr | None = None,
         system_prompt: str = "",
-        max_rounds: int = 10,
+        goal_bridge: Any = None,
+        **_legacy_kwargs: Any,
     ) -> None:
         self._bus = bus
         self._barrier = barrier
@@ -93,12 +96,19 @@ class DaemonEngine:
         self._pipeline_factory = pipeline_factory or ToolPipeline
         self._tree = tree or SessionTreeMgr()
         self._system_prompt = system_prompt
-        self._max_rounds = max_rounds
         self._tasks: dict[str, TaskState] = {}
         self._drivers: dict[str, asyncio.Task] = {}
         self._relay_task: asyncio.Task | None = None
         self._fans: dict[str, list[asyncio.Queue]] = {}
         self._tool_specs: dict[str, tuple[Callable[..., Any], dict | None]] = {}
+        self._pause_events: dict[str, asyncio.Event] = {}
+        self._resume_events: dict[str, asyncio.Event] = {}
+        self._project_root = os.environ.get("VEYA_PROJECT_ROOT", ".")
+        self._goal_bridge = goal_bridge
+
+    def set_goal_bridge(self, bridge: Any) -> None:
+        """Inject the application-owned durable GoalRun bridge."""
+        self._goal_bridge = bridge
 
     def register_tool(self, name: str, fn: Callable[..., Any], schema: dict | None = None) -> None:
         """注册共享工具（所有任务实例的 pipeline 继承）。"""
@@ -113,6 +123,8 @@ class DaemonEngine:
         await daemon_bind(bus=self._bus, topic="daemon.status", handler=self._on_bus_status)
         if self._barrier is not None and self._relay_task is None:
             self._relay_task = asyncio.create_task(self._relay_loop())
+        if self._goal_bridge is not None:
+            await self.recover_running_tasks()
 
     async def shutdown(self) -> None:
         """取消全部任务驱动器与事件中继。"""
@@ -143,26 +155,36 @@ class DaemonEngine:
             system=self._system_prompt or None
         )
 
-        pipeline = self._pipeline_factory()
-        for name, (fn, schema) in self._tool_specs.items():
-            pipeline.register(name, fn, schema=schema)
-        for name, (fn, schema) in (tools or {}).items():
-            pipeline.register(name, fn, schema=schema)
-
-        loop = AgentLoop(
-            llm=self._llm,
-            pipeline=pipeline,
-            tree=self._tree,
-            barrier=self._barrier,
-            system_prompt=self._system_prompt,
-            max_rounds=self._max_rounds,
-            gate=self._make_gate(state),
-        )
-        driver = asyncio.create_task(
-            self._drive(task_id, state, loop, user_input, state.session_id)
-        )
+        if tools:
+            merged_tools = dict(self._tool_specs)
+            merged_tools.update(tools)
+        else:
+            merged_tools = self._tool_specs
+        if self._goal_bridge is None:
+            pipeline = self._pipeline_factory()
+            for name, (fn, schema) in merged_tools.items():
+                pipeline.register(name, fn, schema=schema)
+            loop = AgentLoop(
+                llm=self._llm,
+                pipeline=pipeline,
+                tree=self._tree,
+                barrier=self._barrier,
+                system_prompt=self._system_prompt,
+                gate=self._make_gate(state),
+            )
+            driver = asyncio.create_task(
+                self._drive(task_id, state, loop, state.user_input, state.session_id)
+            )
+        else:
+            driver = asyncio.create_task(self._run_goal(task_id, state, merged_tools))
         self._drivers[task_id] = driver
         return state
+
+    async def recover_running_tasks(self) -> int:
+        """Re-admit unfinished durable tasks through the injected application bridge."""
+        if self._goal_bridge is None:
+            return 0
+        return int(await self._goal_bridge.recover_running_tasks(self))
 
     async def pause(self, task_id: str) -> dict:
         """请求挂起：当前轮结束后暂停（gate 检查点生效）。"""
@@ -173,6 +195,9 @@ class DaemonEngine:
             raise RuntimeError(f"任务已结束 ({state.status.value})")
         state.status = TaskStatus.PAUSED
         state.pause_event.set()
+        self._pause_events.setdefault(f"daemon:{task_id}", asyncio.Event()).set()
+        if self._goal_bridge is not None:
+            self._persist_pause(task_id, True)
         return {"task_id": task_id, "status": "paused"}
 
     async def resume(self, task_id: str, *, input_text: str | None = None) -> dict:
@@ -190,6 +215,17 @@ class DaemonEngine:
         state.status = TaskStatus.RUNNING
         state.pause_event.clear()
         state._resume_event.set()
+        pause_event = self._pause_events.setdefault(f"daemon:{task_id}", asyncio.Event())
+        pause_event.clear()
+        self._resume_events.setdefault(f"daemon:{task_id}", asyncio.Event()).set()
+        if self._goal_bridge is not None:
+            self._persist_pause(task_id, False)
+        if self._goal_bridge is not None and task_id not in self._drivers:
+            goal_id = state.goal_id or self._goal_id_for_task(task_id)
+            if goal_id:
+                self._drivers[task_id] = asyncio.create_task(
+                    self._resume_goal(goal_id, task_id, state), name=f"veya-daemon-resume-{task_id}"
+                )
         return {"task_id": task_id, "status": "running"}
 
     async def status(self, task_id: str) -> dict:
@@ -219,9 +255,8 @@ class DaemonEngine:
 
     # ------------------------------------------------------------------ 内部
 
-    def _make_gate(self, state: TaskState) -> Callable[[], Awaitable[None]]:
+    def _make_gate(self, state: TaskState) -> Callable[[], Any]:
         async def _gate() -> None:
-            # paused → 等待 resume 事件（HITL 检查点）
             while state.pause_event.is_set():
                 state._resume_event.clear()
                 await state._resume_event.wait()
@@ -232,12 +267,12 @@ class DaemonEngine:
         self,
         task_id: str,
         state: TaskState,
-        loop: AgentLoop,
+        loop: Any,
         user_input: str,
         session_id: str | None,
     ) -> None:
-        """后台驱动器：驱动 AgentLoop 并维护状态机。"""
-        if state.status != TaskStatus.PAUSED:  # pause 先于 driver 启动时保持 PAUSED
+        """Generic injected AgentLoop fallback used outside the Veya application."""
+        if state.status != TaskStatus.PAUSED:
             state.status = TaskStatus.RUNNING
         try:
             result = await loop.run(user_input, session_id=session_id)
@@ -252,12 +287,65 @@ class DaemonEngine:
             state.status = TaskStatus.FAILED
             state.error = str(exc)
         finally:
-            # 任务终止信号：经事件流发出（relay 保证顺序在 agent_loop.done 之后）
+            self._drivers.pop(task_id, None)
             emit_event(
                 "task.end",
                 {"task_id": task_id, "session_id": state.session_id, "status": state.status.value},
                 barrier=self._barrier,
             )
+
+    async def _run_goal(self, task_id: str, state: TaskState, tools: dict) -> None:
+        if self._goal_bridge is None:
+            raise RuntimeError("durable GoalRun bridge is not configured")
+        if state.status != TaskStatus.PAUSED:
+            state.status = TaskStatus.RUNNING
+        try:
+            response = await self._goal_bridge.run_goal(self, task_id, state, tools)
+            state.goal_id = response.goal_id
+            self._apply_response(state, response)
+        except asyncio.CancelledError:
+            state.status = TaskStatus.FAILED
+            state.error = "任务被取消"
+            raise
+        except Exception as exc:
+            state.status = TaskStatus.FAILED
+            state.error = str(exc)
+        finally:
+            self._drivers.pop(task_id, None)
+            emit_event(
+                "task.end",
+                {"task_id": task_id, "session_id": state.session_id, "status": state.status.value},
+                barrier=self._barrier,
+            )
+
+    async def _resume_goal(self, goal_id: str, task_id: str, state: TaskState) -> None:
+        if self._goal_bridge is None:
+            raise RuntimeError("durable GoalRun bridge is not configured")
+        try:
+            response = await self._goal_bridge.resume_goal(self, goal_id, task_id, state)
+            self._apply_response(state, response)
+        finally:
+            self._drivers.pop(task_id, None)
+
+    def _project_result(self, task_id: str, result: LoopResult) -> None:
+        state = self._tasks.get(task_id)
+        if state is not None:
+            state.session_id = result.session_id
+            state.result = result
+
+    def _apply_response(self, state: TaskState, response: Any) -> None:
+        value = getattr(response.status, "value", response.status)
+        state.status = TaskStatus.COMPLETED if value == "completed" else TaskStatus.FAILED
+        state.error = str(getattr(response, "block_reason", "") or "")
+
+    def _goal_id_for_task(self, task_id: str) -> str | None:
+        if self._goal_bridge is None:
+            return None
+        return self._goal_bridge.goal_id_for_task(self, task_id)
+
+    def _persist_pause(self, task_id: str, paused: bool) -> None:
+        if self._goal_bridge is not None:
+            self._goal_bridge.persist_pause(self, task_id, paused)
 
     def _end_fan(self, task_id: str) -> None:
         """兼容占位：终止信号已改走 task.end 事件流，保留签名防外部调用。"""

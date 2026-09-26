@@ -23,7 +23,7 @@ pytestmark = [pytest.mark.quant, pytest.mark.optional_dependency, pytest.mark.sl
 
 from obase.causal_graph_store import CausalGraphStore
 from omodul.multi_step_plan import multi_step_plan, update_cpd_from_repair
-from oprim._counterfactual_rollout import OBSERVE_ACTION, counterfactual_rollout
+from oprim._counterfactual_rollout import counterfactual_rollout, observe_action
 from oprim._do_calculus_intervention import build_binary_failure_cpd_map
 from oskill._strategy_evolve import (
     STRATEGY_NAMES,
@@ -382,8 +382,8 @@ def test_multi_step_plan_observe_first_action():
         uncertainty=uncertainty,
     )
     first = report.plan.planned_actions[0]
-    assert first.action_type == OBSERVE_ACTION
-    assert report.plan.total_utility >= 0.0 or True  # noqa: SIM222 - preserve existing smoke assertion
+    assert first.action_type == observe_action
+    assert isinstance(report.plan.total_utility, (int, float))
 
 
 def test_multi_step_plan_threat_override_selects_quarantine():

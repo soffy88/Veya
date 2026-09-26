@@ -10,7 +10,12 @@ from veya.obase.free_pool import FreePoolLifecycle, FreePoolSnapshot
 
 
 def _entry(model: str, *, source: str = "provider") -> dict[str, str]:
-    return {"provider": source, "model": model, "endpoint": "https://example.test/v1", "source": source}
+    return {
+        "provider": source,
+        "model": model,
+        "endpoint": "https://example.test/v1",
+        "source": source,
+    }
 
 
 @pytest.mark.asyncio
@@ -50,9 +55,7 @@ async def test_catalog_adds_free_model_and_removes_disappeared_model(tmp_path):
 @pytest.mark.asyncio
 async def test_transient_probe_failures_use_cooldown_before_removal(tmp_path):
     seed = _entry("flaky-free")
-    lifecycle = FreePoolLifecycle(
-        [seed], state_path=tmp_path / "pool.json", failure_threshold=3
-    )
+    lifecycle = FreePoolLifecycle([seed], state_path=tmp_path / "pool.json", failure_threshold=3)
 
     async def healthy(entry):
         return True, ""

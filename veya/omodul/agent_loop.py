@@ -2,7 +2,7 @@
 
 生成 → 调用 → 工具 → 更新树 → 停止判断 + 熔断/退避：
 
-    for round in range(max_rounds):
+    while not terminal:
         ctx      = tree.messages(sid)            # 时空回溯上下文
         ctx      = context_compress 滑窗裁剪
         msgs     = protocol_translate 打包        # 纯函数
@@ -14,10 +14,11 @@
         stop? → 收尾
         for call: ToolPipeline.run_call → tree.append(tool 结果)
         连续失败 ≥ max_consecutive_errors → 熔断停止
+        无进展/重复动作/资源耗尽 → 安全停止
 
 注入（全部经句柄/接口，零直接 I/O）:
     llm / pipeline / tree / barrier — 默认取 container 全局句柄或新建
-    system_prompt / max_rounds / max_consecutive_errors / backoff_sleep
+    system_prompt / max_consecutive_errors / backoff_sleep
 
 事件流: agent_loop.round / agent_loop.tool_result / agent_loop.done
 """
@@ -26,6 +27,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import json
+import os
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +45,30 @@ from veya.oskill.pure.parse_tool_call import parse_tool_calls
 from veya.oskill.pure.protocol_translate import agent_messages_to_llm, llm_message_to_agent
 
 _MAX_CTX_MESSAGES = 40
+
+
+def _canonical_action_fp(tool_name: str, args: Any) -> str:
+    """Canonical action identity: tool name + stably sorted JSON arguments."""
+    if isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+            canonical_args = json.dumps(parsed, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            canonical_args = args.strip()
+    elif isinstance(args, dict):
+        canonical_args = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+    else:
+        canonical_args = str(args)
+    return f"{tool_name}:{canonical_args}"
+
+
+def _normalize_evidence_fp(output: Any, error: Any = None) -> str:
+    """Normalize tool execution result to a stable evidence fingerprint."""
+    raw = (str(output) if output is not None else "") + (f"|err:{error}" if error else "")
+    norm = " ".join(raw.strip().split())
+    if len(norm) > 128:
+        return hashlib.sha256(norm.encode("utf-8")).hexdigest()
+    return norm
 
 
 @dataclass
@@ -82,7 +111,6 @@ class AgentLoop:
         tree: SessionTreeMgr | None = None,
         barrier: Any = None,
         system_prompt: str = "",
-        max_rounds: int = 10,
         max_consecutive_errors: int = 3,
         backoff_sleep: float = 1.0,
         sleep_fn: Callable[[float], Awaitable[None]] | None = None,
@@ -91,6 +119,7 @@ class AgentLoop:
         on_finish: Callable[[str, list[dict]], Awaitable[None]] | None = None,
         budget_usd: float | None = None,
         cost_calculator: Callable[[dict], float] | None = None,
+        **_legacy_kwargs: Any,
     ) -> None:
         """gate: 每轮开始前 await 的挂起检查点（阶段 5 daemon 注入：
         paused 时阻塞等待 resume；默认 None = 无挂起能力，行为不变）。
@@ -108,7 +137,6 @@ class AgentLoop:
         self._tree = tree
         self._barrier = barrier
         self._system_prompt = system_prompt
-        self._max_rounds = max(1, max_rounds)
         self._max_consecutive_errors = max(1, max_consecutive_errors)
         self._backoff_sleep = backoff_sleep
         self._sleep = sleep_fn or asyncio.sleep
@@ -158,13 +186,30 @@ class AgentLoop:
         result = LoopResult(session_id=sid)
         consecutive_errors = 0
         decision: StopDecision | None = None
+        round_count = 0
+        start_time = time.monotonic()
+        # Safety limits (configurable via env for product tuning)
+        MAX_WALL_TIME_S = float(os.environ.get("VEYA_MAX_WALL_TIME_S", "0") or 0)
+        MAX_NO_PROGRESS_ROUNDS = int(os.environ.get("VEYA_MAX_NO_PROGRESS_ROUNDS", "3") or 3)
+        action_evidence_seen: set[tuple[str, str]] = set()
+        no_progress_rounds = 0
 
-        for round_no in range(self._max_rounds):
+        while True:
+            round_count += 1
             # 0. 挂起检查点（daemon 注入；paused 时阻塞等待 resume）
             if self._gate is not None:
                 await self._gate()
+            # Safety: wall-clock deadline
+            if MAX_WALL_TIME_S > 0 and (time.monotonic() - start_time) >= MAX_WALL_TIME_S:
+                result.stop_kind = "safety_resource_exhausted"
+                result.stop_reason = f"wall-clock deadline exceeded ({MAX_WALL_TIME_S}s)"
+                result.error = result.stop_reason
+                result.final_answer = (
+                    f"本次执行已暂停 (安全/资源限制: {result.stop_reason})。可继续运行。"
+                )
+                break
             if self._budget_usd is not None and result.cost_usd >= self._budget_usd:
-                result.stop_kind = "budget_exceeded"
+                result.stop_kind = "safety_resource_exhausted"
                 result.stop_reason = f"预算上限 ${self._budget_usd:.6f} 已用尽"
                 result.error = result.stop_reason
                 result.final_answer = f"⚠ {result.stop_reason}"
@@ -207,7 +252,7 @@ class AgentLoop:
                 # Malformed provider usage must not bypass loop safeguards.
                 pass
             if self._budget_usd is not None and result.cost_usd > self._budget_usd:
-                result.stop_kind = "budget_exceeded"
+                result.stop_kind = "safety_resource_exhausted"
                 result.stop_reason = (
                     f"本轮估算成本 ${result.cost_usd:.6f} 超过预算上限 ${self._budget_usd:.6f}"
                 )
@@ -225,11 +270,10 @@ class AgentLoop:
                 tool_calls=agent_msg.get("tool_calls") or [],
             )
 
-            # 4. 解析 + 停止判断
+            # 4. 解析 + 停止判断（语义化）
             calls = parse_tool_calls(agent_msg)
             decision = evaluate_stop_condition(
-                round_count=round_no,
-                max_rounds=self._max_rounds,
+                round_count=round_count,
                 tool_calls=calls,
                 last_content=content,
             )
@@ -245,9 +289,15 @@ class AgentLoop:
 
             # 5. 工具执行（经 ToolPipeline 五步管道）+ 入树
             round_ok = True
+            new_evidence_in_batch = False
             for call in calls:
                 tr: ToolRunResult = await self._pipeline.run_call(call, session_id=sid)
                 result.tool_calls += 1
+                action_fp = _canonical_action_fp(call.name, call.arguments)
+                evidence_fp = _normalize_evidence_fp(tr.output, tr.error)
+                if (action_fp, evidence_fp) not in action_evidence_seen:
+                    new_evidence_in_batch = True
+                    action_evidence_seen.add((action_fp, evidence_fp))
                 if tr.ok:
                     consecutive_errors = 0
                     self._tree.append(
@@ -279,16 +329,13 @@ class AgentLoop:
                     barrier=self._barrier,
                 )
 
-            # 6. 熔断/退避：连续失败达到上限 → 提前停止
+            # 6. 熔断/退避：连续失败达到上限 → 致命错误停止
             if consecutive_errors >= self._max_consecutive_errors:
                 result.stop_kind = "fatal_error"
                 result.stop_reason = (
                     f"工具连续失败 {consecutive_errors} 次, 触发熔断 (退避 {self._backoff_sleep}s)"
                 )
                 result.error = result.stop_reason
-                # calls 非空才会进入这个分支 (熔断只在工具执行后判定), 故 tr
-                # 一定绑定了本轮最后一次工具结果 — 把具体错误带出来, 比通用
-                # 兜底文案更有诊断价值。
                 last_tool_error = (tr.error or "") if not tr.ok else ""
                 result.final_answer = (
                     f"⚠ {result.stop_reason}"
@@ -298,31 +345,31 @@ class AgentLoop:
                 await self._sleep(self._backoff_sleep)
                 break
 
+            # 7. 无进展/重复动作检测（安全护栏，非语义路由）
+            if calls:
+                if new_evidence_in_batch:
+                    no_progress_rounds = 0
+                else:
+                    no_progress_rounds += 1
+
+            if no_progress_rounds >= MAX_NO_PROGRESS_ROUNDS:
+                result.stop_kind = "no_progress_detected"
+                result.stop_reason = f"连续 {no_progress_rounds} 轮无新进展 (工具结果重复/无新证据)"
+                result.error = result.stop_reason
+                result.final_answer = f"当前执行没有继续取得有效进展: {result.stop_reason}"
+                break
+
             emit_event(
                 "agent_loop.round",
-                {"session_id": sid, "round": round_no, "tools_ok": round_ok},
+                {"session_id": sid, "round": round_count, "tools_ok": round_ok},
                 barrier=self._barrier,
             )
-        else:
-            # 循环自然耗尽 = 达到最大轮次
-            result.stop_kind = "max_rounds"
-            result.stop_reason = f"达到最大轮次 {self._max_rounds}"
 
-        result.rounds = min(round_no + 1, self._max_rounds)
-        if result.stop_kind == "continue":
-            result.stop_kind = "max_rounds"
-            result.stop_reason = f"达到最大轮次 {self._max_rounds}"
-        # 兜底: 不管哪条路径导致 final_answer 仍为空 (max_rounds 自然耗尽是最
-        # 常见情形——它从未走过上面任何一个显式设置 final_answer 的 break 分支),
-        # 都从会话树回填最后一条非空 assistant 内容, 或退化为工具执行摘要——
-        # 绝不把空字符串交还调用方 (那样只会在更上层被替换成毫无信息量的
-        # "网关抖动"通用文案, 真实原因全部丢失)。
+        result.rounds = round_count
+        # 兜底: 如果 final_answer 仍为空，从会话树回填
         if not result.final_answer.strip():
             last_assistant = ""
             for msg in reversed(self._tree.messages(sid)):
-                # tool_calls 非空的 assistant 消息只是"我要调工具了"的过渡态
-                # (content 常是 "thinking" 这类占位文案), 不是真正想说给用户
-                # 听的话——跳过, 只认没带 tool_calls 的纯文本回合。
                 if (
                     msg.get("role") == "assistant"
                     and not msg.get("tool_calls")
@@ -334,14 +381,13 @@ class AgentLoop:
                 result.final_answer = last_assistant
             elif result.tool_calls > 0:
                 result.final_answer = (
-                    f"⚠ 达到最大轮次 ({self._max_rounds}), 已执行 {result.tool_calls} 次工具调用 "
+                    f"已执行 {result.tool_calls} 次工具调用 "
                     f"({result.tool_calls - result.tool_failures} 成功/{result.tool_failures} 失败), "
-                    "但未在预算内给出总结。可以让我接着处理，或换个更具体的说法。"
+                    "但未给出总结。可以让我接着处理，或换个更具体的说法。"
                 )
             else:
                 result.final_answer = (
-                    f"⚠ 达到最大轮次 ({self._max_rounds}) 仍未产出回答，且未执行任何工具。"
-                    "请重试，或检查模型/网关是否正常。"
+                    "未产出回答，且未执行任何工具。请重试，或检查模型/网关是否正常。"
                 )
         result.snapshot = self._tree.snapshot(sid)
         emit_event(

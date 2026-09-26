@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -21,6 +22,21 @@ from server.acp_client import ACPBackend, ACPError
 BACKEND_KINDS = ("builtin", "cli", "acp")
 
 CLI_BACKENDS = {"claude": "claude", "codex": "codex", "pi": "pi", "opencode": "opencode"}
+
+
+def _backend_event_emit(topic: str, payload: dict[str, Any]) -> None:
+    """Best-effort audit for backend-driven delivery edges.
+
+    Runs outside request context; a failing event sink must never break
+    execution, so failures are logged (the delivery record itself always
+    persists in the assembly for inspection).
+    """
+    try:
+        from server.events import append_canonical_event
+
+        append_canonical_event(topic, payload, actor="system")
+    except Exception:
+        logging.getLogger("veya.backends").warning("backend delivery audit emit failed: %s", topic)
 
 
 @dataclass
@@ -133,8 +149,9 @@ class BackendRegistry:
         cwd: str | None = None,
         model: str = "",
         timeout_s: float = 600.0,
+        agent_runtime_id: str | None = None,
     ) -> dict[str, Any]:
-        """统一执行: builtin → 主脑; cli → engine_runner; acp → ACP 客户端。"""
+        """统一执行: builtin → 主脑; cli → engine_runner; acp → ACP 客户端."""
         spec = self._find(name)
         if spec is None:
             raise KeyError(f"backend 不存在: {name}")
@@ -146,6 +163,17 @@ class BackendRegistry:
                 "backend": name,
                 "error": f"backend {name} 不可用 (CLI 未安装或命令无效)",
             }
+        # D8: optional runtime gate against the canonical D1 descriptor.
+        if agent_runtime_id is not None:
+            from server.agent_definition import check_runtime_available
+
+            _rt = check_runtime_available(agent_runtime_id)
+            if not _rt.get("available"):
+                return {
+                    "ok": False,
+                    "backend": name,
+                    "error": f"runtime unavailable: {agent_runtime_id}",
+                }
 
         self._running[name] = self._running.get(name, 0) + 1
         try:
@@ -158,10 +186,10 @@ class BackendRegistry:
             self._running[name] = max(0, self._running.get(name, 0) - 1)
 
     async def _run_builtin(self, prompt: str, model: str, timeout_s: float) -> dict[str, Any]:
-        from server.coordinator import coordinator
+        from server.coordinator_master import master_coordinator
 
         result = await asyncio.wait_for(
-            coordinator.handle({"text": prompt, "persona": "build"}),
+            master_coordinator.chat_stream(prompt, model=model or None),
             timeout=timeout_s,
         )
         output = result.get("output") or result.get("squads") or ""
@@ -193,8 +221,20 @@ class BackendRegistry:
     async def _run_acp(
         self, spec: BackendSpec, prompt: str, cwd: str | None, timeout_s: float
     ) -> dict[str, Any]:
+        from server.acp_mcp_delivery import default_mcp_sources, get_acp_mcp_delivery
+
         backend = ACPBackend(spec.command, agent=spec.agent, cwd=cwd)
+        delivery = get_acp_mcp_delivery(emit=_backend_event_emit)
         try:
+            session_id = await backend.start_session()
+            await delivery.open_session(
+                session_id,
+                backend_kind="acp",
+                reuse_key=f"{spec.name}:{cwd or ''}",
+                sources=default_mcp_sources(),
+                on_close_transport=backend.close,
+                owner=f"backend:{spec.name}",
+            )
             result = await backend.run(prompt, timeout_s=timeout_s)
             return {
                 "ok": True,

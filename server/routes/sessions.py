@@ -21,7 +21,6 @@ class UnifiedSessionCreateRequest(BaseModel):
 
 class UnifiedSessionResumeRequest(BaseModel):
     text: str | None = Field(None, min_length=1)
-    max_rounds: int | None = Field(None, ge=1, le=100)
 
 
 @router.get("")
@@ -208,9 +207,7 @@ async def resume_unified_session(
         }
     )
     try:
-        result = await master_coordinator.chat_stream(
-            text, session_id=session_id, max_rounds=req.max_rounds if req else None
-        )
+        result = await master_coordinator.chat_stream(text, session_id=session_id)
     except Exception as exc:
         event_store.append(
             {

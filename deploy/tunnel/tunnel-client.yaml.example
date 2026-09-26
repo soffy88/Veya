@@ -1,0 +1,39 @@
+# Veya OpenAI Secure MCP Tunnel — official tunnel-client config (example)
+#
+# Copy to ~/.veya/openai-tunnel/tunnel-client.yaml and fill in the owner inputs.
+# No secret is stored inline: `api_key` and the MCP `Authorization` header use
+# the official `file:` secret references, which tunnel-client resolves locally
+# and never forwards to the control plane.
+#
+# Precedence: flags > environment > YAML > defaults.
+# CONTROL_PLANE_TUNNEL_ID comes from ~/.veya/openai-tunnel/tunnel.env
+# (EnvironmentFile in the systemd unit) so it is not committed here.
+
+config_version: 1
+
+control_plane:
+  # This host reaches the OpenAI control plane only through the local egress
+  # proxy; loopback MCP traffic is excluded via NO_PROXY in the unit.
+  http_proxy: http://127.0.0.1:7890
+  # Restricted Runtime API key (Tunnels Read + Use). Not an admin key.
+  api_key: file:/home/soffy/.veya/openai-tunnel/runtime_api_key
+
+mcp:
+  # Main MCP channel = the local, loopback-only Veya Remote MCP. Never the
+  # public https://veya.aiinote.com/mcp backend.
+  server_urls:
+    - url: http://127.0.0.1:8790/mcp
+      channel: main
+  # Veya bearer is injected as a static header to the MCP origin only.
+  extra_headers:
+    Authorization: file:/home/soffy/.veya/remote_mcp_auth_header
+  discovery_extra_headers:
+    Authorization: file:/home/soffy/.veya/remote_mcp_auth_header
+
+health:
+  listen_addr: 127.0.0.1:8794
+  url_file: /home/soffy/.veya/openai-tunnel/health.url
+
+log:
+  level: info
+  format: struct-text

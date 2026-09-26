@@ -3,7 +3,7 @@ import os
 import requests
 
 # 设置 GITHUB_TOKEN 环境变量
-os.environ["GITHUB_TOKEN"] = "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"
+os.environ["GITHUB_TOKEN"] = "REDACTED_CREDENTIAL"
 
 
 def create_pull_request_comment(repo, pr_number, comment):

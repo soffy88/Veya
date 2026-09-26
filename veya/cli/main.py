@@ -133,7 +133,7 @@ async def run_task(
 
     on_step({"event": "session_start", "session_id": session_id or "cli", "ts": time.time()})
 
-    result = await master_coordinator.chat_stream(task, session_id=session_id, max_rounds=3)
+    result = await master_coordinator.chat_stream(task, session_id=session_id)
 
     events = [
         {"event": "session_done", "session_id": result.get("session_id", "cli"), "ts": time.time()}

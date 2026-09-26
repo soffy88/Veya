@@ -25,6 +25,7 @@ from pathlib import Path
 
 from server.tool_registry import ToolExecutionError, master_tools
 from veya.llm import llm_call as _llm_call
+from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 
 _OPENCODE_ENDPOINT = "https://opencode.ai/zen/go/v1"
 
@@ -37,8 +38,8 @@ def _llm_sampler(backend: str) -> object:
             result = asyncio.run(
                 _llm_call(
                     [{"role": "user", "content": prompt}],
-                    provider="opencode-go",
-                    model="deepseek-v4-flash",
+                    provider=_cp.executor_provider("hp_optimizer_sampler"),
+                    model=_cp.executor_model("hp_optimizer_sampler"),
                     endpoint=_OPENCODE_ENDPOINT,
                 )
             )

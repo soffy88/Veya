@@ -19,11 +19,21 @@ from .durable import (
     content_hash,
     new_id,
 )
-from .fanin import FanInBatch, fan_in
+from .fanin import FanInBatch, fan_in, reconcile_multi_bot_results
 from .finalization import (
     FinalizationController,
     FinalizationObserver,
     calculate_finalization_reserve,
+)
+from .long_running import (
+    BudgetExhausted,
+    DuplicateFailedAction,
+    HarnessError,
+    LongRunBudget,
+    LongRunCheckpointStore,
+    LongRunningHarness,
+    LongRunState,
+    ProgressObservation,
 )
 from .models import (
     AcceptanceCriterion,
@@ -40,37 +50,63 @@ from .models import (
     SpawnBudget,
     StopReason,
 )
+from .observability import (
+    ExecutionMetrics,
+    HealthReadiness,
+    IncidentRecovery,
+    SLOCalculator,
+    TraceCorrelator,
+)
 from .outbox import OutboxPublisher
+from .production_hardening import (
+    AdmissionLease,
+    AdmissionRejected,
+    BudgetAccount,
+    HardeningLimits,
+    ProductionControlPlane,
+)
+from .production_hardening import (
+    BudgetExhausted as ProductionBudgetExhausted,
+)
 from .reconciler import Reconciler
+from .resume import (
+    CHECKPOINT_SCHEMA_VERSION,
+    RESUME_DECIDED_TOPIC,
+    ResumeDecision,
+    ResumeDecisionStore,
+    ResumeDisposition,
+    ResumeTrigger,
+    decide_resume_disposition,
+    record_resume_decision,
+    rejection_evidence_from_harness,
+    verify_execution_checkpoint,
+)
 from .runtime import DurableExecutionRuntime, DurableRuntimeConfig, get_durable_runtime
 from .scheduler import ContinuousReadyScheduler, SchedulerRun
 from .side_effects import SideEffectLedger
 from .spawn_guard import SpawnGuard, SpawnRejected
 from .worker import WorkerHost
-from .long_running import (
-    BudgetExhausted,
-    DuplicateFailedAction,
-    HarnessError,
-    LongRunBudget,
-    LongRunCheckpointStore,
-    LongRunState,
-    LongRunningHarness,
-    ProgressObservation,
-)
 
 __all__ = [
+    "CHECKPOINT_SCHEMA_VERSION",
+    "RESUME_DECIDED_TOPIC",
     "AcceptanceCriterion",
     "AcceptanceResult",
+    "AdmissionLease",
+    "AdmissionRejected",
     "ArtifactManifest",
     "ArtifactRef",
     "ArtifactStore",
     "Assertion",
+    "BudgetAccount",
+    "BudgetExhausted",
     "ClaimEnvelope",
     "ContinuousReadyScheduler",
     "DelegateRequest",
     "DelegateResult",
     "DelegateRuntime",
     "DelegateStatus",
+    "DuplicateFailedAction",
     "DurableExecutionError",
     "DurableExecutionRepository",
     "DurableExecutionRuntime",
@@ -78,13 +114,30 @@ __all__ = [
     "Evidence",
     "ExecutionCheckpoint",
     "ExecutionCheckpointStore",
+    "ExecutionMetrics",
     "FanInBatch",
     "FinalizationController",
     "FinalizationObserver",
+    "HardeningLimits",
+    "HarnessError",
+    "HealthReadiness",
+    "IncidentRecovery",
+    "LongRunBudget",
+    "LongRunCheckpointStore",
+    "LongRunState",
+    "LongRunningHarness",
     "OutboxMessage",
     "OutboxPublisher",
+    "ProductionBudgetExhausted",
+    "ProductionControlPlane",
+    "ProgressObservation",
     "Reconciler",
     "ReconciliationReport",
+    "ResumeDecision",
+    "ResumeDecisionStore",
+    "ResumeDisposition",
+    "ResumeTrigger",
+    "SLOCalculator",
     "SchedulerRun",
     "SharedTaskContext",
     "SideEffectLedger",
@@ -92,21 +145,19 @@ __all__ = [
     "SpawnGuard",
     "SpawnRejected",
     "StopReason",
+    "TraceCorrelator",
     "WorkItemSpec",
     "WorkerHost",
-    "BudgetExhausted",
-    "DuplicateFailedAction",
-    "HarnessError",
-    "LongRunBudget",
-    "LongRunCheckpointStore",
-    "LongRunState",
-    "LongRunningHarness",
-    "ProgressObservation",
     "build_operation_key",
     "calculate_finalization_reserve",
     "canonical_json",
     "content_hash",
+    "decide_resume_disposition",
     "fan_in",
     "get_durable_runtime",
     "new_id",
+    "reconcile_multi_bot_results",
+    "record_resume_decision",
+    "rejection_evidence_from_harness",
+    "verify_execution_checkpoint",
 ]

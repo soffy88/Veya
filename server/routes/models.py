@@ -160,7 +160,7 @@ async def models_catalog() -> dict[str, Any]:
         {
             "id": "ollama",
             "env": "",
-            "default_model": _DEFAULT_MODELS.get("ollama", "qwen38-9b-q5"),
+            "default_model": _DEFAULT_MODELS.get("ollama", ""),
             "configured": True,
             "local": True,
         }

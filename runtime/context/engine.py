@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from runtime.bot_scope import DEFAULT_BOT_ID, require_same_bot
 from runtime.computer import PersistentComputerStore
 from runtime.context.models import (
     CompactionAction,
@@ -53,6 +54,7 @@ class ContextEngine:
         verification_engine: VerificationEngine | None = None,
         llm_summarizer: Callable[[str], str] | None = None,
         context_state: ContextState | None = None,
+        bot_id: str = DEFAULT_BOT_ID,
     ):
         self.goal_run_id = goal_run_id
         self.computer_id = computer_id
@@ -73,8 +75,11 @@ class ContextEngine:
                 preserved=PreservedItems(
                     computer_id=computer_id,
                     goal_run_id=goal_run_id,
+                    bot_id=bot_id,
                 ),
+                bot_id=bot_id,
             )
+        self.bot_id = self.state.bot_id or self.state.preserved.bot_id or bot_id
         self._context_hash = compute_context_hash(self.state)
 
     # ==================== Context Layer Management ====================
@@ -489,14 +494,21 @@ class ContextEngine:
         checkpoint_store: LongRunCheckpointStore | None = None,
         verification_engine: VerificationEngine | None = None,
         llm_summarizer: Callable[[str], str] | None = None,
+        bot_id: str | None = None,
     ) -> ContextEngine:
-        """Load context engine from checkpoint."""
+        """Load context engine from checkpoint.
+
+        P3-A: when ``bot_id`` is given, a checkpoint owned by another bot is
+        refused fail-closed instead of loaded.
+        """
         path = Path(path)
         if not path.exists():
             raise ContextEngineError(f"Checkpoint not found: {path}")
 
         data = json.loads(path.read_text())
         context_state = ContextState.from_dict(data)
+        if bot_id is not None:
+            require_same_bot(bot_id, context_state.bot_id, f"context-checkpoint:{path}")
         return cls(
             goal_run_id=context_state.goal_run_id,
             computer_id=context_state.computer_id,

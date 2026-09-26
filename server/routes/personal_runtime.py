@@ -451,7 +451,6 @@ async def get_continuity(
 class ContinueRequest(BaseModel):
     text: str | None = Field(None, min_length=1)
     workspace_id: str | None = None
-    max_rounds: int | None = Field(None, ge=1, le=100)
 
 
 @router.post("/api/v1/tasks/{task_id}/continue")
@@ -486,9 +485,7 @@ async def continue_task(
         "skill_refs": snapshot.get("skill_refs", []),
     }
     prompt = f"[CONTINUATION CONTEXT]\n{context}\n[/CONTINUATION CONTEXT]\n\n{req.text}"
-    result = await master_coordinator.chat_stream(
-        prompt, session_id=task.get("session_id"), max_rounds=req.max_rounds
-    )
+    result = await master_coordinator.chat_stream(prompt, session_id=task.get("session_id"))
     await get_personal_runtime().record_event(
         "continuity.resumed",
         {"task_id": task_id, "snapshot_id": snapshot.get("id")},

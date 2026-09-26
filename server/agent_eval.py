@@ -141,7 +141,8 @@ async def run_agent_eval_suite(
     cases: list[EvalCase] | None = None,
     *,
     suite_name: str = "agent_eval",
-    max_rounds: int = 4,
+    eval_max_steps: int = 4,
+    **_legacy_kwargs: Any,
 ) -> EvalRun:
     """真实跑一遍每个用例的 `chat_stream()`, 再用 `run_suite` 打分/汇总。
 
@@ -153,7 +154,7 @@ async def run_agent_eval_suite(
     for case in cases:
         try:
             real_results[case.id] = await coord.chat_stream(
-                case.input, session_id=f"eval-{case.id}", max_rounds=max_rounds
+                case.input, session_id=f"eval-{case.id}"
             )
         except Exception as exc:
             real_results[case.id] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}

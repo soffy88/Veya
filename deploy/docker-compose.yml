@@ -5,6 +5,54 @@ name: veya
 version: '3.8'
 
 services:
+  # ── Internal Veya LLM Gateway (executor model routing) ─────────────
+  # Compose-network only: NO published port, unreachable from the host. The host
+  # keeps its own loopback instance (127.0.0.1:8791) for host-side runtimes.
+  # Same canonical implementation as the systemd unit (scripts/veya_llm_gateway.py);
+  # the script is mounted because the image ships no scripts/ directory.
+  veya-llm-gateway:
+    image: veya-backend:latest
+    container_name: veya-gateway-internal
+    working_dir: /app
+    command: ["python", "scripts/veya_llm_gateway.py", "--host", "0.0.0.0", "--port", "8791"]
+    volumes:
+      - ../scripts:/app/scripts:ro
+      # The image ships an older veya/; the gateway must run the repo's canonical
+      # client code (it injects the upstream session header the model needs).
+      - ../veya:/app/veya:ro
+    env_file:
+      - ../.env
+    networks:
+      - veya-net
+    # The image healthcheck probes the app port (8765); this service serves 8791.
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8791/v1/models"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Durable execution database (PostgreSQL) ────────────────────────
+  # Required by VEYA_DURABLE_EXECUTION=1. No fallback to SQLite in production.
+  veya-db:
+    image: postgres:16-alpine
+    container_name: veya-db
+    environment:
+      POSTGRES_DB: ${VEYA_EXECUTION_DB_NAME:?VEYA_EXECUTION_DB_NAME must be set}
+      POSTGRES_USER: ${VEYA_EXECUTION_DB_USER:?VEYA_EXECUTION_DB_USER must be set}
+      POSTGRES_PASSWORD: ${VEYA_EXECUTION_DB_PASSWORD:?VEYA_EXECUTION_DB_PASSWORD must be set}
+    volumes:
+      # Existing production execution-database volume (real historical data).
+      - veya-execution-pg-data:/var/lib/postgresql/data
+    networks:
+      - veya-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
   # ── FastAPI Backend (veya server) ───────────────────
   backend:
     image: veya-backend:latest
@@ -32,13 +80,13 @@ services:
       - VEYA_EXECUTION_HEARTBEAT_INTERVAL_S=${VEYA_EXECUTION_HEARTBEAT_INTERVAL_S:-10}
       - VEYA_EXECUTION_RECONCILIATION_INTERVAL_S=${VEYA_EXECUTION_RECONCILIATION_INTERVAL_S:-15}
       - VEYA_EXECUTION_RECONCILIATION_BATCH_SIZE=${VEYA_EXECUTION_RECONCILIATION_BATCH_SIZE:-100}
-      - VEYA_EXECUTION_DURABLE_QUEUE_READ=${VEYA_EXECUTION_DURABLE_QUEUE_READ:-0}
-      - VEYA_EXECUTION_DURABLE_QUEUE_CLAIM=${VEYA_EXECUTION_DURABLE_QUEUE_CLAIM:-0}
+      - VEYA_EXECUTION_DURABLE_QUEUE_READ=${VEYA_EXECUTION_DURABLE_QUEUE_READ:-1}
+      - VEYA_EXECUTION_DURABLE_QUEUE_CLAIM=${VEYA_EXECUTION_DURABLE_QUEUE_CLAIM:-1}
       - VEYA_EXECUTION_LEASE_FENCING=${VEYA_EXECUTION_LEASE_FENCING:-1}
-      - VEYA_EXECUTION_SIDE_EFFECT_LEDGER=${VEYA_EXECUTION_SIDE_EFFECT_LEDGER:-0}
-      - VEYA_EXECUTION_RECONCILER=${VEYA_EXECUTION_RECONCILER:-0}
-      - VEYA_EXECUTION_FINALIZATION_RESUME=${VEYA_EXECUTION_FINALIZATION_RESUME:-0}
-      - VEYA_EXECUTION_EVENT_OUTBOX=${VEYA_EXECUTION_EVENT_OUTBOX:-0}
+      - VEYA_EXECUTION_SIDE_EFFECT_LEDGER=${VEYA_EXECUTION_SIDE_EFFECT_LEDGER:-1}
+      - VEYA_EXECUTION_RECONCILER=${VEYA_EXECUTION_RECONCILER:-1}
+      - VEYA_EXECUTION_FINALIZATION_RESUME=${VEYA_EXECUTION_FINALIZATION_RESUME:-1}
+      - VEYA_EXECUTION_EVENT_OUTBOX=${VEYA_EXECUTION_EVENT_OUTBOX:-1}
       - VEYA_EXECUTION_SHADOW_COMPARE=${VEYA_EXECUTION_SHADOW_COMPARE:-0}
       - VEYA_EXECUTION_DUAL_RUN_COMPARE=${VEYA_EXECUTION_DUAL_RUN_COMPARE:-0}
       - VEYA_EXECUTION_REMOTE_WORKER_ADAPTER=${VEYA_EXECUTION_REMOTE_WORKER_ADAPTER:-0}
@@ -70,12 +118,18 @@ services:
       - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
       - INFERERA_API_KEY=${INFERERA_API_KEY:-}
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
-      # dsh (DeepSeek Harness) 走 opencode-go 网关: dsh-llm-deepseek 支持
-      # DEEPSEEK_BASE_URL 覆盖官方 endpoint (源码确认, 进程环境变量优先级最高),
-      # DeepSeek API 本身是 OpenAI 兼容协议, opencode-go 代理同样兼容, 复用同一
-      # 把 opencode key (与 OPENCODE_API_KEY 相同来源, 2026-08-16 接入)。
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://opencode.ai/zen/go/v1}
+      # DSH executor plane: model routing and credentials belong to the internal
+      # Veya LLM gateway service (`veya-llm-gateway`, see below). The backend holds
+      # no third-party provider credential for DSH — only a placeholder the local
+      # gateway ignores.
+      - DSH_RUNTIME=ENABLED
+      - DSH_PROVIDER=VEYA_LOCAL_GATEWAY
+      - DSH_BASE_URL=http://veya-llm-gateway:8791/v1
+      - DSH_MODEL=${DSH_MODEL:-opencode-go/deepseek-v4.1-flash}
+      - DSH_SESSION_DIR=/home/soffy/.veya/dsh-state
+      - DEEPSEEK_API_KEY=veya-local-gateway
+      # Web supervision workspace authorization roots (fail closed when unset).
+      - VEYA_WEB_WORKSPACE_ROOTS=${VEYA_WEB_WORKSPACE_ROOTS:-}
       - VEYA_PSEUDO_SECRET=${VEYA_PSEUDO_SECRET:?VEYA_PSEUDO_SECRET must be set in production}
       - HEVI_JWT_SECRET=${HEVI_JWT_SECRET:-}
       - HEVI_MCP_USER_ID=${HEVI_MCP_USER_ID:-}
@@ -87,6 +141,8 @@ services:
       - HICODE_MANAGED_RUNTIME_ROOT=/opt/veya/hicode-runtime
       - HICODE_RUNTIME_DATA_ROOT=/home/soffy/.veya/hicode-runtime
       - HICODE_PRODUCTION=1
+      - HICODE_PRODUCTION_RUNTIME_MODE=MOUNTED
+      - HICODE_PRODUCTION_REQUIRES_HOST_MOUNT=YES
       - HICODE_PROXY=1   # 容器内反代: 改 Host 头绕过 opencodex 来源校验
       # Vision Toolkit 路径白名单: 主脑视觉取证可读 /repo (veya 仓库) + 同级项目
       # + hicode 工作区 (像素差分 hicode 产物); 视觉模型走 hicode 反代 (见 oskill)
@@ -100,6 +156,13 @@ services:
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
     volumes:
       - veya-data:/home/soffy/.veya
+      # Production Python is created inside the image.  Only the approved
+      # Reasonix Node authority is host-mounted; never overlay the runtime
+      # root, because that relocates the non-relocatable Python venv.
+      - ${HICODE_REASONIX_HOST_RUNTIME_ROOT:-/home/soffy/.veya/hicode-managed-runtime}/node_modules:/opt/veya/hicode-runtime/node_modules:ro
+      # Web supervision missions execute inside user workspaces; only this
+      # directory is mapped (never all of /data), read-write, path preserved.
+      - /data/soffy/projects:/data/soffy/projects
       # hevi MCP 依赖 (argon2/bcrypt/pyotp/qrcode) — 镜像重建后由 requirements.txt
       # 提供; 当前阶段从宿主 deploy/hevi_deps 挂载 (容器层不可写, 镜像未含)
       - ../deploy/hevi_deps:/home/soffy/hevi_deps:ro
@@ -148,6 +211,9 @@ services:
 volumes:
   veya-data:
     name: deploy_veya-data
+    external: true
+  veya-execution-pg-data:
+    name: veya-execution-pg-data
     external: true
 
 networks:

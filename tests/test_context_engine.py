@@ -8,19 +8,16 @@ from pathlib import Path
 import pytest
 
 from runtime.context import (
-    ContextLayer,
-    ContextBudget,
-    LayerContent,
-    PreservedItems,
-    CompactionRecord,
-    ContextState,
     CompactionAction,
     CompactionPlan,
-    ContextPressure,
-    ContextEngineError,
-    DriftDetected,
-    compute_context_hash,
+    CompactionRecord,
+    ContextBudget,
     ContextEngine,
+    ContextLayer,
+    ContextPressure,
+    ContextState,
+    LayerContent,
+    PreservedItems,
 )
 
 
@@ -231,7 +228,9 @@ class TestContextEngine:
         )
 
         # Below threshold
-        engine.set_layer(ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}], 20000)
+        engine.set_layer(
+            ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}], 20000
+        )
         pressure = engine.assess_pressure()
         assert not pressure.is_under_pressure
 
@@ -250,9 +249,13 @@ class TestContextEngine:
         )
 
         # Fill layers
-        engine.set_layer(ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 5, 40000)
+        engine.set_layer(
+            ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 5, 40000
+        )
         engine.set_layer(ContextLayer.L2_OBSERVATIONS, [{"data": "x" * 1000}] * 10, 50000)
-        engine.set_layer(ContextLayer.L5_FEATUREMAP_KNOWLEDGE, [{"knowledge": "x" * 1000}] * 5, 30000)
+        engine.set_layer(
+            ContextLayer.L5_FEATUREMAP_KNOWLEDGE, [{"knowledge": "x" * 1000}] * 5, 30000
+        )
 
         # Set preserved items
         engine.update_preserved_objective("Test")
@@ -289,7 +292,9 @@ class TestContextEngine:
         engine.update_preserved_plan(["design", "implement", "test"], "implement")
 
         # Simulate compaction
-        engine.set_layer(ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 10, 80000)
+        engine.set_layer(
+            ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 10, 80000
+        )
         plan = engine.build_compaction_plan()
 
         # Objective and plan in preserved
@@ -309,7 +314,9 @@ class TestContextEngine:
         engine.update_preserved_verification_spec("vspec-abc123")
 
         # Simulate compaction
-        engine.set_layer(ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 10, 80000)
+        engine.set_layer(
+            ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 10, 80000
+        )
         plan = engine.build_compaction_plan()
 
         # Spec ref preserved
@@ -323,7 +330,9 @@ class TestContextEngine:
             computer_id="comp-1",
             budget=budget,
         )
-        engine.add_unresolved_failure({"tool": "cli", "error": "command not found", "step": "setup"})
+        engine.add_unresolved_failure(
+            {"tool": "cli", "error": "command not found", "step": "setup"}
+        )
         engine.add_important_observation({"phase": "setup", "finding": "missing dependency"})
 
         # Compaction should preserve these
@@ -443,7 +452,9 @@ class TestContextEngine:
         engine.add_artifact_ref("artifact-1")
 
         # Fill context to trigger compaction
-        engine.set_layer(ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 20, 90000)
+        engine.set_layer(
+            ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 20, 90000
+        )
 
         # Manual compaction
         plan = engine.build_compaction_plan()
@@ -453,7 +464,7 @@ class TestContextEngine:
             return "Summary of previous context"
 
         # Execute compaction
-        record = engine.execute_compaction(plan, llm_summarizer=mock_summarizer)
+        engine.execute_compaction(plan, llm_summarizer=mock_summarizer)
 
         # Verify integrity after compaction
         engine.verify_integrity()
@@ -475,9 +486,17 @@ class TestContextEngine:
         engine.add_evidence_ref("evidence-test-result")
 
         # Add evidence that should NOT be summarized
-        engine.set_layer(ContextLayer.L4_EVIDENCE_ARTIFACTS, [
-            {"type": "verification_result", "result": "PASS", "evidence_id": "evidence-test-result"}
-        ], 1000)
+        engine.set_layer(
+            ContextLayer.L4_EVIDENCE_ARTIFACTS,
+            [
+                {
+                    "type": "verification_result",
+                    "result": "PASS",
+                    "evidence_id": "evidence-test-result",
+                }
+            ],
+            1000,
+        )
 
         # Compaction should NOT summarize L4 (protected)
         plan = engine.build_compaction_plan()
@@ -485,17 +504,13 @@ class TestContextEngine:
         assert all(a.action == "keep" for a in l4_actions)
 
         # L4 should not be in compacted layers
-        engine.set_layer(ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 20, 90000)
+        engine.set_layer(
+            ContextLayer.L0_CURRENT_TURN, [{"role": "user", "content": "x" * 1000}] * 20, 90000
+        )
         plan = engine.build_compaction_plan()
         compacted_layers = [a.layer for a in plan.actions if a.action in ("summarize", "ref_only")]
         assert ContextLayer.L4_EVIDENCE_ARTIFACTS not in compacted_layers
 
-
-import tempfile
-import time
-import json
-import hashlib
-from datetime import UTC, datetime
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

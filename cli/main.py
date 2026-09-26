@@ -203,9 +203,67 @@ def main(argv: list[str] | None = None) -> int:
         return run_github_pr_cli(argv[2:])
 
     if len(argv) >= 2 and argv[0] == "gh" and argv[1] == "issue":
-        from cli.github_issue import run_github_issue_cli
+        pass
 
-        return run_github_issue_cli(argv[2:])
+    if argv and argv[0] == "remote":
+        from veya.remote.cli import main as run_remote_cli
+
+        return run_remote_cli(argv[1:])
+
+    if argv and argv[0] == "execution":
+        from veya.remote.cli import main as run_remote_cli
+
+        return run_remote_cli(["execution", *argv[1:]])
+
+    if argv and argv[0] == "channel":
+        from cli.channel_cli import run_channel_cli
+
+        return run_channel_cli(argv[1:])
+
+    if argv and argv[0] == "inbox":
+        from cli.channel_cli import run_inbox_cli
+
+        return run_inbox_cli(argv[1:])
+
+    if argv and argv[0] == "runtime":
+        from cli.runtime_cli import run_runtime_cli
+
+        return run_runtime_cli(argv[1:])
+
+    if argv and argv[0] == "trigger":
+        from cli.runtime_cli import run_trigger_cli
+
+        return run_trigger_cli(argv[1:])
+
+    if argv and argv[0] == "schedule":
+        from cli.runtime_cli import run_schedule_cli
+
+        return run_schedule_cli(argv[1:])
+
+    if argv and argv[0] == "outbox":
+        from cli.runtime_cli import run_outbox_cli
+
+        return run_outbox_cli(argv[1:])
+
+    if argv and argv[0] == "dead-letter":
+        from cli.runtime_cli import run_dead_letter_cli
+
+        return run_dead_letter_cli(argv[1:])
+
+    if argv and argv[0] == "autonomous":
+        from cli.autonomous_cli import run_autonomous_cli
+
+        return run_autonomous_cli(argv[1:])
+
+    if argv and argv[0] == "fleet":
+        from cli.fleet_cli import run_fleet_cli
+
+        return run_fleet_cli(argv[1:])
+
+    if argv and argv[0] == "ops":
+        from cli.ops_cli import ops_main
+
+        return ops_main(argv[1:])
 
     # 产品化子命令: veya init / start / doctor / upgrade / migrate / code
     if argv and argv[0] in _PRODUCT_COMMANDS:

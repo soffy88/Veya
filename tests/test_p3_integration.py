@@ -436,9 +436,10 @@ class TestIntegration:
 
     def test_coordinator_p3_integration(self):
         """测试协调器 P3 集成"""
-        # 单元测试已覆盖
-        # 集成测试在 asyncp3_integration.py 中
-        assert True
+        # 单元测试已覆盖；这里保留一个真实的模块可用性断言。
+        import server.coordinator_master
+
+        assert server.coordinator_master.master_coordinator is not None
 
     def test_all_modules_loaded(self):
         """测试所有 P3 模块加载"""

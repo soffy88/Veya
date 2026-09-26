@@ -370,6 +370,97 @@ async def test_side_effect_ledger_probes_unknown_before_replay(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_side_effect_cancellation_after_provider_boundary_persists_unknown(tmp_path):
+    repo = await _repo(tmp_path / "cancel-unknown.sqlite3")
+    try:
+        await repo.create_goal_run(goal_run_id="run-cancel", idempotency_key="run-cancel")
+        item = await repo.enqueue_work_item(
+            WorkItemSpec(
+                goal_run_id="run-cancel",
+                logical_key="publish",
+                kind="tool",
+                side_effect_policy="probe_required",
+            )
+        )
+        operation_key = build_operation_key("run-cancel", item["id"], "publish")
+        started = asyncio.Event()
+
+        async def provider():
+            started.set()
+            await asyncio.Event().wait()
+
+        task = asyncio.create_task(
+            SideEffectLedger(repo).execute(
+                goal_run_id="run-cancel",
+                work_item_id=item["id"],
+                operation_key=operation_key,
+                operation_type="publish",
+                target_ref="provider:item",
+                request={"value": 1},
+                provider=provider,
+                capability="status_probe",
+            )
+        )
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        effect = await repo.get_side_effect(operation_key)
+        assert effect is not None
+        assert effect["state"] == "unknown"
+        assert effect["state"] not in {"committed", "failed"}
+    finally:
+        await repo.close()
+
+
+@pytest.mark.asyncio
+async def test_side_effect_ledger_serializes_concurrent_same_operation(tmp_path):
+    repo = await _repo(tmp_path / "concurrent-effect.sqlite3")
+    try:
+        await repo.create_goal_run(goal_run_id="run-concurrent", idempotency_key="run-concurrent")
+        item = await repo.enqueue_work_item(
+            WorkItemSpec(
+                goal_run_id="run-concurrent",
+                logical_key="publish",
+                kind="tool",
+                side_effect_policy="probe_required",
+            )
+        )
+        operation_key = build_operation_key("run-concurrent", item["id"], "publish")
+        ledger = SideEffectLedger(repo)
+        calls = 0
+
+        async def provider():
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0)
+            return "published"
+
+        results = await asyncio.gather(
+            *(
+                ledger.execute(
+                    goal_run_id="run-concurrent",
+                    work_item_id=item["id"],
+                    operation_key=operation_key,
+                    operation_type="publish",
+                    target_ref="provider:item",
+                    request={"value": 1},
+                    provider=provider,
+                    capability="idempotency_key",
+                )
+                for _ in range(2)
+            )
+        )
+        assert results == ["published", "published"]
+        assert calls == 1
+        effect = await repo.get_side_effect(operation_key)
+        assert effect is not None and effect["state"] == "committed"
+    finally:
+        await repo.close()
+
+
+@pytest.mark.asyncio
 async def test_reconcile_committed_provider_evidence_does_not_replay_side_effect(tmp_path):
     repo = await _repo(tmp_path / "provider-recovery.sqlite3")
     try:

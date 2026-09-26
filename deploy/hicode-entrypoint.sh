@@ -6,12 +6,15 @@
 # - 主服务 uvicorn 前台 (容器主进程, 依赖其退出/重启语义)
 set -e
 
-HICODE_MANAGED_BIN="${HICODE_MANAGED_BIN:-/opt/veya/hicode-runtime/node_modules/.bin/reasonix}"
+HICODE_MANAGED_RUNTIME_ROOT="${HICODE_MANAGED_RUNTIME_ROOT:-/opt/veya/hicode-runtime}"
+HICODE_MANAGED_BIN="${HICODE_MANAGED_BIN:-${HICODE_MANAGED_RUNTIME_ROOT}/node_modules/.bin/reasonix}"
 HICODE_RUNTIME_DATA_ROOT="${HICODE_RUNTIME_DATA_ROOT:-/home/soffy/.veya/hicode-runtime}"
-export HICODE_MANAGED_BIN HICODE_RUNTIME_DATA_ROOT HICODE_PRODUCTION=1
+HICODE_MANAGED_PYTHON="${HICODE_MANAGED_PYTHON:-${HICODE_MANAGED_RUNTIME_ROOT}/python/bin/python}"
+export HICODE_MANAGED_RUNTIME_ROOT HICODE_MANAGED_BIN HICODE_MANAGED_PYTHON HICODE_RUNTIME_DATA_ROOT HICODE_PRODUCTION=1
 
 python -m server.hicode_runtime prepare
 "$HICODE_MANAGED_BIN" --version | grep -Fx 'reasonix v1.21.3' >/dev/null
+PYTHONPATH=/app "$HICODE_MANAGED_PYTHON" -m server.hicode_runtime preflight
 
 HICODE_REASONIX_HOME="$HICODE_RUNTIME_DATA_ROOT/reasonix-home"
 export HICODE_REASONIX_HOME
@@ -24,6 +27,10 @@ export HICODE_REASONIX_HOME
 (
   export HOME="$HICODE_REASONIX_HOME"
   export REASONIX_STATE_HOME="$HICODE_RUNTIME_DATA_ROOT/state"
+  export PATH="$(dirname "$HICODE_MANAGED_PYTHON"):$PATH"
+  export HICODE_MANAGED_PYTHON_AUTHORITY=YES HICODE_OWNER_PYTHONPATH_INHERITED=NO
+  export PYTHONNOUSERSITE=1 PYTHONSAFEPATH=1
+  unset PYTHONPATH PYTHONHOME PYTHONUSERBASE PYTHONSTARTUP
   cd /home/soffy/.veya/hicode-workspace
   while true; do
     "$HICODE_MANAGED_BIN" serve --addr 0.0.0.0:8768 --auth none --model opencode-go \

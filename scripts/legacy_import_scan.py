@@ -21,19 +21,41 @@ import 引用清单，作为 `docs/LEGACY_MIGRATION.md`（计划 PR-03 设想产
 from __future__ import annotations
 
 import ast
+import os
 import pathlib
 import sys
 
 _FACADE_MARKER = "3O 归位门面"
-_SKIP_DIRS = {"venv", "node_modules", ".git", "platform", "docs", "site", "deploy", "__pycache__"}
+_SKIP_DIRS = {
+    "venv",
+    ".venv",
+    "node_modules",
+    ".git",
+    "platform",
+    "docs",
+    "site",
+    "deploy",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".code-review-graph",
+    "dist",
+    "build",
+}
 
 
 def _iter_py_files(root: pathlib.Path) -> list[pathlib.Path]:
-    return sorted(
-        p
-        for p in root.rglob("*.py")
-        if not any(part in _SKIP_DIRS for part in p.relative_to(root).parts)
-    )
+    source_dirs = {"server", "runtime", "commands", "cli", "hooks", "registries", "tools", "veya"}
+    files = list(root.glob("*.py"))
+    for name in source_dirs:
+        directory = root / name
+        if not directory.is_dir():
+            continue
+        for current, dirnames, filenames in os.walk(directory):
+            dirnames[:] = [name for name in dirnames if name != "__pycache__"]
+            files.extend(pathlib.Path(current) / name for name in filenames if name.endswith(".py"))
+    return sorted(files)
 
 
 def _discover_facades(root: pathlib.Path) -> dict[str, str]:
@@ -99,7 +121,7 @@ def _find_importers(index: dict[str, set[str]], target: str) -> set[str]:
 def main(root_arg: str = ".") -> int:
     root = pathlib.Path(root_arg).resolve()
 
-    print("== legacy import scan (report-only, exit 0 恒定) ==\n")
+    print("== legacy import scan (informational inventory) ==\n")
 
     index = _build_import_index(root)
 

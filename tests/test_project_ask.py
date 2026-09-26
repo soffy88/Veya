@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from server import hicode_queue
-from server.project_ask import _decide_assignee, project_ask, project_status, wire_master_tools
+from server.project_ask import project_ask, project_status, wire_master_tools
 from server.project_store import ProjectStore
 from server.project_understand import UnderstandResult
 
@@ -21,28 +21,21 @@ def _fake_understand(result: UnderstandResult):
     return _u
 
 
-# ── 派工决策 ─────────────────────────────────────────────────────────
+# ── executor 显式选择门禁 ───────────────────────────────────────────────
 
 
-def test_decide_assignee_hint_overrides_heuristic():
-    assert _decide_assignee("总结一下现状", "hicode") == "hicode"
-    assert _decide_assignee("修复登录 bug", "builtin") == "builtin"
-    assert _decide_assignee("总结一下现状", "dsh") == "dsh"
+@pytest.mark.asyncio
+async def test_project_ask_requires_explicit_executor(tmp_path: Path):
+    result = await project_ask(str(tmp_path), "修复登录 bug", mode="act_eager")
+    assert "⛔" in result
+    assert "executor is required" in result
 
 
-def test_decide_assignee_keyword_heuristic():
-    assert _decide_assignee("修复登录页的 bug", None) == "hicode"
-    assert _decide_assignee("fix the failing test", None) == "hicode"
-    assert _decide_assignee("总结一下现在的项目进度", None) == "builtin"
+def test_project_ask_does_not_expose_keyword_router():
+    import server.project_ask as pa
 
-
-def test_decide_assignee_heuristic_never_picks_dsh():
-    # dsh 只能靠显式 hint 触发, 不参与关键词启发 (新 worker 上线期降低误伤面)
-    assert _decide_assignee("修复登录页的 bug", None) != "dsh"
-    assert _decide_assignee("随便什么", None) != "dsh"
-
-
-# ── assignee_hint 白名单门禁: 非法值直接 blocked，不落到启发式/任何 worker ──
+    assert not hasattr(pa, "_EXEC_HINTS")
+    assert not hasattr(pa, "_decide_assignee")
 
 
 @pytest.mark.asyncio
@@ -72,7 +65,7 @@ async def test_project_ask_invalid_mode_is_rejected_without_touching_any_worker(
 
     monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _boom)
 
-    result = await project_ask(str(tmp_path), "随便什么", mode="yolo")
+    result = await project_ask(str(tmp_path), "随便什么", executor="builtin", mode="yolo")
     assert "⛔" in result
     assert "mode" in result
 
@@ -104,7 +97,7 @@ async def test_project_ask_understand_ask_exits_early_without_touching_any_worke
         ),
     )
 
-    result = await project_ask(str(tmp_path), "做个导出")
+    result = await project_ask(str(tmp_path), "做个导出", executor="builtin")
     assert "❓" in result
     assert "要导出全部数据还是只导出当前筛选?" in result
 
@@ -147,7 +140,7 @@ async def test_project_ask_understand_ask_fires_structured_event_for_frontend(
     events: list[dict] = []
     token = _on_step_ctx.set(events.append)
     try:
-        await project_ask(str(tmp_path), "做个导出")
+        await project_ask(str(tmp_path), "做个导出", executor="builtin")
     finally:
         _on_step_ctx.reset(token)
 
@@ -210,11 +203,13 @@ async def test_project_ask_parent_task_id_chain_reaches_understand(tmp_path: Pat
 
     monkeypatch.setattr(pa, "understand", _u)
 
-    first = await project_ask(str(tmp_path), "做个导出")
+    first = await project_ask(str(tmp_path), "做个导出", executor="builtin")
     task_id = first.split("#", 1)[1].split(" ", 1)[0]
     assert seen["chain"] == []  # 第一轮无 parent, chain 为空
 
-    await project_ask(str(tmp_path), "只要当前筛选，CSV", parent_task_id=task_id)
+    await project_ask(
+        str(tmp_path), "只要当前筛选，CSV", executor="builtin", parent_task_id=task_id
+    )
 
     chain = seen["chain"]
     assert len(chain) == 1
@@ -261,7 +256,7 @@ async def test_project_ask_hicode_completed_writes_back(tmp_path: Path, monkeypa
     monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _submit)
     monkeypatch.setattr(hicode_queue.hicode_task_queue, "wait", _wait)
 
-    result = await project_ask(str(tmp_path), "修复登录 bug", mode="act_eager")
+    result = await project_ask(str(tmp_path), "修复登录 bug", executor="hicode", mode="act_eager")
     assert "✅" in result and "did the thing" in result
 
     store = ProjectStore(tmp_path)
@@ -289,7 +284,9 @@ async def test_project_ask_hicode_failed_maps_to_blocked(tmp_path: Path, monkeyp
     monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _submit)
     monkeypatch.setattr(hicode_queue.hicode_task_queue, "wait", _wait)
 
-    result = await project_ask(str(tmp_path), "fix the failing test", mode="act_eager")
+    result = await project_ask(
+        str(tmp_path), "fix the failing test", executor="hicode", mode="act_eager"
+    )
     assert "⛔" in result and "boom" in result
 
     store = ProjectStore(tmp_path)
@@ -306,7 +303,7 @@ async def test_project_ask_hicode_dispatch_exception_becomes_blocked_not_raised(
     monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _submit)
 
     # 不应抛异常 —— 必须收敛为 blocked
-    result = await project_ask(str(tmp_path), "修复登录 bug", mode="act_eager")
+    result = await project_ask(str(tmp_path), "修复登录 bug", executor="hicode", mode="act_eager")
     assert "⛔" in result
     assert "HICODE_WORKSPACE" in result
 

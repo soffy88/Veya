@@ -297,21 +297,6 @@ async def mcp_call_tool(name: str, arguments: dict | None = None, **kwargs: Any)
 
 
 @dataclass
-class SubagentConfig:
-    name: str = ""
-    description: str = ""
-    tools: list[str] = field(default_factory=list)
-    permissions: list[str] = field(default_factory=list)
-
-
-@dataclass
-class SubagentInput:
-    prompt: str = ""
-    config: SubagentConfig | None = None
-    context: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class SubagentDefinition:
     name: str = ""
     role: str = ""
@@ -319,17 +304,6 @@ class SubagentDefinition:
 
 
 SubagentPermissions = SubagentDefinition  # alias for backward compat
-
-
-async def run_subagent(input_data: SubagentInput | dict, **kwargs: Any) -> dict:
-    """Run a subagent (shim — returns placeholder result)."""
-    prompt = (
-        input_data.prompt if isinstance(input_data, SubagentInput) else input_data.get("prompt", "")
-    )
-    return {
-        "status": "success",
-        "content": f"Subagent shim processed prompt: {prompt[:80]}...",
-    }
 
 
 # ===================================================================
@@ -404,27 +378,6 @@ def resolve_memory_hierarchy(session_id: str) -> dict:
 # ===================================================================
 # Misc shims
 # ===================================================================
-
-
-async def process_prompt(messages: list, **kwargs: Any) -> dict:
-    """Process a prompt (shim)."""
-    last = messages[-1].get("content", "") if messages else ""
-    return {"messages": messages, "response": f"Shim response to: {last[:80]}..."}
-
-
-async def execute_tool(tool_name: str, **kwargs: Any) -> dict:
-    """Execute a tool (shim)."""
-    return {"tool": tool_name, "result": "shim — tool not implemented"}
-
-
-async def compact_session(messages: list, **kwargs: Any) -> dict:
-    """Compact a conversation (shim)."""
-    return {"messages": messages[:2] + messages[-1:], "compacted": True}
-
-
-async def init_project(config: dict, **kwargs: Any) -> dict:
-    """Initialize a project (shim)."""
-    return {"status": "success", "note": "init_project shim — no real init"}
 
 
 def retry_with_backoff(
@@ -719,20 +672,3 @@ CostTracker = _UtilsCostTracker
 # ===================================================================
 # Subagent runner shim (used by assembly.py)
 # ===================================================================
-
-
-async def run_subagent_task(input_data: dict | SubagentInput, **kwargs: Any) -> dict:
-    """
-    Subagent task runner shim.
-    Replaces the deleted omodul.run_subagent_task module.
-    """
-    prompt = ""
-    if isinstance(input_data, dict):
-        prompt = input_data.get("prompt", input_data.get("text", ""))
-    elif isinstance(input_data, SubagentInput):
-        prompt = input_data.prompt
-    return {
-        "status": "success",
-        "content": f"Subagent shim: {prompt[:120]}...",
-        "cost_usd": 0.0,
-    }

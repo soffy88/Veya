@@ -243,6 +243,27 @@ def test_gateway_agent_run_text_and_task_contracts(gateway_client):
     assert r3.json()["session_id"]
 
 
+def test_gateway_agent_run_dry_run_precedes_text_execution(gateway_client, monkeypatch):
+    """A dry-run request must not enter the canonical provider path."""
+    import server.coordinator_master as coordinator_master
+
+    calls: list[str] = []
+
+    async def unexpected_execution(*args, **kwargs):
+        calls.append("chat_stream")
+        raise AssertionError("dry-run entered the execution path")
+
+    monkeypatch.setattr(coordinator_master.master_coordinator, "chat_stream", unexpected_execution)
+    response = gateway_client.post(
+        "/api/v1/agent/run",
+        json={"text": "must not execute", "task": "must not execute", "mode": "dry_run"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "dry_run"
+    assert calls == []
+
+
 def test_gateway_agent_stream_sse(gateway_client):
     with gateway_client.stream("POST", "/api/v1/agent/stream", json={"text": "流式测试"}) as resp:
         assert resp.status_code == 200

@@ -86,6 +86,55 @@ class PlanReviewError(ValueError):
         self.code = code
 
 
+async def _claim_durable_goal_task(
+    repository: DurableExecutionRepository,
+    worker_id: str,
+    state: GoalRunState,
+    current_task: Any,
+) -> Any:
+    """Claim the current durable leaf, honoring its existing retry delay.
+
+    ``_process_one_task`` keeps a recoverable branch ready locally while the
+    durable repository records the completed attempt as ``retry_wait``.  The
+    next pass through the existing GoalRun loop must wait for that same item
+    to become claimable instead of treating the temporary claim miss as a
+    missing work item.
+    """
+
+    while True:
+        claim = await repository.claim_next(
+            worker_id,
+            capabilities={"*"},
+            kinds={"goal_leaf"},
+            goal_run_id=state.goal_id,
+            logical_key=current_task.id,
+            lease_ttl_s=30,
+        )
+        if claim is not None:
+            return claim
+
+        durable_items = await repository.list_work_items(state.goal_id)
+        durable_item = next(
+            (
+                item
+                for item in durable_items
+                if item.get("logical_key") == current_task.id
+                and item.get("kind", "goal_leaf") == "goal_leaf"
+            ),
+            None,
+        )
+        if durable_item is None or durable_item.get("state") != "retry_wait":
+            raise DurableExecutionError("NOT_FOUND", f"no durable claim for {current_task.id}")
+
+        next_ready_at = durable_item.get("next_ready_at")
+        if next_ready_at is None:
+            raise DurableExecutionError(
+                "INVALID_STATE", f"retry item has no next_ready_at for {current_task.id}"
+            )
+        delay = max(0.05, min(float(next_ready_at) - time.time(), 1.0))
+        await asyncio.sleep(delay)
+
+
 def plan_review_request(state: GoalRunState) -> dict[str, str]:
     """Return the stable approval identity for the current plan review."""
 
@@ -211,6 +260,38 @@ def _explicit_understanding(goal: str, mode: str) -> UnderstandResult:
         risk_flags=[],
         reasons=["objective supplied by MasterAgent"],
     )
+
+
+async def _validate_run_dependencies(store: Any, resolution: Any) -> str | None:
+    """Revalidate D6/D7 refs at run start (fail closed on revoked).
+
+    Returns a block reason or None. Live authority state is consulted;
+    nothing is cached, so a revoke between promotion and run start blocks.
+    """
+    try:
+        from server.capability_model import CapabilityRegistry
+        from server.skill_distribution import SkillDistribution
+    except Exception as exc:
+        return f"dependency gate unavailable: {exc}"
+    try:
+        definition = store.get_definition(resolution.definition_id, resolution.definition_version)
+        if definition is None:
+            return "definition version missing"
+        for skill_id in list(definition.skill_refs or ()):
+            try:
+                await SkillDistribution().materialize(
+                    skill_id, "agent-run", "run-start", backend="registry"
+                )
+            except Exception as exc:
+                return f"revoked/untrusted skill blocks run: {skill_id} ({exc})"
+        cap_reg = CapabilityRegistry()
+        for cap_id in list(definition.capability_refs or ()):
+            spec = cap_reg.get(cap_id)
+            if spec is None or spec.status != "verified":
+                return f"capability not verified blocks run: {cap_id}"
+        return None
+    except Exception as exc:
+        return f"dependency gate failed: {exc}"
 
 
 async def _constitution_guard(
@@ -431,7 +512,12 @@ def _record_performance_sample(task: Any, *, success: bool) -> None:
         )
 
 
-async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRunResponse | None:
+async def _process_one_task(
+    task: Any,
+    state: Any,
+    project_root: str,
+    integration_adapter: Any | None = None,
+) -> GoalRunResponse | None:
     """单个任务的执行→验收→重试/完成/双轴审查全流程。抽成独立协程是为了让
     [P] 批次能用 asyncio.gather 并发跑(见 memory project_veya_pi_gap_audit
     smart-ralph 内化)——不是把这段逻辑重写了一遍, 只是从内联 for 循环体挪出来。
@@ -445,13 +531,26 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
 
     before_ref = current_head(project_root)
     try:
-        leaf_result = await execute_leaf_with_memory(
-            project_root=project_root,
-            instruction=task.instruction,
-            acceptance=task.acceptance,
-            assignee=task.assignee,
-            constitution_text=state.constitution,
-        )
+        if integration_adapter is not None and hasattr(
+            integration_adapter, "execute_semantic_task"
+        ):
+            leaf_result = await integration_adapter.execute_semantic_task(state, task)
+            if leaf_result is None:
+                leaf_result = await execute_leaf_with_memory(
+                    project_root=project_root,
+                    instruction=task.instruction,
+                    acceptance=task.acceptance,
+                    assignee=task.assignee,
+                    constitution_text=state.constitution,
+                )
+        else:
+            leaf_result = await execute_leaf_with_memory(
+                project_root=project_root,
+                instruction=task.instruction,
+                acceptance=task.acceptance,
+                assignee=task.assignee,
+                constitution_text=state.constitution,
+            )
     except asyncio.CancelledError:
         task.status = TaskStatus.cancelled
         task.stop_reason = "cancelled"
@@ -518,6 +617,18 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
             summary=leaf_result.block_reason or "delegate did not complete",
             reason=leaf_result.block_reason or "delegate did not complete",
         )
+    elif integration_adapter is not None and getattr(
+        integration_adapter, "verification_required", False
+    ):
+        # Canonical adapters hand the candidate to the frozen Verification OS
+        # below.  Do not run the legacy free-form task verifier as a second,
+        # pre-I2 acceptance gate; it can invent a default criterion and stop a
+        # successful canonical action before EvidenceBundle/IndependentVerifier.
+        verify_result = VerifyResult(
+            passed=True,
+            summary="canonical action observed; deferred to IndependentVerifier",
+            reason="canonical_acceptance_deferred",
+        )
     else:
         verify_result = await verify_task(task, leaf_result.summary, project_root)
 
@@ -530,8 +641,21 @@ async def _process_one_task(task: Any, state: Any, project_root: str) -> GoalRun
     if verify_result.passed:
         task.status = TaskStatus.completed
         task.stop_reason = "completed"
+        # A recoverable action failure records unfinished work so a stopped
+        # run can resume.  Once this same task has completed successfully,
+        # that marker is stale and must not force the GoalRun into
+        # partial_completed during finalization.
+        task.unfinished_work.clear()
         state.completed_ids.add(task.id)
-        task.review_findings = await _run_dual_axis_review(task, project_root, before_ref)
+        # Typed execution adapters must not make terminalization depend on an
+        # advisory, global-LLM code review.  The adapter may opt out while its
+        # canonical evidence/verification contract remains authoritative.
+        if integration_adapter is not None and getattr(
+            integration_adapter, "skip_advisory_code_review", False
+        ):
+            task.review_findings = None
+        else:
+            task.review_findings = await _run_dual_axis_review(task, project_root, before_ref)
 
         from server.goal_run.git_diff import capture_task_diff
 
@@ -701,6 +825,10 @@ def _write_execution_checkpoint(
         ),
         artifact_manifest_ref=artifact_manifest_ref,
         finalization_started=state.finalization_started,
+        # D3: stamp lineage + verification at write time — the snapshot is
+        # derived from live authoritative state, so it is verifiable.
+        lineage_id=state.goal_id,
+        verified=True,
     )
     state.runtime_checkpoint = checkpoint.to_dict()
     store = ExecutionCheckpointStore(Path(project_root) / ".veya" / "runs" / state.goal_id)
@@ -779,6 +907,9 @@ async def _prepare_durable_goal(
                 task.execute_result = str(
                     result["delegate_result"].get("summary") or task.execute_result or ""
                 )
+            canonical_action = result.get("canonical_action") if isinstance(result, dict) else None
+            if isinstance(canonical_action, dict):
+                state.budget["last_canonical_action"] = canonical_action
             task.status = TaskStatus.completed
             state.completed_ids.add(task.id)
             state.running_ids.discard(task.id)
@@ -827,6 +958,15 @@ async def project_run_goal(
     provider_router: Any | None = None,
     provider_request: Any | None = None,
     provider_candidates: list[str] | None = None,
+    semantic_agent: Any | None = None,
+    semantic_session_id: str | None = None,
+    semantic_llm_kwargs: dict[str, Any] | None = None,
+    gateway_executor: Any | None = None,
+    verification_required: bool = False,
+    agent_deployment_id: str | None = None,
+    agent_definition_id: str | None = None,
+    agent_session_id: str | None = None,
+    agent_instance_id: str | None = None,
 ) -> GoalRunResponse:
     """project_run_goal 主入口（M4 规格）。
 
@@ -872,6 +1012,11 @@ async def project_run_goal(
             provider_router=provider_router,
             provider_request=provider_request,
             provider_candidates=provider_candidates,
+            semantic_agent=semantic_agent,
+            semantic_session_id=semantic_session_id,
+            semantic_llm_kwargs=semantic_llm_kwargs,
+            gateway_executor=gateway_executor,
+            verification_required=verification_required,
         )
 
     start_ts = time.time()
@@ -924,9 +1069,76 @@ async def project_run_goal(
             next_action="none",
         )
 
+    # ── D8: agent deployment resolution (new runs only; resume preserves) ──
+    _agent_identity: dict[str, Any] | None = None
+    if not (resume_goal_id and state is not None) and (
+        agent_deployment_id is not None or agent_definition_id is not None
+    ):
+        from server.agent_definition import (
+            AgentDefinitionStore,
+            resolve_agent_deployment,
+            stamp_run_identity,
+        )
+
+        _store = AgentDefinitionStore(Path(project_root) / ".veya")
+        try:
+            _resolution = resolve_agent_deployment(
+                _store,
+                deployment_id=agent_deployment_id,
+                definition_id=agent_definition_id,
+            )
+        except ValueError as exc:
+            return GoalRunResponse(
+                goal_id="",
+                status=GoalStatus.blocked,
+                phase="rejected",
+                interpretation=u.interpretation,
+                questions=None,
+                goal_counts=None,
+                summary=None,
+                block_reason=f"agent resolution failed: {exc}",
+                artifacts=None,
+                next_action="none",
+            )
+        if not _resolution.runtime_available:
+            return GoalRunResponse(
+                goal_id="",
+                status=GoalStatus.blocked,
+                phase="rejected",
+                interpretation=u.interpretation,
+                questions=None,
+                goal_counts=None,
+                summary=None,
+                block_reason=f"runtime unavailable: {_resolution.runtime_id}",
+                artifacts=None,
+                next_action="none",
+            )
+        # D6/D7 fresh revalidation at run start (fail closed on revoked).
+        _dep_block = await _validate_run_dependencies(_store, _resolution)
+        if _dep_block is not None:
+            return GoalRunResponse(
+                goal_id="",
+                status=GoalStatus.blocked,
+                phase="rejected",
+                interpretation=u.interpretation,
+                questions=None,
+                goal_counts=None,
+                summary=None,
+                block_reason=_dep_block,
+                artifacts=None,
+                next_action="none",
+            )
+        _identity = stamp_run_identity(
+            _resolution,
+            session_id=agent_session_id or semantic_session_id,
+            agent_instance_id=agent_instance_id,
+        )
+        _agent_identity = _identity.to_dict()
+
     # ── G1: Plan 任务图生成 ────────────────────────────────────────────
     if resume_goal_id and state is not None:
         # 恢复已有任务图；不得重新规划或重复创建任务。
+        # D8: resume preserves the frozen identity snapshot verbatim.
         pass
     else:
         # 生成任务图
@@ -947,12 +1159,21 @@ async def project_run_goal(
             budget=budget,
             project_root=project_root,
             explicit_tasks=tasks,
+            agent_identity=_agent_identity,
         )
 
         if state.started_at is None:
             state.started_at = datetime.now(UTC)
         # 保存 state
         save_goal_run(state, project_root)
+        if _agent_identity:
+            with contextlib.suppress(Exception):
+                _emit_runtime_event(
+                    state,
+                    project_root,
+                    "agent.run_bound",
+                    **_agent_identity,
+                )
 
     # 如果是 resume，保持原有状态
     if resume_goal_id and state:
@@ -963,13 +1184,28 @@ async def project_run_goal(
     # project_veya_pi_gap_audit): G1 出图后、G2 执行前跑一遍, 拦下还没烧执行
     # 预算, 比事后审更值。plan_review is None 才跑(resume 场景不重复审)。
     if state.plan_review is None:
-        blocked_response = await _run_plan_review_gate(state, goal, project_root)
+        if integration_adapter is not None and getattr(
+            integration_adapter, "skip_plan_review", False
+        ):
+            state.plan_review = {"skipped": "typed durable adapter"}
+            save_goal_run(state, project_root)
+            blocked_response = None
+        else:
+            blocked_response = await _run_plan_review_gate(state, goal, project_root)
         if blocked_response is not None:
             return blocked_response
     elif state.plan_review.get("blocked") and (
         (state.plan_review.get("resolution") or {}).get("approved") is not True
     ):
         return _plan_review_blocked_response(state)
+
+    # Re-admit a leaf that was owned by a dead process incarnation.
+    if resume_goal_id and state is not None:
+        for task in state.tasks.values():
+            if task.status in (TaskStatus.running, TaskStatus.verifying):
+                task.status = TaskStatus.ready
+                state.running_ids.discard(task.id)
+        save_goal_run(state, project_root)
 
     # ── G2: Loop 调度 + 执行 + 验收 ───────────────────────────────────
     # 设置最大并发: smart-ralph [P] marker 支持(见 memory
@@ -1309,24 +1545,30 @@ async def _run_loop_and_finalize(
                 async def _run_guarded(current_task: Any = task):
                     async def execute_current(_cancel: asyncio.Event):
                         if integration_adapter is not None:
-                            await integration_adapter.before_iteration(state, project_root, current_task)
-                        if durable_repository is None or durable_worker_id is None:
-                            return await _process_one_task(current_task, state, project_root)
-                        claim = await durable_repository.claim_next(
-                            durable_worker_id,
-                            capabilities={"*"},
-                            kinds={"goal_leaf"},
-                            goal_run_id=state.goal_id,
-                            logical_key=current_task.id,
-                            lease_ttl_s=30,
-                        )
-                        if claim is None:
-                            raise DurableExecutionError(
-                                "NOT_FOUND", f"no durable claim for {current_task.id}"
+                            await integration_adapter.before_iteration(
+                                state, project_root, current_task
                             )
+                        if durable_repository is None or durable_worker_id is None:
+                            return await _process_one_task(
+                                current_task,
+                                state,
+                                project_root,
+                                integration_adapter=integration_adapter,
+                            )
+                        claim = await _claim_durable_goal_task(
+                            durable_repository,
+                            durable_worker_id,
+                            state,
+                            current_task,
+                        )
                         await durable_repository.start(claim)
                         try:
-                            response = await _process_one_task(current_task, state, project_root)
+                            response = await _process_one_task(
+                                current_task,
+                                state,
+                                project_root,
+                                integration_adapter=integration_adapter,
+                            )
                             if current_task.status == TaskStatus.completed:
                                 await durable_repository.complete(
                                     claim,
@@ -1335,6 +1577,9 @@ async def _run_loop_and_finalize(
                                         "status": "completed",
                                         "summary": current_task.execute_result or "",
                                         "delegate_result": current_task.delegate_result,
+                                        "canonical_action": state.budget.get(
+                                            "last_canonical_action"
+                                        ),
                                     },
                                 )
                             elif current_task.status == TaskStatus.ready:
@@ -1566,7 +1811,9 @@ async def _run_loop_and_finalize(
                 interpretation=u.interpretation if u else goal,
                 questions=None,
                 goal_counts={
-                    "pending": sum(1 for task in state.tasks.values() if task.status == TaskStatus.pending),
+                    "pending": sum(
+                        1 for task in state.tasks.values() if task.status == TaskStatus.pending
+                    ),
                     "running": len(state.running_ids),
                     "completed": completed,
                     "blocked": blocked,

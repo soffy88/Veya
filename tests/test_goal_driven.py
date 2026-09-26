@@ -69,7 +69,7 @@ async def test_goal_driven_loop_completes(tmp_path):
     async def _verifier(kernel, todo_id):
         return True, "产出验证通过"
 
-    loop = GoalDrivenLoop(driver, verifier=_verifier, max_rounds=10)
+    loop = GoalDrivenLoop(driver, verifier=_verifier, test_max_cycles=10)
     await _setup()
     report = await loop.run(_engine)
     assert report.completed is True
@@ -102,11 +102,11 @@ async def test_goal_driven_loop_gate_rejection_continues(tmp_path):
     async def _verifier(kernel, todo_id):
         return False, "性能不达标"  # 产出验证一直不通过 → todo 重开
 
-    loop = GoalDrivenLoop(driver, verifier=_verifier, max_rounds=4)
+    loop = GoalDrivenLoop(driver, verifier=_verifier, test_max_cycles=4)
     await _setup()
     report = await loop.run(_engine)
     assert report.completed is False
-    assert report.status == "max_rounds"  # 护栏触发
+    assert report.status == "test_cycles_exhausted"  # 护栏触发
     assert report.gates_resolved == 0  # 验证全拒绝 (无通过)
     assert calls["n"] == 4  # 循环持续到轮数上限
 
@@ -124,7 +124,7 @@ async def test_goal_driven_loop_quota_pause(tmp_path):
     async def _engine(prompt):
         return {"ok": True, "output": "x", "cost_usd": 0.02}  # 单轮超预算
 
-    loop = GoalDrivenLoop(driver, max_rounds=5)
+    loop = GoalDrivenLoop(driver, test_max_cycles=5)
     await _setup()
     report = await loop.run(_engine)
     assert report.completed is False

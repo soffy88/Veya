@@ -95,6 +95,12 @@ def test_memory_recall_no_match(tmp_path, monkeypatch):
 
 
 def test_memory_recall_returns_matching_lessons(tmp_path, monkeypatch):
+    # This adapter test exercises the explicitly supported in-process legacy
+    # memory controller path.  The repository .env may enable the production
+    # durable runtime for application tests, so make the branch selection
+    # deterministic instead of accidentally querying the deployment database.
+    monkeypatch.delenv("VEYA_EXECUTION_DATABASE_URL", raising=False)
+    monkeypatch.setenv("VEYA_EXECUTION_PRODUCTION", "0")
     memory = MemoryController(_MemoryStore(storage_path=tmp_path / "memory.json"))
     memory.observe("先跑迁移脚本再动代码", scope="project", provenance="goal_run:g1")
     monkeypatch.setattr("server.memory_controller.memory_controller", memory)
@@ -108,6 +114,8 @@ def test_memory_recall_returns_matching_lessons(tmp_path, monkeypatch):
 
 
 def test_memory_recall_filters_by_scope(tmp_path, monkeypatch):
+    monkeypatch.delenv("VEYA_EXECUTION_DATABASE_URL", raising=False)
+    monkeypatch.setenv("VEYA_EXECUTION_PRODUCTION", "0")
     memory = MemoryController(_MemoryStore(storage_path=tmp_path / "memory.json"))
     memory.observe("project lesson", scope="project")
     memory.observe("global lesson", scope="global")

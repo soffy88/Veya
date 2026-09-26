@@ -1,0 +1,41 @@
+{
+  "_doc": "3O 显式 exception manifest（临时，非 generic baseline）。每项必须含 file/rule/reason/frozen_invariant/remediation/expiry。到期未迁移则 strict 重新失败（expiry 到达后从本文件删除对应项）。",
+  "exceptions": [
+    {
+      "file": "veya/omodul/agent_loop.py",
+      "rule": "OMODUL_DIRECT_OMODUL_CALLS",
+      "target": "veya.omodul.session_tree",
+      "reason": "AgentLoop 默认构造 SessionTreeMgr 并全程调用 ensure_session/create_session/append/messages/snapshot（含 2026-08-16 会话归属校验语义）；构造契约被 server/agent_loop_bridge.py:255,372 与 veya/oservi/daemon_engine.py:152 直接依赖（frozen agent_loop_run 工具路径）。",
+      "frozen_invariant": "docs/ARCHITECTURE_STABLE.md §2.5：agent_loop_run 是 MasterAgent 自主委托的隔离子任务工具，主链语义不得变。",
+      "remediation": "Phase 3 bot workspace/delegate supervisor 拥有 ToolPipeline+SessionTree 装配，AgentLoop 只接收注入的 collaborator（构造器已支持 pipeline/tree 注入，缺的是装配 owner）。",
+      "expiry": "Phase 3"
+    },
+    {
+      "file": "veya/omodul/agent_loop.py",
+      "rule": "OMODUL_DIRECT_OMODUL_CALLS",
+      "target": "veya.omodul.tool_pipeline",
+      "reason": "AgentLoop 默认构造 ToolPipeline(barrier) 并调用 schemas()/run_call()（五步工具执行管道）；同上，装配点在 frozen 工具路径上。",
+      "frozen_invariant": "docs/ARCHITECTURE_STABLE.md §2.5（同上）。",
+      "remediation": "同上（Phase 3 supervisor 装配）。",
+      "expiry": "Phase 3"
+    },
+    {
+      "file": "veya/omodul/multimodal_agent.py",
+      "rule": "OMODUL_DIRECT_OMODUL_CALLS",
+      "target": "veya.omodul.vision_agent",
+      "reason": "构造 VisionAgent(self.config.vision) 并调用 analyze_single()（真子 agent 编排）；当前不存在有编排意义的 multimodal 目标 oservi，为清 gate 建薄 wrapper 被 SPEC 禁止。",
+      "frozen_invariant": "none（非主链；但禁止无意义 wrapper：SPEC §Phase1 不引入新架构）。",
+      "remediation": "Phase 3/4 bot_workspace_supervisor 拥有 agent 组合时迁移装配关系。",
+      "expiry": "Phase 4"
+    },
+    {
+      "file": "veya/omodul/multimodal_agent.py",
+      "rule": "OMODUL_DIRECT_OMODUL_CALLS",
+      "target": "veya.omodul.voice_agent",
+      "reason": "仅配置类型耦合（VoiceSessionConfig 字段类型 + default_factory + 构造），无对 voice_agent 编排行为的调用；rank-clean 的共享配置归属当前不存在。",
+      "frozen_invariant": "none（同上）。",
+      "remediation": "Phase 3 若引入共享 agent-config 归属则迁移，否则随 vision 项一并收敛。",
+      "expiry": "Phase 4"
+    }
+  ]
+}

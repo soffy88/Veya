@@ -177,6 +177,14 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
         "harness_sensor_list",
         "harness_sensor_report",
         "harness_ratchet_candidates",
+        # Supervision metadata queries are pure reads over the canonical
+        # MissionStore and are safe to run alongside other independent reads.
+        "veya_mission_inspect",
+        "veya_report_latest",
+        "veya_report_get",
+        "veya_escalation_list",
+        "veya_reviews",
+        "veya_events",
         # Memory tools are read-only lookups; writes/corrections remain outside
         # this set and therefore never join a parallel batch.
         "memory_search",
@@ -371,7 +379,7 @@ _TOOL_TIMEOUT_ENV = "VEYA_TOOL_TIMEOUT_S"
 
 def parse_optional_timeout(value: float | str | None, *, source: str) -> float | None:
     """把可选超时归一化为秒；空值/0 表示不设限。"""
-    if value in (None, ""):
+    if value is None or value == "":
         return None
     try:
         timeout = float(value)
@@ -3007,11 +3015,12 @@ def _register_internalized_tools(mt: Any) -> None:
     async def _agent_loop_run(
         task: str,
         tool_group: str | None = None,
-        max_rounds: int = 15,
         context_ref: str = "",
         acceptance: list[dict[str, Any]] | None = None,
         budget_usd: float | None = None,
         deadline: str | None = None,
+        estimated_tokens: int | None = None,
+        **_legacy_kwargs: Any,
     ) -> str:
         from runtime.execution.delegate_runtime import DelegateRuntime
         from runtime.execution.models import DelegateRequest, SpawnBudget
@@ -3072,7 +3081,7 @@ def _register_internalized_tools(mt: Any) -> None:
                 capability_scope=[tool_group] if tool_group else [],
                 acceptance=cast("list[Any]", acceptance or []),
                 depth=depth,
-                estimated_tokens=max(1, min(int(max_rounds or 15), 40)) * 4096,
+                estimated_tokens=estimated_tokens or 65536,
                 budget_usd=budget_usd,
                 timeout_s=5400,
                 workspace=context_ref or ".",
@@ -3082,7 +3091,6 @@ def _register_internalized_tools(mt: Any) -> None:
                 return await run_strict_chat(
                     child_task,
                     session_id=sid,
-                    max_rounds=max(1, min(int(max_rounds or 15), 40)),
                     tool_schemas=mt.get_resident_schemas(session_id=sid),
                     tool_executor=mt.execute,
                     budget_usd=budget_usd,
@@ -3368,9 +3376,9 @@ def _register_internalized_tools(mt: Any) -> None:
                             "意图理解/派工/监督/审查这几个常驻工具。"
                         ),
                     },
-                    "max_rounds": {
+                    "estimated_tokens": {
                         "type": "integer",
-                        "description": "子任务最多轮次, 默认 15, 上限 40。",
+                        "description": "可选预估 token 消耗上限，默认 65536。",
                     },
                     "context_ref": {
                         "type": "string",
@@ -3979,11 +3987,23 @@ async def _tool_skill_run(skill_id: str, params: dict[str, Any] | None = None) -
         skill = await get_personal_runtime().get_skill(skill_id)
         if skill is None or not _personal_user_visible(skill, user_id):
             return {"status": "not_found", "skill_id": skill_id}
+        # D6 distribution gate: ACTIVE + TRUSTED + BOUND/VISIBLE, then run.
+        # Explicit cross-scope bindings grant what creation scope alone denies.
+        from server.skill_distribution import SkillDistribution
+
+        await SkillDistribution().materialize(
+            skill_id,
+            str(skill.get("scope_type", "user")),
+            str(skill.get("scope_id", user_id)),
+            backend="personal",
+        )
         return await get_personal_runtime().run_skill(
             skill_id, params, task_id=task_id, trace_id=trace_id
         )
     except PersonalRuntimeError as exc:
         return {"status": "error", "code": exc.code, "error": str(exc)}
+    except ValueError as exc:
+        return {"status": "error", "code": "SAFETY_HOLD", "error": str(exc)}
 
 
 async def _tool_skill_update(
@@ -4332,3 +4352,10 @@ _register_github_pr_tools(master_tools)
 from server.github_issue_tools import register_tools as _register_github_issue_tools  # noqa: E402
 
 _register_github_issue_tools(master_tools)
+
+# Dual/Auto Supervision Runtime surface (mission/report/review). Additive
+# orchestration metadata over the existing GoalRun/MasterAgent execution path;
+# it is not a second agent mainline and does not execute work itself.
+from server.supervision_tools import register_tools as _register_supervision_tools  # noqa: E402
+
+_register_supervision_tools(master_tools)

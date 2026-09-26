@@ -10,6 +10,7 @@ layer4/server/assembly.py — 引擎装配中心
 
 from __future__ import annotations
 
+import subprocess as _subprocess
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -50,17 +51,17 @@ from veya.compat import (
     llm_call,
     parse_ripgrep_output,
     retry_with_backoff,
-    run_subagent_task,
 )
+from veya.platform import omodul as _load_omodul
+
+run_subagent_task = _load_omodul().run_subagent_task
+
 
 if TYPE_CHECKING:
     from oservi.engines._base import EngineSkeleton as Engine
 
 
 # ── ripgrep_search:layer4 thin wrapper(库里无此名,按库用 helpers)────
-import subprocess as _subprocess
-
-
 def ripgrep_search(pattern: str, *, root: str, glob: str | None = None) -> list:
     """薄包装:构造 ripgrep args → subprocess → 解析结果。"""
     args = build_ripgrep_args(pattern, root=root, glob=glob)

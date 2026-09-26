@@ -242,8 +242,28 @@ async def test_llm_call_vision_offline_stub(png_file, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("VEYA_LLM_PROVIDER", raising=False)
+    # The canonical provider pool also reads these credentials.  Clear every
+    # live provider key so this remains an offline contract test even when the
+    # developer shell loads the project's real .env.
+    for key in (
+        "OPENCODE_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GMI_API_KEY",
+        "FLATKEY_API_KEY",
+        "B_API_KEY",
+        "INFERERA_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
     messages = MultimodalProcessor().build_vision_messages("what is this?", [png_file])
-    out = await hllm.llm_call(messages, default_content="no vision offline")
+    # Select a provider with no configured credential explicitly; the default
+    # veya1.2 alias may legitimately discover the developer's opencode auth
+    # file, which would turn this unit test into a live-provider call.
+    out = await hllm.llm_call(
+        messages,
+        provider="openai",
+        model="gpt-4o-mini",
+        default_content="no vision offline",
+    )
     assert out["choices"][0]["message"]["content"] == "no vision offline"
     assert out["usage"]["total_tokens"] == 0
 
@@ -253,6 +273,15 @@ async def test_llm_stream_vision_offline_stub(png_file, monkeypatch):
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for key in (
+        "OPENCODE_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GMI_API_KEY",
+        "FLATKEY_API_KEY",
+        "B_API_KEY",
+        "INFERERA_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
     messages = MultimodalProcessor().build_vision_messages("hi", [png_file])
     events = [e async for e in hllm.llm_stream(messages)]
     text = "".join(e["choices"][0]["delta"].get("content", "") for e in events)

@@ -23,7 +23,19 @@ from typing import Any, Literal
 
 from runtime.coding.models import CodingTask
 from runtime.coding.workspace_detect import detect_workspace
-from runtime.coding.worktree import WorktreeError, WorktreeManager
+from runtime.coding.workspace_lifecycle import (
+    WorkspaceStore,
+    attach_workspace,
+    create_workspace,
+    prepare_workspace,
+    recover_workspace,
+    release_workspace,
+)
+from runtime.coding.worktree import (
+    WorktreeError,
+    WorktreeManager,
+    repo_root_for_worktree,
+)
 from runtime.harness.contract import (
     build_coding_harness_contract,
     write_coding_harness_contract,
@@ -78,6 +90,7 @@ class CodingTaskResult:
     changed_files: list[str]
     final_summary: str
     acceptance_passed: bool
+    resume_decision: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -90,6 +103,7 @@ class CodingTaskResult:
             "changed_files": self.changed_files,
             "final_summary": self.final_summary,
             "acceptance_passed": self.acceptance_passed,
+            "resume_decision": self.resume_decision,
         }
 
 
@@ -113,6 +127,7 @@ class CodingTaskState:
     max_wall_seconds: int | None = None
     error: str | None = None
     final_result: dict[str, Any] | None = None
+    lifecycle_workspace_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -178,7 +193,9 @@ class CodingTaskService:
         if not (self.project_root / ".git").exists():
             raise WorktreeError(f"not a Git repository: {self.project_root}")
 
-    async def create_task(self, request: CodingTaskRequest) -> CodingTaskState:
+    async def create_task(
+        self, request: CodingTaskRequest, *, emit: Any | None = None
+    ) -> CodingTaskState:
         """Create a new coding task with full initialization."""
         self._assert_repo()
 
@@ -250,6 +267,29 @@ class CodingTaskService:
         coding_task.status = "running"
         _write_task_state(self.project_root, state)
 
+        # D4: canonical workspace lifecycle (create/attach/prepare through
+        # the single authority; the git mechanics stay in WorktreeManager).
+        workspace_id = f"ws-{task_id}"
+        workspace_store = WorkspaceStore(self.project_root / ".veya")
+        create_workspace(
+            workspace_store,
+            workspace_id=workspace_id,
+            owner_scope="task",
+            root=record.path,
+            kind="git_worktree",
+            metadata={
+                "task_id": task_id,
+                "repo_root": str(workspace.root_path),
+                "branch": record.branch_name,
+            },
+            emit=emit,
+            task_id=task_id,
+        )
+        attach_workspace(workspace_store, workspace_id, task_id, emit=emit, task_id=task_id)
+        prepare_workspace(workspace_store, workspace_id, emit=emit, task_id=task_id)
+        state.lifecycle_workspace_id = workspace_id
+        _write_task_state(self.project_root, state)
+
         # Phase 3: GoalRun created (placeholder - actual GoalRun linking in PHASE 4)
         state.status = CodingTaskStatus.GOALRUN_CREATED.value
         _write_task_state(self.project_root, state)
@@ -266,6 +306,7 @@ class CodingTaskService:
         leaf_sequence: list[dict[str, Any]],
         *,
         goal_run_id: str | None = None,
+        agent_deployment_id: str | None = None,
     ) -> CodingTaskResult:
         """Execute a coding task's leaf sequence.
 
@@ -279,6 +320,23 @@ class CodingTaskService:
         if goal_run_id:
             state.goal_run_id = goal_run_id
             _write_task_state(self.project_root, state)
+
+        # D8: optional deployment gate (fail closed on unavailable runtime).
+        if agent_deployment_id is not None:
+            from pathlib import Path as _Path
+
+            from server.agent_definition import AgentDefinitionStore as _ADStore
+            from server.agent_definition import resolve_agent_deployment as _resolve
+
+            _resolution = _resolve(
+                _ADStore(_Path(self.project_root) / ".veya"),
+                deployment_id=agent_deployment_id,
+            )
+            if not _resolution.runtime_available:
+                raise WorktreeError(
+                    f"runtime unavailable for deployment {agent_deployment_id}: "
+                    f"{_resolution.runtime_id}"
+                )
 
         # Execute each leaf
         all_evidence: list[dict[str, Any]] = []
@@ -374,12 +432,41 @@ class CodingTaskService:
         )
 
     async def resume_task(
-        self, task_id: str, new_leaves: list[dict[str, Any]] | None = None
+        self,
+        task_id: str,
+        new_leaves: list[dict[str, Any]] | None = None,
+        *,
+        trigger: str = "process_recovery",
+        expected_goal_run_id: str | None = None,
+        emit: Any | None = None,
     ) -> CodingTaskResult:
-        """Resume a coding task from its durable state."""
+        """Resume a coding task from its durable state.
+
+        Continuity is decided by the canonical D3 policy
+        (``runtime.execution.resume.decide_resume_disposition``), never by
+        local if/else: terminal-failed tasks are not auto-retried, foreign
+        lineages are never recovered, and explicit user reruns never replay
+        the old goal premise. Every non-trivial path records its decision
+        durably (restart-safe) and carries it on the returned result.
+        """
+        from runtime.execution.resume import (
+            ResumeDecisionStore,
+            ResumeDisposition,
+            decide_resume_disposition,
+            record_resume_decision,
+        )
+
         state = _read_task_state(self.project_root, task_id)
         if not state:
             raise WorktreeError(f"Task not found: {task_id}")
+
+        store = ResumeDecisionStore(_task_dir(self.project_root, task_id))
+
+        def _record(decision: Any) -> Any:
+            stored = store.record(decision)
+            if emit is not None:
+                record_resume_decision(decision, emit=emit)
+            return stored
 
         if state.status in (CodingTaskStatus.COMPLETED.value, CodingTaskStatus.CANCELLED.value):
             # Return existing result
@@ -395,13 +482,81 @@ class CodingTaskService:
                 acceptance_passed=result.get("acceptance_passed", False),
             )
 
+        resumable_statuses = {
+            CodingTaskStatus.CREATED.value,
+            CodingTaskStatus.CONTRACT_READY.value,
+            CodingTaskStatus.WORKTREE_READY.value,
+            CodingTaskStatus.GOALRUN_CREATED.value,
+            CodingTaskStatus.RUNNING.value,
+            CodingTaskStatus.VERIFYING.value,
+            CodingTaskStatus.FINALIZING.value,
+            CodingTaskStatus.WAITING_APPROVAL.value,
+        }
+        lineage_match = expected_goal_run_id is None or state.goal_run_id == expected_goal_run_id
+        decision = decide_resume_disposition(
+            trigger=trigger,
+            task_id=task_id,
+            run_id=state.goal_run_id,
+            checkpoint_id=f"coding-task-state:{task_id}",
+            checkpoint_verified=state.status in resumable_statuses,
+            checkpoint_lineage_match=lineage_match,
+            resume_capable=False,
+            metadata={"prior_status": state.status, "fresh_leaves": bool(new_leaves)},
+        )
+        stored = _record(decision)
+        if decision.disposition is ResumeDisposition.BLOCKED:
+            refusal = WorktreeError(f"Resume refused ({decision.reason}): {task_id}")
+            refusal.resume_decision = stored
+            raise refusal
+
+        # D4: workspace continuity is independent of session disposition.
+        # Adopt-or-recover the task workspace by refs; a BROKEN workspace
+        # fails closed here instead of resuming blindly.
+        workspace_store = WorkspaceStore(self.project_root / ".veya")
+        workspace_id = state.lifecycle_workspace_id or f"ws-{task_id}"
+        if workspace_store.get(workspace_id) is None:
+            if not state.worktree_path:
+                raise WorktreeError(f"Task has no worktree to recover: {task_id}")
+            try:
+                adopt_repo = str(repo_root_for_worktree(state.worktree_path))
+            except WorktreeError:
+                adopt_repo = None
+            adopt_metadata: dict[str, Any] = {"task_id": task_id, "adopted": True}
+            if adopt_repo is not None:
+                adopt_metadata["repo_root"] = adopt_repo
+            create_workspace(
+                workspace_store,
+                workspace_id=workspace_id,
+                owner_scope="task",
+                root=state.worktree_path,
+                kind="git_worktree" if adopt_repo is not None else "local",
+                metadata=adopt_metadata,
+                emit=emit,
+                task_id=task_id,
+            )
+        recover_workspace(
+            workspace_store, workspace_id, is_live=self._task_live, emit=emit, task_id=task_id
+        )
+        attach_workspace(workspace_store, workspace_id, task_id, emit=emit, task_id=task_id)
+        state.lifecycle_workspace_id = workspace_id
+
         # Restore status to RUNNING
         state.status = CodingTaskStatus.RUNNING.value
         _write_task_state(self.project_root, state)
 
         # If new leaves provided, run them
         if new_leaves:
-            return await self.run_task(task_id, new_leaves, goal_run_id=state.goal_run_id)
+            # Fresh user retry: never resume the old goal premise as the new
+            # run's starting point; the old goal_run_id stays on record for
+            # audit only.
+            fresh = decision.disposition is ResumeDisposition.FRESH_USER_RETRY
+            result = await self.run_task(
+                task_id,
+                new_leaves,
+                goal_run_id=None if fresh else state.goal_run_id,
+            )
+            result.resume_decision = stored
+            return result
 
         # Otherwise just return current state
         result = state.final_result or {}
@@ -414,7 +569,13 @@ class CodingTaskService:
             changed_files=result.get("changed_files", []),
             final_summary="Resumed",
             acceptance_passed=result.get("acceptance_passed", False),
+            resume_decision=stored,
         )
+
+    def _task_live(self, run_id: str) -> bool:
+        """Liveness evidence for workspace lease guards (worker identity)."""
+        task = self._running_tasks.get(run_id)
+        return task is not None and not task.done()
 
     async def cancel_task(self, task_id: str) -> CodingTaskState:
         """Cancel a running task."""
@@ -436,6 +597,13 @@ class CodingTaskService:
 
         state.status = CodingTaskStatus.CANCELLED.value
         _write_task_state(self.project_root, state)
+        # D4: release the task's workspace occupancy (harmless when the
+        # task predates lifecycle records; release never fails a cancel).
+        release_workspace(
+            WorkspaceStore(self.project_root / ".veya"),
+            state.lifecycle_workspace_id or f"ws-{task_id}",
+            task_id,
+        )
         return state
 
     def get_task_state(self, task_id: str) -> CodingTaskState | None:

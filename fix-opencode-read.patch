@@ -1,0 +1,11 @@
+--- platform/3O/oskill/oskill/_harness_argv.py
++++ platform/3O/oskill/oskill/_harness_argv.py
+@@ -71,7 +71,7 @@
+                     "argv": [],
+                     "error": "opencode coding mode requires an execution worktree",
+                 }
+-            argv.extend(["--dir", workspace, "--format", "json", "--auto", "--yolo", "--dangerously-skip-permissions"])
++            argv.extend(["--dir", workspace, "--format", "json", "--yes"])
+             if agent:
+                 argv.extend(["--agent", agent])
+     if extra:

@@ -1,5 +1,7 @@
+# syntax=docker/dockerfile:1.7
 # veya Backend Dockerfile — Agent OS 后端(9 大能力 + 3O 主库)
 FROM node@sha256:813a7480f28fdadac1f7f5c824bcdad435b5bc1322a5968bbbdef8d058f9dff4 AS hicode_node_runtime
+FROM hicode-3o AS hicode_clean_3o
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -10,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Playwright Chromium 运行库 (无头浏览器抓取通道)
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
     libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-    libasound2 libpango-1.0-0 libcairo2 \
+    libasound2 libpango-1.0-0 libcairo2 libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 依赖(从 pyproject 全量安装, 含 apscheduler/pandas/numpy/pyarrow/scipy/cryptography)
@@ -50,12 +52,87 @@ COPY --from=hicode_node_runtime /usr/local/lib/node_modules/npm /usr/local/lib/n
 # The Node image keeps npm/npx as symlinks.  Docker COPY dereferences those
 # links, so restore the links after copying the npm tree or their relative
 # CLI imports resolve from /usr/local/bin instead of the npm package root.
-RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm || true \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx || true
+COPY deploy/build_hicode_python_runtime.py /app/deploy/build_hicode_python_runtime.py
+COPY --from=hicode_clean_3o /build-source-manifest.json /opt/veya/hicode-runtime/3o-build-source.json
 COPY deploy/hicode-runtime/package.json deploy/hicode-runtime/package-lock.json /opt/veya/hicode-runtime/
-RUN npm ci --prefix /opt/veya/hicode-runtime --omit=dev --ignore-scripts \
+RUN npm ci --unsafe-perm --prefix /opt/veya/hicode-runtime --omit=dev \
     && /opt/veya/hicode-runtime/node_modules/.bin/reasonix --version \
       | grep -Fx 'reasonix v1.21.3'
+# Managed HiCode Python companion: build non-editable wheels from the pinned
+# canonical 3O source set. A dirty lowercase model-router cannot enter the
+# image; the check fails the image build before a model process can start.
+RUN --mount=from=hicode_clean_3o,source=/,target=/tmp/hicode-clean-3o,ro \
+    grep -F 'from oprim._task_tier import TIER_FLAGSHIP' \
+      /tmp/hicode-clean-3o/omodul/omodul/model_router.py \
+    && python -m venv /opt/veya/hicode-runtime/python \
+    && /opt/veya/hicode-runtime/python/bin/python -m pip install --no-cache-dir docker==7.1.0 \
+    && /opt/veya/hicode-runtime/python/bin/python -m pip install --no-cache-dir \
+      /tmp/hicode-clean-3o/obase \
+      /tmp/hicode-clean-3o/oprim \
+      /tmp/hicode-clean-3o/omodul \
+      /tmp/hicode-clean-3o/oskill \
+      /tmp/hicode-clean-3o/oservi \
+      networkx \
+      structlog \
+      pyyaml \
+      qrcode \
+      rapidfuzz \
+      tenacity \
+      bcrypt \
+      httpx \
+      mcp \
+      pgvector \
+      pillow \
+      pydantic \
+      pydantic-settings \
+      pyjwt \
+      pyotp \
+      argon2-cffi \
+      asyncpg \
+      aiohttp \
+      chardet \
+      dnspython \
+      fsrs \
+      jinja2 \
+      paramiko \
+      psutil \
+      python-frontmatter \
+      python-magic \
+      python-ulid \
+      readability-lxml \
+      stripe \
+      trafilatura \
+      tree-sitter \
+      tree-sitter-python \
+      apscheduler \
+      numpy \
+      pandas \
+      redis \
+      scikit-learn \
+      scipy \
+      statsmodels \
+      croniter \
+      argon2-cffi \
+    && /opt/veya/hicode-runtime/python/bin/python -m pip freeze | sort \
+      > /opt/veya/hicode-runtime/python/requirements.lock \
+    && /opt/veya/hicode-runtime/python/bin/python /app/deploy/build_hicode_python_runtime.py \
+      /opt/veya/hicode-runtime \
+      --source-manifest /opt/veya/hicode-runtime/3o-build-source.json \
+    && HICODE_MANAGED_RUNTIME_ROOT=/opt/veya/hicode-runtime \
+      HICODE_MANAGED_BIN=/opt/veya/hicode-runtime/node_modules/.bin/reasonix \
+      HICODE_MANAGED_PYTHON=/opt/veya/hicode-runtime/python/bin/python \
+      python -m server.hicode_runtime preflight
+
+# DSH (DeepSeek Harness) executor — the shell/ops execution plane. Pinned exact
+# version, installed from a checked-in lockfile. DSH holds NO provider
+# credential: it talks to the Veya LLM gateway (see server/dsh_plane.py).
+COPY deploy/dsh-runtime/package.json deploy/dsh-runtime/package-lock.json /opt/veya/dsh-runtime/
+RUN npm ci --prefix /opt/veya/dsh-runtime --omit=dev --ignore-scripts \
+    && ln -sfn /opt/veya/dsh-runtime/node_modules/.bin/dsh /usr/local/bin/dsh \
+    && dsh --help >/dev/null \
+    && which dsh
 # 3O 主库装配通道 is part of the server-image contract, not a host PATH hack.
 ENV PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi
 ENV VEYA_WORKSPACE=/app

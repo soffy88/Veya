@@ -25,7 +25,7 @@ class SandboxProfile:
     id: str
     executor: Literal["local", "docker"]
     network: Literal["allowed", "denied", "configurable"]
-    filesystem: Literal["workspace"]
+    filesystem: Literal["workspace", "host"]
     approvals: Literal["minimal", "required_for_write"]
     image: str | None = None
     mounts: tuple[SandboxMount, ...] = ()
@@ -51,6 +51,27 @@ _PROFILES: dict[str, SandboxProfile] = {
         filesystem="workspace",
         approvals="required_for_write",
     ),
+    "l0_workspace_full": SandboxProfile(
+        id="l0_workspace_full",
+        executor="local",
+        network="allowed",
+        filesystem="workspace",
+        approvals="minimal",
+    ),
+    "l0_isolated": SandboxProfile(
+        id="l0_isolated",
+        executor="local",
+        network="denied",
+        filesystem="workspace",
+        approvals="required_for_write",
+    ),
+    "l0_host": SandboxProfile(
+        id="l0_host",
+        executor="local",
+        network="allowed",
+        filesystem="host",
+        approvals="minimal",
+    ),
     "docker_python": SandboxProfile(
         id="docker_python",
         executor="docker",
@@ -75,8 +96,9 @@ _PROFILES: dict[str, SandboxProfile] = {
 def get_sandbox_profile(profile: str | SandboxProfile) -> SandboxProfile:
     if isinstance(profile, SandboxProfile):
         return profile
+    normalized = str(profile).strip().lower()
     try:
-        return _PROFILES[profile]
+        return _PROFILES[normalized]
     except KeyError as exc:
         raise SandboxProfileError(
             f"unknown sandbox profile {profile!r}; choose from {', '.join(sorted(_PROFILES))}"

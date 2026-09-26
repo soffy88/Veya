@@ -23,7 +23,6 @@ class MasterChatRequest(BaseModel):
     model: str | None = None
     provider: str | None = None
     endpoint: str | None = None
-    max_rounds: int | None = None
     extra: dict[str, Any] = {}
 
 
@@ -46,7 +45,6 @@ async def master_chat(req: MasterChatRequest) -> dict[str, Any]:
         req.text,
         session_id=sid,
         on_step=on_step,
-        max_rounds=req.max_rounds,
     )
 
 

@@ -183,12 +183,16 @@ def _container_codex_usable() -> bool:
 
 
 def _container_dsh_usable() -> bool:
-    """容器内 dsh 精确探测: 二进制 + DEEPSEEK_API_KEY (docker-compose 已把 DEEPSEEK_BASE_URL
-    覆盖到 opencode-go 网关, key 复用同一份 opencode key, 无独立凭据文件可查, 只能查 env)。
+    """容器内 dsh 探测: 二进制 + DSH 执行面开关（不再依赖 DeepSeek 凭据）。
+
+    DSH 是 Veya 的执行器，模型/credential 由 :8791 网关持有（见 server/dsh_plane.py），
+    所以可用性只看“二进制在不在 + 执行面是否启用”，不看任何 DEEPSEEK_API_KEY。
     """
     if not _IN_CONTAINER:
         return True
-    return bool(os.environ.get("DEEPSEEK_API_KEY")) and shutil.which("dsh") is not None
+    from server.dsh_plane import is_enabled
+
+    return is_enabled() and shutil.which("dsh") is not None
 
 
 def _container_opencode_bin() -> str | None:
@@ -297,16 +301,25 @@ def _engine_bin_available(engine: str) -> bool:
 
 
 def build_argv(
-    engine: str, prompt: str, *, model: str | None = None, streaming: bool = False
+    engine: str,
+    prompt: str,
+    *,
+    model: str | None = None,
+    streaming: bool = False,
+    workspace: str | None = None,
+    agent: str | None = None,
+    coding_mode: bool = False,
+    extra: list[str] | None = None,
+    execution_worktree_verified: bool = False,
 ) -> list[str]:
     """构造引擎 CLI 非交互 argv。表在主库 oskill.harness_argv；此处只补容器装配。"""
     engine = ENGINE_ALIASES.get(engine, engine)
-    extra: list[str] = []
+    extra_items: list[str] = list(extra or [])
     bin_name: str | None = None
     if engine == "codex" and _IN_CONTAINER:
         base = _container_codex_base_url()
         if base:
-            extra = ["-c", f"openai_base_url={base}"]
+            extra_items.extend(["-c", f"openai_base_url={base}"])
     if engine == "opencode":
         bin_name = (
             _container_opencode_bin() if _IN_CONTAINER else shutil.which("opencode") or "opencode"
@@ -314,7 +327,16 @@ def build_argv(
     from veya.platform import load
 
     rec = load("oskill").harness_argv(
-        engine, prompt, model=model, streaming=streaming, bin=bin_name, extra=extra or None
+        engine,
+        prompt,
+        model=model,
+        streaming=streaming,
+        bin=bin_name,
+        extra=extra_items or None,
+        workspace=workspace,
+        agent=agent,
+        coding_mode=coding_mode,
+        execution_worktree_verified=execution_worktree_verified,
     )
     if not rec.get("ok"):
         raise ValueError(rec.get("error") or f"未知引擎: {engine!r}")

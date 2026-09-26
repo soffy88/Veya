@@ -1,0 +1,62 @@
+# P7C isolated qualification stack (never touches production).
+#
+# Proven here, in order:
+#   CONTAINER_DSH_BINARY               dsh present in the image
+#   CONTAINER_DSH_GATEWAY_REACHABLE    runner -> llm-gateway:8791 inside the compose network
+#   CONTAINER_DSH_REAL_EXECUTION       a real dsh headless task produces an artifact
+#   CONTAINER_DSH_USES_PLACEHOLDER_KEY the runner holds no provider credential
+#   CONTAINER_DSH_NO_DIRECT_DEEPSEEK   the runner has NO external egress at all
+#                                      (`internal: true`), so it cannot reach
+#                                      api.deepseek.com even by accident.
+#
+# The gateway is reachable only on the internal network: no published port.
+name: veya-p7c-qual
+
+services:
+  llm-gateway:
+    image: veya-backend-p7c:qual
+    container_name: p7c-llm-gateway
+    working_dir: /app
+    command: ["python", "scripts/veya_llm_gateway.py", "--host", "0.0.0.0", "--port", "8791"]
+    volumes:
+      - ../../../scripts:/app/scripts:ro
+    env_file:
+      - ../../../.env
+    networks:
+      - p7c-internal
+      - p7c-egress
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8791/v1/models"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  dsh-runner:
+    image: veya-backend-p7c:qual
+    container_name: p7c-dsh-runner
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    volumes:
+      - /data/soffy/projects/_veya_dsh_qual:/workspace
+      - /home/soffy/.local/state/veya/dsh:/state/dsh
+    environment:
+      # DSH executor plane — routing and credentials belong to the gateway.
+      DEEPSEEK_BASE_URL: http://llm-gateway:8791/v1
+      DEEPSEEK_API_KEY: veya-local-gateway
+      DSH_HOME: /state/dsh/home
+      NO_PROXY: 127.0.0.1,localhost,llm-gateway
+    depends_on:
+      llm-gateway:
+        condition: service_healthy
+    networks:
+      # internal: true -> no egress to the internet at all
+      - p7c-internal
+
+networks:
+  p7c-internal:
+    name: veya-p7c-internal
+    driver: bridge
+    internal: true
+  p7c-egress:
+    name: veya-p7c-egress
+    driver: bridge

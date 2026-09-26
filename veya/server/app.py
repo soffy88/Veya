@@ -124,6 +124,8 @@ class AgentRunRequest(BaseModel):
     student_id: str | None = Field(None, description="Pseudonymized in flight")
     user_id: str | None = Field(None, description="Pseudonymized in flight")
     session_id: str | None = None
+    turn_id: str | None = Field(None, description="Run/turn identity")
+    run_id: str | None = Field(None, description="Run/turn identity alias")
     config: dict[str, Any] = Field(default_factory=dict)
     mode: Literal["run", "dry_run"] = "run"
 
@@ -263,6 +265,7 @@ class AgentStopRequest(BaseModel):
     """Stop a running stream session (Stop 按钮)."""
 
     session_id: str = Field(..., description="Running stream session id")
+    turn_id: str | None = Field(None, description="Optional turn id")
 
 
 class AgentSteerRequest(BaseModel):
@@ -551,25 +554,9 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     @api.post("/api/v1/agent/run", response_model=AgentRunResponse)
     async def agent_run(req: AgentRunRequest) -> AgentRunResponse:
-        # 新 Agent OS 契约: text → 主脑 ReAct(同进程委托, 无网络跳转)
-        if req.text is not None:
-            from server.coordinator_master import DEFAULT_MAX_ROUNDS, master_coordinator
-
-            result = await master_coordinator.chat_stream(
-                req.text,
-                session_id=req.session_id or None,
-                max_rounds=DEFAULT_MAX_ROUNDS,
-                config=req.config or None,
-                provider=req.provider,
-                model=req.model,
-            )
-            return AgentRunResponse(
-                session_id=result.get("session_id") or req.session_id or new_session_id(),
-                status=result.get("status", "failed"),
-                result=result.get("final_answer") or result.get("error", ""),
-                cost_usd=result.get("cost_usd", 0.0),
-            )
-
+        # Dry-run is an admission contract, not an execution mode.  It must
+        # be decided before the text/task compatibility branches so a request
+        # carrying both fields can never reach the MasterAgent or a provider.
         session_id = req.session_id or new_session_id()
         user_ref = None
         raw_uid = req.student_id or req.user_id
@@ -584,13 +571,30 @@ def create_app() -> FastAPI:
                 user_ref=user_ref,
             )
 
+        # 新 Agent OS 契约: text → 主脑 ReAct(同进程委托, 无网络跳转)
+        if req.text is not None:
+            from server.coordinator_master import master_coordinator
+
+            result = await master_coordinator.chat_stream(
+                req.text,
+                session_id=req.session_id or None,
+                config=req.config or None,
+                provider=req.provider,
+                model=req.model,
+            )
+            return AgentRunResponse(
+                session_id=result.get("session_id") or req.session_id or new_session_id(),
+                status=result.get("status", "failed"),
+                result=result.get("final_answer") or result.get("error", ""),
+                cost_usd=result.get("cost_usd", 0.0),
+            )
+
         # Agent OS master brain (legacy task contract → same brain as text)
-        from server.coordinator_master import DEFAULT_MAX_ROUNDS, master_coordinator
+        from server.coordinator_master import master_coordinator
 
         result = await master_coordinator.chat_stream(
             req.task,
             session_id=session_id,
-            max_rounds=DEFAULT_MAX_ROUNDS,
             config=req.config or None,
             provider=req.provider,
             model=req.model,
@@ -644,12 +648,14 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     @api.post("/api/v1/agent/stream")
     async def agent_stream(req: AgentRunRequest, request: Request) -> StreamingResponse:
+        turn_id = req.turn_id or req.run_id
         # 新 Agent OS 契约: text → 主脑 SSE 事件流(text_delta / tool_call / master_done)
         if req.text is not None:
             return StreamingResponse(
                 new_agent_stream_events(
                     req.text,
                     req.session_id,
+                    turn_id=turn_id,
                     config=req.config or None,
                     provider=req.provider,
                     model=req.model,
@@ -668,6 +674,7 @@ def create_app() -> FastAPI:
             new_agent_stream_events(
                 req.task,
                 session_id,
+                turn_id=turn_id,
                 config=req.config or None,
                 provider=req.provider,
                 model=req.model,
@@ -695,7 +702,7 @@ def create_app() -> FastAPI:
         sid = req.session_id
         if not sid:
             return {"cancelled": "none", "error": "session_id required"}
-        return await cancel_session(sid)
+        return await cancel_session(sid, turn_id=req.turn_id)
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/steer  (HITL interrupt control)
@@ -788,7 +795,6 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"[media {req.mode}] 请分析以下语音转写并给出回应: {text}",
             session_id=None,
-            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
@@ -813,7 +819,6 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"请验证以下自然语言命题的真伪, 给出结论与简要推理: {req.statement}",
             session_id=None,
-            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
@@ -841,7 +846,6 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"对以下决策轨迹做根因分析(定位失败原因 + 反事实建议):\n{trail_summary}",
             session_id=None,
-            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
@@ -861,7 +865,7 @@ def create_app() -> FastAPI:
         from server.coordinator_master import master_coordinator
 
         session_id = req.session_id or new_session_id()
-        result = await master_coordinator.chat_stream(req.task, session_id=session_id, max_rounds=3)
+        result = await master_coordinator.chat_stream(req.task, session_id=session_id)
         return {
             "status": result.get("status", "failed"),
             "result": result.get("final_answer") or result.get("error", ""),
@@ -883,7 +887,6 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"对以下代码文件做依赖与影响分析, 回答: {req.query or '这些文件之间的依赖关系与修改影响'}\n文件: {paths}",
             session_id=None,
-            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),
@@ -902,7 +905,6 @@ def create_app() -> FastAPI:
         result = await master_coordinator.chat_stream(
             f"设计一个新 Agent 的完整规格(角色/技能/系统提示词): {req.task}",
             session_id=None,
-            max_rounds=4,
         )
         return {
             "status": result.get("status", "failed"),

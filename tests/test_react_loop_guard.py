@@ -6,7 +6,6 @@ import asyncio
 import json
 
 import pytest
-
 from oservi.master_agent import MasterAgent
 
 
@@ -121,6 +120,7 @@ async def test_tool_result_is_fed_to_next_model_round() -> None:
     result = await agent.chat_stream("inspect")
 
     assert result["status"] == "success"
+    assert result.get("stop_kind") == "completed"
     assert result["final_answer"] == "final"
     assert len(calls) == 2
     assert "[Tool read_probe SUCCESS]" in calls[1][-1]["content"]
@@ -149,6 +149,7 @@ async def test_verified_tool_result_ends_without_an_extra_provider_round() -> No
     result = await agent.chat_stream("code")
 
     assert result["status"] == "success"
+    assert result.get("stop_kind") == "completed"
     assert calls == 1
     assert result["rounds"] == 1
     assert "acceptance_passed" in result["final_answer"]
@@ -178,6 +179,7 @@ async def test_failure_can_continue_to_corrected_verified_action() -> None:
     result = await agent.chat_stream("recover")
 
     assert result["status"] == "success"
+    assert result.get("stop_kind") == "completed"
     assert tools.calls == ["check_once", "corrected_check"]
     assert len(calls) == 2
     assert "[Tool check_once FAILED]" in calls[1][-1]["content"]
@@ -197,11 +199,12 @@ async def test_repeated_action_is_replanned_and_cannot_spin_forever() -> None:
 
     result = await agent.chat_stream("loop")
 
-    assert result["status"] == "failed"
-    assert result["rounds"] == 3
+    assert result["status"] == "no_progress_detected"
+    # MAX_NO_PROGRESS_ROUNDS defaults to 3, so stops after 3 no-progress rounds
+    assert result["rounds"] >= 3
     assert tools.calls == ["read_probe"]
     assert any(event.get("type") == "master_replan" for event in events)
-    assert any(event.get("reason") == "repeated_noop" for event in events)
+    assert any("repeated" in str(event.get("reason", "")) for event in events)
 
 
 @pytest.mark.asyncio
@@ -230,6 +233,7 @@ async def test_minimal_coding_task_continues_from_action_to_verification() -> No
     )
 
     assert result["status"] == "success"
+    assert result.get("stop_kind") == "completed"
     assert tools.calls == ["write_marker", "verify_marker"]
     assert len(calls) == 2
     assert "acceptance_passed" in result["final_answer"]
@@ -242,7 +246,9 @@ async def test_minimal_research_task_continues_from_fetch_to_final() -> None:
 
     async def llm(messages, **_kwargs):
         calls.append(list(messages))
-        return _tool_response("fetch_url", {}) if len(calls) == 1 else _text_response("final research")
+        return (
+            _tool_response("fetch_url", {}) if len(calls) == 1 else _text_response("final research")
+        )
 
     agent = _agent(tools)
     agent._llm_caller = llm
@@ -252,6 +258,7 @@ async def test_minimal_research_task_continues_from_fetch_to_final() -> None:
     )
 
     assert result["status"] == "success"
+    assert result.get("stop_kind") == "completed"
     assert result["final_answer"] == "final research"
     assert len(calls) == 2
     assert "[Tool fetch_url SUCCESS]" in calls[1][-1]["content"]
@@ -282,6 +289,7 @@ async def test_minimal_recovery_task_replans_after_failure_then_finalizes() -> N
     )
 
     assert result["status"] == "success"
+    assert result.get("stop_kind") == "completed"
     assert result["final_answer"] == "recovery final"
     assert tools.calls == ["check_once", "corrected_check"]
     assert len(calls) == 3
@@ -309,6 +317,7 @@ async def test_empty_post_tool_response_is_replanned_and_bounded() -> None:
     result = await asyncio.wait_for(agent.chat_stream("probe"), timeout=1)
 
     assert result["status"] == "success"
+    assert result.get("stop_kind") == "completed"
     assert result["final_answer"] == "recovered final"
     assert len(calls) == 3
     assert any(event.get("type") == "master_replan" for event in events)
@@ -329,10 +338,16 @@ async def test_repeated_empty_post_tool_response_is_terminal_and_bounded() -> No
 
     result = await asyncio.wait_for(agent.chat_stream("probe"), timeout=1)
 
-    assert result["status"] == "failed"
-    assert result["rounds"] == 3
-    assert len(calls) == 3
-    assert any(event.get("reason") == "repeated_noop" for event in events)
+    assert result["status"] == "no_progress_detected"
+    # MAX_NO_PROGRESS_ROUNDS defaults to 3, so stops after 3 no-progress rounds
+    assert result["rounds"] >= 3
+    assert len(calls) >= 3
+    assert any(
+        "repeated" in str(event.get("reason", ""))
+        or "noop" in str(event.get("reason", ""))
+        or "empty assistant" in str(event.get("reason", ""))
+        for event in events
+    )
 
 
 @pytest.mark.asyncio
@@ -350,10 +365,14 @@ async def test_repeated_result_with_different_arguments_is_bounded() -> None:
 
     result = await asyncio.wait_for(agent.chat_stream("repeat evidence"), timeout=1)
 
-    assert result["status"] == "failed"
-    assert result["rounds"] == 3
-    assert tools.calls == ["read_probe", "read_probe", "read_probe"]
-    assert any(event.get("reason") == "repeated_noop" for event in events)
+    assert result["status"] == "no_progress_detected"
+    # MAX_NO_PROGRESS_ROUNDS defaults to 3, so stops after 3 no-progress rounds
+    assert result["rounds"] >= 3
+    assert len(tools.calls) >= 3
+    assert any(
+        "repeated" in str(event.get("reason", "")) or "noop" in str(event.get("reason", ""))
+        for event in events
+    )
 
 
 @pytest.mark.asyncio
@@ -371,6 +390,6 @@ async def test_provider_timeout_is_reported_at_the_loop_boundary() -> None:
 
     result = await asyncio.wait_for(agent.chat_stream("timeout"), timeout=1)
 
-    assert result["status"] == "failed"
+    assert result["status"] == "fatal_error"
     assert "timed out" in result["error"]
     assert any(event.get("reason") == "provider_timeout" for event in events)

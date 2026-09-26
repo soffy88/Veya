@@ -14,14 +14,62 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
+import os
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+from server.goal_run.leaf import LeafResult
+from server.goal_run.store import save_goal_run
+from veya.oprim.fs import fs_delete
+
 logger = logging.getLogger("hicode.queue")
+
+_HICODE_GOAL_ENVELOPE_KIND = "veya.hicode.goal"
+_HICODE_GOAL_ENVELOPE_VERSION = 1
+_HICODE_PERSISTED_META = (
+    "timeout_sec",
+    "max_steps",
+    "session_id",
+    "continue_",
+    "force_cli",
+    "sid",
+)
+
+
+def _encode_goal_instruction(spec: str, meta: dict[str, Any]) -> str:
+    persisted = {key: meta.get(key) for key in _HICODE_PERSISTED_META if key in meta}
+    return json.dumps(
+        {
+            "kind": _HICODE_GOAL_ENVELOPE_KIND,
+            "version": _HICODE_GOAL_ENVELOPE_VERSION,
+            "spec": spec,
+            "meta": persisted,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _decode_goal_instruction(value: str) -> tuple[str, dict[str, Any]]:
+    try:
+        payload = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return value, {}
+    if not isinstance(payload, dict) or payload.get("kind") != _HICODE_GOAL_ENVELOPE_KIND:
+        return value, {}
+    if int(payload.get("version") or 0) != _HICODE_GOAL_ENVELOPE_VERSION:
+        return value, {}
+    spec = payload.get("spec")
+    meta = payload.get("meta")
+    if not isinstance(spec, str) or not isinstance(meta, dict):
+        return value, {}
+    return spec, {key: meta.get(key) for key in _HICODE_PERSISTED_META if key in meta}
 
 
 @dataclass
@@ -121,6 +169,25 @@ class HicodeTaskQueue:
         if rec.status == "running":
             rec.cancel_requested = True
             rec.updated_at = time.time()
+            process_record = rec.meta.get("process_record")
+            if process_record:
+                from server import exec_process
+
+                outcome = exec_process.terminate(
+                    process_record,
+                    workspace=rec.workspace or "",
+                )
+                if outcome.get("killed"):
+                    logger.info(
+                        "hicode 队列: 已终止 CLI process group → %s pids=%s",
+                        tid,
+                        outcome.get("pids"),
+                    )
+                    try:
+                        await asyncio.wait_for(rec._done.wait(), timeout=12)
+                    except TimeoutError:
+                        logger.warning("hicode 队列: CLI 硬停后任务 %s 仍未收尾", tid)
+                    return True
             # 1) 软中断: serve POST /cancel (秒级, 但模型调用可能不响应)
             from server.hicode_serve import get_serve_client
 
@@ -177,44 +244,182 @@ class HicodeTaskQueue:
                 rec.status = "failed"
                 rec.error = str(exc)[:400]
             finally:
+                process_record = rec.meta.pop("process_record", None)
+                if process_record:
+                    with contextlib.suppress(Exception):
+                        await fs_delete(str(process_record))
                 rec.updated_at = time.time()
                 rec._done.set()
 
     async def _run_one(self, rec: TaskRecord) -> None:
-        # 必须调内核 (不经过队列的工具入口), 否则递归入队死循环
-        from server.hicode_agent import _execute_hicode_core
+        """Execute one queued item through GoalRun, preserving this ABI as a projection."""
+        from server.goal_run.runner import project_run_goal
 
-        def _push(ev: dict) -> None:
-            rec.events.append(ev)
-            if len(rec.events) > 200:  # 事件快照限长
-                rec.events.pop(0)
-            # 实时推给所有 wait() 订阅者 (SSE 断线/回调异常绝不拖垮 worker)
-            for w in list(rec._watchers):
-                with contextlib.suppress(Exception):
-                    w(ev)
+        class _HicodeGoalRunAdapter:
+            verification_required = True
+            skip_plan_review = True
+
+            async def before_execution(self, state: Any, project_root: str) -> None:
+                return None
+
+            async def before_iteration(self, state: Any, project_root: str, task: Any) -> None:
+                return None
+
+            def checkpoint(self, state: Any, project_root: str, *, reason: str) -> None:
+                save_goal_run(state, project_root)
+
+            async def execute_semantic_task(self, state: Any, task: Any) -> LeafResult:
+                from server.hicode_agent import _execute_hicode_core
+
+                def _push(ev: dict) -> None:
+                    rec.events.append(ev)
+                    if len(rec.events) > 200:
+                        rec.events.pop(0)
+                    for watcher in list(rec._watchers):
+                        with contextlib.suppress(Exception):
+                            watcher(ev)
+
+                from server import exec_process
+
+                execution_root = (
+                    Path(rec.workspace or os.environ.get("VEYA_PROJECT_ROOT", "."))
+                    .expanduser()
+                    .resolve()
+                )
+                process_record = (
+                    execution_root / ".veya-project" / "hicode-processes" / f"{rec.id}.pid.json"
+                )
+
+                def _capture_process(pid: int, pgid: int) -> None:
+                    exec_process.record(
+                        process_record,
+                        pid=pid,
+                        pgid=pgid,
+                        workspace=str(execution_root),
+                    )
+                    rec.meta["process_record"] = str(process_record)
+
+                try:
+                    summary = await _execute_hicode_core(
+                        rec.spec,
+                        workspace=rec.workspace,
+                        max_steps=int(rec.meta.get("max_steps") or 0),
+                        timeout_sec=int(rec.meta.get("timeout_sec") or 900),
+                        session_id=(
+                            str(rec.meta["session_id"]) if rec.meta.get("session_id") else None
+                        ),
+                        continue_=bool(rec.meta.get("continue_")),
+                        on_event=_push,
+                        force_cli=bool(rec.meta.get("force_cli")),
+                        on_process=_capture_process,
+                    )
+                except Exception as exc:
+                    if getattr(exc, "failure_class", None) == "UPSTREAM_QUOTA_EXHAUSTED":
+                        retry_at = getattr(exc, "retry_not_before", None)
+                        rec.status = "blocked"
+                        evidence = getattr(exc, "raw_evidence", {})
+                        upstream_reset_at = evidence.get("upstream_quota_reset_at")
+                        local_cooldown_until = evidence.get("local_cooldown_until")
+                        rec.error = (
+                            "MODEL_COOLDOWN\n"
+                            f"UPSTREAM_QUOTA_RESET_AT={upstream_reset_at}\n"
+                            f"LOCAL_PROXY_COOLDOWN_UNTIL={local_cooldown_until}\n"
+                            f"EFFECTIVE_RETRY_NOT_BEFORE={retry_at}"
+                            if retry_at is not None
+                            else "MODEL_COOLDOWN"
+                        )
+                        rec.summary = rec.error
+                        return LeafResult(
+                            status="blocked",
+                            summary=rec.summary,
+                            block_reason=rec.error,
+                            stop_reason="model_cooldown",
+                        )
+                    raise
+                if rec.cancel_requested:
+                    rec.status = "cancelled"
+                    rec.error = "user stop"
+                    rec.summary = summary[:400] if summary else ""
+                    return LeafResult(status="blocked", summary=rec.summary, block_reason=rec.error)
+                if summary.startswith("错误") or summary.startswith("hicode 不可用"):
+                    rec.status = "failed"
+                    rec.error = summary[:400]
+                    rec.summary = summary
+                    return LeafResult(status="blocked", summary=summary, block_reason=rec.error)
+                rec.status = "done"
+                rec.summary = summary
+                return LeafResult(status="completed", summary=summary)
 
         try:
-            summary = await _execute_hicode_core(
-                rec.spec,
-                workspace=rec.workspace,
-                timeout_sec=int(rec.meta.get("timeout_sec") or 900),
-                on_event=_push,
-                force_cli=bool(rec.meta.get("force_cli")),
+            goal_id = rec.meta.get("goal_id")
+            response = await project_run_goal(
+                project_root=rec.workspace or os.environ.get("VEYA_PROJECT_ROOT", "."),
+                goal=f"Hicode task {rec.id}",
+                tasks=[
+                    {
+                        "id": f"hicode:{rec.id}",
+                        "title": f"Hicode task {rec.id}",
+                        "instruction": _encode_goal_instruction(rec.spec, rec.meta),
+                        "acceptance": ["Hicode provider returned a successful result"],
+                        "assignee": "builtin",
+                    }
+                ],
+                mode="act_eager",
+                resume_goal_id=str(goal_id) if goal_id else None,
+                integration_adapter=_HicodeGoalRunAdapter(),
             )
+            rec.meta["goal_id"] = response.goal_id
         except asyncio.CancelledError:
             raise
-        # 执行期间被用户停止 → 结果按 cancelled 记 (serve turn 已被 /cancel 打断)
-        if rec.cancel_requested:
-            rec.status = "cancelled"
-            rec.error = "user stop"
-            rec.summary = summary[:400] if summary else ""
-        elif summary.startswith("错误") or summary.startswith("hicode 不可用"):
+        except Exception as exc:
             rec.status = "failed"
-            rec.error = summary[:400]
-            rec.summary = summary
+            rec.error = str(exc)[:400]
         else:
-            rec.status = "done"
-            rec.summary = summary
+            status = getattr(response.status, "value", response.status)
+            if status not in {"completed", "partial_completed"}:
+                if rec.status not in {"cancelled", "failed", "blocked"}:
+                    rec.status = "failed"
+                    rec.error = response.block_reason or "GoalRun did not complete"
+            elif rec.status == "running":
+                rec.status = "done"
+                rec.summary = getattr(response, "summary", "") or rec.summary
+
+    async def recover_goal_runs(self, project_root: str = ".") -> int:
+        """Rebuild queue projections from unfinished Hicode GoalRuns."""
+        root = Path(project_root) / ".veya-project" / "goal-runs"
+        if not root.is_dir():
+            return 0
+        recovered = 0
+        terminal = {"completed", "partial_completed", "failed", "cancelled", "blocked"}
+        for graph in sorted(root.glob("*/taskgraph.json")):
+            data = json.loads(graph.read_text(encoding="utf-8"))
+            if data.get("status") in terminal:
+                continue
+            nodes = [
+                item
+                for item in data.get("tasks", [])
+                if str(item.get("id", "")).startswith("hicode:")
+            ]
+            if not nodes:
+                continue
+            node = nodes[0]
+            tid = str(node["id"])[len("hicode:") :]
+            if tid in self._tasks:
+                continue
+            spec, persisted_meta = _decode_goal_instruction(str(node.get("instruction") or ""))
+            persisted_meta.update({"goal_id": graph.parent.name, "recovered": True})
+            rec = TaskRecord(
+                id=tid,
+                spec=spec,
+                workspace=str(Path(project_root).expanduser().resolve()),
+                meta=persisted_meta,
+            )
+            self._tasks[tid] = rec
+            await self._ready.put(tid)
+            recovered += 1
+        if recovered:
+            self._ensure_worker()
+        return recovered
 
 
 # 模块级单例 (server 复用)

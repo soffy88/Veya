@@ -43,6 +43,9 @@ class Card:
     result: str = ""  # 输出摘要
     error: str = ""
     commit_sha: str = ""  # auto-commit 产物
+    goal_run_id: str = ""  # canonical durable execution identity
+    task_id: str = ""  # canonical GoalRun task identity
+    session_id: str = ""  # stable Board session projection identity
     created_at: float = field(default_factory=time.time)
     started_at: float = 0.0
     finished_at: float = 0.0
@@ -216,7 +219,7 @@ class GitWorktree:
 
     def add(self, branch: str) -> str:
         """创建 worktree (独立分支), 返回 worktree 路径。"""
-        wt = str(self.repo / ".veya-wt" / branch)
+        wt = str(self.repo / ".veya" / "worktrees" / branch)
         if Path(wt).exists():
             shutil.rmtree(wt, ignore_errors=True)
         self._git("worktree", "add", "-b", branch, wt)
@@ -270,6 +273,33 @@ class BoardWorker:
         self._running: set[str] = set()  # 正在跑的 card id (board/card 去重用)
         self._tasks: set[asyncio.Task] = set()  # 后台任务引用 (防 GC)
 
+    async def recover_running_cards(self) -> int:
+        """Reclaim persisted running cards after a host restart.
+
+        The BoardStore is the durable owner; the asyncio task is only the
+        current process' execution carrier.
+        """
+        recovered = 0
+        for board_name, board in self.store._boards.items():
+            for card_id, card in board.cards.items():
+                if card.status != "running":
+                    continue
+                if not card.worktree or not Path(card.worktree).exists():
+                    card.status = "done"
+                    card.exit_code = 1
+                    card.error = "worker restarted but persisted worktree is missing"
+                    card.finished_at = time.time()
+                    self.store.save()
+                    continue
+                task = asyncio.create_task(
+                    self._run_card(board_name, card_id),
+                    name=f"veya-board-recovery-{board_name}-{card_id}",
+                )
+                self._tasks.add(task)
+                task.add_done_callback(self._tasks.discard)
+                recovered += 1
+        return recovered
+
     async def start_card(self, board: str, card_id: str) -> Card:
         """启动卡片: 依赖检查 → worktree → 后台执行 (不阻塞调用方)。"""
         b = self.store.get(board)
@@ -287,6 +317,7 @@ class BoardWorker:
         wt = GitWorktree(b.repo)
         card.branch = f"card-{card_id}"
         card.worktree = wt.add(card.branch)
+        self._bind_goal_run_identity(board, card)
         card.status = "running"
         card.started_at = time.time()
         self.store.save()
@@ -308,18 +339,41 @@ class BoardWorker:
             self.store.save()
 
     async def _execute(self, board: str, card: Card) -> None:
-        from server.engine_runner import run_engine
+        from server.board_goal_run import BoardGoalRunAdapter
+        from server.goal_run.models import GoalRunState, TaskNode, TaskStatus
+        from server.goal_run.runner import project_run_goal
+        from server.goal_run.store import load_goal_run, save_goal_run
 
-        result = await run_engine(
-            card.engine,
-            card.prompt,
-            model=card.model or None,
-            cwd=card.worktree or None,
-            timeout_s=900.0,
+        if not card.goal_run_id or not card.task_id:
+            self._bind_goal_run_identity(board, card)
+            self.store.save()
+        project_root = card.worktree or self.store.get(board).repo
+        state = load_goal_run(project_root, card.goal_run_id)
+        if state is None:
+            state = GoalRunState(goal_id=card.goal_run_id, goal_text=card.prompt)
+            state.tasks[card.task_id] = TaskNode(
+                id=card.task_id,
+                title=card.title,
+                instruction=card.prompt,
+                acceptance=["Board engine completed successfully"],
+                depends_on=[],
+                assignee="builtin",
+                status=TaskStatus.ready,
+            )
+            save_goal_run(state, project_root)
+        response = await project_run_goal(
+            project_root=project_root,
+            goal=card.prompt,
+            mode="act_eager",
+            resume_goal_id=card.goal_run_id,
+            integration_adapter=BoardGoalRunAdapter(card=card, project_root=project_root),
         )
-        card.result = str(result.get("output", ""))[:4000]
-        card.error = str(result.get("error", ""))[:2000]
-        card.exit_code = 0 if result.get("ok") else 1
+        card.result = str(response.summary or "")[:4000]
+        card.error = str(response.block_reason or "")[:2000]
+        # A partial GoalRun still owns unfinished work; it is not a successful
+        # Board execution.  Keep the legacy card projection, but preserve the
+        # canonical terminal meaning in the process result code.
+        card.exit_code = 0 if response.status.value == "completed" else 1
 
         # 收敛: auto-commit (无论成败, 产物可审查)
         try:
@@ -329,6 +383,13 @@ class BoardWorker:
             card.error = f"{card.error}\n[commit 失败] {e}"
         card.status = "done"
         card.finished_at = time.time()
+
+    @staticmethod
+    def _bind_goal_run_identity(board: str, card: Card) -> None:
+        """Persist deterministic identity before the process-local carrier starts."""
+        card.goal_run_id = card.goal_run_id or f"board:{board}:{card.id}"
+        card.task_id = card.task_id or f"board-task:{card.id}"
+        card.session_id = card.session_id or f"board-session:{board}"
 
     async def trash_card(self, board: str, card_id: str) -> list[str]:
         """完成卡 → trash (触发依赖链: 下游 todo 卡自动启动)。"""
@@ -365,7 +426,7 @@ class BoardWorker:
         if not b:
             raise KeyError(f"看板不存在: {board}")
         card = b.cards[card_id]
-        if card.worktree and Path(card.worktree).exists():
+        if card.worktree:
             GitWorktree(b.repo).remove(card.worktree)
             card.worktree = ""
             self.store.save()

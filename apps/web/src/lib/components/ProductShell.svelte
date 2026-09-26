@@ -1,5 +1,5 @@
 <script lang="ts">
-	/** Product landing surface: setup, capability bindings, and the single New Task entry. */
+	/** Product landing surface: setup, capability bindings, and the single 开始一项工作 entry. */
 	import { AlertCircle, ArrowRight, Bot, CheckCircle2, Settings, RefreshCw } from "lucide-svelte";
 	import { api, type ApiResult } from "$lib/api";
 	import { apiKeyStore } from "$lib/settings.svelte";
@@ -112,15 +112,15 @@
 		</div>
 		<div class="min-w-0 flex-1">
 			<div class="flex flex-wrap items-center gap-2">
-			<h2 class="text-lg font-semibold text-terminal-fg">{botState?.bot?.name ?? "Veya Bot"}</h2>
+			<h2 class="text-lg font-semibold text-terminal-fg">{botState?.bot?.name ?? "Veya Work"}</h2>
 				{#if botState?.bot?.lifecycle}
-					<span class="rounded-full bg-white/10 px-2 py-0.5 font-mono text-[10px] text-terminal-dim">{botState.bot.lifecycle}</span>
+					<span class="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-terminal-dim">{botState.bot.lifecycle}</span>
 				{/if}
 			</div>
-			<p class="mt-1 text-sm text-terminal-dim">你的长期任务入口：对话、执行、审批、验证和结果都回到同一条真实状态链。</p>
+			<p class="mt-1 text-sm text-terminal-dim">把目标交给 Veya；它会在后台执行，并在需要你确认时回来找你。</p>
 		</div>
 		<button type="button" onclick={() => taskInput?.focus()} class="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110">
-			新建任务 <ArrowRight class="size-4" />
+			新工作 <ArrowRight class="size-4" />
 		</button>
 	</div>
 
@@ -129,19 +129,19 @@
 	{/if}
 
 	{#if loading}
-		<div class="flex items-center gap-2 rounded-xl border border-terminal-edge bg-terminal-panel p-5 text-sm text-terminal-dim"><RefreshCw class="size-4 animate-spin" />读取 Bot 状态…</div>
+		<div class="flex items-center gap-2 rounded-xl border border-terminal-edge bg-terminal-panel p-5 text-sm text-terminal-dim"><RefreshCw class="size-4 animate-spin" />正在准备 Work…</div>
 	{:else if botState}
 		<section class="rounded-xl border border-sky-500/30 bg-sky-500/[0.05] p-5">
 			<div class="flex items-start gap-3">
 				<div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-300"><ArrowRight class="size-4" /></div>
 				<div class="min-w-0 flex-1">
-					<h3 class="text-sm font-semibold text-terminal-fg">New Task</h3>
-					<p class="mt-1 text-xs leading-relaxed text-terminal-dim">从这里创建真实任务；提交后进入现有 MasterAgent 和 Workbench 链路。</p>
+					<h3 class="text-sm font-semibold text-terminal-fg">开始一项工作</h3>
+					<p class="mt-1 text-xs leading-relaxed text-terminal-dim">描述你希望完成的结果，Veya 会自动规划、执行和验证。</p>
 					<form class="mt-4 space-y-3" onsubmit={(event) => { event.preventDefault(); void createTask(); }}>
-						<textarea bind:this={taskInput} bind:value={taskObjective} rows="3" maxlength="20000" placeholder="描述你希望 Veya Bot 完成的任务…" class="w-full resize-y rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2.5 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60"></textarea>
+						<textarea bind:this={taskInput} bind:value={taskObjective} rows="3" maxlength="20000" placeholder="描述你希望 Veya 完成的任务…" class="w-full resize-y rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2.5 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60"></textarea>
 						<div class="flex flex-wrap items-center justify-between gap-3">
-							<span class="font-mono text-[10px] text-terminal-dim/70">Task → GoalRun → governed execution → verification → artifact</span>
-							<button type="submit" disabled={creatingTask || !taskObjective.trim()} class="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">{creatingTask ? "创建并启动…" : "创建并启动任务"}<ArrowRight class="size-3.5" /></button>
+							<span class="text-[11px] text-terminal-dim/80">后台执行 · 可恢复 · 自动验证</span>
+							<button type="submit" disabled={creatingTask || !taskObjective.trim()} class="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50">{creatingTask ? "正在启动…" : "开始工作"}<ArrowRight class="size-3.5" /></button>
 						</div>
 					</form>
 				</div>
@@ -153,8 +153,8 @@
 				<div class="flex items-start gap-3">
 					<AlertCircle class="mt-0.5 size-5 shrink-0 text-amber-400" />
 					<div class="min-w-0 flex-1">
-						<h3 class="text-sm font-semibold text-terminal-fg">首次启动：完成 Bot 配置</h3>
-						<p class="mt-1 text-xs leading-relaxed text-terminal-dim">先配置现有模型设置，再把 Bot 的 non-secret 配置和引用登记到本地产品配置。API key 不会进入此接口。</p>
+						<h3 class="text-sm font-semibold text-terminal-fg">首次启动：完成 Work 配置</h3>
+						<p class="mt-1 text-xs leading-relaxed text-terminal-dim">选择模型并确认工作目录即可开始；API Key 仍只保存在现有本地设置中。</p>
 						<div class="mt-4 grid gap-3 md:grid-cols-2">
 							<label class="flex flex-col gap-1.5 text-xs text-terminal-dim">工作目录（可选）
 								<input bind:value={workspace} placeholder="留空沿用已有配置" class="rounded-lg border border-terminal-edge bg-terminal-bg px-3 py-2 text-sm text-terminal-fg outline-none placeholder:text-terminal-dim/60 focus:border-sky-500/60" />
@@ -170,6 +170,8 @@
 			</section>
 		{/if}
 
+		<details class="rounded-xl border border-white/[0.07] bg-white/[0.015] p-4">
+			<summary class="cursor-pointer text-xs font-medium text-terminal-dim hover:text-terminal-fg">高级运行信息</summary>
 		<div class="grid gap-4 lg:grid-cols-3">
 			<section class="rounded-xl border border-terminal-edge bg-terminal-panel p-4">
 				<h3 class="text-xs font-semibold uppercase tracking-wider text-terminal-dim">当前执行配置</h3>
@@ -191,12 +193,13 @@
 			<section class="rounded-xl border border-terminal-edge bg-terminal-panel p-4">
 				<h3 class="text-xs font-semibold uppercase tracking-wider text-terminal-dim">可恢复入口</h3>
 				<div class="mt-3 flex flex-col gap-2">
-					<button type="button" onclick={onOpenTasks} class="rounded-lg border border-terminal-edge px-3 py-2 text-left text-xs text-terminal-dim hover:border-sky-500/40 hover:text-terminal-fg">任务历史 / Resume</button>
+					<button type="button" onclick={onOpenTasks} class="rounded-lg border border-terminal-edge px-3 py-2 text-left text-xs text-terminal-dim hover:border-sky-500/40 hover:text-terminal-fg">任务历史与恢复</button>
 					<p class="font-mono text-[10px] leading-relaxed text-terminal-dim/60">会话、GoalRun、Workbench 和 artifacts 继续由各自 canonical backend state 恢复。</p>
 				</div>
 			</section>
 		</div>
+		</details>
 	{:else}
-		<div class="rounded-xl border border-terminal-edge bg-terminal-panel p-5 text-sm text-terminal-dim">Bot 状态暂不可用，请刷新后重试。</div>
+		<div class="rounded-xl border border-terminal-edge bg-terminal-panel p-5 text-sm text-terminal-dim">Work 暂不可用，请刷新后重试。</div>
 	{/if}
 </div>

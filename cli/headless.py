@@ -77,24 +77,22 @@ def _extract_output(result: dict) -> Any:
 
 
 async def run_squad_headless(*, role: str, command: dict[str, Any], cost_tracker) -> dict[str, Any]:
-    """单个分队的 headless 执行 —— 装配对应 persona 的 agentic_loop 跑一轮任务。
+    """Canonical headless execution for legacy structured callers.
 
-    被 orchestrator 调用(协调器 → orchestrator → 本函数 → agentic_loop)。
-    分队结果结构化回传,H4 PreResult hook 在引擎内已验证(如执行分队跑测试)。
+    ``role`` remains typed compatibility context; it is not a second
+    cognition engine or a programmatic semantic router.
     """
-    from server.assembly import assemble_main_agent
+    from server.coordinator_master import master_coordinator
 
-    engine = assemble_main_agent(
-        persona=role,
-        session_ctx={"squad": True},
-        cost_tracker=cost_tracker,
-    )
-    # 注:on_demand 引擎不调 run();直接调 run_turn
-    messages = [{"role": "user", "content": command.get("text", "")}]
-    context: dict[str, Any] = {}
+    text = command.get("text", "")
     if command.get("_upstream"):
-        context["_upstream"] = command["_upstream"]
-    turn_result = await engine.run_turn(messages, context=context)
+        text = f"{text}\n\nUpstream context:\n{command['_upstream']}"
+    turn_result = await master_coordinator.chat_stream(
+        text,
+        session_id=command.get("session_id"),
+        mode=command.get("mode") or "agent",
+        system_context=f"Requested compatibility role: {role}",
+    )
     return {
         "status": turn_result.get("status", "failed"),
         "output": turn_result.get("output") or turn_result.get("assistant_message"),

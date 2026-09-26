@@ -9,10 +9,13 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass, field
+import os
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
+
+from server.goal_run.bot_identity import DEFAULT_BOT_ID
 
 
 class GoalStatus(Enum):
@@ -97,6 +100,249 @@ class TaskNode:
 
 
 @dataclass
+class DelegateState:
+    """Persistent projection of one delegate inside its parent GoalRun.
+
+    P2-A §8: durable record only — no execution authority, no scheduler,
+    no new GoalRun. The parent GoalRunState remains the single source of truth.
+    """
+
+    delegate_id: str
+    parent_goal_run_id: str
+    status: str = "running"  # running | complete | partial | failed | blocked
+    request_ref: str | None = None
+    result_ref: str | None = None
+    evidence_refs: list[str] = field(default_factory=list)
+    attempt: int = 0
+    replan: bool = False
+    stopped_at: float | None = None
+    # P3-A: the bot that owns this delegate. Cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
+    # P3-B: explicit cross-bot provenance; refs only, never durable objects.
+    source_bot_id: str = DEFAULT_BOT_ID
+    target_bot_id: str = DEFAULT_BOT_ID
+    goal_run_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> DelegateState:
+        return cls(
+            delegate_id=str(value.get("delegate_id") or ""),
+            parent_goal_run_id=str(value.get("parent_goal_run_id") or ""),
+            status=str(value.get("status") or "running"),
+            request_ref=value.get("request_ref"),
+            result_ref=value.get("result_ref"),
+            evidence_refs=list(value.get("evidence_refs") or []),
+            attempt=int(value.get("attempt") or 0),
+            replan=bool(value.get("replan", False)),
+            stopped_at=value.get("stopped_at"),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
+            source_bot_id=str(value.get("source_bot_id") or value.get("bot_id") or DEFAULT_BOT_ID),
+            target_bot_id=str(value.get("target_bot_id") or value.get("bot_id") or DEFAULT_BOT_ID),
+            goal_run_id=value.get("goal_run_id"),
+        )
+
+
+@dataclass
+class FanInState:
+    """Persistent projection of one fan-in inside its parent GoalRun.
+
+    P2-A §8: tracks expected vs reconciled delegates; the reconciled verdict
+    is a worker outcome, never an acceptance verdict.
+    """
+
+    fanin_id: str
+    expected_delegate_ids: list[str] = field(default_factory=list)
+    completed_delegate_ids: list[str] = field(default_factory=list)
+    partial_delegate_ids: list[str] = field(default_factory=list)
+    failed_delegate_ids: list[str] = field(default_factory=list)
+    blocked_delegate_ids: list[str] = field(default_factory=list)
+    reconciled_result_ref: str | None = None
+    completed_at: float | None = None
+    # P3-A: the bot that owns this fan-in. Cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
+    # P3-C: conflict observations and owner resolution are durable fan-in
+    # projection only; they never create a vote or acceptance authority.
+    conflict_refs: list[str] = field(default_factory=list)
+    resolved_by_bot_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> FanInState:
+        return cls(
+            fanin_id=str(value.get("fanin_id") or ""),
+            expected_delegate_ids=list(value.get("expected_delegate_ids") or []),
+            completed_delegate_ids=list(value.get("completed_delegate_ids") or []),
+            partial_delegate_ids=list(value.get("partial_delegate_ids") or []),
+            failed_delegate_ids=list(value.get("failed_delegate_ids") or []),
+            blocked_delegate_ids=list(value.get("blocked_delegate_ids") or []),
+            reconciled_result_ref=value.get("reconciled_result_ref"),
+            completed_at=value.get("completed_at"),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
+            conflict_refs=list(value.get("conflict_refs") or []),
+            resolved_by_bot_id=value.get("resolved_by_bot_id"),
+        )
+
+
+@dataclass
+class PlaybookState:
+    """Persistent projection of a playbook run inside the SAME GoalRun.
+
+    P2-A §4/§8: a playbook is a reusable ordered capability template. It never
+    spawns a nested GoalRun and never owns acceptance.
+    """
+
+    playbook_id: str
+    active_step: str | None = None
+    completed_steps: list[str] = field(default_factory=list)
+    step_result_refs: dict[str, str] = field(default_factory=dict)
+    evidence_refs: list[str] = field(default_factory=list)
+    version: int = 1  # P2-B: pinned registry version, restored on resume.
+    # P3-A: the bot that owns this playbook run. Cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> PlaybookState:
+        return cls(
+            playbook_id=str(value.get("playbook_id") or ""),
+            active_step=value.get("active_step"),
+            completed_steps=list(value.get("completed_steps") or []),
+            step_result_refs=dict(value.get("step_result_refs") or {}),
+            evidence_refs=list(value.get("evidence_refs") or []),
+            version=int(value.get("version") or 1),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
+        )
+
+
+@dataclass
+class RoutineState:
+    """Persistent projection of a routine trigger inside its GoalRun.
+
+    P2-A §5/§8: a routine only triggers; the persistent bot hands off to the
+    canonical GoalRun path. It must not create a new GoalRun when one already
+    exists for the same objective.
+    """
+
+    routine_id: str
+    trigger_metadata: dict[str, Any] = field(default_factory=dict)
+    started_count: int = 0
+    last_trigger_ref: str | None = None
+    canonical_goal_run_id: str | None = None
+    # P2-C: pinned catalog version plus consumed trigger identities. A consumed
+    # identity never starts again — restart-safe without a second scheduler.
+    version: int = 1
+    consumed_trigger_ids: list[str] = field(default_factory=list)
+    # P3-A: the bot that owns this routine trigger. Cross-bot dispatch is refused.
+    bot_id: str = DEFAULT_BOT_ID
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> RoutineState:
+        return cls(
+            routine_id=str(value.get("routine_id") or ""),
+            trigger_metadata=dict(value.get("trigger_metadata") or {}),
+            started_count=int(value.get("started_count") or 0),
+            last_trigger_ref=value.get("last_trigger_ref"),
+            canonical_goal_run_id=value.get("canonical_goal_run_id"),
+            version=int(value.get("version") or 1),
+            consumed_trigger_ids=list(value.get("consumed_trigger_ids") or []),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
+        )
+
+
+class RoutineStatus(StrEnum):
+    triggered = "triggered"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    blocked = "blocked"
+    skipped = "skipped"
+
+
+@dataclass
+class RoutineSpec:
+    """A routine trigger. No execution authority; hands off to GoalRun.
+
+    P2-C: exactly one target (skill, playbook, or goal template). Disabled
+    routines never dispatch.
+    """
+
+    routine_id: str
+    trigger_topic: str
+    objective: str
+    goal_run_id: str | None = None
+    timeout_s: int = 3600
+    max_steps: int = 10
+    version: int = 1
+    enabled: bool = True
+    target_skill_id: str | None = None
+    target_playbook_id: str | None = None
+    goal_template: str = ""
+    evidence_requirements: list[str] = field(default_factory=list)
+    # P3-A: the bot that owns this routine. Only that bot's GoalRun may dispatch it.
+    bot_id: str = DEFAULT_BOT_ID
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> RoutineSpec:
+        return cls(
+            routine_id=str(value.get("routine_id") or ""),
+            trigger_topic=str(value.get("trigger_topic") or ""),
+            objective=str(value.get("objective") or ""),
+            goal_run_id=value.get("goal_run_id"),
+            timeout_s=int(value.get("timeout_s") or 3600),
+            max_steps=int(value.get("max_steps") or 10),
+            version=int(value.get("version") or 1),
+            enabled=bool(value.get("enabled", True)),
+            target_skill_id=value.get("target_skill_id"),
+            target_playbook_id=value.get("target_playbook_id"),
+            goal_template=str(value.get("goal_template") or ""),
+            evidence_requirements=list(value.get("evidence_requirements") or []),
+            bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
+        )
+
+
+ROUTINE_TRIGGER_TOPICS = frozenset(
+    {
+        "schedule.trigger",
+        "event.arrive",
+        "user.request",
+        "system.idle",
+    }
+)
+
+ROUTINE_MAX_STARTED: int = int(os.environ.get("VEYA_ROUTINE_MAX_STARTED", "1"))
+"""P2-A §5: max routines started; default 1 keeps one canonical GoalRun."""
+
+P2_DURABLE_SCHEDULER_COUNT = 0
+"""P2-A §8: no second durable scheduler is introduced."""
+
+GOALRUN_DURABLE_AUTHORITY = 1
+"""P2-A §8: the single canonical GoalRun is the durable source of truth."""
+
+PERSISTENCE_PROJECTION_FIELDS = frozenset(
+    {
+        "delegate_states",
+        "fanin_states",
+        "playbook_states",
+        "routine_states",
+    }
+)
+"""P2-A §8: the only durable P2 projections — no second scheduler."""
+
+
+@dataclass
 class GoalRunState:
     """goal_run 的完整运行时状态（落盘以 taskgraph.json + events.jsonl）。
 
@@ -107,6 +353,9 @@ class GoalRunState:
     goal_id: str
     goal_text: str  # 原始用户目标文本
     constitution: str = ""
+    # P3-A: the persistent bot that owns this GoalRun. Every durable object
+    # derived from this run inherits it; cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
     status: GoalStatus = GoalStatus.planning
     default_assignee: str = "hicode"
     budget: dict[str, int] = field(
@@ -138,6 +387,31 @@ class GoalRunState:
     unfinished_work: list[str] = field(default_factory=list)
     last_stop_reason: str | None = field(default=None)
     runtime_checkpoint: dict[str, Any] | None = field(default=None)
+    # P2-A §4: playbook — reusable ordered template in the SAME GoalRun.
+    playbook_id: str | None = field(default=None)
+    playbook_steps: dict[str, dict[str, Any]] = field(default_factory=dict)
+    current_playbook_step: str | None = field(default=None)
+    playbook_entry_at: float | None = field(default=None)
+    # P2-B: active skill/playbook pins (id+version+step) for restart resume.
+    active_skill_id: str | None = field(default=None)
+    active_skill_version: int | None = field(default=None)
+    active_playbook_version: int | None = field(default=None)
+    # P2-A §5: routines trigger only; they never own execution.
+    routines: dict[str, RoutineSpec] = field(default_factory=dict)
+    # P2-A §8: durable projections tied to this parent GoalRun.
+    delegate_states: dict[str, DelegateState] = field(default_factory=dict)
+    fanin_states: dict[str, FanInState] = field(default_factory=dict)
+    playbook_states: dict[str, PlaybookState] = field(default_factory=dict)
+    routine_states: dict[str, RoutineState] = field(default_factory=dict)
+    # D8: frozen run-identity snapshot (refs only; never a second run store).
+    # Set once at creation via stamp; resume paths must preserve verbatim.
+    agent_definition_id: str | None = field(default=None)
+    agent_definition_version: int | None = field(default=None)
+    agent_deployment_id: str | None = field(default=None)
+    agent_deployment_revision: int | None = field(default=None)
+    agent_runtime_id: str | None = field(default=None)
+    agent_session_id: str | None = field(default=None)
+    agent_instance_id: str | None = field(default=None)
 
     def to_taskgraph_json(self) -> dict[str, Any]:
         """转为 taskgraph.json 格式（用于落盘/序列化）。"""
@@ -172,6 +446,7 @@ class GoalRunState:
         return {
             "version": 2,
             "goal_id": self.goal_id,
+            "bot_id": self.bot_id,
             "status": self.status.value,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
@@ -184,6 +459,33 @@ class GoalRunState:
             "unfinished_work": self.unfinished_work,
             "last_stop_reason": self.last_stop_reason,
             "runtime_checkpoint": self.runtime_checkpoint,
+            "playbook_id": self.playbook_id,
+            "playbook_steps": self.playbook_steps,
+            "current_playbook_step": self.current_playbook_step,
+            "playbook_entry_at": self.playbook_entry_at,
+            "active_skill_id": self.active_skill_id,
+            "active_skill_version": self.active_skill_version,
+            "active_playbook_version": self.active_playbook_version,
+            "agent_definition_id": self.agent_definition_id,
+            "agent_definition_version": self.agent_definition_version,
+            "agent_deployment_id": self.agent_deployment_id,
+            "agent_deployment_revision": self.agent_deployment_revision,
+            "agent_runtime_id": self.agent_runtime_id,
+            "agent_session_id": self.agent_session_id,
+            "agent_instance_id": self.agent_instance_id,
+            "routines": {routine_id: spec.to_dict() for routine_id, spec in self.routines.items()},
+            "delegate_states": {
+                delegate_id: item.to_dict() for delegate_id, item in self.delegate_states.items()
+            },
+            "fanin_states": {
+                fanin_id: item.to_dict() for fanin_id, item in self.fanin_states.items()
+            },
+            "playbook_states": {
+                playbook_id: item.to_dict() for playbook_id, item in self.playbook_states.items()
+            },
+            "routine_states": {
+                routine_id: item.to_dict() for routine_id, item in self.routine_states.items()
+            },
             "tasks": tasks_list,
         }
 
@@ -191,6 +493,7 @@ class GoalRunState:
     def from_taskgraph_json(cls, data: dict[str, Any], goal_text: str) -> GoalRunState:
         """从 taskgraph.json 反序列化（用于 resume）。"""
         state = cls(goal_id=data.get("goal_id", ""), goal_text=goal_text)
+        state.bot_id = str(data.get("bot_id") or DEFAULT_BOT_ID)
         state.status = GoalStatus(data.get("status", "planning"))
         state.default_assignee = data.get("default_assignee", "hicode")
         state.budget = data.get("budget", state.budget)
@@ -206,6 +509,47 @@ class GoalRunState:
         state.unfinished_work = list(data.get("unfinished_work") or [])
         state.last_stop_reason = data.get("last_stop_reason")
         state.runtime_checkpoint = data.get("runtime_checkpoint")
+        # P2-A §4/§5/§8: additive projections; old files without them load fine.
+        state.playbook_id = data.get("playbook_id")
+        state.playbook_steps = dict(data.get("playbook_steps") or {})
+        state.current_playbook_step = data.get("current_playbook_step")
+        state.playbook_entry_at = data.get("playbook_entry_at")
+        state.active_skill_id = data.get("active_skill_id")
+        state.active_skill_version = data.get("active_skill_version")
+        state.active_playbook_version = data.get("active_playbook_version")
+        # D8: run-identity snapshot; old files without them load fine (None).
+        state.agent_definition_id = data.get("agent_definition_id")
+        state.agent_definition_version = data.get("agent_definition_version")
+        state.agent_deployment_id = data.get("agent_deployment_id")
+        state.agent_deployment_revision = data.get("agent_deployment_revision")
+        state.agent_runtime_id = data.get("agent_runtime_id")
+        state.agent_session_id = data.get("agent_session_id")
+        state.agent_instance_id = data.get("agent_instance_id")
+        state.routines = {
+            routine_id: RoutineSpec.from_dict(spec)
+            for routine_id, spec in dict(data.get("routines") or {}).items()
+            if isinstance(spec, dict)
+        }
+        state.delegate_states = {
+            delegate_id: DelegateState.from_dict(item)
+            for delegate_id, item in dict(data.get("delegate_states") or {}).items()
+            if isinstance(item, dict)
+        }
+        state.fanin_states = {
+            fanin_id: FanInState.from_dict(item)
+            for fanin_id, item in dict(data.get("fanin_states") or {}).items()
+            if isinstance(item, dict)
+        }
+        state.playbook_states = {
+            playbook_id: PlaybookState.from_dict(item)
+            for playbook_id, item in dict(data.get("playbook_states") or {}).items()
+            if isinstance(item, dict)
+        }
+        state.routine_states = {
+            routine_id: RoutineState.from_dict(item)
+            for routine_id, item in dict(data.get("routine_states") or {}).items()
+            if isinstance(item, dict)
+        }
 
         for td in data.get("tasks", []):
             tn = TaskNode(

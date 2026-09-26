@@ -79,6 +79,29 @@ def _safe_id(value: str) -> str:
     return (cleaned or "mcp")[:96]
 
 
+def _canonically_registered(server: str) -> bool:
+    """Whether canonical authorities know this MCP server (any live handle or not).
+
+    Consults the obase client registry (handles + specs) without touching
+    the route-local cache. Never raises: unreadable authorities count as
+    unknown, and the caller keeps its fail-closed default.
+    """
+    try:
+        obase = load("obase")
+    except Exception:
+        return False
+    try:
+        if obase.McpClientRegistry.has(server):
+            return True
+    except Exception:
+        pass
+    try:
+        obase.McpClientRegistry.spec(server)
+        return True
+    except (KeyError, AttributeError):
+        return False
+
+
 def _task_context(name: str) -> Any:
     from server.tool_governance_adapter import TaskGovernanceContext
 
@@ -295,6 +318,15 @@ async def mcp_connect_route(req: MCPConnectRequest) -> dict[str, Any]:
 async def mcp_call_route(req: MCPCallRequest) -> dict[str, Any]:
     entry = _registered.get(req.server)
     if entry is None:
+        # The route map is a live-handle cache, not the registration truth:
+        # a canonically known server without a live handle is a reconnect
+        # case (409), only a canonically unknown server is 404.
+        if _canonically_registered(req.server):
+            raise HTTPException(
+                status_code=409,
+                detail=f"MCP server '{req.server}' is registered but not connected. "
+                "Call /mcp/connect first.",
+            )
         raise HTTPException(
             status_code=404,
             detail=f"MCP server '{req.server}' not registered. Call /mcp/connect first.",

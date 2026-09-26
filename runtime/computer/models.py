@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
+from runtime.bot_scope import DEFAULT_BOT_ID
+
 ComputerLifecycleState = Literal[
     "created",
     "running",
@@ -22,6 +24,7 @@ ComputerLifecycleState = Literal[
 
 class CredentialType(Enum):
     """Types of credentials stored in the computer."""
+
     API_KEY = "api_key"
     OAUTH_TOKEN = "oauth_token"
     SSH_KEY = "ssh_key"
@@ -33,6 +36,7 @@ class CredentialType(Enum):
 @dataclass(frozen=True)
 class CredentialRef:
     """Reference to a credential (never stores plaintext)."""
+
     ref_id: str
     type: CredentialType
     name: str
@@ -62,6 +66,7 @@ class CredentialRef:
 @dataclass(frozen=True)
 class CheckpointRef:
     """Reference to a checkpoint."""
+
     checkpoint_id: str
     computer_id: str
     goal_run_id: str | None
@@ -70,13 +75,25 @@ class CheckpointRef:
     size_bytes: int
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     metadata: dict[str, Any] = field(default_factory=dict)
+    # P3-A: the bot that owns this checkpoint. Cross-bot access is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CheckpointRef:
-        return cls(**data)
+        return cls(
+            checkpoint_id=data["checkpoint_id"],
+            computer_id=data["computer_id"],
+            goal_run_id=data.get("goal_run_id"),
+            path=data["path"],
+            sha256=data["sha256"],
+            size_bytes=data["size_bytes"],
+            created_at=data.get("created_at", datetime.now(UTC).isoformat()),
+            metadata=data.get("metadata", {}),
+            bot_id=str(data.get("bot_id") or DEFAULT_BOT_ID),
+        )
 
 
 @dataclass(frozen=True)
@@ -97,6 +114,7 @@ class PersistentComputer:
     - last_active_at: Last activity timestamp
     - version: Schema version
     """
+
     computer_id: str
     owner_id: str
     workspace_ref: str
@@ -109,6 +127,8 @@ class PersistentComputer:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_active_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     version: str = "1.0"
+    # P3-A: the bot that owns this computer. Cross-bot resume is refused.
+    bot_id: str = DEFAULT_BOT_ID
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -124,6 +144,7 @@ class PersistentComputer:
             "created_at": self.created_at,
             "last_active_at": self.last_active_at,
             "version": self.version,
+            "bot_id": self.bot_id,
         }
 
     @classmethod
@@ -136,21 +157,27 @@ class PersistentComputer:
             downloads_ref=data.get("downloads_ref"),
             credential_refs=[CredentialRef.from_dict(c) for c in data.get("credential_refs", [])],
             goal_run_refs=data.get("goal_run_refs", []),
-            checkpoint_ref=CheckpointRef.from_dict(data["checkpoint_ref"]) if data.get("checkpoint_ref") else None,
+            checkpoint_ref=CheckpointRef.from_dict(data["checkpoint_ref"])
+            if data.get("checkpoint_ref")
+            else None,
             lifecycle_state=data.get("lifecycle_state", "created"),
             created_at=data.get("created_at", datetime.now(UTC).isoformat()),
             last_active_at=data.get("last_active_at", datetime.now(UTC).isoformat()),
             version=data.get("version", "1.0"),
+            bot_id=str(data.get("bot_id") or DEFAULT_BOT_ID),
         )
 
     def compute_hash(self) -> str:
         """Compute deterministic hash of the computer state (excluding timestamps)."""
         data = {
-            k: v for k, v in self.to_dict().items()
+            k: v
+            for k, v in self.to_dict().items()
             if k not in ("created_at", "last_active_at", "checkpoint_ref")
         }
         if data.get("checkpoint_ref"):
-            data["checkpoint_ref"] = {k: v for k, v in data["checkpoint_ref"].items() if k != "created_at"}
+            data["checkpoint_ref"] = {
+                k: v for k, v in data["checkpoint_ref"].items() if k != "created_at"
+            }
         return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
 
     def add_goal_run(self, goal_run_id: str) -> PersistentComputer:
@@ -170,6 +197,7 @@ class PersistentComputer:
                 created_at=self.created_at,
                 last_active_at=datetime.now(UTC).isoformat(),
                 version=self.version,
+                bot_id=self.bot_id,
             )
         return self
 
@@ -189,6 +217,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def with_checkpoint(self, checkpoint: CheckpointRef) -> PersistentComputer:
@@ -206,6 +235,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def with_state(self, state: ComputerLifecycleState) -> PersistentComputer:
@@ -223,6 +253,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def with_browser_profile(self, browser_profile_ref: str) -> PersistentComputer:
@@ -240,6 +271,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def with_downloads(self, downloads_ref: str) -> PersistentComputer:
@@ -257,6 +289,7 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
     def add_credential(self, credential: CredentialRef) -> PersistentComputer:
@@ -276,6 +309,7 @@ class PersistentComputer:
                 created_at=self.created_at,
                 last_active_at=datetime.now(UTC).isoformat(),
                 version=self.version,
+                bot_id=self.bot_id,
             )
         return self
 
@@ -295,12 +329,14 @@ class PersistentComputer:
             created_at=self.created_at,
             last_active_at=datetime.now(UTC).isoformat(),
             version=self.version,
+            bot_id=self.bot_id,
         )
 
 
 @dataclass(frozen=True)
 class ComputerSession:
     """Active session metadata for a running computer."""
+
     session_id: str
     computer_id: str
     owner_id: str

@@ -142,4 +142,13 @@ async def test_plan_review_approval_is_versioned_and_idempotent(tmp_path, monkey
         approved=True,
     )
     assert duplicate["already_resolved"] is True
-    assert sum(1 for line in (tmp_path / ".veya-project/goal-runs/g1/events.jsonl").read_text().splitlines() if "plan_review_resolved" in line) == 1
+    assert (
+        sum(
+            1
+            for line in (tmp_path / ".veya-project/goal-runs/g1/events.jsonl")
+            .read_text()
+            .splitlines()
+            if "plan_review_resolved" in line
+        )
+        == 1
+    )

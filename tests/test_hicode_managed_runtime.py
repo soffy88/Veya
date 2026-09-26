@@ -107,3 +107,21 @@ def test_environment_does_not_change_parent_process_home(tmp_path: Path, monkeyp
     HicodeExecutorAdapter().execution_environment()
 
     assert os.environ.get("HOME") == original_home
+
+
+def test_execution_environment_replaces_owner_pythonpath(tmp_path: Path, monkeypatch):
+    managed_root = tmp_path / "managed"
+    managed_python = managed_root / "python/bin/python"
+    managed_python.parent.mkdir(parents=True)
+    managed_python.write_text("#!/bin/sh\n", encoding="utf-8")
+    managed_python.chmod(0o755)
+    monkeypatch.setenv("HICODE_MANAGED_RUNTIME_ROOT", str(managed_root))
+    monkeypatch.setenv("PYTHONPATH", "/owner/dirty/platform/3O")
+
+    env = HicodeExecutorAdapter().execution_environment()
+
+    assert env["HICODE_MANAGED_PYTHON"] == str(managed_python)
+    assert env["HICODE_MANAGED_PYTHON_AUTHORITY"] == "YES"
+    assert env["HICODE_OWNER_PYTHONPATH_INHERITED"] == "NO"
+    assert "owner/dirty" not in env.get("PYTHONPATH", "")
+    assert env["PATH"].split(os.pathsep)[0] == str(managed_python.parent)

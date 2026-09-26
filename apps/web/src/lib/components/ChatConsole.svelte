@@ -30,6 +30,7 @@
 	import MarkdownBlock from "./MarkdownBlock.svelte";
 import ModelPicker from "./ModelPicker.svelte";
 import CollapsibleText from "./CollapsibleText.svelte";
+import WorkProcess from "./WorkProcess.svelte";
 	import { onMount, onDestroy } from "svelte";
 	import { artifactStore } from "$lib/artifacts.svelte";
 	import { notifyStore } from "$lib/notifications.svelte";
@@ -59,6 +60,8 @@ import CollapsibleText from "./CollapsibleText.svelte";
 	let permissionProfile = $state("");
 	let profileOptions = $state<{ name: string; description: string }[]>([]);
 	let profileError = $state("");
+	let approvalError = $state("");
+	let activeTurnId = $state<string | null>(null);
 	let pendingApproval = $state<{
 		request_id: string;
 		tool_name: string;
@@ -229,7 +232,6 @@ import CollapsibleText from "./CollapsibleText.svelte";
 	let listEl = $state<HTMLDivElement>();
 	let textareaEl = $state<HTMLTextAreaElement>();
 	let aborter: AbortController | null = null;
-	let expandedSteps = $state<Set<number>>(new Set());
 
 	const sid = $derived(sessionStore.activeSid);
 	const messages = $derived(
@@ -277,140 +279,9 @@ import CollapsibleText from "./CollapsibleText.svelte";
 		sessionStore.newSession();
 		input = "";
 		pendingApproval = null;
+		approvalError = "";
 		pendingQuestion = null;
 		questionAnswer = "";
-	}
-
-	function toggleStep(i: number) {
-		const next = new Set(expandedSteps);
-		if (next.has(i)) next.delete(i);
-		else next.add(i);
-		expandedSteps = next;
-	}
-
-	// ── 工具轨迹图标/文案 ───────────────────────────────────────────
-	// master_start / master_round (任务开始/思考…) 是过程噪音, 不展示 —
-	// 只保留真正有用的执行轨迹: 工具调用/失败/hicode 进度。
-	function stepMeta(ev: ToolStep) {
-			switch (ev.type) {
-			case "tool_call": {
-				const tool = String(ev.tool_name ?? "tool");
-				if (tool === "memory_search") return { Icon: Brain, cls: "text-violet-300 bg-violet-400/10 border-violet-400/30", label: "Used memory" };
-				if (tool === "skill_run") return { Icon: Sparkles, cls: "text-amber-300 bg-amber-400/10 border-amber-400/30", label: "Skill run" };
-				return { Icon: Wrench, cls: "text-amber-400 bg-amber-400/10 border-amber-400/30", label: `$ ${tool}` };
-			}
-			case "tool_error":
-				return { Icon: CircleAlert, cls: "text-rose-400 bg-rose-400/10 border-rose-400/30", label: `✗ ${String(ev.tool_name ?? "tool")}` };
-			case "hicode_progress": {
-				const stage = String(ev.stage ?? "");
-				if (stage === "planning")
-					return { Icon: Brain, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode 规划中" };
-				if (stage === "executing")
-					return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: `hicode: ${String(ev.tool ?? "执行中")}` };
-				if (stage === "done")
-					return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode 完成" };
-				return { Icon: Code2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "hicode" };
-			}
-			case "permission_request":
-				return {
-					Icon: CircleAlert,
-					cls: "text-amber-300 bg-amber-400/10 border-amber-400/30",
-					label: `批准? ${String(ev.tool_name ?? "tool")}`,
-				};
-			case "agent_question":
-				return {
-					Icon: HelpCircle,
-					cls: "text-sky-300 bg-sky-400/10 border-sky-400/30",
-					label: "❓ 主脑提问",
-				};
-			case "project_understand_ask": {
-				const qs = Array.isArray(ev.questions) ? (ev.questions as unknown[]).length : 0;
-				return {
-					Icon: CircleAlert,
-					cls: "text-sky-300 bg-sky-400/10 border-sky-400/30",
-					label: `❓ 需要澄清 (${qs} 个问题)`,
-				};
-			}
-			case "plan_update": {
-				const action = String(ev.action ?? "");
-				const obj = String(ev.objective ?? "").slice(0, 26);
-				return {
-					Icon: ListTodo,
-					cls: "text-sky-400 bg-sky-400/10 border-sky-400/30",
-					label: action === "create" ? `📋 计划: ${obj || "创建"}` : `计划更新: ${obj || action}`,
-				};
-			}
-			case "finalization.started":
-				return { Icon: Loader2, cls: "text-sky-300 bg-sky-400/10 border-sky-400/30", label: "正在收尾" };
-			case "finalization.completed":
-				return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: "收尾完成" };
-			case "memory.committed":
-				return { Icon: Brain, cls: "text-violet-300 bg-violet-400/10 border-violet-400/30", label: "记忆已保存" };
-			case "memory.corrected":
-				return { Icon: RotateCcw, cls: "text-sky-300 bg-sky-400/10 border-sky-400/30", label: "记忆已纠正" };
-			case "skill.created":
-				return { Icon: Sparkles, cls: "text-amber-300 bg-amber-400/10 border-amber-400/30", label: "Skill 已确认" };
-			case "continuity.resumed":
-				return { Icon: History, cls: "text-sky-300 bg-sky-400/10 border-sky-400/30", label: "已恢复任务" };
-			case "fanin.completed":
-				return { Icon: ListTodo, cls: "text-violet-300 bg-violet-400/10 border-violet-400/30", label: "结果汇流" };
-			case "delegate.started":
-				return { Icon: Loader2, cls: "text-amber-300 bg-amber-400/10 border-amber-400/30", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "开始")}` };
-			case "delegate.completed":
-				return { Icon: CheckCircle2, cls: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "完成")}` };
-			case "delegate.partial":
-				return { Icon: CircleAlert, cls: "text-yellow-300 bg-yellow-400/10 border-yellow-400/30", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "部分完成")}` };
-			case "delegate.failed":
-				return { Icon: CircleAlert, cls: "text-rose-400 bg-rose-400/10 border-rose-400/30", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "失败")}` };
-			case "delegate.cancelled":
-				return { Icon: Square, cls: "text-white/50 bg-white/5 border-white/15", label: `worker ${String(ev.task_id ?? ev.delegate_id ?? "已取消")}` };
-			case "artifact.created":
-			case "artifact.verified":
-			case "artifact.partial":
-				return { Icon: Code2, cls: "text-cyan-300 bg-cyan-400/10 border-cyan-400/30", label: `产物 ${String(ev.path ?? ev.artifact ?? "已更新")}` };
-			default:
-				// master_start / master_round (任务开始/思考…) 一律不展示
-				return null;
-		}
-	}
-
-	function stepDetail(ev: ToolStep): string {
-		if (ev.type === "agent_question") {
-			return String(ev.question ?? "").slice(0, 300);
-		}
-		if (ev.type === "project_understand_ask") {
-			const interp = typeof ev.interpretation === "string" ? ev.interpretation : "";
-			const qs = Array.isArray(ev.questions) ? (ev.questions as string[]) : [];
-			const lines = [
-				...(interp ? [`理解: ${interp}`] : []),
-				...qs.map((q, i) => `${i + 1}. ${q}`),
-			];
-			return lines.join("\n").slice(0, 400);
-		}
-		if (ev.type === "hicode_progress" && typeof ev.detail === "string") return ev.detail.slice(0, 200);
-		if (ev.type === "plan_update" && Array.isArray(ev.todos)) {
-			const mark: Record<string, string> = { done: "✅", in_progress: "▶️", blocked: "⛔", open: "⬜" };
-			const lines = (ev.todos as { id?: string; title?: string; status?: string }[]).map(
-				(t) => `${mark[t.status ?? "open"] ?? "⬜"} ${t.id ?? "?"}: ${String(t.title ?? "").slice(0, 60)}`
-			);
-			return lines.join("\n").slice(0, 400);
-		}
-		if (ev.type === "tool_call" && ev.tool_args != null) {
-			try {
-				return JSON.stringify(ev.tool_args).slice(0, 200);
-			} catch {
-				return "";
-			}
-		}
-		if (ev.type === "finalization.started") {
-			return `剩余 ${String(ev.remaining_wall_s ?? "-")}s，保留 ${String(ev.reserve_s ?? "-")}s 收口预算`;
-		}
-		if (ev.type === "fanin.completed") {
-			return `${String(ev.complete_count ?? 0)} complete · ${String(ev.partial_count ?? 0)} partial · ${String(ev.failed_count ?? 0)} failed`;
-		}
-		if (ev.type.startsWith("delegate.")) return String(ev.stop_reason ?? ev.error ?? "").slice(0, 200);
-		if (typeof ev.error === "string") return ev.error.slice(0, 200);
-		return "";
 	}
 
 	// ── 发送/流式 ────────────────────────────────────────────────────
@@ -448,7 +319,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					status: text.trim() ? "done" : "error",
 					text,
 					cost,
-					error: text.trim() ? undefined : "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。",
+					error: text.trim() ? undefined : "Veya 未返回任何内容 (模型/网关异常)。请重试或更换模型。",
 				});
 			} else if (
 				kind === "tool_call" ||
@@ -536,6 +407,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					if (last) last.steps = [...last.steps, ev as ToolStep];
 				}
 			} else if (kind === "permission_request") {
+				approvalError = "";
 				pendingApproval = {
 					request_id: String(ev.request_id ?? ""),
 					tool_name: String(ev.tool_name ?? "tool"),
@@ -573,6 +445,14 @@ import CollapsibleText from "./CollapsibleText.svelte";
 		};
 	}
 
+	function insertChatContext(event: Event) {
+		const detail = (event as CustomEvent<string>).detail;
+		if (!detail) return;
+		const prefix = input && !input.endsWith(" ") ? " " : "";
+		input = input + prefix + detail;
+		requestAnimationFrame(() => textareaEl?.focus());
+	}
+
 	// 跨端镜像: 别的设备执行时, 本端常驻通知通道收到逐帧镜像 → 应用到会话。
 	function applyMirrorEvent(mirrorSid: string, ev: Record<string, unknown>) {
 		// 本端正在亲自流式这个会话 → 自己的回显, 跳过 (本端 pumpSse 已应用)。
@@ -606,11 +486,13 @@ import CollapsibleText from "./CollapsibleText.svelte";
 
 	onMount(() => {
 		notifyStore.streamHandler = applyMirrorEvent;
+		window.addEventListener("veya:insert-chat-text", insertChatContext);
 		// P1-05: 加载权限档位列表与当前档位
 		void loadProfiles();
 	});
 	onDestroy(() => {
 		if (notifyStore.streamHandler === applyMirrorEvent) notifyStore.streamHandler = undefined;
+		if (typeof window !== "undefined") window.removeEventListener("veya:insert-chat-text", insertChatContext);
 	});
 
 	async function pumpSse(res: Response, onFrame: (data: string) => void) {
@@ -683,6 +565,8 @@ import CollapsibleText from "./CollapsibleText.svelte";
 		sessionStore.append(sid, { role: "assistant", text: "", status: "streaming", steps: [] });
 		busy = true;
 		locallyStreamingSid = sid; // 本端亲自流式 → 忽略同 sid 的镜像回显
+		const currentTurnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+		activeTurnId = currentTurnId;
 
 		aborter = new AbortController();
 		const signal = aborter.signal;
@@ -695,6 +579,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					text: text + attachPrefix,
 					images: pendingImages,
 					session_id: sid,
+					turn_id: currentTurnId,
 					provider: apiKeyStore.provider,
 					model: apiKeyStore.model.trim() || undefined,
 					engine: apiKeyStore.engine,
@@ -713,7 +598,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				sid,
 				lastText.trim()
 					? { status: "done" }
-					: { status: "error", error: "主脑未返回任何内容 (模型/网关异常)。请重试或更换模型。" },
+					: { status: "error", error: "Veya 未返回任何内容 (模型/网关异常)。请重试或更换模型。" },
 			);
 		} catch (e) {
 			const aborted = aborter?.signal.aborted;
@@ -747,18 +632,28 @@ import CollapsibleText from "./CollapsibleText.svelte";
 			busy = false;
 			aborter = null;
 			locallyStreamingSid = "";
+			activeTurnId = null;
 		}
 	}
 
 	async function resolveApproval(approved: boolean) {
 		const req = pendingApproval;
 		if (!req) return;
-		pendingApproval = null;
-		await fetch(`${API_BASE}/api/v1/agent/approval`, {
-			method: "POST",
-			headers: { "content-type": "application/json", ...authHeader() },
-			body: JSON.stringify({ request_id: req.request_id, approved }),
-		}).catch(() => {});
+		approvalError = "";
+		try {
+			const res = await fetch(`${API_BASE}/api/v1/agent/approval`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...authHeader() },
+				body: JSON.stringify({ request_id: req.request_id, approved }),
+			});
+			if (!res.ok) {
+				approvalError = `审批提交失败 (HTTP ${res.status})，请重试。`;
+				return;
+			}
+			pendingApproval = null;
+		} catch {
+			approvalError = "审批提交失败，请检查网络后重试。";
+		}
 	}
 
 	async function resolveQuestion(answer: string) {
@@ -822,7 +717,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 			fetch(`${API_BASE}/api/v1/agent/stop`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ session_id: sid }),
+				body: JSON.stringify({ session_id: sid, turn_id: activeTurnId ?? undefined }),
 			}).catch(() => {});
 		}
 		pendingQuestion = null; // 中断后提问作废 (后端超时会自动按默认假设继续)
@@ -937,10 +832,10 @@ import CollapsibleText from "./CollapsibleText.svelte";
 {#snippet composer()}
 	<div class="mx-auto w-full max-w-2xl">
 		{#if dictationError}
-			<div class="mb-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] text-amber-400">{dictationError}</div>
+			<div class="mb-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-400">{dictationError}</div>
 		{/if}
 		{#if uploadError}
-			<div class="mb-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] text-amber-400">{uploadError}</div>
+			<div class="mb-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-400">{uploadError}</div>
 		{/if}
 		{#if images.length > 0 || attachments.length > 0}
 			<div class="mb-1.5 flex flex-wrap gap-1.5">
@@ -951,7 +846,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					</div>
 				{/each}
 				{#each attachments as a, i (a.name + i)}
-					<span class="flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 font-mono text-[10px] text-sky-300">
+					<span class="flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs text-sky-300">
 						📎 {a.name}
 						<button type="button" onclick={() => removeAttachment(i)} class="text-white/50 hover:text-white">×</button>
 					</span>
@@ -959,7 +854,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 			</div>
 		{/if}
 		{#if dictating}
-			<div class="mb-1.5 flex items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 py-1 font-mono text-[10px] text-rose-400">
+			<div class="mb-1.5 flex items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-400">
 				<span class="size-1.5 animate-pulse rounded-full bg-rose-400"></span>
 				正在听… (再次点击麦克风停止)
 			</div>
@@ -977,18 +872,19 @@ import CollapsibleText from "./CollapsibleText.svelte";
 		{/if}
 		{#if pendingApproval}
 			<div class="mb-2 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-				<span class="min-w-0 flex-1 font-mono text-[11px] text-amber-200">
+				<span class="min-w-0 flex-1 text-xs text-amber-200">
 					{pendingApproval.reason}
+					{#if approvalError}<span class="mt-1 block text-rose-300">{approvalError}</span>{/if}
 				</span>
 				<button
 					type="button"
 					onclick={() => void resolveApproval(true)}
-					class="rounded-lg bg-emerald-500/90 px-2.5 py-1 font-mono text-[11px] text-black hover:bg-emerald-400"
+					class="rounded-lg bg-emerald-500/90 px-2.5 py-1 text-xs text-black hover:bg-emerald-400"
 				>批准</button>
 				<button
 					type="button"
 					onclick={() => void resolveApproval(false)}
-					class="rounded-lg bg-white/10 px-2.5 py-1 font-mono text-[11px] text-white/80 hover:bg-white/20"
+					class="rounded-lg bg-white/10 px-2.5 py-1 text-xs text-white/80 hover:bg-white/20"
 				>拒绝</button>
 			</div>
 		{/if}
@@ -999,7 +895,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 						<HelpCircle class="size-4 text-sky-300" />
 					</span>
 					<div class="min-w-0 flex-1">
-						<div class="font-mono text-[10px] uppercase tracking-wider text-sky-400/80">主脑提问</div>
+						<div class="text-[11px] font-medium uppercase tracking-wider text-sky-300/80">Veya 需要确认</div>
 						<div class="mt-1 text-[13px] leading-relaxed text-terminal-fg">{pendingQuestion.question}</div>
 						{#if pendingQuestion.options.length > 0}
 							<div class="mt-2 flex flex-wrap gap-1.5">
@@ -1007,7 +903,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 									<button
 										type="button"
 										onclick={() => void resolveQuestion(opt)}
-										class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 font-mono text-[11px] text-sky-200 transition hover:bg-sky-500/25"
+										class="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs text-sky-200 transition hover:bg-sky-500/25"
 									>{opt}</button>
 								{/each}
 							</div>
@@ -1022,17 +918,17 @@ import CollapsibleText from "./CollapsibleText.svelte";
 										void resolveQuestion(questionAnswer.trim());
 									}
 								}}
-								class="min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-2.5 py-1.5 font-mono text-[12px] text-terminal-fg outline-none placeholder:text-white/30 focus:border-sky-500/50"
+								class="min-h-11 min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-2.5 text-sm text-terminal-fg outline-none placeholder:text-white/30 focus:border-sky-500/50"
 							/>
 							<button
 								type="button"
 									onclick={() => void resolveQuestion(questionAnswer.trim())}
 									disabled={!questionAnswer.trim()}
-									class="rounded-lg bg-sky-500/90 px-2.5 py-1.5 font-mono text-[11px] text-black transition hover:bg-sky-400 disabled:opacity-30"
+									class="min-h-11 rounded-lg bg-sky-500/90 px-3 text-xs text-black transition hover:bg-sky-400 disabled:opacity-30"
 							>回答</button>
 						</div>
-						<div class="mt-1.5 font-mono text-[10px] text-white/30">
-							不回答的话主脑会在 5 分钟后按默认假设继续，不会卡住
+						<div class="mt-1.5 text-xs text-white/35">
+							不回答时，Veya 会在 5 分钟后按默认假设继续，不会卡住
 						</div>
 					</div>
 				</div>
@@ -1043,8 +939,8 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				<button
 					type="button"
 					onclick={() => (attachMenuOpen = !attachMenuOpen)}
-					title="插入…"
-					class="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white {attachMenuOpen ||
+					title="工具与附件"
+					class="mb-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl border border-white/10 text-white/50 transition hover:border-sky-500/40 hover:text-white {attachMenuOpen ||
 					fileTreeOpen ||
 					dictating
 						? 'border-sky-500/40 text-sky-400'
@@ -1053,7 +949,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					<Plus class="size-4 transition-transform {attachMenuOpen ? 'rotate-45' : ''}" />
 				</button>
 				{#if attachMenuOpen}
-					<div class="absolute bottom-10 left-0 z-50 w-52 overflow-hidden rounded-xl border border-terminal-edge bg-terminal-panel shadow-2xl">
+					<div class="absolute bottom-10 left-0 z-50 w-60 overflow-hidden rounded-xl border border-terminal-edge bg-terminal-panel shadow-2xl">
 						<button
 							type="button"
 							onclick={() => {
@@ -1061,7 +957,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 								attachMenuOpen = false;
 							}}
 							title="点击文件注入 @path"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] text-white/70 transition hover:bg-white/10 hover:text-white"
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
 						>
 							<Folder class="size-3.5" /> 工作区文件
 						</button>
@@ -1072,7 +968,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 								attachMenuOpen = false;
 							}}
 							title="语音听写"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] transition hover:bg-white/10 {dictating
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-white/10 {dictating
 								? 'text-rose-400'
 								: 'text-white/70 hover:text-white'}"
 						>
@@ -1085,7 +981,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 								attachMenuOpen = false;
 							}}
 							title="文本类直接读, 图片随消息发送"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] text-white/70 transition hover:bg-white/10 hover:text-white"
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
 						>
 							<Paperclip class="size-3.5" /> 上传文件/图片
 						</button>
@@ -1097,10 +993,42 @@ import CollapsibleText from "./CollapsibleText.svelte";
 								attachMenuOpen = false;
 							}}
 							title="连续可打断的实时语音对话"
-							class="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-[11px] text-white/70 transition hover:bg-white/10 hover:text-white"
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
 						>
 							<Phone class="size-3.5" /> 语音通话
 						</button>
+						<div class="my-1 border-t border-white/10"></div>
+						<div class="px-3 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wider text-white/40">模型与执行</div>
+						<div class="px-2 py-1.5">
+							<ModelPicker />
+						</div>
+						<button
+							type="button"
+							onclick={() => (planMode = !planMode)}
+							title="计划模式只读探索，确认后再切回执行"
+							class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-white/10 {planMode ? 'text-sky-300' : 'text-white/70 hover:text-white'}"
+						>
+							<ListTodo class="size-3.5" /> {planMode ? "计划模式 · 开" : "计划模式"}
+						</button>
+						{#if profileOptions.length > 0}
+							<label class="flex items-center gap-2 px-3 py-2 text-xs text-white/70">
+								<Wrench class="size-3.5 shrink-0" />
+								<span class="shrink-0">权限</span>
+								<select
+									class="min-w-0 flex-1 bg-transparent text-right text-terminal-fg outline-none"
+									value={permissionProfile}
+									onchange={(event) => void setPermissionProfile((event.currentTarget as HTMLSelectElement).value)}
+									disabled={busy}
+								>
+									{#each profileOptions as opt (opt.name)}
+										<option value={opt.name}>{opt.name}</option>
+									{/each}
+								</select>
+							</label>
+						{/if}
+						{#if profileError}
+							<div class="px-3 pb-2 text-xs text-rose-400">{profileError}</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -1113,14 +1041,14 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				disabled={busy}
 				onkeydown={onKeydown}
 				oninput={onTextareaInput}
-				class="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] text-terminal-fg outline-none placeholder:text-white/30 disabled:opacity-50"
+				class="max-h-[200px] min-h-11 min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] text-terminal-fg outline-none placeholder:text-white/30 disabled:opacity-50"
 			></textarea>
 			{#if busy}
 				<button
 					type="button"
 					onclick={stop}
 					title="停止生成 (Esc)"
-					class="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
+					class="mb-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
 				>
 					<Square class="size-4 fill-current" />
 				</button>
@@ -1130,46 +1058,20 @@ import CollapsibleText from "./CollapsibleText.svelte";
 					onclick={() => void send()}
 					disabled={!input.trim()}
 					title="发送 (Enter)"
-					class="mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white text-black transition hover:bg-white/85 disabled:opacity-30"
+					class="mb-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-black transition hover:bg-white/85 disabled:opacity-30"
 				>
 					<Send class="size-4" />
 				</button>
 			{/if}
 		</div>
-		<div class="mt-1.5 flex items-center gap-3 px-1 font-mono text-[10px] text-white/25">
-			<span class="flex items-center gap-1.5">
-				<span class="size-1.5 rounded-full {apiKeyStore.api_key ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
-				<ModelPicker />
-			</span>
-			<button
-				type="button"
-				onclick={() => (planMode = !planMode)}
-				title="计划模式：只读探索，确认后再切回执行"
-				class="rounded-md border px-1.5 py-0.5 transition {planMode
-					? 'border-sky-500/50 bg-sky-500/15 text-sky-300'
-					: 'border-white/10 text-white/35 hover:text-white/70'}"
-			>{planMode ? "计划" : "执行"}</button>
+		<div class="mt-1.5 flex items-center gap-2 px-1 text-[11px] text-white/35">
+			{#if planMode}
+				<span class="rounded-md border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-sky-300">计划模式</span>
+			{/if}
+			{#if dictating}
+				<span class="rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-rose-300">正在听</span>
+			{/if}
 			<span class="flex-1"></span>
-			{#if profileOptions.length > 0}
-				<label
-					title="权限档位 (P1-05 / P3-01): READ_ONLY=全禁写, DEVELOPMENT=本地写放行, PRODUCTION=写与执行需批准"
-					class="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] text-terminal-dim"
-				>
-					<select
-						class="bg-transparent text-terminal-fg outline-none"
-						bind:value={permissionProfile}
-						onchange={() => void setPermissionProfile(permissionProfile)}
-						disabled={busy}
-					>
-						{#each profileOptions as opt (opt.name)}
-							<option value={opt.name}>{opt.name}</option>
-						{/each}
-					</select>
-				</label>
-			{/if}
-			{#if profileError}
-				<span class="font-mono text-[10px] text-rose-400">{profileError}</span>
-			{/if}
 			<span class="hidden md:inline">Enter 发送 · Shift+Enter 换行 · ↑ 编辑{ busy ? " · Esc 停止" : "" }</span>
 		</div>
 	</div>
@@ -1182,15 +1084,15 @@ import CollapsibleText from "./CollapsibleText.svelte";
 			<div class="flex flex-col items-center gap-4">
 				<div class="flex size-12 items-center justify-center rounded-2xl bg-white font-mono text-lg font-bold text-black">V</div>
 				<div class="text-center">
-					<h2 class="text-xl font-medium text-terminal-fg">和 Veya 主脑对话</h2>
-					<p class="mt-1 text-sm text-white/40">直接描述任务，主脑会实时调用工具并流式返回结果</p>
+					<h2 class="text-xl font-medium text-terminal-fg">有什么可以帮你？</h2>
+					<p class="mt-1 text-sm text-white/40">直接描述你的需求，Veya 会在需要时使用工具并实时返回结果</p>
 				</div>
 				<div class="flex flex-wrap items-center justify-center gap-2">
 					{#each SUGGESTIONS as s (s)}
 						<button
 							type="button"
 							onclick={() => void send(s)}
-							class="rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 transition hover:border-white/30 hover:text-white"
+							class="min-h-11 rounded-full border border-white/10 px-4 text-sm text-white/60 transition hover:border-white/30 hover:text-white"
 						>
 							{s}
 						</button>
@@ -1250,13 +1152,13 @@ import CollapsibleText from "./CollapsibleText.svelte";
 												<button
 													type="button"
 													onclick={cancelEdit}
-													class="rounded-lg px-3 py-1.5 font-mono text-xs text-white/50 transition hover:text-white/80"
+													class="rounded-lg px-3 py-1.5 text-sm text-white/55 transition hover:text-white/80"
 												>取消</button>
 												<button
 													type="button"
 													onclick={confirmEdit}
 													disabled={!editingText.trim()}
-													class="rounded-lg bg-white px-3 py-1.5 font-mono text-xs text-black transition hover:bg-white/85 disabled:opacity-30"
+													class="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black transition hover:bg-white/85 disabled:opacity-30"
 												>发送</button>
 											</div>
 										</div>
@@ -1299,29 +1201,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 							{:else}
 								{@const parsed = artifactStore.parseArtifactsFromText(msg.text)}
 								<div class="flex flex-col gap-2">
-									{#if msg.steps.length > 0}
-										<div class="flex flex-col gap-1">
-											{#each msg.steps as ev, si (si)}
-												{@const meta = stepMeta(ev)}
-												{#if meta}
-													{@const Icon = meta.Icon}
-													<button
-														type="button"
-														onclick={() => toggleStep(si)}
-														class="flex w-fit max-w-full items-center gap-2 rounded-lg border px-2.5 py-1 font-mono text-[11px] {meta.cls}"
-													>
-														<Icon class="size-3.5 shrink-0" />
-														<span class="font-semibold">{meta.label}</span>
-														{#if stepDetail(ev)}
-															<span class="max-w-[280px] truncate opacity-80">
-																{expandedSteps.has(si) ? stepDetail(ev) : stepDetail(ev).slice(0, 60) + "…"}
-															</span>
-														{/if}
-													</button>
-												{/if}
-											{/each}
-										</div>
-									{/if}
+									<WorkProcess steps={msg.steps} streaming={msg.status === "streaming"} />
 
 									<div class="text-[15px] leading-relaxed text-terminal-fg">
 						{#if msg.status === "streaming" && !msg.text}
@@ -1354,14 +1234,14 @@ import CollapsibleText from "./CollapsibleText.svelte";
 												<button
 													type="button"
 													onclick={retryLast}
-													class="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 font-mono text-xs text-white/60 transition hover:border-white/30 hover:text-white"
+													class="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm text-white/65 transition hover:border-white/30 hover:text-white"
 												>
 													<RotateCcw class="size-3.5" />
 													重试
 												</button>
 											</div>
 										{:else if msg.status === "stopped"}
-											<div class="mt-2 font-mono text-xs text-white/40">已停止</div>
+											<div class="mt-2 text-sm text-white/45">已停止</div>
 										{:else if msg.status === "done" && msg.text}
 											<div class="mt-2 flex items-center gap-2">
 												<button
@@ -1412,7 +1292,7 @@ import CollapsibleText from "./CollapsibleText.svelte";
 				type="button"
 				onclick={jumpToBottom}
 				title="回到底部"
-				class="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/10 bg-[#141414] px-3 py-1.5 font-mono text-[11px] text-white/70 shadow-lg transition hover:border-white/25 hover:text-white"
+				class="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/10 bg-[#141414] px-3 py-1.5 text-xs text-white/70 shadow-lg transition hover:border-white/25 hover:text-white"
 			>
 				<ChevronDown class="size-3.5" />
 				回到底部

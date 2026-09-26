@@ -7,6 +7,7 @@ existing P1 components to one GoalRun.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from runtime.provider_reliability import ReliableProviderAdapter
 from runtime.verification import EvidenceBundle, EvidenceItem, VerificationEngine
 from server.action_gateway_adapter import ActionGatewayAdapter
 from server.goal_run.action_protocol import CanonicalActionRequest, CanonicalActionResult
+from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.git_diff import current_head
 
 
@@ -42,6 +44,10 @@ class CanonicalWorkerAdapter:
         verification_required: bool = False,
         approval_resolver: Any | None = None,
         policy_hook: Any | None = None,
+        semantic_agent: Any | None = None,
+        semantic_session_id: str | None = None,
+        semantic_llm_kwargs: dict[str, Any] | None = None,
+        gateway_executor: Any | None = None,
     ) -> None:
         self.task_id = task_id
         self.objective = objective
@@ -66,6 +72,10 @@ class CanonicalWorkerAdapter:
         self.verdict: Any | None = None
         self.approval_resolver = approval_resolver
         self.policy_hook = policy_hook
+        self.semantic_agent = semantic_agent
+        self.semantic_session_id = semantic_session_id
+        self.semantic_llm_kwargs = dict(semantic_llm_kwargs or {})
+        self.gateway_executor = gateway_executor
         self.execution_repository: DurableExecutionRepository | None = None
         self.action_gateway: ActionGatewayAdapter | None = None
 
@@ -87,6 +97,8 @@ class CanonicalWorkerAdapter:
         """
         if request.goal_run_id != state.goal_id:
             raise ValueError("canonical action belongs to a different GoalRun")
+        # P3-A: SAME Bot — another bot's action never executes in this GoalRun.
+        require_same_bot(request.bot_id, state.bot_id, f"action:{request.action_id}")
         if self.computer_id and request.computer_ref not in {None, self.computer_id}:
             raise ValueError("canonical action targets a different PersistentComputer")
 
@@ -292,16 +304,19 @@ class CanonicalWorkerAdapter:
 
         db_path = root / ".veya" / "persistent_computers.sqlite3"
         self.computer_store = PersistentComputerStore(db_path)
-        existing = self.computer_store.get_computer_for_goal_run(state.goal_id)
+        existing = self.computer_store.get_computer_for_goal_run(state.goal_id, bot_id=state.bot_id)
         computer = existing or self.computer_store.create_computer(
             owner_id=self.task_id,
             workspace_ref=str(root),
             browser_profile_ref=f"profile:{self.task_id}",
             downloads_ref=str(root / ".veya" / "runs" / self.task_id / "downloads"),
             computer_id=f"computer:{self.task_id}",
+            bot_id=state.bot_id,
         )
         if existing is None:
-            self.computer_store.link_goal_run(state.goal_id, computer.computer_id, self.task_id)
+            self.computer_store.link_goal_run(
+                state.goal_id, computer.computer_id, self.task_id, bot_id=state.bot_id
+            )
         self.computer_id = computer.computer_id
         self._spec_hash = getattr(self.spec, "spec_hash", None)
         state.budget["computer_id"] = self.computer_id
@@ -311,6 +326,7 @@ class CanonicalWorkerAdapter:
             self.context_engine = ContextEngine.load_checkpoint(
                 run_dir / "context_checkpoint.json",
                 persistent_computer_store=self.computer_store,
+                bot_id=state.bot_id,
             )
             if self.context_engine.state.goal_run_id != state.goal_id:
                 raise RuntimeError("context checkpoint is bound to a different GoalRun")
@@ -319,6 +335,7 @@ class CanonicalWorkerAdapter:
                 goal_run_id=state.goal_id,
                 computer_id=self.computer_id,
                 persistent_computer_store=self.computer_store,
+                bot_id=state.bot_id,
             )
         self.context_engine.update_preserved_objective(self.objective)
         self.context_engine.update_preserved_verification_spec(str(spec_path))
@@ -345,10 +362,95 @@ class CanonicalWorkerAdapter:
             approval_resolver=self.approval_resolver,
             policy_hook=self.policy_hook,
             output_dir=root / ".veya" / "action_gateway",
+            bot_id=state.bot_id,
         )
         if self.knowledge_plan is not None:
             self.knowledge_runtime = KnowledgeRuntime(self.knowledge_plan)
         self.checkpoint(state, project_root, reason="before_first_action")
+
+    async def execute_semantic_task(self, state: Any, task: Any) -> Any:
+        """Execute one MasterAgent semantic step through this GoalRun.
+
+        This is an adapter over the existing worker path: the model chooses a
+        tool, while ``execute_canonical_action`` remains the only physical
+        boundary.  No loop or acceptance decision is introduced here.
+        """
+        if self.semantic_agent is None or self.gateway_executor is None:
+            return None
+        from server.goal_run.leaf import LeafResult
+
+        session_id = self.semantic_session_id or state.goal_id
+        prior_result = (state.budget or {}).get("semantic_prior_result")
+        decision = await self.semantic_agent.semantic_step(
+            task.instruction,
+            session_id=session_id,
+            llm_kwargs=self.semantic_llm_kwargs or None,
+            prior_result=prior_result if isinstance(prior_result, dict) else None,
+        )
+        if decision.get("kind") != "action" or not decision.get("tool"):
+            return LeafResult(
+                status="blocked",
+                summary=str(decision.get("content") or "MasterAgent returned no action"),
+                block_reason="semantic_step did not return an executable action",
+                stop_reason="exception",
+                unfinished_work=[task.instruction],
+            )
+        request_adapter = MasterAgentActionAdapter(
+            goal_run_id=state.goal_id,
+            task_id=task.id,
+            computer_ref=self.computer_id,
+            context_ref=str(self._checkpoint_path) if self._checkpoint_path else None,
+            executor=lambda request: self.execute_canonical_action(
+                state, request, gateway_executor=self.gateway_executor
+            ),
+            bot_id=state.bot_id,
+        )
+        request = request_adapter.request(
+            str(decision["tool"]), dict(decision.get("arguments") or {})
+        )
+        result = await self.execute_canonical_action(
+            state, request, gateway_executor=self.gateway_executor
+        )
+        await self.semantic_agent.observe_action_result(result.to_dict(), session_id=session_id)
+        # Keep the observed result in the existing GoalRun durable envelope so
+        # the next scheduler iteration can make a semantic replan from the
+        # actual failure/result.  This is continuation state, not a second
+        # execution loop or an acceptance decision.
+        state.budget["semantic_prior_result"] = result.to_dict()
+        if result.status != "completed" or not result.executed:
+            failure = result.failure_evidence[0] if result.failure_evidence else {}
+            failure_evidence = [
+                {
+                    "id": f"failure-{result.action_id}",
+                    "kind": "failure",
+                    "source": "goal_run.canonical_action",
+                    "content": json.dumps(item, ensure_ascii=False, default=str),
+                    "producer": "goal_run",
+                }
+                for item in result.failure_evidence
+            ]
+            return LeafResult(
+                status="blocked",
+                summary="",
+                block_reason=str(failure.get("error") or result.status),
+                evidence=failure_evidence,
+                stop_reason="exception",
+                unfinished_work=[task.instruction],
+            )
+        return LeafResult(
+            status="completed",
+            summary=str(result.result or "canonical action completed"),
+            evidence=[
+                {
+                    "id": f"action-{result.action_id}",
+                    "kind": "observation",
+                    "source": "goal_run.canonical_action",
+                    "content": json.dumps(result.to_dict(), ensure_ascii=False, default=str),
+                    "producer": "goal_run",
+                }
+            ],
+            stop_reason="completed",
+        )
 
     async def before_iteration(self, state: Any, project_root: str, task: Any) -> None:
         if self.spec is not None and not self.spec.verify_immutable():
@@ -401,6 +503,30 @@ class CanonicalWorkerAdapter:
             self.spec,
             artifact_store=ArtifactStore(project_root, state.goal_id),
         )
+        action_record = (state.budget or {}).get("last_canonical_action")
+        if isinstance(action_record, dict):
+            action_request = action_record.get("request") or {}
+            action_result = action_record.get("result") or {}
+            if action_result.get("status") == "completed" and action_result.get("executed"):
+                bundle = bundle.add_evidence(
+                    EvidenceItem(
+                        id="canonical-action-observed",
+                        kind="observation",
+                        source="goal_run.canonical_action",
+                        content=json.dumps(action_result, ensure_ascii=False, default=str),
+                        producer="goal_run",
+                        metadata={
+                            "criterion_id": "ac-canonical_action_observed",
+                            "action_id": action_request.get("action_id"),
+                            "goal_run_id": state.goal_id,
+                            "bot_id": state.bot_id,
+                        },
+                    )
+                )
+        # P3-A: evidence from another bot can never finalize this GoalRun.
+        # Unattributed evidence is claimed by this GoalRun (re-hashed);
+        # foreign-attributed evidence is refused fail-closed.
+        bundle = bundle.scoped_to(state.bot_id)
         for task in state.tasks.values():
             for index, evidence in enumerate(task.evidence):
                 bundle = bundle.add_evidence(
@@ -428,6 +554,7 @@ class CanonicalWorkerAdapter:
             **(state.runtime_checkpoint or {}),
             "canonical_worker": {
                 "goal_run_id": state.goal_id,
+                "bot_id": state.bot_id,
                 "computer_id": self.computer_id,
                 "verification_spec_path": state.budget.get("verification_spec_path"),
                 "context_checkpoint": str(self._checkpoint_path),
@@ -463,6 +590,7 @@ class MasterAgentActionAdapter:
         context_ref: str | None = None,
         approval: dict[str, Any] | None = None,
         executor: Any,
+        bot_id: str | None = None,
     ) -> None:
         self.goal_run_id = goal_run_id
         self.task_id = task_id
@@ -470,6 +598,10 @@ class MasterAgentActionAdapter:
         self.context_ref = context_ref
         self.approval = dict(approval or {})
         self.executor = executor
+        # P3-A: actions built by this adapter carry the owning bot.
+        from server.goal_run.bot_identity import DEFAULT_BOT_ID
+
+        self.bot_id = bot_id if bot_id is not None else DEFAULT_BOT_ID
 
     def request(self, tool: str, arguments: dict[str, Any]) -> CanonicalActionRequest:
         import hashlib
@@ -488,6 +620,7 @@ class MasterAgentActionAdapter:
             context_ref=self.context_ref,
             approval=self.approval,
             idempotency_key=f"{self.goal_run_id}:{action_id}",
+            bot_id=self.bot_id,
         )
 
     async def execute(self, tool: str, arguments: dict[str, Any]) -> CanonicalActionResult:

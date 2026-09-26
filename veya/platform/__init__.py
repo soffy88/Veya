@@ -54,9 +54,14 @@ def _candidate_3o_roots() -> list[Path]:
     return out
 
 
+def _package_is_mounted(base: Path, lib: str) -> bool:
+    """True only when the gitlink contains an importable package checkout."""
+    return (base / lib / lib / "__init__.py").is_file()
+
+
 def _resolve_3o_root() -> Path:
     for root in _candidate_3o_roots():
-        if (root / "obase").is_dir():
+        if _package_is_mounted(root, "obase"):
             return root
     return _3O_ROOT
 
@@ -66,20 +71,25 @@ def _ensure_paths() -> None:
     base = _resolve_3o_root()
     for lib in _MAINLIBS:
         pkg = base / lib
-        if pkg.is_dir() and str(pkg) not in sys.path and str(pkg) not in _injected:
+        if (
+            _package_is_mounted(base, lib)
+            and str(pkg) not in sys.path
+            and str(pkg) not in _injected
+        ):
             sys.path.insert(0, str(pkg))
             _injected.add(str(pkg))
 
 
 def available(lib: str = "obase") -> bool:
     """True if the given main library is mounted (submodule present)."""
-    return (_resolve_3o_root() / lib).is_dir()
+    return _package_is_mounted(_resolve_3o_root(), lib)
 
 
 def root(lib: str = "obase") -> Path:
     """Absolute path to a mounted main library, or raise a clear error."""
-    p = _resolve_3o_root() / lib
-    if not p.is_dir():
+    base = _resolve_3o_root()
+    p = base / lib
+    if not _package_is_mounted(base, lib):
         raise RuntimeError(
             f"3O main library '{lib}' is not mounted. Clone with "
             "`git clone --recursive` (submodules live under platform/3O/)."
@@ -96,7 +106,19 @@ def load(lib: str) -> Any:
         raise ValueError(f"unknown main library {lib!r}; expected one of {_MAINLIBS}")
     root(lib)  # presence check with a clear error
     _ensure_paths()
-    return importlib.import_module(lib)
+    module = importlib.import_module(lib)
+    # The pinned oprim source renamed this public test/consumer constant from
+    # ``observe_action`` to ``OBSERVE_ACTION``.  Keep the assembly boundary
+    # compatible without modifying the external 3O checkout; this is a
+    # namespace adapter, not a second implementation.
+    if lib == "oprim":
+        try:
+            rollout = importlib.import_module("oprim._counterfactual_rollout")
+            if not hasattr(rollout, "observe_action") and hasattr(rollout, "OBSERVE_ACTION"):
+                rollout.observe_action = rollout.OBSERVE_ACTION
+        except ImportError:
+            pass
+    return module
 
 
 # --- convenience accessors for the obase core used by Veya ------------------

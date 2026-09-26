@@ -29,6 +29,7 @@ from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
 from server.routes.evolution import router as evolution_router
+from server.routes.execution_contract import router as execution_contract_router
 from server.routes.flow import router as flow_router
 from server.routes.fs import router as fs_router
 from server.routes.git import router as git_router
@@ -52,6 +53,7 @@ from server.routes.plan import router as plan_router
 from server.routes.product import router as product_router
 from server.routes.projects import router as projects_router
 from server.routes.prompt import router as prompt_router
+from server.routes.remote_mcp import router as remote_mcp_router
 from server.routes.research import router as research_router
 from server.routes.resilient import router as resilient_router
 from server.routes.security import router as security_router
@@ -60,6 +62,7 @@ from server.routes.session import router as session_router
 from server.routes.sessions import router as sessions_router
 from server.routes.sessions import unified_router as unified_sessions_router
 from server.routes.static_invariant import router as static_invariant_router
+from server.routes.supervision import router as supervision_router
 from server.routes.tasks import router as tasks_router
 from server.routes.telemetry import router as telemetry_router
 from server.routes.threat_model import router as threat_model_router
@@ -158,6 +161,7 @@ async def lifespan(app: FastAPI):
     durable_runtime = None
     personal_runtime = None
     personal_outbox_task: asyncio.Task | None = None
+    daemon_gateway_engine = None
     # 启动 Automata 后台守护进程(Agent OS 的"手脚")
     from server.automata import get_automata
 
@@ -331,7 +335,73 @@ async def lifespan(app: FastAPI):
             _lg.exception("durable execution startup failed; refusing to serve enabled runtime")
             raise
         _lg.exception("durable execution optional startup failed")
+    # Reconcile checkpointed product GoalRuns only after the durable runtime
+    # (and its schema migration) is ready.  Recovery re-enters the existing
+    # runner; the in-process asyncio task itself is never durable state.
+    try:
+        from server.routes.product import recover_product_tasks
+
+        recovered_product_tasks = await recover_product_tasks()
+        if recovered_product_tasks:
+            _lg.warning(
+                "product GoalRun startup recovery resumed %d run(s)", recovered_product_tasks
+            )
+    except Exception:
+        _lg.exception("product GoalRun startup recovery failed")
+    try:
+        from server.flow_goal_run import recover_genesis_goal_runs
+
+        recovered_genesis_runs = await recover_genesis_goal_runs(
+            os.environ.get("VEYA_PROJECT_ROOT", ".")
+        )
+        if recovered_genesis_runs:
+            _lg.warning(
+                "Genesis GoalRun startup recovery resumed %d run(s)", recovered_genesis_runs
+            )
+    except Exception:
+        _lg.exception("Genesis GoalRun startup recovery failed")
+    try:
+        from server.board import get_board_worker
+
+        recovered_board_cards = await get_board_worker().recover_running_cards()
+        if recovered_board_cards:
+            _lg.warning("board worker startup recovery resumed %d card(s)", recovered_board_cards)
+    except Exception:
+        _lg.exception("board worker startup recovery failed")
+    try:
+        from server.automata_goal_run import recover_grid_search_goal_runs
+
+        recovered_grid_runs = await recover_grid_search_goal_runs(
+            os.environ.get("VEYA_PROJECT_ROOT", ".")
+        )
+        if recovered_grid_runs:
+            _lg.warning(
+                "grid search GoalRun startup recovery resumed %d run(s)", recovered_grid_runs
+            )
+    except Exception:
+        _lg.exception("grid search GoalRun startup recovery failed")
+    try:
+        from server.hicode_queue import hicode_task_queue
+
+        recovered_hicode = await hicode_task_queue.recover_goal_runs(
+            os.environ.get("VEYA_PROJECT_ROOT", ".")
+        )
+        if recovered_hicode:
+            _lg.warning("hicode GoalRun startup recovery resumed %d task(s)", recovered_hicode)
+    except Exception:
+        _lg.exception("hicode GoalRun startup recovery failed")
+    try:
+        from server.daemon_goal_run import DaemonGoalRunBridge
+        from veya.oservi.gateway import gateway_engine
+
+        daemon_gateway_engine = gateway_engine()
+        daemon_gateway_engine.set_goal_bridge(DaemonGoalRunBridge())
+        await daemon_gateway_engine.start()
+    except Exception:
+        _lg.exception("3O daemon GoalRun bridge startup failed")
     yield
+    if daemon_gateway_engine is not None:
+        await daemon_gateway_engine.shutdown()
     if durable_runtime is not None and durable_runtime.config.enabled:
         await durable_runtime.close()
     if personal_outbox_task is not None:
@@ -345,6 +415,12 @@ async def lifespan(app: FastAPI):
         await get_connector().close()
     except Exception:
         pass
+    try:
+        from server.acp_mcp_delivery import get_acp_mcp_delivery
+
+        await get_acp_mcp_delivery().close_all()
+    except Exception:
+        _lg.exception("acp/mcp delivery shutdown detach failed")
     automata.shutdown()
 
 
@@ -385,6 +461,7 @@ app.include_router(permission_router)
 app.include_router(session_router)
 app.include_router(tool_router)
 app.include_router(agent_router)
+app.include_router(supervision_router)
 app.include_router(models_router)
 app.include_router(security_router)
 app.include_router(vscode_router)
@@ -411,6 +488,7 @@ if _advanced_visualization_router is not None:
     app.include_router(_advanced_visualization_router)
 app.include_router(agent_collaboration_router)
 app.include_router(mcp_router)
+app.include_router(remote_mcp_router)
 app.include_router(auth_router)
 app.include_router(auth_key_router)
 app.include_router(init_router)
@@ -436,6 +514,7 @@ app.include_router(board_router)
 app.include_router(legacy_agent_router)
 app.include_router(cindy_compat_router)
 app.include_router(voice_compat_router)
+app.include_router(execution_contract_router)
 app.include_router(sse_router)
 
 

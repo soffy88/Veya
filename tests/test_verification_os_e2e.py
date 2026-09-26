@@ -19,9 +19,9 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from runtime.execution.artifacts import ArtifactStore
-from runtime.execution.durable import DurableExecutionRepository
-from runtime.verification import (
+from runtime.execution.artifacts import ArtifactStore  # noqa: E402
+from runtime.execution.durable import DurableExecutionRepository  # noqa: E402
+from runtime.verification import (  # noqa: E402
     VerificationEngine,
     get_current_head_sha,
 )
@@ -75,8 +75,8 @@ async def test_verification_os_e2e():
         assert spec.task_id == task_id
         assert spec.goal_run_id == goal_run_id
         assert spec.head_sha == head_sha
-        assert spec.frozen == True
-        assert spec.verify_immutable() == True
+        assert spec.frozen
+        assert spec.verify_immutable()
         assert len(spec.acceptance_criteria) > 0
         assert len(spec.user_journeys) > 0
         assert len(spec.required_evidence) > 0
@@ -96,6 +96,7 @@ async def test_verification_os_e2e():
     except Exception as e:
         print(f"  ✗ FAILED: {e}")
         import traceback
+
         traceback.print_exc()
 
     # ============================================================
@@ -106,7 +107,7 @@ async def test_verification_os_e2e():
         fmap = engine.feature_map
         assert fmap.map_id
         assert fmap.project_root == str(project_root)
-        assert fmap.verify_immutable() == True
+        assert fmap.verify_immutable()
         assert len(fmap.features) >= 3  # almeno_cli, seja_serve, ve_ya_web
 
         # Check feature structure
@@ -127,6 +128,7 @@ async def test_verification_os_e2e():
     except Exception as e:
         print(f"  ✗ FAILED: {e}")
         import traceback
+
         traceback.print_exc()
 
     # ============================================================
@@ -137,7 +139,7 @@ async def test_verification_os_e2e():
         harness = engine.harness
         assert harness.harness_id
         assert harness.project_root == str(project_root)
-        assert harness.verify_immutable() == True
+        assert harness.verify_immutable()
 
         # Check all 6 operations exist
         operations = ["doctor", "launch", "drive", "snapshot", "trace", "cleanup"]
@@ -161,6 +163,7 @@ async def test_verification_os_e2e():
     except Exception as e:
         print(f"  ✗ FAILED: {e}")
         import traceback
+
         traceback.print_exc()
 
     # ============================================================
@@ -176,15 +179,21 @@ async def test_verification_os_e2e():
         print(f"  Doctor: {'OK' if doctor_result.get('ok') else 'FAILED'}")
 
         # Launch CLI
-        launch_result = await engine.run_harness_operation("launch", task_id, goal_run_id, args=["--help"])
+        launch_result = await engine.run_harness_operation(
+            "launch", task_id, goal_run_id, args=["--help"]
+        )
         print(f"  Launch CLI: {'OK' if launch_result.get('ok') else 'FAILED'}")
 
         # Drive - test CLI help
-        drive_result = await engine.run_harness_operation("drive", task_id, goal_run_id, args=["cli_help"])
+        drive_result = await engine.run_harness_operation(
+            "drive", task_id, goal_run_id, args=["cli_help"]
+        )
         print(f"  Drive CLI help: {'OK' if drive_result.get('ok') else 'FAILED'}")
 
         # Drive - test doctor command
-        drive_result2 = await engine.run_harness_operation("drive", task_id, goal_run_id, args=["cli_doctor"])
+        drive_result2 = await engine.run_harness_operation(
+            "drive", task_id, goal_run_id, args=["cli_doctor"]
+        )
         print(f"  Drive CLI doctor: {'OK' if drive_result2.get('ok') else 'FAILED'}")
 
         # Snapshot
@@ -200,14 +209,15 @@ async def test_verification_os_e2e():
         print(f"  Cleanup: {'OK' if cleanup_result.get('ok') else 'FAILED'}")
 
         # Check that CLI actually works
-        assert doctor_result.get("ok") == True, "Doctor failed"
-        assert launch_result.get("ok") == True, "Launch failed"
-        assert drive_result.get("ok") == True, "Drive failed"
+        assert doctor_result.get("ok"), "Doctor failed"
+        assert launch_result.get("ok"), "Launch failed"
+        assert drive_result.get("ok"), "Drive failed"
 
         results["REAL_PRODUCT_VERIFICATION"] = True
     except Exception as e:
         print(f"  ✗ FAILED: {e}")
         import traceback
+
         traceback.print_exc()
 
     # ============================================================
@@ -237,19 +247,22 @@ async def test_verification_os_e2e():
         assert bundle.head_sha == head_sha
         assert bundle.verification_spec_version == spec.version
         assert bundle.verification_spec_hash == spec.spec_hash
-        assert bundle.verify_integrity() == True
+        assert bundle.verify_integrity()
         assert bundle.is_bound_to(task_id, goal_run_id, head_sha, spec.spec_hash)
         assert len(bundle.evidence) > 0
 
         print(f"  ✓ Bundle created: {bundle.bundle_id}")
         print(f"  ✓ Evidence items: {len(bundle.evidence)}")
-        print(f"  ✓ Bound to task/goal/HEAD/spec: {bundle.is_bound_to(task_id, goal_run_id, head_sha, spec.spec_hash)}")
+        print(
+            f"  ✓ Bound to task/goal/HEAD/spec: {bundle.is_bound_to(task_id, goal_run_id, head_sha, spec.spec_hash)}"
+        )
         print(f"  ✓ Integrity: {bundle.verify_integrity()}")
 
         results["EVIDENCE_BUNDLE"] = True
     except Exception as e:
         print(f"  ✗ FAILED: {e}")
         import traceback
+
         traceback.print_exc()
 
     # ============================================================
@@ -282,7 +295,7 @@ async def test_verification_os_e2e():
         assert verdict.verification_spec_hash == spec.spec_hash
         assert verdict.evidence_bundle_hash == bundle.bundle_hash
         assert verdict.outcome in ("PASS", "FAIL", "BLOCKED")
-        assert verdict.verify_integrity() == True
+        assert verdict.verify_integrity()
 
         print(f"  ✓ Verdict: {verdict.verdict_id}")
         print(f"  ✓ Outcome: {verdict.outcome}")
@@ -293,16 +306,16 @@ async def test_verification_os_e2e():
 
         # Verify worker self-reported success CANNOT override
         # (This is enforced by the verifier design - it only reads immutable spec + evidence)
-        worker_claims_success = True  # Simulated worker claim
-        verifier_outcome = verdict.outcome
-        authority_respected = verifier_outcome != "PASS" or not worker_claims_success
         # Actually, the test is: if worker claims success but verifier says FAIL, verifier wins
         # Our verifier correctly ignores worker claims
         results["INDEPENDENT_VERIFIER"] = True
-        results["SELF_REPORTED_SUCCESS_AUTHORITY"] = 0  # Verifier has authority (0 = worker has no authority)
+        results["SELF_REPORTED_SUCCESS_AUTHORITY"] = (
+            0  # Verifier has authority (0 = worker has no authority)
+        )
     except Exception as e:
         print(f"  ✗ FAILED: {e}")
         import traceback
+
         traceback.print_exc()
 
     # ============================================================
@@ -329,28 +342,29 @@ async def test_verification_os_e2e():
         verdict = await engine.run_independent_verifier(spec, bundle, head_sha)
 
         # Initially verdict should NOT be stale
-        assert verdict.is_stale(head_sha) == False
+        assert not verdict.is_stale(head_sha)
         print(f"  ✓ Verdict not stale at creation: {verdict.is_stale(head_sha)}")
 
         # Simulate HEAD change by creating a temp commit
         # We can't easily change HEAD in a test, but we can test the logic
         fake_new_head = "fake-new-head-sha-" + "x" * 40
-        assert verdict.is_stale(fake_new_head) == True
+        assert verdict.is_stale(fake_new_head)
         print(f"  ✓ Verdict becomes stale with new HEAD: {verdict.is_stale(fake_new_head)}")
 
         # Test full verify_and_invalidate
-        verdict2, is_stale = await engine.verify_and_invalidate(
+        _verdict2, is_stale = await engine.verify_and_invalidate(
             task_id=f"{task_id}-2",
             goal_run_id=f"{goal_run_id}-2",
             feature_name="veya_cli",
         )
-        assert is_stale == False  # HEAD didn't actually change
+        assert not is_stale  # HEAD didn't actually change
         print("  ✓ verify_and_invalidate returns stale=False when HEAD unchanged")
 
         results["HEAD_INVALIDATION"] = True
     except Exception as e:
         print(f"  ✗ FAILED: {e}")
         import traceback
+
         traceback.print_exc()
 
     # ============================================================
@@ -369,8 +383,7 @@ async def test_verification_os_e2e():
 
     # For overall pass, SELF_REPORTED_SUCCESS_AUTHORITY=0 is a pass
     all_pass = all(
-        v == 0 if k == "SELF_REPORTED_SUCCESS_AUTHORITY" else bool(v)
-        for k, v in results.items()
+        v == 0 if k == "SELF_REPORTED_SUCCESS_AUTHORITY" else bool(v) for k, v in results.items()
     )
     print(f"\n  P1_B_VERIFICATION_OS={'PASS' if all_pass else 'FAIL'}")
 

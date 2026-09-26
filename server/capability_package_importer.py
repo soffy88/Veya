@@ -36,6 +36,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -104,23 +105,45 @@ def import_capability_package(package_dir: str | Path) -> CapabilityPackage:
     )
 
 
-def _import_skills(skills_dir: Path, package_id: str) -> list[str]:
+def parse_skill_files(skills_dir: str | Path, package_id: str) -> list[dict[str, Any]]:
+    """Pure parse of package skill files (no registry writes).
+
+    Extracted so distribution flows can map the same fields without
+    duplicating the format knowledge; ``_import_skills`` below keeps its
+    exact behavior by delegating to it.
+    """
+    skills_dir = Path(skills_dir)
     if not skills_dir.is_dir():
         return []
-    skill_ids = []
+    parsed: list[dict[str, Any]] = []
     for skill_file in sorted(skills_dir.glob("*.yaml")):
         data = yaml.safe_load(skill_file.read_text(encoding="utf-8")) or {}
-        skill_id = f"{package_id}.{skill_file.stem}"
+        parsed.append(
+            {
+                "skill_id": f"{package_id}.{skill_file.stem}",
+                "instructions": str(data.get("instructions") or data.get("description") or ""),
+                "applicable_when": list(data.get("applicable_when") or []),
+                "not_applicable_when": list(data.get("not_applicable_when") or []),
+                "provenance": f"capability_package_importer:{skill_file}",
+                "source_path": str(skill_file),
+            }
+        )
+    return parsed
+
+
+def _import_skills(skills_dir: Path, package_id: str) -> list[str]:
+    skill_ids = []
+    for item in parse_skill_files(skills_dir, package_id):
         skill_registry.register_candidate(
             SkillSpec(
-                skill_id=skill_id,
-                instructions=str(data.get("instructions") or data.get("description") or ""),
-                applicable_when=list(data.get("applicable_when") or []),
-                not_applicable_when=list(data.get("not_applicable_when") or []),
-                provenance=f"capability_package_importer:{skill_file}",
+                skill_id=item["skill_id"],
+                instructions=item["instructions"],
+                applicable_when=list(item["applicable_when"]),
+                not_applicable_when=list(item["not_applicable_when"]),
+                provenance=item["provenance"],
             )
         )
-        skill_ids.append(skill_id)
+        skill_ids.append(item["skill_id"])
     return skill_ids
 
 

@@ -1,0 +1,44 @@
+# Veya OpenAI Secure MCP Tunnel — user systemd unit
+#
+# ChatGPT Web -> OpenAI Secure MCP Tunnel -> this official tunnel-client
+# runtime -> http://127.0.0.1:8790/mcp -> Veya Remote MCP.
+#
+# Install:
+#   mkdir -p ~/.veya/openai-tunnel
+#   cp deploy/tunnel/tunnel-client.yaml.example ~/.veya/openai-tunnel/tunnel-client.yaml
+#   cp deploy/tunnel/veya-openai-tunnel.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   # Owner inputs (see deploy/tunnel/README.md):
+#   #   ~/.veya/openai-tunnel/runtime_api_key   (0600) restricted runtime key
+#   #   ~/.veya/openai-tunnel/tunnel.env        (0600) CONTROL_PLANE_TUNNEL_ID=tunnel_...
+#   systemctl --user enable --now veya-openai-tunnel
+#
+# The unit is skipped until tunnel.env exists, so a missing owner input does
+# not create a restart loop. It opens no inbound port and needs no root.
+
+[Unit]
+Description=Veya OpenAI Secure MCP Tunnel (official tunnel-client runtime)
+After=veya-remote-mcp.service
+Wants=veya-remote-mcp.service
+ConditionPathExists=%h/.veya/openai-tunnel/tunnel.env
+# Stop retrying quickly if the owner inputs are present but invalid.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.veya/openai-tunnel/tunnel.env
+# Control-plane egress goes through the local proxy; loopback MCP stays direct.
+Environment=HTTPS_PROXY=http://127.0.0.1:7890
+Environment=HTTP_PROXY=http://127.0.0.1:7890
+Environment=NO_PROXY=127.0.0.1,localhost,::1
+# Fail fast with a clear message when the owner inputs are missing/placeholder.
+ExecStartPre=/bin/sh -c 'test -s %h/.veya/openai-tunnel/runtime_api_key || { echo "owner input missing: runtime_api_key is empty" >&2; exit 1; }'
+ExecStartPre=/bin/sh -c 'grep -qE "^CONTROL_PLANE_TUNNEL_ID=tunnel_[A-Za-z0-9]+$" %h/.veya/openai-tunnel/tunnel.env || { echo "owner input missing: CONTROL_PLANE_TUNNEL_ID is not a tunnel_... id" >&2; exit 1; }'
+ExecStart=%h/.local/bin/tunnel-client-runtime run --config %h/.veya/openai-tunnel/tunnel-client.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -38,10 +38,11 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from veya.obase._llm_config import get_api_key
 from veya.obase import llm as _llm
+from veya.obase._llm_config import get_api_key
 from veya.obase.free_pool import FreePoolLifecycle, FreePoolSnapshot, entry_key
 from veya.obase.llm import _NVIDIA_NIM_ALIASES, llm_call
+
 
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
@@ -64,13 +65,18 @@ app = FastAPI(title="veya LLM gateway", lifespan=_app_lifespan)
 # veya1.2-free 的活动池由下方生命周期任务独立维护。
 # ---------------------------------------------------------------------------
 _STATIC_CATALOG: dict[str, dict[str, Any]] = {
+    # --- SPEC v1.0 §2: the four canonical proxies come first ---
     "veya1.2": {"model": "veya1.2"},
+    "veya-free": {"model": "veya-free"},
+    "veya-nim": {"model": "veya-nim"},
+    "veya-vl": {"model": "veya-vl"},
+    # --- deprecated spellings, kept resolvable per §11 ---
     "veya1.1": {"model": "veya1.1"},
-    # 历史别名保留兼容，但不再代表旧的 opencode zen 主脑池。
     "veya1.2-flash": {"model": "veya1.2-flash"},
     "veya1.2-free": {"model": "veya1.2-free"},
     "veya1.2-vl": {"model": "veya1.2-vl"},
     "veya1.2-128K": {"model": "veya1.2-128K"},
+    "veya-dp4.1-jev-1.13": {"model": "veya-dp4.1-jev-1.13"},
     "gpt-5.6-luna": {
         "provider": "openai",
         "model": "gpt-5.6-luna",
@@ -160,12 +166,8 @@ def _env_float(name: str, default: float) -> float:
 
 
 _FREE_POOL_REFRESH_SECONDS = _env_float("VEYA_FREE_POOL_REFRESH_HOURS", 24.0) * 3600
-_FREE_POOL_REFRESH_TIMEOUT_SECONDS = _env_float(
-    "VEYA_FREE_POOL_REFRESH_TIMEOUT_SECONDS", 180.0
-)
-_FREE_POOL_FAILURE_THRESHOLD = max(
-    1, int(os.environ.get("VEYA_FREE_POOL_FAILURE_THRESHOLD", "3"))
-)
+_FREE_POOL_REFRESH_TIMEOUT_SECONDS = _env_float("VEYA_FREE_POOL_REFRESH_TIMEOUT_SECONDS", 180.0)
+_FREE_POOL_FAILURE_THRESHOLD = max(1, int(os.environ.get("VEYA_FREE_POOL_FAILURE_THRESHOLD", "3")))
 _FREE_POOL_MAX_ACTIVE = max(0, int(os.environ.get("VEYA_FREE_POOL_MAX_ACTIVE", "32")))
 _FREE_POOL_MAX_DISCOVERED_PER_SOURCE = max(
     1, int(os.environ.get("VEYA_FREE_POOL_MAX_DISCOVERED_PER_SOURCE", "24"))
@@ -356,7 +358,7 @@ async def _probe_free_entry(client: httpx.AsyncClient, entry: dict[str, str]) ->
         response = await client.post(chat_endpoint, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
-        message = ((data.get("choices") or [{}])[0].get("message") or {})
+        message = (data.get("choices") or [{}])[0].get("message") or {}
         if message.get("tool_calls") or str(message.get("content") or "").strip():
             return True, ""
         return False, "empty response"
@@ -478,6 +480,18 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
     resp = await llm_call(messages, **call_kwargs)
     resp_id = f"{requested}-{int(time.time() * 1000)}"
     created = int(time.time())
+    # The public Veya contract exposes the requested logical alias as the
+    # response identity.  Preserve the provider-selected upstream model only
+    # in the controlled routing trace; clients must not mistake it for the
+    # canonical Veya model.
+    router = resp.get("router") or resp.get("_routed") or {}
+    resolved_model = router.get("model") if isinstance(router, dict) else None
+    if resolved_model and resolved_model != requested:
+        resp["veya_routing"] = {
+            "requested_model": requested,
+            "resolved_model": resolved_model,
+            "alias": requested,
+        }
     if body.get("stream"):
         return StreamingResponse(
             _sse_from_resp(resp, resp_id, created, requested), media_type="text/event-stream"
@@ -485,7 +499,7 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
     resp.setdefault("id", resp_id)
     resp.setdefault("object", "chat.completion")
     resp.setdefault("created", created)
-    resp.setdefault("model", requested)
+    resp["model"] = requested
     return JSONResponse(resp)
 
 

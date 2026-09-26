@@ -50,8 +50,8 @@ export const MODEL_PRESETS: Record<string, string[]> = {
 };
 
 export const BUILTIN_PROVIDERS: ProviderDef[] = [
-	// veya1.2: GMI MiniMax M3 主模型 + OpenRouter 免费兜底
-	{ id: "veya1.2", label: "Veya 1.2 (GMI MiniMax M3)", defaultModel: "veya1.2" },
+	// veya1.2: opencode-go DeepSeek V4.1 Flash 主模型 + OpenRouter 免费模型兜底
+	{ id: "veya1.2", label: "Veya 1.2 (opencode-go DeepSeek V4.1 Flash)", defaultModel: "veya1.2" },
 	{ id: "dashscope", label: "DashScope · Qwen", defaultModel: "qwen-plus" },
 	{ id: "anthropic", label: "Anthropic · Claude", defaultModel: "claude-haiku-4-5-20251001" },
 	{ id: "openai", label: "OpenAI · GPT", defaultModel: "gpt-4o-mini" },
@@ -80,7 +80,9 @@ function emptyCred(): Credential {
 }
 
 function migrateProvider(provider: string): string {
-	return provider === "veya1.1" ? "veya1.2" : provider;
+	// 旧别名 veya1.1 → veya1.2；已下线的 opencode-go 直连默认 → 带回兜底的 veya1.2。
+	if (provider === "veya1.1" || provider === "opencode-go") return "veya1.2";
+	return provider;
 }
 
 function load(): StoredState {

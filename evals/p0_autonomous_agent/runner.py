@@ -449,7 +449,11 @@ def _score_case(spec: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any
         "non_coding_ok": non_coding_ok,
         "approval_ok": approval_ok,
         "replan_ok": replan_ok,
-        "behavior_ok": approval_ok if category == "approval" else replan_ok if category == "failure_replan" else None,
+        "behavior_ok": approval_ok
+        if category == "approval"
+        else replan_ok
+        if category == "failure_replan"
+        else None,
         "verified_success": bool(result_evidence),
         "verification_evidence": result_evidence,
         "legacy_bypass": bypass,
@@ -617,7 +621,9 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             results.append(score)
             print(f"TASK_{len(results)}=" + json.dumps(score, ensure_ascii=False, sort_keys=True))
     coding = [item for item in results if item.get("category") == "coding"]
-    noncoding = [item for item in results if item.get("category") in {"research", "browser", "knowledge"}]
+    noncoding = [
+        item for item in results if item.get("category") in {"research", "browser", "knowledge"}
+    ]
     semantic = [item for item in results if not item.get("behavior_only")]
     behavior = [item for item in results if item.get("behavior_only")]
     approval = next((item for item in results if item.get("fixture_id") == "approval-1"), {})

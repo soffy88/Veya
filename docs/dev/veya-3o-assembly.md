@@ -76,8 +76,8 @@
 `CheckpointData` `RunState` `SubagentDefinition`
 `ServiceManifest` `assemble` `bash_exec` `build_ripgrep_args`
 `cached` `compute_diff` `diff_session_state` `evaluate_hooks` `file_read`
-`file_read_range` `file_write` `git_diff` `git_status`
-`glob_match` `http_fetch` `llm_call` `llm_stream` `lsp_diagnostics`
+`file_read_range` `file_write`
+`glob_match` `http_fetch` `llm_call` `llm_stream`
 `make_checkpoint` `match_permission_rule` `mcp_call_tool` `mcp_connect`
 `merge_config` `parse_ripgrep_output` `plan_to_todos` `read_skill_frontmatter`
 `redact_share_secrets` `resolve_memory_hierarchy` `restore_from_checkpoint`

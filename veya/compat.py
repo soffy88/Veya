@@ -1,14 +1,44 @@
-"""veya/compat — 3O 归位门面 (sys.modules 别名 → veya/obase/compat).
+"""veya.compat — legacy compatibility facade over the 3O assembly.
 
-veya 包按 3O 范式重构 (SPEC v3.0 §2.1): 顶层平铺模块归位到分层包
-veya/obase/compat.py。本文件注册 sys.modules 别名, 使 import veya.compat
-拿到与 veya.obase.compat 完全相同的模块对象 — 属性访问/monkeypatch/
-私有符号全部等价, 旧导入路径零成本兼容。新代码应直接
-import veya.obase.compat。
+Low-level compatibility helpers remain in veya.obase.compat. Public names that
+now have canonical omodul implementations are resolved lazily from the mounted
+3O main library. This preserves the old veya.compat import surface without
+keeping a second implementation in Veya.
 """
 
+from __future__ import annotations
+
 import sys
+from typing import Any
 
 from veya.obase import compat as _impl
 
+_CANONICAL_OMODUL_EXPORTS = frozenset(
+    {
+        "SubagentConfig",
+        "SubagentInput",
+        "compact_session",
+        "execute_tool",
+        "init_project",
+        "process_prompt",
+        "run_subagent",
+        "run_subagent_task",
+    }
+)
+_previous_getattr = getattr(_impl, "__getattr__", None)
+
+
+def _compat_getattr(name: str) -> Any:
+    if name in _CANONICAL_OMODUL_EXPORTS:
+        from veya.platform import omodul as _load_omodul
+
+        value = getattr(_load_omodul(), name)
+        setattr(_impl, name, value)
+        return value
+    if _previous_getattr is not None:
+        return _previous_getattr(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+_impl.__getattr__ = _compat_getattr
 sys.modules[__name__] = _impl

@@ -448,7 +448,7 @@ class AgentSpawner:
             return None
 
         wt_name = f"agent-{agent_name}-{int(time.time())}"
-        wt_path = base.parent / ".worktrees" / wt_name
+        wt_path = (base.parent / ".veya" / "worktrees").resolve() / wt_name
         wt_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:

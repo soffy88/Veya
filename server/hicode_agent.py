@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import logging
 import os
@@ -40,7 +41,11 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
 
+from server import exec_process
+from server.hicode_cooldown import classify_upstream_failure, record_cooldown
+from server.hicode_host_boundary import hicode_host_gate
 from server.hicode_runtime import HicodeRuntimeError, get_hicode_executor
+from server.process_guard import executor_spawn_kwargs
 
 logger = logging.getLogger("hicode")
 
@@ -48,7 +53,7 @@ logger = logging.getLogger("hicode")
 DEFAULT_WORKSPACE = os.environ.get(
     "HICODE_WORKSPACE", str(Path.home() / ".veya" / "hicode-workspace")
 )
-DEFAULT_MODEL = os.environ.get("HICODE_MODEL", "luna")
+DEFAULT_MODEL = os.environ.get("HICODE_MODEL", "gemini-pro-agent")
 DEFAULT_MAX_STEPS = int(os.environ.get("HICODE_MAX_STEPS", "0"))  # 0 = 自动
 DEFAULT_TIMEOUT_SEC = int(os.environ.get("HICODE_TIMEOUT_SEC", "1800"))
 # 本地网关免鉴权 (10101: 无 Authorization 放行, 假 key 反而 403) —
@@ -65,6 +70,41 @@ _PROXY_UPSTREAM = os.environ.get("HICODE_PROXY_UPSTREAM", "http://192.168.16.1:1
 _PROXY_UPSTREAM_HOST = os.environ.get("HICODE_PROXY_UPSTREAM_HOST", "127.0.0.1:10100")
 
 _proxy_server: Any | None = None
+_BOUND_WORKSPACE: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "hicode_bound_workspace", default=None
+)
+_BOUND_EXECUTION_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "hicode_bound_execution_id", default=None
+)
+
+
+@contextlib.contextmanager
+def bound_hicode_workspace(workspace: str | Path):
+    """Temporarily bind Hicode's resolver to one validated L1 worktree.
+
+    The ordinary public ``hicode_run`` boundary remains constrained by the
+    configured ``HICODE_WORKSPACE`` root.  Internal L1 execution already has a
+    session-authorized, isolated worktree, which may be outside that default
+    root; a context-local binding lets concurrent children use their own
+    validated worktree without mutating process-global environment or policy.
+    """
+
+    token = _BOUND_WORKSPACE.set(Path(workspace).expanduser().resolve())
+    try:
+        yield
+    finally:
+        _BOUND_WORKSPACE.reset(token)
+
+
+@contextlib.contextmanager
+def bound_hicode_execution_id(execution_id: str):
+    """Bind execution metadata without changing the Hicode call signature."""
+
+    token = _BOUND_EXECUTION_ID.set(str(execution_id))
+    try:
+        yield
+    finally:
+        _BOUND_EXECUTION_ID.reset(token)
 
 
 def _ensure_local_proxy() -> None:
@@ -124,6 +164,175 @@ class HicodeUnavailable(RuntimeError):
     """二进制缺失或不可执行 (主脑应看到可操作的降级提示)。"""
 
 
+class HicodeExecutionError(HicodeUnavailable):
+    """Typed provider/runtime failure with bounded raw evidence."""
+
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        *,
+        raw_evidence: dict[str, Any] | None = None,
+        failure_class: str | None = None,
+        retryable_immediately: bool | None = None,
+        retry_not_before: float | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.code = str(code)
+        self.detail = str(detail)
+        self.raw_evidence = dict(raw_evidence or {})
+        self.failure_class = failure_class or code
+        self.retryable_immediately = retryable_immediately
+        self.retry_not_before = retry_not_before
+
+
+def _safe_failure_value(value: Any, *, depth: int = 0) -> Any:
+    if depth > 5:
+        return "<max-depth>"
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            name = str(key)
+            if any(
+                secret in name.lower()
+                for secret in ("authorization", "api_key", "apikey", "password", "secret", "token")
+            ):
+                out[name] = "<redacted>"
+            else:
+                out[name] = _safe_failure_value(item, depth=depth + 1)
+        return out
+    if isinstance(value, list):
+        return [_safe_failure_value(item, depth=depth + 1) for item in value[-20:]]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def _empty_assistant_reply(value: Any) -> bool:
+    if isinstance(value, dict):
+        role = str(value.get("role") or "").lower()
+        if role == "assistant" and value.get("content") is None and value.get("tool_calls") == []:
+            return True
+        return any(_empty_assistant_reply(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_empty_assistant_reply(item) for item in value)
+    return False
+
+
+def _structured_failure_event(ev: dict[str, Any]) -> dict[str, Any] | None:
+    """Return typed failure metadata only for explicit structured failure signals."""
+
+    kind = str(ev.get("kind") or ev.get("type") or "").strip().lower()
+    explicit_kinds = {
+        "error",
+        "provider_error",
+        "model_error",
+        "round_error",
+        "turn_error",
+        "round_failed",
+        "turn_failed",
+    }
+    if ev.get("is_error") is not True and kind not in explicit_kinds:
+        return None
+    raw_error = ev.get("error")
+    if isinstance(raw_error, dict):
+        code = raw_error.get("code") or ev.get("code")
+        detail = raw_error.get("message") or raw_error.get("detail")
+    else:
+        code = ev.get("code")
+        detail = raw_error
+    code_text = str(code or "HICODE_PROVIDER_ROUND_FAILURE")
+    detail_text = str(detail or ev.get("message") or code_text)[:4000]
+    round_index = None
+    for key in ("round_index", "round", "turn", "turn_index"):
+        value = ev.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            round_index = value
+            break
+    return {
+        "code": code_text,
+        "detail": detail_text,
+        "round_index": round_index,
+        "raw_evidence": _safe_failure_value(ev),
+    }
+
+
+def _hicode_result_error(
+    result: dict[str, Any] | None,
+    *,
+    raw_events: list[dict[str, Any]],
+    stderr_tail: str,
+    exit_code: int | None,
+) -> HicodeExecutionError | None:
+    """Classify one Reasonix terminal result without using assistant narration."""
+
+    evidence = {
+        "result": _safe_failure_value(result),
+        "recent_events": raw_events[-10:],
+        "stderr_tail": str(stderr_tail)[-2000:],
+        "exit_code": exit_code,
+    }
+    quota = classify_upstream_failure({"result": result, "stderr": stderr_tail})
+    if quota is not None:
+        record_cooldown(quota)
+        return HicodeExecutionError(
+            "MODEL_COOLDOWN",
+            "Hicode model quota exhausted; caller must wait before retrying",
+            raw_evidence={
+                **evidence,
+                "failure_class": quota.failure_class,
+                "provider": quota.provider,
+                "model": quota.model,
+                "upstream_evidence": quota.upstream_evidence,
+                "upstream_reset_seconds": quota.upstream_reset_seconds,
+                "effective_retry_not_before": quota.cooldown_until,
+            },
+            failure_class=quota.failure_class,
+            retryable_immediately=False,
+            retry_not_before=quota.cooldown_until,
+        )
+    if result is None:
+        return HicodeExecutionError(
+            "HICODE_NO_STRUCTURED_RESULT",
+            f"hicode returned no structured result (exit={exit_code})",
+            raw_evidence=evidence,
+        )
+    raw_tool_calls = result.get("tool_calls")
+    if isinstance(raw_tool_calls, list):
+        tool_call_count = len(raw_tool_calls)
+    else:
+        try:
+            tool_call_count = int(raw_tool_calls or 0)
+        except (TypeError, ValueError):
+            tool_call_count = 0
+    try:
+        model_request_count = int(result.get("model_requests") or result.get("num_turns") or 0)
+    except (TypeError, ValueError):
+        model_request_count = 0
+    body = result.get("result")
+    has_empty_assistant = _empty_assistant_reply(result) or any(
+        _empty_assistant_reply(event) for event in raw_events
+    )
+    semantically_empty = (
+        not str(body or "").strip() and tool_call_count == 0 and model_request_count > 0
+    )
+    if result.get("subtype") != "managed_bootstrap" and (has_empty_assistant or semantically_empty):
+        return HicodeExecutionError(
+            "EMPTY_MODEL_RESPONSE",
+            "provider returned an empty assistant response with no tool calls",
+            raw_evidence=evidence,
+        )
+    if bool(result.get("is_error")):
+        detail = str(
+            result.get("error")
+            or result.get("result")
+            or result.get("subtype")
+            or "Hicode provider error"
+        )[:4000]
+        return HicodeExecutionError("HICODE_PROVIDER_ERROR", detail, raw_evidence=evidence)
+    return None
+
+
 def _resolve_bin() -> str:
     try:
         return get_hicode_executor().resolve_binary()
@@ -139,13 +348,10 @@ def _bin_version() -> str | None:
 
 
 def _sandbox_profile() -> str:
-    try:
-        from veya.platform import load
+    """Read the host profile without importing any 3O package."""
 
-        return str(load("oprim").sandbox_profile())
-    except Exception:
-        raw = os.environ.get("VEYA_SANDBOX_PROFILE", "local").strip().lower()
-        return "hosted" if raw in {"hosted", "host", "cloud", "prod"} else "local"
+    raw = os.environ.get("VEYA_SANDBOX_PROFILE", "local").strip().lower()
+    return "hosted" if raw in {"hosted", "host", "cloud", "prod"} else "local"
 
 
 def _current_owner_id() -> str:
@@ -163,6 +369,9 @@ def _safe_owner_segment(owner_id: str) -> str:
 
 
 def _workspace_root() -> Path:
+    bound = _BOUND_WORKSPACE.get()
+    if bound is not None:
+        return bound
     root = Path(DEFAULT_WORKSPACE).expanduser().resolve()
     if _sandbox_profile() == "hosted":
         return (root / "users" / _safe_owner_segment(_current_owner_id())).resolve()
@@ -192,6 +401,7 @@ async def _run_hicode(
     on_event: Callable[[dict], None] | None = None,
     continue_: bool = False,
     resume_id: str | None = None,
+    on_process: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """执行一次 hicode 子进程, 流式解析 stream-json 事件, 返回最终结果对象。
 
@@ -203,7 +413,27 @@ async def _run_hicode(
     bin_path = _resolve_bin()
     try:
         runtime = get_hicode_executor()
+        runtime.ensure_runtime_preflight()
         env = runtime.execution_environment()
+        runtime.run_managed_bootstrap(
+            request={
+                "execution_id": _BOUND_EXECUTION_ID.get() or "",
+                "workspace": str(workspace),
+                "objective": " ".join(args[-1:])[:2000],
+                "model": DEFAULT_MODEL,
+                "provider": os.environ.get("HICODE_REASONIX_PROVIDER", "luna"),
+                "context": {"bootstrap": "pre-model-request"},
+            }
+        )
+        if os.environ.get("HICODE_BOOTSTRAP_ONLY", "").strip() == "1":
+            return {
+                "subtype": "managed_bootstrap",
+                "is_error": False,
+                "result": "managed Hicode bootstrap ready",
+                "num_turns": 0,
+                "model_requests": 0,
+                "tool_calls": 0,
+            }
     except HicodeRuntimeError as exc:
         raise HicodeUnavailable(str(exc)) from exc
     workspace.mkdir(parents=True, exist_ok=True)
@@ -230,7 +460,12 @@ async def _run_hicode(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
+        **executor_spawn_kwargs(),
     )
+    exec_process.record_current(os.environ.get(exec_process.PIDFILE_ENV, ""), proc, str(workspace))
+    if on_process is not None:
+        with contextlib.suppress(OSError):
+            on_process(int(proc.pid), int(os.getpgid(proc.pid) or proc.pid))
     stderr_lines: list[str] = []
 
     async def _drain_stderr() -> None:
@@ -243,6 +478,7 @@ async def _run_hicode(
 
     stderr_task = asyncio.create_task(_drain_stderr())
     result: dict[str, Any] | None = None
+    raw_events: list[dict[str, Any]] = []
     try:
         assert proc.stdout is not None
         while True:
@@ -256,6 +492,9 @@ async def _run_hicode(
                 ev = json.loads(text)
             except json.JSONDecodeError:
                 continue
+            if isinstance(ev, dict):
+                raw_events.append(_safe_failure_value(ev))
+                del raw_events[: max(0, len(raw_events) - 20)]
             if ev.get("type") == "result":
                 result = ev
                 break
@@ -271,9 +510,16 @@ async def _run_hicode(
         if proc.returncode is None:
             proc.kill()
             await proc.wait()
-    if result is None:
-        tail = "".join(stderr_lines)[-1500:] or "(无 stderr)"
-        raise HicodeUnavailable(f"hicode 无结构化结果 (exit={proc.returncode}):\n{tail}")
+
+    error = _hicode_result_error(
+        result,
+        raw_events=raw_events,
+        stderr_tail="".join(stderr_lines),
+        exit_code=proc.returncode,
+    )
+    if error is not None:
+        raise error
+    assert result is not None
     return result
 
 
@@ -302,6 +548,19 @@ def _tool_brief(name: str, args: dict) -> str:
 def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
     """stream-json 中间事件 → 精简进度事件 (→ SSE hicode_progress)。"""
     if on_event is None:
+        return
+    failure = _structured_failure_event(ev)
+    if failure is not None:
+        on_event(
+            {
+                "stage": "provider_failure",
+                "tool": None,
+                "detail": failure["detail"],
+                "code": failure["code"],
+                "round_index": failure["round_index"],
+                "raw_evidence": failure["raw_evidence"],
+            }
+        )
         return
     kind = ev.get("kind")
     if kind == "turn_started":
@@ -384,6 +643,7 @@ async def _execute_hicode_core(
     continue_: bool = False,
     on_event: Callable[[dict], None] | None = None,
     force_cli: bool = False,
+    on_process: Callable[[int, int], None] | None = None,
 ) -> str:
     """真正执行一个 hicode 编程任务 (默认 serve 优先, CLI 兜底)。
 
@@ -398,36 +658,46 @@ async def _execute_hicode_core(
     场景 (如 project_ask) 必须走 CLI (`--add-dir <workspace>`) 才能保证
     改动真的落在调用方指定的目录内 (2026-08-15 真机 smoke 验证发现)。
     """
-    hosted_session = None
-    if _sandbox_profile() == "hosted":
-        try:
-            ws_host = _resolve_workspace(workspace)
-        except ValueError as e:
-            return f"错误: {e}"
-        from veya.platform import load
+    return await _execute_hicode_core_inner(
+        task,
+        workspace=workspace,
+        max_steps=max_steps,
+        timeout_sec=timeout_sec,
+        session_id=session_id,
+        continue_=continue_,
+        on_event=on_event,
+        force_cli=force_cli,
+        on_process=on_process,
+    )
 
-        hosted_session = load("omodul").sandbox_session(
-            "hicode_workspace",
-            owner_id=_current_owner_id(),
-            workspace=str(ws_host),
-            profile="hosted",
-        )
-        if not hosted_session.ok:
-            return f"错误: hosted hicode volume: {hosted_session.error}"
-    try:
-        return await _execute_hicode_core_inner(
-            task,
-            workspace=workspace,
-            max_steps=max_steps,
-            timeout_sec=timeout_sec,
-            session_id=session_id,
-            continue_=continue_,
-            on_event=on_event,
-            force_cli=force_cli,
-        )
-    finally:
-        if hosted_session is not None:
-            hosted_session.close()
+
+def _build_hicode_spec(user_prompt: str) -> str:
+    """Build the Hicode task envelope without importing the Veya main brain."""
+
+    return (
+        "# 任务\n"
+        f"{user_prompt.strip()}\n\n"
+        "# 执行规范\n"
+        "1. 在隔离工作区完成, 只改动完成任务所需的最小文件集。\n"
+        "2. 优先交付可运行代码; 写完后必须实际运行验证, 不能只写不跑。\n"
+        "3. 完成后报告: 改了哪些文件、运行了什么命令、验证输出是什么。\n"
+        "4. 若任务有歧义, 选最合理实现并在报告中说明假设。\n"
+    )
+
+
+def _format_hicode_result(result: dict[str, Any]) -> str:
+    """Format a serve result without loading coordinator/3O modules."""
+
+    if result.get("status") == "error":
+        return f"⚠ hicode 执行失败: {result.get('error')}"
+    body = (result.get("result") or "").strip()
+    turns = result.get("turns") or 0
+    tools = result.get("tool_calls") or []
+    usage = result.get("usage") or {}
+    head = f"✅ hicode 执行完成 (轮次={turns}, 工具调用={len(tools)})"
+    if usage.get("promptTokens") or usage.get("completionTokens"):
+        head += f", in={usage.get('promptTokens', 0)} out={usage.get('completionTokens', 0)}"
+    return f"{head}\n{body[:8000]}"
 
 
 async def _execute_hicode_core_inner(
@@ -439,29 +709,23 @@ async def _execute_hicode_core_inner(
     continue_: bool = False,
     on_event: Callable[[dict], None] | None = None,
     force_cli: bool = False,
+    on_process: Callable[[int, int], None] | None = None,
 ) -> str:
     # 新编程任务 → 优先 hicode serve (独立 oservi, HTTP+SSE 进度回流);
     # serve 不可达/失败 → 回退 CLI (功能等价, 含 checkpoint/续做/回滚)。
     # 续做/恢复仍走 CLI (会话状态在 workspace)。force_cli 时也直接跳过。
     if not force_cli and not continue_ and not session_id:
         try:
-            from server.coordinator_master import (
-                _build_hicode_spec,
-                _format_hicode_result,
-            )
             from server.hicode_serve import get_serve_client
 
             client = get_serve_client()
             if await client.health():
                 ws0 = _resolve_workspace(workspace)
-                from veya.platform import load
-
-                broker = load("omodul").get_broker()
                 # 短锁: 只护住快照本身, 在调 client.run_task 前释放——run_task
                 # 内部会再拿一次同一把 (按路径 key 的) 锁, 顺序 acquire 不是
                 # 嵌套, 不会死锁 (phase 互斥: 防跟别的 session 的 CLI 路径撞
                 # 同一工作目录的 git 操作)。
-                async with broker.async_workspace(str(ws0)):
+                async with hicode_host_gate().async_workspace(str(ws0)):
                     _snapshot_workspace(ws0, task)  # checkpoint (回滚可用)
                 res = await client.run_task(
                     _build_hicode_spec(task),
@@ -471,7 +735,30 @@ async def _execute_hicode_core_inner(
                 )
                 if res.get("status") != "error":
                     return _format_hicode_result(res)
+                quota = classify_upstream_failure(res)
+                if quota is not None:
+                    record_cooldown(quota)
+                    raise HicodeExecutionError(
+                        "MODEL_COOLDOWN",
+                        "Hicode model quota exhausted; caller must wait before retrying",
+                        raw_evidence={
+                            "failure_class": quota.failure_class,
+                            "provider": quota.provider,
+                            "model": quota.model,
+                            "upstream_evidence": quota.upstream_evidence,
+                            "upstream_reset_seconds": quota.upstream_reset_seconds,
+                            "effective_retry_not_before": quota.cooldown_until,
+                        },
+                        failure_class=quota.failure_class,
+                        retryable_immediately=False,
+                        retry_not_before=quota.cooldown_until,
+                    )
         except Exception as exc:
+            if (
+                isinstance(exc, HicodeExecutionError)
+                and exc.failure_class == "UPSTREAM_QUOTA_EXHAUSTED"
+            ):
+                raise
             logger.info("hicode serve 不可用, 回退 CLI: %s", exc)
 
     # ── CLI 路径 (续做 / serve 不可达时的兜底) ──
@@ -482,6 +769,8 @@ async def _execute_hicode_core_inner(
     try:
         _resolve_bin()  # 提前失败给出安装指引
     except HicodeUnavailable as e:
+        if force_cli:
+            raise
         return f"hicode 不可用: {e}"
 
     args = ["--max-steps", str(max_steps or DEFAULT_MAX_STEPS)]
@@ -490,26 +779,31 @@ async def _execute_hicode_core_inner(
         args += ["--add-dir", str(ws)]
     args.append(task)
 
-    from veya.platform import load
-
-    broker = load("omodul").get_broker()
     # phase 互斥: 快照+执行整段包在同一把工作区锁里, 防跟别的 session 的 CLI
     # 路径 (或 hicode_rollback) 并发撞同一个工作目录的 git/文件操作。
-    async with broker.async_workspace(str(ws)):
+    async with hicode_host_gate().async_workspace(str(ws)):
         # 任务前 git 快照 (checkpoint) — 失败不阻塞执行 (无 git 时回滚不可用)
         checkpoint = _snapshot_workspace(ws, task)
         try:
-            r = await _run_hicode(
-                args,
-                workspace=ws,
-                timeout=timeout,
-                on_event=on_event,
-                continue_=continue_,
-                resume_id=session_id,
-            )
+            run_kwargs: dict[str, Any] = {
+                "workspace": ws,
+                "timeout": timeout,
+                "on_event": on_event,
+                "continue_": continue_,
+                "resume_id": session_id,
+            }
+            if on_process is not None:
+                run_kwargs["on_process"] = on_process
+            r = await _run_hicode(args, **run_kwargs)
+        except HicodeExecutionError:
+            raise
         except HicodeUnavailable as e:
+            if force_cli:
+                raise
             return f"hicode 执行失败: {e}"
         except Exception as e:
+            if force_cli:
+                raise
             logger.exception("hicode_run unexpected error")
             return f"hicode 执行异常: {e}"
 
@@ -589,13 +883,10 @@ async def hicode_rollback(workspace: str | None = None, ref: str | None = None) 
         ws = _resolve_workspace(workspace)
     except ValueError as e:
         return f"错误: {e}"
-    from veya.platform import load
-
-    broker = load("omodul").get_broker()
     try:
         # phase 互斥: reset --hard 是破坏性操作, 跟正在跑的 snapshot/run 同一把
         # 工作区锁, 防止冲掉别的会话进行中的改动。
-        async with broker.async_workspace(str(ws)):
+        async with hicode_host_gate().async_workspace(str(ws)):
             if not (ws / ".git").exists():
                 return "工作区还没有 git 快照 (没有执行过任务)。"
             target = ref or "HEAD~1"
@@ -651,8 +942,8 @@ async def hicode_run(
 ) -> str:
     """执行一个真正的编程任务 (Hicode 编码执行器)。返回执行摘要。
 
-    新任务 → 后台任务队列 (可停止/断线不丢, 结果留在队列可查);
-    续做 (continue_=True) / 恢复 (session_id) → 直接 CLI 执行。
+    新任务、续做与历史会话恢复统一进入后台任务队列 → GoalRun。
+    队列持久化恢复参数并保留停止/断线恢复语义；CLI 只是 GoalRun 叶子的 provider 路径。
     on_event 用于实时进度回调。
     """
     on_event = _ensure_on_event(on_event)
@@ -664,24 +955,21 @@ async def hicode_run(
             task = attach_to_task(task)
         except Exception:
             pass
-    # 续做/恢复: 会话状态在 workspace, 走 CLI 同步执行 (低频管理操作)
-    if continue_ or session_id:
-        return await _execute_hicode_core(
-            task,
-            workspace=workspace,
-            max_steps=max_steps,
-            timeout_sec=timeout_sec,
-            session_id=session_id,
-            continue_=continue_,
-            on_event=on_event,
-        )
-    # 新任务 → 后台队列: 并发提交/串行执行/可停止/断线不丢
+    # 所有新任务/续做/恢复都进入同一 GoalRun 队列；resume 参数作为 durable
+    # instruction envelope 的一部分持久化，避免进程重启后语义丢失。
     from server.hicode_queue import hicode_task_queue
 
     tid = await hicode_task_queue.submit(
         task,
         workspace=workspace,
-        meta={"timeout_sec": timeout_sec or 900, "sid": _current_sid()},
+        meta={
+            "timeout_sec": timeout_sec or 900,
+            "max_steps": max_steps,
+            "session_id": session_id,
+            "continue_": continue_,
+            "force_cli": bool(continue_ or session_id),
+            "sid": _current_sid(),
+        },
     )
     _register_session_task(tid)
     try:
@@ -696,6 +984,8 @@ async def hicode_run(
         return f"任务 #{tid} 已停止 ({rec.error or 'user stop'})。"
     if rec.status == "failed":
         return f"任务 #{tid} 失败: {rec.error or '未知错误'}"
+    if rec.status == "blocked":
+        return f"任务 #{tid} blocked: {rec.error or rec.summary or 'MODEL_COOLDOWN'}"
     return rec.summary or f"任务 #{tid} 已完成 (无摘要)。"
 
 
@@ -703,8 +993,10 @@ async def hicode_sessions(limit: int = 8) -> str:
     """列出最近 hicode 会话 (可续做 / 查看 checkpoint)。"""
     try:
         bin_path = _resolve_bin()
-        get_hicode_executor().ensure_compatible(bin_path)
-        env = get_hicode_executor().execution_environment()
+        runtime = get_hicode_executor()
+        runtime.ensure_runtime_preflight()
+        runtime.ensure_compatible(bin_path)
+        env = runtime.execution_environment()
         ws = _workspace_root()
         ws.mkdir(parents=True, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
@@ -736,7 +1028,12 @@ async def hicode_sessions(limit: int = 8) -> str:
 
 async def hicode_status() -> str:
     """诊断 managed Reasonix / workspace / model (不泄露凭证)。"""
-    status = get_hicode_executor().status()
+    runtime = get_hicode_executor()
+    try:
+        fingerprint = runtime.ensure_runtime_preflight()
+    except HicodeRuntimeError as exc:
+        return f"hicode 不可用: reason={exc}"
+    status = runtime.status()
     if not status.healthy:
         return (
             "hicode 不可用: managed_reasonix_available="
@@ -753,6 +1050,7 @@ async def hicode_status() -> str:
         f"  二进制: {status.executable}\n"
         f"  版本: {status.managed_reasonix_version}\n"
         f"  compatible: {str(status.managed_reasonix_compatible).lower()}\n"
+        f"  runtime fingerprint: {fingerprint['runtime_fingerprint']}\n"
         f"  runtime config: {status.config_path}\n"
         f"  workspace: {root}\n"
         f"  模型: {DEFAULT_MODEL} (Veya-managed runtime config)\n"
@@ -781,6 +1079,7 @@ async def hicode_review(
         ws = _resolve_workspace(workspace)
         bin_path = _resolve_bin()
         runtime = get_hicode_executor()
+        runtime.ensure_runtime_preflight()
         runtime.ensure_compatible(bin_path)
     except (ValueError, HicodeUnavailable, HicodeRuntimeError) as e:
         return f"错误: {e}"

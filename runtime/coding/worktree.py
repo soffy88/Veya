@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .models import CodingWorkspace
 
@@ -22,6 +26,8 @@ class WorktreeRecord:
     repo_root: str
     clean: bool
     changed_files: list[str]
+    locked: bool = False
+    lock_reason: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -31,6 +37,8 @@ class WorktreeRecord:
             "repo_root": self.repo_root,
             "clean": self.clean,
             "changed_files": list(self.changed_files),
+            "locked": self.locked,
+            "lock_reason": self.lock_reason,
         }
 
 
@@ -144,18 +152,36 @@ class WorktreeManager:
             )
         return candidate
 
-    def _registered_paths(self) -> set[Path]:
-        records: set[Path] = set()
+    def _registered_worktree_meta(self) -> dict[Path, dict[str, Any]]:
+        records: dict[Path, dict[str, Any]] = {}
         current_path: Path | None = None
+        current_meta: dict[str, Any] = {}
         output = _git_command(self.repo_root, ["worktree", "list", "--porcelain"])
         for line in output.splitlines():
-            if line.startswith("worktree "):
+            line_str = line.strip()
+            if not line_str:
                 if current_path is not None:
-                    records.add(current_path.resolve())
-                current_path = Path(line.removeprefix("worktree ").strip())
+                    records[current_path.resolve()] = current_meta
+                    current_path = None
+                    current_meta = {}
+                continue
+            if line_str.startswith("worktree "):
+                if current_path is not None:
+                    records[current_path.resolve()] = current_meta
+                current_path = Path(line_str.removeprefix("worktree ").strip())
+                current_meta = {"locked": False, "lock_reason": None}
+            elif line_str.startswith("locked"):
+                reason = line_str.removeprefix("locked").strip()
+                current_meta["locked"] = True
+                current_meta["lock_reason"] = reason or None
+            elif line_str.startswith("branch "):
+                current_meta["branch"] = line_str.removeprefix("branch ").strip()
         if current_path is not None:
-            records.add(current_path.resolve())
+            records[current_path.resolve()] = current_meta
         return records
+
+    def _registered_paths(self) -> set[Path]:
+        return set(self._registered_worktree_meta().keys())
 
     def _assert_registered(self, path: Path) -> None:
         if path not in self._registered_paths():
@@ -165,9 +191,11 @@ class WorktreeManager:
     def _changed_files(status_output: str) -> list[str]:
         changed: list[str] = []
         for line in status_output.splitlines():
-            if not line:
+            if not line.strip():
                 continue
-            value = line[3:] if len(line) > 3 else line
+            value = line[3:].strip() if len(line) > 3 else line.strip()
+            if " -> " in value:
+                value = value.split(" -> ", 1)[1]
             changed.append(value)
         return changed
 
@@ -176,12 +204,22 @@ class WorktreeManager:
     ) -> WorktreeRecord:
         if (task_id is None) == (path is None):
             raise WorktreeError("provide exactly one of task_id or path")
-        target = self._path_for(task_id) if task_id is not None else self._assert_owned_path(path)
+        if task_id is not None:
+            target = self._path_for(task_id)
+        else:
+            assert path is not None
+            target = self._assert_owned_path(path)
         if not target.is_dir():
             raise WorktreeError(f"worktree does not exist: {target}")
         self._assert_registered(target)
+        meta = self._registered_worktree_meta().get(target.resolve(), {})
+        locked = meta.get("locked", False)
+        lock_reason = meta.get("lock_reason")
         branch = _git_command(target, ["branch", "--show-current"]).strip() or "(detached)"
-        status = _git_command(target, ["status", "--short"])
+        status = _git_command(
+            target,
+            ["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"],
+        )
         resolved_task_id = target.name.removeprefix("task-")
         return WorktreeRecord(
             task_id=resolved_task_id,
@@ -190,6 +228,8 @@ class WorktreeManager:
             repo_root=str(self.repo_root),
             clean=not bool(status.strip()),
             changed_files=self._changed_files(status),
+            locked=locked,
+            lock_reason=lock_reason,
         )
 
     def create(
@@ -210,11 +250,57 @@ class WorktreeManager:
         )
         _git_command(self.repo_root, ["rev-parse", "--verify", start_ref])
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        _git_command(
-            self.repo_root,
-            ["worktree", "add", "-b", branch, str(target), start_ref],
-        )
+        existing_branch = _git_command(self.repo_root, ["branch", "--list", branch]).strip()
+        if existing_branch:
+            _git_command(
+                self.repo_root,
+                ["worktree", "add", str(target), branch],
+            )
+        else:
+            _git_command(
+                self.repo_root,
+                ["worktree", "add", "-b", branch, str(target), start_ref],
+            )
+        self._provision_submodules(target)
         return self.status(path=target)
+
+    def _provision_submodules(self, target: Path) -> None:
+        if not (target / ".gitmodules").exists():
+            return
+        try:
+            _git_command(target, ["submodule", "init"])
+            git_modules_dir = self.repo_root / ".git" / "modules"
+            if git_modules_dir.exists():
+                lines = _git_command(
+                    target,
+                    ["config", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
+                ).splitlines()
+                for line in lines:
+                    parts = line.strip().split(None, 1)
+                    if len(parts) == 2:
+                        key, _subpath = parts
+                        sub_name = key.removeprefix("submodule.").removesuffix(".path")
+                        local_repo = git_modules_dir / sub_name
+                        if local_repo.exists():
+                            _git_command(
+                                target,
+                                ["config", f"submodule.{sub_name}.url", str(local_repo)],
+                            )
+            _git_command(
+                target,
+                [
+                    "-c",
+                    "protocol.file.allow=always",
+                    "submodule",
+                    "update",
+                    "--init",
+                    "--recursive",
+                    "--checkout",
+                    "--no-fetch",
+                ],
+            )
+        except Exception:
+            pass
 
     def list(self) -> list[WorktreeRecord]:
         records: list[WorktreeRecord] = []
@@ -223,9 +309,7 @@ class WorktreeManager:
                 records.append(self.status(path=path))
         return records
 
-    def diff(
-        self, task_id: str | None = None, *, path: str | Path | None = None
-    ) -> dict[str, str | list[str]]:
+    def diff(self, task_id: str | None = None, *, path: str | Path | None = None) -> dict[str, Any]:
         record = self.status(task_id, path=path)
         target = Path(record.path)
         patch = _git_command(target, ["diff", "--no-ext-diff", "--binary", "HEAD"])
@@ -247,17 +331,42 @@ class WorktreeManager:
             "patch": patch,
         }
 
-    def discard(self, task_id: str, *, force: bool = False) -> WorktreeRecord:
-        target = self._path_for(task_id)
+    def discard(
+        self,
+        task_id: str | None = None,
+        *,
+        path: str | Path | None = None,
+        force: bool = False,
+    ) -> WorktreeRecord:
+        if (task_id is None) == (path is None):
+            raise WorktreeError("provide exactly one of task_id or path")
+        if task_id is not None:
+            target = self._path_for(task_id)
+        else:
+            assert path is not None
+            target = self._assert_owned_path(path)
         record = self.status(path=target)
+        if record.locked and not force:
+            raise WorktreeError(f"worktree is locked: {record.lock_reason or 'locked'}")
         if not record.clean and not force:
             raise WorktreeError("worktree has uncommitted changes; pass force=True to discard")
         args = ["worktree", "remove"]
         if force:
             args.append("--force")
+            if record.locked:
+                args.append("--force")
         args.append(str(target))
         _git_command(self.repo_root, args)
         return record
+
+    def prune(self, *, dry_run: bool = False, verbose: bool = True) -> str:
+        """Explicit maintenance sweep to prune stale worktree metadata."""
+        args = ["worktree", "prune"]
+        if dry_run:
+            args.append("--dry-run")
+        if verbose:
+            args.append("-v")
+        return _git_command(self.repo_root, args)
 
 
 def repo_root_for_worktree(path: str | Path) -> Path:
@@ -271,11 +380,313 @@ def repo_root_for_worktree(path: str | Path) -> Path:
     raise WorktreeError(f"cannot resolve a Veya worktree path: {candidate}")
 
 
+_ALLOWED_TERMINAL_STATES: frozenset[str] = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
+_TEARDOWN_LOCKS: dict[str, threading.Lock] = {}
+_TEARDOWN_LOCKS_MUTEX = threading.Lock()
+
+
+def _get_teardown_lock(path_str: str) -> threading.Lock:
+    with _TEARDOWN_LOCKS_MUTEX:
+        return _TEARDOWN_LOCKS.setdefault(path_str, threading.Lock())
+
+
+def _has_process_reference(target_path: Path) -> tuple[bool, str | None]:
+    target_str = str(target_path.resolve())
+    current_uid = os.getuid()
+    try:
+        proc = Path("/proc")
+        if not proc.is_dir():
+            return False, None
+        for entry in os.scandir(proc):
+            if not entry.name.isdigit():
+                continue
+            pid = entry.name
+            try:
+                st = entry.stat()
+                if st.st_uid != current_uid:
+                    continue
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                continue
+
+            # 1. cwd
+            try:
+                cwd = os.readlink(f"/proc/{pid}/cwd")
+                if cwd == target_str or cwd.startswith(target_str + "/"):
+                    return True, f"process {pid} has cwd in worktree: {cwd}"
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                pass
+
+            # 2. exe
+            try:
+                exe = os.readlink(f"/proc/{pid}/exe")
+                if exe == target_str or exe.startswith(target_str + "/"):
+                    return True, f"process {pid} exe in worktree: {exe}"
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                pass
+
+            # 3. fd/*
+            try:
+                for fd_entry in os.scandir(f"/proc/{pid}/fd"):
+                    try:
+                        link = os.readlink(fd_entry.path)
+                        if link == target_str or link.startswith(target_str + "/"):
+                            return (
+                                True,
+                                f"process {pid} has open fd {fd_entry.name} in worktree: {link}",
+                            )
+                    except (FileNotFoundError, ProcessLookupError, PermissionError):
+                        pass
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                pass
+
+            # 4. maps
+            try:
+                with open(f"/proc/{pid}/maps", errors="ignore") as mf:
+                    for line in mf:
+                        if target_str in line:
+                            return True, f"process {pid} has memory mapped file in worktree"
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                pass
+    except Exception as exc:
+        return True, f"process reference inspection failed: {exc}"
+    return False, None
+
+
+def teardown_worktree(
+    path: str | Path,
+    *,
+    execution_status: str | None = None,
+    force: bool = False,
+    debug_retention: bool | None = None,
+) -> dict[str, Any]:
+    """Safely tear down a task worktree when its execution enters an authorized terminal state.
+
+    Enforces fail-closed rules:
+    - Retained if execution_status not in {'COMPLETED', 'FAILED', 'CANCELLED'} (fail-closed!)
+    - Retained if debug_retention is enabled (or VEYA_WORKTREE_DEBUG_RETENTION env set)
+    - Retained if active process references found in /proc (cwd, fd, exe, maps)
+    - Retained if locked (unless force=True)
+    - Retained if dirty / has uncommitted changes (unless force=True)
+    - Discarded if clean, unlocked, and in an authorized terminal state
+    - Idempotent: returns NOT_FOUND if already removed
+    - Failsafe: never raises unhandled exceptions, returns FAILED with error detail
+    """
+    normalized_status = (execution_status or "").strip().upper()
+    if normalized_status not in _ALLOWED_TERMINAL_STATES:
+        status_label = normalized_status or "UNKNOWN"
+        return {
+            "cleaned": False,
+            "status": f"{status_label}_PRESERVED",
+            "path": str(path),
+            "reason": f"execution state '{execution_status}' is not an authorized terminal state",
+            "error": None,
+            "record": None,
+        }
+
+    if debug_retention is None:
+        debug_retention = os.environ.get("VEYA_WORKTREE_DEBUG_RETENTION", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    if debug_retention:
+        return {
+            "cleaned": False,
+            "status": "DEBUG_RETENTION_PRESERVED",
+            "path": str(path),
+            "reason": "worktree retained via debug retention policy",
+            "error": None,
+            "record": None,
+        }
+
+    target = Path(path).expanduser().resolve()
+    lock = _get_teardown_lock(str(target))
+    with lock:
+        if not target.exists():
+            return {
+                "cleaned": False,
+                "status": "NOT_FOUND",
+                "path": str(target),
+                "reason": "worktree does not exist",
+                "error": None,
+                "record": None,
+            }
+
+        try:
+            repo_root = repo_root_for_worktree(target)
+        except WorktreeError as exc:
+            return {
+                "cleaned": False,
+                "status": "NOT_OWNED",
+                "path": str(target),
+                "reason": str(exc),
+                "error": str(exc),
+                "record": None,
+            }
+
+        has_ref, ref_reason = _has_process_reference(target)
+        if has_ref:
+            return {
+                "cleaned": False,
+                "status": "ACTIVE_PRESERVED",
+                "path": str(target),
+                "reason": ref_reason or "active process reference found in /proc",
+                "error": None,
+                "record": None,
+            }
+
+        try:
+            manager = WorktreeManager(repo_root)
+            record = manager.status(path=target)
+
+            if record.locked and not force:
+                return {
+                    "cleaned": False,
+                    "status": "LOCKED_PRESERVED",
+                    "path": str(target),
+                    "reason": f"worktree is locked: {record.lock_reason or 'locked'}",
+                    "error": None,
+                    "record": record.to_dict(),
+                }
+
+            if not record.clean and not force:
+                return {
+                    "cleaned": False,
+                    "status": "DIRTY_PRESERVED",
+                    "path": str(target),
+                    "reason": f"worktree has uncommitted changes: {len(record.changed_files)} files modified",
+                    "error": None,
+                    "record": record.to_dict(),
+                }
+
+            manager.discard(path=target, force=force)
+            return {
+                "cleaned": True,
+                "status": "CLEANED",
+                "path": str(target),
+                "reason": "clean worktree discarded",
+                "error": None,
+                "record": record.to_dict(),
+            }
+        except Exception as exc:
+            return {
+                "cleaned": False,
+                "status": "FAILED",
+                "path": str(target),
+                "reason": str(exc),
+                "error": str(exc),
+                "record": None,
+            }
+
+
+@dataclass
+class WorktreeMetrics:
+    veya_worktrees_total: int = 0
+    veya_worktrees_active: int = 0
+    veya_worktrees_terminal_retained: int = 0
+    veya_worktrees_dirty: int = 0
+    veya_worktrees_cleanup_failed: int = 0
+    veya_worktree_bytes: int = 0
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "veya_worktrees_total": self.veya_worktrees_total,
+            "veya_worktrees_active": self.veya_worktrees_active,
+            "veya_worktrees_terminal_retained": self.veya_worktrees_terminal_retained,
+            "veya_worktrees_dirty": self.veya_worktrees_dirty,
+            "veya_worktrees_cleanup_failed": self.veya_worktrees_cleanup_failed,
+            "veya_worktree_bytes": self.veya_worktree_bytes,
+        }
+
+
+def collect_worktree_metrics(
+    workspace: CodingWorkspace | str | Path,
+    *,
+    store: Any = None,
+) -> WorktreeMetrics:
+    manager = WorktreeManager(workspace)
+    records = manager.list()
+    metrics = WorktreeMetrics(veya_worktrees_total=len(records))
+    for rec in records:
+        wt_path = Path(rec.path)
+        try:
+            total_b = sum(
+                f.stat().st_size for f in wt_path.rglob("*") if f.is_file() and not f.is_symlink()
+            )
+            metrics.veya_worktree_bytes += total_b
+        except Exception:
+            pass
+
+        if not rec.clean:
+            metrics.veya_worktrees_dirty += 1
+
+        has_ref, _ = _has_process_reference(wt_path)
+        if has_ref or rec.locked:
+            metrics.veya_worktrees_active += 1
+        elif not rec.clean:
+            metrics.veya_worktrees_terminal_retained += 1
+    return metrics
+
+
+def reap_stale_worktrees(
+    workspace: CodingWorkspace | str | Path,
+    *,
+    execution_status_lookup: Callable[[str], str | None] | None = None,
+    max_batch: int = 50,
+) -> dict[str, Any]:
+    """Reconcile and safely clean up terminal, clean, unlocked worktrees with no process references."""
+    manager = WorktreeManager(workspace)
+    records = manager.list()
+    reaped: list[str] = []
+    skipped: list[dict[str, str]] = []
+
+    for rec in records:
+        if len(reaped) >= max_batch:
+            break
+        wt_path = Path(rec.path)
+        if not (wt_path.name.startswith("task-") or wt_path.name.startswith("remote-")):
+            continue
+        if rec.locked:
+            skipped.append({"path": rec.path, "reason": "locked"})
+            continue
+        if not rec.clean:
+            skipped.append({"path": rec.path, "reason": "dirty"})
+            continue
+        has_ref, ref_reason = _has_process_reference(wt_path)
+        if has_ref:
+            skipped.append({"path": rec.path, "reason": ref_reason or "active process reference"})
+            continue
+
+        exec_status = "COMPLETED"
+        if execution_status_lookup is not None:
+            exec_status = execution_status_lookup(rec.task_id) or "UNKNOWN"
+
+        res = teardown_worktree(wt_path, execution_status=exec_status)
+        if res.get("cleaned"):
+            reaped.append(rec.path)
+        else:
+            skipped.append(
+                {"path": rec.path, "reason": str(res.get("reason") or res.get("status") or "")}
+            )
+
+    return {
+        "scanned": len(records),
+        "reaped": len(reaped),
+        "reaped_paths": reaped,
+        "skipped": skipped,
+    }
+
+
 __all__ = [
     "WorktreeError",
     "WorktreeManager",
+    "WorktreeMetrics",
     "WorktreeRecord",
     "branch_name_for",
+    "collect_worktree_metrics",
+    "reap_stale_worktrees",
     "repo_root_for_worktree",
+    "teardown_worktree",
     "validate_task_id",
 ]

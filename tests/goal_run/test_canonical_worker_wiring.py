@@ -5,7 +5,7 @@ import pytest
 from runtime.knowledge_reliability import Evidence, RetrievalPlan
 from runtime.provider_reliability import ReliableProviderAdapter
 from runtime.verification.models import EvidenceBundle, VerificationSpec, VerificationVerdict
-from server.coordinator_master import _CANONICAL_TASK_CTX, _CAPABILITY_CTX, MasterCoordinator
+from server.coordinator_master import _CANONICAL_TASK_CTX, MasterCoordinator
 from server.events import bind_event_capability, reset_event_capability
 from server.goal_run.canonical_worker import CanonicalWorkerAdapter
 from server.goal_run.leaf import LeafResult
@@ -24,7 +24,9 @@ class _AcceptanceStub(_VerificationStub):
         self.outcomes = ["FAIL", "PASS"]
         self.bundles = []
 
-    async def collect_evidence_bundle(self, task_id, goal_run_id, head_sha, spec, *, artifact_store):
+    async def collect_evidence_bundle(
+        self, task_id, goal_run_id, head_sha, spec, *, artifact_store
+    ):
         bundle = EvidenceBundle(
             task_id=task_id,
             goal_run_id=goal_run_id,
@@ -37,7 +39,11 @@ class _AcceptanceStub(_VerificationStub):
 
     async def run_independent_verifier(self, spec, bundle, head_sha):
         outcome = self.outcomes.pop(0)
-        factory = VerificationVerdict.create_pass if outcome == "PASS" else VerificationVerdict.create_fail
+        factory = (
+            VerificationVerdict.create_pass
+            if outcome == "PASS"
+            else VerificationVerdict.create_fail
+        )
         kwargs = {
             "task_id": spec.task_id,
             "goal_run_id": spec.goal_run_id,
@@ -137,7 +143,11 @@ async def test_canonical_iteration_uses_knowledge_and_provider_continuity(tmp_pa
     assert state.budget["provider"] == "provider-b"
     assert adapter.provider_response["choices"][0]["message"]["content"] == "ok"
     assert state.budget["provider_continuity"]["goal_run_id"] == state.goal_id
-    assert calls == [("retrieve", "question", "web", 1), ("provider", "provider-a"), ("provider", "provider-b")]
+    assert calls == [
+        ("retrieve", "question", "web", 1),
+        ("provider", "provider-a"),
+        ("provider", "provider-b"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -223,7 +233,6 @@ async def test_master_bound_llm_uses_reliable_adapter_for_canonical_execution():
         reliable_provider_adapter=ReliableProviderAdapter(Router()),
     )
     token = _CANONICAL_TASK_CTX.set("goal-run-canonical")
-    capability_token = _CAPABILITY_CTX.set("coding")
     try:
         response = await coordinator._bound_llm(
             [{"role": "user", "content": "continue"}],
@@ -231,7 +240,6 @@ async def test_master_bound_llm_uses_reliable_adapter_for_canonical_execution():
             config={"fallback_providers": ["provider-b"]},
         )
     finally:
-        _CAPABILITY_CTX.reset(capability_token)
         _CANONICAL_TASK_CTX.reset(token)
 
     assert response["choices"][0]["message"]["tool_calls"]

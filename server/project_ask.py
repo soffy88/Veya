@@ -21,8 +21,8 @@ tool 让 Coordinator 在中间做分支路由。权威任务调度仍是 server.
 blocked + 明确原因收场，这是既有安全边界的正常体现，不在本模块里绕过；
 调用方需要传一个落在 HICODE_WORKSPACE 内的 project_root。
 
-assignee_hint 是白名单枚举: None（自动启发）| builtin | hicode | dsh；
-其余任何值一律直接 blocked，不落到启发式或任何 worker。
+executor 是必填白名单枚举: builtin | hicode | dsh；旧 assignee_hint 仅作显式
+兼容别名，缺少两者时直接 blocked，不落到任何启发式或 worker。
 
 Understand 门禁 (docs/PROJECT_AGENT.md §7, 2026-08-16 补齐): 在上述派工决策之前
 先跑一次 server.project_understand.understand() 判定。判定为 ask → 只追问、
@@ -42,7 +42,9 @@ import shutil
 import time
 from typing import Any
 
+from server import dsh_plane, exec_process
 from server.events import fire_step
+from server.process_guard import executor_spawn_kwargs
 from server.project_store import ProjectAskResponse, ProjectStore, to_project_status
 from server.project_understand import (
     UnderstandResult,
@@ -56,41 +58,7 @@ logger = logging.getLogger("veya.project_ask")
 
 _VALID_MODES = {"auto", "act_eager", "ask_only"}
 
-_EXEC_HINTS = (
-    "修复",
-    "实现",
-    "重构",
-    "写代码",
-    "改代码",
-    "跑测试",
-    "部署",
-    "调试",
-    "fix",
-    "implement",
-    "refactor",
-    "bug",
-    "test",
-    "build",
-    "deploy",
-    "debug",
-)
-
-_VALID_HINTS = {"builtin", "hicode", "dsh"}
-
-
-def _decide_assignee(request: str, hint: str | None) -> str:
-    """builtin（只记录）/ hicode / dsh（派工执行）。
-
-    hint 显式优先（已在 project_ask() 里做过白名单校验); 没给 hint 时按
-    关键词启发 —— 启发式只在 builtin/hicode 间选, dsh 只能靠显式 hint 触发
-    （新 worker 上线期先不参与自动判断, 降低误伤面）。
-    """
-    if hint in _VALID_HINTS:
-        return hint
-    low = request.lower()
-    if any(k in request or k in low for k in _EXEC_HINTS):
-        return "hicode"
-    return "builtin"
+_VALID_EXECUTORS = {"builtin", "hicode", "dsh"}
 
 
 def _now() -> str:
@@ -195,6 +163,7 @@ async def _run_hicode(
 
 _DSH_TIMEOUT_S = 1800  # 与 hicode 默认超时对齐
 _DSH_PROMPT_CHAR_LIMIT = 6000  # headless 任务是 argv 位置参数, 截断避免 ARG_MAX/超长上下文
+_DSH_RUNTIME_BY_CWD: dict[str, Any] = {}
 
 
 def _resolve_dsh_bin() -> str | None:
@@ -205,20 +174,66 @@ def _resolve_dsh_bin() -> str | None:
 async def _dsh_exec(bin_path: str, prompt: str, cwd: str, timeout_s: int) -> tuple[int, str, str]:
     """拉起 dsh headless 子进程执行 prompt。
 
-    官方形态 (apps/cli/README, 2026-08 核实): `dsh --profile headless "<task>"`
+    官方形态: `dsh --profile headless [--patch <overlay>] "<task>"`
     ——一次性任务: 新会话 → 跑完 → 打印最终回答 → 退出; 没有 `run --brief-file`
     这种子命令, 任务是位置参数字符串, 不是文件 flag。cwd=项目根 (workspace root)。
+
+    DSH 是 Veya 的执行器而非独立模型路由: 模型/endpoint/占位 credential 全部由
+    专用配置 server/dsh_plane.py (`~/.config/veya/dsh.env`) 决定, 一律指向 Veya
+    LLM gateway; session 落在持久用户态目录, 不使用 /tmp。
     独立小函数, 便于测试直接 monkeypatch 掉, 不依赖真 dsh 二进制。
     """
+    cfg = dsh_plane.load_config()
+    if dsh_plane.is_cliproxy_google(cfg):
+        # Use DSH's native Web/API session contract for the qualified provider.
+        # The registry is keyed by workspace so continuation reuses the same
+        # DSH Session instead of replaying prior prompts into a new one.
+        from server.dsh_runtime import DSHRuntime
+
+        runtime = _DSH_RUNTIME_BY_CWD.get(cwd)
+        if runtime is None:
+            runtime = DSHRuntime(cfg=cfg)
+            await runtime.start(cwd=cwd)
+            await runtime.select_model("cliproxy-google", dsh_plane.model(cfg))
+            _DSH_RUNTIME_BY_CWD[cwd] = runtime
+        await runtime.prompt([{"type": "text", "text": prompt}])
+        final = ""
+        async for item in runtime.stream:
+            if item.get("type") != "event":
+                continue
+            event = item.get("event") or {}
+            if event.get("type") in {"assistant/message", "assistant/attempt"}:
+                message = event.get("data", {}).get("message", {})
+                final = "".join(
+                    str(part.get("text", ""))
+                    for part in message.get("content", [])
+                    if isinstance(part, dict) and part.get("type") == "text"
+                )
+        if not final.strip():
+            raise RuntimeError("DSH runtime completed without assistant message")
+        return (
+            0,
+            (
+                f"{final}\n"
+                f"DSH_SESSION_ID={runtime.session_id}\n"
+                f"DSH_PROVIDER={runtime.provider or 'cliproxy-google'}\n"
+                f"DSH_MODEL={runtime.model or dsh_plane.model(cfg)}\n"
+            ),
+            (
+                f"DSH_STREAM_EVENTS={len(runtime.stream.events)}\n"
+                f"DSH_STREAM_TERMINAL={'PASS' if runtime.stream.terminal else 'FAIL'}\n"
+            ),
+        )
+
     proc = await asyncio.create_subprocess_exec(
-        bin_path,
-        "--profile",
-        "headless",
-        prompt,
+        *dsh_plane.dsh_argv(bin_path, prompt, cfg),
         cwd=cwd,
+        env=dsh_plane.subprocess_env(cfg),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **executor_spawn_kwargs(),
     )
+    exec_process.record_current(os.environ.get(exec_process.PIDFILE_ENV, ""), proc, cwd)
     try:
         out_b, err_b = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except TimeoutError:
@@ -277,6 +292,11 @@ async def _run_dsh(
     prompt = brief
     if len(prompt) > _DSH_PROMPT_CHAR_LIMIT:
         prompt = prompt[:_DSH_PROMPT_CHAR_LIMIT] + "\n...[truncated]"
+
+    if not dsh_plane.is_enabled():
+        reason = "dsh disabled (DSH_RUNTIME)"
+        (run_dir / "worker.log").write_text(reason, encoding="utf-8")
+        return ProjectAskResponse(task_id=task_id, status="blocked", block_reason=reason)
 
     bin_path = _resolve_dsh_bin()
     if not bin_path:
@@ -437,8 +457,10 @@ async def project_ask(
     assignee_hint: str | None = None,
     parent_task_id: str | None = None,
     mode: str | None = None,
+    *,
+    executor: str | None = None,
 ) -> str:
-    """项目任务唯一入口：先过 Understand 门禁，再决定 builtin/hicode/dsh，写回项目记忆。
+    """项目任务唯一入口：校验显式 executor，先过 Understand 门禁，再执行并写回项目记忆。
 
     Understand 门禁 (docs/PROJECT_AGENT.md §7)：mode=auto（默认）时先判定能否确信
     实现方案与验收标准——判不定 → 只追问、早退（不建业务副作用、不派工）；判定得了
@@ -450,24 +472,34 @@ async def project_ask(
     「等人」而非执行失败）；派工/等待期间的任何异常、dsh 不可用/超时/无 verdict，
     都会被捕获并收敛为 blocked + 原因，不会把裸异常抛回调用方，也不会在 worker
     之间隐式 fallback（避免同一请求被双跑）。
-    assignee_hint 是白名单枚举 (None|builtin|hicode|dsh)；其余值直接 blocked。
+    executor 是必填白名单枚举 (builtin|hicode|dsh)；旧 assignee_hint 仅作为显式
+    兼容别名。缺少两者、两者冲突或值非法时直接 blocked。
     """
     store = ProjectStore(project_root)
     store.ensure_layout()
     task_id = _new_task_id()
     mode = mode or os.environ.get("PROJECT_ASK_DEFAULT_MODE", "auto")
 
-    if assignee_hint is not None and assignee_hint not in _VALID_HINTS:
+    if executor is not None and assignee_hint is not None and executor != assignee_hint:
+        selected_executor = None
+        executor_error = "executor and assignee_hint disagree"
+    else:
+        selected_executor = executor if executor is not None else assignee_hint
+        executor_error = ""
+
+    if selected_executor not in _VALID_EXECUTORS:
         resp = ProjectAskResponse(
             task_id=task_id,
             status="blocked",
             phase="rejected",
-            block_reason=(
-                f"unknown assignee_hint {assignee_hint!r}, must be one of {sorted(_VALID_HINTS)}"
+            block_reason=executor_error
+            or (
+                f"executor is required and must be one of {sorted(_VALID_EXECUTORS)}; "
+                f"got {selected_executor!r}"
             ),
             parent_task_id=parent_task_id,
         )
-        _write_back(store, resp, request, assignee_hint or "unknown")
+        _write_back(store, resp, request, selected_executor or "unknown")
         return _render(resp)
 
     if mode not in _VALID_MODES:
@@ -553,7 +585,7 @@ async def project_ask(
     # 收口到一处, 满足 VAOM"CC/Pi/Hicode/DSH 均通过 HarnessSpec 调用"这条。
     from server.capability_model import harness_registry
 
-    assignee = _decide_assignee(request, assignee_hint)
+    assignee = selected_executor
     understand_prefix = _understand_prefix(u, request, chain)
 
     resp = await harness_registry.execute(
@@ -611,13 +643,12 @@ def _wire_project_ask(master_tools: Any) -> int:
         return 0
     master_tools.register(
         "project_ask",
-        "项目级任务的唯一入口：先澄清再执行。在指定项目目录内完成一次请求，并把结果写回"
+        "项目级任务的唯一入口：由 MasterAgent 显式选择 executor，先澄清再执行。在指定项目目录内完成一次请求，并把结果写回"
         "项目记忆（.veya-project/PROJECT_STATE.md 等）。默认 mode=auto 会先判定这次请求是否"
         "足够明确：不明确 → 只返回 1-3 个追问、不产生任何业务副作用（不改代码、不跑命令）；"
         "明确 → 才会真正处理，三种处理方式：builtin 只把请求记入 DECISIONS.md，**不执行任何"
-        "命令、不改任何代码**；hicode / dsh 才会真正执行代码变更。涉及改代码/跑测试/修 bug/"
-        "部署等执行类请求会自动派给 hicode（除非显式 assignee_hint 指定 dsh）；纯记录/更新状态"
-        "类请求走 builtin。若上一次调用返回了追问，把用户的回答作为新 request、"
+        "命令、不改任何代码**；hicode / dsh 才会真正执行代码变更。executor 必须由"
+        "MasterAgent 显式选择，纯记录/更新状态类请求也必须显式选择 builtin。若上一次调用返回了追问，把用户的回答作为新 request、"
         "parent_task_id 设为上次返回的 task_id 再调一次即可续答。project_root 必须落在 "
         "HICODE_WORKSPACE 内，否则派工会 blocked。终态只有 completed 或 blocked"
         "（等待用户回答追问也算 blocked，原因是 need_clarification，不是执行失败）。",
@@ -632,14 +663,12 @@ def _wire_project_ask(master_tools: Any) -> int:
                     "type": "string",
                     "description": "要完成的项目任务，用自然语言描述目标；续答追问时传用户对追问的回答。",
                 },
-                "assignee_hint": {
+                "executor": {
                     "type": "string",
                     "enum": ["builtin", "hicode", "dsh"],
                     "description": (
-                        "可选。强制指定处理方式：builtin=只记录不执行任何命令/不改代码，"
-                        "hicode=派工执行代码变更（默认执行类请求走这里），"
-                        "dsh=派给 dsh 外部 worker 执行（仅显式指定才会用，不参与自动判断）。"
-                        "缺省按内容自动在 builtin/hicode 间判断。传其它值会直接 blocked。"
+                        "必填。显式指定处理方式：builtin=只记录不执行任何命令/不改代码，"
+                        "hicode=派工执行代码变更，dsh=派给 dsh 外部 worker 执行。"
                     ),
                 },
                 "parent_task_id": {
@@ -659,7 +688,7 @@ def _wire_project_ask(master_tools: Any) -> int:
                     ),
                 },
             },
-            "required": ["project_root", "request"],
+            "required": ["project_root", "request", "executor"],
         },
         project_ask,
         max_result_chars=4000,

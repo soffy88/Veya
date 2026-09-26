@@ -124,6 +124,7 @@ class DurableExecutionRuntime:
         self._outbox_publisher: OutboxPublisher | None = None
         self._outbox_task: asyncio.Task[Any] | None = None
         self._started = False
+        self._start_lock: asyncio.Lock | None = None
         self._last_reconciliation_at: float | None = None
         self._last_reconciliation: dict[str, Any] | None = None
 
@@ -136,26 +137,31 @@ class DurableExecutionRuntime:
             return {"ok": True, "enabled": False, "backend": "disabled"}
         if self._started:
             return await self.health()
-        self.reconciler.reset()
-        await self.repository.connect()
-        # Startup reconciliation completes before the periodic scanner is
-        # launched, so this process cannot claim a scope before recovery runs.
-        await self.reconciler.startup()
-        if self.config.reconciler_enabled:
-            self._reconciler_task = asyncio.create_task(
-                self.reconciler.run(), name="veya-execution-reconciler"
+        if self._start_lock is None:
+            self._start_lock = asyncio.Lock()
+        async with self._start_lock:
+            if self._started:
+                return await self.health()
+            self.reconciler.reset()
+            await self.repository.connect()
+            # Startup reconciliation completes before the periodic scanner is
+            # launched, so this process cannot claim a scope before recovery runs.
+            await self.reconciler.startup()
+            if self.config.reconciler_enabled:
+                self._reconciler_task = asyncio.create_task(
+                    self.reconciler.run(), name="veya-execution-reconciler"
+                )
+            self._outbox_publisher = OutboxPublisher(
+                self.repository,
+                self._publish_event,
+                interval_s=1.0,
+                batch_size=100,
             )
-        self._outbox_publisher = OutboxPublisher(
-            self.repository,
-            self._publish_event,
-            interval_s=1.0,
-            batch_size=100,
-        )
-        self._outbox_task = asyncio.create_task(
-            self._outbox_publisher.run(), name="veya-execution-outbox"
-        )
-        self._started = True
-        return await self.health()
+            self._outbox_task = asyncio.create_task(
+                self._outbox_publisher.run(), name="veya-execution-outbox"
+            )
+            self._started = True
+            return await self.health()
 
     @staticmethod
     async def _publish_event(event: dict[str, Any]) -> None:

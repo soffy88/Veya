@@ -304,8 +304,7 @@ async def resume_session(
     # 只是拦"必须登录"。owner=None 是早于本次修复写入的旧数据, 视为无主放行
     # (与 _owned_session/ensure_session 的一致口径, 不强行让旧数据不可恢复)。
     from server.checkpoint import load_checkpoint
-    from server.coordinator import coordinator
-    from veya.compat import restore_from_checkpoint
+    from server.session_compat import resume_legacy_checkpoint
 
     ckpt = await load_checkpoint(session_id)
     if not ckpt:
@@ -317,9 +316,7 @@ async def resume_session(
             status_code=404, detail=f"No checkpoint found for session '{session_id}'"
         )
 
-    run_state = restore_from_checkpoint(session_id)
-    result = await coordinator.resume(run_state)
-    return result
+    return await resume_legacy_checkpoint(ckpt)
 
 
 @router.get("/{session_id}/changes")

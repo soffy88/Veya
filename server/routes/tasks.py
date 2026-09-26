@@ -40,7 +40,6 @@ class TaskCreateRequest(BaseModel):
 
 class TaskResumeRequest(BaseModel):
     text: str | None = Field(None, min_length=1)
-    max_rounds: int | None = Field(None, ge=1, le=100)
 
 
 @router.get("")
@@ -169,7 +168,6 @@ async def resume_task(
             req.text,
             session_id=task.session_id,
             task_id=task_id,
-            max_rounds=req.max_rounds,
             **resume_llm,
         )
     except Exception as exc:

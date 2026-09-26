@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from server.coordinator import coordinator
+from server.coordinator_master import master_coordinator
 from server.sse import get_or_create_queue
 
 router = APIRouter()
@@ -31,15 +31,20 @@ async def handle_prompt(req: PromptRequest) -> dict[str, Any]:
         queue = get_or_create_queue(sid)
         on_step = queue.on_step
 
-    # 构造命令,包含 model 和 provider 参数
-    command = {
-        "text": req.text,
-        "persona": req.persona,
-        "model": req.model,
-        "provider": req.provider,
-        **req.extra,
-    }
-
-    # 执行(coordinator 会 fire_step 触发 SSE)
-    result = await coordinator.handle(command, session_id=sid, on_step=on_step)
+    # /prompt is a semantic ingress.  The only semantic authority is the
+    # canonical MasterCoordinator; legacy fields remain typed request context.
+    extra = dict(req.extra or {})
+    config = extra.get("config") if isinstance(extra.get("config"), dict) else None
+    system_context = extra.get("system_context")
+    if not system_context and req.persona:
+        system_context = f"Requested persona: {req.persona}"
+    result = await master_coordinator.chat_stream(
+        req.text,
+        session_id=sid,
+        on_step=on_step,
+        model=req.model,
+        provider=req.provider,
+        config=config,
+        system_context=system_context,
+    )
     return result

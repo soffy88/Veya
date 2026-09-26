@@ -45,7 +45,9 @@ async def test_mcp_server_instantiation_and_tool_registration() -> None:
 async def test_mcp_server_initialize_handshake() -> None:
     """Verify MCP protocol initialize handshake."""
     server = create_mcp_server()
-    init_resp = await server.handle_initialize({"clientInfo": {"name": "test-client", "version": "1.0"}})
+    init_resp = await server.handle_initialize(
+        {"clientInfo": {"name": "test-client", "version": "1.0"}}
+    )
 
     assert init_resp["protocolVersion"] == "2024-11-05"
     assert "serverInfo" in init_resp

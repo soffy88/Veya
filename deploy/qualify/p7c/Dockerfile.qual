@@ -1,0 +1,18 @@
+# P7C isolated qualification image.
+#
+# Deliberately derived from the existing backend image so the qualification runs
+# the *executor installation and the real runtime* without paying for a full
+# dependency rebuild. It replays exactly the pinned install from
+# deploy/Dockerfile.backend (same package.json / package-lock.json / command).
+FROM veya-backend:latest
+
+# The base image already drops to the non-root `soffy` user, while /opt/veya is
+# root-owned. The production Dockerfile installs DSH *before* its `USER soffy`
+# line; here we reproduce that ordering explicitly.
+USER root
+COPY deploy/dsh-runtime/package.json deploy/dsh-runtime/package-lock.json /opt/veya/dsh-runtime/
+RUN npm ci --prefix /opt/veya/dsh-runtime --omit=dev --ignore-scripts \
+    && ln -sfn /opt/veya/dsh-runtime/node_modules/.bin/dsh /usr/local/bin/dsh \
+    && dsh --help >/dev/null \
+    && which dsh
+USER soffy

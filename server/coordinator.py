@@ -1,5 +1,8 @@
-"""
-layer4/server/coordinator.py — 协调器主循环(veya 招牌)
+"""layer4/server/coordinator.py — archived legacy coordinator.
+
+This module is retained solely for legacy checkpoint/test compatibility. It is
+not a production request entrypoint; production routes must use
+``server.coordinator_master`` or the typed GoalRun/workflow adapters.
 
 实现 "聊天窗口分发命令 → 各分队执行 → 结构化结果回传"。
 协调器拆任务 → 派角色分队(research/plan/execute)→ 分队 headless 执行
@@ -61,6 +64,8 @@ from veya.semantic_search import create_semantic_search
 from veya.streaming import StreamEventType, StreamingManager, TokenStreamer
 from veya.tools import create_tool_executor
 from veya.utils import CostTracker
+
+ARCHIVE_ONLY = True
 
 # =====================================================================
 # 数据结构
@@ -435,7 +440,6 @@ class VeyaCoordinator:
                     "type": "cognitive_round",
                     "session_id": self._session_id,
                     "round": step_count,
-                    "max_rounds": self.max_retries,
                     "phase": self._phase.value,
                 }
             )
@@ -552,7 +556,6 @@ class VeyaCoordinator:
             "error": "超过最大自动纠错次数，Agent 陷入死胡同，请求人工介入 (HITL)。",
             "hitl": True,
             "rounds": step_count,
-            "max_rounds": self.max_retries,
             "phase": self._phase.value,
             "decision_trail": self.decision_trail.to_dict(),
             "cost_usd": round(total_cost, 6),
@@ -571,7 +574,6 @@ class VeyaCoordinator:
             "status": status,
             "final_answer": final_answer,
             "rounds": rounds,
-            "max_rounds": self.max_retries,
             "phase": self._phase.value,
             "decision_trail": self.decision_trail.to_dict(),
             "cost_usd": round(total_cost, 6),

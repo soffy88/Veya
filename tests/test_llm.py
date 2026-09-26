@@ -823,3 +823,51 @@ def test_frontier_fallback_accepts_tool_call_with_empty_content(monkeypatch):
     assert resp.get("error") is not True
     msg = (resp.get("choices") or [{}])[0].get("message") or {}
     assert msg.get("tool_calls"), f"tool_call 应被保留, 实际: {resp}"
+
+
+# ---------------------------------------------------------------------------
+# opencode zen 网关协议: x-opencode-session 头 + thinking 模式 reasoning_content
+# ---------------------------------------------------------------------------
+
+
+def test_opencode_session_headers_only_for_opencode_endpoints():
+    from veya.obase._llm_transport import _opencode_session_headers
+
+    headers = _opencode_session_headers("https://opencode.ai/zen/go/v1/chat/completions")
+    assert headers.get("x-opencode-session"), "opencode 端点必须带会话头"
+    assert _opencode_session_headers("https://api.openai.com/v1/chat/completions") == {}
+    assert _opencode_session_headers("https://api.gmi-serving.com/v1/chat/completions") == {}
+
+
+def test_opencode_thinking_messages_pass_reasoning_content_back():
+    """thinking 模型要求 assistant 的 tool_calls 轮次回传 reasoning_content。
+
+    缺失该字段时 zen 上游直接 400；这里验证只有 opencode 端点、只有带
+    tool_calls 的 assistant 消息会被补占位，且不改动原列表。
+    """
+    from veya.obase._llm_transport import _opencode_thinking_messages
+
+    msgs = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "1"}]},
+        {"role": "tool", "tool_call_id": "1", "content": "result"},
+        {"role": "assistant", "content": "final answer"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "2"}],
+            "reasoning_content": "keep-me",
+        },
+    ]
+    out = _opencode_thinking_messages(msgs, "https://opencode.ai/zen/go/v1/chat/completions")
+    assert out[1]["reasoning_content"] == ""  # 补占位（正例）
+    assert out[4]["reasoning_content"] == "keep-me"  # 已有值不覆盖
+    assert "reasoning_content" not in out[0]  # user 消息不动
+    assert "reasoning_content" not in out[3]  # 无 tool_calls 的 assistant 不动
+    assert "reasoning_content" not in msgs[1], "不得原地修改调用方传入的历史"
+
+    other = [{"role": "assistant", "content": None, "tool_calls": [{"id": "1"}]}]
+    assert (
+        _opencode_thinking_messages(other, "https://api.gmi-serving.com/v1/chat/completions")
+        is other
+    ), "非 opencode 端点必须原样返回（不能污染其它 provider 的请求体）"

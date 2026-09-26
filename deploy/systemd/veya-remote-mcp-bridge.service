@@ -1,0 +1,24 @@
+# Veya Remote MCP — loopback -> docker-bridge relay (user systemd)
+#
+# Why: the reverse proxy (aegis-caddy) runs in a container and can only reach
+# the host through the docker bridge gateway. The Remote MCP service itself
+# stays loopback-only (127.0.0.1:8790); this relay exposes it on the bridge
+# interface only (172.18.0.1:8792), which is not a public port.
+#
+# Install:
+#   cp deploy/systemd/veya-remote-mcp-bridge.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now veya-remote-mcp-bridge
+
+[Unit]
+Description=Veya Remote MCP loopback->docker-bridge relay (172.18.0.1:8792 -> 127.0.0.1:8790)
+After=veya-remote-mcp.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP-LISTEN:8792,bind=172.18.0.1,fork,reuseaddr TCP:127.0.0.1:8790
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

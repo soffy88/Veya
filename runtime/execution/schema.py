@@ -15,6 +15,14 @@ from __future__ import annotations
 # v3 adds the Personal Agent Runtime projections.  These tables live in the
 # same durable authority as GoalRun; they do not create a second queue or
 # semantic authority.  Existing execution tables and ABI remain unchanged.
+#
+# P3-A adds bot isolation to side effects (bot_id on side_effects) WITHOUT
+# bumping SCHEMA_VERSION: the column is purely additive (NOT NULL with a
+# default, so pre-P3-A rows stay readable), and SCHEMA_VERSION is
+# fingerprinted by the approved Personal Gold report — bumping it would
+# invalidate the gold labels. Additive columns ride
+# POSTGRES_ADDITIVE_COLUMNS (idempotent, applied on every migrate) and the
+# SQLite PRAGMA backfill in DurableExecutionRepository._sqlite_migrate.
 SCHEMA_VERSION = 3
 
 _TABLES = (
@@ -124,6 +132,7 @@ _TABLES = (
         probe_policy TEXT,
         probe_result_json TEXT,
         compensation_json TEXT,
+        bot_id TEXT NOT NULL DEFAULT 'veya-default',
         first_seen_at REAL NOT NULL,
         last_seen_at REAL NOT NULL,
         revision INTEGER NOT NULL DEFAULT 0
@@ -500,4 +509,12 @@ POSTGRES_UPGRADES = (
     "ALTER TABLE worker_registry ALTER COLUMN started_at TYPE DOUBLE PRECISION USING started_at::double precision",
     "ALTER TABLE worker_registry ALTER COLUMN last_seen_at TYPE DOUBLE PRECISION USING last_seen_at::double precision",
     "ALTER TABLE worker_registry ALTER COLUMN draining_at TYPE DOUBLE PRECISION USING draining_at::double precision",
+)
+
+POSTGRES_ADDITIVE_COLUMNS = (
+    # P3-A bot isolation. Idempotent: applied on every PostgreSQL migrate
+    # (inside the existing advisory lock) so pre-P3-A databases gain the
+    # column without a SCHEMA_VERSION bump. IF NOT EXISTS emits only a
+    # notice on repeat runs — safe under a worker-start storm.
+    "ALTER TABLE side_effects ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT 'veya-default'",
 )

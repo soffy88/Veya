@@ -22,7 +22,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .schema import POSTGRES_SCHEMA, POSTGRES_UPGRADES, SCHEMA_VERSION, SQLITE_SCHEMA
+from runtime.bot_scope import DEFAULT_BOT_ID
+
+from .schema import (
+    POSTGRES_ADDITIVE_COLUMNS,
+    POSTGRES_SCHEMA,
+    POSTGRES_UPGRADES,
+    SCHEMA_VERSION,
+    SQLITE_SCHEMA,
+)
 
 TERMINAL_WORK_STATES = frozenset({"succeeded", "failed", "cancelled", "quarantined_unknown"})
 TERMINAL_GOAL_STATES = frozenset(
@@ -259,7 +267,11 @@ class DurableExecutionRepository:
                 self.dsn, min_size=1, max_size=10, command_timeout=10
             )
         else:
-            await asyncio.to_thread(self._sqlite_prepare)
+            # SQLite promotion/ledger operations are short, locked local
+            # transactions.  Keep their setup synchronous so an execution
+            # lifecycle does not create the process-wide asyncio default
+            # executor merely to initialize its durable store.
+            self._sqlite_prepare()
         await self.migrate()
 
     async def close(self) -> None:
@@ -281,6 +293,10 @@ class DurableExecutionRepository:
                 )
                 for statement in POSTGRES_SCHEMA:
                     await conn.execute(statement)
+                # P3-A additive columns: idempotent, applied on every migrate
+                # (no SCHEMA_VERSION bump) so pre-P3-A databases gain bot_id.
+                for statement in POSTGRES_ADDITIVE_COLUMNS:
+                    await conn.execute(statement)
                 current_version = await conn.fetchval(
                     "SELECT COALESCE(MAX(version),0) FROM execution_schema_meta"
                 )
@@ -293,7 +309,7 @@ class DurableExecutionRepository:
                     time.time(),
                 )
         else:
-            await asyncio.to_thread(self._sqlite_migrate)
+            self._sqlite_migrate()
 
     def _sqlite_prepare(self) -> None:
         if str(self.sqlite_path) == ":memory:":
@@ -327,6 +343,15 @@ class DurableExecutionRepository:
             try:
                 for statement in SQLITE_SCHEMA:
                     conn.execute(statement)
+                # P3-A upgrade: databases created before bot isolation lack
+                # side_effects.bot_id; backfill the column with the default bot.
+                columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(side_effects)").fetchall()
+                }
+                if "bot_id" not in columns:
+                    conn.execute(
+                        "ALTER TABLE side_effects ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'veya-default'"
+                    )
                 conn.execute(
                     "INSERT OR IGNORE INTO execution_schema_meta(version, applied_at) VALUES(?,?)",
                     (SCHEMA_VERSION, time.time()),
@@ -1368,8 +1393,13 @@ class DurableExecutionRepository:
         capability: str = "manual_only",
         probe_policy: str | None = None,
         claim: ClaimEnvelope | None = None,
+        bot_id: str = DEFAULT_BOT_ID,
     ) -> dict[str, Any]:
-        """Record intent before an external call, returning the existing row on retry."""
+        """Record intent before an external call, returning the existing row on retry.
+
+        P3-A: the row records the owning bot. Reusing an operation key owned
+        by another bot is refused (``CROSS_BOT_DENIED``) instead of replayed.
+        """
         if not operation_key or request is None:
             raise DurableExecutionError(
                 "INVALID_SIDE_EFFECT", "operation key and request are required"
@@ -1407,10 +1437,18 @@ class DurableExecutionRepository:
                     raise DurableExecutionError(
                         "IDEMPOTENCY_CONFLICT", "operation key has a different capability policy"
                     )
+                # P3-A: never replay another bot's side effect (fail-closed).
+                # Rows written before bot isolation carry the default bot.
+                owner_bot_id = dict(row).get("bot_id") or "veya-default"
+                if owner_bot_id != bot_id:
+                    raise DurableExecutionError(
+                        "CROSS_BOT_DENIED",
+                        f"operation key is owned by bot {owner_bot_id!r}, not {bot_id!r}",
+                    )
                 return dict(row)
             effect_id = new_id()
             conn.execute(
-                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,bot_id,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     effect_id,
                     goal_run_id,
@@ -1421,6 +1459,7 @@ class DurableExecutionRepository:
                     "declared",
                     request_hash,
                     probe_policy or capability,
+                    bot_id,
                     now,
                     now,
                 ),
@@ -1444,9 +1483,9 @@ class DurableExecutionRepository:
 
         if self.backend == "sqlite":
             if claim is None:
-                return await asyncio.to_thread(self._sqlite_tx, op)
+                return self._sqlite_tx(op)
             return await self._guard_fenced(
-                claim, "side_effect_declare", lambda: asyncio.to_thread(self._sqlite_tx, op)
+                claim, "side_effect_declare", lambda: self._sqlite_tx(op)
             )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
@@ -1479,10 +1518,17 @@ class DurableExecutionRepository:
                     raise DurableExecutionError(
                         "IDEMPOTENCY_CONFLICT", "operation key has a different capability policy"
                     )
+                # P3-A: never replay another bot's side effect (fail-closed).
+                owner_bot_id = dict(row).get("bot_id") or "veya-default"
+                if owner_bot_id != bot_id:
+                    raise DurableExecutionError(
+                        "CROSS_BOT_DENIED",
+                        f"operation key is owned by bot {owner_bot_id!r}, not {bot_id!r}",
+                    )
                 return dict(row)
             effect_id = new_id()
             await conn.execute(
-                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,first_seen_at,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,'declared',$7,$8,$9,$9)",
+                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,bot_id,first_seen_at,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,'declared',$7,$8,$9,$10,$10)",
                 effect_id,
                 goal_run_id,
                 work_item_id,
@@ -1491,6 +1537,7 @@ class DurableExecutionRepository:
                 target_ref,
                 request_hash,
                 probe_policy or capability,
+                bot_id,
                 now,
             )
             await self._pg_event(
@@ -1587,9 +1634,9 @@ class DurableExecutionRepository:
 
         if self.backend == "sqlite":
             if claim is None:
-                return await asyncio.to_thread(self._sqlite_tx, op)
+                return self._sqlite_tx(op)
             return await self._guard_fenced(
-                claim, "side_effect_update", lambda: asyncio.to_thread(self._sqlite_tx, op)
+                claim, "side_effect_update", lambda: self._sqlite_tx(op)
             )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
@@ -1725,7 +1772,7 @@ class DurableExecutionRepository:
             return dict(row) if row is not None else None
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(lambda: self._sqlite_read(op))
+            return self._sqlite_read(op)
 
         async def op_pg(conn: Any) -> dict[str, Any] | None:
             row = await conn.fetchrow(
@@ -4466,16 +4513,17 @@ class DurableExecutionRepository:
             # blocking task execution. metrics are observability, not
             # part of the durable consistency path.
             async def _fetch_with_timeout(coro, default, label, timeout_s):
-                # P0 fix: Return degraded marker on timeout instead of 0/[] 
+                # P0 fix: Return degraded marker on timeout instead of 0/[]
                 # to avoid misrepresenting actual metrics values as zero.
                 try:
                     return await asyncio.wait_for(coro, timeout=timeout_s)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     import logging as _l
+
                     _l.getLogger("veya.durable").warning(
                         f"metrics query {label} timeout ({timeout_s}s), marking as degraded"
                     )
-                    # Return special marker prefixed with __degraded__ 
+                    # Return special marker prefixed with __degraded__
                     # instead of 0 to distinguish from real zeros
                     return f"__degraded__{label}"
 
@@ -4503,14 +4551,16 @@ class DurableExecutionRepository:
                 ("recovery.decision.total", sum(int(row["count"]) for row in decisions))
             )
             pending_result = await _fetch_with_timeout(
-                conn.fetchval(
-                    "SELECT COUNT(*) FROM execution_outbox WHERE published_at IS NULL"
-                ),
+                conn.fetchval("SELECT COUNT(*) FROM execution_outbox WHERE published_at IS NULL"),
                 default="__degraded_outbox_pending__",
                 label="outbox pending",
                 timeout_s=1.0,
             )
-            pending = -1 if isinstance(pending_result, str) and pending_result.startswith("__degraded__") else int(pending_result)
+            pending = (
+                -1
+                if isinstance(pending_result, str) and pending_result.startswith("__degraded__")
+                else int(pending_result)
+            )
             replayed_result = await _fetch_with_timeout(
                 conn.fetchval(
                     "SELECT COALESCE(SUM(CASE WHEN publish_attempts > 1 THEN publish_attempts - 1 ELSE 0 END),0) FROM execution_outbox"
@@ -4519,7 +4569,11 @@ class DurableExecutionRepository:
                 label="outbox replayed",
                 timeout_s=1.0,
             )
-            replayed = -1 if isinstance(replayed_result, str) and replayed_result.startswith("__degraded__") else int(replayed_result)
+            replayed = (
+                -1
+                if isinstance(replayed_result, str) and replayed_result.startswith("__degraded__")
+                else int(replayed_result)
+            )
             probes_result = await _fetch_with_timeout(
                 conn.fetchval(
                     "SELECT COUNT(*) FROM side_effects WHERE probe_result_json IS NOT NULL"
@@ -4528,16 +4582,23 @@ class DurableExecutionRepository:
                 label="side_effects probes",
                 timeout_s=1.0,
             )
-            probes = -1 if isinstance(probes_result, str) and probes_result.startswith("__degraded__") else int(probes_result)
+            probes = (
+                -1
+                if isinstance(probes_result, str) and probes_result.startswith("__degraded__")
+                else int(probes_result)
+            )
             quarantined_result = await _fetch_with_timeout(
-                conn.fetchval(
-                    "SELECT COUNT(*) FROM work_items WHERE state='quarantined_unknown'"
-                ),
+                conn.fetchval("SELECT COUNT(*) FROM work_items WHERE state='quarantined_unknown'"),
                 default="__degraded_work_items_quarantined__",
                 label="work_items quarantined",
                 timeout_s=1.0,
             )
-            quarantined = -1 if isinstance(quarantined_result, str) and quarantined_result.startswith("__degraded__") else int(quarantined_result)
+            quarantined = (
+                -1
+                if isinstance(quarantined_result, str)
+                and quarantined_result.startswith("__degraded__")
+                else int(quarantined_result)
+            )
             timing_result = await _fetch_with_timeout(
                 conn.fetch(
                     "SELECT wi.goal_run_id,wi.created_at AS item_created,wi.updated_at AS item_updated,"
@@ -4549,7 +4610,11 @@ class DurableExecutionRepository:
                 label="work_items+goal_runs+leases timing",
                 timeout_s=2.0,
             )
-            timing_rows = [] if isinstance(timing_result, str) and timing_result.startswith("__degraded__") else [dict(row) for row in timing_result]
+            timing_rows = (
+                []
+                if isinstance(timing_result, str) and timing_result.startswith("__degraded__")
+                else [dict(row) for row in timing_result]
+            )
             wait_result = await _fetch_with_timeout(
                 conn.fetch(
                     "SELECT wi.created_at AS item_created,wa.created_at AS attempt_created "
@@ -4559,7 +4624,11 @@ class DurableExecutionRepository:
                 label="work_attempts waits",
                 timeout_s=1.0,
             )
-            wait_rows = [] if isinstance(wait_result, str) and wait_result.startswith("__degraded__") else [dict(row) for row in wait_result]
+            wait_rows = (
+                []
+                if isinstance(wait_result, str) and wait_result.startswith("__degraded__")
+                else [dict(row) for row in wait_result]
+            )
             return from_rows(
                 event_rows,
                 pending=pending,
