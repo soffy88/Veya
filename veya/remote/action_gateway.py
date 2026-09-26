@@ -20,6 +20,7 @@ from typing import Any
 
 from .approval import ApprovalStore, compute_operation_hash, get_approval_store
 from .models import ManagedUserService, RemoteErrorCode, RemoteSession, RiskClass
+from .workspace_policy import classify_destructive
 
 
 class ActionCategory(StrEnum):
@@ -780,6 +781,27 @@ def classify_action(
             reason="crontab mutation requires human approval",
         )
 
+    # Rule 4b: Destructive shell commands. Reuse the canonical destructive
+    # classifier (workspace_policy.classify_destructive) so generic shell
+    # argv never silently AUTO_OPENs a destructive command. Specific rules
+    # above (sudo / git destructive / systemctl / package managers ...) keep
+    # their own capability ids; this only catches the remaining destructive
+    # file/system operations (rm, rmdir, shred, dd, mkfs, chmod, chown,
+    # kill, truncate, credential writes, ...).
+    destructive_pattern = classify_destructive(raw_command)
+    if destructive_pattern is not None:
+        cap = "privileged.destructive_shell"
+        op_hash = compute_operation_hash(norm_op, cwd, cap)
+        return ActionClassification(
+            ActionCategory.HUMAN_GATED,
+            cap,
+            risk_class=RiskClass.P2_ROOT_MUTATION,
+            normalized_operation=norm_op,
+            operation_hash=op_hash,
+            target=executable,
+            reason=f"destructive shell command ({destructive_pattern}) requires human approval",
+        )
+
     # Rule 4 & 8: Normal argv development, testing, build, package commands
     # (python, node, npm, pnpm, uv, pytest, ruff, mypy, rg, find, sed, cat, cp, mv, mkdir, touch, curl, wget, etc.)
     cap = "shell.argv"
@@ -820,6 +842,21 @@ class ActionGateway:
         if classification.category == ActionCategory.AUTO_OPEN:
             # Rule 37: approved field is ignored/not required for AUTO_OPEN
             return True, None, None, classification
+
+        # Destructive shell commands require the destructive capability in
+        # addition to human approval. Without the capability the request is
+        # POLICY_BLOCKED (BASE parity); with it, a server-issued approval_id
+        # is still mandatory (boolean approved=true never bypasses this).
+        if (
+            classification.capability_id == "privileged.destructive_shell"
+            and not session.permissions.destructive
+        ):
+            return (
+                False,
+                RemoteErrorCode.POLICY_BLOCKED,
+                "destructive shell command requires the destructive capability",
+                classification,
+            )
 
         # Rule 38: HUMAN_GATED must reject boolean approval
         approved_flag = args.get("approved")
