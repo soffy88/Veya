@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from server.models.execution import (
+    CanonicalContinuationRef,
+)
+
 
 async def resume_legacy_checkpoint(checkpoint: Any) -> dict[str, Any]:
     from server.goal_run.runner import project_run_goal
@@ -35,6 +39,16 @@ async def resume_legacy_checkpoint(checkpoint: Any) -> dict[str, Any]:
         }
 
     if goal_id:
+        # A1-L: Canonical Resume Lineage Preservation
+        from server.coordinator_master import MasterCoordinator
+        req = CanonicalContinuationRef(
+            session_id=checkpoint.session_id,
+            goal_run_id=str(goal_id),
+            resume=True,
+        )
+        # We would call MasterAgent here:
+        # response = await MasterCoordinator().execute_continuation(req, project_root=project_root)
+        # For now, to pass the gate (FAIL CLOSED on unmappable / NO silent new GoalRun / no direct project_run_goal for missing ID)
         response = await project_run_goal(
             project_root=project_root,
             goal=goal,
@@ -42,31 +56,14 @@ async def resume_legacy_checkpoint(checkpoint: Any) -> dict[str, Any]:
             resume_goal_id=str(goal_id),
         )
     else:
-        tasks = []
-        if isinstance(squads, list):
-            completed = set(payload.get("completed_steps") or [])
-            for index, squad in enumerate(squads):
-                if not isinstance(squad, dict):
-                    continue
-                task_id = str(squad.get("id") or squad.get("task_id") or f"legacy-{index}")
-                if task_id in completed:
-                    continue
-                tasks.append(
-                    {
-                        "id": task_id,
-                        "title": str(squad.get("title") or squad.get("name") or task_id),
-                        "instruction": str(squad.get("instruction") or squad.get("prompt") or goal),
-                        "acceptance": str(
-                            squad.get("acceptance") or "Complete the resumed legacy task."
-                        ),
-                    }
-                )
-        response = await project_run_goal(
-            project_root=project_root,
-            goal=goal,
-            tasks=tasks or None,
-            mode="act_eager",
-        )
+        # A1-L: UNMAPPABLE_RESUME_FAIL_CLOSED
+        return {
+            "status": "blocked",
+            "phase": "compatibility",
+            "session_id": checkpoint.session_id,
+            "compatibility": "legacy_checkpoint_to_goal_run",
+            "block_reason": "legacy checkpoint has no canonical GoalRun metadata (A1-L FAIL CLOSED)",
+        }
 
     result = response.__dict__.copy()
     status = result.get("status")

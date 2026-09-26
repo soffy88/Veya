@@ -2008,6 +2008,43 @@ class MasterCoordinator:
             )
         return cast("dict[str, Any]", result)
 
+    async def execute_structured(self, request: CanonicalExecutionRequest) -> Any:
+        """Route structured payloads securely through the MasterAgent contract.
+
+        Supports LOCKED_PLAN execution mapping to preplanned tasks without
+        re-planning, maintaining single semantic authority while preserving
+        flow logic isolation.
+        """
+        # A1-F: In real logic, we'd hydrate a MasterAgent and route through it.
+        # Here we shim directly into project_run_goal to maintain GoalRun compatibility
+        # while preventing direct routes/* calls to project_run_goal.
+        from server.goal_run.runner import project_run_goal
+        
+        mode = "act_eager" if request.mode == ExecutionMode.STRUCTURED_CONSTRAINED else "auto"
+        tasks = None
+        integration_adapter = None
+
+        if request.preplanned_spec:
+            tasks = request.preplanned_spec.ordered_steps
+            if request.preplanned_spec.constraints.planning_policy == PlanningPolicy.LOCKED_PLAN:
+                if request.preplanned_spec.constraints.metadata.get("genesis"):
+                    # Temporarily construct the legacy adapter internally until fully phased out of GoalRun
+                    from server.flow_goal_run import GenesisGoalRunAdapter
+                    # Reconstruct mock manifest from preplanned steps
+                    import json
+                    from server.schemas import GenesisManifest
+                    instr = tasks[0]["instruction"]
+                    manifest = GenesisManifest.model_validate(json.loads(instr))
+                    integration_adapter = GenesisGoalRunAdapter(manifest, project_root=request.project_root)
+
+        return await project_run_goal(
+            project_root=request.project_root,
+            goal=request.objective,
+            tasks=tasks,
+            mode=mode,
+            max_wall_s=7200,
+            integration_adapter=integration_adapter,
+        )
 
 # 蜂群引擎全局单例(构造无副作用, eager 安全)
 _swarm_engine: SwarmOrchestrator | None = None

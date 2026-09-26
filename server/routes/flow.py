@@ -5,14 +5,21 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+import hashlib
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from server import flow_engine
-from server.flow_goal_run import GenesisGoalRunAdapter, phase3_task
-from server.goal_run import project_run_goal
+from server.flow_goal_run import phase3_task
+from server.models.execution import (
+    CanonicalExecutionRequest,
+    ExecutionMode,
+    PreplannedExecutionSpec,
+    ExecutionConstraints,
+    PlanningPolicy,
+)
 from server.schemas import GenesisManifest, RequirementDoc
 
 router = APIRouter()
@@ -85,17 +92,36 @@ async def flow_phase2(req: Phase2Request) -> dict[str, Any]:
 async def flow_phase3(req: Phase3Request) -> dict[str, Any]:
     project_root = str(req.config.get("project_root") or os.environ.get("VEYA_PROJECT_ROOT") or ".")
 
+    manifest_dump = req.manifest.model_dump_json()
+    manifest_hash = hashlib.sha256(manifest_dump.encode("utf-8")).hexdigest()
+
+    # Create CanonicalExecutionRequest instead of directly building integration adapter
+    spec = PreplannedExecutionSpec(
+        plan_id=req.manifest.mission_id,
+        manifest_hash=manifest_hash,
+        ordered_steps=[phase3_task(req.manifest)],
+        required_steps=[req.manifest.mission_id],
+        constraints=ExecutionConstraints(
+            planning_policy=PlanningPolicy.LOCKED_PLAN,
+            metadata={"genesis": True}
+        ),
+        source_metadata={"mission_id": req.manifest.mission_id},
+    )
+    
+    canonical_req = CanonicalExecutionRequest(
+        source="FLOW",
+        mode=ExecutionMode.STRUCTURED_CONSTRAINED,
+        objective=f"Genesis workflow {req.manifest.mission_id}",
+        project_root=project_root,
+        preplanned_spec=spec,
+        session_id=req.session_id,
+        capability="genesis_phase3",
+    )
+
     async def _run_durable() -> None:
-        await project_run_goal(
-            project_root=project_root,
-            goal=f"Genesis workflow {req.manifest.mission_id}",
-            tasks=[phase3_task(req.manifest)],
-            mode="act_eager",
-            max_wall_s=7200,
-            integration_adapter=GenesisGoalRunAdapter(
-                req.manifest, config=req.config, project_root=project_root
-            ),
-        )
+        # A1-F: Route through MasterCoordinator instead of project_run_goal directly
+        from server.coordinator_master import MasterCoordinator
+        await MasterCoordinator().execute_structured(canonical_req)
 
     task = asyncio.create_task(
         _run_durable(),

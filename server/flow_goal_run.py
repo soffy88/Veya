@@ -26,6 +26,7 @@ class GenesisGoalRunAdapter:
     """Execute one typed Genesis phase as a GoalRun semantic leaf."""
 
     verification_required = True
+    # A1-F: This logic will move to PreplannedExecutionSpec constraints
     skip_plan_review = True
     skip_advisory_code_review = True
 
