@@ -37,6 +37,7 @@ from runtime.coding.worktree import WorktreeError, WorktreeManager
 from runtime.execution.side_effects import SideEffectLedger
 from veya.remote.skills import SkillPermission
 from veya.supervision.task_memory import TaskMemory
+from veya.obase.async_utils import run_sync_in_daemon_thread
 
 from .action_gateway import _GLOBAL_SERVICE_REGISTRY, ActionCategory, ActionGateway
 from .direct_exec import (
@@ -1596,7 +1597,7 @@ class RemoteToolAdapter:
                 else:
                     execution_id = str(args.get("execution_id") or "")
                     if execution_id:
-                        execution_binding = await asyncio.to_thread(
+                        execution_binding = await run_sync_in_daemon_thread(
                             self.execution_worktrees.get_or_create,
                             execution_id,
                             str(repo_root),
@@ -1666,7 +1667,7 @@ class RemoteToolAdapter:
         else:
             execution_id = str(args.get("execution_id") or "")
             if execution_id:
-                execution_binding = await asyncio.to_thread(
+                execution_binding = await run_sync_in_daemon_thread(
                     self.execution_worktrees.get_or_create,
                     execution_id,
                     ws_binding.repo_root,
@@ -2193,7 +2194,7 @@ class RemoteToolAdapter:
             from veya.remote.runtime_profile import discover_runtime_profile
 
             try:
-                runtime_profile = await asyncio.to_thread(
+                runtime_profile = await run_sync_in_daemon_thread(
                     discover_runtime_profile,
                     resolution.target_path,
                     repo_root=canonical_proj_root,
@@ -2386,7 +2387,7 @@ class RemoteToolAdapter:
             )
             # ``profile`` is already resolved before the durable command is
             # admitted.  Do not rediscover it here: that filesystem probe used
-            # to run through ``asyncio.to_thread`` and left the default
+            # to run through ``run_sync_in_daemon_thread`` and left the default
             # executor alive during direct-job teardown.
             active_profile = runtime_profile
 
@@ -3206,7 +3207,7 @@ class RemoteToolAdapter:
                     task_kind=contract.task_kind,
                     tool_calls=[],
                 )
-                finalization = await asyncio.to_thread(
+                finalization = await run_sync_in_daemon_thread(
                     self.l1_finalizer.finalize,
                     execution_id=reporter._execution_id,
                     repo=verified_repo,
@@ -3265,7 +3266,7 @@ class RemoteToolAdapter:
             }
             lease = None
             if needs_writer:
-                lease = await asyncio.to_thread(
+                lease = await run_sync_in_daemon_thread(
                     self.execution_worktrees.acquire_lease,
                     reporter._execution_id,
                     ws_binding.repo_identity,
@@ -3275,7 +3276,7 @@ class RemoteToolAdapter:
                 return await runner(reporter)
             finally:
                 if lease is not None:
-                    await asyncio.to_thread(self.execution_worktrees.release_lease, lease)
+                    await run_sync_in_daemon_thread(self.execution_worktrees.release_lease, lease)
 
         return wrapped
 
@@ -3311,7 +3312,7 @@ class RemoteToolAdapter:
             worktree, verified_repo = await self._ensure_isolated_worktree(
                 session, repo_root, lane, execution_id=reporter._execution_id
             )
-            staged_dependency_artifacts = await asyncio.to_thread(
+            staged_dependency_artifacts = await run_sync_in_daemon_thread(
                 _stage_dependency_artifacts,
                 worktree,
                 repo_root,
@@ -3357,7 +3358,7 @@ class RemoteToolAdapter:
             argv, env = _worker_command(
                 worker,
                 worker_input,
-                worktree_path=worktree if coding_mode else None,
+                worktree_path=worktree,
                 coding_mode=coding_mode,
                 agent=opencode_agent,
             )
@@ -3528,7 +3529,7 @@ class RemoteToolAdapter:
                 str(TaskKind.TEST),
                 str(TaskKind.BUILD),
             }:
-                finalization = await asyncio.to_thread(
+                finalization = await run_sync_in_daemon_thread(
                     self.l1_finalizer.finalize,
                     execution_id=reporter._execution_id,
                     repo=verified_repo,
@@ -4607,6 +4608,9 @@ def _opencode_runtime_env() -> dict[str, str]:
     env["XDG_DATA_HOME"] = str(runtime_root / "data")
     env["XDG_STATE_HOME"] = str(runtime_root / "state")
     env["XDG_CACHE_HOME"] = str(runtime_root / "cache")
+    env["OPENCODE_AUTO_APPROVE"] = "1"
+    env["OPENCODE_SKIP_PERMISSIONS"] = "1"
+    env["OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS"] = "1"
     _ensure_proxy_env(env)
     return env
 
@@ -4682,9 +4686,10 @@ def _worker_command(
             "opencode",
             task,
             model=model,
-            workspace=worktree_path if coding_mode else None,
+            workspace=worktree_path,
             agent=agent if coding_mode else None,
             coding_mode=coding_mode,
+            execution_worktree_verified=True,
         )
         if argv and bin_path:
             argv[0] = bin_path

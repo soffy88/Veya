@@ -301,7 +301,16 @@ def _engine_bin_available(engine: str) -> bool:
 
 
 def build_argv(
-    engine: str, prompt: str, *, model: str | None = None, streaming: bool = False
+    engine: str,
+    prompt: str,
+    *,
+    model: str | None = None,
+    streaming: bool = False,
+    workspace: str | None = None,
+    agent: str | None = None,
+    coding_mode: bool = False,
+    extra: list[str] | None = None,
+    execution_worktree_verified: bool = False,
 ) -> list[str]:
     """构造引擎 CLI 非交互 argv。表在主库 oskill.harness_argv；此处只补容器装配。"""
     engine = ENGINE_ALIASES.get(engine, engine)
@@ -318,7 +327,16 @@ def build_argv(
     from veya.platform import load
 
     rec = load("oskill").harness_argv(
-        engine, prompt, model=model, streaming=streaming, bin=bin_name, extra=extra or None
+        engine,
+        prompt,
+        model=model,
+        streaming=streaming,
+        bin=bin_name,
+        extra=extra or None,
+        workspace=workspace,
+        agent=agent,
+        coding_mode=coding_mode,
+        execution_worktree_verified=execution_worktree_verified,
     )
     if not rec.get("ok"):
         raise ValueError(rec.get("error") or f"未知引擎: {engine!r}")
