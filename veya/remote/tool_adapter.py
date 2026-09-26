@@ -4738,6 +4738,7 @@ def _ensure_proxy_env(env: dict[str, str]) -> None:
 
 def _external_worker_env() -> dict[str, str]:
     env = dict(os.environ)
+    env.pop("OPENCODE_DANGEROUSLY_" + "SKIP_PERMISSIONS", None)
     env.setdefault("HOME", str(Path.home()))
     _ensure_proxy_env(env)
     return env
@@ -4753,6 +4754,7 @@ def _opencode_runtime_env() -> dict[str, str]:
     """
 
     env = dict(os.environ)
+    env.pop("OPENCODE_DANGEROUSLY_" + "SKIP_PERMISSIONS", None)
     home = Path(env.get("HOME") or Path.home()).expanduser().resolve()
     source_data_home = (
         Path(env.get("XDG_DATA_HOME") or home / ".local" / "share").expanduser().resolve()
@@ -4930,7 +4932,6 @@ def _worker_command(
             "--mode",
             "accept-edits",
             "--sandbox",
-            "--dangerously-skip-permissions",
             "--print-timeout",
             "10m",
         ]

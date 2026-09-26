@@ -28,6 +28,10 @@ from .workspace_policy import classify_destructive
 class ActionCategory(StrEnum):
     AUTO_OPEN = "AUTO_OPEN"
     HUMAN_GATED = "HUMAN_GATED"
+    # Public policy vocabulary used by the systemd classifier.  Keep the
+    # wire value and the existing HUMAN_GATED identity identical so there is
+    # still only one approval category.
+    REQUIRE_APPROVAL = "HUMAN_GATED"
 
 
 class ActionClassification:

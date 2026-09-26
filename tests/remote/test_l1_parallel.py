@@ -300,7 +300,9 @@ def test_worker_commands_are_not_hicode_wrappers(tmp_path: Path, monkeypatch) ->
     assert codex_env.get("CODEX_NORMAL_ENV_SENTINEL") == "keep-me"
     assert agy_argv[0] == str(antigravity_bin)
     assert "--print" in agy_argv and "--mode" in agy_argv and "accept-edits" in agy_argv
-    assert "--sandbox" in agy_argv and "--dangerously-skip-permissions" in agy_argv
+    assert "--sandbox" in agy_argv
+    assert "--dangerously-skip-permissions" not in agy_argv
+    assert "OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS" not in agy_env
     assert "--model" in agy_argv and "AGY_TEST_MODEL" in agy_argv
     assert "--print-timeout" in agy_argv and "10m" in agy_argv
     assert agy_env.get("HOME")
