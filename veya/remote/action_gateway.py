@@ -14,6 +14,8 @@ Enforces:
 from __future__ import annotations
 
 import shlex
+from collections.abc import Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -63,6 +65,123 @@ class ActionClassification:
             "reason": self.reason,
             "requires_approval": self.requires_approval,
         }
+
+
+@dataclass(frozen=True)
+class SystemctlInvocation:
+    """Normalized systemctl argv shared by policy and execution layers."""
+
+    argv: tuple[str, ...]
+    scope: str
+    action: str
+    unit: str | None
+    options: tuple[str, ...]
+
+
+_SYSTEMCTL_READ_ACTIONS = frozenset(
+    {
+        "cat",
+        "show",
+        "status",
+        "is-active",
+        "is-enabled",
+        "list-units",
+        "list-unit-files",
+        "show-environment",
+    }
+)
+_SYSTEMCTL_USER_MUTATIONS = frozenset(
+    {"start", "stop", "restart", "reload", "try-restart", "enable", "disable"}
+)
+_SYSTEMCTL_READ_FLAGS = frozenset({"--value", "--all", "--full", "--no-pager"})
+_SYSTEMCTL_READ_VALUE_FLAGS = frozenset({"-p", "--property", "--type", "--state"})
+
+
+def parse_systemctl_argv(argv: Sequence[str]) -> SystemctlInvocation | None:
+    """Parse systemctl's flexible global-option and action placement once."""
+
+    values = tuple(str(item) for item in argv)
+    if not values or Path(values[0]).name != "systemctl":
+        return None
+    scope = "system"
+    options: list[str] = []
+    action_index: int | None = None
+    i = 1
+    while i < len(values):
+        token = values[i]
+        if token == "--user":
+            scope = "user"
+            i += 1
+            continue
+        if token == "--system":
+            scope = "system"
+            i += 1
+            continue
+        if token in _SYSTEMCTL_READ_VALUE_FLAGS:
+            if i + 1 >= len(values):
+                return None
+            options.append(token)
+            i += 2
+            continue
+        if any(token.startswith(f"{flag}=") for flag in _SYSTEMCTL_READ_VALUE_FLAGS):
+            options.append(token)
+            i += 1
+            continue
+        if token in _SYSTEMCTL_READ_FLAGS or token.startswith("-"):
+            options.append(token)
+            i += 1
+            continue
+        action_index = i
+        break
+    if action_index is None:
+        return None
+
+    action = values[action_index].lower()
+    unit: str | None = None
+    i = action_index + 1
+    while i < len(values):
+        token = values[i]
+        if token == "--user":
+            scope = "user"
+            i += 1
+            continue
+        if token == "--system":
+            scope = "system"
+            i += 1
+            continue
+        if token in _SYSTEMCTL_READ_VALUE_FLAGS:
+            if i + 1 >= len(values):
+                return None
+            options.append(token)
+            i += 2
+            continue
+        if any(token.startswith(f"{flag}=") for flag in _SYSTEMCTL_READ_VALUE_FLAGS):
+            options.append(token)
+            i += 1
+            continue
+        if token in _SYSTEMCTL_READ_FLAGS or token.startswith("-"):
+            options.append(token)
+            i += 1
+            continue
+        if unit is None:
+            unit = token
+        i += 1
+    return SystemctlInvocation(values, scope, action, unit, tuple(options))
+
+
+def parse_systemctl_command(command: str) -> SystemctlInvocation | None:
+    try:
+        return parse_systemctl_argv(shlex.split(command, posix=True))
+    except ValueError:
+        return None
+
+
+def systemctl_read_options_valid(invocation: SystemctlInvocation) -> bool:
+    for option in invocation.options:
+        base = option.split("=", 1)[0]
+        if base not in _SYSTEMCTL_READ_FLAGS and base not in _SYSTEMCTL_READ_VALUE_FLAGS:
+            return False
+    return True
 
 
 class ManagedUserServiceRegistry:
@@ -372,99 +491,82 @@ def classify_action(
                 target="daemon-reload",
                 reason="user systemd daemon-reload",
             )
-        # unit actions (e.g. systemctl --user <action> <unit>)
-        allowed_user_actions = (
-            "start",
-            "stop",
-            "restart",
-            "reload",
-            "try-restart",
-            "enable",
-            "disable",
-            "is-active",
-            "is-enabled",
-            "status",
-            "show",
-        )
-        if len(argv) == 4:
-            action = argv[2].lower()
-            unit = argv[3]
-            if action in allowed_user_actions and registry.is_managed_unit(unit):
-                cap = "service_control.user"
+
+    # Rule 9, 10, 11, 18, 19, 34: systemd.  The parser is shared with the
+    # executor so flags and global-option placement cannot create a second
+    # policy dialect.
+    if executable == "systemctl":
+        invocation = parse_systemctl_argv(argv)
+        if invocation is not None:
+            read_action = invocation.action in _SYSTEMCTL_READ_ACTIONS
+            read_safe = read_action and systemctl_read_options_valid(invocation)
+            if invocation.scope == "user":
+                mutation_safe = (
+                    invocation.action == "daemon-reload"
+                    and invocation.unit is None
+                    and not invocation.options
+                ) or (
+                    invocation.action in _SYSTEMCTL_USER_MUTATIONS
+                    and invocation.unit is not None
+                    and registry.is_managed_unit(invocation.unit)
+                    and not invocation.options
+                )
+                if read_safe or mutation_safe:
+                    cap = "service_control.user"
+                    op_hash = compute_operation_hash(norm_op, cwd, cap)
+                    return ActionClassification(
+                        ActionCategory.AUTO_OPEN,
+                        cap,
+                        normalized_operation=norm_op,
+                        operation_hash=op_hash,
+                        target=invocation.unit or invocation.action,
+                        reason=f"user systemd {invocation.action}",
+                    )
+                cap = "privileged.system_service_write"
+                op_hash = compute_operation_hash(norm_op, cwd, cap)
+                return ActionClassification(
+                    ActionCategory.REQUIRE_APPROVAL,
+                    cap,
+                    risk_class=RiskClass.P2_ROOT_MUTATION,
+                    normalized_operation=norm_op,
+                    operation_hash=op_hash,
+                    target=invocation.unit or "systemctl",
+                    reason="unmanaged or unsupported user systemd operation",
+                )
+
+            if read_safe:
+                cap = "system_service.read"
                 op_hash = compute_operation_hash(norm_op, cwd, cap)
                 return ActionClassification(
                     ActionCategory.AUTO_OPEN,
                     cap,
                     normalized_operation=norm_op,
                     operation_hash=op_hash,
-                    target=unit,
-                    reason=f"managed user service control ({action})",
+                    target=invocation.unit or invocation.action,
+                    reason="read-only system service inspection",
                 )
-
-        # Unmanaged unit or extra flags/arguments requires human approval
-        cap = "privileged.system_service_write"
-        op_hash = compute_operation_hash(norm_op, cwd, cap)
-        return ActionClassification(
-            ActionCategory.HUMAN_GATED,
-            cap,
-            risk_class=RiskClass.P2_ROOT_MUTATION,
-            normalized_operation=norm_op,
-            operation_hash=op_hash,
-            target=argv[3] if len(argv) > 3 else "systemctl",
-            reason="unmanaged user systemd command or extra arguments requires human approval",
-        )
-
-    # Rule 18, 19, 34: System-level systemd
-    if executable == "systemctl" and "--user" not in lower_argv:
-        # Check read-only queries
-        read_only_actions = ("status", "show", "is-active", "is-enabled")
-        action = ""
-        unit = ""
-        for item in argv[1:]:
-            if not item.startswith("-"):
-                if not action:
-                    action = item.lower()
-                elif not unit:
-                    unit = item.lower()
-
-        if action in read_only_actions:
-            cap = "system_service.read"
-            op_hash = compute_operation_hash(norm_op, cwd, cap)
-            return ActionClassification(
-                ActionCategory.AUTO_OPEN,
-                cap,
-                normalized_operation=norm_op,
-                operation_hash=op_hash,
-                target=unit or "systemctl",
-                reason="read-only system service inspection",
+            clean_unit = invocation.unit or "systemctl"
+            if not clean_unit.endswith(".service") and clean_unit != "systemctl":
+                clean_unit = f"{clean_unit}.service"
+            cap = (
+                "privileged.critical_service"
+                if clean_unit in _CRITICAL_SERVICES
+                else "privileged.system_service_write"
             )
-
-        # Mutation: check critical service
-        clean_unit = unit if unit.endswith(".service") else f"{unit}.service"
-        if clean_unit in _CRITICAL_SERVICES:
-            cap = "privileged.critical_service"
             op_hash = compute_operation_hash(norm_op, cwd, cap)
             return ActionClassification(
-                ActionCategory.HUMAN_GATED,
+                ActionCategory.REQUIRE_APPROVAL,
                 cap,
-                risk_class=RiskClass.P3_CRITICAL_HOST,
+                risk_class=(
+                    RiskClass.P3_CRITICAL_HOST
+                    if cap == "privileged.critical_service"
+                    else RiskClass.P2_ROOT_MUTATION
+                ),
                 normalized_operation=norm_op,
                 operation_hash=op_hash,
                 target=clean_unit,
-                reason="critical host system service mutation",
+                reason="system service mutation requires human approval",
             )
-
-        cap = "privileged.system_service_write"
-        op_hash = compute_operation_hash(norm_op, cwd, cap)
-        return ActionClassification(
-            ActionCategory.HUMAN_GATED,
-            cap,
-            risk_class=RiskClass.P2_ROOT_MUTATION,
-            normalized_operation=norm_op,
-            operation_hash=op_hash,
-            target=clean_unit or "systemctl",
-            reason="system service mutation requires human approval",
-        )
 
     # Rule 12 & 20: Journalctl
     if executable == "journalctl":

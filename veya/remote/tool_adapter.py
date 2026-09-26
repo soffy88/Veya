@@ -24,7 +24,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import shutil
 import tempfile
 import time
@@ -40,7 +39,7 @@ from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.remote.skills import SkillPermission
 from veya.supervision.task_memory import TaskMemory
 
-from .action_gateway import _GLOBAL_SERVICE_REGISTRY, ActionCategory, ActionGateway
+from .action_gateway import ActionCategory, ActionGateway, parse_systemctl_command
 from .direct_exec import (
     DEFAULT_DIRECT_TIMEOUT_S,
     DirectApprovalRequired,
@@ -222,65 +221,11 @@ def find_existing_worktree_root(target_path: str | Path) -> Path | None:
     return None
 
 
-_SERVICE_CONTROL_UNITS = frozenset(
-    {
-        "veya-remote-mcp.service",
-        "veya-openai-tunnel.service",
-    }
-)
 _SERVICE_CONTROL_SELF_UNITS = frozenset(
     {
         "veya-remote-mcp.service",
     }
 )
-_SERVICE_CONTROL_UNIT_ACTIONS = frozenset(
-    {
-        "restart",
-        "start",
-        "stop",
-        "is-active",
-        "status",
-    }
-)
-_SERVICE_CONTROL_GLOBAL_ACTIONS = frozenset({"daemon-reload"})
-_SERVICE_CONTROL_ACTIONS = _SERVICE_CONTROL_UNIT_ACTIONS | _SERVICE_CONTROL_GLOBAL_ACTIONS
-
-
-def _parse_service_control_command(command: str) -> tuple[str, str] | None:
-    """Parse the exact user-systemd allowlist; never a generic shell bypass."""
-
-    try:
-        argv = shlex.split(command, posix=True)
-    except ValueError:
-        return None
-    if not argv:
-        return None
-    if argv[0] not in ("systemctl", "/bin/systemctl", "/usr/bin/systemctl"):
-        return None
-
-    if len(argv) == 3:
-        scope, action = argv[1], argv[2]
-        if scope == "--user" and action in _SERVICE_CONTROL_GLOBAL_ACTIONS:
-            return action, ""
-        return None
-
-    if len(argv) == 4:
-        scope, action, unit = argv[1], argv[2], argv[3]
-        if (
-            scope == "--user"
-            and action in _SERVICE_CONTROL_UNIT_ACTIONS
-            and (unit in _SERVICE_CONTROL_UNITS or _GLOBAL_SERVICE_REGISTRY.is_managed_unit(unit))
-        ):
-            return action, unit
-        return None
-
-    return None
-
-
-def _allowed_service_control_command(command: str) -> bool:
-    return _parse_service_control_command(command) is not None
-
-
 # L1 direct worker registry. Each worker keeps its own real runtime/model
 # semantics; none of these is a wrapper around Hicode.
 _WORKER_TYPES = {
@@ -1338,7 +1283,7 @@ class RemoteToolAdapter:
             )
             command = args.get("command")
             if binding.needs_shell and isinstance(command, str):
-                if _allowed_service_control_command(command):
+                if classification.capability_id == "service_control.user":
                     if not session.permissions.service_control:
                         raise WorkspacePolicyError(
                             "POLICY_BLOCKED",
@@ -2132,23 +2077,23 @@ class RemoteToolAdapter:
     async def _call_service_control(
         self, session: RemoteSession, command: str, started: float
     ) -> RemoteCallResult:
-        parsed = _parse_service_control_command(command)
-        if parsed is None:
+        parsed = parse_systemctl_command(command)
+        if parsed is None or parsed.scope != "user":
             return self._fail(
                 "shell.exec",
                 session,
                 RemoteErrorCode.POLICY_BLOCKED,
                 "service control command is outside the allowlist",
             )
-        action, unit = parsed
+        action, unit = parsed.action, parsed.unit or ""
         argv: tuple[str, ...]
         if action == "daemon-reload":
             argv = ("/usr/bin/systemctl", "--user", "daemon-reload")
-        elif action == "is-active":
-            argv = ("/usr/bin/systemctl", "--user", "is-active", unit)
-        elif action == "status":
-            argv = ("/usr/bin/systemctl", "--user", "status", unit, "--no-pager")
-        elif action in ("restart", "stop") and unit in _SERVICE_CONTROL_SELF_UNITS:
+        elif (
+            action in ("restart", "stop")
+            and unit in _SERVICE_CONTROL_SELF_UNITS
+            and not parsed.options
+        ):
             transient = f"veya-service-{action}-{time.time_ns()}"
             argv = (
                 "/usr/bin/systemd-run",
@@ -2163,7 +2108,10 @@ class RemoteToolAdapter:
                 unit,
             )
         else:
-            argv = ("/usr/bin/systemctl", "--user", action, unit)
+            argv = tuple(
+                "/usr/bin/systemctl" if index == 0 else value
+                for index, value in enumerate(parsed.argv)
+            )
         try:
             proc = await asyncio.create_subprocess_exec(
                 *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
