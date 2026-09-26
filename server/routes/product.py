@@ -141,8 +141,11 @@ async def _run_product_task(
     # the same user explicitly before MasterAgent touches history or memory.
     auth_mod.set_user(user)
     from server.coordinator_master import master_coordinator
-    from server.goal_run.canonical_worker import CanonicalWorkerAdapter
-    from server.goal_run.runner import project_run_goal
+    from server.models.execution import (
+        CanonicalExecutionRequest,
+        ExecutionConstraints,
+        ExecutionMode,
+    )
 
     try:
         semantic_llm_kwargs: dict[str, Any] = {}
@@ -153,41 +156,23 @@ async def _run_product_task(
         if model:
             semantic_llm_kwargs["model"] = model
 
-        async def execute_bound_action(request: Any) -> Any:
-            """Adapt the canonical request to the existing coordinator tool ABI."""
-            return await master_coordinator.handle_tool_call(request.tool, request.arguments)
-
-        adapter = CanonicalWorkerAdapter(
-            task_id=task_id,
+        req = CanonicalExecutionRequest(
+            source="PRODUCT",
+            mode=ExecutionMode.STRUCTURED_CONSTRAINED,
             objective=objective,
-            feature_name="product_canonical",
-            verification_required=True,
-            semantic_agent=master_coordinator._agent,
-            semantic_session_id=session_id,
-            semantic_llm_kwargs=semantic_llm_kwargs,
-            gateway_executor=execute_bound_action,
-        )
-        response = await project_run_goal(
             project_root=project_root,
-            goal=objective,
-            tasks=[
-                {
-                    "id": task_id,
-                    "title": objective[:80],
-                    "instruction": objective,
-                    # Product acceptance is owned by the frozen VerificationSpec
-                    # below; duplicating it as a free-form task-level LLM check
-                    # would make the transport decide acceptance before I2.
-                    "acceptance": [],
-                    "assignee": "builtin",
+            session_id=session_id,
+            constraints=ExecutionConstraints(
+                metadata={
+                    "task_id": task_id,
+                    "semantic_llm_kwargs": semantic_llm_kwargs,
+                    "resume_goal_id": resume_goal_id,
                 }
-            ],
-            mode="act_eager",
-            max_wall_s=3600,
-            integration_adapter=adapter,
-            semantic_llm_kwargs=semantic_llm_kwargs,
-            resume_goal_id=resume_goal_id,
+            )
         )
+
+        response = await master_coordinator.execute_structured(req)
+
         task_store.update_status(
             task_id,
             "completed" if response.status.value == "completed" else response.status.value,

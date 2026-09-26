@@ -1,29 +1,31 @@
+
 import pytest
-import os
-from server.routes.flow import flow_phase3, Phase3Request
+
+from server.routes.flow import Phase3Request, flow_phase3
 from server.schemas import GenesisManifest
 
-class MockManifest(GenesisManifest):
-    mission_id: str = "m1"
-    elements: list = []
 
 @pytest.mark.asyncio
 async def test_flow_adapter_translates_to_preplanned_execution_spec(monkeypatch):
+    class MockManifest(GenesisManifest):
+        mission_id: str = "m1"
+        elements: list = []
+
     called = []
-    
+
     class MockCoordinator:
         async def execute_structured(self, req):
             called.append(req)
-            
+
     monkeypatch.setattr("server.coordinator_master.MasterCoordinator", lambda: MockCoordinator())
-    
+
     req = Phase3Request(manifest=MockManifest(), session_id="s1")
     result = await flow_phase3(req)
-    
+
     # Wait for the background task
     import asyncio
     await asyncio.sleep(0)
-    
+
     assert len(called) == 1
     creq = called[0]
     assert creq.source == "FLOW"

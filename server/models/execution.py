@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
+
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Optional
+
 
 class ExecutionMode(str, Enum):
     CONVERSATIONAL = "CONVERSATIONAL"
@@ -21,16 +23,16 @@ class ExecutionConstraints(BaseModel):
     execution_order_policy: str = "DEFAULT"
     retry_policy: str = "DEFAULT"
     completion_policy: str = "DEFAULT"
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 class PreplannedExecutionSpec(BaseModel):
     plan_id: str
     manifest_hash: str
-    ordered_steps: List[Dict[str, Any]]
-    required_steps: List[str]
+    ordered_steps: list[dict[str, Any]]
+    required_steps: list[str]
     constraints: ExecutionConstraints = Field(default_factory=ExecutionConstraints)
-    verification_requirements: List[str] = Field(default_factory=list)
-    source_metadata: Dict[str, Any] = Field(default_factory=dict)
+    verification_requirements: list[str] = Field(default_factory=list)
+    source_metadata: dict[str, Any] = Field(default_factory=dict)
 
 class CanonicalExecutionRequest(BaseModel):
     source: str
@@ -38,13 +40,13 @@ class CanonicalExecutionRequest(BaseModel):
     objective: str
     project_root: str = "."
     constraints: ExecutionConstraints = Field(default_factory=ExecutionConstraints)
-    preplanned_spec: Optional[PreplannedExecutionSpec] = None
-    session_id: Optional[str] = None
-    capability: Optional[str] = None
+    preplanned_spec: PreplannedExecutionSpec | None = None
+    session_id: str | None = None
+    capability: str | None = None
 
 class CanonicalContinuationRef(BaseModel):
     session_id: str
     goal_run_id: str
-    checkpoint_id: Optional[str] = None
-    revision: Optional[int] = None
+    checkpoint_id: str | None = None
+    revision: int | None = None
     resume: bool = True

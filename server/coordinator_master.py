@@ -21,7 +21,10 @@ import time
 import uuid
 import weakref
 from collections.abc import Callable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from server.models.execution import CanonicalContinuationRef, CanonicalExecutionRequest
 
 from runtime.provider_reliability import ReliableProviderAdapter
 from server import graft_autocontext as _graft_autocontext
@@ -2008,6 +2011,16 @@ class MasterCoordinator:
             )
         return cast("dict[str, Any]", result)
 
+    async def execute_continuation(self, request: CanonicalContinuationRef, project_root: str = ".") -> Any:
+        """Resume a canonical execution lineage securely."""
+        from server.goal_run.runner import project_run_goal
+        return await project_run_goal(
+            project_root=project_root,
+            goal=f"Resume legacy session {request.session_id}",
+            mode="act_eager",
+            resume_goal_id=request.goal_run_id,
+        )
+
     async def execute_structured(self, request: CanonicalExecutionRequest) -> Any:
         """Route structured payloads securely through the MasterAgent contract.
 
@@ -2019,23 +2032,50 @@ class MasterCoordinator:
         # Here we shim directly into project_run_goal to maintain GoalRun compatibility
         # while preventing direct routes/* calls to project_run_goal.
         from server.goal_run.runner import project_run_goal
-        
+        from server.models.execution import ExecutionMode, PlanningPolicy
+
         mode = "act_eager" if request.mode == ExecutionMode.STRUCTURED_CONSTRAINED else "auto"
         tasks = None
-        integration_adapter = None
+        integration_adapter: Any | None = None
+        resume_goal_id = request.constraints.metadata.get("resume_goal_id")
 
         if request.preplanned_spec:
             tasks = request.preplanned_spec.ordered_steps
             if request.preplanned_spec.constraints.planning_policy == PlanningPolicy.LOCKED_PLAN:
                 if request.preplanned_spec.constraints.metadata.get("genesis"):
                     # Temporarily construct the legacy adapter internally until fully phased out of GoalRun
-                    from server.flow_goal_run import GenesisGoalRunAdapter
-                    # Reconstruct mock manifest from preplanned steps
                     import json
+
+                    from server.flow_goal_run import GenesisGoalRunAdapter
                     from server.schemas import GenesisManifest
                     instr = tasks[0]["instruction"]
                     manifest = GenesisManifest.model_validate(json.loads(instr))
                     integration_adapter = GenesisGoalRunAdapter(manifest, project_root=request.project_root)
+        elif request.source == "PRODUCT":
+            from server.goal_run.canonical_worker import CanonicalWorkerAdapter
+            async def execute_bound_action(req: Any) -> Any:
+                return await self.handle_tool_call(req.tool, req.arguments)
+
+            task_id = request.constraints.metadata.get("task_id", "unknown")
+            integration_adapter = CanonicalWorkerAdapter(
+                task_id=task_id,
+                objective=request.objective,
+                feature_name="product_canonical",
+                verification_required=True,
+                semantic_agent=self._agent,
+                semantic_session_id=request.session_id,
+                semantic_llm_kwargs=request.constraints.metadata.get("semantic_llm_kwargs", {}),
+                gateway_executor=execute_bound_action,
+            )
+            tasks = [
+                {
+                    "id": task_id,
+                    "title": request.objective[:80],
+                    "instruction": request.objective,
+                    "acceptance": [],
+                    "assignee": "builtin",
+                }
+            ]
 
         return await project_run_goal(
             project_root=request.project_root,
@@ -2044,6 +2084,7 @@ class MasterCoordinator:
             mode=mode,
             max_wall_s=7200,
             integration_adapter=integration_adapter,
+            resume_goal_id=resume_goal_id,
         )
 
 # 蜂群引擎全局单例(构造无副作用, eager 安全)
