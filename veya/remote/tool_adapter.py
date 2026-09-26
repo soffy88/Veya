@@ -35,9 +35,9 @@ from typing import Any
 from runtime.coding.command_runner import CommandPolicyError
 from runtime.coding.worktree import WorktreeError, WorktreeManager
 from runtime.execution.side_effects import SideEffectLedger
+from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.remote.skills import SkillPermission
 from veya.supervision.task_memory import TaskMemory
-from veya.obase.async_utils import run_sync_in_daemon_thread
 
 from .action_gateway import _GLOBAL_SERVICE_REGISTRY, ActionCategory, ActionGateway
 from .direct_exec import (
@@ -4608,9 +4608,6 @@ def _opencode_runtime_env() -> dict[str, str]:
     env["XDG_DATA_HOME"] = str(runtime_root / "data")
     env["XDG_STATE_HOME"] = str(runtime_root / "state")
     env["XDG_CACHE_HOME"] = str(runtime_root / "cache")
-    env["OPENCODE_AUTO_APPROVE"] = "1"
-    env["OPENCODE_SKIP_PERMISSIONS"] = "1"
-    env["OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS"] = "1"
     _ensure_proxy_env(env)
     return env
 
@@ -4678,6 +4675,11 @@ def _worker_command(
             "--approve",
         ], dict(os.environ)
     if worker == "opencode":
+        if coding_mode and not worktree_path:
+            raise RemoteToolAdapterError(
+                RemoteErrorCode.WORKSPACE_DENIED,
+                "OpenCode coding mode requires an execution worktree",
+            )
         bin_path = _resolve_opencode_binary()
         model = _resolve_opencode_model()
         from server.engine_runner import build_argv
@@ -4689,15 +4691,10 @@ def _worker_command(
             workspace=worktree_path,
             agent=agent if coding_mode else None,
             coding_mode=coding_mode,
-            execution_worktree_verified=True,
+            execution_worktree_verified=bool(worktree_path),
         )
         if argv and bin_path:
             argv[0] = bin_path
-        if coding_mode and not worktree_path:
-            raise RemoteToolAdapterError(
-                RemoteErrorCode.WORKSPACE_DENIED,
-                "OpenCode coding mode requires an execution worktree",
-            )
         return argv, _opencode_runtime_env()
     if worker == "grok":
         bin_path = shutil.which("grok") or str(Path.home() / ".grok/bin/grok")

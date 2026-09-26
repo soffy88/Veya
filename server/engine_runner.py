@@ -314,12 +314,12 @@ def build_argv(
 ) -> list[str]:
     """构造引擎 CLI 非交互 argv。表在主库 oskill.harness_argv；此处只补容器装配。"""
     engine = ENGINE_ALIASES.get(engine, engine)
-    extra: list[str] = []
+    extra_items: list[str] = list(extra or [])
     bin_name: str | None = None
     if engine == "codex" and _IN_CONTAINER:
         base = _container_codex_base_url()
         if base:
-            extra = ["-c", f"openai_base_url={base}"]
+            extra_items.extend(["-c", f"openai_base_url={base}"])
     if engine == "opencode":
         bin_name = (
             _container_opencode_bin() if _IN_CONTAINER else shutil.which("opencode") or "opencode"
@@ -332,7 +332,7 @@ def build_argv(
         model=model,
         streaming=streaming,
         bin=bin_name,
-        extra=extra or None,
+        extra=extra_items or None,
         workspace=workspace,
         agent=agent,
         coding_mode=coding_mode,
