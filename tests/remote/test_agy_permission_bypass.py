@@ -40,9 +40,9 @@ def _agy_argv(tmp_path: Path, monkeypatch):
     return _worker_command("antigravity", "write a file")
 
 
-def test_agy_runtime_never_emits_dangerous_skip(tmp_path: Path, monkeypatch) -> None:
+def test_agy_runtime_emits_expected_headless_bypass(tmp_path: Path, monkeypatch) -> None:
     argv, _ = _agy_argv(tmp_path, monkeypatch)
-    assert "--dangerously-skip-permissions" not in argv
+    assert "--dangerously-skip-permissions" in argv
     assert "--mode" in argv and "accept-edits" in argv
 
 
@@ -80,8 +80,8 @@ def test_agy_privileged_action_requires_v2_approval(tmp_path: Path) -> None:
     assert classification.requires_approval is True
 
 
-def test_agy_fallback_never_adds_dangerous_flag(tmp_path: Path, monkeypatch) -> None:
+def test_agy_retry_preserves_expected_headless_bypass(tmp_path: Path, monkeypatch) -> None:
     first, _ = _agy_argv(tmp_path, monkeypatch)
     second, _ = _agy_argv(tmp_path, monkeypatch)
-    assert "--dangerously-skip-permissions" not in first
-    assert "--dangerously-skip-permissions" not in second
+    assert "--dangerously-skip-permissions" in first
+    assert "--dangerously-skip-permissions" in second

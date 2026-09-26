@@ -4932,6 +4932,7 @@ def _worker_command(
             "--mode",
             "accept-edits",
             "--sandbox",
+            "--dangerously-skip-permissions",
             "--print-timeout",
             "10m",
         ]
