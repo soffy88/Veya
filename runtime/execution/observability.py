@@ -31,6 +31,7 @@ class ExecutionMetrics:
     active_runs: int = 0
     provider_failures: int = 0
     tool_failures: int = 0
+    failure_evidence: list[dict[str, Any]] = field(default_factory=list)
     restart_count: int = 0
     replan_count: int = 0
     verifier_count: int = 0
@@ -46,9 +47,30 @@ class ExecutionMetrics:
         self.recovery_total += 1
         self.recovery_success += int(success)
 
-    def record_failure(self, *, provider: bool = False, tool: bool = False) -> None:
+    def record_failure(
+        self,
+        *,
+        provider: bool = False,
+        tool: bool = False,
+        code: str | None = None,
+        source: str | None = None,
+        detail: str | None = None,
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
         self.provider_failures += int(provider)
         self.tool_failures += int(tool)
+        if code or detail or evidence:
+            self.failure_evidence.append(
+                {
+                    "provider": bool(provider),
+                    "tool": bool(tool),
+                    "code": code,
+                    "source": source,
+                    "detail": str(detail or "")[:2000],
+                    "evidence": dict(evidence or {}),
+                }
+            )
+            del self.failure_evidence[: max(0, len(self.failure_evidence) - 20)]
 
     def record_side_effect(self, *, duplicate: bool = False) -> None:
         self.side_effect_attempts += 1
@@ -72,6 +94,7 @@ class ExecutionMetrics:
             "active_runs": self.active_runs,
             "provider_failures": self.provider_failures,
             "tool_failures": self.tool_failures,
+            "failure_evidence": list(self.failure_evidence),
             "restart_count": self.restart_count,
             "replan_count": self.replan_count,
             "verifier_count": self.verifier_count,
@@ -211,8 +234,26 @@ class IncidentRecovery:
             return result
         except Exception as original:
             self.incidents[incident] += 1
+            error_code = str(getattr(original, "code", type(original).__name__))
+            detail = str(getattr(original, "detail", original))[:2000]
+            evidence = getattr(original, "raw_evidence", None)
+            safe_evidence = dict(evidence) if isinstance(evidence, dict) else {}
+            self.metrics.record_failure(
+                provider=True,
+                code=error_code,
+                source=type(original).__name__,
+                detail=detail,
+                evidence=safe_evidence,
+            )
             self._emit(
-                {"event": "incident", "incident": incident, "error": type(original).__name__}
+                {
+                    "event": "incident",
+                    "incident": incident,
+                    "error": type(original).__name__,
+                    "error_code": error_code,
+                    "detail": detail,
+                    "evidence": safe_evidence,
+                }
             )
             try:
                 result = recover()

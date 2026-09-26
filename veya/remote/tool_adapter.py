@@ -24,6 +24,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import time
 from collections.abc import Awaitable, Callable
@@ -35,6 +36,7 @@ from runtime.coding.worktree import WorktreeError, WorktreeManager
 from veya.remote.skills import SkillPermission
 from veya.supervision.task_memory import TaskMemory
 
+from .action_gateway import _GLOBAL_SERVICE_REGISTRY, ActionCategory, ActionGateway
 from .direct_exec import (
     DEFAULT_DIRECT_TIMEOUT_S,
     DirectApprovalRequired,
@@ -64,6 +66,12 @@ from .execution_context import (
     shared_capability_registry,
     shared_skill_registry,
 )
+from .executor_health import (
+    ExecutorFailureClass,
+    ExecutorHealthRegistry,
+    classify_executor_failure,
+    resolve_executor,
+)
 from .metrics import LatencyMetrics
 from .models import (
     EffectClass,
@@ -77,8 +85,10 @@ from .workspace_binding import (
     WorkspaceBinding,
     WorkspaceBindingError,
     canonical,
+    git_main_repo_root,
     git_repo_identity,
     git_repo_root,
+    is_git_worktree,
     resolve_repo_target,
     resolve_requested_workspace,
     verify_worktree_repo_identity,
@@ -99,45 +109,189 @@ _FAST_READ_TOOLS = frozenset(
         "file.search",
         "artifact.list",
         "artifact.read",
+        "runtime.profile",
+        "runtime.capabilities",
+        "runtime.probe",
     }
 )
-_FAST_GIT_TOOLS = frozenset({"git.status", "git.diff", "git.log"})
+_FAST_GIT_TOOLS = frozenset({"git.status", "git.diff", "git.log", "git.promote"})
 # P0-B: long-command tools -> DirectJobManager with a fast sync window.
 _COMMAND_TOOLS = frozenset({"shell.exec", "test.run", "build.run"})
+
+
+def _canonical_project_root(path: str | Path) -> str:
+    """Return the canonical *main* repo root for any path, including linked worktrees.
+
+    For a linked worktree (``path/.git`` is a file pointing into
+    ``<main>/.git/worktrees/<name>``), this returns the main repo root, not the
+    worktree itself.  For a normal repo or non-repo path, it returns the repo root
+    discovered by ``git_repo_root``.
+
+    Used so that runtime-profile discovery always finds the canonical project
+    venv (e.g. ``/data/soffy/projects/veya/venv``) even when the CWD is an
+    isolated worktree that has no local venv.
+    """
+    p = Path(path).expanduser().resolve()
+    main = git_main_repo_root(p)
+    if main is not None:
+        return str(main)
+    root = git_repo_root(p)
+    return str(root) if root is not None else str(p)
+
+
+def resolve_execution_target(
+    workspace: str | Path,
+    workspace_path: str | Path | None = None,
+    requested_execution_target: str = "",
+) -> str:
+    """Canonical execution-target resolver (P0-B).
+
+    Rules (in priority order):
+    1. Explicit ``EXISTING_WORKTREE`` / ``CANONICAL_WORKTREE`` / ``HOST`` → honour.
+    2. ``workspace`` itself is a linked worktree (``.git`` is a file pointing into
+       ``<main>/.git/worktrees/*``) → ``EXISTING_WORKTREE``.
+    3. ``workspace_path`` resolves to a directory inside ``.veya/worktrees/``
+       of some parent repo → ``EXISTING_WORKTREE``.
+    4. Otherwise → ``NEW_ISOLATED_WORKTREE``.
+
+    This is the *only* place that maps a workspace/path to an execution target.
+    All callers (shell.exec, test.run, build.run, file.write, file.patch) must
+    use this function instead of guessing individually.
+    """
+    explicit = str(requested_execution_target or "").strip().upper()
+    if explicit in ("EXISTING_WORKTREE", "CANONICAL_WORKTREE", "HOST"):
+        return explicit
+
+    ws = Path(workspace).expanduser().resolve()
+
+    # Rule 2: workspace itself is a linked worktree
+    if is_git_worktree(ws):
+        return "EXISTING_WORKTREE"
+
+    # Rule 3: workspace_path points inside a .veya/worktrees/* subtree
+    if workspace_path:
+        wp = Path(workspace_path).expanduser().resolve(strict=False)
+        for anc in (wp, *wp.parents):
+            if anc.parent.name == "worktrees" and anc.parent.parent.name == ".veya":
+                return "EXISTING_WORKTREE"
+
+    return "NEW_ISOLATED_WORKTREE"
+
+
+def find_existing_worktree_root(target_path: str | Path) -> Path | None:
+    """Return the existing linked-worktree root containing ``target_path``.
+
+    Case 1: the path itself is a linked worktree root (``.git`` is a file
+    pointing into ``<main>/.git/worktrees/*``). Case 2: the path sits inside
+    a canonical ``.veya/worktrees/*`` subtree (the ancestor worktree root is
+    returned). Otherwise ``None`` — the caller keeps its default
+    NEW/CANONICAL/HOST policy instead of guessing.
+
+    Shared by every execution-target-aware entry point (shell.exec, test.run,
+    build.run, file.write, file.patch) so an existing worktree is always a
+    terminal target and never sprouts ``existing/.veya/worktrees/*`` nesting.
+    """
+
+    try:
+        target_p = Path(target_path).expanduser().resolve(strict=False)
+    except (OSError, ValueError):
+        return None
+    if is_git_worktree(target_p):
+        return target_p
+    for anc in (target_p, *target_p.parents):
+        try:
+            if anc.parent.name == "worktrees" and anc.parent.parent.name == ".veya":
+                return anc
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+_SERVICE_CONTROL_UNITS = frozenset(
+    {
+        "veya-remote-mcp.service",
+        "veya-openai-tunnel.service",
+    }
+)
+_SERVICE_CONTROL_SELF_UNITS = frozenset(
+    {
+        "veya-remote-mcp.service",
+    }
+)
+_SERVICE_CONTROL_UNIT_ACTIONS = frozenset(
+    {
+        "restart",
+        "start",
+        "stop",
+        "is-active",
+        "status",
+    }
+)
+_SERVICE_CONTROL_GLOBAL_ACTIONS = frozenset({"daemon-reload"})
+_SERVICE_CONTROL_ACTIONS = _SERVICE_CONTROL_UNIT_ACTIONS | _SERVICE_CONTROL_GLOBAL_ACTIONS
+
+
+def _parse_service_control_command(command: str) -> tuple[str, str] | None:
+    """Parse the exact user-systemd allowlist; never a generic shell bypass."""
+
+    try:
+        argv = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    if not argv:
+        return None
+    if argv[0] not in ("systemctl", "/bin/systemctl", "/usr/bin/systemctl"):
+        return None
+
+    if len(argv) == 3:
+        scope, action = argv[1], argv[2]
+        if scope == "--user" and action in _SERVICE_CONTROL_GLOBAL_ACTIONS:
+            return action, ""
+        return None
+
+    if len(argv) == 4:
+        scope, action, unit = argv[1], argv[2], argv[3]
+        if (
+            scope == "--user"
+            and action in _SERVICE_CONTROL_UNIT_ACTIONS
+            and (unit in _SERVICE_CONTROL_UNITS or _GLOBAL_SERVICE_REGISTRY.is_managed_unit(unit))
+        ):
+            return action, unit
+        return None
+
+    return None
+
+
+def _allowed_service_control_command(command: str) -> bool:
+    return _parse_service_control_command(command) is not None
+
 
 # L1 direct worker registry. Each worker keeps its own real runtime/model
 # semantics; none of these is a wrapper around Hicode.
 _WORKER_TYPES = {
+    "antigravity": "ANTIGRAVITY",
+    "opencode": "OPENCODE",
+    "codex": "CODEX",
     "hicode": "HICODE",
-    "dsh": "DSH",
     "pi": "PI",
     "grok": "GROK",
-    "codex": "CODEX",
+    "dsh": "DSH",
 }
-# Real blockers observed on this host (2026-09). A worker absent from this map is
-# dispatched to a live child; otherwise the child is created BLOCKED with the
-# exact reason (never substituted by another worker).
-_WORKER_BLOCKERS = {
-    "codex": (
-        "UPSTREAM_QUOTA: codex-cli 0.154.0 ChatGPT plan usage limit (opencodex 10100 "
-        "Responses API reachable; quota resets ~3.6h)"
-    ),
-}
+# Runtime blockers are evidence-driven and temporary. Never keep stale provider
+# outage/quota snapshots after a worker has been re-qualified.
+_WORKER_BLOCKERS: dict[str, str] = {}
 # CLI worker runtime config (real, non-Hicode). DSH/Pi/Grok are provider-closed
 # against the local Veya gateway (127.0.0.1:8791); Codex uses its own runtime.
 _CLI_WORKERS = {
     "dsh": {"provider": "VEYA_LOCAL_GATEWAY", "model": "veya1.2"},
-    # The 128K/free pool is text-only in the installed provider definitions.  A
-    # successful process exit from that pool is not enough for a worker whose
-    # contract requires filesystem artifacts.  Keep both workers on the
-    # existing tool-capable Veya model; this changes no worker identity or
-    # cross-worker routing.
-    "pi": {"provider": "VEYA_LOCAL", "model": "veya1.2"},
+    "pi": {"provider": "VEYA_LOCAL", "model": "veya1.2-free"},
     "grok": {"provider": "VEYA_LOCAL_GATEWAY", "model": "veya1.2"},
     "codex": {"provider": "openai", "model": "gpt-5.6-luna"},
+    "antigravity": {"provider": "google-antigravity", "model": "cli-default"},
+    "opencode": {"provider": "opencode-go", "model": "deepseek-v4-flash"},
 }
 
-_TIMEOUT_SEPARATED_CLI_WORKERS = frozenset({"pi", "grok"})
+_TIMEOUT_SEPARATED_CLI_WORKERS = frozenset({"pi", "grok", "codex", "antigravity", "opencode"})
 _DEFAULT_CLI_TIMEOUT_S = 600.0
 _DSH_INACTIVITY_TIMEOUT_S = 120.0
 
@@ -156,6 +310,8 @@ def _cli_worker_timeout_budgets(worker: str, requested_timeout_s: float) -> tupl
         return min(_DSH_INACTIVITY_TIMEOUT_S, requested), requested
     if worker not in _TIMEOUT_SEPARATED_CLI_WORKERS:
         return requested, requested
+    if 0.0 < requested < _DEFAULT_CLI_TIMEOUT_S:
+        return min(requested, 300.0), requested
     return max(requested, 900.0), max(requested, 1800.0)
 
 
@@ -367,9 +523,16 @@ BINDINGS: tuple[ToolBinding, ...] = (
         "file.write",
         "write_file",
         EffectClass.WRITE,
-        "Write text content to a file inside the isolated session worktree.",
+        "Write text content to a file inside the isolated session worktree or canonical workspace.",
         _obj(
-            {"path": _STR, "content": _STR, "overwrite": {"type": "boolean"}},
+            {
+                "path": _STR,
+                "content": _STR,
+                "overwrite": {"type": "boolean"},
+                "execution_target": _STR,
+                "target_scope": _STR,
+                "allow_canonical": {"type": "boolean"},
+            },
             ["path", "content"],
         ),
     ),
@@ -379,7 +542,15 @@ BINDINGS: tuple[ToolBinding, ...] = (
         EffectClass.WRITE,
         "Replace a LINE#hash span in a file. Read the file first to obtain the tags.",
         _obj(
-            {"path": _STR, "start_tag": _STR, "new_text": _STR, "end_tag": _STR},
+            {
+                "path": _STR,
+                "start_tag": _STR,
+                "new_text": _STR,
+                "end_tag": _STR,
+                "execution_target": _STR,
+                "target_scope": _STR,
+                "allow_canonical": {"type": "boolean"},
+            },
             ["path", "start_tag", "new_text"],
         ),
     ),
@@ -398,6 +569,24 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "network": _STR,
                 "approved": {"type": "boolean"},
                 "wait": {"type": "boolean"},
+                "execution_target": {
+                    "type": "string",
+                    "enum": [
+                        "NEW_ISOLATED_WORKTREE",
+                        "EXISTING_WORKTREE",
+                        "CANONICAL_WORKTREE",
+                        "HOST",
+                    ],
+                },
+                "execution_domain": {
+                    "type": "string",
+                    "enum": ["L0_WORKSPACE_FULL", "L0_ISOLATED", "L0_HOST"],
+                },
+                "runtime_profile": {
+                    "type": "string",
+                    "description": "Runtime profile selector (default auto: canonical "
+                    "project runtime is discovered from the main repo root).",
+                },
             },
             ["command"],
         ),
@@ -471,6 +660,25 @@ BINDINGS: tuple[ToolBinding, ...] = (
         needs_git=True,
     ),
     ToolBinding(
+        "git.promote",
+        "git_promote",
+        EffectClass.WRITE,
+        "Promote verified changes from a worker worktree to the canonical working tree with 3-way conflict detection and dirty preservation.",
+        _obj(
+            {
+                "source_worktree": _STR,
+                "target_canonical": _STR,
+                "files": {"type": "array", "items": _STR},
+                "expected_base_sha": _STR,
+                "verify_after": {"type": "boolean"},
+                "verify_command": _STR,
+                "rollback_on_failure": {"type": "boolean"},
+            },
+            ["source_worktree"],
+        ),
+        needs_git=True,
+    ),
+    ToolBinding(
         "test.run",
         "coding_run_tests",
         EffectClass.WRITE,
@@ -482,6 +690,25 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "path": _STR,
                 "timeout_s": {"type": "number"},
                 "wait": {"type": "boolean"},
+                "execution_target": {
+                    "type": "string",
+                    "enum": [
+                        "NEW_ISOLATED_WORKTREE",
+                        "EXISTING_WORKTREE",
+                        "CANONICAL_WORKTREE",
+                        "HOST",
+                    ],
+                },
+                "execution_domain": {
+                    "type": "string",
+                    "enum": ["L0_WORKSPACE_FULL", "L0_ISOLATED", "L0_HOST"],
+                },
+                "profile": _STR,
+                "runtime_profile": {
+                    "type": "string",
+                    "description": "Runtime profile selector (default auto: canonical "
+                    "project runtime is discovered from the main repo root).",
+                },
             }
         ),
         long_running=True,
@@ -499,9 +726,57 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "path": _STR,
                 "timeout_s": {"type": "number"},
                 "wait": {"type": "boolean"},
+                "execution_target": {
+                    "type": "string",
+                    "enum": [
+                        "NEW_ISOLATED_WORKTREE",
+                        "EXISTING_WORKTREE",
+                        "CANONICAL_WORKTREE",
+                        "HOST",
+                    ],
+                },
+                "execution_domain": {
+                    "type": "string",
+                    "enum": ["L0_WORKSPACE_FULL", "L0_ISOLATED", "L0_HOST"],
+                },
+                "profile": _STR,
+                "runtime_profile": {
+                    "type": "string",
+                    "description": "Runtime profile selector (default auto: canonical "
+                    "project runtime is discovered from the main repo root).",
+                },
             }
         ),
         long_running=True,
+        needs_shell=True,
+    ),
+    ToolBinding(
+        "runtime.profile",
+        None,
+        EffectClass.READ,
+        "Get discovered workspace runtime profile (Python/Node/pytest/ruff/mypy/docker/service).",
+        _obj({"workspace": _STR, "path": _STR, "force_refresh": {"type": "boolean"}}),
+    ),
+    ToolBinding(
+        "runtime.capabilities",
+        None,
+        EffectClass.READ,
+        "Get high-level summary of available tools/capabilities in the workspace.",
+        _obj({"workspace": _STR, "path": _STR}),
+    ),
+    ToolBinding(
+        "runtime.probe",
+        None,
+        EffectClass.READ,
+        "Probe specific runtime binary/tool execution in the workspace context.",
+        _obj(
+            {
+                "workspace": _STR,
+                "path": _STR,
+                "tool": _STR,
+                "command": _STR,
+            }
+        ),
         needs_shell=True,
     ),
     ToolBinding(
@@ -692,6 +967,8 @@ class RemoteToolAdapter:
             "recovery_degraded": False,
             "failures": [],
         }
+        self.health_registry = ExecutorHealthRegistry()
+        self.action_gateway = ActionGateway()
 
     def _projection_is_live(self, record: Any, now: float) -> bool:
         """True when a worker still owns the non-terminal projection lease."""
@@ -810,6 +1087,12 @@ class RemoteToolAdapter:
         try:
             await self.initialize()
             result = await self._call_impl(session, name, arguments)
+        except ExecutionError as exc:
+            try:
+                code = RemoteErrorCode(exc.code)
+            except ValueError:
+                code = RemoteErrorCode.EXECUTION_FAILED
+            result = self._fail(name, session, code, exc.message)
         except Exception:
             self.metrics.record(
                 name, mode="sync", duration_ms=(time.time() - started) * 1000, ok=False
@@ -871,6 +1154,18 @@ class RemoteToolAdapter:
         if name == "process.cancel":
             return await self._process_cancel(session, name, args, started)
 
+        # Check action classification & approval gate (spec §1, §4, §37, §38)
+        ok, err_code, err_msg, classification = self.action_gateway.check_action(
+            name, args, session, cwd=workspace
+        )
+        if not ok:
+            return self._fail(
+                name,
+                session,
+                err_code or RemoteErrorCode.POLICY_BLOCKED,
+                err_msg or "action rejected by gateway",
+            )
+
         try:
             policy.require(
                 binding.effect,
@@ -879,9 +1174,34 @@ class RemoteToolAdapter:
             )
             command = args.get("command")
             if binding.needs_shell and isinstance(command, str):
-                policy.require_not_destructive(command)
+                if _allowed_service_control_command(command):
+                    if not session.permissions.service_control:
+                        raise WorkspacePolicyError(
+                            "POLICY_BLOCKED",
+                            "service control capability is required for systemctl operations",
+                        )
+                elif classification.category == ActionCategory.HUMAN_GATED:
+                    # Verified via approval_id by ActionGateway
+                    pass
+                else:
+                    # AUTO_OPEN operations do not require destructive capability
+                    pass
         except WorkspacePolicyError as exc:
             return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)
+
+        if (
+            name == "shell.exec"
+            and isinstance(command, str)
+            and classification.capability_id == "service_control.user"
+        ):
+            if not session.permissions.service_control:
+                return self._fail(
+                    name,
+                    session,
+                    RemoteErrorCode.POLICY_BLOCKED,
+                    "service control capability is required for systemctl operations",
+                )
+            return await self._call_service_control(session, command, started)
 
         # Permission and destructive-command decisions are independent of Git
         # discovery.  Keep them first so an unauthorized request cannot leak
@@ -1165,25 +1485,58 @@ class RemoteToolAdapter:
                     "TARGET_REPO_MISMATCH",
                     f"target is outside the resolved repository: {target}",
                 ) from exc
-            worktree, verified_repo = await self._ensure_worktree(session, str(repo_root))
-            if canonical(verified_repo) != canonical(repo_root):
-                raise WorkspaceBindingError(
-                    "WORKSPACE_DENIED",
-                    "WORKTREE_REPO_IDENTITY_MISMATCH",
-                    f"worktree belongs to {verified_repo}, expected {repo_root}",
-                )
-            mapped = (Path(worktree) / relative).resolve(strict=False)
-            worktree_root = Path(worktree).resolve()
-            if mapped != worktree_root and worktree_root not in mapped.parents:
-                raise WorkspaceBindingError(
-                    "WORKSPACE_DENIED",
-                    "TARGET_ESCAPES_WORKTREE",
-                    f"target escapes isolated worktree: {mapped}",
-                )
+
+            is_canonical = (
+                str(args.get("execution_target") or "").upper() in ("CANONICAL_WORKTREE", "HOST")
+                or args.get("target_scope") == "canonical"
+                or bool(args.get("allow_canonical"))
+            )
+
+            # P0-B/C: every execution-target-aware entry reuses the one
+            # canonical resolver — never guesses NEW vs EXISTING on its own.
+            execution_target = resolve_execution_target(
+                str(repo_root),
+                workspace_path=str(target),
+                requested_execution_target=str(args.get("execution_target") or ""),
+            )
+            if is_canonical or execution_target in ("CANONICAL_WORKTREE", "HOST"):
+                mapped = target
+                write_root = repo_root
+            elif execution_target == "EXISTING_WORKTREE":
+                # Terminal target: write directly in the existing worktree.
+                # No WorktreeManager.create(), no nested worktree.
+                existing = find_existing_worktree_root(target)
+                if existing is None:
+                    raise WorkspaceBindingError(
+                        "WORKSPACE_DENIED",
+                        "EXISTING_WORKTREE_NOT_FOUND",
+                        f"execution_target=EXISTING_WORKTREE but no existing worktree "
+                        f"contains: {target}",
+                    )
+                mapped = target
+                write_root = existing
+            else:
+                worktree, verified_repo = await self._ensure_worktree(session, str(repo_root))
+                if canonical(verified_repo) != canonical(repo_root):
+                    raise WorkspaceBindingError(
+                        "WORKSPACE_DENIED",
+                        "WORKTREE_REPO_IDENTITY_MISMATCH",
+                        f"worktree belongs to {verified_repo}, expected {repo_root}",
+                    )
+                mapped = (Path(worktree) / relative).resolve(strict=False)
+                worktree_root = Path(worktree).resolve()
+                if mapped != worktree_root and worktree_root not in mapped.parents:
+                    raise WorkspaceBindingError(
+                        "WORKSPACE_DENIED",
+                        "TARGET_ESCAPES_WORKTREE",
+                        f"target escapes isolated worktree: {mapped}",
+                    )
+                write_root = Path(worktree)
+
             if name == "file.patch" and not mapped.exists():
                 raise RemoteToolAdapterError(
                     RemoteErrorCode.NOT_FOUND,
-                    f"path not found in isolated worktree: {args['path']}",
+                    f"path not found for patch: {args['path']}",
                 )
             if name == "file.write":
                 kwargs = {
@@ -1191,7 +1544,7 @@ class RemoteToolAdapter:
                     "content": str(args["content"]),
                     "overwrite": bool(args.get("overwrite", True)),
                 }
-                return binding.veya_tool, kwargs, Path(worktree)
+                return binding.veya_tool, kwargs, write_root
             kwargs = {
                 "filepath": str(mapped),
                 "start_tag": str(args["start_tag"]),
@@ -1199,11 +1552,25 @@ class RemoteToolAdapter:
             }
             if args.get("end_tag"):
                 kwargs["end_tag"] = str(args["end_tag"])
-            return binding.veya_tool, kwargs, Path(worktree)
+            return binding.veya_tool, kwargs, write_root
 
         # Worktree-backed tools derive their repo strictly from the explicitly
         # bound workspace: never from the session's other worktrees (P0-A/M).
-        worktree, _ = await self._ensure_worktree(session, ws_binding.repo_root)
+        # P0-B: reuse the canonical resolver here as well.
+        fallback_target = resolve_execution_target(
+            ws_binding.requested_realpath,
+            workspace_path=ws_binding.canonical_target_path or ws_binding.repo_root,
+            requested_execution_target=str(args.get("execution_target") or ""),
+        )
+        fallback_existing = (
+            find_existing_worktree_root(ws_binding.canonical_target_path or ws_binding.repo_root)
+            if fallback_target == "EXISTING_WORKTREE"
+            else None
+        )
+        if fallback_existing is not None:
+            worktree = str(fallback_existing)
+        else:
+            worktree, _ = await self._ensure_worktree(session, ws_binding.repo_root)
         return (
             binding.veya_tool,
             self._worktree_args(name, session, policy, worktree, args),
@@ -1265,11 +1632,12 @@ class RemoteToolAdapter:
                 "timeout_s": 60,
             }
         if name == "shell.exec":
+            command = str(args["command"])
             kwargs: dict[str, Any] = {
                 "worktree_path": worktree,
-                "command": str(args["command"]),
+                "command": command,
                 "timeout_s": float(args.get("timeout_s", self._default_timeout_s)),
-                "approved": bool(args.get("approved")) and session.permissions.destructive,
+                "approved": True,
             }
             if args.get("profile"):
                 kwargs["profile"] = str(args["profile"])
@@ -1278,14 +1646,13 @@ class RemoteToolAdapter:
             return kwargs
         if name in {"test.run", "build.run"}:
             timeout = float(args.get("timeout_s", self._default_timeout_s))
-            approved = session.permissions.destructive
             if name == "test.run":
                 kwargs = {"worktree_path": worktree, "timeout_s": timeout}
             else:
                 kwargs = {"worktree_path": worktree, "timeout_s": timeout}
             if args.get("command"):
                 kwargs["command"] = str(args["command"])
-            kwargs["approved"] = bool(args.get("approved")) and approved
+            kwargs["approved"] = True
             return kwargs
         raise RemoteToolAdapterError(RemoteErrorCode.INVALID_ARGUMENT, f"bad worktree tool {name}")
 
@@ -1360,8 +1727,15 @@ class RemoteToolAdapter:
         if repo is not None:
             mapped = session.worktrees.get(str(repo))
             if mapped:
-                return mapped
-        return session.worktrees.get(workspace, workspace)
+                if Path(mapped).exists():
+                    return mapped
+                session.worktrees.pop(str(repo), None)
+        raw = session.worktrees.get(workspace)
+        if raw:
+            if Path(raw).exists():
+                return raw
+            session.worktrees.pop(workspace, None)
+        return workspace
 
     def _task_id(self, session: RemoteSession, workspace: str, lane: str = "") -> str:
         # Deterministic per session + repository identity.  A parent workspace
@@ -1526,7 +1900,11 @@ class RemoteToolAdapter:
         return mapping
 
     def _resolve_command(
-        self, name: str, args: dict[str, Any], ws_binding: WorkspaceBinding
+        self,
+        name: str,
+        args: dict[str, Any],
+        ws_binding: WorkspaceBinding,
+        runtime_profile: Any | None = None,
     ) -> str:
         explicit = args.get("command")
         if explicit:
@@ -1535,10 +1913,144 @@ class RemoteToolAdapter:
         if detected:
             return detected[0]
         if name == "test.run":
+            if runtime_profile is not None:
+                if runtime_profile.pytest:
+                    if runtime_profile.python_bin:
+                        return f"{runtime_profile.python_bin} -m pytest -q"
+                    return "pytest -q"
+                if runtime_profile.pnpm:
+                    return "pnpm test"
+                if runtime_profile.node:
+                    return "npm test"
             return "python -m pytest -q"
+        if name == "build.run" and runtime_profile is not None:
+            if runtime_profile.pnpm:
+                return "pnpm build"
+            if runtime_profile.node:
+                return "npm run build"
         raise RemoteToolAdapterError(
             RemoteErrorCode.INVALID_ARGUMENT,
             "no build command detected; pass command explicitly",
+        )
+
+    async def _call_service_control(
+        self, session: RemoteSession, command: str, started: float
+    ) -> RemoteCallResult:
+        parsed = _parse_service_control_command(command)
+        if parsed is None:
+            return self._fail(
+                "shell.exec",
+                session,
+                RemoteErrorCode.POLICY_BLOCKED,
+                "service control command is outside the allowlist",
+            )
+        action, unit = parsed
+        argv: tuple[str, ...]
+        if action == "daemon-reload":
+            argv = ("/usr/bin/systemctl", "--user", "daemon-reload")
+        elif action == "is-active":
+            argv = ("/usr/bin/systemctl", "--user", "is-active", unit)
+        elif action == "status":
+            argv = ("/usr/bin/systemctl", "--user", "status", unit, "--no-pager")
+        elif action in ("restart", "stop") and unit in _SERVICE_CONTROL_SELF_UNITS:
+            transient = f"veya-service-{action}-{time.time_ns()}"
+            argv = (
+                "/usr/bin/systemd-run",
+                "--user",
+                "--quiet",
+                "--collect",
+                f"--unit={transient}",
+                "--on-active=500ms",
+                "/usr/bin/systemctl",
+                "--user",
+                action,
+                unit,
+            )
+        else:
+            argv = ("/usr/bin/systemctl", "--user", action, unit)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+        except (OSError, TimeoutError) as exc:
+            return self._fail(
+                "shell.exec",
+                session,
+                RemoteErrorCode.EXECUTION_FAILED,
+                f"service control failed: {type(exc).__name__}: {exc}",
+            )
+        out = stdout.decode("utf-8", "replace").strip()
+        err = stderr.decode("utf-8", "replace").strip()
+        allowed_rcs = (
+            (0, 1, 2, 3) if action == "status" else ((0, 3) if action == "is-active" else (0,))
+        )
+        if proc.returncode not in allowed_rcs:
+            return self._fail(
+                "shell.exec",
+                session,
+                RemoteErrorCode.EXECUTION_FAILED,
+                (err or out or f"service control exit {proc.returncode}")[:800],
+            )
+        payload: dict[str, Any]
+        if action == "daemon-reload":
+            payload = {
+                "service_control": True,
+                "action": "daemon-reload",
+                "destructive_capability_used": False,
+            }
+        elif action == "is-active":
+            payload = {
+                "service_control": True,
+                "action": "is-active",
+                "unit": unit,
+                "active": out == "active",
+                "state": out,
+                "destructive_capability_used": False,
+            }
+        elif action == "status":
+            state = "unknown"
+            for line in out.splitlines():
+                line_s = line.strip()
+                if line_s.startswith("Active:"):
+                    parts = line_s.split("Active:", 1)[1].strip().split()
+                    if parts:
+                        state = parts[0]
+                    break
+            payload = {
+                "service_control": True,
+                "action": "status",
+                "unit": unit,
+                "state": state,
+                "exit_code": proc.returncode,
+                "text": (out or err)[:4000],
+                "destructive_capability_used": False,
+            }
+        elif action in ("restart", "stop") and unit in _SERVICE_CONTROL_SELF_UNITS:
+            payload = {
+                "service_control": True,
+                "action": action,
+                "unit": unit,
+                "accepted": True,
+                "scheduled": True,
+                "delay_ms": 500,
+                "destructive_capability_used": False,
+            }
+        else:
+            payload = {
+                "service_control": True,
+                "action": action,
+                "unit": unit,
+                "accepted": True,
+                "destructive_capability_used": False,
+            }
+        return RemoteCallResult(
+            ok=True,
+            tool="shell.exec",
+            session_id=session.session_id,
+            workspace=session.active_workspace,
+            result=payload,
+            duration_ms=(time.time() - started) * 1000,
         )
 
     async def _call_command_tool(
@@ -1553,11 +2065,57 @@ class RemoteToolAdapter:
         resolution: RepoResolution,
     ) -> RemoteCallResult:
         name = binding.name
+
+        # P0-D: runtime profile discovery must use the canonical *main* project root
+        # (not the worktree itself) so that the project venv is always found.
+        canonical_proj_root = _canonical_project_root(
+            resolution.repo_root or resolution.target_path
+        )
+
+        runtime_profile = None
+        if not args.get("command") and name in ("test.run", "build.run"):
+            from veya.remote.runtime_profile import discover_runtime_profile
+
+            try:
+                runtime_profile = await asyncio.to_thread(
+                    discover_runtime_profile,
+                    resolution.target_path,
+                    repo_root=canonical_proj_root,
+                )
+            except Exception:
+                runtime_profile = None
+
         try:
-            command = self._resolve_command(name, args, ws_binding)
+            command = self._resolve_command(name, args, ws_binding, runtime_profile=runtime_profile)
         except RemoteToolAdapterError as exc:
             return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)
-        profile = str(args.get("profile") or "local_restricted")
+
+        # P0-B: use the canonical resolver so workspace=TARGET_WT is auto-detected
+        # as EXISTING_WORKTREE without requiring callers to pass the flag explicitly.
+        execution_target = resolve_execution_target(
+            ws_binding.requested_realpath,
+            workspace_path=resolution.target_path,
+            requested_execution_target=str(args.get("execution_target") or ""),
+        )
+        # P0-E/F: ExecutionDomain (policy) -> SandboxProfile (mechanism) via
+        # the one canonical mapping. An explicit domain always wins; the
+        # legacy ``profile=`` ids (local_trusted/local_restricted/
+        # docker_python/docker_node/l0_*) remain accepted for compatibility.
+        from veya.remote.runtime_profile import execution_domain_to_profile
+
+        execution_domain = str(args.get("execution_domain") or "").upper()
+        mapped_profile = execution_domain_to_profile(execution_domain or None)
+        if mapped_profile is not None:
+            profile = mapped_profile
+        elif "profile" in args:
+            profile = str(args["profile"])
+        else:
+            profile = (
+                "local_restricted"
+                if name == "shell.exec" and not execution_domain
+                else "l0_workspace_full"
+            )
+
         approved = bool(args.get("approved")) and session.permissions.destructive
         network = args.get("network")
         timeout_s = float(args.get("timeout_s") or DEFAULT_DIRECT_TIMEOUT_S)
@@ -1575,6 +2133,9 @@ class RemoteToolAdapter:
                 network=str(network) if network else None,
                 timeout_s=timeout_s,
                 target_path=resolution.target_path,
+                execution_target=execution_target,
+                execution_domain=execution_domain or "L0_WORKSPACE_FULL",
+                runtime_profile=runtime_profile,
             ),
             limits=_execution_limits(name, args),
             execution_type=str(ExecutionType.DIRECT),
@@ -1582,9 +2143,14 @@ class RemoteToolAdapter:
             cwd=None,
             profile=profile,
         )
-        # P0-B/J: block only within the direct sync window; a longer command
-        # returns its execution_id immediately and survives client disconnect.
-        await self.jobs.wait(record.execution_id, timeout_s=direct_sync_window_s())
+        # P0-B/J: block only within the direct sync window by default; an explicit
+        # wait=True caller waits for the full command or wait_timeout_s.
+        sync_wait_s = (
+            float(args.get("wait_timeout_s") or timeout_s)
+            if args.get("wait") is True
+            else direct_sync_window_s()
+        )
+        await self.jobs.wait(record.execution_id, timeout_s=sync_wait_s)
         snapshot = self._redact(record.to_public(heartbeat_timeout_s=self.jobs.heartbeat_timeout_s))
         if record.is_terminal:
             if record.status in {
@@ -1663,6 +2229,9 @@ class RemoteToolAdapter:
         timeout_s: float,
         target_path: str,
         lane: str = "",
+        execution_target: str = "NEW_ISOLATED_WORKTREE",
+        execution_domain: str = "L0_WORKSPACE_FULL",
+        runtime_profile: Any | None = None,
     ) -> Any:
         async def runner(reporter: ProgressReporter) -> str:
             # Phase 1.1: shell/test/build are not guaranteed read-only, so the
@@ -1674,9 +2243,17 @@ class RemoteToolAdapter:
                 message="preparing isolated worktree",
                 event="WORKTREE_PREPARE",
             )
-            worktree, repo_root = await self._ensure_isolated_worktree(
-                session, ws_binding.repo_root, lane
-            )
+            if execution_target in ("CANONICAL_WORKTREE", "HOST"):
+                worktree = ws_binding.repo_root
+                repo_root = ws_binding.repo_root
+            else:
+                worktree, repo_root = await self._ensure_isolated_worktree(
+                    session,
+                    ws_binding.repo_root,
+                    lane,
+                    execution_target=execution_target,
+                    target_path=target_path,
+                )
             cwd = self._map_target_to_worktree(target_path, repo_root, worktree)
             reporter.set_worktree(worktree, repo_root)
             reporter.worker(
@@ -1691,6 +2268,19 @@ class RemoteToolAdapter:
                 message=f"running {command[:120]}",
                 event="COMMAND_STARTED",
             )
+            active_profile = runtime_profile
+            if active_profile is None:
+                from veya.remote.runtime_profile import discover_runtime_profile
+
+                try:
+                    active_profile = await asyncio.to_thread(
+                        discover_runtime_profile,
+                        worktree,
+                        repo_root=repo_root,
+                    )
+                except Exception:
+                    active_profile = None
+
             try:
                 result = await run_direct_command(
                     worktree,
@@ -1700,6 +2290,7 @@ class RemoteToolAdapter:
                     timeout_s=timeout_s,
                     approved=approved,
                     network=network,
+                    runtime_profile=active_profile,
                     on_stdout=lambda line: reporter.output("stdout", str(self._redact(line))),
                     on_stderr=lambda line: reporter.output("stderr", str(self._redact(line))),
                     on_process=lambda pid, pgid: reporter.process(
@@ -1710,6 +2301,15 @@ class RemoteToolAdapter:
                 raise ExecutionBlocked("POLICY_BLOCKED", str(exc)) from exc
             except CommandPolicyError as exc:
                 raise ExecutionBlocked("INVALID_ARGUMENT", str(exc)) from exc
+            except Exception as exc:
+                # P0-G: an unknown sandbox profile (or any other spawn-time
+                # failure) is a fail-closed block with taxonomy — never a
+                # silent terminal success downstream.
+                from runtime.coding.sandbox_profiles import SandboxProfileError
+
+                if isinstance(exc, SandboxProfileError):
+                    raise ExecutionBlocked("INVALID_ARGUMENT", str(exc)) from exc
+                raise
             reporter.phase("FINALIZING", message="command exited", event="COMMAND_EXITED")
             reporter.finish_command(
                 exit_code=result.exit_code,
@@ -1722,6 +2322,19 @@ class RemoteToolAdapter:
                 bytes_stdout=result.bytes_stdout,
                 bytes_stderr=result.bytes_stderr,
             )
+            if result.status != "passed":
+                # P0-G: a spawn failure (exit_code None), timeout, or
+                # non-zero exit must carry failure_class/source/detail so the
+                # terminal projection can never classify it as COMPLETED.
+                reporter.failure(
+                    failure_class=_direct_failure_class(result),
+                    source="direct_command",
+                    detail=(
+                        result.stderr_tail[-4000:]
+                        or result.stdout_tail[-4000:]
+                        or f"direct command {result.status} (exit_code={result.exit_code})"
+                    ),
+                )
             return f"direct command {result.status} (exit_code={result.exit_code})"
 
         return runner
@@ -1739,18 +2352,21 @@ class RemoteToolAdapter:
         repo = Path(repo_root).resolve()
         target = Path(target_path).resolve(strict=False)
         isolated = Path(worktree).resolve()
-        try:
-            relative = target.relative_to(repo)
-        except ValueError as exc:
-            raise ExecutionBlocked(
-                "WORKSPACE_DENIED",
-                f"resolved target is outside resolved repository: {target}",
-            ) from exc
-        mapped = (isolated / relative).resolve(strict=False)
-        if mapped != isolated and isolated not in mapped.parents:
-            raise ExecutionBlocked(
-                "WORKSPACE_DENIED", f"resolved target escapes isolated worktree: {mapped}"
-            )
+        if target == isolated or isolated in target.parents:
+            mapped = target
+        else:
+            try:
+                relative = target.relative_to(repo)
+            except ValueError as exc:
+                raise ExecutionBlocked(
+                    "WORKSPACE_DENIED",
+                    f"resolved target is outside resolved repository: {target}",
+                ) from exc
+            mapped = (isolated / relative).resolve(strict=False)
+            if mapped != isolated and isolated not in mapped.parents:
+                raise ExecutionBlocked(
+                    "WORKSPACE_DENIED", f"resolved target escapes isolated worktree: {mapped}"
+                )
         if not mapped.is_dir():
             # Commands use a directory cwd. A file selector is a valid repo
             # selector for all other operations, but shell/test/build must run
@@ -1763,7 +2379,13 @@ class RemoteToolAdapter:
         return str(mapped)
 
     async def _ensure_isolated_worktree(
-        self, session: RemoteSession, repo_root: str, lane: str = ""
+        self,
+        session: RemoteSession,
+        repo_root: str,
+        lane: str = "",
+        *,
+        execution_target: str = "NEW_ISOLATED_WORKTREE",
+        target_path: str | None = None,
     ) -> tuple[str, str]:
         """Create/verify the task worktree for ``repo_root`` (Phase 1.1).
 
@@ -1772,9 +2394,38 @@ class RemoteToolAdapter:
         Raises :class:`ExecutionBlocked` on any failure; never returns the owner
         repo root.
         """
+        if execution_target in ("CANONICAL_WORKTREE", "HOST"):
+            return repo_root, repo_root
 
         key = canonical(repo_root)
         cache_key = key if not lane else f"{key}::{lane}"
+
+        # P0-C/D: if target_path is already inside an existing linked worktree,
+        # reuse it directly — no nested worktrees.  Return the *canonical main*
+        # project root as repo_root so that _map_target_to_worktree, runtime
+        # profile discovery, and WorktreeManager all operate on the right root.
+        if execution_target == "EXISTING_WORKTREE" or target_path:
+            existing = find_existing_worktree_root(target_path or key)
+            if existing is not None:
+                main_root = _canonical_project_root(existing)
+                session.worktrees[cache_key] = str(existing)
+                return str(existing), main_root
+
+        if execution_target == "EXISTING_WORKTREE":
+            candidate = session.worktrees.get(cache_key)
+            if candidate and Path(candidate).is_dir():
+                return candidate, repo_root
+            veya_wts = Path(key) / ".veya" / "worktrees"
+            if veya_wts.is_dir():
+                dirs = sorted(
+                    [d for d in veya_wts.iterdir() if d.is_dir()],
+                    key=lambda d: d.stat().st_mtime,
+                    reverse=True,
+                )
+                if dirs:
+                    session.worktrees[cache_key] = str(dirs[0])
+                    return str(dirs[0]), repo_root
+
         lock = self._worktree_locks.setdefault(cache_key, asyncio.Lock())
         async with lock:
             try:
@@ -1896,6 +2547,85 @@ class RemoteToolAdapter:
         item: dict[str, Any],
         index: int,
     ) -> Any:
+
+        from veya.remote.execution_contract import (
+            ExecutionCapabilityEnvelope,
+            ExecutionSpec,
+            probe_runtime_capability_manifest,
+        )
+
+        explicit_pin = bool(item.get("explicit_pin", item.get("pin", False)))
+        required_caps = item.get("required_capabilities") or item.get("capabilities") or []
+
+        # 1. load ExecutionSpec
+        spec = ExecutionSpec(
+            objective=task_text,
+            executor_requirements={
+                "preferred_executor": worker,
+                "required_capabilities": required_caps,
+                "explicit_pin": explicit_pin,
+            },
+            workspace=ws_binding.requested_realpath,
+            capabilities=ExecutionCapabilityEnvelope(
+                filesystem={"allowed_roots": [ws_binding.requested_realpath]},
+                network={"mode": "ALLOWLIST"},
+                tools={"allowed_tools": []},
+                mcp_servers={},
+                skills={},
+                credentials={},
+                compute={},
+                workspace=ws_binding.requested_realpath,
+                runtime={},
+            ),
+            resources={},
+            supervision={},
+            continuation=None,
+        )
+
+        # 2. load RuntimeCapabilityManifest & 3-7 choose executor
+        selected_worker, sub_evidence = resolve_executor(
+            requested=worker,
+            explicit_pin=explicit_pin,
+            required_capabilities=required_caps,
+            health_registry=self.health_registry,
+        )
+
+        manifest_snapshot = probe_runtime_capability_manifest(
+            selected_worker,
+            workspace_path=ws_binding.requested_realpath,
+            health_registry=self.health_registry,
+            active_executions=len([t for t in self.jobs._tasks.values() if not t.done()]),
+        )
+
+        # 8. persist decision
+        if sub_evidence is not None:
+            self.jobs.record_event(
+                parent.execution_id,
+                kind="EXECUTOR_SUBSTITUTION",
+                message=json.dumps(
+                    {
+                        "requested_executor": worker,
+                        "selected_executor": selected_worker,
+                        "selection_reason": sub_evidence.to_dict(),
+                        "manifest_snapshot": manifest_snapshot.__dict__,
+                    }
+                ),
+            )
+        else:
+            self.jobs.record_event(
+                parent.execution_id,
+                kind="ROUTING_DECISION",
+                message=json.dumps(
+                    {
+                        "requested_executor": worker,
+                        "selected_executor": selected_worker,
+                        "selection_reason": "direct match or pin",
+                        "manifest_snapshot": manifest_snapshot.__dict__,
+                    }
+                ),
+            )
+
+        worker = selected_worker
         worker_type = _WORKER_TYPES[worker]
         blocker = _WORKER_BLOCKERS.get(worker)
         lane = f"child-{parent.execution_id[-8:]}-{index}"
@@ -1924,6 +2654,7 @@ class RemoteToolAdapter:
                 tool="hicode.execute",
                 veya_tool="hicode_run",
                 binding=ws_binding,
+                spec=spec,
                 runner=self._make_hicode_runner(
                     task=task_text,
                     session=session,
@@ -1953,6 +2684,7 @@ class RemoteToolAdapter:
                 tool="worker.dispatch",
                 veya_tool=f"direct_{worker}",
                 binding=ws_binding,
+                spec=spec,
                 runner=self._make_cli_worker_runner(
                     worker=worker,
                     task=task_text,
@@ -2155,7 +2887,24 @@ class RemoteToolAdapter:
                 stage = str(event.get("stage") or "")
                 detail = str(event.get("detail") or "")
                 tool = event.get("tool")
-                if stage == "planning":
+                if stage == "provider_failure":
+                    if in_flight["value"]:
+                        in_flight["value"] = False
+                        reporter.model_completed(activity="model round failed")
+                    round_index = event.get("round_index")
+                    reporter.failure(
+                        failure_class=str(event.get("code") or "HICODE_PROVIDER_ROUND_FAILURE"),
+                        source="hicode_provider",
+                        detail=detail or "structured provider failure",
+                        code=str(event.get("code") or "HICODE_PROVIDER_ROUND_FAILURE"),
+                        raw_evidence=event.get("raw_evidence")
+                        if isinstance(event.get("raw_evidence"), dict)
+                        else None,
+                        round_index=round_index
+                        if isinstance(round_index, int) and not isinstance(round_index, bool)
+                        else None,
+                    )
+                elif stage == "planning":
                     if not in_flight["value"]:
                         in_flight["value"] = True
                         reporter.model_started(activity=detail or "Hicode planning")
@@ -2197,7 +2946,11 @@ class RemoteToolAdapter:
                     bound_hicode_workspace(worktree),
                     bound_hicode_execution_id(reporter._execution_id),
                 ):
-                    from server.hicode_agent import _execute_hicode_core
+                    from server.hicode_agent import (
+                        HicodeExecutionError,
+                        HicodeUnavailable,
+                        _execute_hicode_core,
+                    )
 
                     output = await _execute_hicode_core(
                         worker_input,
@@ -2208,23 +2961,55 @@ class RemoteToolAdapter:
                         force_cli=True,
                         on_process=on_process,
                     )
-                hicode_failure = _hicode_failure_message(output)
-                if hicode_failure is not None:
-                    reporter.failure(
-                        failure_class="HICODE_EXECUTION_FAILED",
-                        source="hicode",
-                        detail=hicode_failure,
-                    )
-                    self._write_task_memory_failure(memory, reporter._execution_id, hicode_failure)
-                    raise ExecutionError("HICODE_FAILED", hicode_failure)
+            except HicodeExecutionError as exc:
+                fc = classify_executor_failure(error=exc, detail=f"{exc.code}: {exc.detail}")
+                self.health_registry.record_failure("hicode", fc, detail=exc.detail)
+                failure_cls = str(exc.code) if exc.code else str(fc)
+                reporter.failure(
+                    failure_class=failure_cls,
+                    source="hicode_provider",
+                    detail=exc.detail,
+                    code=exc.code,
+                    raw_evidence=exc.raw_evidence,
+                )
+                self._write_task_memory_failure(
+                    memory, reporter._execution_id, exc.detail, error_class=exc.code
+                )
+                raise ExecutionError(exc.code, exc.detail) from exc
+            except HicodeUnavailable as exc:
+                detail = str(exc)[:4000]
+                fc = ExecutorFailureClass.PROVIDER_UNAVAILABLE
+                self.health_registry.record_failure("hicode", fc, detail=detail)
+                reporter.failure(
+                    failure_class=str(fc),
+                    source="hicode_runtime",
+                    detail=detail,
+                    code="HICODE_RUNTIME_UNAVAILABLE",
+                    raw_evidence={"exception_type": type(exc).__name__, "detail": detail},
+                )
+                self._write_task_memory_failure(
+                    memory,
+                    reporter._execution_id,
+                    detail,
+                    error_class="HICODE_RUNTIME_UNAVAILABLE",
+                )
+                raise ExecutionError("HICODE_RUNTIME_UNAVAILABLE", detail) from exc
             except asyncio.CancelledError:
                 # Kill exactly this execution's process group (reasonix + its
                 # tool grandchildren); never the shared runtime/gateway.
+                self.health_registry.record_failure(
+                    "hicode", ExecutorFailureClass.WORKER_CANCELLED, detail="cancelled"
+                )
                 await terminate_process_group_id(owned["pgid"] or 0)
                 raise
+            except ExecutionError:
+                # Preserve the canonical Hicode/provider error. Do not re-wrap it.
+                raise
             except Exception as exc:
+                fc = classify_executor_failure(error=exc, detail=f"{type(exc).__name__}: {exc}")
+                self.health_registry.record_failure("hicode", fc, detail=str(exc))
                 reporter.failure(
-                    failure_class="WORKER_EXECUTION_FAILED",
+                    failure_class=str(fc),
                     source="hicode",
                     detail=f"{type(exc).__name__}: {exc}",
                 )
@@ -2239,6 +3024,7 @@ class RemoteToolAdapter:
             finally:
                 if in_flight["value"]:
                     reporter.model_completed(activity="model request finished")
+            self.health_registry.record_success("hicode")
             reporter.phase("FINALIZING", message="Hicode finalizing", event="FINALIZING")
             self._write_task_memory_success(memory, reporter._execution_id, output)
             return output
@@ -2344,6 +3130,7 @@ class RemoteToolAdapter:
                 while proc.returncode is None:
                     await asyncio.sleep(2.0)
                     if proc.returncode is None:
+                        self.health_registry.set_heartbeat(worker, alive=True)
                         reporter.phase(
                             "THINKING",
                             message=f"{worker} process alive",
@@ -2380,9 +3167,9 @@ class RemoteToolAdapter:
                     f"hard_max_runtime_ms={exc.hard_max_s * 1000:.0f}"
                 )
                 reporter.event(timeout_detail, kind="WORKER_TIMEOUT_EVIDENCE")
-                reporter.failure(
-                    failure_class="WORKER_TIMEOUT", source=worker, detail=timeout_detail
-                )
+                fc = ExecutorFailureClass.WORKER_TIMEOUT
+                self.health_registry.record_failure(worker, fc, detail=timeout_detail)
+                reporter.failure(failure_class=str(fc), source=worker, detail=timeout_detail)
                 self._write_task_memory_failure(
                     memory,
                     reporter._execution_id,
@@ -2400,9 +3187,9 @@ class RemoteToolAdapter:
                     f"timeout_layer=Veya runner; hard_max_runtime_ms={timeout_s * 1000:.0f}"
                 )
                 reporter.event(timeout_detail, kind="WORKER_TIMEOUT_EVIDENCE")
-                reporter.failure(
-                    failure_class="WORKER_TIMEOUT", source=worker, detail=timeout_detail
-                )
+                fc = ExecutorFailureClass.WORKER_TIMEOUT
+                self.health_registry.record_failure(worker, fc, detail=timeout_detail)
+                reporter.failure(failure_class=str(fc), source=worker, detail=timeout_detail)
                 self._write_task_memory_failure(
                     memory,
                     reporter._execution_id,
@@ -2415,6 +3202,9 @@ class RemoteToolAdapter:
                 await terminate_process_group_id(pgid)
                 with contextlib.suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(proc.wait(), timeout=2.0)
+                fc = ExecutorFailureClass.WORKER_CANCELLED
+                self.health_registry.record_failure(worker, fc, detail="cancelled")
+                reporter.failure(failure_class=str(fc), source=worker, detail="cancelled")
                 raise
             finally:
                 if "heartbeat_task" in locals():
@@ -2423,10 +3213,11 @@ class RemoteToolAdapter:
             reporter.model_completed(activity=f"{worker} model finished")
             if proc.returncode not in (0, None):
                 stderr_tail = "".join(stderr_lines).strip()[-1200:]
-                detail = f"exit_code={proc.returncode}; stderr={stderr_tail}"
-                reporter.failure(
-                    failure_class="WORKER_EXECUTION_FAILED", source=worker, detail=detail
-                )
+                stdout_tail = "".join(stdout_lines).strip()[-1200:]
+                detail = f"exit_code={proc.returncode}; stderr={stderr_tail}; stdout={stdout_tail}".strip()
+                fc = classify_executor_failure(exit_code=proc.returncode, detail=detail)
+                self.health_registry.record_failure(worker, fc, detail=detail)
+                reporter.failure(failure_class=str(fc), source=worker, detail=detail)
                 self._write_task_memory_failure(
                     memory,
                     reporter._execution_id,
@@ -2435,6 +3226,7 @@ class RemoteToolAdapter:
                     error_class=retry_error_class,
                 )
                 raise ExecutionError("WORKER_FAILED", f"{worker} exited with {proc.returncode}")
+            self.health_registry.record_success(worker)
             changed = await self._worktree_changed(worktree)
             if changed:
                 reporter.tool_activity(
@@ -2638,6 +3430,59 @@ class RemoteToolAdapter:
                 )
                 text, truncated = self._limit(out)
                 payload = {"diff": text, "truncated": truncated, "exit_code": code}
+            elif name == "git.promote":
+                from veya.remote.git_promotion import (
+                    PromotionError,
+                    apply_promotion,
+                    preflight_promotion,
+                )
+
+                source_worktree = str(args.get("source_worktree", ""))
+                target_canonical = str(args.get("target_canonical") or ws_binding.repo_root)
+                files = args.get("files")
+                expected_base_sha = args.get("expected_base_sha")
+                verify_after = bool(args.get("verify_after", True))
+                verify_command = args.get("verify_command")
+                rollback_on_failure = bool(args.get("rollback_on_failure", True))
+
+                try:
+                    preflight = await asyncio.to_thread(
+                        preflight_promotion,
+                        source_worktree,
+                        target_canonical,
+                        files=files,
+                        expected_base_sha=expected_base_sha,
+                    )
+                    from veya.remote.runtime_profile import discover_runtime_profile
+
+                    rp = await asyncio.to_thread(discover_runtime_profile, target_canonical)
+                    res = await asyncio.to_thread(
+                        apply_promotion,
+                        preflight,
+                        verify_after=verify_after,
+                        verify_command=verify_command,
+                        rollback_on_failure=rollback_on_failure,
+                        runtime_profile=rp,
+                    )
+                    payload = res.to_dict()
+                    payload["workspace"] = ws_binding.requested_realpath
+                    payload["repo_root"] = ws_binding.repo_root
+                    payload["cwd"] = target_canonical
+                    payload["resolution"] = resolution.to_public()
+                    return RemoteCallResult(
+                        ok=res.status == "PROMOTED",
+                        tool=name,
+                        session_id=session.session_id,
+                        workspace=ws_binding.requested_realpath,
+                        result=self._redact(payload),
+                        duration_ms=(time.time() - started) * 1000,
+                    )
+                except PromotionError as exc:
+                    return self._fail(name, session, exc.code, exc.message)
+                except Exception as exc:
+                    return self._fail(
+                        name, session, RemoteErrorCode.EXECUTION_FAILED, f"promotion failed: {exc}"
+                    )
             else:
                 limit = max(1, min(int(args.get("limit", 20)), 200))
                 code, out, err = await self._run_capture(
@@ -2754,6 +3599,110 @@ class RemoteToolAdapter:
             text = "\n".join(lines) or "(empty)"
             output, truncated = self._limit(text)
             return {"path": str(target), "entries": lines, "text": output, "truncated": truncated}
+        if name == "runtime.profile":
+            target = self._resolve_in(policy, base, args.get("path") or ".", must_exist=True)
+            from veya.remote.runtime_profile import discover_runtime_profile
+
+            force_refresh = bool(args.get("force_refresh", False))
+            profile = await asyncio.to_thread(
+                discover_runtime_profile, str(target), force_refresh=force_refresh
+            )
+            return {"path": str(target), "profile": profile.to_dict()}
+        if name == "runtime.capabilities":
+            target = self._resolve_in(policy, base, args.get("path") or ".", must_exist=True)
+            from veya.remote.runtime_profile import discover_runtime_profile
+
+            profile = await asyncio.to_thread(discover_runtime_profile, str(target))
+            caps = {
+                "workspace": str(target),
+                "python": profile.python,
+                "pytest": profile.pytest,
+                "ruff": profile.ruff,
+                "mypy": profile.mypy,
+                "node": profile.node,
+                "pnpm": profile.pnpm,
+                "uv": profile.uv,
+                "docker": profile.docker,
+                "service_capabilities": list(profile.service_capabilities),
+                "available_domains": ["L0_WORKSPACE_FULL", "L0_ISOLATED", "L0_HOST"],
+                "available_targets": [
+                    "NEW_ISOLATED_WORKTREE",
+                    "EXISTING_WORKTREE",
+                    "CANONICAL_WORKTREE",
+                    "HOST",
+                ],
+                "profile_hash": profile.profile_hash,
+            }
+            return {"path": str(target), "capabilities": caps}
+        if name == "runtime.probe":
+            target = self._resolve_in(policy, base, args.get("path") or ".", must_exist=True)
+            from veya.remote.direct_exec import run_direct_command
+            from veya.remote.runtime_profile import discover_runtime_profile
+
+            profile = await asyncio.to_thread(discover_runtime_profile, str(target))
+            tool = str(args.get("tool") or "").strip()
+            command = str(args.get("command") or "").strip()
+            if not command and tool:
+                if tool == "python":
+                    command = (
+                        f"{profile.python_bin} --version"
+                        if profile.python_bin
+                        else "python --version"
+                    )
+                elif tool == "pytest":
+                    command = (
+                        f"{profile.pytest_bin} --version"
+                        if profile.pytest_bin
+                        else f"{profile.python_bin} -m pytest --version"
+                    )
+                elif tool == "ruff":
+                    command = (
+                        f"{profile.ruff_bin} --version" if profile.ruff_bin else "ruff --version"
+                    )
+                elif tool == "mypy":
+                    command = (
+                        f"{profile.mypy_bin} --version" if profile.mypy_bin else "mypy --version"
+                    )
+                elif tool == "node":
+                    command = (
+                        f"{profile.node_bin} --version" if profile.node_bin else "node --version"
+                    )
+                elif tool == "pnpm":
+                    command = (
+                        f"{profile.pnpm_bin} --version" if profile.pnpm_bin else "pnpm --version"
+                    )
+                elif tool == "uv":
+                    command = f"{profile.uv_bin} --version" if profile.uv_bin else "uv --version"
+                elif tool == "docker":
+                    command = (
+                        f"{profile.docker_bin} --version"
+                        if profile.docker_bin
+                        else "docker --version"
+                    )
+                else:
+                    command = f"{tool} --version"
+            if not command:
+                raise RemoteToolAdapterError(
+                    RemoteErrorCode.INVALID_ARGUMENT, "tool or command required for probe"
+                )
+            result = await run_direct_command(
+                str(target),
+                command,
+                cwd=str(target),
+                profile="l0_workspace_full",
+                runtime_profile=profile,
+                timeout_s=30.0,
+            )
+            return {
+                "path": str(target),
+                "tool": tool,
+                "command": command,
+                "status": result.status,
+                "exit_code": result.exit_code,
+                "stdout": result.stdout_tail.strip(),
+                "stderr": result.stderr_tail.strip(),
+                "duration_ms": result.duration_ms,
+            }
         if name == "file.read":
             target = self._resolve_target(session, policy, base, args["path"], must_exist=True)
             content = await asyncio.to_thread(
@@ -2901,6 +3850,7 @@ class RemoteToolAdapter:
             record = await self.jobs.cancel(
                 execution_id,
                 token_id=session.token_id,
+                session_id=session.session_id,
                 workspace_realpath=session.explicit_workspace,
             )
         except ExecutionError as exc:
@@ -2935,6 +3885,19 @@ class RemoteToolAdapter:
         )
 
 
+def _direct_failure_class(result: Any) -> str:
+    """Failure taxonomy for a non-passed direct command (P0-G)."""
+
+    status = str(getattr(result, "status", "") or "")
+    exit_code = getattr(result, "exit_code", None)
+    stderr = str(getattr(result, "stderr_tail", "") or "")
+    if status == "timeout" or getattr(result, "timed_out", False):
+        return "COMMAND_TIMEOUT"
+    if exit_code is None or "unable to execute command" in stderr:
+        return "COMMAND_SPAWN_FAILED"
+    return "COMMAND_FAILED"
+
+
 def _terminal_error_code(record: Any) -> RemoteErrorCode:
     status = str(getattr(record, "status", ""))
     error = str(getattr(record, "error", "") or "")
@@ -2948,22 +3911,6 @@ def _terminal_error_code(record: Any) -> RemoteErrorCode:
     if status == str(ExecutionStatus.BLOCKED):
         return RemoteErrorCode.POLICY_BLOCKED
     return RemoteErrorCode.EXECUTION_FAILED
-
-
-def _hicode_failure_message(output: Any) -> str | None:
-    """Convert Hicode's legacy error-string results into failed executions."""
-
-    text = str(output or "").strip()
-    prefixes = (
-        "hicode 不可用:",
-        "hicode 执行失败:",
-        "hicode 执行异常:",
-        "错误:",
-        "⚠ hicode 执行失败",
-    )
-    if text.startswith(prefixes):
-        return text[:2000]
-    return None
 
 
 def _normalize_mission_policy(raw: dict[str, Any]) -> dict[str, Any]:
@@ -2989,10 +3936,10 @@ def _normalize_mission_policy(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _initial_phase(tool: str) -> ExecutionPhase:
     if tool in {"test.run", "build.run"}:
-        return ExecutionPhase.TESTING
+        return ExecutionPhase.RUNNING
     if tool in {"shell.exec"}:
-        return ExecutionPhase.EDITING
-    return ExecutionPhase.PLANNING
+        return ExecutionPhase.RUNNING
+    return ExecutionPhase.STARTING
 
 
 def _execution_limits(tool: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -3083,6 +4030,9 @@ def _worker_model_identity(worker: str) -> tuple[str, str]:
 
     if worker == "hicode":
         return _hicode_model_identity()
+    if worker == "opencode":
+        model = _resolve_opencode_model()
+        return "opencode-go", model or "deepseek-v4-flash"
     cfg = _CLI_WORKERS.get(worker)
     if cfg:
         return str(cfg["provider"]), str(cfg["model"])
@@ -3110,6 +4060,192 @@ def worker_availability() -> dict[str, Any]:
     }
 
 
+def _is_pi_coding_agent(path: Path) -> bool:
+    try:
+        resolved = path.expanduser().resolve(strict=True)
+    except OSError:
+        return False
+    return os.access(path.expanduser(), os.X_OK) and "pi-coding-agent" in str(resolved)
+
+
+def _resolve_pi_binary() -> str:
+    configured = os.environ.get("VEYA_PI_BIN")
+    if configured:
+        candidate = Path(configured).expanduser()
+        if _is_pi_coding_agent(candidate):
+            return str(candidate)
+        raise RuntimeError(f"VEYA_PI_BIN is not a Pi Coding Agent executable: {candidate}")
+
+    nvm_root = Path.home() / ".nvm" / "versions" / "node"
+    candidates = list(nvm_root.glob("*/bin/pi")) if nvm_root.is_dir() else []
+    candidates.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
+    for candidate in candidates:
+        if _is_pi_coding_agent(candidate):
+            return str(candidate)
+
+    discovered = shutil.which("pi")
+    if discovered and _is_pi_coding_agent(Path(discovered)):
+        return discovered
+    raise RuntimeError("Pi Coding Agent executable not found; set VEYA_PI_BIN")
+
+
+def _resolve_codex_binary() -> str:
+    configured = os.environ.get("VEYA_CODEX_BIN")
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+        raise RuntimeError(f"VEYA_CODEX_BIN is not executable: {candidate}")
+
+    nvm_root = Path.home() / ".nvm" / "versions" / "node"
+    candidates = list(nvm_root.glob("*/bin/codex")) if nvm_root.is_dir() else []
+    candidates.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+
+    discovered = shutil.which("codex")
+    if discovered:
+        return discovered
+    raise RuntimeError("Codex executable not found; set VEYA_CODEX_BIN")
+
+
+def _resolve_codex_model() -> str:
+    configured = str(os.environ.get("VEYA_CODEX_MODEL") or "").strip()
+    return configured or "gpt-5.6-luna"
+
+
+def _resolve_antigravity_binary() -> str:
+    configured = os.environ.get("VEYA_ANTIGRAVITY_BIN")
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+        raise RuntimeError(f"VEYA_ANTIGRAVITY_BIN is not executable: {candidate}")
+
+    discovered = shutil.which("agy")
+    if discovered:
+        return discovered
+    candidate = Path.home() / ".local" / "bin" / "agy"
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    raise RuntimeError("Antigravity CLI executable not found; set VEYA_ANTIGRAVITY_BIN")
+
+
+def _resolve_antigravity_model() -> str | None:
+    configured = str(os.environ.get("VEYA_ANTIGRAVITY_MODEL") or "").strip()
+    if configured:
+        return configured
+    settings = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
+    try:
+        payload = json.loads(settings.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    model = str(payload.get("model") or "").strip() if isinstance(payload, dict) else ""
+    return model or None
+
+
+def _resolve_opencode_binary() -> str:
+    configured = os.environ.get("VEYA_OPENCODE_BIN")
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+        raise RuntimeError(f"VEYA_OPENCODE_BIN is not executable: {candidate}")
+
+    discovered = shutil.which("opencode")
+    if discovered:
+        return discovered
+    candidate = Path.home() / ".opencode" / "bin" / "opencode"
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    candidate_local = Path.home() / ".local" / "bin" / "opencode"
+    if candidate_local.is_file() and os.access(candidate_local, os.X_OK):
+        return str(candidate_local)
+    raise RuntimeError("OpenCode CLI executable not found; set VEYA_OPENCODE_BIN")
+
+
+def _resolve_opencode_model() -> str | None:
+    configured = str(os.environ.get("VEYA_OPENCODE_MODEL") or "").strip()
+    return configured or None
+
+
+def _ensure_proxy_env(env: dict[str, str]) -> None:
+    """Normalize and propagate proxy configuration to child worker processes.
+
+    The adapter never hardcodes host-specific proxy addresses. The proxy is
+    supplied by the environment (systemd unit, shell env, or explicit
+    ``VEYA_RUNTIME_PROXY`` / ``VEYA_PROXY``).
+    """
+
+    proxy = (
+        env.get("https_proxy")
+        or env.get("HTTPS_PROXY")
+        or env.get("http_proxy")
+        or env.get("HTTP_PROXY")
+        or env.get("all_proxy")
+        or env.get("ALL_PROXY")
+        or os.environ.get("VEYA_RUNTIME_PROXY")
+        or os.environ.get("VEYA_PROXY")
+        or os.environ.get("HTTPS_PROXY")
+        or os.environ.get("HTTP_PROXY")
+        or os.environ.get("ALL_PROXY")
+        or os.getenv("https_proxy")
+        or os.getenv("http_proxy")
+        or os.getenv("all_proxy")  # noqa: SIM112
+    )
+    if not proxy:
+        return
+
+    proxy_str = str(proxy).strip()
+    if not proxy_str:
+        return
+
+    env.setdefault("http_proxy", proxy_str)
+    env.setdefault("https_proxy", proxy_str)
+    env.setdefault("HTTP_PROXY", proxy_str)
+    env.setdefault("HTTPS_PROXY", proxy_str)
+    env.setdefault("all_proxy", proxy_str)
+    env.setdefault("ALL_PROXY", proxy_str)
+
+    no_proxy_val = (
+        env.get("no_proxy")
+        or env.get("NO_PROXY")
+        or os.environ.get("no_proxy")
+        or os.environ.get("NO_PROXY")
+    )
+    if no_proxy_val:
+        env.setdefault("no_proxy", str(no_proxy_val).strip())
+        env.setdefault("NO_PROXY", str(no_proxy_val).strip())
+
+
+def _external_worker_env() -> dict[str, str]:
+    env = dict(os.environ)
+    env.setdefault("HOME", str(Path.home()))
+    _ensure_proxy_env(env)
+    return env
+
+
+def _codex_worker_env() -> dict[str, str]:
+    """Use the native Codex/OpenAI config without Veya/local endpoint leakage."""
+
+    env = dict(os.environ)
+    for key in (
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+        "OPENAI_API_HOST",
+        "OPENAI_ENDPOINT",
+        "OPENAI_PROXY",
+        "VEYA_LLM_ENDPOINT",
+        "VEYA_OPENAI_BASE_URL",
+        "VEYA_OPENAI_ENDPOINT",
+    ):
+        env.pop(key, None)
+    env.setdefault("HOME", str(Path.home()))
+    _ensure_proxy_env(env)
+    return env
+
+
 def _worker_command(worker: str, task: str) -> tuple[list[str], dict[str, str]]:
     """Real, worker-specific argv + env. Never a Hicode wrapper."""
 
@@ -3132,7 +4268,7 @@ def _worker_command(worker: str, task: str) -> tuple[list[str], dict[str, str]]:
         dsh_env = dsh_plane.subprocess_env(dsh_cfg)
         return dsh_plane.dsh_argv(bin_path, task, dsh_cfg), dsh_env
     if worker == "pi":
-        bin_path = shutil.which("pi") or "pi"
+        bin_path = _resolve_pi_binary()
         return [
             bin_path,
             "-p",
@@ -3140,11 +4276,23 @@ def _worker_command(worker: str, task: str) -> tuple[list[str], dict[str, str]]:
             "--provider",
             "veya",
             "--model",
-            "veya1.2",
+            "veya1.2-free",
             "--tools",
             "read,bash,edit,write",
             "--approve",
         ], dict(os.environ)
+    if worker == "opencode":
+        bin_path = _resolve_opencode_binary()
+        model = _resolve_opencode_model()
+        from server.engine_runner import build_argv
+
+        argv = build_argv("opencode", task, model=model)
+        if argv and bin_path:
+            argv[0] = bin_path
+        opencode_env = dict(os.environ)
+        opencode_env.setdefault("HOME", str(Path.home()))
+        _ensure_proxy_env(opencode_env)
+        return argv, opencode_env
     if worker == "grok":
         bin_path = shutil.which("grok") or str(Path.home() / ".grok/bin/grok")
         grok_env = dict(os.environ)
@@ -3164,15 +4312,35 @@ def _worker_command(worker: str, task: str) -> tuple[list[str], dict[str, str]]:
             "--always-approve",
         ], grok_env
     if worker == "codex":
-        bin_path = shutil.which("codex") or "codex"
-        return [
-            bin_path,
+        argv = [
+            _resolve_codex_binary(),
             "exec",
+            "--ignore-user-config",
             "--skip-git-repo-check",
             "--sandbox",
             "workspace-write",
+        ]
+        codex_model = _resolve_codex_model()
+        if codex_model:
+            argv.extend(["--model", codex_model])
+        argv.append(task)
+        return argv, _codex_worker_env()
+    if worker == "antigravity":
+        argv = [
+            _resolve_antigravity_binary(),
+            "--print",
             task,
-        ], dict(os.environ)
+            "--mode",
+            "accept-edits",
+            "--sandbox",
+            "--dangerously-skip-permissions",
+            "--print-timeout",
+            "10m",
+        ]
+        antigravity_model = _resolve_antigravity_model()
+        if antigravity_model:
+            argv.extend(["--model", antigravity_model])
+        return argv, _external_worker_env()
     raise RemoteToolAdapterError(
         RemoteErrorCode.INVALID_ARGUMENT, f"no CLI command for worker {worker!r}"
     )

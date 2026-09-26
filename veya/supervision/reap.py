@@ -23,6 +23,11 @@ from pathlib import Path
 EXECUTOR_MARKERS: dict[str, tuple[str, ...]] = {
     "hicode": ("reasonix",),
     "dsh": ("dsh",),
+    "pi": ("pi",),
+    "grok": ("grok",),
+    "codex": ("codex",),
+    "antigravity": ("agy", "antigravity"),
+    "opencode": ("opencode",),
     "worker": (),
     "builtin": (),
     "native_tool": (),

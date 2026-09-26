@@ -250,11 +250,59 @@ class WorktreeManager:
         )
         _git_command(self.repo_root, ["rev-parse", "--verify", start_ref])
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        _git_command(
-            self.repo_root,
-            ["worktree", "add", "-b", branch, str(target), start_ref],
-        )
+        existing_branch = _git_command(
+            self.repo_root, ["branch", "--list", branch]
+        ).strip()
+        if existing_branch:
+            _git_command(
+                self.repo_root,
+                ["worktree", "add", str(target), branch],
+            )
+        else:
+            _git_command(
+                self.repo_root,
+                ["worktree", "add", "-b", branch, str(target), start_ref],
+            )
+        self._provision_submodules(target)
         return self.status(path=target)
+
+    def _provision_submodules(self, target: Path) -> None:
+        if not (target / ".gitmodules").exists():
+            return
+        try:
+            _git_command(target, ["submodule", "init"])
+            git_modules_dir = self.repo_root / ".git" / "modules"
+            if git_modules_dir.exists():
+                lines = _git_command(
+                    target,
+                    ["config", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
+                ).splitlines()
+                for line in lines:
+                    parts = line.strip().split(None, 1)
+                    if len(parts) == 2:
+                        key, _subpath = parts
+                        sub_name = key.removeprefix("submodule.").removesuffix(".path")
+                        local_repo = git_modules_dir / sub_name
+                        if local_repo.exists():
+                            _git_command(
+                                target,
+                                ["config", f"submodule.{sub_name}.url", str(local_repo)],
+                            )
+            _git_command(
+                target,
+                [
+                    "-c",
+                    "protocol.file.allow=always",
+                    "submodule",
+                    "update",
+                    "--init",
+                    "--recursive",
+                    "--checkout",
+                    "--no-fetch",
+                ],
+            )
+        except Exception:
+            pass
 
     def list(self) -> list[WorktreeRecord]:
         records: list[WorktreeRecord] = []

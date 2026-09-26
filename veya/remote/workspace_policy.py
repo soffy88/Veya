@@ -64,6 +64,17 @@ def forbidden_workspace_roots() -> frozenset[Path]:
     return frozenset(roots)
 
 
+def managed_home_roots() -> tuple[Path, ...]:
+    """Explicitly managed user runtime roots (spec §23)."""
+    home = _home()
+    return (
+        (home / ".config" / "veya").resolve(),
+        (home / ".veya").resolve(),
+        (home / ".config" / "systemd" / "user").resolve(),
+        (home / ".local" / "share" / "veya").resolve(),
+    )
+
+
 def sensitive_subpaths() -> tuple[Path, ...]:
     """Credential / secret / kernel paths that are never accessible remotely."""
 
@@ -106,7 +117,7 @@ _DESTRUCTIVE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("git-clean", re.compile(r"git\s+clean\b")),
     ("git-push-force", re.compile(r"git\s+push\b[^\n]*(--force|-f)(\s|$)")),
     ("git-checkout-discard", re.compile(r"git\s+checkout\b[^\n]*--\s")),
-    ("systemctl", re.compile(r"(^|[\s;&|])systemctl(\s|$)")),
+    ("systemctl", re.compile(r"(?:\b|/)systemctl\b")),
     ("service", re.compile(r"(^|[\s;&|])service(\s|$)")),
     ("sudo", re.compile(r"(^|[\s;&|])sudo(\s|$)")),
     ("apt", re.compile(r"(^|[\s;&|])(apt|apt-get|yum|dnf|apk|pacman)(\s|$)")),
@@ -165,6 +176,12 @@ class WorkspacePolicy:
                 continue
             if extra.is_dir() and extra != resolved and extra not in allowed_extras:
                 allowed_extras.append(extra)
+        for m in managed_home_roots():
+            try:
+                if m.is_dir() and m != resolved and m not in allowed_extras:
+                    allowed_extras.append(m)
+            except OSError:
+                continue
         self.extra_roots = tuple(allowed_extras)
 
     @property
@@ -185,7 +202,9 @@ class WorkspacePolicy:
         if not any(resolved == allowed or allowed in resolved.parents for allowed in self.roots):
             raise WorkspacePolicyError("WORKSPACE_DENIED", f"path escapes workspace root: {text!r}")
         for sensitive in sensitive_subpaths():
-            if resolved == sensitive or sensitive in resolved.parents:
+            if (resolved == sensitive or sensitive in resolved.parents) and not any(
+                resolved == m or m in resolved.parents for m in managed_home_roots()
+            ):
                 raise WorkspacePolicyError(
                     "WORKSPACE_DENIED", f"path is a protected location: {text!r}"
                 )

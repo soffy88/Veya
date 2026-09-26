@@ -881,3 +881,185 @@ async def test_direct_job_survives_client_timeout(tmp_path: Path) -> None:
     assert mid["phase"] in {"STARTING", "RUNNING"}
     final = await wait_for_phase(gateway, secret, session, execution_id, {"COMPLETED"})
     assert final["exit_code"] == 0
+
+
+async def test_hicode_empty_model_response_preserves_raw_failure_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    make_workspace(tmp_path)
+    from server import hicode_agent
+
+    monkeypatch.setattr(hicode_agent, "DEFAULT_WORKSPACE", str(tmp_path))
+
+    async def fake(*args, **kwargs):
+        raise hicode_agent.HicodeExecutionError(
+            "EMPTY_MODEL_RESPONSE",
+            "provider returned an empty assistant response with no tool calls",
+            raw_evidence={
+                "response": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [],
+                },
+                "http_status": 200,
+            },
+        )
+
+    monkeypatch.setattr(hicode_agent, "_execute_hicode_core", fake)
+    gateway, secret, _ = make_hicode_gateway(tmp_path, ExecutionStore(None))
+    session = await initialize(gateway, secret)
+    envelope = await call_tool(gateway, secret, session, "hicode.execute", {"task": "x"})
+    final = await wait_for_phase(
+        gateway, secret, session, envelope["execution_id"], {"BLOCKED", "FAILED"}, timeout=10
+    )
+    assert final["failure_class"] == "EMPTY_MODEL_RESPONSE"
+    assert final["provider_error_code"] == "EMPTY_MODEL_RESPONSE"
+    assert "empty assistant response" in final["failure_message"]
+    assert final["raw_failure_evidence"]["response"]["content"] is None
+    assert final["raw_failure_evidence"]["response"]["tool_calls"] == []
+    assert final["failure_history"][0]["failure_class"] == "EMPTY_MODEL_RESPONSE"
+
+
+async def test_hicode_recovered_round_failure_keeps_history_and_truthful_progress(
+    tmp_path: Path, monkeypatch
+) -> None:
+    make_workspace(tmp_path)
+    from server import hicode_agent
+
+    monkeypatch.setattr(hicode_agent, "DEFAULT_WORKSPACE", str(tmp_path))
+
+    async def fake(task, workspace=None, on_event=None, **kwargs):
+        assert on_event is not None
+        on_event(
+            {
+                "stage": "provider_failure",
+                "code": "ROUND_PROVIDER_ERROR",
+                "detail": "round 0 provider failure",
+                "round_index": 0,
+                "raw_evidence": {"kind": "round_failed", "round": 0},
+            }
+        )
+        on_event({"stage": "planning", "tool": None, "detail": "round 1"})
+        for index in range(91):
+            on_event(
+                {
+                    "stage": "executing",
+                    "tool": "bash",
+                    "detail": f"run {index}",
+                }
+            )
+            on_event(
+                {
+                    "stage": "executing",
+                    "tool": "bash",
+                    "detail": "bash 完成",
+                }
+            )
+        return "recovered successfully"
+
+    monkeypatch.setattr(hicode_agent, "_execute_hicode_core", fake)
+    gateway, secret, _ = make_hicode_gateway(tmp_path, ExecutionStore(None))
+    session = await initialize(gateway, secret)
+    envelope = await call_tool(gateway, secret, session, "hicode.execute", {"task": "x"})
+    final = await wait_for_phase(
+        gateway, secret, session, envelope["execution_id"], {"COMPLETED"}, timeout=10
+    )
+    assert final["status"] == "COMPLETED"
+    assert final["failure_class"] is None
+    assert final["failure_message"] is None
+    assert final["provider_error_code"] is None
+    assert final["tool_call_count"] == 91
+    assert final["current_step"] == 91
+    assert final["progress"]["unit"] == "tool_calls"
+    assert final["progress"]["current"] == 91
+    assert final["failure_history"][0]["failure_class"] == "ROUND_PROVIDER_ERROR"
+    assert final["failure_history"][0]["recovered"] is True
+    assert final["round_history"][0]["round_index"] == 0
+    assert final["round_history"][0]["recovered"] is True
+    assert all(item.get("detail") != "bash 完成" for item in final["failure_history"])
+
+
+def test_hicode_result_classifier_detects_content_null_without_narration() -> None:
+    from server.hicode_agent import _hicode_result_error
+
+    result = {
+        "type": "result",
+        "is_error": False,
+        "result": "",
+        "num_turns": 1,
+        "tool_calls": [],
+        "response": {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [],
+        },
+    }
+    error = _hicode_result_error(result, raw_events=[], stderr_tail="", exit_code=0)
+    assert error is not None
+    assert error.code == "EMPTY_MODEL_RESPONSE"
+    assert error.raw_evidence["result"]["response"]["content"] is None
+    assert error.raw_evidence["result"]["response"]["tool_calls"] == []
+
+
+def test_hicode_structured_failure_detector_rejects_narration() -> None:
+    from server.hicode_agent import _structured_failure_event
+
+    assert (
+        _structured_failure_event(
+            {"kind": "tool_result", "message": "bash 完成; assistant says failure"}
+        )
+        is None
+    )
+    failure = _structured_failure_event(
+        {
+            "kind": "round_failed",
+            "round": 0,
+            "error": {"code": "UPSTREAM_502", "message": "provider unavailable"},
+        }
+    )
+    assert failure is not None
+    assert failure["code"] == "UPSTREAM_502"
+    assert failure["round_index"] == 0
+
+
+async def test_empty_model_first_error_survives_execution_store_reload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    make_workspace(tmp_path)
+    from server import hicode_agent
+
+    monkeypatch.setattr(hicode_agent, "DEFAULT_WORKSPACE", str(tmp_path))
+
+    async def fake(*args, **kwargs):
+        raise hicode_agent.HicodeExecutionError(
+            "EMPTY_MODEL_RESPONSE",
+            "provider returned an empty assistant response with no tool calls",
+            raw_evidence={
+                "response": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [],
+                },
+                "provider_request_id": "req-test-1",
+            },
+        )
+
+    monkeypatch.setattr(hicode_agent, "_execute_hicode_core", fake)
+    store_root = tmp_path / "execution-store"
+    gateway, secret, _ = make_hicode_gateway(tmp_path, ExecutionStore(store_root))
+    session = await initialize(gateway, secret)
+    envelope = await call_tool(gateway, secret, session, "hicode.execute", {"task": "x"})
+    execution_id = envelope["execution_id"]
+    await wait_for_phase(gateway, secret, session, execution_id, {"BLOCKED", "FAILED"}, timeout=10)
+
+    restored = ExecutionStore(store_root).get(execution_id)
+    assert restored is not None
+    public = restored.to_public(heartbeat_timeout_s=30.0)
+    assert public["failure_class"] == "EMPTY_MODEL_RESPONSE"
+    assert public["provider_error_code"] == "EMPTY_MODEL_RESPONSE"
+    assert public["raw_failure_evidence"]["provider_request_id"] == "req-test-1"
+    assert public["raw_failure_evidence"]["response"]["content"] is None
+    assert public["failure_history"][0]["failure_class"] == "EMPTY_MODEL_RESPONSE"
+    assert (
+        public["failure_history"][0]["raw_failure_evidence"]["provider_request_id"] == "req-test-1"
+    )

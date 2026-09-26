@@ -163,6 +163,146 @@ class HicodeUnavailable(RuntimeError):
     """二进制缺失或不可执行 (主脑应看到可操作的降级提示)。"""
 
 
+class HicodeExecutionError(HicodeUnavailable):
+    """Typed provider/runtime failure with bounded raw evidence."""
+
+    def __init__(
+        self, code: str, detail: str, *, raw_evidence: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__(detail)
+        self.code = str(code)
+        self.detail = str(detail)
+        self.raw_evidence = dict(raw_evidence or {})
+
+
+def _safe_failure_value(value: Any, *, depth: int = 0) -> Any:
+    if depth > 5:
+        return "<max-depth>"
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            name = str(key)
+            if any(
+                secret in name.lower()
+                for secret in ("authorization", "api_key", "apikey", "password", "secret", "token")
+            ):
+                out[name] = "<redacted>"
+            else:
+                out[name] = _safe_failure_value(item, depth=depth + 1)
+        return out
+    if isinstance(value, list):
+        return [_safe_failure_value(item, depth=depth + 1) for item in value[-20:]]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def _empty_assistant_reply(value: Any) -> bool:
+    if isinstance(value, dict):
+        role = str(value.get("role") or "").lower()
+        if role == "assistant" and value.get("content") is None and value.get("tool_calls") == []:
+            return True
+        return any(_empty_assistant_reply(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_empty_assistant_reply(item) for item in value)
+    return False
+
+
+def _structured_failure_event(ev: dict[str, Any]) -> dict[str, Any] | None:
+    """Return typed failure metadata only for explicit structured failure signals."""
+
+    kind = str(ev.get("kind") or ev.get("type") or "").strip().lower()
+    explicit_kinds = {
+        "error",
+        "provider_error",
+        "model_error",
+        "round_error",
+        "turn_error",
+        "round_failed",
+        "turn_failed",
+    }
+    if ev.get("is_error") is not True and kind not in explicit_kinds:
+        return None
+    raw_error = ev.get("error")
+    if isinstance(raw_error, dict):
+        code = raw_error.get("code") or ev.get("code")
+        detail = raw_error.get("message") or raw_error.get("detail")
+    else:
+        code = ev.get("code")
+        detail = raw_error
+    code_text = str(code or "HICODE_PROVIDER_ROUND_FAILURE")
+    detail_text = str(detail or ev.get("message") or code_text)[:4000]
+    round_index = None
+    for key in ("round_index", "round", "turn", "turn_index"):
+        value = ev.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            round_index = value
+            break
+    return {
+        "code": code_text,
+        "detail": detail_text,
+        "round_index": round_index,
+        "raw_evidence": _safe_failure_value(ev),
+    }
+
+
+def _hicode_result_error(
+    result: dict[str, Any] | None,
+    *,
+    raw_events: list[dict[str, Any]],
+    stderr_tail: str,
+    exit_code: int | None,
+) -> HicodeExecutionError | None:
+    """Classify one Reasonix terminal result without using assistant narration."""
+
+    evidence = {
+        "result": _safe_failure_value(result),
+        "recent_events": raw_events[-10:],
+        "stderr_tail": str(stderr_tail)[-2000:],
+        "exit_code": exit_code,
+    }
+    if result is None:
+        return HicodeExecutionError(
+            "HICODE_NO_STRUCTURED_RESULT",
+            f"hicode returned no structured result (exit={exit_code})",
+            raw_evidence=evidence,
+        )
+    raw_tool_calls = result.get("tool_calls")
+    if isinstance(raw_tool_calls, list):
+        tool_call_count = len(raw_tool_calls)
+    else:
+        try:
+            tool_call_count = int(raw_tool_calls or 0)
+        except (TypeError, ValueError):
+            tool_call_count = 0
+    try:
+        model_request_count = int(result.get("model_requests") or result.get("num_turns") or 0)
+    except (TypeError, ValueError):
+        model_request_count = 0
+    body = result.get("result")
+    has_empty_assistant = _empty_assistant_reply(result) or any(
+        _empty_assistant_reply(event) for event in raw_events
+    )
+    semantically_empty = (
+        not str(body or "").strip() and tool_call_count == 0 and model_request_count > 0
+    )
+    if result.get("subtype") != "managed_bootstrap" and (has_empty_assistant or semantically_empty):
+        return HicodeExecutionError(
+            "EMPTY_MODEL_RESPONSE",
+            "provider returned an empty assistant response with no tool calls",
+            raw_evidence=evidence,
+        )
+    if bool(result.get("is_error")):
+        detail = str(
+            result.get("error")
+            or result.get("result")
+            or result.get("subtype")
+            or "Hicode provider error"
+        )[:4000]
+        return HicodeExecutionError("HICODE_PROVIDER_ERROR", detail, raw_evidence=evidence)
+    return None
+
+
 def _resolve_bin() -> str:
     try:
         return get_hicode_executor().resolve_binary()
@@ -308,6 +448,7 @@ async def _run_hicode(
 
     stderr_task = asyncio.create_task(_drain_stderr())
     result: dict[str, Any] | None = None
+    raw_events: list[dict[str, Any]] = []
     try:
         assert proc.stdout is not None
         while True:
@@ -321,6 +462,9 @@ async def _run_hicode(
                 ev = json.loads(text)
             except json.JSONDecodeError:
                 continue
+            if isinstance(ev, dict):
+                raw_events.append(_safe_failure_value(ev))
+                del raw_events[: max(0, len(raw_events) - 20)]
             if ev.get("type") == "result":
                 result = ev
                 break
@@ -336,9 +480,16 @@ async def _run_hicode(
         if proc.returncode is None:
             proc.kill()
             await proc.wait()
-    if result is None:
-        tail = "".join(stderr_lines)[-1500:] or "(无 stderr)"
-        raise HicodeUnavailable(f"hicode 无结构化结果 (exit={proc.returncode}):\n{tail}")
+
+    error = _hicode_result_error(
+        result,
+        raw_events=raw_events,
+        stderr_tail="".join(stderr_lines),
+        exit_code=proc.returncode,
+    )
+    if error is not None:
+        raise error
+    assert result is not None
     return result
 
 
@@ -367,6 +518,19 @@ def _tool_brief(name: str, args: dict) -> str:
 def _emit_event(ev: dict, on_event: Callable[[dict], None] | None) -> None:
     """stream-json 中间事件 → 精简进度事件 (→ SSE hicode_progress)。"""
     if on_event is None:
+        return
+    failure = _structured_failure_event(ev)
+    if failure is not None:
+        on_event(
+            {
+                "stage": "provider_failure",
+                "tool": None,
+                "detail": failure["detail"],
+                "code": failure["code"],
+                "round_index": failure["round_index"],
+                "raw_evidence": failure["raw_evidence"],
+            }
+        )
         return
     kind = ev.get("kind")
     if kind == "turn_started":
@@ -552,6 +716,8 @@ async def _execute_hicode_core_inner(
     try:
         _resolve_bin()  # 提前失败给出安装指引
     except HicodeUnavailable as e:
+        if force_cli:
+            raise
         return f"hicode 不可用: {e}"
 
     args = ["--max-steps", str(max_steps or DEFAULT_MAX_STEPS)]
@@ -576,9 +742,15 @@ async def _execute_hicode_core_inner(
             if on_process is not None:
                 run_kwargs["on_process"] = on_process
             r = await _run_hicode(args, **run_kwargs)
+        except HicodeExecutionError:
+            raise
         except HicodeUnavailable as e:
+            if force_cli:
+                raise
             return f"hicode 执行失败: {e}"
         except Exception as e:
+            if force_cli:
+                raise
             logger.exception("hicode_run unexpected error")
             return f"hicode 执行异常: {e}"
 

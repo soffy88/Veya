@@ -25,6 +25,7 @@ from server.routes.backends import router as backends_router
 from server.routes.board import router as board_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
+from server.routes.execution_contract import router as execution_contract_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
@@ -513,6 +514,7 @@ app.include_router(board_router)
 app.include_router(legacy_agent_router)
 app.include_router(cindy_compat_router)
 app.include_router(voice_compat_router)
+app.include_router(execution_contract_router)
 app.include_router(sse_router)
 
 

@@ -174,3 +174,47 @@ async def test_goalrun_completes_under_llm_isolation_fixture(tmp_path: Path) -> 
     assert record.goal_run_id
     assert record.status == "COMPLETED"
     assert record.result_summary == "deterministic provider result"
+
+
+async def test_hicode_recovery_paused_is_blocked_not_completed(tmp_path: Path) -> None:
+    manager = DurableJobManager(ExecutionStore(tmp_path / "remote"))
+
+    async def provider(_reporter):
+        return "✅ hicode 执行完成 @ /tmp/worktree\nrecovery_paused: no deliverable produced yet"
+
+    record = manager.submit(
+        session=_session(),
+        tool="hicode.execute",
+        veya_tool="hicode.execute",
+        binding=_binding(tmp_path),
+        runner=provider,
+        execution_type=str(ExecutionType.HICODE),
+    )
+    await _wait_terminal(manager, record.execution_id)
+
+    assert record.status == "BLOCKED"
+    assert record.failure_class == "execution_blocked"
+    assert record.failure_source == "hicode_runtime"
+    assert record.provider_error_code == "HICODE_RECOVERY_PAUSED"
+    assert record.status != "COMPLETED"
+
+
+async def test_hicode_success_body_can_mention_recovery_paused(tmp_path: Path) -> None:
+    manager = DurableJobManager(ExecutionStore(tmp_path / "remote-success"))
+
+    async def provider(_reporter):
+        return "✅ hicode 执行完成 @ /tmp/worktree\nSuccess: sentinel\nrecovery_paused: quoted text only"
+
+    record = manager.submit(
+        session=_session(),
+        tool="hicode.execute",
+        veya_tool="hicode.execute",
+        binding=_binding(tmp_path),
+        runner=provider,
+        execution_type=str(ExecutionType.HICODE),
+    )
+    await _wait_terminal(manager, record.execution_id)
+
+    assert record.status == "COMPLETED"
+    assert record.failure_class is None
+    assert record.provider_error_code is None

@@ -22,11 +22,41 @@ class RemoteErrorCode(StrEnum):
     TOOL_DENIED = "TOOL_DENIED"
     INVALID_ARGUMENT = "INVALID_ARGUMENT"
     EXECUTION_FAILED = "EXECUTION_FAILED"
+    EMPTY_MODEL_RESPONSE = "EMPTY_MODEL_RESPONSE"
     TIMEOUT = "TIMEOUT"
     CANCELLED = "CANCELLED"
     POLICY_BLOCKED = "POLICY_BLOCKED"
     NOT_FOUND = "NOT_FOUND"
     LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
+    INVALID_APPROVAL = "INVALID_APPROVAL"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+    APPROVAL_MISMATCH = "APPROVAL_MISMATCH"
+    APPROVAL_EXPIRED = "APPROVAL_EXPIRED"
+
+
+class ExecutorFailureClass(StrEnum):
+    """Canonical failure taxonomy (P6)."""
+
+    PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+    AUTH_FAILURE = "AUTH_FAILURE"
+    TRANSPORT_FAILURE = "TRANSPORT_FAILURE"
+    MODEL_FAILURE = "MODEL_FAILURE"
+    WORKER_TIMEOUT = "WORKER_TIMEOUT"
+    WORKER_CRASH = "WORKER_CRASH"
+    WORKER_CANCELLED = "WORKER_CANCELLED"
+    WORKTREE_FAILURE = "WORKTREE_FAILURE"
+    SUBMODULE_FAILURE = "SUBMODULE_FAILURE"
+    ENVIRONMENT_FAILURE = "ENVIRONMENT_FAILURE"
+    PROCESS_REAP_FAILURE = "PROCESS_REAP_FAILURE"
+
+
+class ExecutorHealth(StrEnum):
+    """Runtime health classification states (P5)."""
+
+    HEALTHY = "HEALTHY"
+    DEGRADED = "DEGRADED"
+    UNAVAILABLE = "UNAVAILABLE"
+    UNKNOWN = "UNKNOWN"
 
 
 class EffectClass(StrEnum):
@@ -48,6 +78,83 @@ class JobState(StrEnum):
     TIMEOUT = "TIMEOUT"
 
 
+class RiskClass(StrEnum):
+    """Human gate risk classification (spec §33)."""
+
+    P1_PRIVILEGED_HOST = "P1_PRIVILEGED_HOST"
+    P2_ROOT_MUTATION = "P2_ROOT_MUTATION"
+    P3_CRITICAL_HOST = "P3_CRITICAL_HOST"
+
+
+@dataclass
+class ApprovalRecord:
+    """Server-issued single-use approval record (spec §30-§32)."""
+
+    approval_id: str
+    principal: str
+    capability_id: str
+    normalized_operation: str
+    operation_hash: str
+    cwd: str
+    workspace: str
+    risk_class: RiskClass
+    created_at: float
+    expires_at: float
+    used_at: float | None = None
+    decision: str = "approved"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "approval_id": self.approval_id,
+            "principal": self.principal,
+            "capability_id": self.capability_id,
+            "normalized_operation": self.normalized_operation,
+            "operation_hash": self.operation_hash,
+            "cwd": self.cwd,
+            "workspace": self.workspace,
+            "risk_class": str(self.risk_class),
+            "created_at": self.created_at,
+            "expires_at": self.expires_at,
+            "used_at": self.used_at,
+            "decision": self.decision,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ApprovalRecord:
+        return cls(
+            approval_id=str(data["approval_id"]),
+            principal=str(data["principal"]),
+            capability_id=str(data["capability_id"]),
+            normalized_operation=str(data["normalized_operation"]),
+            operation_hash=str(data["operation_hash"]),
+            cwd=str(data["cwd"]),
+            workspace=str(data["workspace"]),
+            risk_class=RiskClass(data["risk_class"]),
+            created_at=float(data["created_at"]),
+            expires_at=float(data["expires_at"]),
+            used_at=float(data["used_at"]) if data.get("used_at") is not None else None,
+            decision=str(data.get("decision", "approved")),
+        )
+
+
+@dataclass
+class ManagedUserService:
+    """Canonical registry entry for a managed user-level systemd service (spec §10)."""
+
+    unit: str
+    unit_path: str
+    owner_project: str
+    discovered_at: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "unit": self.unit,
+            "unit_path": self.unit_path,
+            "owner_project": self.owner_project,
+            "discovered_at": self.discovered_at,
+        }
+
+
 @dataclass
 class RemotePermissions:
     """Explicit capability grant carried by a token and copied into a session.
@@ -62,6 +169,7 @@ class RemotePermissions:
     git: bool = False
     network: bool = False
     destructive: bool = False
+    service_control: bool = False
 
     def to_dict(self) -> dict[str, bool]:
         return {
@@ -71,6 +179,7 @@ class RemotePermissions:
             "git": self.git,
             "network": self.network,
             "destructive": self.destructive,
+            "service_control": self.service_control,
         }
 
     @classmethod
@@ -83,6 +192,7 @@ class RemotePermissions:
             git=bool(data.get("git", False)),
             network=bool(data.get("network", False)),
             destructive=bool(data.get("destructive", False)),
+            service_control=bool(data.get("service_control", False)),
         )
 
 
@@ -162,8 +272,10 @@ class RemoteCallResult:
             payload["session_id"] = self.session_id
         if self.workspace is not None:
             payload["workspace"] = self.workspace
-        if self.ok:
-            payload["result"] = self.result if self.result is not None else {}
+        if self.result is not None:
+            payload["result"] = self.result
+        elif self.ok:
+            payload["result"] = {}
         if self.execution_id is not None:
             payload["execution_id"] = self.execution_id
         if self.duration_ms is not None:

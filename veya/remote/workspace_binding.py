@@ -134,6 +134,41 @@ def git_repo_identity(repo_root: str | Path) -> str:
     return f"path:{root}"
 
 
+def is_git_worktree(path: str | Path) -> bool:
+    """Return True if ``path`` is a linked git worktree."""
+
+    candidate = Path(path).expanduser().resolve()
+    dotgit = candidate / ".git"
+    if dotgit.is_file():
+        try:
+            text = dotgit.read_text(encoding="utf-8", errors="replace").strip()
+            return "worktrees" in text
+        except OSError:
+            return False
+    return False
+
+
+def git_main_repo_root(path: str | Path) -> Path | None:
+    """Return the main repository root for a worktree or standard repo."""
+
+    candidate = Path(path).expanduser().resolve()
+    dotgit = candidate / ".git"
+    if dotgit.is_file():
+        try:
+            text = dotgit.read_text(encoding="utf-8", errors="replace").strip()
+            match = _GITDIR_RE.match(text)
+            if match:
+                target = Path(match.group(1))
+                if not target.is_absolute():
+                    target = candidate / target
+                target = target.resolve()
+                if target.parent.name == "worktrees":
+                    return target.parent.parent.parent
+        except OSError:
+            pass
+    return git_repo_root(path)
+
+
 @dataclass(frozen=True)
 class WorkspaceBinding:
     """Resolved identity for one explicit requested workspace."""
@@ -402,8 +437,10 @@ __all__ = [
     "WorkspaceBinding",
     "WorkspaceBindingError",
     "canonical",
+    "git_main_repo_root",
     "git_repo_identity",
     "git_repo_root",
+    "is_git_worktree",
     "resolve_repo_target",
     "resolve_requested_workspace",
     "verify_worktree_repo_identity",

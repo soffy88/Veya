@@ -15,6 +15,7 @@ from __future__ import annotations
 from .audit import RemoteAudit
 from .auth import RemoteAuth, RemoteAuthError, RemoteToken
 from .direct_exec import DirectCommandResult, direct_sync_window_s, run_direct_command
+from .events import VeyaEvent, VeyaEventType, create_veya_event
 from .execution import (
     DurableJobManager,
     ExecutionBlocked,
@@ -23,11 +24,20 @@ from .execution import (
     ExecutionStore,
     ExecutionType,
 )
+from .executor_health import (
+    DEFAULT_EXECUTOR_PREFERENCE,
+    ExecutorHealthRegistry,
+    SubstitutionEvidence,
+    classify_executor_failure,
+    resolve_executor,
+)
 from .mcp_server import RemoteMCPGateway, create_gateway
 from .metrics import LatencyMetrics
 from .models import (
     AuditRecord,
     EffectClass,
+    ExecutorFailureClass,
+    ExecutorHealth,
     JobState,
     RemoteCallResult,
     RemoteErrorCode,
@@ -48,6 +58,7 @@ from .workspace_binding import (
 from .workspace_policy import WorkspacePolicy, WorkspacePolicyError
 
 __all__ = [
+    "DEFAULT_EXECUTOR_PREFERENCE",
     "AuditRecord",
     "DirectCommandResult",
     "DurableJobManager",
@@ -57,6 +68,9 @@ __all__ = [
     "ExecutionStatus",
     "ExecutionStore",
     "ExecutionType",
+    "ExecutorFailureClass",
+    "ExecutorHealth",
+    "ExecutorHealthRegistry",
     "JobState",
     "LatencyMetrics",
     "RemoteAudit",
@@ -72,14 +86,20 @@ __all__ = [
     "RemoteToken",
     "RemoteToolAdapter",
     "RepoResolution",
+    "SubstitutionEvidence",
     "ToolBinding",
+    "VeyaEvent",
+    "VeyaEventType",
     "WorkspaceBinding",
     "WorkspaceBindingError",
     "WorkspacePolicy",
     "WorkspacePolicyError",
+    "classify_executor_failure",
     "create_gateway",
+    "create_veya_event",
     "default_tool_adapter",
     "direct_sync_window_s",
+    "resolve_executor",
     "resolve_repo_target",
     "resolve_requested_workspace",
     "run_direct_command",

@@ -27,17 +27,21 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from runtime.coding.command_runner import (
     _SANDBOX_DEPTH_ENV,
     CommandPolicyError,
     CommandRunner,
     _nested_write_path_violation,
+    _profile_bin,
     _safe_environment,
+    _venv_bin,
     command_may_use_network,
     command_requires_approval,
     parse_command,
     redact_text,
+    resolve_interpreter_argv,
 )
 
 TAIL_LINES = 200
@@ -197,6 +201,7 @@ def _plan_execution(
     profile: str,
     approved: bool,
     network: str | None,
+    runtime_profile: Any | None = None,
 ) -> tuple[CommandRunner, list[str], list[str], str | None, str]:
     """Return ``(runner, argv, execution_argv, execution_cwd, command_text)``.
 
@@ -204,7 +209,7 @@ def _plan_execution(
     delegated to the canonical runner so there is exactly one sandbox authority.
     """
 
-    runner = CommandRunner(workspace_root, profile=profile)
+    runner = CommandRunner(workspace_root, profile=profile, runtime_profile=runtime_profile)
     argv = parse_command(command)
     command_text = command if isinstance(command, str) else " ".join(argv)
     if runner.profile.network == "denied" and command_may_use_network(argv):
@@ -219,16 +224,32 @@ def _plan_execution(
     execution_argv = list(argv)
     execution_cwd: str | None = str(cwd)
     if Path(execution_argv[0]).name == "pytest":
-        import importlib.util
-        import sys
+        pytest_bin = _profile_bin(runtime_profile, "pytest_bin")
+        python_bin = _venv_bin(runtime_profile, "python") or _profile_bin(
+            runtime_profile, "python_bin"
+        )
+        if pytest_bin:
+            execution_argv = [pytest_bin, *execution_argv[1:]]
+        elif python_bin:
+            execution_argv = [python_bin, "-m", "pytest", *execution_argv[1:]]
+        else:
+            import importlib.util
+            import sys
 
-        if importlib.util.find_spec("pytest"):
-            execution_argv = [sys.executable, "-m", "pytest", *execution_argv[1:]]
+            if importlib.util.find_spec("pytest"):
+                execution_argv = [sys.executable, "-m", "pytest", *execution_argv[1:]]
+    else:
+        # CODE runs in the (possibly venv-less) existing worktree while
+        # RUNTIME comes from the canonical project root (P0-D).
+        execution_argv = resolve_interpreter_argv(execution_argv, cwd, runtime_profile)
     if runner.profile.executor == "docker":
         execution_argv = runner._docker_argv(execution_argv, cwd, network)
         execution_cwd = None
-    elif runner.profile.id == "local_restricted" and os.environ.get(_SANDBOX_DEPTH_ENV) != "1":
-        execution_argv = runner._local_restricted_argv(execution_argv, cwd)
+    elif (
+        runner.profile.id in ("local_restricted", "l0_isolated")
+        and os.environ.get(_SANDBOX_DEPTH_ENV) != "1"
+    ):
+        execution_argv = runner._local_restricted_argv(execution_argv, cwd, runtime_profile)
         execution_cwd = None
     return runner, argv, execution_argv, execution_cwd, command_text
 
@@ -255,6 +276,7 @@ async def run_direct_command(
     timeout_s: float = DEFAULT_DIRECT_TIMEOUT_S,
     approved: bool = False,
     network: str | None = None,
+    runtime_profile: Any | None = None,
     on_stdout: Callable[[str], None] | None = None,
     on_stderr: Callable[[str], None] | None = None,
     on_process: Callable[[int, int], None] | None = None,
@@ -276,14 +298,23 @@ async def run_direct_command(
         raise CommandPolicyError("timeout_s must be positive")
 
     runner, argv, execution_argv, execution_cwd, command_text = _plan_execution(
-        workspace, command, cwd=target, profile=profile, approved=approved, network=network
+        workspace,
+        command,
+        cwd=target,
+        profile=profile,
+        approved=approved,
+        network=network,
+        runtime_profile=runtime_profile,
     )
-    environment = _safe_environment(None)
-    workspace_bin = workspace / "venv" / "bin"
-    if workspace_bin.is_dir():
-        environment["PATH"] = os.pathsep.join(
-            [str(workspace_bin), environment.get("PATH", os.defpath)]
-        )
+    environment = _safe_environment(None, runtime_profile=runtime_profile)
+    if not runtime_profile:
+        for venv_name in (".venv", "venv"):
+            workspace_bin = workspace / venv_name / "bin"
+            if workspace_bin.is_dir():
+                environment["PATH"] = os.pathsep.join(
+                    [str(workspace_bin), environment.get("PATH", os.defpath)]
+                )
+                break
 
     try:
         proc = await asyncio.create_subprocess_exec(

@@ -15,7 +15,9 @@ RESTRICTED_SANDBOX_AVAILABLE = shutil.which("bwrap") is not None
 def test_profiles_are_explicit_and_do_not_mount_secrets():
     profiles = {profile.id: profile for profile in list_sandbox_profiles()}
 
-    assert set(profiles) == {"local_trusted", "local_restricted", "docker_python", "docker_node"}
+    assert {"local_trusted", "local_restricted", "docker_python", "docker_node"}.issubset(
+        set(profiles)
+    )
     assert profiles["local_trusted"].network == "allowed"
     assert profiles["local_restricted"].network == "denied"
     assert profiles["local_restricted"].approvals == "required_for_write"

@@ -163,6 +163,7 @@ async def _run_hicode(
 
 _DSH_TIMEOUT_S = 1800  # 与 hicode 默认超时对齐
 _DSH_PROMPT_CHAR_LIMIT = 6000  # headless 任务是 argv 位置参数, 截断避免 ARG_MAX/超长上下文
+_DSH_RUNTIME_BY_CWD: dict[str, Any] = {}
 
 
 def _resolve_dsh_bin() -> str | None:
@@ -183,6 +184,43 @@ async def _dsh_exec(bin_path: str, prompt: str, cwd: str, timeout_s: int) -> tup
     独立小函数, 便于测试直接 monkeypatch 掉, 不依赖真 dsh 二进制。
     """
     cfg = dsh_plane.load_config()
+    if dsh_plane.is_cliproxy_google(cfg):
+        # Use DSH's native Web/API session contract for the qualified provider.
+        # The registry is keyed by workspace so continuation reuses the same
+        # DSH Session instead of replaying prior prompts into a new one.
+        from server.dsh_runtime import DSHRuntime
+
+        runtime = _DSH_RUNTIME_BY_CWD.get(cwd)
+        if runtime is None:
+            runtime = DSHRuntime(cfg=cfg)
+            await runtime.start(cwd=cwd)
+            await runtime.select_model("cliproxy-google", dsh_plane.model(cfg))
+            _DSH_RUNTIME_BY_CWD[cwd] = runtime
+        await runtime.prompt([{"type": "text", "text": prompt}])
+        final = ""
+        async for item in runtime.stream:
+            if item.get("type") != "event":
+                continue
+            event = item.get("event") or {}
+            if event.get("type") in {"assistant/message", "assistant/attempt"}:
+                message = event.get("data", {}).get("message", {})
+                final = "".join(
+                    str(part.get("text", ""))
+                    for part in message.get("content", [])
+                    if isinstance(part, dict) and part.get("type") == "text"
+                )
+        if not final.strip():
+            raise RuntimeError("DSH runtime completed without assistant message")
+        return 0, (
+            f"{final}\n"
+            f"DSH_SESSION_ID={runtime.session_id}\n"
+            f"DSH_PROVIDER={runtime.provider or 'cliproxy-google'}\n"
+            f"DSH_MODEL={runtime.model or dsh_plane.model(cfg)}\n"
+        ), (
+            f"DSH_STREAM_EVENTS={len(runtime.stream.events)}\n"
+            f"DSH_STREAM_TERMINAL={'PASS' if runtime.stream.terminal else 'FAIL'}\n"
+        )
+
     proc = await asyncio.create_subprocess_exec(
         *dsh_plane.dsh_argv(bin_path, prompt, cfg),
         cwd=cwd,

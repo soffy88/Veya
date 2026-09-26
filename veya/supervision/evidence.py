@@ -7,6 +7,8 @@ block reasons) into the canonical report the reviewer reads (spec §6/§10).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -302,4 +304,72 @@ def build_execution_report(
     )
 
 
-__all__ = ["build_execution_report"]
+GENESIS_HASH: str = "0" * 64
+
+
+def canonical_content_hash(item: dict[str, Any]) -> str:
+    """Compute deterministic SHA-256 hash of item content, ignoring chaining fields."""
+    content = {
+        k: v
+        for k, v in item.items()
+        if k not in ("chain_index", "prev_hash", "content_hash", "chain_hash")
+    }
+    dumped = json.dumps(content, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
+
+
+def build_evidence_chain(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Construct a cryptographic SHA-256 tamper-evident hash chain across evidence records."""
+    chain: list[dict[str, Any]] = []
+    prev_hash = GENESIS_HASH
+    for i, raw_item in enumerate(items):
+        item = dict(raw_item)
+        c_hash = canonical_content_hash(item)
+        ch_hash = hashlib.sha256(f"{prev_hash}:{c_hash}:{i}".encode()).hexdigest()
+        item["chain_index"] = i
+        item["prev_hash"] = prev_hash
+        item["content_hash"] = c_hash
+        item["chain_hash"] = ch_hash
+        chain.append(item)
+        prev_hash = ch_hash
+    return chain
+
+
+def verify_evidence_chain(chain: list[dict[str, Any]]) -> tuple[bool, str | None]:
+    """Verify integrity of an evidence hash chain. Returns (True, None) or (False, reason)."""
+    if not chain:
+        return True, None
+    prev_hash = GENESIS_HASH
+    for i, item in enumerate(chain):
+        if not isinstance(item, dict):
+            return False, f"item {i} is not a dictionary"
+        if item.get("chain_index") != i:
+            return (
+                False,
+                f"chain_index mismatch at {i}: expected {i}, got {item.get('chain_index')}",
+            )
+        if item.get("prev_hash") != prev_hash:
+            return (
+                False,
+                f"prev_hash mismatch at {i}: expected {prev_hash}, got {item.get('prev_hash')}",
+            )
+        c_hash = canonical_content_hash(item)
+        if item.get("content_hash") != c_hash:
+            return False, f"content_hash mismatch at {i}: content tampered"
+        expected_chain_hash = hashlib.sha256(f"{prev_hash}:{c_hash}:{i}".encode()).hexdigest()
+        if item.get("chain_hash") != expected_chain_hash:
+            return (
+                False,
+                f"chain_hash mismatch at {i}: expected {expected_chain_hash}, got {item.get('chain_hash')}",
+            )
+        prev_hash = expected_chain_hash
+    return True, None
+
+
+__all__ = [
+    "GENESIS_HASH",
+    "build_evidence_chain",
+    "build_execution_report",
+    "canonical_content_hash",
+    "verify_evidence_chain",
+]

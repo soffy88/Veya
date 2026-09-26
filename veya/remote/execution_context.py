@@ -353,7 +353,7 @@ def shared_skill_registry() -> Any:
                         source="veya.templates.skills",
                         source_commit="workspace",
                         permissions_required=permissions,
-                        compatible_workers=["hicode", "dsh", "pi", "grok"],
+                        compatible_workers=["hicode", "dsh", "pi", "grok", "codex", "antigravity"],
                         trust_level="PROJECT_LOCAL",
                         eval_status="PASS",
                         root=str(root),

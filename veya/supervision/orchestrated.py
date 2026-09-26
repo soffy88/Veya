@@ -23,7 +23,15 @@ from typing import Any
 from .models import ExecutionReport
 
 # L1 canonical executors.
-L1_WORKERS: tuple[str, ...] = ("hicode", "dsh", "pi", "grok", "codex")
+L1_WORKERS: tuple[str, ...] = (
+    "antigravity",
+    "opencode",
+    "codex",
+    "hicode",
+    "pi",
+    "grok",
+    "dsh",
+)
 
 _COMPLETED = "COMPLETED"
 _BLOCKED_BY_DEPENDENCY = "BLOCKED_BY_DEPENDENCY"

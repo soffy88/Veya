@@ -123,6 +123,9 @@ async def test_parallel_dispatch_parent_and_children(tmp_path: Path, monkeypatch
     make_repo(tmp_path)
     fake = FakeHicode()
     _patch_hicode(monkeypatch, tmp_path, fake)
+    from veya.remote import tool_adapter
+
+    monkeypatch.setitem(tool_adapter._WORKER_BLOCKERS, "codex", "TEST_BLOCKER")
     gateway, secret = make_gateway(tmp_path)
     session = await initialize(gateway, secret)
     envelope = await call_tool(
@@ -171,6 +174,9 @@ async def test_sibling_failure_does_not_cancel_others(tmp_path: Path, monkeypatc
     make_repo(tmp_path)
     fake = FakeHicode()
     _patch_hicode(monkeypatch, tmp_path, fake)
+    from veya.remote import tool_adapter
+
+    monkeypatch.setitem(tool_adapter._WORKER_BLOCKERS, "codex", "TEST_BLOCKER")
     gateway, secret = make_gateway(tmp_path)
     session = await initialize(gateway, secret)
     envelope = await call_tool(
@@ -236,23 +242,48 @@ async def test_blocked_hicode_failure_truth_reaches_parent_process_status(
     assert child["last_event"]["phase"] == "BLOCKED"
 
 
-def test_worker_commands_are_not_hicode_wrappers() -> None:
-    from veya.remote.tool_adapter import (
-        _worker_command,
-        _worker_model_identity,
-    )
+def test_worker_commands_are_not_hicode_wrappers(tmp_path: Path, monkeypatch) -> None:
+    pi_target = tmp_path / "node_modules" / "pi-coding-agent" / "cli.js"
+    pi_target.parent.mkdir(parents=True)
+    pi_target.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    pi_target.chmod(0o755)
+    pi_bin = tmp_path / "pi"
+    pi_bin.symlink_to(pi_target)
+    codex_bin = tmp_path / "codex"
+    codex_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    codex_bin.chmod(0o755)
+    antigravity_bin = tmp_path / "agy"
+    antigravity_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    antigravity_bin.chmod(0o755)
+    opencode_bin = tmp_path / "opencode"
+    opencode_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    opencode_bin.chmod(0o755)
+    monkeypatch.setenv("VEYA_PI_BIN", str(pi_bin))
+    monkeypatch.setenv("VEYA_CODEX_BIN", str(codex_bin))
+    monkeypatch.setenv("VEYA_CODEX_MODEL", "CODEX_TEST_MODEL")
+    monkeypatch.setenv("VEYA_ANTIGRAVITY_BIN", str(antigravity_bin))
+    monkeypatch.setenv("VEYA_ANTIGRAVITY_MODEL", "AGY_TEST_MODEL")
+    monkeypatch.setenv("VEYA_OPENCODE_BIN", str(opencode_bin))
+    monkeypatch.setenv("VEYA_OPENCODE_MODEL", "opencode-go/deepseek-v4.1-flash")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:10100/v1")
+    monkeypatch.setenv("VEYA_LLM_ENDPOINT", "http://127.0.0.1:8791/v1")
+    monkeypatch.setenv("CODEX_NORMAL_ENV_SENTINEL", "keep-me")
+
+    from veya.remote.tool_adapter import _worker_command, _worker_model_identity
 
     dsh_argv, dsh_env = _worker_command("dsh", "do x")
     pi_argv, _ = _worker_command("pi", "do x")
     grok_argv, _ = _worker_command("grok", "do x")
-    codex_argv, _ = _worker_command("codex", "do x")
+    codex_argv, codex_env = _worker_command("codex", "do x")
+    agy_argv, agy_env = _worker_command("antigravity", "do x")
+    opencode_argv, opencode_env = _worker_command("opencode", "do x")
     assert "dsh" in dsh_argv[0] and "--profile" in dsh_argv
     assert "headless" in dsh_argv
     assert dsh_env.get("DEEPSEEK_BASE_URL", "").startswith("http://127.0.0.1:8791")
     assert dsh_env.get("DEEPSEEK_DEFAULT_MODEL") == "veya1.2"
     assert dsh_env.get("DEEPSEEK_API_KEY")
     assert "pi" in pi_argv[0] and "--provider" in pi_argv and "veya" in pi_argv
-    assert "--model" in pi_argv and "veya1.2" in pi_argv
+    assert "--model" in pi_argv and "veya1.2-free" in pi_argv
     assert "--tools" in pi_argv and "read,bash,edit,write" in pi_argv
     assert "--approve" in pi_argv
     assert "grok" in grok_argv[0] and "--model" in grok_argv
@@ -260,25 +291,67 @@ def test_worker_commands_are_not_hicode_wrappers() -> None:
     assert "--tools" in grok_argv
     assert any("run_terminal_command" in value for value in grok_argv)
     assert "--sandbox" in grok_argv and "workspace" in grok_argv
-    assert "codex" in codex_argv[0] and codex_argv[1] == "exec"
-    # distinct identities per worker, never all HICODE
-    identities = {w: _worker_model_identity(w) for w in ("hicode", "dsh", "pi", "grok", "codex")}
+    assert codex_argv[0] == str(codex_bin) and codex_argv[1] == "exec"
+    assert "--ignore-user-config" in codex_argv
+    assert "--model" in codex_argv and "CODEX_TEST_MODEL" in codex_argv
+    assert "workspace-write" in codex_argv and codex_env.get("HOME")
+    assert "OPENAI_BASE_URL" not in codex_env
+    assert "VEYA_LLM_ENDPOINT" not in codex_env
+    assert codex_env.get("CODEX_NORMAL_ENV_SENTINEL") == "keep-me"
+    assert agy_argv[0] == str(antigravity_bin)
+    assert "--print" in agy_argv and "--mode" in agy_argv and "accept-edits" in agy_argv
+    assert "--sandbox" in agy_argv and "--dangerously-skip-permissions" in agy_argv
+    assert "--model" in agy_argv and "AGY_TEST_MODEL" in agy_argv
+    assert "--print-timeout" in agy_argv and "10m" in agy_argv
+    assert agy_env.get("HOME")
+    assert opencode_argv[0] == str(opencode_bin) and "run" in opencode_argv
+    assert "--model" in opencode_argv and "opencode-go/deepseek-v4.1-flash" in opencode_argv
+    assert opencode_env.get("HOME")
+    identities = {
+        w: _worker_model_identity(w)
+        for w in ("hicode", "dsh", "pi", "grok", "codex", "antigravity", "opencode")
+    }
     assert len({m for _p, m in identities.values()}) >= 3
     assert identities["dsh"] == ("VEYA_LOCAL_GATEWAY", "veya1.2")
-    assert identities["pi"] == ("VEYA_LOCAL", "veya1.2")
+    assert identities["pi"] == ("VEYA_LOCAL", "veya1.2-free")
     assert identities["grok"] == ("VEYA_LOCAL_GATEWAY", "veya1.2")
-    assert _worker_model_identity("hicode") != _worker_model_identity("dsh")
-    assert _worker_model_identity("codex") == ("openai", "gpt-5.6-luna")
+    assert identities["codex"] == ("openai", "gpt-5.6-luna")
+    assert identities["antigravity"] == ("google-antigravity", "cli-default")
+    assert identities["opencode"] == ("opencode-go", "opencode-go/deepseek-v4.1-flash")
 
 
-def test_worker_availability_registry_keeps_codex_registered() -> None:
+def test_codex_default_model_is_luna(monkeypatch) -> None:
+    from veya.remote.tool_adapter import _resolve_codex_model
+
+    monkeypatch.delenv("VEYA_CODEX_MODEL", raising=False)
+    assert _resolve_codex_model() == "gpt-5.6-luna"
+
+
+def test_pi_binary_resolver_rejects_non_agent_override(tmp_path: Path, monkeypatch) -> None:
+    from veya.remote.tool_adapter import _resolve_pi_binary
+
+    fake_pi = tmp_path / "pi"
+    fake_pi.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_pi.chmod(0o755)
+    monkeypatch.setenv("VEYA_PI_BIN", str(fake_pi))
+
+    try:
+        _resolve_pi_binary()
+    except RuntimeError as exc:
+        assert "not a Pi Coding Agent executable" in str(exc)
+    else:
+        raise AssertionError("non-agent pi executable must fail closed")
+
+
+def test_worker_availability_registry_lists_six_workers() -> None:
     from veya.remote.tool_adapter import worker_availability
 
     availability = worker_availability()
-    assert {"HICODE", "DSH", "PI", "GROK"} <= set(availability["available_workers"])
-    assert "CODEX" in availability["temporarily_unavailable_workers"]
-    assert "UPSTREAM_QUOTA" in availability["temporarily_unavailable_workers"]["CODEX"]
-    assert "CODEX" not in availability["available_workers"]
+    assert {"HICODE", "DSH", "PI", "GROK", "CODEX", "ANTIGRAVITY"} <= set(
+        availability["available_workers"]
+    )
+    assert "CODEX" not in availability["temporarily_unavailable_workers"]
+    assert "ANTIGRAVITY" not in availability["temporarily_unavailable_workers"]
 
 
 async def test_parent_cancel_propagates_to_children(tmp_path: Path, monkeypatch) -> None:

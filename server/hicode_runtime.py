@@ -100,9 +100,14 @@ class HicodeExecutorAdapter:
     @property
     def managed_root(self) -> Path:
         configured = os.environ.get("HICODE_MANAGED_RUNTIME_ROOT", "").strip()
-        return (
-            Path(configured).expanduser() if configured else self._managed_root_override
-        ) or Path("/opt/veya/hicode-runtime")
+        if configured:
+            return Path(configured).expanduser()
+        if self._managed_root_override is not None:
+            return self._managed_root_override
+        user_managed = Path.home() / ".veya" / "hicode-managed-runtime"
+        if user_managed.is_dir():
+            return user_managed
+        return Path("/opt/veya/hicode-runtime")
 
     @property
     def data_root(self) -> Path:
@@ -588,6 +593,7 @@ print(json.dumps({
         primary_model = os.environ.get("HICODE_REASONIX_MODEL", "gpt-5.6-luna").strip()
         primary_provider = os.environ.get("HICODE_REASONIX_PROVIDER", "luna").strip() or "luna"
         primary_key_env = _safe_env_name(os.environ.get("HICODE_REASONIX_API_KEY_ENV"))
+        primary_api_key = os.environ.get(primary_key_env, "") if primary_key_env else ""
         cloud_base = _safe_url(
             os.environ.get("HICODE_REASONIX_CLOUD_BASE_URL", ""),
             fallback="https://opencode.ai/zen/go/v1",
@@ -610,6 +616,10 @@ print(json.dumps({
         ]
         if primary_key_env:
             lines.append(f"api_key_env = {json.dumps(primary_key_env)}")
+        if primary_api_key:
+            lines.append(
+                f"headers = {{ \"x-api-key\" = {json.dumps(primary_api_key)} }}"
+            )
         lines.extend(
             [
                 "context_window = 1000000",

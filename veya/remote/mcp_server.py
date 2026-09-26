@@ -16,7 +16,7 @@ from .audit import RemoteAudit
 from .auth import RemoteAuth, RemoteAuthError
 from .execution import ExecutionStore
 from .models import RemoteCallResult, RemoteErrorCode
-from .session import RemoteSessionError, RemoteSessionManager
+from .session import RemoteSessionError, RemoteSessionManager, normalize_session_cap
 from .tool_adapter import RemoteToolAdapter
 
 PROTOCOL_VERSION = "2025-03-26"
@@ -52,6 +52,8 @@ class RemoteMCPGateway:
             "auth_configured": self.auth.configured,
             "tools": len(self.adapter.list_tools()),
             "active_sessions": self.sessions.active_count(),
+            # None == no artificial global session cap (unlimited concurrency).
+            "session_cap": self.sessions.max_sessions,
             "uptime_s": round(time.time() - self._started_at, 3),
         }
 
@@ -415,7 +417,11 @@ def create_gateway(
     if sessions is None:
         sessions = RemoteSessionManager(
             ttl_s=float(os.environ.get("VEYA_REMOTE_SESSION_TTL_S", "3600")),
-            max_sessions=int(os.environ.get("VEYA_REMOTE_MAX_SESSIONS", "8")),
+            # Unset / empty / 0 / "none" / "unlimited" all mean *no artificial
+            # global session cap*.  This is an operator safety valve only; it is
+            # never an execution scheduler.  MCP RPC contexts are short-lived
+            # and durable executions run independently of them.
+            max_sessions=normalize_session_cap(os.environ.get("VEYA_REMOTE_MAX_SESSIONS")),
             default_workspace=os.environ.get("VEYA_WORKSPACE_ROOT") or None,
         )
     return RemoteMCPGateway(

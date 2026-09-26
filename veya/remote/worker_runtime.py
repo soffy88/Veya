@@ -97,6 +97,14 @@ WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
         supports_receipts=True,
         recovery_capability=str(RecoveryCapability.REATTACH),
     ),
+    "antigravity": WorkerCapabilities(
+        supports_receipts=True,
+        recovery_capability=str(RecoveryCapability.REATTACH),
+    ),
+    "opencode": WorkerCapabilities(
+        supports_receipts=True,
+        recovery_capability=str(RecoveryCapability.REATTACH),
+    ),
 }
 
 

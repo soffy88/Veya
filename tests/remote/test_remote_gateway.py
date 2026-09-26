@@ -126,7 +126,7 @@ def test_health_has_no_secrets(tmp_path: Path) -> None:
     health = gateway.health()
     assert health["status"] == "ok"
     assert secret not in json.dumps(health)
-    assert health["tools"] == 27
+    assert health["tools"] == 31
 
 
 async def test_initialize_requires_auth(tmp_path: Path) -> None:
@@ -158,7 +158,7 @@ async def test_tools_list_requires_session(tmp_path: Path) -> None:
         "file.read" in names
         and "veya.mission.create" in names
         and "worker.dispatch" in names
-        and len(names) == 27
+        and len(names) == 31
     )
 
 

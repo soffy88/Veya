@@ -1,9 +1,13 @@
 """Remote session lifecycle: token -> session -> bound workspace (spec §1/§3).
 
 Sessions are the only place where a remote client's identity, permission grant
-and workspace scope are joined. They are TTL-bound, capped in number and can
-be reconnected to by id (a dropped HTTP connection does not end the session or
-its background jobs).
+and workspace scope are joined. They are TTL-bound, optionally capped in
+number, and can be reconnected to by id (a dropped HTTP connection does not
+end the session or its background jobs).
+
+A session is a short-lived RPC context, not a durable execution owner.  The
+default is therefore *no artificial admission cap*: an MCP request must never
+be rejected because some durable execution is still running.
 """
 
 from __future__ import annotations
@@ -17,6 +21,32 @@ from typing import Any
 
 from .auth import RemoteToken
 from .models import RemotePermissions, RemoteSession
+
+_UNLIMITED_CAP_TOKENS = {"", "0", "-1", "none", "null", "unlimited", "inf", "infinity"}
+
+
+def normalize_session_cap(value: Any) -> int | None:
+    """Return a positive hard cap, or ``None`` for unlimited admission.
+
+    ``None``, ``0``, a negative value and the words ``none``/``unlimited`` all
+    mean "no artificial global session cap".  A huge sentinel such as
+    ``999999`` is *not* treated as unlimited; it stays a real (if silly) cap.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in _UNLIMITED_CAP_TOKENS:
+            return None
+        try:
+            value = int(text)
+        except ValueError:
+            return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 class RemoteSessionError(Exception):
@@ -50,12 +80,15 @@ class RemoteSessionManager:
         self,
         *,
         ttl_s: float = 3600.0,
-        max_sessions: int = 8,
+        max_sessions: int | None = None,
         default_workspace: str | Path | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._ttl_s = max(30.0, float(ttl_s))
-        self._max_sessions = max(1, int(max_sessions))
+        # ``None`` (the default) means unlimited admission.  Only an explicit
+        # positive integer installs a hard cap, and that cap is an operator
+        # safety valve, never an execution scheduler.
+        self._max_sessions = normalize_session_cap(max_sessions)
         self._default_workspace = (
             canonical_workspace(default_workspace) if default_workspace is not None else None
         )
@@ -68,7 +101,9 @@ class RemoteSessionManager:
         return self._ttl_s
 
     @property
-    def max_sessions(self) -> int:
+    def max_sessions(self) -> int | None:
+        """Explicit hard cap, or ``None`` when session admission is unlimited."""
+
         return self._max_sessions
 
     @property
@@ -120,19 +155,14 @@ class RemoteSessionManager:
         now = self._clock()
         with self._lock:
             self._reap_locked(now)
-            # Clients such as the OpenAI Secure MCP Tunnel re-initialize before
-            # each request. Reuse the live session for the same token+workspace
-            # so the cap is not exhausted and the isolated worktree mapping (and
-            # any pending mutation) survives across calls.
-            for existing in self._sessions.values():
-                if (
-                    existing.token_id == token.token_id
-                    and existing.active_workspace == active
-                    and not existing.is_expired(now)
-                ):
-                    existing.expires_at = now + self._ttl_s
-                    return existing
-            if len(self._sessions) >= self._max_sessions:
+            # A credential identifies a principal, not a conversation.  Two
+            # clients may share both credential and workspace.  Reconnection
+            # must use the explicit MCP session id (see gateway.initialize).
+            #
+            # The cap is only enforced when an operator explicitly configured
+            # one; ``None`` means new RPC contexts are never rejected because
+            # of how many sessions (or executions) are already live.
+            if self._max_sessions is not None and len(self._sessions) >= self._max_sessions:
                 raise RemoteSessionError("LIMIT_EXCEEDED", "concurrent session limit reached")
             session = RemoteSession(
                 session_id=f"rs_{secrets.token_hex(12)}",
@@ -157,6 +187,7 @@ class RemoteSessionManager:
             session = self._sessions.get(session_id)
             if session is None:
                 raise RemoteSessionError("NOT_FOUND", "unknown or expired session")
+            session.expires_at = now + self._ttl_s
             return session
 
     def get(self, session_id: str) -> RemoteSession | None:

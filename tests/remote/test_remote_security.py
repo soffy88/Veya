@@ -226,8 +226,13 @@ def test_concurrent_session_limit(tmp_path: Path) -> None:
     assert exc.value.code == "LIMIT_EXCEEDED"
 
 
-def test_same_token_reuses_live_session(tmp_path: Path) -> None:
-    """A re-initializing client must not churn sessions or lose its worktree."""
+def test_same_token_requires_explicit_session_id_to_reconnect(tmp_path: Path) -> None:
+    """A credential identifies a principal, not a conversation.
+
+    Re-initializing without the explicit MCP session id must not silently
+    share another conversation's session/worktree; reconnect by id does, and
+    refreshes the TTL so a long-lived client is not churned.
+    """
 
     now = [1000.0]
     manager = RemoteSessionManager(ttl_s=60, clock=lambda: now[0])
@@ -236,9 +241,12 @@ def test_same_token_reuses_live_session(tmp_path: Path) -> None:
     first.worktrees[str(tmp_path)] = "/tmp/wt"
     now[0] += 30
     second = manager.create(token)
-    assert second.session_id == first.session_id
-    assert second.expires_at > first.created_at + 60  # TTL refreshed
-    assert second.worktrees[str(tmp_path)] == "/tmp/wt"
+    assert second.session_id != first.session_id
+
+    resumed = manager.reconnect(first.session_id)
+    assert resumed.session_id == first.session_id
+    assert resumed.worktrees[str(tmp_path)] == "/tmp/wt"
+    assert resumed.expires_at > now[0]  # TTL refreshed on explicit reconnect
 
 
 # ── audit ──────────────────────────────────────────────────────────────

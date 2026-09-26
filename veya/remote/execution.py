@@ -50,19 +50,32 @@ def _normalize_execution_cap(value: Any) -> int | None:
     return number if number > 0 else None
 
 
+from veya.remote.execution_contract import (  # noqa: E402
+    ExecutionCondition,
+    ExecutionSpec,
+)
+
+
 class ExecutionPhase(StrEnum):
     """Canonical lifecycle (external contract, stable)."""
 
     QUEUED = "QUEUED"
+    STARTING = "STARTING"
     WORKSPACE_VALIDATION = "WORKSPACE_VALIDATION"
     PLANNING = "PLANNING"
+    RUNNING = "RUNNING"
     EDITING = "EDITING"
     TESTING = "TESTING"
+    SUSPENDING = "SUSPENDING"
+    SUSPENDED = "SUSPENDED"
+    RESUMING = "RESUMING"
+    RECOVERING = "RECOVERING"
     FINALIZING = "FINALIZING"
     COMPLETED = "COMPLETED"
     BLOCKED = "BLOCKED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    TERMINATED = "TERMINATED"
 
 
 class ExecutionStatus(StrEnum):
@@ -81,14 +94,21 @@ TERMINAL_PHASES = frozenset(
         ExecutionPhase.BLOCKED,
         ExecutionPhase.FAILED,
         ExecutionPhase.CANCELLED,
+        ExecutionPhase.TERMINATED,
     }
 )
 RUNNING_PHASES = (
     ExecutionPhase.QUEUED,
+    ExecutionPhase.STARTING,
     ExecutionPhase.WORKSPACE_VALIDATION,
     ExecutionPhase.PLANNING,
     ExecutionPhase.EDITING,
     ExecutionPhase.TESTING,
+    ExecutionPhase.RUNNING,
+    ExecutionPhase.SUSPENDING,
+    ExecutionPhase.SUSPENDED,
+    ExecutionPhase.RESUMING,
+    ExecutionPhase.RECOVERING,
     ExecutionPhase.FINALIZING,
 )
 _PHASE_ORDER: dict[str, int] = {str(phase): index for index, phase in enumerate(RUNNING_PHASES)}
@@ -140,6 +160,43 @@ class ExecutionBlocked(ExecutionError):
     """Execution was refused before it could start (fail-closed)."""
 
 
+_DIRECT_COMMAND_TOOLS = frozenset({"shell.exec", "test.run", "build.run"})
+
+
+def _is_direct_command(record: Any) -> bool:
+    """True for a direct shell/test/build command execution (P0-G).
+
+    Only these records always report through ``finish_command`` (which sets
+    ``direct_status``); CLI-worker and Hicode children share the ``direct``
+    execution type but never set it, so they must not be judged here.
+    """
+
+    return (
+        getattr(record, "execution_type", None) == str(ExecutionType.DIRECT)
+        and str(getattr(record, "tool", "") or "") in _DIRECT_COMMAND_TOOLS
+    )
+
+
+def direct_spawn_failure(record: Any) -> bool:
+    """True when a direct command never produced an exit code (P0-G).
+
+    Command spawn failure, missing binary, sandbox profile error: the record
+    carries ``direct_status != passed`` with ``exit_code None``. Such a
+    record must terminate FAILED with taxonomy — never COMPLETED.
+    """
+
+    direct_status = getattr(record, "direct_status", None)
+    command = getattr(record, "command", None)
+    return (
+        _is_direct_command(record)
+        and (
+            (direct_status is not None and direct_status != "passed")
+            or (command is not None and direct_status != "passed")
+        )
+        and getattr(record, "exit_code", None) is None
+    )
+
+
 @dataclass
 class ExecutionRecord:
     """Everything the gateway persists for one execution."""
@@ -157,11 +214,19 @@ class ExecutionRecord:
     repo_identity: str
     worktree_path: str | None = None
     worktree_repo_root: str | None = None
+    worktree_branch: str | None = None
+    isolated_worktree: bool = False
+    keep_worktree: bool = False
+    principal_id: str | None = None
+    agent_role: str = "worker"
+    agent_identity: str | None = None
     status: str = str(ExecutionStatus.QUEUED)
     phase: str = str(ExecutionPhase.QUEUED)
     current_step: int = 0
     total_steps: int = 0
     message: str = ""
+    conditions: list[ExecutionCondition] = field(default_factory=list)
+    spec: ExecutionSpec | None = None
     created_at: float = field(default_factory=time.time)
     started_at: float | None = None
     updated_at: float = field(default_factory=time.time)
@@ -344,15 +409,13 @@ class ExecutionRecord:
             "context_budget": dict(self.context_budget),
             "selected_capability_ids": list(self.selected_capability_ids),
             "selected_skill_ids": list(self.selected_skill_ids),
-            "failure_class": self.failure_class if status in {"BLOCKED", "FAILED"} else None,
-            "failure_source": self.failure_source if status in {"BLOCKED", "FAILED"} else None,
-            "failure_detail": self.failure_detail if status in {"BLOCKED", "FAILED"} else None,
-            "failure_message": self.failure_message if status in {"BLOCKED", "FAILED"} else None,
-            "provider_error_code": (self.provider_error_code or self.error)
-            if status in {"BLOCKED", "FAILED"}
-            else None,
+            "failure_class": self.failure_class,
+            "failure_source": self.failure_source,
+            "failure_detail": self.failure_detail,
+            "failure_message": self.failure_message,
+            "provider_error_code": (self.provider_error_code or self.error),
             "raw_failure_evidence": dict(self.raw_failure_evidence or {})
-            if status in {"BLOCKED", "FAILED"}
+            if self.raw_failure_evidence
             else None,
             "failure_history": list(self.failure_history),
             "round_history": list(self.round_history),
@@ -403,7 +466,11 @@ class ExecutionRecord:
             "command_timeout_sec": self.command_timeout_sec,
             "heartbeat_timeout_sec": self.heartbeat_timeout_sec,
             # Legacy aliases kept for existing callers/tests.
-            "state": _LEGACY_STATE.get(ExecutionStatus(status), status),
+            "state": (
+                _LEGACY_STATE.get(ExecutionStatus(status), status)
+                if status in ExecutionStatus._value2member_map_
+                else status
+            ),
             "workspace": self.requested_realpath,
             "session_id": self.session_id,
         }
@@ -820,6 +887,55 @@ class DurableJobManager:
             await asyncio.sleep(0)
         return recovered
 
+    async def suspend(
+        self,
+        execution_id: str,
+        *,
+        token_id: str,
+        session_id: str | None = None,
+        workspace_realpath: str | None = None,
+        principal: str | None = None,
+    ) -> ExecutionRecord:
+        """Suspend an active execution, halting execution while preserving lineage."""
+        record = self.status(
+            execution_id,
+            token_id=token_id,
+            workspace_realpath=workspace_realpath,
+            principal=principal,
+        )
+        if session_id is not None and record.session_id != session_id:
+            raise ExecutionError("TOOL_DENIED", "execution belongs to another session")
+        if record.is_terminal:
+            return record
+        if record.phase == ExecutionPhase.SUSPENDED:
+            return record
+
+        record.phase = ExecutionPhase.SUSPENDING
+        record.status = str(ExecutionStatus.RUNNING)
+        record.message = "suspension requested"
+        self._persist(record)
+
+        with self._lock:
+            task = self._tasks.get(execution_id)
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+
+        record.phase = ExecutionPhase.SUSPENDED
+        record.status = "SUSPENDED"
+        record.message = "execution suspended"
+        record.events.append(
+            {
+                "ts": time.time(),
+                "kind": "suspended",
+                "phase": str(ExecutionPhase.SUSPENDED),
+                "message": "execution suspended",
+            }
+        )
+        self._persist(record)
+        return record
+
     async def resume(
         self,
         execution_id: str,
@@ -827,9 +943,15 @@ class DurableJobManager:
         token_id: str,
         runner: Runner | None = None,
         workspace_realpath: str | None = None,
+        principal: str | None = None,
     ) -> ExecutionRecord:
         """Forward resume to the existing GoalRun identity, idempotently."""
-        record = self.status(execution_id, token_id=token_id, workspace_realpath=workspace_realpath)
+        record = self.status(
+            execution_id,
+            token_id=token_id,
+            workspace_realpath=workspace_realpath,
+            principal=principal,
+        )
         if record.is_terminal:
             return record
         if record.goal_run_id is None:
@@ -841,6 +963,18 @@ class DurableJobManager:
             raise ExecutionError(
                 "RECOVERY_RUNNER_MISSING", "provider recovery factory is unavailable"
             )
+        record.phase = ExecutionPhase.RESUMING
+        record.status = str(ExecutionStatus.RUNNING)
+        record.message = "resuming execution"
+        record.events.append(
+            {
+                "ts": time.time(),
+                "kind": "resumed",
+                "phase": str(ExecutionPhase.RESUMING),
+                "message": "resumed execution on canonical lineage",
+            }
+        )
+        self._persist(record)
         with self._lock:
             current = self._tasks.get(execution_id)
             if current is None or current.done():
@@ -936,6 +1070,8 @@ class DurableJobManager:
         role: str = "worker",
         preferred_worker_runtime_id: str | None = None,
         idempotency_key: str | None = None,
+        spec: ExecutionSpec | None = None,
+        **kwargs: Any,
     ) -> ExecutionRecord:
         if execution_type == str(ExecutionType.DIRECT):
             execution_id = f"direct_{uuid.uuid4().hex}"
@@ -943,20 +1079,53 @@ class DurableJobManager:
         else:
             execution_id = f"ex_{uuid.uuid4().hex}"
             initial_phase = str(ExecutionPhase.QUEUED)
+        worktree_path = getattr(binding, "worktree_path", None)
+        worktree_repo_root = getattr(binding, "worktree_repo_root", None)
+        worktree_branch = kwargs.get("worktree_branch")
+        isolated_worktree = bool(kwargs.get("isolated_worktree") or kwargs.get("needs_worktree"))
+        if isolated_worktree and not worktree_path:
+            repo_root = getattr(binding, "repo_root", None) or getattr(
+                binding, "requested_realpath", None
+            )
+            if repo_root and (Path(repo_root) / ".git").exists():
+                from runtime.coding.worktree import WorktreeManager
+
+                try:
+                    wt_mgr = WorktreeManager(Path(repo_root))
+                    wt_rec = wt_mgr.create(
+                        task_id=execution_id,
+                        objective=spec.objective if spec else tool,
+                    )
+                    worktree_path = str(wt_rec.path)
+                    worktree_repo_root = str(wt_rec.repo_root)
+                    worktree_branch = str(wt_rec.branch_name)
+                except Exception as exc:
+                    _logger.warning("Could not create worktree for %s: %s", execution_id, exc)
+
+        principal_id = kwargs.get("principal_id") or getattr(session, "principal", "unknown")
+        agent_role = role or "worker"
+        agent_identity = kwargs.get("agent_identity") or f"{agent_role}:{worker_type or 'builtin'}"
+
         record = ExecutionRecord(
             execution_id=execution_id,
             task_id=task_id or f"task_{uuid.uuid4().hex[:16]}",
             session_id=session.session_id,
             token_id=session.token_id,
             principal=session.principal,
+            principal_id=principal_id,
+            agent_role=agent_role,
+            agent_identity=agent_identity,
             tool=tool,
             veya_tool=veya_tool,
             requested_workspace=getattr(binding, "requested_path", "") or "",
             requested_realpath=getattr(binding, "requested_realpath", "") or "",
             resolved_repo_root=getattr(binding, "repo_root", "") or "",
             repo_identity=getattr(binding, "repo_identity", "") or "",
-            worktree_path=getattr(binding, "worktree_path", None),
-            worktree_repo_root=getattr(binding, "worktree_repo_root", None),
+            worktree_path=worktree_path,
+            worktree_repo_root=worktree_repo_root,
+            worktree_branch=worktree_branch,
+            isolated_worktree=isolated_worktree,
+            keep_worktree=bool(kwargs.get("keep_worktree", False)),
             heartbeat_timeout_sec=self.heartbeat_timeout_s,
             execution_type=execution_type,
             phase=initial_phase,
@@ -973,6 +1142,7 @@ class DurableJobManager:
             role=role,
             preferred_worker_runtime_id=preferred_worker_runtime_id,
             idempotency_key=idempotency_key,
+            spec=spec,
         )
         for field_name in (
             "max_steps",
@@ -1061,7 +1231,13 @@ class DurableJobManager:
         seen = {r.execution_id: r for r in local}
         for stored in self.store.load_all():
             seen.setdefault(stored.execution_id, stored)
-        return [r for r in seen.values() if r.parent_execution_id == parent_id]
+        parent = seen.get(parent_id)
+        parent_child_ids = set(parent.child_execution_ids) if parent else set()
+        return [
+            r
+            for r in seen.values()
+            if r.parent_execution_id == parent_id or r.execution_id in parent_child_ids
+        ]
 
     def aggregate(self, parent: ExecutionRecord) -> dict[str, Any]:
         """Mechanical child aggregation. Never ranks or picks a winner."""
@@ -1135,8 +1311,31 @@ class DurableJobManager:
             status, phase = "CANCELLED", "CANCELLED"
         elif counts["failed"] + counts["blocked"] == counts["total"]:
             status, phase = "FAILED", "FAILED"
-        else:
-            status, phase = "PARTIAL_COMPLETED", "COMPLETED"
+        if str(parent.status) != status or str(parent.phase) != phase:
+            if status in ExecutionStatus._value2member_map_:
+                parent.status = ExecutionStatus(status)
+            elif status == "PARTIAL_COMPLETED":
+                parent.status = ExecutionStatus.FAILED
+            else:
+                parent.status = ExecutionStatus.FAILED
+            if phase in ExecutionPhase._value2member_map_:
+                parent.phase = ExecutionPhase(phase)
+            elif status == "RUNNING":
+                parent.phase = ExecutionPhase.FINALIZING
+            elif status == "QUEUED":
+                parent.phase = ExecutionPhase.QUEUED
+            elif status == "CANCELLED":
+                parent.phase = ExecutionPhase.CANCELLED
+            elif status in {"FAILED", "BLOCKED"}:
+                parent.phase = ExecutionPhase(status)
+            else:
+                parent.phase = ExecutionPhase.COMPLETED
+            if (
+                status in {"COMPLETED", "FAILED", "CANCELLED", "PARTIAL_COMPLETED"}
+                and parent.completed_at is None
+            ):
+                parent.completed_at = time.time()
+            self._persist(parent)
         return {
             "status": status,
             "phase": phase,
@@ -1468,6 +1667,18 @@ class DurableJobManager:
                         block_reason=record.error or f"exit_code={record.exit_code}",
                         stop_reason="provider_error",
                     )
+                if direct_spawn_failure(record):
+                    # P0-G: a direct shell/test/build command that did not pass
+                    # (spawn failure with exit_code None, timeout, denied) is
+                    # never a completion — even when no exit code was produced.
+                    return LeafResult(
+                        status="blocked",
+                        summary=record.result_summary,
+                        block_reason=record.failure_detail
+                        or record.error
+                        or f"direct_status={record.direct_status or 'missing'}",
+                        stop_reason="provider_error",
+                    )
                 return LeafResult(
                     status="completed",
                     summary=record.result_summary,
@@ -1506,6 +1717,18 @@ class DurableJobManager:
             value = getattr(response.status, "value", response.status)
             if record.cancel_requested or value == "cancelled":
                 self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
+            elif direct_spawn_failure(record):
+                # P0-G: command spawn failure (binary not executable, sandbox
+                # error, OSError before exec) carries no exit code. It must be
+                # FAILED with taxonomy — never COMPLETED with exit_code null.
+                self._finish(
+                    record,
+                    str(ExecutionStatus.FAILED),
+                    message=record.failure_detail
+                    or record.result_summary
+                    or f"direct command did not start (direct_status={record.direct_status})",
+                    error=record.failure_class or "DIRECT_COMMAND_FAILED",
+                )
             elif value == "completed" and not (
                 record.exit_code is not None and record.exit_code != 0
             ):
@@ -1609,13 +1832,14 @@ class DurableJobManager:
                     if not item.get("recovered"):
                         item["recovered"] = True
                         item["recovered_at"] = recovered_at
-            record.failure_class = None
-            record.failure_source = None
-            record.failure_detail = None
-            record.failure_message = None
-            record.provider_error_code = None
-            record.raw_failure_evidence = None
-            record.error = None
+            if record.round_history:
+                record.failure_class = None
+                record.failure_source = None
+                record.failure_detail = None
+                record.failure_message = None
+                record.provider_error_code = None
+                record.raw_failure_evidence = None
+                record.error = None
         terminal_event = {
             "ts": record.completed_at,
             "kind": "terminal",
@@ -1625,7 +1849,7 @@ class DurableJobManager:
         record.events.append(terminal_event)
         record.last_event = terminal_event
         self._persist(record)
-        if record.parent_execution_id is None and record.worktree_path:
+        if record.parent_execution_id is None and record.worktree_path and not record.keep_worktree:
             try:
                 from runtime.coding.worktree import teardown_worktree
 
@@ -1662,6 +1886,10 @@ class DurableJobManager:
                     self._records[execution_id] = stored
                 return stored
         return record
+
+    def lookup(self, execution_id: str) -> ExecutionRecord | None:
+        """Public lookup returning the freshest record or None if unknown."""
+        return self._lookup(execution_id)
 
     def record_event(
         self, execution_id: str, *, kind: str, message: str, phase: str | None = None
@@ -1936,16 +2164,44 @@ class DurableJobManager:
         *,
         token_id: str,
         workspace_realpath: str | None = None,
+        principal: str | None = None,
     ) -> ExecutionRecord:
         record = self._lookup(execution_id)
         if record is None:
             raise ExecutionError("NOT_FOUND", "unknown execution_id")
         if record.token_id != token_id:
             raise ExecutionError("TOOL_DENIED", "execution belongs to another principal")
+        if principal is not None:
+            allowed = {
+                "system",
+                "admin",
+                getattr(record, "token_id", None),
+                getattr(record, "principal_id", None),
+                getattr(record, "principal", None),
+            }
+            if principal not in allowed:
+                raise ExecutionError(
+                    "TOOL_DENIED", f"execution belongs to another principal (caller={principal})"
+                )
         if workspace_realpath:
             from .workspace_binding import canonical
 
-            if canonical(workspace_realpath) != record.requested_realpath:
+            # The caller may address the execution by the workspace it
+            # requested (e.g. the canonical root) while the record is keyed
+            # by the resolved target (e.g. an existing worktree selected via
+            # workspace_path). Accept any of the execution's own workspace
+            # identities; anything else stays fail-closed.
+            own_identities = {
+                canonical(candidate)
+                for candidate in (
+                    record.requested_realpath,
+                    record.resolved_repo_root,
+                    record.worktree_path,
+                    record.worktree_repo_root,
+                )
+                if candidate
+            }
+            if canonical(workspace_realpath) not in own_identities:
                 raise ExecutionError(
                     "WORKSPACE_DENIED",
                     (
@@ -1962,8 +2218,14 @@ class DurableJobManager:
         token_id: str,
         session_id: str | None = None,
         workspace_realpath: str | None = None,
+        principal: str | None = None,
     ) -> ExecutionRecord:
-        record = self.status(execution_id, token_id=token_id, workspace_realpath=workspace_realpath)
+        record = self.status(
+            execution_id,
+            token_id=token_id,
+            workspace_realpath=workspace_realpath,
+            principal=principal,
+        )
         if session_id is not None and record.session_id != session_id:
             raise ExecutionError("TOOL_DENIED", "execution belongs to another session")
         if record.is_terminal:
@@ -1977,6 +2239,7 @@ class DurableJobManager:
                         token_id=token_id,
                         session_id=session_id,
                         workspace_realpath=workspace_realpath,
+                        principal=principal,
                     )
                 except ExecutionError:
                     continue
@@ -2054,6 +2317,7 @@ __all__ = [
     "ExecutionType",
     "ProgressReporter",
     "Runner",
+    "direct_spawn_failure",
     "report_progress",
     "use_reporter",
 ]
