@@ -267,7 +267,11 @@ class DurableExecutionRepository:
                 self.dsn, min_size=1, max_size=10, command_timeout=10
             )
         else:
-            await asyncio.to_thread(self._sqlite_prepare)
+            # SQLite promotion/ledger operations are short, locked local
+            # transactions.  Keep their setup synchronous so an execution
+            # lifecycle does not create the process-wide asyncio default
+            # executor merely to initialize its durable store.
+            self._sqlite_prepare()
         await self.migrate()
 
     async def close(self) -> None:
@@ -305,7 +309,7 @@ class DurableExecutionRepository:
                     time.time(),
                 )
         else:
-            await asyncio.to_thread(self._sqlite_migrate)
+            self._sqlite_migrate()
 
     def _sqlite_prepare(self) -> None:
         if str(self.sqlite_path) == ":memory:":
@@ -1479,9 +1483,9 @@ class DurableExecutionRepository:
 
         if self.backend == "sqlite":
             if claim is None:
-                return await asyncio.to_thread(self._sqlite_tx, op)
+                return self._sqlite_tx(op)
             return await self._guard_fenced(
-                claim, "side_effect_declare", lambda: asyncio.to_thread(self._sqlite_tx, op)
+                claim, "side_effect_declare", lambda: self._sqlite_tx(op)
             )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
@@ -1630,9 +1634,9 @@ class DurableExecutionRepository:
 
         if self.backend == "sqlite":
             if claim is None:
-                return await asyncio.to_thread(self._sqlite_tx, op)
+                return self._sqlite_tx(op)
             return await self._guard_fenced(
-                claim, "side_effect_update", lambda: asyncio.to_thread(self._sqlite_tx, op)
+                claim, "side_effect_update", lambda: self._sqlite_tx(op)
             )
 
         async def op_pg(conn: Any) -> dict[str, Any]:
@@ -1768,7 +1772,7 @@ class DurableExecutionRepository:
             return dict(row) if row is not None else None
 
         if self.backend == "sqlite":
-            return await asyncio.to_thread(lambda: self._sqlite_read(op))
+            return self._sqlite_read(op)
 
         async def op_pg(conn: Any) -> dict[str, Any] | None:
             row = await conn.fetchrow(

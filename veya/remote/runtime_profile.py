@@ -27,10 +27,14 @@ class ExecutionDomain(StrEnum):
 
 
 class ExecutionTarget(StrEnum):
-    NEW_ISOLATED_WORKTREE = "NEW_ISOLATED_WORKTREE"
-    EXISTING_WORKTREE = "EXISTING_WORKTREE"
+    EXECUTION_WORKTREE = "EXECUTION_WORKTREE"
     CANONICAL_WORKTREE = "CANONICAL_WORKTREE"
     HOST = "HOST"
+
+    # Legacy spellings remain accepted by adapters, but serialize to the one
+    # canonical isolated target.
+    NEW_ISOLATED_WORKTREE = "EXECUTION_WORKTREE"
+    EXISTING_WORKTREE = "EXECUTION_WORKTREE"
 
 
 _KNOWN_PROJECT_CLIS = (

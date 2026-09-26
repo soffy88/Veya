@@ -131,6 +131,64 @@ def test_03_opencode_command_construction_and_proxy(tmp_path: Path, monkeypatch)
     assert env.get("https_proxy") == "http://127.0.0.1:7890"
 
 
+def test_03b_opencode_coding_mode_binds_execution_worktree(tmp_path: Path, monkeypatch) -> None:
+    fake_opencode = tmp_path / "opencode"
+    fake_opencode.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_opencode.chmod(0o755)
+    monkeypatch.setenv("VEYA_OPENCODE_BIN", str(fake_opencode))
+    monkeypatch.setenv("VEYA_OPENCODE_MODEL", "qualified-model")
+
+    argv, _ = _worker_command(
+        "opencode",
+        "create result.txt",
+        worktree_path=str(tmp_path / "execution-worktree"),
+        coding_mode=True,
+        agent="build",
+    )
+    assert "--dir" in argv
+    assert str(tmp_path / "execution-worktree") in argv
+    assert "--format" in argv and "json" in argv
+    assert "--auto" in argv
+    assert "--agent" in argv and "build" in argv
+
+
+def test_03c_opencode_runtime_state_is_not_in_execution_worktree(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runtime_home = tmp_path / "managed-opencode"
+    source_data = tmp_path / "source-data"
+    worktree = tmp_path / "execution-worktree"
+    source_auth = source_data / "opencode" / "auth.json"
+    source_auth.parent.mkdir(parents=True)
+    source_auth.write_text('{"opencode-go": {"type": "api"}}\n', encoding="utf-8")
+    monkeypatch.setenv("VEYA_OPENCODE_RUNTIME_HOME", str(runtime_home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(source_data))
+    monkeypatch.setenv("VEYA_OPENCODE_BIN", "/bin/true")
+
+    _argv, env = _worker_command(
+        "opencode",
+        "read base.txt",
+        worktree_path=str(worktree),
+        coding_mode=True,
+        agent="build",
+    )
+    assert env["HOME"] != str(worktree)
+    assert env["XDG_DATA_HOME"] == str(runtime_home / "data")
+    assert env["XDG_STATE_HOME"] == str(runtime_home / "state")
+    assert env["XDG_CACHE_HOME"] == str(runtime_home / "cache")
+    mirrored_auth = runtime_home / "data" / "opencode" / "auth.json"
+    assert mirrored_auth.read_text(encoding="utf-8") == source_auth.read_text(encoding="utf-8")
+    assert mirrored_auth.stat().st_mode & 0o777 == 0o600
+    assert all(
+        not Path(env[key]).is_relative_to(worktree)
+        for key in (
+            "XDG_DATA_HOME",
+            "XDG_STATE_HOME",
+            "XDG_CACHE_HOME",
+        )
+    )
+
+
 def test_04_explicit_pin_no_silent_fallback() -> None:
     """4. Explicit pin must execute real requested worker, failing closed without substitution."""
     reg = ExecutorHealthRegistry()
@@ -282,8 +340,8 @@ def test_09_worktree_isolation(tmp_path: Path) -> None:
     teardown_worktree(wt_path, execution_status="COMPLETED")
 
 
-async def test_10_live_opencode_direct_execution(tmp_path: Path) -> None:
-    """10. Real non-destructive live probe through canonical worker.dispatch."""
+async def test_10_opencode_text_transport_smoke(tmp_path: Path) -> None:
+    """10. Text transport smoke only; this is not coding qualification."""
     import shutil
     import subprocess
 
@@ -335,3 +393,332 @@ async def test_10_live_opencode_direct_execution(tmp_path: Path) -> None:
     # Check process reaping
     orphans = find_orphans(str(repo_path), "opencode")
     assert orphans == []
+
+
+async def test_10b_live_opencode_read_qualification(tmp_path: Path) -> None:
+    """10b. Real READ qualification is separate from text transport smoke."""
+    import os
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if not shutil.which("opencode"):
+        pytest.skip("opencode binary not installed")
+    if not os.environ.get("VEYA_OPENCODE_AGENT"):
+        pytest.skip("VEYA_OPENCODE_AGENT is required for read qualification")
+
+    repo_path = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo_path)], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "t"], check=True)
+    (repo_path / "base.txt").write_text("VEYA_READ_OK\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "commit", "-qm", "init"], check=True)
+
+    from tests.remote.test_l1_parallel import (
+        call_tool,
+        initialize,
+        make_gateway,
+        status,
+        wait_phase,
+    )
+
+    gateway, secret = make_gateway(repo_path)
+    session = await initialize(gateway, secret)
+    envelope = await call_tool(
+        gateway,
+        secret,
+        session,
+        "worker.dispatch",
+        {
+            "tasks": [
+                {
+                    "worker": "opencode",
+                    "task": (
+                        "Read base.txt and report its exact contents as VEYA_READ_OK. "
+                        "Do not modify any file."
+                    ),
+                    "task_kind": "READ",
+                    "effect_requirement": "READ_ONLY",
+                    "verification_requirement": "NONE",
+                    "commit_requirement": "NONE",
+                    "promotion_policy": "NONE",
+                }
+            ]
+        },
+    )
+    assert envelope["ok"] is True
+    parent_id = envelope["execution_id"]
+    child_id = envelope["result"]["child_execution_ids"][0]
+    final = await wait_phase(
+        gateway, secret, session, parent_id, {"COMPLETED", "FAILED"}, timeout=180
+    )
+    child_st = await status(gateway, secret, session, child_id)
+    assert final["status"] == "COMPLETED"
+    assert child_st["status"] == "COMPLETED"
+    assert "VEYA_READ_OK" in (child_st.get("result_summary") or "")
+    assert child_st.get("effect_receipt", {}).get("changed_files", []) == []
+    assert (repo_path / "base.txt").read_text(encoding="utf-8") == "VEYA_READ_OK\n"
+
+
+async def test_11_live_opencode_real_write_qualification(tmp_path: Path) -> None:
+    """11. Real OpenCode WRITE qualification, enabled only when configured."""
+    import os
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if not shutil.which("opencode"):
+        pytest.skip("opencode binary not installed")
+    if not os.environ.get("VEYA_OPENCODE_AGENT"):
+        pytest.skip("VEYA_OPENCODE_AGENT is required for coding qualification")
+    if os.environ.get("VEYA_OPENCODE_WRITE_QUALIFIED") != "1":
+        pytest.skip("live coding qualification is not explicitly enabled")
+
+    repo_path = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo_path)], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "t"], check=True)
+    (repo_path / "base.txt").write_text("BASE\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "commit", "-qm", "init"], check=True)
+
+    from tests.remote.test_l1_parallel import (
+        call_tool,
+        initialize,
+        make_gateway,
+        status,
+        wait_phase,
+    )
+
+    gateway, secret = make_gateway(repo_path)
+    session = await initialize(gateway, secret)
+    envelope = await call_tool(
+        gateway,
+        secret,
+        session,
+        "worker.dispatch",
+        {
+            "tasks": [
+                {
+                    "worker": "opencode",
+                    "task": (
+                        "Read base.txt. Create result.txt with exactly "
+                        "VEYA_OPENCODE_WRITE_OK and verify its contents."
+                    ),
+                    "task_kind": "WRITE",
+                    "effect_requirement": "FILES_CHANGED",
+                    "verification_requirement": "REQUIRED",
+                    "commit_requirement": "REQUIRED",
+                    "promotion_policy": "MANUAL",
+                    "allowed_files": ["result.txt"],
+                    "verification_command": 'test "$(cat result.txt)" = VEYA_OPENCODE_WRITE_OK',
+                }
+            ]
+        },
+    )
+    assert envelope["ok"] is True
+    parent_id = envelope["execution_id"]
+    child_id = envelope["result"]["child_execution_ids"][0]
+    final = await wait_phase(
+        gateway, secret, session, parent_id, {"COMPLETED", "FAILED"}, timeout=180
+    )
+    assert final["status"] == "COMPLETED"
+    child_st = await status(gateway, secret, session, child_id)
+    assert child_st["status"] == "COMPLETED"
+    assert child_st.get("effect_receipt", {}).get("changed_files") == ["result.txt"]
+    assert child_st.get("execution_commit_sha")
+    assert not (repo_path / "result.txt").exists()
+
+
+async def test_12_live_opencode_shell_tool_qualification(tmp_path: Path) -> None:
+    """12. Real OpenCode shell tool evidence is distinct from file mutation."""
+    import os
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if not shutil.which("opencode"):
+        pytest.skip("opencode binary not installed")
+    if not os.environ.get("VEYA_OPENCODE_AGENT"):
+        pytest.skip("VEYA_OPENCODE_AGENT is required for coding qualification")
+    if os.environ.get("VEYA_OPENCODE_WRITE_QUALIFIED") != "1":
+        pytest.skip("live coding qualification is not explicitly enabled")
+
+    repo_path = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo_path)], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "t"], check=True)
+    (repo_path / "base.txt").write_text("BASE\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "commit", "-qm", "init"], check=True)
+
+    from tests.remote.test_l1_parallel import (
+        call_tool,
+        initialize,
+        make_gateway,
+        status,
+        wait_phase,
+    )
+
+    gateway, secret = make_gateway(repo_path)
+    session = await initialize(gateway, secret)
+    envelope = await call_tool(
+        gateway,
+        secret,
+        session,
+        "worker.dispatch",
+        {
+            "tasks": [
+                {
+                    "worker": "opencode",
+                    "task": (
+                        "Use your shell tool to run exactly: printf 'VEYA_OPENCODE_SHELL_OK\\n' "
+                        "> shell-result.txt. Then read shell-result.txt and verify its exact value. "
+                        "Do not use a file-edit tool for this file; perform the shell command."
+                    ),
+                    "task_kind": "WRITE",
+                    "effect_requirement": "FILES_CHANGED",
+                    "verification_requirement": "REQUIRED",
+                    "commit_requirement": "REQUIRED",
+                    "promotion_policy": "MANUAL",
+                    "allowed_files": ["shell-result.txt"],
+                    "verification_command": 'test "$(cat shell-result.txt)" = VEYA_OPENCODE_SHELL_OK',
+                }
+            ]
+        },
+    )
+    assert envelope["ok"] is True
+    parent_id = envelope["execution_id"]
+    child_id = envelope["result"]["child_execution_ids"][0]
+    final = await wait_phase(
+        gateway, secret, session, parent_id, {"COMPLETED", "FAILED"}, timeout=180
+    )
+    assert final["status"] == "COMPLETED"
+    child_st = await status(gateway, secret, session, child_id)
+    receipt = child_st.get("effect_receipt", {})
+    assert child_st["status"] == "COMPLETED"
+    assert receipt.get("changed_files") == ["shell-result.txt"]
+    assert receipt.get("shell_calls")
+    assert receipt.get("tool_calls")
+    assert not (repo_path / "shell-result.txt").exists()
+
+
+async def test_13_live_opencode_write_finalize_and_promote(tmp_path: Path, monkeypatch) -> None:
+    """13. A real OpenCode commit reaches canonical only through git.promote."""
+    import os
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if not shutil.which("opencode"):
+        pytest.skip("opencode binary not installed")
+    if not os.environ.get("VEYA_OPENCODE_AGENT"):
+        pytest.skip("VEYA_OPENCODE_AGENT is required for coding qualification")
+    if os.environ.get("VEYA_OPENCODE_WRITE_QUALIFIED") != "1":
+        pytest.skip("live coding qualification is not explicitly enabled")
+
+    repo_path = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo_path)], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "t"], check=True)
+    (repo_path / "base.txt").write_text("BASE\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo_path), "commit", "-qm", "init"], check=True)
+    base_sha = subprocess.check_output(
+        ["git", "-C", str(repo_path), "rev-parse", "refs/heads/main"], text=True
+    ).strip()
+    monkeypatch.setenv("VEYA_EXECUTION_SQLITE_PATH", str(tmp_path / "promotion.sqlite3"))
+
+    from tests.remote.test_l1_parallel import (
+        call_tool,
+        initialize,
+        make_gateway,
+        status,
+        wait_phase,
+    )
+
+    gateway, secret = make_gateway(repo_path)
+    session = await initialize(gateway, secret)
+    envelope = await call_tool(
+        gateway,
+        secret,
+        session,
+        "worker.dispatch",
+        {
+            "tasks": [
+                {
+                    "worker": "opencode",
+                    "task": (
+                        "Read base.txt. Create result.txt containing exactly "
+                        "VEYA_OPENCODE_PROMOTE_OK. Verify the exact value."
+                    ),
+                    "task_kind": "WRITE",
+                    "effect_requirement": "FILES_CHANGED",
+                    "verification_requirement": "REQUIRED",
+                    "commit_requirement": "REQUIRED",
+                    "promotion_policy": "MANUAL",
+                    "allowed_files": ["result.txt"],
+                    "verification_command": 'test "$(cat result.txt)" = VEYA_OPENCODE_PROMOTE_OK',
+                }
+            ]
+        },
+    )
+    assert envelope["ok"] is True
+    parent_id = envelope["execution_id"]
+    child_id = envelope["result"]["child_execution_ids"][0]
+    parent = await wait_phase(
+        gateway, secret, session, parent_id, {"COMPLETED", "FAILED"}, timeout=180
+    )
+    assert parent["status"] == "COMPLETED"
+    child = await status(gateway, secret, session, child_id)
+    assert child["status"] == "COMPLETED"
+    assert child["finalization_status"] == "PROMOTABLE"
+    assert child["execution_commit_sha"]
+    assert child["effect_receipt"]["base_sha"] == base_sha
+    assert not (repo_path / "result.txt").exists()
+
+    before = subprocess.check_output(
+        ["git", "-C", str(repo_path), "rev-parse", "refs/heads/main"], text=True
+    ).strip()
+    assert before == base_sha
+    promoted = await call_tool(
+        gateway,
+        secret,
+        session,
+        "git.promote",
+        {"execution_id": child_id, "expected_base_sha": base_sha},
+    )
+    assert promoted["ok"] is True, promoted
+    assert promoted["result"]["execution_commit_sha"] == child["execution_commit_sha"]
+    after = subprocess.check_output(
+        ["git", "-C", str(repo_path), "rev-parse", "refs/heads/main"], text=True
+    ).strip()
+    assert after == child["execution_commit_sha"]
+    assert (
+        subprocess.check_output(
+            ["git", "-C", str(repo_path), "show", f"{after}:result.txt"], text=True
+        ).strip()
+        == "VEYA_OPENCODE_PROMOTE_OK"
+    )
+    assert not (repo_path / "result.txt").exists()
+
+    replay = await call_tool(
+        gateway,
+        secret,
+        session,
+        "git.promote",
+        {"execution_id": child_id, "expected_base_sha": base_sha},
+    )
+    assert replay["ok"] is True, replay
+    assert replay["result"]["promotion_mode"] == "IDEMPOTENT_ALREADY_PROMOTED"
+    assert (
+        subprocess.check_output(
+            ["git", "-C", str(repo_path), "rev-parse", "refs/heads/main"], text=True
+        ).strip()
+        == after
+    )

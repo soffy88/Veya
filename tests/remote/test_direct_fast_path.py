@@ -163,6 +163,29 @@ async def test_fast_file_read_sync(tmp_path: Path) -> None:
     assert envelope.get("execution_id") is None
     assert "hello" in envelope["result"]["text"]
     assert executor.calls == []
+    assert not (tmp_path / ".veya" / "worktrees").exists()
+
+
+async def test_fast_file_read_does_not_use_default_executor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make_workspace(tmp_path)
+    executor = PrimitiveExecutor()
+    gateway, secret, _ = make_gateway(tmp_path, executor, ExecutionStore(None))
+    session = await initialize(gateway, secret)
+
+    async def fail_to_thread(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("file.read must not use asyncio.to_thread")
+
+    monkeypatch.setattr("veya.remote.tool_adapter.asyncio.to_thread", fail_to_thread)
+    envelope = await call_tool(gateway, secret, session, "file.read", {"path": "a.py"})
+    assert envelope["ok"] is True
+    assert "hello" in envelope["result"]["text"]
+    loop = asyncio.get_running_loop()
+    assert getattr(loop, "_default_executor", None) is None
+    assert [task for task in asyncio.all_tasks(loop) if not task.done()] == [
+        asyncio.current_task(loop)
+    ]
 
 
 async def test_fast_git_status_sync(tmp_path: Path) -> None:

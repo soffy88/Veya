@@ -217,6 +217,14 @@ class ExecutionRecord:
     worktree_branch: str | None = None
     isolated_worktree: bool = False
     keep_worktree: bool = False
+    # Execution-scoped worktree evidence.  These are projections of the
+    # resource binding; ExecutionStore remains a projection, not a second
+    # worktree or lifecycle authority.
+    worktree_binding_key: str | None = None
+    worktree_base_sha: str | None = None
+    execution_commit_sha: str | None = None
+    promotion_state: str | None = None
+    canonical_after_sha: str | None = None
     principal_id: str | None = None
     agent_role: str = "worker"
     agent_identity: str | None = None
@@ -318,6 +326,10 @@ class ExecutionRecord:
     goal_project_root: str | None = None
     last_event_cursor: int = 0
     idempotency_key: str | None = None
+    task_contract: dict[str, Any] | None = None
+    effect_receipt: dict[str, Any] | None = None
+    finalization_status: str | None = None
+    finalization_failure_class: str | None = None
 
     @property
     def is_direct(self) -> bool:
@@ -375,6 +387,15 @@ class ExecutionRecord:
             "repo_identity": self.repo_identity,
             "worktree": self.worktree_path,
             "worktree_repo_root": self.worktree_repo_root,
+            "worktree_binding_key": self.worktree_binding_key,
+            "worktree_base_sha": self.worktree_base_sha,
+            "execution_commit_sha": self.execution_commit_sha,
+            "promotion_state": self.promotion_state,
+            "canonical_after_sha": self.canonical_after_sha,
+            "task_contract": dict(self.task_contract or {}),
+            "effect_receipt": dict(self.effect_receipt or {}),
+            "finalization_status": self.finalization_status,
+            "finalization_failure_class": self.finalization_failure_class,
             # Lifecycle (P0-D/E).
             "status": status,
             "phase": self.phase,
@@ -662,6 +683,9 @@ class ProgressReporter:
         """Publish execution-owned process/command truth for the finish boundary."""
 
         self._manager.set_continuity_field(self._execution_id, **fields)
+
+    def finalization(self, result: dict[str, Any]) -> None:
+        self._manager.set_finalization(self._execution_id, result)
 
     def execution_context(
         self,
@@ -1071,6 +1095,7 @@ class DurableJobManager:
         preferred_worker_runtime_id: str | None = None,
         idempotency_key: str | None = None,
         spec: ExecutionSpec | None = None,
+        task_contract: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> ExecutionRecord:
         if execution_type == str(ExecutionType.DIRECT):
@@ -1083,24 +1108,9 @@ class DurableJobManager:
         worktree_repo_root = getattr(binding, "worktree_repo_root", None)
         worktree_branch = kwargs.get("worktree_branch")
         isolated_worktree = bool(kwargs.get("isolated_worktree") or kwargs.get("needs_worktree"))
-        if isolated_worktree and not worktree_path:
-            repo_root = getattr(binding, "repo_root", None) or getattr(
-                binding, "requested_realpath", None
-            )
-            if repo_root and (Path(repo_root) / ".git").exists():
-                from runtime.coding.worktree import WorktreeManager
-
-                try:
-                    wt_mgr = WorktreeManager(Path(repo_root))
-                    wt_rec = wt_mgr.create(
-                        task_id=execution_id,
-                        objective=spec.objective if spec else tool,
-                    )
-                    worktree_path = str(wt_rec.path)
-                    worktree_repo_root = str(wt_rec.repo_root)
-                    worktree_branch = str(wt_rec.branch_name)
-                except Exception as exc:
-                    _logger.warning("Could not create worktree for %s: %s", execution_id, exc)
+        # Worktree creation belongs to execution worker initialization, after
+        # the execution id exists.  Submission must only persist identity; it
+        # must never create a per-tool/per-submit worktree.
 
         principal_id = kwargs.get("principal_id") or getattr(session, "principal", "unknown")
         agent_role = role or "worker"
@@ -1126,6 +1136,12 @@ class DurableJobManager:
             worktree_branch=worktree_branch,
             isolated_worktree=isolated_worktree,
             keep_worktree=bool(kwargs.get("keep_worktree", False)),
+            worktree_binding_key=(
+                f"{execution_id},{getattr(binding, 'repo_identity', '')}"
+                if getattr(binding, "repo_identity", None)
+                else None
+            ),
+            worktree_base_sha=getattr(binding, "base_sha", None),
             heartbeat_timeout_sec=self.heartbeat_timeout_s,
             execution_type=execution_type,
             phase=initial_phase,
@@ -1143,6 +1159,7 @@ class DurableJobManager:
             preferred_worker_runtime_id=preferred_worker_runtime_id,
             idempotency_key=idempotency_key,
             spec=spec,
+            task_contract=task_contract or (spec.task_contract if spec else None),
         )
         for field_name in (
             "max_steps",
@@ -1679,6 +1696,45 @@ class DurableJobManager:
                         or f"direct_status={record.direct_status or 'missing'}",
                         stop_reason="provider_error",
                     )
+                task_contract = record.task_contract or {}
+                task_kind = str(task_contract.get("task_kind") or "").upper()
+                if task_kind in {"WRITE", "TEST", "BUILD"}:
+                    finalization_status = str(record.finalization_status or "").upper()
+                    if finalization_status not in {"PROMOTABLE", "PROMOTED"}:
+                        failure_class = record.finalization_failure_class or "FINALIZATION_MISSING"
+                        manager.set_failure(
+                            record.execution_id,
+                            failure_class=failure_class,
+                            source="l1_finalizer",
+                            detail="worker returned without a validated finalization result",
+                            code=failure_class,
+                            raw_evidence={"task_kind": task_kind},
+                        )
+                        return LeafResult(
+                            status="blocked",
+                            summary=record.result_summary,
+                            block_reason=failure_class,
+                            stop_reason="finalization_missing",
+                        )
+                    if (
+                        str(task_contract.get("promotion_policy") or "").upper()
+                        == "AUTO_AFTER_VERIFY"
+                        and finalization_status != "PROMOTED"
+                    ):
+                        manager.set_failure(
+                            record.execution_id,
+                            failure_class="PROMOTION_MISSING",
+                            source="l1_finalizer",
+                            detail="auto-promoted task did not reach PROMOTED",
+                            code="PROMOTION_MISSING",
+                            raw_evidence={"task_kind": task_kind},
+                        )
+                        return LeafResult(
+                            status="blocked",
+                            summary=record.result_summary,
+                            block_reason="PROMOTION_MISSING",
+                            stop_reason="promotion_missing",
+                        )
                 return LeafResult(
                     status="completed",
                     summary=record.result_summary,
@@ -1968,6 +2024,22 @@ class DurableJobManager:
         record = self._record_for_update(execution_id)
         record.worktree_path = str(worktree_path)
         record.worktree_repo_root = str(worktree_repo_root)
+        self._persist(record)
+
+    def set_finalization(self, execution_id: str, result: dict[str, Any]) -> None:
+        """Persist finalizer evidence before the terminal execution decision."""
+
+        record = self._record_for_update(execution_id)
+        record.finalization_status = str(result.get("status") or "")
+        record.finalization_failure_class = result.get("failure_class")
+        receipt = result.get("receipt")
+        if isinstance(receipt, dict):
+            record.effect_receipt = receipt
+            record.execution_commit_sha = result.get("commit_sha")
+            record.promotion_state = result.get("promotion_status")
+            promotion = receipt.get("verification", {}).get("promotion")
+            if isinstance(promotion, dict):
+                record.canonical_after_sha = promotion.get("canonical_after_sha")
         self._persist(record)
 
     def set_worker_identity(

@@ -80,6 +80,7 @@ class ExecutionSpec:
     resources: dict[str, Any]
     supervision: dict[str, Any]
     continuation: Any
+    task_contract: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

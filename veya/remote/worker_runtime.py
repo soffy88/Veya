@@ -53,6 +53,11 @@ class WorkerCapabilities:
     supports_cancel: bool = True
     supports_resume: bool = False
     supports_context_rollover: bool = False
+    supports_read_task: bool = False
+    supports_write_task: bool = False
+    supports_shell_effect: bool = False
+    supports_file_effect: bool = False
+    supports_structured_events: bool = False
     recovery_capability: str = str(RecoveryCapability.NONE)
 
     def to_dict(self) -> dict[str, Any]:
@@ -69,6 +74,11 @@ class WorkerCapabilities:
 WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
     "hicode": WorkerCapabilities(
         supports_receipts=True,
+        supports_read_task=True,
+        supports_write_task=True,
+        supports_shell_effect=True,
+        supports_file_effect=True,
+        supports_structured_events=True,
         supports_resume=False,
         recovery_capability=str(RecoveryCapability.REATTACH),
     ),
@@ -77,6 +87,7 @@ WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
         supports_sleep=True,
         supports_revive=True,
         supports_context_rollover=True,
+        supports_read_task=True,
         recovery_capability=str(RecoveryCapability.RESTART_CONTEXT_LOST),
     ),
     "pi": WorkerCapabilities(
@@ -84,6 +95,7 @@ WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
         supports_sleep=True,
         supports_revive=True,
         supports_context_rollover=True,
+        supports_read_task=True,
         recovery_capability=str(RecoveryCapability.RESTART_CONTEXT_LOST),
     ),
     "grok": WorkerCapabilities(
@@ -91,25 +103,51 @@ WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
         supports_sleep=True,
         supports_revive=True,
         supports_context_rollover=True,
+        supports_read_task=True,
         recovery_capability=str(RecoveryCapability.RESTART_CONTEXT_LOST),
     ),
     "codex": WorkerCapabilities(
         supports_receipts=True,
+        supports_read_task=True,
+        supports_write_task=True,
+        supports_shell_effect=True,
+        supports_file_effect=True,
         recovery_capability=str(RecoveryCapability.REATTACH),
     ),
     "antigravity": WorkerCapabilities(
         supports_receipts=True,
+        supports_read_task=True,
+        supports_write_task=True,
+        supports_shell_effect=True,
+        supports_file_effect=True,
         recovery_capability=str(RecoveryCapability.REATTACH),
     ),
     "opencode": WorkerCapabilities(
         supports_receipts=True,
+        supports_read_task=True,
+        supports_write_task=False,
+        supports_shell_effect=False,
+        supports_file_effect=False,
+        supports_structured_events=False,
         recovery_capability=str(RecoveryCapability.REATTACH),
     ),
 }
 
 
 def capabilities_for(worker_type: str) -> WorkerCapabilities:
-    return WORKER_CAPABILITIES.get(worker_type.strip().lower(), WorkerCapabilities())
+    worker = worker_type.strip().lower()
+    capabilities = WORKER_CAPABILITIES.get(worker, WorkerCapabilities())
+    if worker == "opencode" and os.environ.get("VEYA_OPENCODE_WRITE_QUALIFIED") == "1":
+        return WorkerCapabilities(
+            **{
+                **capabilities.to_dict(),
+                "supports_write_task": True,
+                "supports_shell_effect": True,
+                "supports_file_effect": True,
+                "supports_structured_events": True,
+            }
+        )
+    return capabilities
 
 
 @dataclass
