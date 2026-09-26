@@ -299,19 +299,43 @@ class HicodeTaskQueue:
                     )
                     rec.meta["process_record"] = str(process_record)
 
-                summary = await _execute_hicode_core(
-                    rec.spec,
-                    workspace=rec.workspace,
-                    max_steps=int(rec.meta.get("max_steps") or 0),
-                    timeout_sec=int(rec.meta.get("timeout_sec") or 900),
-                    session_id=(
-                        str(rec.meta["session_id"]) if rec.meta.get("session_id") else None
-                    ),
-                    continue_=bool(rec.meta.get("continue_")),
-                    on_event=_push,
-                    force_cli=bool(rec.meta.get("force_cli")),
-                    on_process=_capture_process,
-                )
+                try:
+                    summary = await _execute_hicode_core(
+                        rec.spec,
+                        workspace=rec.workspace,
+                        max_steps=int(rec.meta.get("max_steps") or 0),
+                        timeout_sec=int(rec.meta.get("timeout_sec") or 900),
+                        session_id=(
+                            str(rec.meta["session_id"]) if rec.meta.get("session_id") else None
+                        ),
+                        continue_=bool(rec.meta.get("continue_")),
+                        on_event=_push,
+                        force_cli=bool(rec.meta.get("force_cli")),
+                        on_process=_capture_process,
+                    )
+                except Exception as exc:
+                    if getattr(exc, "failure_class", None) == "UPSTREAM_QUOTA_EXHAUSTED":
+                        retry_at = getattr(exc, "retry_not_before", None)
+                        rec.status = "blocked"
+                        evidence = getattr(exc, "raw_evidence", {})
+                        upstream_reset_at = evidence.get("upstream_quota_reset_at")
+                        local_cooldown_until = evidence.get("local_cooldown_until")
+                        rec.error = (
+                            "MODEL_COOLDOWN\n"
+                            f"UPSTREAM_QUOTA_RESET_AT={upstream_reset_at}\n"
+                            f"LOCAL_PROXY_COOLDOWN_UNTIL={local_cooldown_until}\n"
+                            f"EFFECTIVE_RETRY_NOT_BEFORE={retry_at}"
+                            if retry_at is not None
+                            else "MODEL_COOLDOWN"
+                        )
+                        rec.summary = rec.error
+                        return LeafResult(
+                            status="blocked",
+                            summary=rec.summary,
+                            block_reason=rec.error,
+                            stop_reason="model_cooldown",
+                        )
+                    raise
                 if rec.cancel_requested:
                     rec.status = "cancelled"
                     rec.error = "user stop"
@@ -353,7 +377,7 @@ class HicodeTaskQueue:
         else:
             status = getattr(response.status, "value", response.status)
             if status not in {"completed", "partial_completed"}:
-                if rec.status not in {"cancelled", "failed"}:
+                if rec.status not in {"cancelled", "failed", "blocked"}:
                     rec.status = "failed"
                     rec.error = response.block_reason or "GoalRun did not complete"
             elif rec.status == "running":

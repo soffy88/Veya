@@ -13,6 +13,7 @@ Enforces:
 
 from __future__ import annotations
 
+import re
 import shlex
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -27,11 +28,11 @@ from .workspace_policy import classify_destructive
 
 class ActionCategory(StrEnum):
     AUTO_OPEN = "AUTO_OPEN"
-    HUMAN_GATED = "HUMAN_GATED"
-    # Public policy vocabulary used by the systemd classifier.  Keep the
-    # wire value and the existing HUMAN_GATED identity identical so there is
-    # still only one approval category.
-    REQUIRE_APPROVAL = "HUMAN_GATED"
+    REQUIRE_APPROVAL = "REQUIRE_APPROVAL"
+    DENY = "DENY"
+    # Compatibility name for older callers.  It is an alias, not a second
+    # policy state.
+    HUMAN_GATED = "REQUIRE_APPROVAL"
 
 
 class ActionClassification:
@@ -56,7 +57,7 @@ class ActionClassification:
 
     @property
     def requires_approval(self) -> bool:
-        return self.category == ActionCategory.HUMAN_GATED
+        return self.category == ActionCategory.REQUIRE_APPROVAL
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -279,11 +280,41 @@ _CRITICAL_SERVICES = frozenset(
 )
 
 
-def _parse_argv(command: str) -> list[str]:
+def _parse_argv(command: str, *, shell_syntax: bool = False) -> list[str]:
     try:
+        if shell_syntax:
+            lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+            lexer.whitespace_split = True
+            lexer.commenters = ""
+            return list(lexer)
         return shlex.split(command, posix=True)
     except ValueError:
         return []
+
+
+def _shell_segments(command: str) -> list[str] | None:
+    """Extract simple shell command segments without executing shell syntax.
+
+    The gateway deliberately understands only command boundaries.  Expansion,
+    redirection and subshell syntax are treated as approval-worthy because they
+    cannot be safely reduced to an argv policy without a shell parser.
+    """
+    tokens = _parse_argv(command, shell_syntax=True)
+    if not tokens:
+        return None
+    if any(token in {"<", ">", ">>", "<<", "(", ")"} for token in tokens):
+        return None
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token in {";", "&&", "||", "|", "&"}:
+            if not segments[-1]:
+                return None
+            segments.append([])
+        else:
+            segments[-1].append(token)
+    if not segments[-1]:
+        return None
+    return [" ".join(shlex.quote(part) for part in segment) for segment in segments]
 
 
 def classify_action(
@@ -313,6 +344,16 @@ def classify_action(
     if tool_name in ("file.write", "file.patch", "artifact.write"):
         norm_op = f"{tool_name} {args.get('path', '')}".strip()
         op_hash = compute_operation_hash(norm_op, cwd, "workspace.file_write")
+        if Path(str(args.get("path") or "")).name == ".env":
+            return ActionClassification(
+                ActionCategory.REQUIRE_APPROVAL,
+                "secret.config_write",
+                risk_class=RiskClass.P2_ROOT_MUTATION,
+                normalized_operation=norm_op,
+                operation_hash=op_hash,
+                target=str(args.get("path", "")),
+                reason="project .env mutation requires explicit approval",
+            )
         return ActionClassification(
             ActionCategory.AUTO_OPEN,
             "workspace.file_write",
@@ -369,7 +410,8 @@ def classify_action(
     executable = Path(argv[0]).name.lower()
     lower_argv = [a.lower() for a in argv]
 
-    # Rule 6: Shell wrappers (bash -lc, sh -c, compound shell operators) -> P1_PRIVILEGED_HOST
+    # Rule 6: wrappers are recursively classified; they cannot bypass the
+    # gateway merely by embedding an otherwise safe command.
     is_shell_wrapper = executable in ("bash", "sh", "zsh") and any(
         flag in ("-c", "-lc", "-cl") for flag in lower_argv[1:]
     )
@@ -383,16 +425,46 @@ def classify_action(
     )
 
     if is_shell_wrapper or has_shell_compound:
+        inner = argv[-1] if is_shell_wrapper and len(argv) >= 3 else raw_command
+        segments = _shell_segments(inner)
+        if segments is not None:
+            nested = [
+                classify_action(
+                    "shell.exec",
+                    {"command": segment},
+                    session,
+                    cwd,
+                    service_registry=registry,
+                )
+                for segment in segments
+            ]
+            if all(item.category == ActionCategory.AUTO_OPEN for item in nested):
+                cap = "shell.wrapper"
+                op_hash = compute_operation_hash(norm_op, cwd, cap)
+                return ActionClassification(
+                    ActionCategory.AUTO_OPEN,
+                    cap,
+                    normalized_operation=norm_op,
+                    operation_hash=op_hash,
+                    target=executable,
+                    reason="shell wrapper contains only AUTO_OPEN operations",
+                )
+            gated = next(
+                (item for item in nested if item.category != ActionCategory.AUTO_OPEN),
+                None,
+            )
+            if gated is not None:
+                return gated
         cap = "privileged.shell_wrapper"
         op_hash = compute_operation_hash(norm_op, cwd, cap)
         return ActionClassification(
-            ActionCategory.HUMAN_GATED,
+            ActionCategory.REQUIRE_APPROVAL,
             cap,
             risk_class=RiskClass.P1_PRIVILEGED_HOST,
             normalized_operation=norm_op,
             operation_hash=op_hash,
             target=executable,
-            reason="shell wrapper or compound operators allow unrestricted execution and expansion",
+            reason="shell wrapper could not be reduced to safe argv operations",
         )
 
     # Rule 16 & 17: Sudo and Root Shell -> P2_ROOT_MUTATION or P3_CRITICAL_HOST
@@ -438,23 +510,65 @@ def classify_action(
             reason="substitute user request",
         )
 
+    # Permanent deny: host-root mutation and credential discovery are not
+    # approval-capable actions.
+    if re.search(
+        r"rm\s+-[^ ]*\s+/\s*$|(?:touch|mkdir)\s+/(?:etc|boot|usr|var|root)(?:/|$)",
+        raw_command,
+        re.I,
+    ):
+        cap = "denied.host_root"
+        op_hash = compute_operation_hash(norm_op, cwd, cap)
+        return ActionClassification(
+            ActionCategory.DENY,
+            cap,
+            risk_class=RiskClass.P3_CRITICAL_HOST,
+            normalized_operation=norm_op,
+            operation_hash=op_hash,
+            target=executable,
+            reason="host root mutation is permanently denied",
+        )
+    if re.search(
+        r"(?:\.ssh|\.gnupg|browser.{0,20}(?:profile|cookie)|keyring|credential.store)",
+        raw_command,
+        re.I,
+    ):
+        cap = "denied.secret_discovery"
+        op_hash = compute_operation_hash(norm_op, cwd, cap)
+        return ActionClassification(
+            ActionCategory.DENY,
+            cap,
+            risk_class=RiskClass.P3_CRITICAL_HOST,
+            normalized_operation=norm_op,
+            operation_hash=op_hash,
+            target=executable,
+            reason="credential discovery is permanently denied",
+        )
+
     # Rule 3 & 3.1: Git (safe vs destructive)
     if executable == "git":
         subcmd = lower_argv[1] if len(lower_argv) > 1 else ""
+        canonical_target = str(args.get("execution_target") or "").upper() in {
+            "CANONICAL_WORKTREE",
+            "HOST",
+        }
         destructive_git = False
         if (
-            (subcmd == "reset" and "--hard" in lower_argv)
-            or (subcmd == "clean" and any(f in lower_argv for f in ("-fd", "-fdx", "-f", "-x")))
+            (subcmd == "reset" and "--hard" in lower_argv and canonical_target)
+            or (
+                subcmd == "clean"
+                and canonical_target
+                and any(f in lower_argv for f in ("-fd", "-fdx", "-f", "-x"))
+            )
             or (
                 subcmd == "push"
-                and any(f in lower_argv for f in ("--force", "-f", "--force-with-lease"))
+                and (
+                    any(
+                        f in lower_argv for f in ("--force", "-f", "--force-with-lease", "--delete")
+                    )
+                    or any(item.startswith(":") for item in lower_argv)
+                )
             )
-            or (
-                subcmd == "branch"
-                and any(f in lower_argv for f in ("-d", "--delete"))
-                and any(f in lower_argv for f in ("-d", "-f", "--force"))
-            )
-            or (subcmd == "tag" and "-d" in lower_argv)
         ):
             destructive_git = True
 
@@ -481,19 +595,29 @@ def classify_action(
             reason="safe git workflow operation",
         )
 
-    # Rule 9, 10, 11: User-level systemd (systemctl --user ...)
-    if executable == "systemctl" and len(argv) >= 2 and argv[1] == "--user":
-        # daemon-reload
-        if len(argv) == 3 and argv[2] == "daemon-reload":
-            cap = "service_control.user"
+    # Normal file lifecycle inside the already-bound workspace is development,
+    # not a host destructive action.  Absolute paths are accepted only when
+    # they resolve below the gateway cwd.
+    if executable in {"rm", "rmdir", "unlink"}:
+        targets = [Path(item) for item in argv[1:] if not item.startswith("-")]
+        if targets and all(
+            (target if target.is_absolute() else Path(cwd) / target).resolve(strict=False)
+            in {candidate.resolve(strict=False) for candidate in (Path(cwd),)}
+            or Path(cwd).resolve(strict=False)
+            in (target if target.is_absolute() else Path(cwd) / target)
+            .resolve(strict=False)
+            .parents
+            for target in targets
+        ):
+            cap = "workspace.file_lifecycle"
             op_hash = compute_operation_hash(norm_op, cwd, cap)
             return ActionClassification(
                 ActionCategory.AUTO_OPEN,
                 cap,
                 normalized_operation=norm_op,
                 operation_hash=op_hash,
-                target="daemon-reload",
-                reason="user systemd daemon-reload",
+                target=executable,
+                reason="file lifecycle remains inside authorized workspace",
             )
 
     # Rule 9, 10, 11, 18, 19, 34: systemd.  The parser is shared with the
@@ -958,6 +1082,14 @@ class ActionGateway:
         if classification.category == ActionCategory.AUTO_OPEN:
             # Rule 37: approved field is ignored/not required for AUTO_OPEN
             return True, None, None, classification
+
+        if classification.category == ActionCategory.DENY:
+            return (
+                False,
+                RemoteErrorCode.POLICY_BLOCKED,
+                classification.reason or "action permanently denied",
+                classification,
+            )
 
         # Destructive shell commands require the destructive capability in
         # addition to human approval. Without the capability the request is

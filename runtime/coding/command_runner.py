@@ -45,6 +45,16 @@ _SECRET_ASSIGNMENT = re.compile(
 )
 _BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _SANDBOX_DEPTH_ENV = "VEYA_SANDBOX_DEPTH"
+_PROVIDER_ENV_ALLOWLIST = frozenset(
+    {
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "CLIPROXYAPI_API_KEY",
+        "NVIDIA_API_KEY",
+        "DASHSCOPE_API_KEY",
+    }
+)
 
 
 def parse_command(command: str | Sequence[str]) -> list[str]:
@@ -139,9 +149,21 @@ def _safe_environment(
         "TMPDIR",
         "HOME",
         "USER",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "XDG_RUNTIME_DIR",
+        "XDG_CONFIG_HOME",
         _SANDBOX_DEPTH_ENV,
     }
     environment = {key: value for key, value in os.environ.items() if key in allowed}
+    # Provider credentials are inherited only by explicit name.  No HOME scan,
+    # .env discovery, or credential-shaped wildcard is permitted.
+    environment.update(
+        {
+            key: value
+            for key, value in os.environ.items()
+            if key in _PROVIDER_ENV_ALLOWLIST and value
+        }
+    )
     if runtime_profile is not None:
         path_entries = getattr(runtime_profile, "path_entries", [])
         if path_entries:
@@ -378,6 +400,34 @@ def _nested_write_path_violation(argv: list[str], root: Path, cwd: Path) -> str 
     return None
 
 
+def _git_rw_paths(cwd: Path) -> list[Path]:
+    """Discover the exact Git dirs needed by a worktree, including common-dir."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(cwd), "rev-parse", "--git-dir", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    paths: list[Path] = []
+    for raw in proc.stdout.splitlines():
+        value = raw.strip()
+        if not value:
+            continue
+        path = Path(value)
+        if not path.is_absolute():
+            path = cwd / path
+        path = path.resolve(strict=False)
+        if path.exists() and path not in paths:
+            paths.append(path)
+    return paths
+
+
 class CommandRunner:
     """Run argv commands in a worktree and capture a redacted result artifact."""
 
@@ -385,7 +435,7 @@ class CommandRunner:
         self,
         workspace_root: str | Path,
         *,
-        profile: str | SandboxProfile = "local_restricted",
+        profile: str | SandboxProfile = "l0_workspace_full",
         artifact_root: str | Path | None = None,
         runtime_profile: Any | None = None,
     ) -> None:
@@ -519,6 +569,13 @@ class CommandRunner:
                     if p_str not in mounted_entries:
                         wrapped.extend(["--ro-bind", p_str, p_str])
                         mounted_entries.add(p_str)
+        # A linked worktree's .git file points into the repository common-dir,
+        # which is outside the execution worktree.  Bind the exact git-dir and
+        # common-dir read-write so normal Git plumbing owns metadata writes.
+        for git_path in _git_rw_paths(cwd):
+            if git_path.is_dir() and str(git_path) not in mounted_entries:
+                wrapped.extend(["--bind", str(git_path), str(git_path)])
+                mounted_entries.add(str(git_path))
         wrapped.extend(
             [
                 "--bind",
@@ -590,18 +647,10 @@ class CommandRunner:
                 stderr="network access is denied by sandbox profile",
                 duration_ms=(time.monotonic() - started) * 1000,
             )
-        requires_approval = command_requires_approval(argv)
-        if requires_approval and not approved:
-            return self._result(
-                command=command_text,
-                argv=argv,
-                cwd=target,
-                status="approval_required",
-                exit_code=None,
-                stderr="explicit approval is required for destructive/package/remote commands",
-                duration_ms=(time.monotonic() - started) * 1000,
-                requires_approval=True,
-            )
+        # Risk classification and approval consumption belong exclusively to
+        # ActionGateway is the sole risk/approval authority.  This runner is
+        # an executor: it enforces path, timeout, resource, redaction, and
+        # sandbox mechanics only.
         write_path_violation = _nested_write_path_violation(argv, self.workspace_root, target)
         if write_path_violation:
             return self._result(

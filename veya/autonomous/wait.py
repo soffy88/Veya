@@ -93,6 +93,7 @@ class WaitConditionManager:
         # Check timeout expiration
         if cond.expires_at is not None and now >= cond.expires_at:
             cond.status = "EXPIRED"
+            self._persist(cond)
             return True
 
         # Check predicate or event match
@@ -100,6 +101,7 @@ class WaitConditionManager:
             topic = str(event_payload.get("topic") or event_payload.get("event") or "")
             if cond.predicate in topic or not cond.predicate:
                 cond.status = "SATISFIED"
+                self._persist(cond)
                 return True
 
         return False
@@ -108,6 +110,7 @@ class WaitConditionManager:
         cond = self._conditions.get(condition_id)
         if cond:
             cond.status = "SATISFIED"
+            self._persist(cond)
 
     def resolve_wait(self, condition_id: str) -> None:
         self.mark_satisfied(condition_id)

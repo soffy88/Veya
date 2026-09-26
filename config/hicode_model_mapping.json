@@ -1,0 +1,11 @@
+{
+  "gemini-pro-agent": {
+    "requested_model": "gemini-pro-agent",
+    "requested_provider": "cliproxy-google",
+    "internal_provider": "antigravity",
+    "upstream_model": "gemini-pro-default",
+    "source": "veya/config/hicode_model_mapping.json",
+    "active": true,
+    "updated_at": "2026-09-26T00:00:00Z"
+  }
+}

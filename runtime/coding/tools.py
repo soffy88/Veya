@@ -280,7 +280,7 @@ def coding_discard(
 def coding_run_command(
     worktree_path: str,
     command: str,
-    profile: str = "local_restricted",
+    profile: str = "l0_workspace_full",
     timeout_s: float = 900,
     approved: bool = False,
     network: str | None = None,
@@ -394,7 +394,7 @@ def _run_check(
 def coding_run_tests(
     worktree_path: str,
     command: str | None = None,
-    profile: str = "local_restricted",
+    profile: str = "l0_workspace_full",
     timeout_s: float = 900,
     approved: bool = False,
 ) -> dict[str, Any]:
@@ -411,7 +411,7 @@ def coding_run_tests(
 def coding_run_lint(
     worktree_path: str,
     command: str | None = None,
-    profile: str = "local_restricted",
+    profile: str = "l0_workspace_full",
     timeout_s: float = 900,
     approved: bool = False,
 ) -> dict[str, Any]:
@@ -428,7 +428,7 @@ def coding_run_lint(
 def coding_run_typecheck(
     worktree_path: str,
     command: str | None = None,
-    profile: str = "local_restricted",
+    profile: str = "l0_workspace_full",
     timeout_s: float = 900,
     approved: bool = False,
 ) -> dict[str, Any]:
@@ -445,7 +445,7 @@ def coding_run_typecheck(
 def coding_build(
     worktree_path: str,
     command: str | None = None,
-    profile: str = "local_restricted",
+    profile: str = "l0_workspace_full",
     timeout_s: float = 900,
     approved: bool = False,
 ) -> dict[str, Any]:

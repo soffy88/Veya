@@ -1,0 +1,10 @@
+--- tool_adapter.py
++++ tool_adapter.py
+@@ -4604,6 +4604,7 @@
+     env["XDG_DATA_HOME"] = str(runtime_root / "data")
+     env["XDG_STATE_HOME"] = str(runtime_root / "state")
+     env["XDG_CACHE_HOME"] = str(runtime_root / "cache")
++    env["OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS"] = "1"
+     _ensure_proxy_env(env)
+     return env
+ 

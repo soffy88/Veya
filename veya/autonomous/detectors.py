@@ -91,7 +91,7 @@ class OscillationDetector:
     """Detects cyclical state oscillation A→B→A→B or executor hopping (spec §16)."""
 
     def __init__(self, window_size: int = 8):
-        self._window = deque(maxlen=window_size)
+        self._window: deque[str] = deque(maxlen=window_size)
 
     def record_signature(self, signature: str) -> None:
         self._window.append(signature)

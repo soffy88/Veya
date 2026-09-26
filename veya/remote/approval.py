@@ -68,6 +68,21 @@ class ApprovalStore:
         with self._lock:
             return self._records.get(approval_id)
 
+    def decide(self, approval_id: str, *, principal: str, decision: str) -> ApprovalRecord:
+        """Record the human decision without consuming the operation token."""
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("decision must be approved or rejected")
+        with self._lock:
+            record = self._records.get(approval_id)
+            if record is None:
+                raise KeyError(approval_id)
+            if record.principal != principal:
+                raise PermissionError("approval principal mismatch")
+            if record.used_at is not None:
+                raise ValueError("approval has already been consumed")
+            record.decision = decision
+            return record
+
     def verify_and_consume(
         self,
         approval_id: str,

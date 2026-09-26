@@ -321,7 +321,7 @@ def detect_workspace(
         lint_commands=inferred["lint_commands"],
         typecheck_commands=inferred["typecheck_commands"],
         build_commands=inferred["build_commands"],
-        sandbox_profile_id=str((hints or {}).get("sandbox_profile_id") or "local_restricted"),
+        sandbox_profile_id=str((hints or {}).get("sandbox_profile_id") or "l0_workspace_full"),
     )
 
 

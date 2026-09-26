@@ -109,8 +109,11 @@ class EscalationManager:
     def list_for_mission(self, mission_id: str) -> list[EscalationRequest]:
         return [r for r in self._requests.values() if r.mission_id == mission_id]
 
-    def query(self, mission_id: str) -> list[EscalationRequest]:
-        return self.list_for_mission(mission_id)
+    def query(self, mission_id: str, status: str | None = None) -> list[EscalationRequest]:
+        res = self.list_for_mission(mission_id)
+        if status:
+            res = [r for r in res if r.status == status]
+        return res
 
 
 class InterruptHandler:
@@ -147,6 +150,6 @@ class InterruptHandler:
             for prefix in ["change goal to", "new goal:", "change objective to", "new objective:"]:
                 if prefix in content.lower():
                     idx = content.lower().find(prefix) + len(prefix)
-                    new_obj = content[idx:].strip()
+                    new_obj = content[idx:].strip().lstrip(":").strip()
                     break
         return cat, new_obj

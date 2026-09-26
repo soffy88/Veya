@@ -18,6 +18,7 @@ from typing import Any
 
 from .models import ExecutorFailureClass, ExecutorHealth
 from .worker_runtime import (
+    WORKER_CAPABILITIES,
     WorkerCapabilities,
     capabilities_for,
 )
@@ -372,6 +373,9 @@ def resolve_executor(
     4. Preference (AGY > CODEX > HICODE > PI > GROK)
     """
     req_norm = normalize_executor_name(requested or "") if requested else None
+
+    if req_norm and req_norm not in WORKER_CAPABILITIES:
+        raise ValueError(f"Unknown executor: {requested!r}")
 
     # Explicit pin authority: Never substitute an explicitly pinned executor
     if explicit_pin and req_norm:

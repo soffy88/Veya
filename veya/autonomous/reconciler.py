@@ -72,6 +72,7 @@ class GoalReconciler:
     def __init__(self, goal_run_store: Any = None):
         self._goal_run_store = goal_run_store
         self._active_revisions: dict[str, MissionRevision] = {}
+        self._revisions: dict[str, list[MissionRevision]] = {}
 
     def retask_subtask(
         self,
@@ -139,14 +140,17 @@ class GoalReconciler:
         source: str = "USER",
         constraints: list[str] | None = None,
         parent_revision_id: str | None = None,
+        previous_objective: str = "",
     ) -> MissionRevision:
         """Create explicit MissionRevision when objective or constraints change (spec §22)."""
         prev_rev = self._active_revisions.get(mission_id)
         parent_id = parent_revision_id or (prev_rev.revision_id if prev_rev else None)
+        prev_obj = previous_objective or (prev_rev.objective if prev_rev else "")
         rev = MissionRevision(
             revision_id=f"rev_{uuid.uuid4().hex[:12]}",
             mission_id=mission_id,
             parent_revision_id=parent_id,
+            previous_objective=prev_obj,
             objective=new_objective,
             constraints=list(constraints or []),
             reason=reason,
@@ -154,7 +158,11 @@ class GoalReconciler:
             created_at=time.time(),
         )
         self._active_revisions[mission_id] = rev
+        self._revisions.setdefault(mission_id, []).append(rev)
         return rev
 
     def get_active_revision(self, mission_id: str) -> MissionRevision | None:
         return self._active_revisions.get(mission_id)
+
+    def list_revisions(self, mission_id: str) -> list[MissionRevision]:
+        return list(self._revisions.get(mission_id, []))

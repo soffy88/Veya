@@ -13,7 +13,6 @@ from typing import Any
 from runtime.coding.command_runner import (
     CommandRunner,
     command_may_use_network,
-    command_requires_approval,
     parse_command,
 )
 from runtime.coding.models import CodingWorkspace
@@ -390,8 +389,6 @@ def sensor_command_is_safe(sensor: Sensor) -> tuple[bool, str]:
         argv = parse_command(sensor.command)
     except ValueError as exc:
         return False, str(exc)
-    if command_requires_approval(argv):
-        return False, "command requires approval (explicit approval is required)"
     if command_may_use_network(argv):
         return False, "command may use network; doctor sensors are offline-only"
     return True, "safe under command policy"

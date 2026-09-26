@@ -42,6 +42,7 @@ import uvicorn
 from fastapi import FastAPI, Request, Response
 
 from server import exec_process
+from server.hicode_cooldown import classify_upstream_failure, record_cooldown
 from server.hicode_host_boundary import hicode_host_gate
 from server.hicode_runtime import HicodeRuntimeError, get_hicode_executor
 from server.process_guard import executor_spawn_kwargs
@@ -52,7 +53,7 @@ logger = logging.getLogger("hicode")
 DEFAULT_WORKSPACE = os.environ.get(
     "HICODE_WORKSPACE", str(Path.home() / ".veya" / "hicode-workspace")
 )
-DEFAULT_MODEL = os.environ.get("HICODE_MODEL", "luna")
+DEFAULT_MODEL = os.environ.get("HICODE_MODEL", "gemini-pro-agent")
 DEFAULT_MAX_STEPS = int(os.environ.get("HICODE_MAX_STEPS", "0"))  # 0 = 自动
 DEFAULT_TIMEOUT_SEC = int(os.environ.get("HICODE_TIMEOUT_SEC", "1800"))
 # 本地网关免鉴权 (10101: 无 Authorization 放行, 假 key 反而 403) —
@@ -167,12 +168,22 @@ class HicodeExecutionError(HicodeUnavailable):
     """Typed provider/runtime failure with bounded raw evidence."""
 
     def __init__(
-        self, code: str, detail: str, *, raw_evidence: dict[str, Any] | None = None
+        self,
+        code: str,
+        detail: str,
+        *,
+        raw_evidence: dict[str, Any] | None = None,
+        failure_class: str | None = None,
+        retryable_immediately: bool | None = None,
+        retry_not_before: float | None = None,
     ) -> None:
         super().__init__(detail)
         self.code = str(code)
         self.detail = str(detail)
         self.raw_evidence = dict(raw_evidence or {})
+        self.failure_class = failure_class or code
+        self.retryable_immediately = retryable_immediately
+        self.retry_not_before = retry_not_before
 
 
 def _safe_failure_value(value: Any, *, depth: int = 0) -> Any:
@@ -261,6 +272,25 @@ def _hicode_result_error(
         "stderr_tail": str(stderr_tail)[-2000:],
         "exit_code": exit_code,
     }
+    quota = classify_upstream_failure({"result": result, "stderr": stderr_tail})
+    if quota is not None:
+        record_cooldown(quota)
+        return HicodeExecutionError(
+            "MODEL_COOLDOWN",
+            "Hicode model quota exhausted; caller must wait before retrying",
+            raw_evidence={
+                **evidence,
+                "failure_class": quota.failure_class,
+                "provider": quota.provider,
+                "model": quota.model,
+                "upstream_evidence": quota.upstream_evidence,
+                "upstream_reset_seconds": quota.upstream_reset_seconds,
+                "effective_retry_not_before": quota.cooldown_until,
+            },
+            failure_class=quota.failure_class,
+            retryable_immediately=False,
+            retry_not_before=quota.cooldown_until,
+        )
     if result is None:
         return HicodeExecutionError(
             "HICODE_NO_STRUCTURED_RESULT",
@@ -705,7 +735,30 @@ async def _execute_hicode_core_inner(
                 )
                 if res.get("status") != "error":
                     return _format_hicode_result(res)
+                quota = classify_upstream_failure(res)
+                if quota is not None:
+                    record_cooldown(quota)
+                    raise HicodeExecutionError(
+                        "MODEL_COOLDOWN",
+                        "Hicode model quota exhausted; caller must wait before retrying",
+                        raw_evidence={
+                            "failure_class": quota.failure_class,
+                            "provider": quota.provider,
+                            "model": quota.model,
+                            "upstream_evidence": quota.upstream_evidence,
+                            "upstream_reset_seconds": quota.upstream_reset_seconds,
+                            "effective_retry_not_before": quota.cooldown_until,
+                        },
+                        failure_class=quota.failure_class,
+                        retryable_immediately=False,
+                        retry_not_before=quota.cooldown_until,
+                    )
         except Exception as exc:
+            if (
+                isinstance(exc, HicodeExecutionError)
+                and exc.failure_class == "UPSTREAM_QUOTA_EXHAUSTED"
+            ):
+                raise
             logger.info("hicode serve 不可用, 回退 CLI: %s", exc)
 
     # ── CLI 路径 (续做 / serve 不可达时的兜底) ──
@@ -931,6 +984,8 @@ async def hicode_run(
         return f"任务 #{tid} 已停止 ({rec.error or 'user stop'})。"
     if rec.status == "failed":
         return f"任务 #{tid} 失败: {rec.error or '未知错误'}"
+    if rec.status == "blocked":
+        return f"任务 #{tid} blocked: {rec.error or rec.summary or 'MODEL_COOLDOWN'}"
     return rec.summary or f"任务 #{tid} 已完成 (无摘要)。"
 
 

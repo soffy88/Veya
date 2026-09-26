@@ -60,6 +60,7 @@ class AutonomousCycle:
         max_actions: int = 50,
         jev_client: Any = None,
         planner_adapter: AutonomousPlannerAdapter | None = None,
+        required_milestones: list[str] | None = None,
     ) -> None:
         self.mission_id = mission_id
         self.objective = objective
@@ -108,7 +109,8 @@ class AutonomousCycle:
             confidence=1.0,
         )
         self.completion_decision: CompletionDecision | None = None
-        self.unresolved_child_goals: list[str] = []
+        self.required_milestones: list[str] = list(required_milestones or [])
+        self.unresolved_child_goals: list[str] = list(self.required_milestones)
         self.current_hypothesis: str = "Executing canonical plan"
         self.wake_condition: str | None = None
         self.last_evaluation_id: str | None = None
@@ -136,6 +138,16 @@ class AutonomousCycle:
             self.blocking_conditions = list(data.get("blocking_conditions") or [])
             self.wake_condition = data.get("wake_condition")
             self.current_hypothesis = str(data.get("current_hypothesis", self.current_hypothesis))
+            if "required_milestones" in data:
+                self.required_milestones = list(data.get("required_milestones") or [])
+            if "unresolved_child_goals" in data:
+                self.unresolved_child_goals = list(data.get("unresolved_child_goals") or [])
+            elif self.required_milestones:
+                self.unresolved_child_goals = [
+                    m for m in self.required_milestones if m not in self.accepted_progress
+                ]
+            if "objective_coverage" in data:
+                self.latest_progress.objective_coverage = float(data["objective_coverage"])
             dec_id = data.get("last_decision_id")
             if dec_id:
                 self.latest_decision = self.decision_store.get_decision(dec_id)
@@ -147,9 +159,13 @@ class AutonomousCycle:
 
         sfile = self._state_file()
         st = self.get_state()
+        data = st.to_dict()
+        data["unresolved_child_goals"] = list(self.unresolved_child_goals)
+        data["required_milestones"] = list(self.required_milestones)
+        data["objective_coverage"] = float(self.latest_progress.objective_coverage)
         tmp_file = sfile.with_suffix(".tmp")
         with open(tmp_file, "w", encoding="utf-8") as f:
-            json.dump(st.to_dict(), f, indent=2, ensure_ascii=False)
+            json.dump(data, f, indent=2, ensure_ascii=False)
         tmp_file.replace(sfile)
 
     def get_state(self) -> AutonomousState:
@@ -182,123 +198,191 @@ class AutonomousCycle:
         if self.status in (AutonomousStatus.COMPLETED, AutonomousStatus.ABORTED):
             return self.get_state()
 
-        self.cycle_count += 1
-        cycle_id = f"cycle_{self.cycle_count}"
+        if self.status == AutonomousStatus.WAITING:
+            # Check if active wait conditions are satisfied
+            active_waits = self.wait_manager.list_active_waits(self.mission_id)
+            if active_waits:
+                # Still waiting on pending conditions - no action for action's sake
+                return self.get_state()
+            else:
+                # Waking up
+                self.status = AutonomousStatus.OBSERVING
+                self.wake_condition = None
 
-        # 1. OBSERVE & Reconcile context
-        self.status = AutonomousStatus.OBSERVING
-        observations = self.journal.query(self.mission_id)
-        reconciled = reconcile_context(observations)
+        if self.status == AutonomousStatus.ESCALATING:
+            pending_esc = self.escalation_manager.query(self.mission_id, status="PENDING")
+            if pending_esc:
+                # Still waiting on human owner reply - no unilateral action or bypass
+                return self.get_state()
+            else:
+                self.status = AutonomousStatus.OBSERVING
 
-        # 2. ASSESS SITUATION
-        self.status = AutonomousStatus.ASSESSING
-        active_goals = [self.objective]
-        assessment = self.assessor.assess(
-            mission_id=self.mission_id,
-            cycle_id=cycle_id,
-            reconciled_context=reconciled,
-            active_goals=active_goals,
-            blocking_conditions=self.blocking_conditions,
-        )
-
-        # Update blocking conditions and uncertainties from assessment
-        self.blocking_conditions = list(assessment.blocking_conditions)
-        self.open_questions = list(assessment.uncertainties)
-
-        # 3. DETECT ANOMALIES (No-progress / Oscillation)
-        np_signal = self.no_progress_detector.check()
-        osc_signal = self.oscillation_detector.check()
-
-        # 4. DECISION SYNTHESIS (Sole Semantic Authority: MasterAgent)
-        self.status = AutonomousStatus.PLANNING
-        decision_type: DecisionType
-        reason: str
-        selected_action: str = ""
+        # Check if resuming an in-flight decision after daemon restart
+        resuming_decision = False
+        decision: AutonomousDecision | None = None
+        decision_type: DecisionType = DecisionType.ACT
         expected_result: str = ""
         verification_plan: str = ""
-        wake_cond_str: str | None = None
-        evidence_refs: list[str] = []
+        reason: str = ""
+        cycle_id: str = ""
+        if (
+            self.status == AutonomousStatus.ACTING
+            and self.latest_decision
+            and self.latest_decision.decision_type == DecisionType.ACT
+            and (
+                self.last_evaluation_id is None
+                or self.last_evaluation_id != self.latest_decision.decision_id
+            )
+        ):
+            resuming_decision = True
+            decision = self.latest_decision
+            assert decision is not None
+            decision_type = decision.decision_type
+            expected_result = decision.expected_result
+            verification_plan = decision.verification_plan
+            cycle_id = decision.cycle_id
 
-        # Check for oscillation loop
-        if osc_signal.is_oscillating:
-            decision_type = DecisionType.ESCALATE
-            reason = f"OSCILLATION_DETECTED: {osc_signal.reason}"
-        elif np_signal.has_no_progress:
-            # Semantic lack of progress detected
-            rec_dec = np_signal.recommended_decision or DecisionType.RETASK
-            decision_type = rec_dec
-            reason = f"NO_PROGRESS_DETECTED: {np_signal.reason}"
-            if decision_type == DecisionType.RETASK:
-                selected_action = "Switch execution parameters or alternative executor"
-            elif decision_type == DecisionType.REPLAN:
-                selected_action = "Replan remaining goal graph while preserving progress"
-            elif decision_type == DecisionType.ESCALATE:
-                selected_action = "Escalate to human owner due to repeated failures"
-        elif self.blocking_conditions:
-            decision_type = DecisionType.WAIT
-            reason = f"Awaiting resolution of blockers: {self.blocking_conditions}"
-            wake_cond_str = "EVENT:BLOCKER_CLEARED"
-        elif self.latest_progress.objective_coverage >= 1.0 and not self.unresolved_child_goals:
-            # Candidate for completion
-            decision_type = DecisionType.COMPLETE
-            reason = f"All requirements for objective '{self.objective}' met."
-            evidence_refs = list(self.latest_progress.verified_claims)
-        else:
-            # Candidate for action
-            decision_type = DecisionType.ACT
-            reason = "Executing next goal step towards objective"
-            selected_action = f"Execute step for: {self.objective}"
-            expected_result = f"Verified milestone for: {self.objective}"
-            verification_plan = "Run verification checks and collect durable effect receipt"
+        if not resuming_decision:
+            self.cycle_count += 1
+            cycle_id = f"cycle_{self.cycle_count}"
 
-        # 5. CHECK PRECONDITIONS
-        precond_ok, precond_violations = self.preconditions.check_preconditions(
-            decision_type=decision_type,
-            objective_valid=bool(self.objective),
-            has_blocking_interrupt=False,
-            blocking_conditions=self.blocking_conditions
-            if decision_type != DecisionType.WAIT
-            else [],
-            workspace_valid=True,
-            security_policy_satisfied=True,
-            capabilities_available=True,
-            budget_available=self.budget_controller.can_execute(),
-            required_evidence_available=True
-            if decision_type != DecisionType.COMPLETE
-            else bool(evidence_refs),
-        )
+            # 1. OBSERVE & Reconcile context
+            self.status = AutonomousStatus.OBSERVING
+            observations = self.journal.query(self.mission_id)
+            reconciled = reconcile_context(observations)
 
-        if not precond_ok:
-            # Fail closed to WAIT or ESCALATE (no silent fallback)
-            if not self.budget_controller.can_execute():
+            # 2. ASSESS SITUATION
+            self.status = AutonomousStatus.ASSESSING
+            active_goals = [self.objective]
+            assessment = self.assessor.assess(
+                mission_id=self.mission_id,
+                cycle_id=cycle_id,
+                reconciled_context=reconciled,
+                active_goals=active_goals,
+                blocking_conditions=self.blocking_conditions,
+            )
+
+            # Update blocking conditions and uncertainties from assessment
+            self.blocking_conditions = list(assessment.blocking_conditions)
+            self.open_questions = list(assessment.uncertainties)
+
+            # 3. DETECT ANOMALIES (No-progress / Oscillation)
+            np_signal = self.no_progress_detector.check()
+            osc_signal = self.oscillation_detector.check()
+
+            # 4. DECISION SYNTHESIS (Sole Semantic Authority: MasterAgent)
+            self.status = AutonomousStatus.PLANNING
+            selected_action = ""
+            expected_result = ""
+            verification_plan = ""
+            wake_cond_str: str | None = None
+            evidence_refs = []
+
+            # Check for oscillation loop
+            if osc_signal.is_oscillating:
                 decision_type = DecisionType.ESCALATE
-                reason = f"PRECONDITION_FAILED: BUDGET_EXHAUSTED ({', '.join(precond_violations)})"
+                reason = f"OSCILLATION_DETECTED: {osc_signal.reason}"
+            elif np_signal.has_no_progress:
+                # Semantic lack of progress detected
+                rec_dec = np_signal.recommended_decision or DecisionType.RETASK
+                decision_type = rec_dec
+                reason = f"NO_PROGRESS_DETECTED: {np_signal.reason}"
+                if decision_type == DecisionType.RETASK:
+                    selected_action = "Switch execution parameters or alternative executor"
+                elif decision_type == DecisionType.REPLAN:
+                    selected_action = "Replan remaining goal graph while preserving progress"
+                elif decision_type == DecisionType.ESCALATE:
+                    selected_action = "Escalate to human owner due to repeated failures"
+            elif any(
+                (
+                    obs.kind in ("INVALIDATED_ASSUMPTION", "EXTERNAL_CHANGE")
+                    or "INVALIDATED" in obs.summary
+                )
+                and obs.status == ObservationStatus.CURRENT
+                for obs in reconciled
+            ):
+                # External reality change invalidated plan assumptions
+                inv_obs = next(
+                    obs
+                    for obs in reconciled
+                    if (
+                        obs.kind in ("INVALIDATED_ASSUMPTION", "EXTERNAL_CHANGE")
+                        or "INVALIDATED" in obs.summary
+                    )
+                    and obs.status == ObservationStatus.CURRENT
+                )
+                decision_type = DecisionType.REPLAN
+                reason = f"EXTERNAL_CHANGE_DETECTED: {inv_obs.summary}"
+                selected_action = "Replan remaining goal graph while preserving accepted progress"
             elif self.blocking_conditions:
                 decision_type = DecisionType.WAIT
-                reason = f"PRECONDITION_FAILED: BLOCKED ({', '.join(precond_violations)})"
-                wake_cond_str = "EVENT:PRECONDITION_RESTORED"
+                reason = f"Awaiting resolution of blockers: {self.blocking_conditions}"
+                wake_cond_str = "EVENT:BLOCKER_CLEARED"
+            elif self.latest_progress.objective_coverage >= 1.0 and not self.unresolved_child_goals:
+                # Candidate for completion
+                decision_type = DecisionType.COMPLETE
+                reason = f"All requirements for objective '{self.objective}' met."
+                evidence_refs = list(self.latest_progress.verified_claims)
             else:
-                decision_type = DecisionType.ESCALATE
-                reason = f"PRECONDITION_FAILED: ({', '.join(precond_violations)})"
+                # Candidate for action
+                decision_type = DecisionType.ACT
+                reason = "Executing next goal step towards objective"
+                selected_action = f"Execute step for: {self.objective}"
+                expected_result = f"Verified milestone for: {self.objective}"
+                verification_plan = "Run verification checks and collect durable effect receipt"
 
-        # 6. PERSIST DECISION RECORD
-        decision = AutonomousDecision(
-            decision_id=f"dec_{uuid.uuid4().hex[:12]}",
-            mission_id=self.mission_id,
-            goal_run_id=self.goal_run_id,
-            cycle_id=cycle_id,
-            decision_type=decision_type,
-            reason=reason,
-            evidence_refs=evidence_refs,
-            confidence=0.95,
-            selected_action=selected_action,
-            expected_result=expected_result,
-            verification_plan=verification_plan,
-            wake_condition=wake_cond_str,
-            created_at=time.time(),
-        )
-        self.decision_store.append(decision)
-        self.latest_decision = decision
+            # 5. CHECK PRECONDITIONS
+            precond_ok, precond_violations = self.preconditions.check_preconditions(
+                decision_type=decision_type,
+                objective_valid=bool(self.objective),
+                has_blocking_interrupt=False,
+                blocking_conditions=self.blocking_conditions
+                if decision_type != DecisionType.WAIT
+                else [],
+                workspace_valid=True,
+                security_policy_satisfied=True,
+                capabilities_available=True,
+                budget_available=self.budget_controller.can_execute(),
+                required_evidence_available=True
+                if decision_type != DecisionType.COMPLETE
+                else bool(evidence_refs),
+            )
+
+            if not precond_ok:
+                # Fail closed to WAIT or ESCALATE (no silent fallback)
+                if not self.budget_controller.can_execute():
+                    decision_type = DecisionType.ESCALATE
+                    reason = (
+                        f"PRECONDITION_FAILED: BUDGET_EXHAUSTED ({', '.join(precond_violations)})"
+                    )
+                elif self.blocking_conditions:
+                    decision_type = DecisionType.WAIT
+                    reason = f"PRECONDITION_FAILED: BLOCKED ({', '.join(precond_violations)})"
+                    wake_cond_str = "EVENT:PRECONDITION_RESTORED"
+                else:
+                    decision_type = DecisionType.ESCALATE
+                    reason = f"PRECONDITION_FAILED: ({', '.join(precond_violations)})"
+
+            # 6. PERSIST DECISION RECORD
+            decision = AutonomousDecision(
+                decision_id=f"dec_{uuid.uuid4().hex[:12]}",
+                mission_id=self.mission_id,
+                goal_run_id=self.goal_run_id,
+                cycle_id=cycle_id,
+                decision_type=decision_type,
+                reason=reason,
+                evidence_refs=evidence_refs,
+                confidence=0.95,
+                selected_action=selected_action,
+                expected_result=expected_result,
+                verification_plan=verification_plan,
+                wake_condition=wake_cond_str,
+                created_at=time.time(),
+            )
+            self.decision_store.append(decision)
+            self.latest_decision = decision
+
+        assert decision is not None
 
         # 7. EXECUTE / ENFORCE DECISION
         if decision_type == DecisionType.COMPLETE:
@@ -384,6 +468,13 @@ class AutonomousCycle:
                     {"goal_id": f"{self.mission_id}_replan_g1", "goal": "Alternative path"}
                 ],
             )
+            # Mark addressed invalidating observations as stale so subsequent steps proceed
+            for obs in self.journal.query(self.mission_id, status=ObservationStatus.CURRENT):
+                if (
+                    obs.kind in ("INVALIDATED_ASSUMPTION", "EXTERNAL_CHANGE")
+                    or "INVALIDATED" in obs.summary
+                ):
+                    self.journal.mark_stale(obs.observation_id)
             self.current_hypothesis = (
                 f"Replanned goal graph preserving {len(self.accepted_progress)} steps"
             )
@@ -459,9 +550,17 @@ class AutonomousCycle:
                     dedup_key=f"exec_ok_{action_prop.action_id}",
                 )
                 self.latest_progress.verified_claims.append(step_claim)
-                self.latest_progress.objective_coverage = min(
-                    1.0, self.latest_progress.objective_coverage + 0.5
-                )
+                if self.required_milestones:
+                    self.unresolved_child_goals = [
+                        m for m in self.required_milestones if m not in self.accepted_progress
+                    ]
+                    self.latest_progress.objective_coverage = min(
+                        1.0, len(self.accepted_progress) / max(len(self.required_milestones), 1)
+                    )
+                else:
+                    self.latest_progress.objective_coverage = min(
+                        1.0, self.latest_progress.objective_coverage + 0.5
+                    )
             else:
                 # Execution failed or rejected
                 self.journal.append(
@@ -478,7 +577,11 @@ class AutonomousCycle:
         self._persist_state()
         return self.get_state()
 
-    def resume(self, trigger_event: str | None = None) -> AutonomousState:
+    def resume(
+        self,
+        trigger_event: str | None = None,
+        executor: Callable[[ActionProposal], tuple[int, str, list[str]]] | None = None,
+    ) -> AutonomousState:
         """Resume autonomous execution following satisfied wait condition (spec §18)."""
         if self.status == AutonomousStatus.WAITING:
             self.status = AutonomousStatus.OBSERVING
@@ -493,7 +596,7 @@ class AutonomousCycle:
                     payload={"event": trigger_event},
                     status=ObservationStatus.CURRENT,
                 )
-        return self.step()
+        return self.step(executor=executor)
 
     def handle_interrupt(
         self,
@@ -525,6 +628,7 @@ class AutonomousCycle:
             rev = self.reconciler.revise_mission(
                 mission_id=self.mission_id,
                 new_objective=obj_update,
+                previous_objective=self.objective,
                 reason=f"User interrupt requested objective change: {content}",
                 source="USER",
             )

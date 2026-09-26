@@ -74,6 +74,7 @@ from .executor_health import (
     ExecutorFailureClass,
     ExecutorHealthRegistry,
     classify_executor_failure,
+    normalize_executor_name,
     resolve_executor,
 )
 from .l1_contract import (
@@ -173,23 +174,27 @@ def resolve_execution_target(
     explicit = str(requested_execution_target or "").strip().upper()
     if explicit in ("CANONICAL_WORKTREE", "HOST"):
         return explicit
-    if explicit in ("EXISTING_WORKTREE", "NEW_ISOLATED_WORKTREE", "EXECUTION_WORKTREE"):
+    if explicit == "EXISTING_WORKTREE":
+        return "EXISTING_WORKTREE"
+    if explicit == "EXECUTION_WORKTREE":
         return "EXECUTION_WORKTREE"
+    if explicit == "NEW_ISOLATED_WORKTREE":
+        return "NEW_ISOLATED_WORKTREE"
 
     ws = Path(workspace).expanduser().resolve()
 
     # Rule 2: workspace itself is a linked worktree
     if is_git_worktree(ws):
-        return "EXECUTION_WORKTREE"
+        return "EXISTING_WORKTREE"
 
     # Rule 3: workspace_path points inside a .veya/worktrees/* subtree
     if workspace_path:
         wp = Path(workspace_path).expanduser().resolve(strict=False)
         for anc in (wp, *wp.parents):
             if anc.parent.name == "worktrees" and anc.parent.parent.name == ".veya":
-                return "EXECUTION_WORKTREE"
+                return "EXISTING_WORKTREE"
 
-    return "EXECUTION_WORKTREE"
+    return "NEW_ISOLATED_WORKTREE"
 
 
 def find_existing_worktree_root(target_path: str | Path) -> Path | None:
@@ -519,6 +524,35 @@ BINDINGS: tuple[ToolBinding, ...] = (
         ),
     ),
     ToolBinding(
+        "approval.request",
+        None,
+        EffectClass.READ,
+        "Create a server-issued approval request bound to one exact operation.",
+        _obj(
+            {
+                "capability_id": _STR,
+                "operation": _STR,
+                "risk_class": _STR,
+                "ttl_s": {"type": "number"},
+            },
+            ["capability_id", "operation", "risk_class"],
+        ),
+    ),
+    ToolBinding(
+        "approval.status",
+        None,
+        EffectClass.READ,
+        "Inspect a server-issued approval request owned by this session principal.",
+        _obj({"approval_id": _STR}, ["approval_id"]),
+    ),
+    ToolBinding(
+        "approval.consume",
+        None,
+        EffectClass.WRITE,
+        "Record the human decision for an approval request; execution consumes it once.",
+        _obj({"approval_id": _STR, "decision": _STR}, ["approval_id", "decision"]),
+    ),
+    ToolBinding(
         "shell.exec",
         "coding_run_command",
         EffectClass.WRITE,
@@ -587,6 +621,17 @@ BINDINGS: tuple[ToolBinding, ...] = (
                             "worker": _STR,
                             "task": _STR,
                             "timeout_sec": {"type": "integer"},
+                            "task_kind": {
+                                "type": "string",
+                                "enum": ["READ", "WRITE", "TEST", "BUILD", "REVIEW"],
+                            },
+                            "effect_requirement": _STR,
+                            "verification_requirement": _STR,
+                            "commit_requirement": _STR,
+                            "promotion_policy": _STR,
+                            "allowed_files": {"type": "array", "items": _STR},
+                            "allowed_roots": {"type": "array", "items": _STR},
+                            "verification_command": _STR,
                         },
                         ["worker", "task"],
                     ),
@@ -1256,6 +1301,9 @@ class RemoteToolAdapter:
             return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)
         workspace = ws_binding.requested_realpath
 
+        if name.startswith("approval."):
+            return self._approval_call(session, name, args, workspace, started)
+
         if name == "process.status":
             return self._process_status(session, name, args, started)
         if name == "process.cancel":
@@ -1436,6 +1484,60 @@ class RemoteToolAdapter:
             session_id=session.session_id,
             workspace=workspace,
             result=self._redact({"text": text, "truncated": truncated}),
+            duration_ms=(time.time() - started) * 1000,
+        )
+
+    def _approval_call(
+        self,
+        session: RemoteSession,
+        name: str,
+        args: dict[str, Any],
+        workspace: str,
+        started: float,
+    ) -> RemoteCallResult:
+        store = self.action_gateway.approval_store
+        try:
+            if name == "approval.request":
+                from .models import RiskClass
+
+                risk = RiskClass(str(args.get("risk_class") or "P2_ROOT_MUTATION"))
+                record = store.create_approval(
+                    principal=session.principal,
+                    capability_id=str(args["capability_id"]),
+                    normalized_operation=str(args["operation"]),
+                    cwd=workspace,
+                    workspace=workspace,
+                    risk_class=risk,
+                    ttl_s=float(args.get("ttl_s") or 300),
+                    decision="pending",
+                )
+                payload = record.to_dict()
+                payload["status"] = "PENDING"
+            else:
+                approval_id = str(args.get("approval_id") or "")
+                record = store.lookup(approval_id)
+                if record is None or record.principal != session.principal:
+                    return self._fail(
+                        name, session, RemoteErrorCode.NOT_FOUND, "approval request not found"
+                    )
+                if name == "approval.status":
+                    payload = record.to_dict()
+                    payload["status"] = record.decision.upper()
+                else:
+                    decision = str(args.get("decision") or "").lower()
+                    record = store.decide(
+                        approval_id, principal=session.principal, decision=decision
+                    )
+                    payload = record.to_dict()
+                    payload["status"] = record.decision.upper()
+        except (KeyError, ValueError, PermissionError) as exc:
+            return self._fail(name, session, RemoteErrorCode.INVALID_ARGUMENT, str(exc))
+        return RemoteCallResult(
+            ok=True,
+            tool=name,
+            session_id=session.session_id,
+            workspace=workspace,
+            result=payload,
             duration_ms=(time.time() - started) * 1000,
         )
 
@@ -2217,7 +2319,7 @@ class RemoteToolAdapter:
         )
 
         runtime_profile = None
-        if not args.get("command") and name in ("test.run", "build.run"):
+        if name in ("shell.exec", "test.run", "build.run"):
             from veya.remote.runtime_profile import discover_runtime_profile
 
             try:
@@ -2254,11 +2356,7 @@ class RemoteToolAdapter:
         elif "profile" in args:
             profile = str(args["profile"])
         else:
-            profile = (
-                "local_restricted"
-                if name == "shell.exec" and not execution_domain
-                else "l0_workspace_full"
-            )
+            profile = "l0_workspace_full"
 
         approved = bool(args.get("approved")) and session.permissions.destructive
         network = args.get("network")
@@ -2553,14 +2651,14 @@ class RemoteToolAdapter:
         # reuse it directly — no nested worktrees.  Return the *canonical main*
         # project root as repo_root so that _map_target_to_worktree, runtime
         # profile discovery, and WorktreeManager all operate on the right root.
-        if execution_target == "EXECUTION_WORKTREE" or target_path:
+        if execution_target in ("EXECUTION_WORKTREE", "EXISTING_WORKTREE") or target_path:
             existing = find_existing_worktree_root(target_path or key)
             if existing is not None:
                 main_root = _canonical_project_root(existing)
                 session.worktrees[cache_key] = str(existing)
                 return str(existing), main_root
 
-        if execution_target == "EXECUTION_WORKTREE":
+        if execution_target in ("EXECUTION_WORKTREE", "EXISTING_WORKTREE"):
             candidate = session.worktrees.get(cache_key)
             if candidate and Path(candidate).is_dir():
                 return candidate, repo_root
@@ -2649,9 +2747,10 @@ class RemoteToolAdapter:
                     RemoteErrorCode.INVALID_ARGUMENT,
                     "each task must be an object {worker, task}",
                 )
-            worker = str(item.get("worker") or "").strip().lower()
+            raw_worker = str(item.get("worker") or "").strip()
+            worker = normalize_executor_name(raw_worker)
             task_text = str(item.get("task") or "")
-            if worker not in _WORKER_TYPES or not task_text:
+            if not raw_worker or worker not in _WORKER_TYPES or not task_text:
                 return self._fail(
                     binding.name,
                     session,
@@ -2705,15 +2804,30 @@ class RemoteToolAdapter:
             probe_runtime_capability_manifest,
         )
 
-        explicit_pin = bool(item.get("explicit_pin", item.get("pin", False)))
+        # A named worker is an exact selector.  Health/capability fallback is
+        # for an orchestrator preference list, never for worker.dispatch.
+        explicit_pin = True
         required_caps = item.get("required_capabilities") or item.get("capabilities") or []
         task_contract = L1TaskContract.from_dict(item.get("task_contract"))
         # The contract is explicit data.  Legacy dispatch callers are retained
         # as READ tasks; WRITE/TEST/BUILD callers must opt into their stronger
         # effect and finalization requirements.
         if not item.get("task_contract"):
+            requested_kind = str(item.get("task_kind") or "").upper()
+            if not requested_kind:
+                has_write_effect = any(
+                    item.get(key) not in (None, "", "NONE")
+                    for key in (
+                        "effect_requirement",
+                        "verification_requirement",
+                        "commit_requirement",
+                        "promotion_policy",
+                        "verification_command",
+                    )
+                )
+                requested_kind = str(TaskKind.WRITE if has_write_effect else TaskKind.READ)
             task_contract = L1TaskContract(
-                task_kind=str(item.get("task_kind") or TaskKind.READ),
+                task_kind=requested_kind,
                 effect_requirement=str(item.get("effect_requirement") or "NONE"),
                 verification_requirement=str(item.get("verification_requirement") or "NONE"),
                 commit_requirement=str(item.get("commit_requirement") or "NONE"),

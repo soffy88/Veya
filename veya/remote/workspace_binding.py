@@ -26,6 +26,7 @@ Git itself.
 from __future__ import annotations
 
 import re
+import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -101,6 +102,21 @@ def git_repo_root(path: str | Path) -> Path | None:
 
 
 def _git_common_dir(repo_root: Path) -> Path | None:
+    # Git is authoritative for linked worktrees and nested repositories.  Do
+    # not infer common-dir layout from the .git file format.
+    try:
+        probe = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        if probe.returncode == 0 and probe.stdout.strip():
+            value = Path(probe.stdout.strip())
+            return (value if value.is_absolute() else repo_root / value).resolve()
+    except (OSError, subprocess.SubprocessError):
+        pass
     dotgit = repo_root / ".git"
     if dotgit.is_dir():
         return dotgit.resolve()

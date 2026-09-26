@@ -681,6 +681,7 @@ class MissionRevision:
     revision_id: str = field(default_factory=lambda: f"rev_{uuid.uuid4().hex[:12]}")
     mission_id: str = "default"
     parent_revision_id: str | None = None
+    previous_objective: str = ""
     objective: str = ""
     constraints: list[str] = field(default_factory=list)
     reason: str = ""
@@ -692,6 +693,7 @@ class MissionRevision:
             "revision_id": self.revision_id,
             "mission_id": self.mission_id,
             "parent_revision_id": self.parent_revision_id,
+            "previous_objective": self.previous_objective,
             "objective": self.objective,
             "constraints": list(self.constraints),
             "reason": self.reason,
@@ -705,6 +707,7 @@ class MissionRevision:
             revision_id=str(data.get("revision_id") or f"rev_{uuid.uuid4().hex[:12]}"),
             mission_id=str(data.get("mission_id") or "default"),
             parent_revision_id=data.get("parent_revision_id"),
+            previous_objective=str(data.get("previous_objective") or ""),
             objective=str(data.get("objective") or ""),
             constraints=list(data.get("constraints") or []),
             reason=str(data.get("reason") or ""),

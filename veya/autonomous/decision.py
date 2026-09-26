@@ -201,3 +201,8 @@ class DecisionStore:
 
     def list_for_mission(self, mission_id: str) -> list[AutonomousDecision]:
         return [d for d in self._decisions if d.mission_id == mission_id]
+
+    def count(self, mission_id: str | None = None) -> int:
+        if mission_id is None:
+            return len(self._decisions)
+        return sum(1 for d in self._decisions if d.mission_id == mission_id)

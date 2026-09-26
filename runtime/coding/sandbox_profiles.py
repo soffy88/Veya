@@ -25,7 +25,7 @@ class SandboxProfile:
     id: str
     executor: Literal["local", "docker"]
     network: Literal["allowed", "denied", "configurable"]
-    filesystem: Literal["workspace"]
+    filesystem: Literal["workspace", "host"]
     approvals: Literal["minimal", "required_for_write"]
     image: str | None = None
     mounts: tuple[SandboxMount, ...] = ()
@@ -69,7 +69,7 @@ _PROFILES: dict[str, SandboxProfile] = {
         id="l0_host",
         executor="local",
         network="allowed",
-        filesystem="workspace",
+        filesystem="host",
         approvals="minimal",
     ),
     "docker_python": SandboxProfile(

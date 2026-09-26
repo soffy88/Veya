@@ -255,6 +255,16 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_autonomous_cli(argv[1:])
 
+    if argv and argv[0] == "fleet":
+        from cli.fleet_cli import run_fleet_cli
+
+        return run_fleet_cli(argv[1:])
+
+    if argv and argv[0] == "ops":
+        from cli.ops_cli import ops_main
+
+        return ops_main(argv[1:])
+
     # 产品化子命令: veya init / start / doctor / upgrade / migrate / code
     if argv and argv[0] in _PRODUCT_COMMANDS:
         from cli import product

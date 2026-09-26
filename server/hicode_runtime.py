@@ -20,8 +20,10 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 from urllib.parse import urlsplit
+
+from server.hicode_cooldown import hicode_model_mapping
+from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 
 REASONIX_PACKAGE = "reasonix"
 REASONIX_VERSION = "1.21.3"
@@ -591,18 +593,27 @@ print(json.dumps({
             os.environ.get("HICODE_REASONIX_BASE_URL", ""),
             fallback=default_primary_base,
         )
-        primary_model = os.environ.get("HICODE_REASONIX_MODEL", "gpt-5.6-luna").strip()
-        primary_provider = os.environ.get("HICODE_REASONIX_PROVIDER", "luna").strip() or "luna"
+        requested_model = os.environ.get("HICODE_REASONIX_MODEL", "gemini-pro-agent").strip()
+        try:
+            mapping = hicode_model_mapping(requested_model)
+            primary_model = str(mapping["requested_model"])
+        except RuntimeError:
+            # Test/dev providers may use an explicitly injected model. The
+            # production Hicode identity is validated by the authority above.
+            primary_model = requested_model
+        primary_provider = (
+            os.environ.get("HICODE_REASONIX_PROVIDER", "cliproxy-google").strip()
+            or "cliproxy-google"
+        )
         primary_key_env = _safe_env_name(os.environ.get("HICODE_REASONIX_API_KEY_ENV"))
         primary_api_key = os.environ.get(primary_key_env, "") if primary_key_env else ""
         cloud_base = _safe_url(
             os.environ.get("HICODE_REASONIX_CLOUD_BASE_URL", ""),
             fallback="https://opencode.ai/zen/go/v1",
         )
-        cloud_model = (
-            os.environ.get("HICODE_REASONIX_CLOUD_MODEL", "").strip()
-            or _cp.executor_model("hicode_reasonix_cloud")
-        )
+        cloud_model = os.environ.get(
+            "HICODE_REASONIX_CLOUD_MODEL", ""
+        ).strip() or _cp.executor_model("hicode_reasonix_cloud")
         cloud_key_env = _safe_env_name(
             os.environ.get("HICODE_REASONIX_CLOUD_API_KEY_ENV", "OPENCODE_API_KEY")
         )
@@ -621,9 +632,7 @@ print(json.dumps({
         if primary_key_env:
             lines.append(f"api_key_env = {json.dumps(primary_key_env)}")
         if primary_api_key:
-            lines.append(
-                f"headers = {{ \"x-api-key\" = {json.dumps(primary_api_key)} }}"
-            )
+            lines.append(f'headers = {{ "x-api-key" = {json.dumps(primary_api_key)} }}')
         lines.extend(
             [
                 "context_window = 1000000",

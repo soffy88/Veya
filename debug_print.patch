@@ -1,0 +1,18 @@
+--- veya/remote/tool_adapter.py
++++ veya/remote/tool_adapter.py
+@@ -1015,6 +1015,7 @@
+         from veya.remote.execution import ProgressReporter
+         if isinstance(progress, ProgressReporter):
+             progress.report_tail(line, stream="stdout")
++        print(f"OPENCODE STDOUT: {line}")
+         
+     async def on_stderr(line: str) -> None:
+         nonlocal output
+@@ -1023,6 +1024,7 @@
+         from veya.remote.execution import ProgressReporter
+         if isinstance(progress, ProgressReporter):
+             progress.report_tail(line, stream="stderr")
++        print(f"OPENCODE STDERR: {line}")
+ 
+     args = ["opencode", "run", "--dir", str(workspace), "--format", "json"]
+     agent = _resolve_opencode_agent()

@@ -38,7 +38,6 @@ from runtime.coding.command_runner import (
     _safe_environment,
     _venv_bin,
     command_may_use_network,
-    command_requires_approval,
     parse_command,
     redact_text,
     resolve_interpreter_argv,
@@ -214,10 +213,8 @@ def _plan_execution(
     command_text = command if isinstance(command, str) else " ".join(argv)
     if runner.profile.network == "denied" and command_may_use_network(argv):
         raise DirectDenied("网络访问被沙箱 profile 禁止 (network denied by sandbox profile)")
-    if command_requires_approval(argv) and not approved:
-        raise DirectApprovalRequired(
-            "该命令需要显式批准 (destructive/package/remote command requires approval)"
-        )
+    # ActionGateway is the sole risk/approval authority.  Keep ``approved``
+    # in the compatibility signature, but never re-classify here.
     violation = _nested_write_path_violation(argv, runner.workspace_root, cwd)
     if violation:
         raise DirectDenied(violation)
@@ -272,7 +269,7 @@ async def run_direct_command(
     command: str | Sequence[str],
     *,
     cwd: str | Path | None = None,
-    profile: str = "local_restricted",
+    profile: str = "l0_workspace_full",
     timeout_s: float = DEFAULT_DIRECT_TIMEOUT_S,
     approved: bool = False,
     network: str | None = None,

@@ -30,13 +30,18 @@ class AutonomousRiskGate:
     def evaluate(
         self, action_type: str, target: str, payload: dict[str, Any] | None = None
     ) -> RiskLevel:
-        cmd = str((payload or {}).get("command") or target).strip().lower()
+        p = payload or {}
+        cmd = str(p.get("command") or target).strip().lower()
+        path = str(p.get("path") or p.get("target") or target).strip().lower()
 
         # Check production destructive patterns
         if any(d in cmd for d in self._destructive_commands):
             return RiskLevel.REQUIRES_OWNER
 
-        if "drop database" in cmd or "delete from" in cmd or "truncate" in cmd:
+        if "rm -rf" in cmd or "drop database" in cmd or "delete from" in cmd or "truncate" in cmd:
+            return RiskLevel.REQUIRES_OWNER
+
+        if any(sensitive in path for sensitive in ["/etc/", "/root", "/boot", "id_rsa"]):
             return RiskLevel.REQUIRES_OWNER
 
         if action_type in {"DEPLOY", "PUBLISH", "PROMOTE_CANONICAL"}:
@@ -71,6 +76,8 @@ class BudgetController:
     ):
         compute = max_cost if max_cost is not None else max_compute
         executions = max_actions if max_actions is not None else max_executions
+        self._initial_executions = executions
+        self._consumed_actions = 0
         self._state = BudgetState(
             remaining_compute=compute,
             remaining_execution=executions,
@@ -88,11 +95,18 @@ class BudgetController:
         )
 
     @property
+    def action_count(self) -> int:
+        return self._consumed_actions
+
+    @property
     def state(self) -> BudgetState:
         elapsed = time.time() - self._start_time
         self._state.remaining_wall_time_s = max(0.0, self._state.remaining_wall_time_s - elapsed)
         self._start_time = time.time()
         return self._state
+
+    def get_budget_state(self) -> BudgetState:
+        return self.state
 
     def consume(
         self,
@@ -106,6 +120,7 @@ class BudgetController:
         eu = execution_cost if execution_cost is not None else execution_units
         self._state.remaining_compute = max(0.0, self._state.remaining_compute - cu)
         self._state.remaining_execution = max(0, self._state.remaining_execution - eu)
+        self._consumed_actions += eu
         return self._state.remaining_execution > 0 and self._state.remaining_compute > 0
 
     def record_retry(self) -> int:
