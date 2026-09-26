@@ -18,7 +18,10 @@ for lib in ("oprim", "omodul", "oservi", "obase", "oskill"):
 # =========================================================================
 
 
-def test_route_vision_to_dashscope():
+def test_route_vision_to_veya_vl():
+    # SPEC v1.0 §3: the vision task class routes to the veya-vl proxy, not to a
+    # raw provider/model pair. Previously this asserted dashscope/qwen3.7-flash,
+    # which put an upstream model id in the business routing table.
     from oprim._llm_router import route_decision
 
     d = route_decision(
@@ -33,8 +36,8 @@ def test_route_vision_to_dashscope():
         ]
     )
     assert d["route"] == "vision"
-    assert d["provider"] == "dashscope"
-    assert d["model"] == "qwen3.7-flash"
+    assert d["provider"] == "veya-vl"
+    assert d["model"] == "veya-vl"
 
 
 def test_route_text_to_veya12():
@@ -174,8 +177,9 @@ def test_call_aliased_short_single_call():
 
     r = asyncio.run(router.call_aliased([{"role": "user", "content": "hi"}], caller))
     assert len(calls) == 1
-    assert calls[0]["provider"] == "veya1.2"
-    assert calls[0]["model"] == "veya1.2"
+    # SPEC v1.0 §3: the quick/text task classes route to the veya-free proxy.
+    assert calls[0]["provider"] == "veya-free"
+    assert calls[0]["model"] == "veya-free"
     assert r["route"] == "quick"
 
 
@@ -275,16 +279,80 @@ def test_llm_call_veya11_compat_alias_uses_veya12_pool(monkeypatch):
     assert result["choices"][0]["message"]["content"] == "compat-ok"
 
 
-def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
-    """veya1.2-free 只轮询已验证且未耗尽的候选。"""
+def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch, tmp_path):
+    """veya-free only round-robins candidates that satisfy the §5 conjunction.
+
+    Replaces the previous assertion on the hardcoded ``_VEYA12_FREE_POOL`` order,
+    which led with ``opencode-go/nemotron-3.5-lightning-free`` — a model a real
+    probe on 2026-09-26 showed is blocked with HTTP 403 FreeTierError from
+    outside OpenCode. The pool is now derived from ~/.veya/model-state.json
+    (SPEC §7: no hardcoded model-name priority, discovered != usable).
+    """
+    import json as _json
+
     from veya import llm as hllm
+    from veya.obase import canonical_proxies as cp
+
+    state = tmp_path / "model-state.json"
+    state.write_text(
+        _json.dumps(
+            {
+                "models": {
+                    "opencode-go:alpha": {
+                        "provider": "opencode-go",
+                        "model_id": "alpha",
+                        "canonical_proxy": "veya-free",
+                        "eligible": True,
+                        "discovered": True,
+                        "healthy": True,
+                        "credentials_valid": True,
+                        "endpoint_available": True,
+                        "model_available": True,
+                        "cooldown_until": None,
+                        "latency_ms": 100,
+                        "capabilities": ["text"],
+                    },
+                    "opencode-go:beta": {
+                        "provider": "opencode-go",
+                        "model_id": "beta",
+                        "canonical_proxy": "veya-free",
+                        "eligible": True,
+                        "discovered": True,
+                        "healthy": True,
+                        "credentials_valid": True,
+                        "endpoint_available": True,
+                        "model_available": True,
+                        "cooldown_until": None,
+                        "latency_ms": 200,
+                        "capabilities": ["text"],
+                    },
+                    "opencode-go:blocked": {
+                        "provider": "opencode-go",
+                        "model_id": "blocked-free",
+                        "canonical_proxy": "veya-free",
+                        "eligible": False,
+                        "discovered": True,
+                        "healthy": False,
+                        "credentials_valid": True,
+                        "endpoint_available": True,
+                        "model_available": False,
+                        "cooldown_until": None,
+                        "latency_ms": 1,
+                        "capabilities": ["text"],
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cp, "_MODEL_STATE", state)
 
     seen: list[dict] = []
     hllm._veya12_free_rr_cursor = 0
 
     async def fake_provider_call(client, provider, **kw):
         seen.append({"provider": provider, "model": kw["model"]})
-        content = "free-pool-ok" if len(seen) == 3 else ""
+        content = "free-pool-ok" if len(seen) == 2 else ""
         return {"choices": [{"message": {"role": "assistant", "content": content}}], "usage": {}}
 
     async def no_sleep(*_args, **_kwargs):
@@ -299,18 +367,31 @@ def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch):
     result = asyncio.run(
         hllm.llm_call(
             [{"role": "user", "content": "你好"}],
-            provider="veya",
+            provider="veya-free",
+            model="veya-free",
+            config=config,
+        )
+    )
+    # latency-ordered eligible candidates only; the 403-blocked one never appears
+    assert seen == [
+        {"provider": "opencode-go", "model": "alpha"},
+        {"provider": "opencode-go", "model": "beta"},
+    ], seen
+    assert all(entry["model"] != "blocked-free" for entry in seen)
+    assert result["choices"][0]["message"]["content"] == "free-pool-ok"
+    assert result["router"]["POOL_SOURCE"] == "model-state.json:eligible"
+    assert result["router"]["POOL_SIZE"] == 2
+    # the legacy spelling must still be observable as a deprecation
+    legacy = asyncio.run(
+        hllm.llm_call(
+            [{"role": "user", "content": "你好"}],
+            provider="veya1.2-free",
             model="veya1.2-free",
             config=config,
         )
     )
-
-    assert seen == [
-        {"provider": "openai", "model": "opencode-go/nemotron-3.5-lightning-free"},
-        {"provider": "gmi-serving", "model": "MiniMaxAI/MiniMax-M3"},
-        {"provider": "bai", "model": "deepseek-v4-flash"},
-    ]
-    assert result["choices"][0]["message"]["content"] == "free-pool-ok"
+    assert legacy["router"]["DEPRECATION"]["canonical_proxy"] == "veya-free"
+    assert legacy["router"]["DEPRECATION"]["silent_substitution"] is False
 
 
 def test_llm_call_veya12_128k_routes_inferera_small_model(monkeypatch):
@@ -409,7 +490,8 @@ def test_call_aliased_gate_upgrade_retry():
 
     r = asyncio.run(router.call_aliased([{"role": "user", "content": "你好"}], caller))
     assert len(calls) == 2  # 升级重试 1 次
-    assert calls[0]["model"] == "veya1.2"
+    # SPEC v1.0 §3: first leg is the veya-free proxy; upgrade target unchanged.
+    assert calls[0]["model"] == "veya-free"
     assert calls[1]["model"] == "gpt-5.6-luna"
     assert r["gate"]["reason"] == "upgraded"
 

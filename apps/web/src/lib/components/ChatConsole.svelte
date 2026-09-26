@@ -61,6 +61,7 @@ import WorkProcess from "./WorkProcess.svelte";
 	let profileOptions = $state<{ name: string; description: string }[]>([]);
 	let profileError = $state("");
 	let approvalError = $state("");
+	let activeTurnId = $state<string | null>(null);
 	let pendingApproval = $state<{
 		request_id: string;
 		tool_name: string;
@@ -564,6 +565,8 @@ import WorkProcess from "./WorkProcess.svelte";
 		sessionStore.append(sid, { role: "assistant", text: "", status: "streaming", steps: [] });
 		busy = true;
 		locallyStreamingSid = sid; // 本端亲自流式 → 忽略同 sid 的镜像回显
+		const currentTurnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+		activeTurnId = currentTurnId;
 
 		aborter = new AbortController();
 		const signal = aborter.signal;
@@ -576,6 +579,7 @@ import WorkProcess from "./WorkProcess.svelte";
 					text: text + attachPrefix,
 					images: pendingImages,
 					session_id: sid,
+					turn_id: currentTurnId,
 					provider: apiKeyStore.provider,
 					model: apiKeyStore.model.trim() || undefined,
 					engine: apiKeyStore.engine,
@@ -628,6 +632,7 @@ import WorkProcess from "./WorkProcess.svelte";
 			busy = false;
 			aborter = null;
 			locallyStreamingSid = "";
+			activeTurnId = null;
 		}
 	}
 
@@ -712,7 +717,7 @@ import WorkProcess from "./WorkProcess.svelte";
 			fetch(`${API_BASE}/api/v1/agent/stop`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ session_id: sid }),
+				body: JSON.stringify({ session_id: sid, turn_id: activeTurnId ?? undefined }),
 			}).catch(() => {});
 		}
 		pendingQuestion = null; // 中断后提问作废 (后端超时会自动按默认假设继续)

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -525,9 +527,91 @@ async def test_l1_bridge_reuses_worker_dispatch_and_records_lineage() -> None:
     assert adapter.calls[0][0] == "worker.dispatch"
     assert adapter.calls[0][1]["tasks"][0]["worker"] == "pi"
     # canonical internal mission context, not an external MCP session
-    session = adapter.calls[0][2]
+    session: Any = adapter.calls[0][2]
     assert session.client_info.get("kind") == "internal_mission"
     assert session.token_id == "internal-mission"
+
+
+async def test_l1_bridge_artifact_survives_late_baseline_snapshot(tmp_path) -> None:
+    """Regression: artifact discovery must not depend on snapshot timing.
+
+    A child worktree is created clean by ``git worktree add``, so the worker's
+    artifacts are exactly the changes git reports afterwards.  A worker can
+    finish writing before the bridge's first status poll; snapshotting the
+    worktree baseline at that poll made the fresh artifact part of the
+    "pre-existing" set, so it was dropped, ``required_artifacts`` looked
+    unsatisfied and dependent subtasks were blocked.
+    """
+
+    from veya.supervision.l1_bridge import L1Bridge
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(ws)], check=True)
+    (ws / "README.md").write_text("ws\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(ws), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(ws), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "b"],
+        check=True,
+    )
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(wt)], check=True)
+    (wt / "README.md").write_text("ws\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(wt), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(wt), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "b"],
+        check=True,
+    )
+
+    class Adapter:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        async def call(self, session, name, arguments, *args, **kwargs):
+            self.calls.append((name, arguments))
+            if name == "worker.dispatch":
+                # The worker writes its artifact before the bridge ever polls.
+                (wt / "case_a").mkdir(parents=True, exist_ok=True)
+                (wt / "case_a" / "pi.txt").write_text("PI_OK\n", encoding="utf-8")
+                return SimpleNamespace(ok=True, execution_id="parent_race", result={}, message="")
+            if name == "process.status":
+                return SimpleNamespace(
+                    ok=True,
+                    result={
+                        "children": [
+                            {
+                                "execution_id": "ex_race",
+                                "worker_type": "PI",
+                                "status": "COMPLETED",
+                                "result_summary": "ok",
+                                "worker_workspace": str(wt),
+                            }
+                        ]
+                    },
+                    message="",
+                )
+            return SimpleNamespace(ok=True, result={}, message="")
+
+    adapter = Adapter()
+    bridge = L1Bridge(str(ws), adapter=adapter, poll_interval_s=0.0, timeout_s=5)
+    result = await bridge(
+        Subtask(
+            task_id="b-pi",
+            objective="write case_a/pi.txt",
+            worker="pi",
+            required_artifacts=("case_a/pi.txt",),
+        )
+    )
+
+    assert result.status == "COMPLETED"
+    assert result.missing_required_artifacts == []
+    assert result.dependency_ready is True
+    assert result.artifact_requirement == "SATISFIED"
+    assert any(
+        entry.get("kind") == "artifact" and entry.get("relative_path") == "case_a/pi.txt"
+        for entry in result.evidence
+    )
 
 
 # ── planner adapter (canonical planner + availability) ─────────────────
@@ -566,3 +650,20 @@ async def test_planner_adapter_reuses_canonical_planner_and_blocks_unavailable()
             temporarily_unavailable_workers={"codex": "UPSTREAM_QUOTA"},
             llm=codex_llm,
         )
+
+
+async def test_l1_bridge_completed_child_missing_required_artifact_is_blocked() -> None:
+    from veya.supervision.l1_bridge import L1Bridge
+
+    adapter = FakeAdapter()
+    bridge = L1Bridge("/tmp/ws", adapter=adapter, poll_interval_s=0.0, timeout_s=5)
+    result = await bridge(
+        Subtask(
+            task_id="t-missing", objective="do", worker="pi", required_artifacts=("case_a/pi.txt",)
+        )
+    )
+    assert result.status == "BLOCKED"
+    assert result.artifact_requirement == "UNSATISFIED"
+    assert result.failure_class == "ARTIFACT_REQUIREMENT_UNSATISFIED"
+    assert result.missing_required_artifacts == ["case_a/pi.txt"]
+    assert result.dependency_ready is False

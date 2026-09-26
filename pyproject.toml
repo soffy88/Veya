@@ -44,6 +44,9 @@ qualification = [
     "ruff==0.16.1",
     "mypy==1.19.1",
     "docker==7.1.0",
+    # Quantitative Phase2/Phase4 tests use the same exact-inference backend
+    # already pinned by the production/deploy dependency surface.
+    "pgmpy==1.1.2",
 ]
 # G17: 按需可选依赖(不默认安装,避免无用依赖膨胀)
 interactive = [

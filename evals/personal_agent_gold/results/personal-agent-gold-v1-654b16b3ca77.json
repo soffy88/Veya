@@ -1,0 +1,2468 @@
+{
+  "approved_count": 170,
+  "category_distribution": {
+    "backend_crash": 5,
+    "below_threshold": 7,
+    "cli_web": 5,
+    "contradiction": 8,
+    "correction": 8,
+    "critical_regression": 2,
+    "deprecated_blocked": 5,
+    "exact_activation": 8,
+    "improvement_validated": 2,
+    "interrupted": 5,
+    "irrelevant_memory": 8,
+    "multiple_candidates": 5,
+    "multiple_tasks": 5,
+    "replay_rejected": 4,
+    "same_workspace_old_tasks": 5,
+    "should_not_activate": 8,
+    "similar_wording": 8,
+    "single_failure": 8,
+    "stable_preference": 10,
+    "stale": 8,
+    "threshold_reached": 7,
+    "user_workspace_precedence": 8,
+    "version_selection": 8,
+    "web_cli": 5,
+    "workspace_isolation": 10,
+    "wrong_workspace": 8
+  },
+  "comparison": {
+    "baseline_eval_run_id": "personal-gold-a2547d54677c460f9ed76f5f59fa2a1d",
+    "baseline_git_sha": "7d623fae3bdb75f4d19fdf163b87e501b0fc489a",
+    "metrics": {
+      "continuity_state_restore_accuracy": {
+        "current": 1.0,
+        "delta": 0.033333333333333326,
+        "previous": 0.9666666666666667
+      },
+      "continuity_task_recovery_accuracy": {
+        "current": 1.0,
+        "delta": 0.033333333333333326,
+        "previous": 0.9666666666666667
+      },
+      "learning_candidate_precision": {
+        "current": 1.0,
+        "delta": 0.033333333333333326,
+        "previous": 0.9666666666666667
+      },
+      "learning_regression_escape_rate": {
+        "current": 0.0,
+        "delta": -0.5,
+        "previous": 0.5
+      },
+      "memory_conflict_resolution_accuracy": {
+        "current": 1.0,
+        "delta": 0.08333333333333337,
+        "previous": 0.9166666666666666
+      },
+      "memory_correction_success_rate": {
+        "current": 1.0,
+        "delta": 0.0,
+        "previous": 1.0
+      },
+      "memory_precision": {
+        "current": 1.0,
+        "delta": 0.10869565217391308,
+        "previous": 0.8913043478260869
+      },
+      "memory_recall_when_needed": {
+        "current": 1.0,
+        "delta": 0.06818181818181823,
+        "previous": 0.9318181818181818
+      },
+      "retrieval_precision": {
+        "current": 1.0,
+        "delta": 0.10869565217391308,
+        "previous": 0.8913043478260869
+      },
+      "skill_activation_precision": {
+        "current": 1.0,
+        "delta": 0.09677419354838712,
+        "previous": 0.9032258064516129
+      },
+      "skill_regression_rate": {
+        "current": 0.0,
+        "delta": -0.125,
+        "previous": 0.125
+      },
+      "skill_reuse_success_rate": {
+        "current": 1.0,
+        "delta": 0.06896551724137934,
+        "previous": 0.9310344827586207
+      },
+      "skill_version_selection_accuracy": {
+        "current": 1.0,
+        "delta": 0.125,
+        "previous": 0.875
+      },
+      "stale_memory_use_rate": {
+        "current": 0.0,
+        "delta": -0.09375,
+        "previous": 0.09375
+      },
+      "unnecessary_memory_use_rate": {
+        "current": 0.0,
+        "delta": -0.1111111111111111,
+        "previous": 0.1111111111111111
+      },
+      "wrong_skill_activation_rate": {
+        "current": 0.0,
+        "delta": -0.06,
+        "previous": 0.06
+      }
+    }
+  },
+  "dataset_content_hash": "sha256:c3d8f714f3da5fcbc37ba7c62eca95e92112a1fe8027f4fd1bd13b23d90b09df",
+  "dataset_file_hashes": {
+    "continuity.jsonl": "sha256:189c0d5b8dac523e4e40dae01dfa982df33c773b7544521713cd97a0bcec129e",
+    "learning.jsonl": "sha256:4826e800f030d621b1c95ede3cd0f34273586fb45779637a9138d507f489a210",
+    "memory.jsonl": "sha256:368ccdeff9ab559bf0c4a2de893529a208cab490b35f4efe0df0bced78ff89b8",
+    "skill.jsonl": "sha256:fb8d4ff60d00effa17dac06f7312613d8898a90be14a1c619e1cf4a7a981c10c"
+  },
+  "dataset_version": "personal-agent-gold-v1",
+  "difficulty_distribution": {
+    "easy": 67,
+    "hard": 41,
+    "medium": 62
+  },
+  "eval_run_id": "personal-gold-8eda6e7b5349453d8214bcd3dd5ff2f5",
+  "failure_count": 0,
+  "feature_flags": {
+    "VEYA_CONTINUITY_V1": "default:true",
+    "VEYA_LONG_TERM_LEARNING": "default:true",
+    "VEYA_MEMORY_CANDIDATES": "default:true",
+    "VEYA_MEMORY_CONFLICT_DETECTION": "default:true",
+    "VEYA_MEMORY_V2": "default:true",
+    "VEYA_PERSONAL_AGENT_EVAL": "default:true",
+    "VEYA_SKILL_TEACHING": "default:true",
+    "VEYA_SKILL_V2": "default:true",
+    "VEYA_SKILL_VERSIONING": "default:true"
+  },
+  "git_sha": "654b16b3ca7742639d781bad355ed181ec270b90",
+  "hardest_failures": [],
+  "judge": {
+    "human_gold_required": true,
+    "llm_judge": "not_used",
+    "mode": "deterministic_replay_contract_with_runtime_quality_policy"
+  },
+  "label_version": "human-gold-v1",
+  "metrics": {
+    "continuity_state_restore_accuracy": {
+      "ci95": {
+        "high": 0.9999999999999999,
+        "low": 0.8864866068260312
+      },
+      "denominator": 30,
+      "numerator": 30,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.98,
+      "target_operator": ">="
+    },
+    "continuity_task_recovery_accuracy": {
+      "ci95": {
+        "high": 0.9999999999999999,
+        "low": 0.8864866068260312
+      },
+      "denominator": 30,
+      "numerator": 30,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.98,
+      "target_operator": ">="
+    },
+    "learning_candidate_precision": {
+      "ci95": {
+        "high": 0.9999999999999999,
+        "low": 0.8864866068260312
+      },
+      "denominator": 30,
+      "numerator": 30,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.95,
+      "target_operator": ">="
+    },
+    "learning_regression_escape_rate": {
+      "ci95": {
+        "high": 0.6576197724933469,
+        "low": 0.0
+      },
+      "denominator": 2,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
+      "target": 0.0,
+      "target_operator": "<="
+    },
+    "memory_conflict_resolution_accuracy": {
+      "ci95": {
+        "high": 1.0,
+        "low": 0.8620237953250198
+      },
+      "denominator": 24,
+      "numerator": 24,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.95,
+      "target_operator": ">="
+    },
+    "memory_correction_success_rate": {
+      "ci95": {
+        "high": 1.0,
+        "low": 0.6755924351161198
+      },
+      "denominator": 8,
+      "numerator": 8,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.99,
+      "target_operator": ">="
+    },
+    "memory_precision": {
+      "ci95": {
+        "high": 1.0,
+        "low": 0.9197043962415192
+      },
+      "denominator": 44,
+      "numerator": 44,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.95,
+      "target_operator": ">="
+    },
+    "memory_recall_when_needed": {
+      "ci95": {
+        "high": 1.0,
+        "low": 0.9197043962415192
+      },
+      "denominator": 44,
+      "numerator": 44,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.9,
+      "target_operator": ">="
+    },
+    "retrieval_precision": {
+      "ci95": {
+        "high": 1.0,
+        "low": 0.9197043962415192
+      },
+      "denominator": 44,
+      "numerator": 44,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.95,
+      "target_operator": ">="
+    },
+    "skill_activation_precision": {
+      "ci95": {
+        "high": 1.0,
+        "low": 0.8830302015002593
+      },
+      "denominator": 29,
+      "numerator": 29,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.95,
+      "target_operator": ">="
+    },
+    "skill_regression_rate": {
+      "ci95": {
+        "high": 0.32440756488388023,
+        "low": 0.0
+      },
+      "denominator": 8,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
+      "target": 0.01,
+      "target_operator": "<="
+    },
+    "skill_reuse_success_rate": {
+      "ci95": {
+        "high": 1.0,
+        "low": 0.8830302015002593
+      },
+      "denominator": 29,
+      "numerator": 29,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.9,
+      "target_operator": ">="
+    },
+    "skill_version_selection_accuracy": {
+      "ci95": {
+        "high": 1.0,
+        "low": 0.6755924351161198
+      },
+      "denominator": 8,
+      "numerator": 8,
+      "passed": true,
+      "rate": 1.0,
+      "target": 0.95,
+      "target_operator": ">="
+    },
+    "stale_memory_use_rate": {
+      "ci95": {
+        "high": 0.1071791982550706,
+        "low": 0.0
+      },
+      "denominator": 32,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
+      "target": 0.01,
+      "target_operator": "<="
+    },
+    "unnecessary_memory_use_rate": {
+      "ci95": {
+        "high": 0.17587922364665765,
+        "low": 0.0
+      },
+      "denominator": 18,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
+      "target": 0.05,
+      "target_operator": "<="
+    },
+    "wrong_skill_activation_rate": {
+      "ci95": {
+        "high": 0.07134759913335872,
+        "low": 6.938893903907228e-18
+      },
+      "denominator": 50,
+      "numerator": 0,
+      "passed": true,
+      "rate": 0.0,
+      "target": 0.02,
+      "target_operator": "<="
+    }
+  },
+  "model": null,
+  "model_params": {},
+  "quality_policy_version": "personal-runtime-quality-v1",
+  "runtime_schema_version": 3,
+  "scenario_count": 170,
+  "scenario_schema_version": 1,
+  "slices": {
+    "difficulty": {
+      "easy": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7575059933447592
+            },
+            "denominator": 12,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7575059933447592
+            },
+            "denominator": 12,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": {
+              "high": 0.9999999999999999,
+              "low": 0.7719046276458016
+            },
+            "denominator": 13,
+            "numerator": 13,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": {
+              "high": 0.7934506856227626,
+              "low": 0.0
+            },
+            "denominator": 1,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7008549515804559
+            },
+            "denominator": 9,
+            "numerator": 9,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.4385029682449546
+            },
+            "denominator": 3,
+            "numerator": 3,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8156818649911483
+            },
+            "denominator": 17,
+            "numerator": 17,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8156818649911483
+            },
+            "denominator": 17,
+            "numerator": 17,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8156818649911483
+            },
+            "denominator": 17,
+            "numerator": 17,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7411670330319684
+            },
+            "denominator": 11,
+            "numerator": 11,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": {
+              "high": 0.5614970317550454,
+              "low": 5.551115123125783e-17
+            },
+            "denominator": 3,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7411670330319684
+            },
+            "denominator": 11,
+            "numerator": 11,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.4385029682449546
+            },
+            "denominator": 3,
+            "numerator": 3,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.24249400665524085,
+              "low": 2.7755575615628914e-17
+            },
+            "denominator": 12,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": {
+              "high": 0.35433043506668743,
+              "low": 5.551115123125783e-17
+            },
+            "denominator": 7,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": {
+              "high": 0.16817922405261626,
+              "low": 0.0
+            },
+            "denominator": 19,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 67
+      },
+      "hard": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6096657120978346
+            },
+            "denominator": 6,
+            "numerator": 6,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6096657120978346
+            },
+            "denominator": 6,
+            "numerator": 6,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6456695649333126
+            },
+            "denominator": 7,
+            "numerator": 7,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6096657120978346
+            },
+            "denominator": 6,
+            "numerator": 6,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.34238022750665303
+            },
+            "denominator": 2,
+            "numerator": 2,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7575059933447592
+            },
+            "denominator": 12,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7575059933447592
+            },
+            "denominator": 12,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7575059933447592
+            },
+            "denominator": 12,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6456695649333126
+            },
+            "denominator": 7,
+            "numerator": 7,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": {
+              "high": 0.6576197724933469,
+              "low": 0.0
+            },
+            "denominator": 2,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6456695649333126
+            },
+            "denominator": 7,
+            "numerator": 7,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.34238022750665303
+            },
+            "denominator": 2,
+            "numerator": 2,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.32440756488388023,
+              "low": 0.0
+            },
+            "denominator": 8,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": {
+              "high": 0.43448246478317476,
+              "low": 0.0
+            },
+            "denominator": 5,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": {
+              "high": 0.24249400665524085,
+              "low": 2.7755575615628914e-17
+            },
+            "denominator": 12,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 41
+      },
+      "medium": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7575059933447592
+            },
+            "denominator": 12,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7575059933447592
+            },
+            "denominator": 12,
+            "numerator": 12,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": {
+              "high": 0.9999999999999999,
+              "low": 0.7224672001371107
+            },
+            "denominator": 10,
+            "numerator": 10,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": {
+              "high": 0.7934506856227626,
+              "low": 0.0
+            },
+            "denominator": 1,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7008549515804559
+            },
+            "denominator": 9,
+            "numerator": 9,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.4385029682449546
+            },
+            "denominator": 3,
+            "numerator": 3,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7961166989641515
+            },
+            "denominator": 15,
+            "numerator": 15,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7961166989641515
+            },
+            "denominator": 15,
+            "numerator": 15,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7961166989641515
+            },
+            "denominator": 15,
+            "numerator": 15,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7411670330319684
+            },
+            "denominator": 11,
+            "numerator": 11,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": {
+              "high": 0.5614970317550454,
+              "low": 5.551115123125783e-17
+            },
+            "denominator": 3,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.7411670330319684
+            },
+            "denominator": 11,
+            "numerator": 11,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.4385029682449546
+            },
+            "denominator": 3,
+            "numerator": 3,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.24249400665524085,
+              "low": 2.7755575615628914e-17
+            },
+            "denominator": 12,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": {
+              "high": 0.3903342879021653,
+              "low": 2.7755575615628914e-17
+            },
+            "denominator": 6,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": {
+              "high": 0.16817922405261626,
+              "low": 0.0
+            },
+            "denominator": 19,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 62
+      }
+    },
+    "memory_case": {
+      "conflict": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8063923194655637
+            },
+            "denominator": 16,
+            "numerator": 16,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8063923194655637
+            },
+            "denominator": 16,
+            "numerator": 16,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8063923194655637
+            },
+            "denominator": 16,
+            "numerator": 16,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8063923194655637
+            },
+            "denominator": 16,
+            "numerator": 16,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.1936076805344365,
+              "low": 0.0
+            },
+            "denominator": 16,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 16
+      },
+      "correction": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.32440756488388023,
+              "low": 0.0
+            },
+            "denominator": 8,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 8
+      },
+      "stale": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.32440756488388023,
+              "low": 0.0
+            },
+            "denominator": 8,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 8
+      }
+    },
+    "scope": {
+      "user": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.32440756488388023,
+              "low": 0.0
+            },
+            "denominator": 8,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 8
+      },
+      "workspace": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": {
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
+            },
+            "denominator": 30,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": {
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
+            },
+            "denominator": 30,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": {
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
+            },
+            "denominator": 30,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": {
+              "high": 0.6576197724933469,
+              "low": 0.0
+            },
+            "denominator": 2,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8620237953250198
+            },
+            "denominator": 24,
+            "numerator": 24,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.9197043962415192
+            },
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.9197043962415192
+            },
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.9197043962415192
+            },
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8830302015002593
+            },
+            "denominator": 29,
+            "numerator": 29,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": {
+              "high": 0.32440756488388023,
+              "low": 0.0
+            },
+            "denominator": 8,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8830302015002593
+            },
+            "denominator": 29,
+            "numerator": 29,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.1071791982550706,
+              "low": 0.0
+            },
+            "denominator": 32,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": {
+              "high": 0.17587922364665765,
+              "low": 0.0
+            },
+            "denominator": 18,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": {
+              "high": 0.07134759913335872,
+              "low": 6.938893903907228e-18
+            },
+            "denominator": 50,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 170
+      }
+    },
+    "session_shape": {
+      "multi-session": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": {
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
+            },
+            "denominator": 30,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": {
+              "high": 0.9999999999999999,
+              "low": 0.8864866068260312
+            },
+            "denominator": 30,
+            "numerator": 30,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8513451253913791
+            },
+            "denominator": 22,
+            "numerator": 22,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": {
+              "high": 0.6576197724933469,
+              "low": 0.0
+            },
+            "denominator": 2,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8620237953250198
+            },
+            "denominator": 24,
+            "numerator": 24,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.9197043962415192
+            },
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.9197043962415192
+            },
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.9197043962415192
+            },
+            "denominator": 44,
+            "numerator": 44,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8830302015002593
+            },
+            "denominator": 29,
+            "numerator": 29,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": {
+              "high": 0.32440756488388023,
+              "low": 0.0
+            },
+            "denominator": 8,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8830302015002593
+            },
+            "denominator": 29,
+            "numerator": 29,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": {
+              "high": 0.1071791982550706,
+              "low": 0.0
+            },
+            "denominator": 32,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": {
+              "high": 0.17587922364665765,
+              "low": 0.0
+            },
+            "denominator": 18,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": {
+              "high": 0.07134759913335872,
+              "low": 6.938893903907228e-18
+            },
+            "denominator": 50,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 162
+      },
+      "single-session": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 8
+      }
+    },
+    "skill_case": {
+      "ambiguous": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8453609810751531
+            },
+            "denominator": 21,
+            "numerator": 21,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": {
+              "high": 0.32440756488388023,
+              "low": 0.0
+            },
+            "denominator": 8,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.8453609810751531
+            },
+            "denominator": 21,
+            "numerator": 21,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": {
+              "high": 0.08379879086570391,
+              "low": 0.0
+            },
+            "denominator": 42,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 42
+      },
+      "exact": {
+        "metrics": {
+          "continuity_state_restore_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "continuity_task_recovery_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.98,
+            "target_operator": ">="
+          },
+          "learning_candidate_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "learning_regression_escape_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.0,
+            "target_operator": "<="
+          },
+          "memory_conflict_resolution_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_correction_success_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.99,
+            "target_operator": ">="
+          },
+          "memory_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "memory_recall_when_needed": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "retrieval_precision": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_activation_precision": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "skill_regression_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "skill_reuse_success_rate": {
+            "ci95": {
+              "high": 1.0,
+              "low": 0.6755924351161198
+            },
+            "denominator": 8,
+            "numerator": 8,
+            "passed": true,
+            "rate": 1.0,
+            "target": 0.9,
+            "target_operator": ">="
+          },
+          "skill_version_selection_accuracy": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.95,
+            "target_operator": ">="
+          },
+          "stale_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.01,
+            "target_operator": "<="
+          },
+          "unnecessary_memory_use_rate": {
+            "ci95": null,
+            "denominator": 0,
+            "numerator": 0,
+            "passed": null,
+            "rate": null,
+            "target": 0.05,
+            "target_operator": "<="
+          },
+          "wrong_skill_activation_rate": {
+            "ci95": {
+              "high": 0.32440756488388023,
+              "low": 0.0
+            },
+            "denominator": 8,
+            "numerator": 0,
+            "passed": true,
+            "rate": 0.0,
+            "target": 0.02,
+            "target_operator": "<="
+          }
+        },
+        "scenario_count": 8
+      }
+    }
+  },
+  "status": "PASS",
+  "timestamp": "2026-09-26T05:43:34.970075+00:00"
+}

@@ -206,6 +206,9 @@ def build_execution_report(
 ) -> ExecutionReport:
     """Build one canonical report from the durable GoalRun state."""
 
+    if isinstance(goalrun_state, ExecutionReport):
+        return goalrun_state
+
     tasks = _iter_tasks(goalrun_state)
     changes: list[dict[str, Any]] = []
     tests: list[dict[str, Any]] = []
@@ -281,6 +284,23 @@ def build_execution_report(
         if item.get("kind") == "text_signal" and "block" in str(item.get("detail", "")).lower()
     )
 
+    # ── cryptographic evidence hash chain ─────────────────────────
+    evidence_items: list[dict[str, Any]] = []
+    for c in changes:
+        evidence_items.append({"category": "change", **c})
+    for t in tests:
+        evidence_items.append({"category": "test", **t})
+    for a in artifacts:
+        evidence_items.append({"category": "artifact", **a})
+    for r in runtime_evidence:
+        evidence_items.append({"category": "runtime", **r})
+    for f in failures:
+        evidence_items.append({"category": "failure", **f})
+    for b in blocked:
+        evidence_items.append({"category": "blocked", **b})
+
+    evidence_chain = build_evidence_chain(evidence_items)
+
     return ExecutionReport(
         mission_id=mission.mission_id,
         goalrun_id=str(getattr(goalrun_state, "goal_id", "") or "") or None,
@@ -298,6 +318,7 @@ def build_execution_report(
         deviations=deviations,
         blocked_items=blocked,
         jev_decisions=list(jev_decisions or []),
+        evidence_chain=evidence_chain,
         executor_summary=str(summary) or f"{len(tasks)} task(s), status={status}",
         proposed_next_action=proposed_next_action
         or (None if not failures and not blocked else "revise"),

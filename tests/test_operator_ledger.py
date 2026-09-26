@@ -66,7 +66,9 @@ async def test_officecli_operator_missing_binary():
 
     result = await officecli_doc_engine("read", input="x.docx")
     assert result["ok"] is False
-    assert "未安装" in result["error"]
+    # A missing skill bundle is distinct from a missing executable, but both
+    # are the structured unavailable result this contract accepts.
+    assert "未安装" in result["error"] or "未挂载" in result["error"]
 
 
 @pytest.mark.asyncio

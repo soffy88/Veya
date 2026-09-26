@@ -77,8 +77,8 @@ def test_heavy_surfaces_are_lazy_loaded() -> None:
 
 def test_main_shell_deep_links_are_ssr_safe() -> None:
     assert 'import { browser } from "$app/environment"' in MAIN
-    assert 'if (!browser) return;' in MAIN
-    assert 'window.location.search' in MAIN
+    assert "if (!browser) return;" in MAIN
+    assert "window.location.search" in MAIN
 
 
 def test_workbench_default_activity_is_human_readable() -> None:
@@ -130,7 +130,7 @@ def test_search_palette_traps_keyboard_focus() -> None:
 def test_workbench_terminal_states_are_human_readable() -> None:
     assert 'started: "已开始"' in WORKBENCH
     assert 'view.state?.status === "completed"' in WORKBENCH
-    assert '工作已完成' in WORKBENCH
+    assert "工作已完成" in WORKBENCH
 
 
 def test_workbench_action_controls_use_touch_sized_targets() -> None:

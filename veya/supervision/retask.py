@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from runtime.verification.models import VerificationGateResult
+from runtime.verification.models import VerificationGateResult, VerificationVerdict
 
 from .models import (
     EscalationCode,
@@ -274,21 +274,38 @@ def plan_retask(
     iteration: int = 0,
     budget: MissionBudget | None = None,
     report: ExecutionReport | None = None,
-    verification: VerificationGateResult | None = None,
+    verification: VerificationGateResult | VerificationVerdict | None = None,
 ) -> RetaskOutcome:
     budget = budget or mission.budget
 
     if review.decision in _TERMINAL_DECISIONS:
         # Completion authority: acceptance/evidence/blockers must be satisfied.
-        if report is not None and (report.blocked_items or report.failures):
+        if report is not None and (
+            report.blocked_items
+            or report.failures
+            or any(
+                isinstance(item, dict)
+                and (
+                    item.get("artifact_requirement") == "UNSATISFIED"
+                    or bool(item.get("missing_required_artifacts"))
+                )
+                for item in [*report.runtime_evidence, *report.changes]
+            )
+        ):
             return RetaskOutcome(
                 MissionStatus.blocked,
-                reason="cannot complete: unresolved failures/blockers remain",
+                reason="cannot complete: unresolved failures/blockers/artifact requirements remain",
             )
         if mission.verification_profile_id and (verification is None or not verification.passed):
             return RetaskOutcome(
                 MissionStatus.blocked,
                 reason="cannot complete: required verification gate did not pass",
+            )
+        if verification is not None and not verification.passed:
+            outcome = getattr(verification, "outcome", "FAIL")
+            return RetaskOutcome(
+                MissionStatus.blocked,
+                reason=f"cannot complete: verification did not pass ({outcome})",
             )
         status = (
             MissionStatus.done if review.decision is ReviewDecision.done else MissionStatus.accepted
@@ -352,7 +369,7 @@ def apply_review(
     *,
     iteration: int = 0,
     report: ExecutionReport | None = None,
-    verification: VerificationGateResult | None = None,
+    verification: VerificationGateResult | VerificationVerdict | None = None,
 ) -> RetaskOutcome:
     """Persist the review, transition the mission, and emit the retask event."""
 

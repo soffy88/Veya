@@ -432,3 +432,25 @@ def test_apply_review_persists_and_transitions(tmp_path: Path) -> None:
     topics = [e["topic"] for e in store.events("m-1")]
     assert "REVIEW_COMPLETED" in topics and "RETASK_CREATED" in topics
     assert store.latest_review("m-1").decision is ReviewDecision.retry  # type: ignore[union-attr]
+
+
+def test_accept_rejects_unsatisfied_artifact_requirement() -> None:
+    report = ExecutionReport(
+        mission_id="m-1",
+        iteration=1,
+        objective="x",
+        status="completed",
+        runtime_evidence=[
+            {
+                "kind": "l1_execution",
+                "artifact_requirement": "UNSATISFIED",
+                "missing_required_artifacts": ["case_a/hicode.txt"],
+            }
+        ],
+    )
+    review = SupervisorReview(
+        mission_id="m-1", iteration=1, supervisor="internal", decision=ReviewDecision.accept
+    )
+    outcome = plan_retask(review, mission=_mission(), report=report)
+    assert outcome.mission_status is MissionStatus.blocked
+    assert "artifact requirements" in outcome.reason

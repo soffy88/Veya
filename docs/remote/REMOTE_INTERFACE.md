@@ -83,7 +83,7 @@ destructive=false`。token 授权 → 会话复制。每次 `tools/call` 复检�
 - `VEYA_REMOTE_TOKENS`：JSON 数组（内联 token，最高优先级）
 - `VEYA_REMOTE_TOKENS_FILE`：token 文件，默认 `~/.veya/remote_tokens.json`
 - `VEYA_REMOTE_AUDIT_LOG`：审计 JSONL 路径（缺省仅内存）
-- `VEYA_REMOTE_SESSION_TTL_S`（默认 3600）、`VEYA_REMOTE_MAX_SESSIONS`（默认 8）
+- `VEYA_REMOTE_SESSION_TTL_S`（默认 3600）；`VEYA_REMOTE_MAX_SESSIONS`（默认**不设上限**：未设置、`0`、`none`、`unlimited` 均为无限制；仅当显式设为正整数才启用硬上限）
 
 签发/轮换：
 
@@ -263,7 +263,7 @@ explicit requested workspace → canonicalize(realpath) → exists/dir → allow
 | AUDIT_TRAIL | `RemoteAudit.record`（requested + outcome 两条，append-only） |
 | EXECUTION_TIMEOUT | canonical 工具 timeout / `coding_run_*` timeout_s |
 | OUTPUT_SIZE_LIMIT | `RemoteToolAdapter._limit`（默认 200k） |
-| CONCURRENT_SESSION_LIMIT | `RemoteSessionManager(max_sessions)` |
+| CONCURRENT_SESSION_LIMIT（可选，默认无） | 仅当显式配置 `RemoteSessionManager(max_sessions=N)` 时生效；默认无人工全局 session 上限 |
 
 ## 返回语义
 

@@ -28,12 +28,18 @@ class GridSearchGoalRunAdapter:
         param_grid: dict[str, Any] | None = None,
         session_id: str | None = None,
         project_root: str = ".",
+        execute_callback: Any | None = None,
     ):
         self.asset_id = asset_id
         self.strategy_code = strategy_code
         self.param_grid = dict(param_grid or {})
         self.session_id = session_id
         self.project_root = project_root
+        # Bind the callback owned by the submitting Automata instance.  The
+        # fallback keeps direct adapter tests and recovery compatible, while
+        # production submissions no longer accidentally call a different
+        # process-global Automata singleton.
+        self.execute_callback = execute_callback
 
     async def before_execution(self, state: Any, project_root: str) -> None:
         return None
@@ -100,6 +106,21 @@ class GridSearchGoalRunAdapter:
 
             best = _load_oprim().reduce_best(results)
             if best is None:
+                # Keep the legacy notification contract as a projection of
+                # the canonical GoalRun blocked terminal state.  The adapter
+                # does not decide success; it reports the durable leaf's
+                # rejected result so callers are never left waiting for a
+                # terminal notification.
+                global_notifier.push(
+                    "ERROR",
+                    "网格搜索失败",
+                    "所有参数组合均报错",
+                    {
+                        "task_id": task.id,
+                        "session_id": spec["session_id"],
+                        "results": results,
+                    },
+                )
                 return LeafResult(
                     status="blocked",
                     summary="所有参数组合均报错",
@@ -114,6 +135,14 @@ class GridSearchGoalRunAdapter:
         results = grid["results"]
         if "summary" not in grid:
             from server.notification_center import global_notifier
+            from veya.platform import oprim as _load_oprim
+
+            heatmap_keys = list(spec["param_grid"].keys())
+            heatmap = (
+                _load_oprim().build_heatmap_payload(results, heatmap_keys[0], heatmap_keys[1])
+                if len(heatmap_keys) >= 2
+                else None
+            )
 
             prompt = (
                 "[SYSTEM TRIGGER] The backend grid search for "
@@ -124,10 +153,13 @@ class GridSearchGoalRunAdapter:
                 f"All results: {json.dumps(results, ensure_ascii=False)}\n\n"
                 "Generate a concise summary and a veya-artifact visualization."
             )
-            from server.automata import get_automata
-
             try:
-                summary = await get_automata()._scheduler.execute_callback(prompt)
+                if self.execute_callback is not None:
+                    summary = await self.execute_callback(prompt)
+                else:
+                    from server.automata import get_automata
+
+                    summary = await get_automata()._scheduler.execute_callback(prompt)
             except Exception as exc:
                 summary = f"(无头合成失败: {exc})"
             grid["summary"] = str(summary)
@@ -135,7 +167,13 @@ class GridSearchGoalRunAdapter:
 
             artifact_path = write_json_file(
                 root / "grid_search.json",
-                {"task_id": task.id, "best": best, "results": results, "summary": summary},
+                {
+                    "task_id": task.id,
+                    "best": best,
+                    "results": results,
+                    "summary": summary,
+                    "heatmap": heatmap,
+                },
             )
             grid["artifact"] = str(artifact_path)
             save_goal_run(state, self.project_root)
@@ -148,6 +186,7 @@ class GridSearchGoalRunAdapter:
                     "session_id": spec["session_id"],
                     "best": best,
                     "content": summary,
+                    "heatmap": heatmap,
                 },
             )
 

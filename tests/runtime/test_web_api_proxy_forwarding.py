@@ -41,7 +41,7 @@ PROJECT_PROXY = Path("apps/web/src/routes/projects/+server.ts").read_text(encodi
 
 
 def test_project_proxy_targets_gateway_projects_route():
-    assert 'const target = `${BASE}/projects${event.url.search}`;' in PROJECT_PROXY
+    assert "const target = `${BASE}/projects${event.url.search}`;" in PROJECT_PROXY
     assert "export const GET" in PROJECT_PROXY
     assert "export const POST" in PROJECT_PROXY
 

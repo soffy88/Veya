@@ -35,6 +35,7 @@ from typing import Any
 from runtime.coding.command_runner import CommandPolicyError
 from runtime.coding.worktree import WorktreeError, WorktreeManager
 from runtime.execution.side_effects import SideEffectLedger
+from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.remote.skills import SkillPermission
 from veya.supervision.task_memory import TaskMemory
@@ -302,7 +303,11 @@ _CLI_WORKERS = {
     "grok": {"provider": "VEYA_LOCAL_GATEWAY", "model": "veya1.2"},
     "codex": {"provider": "openai", "model": "gpt-5.6-luna"},
     "antigravity": {"provider": "google-antigravity", "model": "cli-default"},
-    "opencode": {"provider": "opencode-go", "model": "deepseek-v4-flash"},
+    # raw ids come from the provider registry, not from business code (SPEC 10)
+    "opencode": {
+        "provider": _cp.executor_provider("opencode_worker_default"),
+        "model": _cp.executor_model("opencode_worker_default"),
+    },
 }
 
 _TIMEOUT_SEPARATED_CLI_WORKERS = frozenset({"pi", "grok", "codex", "antigravity", "opencode"})
@@ -927,7 +932,79 @@ def _supervision_bindings() -> tuple[ToolBinding, ...]:
     )
 
 
-BINDINGS = BINDINGS + _supervision_bindings()
+_AUTONOMOUS_BINDINGS: tuple[ToolBinding, ...] = (
+    ToolBinding(
+        "autonomous.status",
+        None,
+        EffectClass.READ,
+        "Inspect mission autonomous state (spec §35).",
+        _obj({"mission": _STR}, ["mission"]),
+    ),
+    ToolBinding(
+        "autonomous.observations",
+        None,
+        EffectClass.READ,
+        "Inspect journaled observations for mission (spec §35).",
+        _obj({"mission": _STR, "limit": {"type": "integer"}}, ["mission"]),
+    ),
+    ToolBinding(
+        "autonomous.decisions",
+        None,
+        EffectClass.READ,
+        "Inspect decisions made by MasterAgent for mission (spec §35).",
+        _obj({"mission": _STR, "limit": {"type": "integer"}}, ["mission"]),
+    ),
+    ToolBinding(
+        "autonomous.progress",
+        None,
+        EffectClass.READ,
+        "Inspect verified progress and coverage for mission (spec §35).",
+        _obj({"mission": _STR}, ["mission"]),
+    ),
+    ToolBinding(
+        "autonomous.waits",
+        None,
+        EffectClass.READ,
+        "Inspect active and past wait conditions for mission (spec §35).",
+        _obj({"mission": _STR}, ["mission"]),
+    ),
+    ToolBinding(
+        "autonomous.escalations",
+        None,
+        EffectClass.READ,
+        "Inspect human escalation records for mission (spec §35).",
+        _obj({"mission": _STR}, ["mission"]),
+    ),
+    ToolBinding(
+        "autonomous.explain",
+        None,
+        EffectClass.READ,
+        "Explain justification and evidence for a decision (spec §35).",
+        _obj({"decision_id": _STR}, ["decision_id"]),
+    ),
+    ToolBinding(
+        "interrupt.reply",
+        None,
+        EffectClass.WRITE,
+        "Reply to a human escalation and resume autonomous mission (spec §35).",
+        _obj(
+            {"mission": _STR, "escalation_id": _STR, "reply": _STR},
+            ["mission", "escalation_id", "reply"],
+        ),
+    ),
+    ToolBinding(
+        "mission.revise",
+        None,
+        EffectClass.WRITE,
+        "Revise mission objective and constraints via canonical revision path (spec §35).",
+        _obj(
+            {"mission": _STR, "new_objective": _STR, "reason": _STR},
+            ["mission", "new_objective", "reason"],
+        ),
+    ),
+)
+
+BINDINGS = BINDINGS + _supervision_bindings() + _AUTONOMOUS_BINDINGS
 
 # Execution-aware clients may carry the durable work unit explicitly.  Keep
 # ``workspace``/legacy target spellings for compatibility, but expose the
@@ -1238,6 +1315,8 @@ class RemoteToolAdapter:
             return self._process_status(session, name, args, started)
         if name == "process.cancel":
             return await self._process_cancel(session, name, args, started)
+        if name.startswith("autonomous.") or name in ("interrupt.reply", "mission.revise"):
+            return await self._autonomous_call(session, name, args, started)
 
         # Check action classification & approval gate (spec §1, §4, §37, §38)
         ok, err_code, err_msg, classification = self.action_gateway.check_action(
@@ -4190,6 +4269,171 @@ class RemoteToolAdapter:
             duration_ms=(time.time() - started) * 1000,
         )
 
+    # ── autonomous.* (spec §35) ─────────────────────────────────────
+    async def _autonomous_call(
+        self, session: RemoteSession, name: str, args: dict[str, Any], started: float
+    ) -> RemoteCallResult:
+        mission_id = str(args.get("mission") or "")
+        project_root = Path(session.active_workspace or os.getcwd())
+        auto_dir = project_root / ".veya" / "autonomous" / mission_id
+
+        if name == "autonomous.status":
+            sfile = auto_dir / "state.json"
+            if sfile.is_file():
+                with open(sfile, encoding="utf-8") as f:
+                    res = json.load(f)
+            else:
+                res = {"mission_id": mission_id, "status": "NOT_FOUND"}
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result=res,
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        elif name == "autonomous.observations":
+            limit = int(args.get("limit") or 50)
+            from veya.autonomous.journal import ObservationJournal
+
+            journal = ObservationJournal(auto_dir / "journal.jsonl")
+            obs = [o.to_dict() for o in journal.query(mission_id, limit=limit)]
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result={"observations": obs},
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        elif name == "autonomous.decisions":
+            limit = int(args.get("limit") or 50)
+            from veya.autonomous.decision import DecisionStore
+
+            store = DecisionStore(auto_dir / "decisions.jsonl")
+            decs = [d.to_dict() for d in store.query(mission_id, limit=limit)]
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result={"decisions": decs},
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        elif name == "autonomous.progress":
+            sfile = auto_dir / "state.json"
+            st = {}
+            if sfile.is_file():
+                with open(sfile, encoding="utf-8") as f:
+                    st = json.load(f)
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result={
+                    "mission_id": mission_id,
+                    "objective": st.get("objective", ""),
+                    "accepted_progress": st.get("accepted_progress", []),
+                    "state": st.get("state", "UNKNOWN"),
+                },
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        elif name == "autonomous.waits":
+            from veya.autonomous.wait import WaitConditionManager
+
+            wm = WaitConditionManager(auto_dir / "waits.jsonl")
+            waits = [w.to_dict() for w in wm.query(mission_id)]
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result={"waits": waits},
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        elif name == "autonomous.escalations":
+            from veya.autonomous.escalation import EscalationManager
+
+            em = EscalationManager(auto_dir / "escalations.jsonl")
+            escs = [e.to_dict() for e in em.query(mission_id)]
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result={"escalations": escs},
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        elif name == "autonomous.explain":
+            dec_id = str(args.get("decision_id") or "")
+            from veya.autonomous.decision import DecisionStore
+
+            found = None
+            all_auto = project_root / ".veya" / "autonomous"
+            if all_auto.is_dir():
+                for m_path in all_auto.iterdir():
+                    d_file = m_path / "decisions.jsonl"
+                    if d_file.is_file():
+                        st_dec = DecisionStore(d_file)
+                        found = st_dec.get_decision(dec_id)
+                        if found:
+                            break
+            res = found.to_dict() if found else {"decision_id": dec_id, "found": False}
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result=res,
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        elif name == "interrupt.reply":
+            esc_id = str(args.get("escalation_id") or "")
+            reply = str(args.get("reply") or "")
+            from veya.autonomous.cycle import AutonomousCycle
+
+            cycle = AutonomousCycle(mission_id=mission_id, objective="", base_dir=project_root)
+            st_reply = cycle.handle_owner_reply(esc_id, reply)
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result=st_reply.to_dict(),
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        elif name == "mission.revise":
+            new_obj = str(args.get("new_objective") or "")
+            reason = str(args.get("reason") or "Mission revision requested via MCP")
+            from veya.autonomous.cycle import AutonomousCycle
+            from veya.autonomous.models import InterruptCategory
+
+            cycle = AutonomousCycle(mission_id=mission_id, objective="", base_dir=project_root)
+            st_rev = cycle.handle_interrupt(
+                sender="mcp_client",
+                content=f"REVISE: {new_obj} (reason: {reason})",
+                category=InterruptCategory.OBJECTIVE_CHANGE,
+            )
+            return RemoteCallResult(
+                ok=True,
+                tool=name,
+                session_id=session.session_id,
+                workspace=session.active_workspace,
+                result=st_rev.to_dict(),
+                duration_ms=(time.time() - started) * 1000,
+            )
+
+        return self._fail(name, session, RemoteErrorCode.TOOL_DENIED, "unknown autonomous tool")
+
     # ── failures ────────────────────────────────────────────────────
     def _fail(
         self,
@@ -4355,7 +4599,9 @@ def _worker_model_identity(worker: str) -> tuple[str, str]:
         return _hicode_model_identity()
     if worker == "opencode":
         model = _resolve_opencode_model()
-        return "opencode-go", model or "deepseek-v4-flash"
+        return _cp.executor_provider("opencode_worker_default"), (
+            model or _cp.executor_model("opencode_worker_default")
+        )
     cfg = _CLI_WORKERS.get(worker)
     if cfg:
         return str(cfg["provider"]), str(cfg["model"])

@@ -21,7 +21,7 @@ from typing import Any, Literal
 from runtime.bot_scope import DEFAULT_BOT_ID, require_same_bot
 
 VerificationStatus = Literal["pending", "running", "passed", "failed", "blocked"]
-VerdictOutcome = Literal["PASS", "FAIL", "BLOCKED"]
+VerdictOutcome = Literal["PASS", "FAIL", "BLOCKED", "INSUFFICIENT", "AMBIGUOUS"]
 HarnessOperation = Literal["doctor", "launch", "drive", "snapshot", "trace", "cleanup"]
 
 
@@ -813,6 +813,54 @@ class VerificationVerdict:
             evidence_bundle_hash=bundle_hash,
             outcome="BLOCKED",
             summary=reason,
+        )
+
+    @property
+    def passed(self) -> bool:
+        return self.outcome == "PASS"
+
+    @classmethod
+    def create_insufficient(
+        cls,
+        task_id: str,
+        goal_run_id: str,
+        head_sha: str,
+        spec_hash: str,
+        bundle_hash: str,
+        missing_evidence: list[str],
+        summary: str = "",
+    ) -> VerificationVerdict:
+        return cls(
+            task_id=task_id,
+            goal_run_id=goal_run_id,
+            head_sha_at_verdict=head_sha,
+            verification_spec_hash=spec_hash,
+            evidence_bundle_hash=bundle_hash,
+            outcome="INSUFFICIENT",
+            summary=summary or f"Insufficient evidence: missing {missing_evidence}",
+            missing_evidence=missing_evidence,
+        )
+
+    @classmethod
+    def create_ambiguous(
+        cls,
+        task_id: str,
+        goal_run_id: str,
+        head_sha: str,
+        spec_hash: str,
+        bundle_hash: str,
+        ambiguity_reason: str,
+        details: dict[str, Any] | None = None,
+    ) -> VerificationVerdict:
+        return cls(
+            task_id=task_id,
+            goal_run_id=goal_run_id,
+            head_sha_at_verdict=head_sha,
+            verification_spec_hash=spec_hash,
+            evidence_bundle_hash=bundle_hash,
+            outcome="AMBIGUOUS",
+            summary=ambiguity_reason,
+            details=details or {},
         )
 
 

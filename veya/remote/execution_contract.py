@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict, dataclass
+from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 from typing import Any, Literal
 
 from veya.supervision.evidence import (
@@ -231,8 +232,8 @@ def probe_runtime_capability_manifest(
             Path.home() / ".local" / "bin" / "agy",
             Path.home() / ".gemini" / "antigravity-cli" / "bin" / "agy",
         ]
-        provider = "gemini"
-        model = "gemini-2.5-pro"
+        provider = _cp.executor_provider("antigravity", "gemini")
+        model = _cp.executor_model("antigravity")
         authenticated = bool(
             os.environ.get("GEMINI_API_KEY")
             or os.environ.get("ANTIGRAVITY_API_KEY")
@@ -244,8 +245,8 @@ def probe_runtime_capability_manifest(
             Path.home() / ".opencode" / "bin" / "opencode",
             Path.home() / ".local" / "bin" / "opencode",
         ]
-        provider = "opencode-go"
-        model = "deepseek-v4.1-flash"
+        provider = _cp.executor_provider("opencode")
+        model = _cp.executor_model("opencode")
         authenticated = bool(
             os.environ.get("OPENCODE_API_KEY")
             or (Path.home() / ".opencode" / "auth.json").is_file()
@@ -256,8 +257,8 @@ def probe_runtime_capability_manifest(
             Path.home() / ".local" / "bin" / "codex",
             Path.home() / ".nvm" / "versions" / "node" / "v26.4.0" / "bin" / "codex",
         ]
-        provider = "openai"
-        model = "gpt-5-codex"
+        provider = _cp.executor_provider("codex")
+        model = _cp.executor_model("codex")
         authenticated = bool(
             os.environ.get("CODEX_API_KEY")
             or os.environ.get("OPENAI_API_KEY")
@@ -269,8 +270,8 @@ def probe_runtime_capability_manifest(
             Path.home() / ".local" / "bin" / "pi",
             Path.home() / ".nvm" / "versions" / "node" / "v26.4.0" / "bin" / "pi",
         ]
-        provider = "anthropic"
-        model = "claude-3-7-sonnet"
+        provider = _cp.executor_provider("pi")
+        model = _cp.executor_model("pi")
         authenticated = bool(
             os.environ.get("PI_API_KEY")
             or os.environ.get("ANTHROPIC_API_KEY")
@@ -282,31 +283,31 @@ def probe_runtime_capability_manifest(
             Path.home() / ".grok" / "bin" / "grok",
             Path.home() / ".local" / "bin" / "grok",
         ]
-        provider = "xai"
-        model = "grok-3"
+        provider = _cp.executor_provider("grok")
+        model = _cp.executor_model("grok")
         authenticated = bool(os.environ.get("GROK_API_KEY") or os.environ.get("XAI_API_KEY"))
     elif norm == "dsh":
         candidate_bins = [
             "dsh",
             Path.home() / ".local" / "bin" / "dsh",
         ]
-        provider = "dsh"
-        model = "deepseek-r1"
+        provider = _cp.executor_provider("dsh")
+        model = _cp.executor_model("dsh")
         authenticated = True
     elif norm == "acp":
         from veya.remote.acp_adapter import resolve_acp_command
 
         resolved = resolve_acp_command()
         candidate_bins = [resolved[0]] if resolved else ["openhands", "acp-agent", "agents-cli"]
-        provider = "acp"
-        model = "acp-agent"
+        provider = _cp.executor_provider("acp")
+        model = _cp.executor_model("acp")
         authenticated = True
     elif norm == "hicode":
         installed = True
         bin_path = sys.executable
         version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-        provider = "veya-canonical"
-        model = "hicode-v1"
+        provider = _cp.executor_provider("hicode")
+        model = _cp.executor_model("hicode")
         authenticated = bool(
             os.environ.get("OPENCODE_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or True
         )

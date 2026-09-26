@@ -20,6 +20,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 from urllib.parse import urlsplit
 
 REASONIX_PACKAGE = "reasonix"
@@ -598,7 +599,10 @@ print(json.dumps({
             os.environ.get("HICODE_REASONIX_CLOUD_BASE_URL", ""),
             fallback="https://opencode.ai/zen/go/v1",
         )
-        cloud_model = os.environ.get("HICODE_REASONIX_CLOUD_MODEL", "deepseek-v4-flash").strip()
+        cloud_model = (
+            os.environ.get("HICODE_REASONIX_CLOUD_MODEL", "").strip()
+            or _cp.executor_model("hicode_reasonix_cloud")
+        )
         cloud_key_env = _safe_env_name(
             os.environ.get("HICODE_REASONIX_CLOUD_API_KEY_ENV", "OPENCODE_API_KEY")
         )

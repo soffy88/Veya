@@ -270,3 +270,23 @@ async def test_react_tool_failure_emits_replan_before_next_tool_step(tmp_path, m
     assert observed[2]["payload"]["failed_tool"] == "read_file_ast"
     assert observed[3]["payload"]["replacement_tool"] == "read_file_ast"
     assert observed[-1]["payload"]["status"] == "completed"
+
+
+def test_execution_metrics_preserve_provider_failure_evidence() -> None:
+    from runtime.execution.observability import ExecutionMetrics
+
+    metrics = ExecutionMetrics()
+    metrics.record_failure(
+        provider=True,
+        code="EMPTY_MODEL_RESPONSE",
+        source="hicode_provider",
+        detail="empty assistant response",
+        evidence={"response": {"content": None, "tool_calls": []}},
+    )
+    snapshot = metrics.snapshot()
+    assert snapshot["provider_failures"] == 1
+    evidence = snapshot["failure_evidence"][0]
+    assert evidence["code"] == "EMPTY_MODEL_RESPONSE"
+    assert evidence["source"] == "hicode_provider"
+    assert evidence["evidence"]["response"]["content"] is None
+    assert evidence["evidence"]["response"]["tool_calls"] == []

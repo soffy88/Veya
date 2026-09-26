@@ -42,6 +42,9 @@ echo "== targeted qualification =="
   tests/goal_run \
   tests/runtime/test_execution_runtime.py
 
+echo "== executor qualification =="
+"$PYTHON_BIN" scripts/qualify_executors.py --deterministic
+
 echo "== full qualification =="
 "$PYTHON_BIN" -m pytest -q
 echo "QUALIFICATION=PASS"

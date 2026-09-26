@@ -163,8 +163,8 @@ async def test_coordinator_long_task_quota_pause_wired():
 
 @pytest.mark.asyncio
 async def test_coordinator_default_no_long_task():
-    """默认无 factory: 行为与原来一致 (直答 success)。"""
+    """默认无 factory: 行为与原来一致 (语义完成 completed)。"""
     coord = _make_coordinator()
     result = await coord.chat_stream("hi", session_id="s2")
-    assert result["status"] == "success"
+    assert result["status"] == "completed"
     assert result["final_answer"] == "done"

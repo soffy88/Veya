@@ -101,6 +101,7 @@ class VeyaAutomata:
                 param_grid=param_grid,
                 session_id=session_id,
                 project_root=project_root,
+                execute_callback=self._scheduler.execute_callback,
             ),
         )
 

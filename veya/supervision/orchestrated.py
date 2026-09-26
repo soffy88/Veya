@@ -198,6 +198,8 @@ async def run_plan(
     objective: str,
     parent_execution_id: str = "",
     failure_mode: str = "collect_all",
+    completed_subtasks: dict[str, SubtaskResult] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> ExecutionReport:
     """Schedule a dependency graph over L1 workers and build an ExecutionReport.
 
@@ -210,7 +212,42 @@ async def run_plan(
     evidence: list[dict[str, Any]] = []
     pending: dict[str, Subtask] = {s.task_id: s for s in subtasks}
 
+    if completed_subtasks:
+        for tid, prev_res in completed_subtasks.items():
+            if tid in pending and prev_res.status == _COMPLETED:
+                results[tid] = prev_res
+                s_obj = pending[tid]
+                del pending[tid]
+                evidence.append(
+                    routing_evidence(
+                        s_obj,
+                        parent_execution_id=parent_execution_id,
+                        reason="recovered completed subtask from previous execution (no re-execution)",
+                    )
+                )
+
     while pending:
+        if is_cancelled is not None and is_cancelled():
+            for subtask in list(pending.values()):
+                results[subtask.task_id] = SubtaskResult(
+                    task_id=subtask.task_id,
+                    worker=subtask.worker,
+                    status="CANCELLED",
+                    failure_class="CANCELLED",
+                    failure_source="l2_cancel_propagation",
+                    failure_message="Mission cancelled; dispatch aborted",
+                    error="Mission cancelled; dispatch aborted",
+                )
+                evidence.append(
+                    routing_evidence(
+                        subtask,
+                        parent_execution_id=parent_execution_id,
+                        reason="mission_cancelled: dispatch aborted",
+                    )
+                )
+                del pending[subtask.task_id]
+            break
+
         ready = [s for s in pending.values() if all(d in results for d in s.depends_on)]
         if not ready:
             break

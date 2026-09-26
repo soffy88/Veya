@@ -505,6 +505,27 @@ class VerificationEngine:
                 reason="EvidenceBundle not bound to correct task/goal/HEAD/spec",
             )
 
+        # Check for ambiguity in bundle
+        ambiguity_reasons = []
+        for evidence in bundle.evidence:
+            if evidence.kind in ("ambiguity", "semantic_ambiguity") or evidence.metadata.get("ambiguous"):
+                ambiguity_reasons.append(
+                    str(evidence.metadata.get("ambiguity_reason") or evidence.content or evidence.id)
+                )
+            elif evidence.metadata.get("conflicting"):
+                ambiguity_reasons.append(f"Conflicting evidence: {evidence.id}")
+
+        if ambiguity_reasons:
+            return VerificationVerdict.create_ambiguous(
+                task_id=spec.task_id,
+                goal_run_id=spec.goal_run_id,
+                head_sha=head_sha,
+                spec_hash=spec.spec_hash,
+                bundle_hash=bundle.bundle_hash,
+                ambiguity_reason="; ".join(ambiguity_reasons),
+                details={"ambiguity_reasons": ambiguity_reasons},
+            )
+
         # Evaluate acceptance criteria
         criteria_results = {}
         missing_evidence = []
@@ -522,10 +543,21 @@ class VerificationEngine:
             if criterion.required and not found:
                 missing_evidence.append(criterion.id)
 
+        # Missing required evidence results in INSUFFICIENT verdict
+        if missing_evidence:
+            return VerificationVerdict.create_insufficient(
+                task_id=spec.task_id,
+                goal_run_id=spec.goal_run_id,
+                head_sha=head_sha,
+                spec_hash=spec.spec_hash,
+                bundle_hash=bundle.bundle_hash,
+                missing_evidence=missing_evidence,
+                summary=f"Missing required evidence: {missing_evidence}",
+            )
+
         # Evaluate negative cases
         negative_case_results = {}
         for neg_case in spec.negative_cases:
-            # Check if negative case evidence was collected
             found = False
             for evidence in bundle.evidence:
                 if neg_case.id in evidence.id:
@@ -543,6 +575,28 @@ class VerificationEngine:
                     break
             if cleanup.required and not found:
                 cleanup_verified = False
+
+        # Check explicit failure evidence
+        explicit_failures = []
+        for evidence in bundle.evidence:
+            if evidence.kind in {"failure", "error"} or evidence.metadata.get("failed") is True:
+                explicit_failures.append(evidence.id)
+            elif evidence.metadata.get("exit_code") not in (None, 0):
+                explicit_failures.append(f"{evidence.id} (exit {evidence.metadata.get('exit_code')})")
+
+        if explicit_failures:
+            return VerificationVerdict.create_fail(
+                task_id=spec.task_id,
+                goal_run_id=spec.goal_run_id,
+                head_sha=head_sha,
+                spec_hash=spec.spec_hash,
+                bundle_hash=bundle.bundle_hash,
+                criteria_results=criteria_results,
+                missing_evidence=missing_evidence,
+                negative_case_results=negative_case_results,
+                cleanup_verified=cleanup_verified,
+                summary=f"Verification failed on explicit failure evidence: {explicit_failures}",
+            )
 
         # Determine outcome
         all_required_passed = all(
@@ -573,7 +627,7 @@ class VerificationEngine:
                 missing_evidence=missing_evidence,
                 negative_case_results=negative_case_results,
                 cleanup_verified=cleanup_verified,
-                summary=f"Missing required evidence: {missing_evidence}",
+                summary=f"Acceptance criteria not satisfied: {[c.id for c in spec.acceptance_criteria if c.required and not criteria_results.get(c.id)]}",
             )
         else:
             return VerificationVerdict.create_fail(
@@ -588,6 +642,143 @@ class VerificationEngine:
                 cleanup_verified=cleanup_verified,
                 summary="Negative cases not handled or cleanup incomplete",
             )
+
+    async def verify_mission_report(
+        self,
+        mission: Any,
+        report: Any,
+        spec: VerificationSpec | None = None,
+        bundle: EvidenceBundle | None = None,
+    ) -> VerificationVerdict:
+        """Evaluate deterministic verification for a mission and execution report."""
+        head_sha = get_current_head_sha(self.project_root)
+        task_id = str(getattr(mission, "mission_id", "mission"))
+        goal_run_id = str(
+            getattr(report, "goalrun_id", "")
+            or getattr(mission, "authority", {}).get("goalrun_id", task_id)
+        )
+
+        if spec is None:
+            criteria = []
+            for idx, item in enumerate(
+                getattr(mission, "acceptance_criteria", [])
+                or getattr(mission, "acceptance", [])
+                or []
+            ):
+                criteria.append(
+                    AcceptanceCriterion(
+                        id=f"ac-{idx}",
+                        description=str(item),
+                        required=True,
+                    )
+                )
+            execution_policy = getattr(getattr(mission, "policies", None), "execution_policy", {}) or {}
+            for subtask in execution_policy.get("subtasks") or []:
+                for art in subtask.get("required_artifacts") or []:
+                    criteria.append(
+                        AcceptanceCriterion(
+                            id=f"artifact-{art}",
+                            description=f"Artifact exists: {art}",
+                            required=True,
+                        )
+                    )
+            spec = VerificationSpec(
+                task_id=task_id,
+                goal_run_id=goal_run_id,
+                head_sha=head_sha,
+                acceptance_criteria=criteria,
+            )
+
+        if bundle is None:
+            bundle_items: list[EvidenceItem] = []
+            for item in getattr(report, "runtime_evidence", []) or []:
+                if isinstance(item, dict):
+                    if item.get("kind") in ("ambiguity", "semantic_ambiguity") or item.get("ambiguous"):
+                        bundle_items.append(
+                            EvidenceItem(
+                                id=f"ambiguity-{len(bundle_items)}",
+                                kind="observation",
+                                source="report.runtime_evidence",
+                                content=str(item.get("reason") or item.get("detail") or item),
+                                producer="runtime",
+                                metadata={
+                                    "ambiguous": True,
+                                    "ambiguity_reason": str(
+                                        item.get("reason") or item.get("detail") or item
+                                    ),
+                                },
+                            )
+                        )
+                    elif item.get("kind") == "l1_execution":
+                        bundle_items.append(
+                            EvidenceItem(
+                                id=f"l1-{item.get('subtask_id')}",
+                                kind="observation",
+                                source="l1_execution",
+                                content=f"Worker {item.get('worker')} status: {item.get('status')}",
+                                producer=str(item.get("worker") or "worker"),
+                                metadata=item,
+                            )
+                        )
+            for art in getattr(report, "artifacts", []) or []:
+                path = art.get("path") if isinstance(art, dict) else str(art)
+                verified = art.get("verified", True) if isinstance(art, dict) else True
+                if verified:
+                    bundle_items.append(
+                        EvidenceItem(
+                            id=f"artifact-{path}",
+                            kind="artifact",
+                            source="report.artifacts",
+                            content=f"Artifact exists: {path}",
+                            producer="evidence_normalizer",
+                            metadata={"path": path, "criterion_id": f"artifact-{path}"},
+                        )
+                    )
+            for test in getattr(report, "tests", []) or []:
+                failed = test.get("failed", 0) if isinstance(test, dict) else 0
+                bundle_items.append(
+                    EvidenceItem(
+                        id=f"test-{len(bundle_items)}",
+                        kind="test_result",
+                        source="report.tests",
+                        content=str(test),
+                        producer="test_runner",
+                        metadata={"failed": failed > 0, "exit_code": 1 if failed > 0 else 0},
+                    )
+                )
+            for fail in getattr(report, "failures", []) or []:
+                bundle_items.append(
+                    EvidenceItem(
+                        id=f"failure-{len(bundle_items)}",
+                        kind="failure",
+                        source="report.failures",
+                        content=str(fail),
+                        producer="executor",
+                        metadata={"failed": True},
+                    )
+                )
+            for blk in getattr(report, "blocked_items", []) or []:
+                bundle_items.append(
+                    EvidenceItem(
+                        id=f"blocked-{len(bundle_items)}",
+                        kind="failure",
+                        source="report.blocked_items",
+                        content=str(blk),
+                        producer="executor",
+                        metadata={"failed": True},
+                    )
+                )
+
+            bundle = EvidenceBundle(
+                task_id=task_id,
+                goal_run_id=goal_run_id,
+                head_sha=head_sha,
+                verification_spec_version=spec.version,
+                verification_spec_hash=spec.spec_hash,
+                evidence=bundle_items,
+            )
+
+        return await self.run_independent_verifier(spec, bundle, head_sha)
 
     async def verify_and_invalidate(
         self,

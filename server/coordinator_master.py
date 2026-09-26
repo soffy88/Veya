@@ -2026,6 +2026,14 @@ _active_streams: dict[str, asyncio.Task] = {}
 _session_task: dict[str, str] = {}
 _stop_tasks: set[asyncio.Task] = set()
 
+# Epoch / Generation / Tombstone 管理 (防止 Stop 后的重入、旧重连竞态)
+_active_generations: dict[str, int] = {}
+_active_turn_ids: dict[str, str] = {}
+_cancelled_generations: dict[str, set[int]] = {}
+_cancelled_turn_ids: dict[str, set[str]] = {}
+_last_stop_meta: dict[str, dict[str, Any]] = {}
+_active_stream_queues: dict[str, Any] = {}
+
 
 async def _stop_hicode_task(task_id: str) -> bool:
     try:
@@ -2037,18 +2045,54 @@ async def _stop_hicode_task(task_id: str) -> bool:
         return False
 
 
-async def cancel_session(session_id: str) -> dict:
+async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
     """停止一个流式会话: 真正中断 hicode 任务 (serve /cancel) + 取消主脑。
 
-    前端 Stop 按钮 → POST /api/v1/agent/stop {session_id} → 本函数。
-    返回被停止的项目列表。
+    前端 Stop 按钮 → POST /api/v1/agent/stop {session_id, turn_id} → 本函数。
+    返回被停止的项目列表与状态。
     """
+    now = time.monotonic()
     stopped: list[str] = []
-    # 先取消主脑，前端立即结束；Hicode 硬停可在后台继续完成（最坏需 42s）。
+
+    # 1. 记录 generation & turn_id 的 tombstone，阻止旧重连/stale 请求重入
+    cur_gen = _active_generations.get(session_id, 0)
+    cur_turn = _active_turn_ids.get(session_id)
+    target_turn = turn_id or cur_turn
+
+    if cur_gen > 0:
+        c_gens = _cancelled_generations.setdefault(session_id, set())
+        c_gens.add(cur_gen)
+        if len(c_gens) > 50:
+            c_gens.pop()
+
+    if target_turn:
+        c_turns = _cancelled_turn_ids.setdefault(session_id, set())
+        c_turns.add(target_turn)
+        if len(c_turns) > 50:
+            c_turns.pop()
+
+    # 2. 取消主脑任务
     task = _active_streams.get(session_id)
     if task is not None and not task.done():
         task.cancel()
         stopped.append("chat_stream")
+    _active_streams.pop(session_id, None)
+
+    # 3. 关联的流式事件队列显式推入终止帧并关闭
+    q = _active_stream_queues.pop(session_id, None)
+    if q is not None:
+        with contextlib.suppress(Exception):
+            q.on_step(
+                {
+                    "type": "text_delta",
+                    "squad_id": "master",
+                    "delta": "⏹ 已停止。后台 Hicode 任务也已真正中断。",
+                }
+            )
+            q.on_step({"type": "master_done", "session_id": session_id, "status": "cancelled"})
+            q.close()
+
+    # 4. 取消关联的 Hicode 任务
     tid = _session_task.pop(session_id, None)
     if tid:
         stop_task = asyncio.create_task(_stop_hicode_task(tid))
@@ -2059,7 +2103,16 @@ async def cancel_session(session_id: str) -> dict:
                 stopped.append(f"hicode_task:{tid}")
         except TimeoutError:
             stopped.append(f"hicode_task:{tid}:stopping")
-    return {"cancelled": stopped or ["none"]}
+
+    _last_stop_meta[session_id] = {
+        "time": now,
+        "turn_id": target_turn,
+        "generation": cur_gen,
+    }
+
+    if not stopped:
+        return {"cancelled": ["none"], "status": "already_stopped"}
+    return {"cancelled": stopped, "status": "stopped"}
 
 
 # 模块级单例(server 复用)

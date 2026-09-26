@@ -71,17 +71,25 @@ async def _poll(session: Any, job: dict[str, Any], timeout_s: float = 1800.0) ->
 
 async def _session(workspace: str):
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
+    try:
+        from mcp.client.streamable_http import streamablehttp_client
+    except ImportError:  # mcp >= 1.26 renamed this public helper
+        from mcp.client.streamable_http import streamable_http_client as streamablehttp_client
 
     url = os.environ.get("VEYA_REMOTE_MCP_URL", "http://127.0.0.1:8790/mcp")
     headers = {"Authorization": f"Bearer {_token()}"}
-    return streamablehttp_client(url, headers=headers), ClientSession
+    try:
+        return streamablehttp_client(url, headers=headers), ClientSession
+    except TypeError:
+        import httpx
+        client = httpx.AsyncClient(headers=headers)
+        return streamablehttp_client(url, http_client=client), ClientSession
 
 
 async def _run(action: str, argv: list[str]) -> int:
     transport, client_cls = await _session(argv[0] if argv else "")
     out: dict[str, Any] = {"action": action}
-    async with transport as (read, write, _), client_cls(read, write) as session:
+    async with transport as streams, client_cls(streams[0], streams[1]) as session:
         await session.initialize()
         mode = argv[0] if action == "create" else ""
         workspace = argv[1] if action == "create" else argv[0]

@@ -77,6 +77,7 @@ from veya.obase._llm_transport import (  # noqa: E402, F401 — facade re-export
     provider_call,
     provider_stream,
 )
+from veya.obase import canonical_proxies as _cp  # noqa: E402 — SPEC v1.0 §2/§10 canonical proxies
 
 
 def _user_llm_config() -> dict[str, str]:
@@ -326,7 +327,16 @@ def _next_nvidia_nim_index(alias: str, size: int) -> int:
 
 
 async def _nvidia_nim_call(messages: list[dict], kwargs: dict, alias: str) -> dict:
-    """Call one NIM model, rotating through the shared Stratum keys per request."""
+    """Call one NIM model, rotating through the shared Stratum keys per request.
+
+    DEPRECATED (SPEC v1.0 §21 P9): the five ``veya-*-nv`` aliases now resolve to
+    the ``veya-nim`` canonical proxy, whose pool is built from qualified models
+    in ``~/.veya/model-state.json``.  Kept reachable so the legacy path is not
+    deleted mid-migration; every model id in :data:`_NVIDIA_NIM_ALIASES` is
+    retired upstream (410 EOL / 404 removed / 404 no entitlement).  This runner
+    also stays the source of the alias table that
+    ``scripts/veya_llm_gateway.py`` imports for its static catalog.
+    """
     keys = _nvidia_nim_keys()
     if not keys:
         return {
@@ -470,13 +480,6 @@ _VEYA12_FREE_POOL: list[dict[str, str]] = [
         "model": "deepseek-v4-flash-vision-exp",
         "endpoint": "https://api.b.ai/v1",
         "source": "bai",
-    },
-    {
-        # flatkey.ai · DeepSeek V4 Flash (用户标注免费档; key 来自 FLATKEY_API_KEY env)
-        "provider": "flatkey",
-        "model": "deepseek-v4-flash",
-        "endpoint": "https://router.flatkey.ai/v1",
-        "source": "flatkey",
     },
 ]
 
@@ -687,14 +690,22 @@ async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
 
 
 async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
-    """veya1.2-free: lifecycle-managed free-model round robin."""
+    """veya-free: eligibility-filtered free/cheap pool with round robin.
+
+    SPEC v1.0 §7: the pool is derived from ``~/.veya/model-state.json`` (the
+    single routing authority) rather than a hardcoded model-name priority list,
+    so a model only enters the pool once a real probe marked it eligible. The
+    static ``_VEYA12_FREE_POOL`` seed and the lifecycle
+    ``_replace_veya12_free_pool`` hook are retained as fallbacks (§21).
+    """
     global _veya12_free_rr_cursor
-    pool = list(_VEYA12_FREE_POOL)
+    derived = _cp.free_pool_candidates()
+    pool = derived or list(_VEYA12_FREE_POOL)
     if not pool:
         fb = await _frontier_fallback(
             messages,
             kwargs,
-            reason="veya1.2-free pool empty after lifecycle reconciliation",
+            reason="veya-free pool empty after eligibility filtering",
         )
         if fb is not None:
             return fb
@@ -703,7 +714,7 @@ async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
                 {
                     "message": {
                         "role": "assistant",
-                        "content": "veya1.2-free 免费池当前没有健康模型",
+                        "content": "veya-free 池当前没有合格模型 (eligibility 未满足)",
                     }
                 }
             ],
@@ -712,16 +723,21 @@ async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
         }
     start = _veya12_free_rr_cursor % len(pool)
     _veya12_free_rr_cursor = (_veya12_free_rr_cursor + 1) % len(pool)
-    return await _veya12_rr_call(
+    resp = await _veya12_rr_call(
         messages,
         kwargs,
         pool=pool,
         start=start,
-        alias="veya1.2-free",
-        route="veya12-free-rr",
-        pool_label="Inferera 免费池",
-        fallback_reason="veya1.2-free pool empty → gpt-5.6-luna",
+        alias="veya-free",
+        route="veya-free-rr",
+        pool_label="免费池",
+        fallback_reason="veya-free pool empty → gpt-5.6-luna",
     )
+    resp.setdefault("router", {})["POOL_SOURCE"] = (
+        "model-state.json:eligible" if derived else "static-seed-fallback"
+    )
+    resp["router"]["POOL_SIZE"] = len(pool)
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -1162,40 +1178,70 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     provider, model = get_provider_config(
         kwargs.get("config"), provider=kwargs.get("provider"), model=kwargs.get("model")
     )
-    nim_alias = (model or provider).lower()
-    if nim_alias in _NVIDIA_NIM_ALIASES:
-        return await _nvidia_nim_call(messages, kwargs, nim_alias)
-    # veya1.1 兼容别名 → veya1.2 OpenRouter 主脑池。
-    if model in ("veya1.1", "veya-1.1") or provider == "veya1.1":
-        return await _aliased_llm_call(messages, kwargs)
-    # 长的子别名 (含后缀 -free/-vl/-128K) 必须在 veya1.2 之前判定,
-    # 避免被 user_config["provider"]="veya1.2" 填充后误中主脑代理。
-    if model in ("veya1.2-free", "veya-1.2-free") or provider == "veya1.2-free":
-        return await _veya12_free_call(messages, kwargs)
-    if model in ("veya1.2-vl", "veya-1.2-vl") or provider == "veya1.2-vl":
-        return await _veya12_vl_call(messages, kwargs)
-    if model in ("veya1.2-128K", "veya1.2-128k", "veya-1.2-128K") or provider in (
-        "veya1.2-128K",
-        "veya1.2-128k",
-    ):
-        return await _veya12_128k_call(messages, kwargs)
+    # ------------------------------------------------------------------
+    # SPEC v1.0 §2/§10: canonical proxy dispatch.  Resolves the four stable
+    # logical proxies (veya1.2 / veya-free / veya-nim / veya-vl) plus every
+    # legacy alias, and stamps the §6 routing decision onto the response.
+    # Runs BEFORE the legacy alias branches below so that, e.g., a config
+    # injected provider="veya1.2" cannot swallow a requested "veya1.2-free".
+    # ------------------------------------------------------------------
+    _resolved = _cp.resolve_canonical(model, provider)
+    if _resolved is not None:
+        _low = _resolved.requested.lower()
+        if _resolved.canonical == "veya-nim":
+            return await _cp.veya_nim_call(messages, kwargs, _resolved)
+        if _resolved.canonical == "veya-vl":
+            return await _cp.veya_vl_call(messages, kwargs, _resolved)
+        if _resolved.canonical == "veya-free":
+            # long-context spellings keep their dedicated pool but report as
+            # the veya-free proxy's "long" capability class (§11).
+            if _low in ("veya1.2-128k", "veya-1.2-128k"):
+                _resp = await _veya12_128k_call(messages, kwargs)
+                _r = _resp.get("router") or {}
+                # never fabricate a provider: if the pool fell through to the
+                # frontier bridge the route label says so and the model stays
+                # empty, so the substitution is visible rather than implied
+                return _cp.stamp(
+                    _resp,
+                    requested_proxy=_resolved.requested,
+                    routed_proxy="veya-free",
+                    provider=str(_r.get("provider") or ""),
+                    model=str(_r.get("model") or ""),
+                    resolved_upstream=str(_r.get("model") or ""),
+                    routing_reason=(
+                        "veya-free long capability class"
+                        if _r.get("model")
+                        else f"veya-free long pool exhausted; fell through via "
+                        f"{_r.get('route') or 'unknown route'}"
+                    ),
+                    route=str(_r.get("route") or "veya-free-long"),
+                    deprecation=_cp.deprecation_for(_resolved),
+                )
+            return await _cp.veya_free_call(messages, kwargs, _resolved)
+        # canonical == "veya1.2" — master brain, delegates internally
+        _resp = await _veya12_flash_call(messages, kwargs)
+        _r = _resp.get("router") or {}
+        return _cp.stamp(
+            _resp,
+            requested_proxy=_resolved.requested,
+            routed_proxy="veya1.2",
+            provider=str(_r.get("provider") or ""),
+            model=str(_r.get("model") or ""),
+            resolved_upstream=str(_r.get("model") or ""),
+            routing_reason=(
+                "master brain default"
+                if _r.get("route") == "opencode-openrouter-ordered"
+                else f"master brain delegation: {_r.get('route') or 'unknown'}"
+            ),
+            deprecation=_cp.deprecation_for(_resolved),
+        )
+
     # veya-dp4.1-jev-1.13: Advisor (jev-1.13-free) + Executor (deepseek-v4.1-flash)
     if model in ("veya-dp4.1-jev-1.13", "veya-dp4.1-jev-1.13-free") or provider in (
         "veya-dp4.1-jev-1.13",
         "veya-dp4.1-jev-1.13-free",
     ):
         return await _veya_dp41_jev113_call(messages, kwargs)
-    # veya1.2 主脑代理: OpenRouter 免费模型轮询
-    if (
-        model in ("veya1.2-flash", "veya-1.2-flash")
-        or model == "veya1.2"
-        or provider
-        in (
-            "veya1.2-flash",
-            "veya1.2",
-        )
-    ):
-        return await _veya12_flash_call(messages, kwargs)
     config = kwargs.get("config") or {}
     # 自定义 endpoint: 顶层 kwarg > config["endpoints"][provider] > config["base_url"](NVIDIA NIM 等)
     endpoint = (
@@ -1316,6 +1362,14 @@ async def llm_stream(messages: list[dict], **kwargs: Any) -> AsyncIterator[dict]
     provider, model = get_provider_config(
         kwargs.get("config"), provider=kwargs.get("provider"), model=kwargs.get("model")
     )
+    # SPEC v1.0 §2.3: veya-nim is the only canonical proxy with a dedicated
+    # stream runner. Legacy "-nv" spellings resolve here too, so they stream
+    # from the qualified NIM pool instead of a retired model id.
+    _sresolved = _cp.resolve_canonical(model, provider)
+    if _sresolved is not None and _sresolved.canonical == "veya-nim":
+        async for event in _cp.veya_nim_stream(messages, kwargs, _sresolved):
+            yield event
+        return
     nim_alias = (model or provider).lower()
     if nim_alias in _NVIDIA_NIM_ALIASES:
         async for event in _nvidia_nim_stream(messages, kwargs, nim_alias):

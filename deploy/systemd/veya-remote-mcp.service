@@ -18,14 +18,20 @@ WorkingDirectory=/data/soffy/projects/veya
 Environment=VEYA_REMOTE_TOKENS_FILE=%h/.veya/remote_tokens.json
 Environment=VEYA_REMOTE_AUDIT_LOG=%h/.veya/remote_audit.jsonl
 Environment=VEYA_REMOTE_SESSION_TTL_S=1800
-Environment=VEYA_REMOTE_MAX_SESSIONS=64
+# No artificial global MCP session cap (Local2 unlimited concurrency).
+# VEYA_REMOTE_MAX_SESSIONS is intentionally left unset; the gateway also
+# accepts 0 / none / unlimited if an operator wants to state it explicitly.
+# A session is a short-lived RPC context; durable executions run independently
+# and must never consume a session slot.
 # Managed Hicode/Reasonix runtime (Veya Local runs on the host, so the
 # official image's /opt/veya/hicode-runtime is extracted to a host path).
 Environment=HICODE_MANAGED_RUNTIME_ROOT=/home/soffy/.veya/hicode-managed-runtime
 Environment=HICODE_RUNTIME_DATA_ROOT=/home/soffy/.veya/hicode-runtime
-Environment=HICODE_REASONIX_BASE_URL=http://127.0.0.1:8791/v1
-Environment=HICODE_REASONIX_MODEL=opencode-go/deepseek-v4.1-flash
-Environment=HICODE_REASONIX_API_KEY_ENV=OPENCODE_API_KEY
+Environment=HICODE_REASONIX_PROVIDER=cliproxy-google
+Environment=HICODE_REASONIX_BASE_URL=http://127.0.0.1:8317/v1
+Environment=HICODE_REASONIX_MODEL=gemini-pro-agent
+Environment=HICODE_REASONIX_API_KEY_ENV=CLIPROXYAPI_API_KEY
+Environment=HICODE_MODEL=gemini-pro-agent
 # Read/write roots for the Veya Local workstream: projects (veya, hevi, ...) and
 # the canonical 3O repos. Writes still go through each repo's isolated worktree.
 Environment=VEYA_WORKSPACE_ROOT=/data/soffy/projects

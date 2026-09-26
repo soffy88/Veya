@@ -65,9 +65,13 @@ app = FastAPI(title="veya LLM gateway", lifespan=_app_lifespan)
 # veya1.2-free 的活动池由下方生命周期任务独立维护。
 # ---------------------------------------------------------------------------
 _STATIC_CATALOG: dict[str, dict[str, Any]] = {
+    # --- SPEC v1.0 §2: the four canonical proxies come first ---
     "veya1.2": {"model": "veya1.2"},
+    "veya-free": {"model": "veya-free"},
+    "veya-nim": {"model": "veya-nim"},
+    "veya-vl": {"model": "veya-vl"},
+    # --- deprecated spellings, kept resolvable per §11 ---
     "veya1.1": {"model": "veya1.1"},
-    # 历史别名保留兼容，但不再代表旧的 opencode zen 主脑池。
     "veya1.2-flash": {"model": "veya1.2-flash"},
     "veya1.2-free": {"model": "veya1.2-free"},
     "veya1.2-vl": {"model": "veya1.2-vl"},

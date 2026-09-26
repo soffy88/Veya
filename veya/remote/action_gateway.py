@@ -220,6 +220,16 @@ def classify_action(
             reason="process control for owned execution",
         )
 
+    if tool_name.startswith("autonomous.") or tool_name in ("interrupt.reply", "mission.revise"):
+        op_hash = compute_operation_hash(tool_name, cwd, "autonomous.mission")
+        return ActionClassification(
+            ActionCategory.AUTO_OPEN,
+            "autonomous.mission",
+            normalized_operation=tool_name,
+            operation_hash=op_hash,
+            reason="canonical autonomous mission introspection and control",
+        )
+
     # 2. Shell tool calls
     raw_command = str(args.get("command", "")).strip()
     argv = _parse_argv(raw_command)

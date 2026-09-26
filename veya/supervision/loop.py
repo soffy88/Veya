@@ -60,6 +60,7 @@ class MissionLoop:
     internal: InternalSupervisor | None = None
     jev: Any = None
     planner: PlanRevisionPlanner | None = None
+    verification_engine: Any = None
     external_available: bool = True
     _external: ExternalSupervisor | None = field(default=None, repr=False)
 
@@ -176,11 +177,35 @@ class MissionLoop:
         mission.authority["plan_version"] = plan_version
         mission.authority["plan_revision_reason"] = reason
         if pending:
+            plan_history = mission.authority.setdefault("plan_history", [])
+            old_plan = plan_history[-1].get("plan", []) if plan_history else []
+            old_task_ids = {
+                str(item.get("task_id") or item.get("id"))
+                for item in old_plan
+                if isinstance(item, dict)
+            }
+            new_task_ids = {
+                str(item.get("task_id") or item.get("id"))
+                for item in raw_plan
+                if isinstance(item, dict)
+            }
+            preserved = sorted(list(old_task_ids & new_task_ids))
+            invalidated = sorted(list(old_task_ids - new_task_ids))
+            added = sorted(list(new_task_ids - old_task_ids))
+
             mission.authority["last_plan_revision"] = {
                 "from_version": base_version,
                 "to_version": plan_version,
+                "previous_plan_version": base_version,
+                "new_plan_version": plan_version,
                 "reason": reason,
+                "failed_task": pending.get("failed_task") or pending.get("next_task"),
+                "failure_class": pending.get("failure_class") or pending.get("decision"),
+                "preserved_completed_tasks": preserved,
+                "invalidated_tasks": invalidated,
+                "new_tasks": added,
                 "correction_scope": "PLAN",
+                "timestamp": time.time(),
             }
             mission.authority.pop("pending_plan_revision", None)
             mission.authority.pop("pending_plan_version", None)
@@ -531,9 +556,48 @@ class MissionLoop:
         if current is not None and current.status is MissionStatus.cancelled:
             return self._snapshot(mission_id, "cancelled")
 
-        # 1b) Jev fast decisions (advisory only; a provider failure must not
-        # break the loop, and a low-confidence critical call escalates ownership).
-        if self.jev is not None:
+        # 1a) Deterministic verification / Independent Verification Authority
+        verdict = None
+        if self.verification_engine is not None:
+            try:
+                verdict = await self.verification_engine.verify_mission_report(mission, report)
+            except Exception as exc:
+                from runtime.verification.models import VerificationVerdict, get_current_head_sha
+
+                verdict = VerificationVerdict.create_blocked(
+                    task_id=mission.mission_id,
+                    goal_run_id=report.goalrun_id or mission.mission_id,
+                    head_sha=get_current_head_sha(self.verification_engine.project_root),
+                    spec_hash="",
+                    bundle_hash="",
+                    reason=f"Verification engine error: {exc}",
+                )
+            mission.authority["verification_verdict"] = verdict.to_dict()
+            self.store.append_event(
+                mission_id,
+                "VERIFICATION_COMPLETED",
+                {"outcome": verdict.outcome, "passed": verdict.passed},
+            )
+            self.store.save(mission)
+
+        # 1b) JEV semantic ambiguity resolution ONLY
+        # JEV is strictly invoked ONLY when deterministic verifier reports AMBIGUOUS.
+        # On happy path (PASS) or clear failures (FAIL/INSUFFICIENT/BLOCKED), JEV is NOT called.
+        if verdict is not None:
+            is_ambiguous = verdict.outcome == "AMBIGUOUS"
+            if not is_ambiguous and report is not None:
+                is_ambiguous = any(
+                    isinstance(item, dict)
+                    and (
+                        item.get("kind") in ("ambiguity", "semantic_ambiguity")
+                        or item.get("ambiguous")
+                    )
+                    for item in report.runtime_evidence
+                )
+        else:
+            is_ambiguous = True
+
+        if is_ambiguous and self.jev is not None:
             try:
                 from veya.decision import needs_supervisor
                 from veya.decision.questions import standard_questions
@@ -560,8 +624,22 @@ class MissionLoop:
                         mission.status = MissionStatus.waiting_external_supervisor
                         self.store.save(mission)
                         return self._snapshot(mission_id, "jev_escalated")
-            except Exception:
-                pass
+            except Exception as jev_exc:
+                # Fail-closed: JEV failure (429, timeout, provider down) cannot automatically pass
+                self.store.append_event(
+                    mission_id,
+                    "JEV_FAILED",
+                    {"error": str(jev_exc), "fail_closed": True},
+                )
+                if mission.supervision_mode is SupervisionMode.auto and self.external_available:
+                    mission.status = MissionStatus.waiting_external_supervisor
+                    self.store.save(mission)
+                    return self._snapshot(mission_id, "jev_failed_escalated")
+                else:
+                    mission.status = MissionStatus.blocked
+                    mission.authority["retask_block_reason"] = f"JEV_FAILED_CLOSED: {jev_exc}"
+                    self.store.save(mission)
+                    return self._snapshot(mission_id, "jev_failed_blocked")
 
         # 2) external supervision parks, waiting to be resumed by a review.
         if supervisor == str(SupervisionMode.external):
@@ -606,7 +684,14 @@ class MissionLoop:
                 self.store.save(mission)
                 return self._snapshot(mission_id, "switched_to_external")
 
-        outcome = apply_review(self.store, mission, review, iteration=iteration, report=report)
+        outcome = apply_review(
+            self.store,
+            mission,
+            review,
+            iteration=iteration,
+            report=report,
+            verification=verdict,
+        )
         if outcome.next_task is not None or outcome.correction_scope == "PLAN":
             fresh = self.store.load(mission_id)
             if fresh is not None:

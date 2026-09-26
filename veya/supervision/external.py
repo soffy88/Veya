@@ -96,6 +96,31 @@ class ExternalSupervisor:
     # ── execution ───────────────────────────────────────────────────
     async def run(self, mission_id: str) -> dict[str, Any]:
         mission = self.require(mission_id)
+        # Reconnect/recovery must consume a durable terminal report before
+        # considering a new dispatch.  This closes the crash window between
+        # EXECUTOR_COMPLETED and the supervisor projection.
+        existing = self.store.latest_report(mission_id)
+        existing_events = list(self.store.events(mission_id))
+        if existing is not None and any(
+            event.get("topic") == "EXECUTOR_COMPLETED" for event in existing_events
+        ) and not any(event.get("topic") == "REVIEW_COMPLETED" for event in existing_events):
+            mission.status = MissionStatus.reviewing
+            self.store.save(mission)
+            self.store.append_event(
+                mission_id,
+                "EXECUTION_RECONCILED",
+                {
+                    "iteration": int(mission.authority.get("iteration", 0)),
+                    "execution_id": mission.authority.get("execution_id", ""),
+                    "reason": "terminal report persisted before supervisor projection",
+                },
+            )
+            return {
+                "status": str(mission.status),
+                "supervisor": mission.authority.get("active_supervisor"),
+                "report": existing.to_dict(),
+                "reconciled": True,
+            }
         external_available = bool(
             mission.policies.supervisor_policy.get("external_available", True)
         )
@@ -121,6 +146,19 @@ class ExternalSupervisor:
             {"mode": decision.selected_mode, "reason": decision.reason_code},
         )
         self.store.append_event(mission_id, "EXECUTOR_STARTED", {})
+        iteration = int(mission.authority.get("iteration", 0))
+        execution_id = f"{mission_id}:{iteration}"
+        self.store.append_execution(
+            mission_id,
+            {
+                "mission_id": mission_id,
+                "execution_id": execution_id,
+                "iteration": iteration,
+                "executor": mission.policies.execution_policy.get("assignee_hint", ""),
+                "started_at": time.time(),
+                "state": "RUNNING",
+            },
+        )
 
         if self.runner is None:
             mission.status = MissionStatus.blocked
@@ -136,12 +174,22 @@ class ExternalSupervisor:
         self.store.append_event(mission_id, "EXECUTOR_COMPLETED", {"iteration": iteration})
 
         # Project execution_id to mission authority for external visibility
-        execution_id = f"{mission_id}:{iteration}"
         mission.authority["execution_id"] = execution_id
         mission.authority["iteration"] = iteration
         if report.goalrun_id:
             mission.authority["goalrun_id"] = report.goalrun_id
         self.store.save(mission)
+        self.store.append_execution(
+            mission_id,
+            {
+                "mission_id": mission_id,
+                "execution_id": execution_id,
+                "iteration": iteration,
+                "finished_at": time.time(),
+                "state": "COMPLETED",
+                "goalrun_id": report.goalrun_id or "",
+            },
+        )
 
         supervisor = mission.authority["active_supervisor"]
         if supervisor == str(SupervisionMode.external):

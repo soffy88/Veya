@@ -22,6 +22,7 @@ import sys
 import webbrowser
 from pathlib import Path
 from typing import Any
+from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 
 _HOME_DIR = Path.home() / ".veya"
 _CONFIG_PATH = _HOME_DIR / "config.json"
@@ -184,10 +185,10 @@ def run_init(argv: list[str]) -> int:
             if not interactive:
                 print("    已跳过 (可在 config.json 中手动配置 VEYA_LLM_ENDPOINT)。")
         elif not models:
-            print("\n⚠  Ollama 已启动但没有模型。请先创建: qwen38-9b-q5")
+            print(f"\n⚠  Ollama 已启动但没有模型。请先创建: {_cp.executor_model('ollama')}")
         else:
             print(f"\n✔  检测到本地 Ollama, 可用模型: {', '.join(models[:6])}")
-        model = args.model or "qwen38-9b-q5"
+        model = args.model or _cp.executor_model("ollama")
     else:
         print(f"\n[1/3] 提供商: {meta['name']} ({meta['env']})")
         model = args.model or meta["model"]

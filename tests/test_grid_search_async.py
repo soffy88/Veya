@@ -229,7 +229,9 @@ async def test_automata_fire_and_forget_workflow(fake_automata):
     assert final["payload"]["heatmap"]["yAxis"] == [0.01, 0.05]
     # 无头主脑被唤醒, prompt 含最优参数
     assert len(prompts) == 1
-    assert "window': 30" in prompts[0] or "window': 30" in json.dumps(prompts[0])
+    # The canonical GoalRun adapter serializes the best result as JSON rather
+    # than relying on Python dict repr formatting.
+    assert '"window": 30' in prompts[0] or '"window": 30' in json.dumps(prompts[0])
     assert "<veya-artifact>" in final["payload"]["content"]
 
 

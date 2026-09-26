@@ -126,10 +126,12 @@ def test_high_level_mcp_bindings_share_the_same_server() -> None:
     }
     for mcp_name, canonical in expected.items():
         assert BINDING_INDEX[mcp_name].veya_tool == canonical
-    # 17 low-level + 9 supervision + 1 L1 dispatch, one server
-    assert len(BINDINGS) == 27
+    # 17 low-level + 9 supervision + 1 L1 dispatch + 4 runtime/git tools, one server
+    assert len(BINDINGS) == 31
     assert not any(
-        b.veya_tool is None for b in BINDINGS if not b.name.startswith(("process.", "worker."))
+        b.veya_tool is None
+        for b in BINDINGS
+        if not b.name.startswith(("process.", "worker.", "runtime."))
     )
 
 

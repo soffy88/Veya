@@ -217,6 +217,7 @@ class Mission:
     role_contract_version: str = ""
     playbook_id: str = ""
     playbook_version: str = ""
+    channel_id: str | None = None
 
     def __post_init__(self) -> None:
         # Existing missions had only a free-form autonomy mapping.  Preserve
@@ -280,6 +281,7 @@ class Mission:
             "role_contract_version": self.role_contract_version,
             "playbook_id": self.playbook_id,
             "playbook_version": self.playbook_version,
+            "channel_id": self.channel_id,
         }
 
     @classmethod
@@ -308,6 +310,7 @@ class Mission:
             role_contract_version=str(data.get("role_contract_version", "")),
             playbook_id=str(data.get("playbook_id", "")),
             playbook_version=str(data.get("playbook_version", "")),
+            channel_id=data.get("channel_id"),
         )
 
 
@@ -331,6 +334,7 @@ class ExecutionReport:
     deviations: list[dict[str, Any]] = field(default_factory=list)
     blocked_items: list[dict[str, Any]] = field(default_factory=list)
     jev_decisions: list[dict[str, Any]] = field(default_factory=list)
+    evidence_chain: list[dict[str, Any]] = field(default_factory=list)
     executor_summary: str = ""
     proposed_next_action: str | None = None
     created_at: float = field(default_factory=time.time)
@@ -353,6 +357,7 @@ class ExecutionReport:
             "deviations": list(self.deviations),
             "blocked_items": list(self.blocked_items),
             "jev_decisions": list(self.jev_decisions),
+            "evidence_chain": list(self.evidence_chain),
             "executor_summary": self.executor_summary,
             "proposed_next_action": self.proposed_next_action,
             "created_at": self.created_at,

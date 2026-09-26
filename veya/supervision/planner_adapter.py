@@ -16,9 +16,31 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from .orchestrated import Subtask, validate_plan
+
+
+@dataclass(frozen=True)
+class OrchestrationPlan:
+    """Canonical versioned DAG produced by the canonical planner."""
+
+    plan_id: str
+    plan_version: int
+    mission_id: str
+    tasks: list[Subtask]
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan_id": self.plan_id,
+            "plan_version": self.plan_version,
+            "mission_id": self.mission_id,
+            "tasks": [t.to_dict() for t in self.tasks],
+            "created_at": self.created_at,
+        }
 
 DecomposeLLM = Callable[[list[dict[str, str]]], Awaitable[str]]
 
@@ -87,7 +109,8 @@ async def gateway_llm(
     model = (
         os.environ.get("HICODE_REASONIX_MODEL")
         or os.environ.get("VEYA_LLM_MODEL")
-        or "opencode-go/deepseek-v4.1-flash"
+        # SPEC 3: the planner task class routes to the canonical master brain
+        or "veya1.2"
     )
     key_env = os.environ.get("HICODE_REASONIX_API_KEY_ENV") or "OPENCODE_API_KEY"
     key = os.environ.get(key_env) or ""
@@ -128,15 +151,33 @@ async def decompose(
     workspace: str,
     available_workers: list[str],
     temporarily_unavailable_workers: dict[str, str] | None = None,
+    health_registry: Any = None,
     llm: DecomposeLLM | None = None,
 ) -> list[Subtask]:
     """Mission -> canonical planner -> validated list of L1 subtasks."""
 
     unavailable = dict(temporarily_unavailable_workers or {})
+    avail = list(available_workers)
+
+    if health_registry is not None:
+        from veya.remote.models import ExecutorHealth
+
+        filtered_avail = []
+        for w in avail:
+            worker_key = w.strip().lower()
+            health = health_registry.get_health(worker_key)
+            if health in (ExecutorHealth.UNAVAILABLE, ExecutorHealth.DEGRADED):
+                rec = getattr(health_registry, "_records", {}).get(worker_key)
+                reason = (getattr(rec, "last_detail", "") if rec else "") or f"HEALTH_{getattr(health, 'value', health)}"
+                unavailable[worker_key] = reason
+            else:
+                filtered_avail.append(w)
+        avail = filtered_avail
+
     goal = str(getattr(mission, "goal", "") or "")
     messages = [
         {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": _prompt(goal, workspace, available_workers, unavailable)},
+        {"role": "user", "content": _prompt(goal, workspace, avail, unavailable)},
     ]
     raw = await (llm or _canonical_llm)(messages)
     plan = _extract_json(raw)
@@ -151,7 +192,7 @@ async def decompose(
         interpretation=goal,
         assumptions=[],
         goal_text=goal,
-        default_assignee=available_workers[0].lower() if available_workers else "hicode",
+        default_assignee=avail[0].lower() if avail else "hicode",
         explicit_tasks=[
             {
                 "id": str(item.get("id")),
@@ -182,7 +223,7 @@ async def decompose(
         for node in state.tasks.values()
     ]
     validate_plan(subtasks)
-    allowed = {str(w).strip().lower() for w in available_workers}
+    allowed = {str(w).strip().lower() for w in avail}
     for subtask in subtasks:
         if subtask.worker not in allowed:
             # Unknown / temporarily-unavailable worker: block and require
@@ -196,10 +237,40 @@ async def decompose(
     return subtasks
 
 
+async def decompose_plan(
+    mission: Any,
+    *,
+    workspace: str,
+    available_workers: list[str],
+    temporarily_unavailable_workers: dict[str, str] | None = None,
+    health_registry: Any = None,
+    llm: DecomposeLLM | None = None,
+    plan_version: int = 1,
+) -> OrchestrationPlan:
+    """Mission -> canonical planner -> validated OrchestrationPlan."""
+    tasks = await decompose(
+        mission,
+        workspace=workspace,
+        available_workers=available_workers,
+        temporarily_unavailable_workers=temporarily_unavailable_workers,
+        health_registry=health_registry,
+        llm=llm,
+    )
+    mission_id = str(getattr(mission, "mission_id", "") or "mission")
+    plan_id = f"plan-{mission_id}-v{plan_version}"
+    return OrchestrationPlan(
+        plan_id=plan_id,
+        plan_version=plan_version,
+        mission_id=mission_id,
+        tasks=tasks,
+    )
+
+
 def planner_decompose(
     *,
     available_workers: list[str],
     temporarily_unavailable_workers: dict[str, str] | None = None,
+    health_registry: Any = None,
     llm: DecomposeLLM | None = None,
 ) -> Callable[[Any], Awaitable[list[Subtask]]]:
     """Bind availability/LLM into the ``orchestrated_runner`` decompose callable."""
@@ -211,10 +282,17 @@ def planner_decompose(
             workspace=workspace,
             available_workers=available_workers,
             temporarily_unavailable_workers=temporarily_unavailable_workers,
+            health_registry=health_registry,
             llm=llm,
         )
 
     return _decompose
 
 
-__all__ = ["decompose", "gateway_llm", "planner_decompose"]
+__all__ = [
+    "OrchestrationPlan",
+    "decompose",
+    "decompose_plan",
+    "gateway_llm",
+    "planner_decompose",
+]

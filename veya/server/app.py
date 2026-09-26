@@ -124,6 +124,8 @@ class AgentRunRequest(BaseModel):
     student_id: str | None = Field(None, description="Pseudonymized in flight")
     user_id: str | None = Field(None, description="Pseudonymized in flight")
     session_id: str | None = None
+    turn_id: str | None = Field(None, description="Run/turn identity")
+    run_id: str | None = Field(None, description="Run/turn identity alias")
     config: dict[str, Any] = Field(default_factory=dict)
     mode: Literal["run", "dry_run"] = "run"
 
@@ -263,6 +265,7 @@ class AgentStopRequest(BaseModel):
     """Stop a running stream session (Stop 按钮)."""
 
     session_id: str = Field(..., description="Running stream session id")
+    turn_id: str | None = Field(None, description="Optional turn id")
 
 
 class AgentSteerRequest(BaseModel):
@@ -645,12 +648,14 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     @api.post("/api/v1/agent/stream")
     async def agent_stream(req: AgentRunRequest, request: Request) -> StreamingResponse:
+        turn_id = req.turn_id or req.run_id
         # 新 Agent OS 契约: text → 主脑 SSE 事件流(text_delta / tool_call / master_done)
         if req.text is not None:
             return StreamingResponse(
                 new_agent_stream_events(
                     req.text,
                     req.session_id,
+                    turn_id=turn_id,
                     config=req.config or None,
                     provider=req.provider,
                     model=req.model,
@@ -669,6 +674,7 @@ def create_app() -> FastAPI:
             new_agent_stream_events(
                 req.task,
                 session_id,
+                turn_id=turn_id,
                 config=req.config or None,
                 provider=req.provider,
                 model=req.model,
@@ -696,7 +702,7 @@ def create_app() -> FastAPI:
         sid = req.session_id
         if not sid:
             return {"cancelled": "none", "error": "session_id required"}
-        return await cancel_session(sid)
+        return await cancel_session(sid, turn_id=req.turn_id)
 
     # ------------------------------------------------------------------
     # POST /api/v1/agent/steer  (HITL interrupt control)

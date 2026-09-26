@@ -60,6 +60,8 @@ class LegacyAgentRunRequest(BaseModel):
         None,
         description="Session write freeze: relative subdir still writable; empty string clears freeze",
     )
+    turn_id: str | None = Field(None, description="Run/turn identity")
+    run_id: str | None = Field(None, description="Run/turn identity alias")
 
 
 class LegacyAgentRunResponse(BaseModel):
@@ -173,10 +175,12 @@ async def legacy_agent_stream(
             f"用户任务：{prompt}"
         )
     session_id = req.session_id or _new_session_id()
+    turn_id = req.turn_id or req.run_id
     return StreamingResponse(
         new_agent_stream_events(
             prompt,
             session_id,
+            turn_id=turn_id,
             config=req.config or None,
             provider=req.provider,
             model=req.model,
@@ -198,6 +202,7 @@ async def legacy_agent_stream(
 
 class LegacyAgentStopRequest(BaseModel):
     session_id: str | None = Field(None, description="SSE 会话 id (stream 请求的 session_id)")
+    turn_id: str | None = Field(None, description="可选: 针对特定 turn_id 的停止")
 
 
 @router.post("/api/v1/agent/stop")
@@ -212,19 +217,21 @@ async def legacy_agent_stop(req: LegacyAgentStopRequest) -> dict:
 
     if not req.session_id:
         return {"cancelled": "none", "error": "session_id required"}
-    return await cancel_session(req.session_id)
+    return await cancel_session(req.session_id, turn_id=req.turn_id)
 
 
 @router.get("/api/v1/agent/stream_status")
-async def legacy_agent_stream_status(session_id: str) -> dict:
+async def legacy_agent_stream_status(session_id: str, turn_id: str | None = None) -> dict:
     """会话对应的后台主脑任务是否仍在跑 (前端断流重连前先探活)。
 
     SSE 推流与后台任务解耦 (见 server/chat_stream.py) — 任务完成/取消后
     再重连 GET /stream/{sid} 只会拿到一个空队列, 永远等不到新事件, 白白
     挂起。前端靠这个先判断"值不值得重连", 不值得就直接发新消息。
     """
-    from server.coordinator_master import _active_streams
+    from server.coordinator_master import _active_streams, _cancelled_turn_ids
 
+    if turn_id and turn_id in _cancelled_turn_ids.get(session_id, set()):
+        return {"active": False, "status": "cancelled"}
     task = _active_streams.get(session_id)
     return {"active": task is not None and not task.done()}
 
