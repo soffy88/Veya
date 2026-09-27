@@ -19,15 +19,10 @@ from runtime.bot_scope import DEFAULT_BOT_ID
 from runtime.execution.side_effects import SideEffectLedger
 from server.authorization import Principal, authorize_tool
 from server.events import append_canonical_event, current_task_id
-from server.permission_profiles import (
-    ProfileName,
-    RiskLevel,
-    current_profile,
-    decide,
-    default_profile,
-)
+from server.permission_profiles import ProfileName
 from server.tool_registry import SideEffect
 from veya.platform import load
+from veya.remote.permission_engine import OperationContext, PermissionEngine
 
 
 def _effect_for(
@@ -77,6 +72,7 @@ class ActionGatewayAdapter:
         self._audit_writer = audit_writer or self._append_event
         self._policy_profile = policy_profile
         self._policy_hook = policy_hook
+        self._permission_engine = PermissionEngine()
         if output_dir is not None:
             self.output_dir = Path(output_dir).expanduser()
         else:
@@ -123,51 +119,51 @@ class ActionGatewayAdapter:
                     reason=f"policy hook failed: {type(exc).__name__}",
                     request_id=request.request_id,
                 )
-        oskill = load("oskill")
-        profile = self._policy_profile or current_profile() or default_profile()
-        permission = decide(profile, request.action, dict(request.arguments))
-        # ProductShell binds interactive tasks to the existing user-control
-        # approval store.  Preserve that request-local decision even when the
-        # ambient permission profile would otherwise allow a local write.
-        if request.effect != "read":
-            from server.user_control import HIGH_IMPACT, require_approval
-
-            if require_approval() and request.action in HIGH_IMPACT:
-                obase = load("obase")
-                return obase.ActionDecision(
-                    verdict="REQUIRE_APPROVAL",
-                    reason="interactive task requires user approval",
-                    request_id=request.request_id,
-                )
-        decision = {
-            "allow": "ALLOW",
-            "deny": "DENY",
-            "ask": "REQUIRE_APPROVAL",
-        }[permission.action]
-        obase = load("obase")
-        rule = obase.PolicyRule(
-            rule_id=f"veya-profile:{permission.profile.value}",
-            action=request.action,
-            effect=request.effect,
-            resource=request.resource or "*",
-            decision=decision,
+        effect = str(request.effect or "read")
+        effect_to_field = {
+            "read": ("read", "none", "none"),
+            "local_write": ("write", "none", "none"),
+            "process": ("none", "inspect", "none"),
+            "network": ("none", "none", "network"),
+            "remote": ("none", "none", "none"),
+            "destructive": ("write", "none", "none"),
+            "privileged": ("write", "none", "none"),
+        }
+        filesystem_effect, process_effect, network_effect = effect_to_field.get(
+            effect, ("write", "none", "none")
         )
-        if request.effect != "read" and permission.risk == RiskLevel.R0:
-            return obase.ActionDecision(
-                verdict="REQUIRE_APPROVAL",
-                reason="non-read effect has no named permission profile",
-                request_id=request.request_id,
-            )
-        if not request.context.get("side_effect_declared") and request.effect != "read":
-            return obase.ActionDecision(
-                verdict="REQUIRE_APPROVAL",
-                reason="unannotated non-read action requires explicit policy",
-                request_id=request.request_id,
-            )
-        return oskill.evaluate_action_policy(
-            request,
-            rules=[rule],
-            context={"scope": permission.scope, "risk": permission.risk.value},
+        target = str(request.resource or "")
+        target_path = Path(target).expanduser() if target and target != "*" else None
+        service_effect = (
+            "system"
+            if request.action.startswith("systemctl") and "--user" not in str(request.arguments)
+            else "user"
+            if request.action.startswith("systemctl")
+            else "none"
+        )
+        context = OperationContext(
+            actor=self.bot_id,
+            tool=request.action,
+            operation=request.action,
+            workspace_root=Path.cwd(),
+            cwd=Path.cwd(),
+            target_paths=(target_path,) if target_path else (),
+            filesystem_effect=filesystem_effect,
+            process_effect=process_effect,
+            network_effect=network_effect,
+            service_effect=service_effect,
+            privilege_level="host" if effect == "privileged" else "user",
+            reversibility="destructive" if effect == "destructive" else "reversible",
+            remote_effect="mutation" if effect == "remote" else "none",
+            goal_run_id=self.goal_run_id,
+        )
+        permission = self._permission_engine.evaluate(context)
+        decision = permission.decision.value
+        obase = load("obase")
+        return obase.ActionDecision(
+            verdict=decision,
+            reason=permission.reason.value,
+            request_id=request.request_id,
         )
 
     async def _record_side_effect(self, **kwargs: Any) -> Any:
