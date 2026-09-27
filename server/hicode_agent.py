@@ -913,13 +913,21 @@ async def hicode_rollback(workspace: str | None = None, ref: str | None = None) 
 
 
 def _current_sid() -> str | None:
-    """从 contextvar 读当前 SSE 会话 id (on_step 是 SSEQueue 的 bound method)。"""
+    """从 contextvar 读当前 SSE 会话 id。
+
+    生产者是 chat_stream 绑定到 _on_step_ctx 的闭包, 会话 id 挂在
+    ``veya_session_id`` 上; 旧的 bound-method 形态 (``__self__.sid``) 保留
+    为兼容回退。
+    """
     try:
         from server.events import _on_step_ctx
 
         cb = _on_step_ctx.get()
-        q = getattr(cb, "__self__", None)
-        return getattr(q, "sid", None) or None
+        sid = getattr(cb, "veya_session_id", None)
+        if sid:
+            return str(sid)
+        owner = getattr(cb, "__self__", None)
+        return getattr(owner, "sid", None) or None
     except Exception:
         return None
 

@@ -27,6 +27,7 @@ SUITE_ENTRIES: dict[str, tuple[str, ...]] = {
         "tests/test_skill_opt.py",
         "tests/test_skill_scan.py",
         "tests/test_skill_scan_semantic.py",
+        "tests/test_stop_reentry_race.py",
         "tests/test_context_compaction.py",
         "tests/test_history_store_async.py",
         "tests/test_history_store_migration.py",
@@ -55,6 +56,7 @@ SUITE_ENTRIES: dict[str, tuple[str, ...]] = {
         "tests/test_master_tool_concurrency.py",
     ),
     "unit-fast": (
+        "tests/server/test_server_boot_gate.py",
         "tests/test_acceptance.py",
         "tests/test_agent_loop_bridge_safety.py",
         "tests/test_agent_loop_constraints.py",

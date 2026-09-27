@@ -1,16 +1,134 @@
 import asyncio
 import contextlib
 import json
+import logging
 import time
 import uuid
+from typing import Any
 
 from runtime.execution.runtime import get_durable_runtime
+
+logger = logging.getLogger("session_events")
+
+# Event types that terminate a stream.  Producers append exactly one of these
+# as the final event; consumers treat it as end-of-stream and emit `data: [DONE]`.
+# This replaces the old SSEQueue.close() sentinel, which had no durable
+# representation and so could not survive a restart.
+TERMINAL_EVENT_TYPES = frozenset({"master_done", "task_done", "task_error"})
+
+
+def split_stream_event(event: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Canonical producer split: (event_type, payload).
+
+    The payload is the caller's original dict, so the pre-9876111f wire shape
+    (`type` at the top level) is preserved verbatim.
+    """
+    if not isinstance(event, dict):
+        return "message", {"value": event}
+    event_type = str(event.get("type") or event.get("event") or "message")
+    return event_type, event
+
+
+def wire_payload(event: dict[str, Any]) -> dict[str, Any]:
+    """Durable event record -> SSE `data:` object.
+
+    Keeps the original event fields at the top level (as the removed SSEQueue
+    envelope did) and adds the durable cursor identity, so clients that read
+    `type`/`delta`/`status` off the payload keep working unchanged.
+    """
+    out = dict(event.get("data") or {})
+    out["id"] = event.get("id")
+    out["epoch"] = event.get("epoch")
+    out["seq"] = event.get("seq")
+    if event.get("session_id") is not None:
+        out.setdefault("session_id", event.get("session_id"))
+    return out
+
+
+def is_terminal(event: dict[str, Any]) -> bool:
+    return str(event.get("event") or "") in TERMINAL_EVENT_TYPES
+
+
+class _OrderedEventDrain:
+    """Ordered durable ingestion for producers that cannot ``await``.
+
+    Some producers are genuinely synchronous and cannot be awaited: event-bus
+    bridges registered as plain callbacks, and the ``fire_step`` contextvar
+    hook that the engine calls from deep inside sync code.  Rather than
+    fire-and-forget one task per event, every such event is handed to a SINGLE
+    FIFO drain task per event loop.  That preserves:
+
+    * ordering — one consumer of one FIFO, so journal ``seq`` follows the order
+      producers were invoked in;
+    * error propagation — a failed append is recorded in ``failures`` and
+      republished as an ``error`` event on the same session, so a client
+      waiting on the stream observes the failure instead of hanging forever;
+    * liveness — the task is strongly referenced, so it is never GC'd mid-drain.
+
+    The journal remains the single authority: consumers only ever read
+    ``catch_up`` / ``subscribe_live`` and never this queue.
+    """
+
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._queue: asyncio.Queue | None = None
+        self._task: asyncio.Task | None = None
+        self.failures: list[dict[str, Any]] = []
+
+    def submit(self, store: Any, session_id: str, event_type: str, payload: dict[str, Any]) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop means no SSE consumer can exist either. Record the
+            # rejection rather than dropping the event silently.
+            self._record_failure(session_id, event_type, RuntimeError("no running event loop"))
+            return
+        if self._loop is not loop or self._queue is None or self._task is None:
+            self._loop = loop
+            self._queue = asyncio.Queue()
+            self._task = loop.create_task(self._drain(store, self._queue))
+        self._queue.put_nowait((session_id, event_type, payload))
+
+    async def _drain(self, store: Any, queue: asyncio.Queue) -> None:
+        while True:
+            item = await queue.get()
+            if item is None:
+                return
+            session_id, event_type, payload = item
+            try:
+                await store.append_event(session_id, event_type, payload)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._record_failure(session_id, event_type, exc)
+                # Surface on the stream so a waiting client is not left hanging.
+                with contextlib.suppress(Exception):
+                    await store.append_event(
+                        session_id,
+                        "error",
+                        {
+                            "type": "error",
+                            "session_id": session_id,
+                            "error": f"durable append failed: {exc}",
+                            "failed_event_type": event_type,
+                        },
+                    )
+
+    def _record_failure(self, session_id: str, event_type: str, exc: BaseException) -> None:
+        record = {
+            "session_id": session_id,
+            "event_type": event_type,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        self.failures.append(record)
+        logger.error("durable session event append failed: %s", record)
 
 
 class DurableSessionEventStore:
     def __init__(self):
         self._runtime = get_durable_runtime()
         self._live_subscribers: dict[str, set[asyncio.Queue[dict]]] = {}
+        self._drain = _OrderedEventDrain()
 
     async def _ensure_started(self):
         if not getattr(self, "_migrated", False):
@@ -54,6 +172,74 @@ class DurableSessionEventStore:
         import typing
 
         return typing.cast(tuple[int, int], await repo._pg_tx(op_pg))
+
+    async def begin_stream(self, session_id: str) -> int:
+        """Open a NEW turn on ``session_id`` and return its epoch.
+
+        The in-memory SSEQueue this replaced was popped from a per-session
+        registry on close, so a second turn started from a clean buffer. The
+        durable journal is per-session and never truncated, so turn separation
+        is carried by the ``epoch`` column the schema already reserves:
+
+        * a new turn increments the epoch and resets ``seq_head``;
+        * ``catch_up(session_id, epoch, seq)`` therefore only replays the
+          current turn;
+        * a cursor from a previous turn is detected as stale (epoch mismatch),
+          which is exactly the check ``server.sse.events_generator`` already
+          performs.
+
+        Reconnecting to a *running* turn must NOT call this.
+        """
+        await self._ensure_started()
+        repo = self._runtime.repository
+        now = time.time()
+
+        def op(conn):
+            row = conn.execute(
+                "SELECT epoch FROM session_streams WHERE session_id=?", (session_id,)
+            ).fetchone()
+            if row is None:
+                epoch = 1
+                conn.execute(
+                    "INSERT INTO session_streams (session_id, epoch, seq_head, created_at, updated_at)"
+                    " VALUES (?, 1, 0, ?, ?)",
+                    (session_id, now, now),
+                )
+            else:
+                epoch = row["epoch"] + 1
+                conn.execute(
+                    "UPDATE session_streams SET epoch=?, seq_head=0, updated_at=? WHERE session_id=?",
+                    (epoch, now, session_id),
+                )
+            return epoch
+
+        if repo.backend == "sqlite":
+            return await asyncio.to_thread(repo._sqlite_tx, op)
+
+        async def op_pg(conn):
+            row = await conn.fetchrow(
+                "SELECT epoch FROM session_streams WHERE session_id=$1", session_id
+            )
+            if row is None:
+                epoch = 1
+                await conn.execute(
+                    "INSERT INTO session_streams (session_id, epoch, seq_head, created_at, updated_at)"
+                    " VALUES ($1, 1, 0, $2, $3)",
+                    session_id,
+                    now,
+                    now,
+                )
+            else:
+                epoch = row["epoch"] + 1
+                await conn.execute(
+                    "UPDATE session_streams SET epoch=$1, seq_head=0, updated_at=$2 WHERE session_id=$3",
+                    epoch,
+                    now,
+                    session_id,
+                )
+            return epoch
+
+        return await repo._pg_tx(op_pg)
 
     async def append_event(self, session_id: str, event_type: str, payload: dict) -> dict:
         """Appends to durable journal, strictly monotonic seq. Returns the event with id."""
@@ -198,6 +384,55 @@ class DurableSessionEventStore:
             self._live_subscribers[session_id].discard(q)
             if not self._live_subscribers[session_id]:
                 del self._live_subscribers[session_id]
+
+    # ------------------------------------------------------------------
+    # Canonical producer entry points.
+    #
+    # `append_event` remains the single writer to the journal. Everything
+    # below is a thin, explicit front door for the two producer shapes the
+    # codebase actually has: awaited (async) producers, and synchronous
+    # producers that go through the ordered drain.
+    # ------------------------------------------------------------------
+
+    async def publish(
+        self, session_id: str, event: dict[str, Any], event_type: str | None = None
+    ) -> dict[str, Any]:
+        """Awaited producer. Use this wherever `await` is available."""
+        etype, payload = split_stream_event(event)
+        return await self.append_event(session_id, event_type or etype, payload)
+
+    def publish_sync(
+        self, session_id: str, event: dict[str, Any], event_type: str | None = None
+    ) -> None:
+        """Synchronous producer.
+
+        Hands the event to the ordered drain (see `_OrderedEvent Drain`). This
+        is NOT fire-and-forget: ordering is preserved, the task is tracked, and
+        failures are recorded and republished as an `error` event.
+        """
+        etype, payload = split_stream_event(event)
+        if not payload.get("session_id"):
+            payload["session_id"] = session_id
+        self._drain.submit(self, session_id, event_type or etype, payload)
+
+    async def publish_terminal(self, session_id: str, event: dict[str, Any]) -> dict[str, Any]:
+        """Append the final event for a stream.
+
+        The old SSEQueue.close() pushed an in-memory sentinel that could not
+        survive a restart. End-of-stream is now expressed as a durable
+        terminal event (`master_done` / `task_done` / `task_error`), so a
+        reconnecting client learns the stream ended from the journal.
+        """
+        if not is_terminal({"event": str(event.get("type") or "")}):
+            raise ValueError(
+                f"publish_terminal requires a terminal event type, got {event.get('type')!r}"
+            )
+        return await self.publish(session_id, event)
+
+    @property
+    def drain_failures(self) -> list[dict[str, Any]]:
+        """Append failures recorded by the ordered drain (observability)."""
+        return self._drain.failures
 
 
 durable_session_store = DurableSessionEventStore()

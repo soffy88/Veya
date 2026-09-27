@@ -41,6 +41,7 @@ from server.events import (
 )
 from server.memory_bank import VeyaMemoryBank
 from server.memory_bank import memory_bank as _default_memory_bank
+from server.session_events import durable_session_store
 from server.session_identity import new_session_id
 from server.skill_hub import VeyaSkillHub
 from server.skill_hub import skill_hub as _default_skill_hub
@@ -2120,7 +2121,10 @@ _active_turn_ids: dict[str, str] = {}
 _cancelled_generations: dict[str, set[int]] = {}
 _cancelled_turn_ids: dict[str, set[str]] = {}
 _last_stop_meta: dict[str, dict[str, Any]] = {}
-_active_stream_queues: dict[str, Any] = {}
+# Sessions with a live stream pump. Replaces the old `_active_stream_queues`
+# registry, which held in-memory SSEQueue objects; the durable journal is now
+# the only event authority, so there is no per-session queue to track.
+_active_stream_sessions: set[str] = set()
 
 
 async def _stop_hicode_task(task_id: str) -> bool:
@@ -2166,19 +2170,28 @@ async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
         stopped.append("chat_stream")
     _active_streams.pop(session_id, None)
 
-    # 3. 关联的流式事件队列显式推入终止帧并关闭
-    q = _active_stream_queues.pop(session_id, None)
-    if q is not None:
+    # 3. 关联的流式会话推入终止事件(经 durable_session_store 落盘)。
+    #    旧实现在这里从内存队列取 SSEQueue 并 close(); 该哨兵无法跨重启存活,
+    #    因此终止语义改为可持久化的 terminal 事件。
+    if session_id in _active_stream_sessions:
+        _active_stream_sessions.discard(session_id)
         with contextlib.suppress(Exception):
-            q.on_step(
+            await durable_session_store.publish(
+                session_id,
                 {
                     "type": "text_delta",
                     "squad_id": "master",
                     "delta": "⏹ 已停止。后台 Hicode 任务也已真正中断。",
-                }
+                },
             )
-            q.on_step({"type": "master_done", "session_id": session_id, "status": "cancelled"})
-            q.close()
+            await durable_session_store.publish_terminal(
+                session_id,
+                {
+                    "type": "master_done",
+                    "session_id": session_id,
+                    "status": "cancelled",
+                },
+            )
 
     # 4. 取消关联的 Hicode 任务
     tid = _session_task.pop(session_id, None)

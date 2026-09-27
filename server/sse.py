@@ -107,17 +107,24 @@ async def events_generator(session_id: str, request: Request | None) -> AsyncIte
         durable_session_store.unsubscribe_live(session_id, sub_q)
 
 
-_emit_tasks: set[asyncio.Task] = set()
-
-
 def emit(session_id: str, event: str, data: dict[str, Any]) -> None:
-    """Legacy sync emit. Should now use async append_event.
-    This creates an async task to append."""
-    envelope = _to_envelope(data)
+    """Synchronous producer entry point.
+
+    Routes through the durable store's ordered drain rather than spawning an
+    untracked task per event, so journal ordering is preserved and append
+    failures are recorded and republished as an `error` event instead of being
+    silently dropped. Awaitable callers should use
+    ``durable_session_store.publish(...)`` directly.
+    """
+    # Envelope is built from {"event": ..., **data} exactly as the pre-9876111f
+    # emit() did, so the wire payload keeps `event` at the top level. session_id
+    # is folded in *before* enveloping so trace_id is populated (the old
+    # SSEQueue.on_step set it afterwards, leaving trace_id empty).
+    payload_in = {"event": event, **data}
+    payload_in.setdefault("session_id", session_id)
+    envelope = _to_envelope(payload_in)
     envelope.setdefault("session_id", session_id)
-    task = asyncio.create_task(durable_session_store.append_event(session_id, event, envelope))
-    _emit_tasks.add(task)
-    task.add_done_callback(_emit_tasks.discard)
+    durable_session_store.publish_sync(session_id, envelope, event_type=event)
 
 
 @router.get("/{session_id}")

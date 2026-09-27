@@ -81,32 +81,42 @@ async def run_stream(req: RunStreamRequest):
     """G6 闭环:后台执行 agent + SSE 流(发起任务 → 接受 SSE 流)。
 
     返回 session_id,扩展随即 GET ``/stream/{session_id}`` 消费事件;
-    执行在后台 task 中,``on_step`` 经 SSEQueue 桥接为 ``data: {{...}}\n\n``。
+    执行在后台 task 中,``on_step`` 经 durable_session_store 落盘后桥接为
+    ``data: {{...}}\n\n``。
     """
     import asyncio as _asyncio
     import uuid as _uuid
 
     from server.coordinator_master import master_coordinator
-    from server.sse import get_or_create_queue
+    from server.session_events import durable_session_store
 
     session_id = req.session_id or _uuid.uuid4().hex
-    queue = get_or_create_queue(session_id)
 
     async def _run() -> None:
         try:
-            queue.on_step({"type": "session_start", "session_id": session_id})
+            await durable_session_store.publish(
+                session_id, {"type": "session_start", "session_id": session_id}
+            )
             result = await master_coordinator.chat_stream(
                 req.text,
                 session_id=session_id,
-                on_step=queue.on_step,
+                on_step=lambda event: durable_session_store.publish_sync(session_id, event),
             )
-            queue.on_step(
-                {"type": "task_done", "session_id": session_id, "result": _summarize_result(result)}
+            await durable_session_store.publish_terminal(
+                session_id,
+                {
+                    "type": "task_done",
+                    "session_id": session_id,
+                    "result": _summarize_result(result),
+                },
             )
         except Exception as exc:
-            queue.on_step({"type": "task_error", "session_id": session_id, "error": str(exc)})
-        finally:
-            queue.close()
+            # Never swallow: the failure is published as a durable terminal
+            # event so a waiting client sees it instead of hanging.
+            await durable_session_store.publish_terminal(
+                session_id,
+                {"type": "task_error", "session_id": session_id, "error": str(exc)},
+            )
 
     # 后台任务引用保存在模块级,避免 GC 提前回收(RUF006)
     _BG_TASKS.add(_asyncio.create_task(_run()))

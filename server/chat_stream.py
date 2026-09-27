@@ -11,14 +11,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from server.coordinator_master import master_coordinator
+from server.session_events import durable_session_store, is_terminal, wire_payload
 from server.session_identity import new_session_id
-from server.sse import get_or_create_queue
+from server.sse import parse_cursor
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -57,7 +59,7 @@ async def new_agent_stream_events(
     now = time.monotonic()
     from server.coordinator_master import (
         _active_generations,
-        _active_stream_queues,
+        _active_stream_sessions,
         _active_streams,
         _active_turn_ids,
         _cancelled_generations,
@@ -88,21 +90,32 @@ async def new_agent_stream_events(
     # 2. 检查会话是否已有正在运行的 chat_task (重连/并发请求附着旧 stream, 绝不重复起任务)
     active_task = _active_streams.get(sid)
     if active_task is not None and not active_task.done():
-        queue = _active_stream_queues.get(sid) or get_or_create_queue(sid)
-        sub_q = queue.subscribe()
+        # 订阅必须先于 catch_up, 否则两者之间产生的事件会既不在 catchup 结果里
+        # 也不在 live 队列里 (与 sse.events_generator 相同的 SUBSCRIBE_FIRST 顺序)。
+        sub_q = durable_session_store.subscribe_live(sid)
         try:
-            last_event_id: int | None = None
+            client_epoch, client_seq = -1, -1
             if request is not None:
                 raw_last_id = request.headers.get("Last-Event-ID", "")
-                if raw_last_id.isdigit():
-                    last_event_id = int(raw_last_id)
+                if raw_last_id:
+                    try:
+                        client_epoch, client_seq = parse_cursor(raw_last_id)
+                    except ValueError:
+                        yield 'event: error\ndata: {"error": "CURSOR_STALE"}\n\n'
+                        return
             yield "retry: 3000\n\n"
-            replay_highwater = last_event_id if last_event_id is not None else -1
-            if last_event_id is not None:
-                for replayed in queue._replay_from(last_event_id):
-                    replay_highwater = max(replay_highwater, int(replayed.get("id", 0)))
-                    event_id = replayed.get("id", 0)
-                    yield f"id: {event_id}\ndata: {json.dumps(replayed, ensure_ascii=False)}\n\n"
+            current_epoch, _head = await durable_session_store.get_stream_head(sid)
+            replayed_all = await durable_session_store.catch_up(sid, current_epoch, client_seq)
+            last_delivered_seq = client_seq
+            for replayed in replayed_all:
+                if replayed["epoch"] != current_epoch or replayed["seq"] <= last_delivered_seq:
+                    continue
+                last_delivered_seq = replayed["seq"]
+                payload = wire_payload(replayed)
+                yield f"id: {replayed['id']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                if is_terminal(replayed):
+                    yield "data: [DONE]\n\n"
+                    return
             _HEARTBEAT_S = 20.0
             while True:
                 try:
@@ -114,13 +127,16 @@ async def new_agent_stream_events(
                     continue
                 if item is None:
                     break
-                if last_event_id is not None and item.get("id", 0) <= replay_highwater:
+                if item["epoch"] != current_epoch or item["seq"] <= last_delivered_seq:
                     continue
-                event_id = item.get("id", 0)
-                yield f"id: {event_id}\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
+                last_delivered_seq = item["seq"]
+                payload = wire_payload(item)
+                yield f"id: {item['id']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                if is_terminal(item):
+                    break
             yield "data: [DONE]\n\n"
         finally:
-            queue.unsubscribe(sub_q)
+            durable_session_store.unsubscribe_live(sid, sub_q)
         return
 
     # 3. 正常发起新一轮对话任务 (Generation 自增并记录执行身份)
@@ -129,14 +145,24 @@ async def new_agent_stream_events(
     effective_turn_id = turn_id or f"gen_{gen}_{int(now * 1000)}"
     _active_turn_ids[sid] = effective_turn_id
 
-    queue = get_or_create_queue(sid)
-    _active_stream_queues[sid] = queue
-    sub_q = queue.subscribe()
+    # 先订阅后产出: 保证本流自身产生的事件不会落在订阅窗口之外。
+    sub_q = durable_session_store.subscribe_live(sid)
+    _active_stream_sessions.add(sid)
+    # 新的一轮 → 新 epoch。journal 是 per-session 且从不截断, 上一轮的终止事件
+    # 不能把本轮判成已结束 (旧的 SSEQueue 在 close 时从注册表 pop, 天然是干净的)。
+    stream_epoch = await durable_session_store.begin_stream(sid)
 
     from server import auth as auth_mod
     from server.events import _on_step_ctx
 
-    token = _on_step_ctx.set(queue.on_step)
+    def _on_step(event: dict) -> None:
+        """Sync producer hook for the engine (fire_step -> _on_step_ctx)."""
+        durable_session_store.publish_sync(sid, event)
+
+    # Consumers that used to recover the session id from the bound method's
+    # `__self__.sid` (e.g. hicode_agent._current_sid) read it from here now.
+    _on_step.veya_session_id = sid  # type: ignore[attr-defined]
+    token = _on_step_ctx.set(_on_step)
 
     async def _run_chat() -> None:
         # 启动即检查是否已取消 (覆盖任务刚创建即触发 Stop 的竞态窗口)
@@ -166,45 +192,73 @@ async def new_agent_stream_events(
         def _unregister(_t: asyncio.Task) -> None:
             if _active_streams.get(sid) is _t:
                 _active_streams.pop(sid, None)
-            if _active_stream_queues.get(sid) is queue:
-                _active_stream_queues.pop(sid, None)
+            _active_stream_sessions.discard(sid)
 
         chat_task.add_done_callback(_unregister)
 
         async def _finish() -> None:
-            """主脑结束后: 补发最终回答事件 + 关闭队列(唤醒消费循环)。"""
+            """主脑结束后: 补发最终回答事件 + 落盘终止事件(唤醒消费循环)。
+
+            终止语义是 durable terminal 事件而非内存哨兵, 因此重连的客户端
+            可以从 journal 得知流已结束。
+
+            无论成功、取消还是自身抛错, 本协程**必须**产出一个 terminal 事件;
+            否则消费端会永远阻塞在 live 队列上 (前端表现为流挂死)。
+            """
             try:
-                result = await chat_task
-            except asyncio.CancelledError:
-                queue.on_step(
+                try:
+                    result = await chat_task
+                except asyncio.CancelledError:
+                    await durable_session_store.publish(
+                        sid,
+                        {
+                            "type": "text_delta",
+                            "squad_id": "master",
+                            "delta": "⏹ 已停止。后台 Hicode 任务也已真正中断。",
+                        },
+                    )
+                    await durable_session_store.publish_terminal(
+                        sid, {"type": "master_done", "session_id": sid, "status": "cancelled"}
+                    )
+                    return
+                if result is None:
+                    result = {}
+                final = str(result.get("final_answer") or result.get("error") or "").strip()
+                if not final or final.lower() in ("none", "null"):
+                    final = (
+                        "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。"
+                        "请重试, 或在上方更换模型/引擎。"
+                    )
+                await durable_session_store.publish(
+                    sid, {"type": "text_delta", "squad_id": "master", "delta": final}
+                )
+                await durable_session_store.publish_terminal(
+                    sid,
                     {
-                        "type": "text_delta",
-                        "squad_id": "master",
-                        "delta": "⏹ 已停止。后台 Hicode 任务也已真正中断。",
-                    }
+                        "type": "master_done",
+                        "session_id": sid,
+                        "status": result.get("status"),
+                        "cost_usd": result.get("cost_usd") or 0,
+                        "rounds": result.get("rounds") or 0,
+                    },
                 )
-                queue.on_step({"type": "master_done", "session_id": sid, "status": "cancelled"})
-                queue.close()
+            except Exception as exc:
+                # Never swallow: the failure becomes a durable terminal event so
+                # a client waiting on this stream is released instead of hanging.
+                logging.getLogger("chat_stream").error(
+                    "chat_stream _finish failed for %s: %s", sid, exc
+                )
+                with suppress(Exception):
+                    await durable_session_store.publish_terminal(
+                        sid,
+                        {
+                            "type": "master_done",
+                            "session_id": sid,
+                            "status": "error",
+                            "error": f"{type(exc).__name__}: {exc}",
+                        },
+                    )
                 return
-            if result is None:
-                result = {}
-            final = str(result.get("final_answer") or result.get("error") or "").strip()
-            if not final or final.lower() in ("none", "null"):
-                final = (
-                    "⚠ 主脑未生成有效回答 (模型返回空内容 / 网关抖动)。"
-                    "请重试, 或在上方更换模型/引擎。"
-                )
-            queue.on_step({"type": "text_delta", "squad_id": "master", "delta": final})
-            queue.on_step(
-                {
-                    "type": "master_done",
-                    "session_id": sid,
-                    "status": result.get("status"),
-                    "cost_usd": result.get("cost_usd") or 0,
-                    "rounds": result.get("rounds") or 0,
-                }
-            )
-            queue.close()
             if user:
                 try:
                     from server.notification_center import global_notifier
@@ -217,8 +271,6 @@ async def new_agent_stream_events(
                         user_id=user["user_id"],
                     )
                 except Exception as exc:
-                    import logging
-
                     logging.getLogger("chat_stream").warning("完成通知推送失败: %s", exc)
 
         finish_task = asyncio.create_task(_finish())
@@ -239,18 +291,35 @@ async def new_agent_stream_events(
                 )
 
         _HEARTBEAT_S = 20.0
-        last_event_id: int | None = None
+        client_epoch, client_seq = -1, -1
         if request is not None:
             raw_last_id = request.headers.get("Last-Event-ID", "")
-            if raw_last_id.isdigit():
-                last_event_id = int(raw_last_id)
+            if raw_last_id:
+                try:
+                    client_epoch, client_seq = parse_cursor(raw_last_id)
+                except ValueError:
+                    yield 'event: error\ndata: {"error": "CURSOR_STALE"}\n\n'
+                    return
         yield "retry: 3000\n\n"
-        replay_highwater = last_event_id if last_event_id is not None else -1
-        if last_event_id is not None:
-            for replayed in queue._replay_from(last_event_id):
-                replay_highwater = max(replay_highwater, int(replayed.get("id", 0)))
-                event_id = replayed.get("id", 0)
-                yield f"id: {event_id}\ndata: {json.dumps(replayed, ensure_ascii=False)}\n\n"
+        # A cursor from a previous turn (epoch mismatch) is stale, matching the
+        # check server.sse.events_generator performs.
+        if client_epoch != -1 and client_epoch != stream_epoch:
+            yield 'event: error\ndata: {"error": "CURSOR_STALE"}\n\n'
+            return
+        for replayed in await durable_session_store.catch_up(sid, stream_epoch, client_seq):
+            if replayed["epoch"] != stream_epoch or replayed["seq"] <= client_seq:
+                continue
+            client_seq = replayed["seq"]
+            # Replayed events must be mirrored too: the live loop dedups by seq,
+            # so anything served from catch_up would otherwise never be notified.
+            if _notifier is not None:
+                with suppress(Exception):
+                    _notifier.push_stream(sid, wire_payload(replayed), user_id=mirror_uid)
+            payload = wire_payload(replayed)
+            yield f"id: {replayed['id']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            if is_terminal(replayed):
+                yield "data: [DONE]\n\n"
+                return
         while True:
             try:
                 item = await asyncio.wait_for(sub_q.get(), timeout=_HEARTBEAT_S)
@@ -261,15 +330,20 @@ async def new_agent_stream_events(
                 continue
             if item is None:
                 break
-            if last_event_id is not None and item.get("id", 0) <= replay_highwater:
+            # Skip anything from a previous turn on the same session id.
+            if item["epoch"] != stream_epoch or item["seq"] <= client_seq:
                 continue
+            client_seq = item["seq"]
             if _notifier is not None:
                 with suppress(Exception):
-                    _notifier.push_stream(sid, item, user_id=mirror_uid)
-            event_id = item.get("id", 0)
-            yield f"id: {event_id}\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
+                    _notifier.push_stream(sid, wire_payload(item), user_id=mirror_uid)
+            payload = wire_payload(item)
+            yield f"id: {item['id']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            if is_terminal(item):
+                break
         yield "data: [DONE]\n\n"
     finally:
-        queue.unsubscribe(sub_q)
+        durable_session_store.unsubscribe_live(sid, sub_q)
+        _active_stream_sessions.discard(sid)
         with suppress(Exception):
             _on_step_ctx.reset(token)

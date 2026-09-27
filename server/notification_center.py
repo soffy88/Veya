@@ -1,9 +1,10 @@
 """server/notification_center.py — global background-task notification broadcast.
 
-Unlike server/sse.py's SSEQueue (one queue per session_id, for a single flow run's
-progress), this fans a message out to every connected browser tab — "Genesis
-finished while you were looking at Kanban" toasts, plus a HITL_REQUIRED variant
-that doesn't auto-dismiss and carries an approve/reject payload.
+Unlike server/session_events.py's durable per-session event journal (one stream
+per session_id, for a single flow run's progress), this fans a message out to
+every connected browser tab — "Genesis finished while you were looking at
+Kanban" toasts, plus a HITL_REQUIRED variant that doesn't auto-dismiss and
+carries an approve/reject payload.
 """
 
 from __future__ import annotations

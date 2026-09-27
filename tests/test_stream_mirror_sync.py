@@ -67,12 +67,13 @@ async def test_stream_pump_mirrors_events_for_logged_in_user(monkeypatch):
     # 必须 patch 类方法 (非实例属性) — 实例 setattr 在 teardown 会用 bound
     # method 永久遮蔽类方法, 污染后续测试。
     from server.coordinator_master import MasterCoordinator
-    from server.sse import get_or_create_queue
+    from server.session_events import durable_session_store
 
     async def fake_chat_stream(self, text, *, session_id=None, **kw):
-        q = get_or_create_queue(session_id)
-        q.on_step({"type": "text_delta", "squad_id": "master", "delta": "片段A"})
-        q.on_step({"type": "text_delta", "squad_id": "master", "delta": "片段B"})
+        for delta in ("片段A", "片段B"):
+            durable_session_store.publish_sync(
+                session_id, {"type": "text_delta", "squad_id": "master", "delta": delta}
+            )
         return {"status": "success", "final_answer": "片段A片段B"}
 
     monkeypatch.setattr(MasterCoordinator, "chat_stream", fake_chat_stream)
@@ -105,11 +106,12 @@ async def test_stream_pump_no_mirror_for_anonymous(monkeypatch):
     )
 
     from server.coordinator_master import MasterCoordinator
-    from server.sse import get_or_create_queue
+    from server.session_events import durable_session_store
 
     async def fake_chat_stream(self, text, *, session_id=None, **kw):
-        q = get_or_create_queue(session_id)
-        q.on_step({"type": "text_delta", "squad_id": "master", "delta": "x"})
+        durable_session_store.publish_sync(
+            session_id, {"type": "text_delta", "squad_id": "master", "delta": "x"}
+        )
         return {"status": "success", "final_answer": "x"}
 
     monkeypatch.setattr(MasterCoordinator, "chat_stream", fake_chat_stream)
