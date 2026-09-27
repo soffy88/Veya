@@ -181,6 +181,46 @@ class PermissionEngine:
                 effects,
                 operation,
             )
+        if executable in {"sh", "bash", "zsh"} and any(
+            flag in words[1:] for flag in ("-c", "-lc", "-cl")
+        ):
+            # A wrapper is safe only when its inner command is still inside the
+            # same normalized effect model.  These tokens are command-level
+            # boundaries, not an approval bypass; the full argv remains in the
+            # operation fingerprint at the caller.
+            flag_index = next(
+                index
+                for index, token in enumerate(words[1:], start=1)
+                if token in {"-c", "-lc", "-cl"}
+            )
+            try:
+                inner = set(shlex.split(" ".join(context.command[flag_index + 1 :])))
+            except ValueError:
+                inner = set()
+            if {"sudo", "su", "mkfs", "fdisk", "parted", "mount", "umount"} & inner:
+                return PermissionDecision(
+                    Decision.APPROVAL_REQUIRED,
+                    ReasonCode.APPROVAL_HOST_PRIVILEGE,
+                    Scope.HOST,
+                    effects,
+                    operation,
+                )
+            if "systemctl" in inner and "--user" not in inner:
+                return PermissionDecision(
+                    Decision.APPROVAL_REQUIRED,
+                    ReasonCode.APPROVAL_HOST_PRIVILEGE,
+                    Scope.HOST,
+                    effects,
+                    operation,
+                )
+            if "--force" in inner or "--force-with-lease" in inner:
+                return PermissionDecision(
+                    Decision.APPROVAL_REQUIRED,
+                    ReasonCode.APPROVAL_IRREVERSIBLE_REMOTE,
+                    Scope.REMOTE,
+                    effects,
+                    operation,
+                )
         if executable in _DESTRUCTIVE_WORDS or context.reversibility in {
             "irreversible",
             "destructive",

@@ -87,3 +87,21 @@ def test_privileged_host_intent_requires_approval(tmp_path: Path) -> None:
     )
     assert decision.decision == Decision.APPROVAL_REQUIRED
     assert decision.reason == ReasonCode.APPROVAL_HOST_PRIVILEGE
+
+
+def test_shell_wrapper_is_recursive_and_does_not_hide_host_mutation(tmp_path: Path) -> None:
+    engine = PermissionEngine()
+    safe = engine.evaluate(
+        parse_command_context(
+            "bash -lc 'pytest && ruff check .'", cwd=tmp_path, workspace_root=tmp_path
+        )
+    )
+    gated = engine.evaluate(
+        parse_command_context(
+            "bash -lc 'pytest && sudo apt-get install curl'",
+            cwd=tmp_path,
+            workspace_root=tmp_path,
+        )
+    )
+    assert safe.decision == Decision.ALLOW
+    assert gated.decision == Decision.APPROVAL_REQUIRED
