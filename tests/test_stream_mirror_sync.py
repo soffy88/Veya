@@ -6,6 +6,8 @@ notification_center.push_stream 是逐帧高频镜像 — 只推给同 user_id �
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from server.notification_center import NotificationCenter
@@ -78,8 +80,11 @@ async def test_stream_pump_mirrors_events_for_logged_in_user(monkeypatch):
 
     monkeypatch.setattr(MasterCoordinator, "chat_stream", fake_chat_stream)
 
+    # Unique per run: the durable journal persists across runs, so a fixed sid
+    # would replay a previous run's terminal event and end the stream early.
+    session_id = f"sid-sync-{uuid.uuid4().hex[:8]}"
     async for _frame in cs.new_agent_stream_events(
-        "你好", session_id="sid-sync", user={"user_id": "alice", "username": "alice"}
+        "你好", session_id=session_id, user={"user_id": "alice", "username": "alice"}
     ):
         pass
 
@@ -89,7 +94,7 @@ async def test_stream_pump_mirrors_events_for_logged_in_user(monkeypatch):
     assert "user_prompt" in kinds
     assert kinds.count("text_delta") >= 2
     assert "master_done" in kinds
-    assert all(sid == "sid-sync" for sid, _ in captured)
+    assert all(sid == session_id for sid, _ in captured)
 
 
 @pytest.mark.asyncio
@@ -116,7 +121,9 @@ async def test_stream_pump_no_mirror_for_anonymous(monkeypatch):
 
     monkeypatch.setattr(MasterCoordinator, "chat_stream", fake_chat_stream)
 
-    gen = cs.new_agent_stream_events("你好", session_id="sid-anon", user=None)
+    gen = cs.new_agent_stream_events(
+        "你好", session_id=f"sid-anon-{uuid.uuid4().hex[:8]}", user=None
+    )
     async for _frame in gen:
         pass
 
