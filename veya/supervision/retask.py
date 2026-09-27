@@ -32,6 +32,27 @@ from .policy import ESCALATION_TRIGGERS, classify_escalation
 from .store import MissionStore
 
 _TERMINAL_DECISIONS = {ReviewDecision.accept, ReviewDecision.done}
+
+# Execution report statuses that may be accepted. These are the success outcomes
+# this plane actually emits (``GoalStatus.completed`` and the dispatch path's
+# ``"executed"``). A blocked, failed, cancelled, partial or in-flight iteration is
+# not acceptable work: an evidence chain only proves the mission *ran*, never
+# that it *succeeded*.
+_ACCEPTABLE_REPORT_STATUSES = frozenset({"completed", "executed"})
+
+
+def _report_status_value(status: Any) -> str:
+    """Normalize a report status to its bare value.
+
+    The same status can arrive as a plain string (``"completed"``), as a
+    ``GoalStatus`` member, or as a stringified member (``"GoalStatus.completed"``
+    from ``str(enum)``). All three must judge acceptance identically.
+    """
+    value = getattr(status, "value", status)
+    text = str(value).strip().lower()
+    return text.rsplit(".", 1)[-1] if "." in text else text
+
+
 _REDO_DECISIONS = {
     ReviewDecision.continue_,
     ReviewDecision.revise,
@@ -283,6 +304,20 @@ def plan_retask(
                 reason="cannot complete: DONE requires a persisted ACCEPTED state",
             )
         # Completion authority: acceptance/evidence/blockers must be satisfied.
+        # A blocked / failed / partial iteration is not acceptable work no matter
+        # how much evidence it managed to produce: the evidence chain only proves
+        # the mission *ran*, never that it *succeeded*.
+        if (
+            report is not None
+            and _report_status_value(report.status) not in _ACCEPTABLE_REPORT_STATUSES
+        ):
+            return RetaskOutcome(
+                MissionStatus.blocked,
+                reason=(
+                    f"cannot complete: execution report status is "
+                    f"{_report_status_value(report.status)!r}, not an accepted outcome"
+                ),
+            )
         if report is not None and (
             report.blocked_items
             or report.failures

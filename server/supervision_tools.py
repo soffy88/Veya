@@ -15,6 +15,34 @@ from veya.supervision import ExternalSupervisor, MissionStore, SupervisionRouter
 _MISSION_EXECUTORS = frozenset({"hicode", "dsh", "builtin"})
 
 
+def _validated_actions(actions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Validate planner-resolved canonical actions.
+
+    These are explicit, typed decisions — the planner's *WHAT*. Nothing is
+    inferred from the free-text goal here. Every entry must name a registered
+    canonical tool so a malformed action fails closed at admission instead of
+    at execution time.
+    """
+    if not actions:
+        return []
+    from server.tool_registry import master_tools
+
+    validated: list[dict[str, Any]] = []
+    for action in actions:
+        if not isinstance(action, dict):
+            raise ValueError("each resolved action must be a mapping")
+        tool = str(action.get("tool") or "").strip()
+        if not tool:
+            raise ValueError("each resolved action must name a tool")
+        if not master_tools.has(tool):
+            raise ValueError(f"unknown canonical tool in resolved action: {tool!r}")
+        arguments = action.get("arguments")
+        if arguments is not None and not isinstance(arguments, dict):
+            raise ValueError("resolved action arguments must be a mapping")
+        validated.append({"tool": tool, "arguments": dict(arguments or {})})
+    return validated
+
+
 async def _default_runner(mission: Any) -> Any:
     """Canonical execution entry: the single project dispatch (builtin/hicode/dsh)."""
 
@@ -41,12 +69,14 @@ def veya_mission_create(
     constraints: list[str] | None = None,
     characteristics: list[str] | None = None,
     executor: str = "",
+    actions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if executor and executor not in _MISSION_EXECUTORS:
         raise ValueError(
             f"unsupported mission executor {executor!r}; expected one of "
             f"{sorted(_MISSION_EXECUTORS)}"
         )
+    resolved_actions = _validated_actions(actions)
     mission = _facade(project_root).create(
         goal=goal,
         supervision_mode=supervision_mode,
@@ -56,6 +86,11 @@ def veya_mission_create(
         characteristics=characteristics,
         executor=executor or None,
     )
+    if resolved_actions:
+        # The planner already decided WHAT; the execution substrate decides HOW.
+        mission.policies.execution_policy["actions"] = resolved_actions
+        store = MissionStore(project_root)
+        store.save(mission)
     return {"mission": mission.to_dict()}
 
 
@@ -138,6 +173,23 @@ _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
                     "type": "string",
                     "enum": ["hicode", "dsh", "builtin"],
                     "description": "Pin the execution plane for this Mission (empty = canonical entry decides).",
+                },
+                "actions": {
+                    "type": "array",
+                    "description": (
+                        "Planner-resolved canonical actions (the planner's WHAT). Each is "
+                        "executed by the canonical L0 substrate through ActionGateway and "
+                        "PermissionEngine, with no additional model call. Omit when the "
+                        "planner has not resolved the work."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tool": {"type": "string"},
+                            "arguments": {"type": "object"},
+                        },
+                        "required": ["tool"],
+                    },
                 },
             },
             "required": ["project_root", "goal"],

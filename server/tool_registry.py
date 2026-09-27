@@ -74,6 +74,14 @@ _current_write_root: contextvars.ContextVar[Path | None] = contextvars.ContextVa
     "veya_write_root", default=None
 )
 
+# Read side of the same binding. A governed task that writes inside a bound
+# workspace must also read that workspace back, otherwise a write/read round
+# trip resolves against two different roots. Defaults to None so every existing
+# caller keeps the VEYA_WORKSPACE / project-root behaviour unchanged.
+_current_workspace_root: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
+    "veya_workspace_root", default=None
+)
+
 
 def bind_write_root(root: str | Path | None) -> contextvars.Token:
     """Bind the task workspace for governed local writes."""
@@ -83,6 +91,16 @@ def bind_write_root(root: str | Path | None) -> contextvars.Token:
 
 def reset_write_root(token: contextvars.Token) -> None:
     _current_write_root.reset(token)
+
+
+def bind_workspace_root(root: str | Path | None) -> contextvars.Token:
+    """Bind the read root to the same workspace the write root is bound to."""
+
+    return _current_workspace_root.set(Path(root).expanduser().resolve() if root else None)
+
+
+def reset_workspace_root(token: contextvars.Token) -> None:
+    _current_workspace_root.reset(token)
 
 
 _delegation_depth_ctx: contextvars.ContextVar[int] = contextvars.ContextVar(
@@ -891,7 +909,10 @@ _DEFAULT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "platform" / "3
 
 
 def _resolve_workspace_root() -> Path:
-    """工具读写文件的根: 优先 VEYA_WORKSPACE env, 默认项目根。"""
+    """工具读写文件的根: 绑定的工作区优先, 其次 VEYA_WORKSPACE env, 默认项目根。"""
+    bound = _current_workspace_root.get()
+    if bound is not None:
+        return bound
     return Path(
         os.environ.get("VEYA_WORKSPACE", str(Path(__file__).resolve().parent.parent))
     ).resolve()

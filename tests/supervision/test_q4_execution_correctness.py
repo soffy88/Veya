@@ -92,6 +92,104 @@ def test_missing_evidence_prevents_accept() -> None:
     assert "ACCEPTED state" in outcome.reason
 
 
+@pytest.mark.parametrize(
+    "status", ["blocked", "failed", "cancelled", "partial_completed", "running"]
+)
+def test_incomplete_execution_status_cannot_be_accepted(status: str) -> None:
+    """Evidence from a non-successful iteration must never satisfy ACCEPT.
+
+    Regression: a blocked iteration that produced an execution delta was being
+    accepted, because the gate only checked failures/blockers/evidence and never
+    the execution outcome itself.
+    """
+    mission = Mission(mission_id="m", goal="g")
+    report = ExecutionReport(
+        mission_id="m",
+        iteration=0,
+        objective="g",
+        status=status,
+        evidence_chain=[{"category": "runtime", "kind": "execution_delta"}],
+    )
+    review = SupervisorReview(
+        mission_id="m", iteration=0, supervisor="test", decision=ReviewDecision.accept
+    )
+    outcome = plan_retask(review, mission=mission, report=report)
+    assert outcome.mission_status is MissionStatus.blocked
+    assert "not an accepted outcome" in outcome.reason
+
+
+def test_completed_execution_status_is_accepted() -> None:
+    """The positive control: a completed iteration with evidence is accepted."""
+    mission = Mission(mission_id="m", goal="g")
+    report = ExecutionReport(
+        mission_id="m",
+        iteration=0,
+        objective="g",
+        status="completed",
+        evidence_chain=[{"category": "runtime", "kind": "execution_delta"}],
+    )
+    review = SupervisorReview(
+        mission_id="m", iteration=0, supervisor="test", decision=ReviewDecision.accept
+    )
+    assert (
+        plan_retask(review, mission=mission, report=report).mission_status is MissionStatus.accepted
+    )
+
+
+def test_goal_status_enum_compares_like_its_value() -> None:
+    """A GoalStatus member and its bare value must judge acceptance identically.
+
+    Regression: ``GoalStatus`` is a plain Enum, so comparing ``str(member)``
+    against a status vocabulary silently rejected genuinely completed runs.
+    """
+    from server.goal_run.models import GoalStatus
+
+    mission = Mission(mission_id="m", goal="g")
+    review = SupervisorReview(
+        mission_id="m", iteration=0, supervisor="test", decision=ReviewDecision.accept
+    )
+    completed = ExecutionReport(
+        mission_id="m",
+        iteration=0,
+        objective="g",
+        status=GoalStatus.completed,
+        evidence_chain=[{"category": "runtime", "kind": "execution_delta"}],
+    )
+    assert (
+        plan_retask(review, mission=mission, report=completed).mission_status
+        is MissionStatus.accepted
+    )
+
+    blocked = ExecutionReport(
+        mission_id="m",
+        iteration=0,
+        objective="g",
+        status=GoalStatus.blocked,
+        evidence_chain=[{"category": "runtime", "kind": "execution_delta"}],
+    )
+    assert (
+        plan_retask(review, mission=mission, report=blocked).mission_status is MissionStatus.blocked
+    )
+
+
+def test_executed_status_is_accepted() -> None:
+    """The dispatch path's own success spelling must also be acceptable."""
+    mission = Mission(mission_id="m", goal="g")
+    report = ExecutionReport(
+        mission_id="m",
+        iteration=0,
+        objective="g",
+        status="executed",
+        evidence_chain=[{"category": "runtime", "kind": "execution_delta"}],
+    )
+    review = SupervisorReview(
+        mission_id="m", iteration=0, supervisor="test", decision=ReviewDecision.accept
+    )
+    assert (
+        plan_retask(review, mission=mission, report=report).mission_status is MissionStatus.accepted
+    )
+
+
 def test_done_requires_accepted() -> None:
     mission = Mission(mission_id="m", goal="g")
     report = ExecutionReport(

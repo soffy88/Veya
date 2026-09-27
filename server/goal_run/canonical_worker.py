@@ -78,6 +78,11 @@ class CanonicalWorkerAdapter:
         self.semantic_session_id = semantic_session_id
         self.semantic_llm_kwargs = dict(semantic_llm_kwargs or {})
         self.gateway_executor = gateway_executor
+        # Planner-resolved canonical actions. When present, GoalRun performs them
+        # through the same physical boundary as any other action, so a decision
+        # the planner already made needs no second model call. This adds an
+        # execution *mode* over the existing substrate, not a second authority.
+        self.resolved_actions: list[dict[str, Any]] = []
         self.execution_repository: DurableExecutionRepository | None = None
         self.action_gateway: ActionGatewayAdapter | None = None
 
@@ -399,6 +404,8 @@ class CanonicalWorkerAdapter:
         tool, while ``execute_canonical_action`` remains the only physical
         boundary.  No loop or acceptance decision is introduced here.
         """
+        if self.resolved_actions:
+            return await self.execute_resolved_actions(state, task)
         if self.semantic_agent is None or self.gateway_executor is None:
             return None
         from server.goal_run.leaf import LeafResult
@@ -473,6 +480,71 @@ class CanonicalWorkerAdapter:
                     "producer": "goal_run",
                 }
             ],
+            stop_reason="completed",
+        )
+
+    async def execute_resolved_actions(self, state: Any, task: Any) -> Any:
+        """Execute planner-resolved canonical actions on the one physical boundary.
+
+        Each action goes through ``execute_canonical_action`` — the same
+        ActionGateway → PermissionEngine → side-effect-ledger boundary used for
+        every other physical step. Nothing here plans, retries, or decides
+        acceptance; GoalRun and Verification OS keep that authority.
+        """
+        from server.goal_run.leaf import LeafResult
+
+        if self.gateway_executor is None:
+            return None
+        request_adapter = MasterAgentActionAdapter(
+            goal_run_id=state.goal_id,
+            task_id=task.id,
+            computer_ref=self.computer_id,
+            context_ref=str(self._checkpoint_path) if self._checkpoint_path else None,
+            executor=lambda request: self.execute_canonical_action(
+                state, request, gateway_executor=self.gateway_executor
+            ),
+            bot_id=state.bot_id,
+        )
+        evidence: list[dict[str, Any]] = []
+        for index, action in enumerate(self.resolved_actions):
+            tool = str(action.get("tool") or "")
+            if not tool:
+                return LeafResult(
+                    status="blocked",
+                    summary="",
+                    block_reason="resolved action is missing a tool",
+                    stop_reason="exception",
+                    unfinished_work=[task.instruction],
+                )
+            request = request_adapter.request(
+                tool, dict(action.get("arguments") or {}), tool_call_id=f"act_resolved_{index}"
+            )
+            result = await self.execute_canonical_action(
+                state, request, gateway_executor=self.gateway_executor
+            )
+            evidence.append(
+                {
+                    "id": f"resolved-action-{result.action_id}",
+                    "kind": "observation",
+                    "source": "goal_run.canonical_action",
+                    "content": json.dumps(result.to_dict(), ensure_ascii=False, default=str),
+                    "producer": "goal_run",
+                }
+            )
+            if result.status != "completed" or not result.executed:
+                failure = result.failure_evidence[0] if result.failure_evidence else {}
+                return LeafResult(
+                    status="blocked",
+                    summary="",
+                    block_reason=str(failure.get("error") or result.status),
+                    evidence=evidence,
+                    stop_reason="exception",
+                    unfinished_work=[task.instruction],
+                )
+        return LeafResult(
+            status="completed",
+            summary=f"executed {len(self.resolved_actions)} planner-resolved canonical action(s)",
+            evidence=evidence,
             stop_reason="completed",
         )
 
