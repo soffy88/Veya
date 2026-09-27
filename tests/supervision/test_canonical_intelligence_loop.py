@@ -108,16 +108,16 @@ async def test_case_a_happy_path(tmp_path: Path) -> None:
             status="completed",
             artifacts=[{"path": "result.txt", "verified": True}],
             tests=[{"command": "pytest", "passed": 1, "failed": 0}],
-                runtime_evidence=[
+            runtime_evidence=[
                 {
                     "kind": "l1_execution",
                     "worker": "hicode",
                     "status": "COMPLETED",
-                        "execution_id": "e-1",
-                    }
-                ],
-                evidence_chain=[{"category": "runtime", "kind": "l1_execution"}],
-            )
+                    "execution_id": "e-1",
+                }
+            ],
+            evidence_chain=[{"category": "runtime", "kind": "l1_execution"}],
+        )
 
     class AutoAcceptSupervisor:
         async def review(self, m: Any, r: Any) -> SupervisorReview:

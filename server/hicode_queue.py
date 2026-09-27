@@ -313,9 +313,7 @@ class HicodeTaskQueue:
                             max_steps=int(rec.meta.get("max_steps") or 0),
                             timeout_sec=int(rec.meta.get("timeout_sec") or 900),
                             session_id=(
-                                str(rec.meta["session_id"])
-                                if rec.meta.get("session_id")
-                                else None
+                                str(rec.meta["session_id"]) if rec.meta.get("session_id") else None
                             ),
                             continue_=bool(rec.meta.get("continue_")),
                             on_event=_push,

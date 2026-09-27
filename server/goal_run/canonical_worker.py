@@ -28,6 +28,8 @@ from server.goal_run.git_diff import current_head
 class CanonicalWorkerAdapter:
     """Bind frozen runtimes to one GoalRun without owning execution authority."""
 
+    skip_plan_review = False
+
     def __init__(
         self,
         *,

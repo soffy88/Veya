@@ -148,10 +148,15 @@ def test_execution_delta_is_acceptance_evidence(tmp_path: Path) -> None:
 
 
 def test_executor_capability_matches_assignment() -> None:
-    assert _KNOWN_EXECUTORS == {"builtin", "hicode", "dsh"}
-    assert executor_hint(types.SimpleNamespace(policies=types.SimpleNamespace(
-        execution_policy={"assignee_hint": "native_tool"}
-    ))) is None
+    assert {"builtin", "hicode", "dsh"} == _KNOWN_EXECUTORS
+    assert (
+        executor_hint(
+            types.SimpleNamespace(
+                policies=types.SimpleNamespace(execution_policy={"assignee_hint": "native_tool"})
+            )
+        )
+        is None
+    )
 
 
 def test_unsupported_executor_is_rejected() -> None:

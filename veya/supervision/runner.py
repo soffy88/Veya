@@ -96,9 +96,9 @@ async def canonical_runner(mission: Any, *, dispatch: Dispatch | None = None) ->
             unfinished_work=["canonical executor capability is unresolved"],
         )
 
+    from server.goal_run.canonical_worker import CanonicalWorkerAdapter
     from server.goal_run.runner import project_run_goal
     from server.goal_run.store import load_goal_run
-    from server.goal_run.canonical_worker import CanonicalWorkerAdapter
 
     task = {
         "id": f"{mission.mission_id}-q4",
@@ -112,7 +112,7 @@ async def canonical_runner(mission: Any, *, dispatch: Dispatch | None = None) ->
     # Existing typed adapter: skip only the advisory plan gate for an already
     # admitted supervision mission; execution remains the canonical leaf path.
     integration_adapter = CanonicalWorkerAdapter.for_capability(
-        task_id=task["id"],
+        task_id=str(task["id"]),
         objective=str(mission.goal),
         capability=None,
         verification_required=True,
@@ -134,7 +134,9 @@ async def canonical_runner(mission: Any, *, dispatch: Dispatch | None = None) ->
         goal_id=response.goal_id,
         status=str(response.status),
         tasks={},
-        final_summary=response.summary or response.block_reason or "GoalRun produced no durable state",
+        final_summary=response.summary
+        or response.block_reason
+        or "GoalRun produced no durable state",
         unfinished_work=[response.block_reason] if response.block_reason else [],
     )
 

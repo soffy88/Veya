@@ -316,7 +316,10 @@ def build_execution_report(
             }
         )
         evidence_chain = build_evidence_chain(
-            [*evidence_items, {"category": "runtime", "kind": "execution_delta", "source": "goal_run"}]
+            [
+                *evidence_items,
+                {"category": "runtime", "kind": "execution_delta", "source": "goal_run"},
+            ]
         )
 
     return ExecutionReport(
