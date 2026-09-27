@@ -518,3 +518,85 @@ def test_exactly_one_authority_module_defines_command_policy() -> None:
     # the runner must delegate, never own a destructive-executable policy
     assert "_DESTRUCTIVE_EXECUTABLES" not in runner
     assert "PermissionEngine" in runner
+
+
+async def test_permission_precedes_git_discovery(tmp_path: Path) -> None:
+    """A destructive operation in a non-Git workspace is a policy result.
+
+    Canonical precedence: request/session validity -> permission classification
+    -> capability/approval -> workspace/execution discovery -> execution. A valid
+    request must never be reported as a workspace error merely because later
+    repository discovery failed, and a workspace that happens not to be a Git
+    repository must not change the permission verdict.
+    """
+    from veya.remote import (
+        RemoteAudit,
+        RemoteAuth,
+        RemotePermissions,
+        RemoteSessionManager,
+        RemoteToolAdapter,
+    )
+    from veya.remote.mcp_server import create_gateway
+
+    # deliberately NOT a git repository
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "build").mkdir()
+
+    async def verdict(workspace: Path, command: str) -> dict:
+        auth = RemoteAuth()
+        _record, secret = auth.issue(
+            "tester",
+            permissions=RemotePermissions(read=True, write=True, shell=True, git=True),
+            workspaces=[str(workspace)],
+        )
+        audit = RemoteAudit()
+        gateway = create_gateway(
+            auth=auth,
+            sessions=RemoteSessionManager(ttl_s=3600, max_sessions=4),
+            audit=audit,
+            adapter=RemoteToolAdapter(None, redact=audit.redact),
+        )
+        init = await gateway.handle_message(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            authorization=f"Bearer {secret}",
+        )
+        response = await gateway.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "shell.exec", "arguments": {"command": command}},
+            },
+            authorization=f"Bearer {secret}",
+            session_header=init["result"]["sessionId"],
+        )
+        return response["result"]["structuredContent"]
+
+    destructive = await verdict(plain, "rm -rf build")
+    assert destructive["ok"] is False
+    # the permission layer answered first; Git discovery never got to report
+    assert destructive["error_code"] in {"POLICY_BLOCKED", "APPROVAL_REQUIRED"}
+    assert destructive["error_code"] != "WORKSPACE_DENIED"
+
+
+def test_permission_verdict_is_independent_of_git_presence(tmp_path: Path) -> None:
+    """The same command decides identically inside and outside a Git repository."""
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "t@t"],
+        ["config", "user.name", "t"],
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+    plain = tmp_path / "plain"
+    plain.mkdir()
+
+    for command in ("rm -rf build", "chmod 600 x", "git clean -fd", "git push --force"):
+        _effect, in_repo, _ = _engine(command, repo)
+        _effect, outside, _ = _engine(command, plain)
+        assert in_repo is outside, command

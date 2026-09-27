@@ -111,12 +111,40 @@ async def test_auto_open_workspace_file_ops_without_approved_flag(tmp_path: Path
     )
     assert res_info.ok is True
 
-    # Path escape is blocked
+    # Path escape is blocked.
+    #
+    # Canonical precedence (see PermissionEngine): a valid request is classified
+    # by permission BEFORE workspace/execution discovery, so an out-of-scope
+    # target is refused by the permission layer itself. The refusal is therefore
+    # POLICY_BLOCKED (engine reason DENY_SCOPE_ESCAPE) rather than a workspace
+    # error produced by later repository discovery. Both are fail-closed; the
+    # canonical one is reported here so the contract stays unambiguous.
     res_escape = await adapter._call_impl(
         session, "file.read", {"path": "../../etc/passwd", "workspace": str(tmp_path)}
     )
     assert res_escape.ok is False
-    assert str(res_escape.error_code) == "WORKSPACE_DENIED"
+    assert str(res_escape.error_code) == "POLICY_BLOCKED"
+
+    # The permission verdict, not just the transport code, is the contract.
+    from veya.remote.permission_engine import (
+        Decision,
+        OperationContext,
+        PermissionEngine,
+        ReasonCode,
+    )
+
+    decision = PermissionEngine().evaluate(
+        OperationContext(
+            tool="file.read",
+            operation="file.read",
+            workspace_root=tmp_path,
+            cwd=tmp_path,
+            target_paths=((tmp_path / "../../etc/passwd").resolve(),),
+            filesystem_effect="read",
+        )
+    )
+    assert decision.decision is Decision.DENY
+    assert decision.reason is ReasonCode.DENY_SCOPE_ESCAPE
 
 
 # 2. Managed home roots are accessible while sensitive paths remain blocked
