@@ -1,0 +1,1046 @@
+# B local-only capability inventory (main not on origin/main)
+
+Total commits: 985
+
+## MasterAgent / GoalRun / ActionGateway (31)
+
+- 808ee36b fix(runtime): retry durable GoalRun work after retry delay
+- 5fc8038b fix(runtime): restore canonical action on durable GoalRun resume
+- 97a568c4 fix(runtime): route production GoalRuns through durable execution
+- 5dc03572 fix(runtime): resume durable GoalRuns on application startup
+- bf8cd589 fix(runtime): resume GoalRun semantic replan after action failure
+- 8d5eff7b fix(runtime): resume GoalRun semantic replan after action failure
+- 5c131408 fix(runtime): bind production tasks to GoalRun semantic loop
+- b7080b7b feat(agent): close I4 canonical action protocol MasterAgent->GoalRun->ActionGateway
+- 2da5783f feat(agent): close I4 canonical action protocol MasterAgent->GoalRun->ActionGateway
+- a13a1304 separate goalrun planning from authoritative sensors
+- a5e1e000 separate goalrun planning from authoritative sensors
+- 64d76225 fix coding goalrun verification contract
+- 4a687823 fix coding goalrun verification contract
+- cd7e3981 fix(product): close GoalRun plan review resume
+- d6d8d3ba fix(product): close GoalRun plan review resume
+- f8f05510 feat(cognitive-policy): MasterAgent 减少无谓工具调用 — ANSWER FIRST + evidence framing
+- 80856655 feat(cognitive-policy): MasterAgent 减少无谓工具调用 — ANSWER FIRST + evidence framing
+- 381a341b feat(wayfinder): 打通 wayfinding → spec-pack → goal_run 三条线
+- c10bf17d feat(wayfinder): 打通 wayfinding → spec-pack → goal_run 三条线
+- b5c2673c feat(eval): 独立 Eval 夹具接入 MasterCoordinator 真实运行结果
+- 4e663b76 feat(eval): 独立 Eval 夹具接入 MasterCoordinator 真实运行结果
+- e69499a1 feat(wayfinding): 接入 wayfind_gh_* — GitHub Issues 后端的 MasterAgent 工具面
+- 8433681f feat(wayfinding): 接入 wayfind_gh_* — GitHub Issues 后端的 MasterAgent 工具面
+- 235eea69 feat(wayfinding): 接入 MasterAgent 工具面 — wayfind_*/stateful_* 16 个工具
+- e5bdc1b2 feat(wayfinding): 接入 MasterAgent 工具面 — wayfind_*/stateful_* 16 个工具
+- 6b16ccb1 feat(3o): 主链重构 — master_coordinator 统一入口 + 计划模式/批准
+- 758b1ab0 feat(3o): 主链重构 — master_coordinator 统一入口 + 计划模式/批准
+- 90309149 feat(coordinator-master): 主脑三系统能力路由提示 (stratum 知识专家 / hevi 视频专家 / codebase 工具)
+- aed22e4c feat(coordinator-master): 主脑三系统能力路由提示 (stratum 知识专家 / hevi 视频专家 / codebase 工具)
+- 49fbb3ac feat(server): coordinator_master 长程任务可选装配 — 主脑路径接线
+- 418ef21f feat(server): coordinator_master 长程任务可选装配 — 主脑路径接线
+
+## Remote MCP / Local2 (35)
+
+- 49c024a5 fix(runtime): harden Local2 execution control plane
+- 8e8011f8 feat: harden remote mcp and supervision
+- 0e06a99d feat(runtime): bind MCP capabilities to ACP sessions
+- adca586a chore(3o): advance canonical obase ACP MCP primitives
+- 8f2375e7 chore(3o): advance canonical obase MCP substrate
+- 9830dc74 fix(release): close fencing and mcp readiness blockers
+- 8cd316be fix(release): close fencing and mcp readiness blockers
+- 5039e8d3 fix(security): govern inbound MCP tool calls
+- 46eb8b80 fix(security): govern inbound MCP tool calls
+- 89bac240 fix(product): close legacy MCP governance bypass
+- 5b561756 fix(product): close legacy MCP governance bypass
+- 0506f001 feat: add MCP tool governance and credential references
+- 53f8c812 feat: add MCP tool governance and credential references
+- cf36a363 fix(graph): rows 元素为 list (非 dict) + 去 WHERE <> (MCP 解析错) — 图谱数据修正
+- c400d5c8 fix(graph): rows 元素为 list (非 dict) + 去 WHERE <> (MCP 解析错) — 图谱数据修正
+- b2877fee test: 适配 skills dispatcher + mcp 网关新契约 — 修 Claude Code 优化未同步的 10 个测试
+- e0aa1687 test: 适配 skills dispatcher + mcp 网关新契约 — 修 Claude Code 优化未同步的 10 个测试
+- ec20f1ac ②-B mcp 67→4 网关: 主脑工具面 85→22 (全 agent 面 ~168→~35) (#5)
+- a8aa6776 ②-B mcp 67→4 网关: 主脑工具面 85→22 (全 agent 面 ~168→~35) (#5)
+- 10ac3a07 fix(stratum): stratum MCP 连接修正 + 主脑知识路由 (三系统能力注册收尾)
+- 0b896397 fix(stratum): stratum MCP 连接修正 + 主脑知识路由 (三系统能力注册收尾)
+- ffb2703e feat(open_design): 设计/渲染智能接入 — mcp_od_* 22 工具 (四智能面合流)
+- 732024fa feat(open_design): 设计/渲染智能接入 — mcp_od_* 22 工具 (四智能面合流)
+- 7e1c9112 feat(hevi): 视频管线 MCP 接入 — veya 主脑视频生产面 (mcp_hevi_* 14 工具)
+- 5524f4a7 feat(hevi): 视频管线 MCP 接入 — veya 主脑视频生产面 (mcp_hevi_* 14 工具)
+- 96d8d94c feat(stratum): 知识库 MCP 接入 — veya 主脑知识面 (mcp_stratum_* 18 工具)
+- 80c945e7 feat(stratum): 知识库 MCP 接入 — veya 主脑知识面 (mcp_stratum_* 18 工具)
+- bf30d96a feat(veya_loop): StreamableHttpMcpClient/HttpMcpError 装配
+- 06616e8e feat(veya_loop): StreamableHttpMcpClient/HttpMcpError 装配
+- 8f606a80 feat(codebase_memory): 主脑工具面接线 (mcp_codebase_* 8 工具) + 每日增量索引 cron
+- 9c45012c feat(codebase_memory): 主脑工具面接线 (mcp_codebase_* 8 工具) + 每日增量索引 cron
+- c6f8394f feat: codebase-memory-mcp 集成 — LSP 调用链/blast radius/Cypher 精度层
+- d308f060 feat: codebase-memory-mcp 集成 — LSP 调用链/blast radius/Cypher 精度层
+- e7cc465c feat(veya_loop): StdioMcpClient/StdioMcpError 装配 (obase 机制转发)
+- 6077183a feat(veya_loop): StdioMcpClient/StdioMcpError 装配 (obase 机制转发)
+
+## L0 / L1 / L2 (24)
+
+- c0cd5f38 chore: Wave A Requalification for A1 Blocker Resolutions
+- 7934e1d4 merge: reconcile canonical main and qualified runtime lineages
+- a1fe9b62 feat: consolidate qualified runtime, autonomous, fleet and operations work
+- 98fbe50c release: freeze P1-P4 qualified product layer
+- 21b33bac fix(opencode): securely qualify opencode external directory and permission execution
+- 654b16b3 close execution-scoped L1 coding runtime
+- fe4d1b51 ci: strengthen release qualification gates
+- f22f6877 feat: qualify opencode-go llm routing
+- e1846b9b feat(web): add qualified supervision mission interface
+- f7ad1e2a feat(supervision): qualify dual-mode execution and durable DSH runtime
+- d4c7b6b6 fix(3o): advance oservi qualification revision
+- 86bc324e fix(3o): advance oprim qualification revision
+- 3486b92f fix(3o): advance qualified element revisions
+- 7919504e test(release): qualify v1.0.1 durable recovery
+- a620ddc7 test(release): qualify v1.0.1 recovery and fencing
+- cc7859bc test(release): qualify v1.0.1 recovery and fencing
+- f9f52fb0 test(agent): add P3 multi-bot qualification harness
+- 08b44438 feat(agent): add P2-D full-chain integration qualification
+- 0df56c36 fix(eval): drive real context pressure during P1 qualification
+- 5873f382 test(agent): add reproducible P1 qualification harness
+- 531876a7 feat(officecli): 场景层 + 基座升级 — 动态 help / L1-L3 分层 / 4 场景资产
+- 131f0c5b feat(officecli): 场景层 + 基座升级 — 动态 help / L1-L3 分层 / 4 场景资产
+- f5c6ab44 feat(runtimes): L1→L3 三框架运行时实施 (prime-agent / pi / agentscope)
+- 4a080c04 feat(runtimes): L1→L3 三框架运行时实施 (prime-agent / pi / agentscope)
+
+## permissions / approvals (25)
+
+- 3cbf910d fix(runtime): remove AGY dangerous permission bypass
+- ef55fad6 fix(runtime): reconcile user systemd policy hotfix
+- 41b6579c fix(remote): gate destructive shell commands behind human approval
+- 2c8ac9f6 fix(p0): restore governed approval and runtime recovery
+- aab77bd5 fix(p0): restore governed approval and runtime recovery
+- 63f7cf9d preserve coding sandbox boundaries in nested runtime
+- 5c14d1ee preserve coding sandbox boundaries in nested runtime
+- 9f173c9f run coding sensors inside managed sandbox
+- 981fdd51 run coding sensors inside managed sandbox
+- c90363d3 fix(browser): update takeover policy dependency
+- 37eeb287 fix(browser): update takeover policy dependency
+- c617526c test(coding): gate restricted sandbox checks on bubblewrap
+- 333c5558 test(coding): gate restricted sandbox checks on bubblewrap
+- 7c2edde1 fix(ci): use pnpm 11 allow-builds policy
+- a27a97c1 fix(ci): use pnpm 11 allow-builds policy
+- b3e86c58 feat(10-of-10): PR-09 安全契约最小步骤 — SandboxProfile 分级 + 对抗性路径测试
+- 4c4fafef feat(10-of-10): PR-09 安全契约最小步骤 — SandboxProfile 分级 + 对抗性路径测试
+- 22ccdcd7 fix(cognitive-policy): ANSWER FIRST 补优先级声明 + WORKSPACE RAG 收窄 + Anthropic tool_choice 修复
+- a0df9351 fix(cognitive-policy): ANSWER FIRST 补优先级声明 + WORKSPACE RAG 收窄 + Anthropic tool_choice 修复
+- 83bb9376 fix(master): 主脑文件操作分工 — 新增 write_file 工具 + 收紧 run_in_sandbox
+- 56098814 fix(master): 主脑文件操作分工 — 新增 write_file 工具 + 收紧 run_in_sandbox
+- 51516ab7 fix(sandbox): audit_dir cwd 不可写时 fallback 到系统临时目录
+- fb5e2ebc fix(sandbox): audit_dir cwd 不可写时 fallback 到系统临时目录
+- 6d5318e6 feat(compat): legacy L4 gateway bridge — agent verify/run/stream/history, sandbox execute, kanban
+- 8adaf5f2 feat(compat): legacy L4 gateway bridge — agent verify/run/stream/history, sandbox execute, kanban
+
+## worktree / promotion (2)
+
+- 0ec96d4f fix(remote): expose canonical execution target schema
+- fd6726f2 fix(runtime): finalize safe worktree lifecycle teardown
+
+## provider routing (71)
+
+- 59fd9a68 fix(remote): align OpenCode harness argv contract
+- c73fd0d7 feat(agent): wire canonical knowledge and reliable provider execution
+- be58213f feat(agent): wire canonical knowledge and reliable provider execution
+- 765a1e5a Add P1-E knowledge and provider reliability
+- 7f500b63 Add P1-E knowledge and provider reliability
+- b9a77728 fix(product): preserve provider binding on task resume
+- eda98cb9 fix(product): preserve provider binding on task resume
+- 28520b6b fix(release): fail closed on production fallbacks
+- ff2cecdc fix(release): fail closed on production fallbacks
+- 1e51bdc2 fix(product): restore coding workbench fallback
+- 0c1f382d fix(product): restore coding workbench fallback
+- 37a33ff2 feat(provider): assemble 3O provider router and usage
+- 2be68a7b feat(provider): assemble 3O provider router and usage
+- 51d4a47e feat(llm): reroute veya1.2 pools to paid providers + harden free pool
+- e1a0baaa feat(llm): reroute veya1.2 pools to paid providers + harden free pool
+- f0be0b2c style(obase): ruff format llm.py routing branch
+- 5c4f4931 style(obase): ruff format llm.py routing branch
+- 4436de76 feat: switch master brain to veya1.2 OpenRouter pool
+- 6ba0bf71 feat: switch master brain to veya1.2 OpenRouter pool
+- 7d1728b0 fix(llm): opencode-go 网关抖动整轮重试, 不再一次失败即报错
+- 0c03b0a5 fix(llm): opencode-go 网关抖动整轮重试, 不再一次失败即报错
+- e87ea77b fix(llm): opencode-go frontier 兜底自愈 + 修正误导性报错来源
+- 81e03d96 fix(llm): opencode-go frontier 兜底自愈 + 修正误导性报错来源
+- 44442963 feat(3o): 记忆注入桥进新主链 — context_providers + on_finish 钩子
+- 7b1a1ea1 feat(3o): 记忆注入桥进新主链 — context_providers + on_finish 钩子
+- 024d0cac fix(llm): veya1.1 直接用 opencode-go API — 绕开 oskill 复杂路由器
+- d894c93d fix(llm): veya1.1 直接用 opencode-go API — 绕开 oskill 复杂路由器
+- 725b4169 fix(llm): opencode-go 空回复自动降级本地 gpt-5.6-luna — 模型层彻底闭环
+- 18d14ad6 fix(llm): opencode-go 空回复自动降级本地 gpt-5.6-luna — 模型层彻底闭环
+- cc6fccb5 feat(reasonix): 独立 oservi (serve HTTP+SSE) + opencode-go 云端独立可用
+- 912ef3e7 feat(reasonix): 独立 oservi (serve HTTP+SSE) + opencode-go 云端独立可用
+- 1fe47794 fix(llm): opencode-go 无效响应兜底 — 'None'/空重试换模型, 绝不静默
+- 09166ca2 fix(llm): opencode-go 无效响应兜底 — 'None'/空重试换模型, 绝不静默
+- 94dff2b9 test(llm): get_provider_config config.json 兜底防回归 (+2)
+- dfb31c71 test(llm): get_provider_config config.json 兜底防回归 (+2)
+- cdc8758b feat(model-routing): freellmapi 四机制内化 — 统一模型 fallover / 用量跟踪 / 粘性会话 / 工具救援
+- b3f0cb50 feat(model-routing): freellmapi 四机制内化 — 统一模型 fallover / 用量跟踪 / 粘性会话 / 工具救援
+- 6f1b52f2 fix(identity): opencode-go key 直连 — 主脑人格回归 veya (去掉 opencode agent 包装)
+- 3566fd0c fix(identity): opencode-go key 直连 — 主脑人格回归 veya (去掉 opencode agent 包装)
+- eacf3e23 fix(identity): opencode 常驻会话注入 veya system prompt — 恢复 veya 人格与能力
+- 096f0bc3 fix(identity): opencode 常驻会话注入 veya system prompt — 恢复 veya 人格与能力
+- f067ff39 feat(perf): opencode serve 常驻化 + SSE 真流式 + CRG 语义搜索原语
+- 09cffb5e feat(perf): opencode serve 常驻化 + SSE 真流式 + CRG 语义搜索原语
+- f7ceb215 feat(llm-router-v3): ChatGPT 订阅接入 opencodex 翻译层 (127.0.0.1:10100)
+- 3841d7ed feat(llm-router-v3): ChatGPT 订阅接入 opencodex 翻译层 (127.0.0.1:10100)
+- ed5b7074 feat(llm-router): 线上打通 opencode-go/deepseek-v4-flash 主模型 (容器内真实执行)
+- e05e81ff feat(llm-router): 线上打通 opencode-go/deepseek-v4-flash 主模型 (容器内真实执行)
+- 3cbf2e93 feat(llm-router): 主模型接入 opencode-go/deepseek-v4-flash (系统内已有凭据)
+- d9acfbae feat(llm-router): 主模型接入 opencode-go/deepseek-v4-flash (系统内已有凭据)
+- c5e62368 fix(llm): custom provider 双通道 — 直连失败自动切代理兜底 (GFW 间歇重置)
+- 309c3ae6 fix(llm): custom provider 双通道 — 直连失败自动切代理兜底 (GFW 间歇重置)
+- 5f5e2989 fix(llm): endpoint 归一化 — custom provider base URL 自动补 /chat/completions
+- fff52468 fix(llm): endpoint 归一化 — custom provider base URL 自动补 /chat/completions
+- a4013a5c docs: 引擎账号修复记录 (四引擎容器内全通 + 代理桥/opencodex 自举)
+- 72cf5125 docs: 引擎账号修复记录 (四引擎容器内全通 + 代理桥/opencodex 自举)
+- 79063f29 feat(engine): 容器内 claude/codex 放行 — 代理桥 + opencodex 自举 (四引擎全通)
+- 9d21253d feat(engine): 容器内 claude/codex 放行 — 代理桥 + opencodex 自举 (四引擎全通)
+- aa4086bc feat(P1+P2): SessionLineage + ProviderCatalog + Kanban 多 Agent 编排
+- ceb74824 feat(P1+P2): SessionLineage + ProviderCatalog + Kanban 多 Agent 编排
+- 2ee3bdfb fix(llm): DeepSeek 400 空 tool_calls 数组 — 发送前剥键 + 源头不写空数组
+- 0e2c093e fix(llm): DeepSeek 400 空 tool_calls 数组 — 发送前剥键 + 源头不写空数组
+- 6ba2c7fb fix(master): route frontend-supplied provider/model/config into master brain
+- 3e0e74b8 fix(master): route frontend-supplied provider/model/config into master brain
+- 0f9ff4b8 feat(llm): support VEYA_LLM_ENDPOINT env for default provider endpoint
+- 3adafe93 feat(llm): support VEYA_LLM_ENDPOINT env for default provider endpoint
+- 7e2cf79c fix(llm): provider auth/network errors crashed the whole request as a raw 500
+- 81714899 fix(llm): provider auth/network errors crashed the whole request as a raw 500
+- 714a0f96 feat(web): multi-provider LLM config + sidebar nav + plugin marketplace
+- f776a33e feat(web): multi-provider LLM config + sidebar nav + plugin marketplace
+- 08913276 G11: MkDocs site + mkdocstrings API reference (CI docs job); G12: multimodal vision wired into LLM providers
+- f155adab G11: MkDocs site + mkdocstrings API reference (CI docs job); G12: multimodal vision wired into LLM providers
+
+## HICODE / AGY / Pi / Codex / OpenCode (38)
+
+- 54c812dc fix(runtime): restore AGY autonomous headless mode
+- 89bfa740 P3: PI Runtime Contract And Tool Access Fix
+- 11559053 fix(release): seed hicode runtime directories
+- f592bedd fix(release): seed hicode runtime directories
+- e6c4a8b5 fix(hicode): manage pinned Reasonix runtime
+- 1f05d8ac fix(hicode): manage pinned Reasonix runtime
+- a6892932 fix(vision): 容器内视觉模型走 hicode 反代 (Host 改写) + 路径白名单
+- 32f1ee7b fix(vision): 容器内视觉模型走 hicode 反代 (Host 改写) + 路径白名单
+- 126e375c fix(deploy): 主进程 CWD 挪出 hicode-workspace, 防同名目录遮蔽真实包
+- 72489836 fix(deploy): 主进程 CWD 挪出 hicode-workspace, 防同名目录遮蔽真实包
+- 8b122e5a docs: 冻结文档 reasonix → hicode 更名同步 (AGENTS.md + ARCHITECTURE_STABLE)
+- 915fe6c1 docs: 冻结文档 reasonix → hicode 更名同步 (AGENTS.md + ARCHITECTURE_STABLE)
+- 9f62163e refactor(hicode): Reasonix → hicode 全链路更名
+- 823fc181 refactor(hicode): Reasonix → hicode 全链路更名
+- ab70cfd9 fix(server): reasonix 进度实时透传 SSE (reasonix_progress) + omodul P0 合入
+- 3667397c fix(server): reasonix 进度实时透传 SSE (reasonix_progress) + omodul P0 合入
+- 8c36cd74 feat(web): Agent Dashboard — 四引擎工作台 (Claude Code/Codex/Grok Build/Pi) 自适应四块并行
+- d09d01a5 feat(web): Agent Dashboard — 四引擎工作台 (Claude Code/Codex/Grok Build/Pi) 自适应四块并行
+- dec79acc feat(reasonix): AI 代码评审工具 + 后台任务队列 + 前端 Stop 真正中断
+- 60e996f9 feat(reasonix): AI 代码评审工具 + 后台任务队列 + 前端 Stop 真正中断
+- 90d61113 fix(master): 入口只有一个大模型 — 删除全部程序判断 (工具分层/URL预抓/reasonix收尾兜底)
+- 3e14b782 fix(master): 入口只有一个大模型 — 删除全部程序判断 (工具分层/URL预抓/reasonix收尾兜底)
+- 10335fb2 feat(master): 编程任务收尾兜底 — 模型自主未执行时交 reasonix serve
+- 1d33c49e feat(master): 编程任务收尾兜底 — 模型自主未执行时交 reasonix serve
+- 7482fba9 feat(reasonix): 会话 resume / 实时进度流 / checkpoint 回滚
+- 9c376c29 feat(reasonix): 会话 resume / 实时进度流 / checkpoint 回滚
+- 7b8ad1c3 feat(reasonix): 集成 Reasonix 编码执行器 — 编程任务确定性路由执行
+- 10d17635 feat(reasonix): 集成 Reasonix 编码执行器 — 编程任务确定性路由执行
+- c02c1fb4 feat(replica): 二期 pi-workbench 层落地 (G1/G2)
+- bc907d88 feat(replica): 二期 pi-workbench 层落地 (G1/G2)
+- 21810b9c docs(prd): 三框架集成 PRD (prime-agent/pi/agentscope) + delegate_to_genesis 立档
+- 4d6cb19f docs(prd): 三框架集成 PRD (prime-agent/pi/agentscope) + delegate_to_genesis 立档
+- 49c9a336 feat(engine): 容器内 pi 精确放行 — 凭据探测而非一刀切禁用
+- f6237ff3 feat(engine): 容器内 pi 精确放行 — 凭据探测而非一刀切禁用
+- cae8be01 feat: 多引擎执行 — 聊天框选引擎 (Master/Claude/Codex/Pi) 直连对应 CLI
+- c09e4358 feat: 多引擎执行 — 聊天框选引擎 (Master/Claude/Codex/Pi) 直连对应 CLI
+- 4b02d2c7 web: 右下角模型快捷选择器 (Claude/Codex/Pi + 模型列表) — cindy 风格
+- c024c049 web: 右下角模型快捷选择器 (Claude/Codex/Pi + 模型列表) — cindy 风格
+
+## supervision (4)
+
+- 3a86eb7e fix(web): sync supervision contract types with canonical backend to_dict
+- 22f05e29 feat(supervision): close execution observability and live refresh
+- 4f723141 feat: add 3O computer supervisor assembly
+- 4d0b07c4 feat: add 3O computer supervisor assembly
+
+## context engine (12)
+
+- 7c95c63f feat: freeze P1-D context engine
+- f851cb56 feat: freeze P1-D context engine
+- 8b070252 fix(personal): enforce gold-gated memory and skill correctness
+- 6edd00ea fix(personal): enforce gold-gated memory and skill correctness
+- 7ec9051a feat(10-of-10): PR-07 收尾 — session_tree 核实无需改, memory_store 补 provenance
+- fe9d1ef3 feat(10-of-10): PR-07 收尾 — session_tree 核实无需改, memory_store 补 provenance
+- 403f3002 feat(vaom): VEYA 3.0 VAOM 迁移 P0-P6 — Trust Plane/Capability/Memory/Learning/Harness
+- 51a87ff5 feat(vaom): VEYA 3.0 VAOM 迁移 P0-P6 — Trust Plane/Capability/Memory/Learning/Harness
+- 9bc6932e feat(memory-hub): VEYA 记忆中枢 — TencentDB 三机制装配 + 跨会话持久化
+- 833613fc feat(memory-hub): VEYA 记忆中枢 — TencentDB 三机制装配 + 跨会话持久化
+- f314a14a docs: codebase-memory 工具面接线与 cron 生产验证记录
+- 618c3da6 docs: codebase-memory 工具面接线与 cron 生产验证记录
+
+## verification OS (19)
+
+- 7064ef13 fix: reconcile coding and verification runtime
+- 1352e621 fix(runtime): close production verification pipeline
+- 8ae644df fix(runtime): close production verification pipeline
+- 20b62656 feat(verification): freeze P1-B verification OS
+- 74ef42c0 feat(verification): freeze P1-B verification OS
+- 60acd493 fix(product): complete coding task verification loop
+- 78bf8bff fix(product): complete coding task verification loop
+- b5a9b5d7 feat(issue): add verified patch to draft PR flow
+- 6b08dccc feat(issue): add verified patch to draft PR flow
+- 1fce086d docs(release): record personal runtime gold v1 baseline
+- 6a42eb44 docs(release): record personal runtime gold v1 baseline
+- e88fba61 test(eval): record personal runtime release freeze verification
+- 21db0364 test(eval): record personal runtime release freeze verification
+- 818b017d chore(eval): record post-commit personal gold audit
+- fe2f9d4b chore(eval): record post-commit personal gold audit
+- 8822c9d5 feat(eval): add personal agent gold benchmark
+- e39860cc feat(eval): add personal agent gold benchmark
+- 1d8b3161 feat(graph-engineer): P1 三件套 — PRE-FLIGHT/机械质量门/真 VERIFY
+- 21d44391 feat(graph-engineer): P1 三件套 — PRE-FLIGHT/机械质量门/真 VERIFY
+
+## persistent computer (15)
+
+- e12636fb fix(web): finish browser visual audit
+- b165d676 P1-A: Persistent Computer metadata store
+- e8f52297 P1-A: Persistent Computer metadata store
+- b8065191 test(browser): cover sensitive confirmation takeover
+- fc6111af test(browser): cover sensitive confirmation takeover
+- c157b883 feat(browser): add computer takeover assembly
+- 3b1849c1 feat(browser): add computer takeover assembly
+- 29272cea feat(execution): 执行路由 + 生命周期 + 同步括号 (cloudflare/computer runtime 内化)
+- f51d60f0 feat(execution): 执行路由 + 生命周期 + 同步括号 (cloudflare/computer runtime 内化)
+- 03cd1c74 fix(desktop-ci): playwright 浏览器路径跨平台统一 (PLAYWRIGHT_BROWSERS_PATH+PW_PACK_DIR)
+- 61d875a9 fix(desktop-ci): playwright 浏览器路径跨平台统一 (PLAYWRIGHT_BROWSERS_PATH+PW_PACK_DIR)
+- 22d9867c feat(integrations): browser-use + Agent-Reach 集成 (Skill Hub 技能包 + browser_run 引擎升级)
+- 40507b5a feat(integrations): browser-use + Agent-Reach 集成 (Skill Hub 技能包 + browser_run 引擎升级)
+- acc94fe7 fix(browser): 远端抓取通道 — Playwright 浏览器二进制 + 容器 Chromium 沙箱/共享内存
+- 2bafc6b7 fix(browser): 远端抓取通道 — Playwright 浏览器二进制 + 容器 Chromium 沙箱/共享内存
+
+## knowledge (6)
+
+- bdeb1a82 ci: preserve full coverage gate for optional suite
+- f74cbd15 ci: preserve full coverage gate for optional suite
+- 4c90c75c ci: aggregate coverage across test suites
+- 77e1566f ci: aggregate coverage across test suites
+- c4a63c6d feat(skill-opt): paper/knowledge skill 机械+LLM 复合 scorer (接 optimize_skill) (#13)
+- 07e635c8 feat(skill-opt): paper/knowledge skill 机械+LLM 复合 scorer (接 optimize_skill) (#13)
+
+## channels / integrations (35)
+
+- 9876111f feat(runtime): integrate Waves B-D canonical authority closure
+- 0b410b46 chore: save canonical WIP before integration
+- e85cf90f chore(3o): advance canonical oprim echo primitives
+- 4295e1f0 feat(integration): add cfKanban work coordination runtime
+- dc2d049d Integrate P1-C long-running harness
+- b4f89c80 Integrate P1-C long-running harness
+- 11fc7ffa fix(startup): bound optional integration handshakes
+- ef904728 fix(startup): bound optional integration handshakes
+- 97669013 docs(graveyard): 修正批次C残留清单 — CLI/IM/automata 早已迁移完成
+- 442030c7 docs(graveyard): 修正批次C残留清单 — CLI/IM/automata 早已迁移完成
+- ff1320d2 chore(3o): 子模块指针推进 — omodul/oprim/oskill 沙箱 hosted profile
+- 378c451e chore(3o): 子模块指针推进 — omodul/oprim/oskill 沙箱 hosted profile
+- 09ce4205 fix(notify): dismiss() 元组未解包崩溃 — HITL toast 批准/拒绝/超时路径 (723053cf 引入)
+- 5c143a14 fix(notify): dismiss() 元组未解包崩溃 — HITL toast 批准/拒绝/超时路径 (3c83d845 引入)
+- 0833ea69 feat(3o): 阶段 3 — oprim 物理触手原子层 (6 组 21 原子) + 禁止业务直接 I/O
+- a1b68222 feat(3o): 阶段 3 — oprim 物理触手原子层 (6 组 21 原子) + 禁止业务直接 I/O
+- 5681d32d feat(state-kernel): 状态内核 Phase 1 补全 — Quota/Claim/Gate 控制面工具 (主脑零改动)
+- aa57dffb feat(state-kernel): 状态内核 Phase 1 补全 — Quota/Claim/Gate 控制面工具 (主脑零改动)
+- ebc402e1 chore(3O): oservi 指针 → 270e4fa (收尾无效响应兜底 + oprim 909cfca)
+- ebffbe23 chore(3O): oservi 指针 → 270e4fa (收尾无效响应兜底 + oprim 909cfca)
+- b4d0c212 chore(3O): oprim 指针 → 909cfca (quality_gate 工具调用兼容)
+- bcc7ae35 chore(3O): oprim 指针 → 909cfca (quality_gate 工具调用兼容)
+- ea289ef8 chore(3o): oprim 指针 → 9517a49 (雕刻管线三原语)
+- f24d7400 chore(3o): oprim 指针 → 9517a49 (雕刻管线三原语)
+- 1215978a feat(3O): L3 反事实升级为精确 twin-network 枚举 — 更新 submodule 指针 (oprim/omodul)
+- 9f3d124a feat(3O): L3 反事实升级为精确 twin-network 枚举 — 更新 submodule 指针 (oprim/omodul)
+- 85b18bdf chore: submodule 指针更新 (oprim/oskill llm-router)
+- e3e361e8 chore: submodule 指针更新 (oprim/oskill llm-router)
+- 9f8538fd chore: 登记 3O 子模块指针 (oprim c7929ba · obase a0ccd79)
+- 11d396c3 chore: 登记 3O 子模块指针 (oprim c7929ba · obase a0ccd79)
+- 9e2a667e feat(veya_loop): 优化工程化+walk_forward+生命周期 装配 (shim+ELEMENT_MAP+15 测试)
+- a508c7ce feat(veya_loop): 优化工程化+walk_forward+生命周期 装配 (shim+ELEMENT_MAP+15 测试)
+- 6f396acd feat(veya_loop): optimize_loop 装配 — 多目标效用优化循环 (shim+ELEMENT_MAP+17 测试)
+- 227ceff8 feat(veya_loop): optimize_loop 装配 — 多目标效用优化循环 (shim+ELEMENT_MAP+17 测试)
+- 623c2568 Fix P5 integration tests and HTTPException handling
+
+## 3O compatibility (147)
+
+- 63c1c04a chore(3o): reconcile canonical oskill pin
+- 45394097 chore(3o): align obase with canonical manifest
+- efd9d8d2 feat(governance): enforce canonical 3O pins
+- 6340139f chore(3o): pin canonical obase lineage
+- efd458e0 chore(3o): restore canonical obase pin
+- 33d3a8bb chore(3o): advance obase canonical pin
+- fe9cb8a9 feat(production): fail closed on backend restart with obase drift
+- 87ed4891 feat(3o): register canonical element manifest and gates
+- bb6cffce chore(deps): pin reproducible oservi runtime
+- e9325706 feat: add 3O action gateway assembly
+- c19672f0 feat: add 3O action gateway assembly
+- 6c1841e9 fix(ci): install 3o source dependencies
+- d74a7074 fix(ci): install 3o source dependencies
+- 80842d32 fix(ci): include 3o runtime dependencies
+- dfb38e30 fix(ci): include 3o runtime dependencies
+- a0d07075 fix(ci): install 3o runtime parser dependencies
+- ff7cb281 fix(ci): install 3o runtime parser dependencies
+- a3945da7 fix(ci): restore 3o async and dependency checks
+- d534a99c fix(ci): restore 3o async and dependency checks
+- 16255d2f fix(ci): restore baseline checkout and obase type safety
+- 1493297a fix(ci): restore baseline checkout and obase type safety
+- 8fc3d297 chore: update 3O submodule revisions
+- 4ae58a7e chore: update 3O submodule revisions
+- 89acbedc chore(3O): 更新 submodule 指针 — obase Runbook 图状态机
+- cd468e67 chore(3O): 更新 submodule 指针 — obase Runbook 图状态机
+- c8b4a5f8 chore(3o): oservi submodule URL 迁移 oservice → oservi (远端 repo 已改名) (#10)
+- 477db5fc chore(3o): oservi submodule URL 迁移 oservice → oservi (远端 repo 已改名) (#10)
+- 7f73d271 chore(3o): 更新 oskill/oservi gitlink — drawio 原语 + 主脑透传落地 (#9)
+- 9681f7ae chore(3o): 更新 oskill/oservi gitlink — drawio 原语 + 主脑透传落地 (#9)
+- 9b524ad1 feat(goal-run): Boss 编排长时闭环接入主脑 + G2 忙等自旋修复 + 3O 指针推进
+- 496a524f feat(goal-run): Boss 编排长时闭环接入主脑 + G2 忙等自旋修复 + 3O 指针推进
+- 39489cf4 refactor(3o): 双轨收敛 + 主脑执行并发/异步安全加固
+- d1a609bd refactor(3o): 双轨收敛 + 主脑执行并发/异步安全加固
+- 69124c2f feat(vision): 3O 内化 dsh-vision-toolkit — 10 个 vision_* 工具入主脑工具面
+- 7d7520f2 feat(vision): 3O 内化 dsh-vision-toolkit — 10 个 vision_* 工具入主脑工具面
+- cb007e3d feat(3o): 内化集成 Semantica 决策账本/上下文图 + OpenMausBot 提问卡片
+- 19a5e7e5 feat(3o): 内化集成 Semantica 决策账本/上下文图 + OpenMausBot 提问卡片
+- 4b040e4e feat(3o): 服务端新管线 — openrsi/unified_pipeline + graft 上下文 + user_control + wechat
+- a523d089 feat(3o): 服务端新管线 — openrsi/unified_pipeline + graft 上下文 + user_control + wechat
+- d83c0637 feat(3o): 会话归属与安全加固 — checkpoint owner + session auth
+- 19f8e512 feat(3o): 会话归属与安全加固 — checkpoint owner + session auth
+- 3e88c281 feat(3o): project_ask 项目任务入口 + Understand 门禁（U5 真机验证）
+- 889d8716 feat(3o): project_ask 项目任务入口 + Understand 门禁（U5 真机验证）
+- 453496f0 fix(3o): 会话树 KV 自动建父目录（容器 ~/.veya/loop 不存在导致 500）
+- 68b615bf fix(3o): 会话树 KV 自动建父目录（容器 ~/.veya/loop 不存在导致 500）
+- 3629bf75 fix(3o): 工具结果消息补齐 tool_call_id + assistant tool_calls 还原 OpenAI 协议形态
+- 972f230a fix(3o): 工具结果消息补齐 tool_call_id + assistant tool_calls 还原 OpenAI 协议形态
+- c2cd2d37 fix(3o): 新心脏 LLM 调用携带 tools 声明 — 模型返回结构化 tool_calls
+- 9b8f0844 fix(3o): 新心脏 LLM 调用携带 tools 声明 — 模型返回结构化 tool_calls
+- 3d0c210e fix(3o): 主链切换上线修复 — 外部 session_id 自动建树 + 空输入友好响应
+- 1d73d606 fix(3o): 主链切换上线修复 — 外部 session_id 自动建树 + 空输入友好响应
+- 4b11f7b8 feat(3o): 主链切换桥 — chat_stream 接入 VEYA_AGENT_LOOP=strict（默认关闭）
+- 0c73e529 feat(3o): 主链切换桥 — chat_stream 接入 VEYA_AGENT_LOOP=strict（默认关闭）
+- 87884925 feat(3o): 阶段 5 — oservi 长时守护引擎 + 统一网关（五阶段迁移完成）
+- c89dda6d feat(3o): 阶段 5 — oservi 长时守护引擎 + 统一网关（五阶段迁移完成）
+- f46c5aa5 feat(3o): 阶段 4 — omodul 注入式流程控制核心 (session_tree/tool_pipeline/agent_loop/evidence_refine) + 双轨
+- a89e8eb1 feat(3o): 阶段 4 — omodul 注入式流程控制核心 (session_tree/tool_pipeline/agent_loop/evidence_refine) + 双轨
+- 465c75dd feat(3o): 阶段 2 — oskill 纯函数层 (8 元素) + 幻觉拦截防线
+- 50ed7ad9 feat(3o): 阶段 2 — oskill 纯函数层 (8 元素) + 幻觉拦截防线
+- c9b5a27c feat(3o): 阶段 1 — 严格句柄层合同 (5 Protocol) + 薄适配器 + 全局单例句柄
+- 8ff5fb03 feat(3o): 阶段 1 — 严格句柄层合同 (5 Protocol) + 薄适配器 + 全局单例句柄
+- f7255bf1 feat(3o): 阶段 0 冻结基线 — 严格 3O 迁移双强制检查 + 能力映射文档
+- bc1a2027 feat(3o): 阶段 0 冻结基线 — 严格 3O 迁移双强制检查 + 能力映射文档
+- e1be6a41 refactor(3o): obase 归位 — 8 顶层平铺模块落入 veya/obase (阶段 B)
+- b4b1b5a6 refactor(3o): obase 归位 — 8 顶层平铺模块落入 veya/obase (阶段 B)
+- 6865a22a feat(3o): veya/ 包纳入 3O lint (veya/<layer> 布局) + oservi 骨架
+- be0ed173 feat(3o): veya/ 包纳入 3O lint (veya/<layer> 布局) + oservi 骨架
+- 27d9f7a0 chore(submodule): oservi 指针更新 — 重建 .gitignore + 清 pycache
+- 5649f03b chore(submodule): oservi 指针更新 — 重建 .gitignore + 清 pycache
+- e0d4096b chore(submodule): oskill 升 v4.37.0 (Agentic-RL + 框架适配)
+- 5f82f945 chore(submodule): oskill 升 v4.37.0 (Agentic-RL + 框架适配)
+- 36752512 chore(submodule): oskill 升 v4.36.0 (hello-agents 三机制)
+- ebb0a1f0 chore(submodule): oskill 升 v4.36.0 (hello-agents 三机制)
+- 0642c553 chore(submodule): oskill 升 v4.35.0 (第七批补全)
+- 6abd8aca chore(submodule): oskill 升 v4.35.0 (第七批补全)
+- b6fea513 chore(submodule): oskill 升 v4.34.0 (第六批补全)
+- 66684b01 chore(submodule): oskill 升 v4.34.0 (第六批补全)
+- 4a1d6a61 chore(submodule): oskill 升 v4.33.0 (六项目机制补全)
+- 2182fe13 chore(submodule): oskill 升 v4.33.0 (六项目机制补全)
+- 0172e93b chore(submodule): oskill 升 v4.32.0 (七项目机制补全)
+- ac03588a chore(submodule): oskill 升 v4.32.0 (七项目机制补全)
+- f69faba7 chore(submodule): oskill 升 v4.31.0 (Agent 三模式编排)
+- b19749c3 chore(submodule): oskill 升 v4.31.0 (Agent 三模式编排)
+- e6fc5a3b chore(3O): oservi 指针 → rounds exhausted 摘要兜底
+- 15b7eec0 chore(3O): oservi 指针 → rounds exhausted 摘要兜底
+- 5bb8107e chore(submodule): oskill 升 v4.30.0 (工作流 DSL + 模板 + 插件)
+- 46fd1bca chore(submodule): oskill 升 v4.30.0 (工作流 DSL + 模板 + 插件)
+- 9916f29d chore(submodule): oskill 升 v4.29.0 (非函数调用 LLM 适配)
+- 0169dce1 chore(submodule): oskill 升 v4.29.0 (非函数调用 LLM 适配)
+- 975dda68 chore(submodule): oskill → v4.28.0 (MVD + 打法手册 + 产品化四问)
+- 45b43e97 chore(submodule): oskill → v4.28.0 (MVD + 打法手册 + 产品化四问)
+- 86e06391 chore(submodule): oskill → v4.27.0 (SVG 拟合工艺)
+- ef2a4eef chore(submodule): oskill → v4.27.0 (SVG 拟合工艺)
+- 2b7600c4 chore(submodule): oskill → v4.26.0 (多平台发布 + 变现结算)
+- 08e1367e chore(submodule): oskill → v4.26.0 (多平台发布 + 变现结算)
+- e1ab4785 chore(submodule): oskill → v4.25.0 (四层健康分 + 预警干预)
+- 6eb64054 chore(submodule): oskill → v4.25.0 (四层健康分 + 预警干预)
+- 4bf3c2bc docs(agents): 吸收 Cypress 工程规范 5 条 + submodule → oskill v4.24.0
+- 7d5a872d docs(agents): 吸收 Cypress 工程规范 5 条 + submodule → oskill v4.24.0
+- 42967549 feat(agent-os): optimize_parameters 工具 — Agentic HPO 装配层 (3O _hp_search)
+- a7588208 feat(agent-os): optimize_parameters 工具 — Agentic HPO 装配层 (3O _hp_search)
+- a2f5d5e2 chore(submodule): oskill → v4.22.0 (图遍历查询 + 渗透闭环)
+- 85b4eab9 chore(submodule): oskill → v4.22.0 (图遍历查询 + 渗透闭环)
+- 2b2f4610 chore(submodule): oskill → v4.21.0 (语义节点图 + 多 agent 接线)
+- 100e5a66 chore(submodule): oskill → v4.21.0 (语义节点图 + 多 agent 接线)
+- f799a61b fix(submodule): oskill 指针 → v4.19.0 + caller-error 修复 (5deb070)
+- a3e6c85f fix(submodule): oskill 指针 → v4.19.0 + caller-error 修复 (5deb070)
+- ecdc6b8b fix(submodule): oskill 指针 → 3a4653c (v4.18.0 + caller-error 修复)
+- c1bbd32d fix(submodule): oskill 指针 → 3a4653c (v4.18.0 + caller-error 修复)
+- 5044c5ec fix(submodule): oskill 指针回正 e5bb3d8 — 恢复 caller error 闸门修复
+- b5352610 fix(submodule): oskill 指针回正 e5bb3d8 — 恢复 caller error 闸门修复
+- 6350f96b chore: oservi submodule 更新 — 清理跟踪的 __pycache__ 构建产物
+- f5a82c0e chore: oservi submodule 更新 — 清理跟踪的 __pycache__ 构建产物
+- be85f5b4 feat(loop): 工程工作流 3O 装配 — veya_loop 0.6.0 + engineering-flow skill 包
+- 275ba6c3 feat(loop): 工程工作流 3O 装配 — veya_loop 0.6.0 + engineering-flow skill 包
+- 429175f3 feat(doctor): veya doctor 集成 oskill.env_doctor 工具链自检 (3O 主库)
+- b9c1c323 feat(doctor): veya doctor 集成 oskill.env_doctor 工具链自检 (3O 主库)
+- eeb297aa feat(goal-driven): while 循环编排事务 — Goal-Driven 3O 内化 (W1-W4)
+- f4e0ec53 feat(goal-driven): while 循环编排事务 — Goal-Driven 3O 内化 (W1-W4)
+- 1eab2e29 feat(crg): code-review-graph 3O 复刻 — 代码审查知识图谱 (持久增量图谱)
+- 2a91a7bf feat(crg): code-review-graph 3O 复刻 — 代码审查知识图谱 (持久增量图谱)
+- 1a6b8d89 chore(3O): 长程任务状态内核 — 更新 submodule 指针 (obase/omodul/oservi)
+- 857d8883 chore(3O): 长程任务状态内核 — 更新 submodule 指针 (obase/omodul/oservi)
+- 2ce8c474 chore(submodule): oservi 指针更新 (移除 Zone.Identifier)
+- a634a87f chore(submodule): oservi 指针更新 (移除 Zone.Identifier)
+- 8380eac6 feat(spec-ecc): 可执行 Spec + ECC 领域目录 + 硬规则 (spec-kit/ECC 3O 内化)
+- 38523746 feat(spec-ecc): 可执行 Spec + ECC 领域目录 + 硬规则 (spec-kit/ECC 3O 内化)
+- 7b709e57 feat(llm-router): veya1.1 智能路由别名 + 长文并行快速回答 (RouteLLM 3O 内化)
+- e1b174a6 feat(llm-router): veya1.1 智能路由别名 + 长文并行快速回答 (RouteLLM 3O 内化)
+- d35b9938 refactor(runtimes): 按 3O 单一来源迁移 — 协议与适配器进主库 oservi.runtime_bridge
+- 91fdbffd refactor(runtimes): 按 3O 单一来源迁移 — 协议与适配器进主库 oservi.runtime_bridge
+- e2cd57da chore: oservi submodule 指针更新 (主脑零限制)
+- c3c63e2d chore: oservi submodule 指针更新 (主脑零限制)
+- 88bbfd2d fix(deploy): Dockerfile — full deps from pyproject, correct uvicorn entry, healthcheck, 3O PYTHONPATH
+- d80b217a fix(deploy): Dockerfile — full deps from pyproject, correct uvicorn entry, healthcheck, 3O PYTHONPATH
+- 723053cf feat(agent-os): Veya Agent OS — 9-capability industrial stack over 3O main libraries
+- 3c83d845 feat(agent-os): Veya Agent OS — 9-capability industrial stack over 3O main libraries
+- 846705bd fix: structlog must be a main dependency (obase core requires it at import)
+- eb27eeb0 fix: structlog must be a main dependency (obase core requires it at import)
+- 8e059b80 ci: checkout submodules in Test job (guardian tests need the mounted main libraries)
+- 08e598fd ci: checkout submodules in Test job (guardian tests need the mounted main libraries)
+- 7c93ec26 Harden 3O lint suite against unparseable main-library files
+- 6c025d61 Harden 3O lint suite against unparseable main-library files
+- 43951bae Mount 3O main libraries as submodules + single-source assembly layer
+- 61a8577d Mount 3O main libraries as submodules + single-source assembly layer
+- 1813f099 Add 3O SPEC v3.0 Appendix B CI lint suite (9 checks) + fix full-repo ruff
+- 4b9e3e2b Add 3O SPEC v3.0 Appendix B CI lint suite (9 checks) + fix full-repo ruff
+
+## web / frontend (67)
+
+- 901ac363 refactor(web): simplify sidebar navigation
+- cc3b6b66 fix(web): handle network failures
+- 04d1a139 fix(web): close interaction audit gaps
+- 19e9a236 fix(web): close responsive visual audit
+- 9922a90a refactor(web): complete work UX convergence
+- 075f4cc6 refactor(web): unify work UX and split advanced surfaces
+- f9fecb59 refactor(web): simplify chat and work information architecture
+- c2617c0b fix(workbench): resolve plan review from task workspace
+- f526c512 fix(workbench): resolve plan review from task workspace
+- 39e3192b feat(product): wire real task entry to workbench
+- 1b20f055 feat(product): wire real task entry to workbench
+- 49f5c337 feat(product): add Veya Bot product shell
+- 2dd4dda5 feat(product): add Veya Bot product shell
+- ba6e1278 feat(workbench): unify canonical task controls and state
+- c4621c72 feat(workbench): unify canonical task controls and state
+- 8c28990e feat(voice/gateway/web): 语音链路 + drawio + 前端组件 + 主脑瘦身 (#8)
+- 86248811 feat(voice/gateway/web): 语音链路 + drawio + 前端组件 + 主脑瘦身 (#8)
+- 7e40acbe feat(web): 提问卡片前端 — agent_question 事件 → 卡片 → /agent/answer 回填
+- 7b7f386b feat(web): 提问卡片前端 — agent_question 事件 → 卡片 → /agent/answer 回填
+- 2d6e5d79 chore(web/deploy): 前端交互 + dsh 网关配置 + serve 脚本
+- a794e665 chore(web/deploy): 前端交互 + dsh 网关配置 + serve 脚本
+- 79a492bf fix(upload): octet-stream 上传绕过 SvelteKit CSRF — PDF/文件上传修复
+- ad4f63d7 fix(upload): octet-stream 上传绕过 SvelteKit CSRF — PDF/文件上传修复
+- 8f6c3239 feat(web): 聊天框文件/图片上传 — 附件 + 视觉消息链路
+- 8a6b96e5 feat(web): 聊天框文件/图片上传 — 附件 + 视觉消息链路
+- 57187a54 feat(web): 项目图谱 + 语音听写 — 借鉴 ccgui 剩余差距
+- d8043f2a feat(web): 项目图谱 + 语音听写 — 借鉴 ccgui 剩余差距
+- 61615865 feat(web): P3 文件树 + P4 Git 面板 — 借鉴 ccgui 工程面板
+- fd2223fc feat(web): P3 文件树 + P4 Git 面板 — 借鉴 ccgui 工程面板
+- d6f8f844 feat(web): P2 上下文用量 + P5 对话流活跃计划条
+- 1ebd98cf feat(web): P2 上下文用量 + P5 对话流活跃计划条
+- 94c19031 feat(web): 计划看板 PlanBoard — 状态内核控制面 UI (P1)
+- 85fa2e8e feat(web): 计划看板 PlanBoard — 状态内核控制面 UI (P1)
+- d3d59439 docs: Dashboard 增强设计 — 借鉴 ccgui, 差异化在状态内核 UI
+- fda0905a docs: Dashboard 增强设计 — 借鉴 ccgui, 差异化在状态内核 UI
+- aa2b5537 fix(engine): grok 单轮模式用 -p/--single (裸 prompt 会进交互 TUI 无输出); compose 挂载 ~/.grok
+- 6e89daed fix(engine): grok 单轮模式用 -p/--single (裸 prompt 会进交互 TUI 无输出); compose 挂载 ~/.grok
+- c19a9425 fix(web): 移除「任务开始/思考…」噪音徽章 — 只保留真实执行轨迹
+- 3ac78037 fix(web): 移除「任务开始/思考…」噪音徽章 — 只保留真实执行轨迹
+- 3c48757d fix(web): 移动端侧边栏抽屉化 — 手机不再占半屏
+- 09ad0ca5 fix(web): 移动端侧边栏抽屉化 — 手机不再占半屏
+- 21249715 feat(web): 看板页面 (KanbanPanel) 与插件/自动化并列 — 多 Agent 编排可视化
+- c7afeda2 feat(web): 看板页面 (KanbanPanel) 与插件/自动化并列 — 多 Agent 编排可视化
+- 307e2d83 fix(web): 模型菜单点击外部关闭 + 不可用引擎禁用 (520 根因)
+- 12a2a5fb fix(web): 模型菜单点击外部关闭 + 不可用引擎禁用 (520 根因)
+- 8e395557 style(web): pure-black minimal theme + Claude-style composer layout
+- 769e00df style(web): pure-black minimal theme + Claude-style composer layout
+- 9b4e6b19 feat(web): Claude-grade chat console — streaming Markdown, sessions, tools trace
+- 92305bef feat(web): Claude-grade chat console — streaming Markdown, sessions, tools trace
+- 364e429f fix(web): chat locked up after one message and "新对话" destroyed history
+- a2cfe698 fix(web): chat locked up after one message and "新对话" destroyed history
+- 11b2d74a fix(web): API key/model had no save button or success feedback
+- f69ee441 fix(web): API key/model had no save button or success feedback
+- 75774fb7 chore: remove dead/orphaned frontend surfaces
+- d4725903 chore: remove dead/orphaned frontend surfaces
+- 250faeba feat(web): artifact cards in chat/assembly flows + ARTIFACTS PROTOCOL SOP
+- 7a6db418 feat(web): artifact cards in chat/assembly flows + ARTIFACTS PROTOCOL SOP
+- a77e9efe fix(web): SSE proxy never flushed headers on an idle upstream
+- 54909b7d fix(web): SSE proxy never flushed headers on an idle upstream
+- eb5028ce fix(web): SSE proxy never flushed headers on an idle upstream
+- 52a76c63 fix(web): SSE proxy never flushed headers on an idle upstream
+- 99221039 feat(web): settings drawer (model/plugins/automation) + readability pass
+- add1ab2a feat(web): settings drawer (model/plugins/automation) + readability pass
+- d761cf53 deploy: add systemd unit for the SvelteKit frontend (veya-web.service)
+- 17ebe6d5 deploy: add systemd unit for the SvelteKit frontend (veya-web.service)
+- cb0e97db feat(web): rebuild veya.aiinote.com as single-flow Claude-style HITL console
+- 3618a88b feat(web): rebuild veya.aiinote.com as single-flow Claude-style HITL console
+
+## deployment / Docker / systemd (31)
+
+- 8a9acce2 feat(runtime): separate agent definition deployment and run
+- 4bcf412f fix(deploy): expose public health endpoint safely
+- cee36c4c fix(deploy): expose public health endpoint safely
+- 9f5aa4cc docs: make compose load the root environment file
+- 215c9225 docs: make compose load the root environment file
+- 4a4d5e61 feat(gateway): veya1.2 模型别名 + OpenAI 兼容 LLM 网关
+- 262e5628 feat(gateway): veya1.2 模型别名 + OpenAI 兼容 LLM 网关
+- 71137d65 fix(desktop-ci): Linux 产物改 deb (AppImage linuxdeploy 1.4GB 资源打包不稳; deb/rpm 已成功)
+- d2259185 fix(desktop-ci): Linux 产物改 deb (AppImage linuxdeploy 1.4GB 资源打包不稳; deb/rpm 已成功)
+- 8451791d fix(desktop-ci): AppImage 打包 linuxdeploy 自解压 (CI 无 fuse → APPIMAGE_EXTRACT_AND_RUN=1)
+- 0eb5d13f fix(desktop-ci): AppImage 打包 linuxdeploy 自解压 (CI 无 fuse → APPIMAGE_EXTRACT_AND_RUN=1)
+- 41811426 fix(524): SSE 心跳防 Cloudflare Tunnel 100s 掐断 + 工具健壮性
+- f0511ec7 fix(524): SSE 心跳防 Cloudflare Tunnel 100s 掐断 + 工具健壮性
+- 47cc52b6 fix(deploy): 容器构建免网络下载 — .dockerignore (context 2GB→77MB) + chromium 二进制走 Release 附件
+- 9d52000d fix(deploy): 容器构建免网络下载 — .dockerignore (context 2GB→77MB) + chromium 二进制走 Release 附件
+- 1cb7975f docs: 生产事故修复记录 (520/524) — 容器网络恢复 + 宿主 gateway 让位 + key 遗留
+- 1bbfe090 docs: 生产事故修复记录 (520/524) — 容器网络恢复 + 宿主 gateway 让位 + key 遗留
+- 344ec34f docs(ops): 线上部署与故障排查手册落记忆 — AGENTS.md 运维章节 + ONLINE_DEPLOYMENT.md
+- 216b7a17 docs(ops): 线上部署与故障排查手册落记忆 — AGENTS.md 运维章节 + ONLINE_DEPLOYMENT.md
+- 768b64f7 deploy: 多引擎容器化 — uid 1000 用户 + 引擎二进制/凭据挂载 + veya-data chown
+- e8d3c537 deploy: 多引擎容器化 — uid 1000 用户 + 引擎二进制/凭据挂载 + veya-data chown
+- ce29145f deploy: 容器双端口 8767(gateway)+9120(legacy) — 前端主脑 legacy 代理 404 根因修复
+- 1fc446fa deploy: 容器双端口 8767(gateway)+9120(legacy) — 前端主脑 legacy 代理 404 根因修复
+- 7e0e8576 deploy: 端口 8767 (8765/8766 被 systemd 与 hevi 占用)
+- ea92cb4e deploy: 端口 8767 (8765/8766 被 systemd 与 hevi 占用)
+- 29437e07 deploy: 修复容器部署链路 — 逐目录 COPY/build-essential/requirements/端口冲突防御
+- da273314 deploy: 修复容器部署链路 — 逐目录 COPY/build-essential/requirements/端口冲突防御
+- ea3ec5e3 refactor(gateway): single-process Agent OS — merge legacy L4 gateway onto root server.app
+- fa53bd08 refactor(gateway): single-process Agent OS — merge legacy L4 gateway onto root server.app
+- 7ebbf399 feat(gateway): unify legacy gateway with Agent OS master brain (text contract)
+- 772a7ede feat(gateway): unify legacy gateway with Agent OS master brain (text contract)
+
+## tests / CI / chore (75)
+
+- 62bcdb22 chore(release): close P5 supply-chain integrity
+- 0be14e41 chore(release): close P5 supply-chain integrity
+- 38bcc395 chore(release): close P5 supply-chain integrity
+- 3ea94969 chore(release): make loop-plane dependencies portable
+- ebfc21f1 chore(release): close P5 supply-chain integrity
+- 91cf8ecc chore(release): fix integrity scanner self-check
+- 3828fb42 chore(release): remediate supply-chain dependencies
+- 1a2d0083 chore(ci): close coding workflow lint and format regressions
+- ea9bf816 chore(ci): close coding workflow lint and format regressions
+- 05814704 fix(ci): stabilize direct io and reverse dependency checkers
+- 6b72e38a fix(ci): stabilize direct io and reverse dependency checkers
+- 770dc400 chore(repo): add executable Veya agent guide
+- 0176c924 chore(repo): add executable Veya agent guide
+- 93672b4b docs(ci): correct direct io audit evidence
+- db4cfbc8 docs(ci): correct direct io audit evidence
+- 9fd55b2d ci: complete release preflight dependencies
+- 3da9f559 ci: complete release preflight dependencies
+- 76edf37b ci: align release test dependencies
+- dd9ab2d9 ci: align release test dependencies
+- 4e61a640 ci: support isolated release smoke tag
+- 093bb1d8 ci: support isolated release smoke tag
+- 7487b20e fix(ci): baseline and enforce direct io release check
+- 396c2cda fix(ci): baseline and enforce direct io release check
+- a94f4ab5 fix(ci): align release and desktop ancillary workflows
+- dd3f5a9e fix(ci): align release and desktop ancillary workflows
+- cc3dbcc9 docs(release): record green ci and production health baseline
+- ad293dc8 docs(release): record green ci and production health baseline
+- 233bd0d2 ci: split required and optional pytest suites
+- b41eebce ci: split required and optional pytest suites
+- ddc5931c fix(ci): restore portable smoke dependencies
+- 24644b0a fix(ci): restore portable smoke dependencies
+- e53f4bcb fix(ci): satisfy modern core docstring gate
+- 7bbf0256 fix(ci): satisfy modern core docstring gate
+- 765fff99 fix(lint): resolve ruff import and unused diagnostics
+- c2ef7c55 fix(lint): resolve ruff import and unused diagnostics
+- fe22e1a5 style: apply ruff formatting baseline
+- 85a618f6 style: apply ruff formatting baseline
+- 879d48a7 fix(ci): clear chat kernel mypy baseline
+- 567cfb92 fix(ci): clear chat kernel mypy baseline
+- 9115aeb1 feat(10-of-10): mypy CI 收口 + 架构文档补齐 + 供应链/依赖卫生检查
+- 1a8193bc feat(10-of-10): mypy CI 收口 + 架构文档补齐 + 供应链/依赖卫生检查
+- 20a8d1d5 feat(10-of-10): architecture manifest CI 接入 + graveyard 补充 + ToolSpec v1 落地
+- d9430146 feat(10-of-10): architecture manifest CI 接入 + graveyard 补充 + ToolSpec v1 落地
+- cdc3edc8 feat(10-of-10): PR-01 architecture manifest + 主链 mypy 清零 + smoke test 真崩溃修复
+- f3e9f797 feat(10-of-10): PR-01 architecture manifest + 主链 mypy 清零 + smoke test 真崩溃修复
+- 51419787 chore: 提交工作区全部改动
+- ff678cce chore: 提交工作区全部改动
+- 00641598 chore: 补提交 ChatConsole query 上传方案 (8deba164 遗漏)
+- b6483a88 chore: 补提交 ChatConsole query 上传方案 (4348192e 遗漏)
+- afe3c6a6 fix(desktop-ci): Tauri build 步骤 shell: bash (Windows 默认 PowerShell 不认 bash if)
+- cb2ac2be fix(desktop-ci): Tauri build 步骤 shell: bash (Windows 默认 PowerShell 不认 bash if)
+- 91ead8a2 fix(desktop-ci): 产物 glob 对齐 productName (veya-desktop_*)
+- 1153d97c fix(desktop-ci): 产物 glob 对齐 productName (veya-desktop_*)
+- 86b646f1 fix(desktop-ci): Windows npm 不认 /dev/null 重定向 → 2>&1
+- bbf736cb fix(desktop-ci): Windows npm 不认 /dev/null 重定向 → 2>&1
+- 4270e96a fix(desktop-ci): -m PyInstaller (包名大写, -m pyinstaller 找不到模块)
+- c4e104bd fix(desktop-ci): -m PyInstaller (包名大写, -m pyinstaller 找不到模块)
+- 54b81422 fix(desktop-ci): Windows pip 升级需 python -m pip (pip.exe 自升级被拒)
+- 88836ead fix(desktop-ci): Windows pip 升级需 python -m pip (pip.exe 自升级被拒)
+- 6952246b fix(desktop-ci): Windows 跨平台 — venv/pip/python 路径平台化 (RUNNER_OS 分支) + 步骤合并
+- 5d191f40 fix(desktop-ci): Windows 跨平台 — venv/pip/python 路径平台化 (RUNNER_OS 分支) + 步骤合并
+- 33ba70f5 fix(desktop-ci): playwright 路径改用步骤内相对路径 (runner context 在 job env 不可用)
+- d54f264e fix(desktop-ci): playwright 路径改用步骤内相对路径 (runner context 在 job env 不可用)
+- c7e0305d fix: legacy_agent 缺 json import (ruff F821)
+- 4d6e87b1 fix: legacy_agent 缺 json import (ruff F821)
+- b85319eb feat(desktop): Tauri 桌面版与网页版对齐 — 静态前端 + PyInstaller 后端 + 三平台 CI
+- 24bc9e2b feat(desktop): Tauri 桌面版与网页版对齐 — 静态前端 + PyInstaller 后端 + 三平台 CI
+- 3dc55c5c chore: remove dead nginx reverse-proxy configs
+- 9744e671 chore: remove dead nginx reverse-proxy configs
+- 4a49d359 fix pyproject: restore [project.optional-dependencies] header + close dependencies list
+- 0e8df81a fix pyproject: restore [project.optional-dependencies] header + close dependencies list
+- 994869c1 ruff format
+- f9c57ce5 ruff format
+- 6b5812e2 Fix G14 LRU benchmark timing flake on CI (3.12): slow() now simulates 1ms compute
+- 282390ae Fix G14 LRU benchmark timing flake on CI (3.12): slow() now simulates 1ms compute
+
+## docs (33)
+
+- 101a5ee2 docs(release): record final required release readiness
+- 1c802751 docs(release): record final required release readiness
+- 4baee174 docs(release): record required release candidate baseline
+- 0e890274 docs(release): record required release candidate baseline
+- 1a747003 docs(release): record public health probe
+- 47b3f095 docs(release): record public health probe
+- 390104ce docs(audit): record Grok Bot reconstruction review
+- 5de5bf74 docs(audit): record Grok Bot reconstruction review
+- 99c92c33 docs(10-of-10): PR-12 产品定位重写 — Agent Runtime, coding 是第一应用面
+- 59e050b7 docs(10-of-10): PR-12 产品定位重写 — Agent Runtime, coding 是第一应用面
+- 6fb07bfb docs(10-of-10): PR-07 State Authority — 决策记录, 不动代码
+- c041c00f docs(10-of-10): PR-07 State Authority — 决策记录, 不动代码
+- 924d08ef docs(10-of-10): PR-20 开源成熟度 — 补齐 LICENSE/CONTRIBUTING/治理文档
+- d6d5af0a docs(10-of-10): PR-20 开源成熟度 — 补齐 LICENSE/CONTRIBUTING/治理文档
+- f9a03736 docs: add Veya 10/10 engineering upgrade plan
+- 770d52e2 docs: add Veya 10/10 engineering upgrade plan
+- 3cfddeb0 docs: 项目级 CLAUDE.md — andrej-karpathy-skills 工程纪律
+- f6c5f480 docs: 项目级 CLAUDE.md — andrej-karpathy-skills 工程纪律
+- 5ba10faa docs: code-review-graph 全量探查 veya 实现 (CRG_EXPLORATION.md)
+- baf5ca93 docs: code-review-graph 全量探查 veya 实现 (CRG_EXPLORATION.md)
+- b624b433 docs: 状态内核综合方案 — Prime 执行面 × LoopX 控制面
+- 62f27eaf docs: 状态内核综合方案 — Prime 执行面 × LoopX 控制面
+- 7526fad1 docs: Prime Agent 架构对照评审 — veya 三层边界差距 + 可借鉴点
+- 7f02d68b docs: Prime Agent 架构对照评审 — veya 三层边界差距 + 可借鉴点
+- df99694d docs: 冻结主链路架构 — 用户确认稳定, 任何改动须经用户同意
+- 724d1534 docs: 冻结主链路架构 — 用户确认稳定, 任何改动须经用户同意
+- 00ecb0c9 docs(ops)+script: 主脑 LLM 配置固化 — 同步脚本 + 部署手册 §4.1
+- efb676f7 docs(ops)+script: 主脑 LLM 配置固化 — 同步脚本 + 部署手册 §4.1
+- 3133e9d7 docs(ops): 工具链免 root 安装手册 (typst/xelatex/drawio/pdftoppm) + AGENTS 引用
+- ef023f93 docs(ops): 工具链免 root 安装手册 (typst/xelatex/drawio/pdftoppm) + AGENTS 引用
+- e74d40dd docs: veya_loop 交接文档 HANDOVER.md
+- e8cae4fe docs: veya_loop 交接文档 HANDOVER.md
+- 0a563fe6 Add new line to README
+
+## other (315)
+
+- 93eecdd3 fix(llm): retire the dead 128K pool and freeze the stale free-pool state file
+- c0f42e3a feat: A1-L and A1-F blocker resolution contracts
+- a54209d1 Merge commit '98fbe50c6971ce134b28c881d35478641ad7d272' into hotfix/v1.0.1-production-canonical-wiring
+- efd1e2ea P4: Production Observability Operator Console
+- e1a95fb9 P2: Agent Protocol Expansion
+- b27a4816 P1: Veya Bot Grok Capability Alignment
+- bfbad340 L0_CAPABILITY_EXPANSION_CANONICAL_COMMIT: Wave1+Wave2 execution capabilities
+- 215c81e0 refactor(runtime): remove max-rounds product contract
+- 13f1056b fix(remote): degrade startup recovery instead of locking the data plane
+- adba036b fix: generate remote redaction probe secret at runtime
+- bc7b52c7 refactor: converge canonical runtime stack
+- 53ae86bf feat(runtime): add agent operating doctrine
+- 263a4868 feat(runtime): add capability authoring pipeline
+- 87e6aa74 feat(runtime): unify skill distribution lifecycle
+- 1915cea6 feat(runtime): unify workspace lifecycle
+- 378e55b8 fix(production): align restart preflight with backend import path
+- 3ee69990 feat(runtime): make resume disposition explicit
+- 4316448f fix(runtime): serialize production schema migration startup
+- 44a19ee8 feat(security): enforce authorization boundaries
+- 9159748b feat(agent): add execution observability and recovery controls
+- 3a580a91 feat(agent): harden production execution controls
+- ce0eff18 feat(bot): add multi-bot coordination fan-in
+- 815e1424 feat(bot): add cross-bot semantic delegation
+- ae13dbf5 feat(bot): add P3-A multi-bot isolation with bot-scoped durable objects
+- b0327456 feat(agent): add P2-C routine registry and idempotent trigger dispatch
+- 6830302e feat(agent): add P2-B skill/playbook canonical registry with single authority
+- 6f39a13d feat(agent): close P2-A delegation/playbook persistence with single authority
+- 29c53506 feat(agent): add canonical action protocol
+- 95b395ad feat(agent): add canonical action protocol
+- c7d55d4d fix(p0): score resumed action completion correctly
+- 79945ba1 fix(p0): score resumed action completion correctly
+- 75b08a41 feat(p0): track canonical capability and recovery wiring
+- 366b2f64 feat(p0): track canonical capability and recovery wiring
+- 22dee97e test(p0): track semantic and behavior scoring contract
+- 239b93e1 test(p0): track semantic and behavior scoring contract
+- 738549fc fix(release): use persistent action outputs and stable retries
+- d4a8b967 fix(release): use persistent action outputs and stable retries
+- 81bbfab4 fix(release): initialize Veya data volume ownership
+- 1b55d676 fix(release): initialize Veya data volume ownership
+- ad62a76e fix(product): persist governance outputs in Veya data root
+- abb338a9 fix(product): persist governance outputs in Veya data root
+- 8bf00219 fix(security): disable debug endpoints in production
+- 0e399d4e fix(security): disable debug endpoints in production
+- 5961d67c fix(product): harden task tool governance
+- 2cab5159 fix(product): harden task tool governance
+- 3039b99e feat(review): add GitHub pull request review flow
+- ee0fb1b6 feat(review): add GitHub pull request review flow
+- a125c6c0 feat(state): enforce PR-07 authority boundaries
+- b74fb59b feat(state): enforce PR-07 authority boundaries
+- ca9833dd fix(cli): read coding task result from durable authority
+- 67c3c93c fix(cli): read coding task result from durable authority
+- a248663a feat(llm): rewire veya1.2 free/primary rotation pools
+- 5279c634 feat(llm): rewire veya1.2 free/primary rotation pools
+- 76f4d979 feat(coding): connect coding tasks to durable goal runs
+- 6c8ab230 feat(coding): connect coding tasks to durable goal runs
+- b96f6ee4 feat(harness): close sensor-backed readiness loop
+- 0147bd8d feat(harness): close sensor-backed readiness loop
+- 30d5b019 feat(harness): add guides sensors and ratchet contract
+- 3ab9645e feat(harness): add guides sensors and ratchet contract
+- dfbacfc5 feat(coding): add isolated workspace coding tools
+- 6afe8f5d feat(coding): add isolated workspace coding tools
+- 0c20e287 style: normalize llm base formatting
+- 524b34ef style: normalize llm base formatting
+- ef262219 Merge remote-tracking branch 'origin/main'
+- 0ed78e17 Merge remote-tracking branch 'origin/main'
+- 92f54612 feat(eval): add personal intelligence audit
+- fdc7ac43 feat(eval): add personal intelligence audit
+- 7d623fae feat(runtime): add personal agent continuity and learning
+- 51cdb7c4 feat(runtime): add personal agent continuity and learning
+- 68d4fa4b feat(runtime): activate crash-safe PostgreSQL durable execution 1.0
+- 246fc851 feat(runtime): activate crash-safe PostgreSQL durable execution 1.0
+- 2c23b4d9 feat: make gmi minimax the veya1.2 default
+- 65d0d86d feat: make gmi minimax the veya1.2 default
+- 046e7881 feat: complete P1-P3 runtime implementation
+- be399853 feat: complete P1-P3 runtime implementation
+- 3dfaacb1 feat(10-of-10): PR-07 State Authority — history_store 改成不可变追加日志
+- 94beb565 feat(10-of-10): PR-07 State Authority — history_store 改成不可变追加日志
+- aec0eb61 feat(10-of-10): PR-06/PR-11 可观测性 — tool_execute span 埋点(零风险子集)
+- 63c9a6e3 feat(10-of-10): PR-06/PR-11 可观测性 — tool_execute span 埋点(零风险子集)
+- 01952849 feat(10-of-10): PR-10 Eval Harness — 现有用例诚实分类 + 派生指标(不凑数量)
+- ac17991e feat(10-of-10): PR-10 Eval Harness — 现有用例诚实分类 + 派生指标(不凑数量)
+- 38022009 fix(10-of-10): PR-08 收尾第三轮 — 补上自己制造的 server.app 启动回归
+- 798910b9 fix(10-of-10): PR-08 收尾第三轮 — 补上自己制造的 server.app 启动回归
+- 867dea1a fix(10-of-10): PR-08 收尾 — 纠正上轮误判, 7 个重包全部挪 extras
+- 48e30973 fix(10-of-10): PR-08 收尾 — 纠正上轮误判, 7 个重包全部挪 extras
+- 202869ce feat(10-of-10): ToolSpec side_effect 21/21 补齐 + PR-08 依赖卫生调研 + textual 挪 extras
+- 3c790bec feat(10-of-10): ToolSpec side_effect 21/21 补齐 + PR-08 依赖卫生调研 + textual 挪 extras
+- 8d261f38 feat(goal-run): [P] 并行任务标记 — smart-ralph 内化, 修复并发会话遗留代码
+- cece28e4 feat(goal-run): [P] 并行任务标记 — smart-ralph 内化, 修复并发会话遗留代码
+- 53f80e9a feat(team): 点对点协作工具面 — oh-my-openagent Team Mode 内化
+- 1f1d3333 feat(team): 点对点协作工具面 — oh-my-openagent Team Mode 内化
+- da55561b feat(goal-run): 计划前置双轴审查门禁 — oh-my-openagent orchestration 内化
+- 1e767359 feat(goal-run): 计划前置双轴审查门禁 — oh-my-openagent orchestration 内化
+- 18afc2de feat(session-tree): list_branches — 验证并暴露 Compaction 原文的找回入口
+- 1fbcd681 feat(session-tree): list_branches — 验证并暴露 Compaction 原文的找回入口
+- c865b35a feat(goal-run): 双轴独立代码审查 — mattpocock/skills code-review 内化
+- b24a61c3 feat(goal-run): 双轴独立代码审查 — mattpocock/skills code-review 内化
+- 6e463d84 feat(graft): 讲解层 — 补 nanonets/graft "资深工程师讲解" 的内化缺口
+- 3f08efa3 feat(graft): 讲解层 — 补 nanonets/graft "资深工程师讲解" 的内化缺口
+- 41241771 feat(skills): LLM 语义安全扫描 — 补 AST 层看不见指令内容的盲区
+- f520f573 feat(skills): LLM 语义安全扫描 — 补 AST 层看不见指令内容的盲区
+- 69cfd9c5 fix(tests): 隔离 test_skill_hub_loads_both_packs 到 tmp 目录, 不依赖真实技能数量
+- 83b82f0e fix(tests): 隔离 test_skill_hub_loads_both_packs 到 tmp 目录, 不依赖真实技能数量
+- 60bce27f feat(goal-run): 验收失败重试改用 SessionTree 分支记录
+- 9bc000b4 feat(goal-run): 验收失败重试改用 SessionTree 分支记录
+- 169806f0 feat(skills): 信任门默认转严 — 高危调用面默认拒载
+- 30b0a9f7 feat(skills): 信任门默认转严 — 高危调用面默认拒载
+- 683b8c73 feat(harness): 长会话可靠性四项落地 — Compaction/SessionTree镜像/EventIR/生命周期
+- e1e6c2ac feat(harness): 长会话可靠性四项落地 — Compaction/SessionTree镜像/EventIR/生命周期
+- dcc48346 feat(long-task): 安全接线 long_task_factory — GoalKernel 真正接主链
+- f99e4b8d feat(long-task): 安全接线 long_task_factory — GoalKernel 真正接主链
+- 289f786d feat(wayfinding): stateful_goto 到达终态时自动投影 trajectory
+- 13ccd8af feat(wayfinding): stateful_goto 到达终态时自动投影 trajectory
+- 5063fad6 feat(agent-safety): 托管沙箱多租户 + 编辑安全/审计原语 + spec-pack 技能包
+- 376cff1f feat(agent-safety): 托管沙箱多租户 + 编辑安全/审计原语 + spec-pack 技能包
+- 574898aa feat(skill-catalog): SKILL.md 目录索引/搜索/晋降 (补 SkillsGate 管理空档) (#14)
+- 58d7912e feat(skill-catalog): SKILL.md 目录索引/搜索/晋降 (补 SkillsGate 管理空档) (#14)
+- 99dd58eb feat(skill-opt): skill 文档验证门控迭代优化 (补 SkillOpt 空档) (#12)
+- 0d883403 feat(skill-opt): skill 文档验证门控迭代优化 (补 SkillOpt 空档) (#12)
+- 2c3507d2 feat(skill-hub): 技能代码加载期静态安全扫描 (补 K-Dense skill-scanner 空档) (#11)
+- 356054c5 feat(skill-hub): 技能代码加载期静态安全扫描 (补 K-Dense skill-scanner 空档) (#11)
+- b6bc4270 feat(openrsi): holdout 反 reward-hacking 守卫 (#7)
+- 873a822d feat(openrsi): holdout 反 reward-hacking 守卫 (#7)
+- 45babfc7 feat(cognition): Orchard 内化 — 决策边界信用分配 + 共享前缀分支 (#6)
+- e2914fff feat(cognition): Orchard 内化 — 决策边界信用分配 + 共享前缀分支 (#6)
+- 078f3618 feat(cognition): 前沿范式内化 — 技能契约/元路由 + 懒加载瘦身 + best-of-N 共识 + 代码图置信
+- 17b15fe4 feat(cognition): 前沿范式内化 — 技能契约/元路由 + 懒加载瘦身 + best-of-N 共识 + 代码图置信
+- 6a5077b4 fix(vision): 反代探活超时 0.5s→2s+重试 (首请求冷启动)
+- 4b1c07fa fix(vision): 反代探活超时 0.5s→2s+重试 (首请求冷启动)
+- 324d47cb feat(vision): vision_trace 高保真矢量化 — vtracer CLI 主引擎 + PIL 降级
+- 635fd515 feat(vision): vision_trace 高保真矢量化 — vtracer CLI 主引擎 + PIL 降级
+- 474c6eea feat(sync): 多端逐字实时同步 — 电脑执行时手机跟随同一会话
+- 84dd6aed feat(sync): 多端逐字实时同步 — 电脑执行时手机跟随同一会话
+- 169fe0c7 fix(llm): frontier 兜底接受 tool_call+空content, 不再确定性误杀
+- 627a8f1c fix(llm): frontier 兜底接受 tool_call+空content, 不再确定性误杀
+- c19676e4 fix(llm): 网关+frontier 重试预算拉长到约 90s (原 20s 扛不住分钟级抖动)
+- aa44cfc9 fix(llm): 网关+frontier 重试预算拉长到约 90s (原 20s 扛不住分钟级抖动)
+- 5ad2c0a0 fix(agent): 网络抖动重连续接 + frontier 兜底同样退避重试
+- 59644a09 fix(agent): 网络抖动重连续接 + frontier 兜底同样退避重试
+- bf8c5ab8 test: 跟进近期主链路改动 — dsh 引擎探测/网关模式/鉴权路由/history 重构 + 基线重生成
+- cd54880d test: 跟进近期主链路改动 — dsh 引擎探测/网关模式/鉴权路由/history 重构 + 基线重生成
+- 05f4a826 feat(engine): dsh 引擎 — engine_runner 路由 + 容器探测 + 前端引擎选项
+- 4bed5f7d feat(engine): dsh 引擎 — engine_runner 路由 + 容器探测 + 前端引擎选项
+- 012da158 test(e2e): 内化能力端到端测试入库 — master 工具面 24 断言 (决策账本/上下文图/提问卡片)
+- ddd94663 test(e2e): 内化能力端到端测试入库 — master 工具面 24 断言 (决策账本/上下文图/提问卡片)
+- d97c98ef fix(loop): 正常短回复被误判疲劳 — _INVALID_CONTENTS 移除 ok/done/完成
+- 3b145b14 fix(loop): 正常短回复被误判疲劳 — _INVALID_CONTENTS 移除 ok/done/完成
+- bb67fb5a fix(llm): 候选重试弃用 mimo 系列，改 kimi-k2.7-code（用户指示）
+- f7091a3e fix(llm): 候选重试弃用 mimo 系列，改 kimi-k2.7-code（用户指示）
+- 61523d21 fix(loop-plane): flag 关闭时 loop_* 工具返回明确提示（不隐式启用进程内模式）
+- 2a146167 fix(loop-plane): flag 关闭时 loop_* 工具返回明确提示（不隐式启用进程内模式）
+- 4b207886 feat(loop-plane): Loop Plane 微服务 — Phase 0-3 + Sched 门面 + Skills stub
+- 92f43188 feat(loop-plane): Loop Plane 微服务 — Phase 0-3 + Sched 门面 + Skills stub
+- d80c61eb security: 修复确认的攻击面 + 关键面鉴权 + 状态内核接入
+- 3a1a7e55 security: 修复确认的攻击面 + 关键面鉴权 + 状态内核接入
+- 50b5856d fix(tool_guard): terminal 闸门只按工具名分类 + allowlist 豁免 — 消除误伤风险
+- 2dd21102 fix(tool_guard): terminal 闸门只按工具名分类 + allowlist 豁免 — 消除误伤风险
+- c08c652a feat(stratum): 主脑系统提示词接入决策智能工具
+- 0e5b87a2 feat(stratum): 主脑系统提示词接入决策智能工具
+- 291afe99 fix(llm): default_content stub 被当有效回答返回 — 429 限流期间跳过兜底
+- 949c991e fix(llm): default_content stub 被当有效回答返回 — 429 限流期间跳过兜底
+- 26204300 feat(master): 工具发现增强 — description 触发条件 + SOP GRAPH-ENGINEER PROTOCOL
+- c874f813 feat(master): 工具发现增强 — description 触发条件 + SOP GRAPH-ENGINEER PROTOCOL
+- 6fc6ca97 feat(graph-engineer): P2 三模式 + Elevated assurance 3 lens
+- 32e6b0c5 feat(graph-engineer): P2 三模式 + Elevated assurance 3 lens
+- ef069993 fix(agency): 转换器 SYSTEM_PROMPT 用 repr 转义 — 修复源 md 含三引号截断
+- 7ecc40d7 fix(agency): 转换器 SYSTEM_PROMPT 用 repr 转义 — 修复源 md 含三引号截断
+- 81a298fc feat(graph-engineer): P0 防振荡三增强 — CRITIQUE 连续性/DEBATE 三分类/Anti-loop cutoff
+- 84f47946 feat(graph-engineer): P0 防振荡三增强 — CRITIQUE 连续性/DEBATE 三分类/Anti-loop cutoff
+- 967f4c52 feat(agency): agency-agents 专家角色库接入 — 转换器 + run_skill 参数兼容
+- 78be0b4c feat(agency): agency-agents 专家角色库接入 — 转换器 + run_skill 参数兼容
+- 0b0d4358 feat(graph-engineer): 多引擎编排自纠正循环 — system_graph_cycle 工具
+- f4787af6 feat(graph-engineer): 多引擎编排自纠正循环 — system_graph_cycle 工具
+- 24ea0a48 feat(master): SOP 加 SCANNED-PDF PROTOCOL — 阻止扫描 PDF 瞎装 OCR 库
+- ce61ed11 feat(master): SOP 加 SCANNED-PDF PROTOCOL — 阻止扫描 PDF 瞎装 OCR 库
+- 8deba164 fix(upload): PDF 上传全链路修复 — CSRF/body 限制/二进制无损/adapter
+- 4348192e fix(upload): PDF 上传全链路修复 — CSRF/body 限制/二进制无损/adapter
+- 8c1f57fe fix(upload): fs_read 支持 uploads/ 前缀 + PDF 豁免 200KB 限制
+- 969ceef6 fix(upload): fs_read 支持 uploads/ 前缀 + PDF 豁免 200KB 限制
+- d70d6b46 feat(upload): PDF 支持 — 上传工作区 + fs_read 提取文本 (pypdf)
+- 209926ec feat(upload): PDF 支持 — 上传工作区 + fs_read 提取文本 (pypdf)
+- 7d830b69 fix(upload): 上传目录改 ~/.veya/uploads (veya-data rw) — /app 只读挂载不可写
+- 02194897 fix(upload): 上传目录改 ~/.veya/uploads (veya-data rw) — /app 只读挂载不可写
+- ede78d7f feat(upload): 文件上限放宽到 100MB — 大文本存工作区 @引用, 不撑爆上下文
+- 0551e2de feat(upload): 文件上限放宽到 100MB — 大文本存工作区 @引用, 不撑爆上下文
+- 8660ffea feat(auth): 三项收尾 — automations 用户隔离 / 刷新自动同步 / 移动端布局
+- f10cd60c feat(auth): 三项收尾 — automations 用户隔离 / 刷新自动同步 / 移动端布局
+- 02838292 fix(stream): _run_chat 返回结果 — 修 auth 重构引入的兜底假象
+- 2acddfc5 fix(stream): _run_chat 返回结果 — 修 auth 重构引入的兜底假象
+- 531a9c24 feat(auth): 会话列表多端同步 (P1)
+- 9d9506d0 feat(auth): 会话列表多端同步 (P1)
+- b3f8f2e9 feat(auth): 用户注册/登录 + 多用户隔离 + 跨端同步通知
+- 607b2bb9 feat(auth): 用户注册/登录 + 多用户隔离 + 跨端同步通知
+- 7c045a84 fix(graph): File→File 依赖边查询去关系名限制 + 未索引自动 ensure_indexed
+- 66827b87 fix(graph): File→File 依赖边查询去关系名限制 + 未索引自动 ensure_indexed
+- 5e040063 feat(git-panel): 容器挂载宿主仓库 /repo — Git 面板操作真实 veya 仓库
+- a336df96 feat(git-panel): 容器挂载宿主仓库 /repo — Git 面板操作真实 veya 仓库
+- 34e44172 fix(plan-board): quota 摘要改 async await (asyncio.run 在 event loop 内报错被吞 → unknown)
+- bcb57b0e fix(plan-board): quota 摘要改 async await (asyncio.run 在 event loop 内报错被吞 → unknown)
+- 274c05f2 test: 状态内核 + 认知增强 (plan_todo/long_read) 单元测试 — 867 全绿
+- 098f4438 test: 状态内核 + 认知增强 (plan_todo/long_read) 单元测试 — 867 全绿
+- e886492b feat(state-kernel): Phase 2+3 — Spend 记账 / Terminal Gate / 公私边界扫描 (主脑零改动)
+- 753ea6f3 feat(state-kernel): Phase 2+3 — Spend 记账 / Terminal Gate / 公私边界扫描 (主脑零改动)
+- ef7b40e0 feat(cognition): 主脑认知增强 — plan_todo 计划看板 + long_read 长文导航
+- 873e2959 feat(cognition): 主脑认知增强 — plan_todo 计划看板 + long_read 长文导航
+- 6551976d 主脑瘦身: ① 提示去自吹 + ②-A skills 72→2 (工具面 93→23, 提示 39KB→18.7KB) (#4)
+- 75040703 主脑瘦身: ① 提示去自吹 + ②-A skills 72→2 (工具面 93→23, 提示 39KB→18.7KB) (#4)
+- 52ea4033 强上下文 + 个人记忆 (P1–P4): 主脑不再失忆 + 理解优先门 + 跨设备 + 蒸馏记忆 (#2)
+- 97f20381 强上下文 + 个人记忆 (P1–P4): 主脑不再失忆 + 理解优先门 + 跨设备 + 蒸馏记忆 (#2)
+- 8c67e340 fix(engine): claude stream-json 整条 assistant 消息解析 — 修 claude 引擎零输出
+- 578ad98a fix(engine): claude stream-json 整条 assistant 消息解析 — 修 claude 引擎零输出
+- 784a0051 fix(engine): stream_engine 超时用 asyncio.timeout — 修 async for wait_for 500; 测试补 grok mock
+- e6c8229c fix(engine): stream_engine 超时用 asyncio.timeout — 修 async for wait_for 500; 测试补 grok mock
+- bd8e07fb fix(engine): asyncio.TimeoutExpired → TimeoutError — 修复引擎流 500
+- 9e5f3dac fix(engine): asyncio.TimeoutExpired → TimeoutError — 修复引擎流 500
+- c796c4b8 feat(engine): 容器 grok 引擎探测 — ~/.grok 挂载后自动放行
+- bad70bc4 feat(engine): 容器 grok 引擎探测 — ~/.grok 挂载后自动放行
+- 732e6200 整改 A+C: 认知债清零 + CLI 统一主脑 + 全量审计记录 (#1)
+- 8e0a1dca 整改 A+C: 认知债清零 + CLI 统一主脑 + 全量审计记录 (#1)
+- 27d226b2 fix(llm): 空回复外环兜底 — 本地 gpt-5.6-luna + 核心工具面, 覆盖 quality-gate 升级路径
+- 4f703f9b fix(llm): 空回复外环兜底 — 本地 gpt-5.6-luna + 核心工具面, 覆盖 quality-gate 升级路径
+- af8efd61 fix(master): 恢复工具面分层 (诱惑管理) — 设计任务不再被行情工具带偏
+- b95fda9b fix(master): 恢复工具面分层 (诱惑管理) — 设计任务不再被行情工具带偏
+- c5854edd fix(master): URL 预抓内容清洗+收紧至 2500 字 — 避免撑爆 free 池网关上下文
+- 4adcefa0 fix(master): URL 预抓内容清洗+收紧至 2500 字 — 避免撑爆 free 池网关上下文
+- 2f9bb495 fix(master): GitHub 链接可靠回复 + 网关空响应 3 次退避重试
+- 805c6551 fix(master): GitHub 链接可靠回复 + 网关空响应 3 次退避重试
+- 016ecb4a fix(master): LLM 边界绝不静默 — 空/'None' 响应温和重试一次
+- 610db8d6 fix(master): LLM 边界绝不静默 — 空/'None' 响应温和重试一次
+- 607fd204 fix(master): 编程任务收尾兜底不覆盖有意结果 — 配额暂停/失败一律尊重
+- 038c438d fix(master): 编程任务收尾兜底不覆盖有意结果 — 配额暂停/失败一律尊重
+- 78702000 feat(master): 主脑回归原生智能 — 模型自主路由, 删程序化前置判断, 四层绝不静默
+- cd89cc9b feat(master): 主脑回归原生智能 — 模型自主路由, 删程序化前置判断, 四层绝不静默
+- 42f564d8 fix(master): 创作任务走 frontier 全链路 + hevi 视频生成端到端打通
+- 33705825 fix(master): 创作任务走 frontier 全链路 + hevi 视频生成端到端打通
+- b4ea76f5 fix(master): hevi/Open Design 视频管线全链路打通 + 多层'不回复'根因修复
+- 0d061185 fix(master): hevi/Open Design 视频管线全链路打通 + 多层'不回复'根因修复
+- df5c9df8 fix(skill): img2threejs 预览 HTML 修复 + guardian SkillMeta 登记 + g7 隔离
+- c8517d4a fix(skill): img2threejs 预览 HTML 修复 + guardian SkillMeta 登记 + g7 隔离
+- ce169257 feat(skill-hub): capabilities 能力发现命令 (Discovery-First, md2wechat 语义)
+- 3ab27527 feat(skill-hub): capabilities 能力发现命令 (Discovery-First, md2wechat 语义)
+- a0f76e63 feat(img2threejs): 图片→3D 雕刻技能 + 前端 three.js artifact 预览
+- 74a90f39 feat(img2threejs): 图片→3D 雕刻技能 + 前端 three.js artifact 预览
+- 441446e3 feat(agent-project): 文件系统优先的 Agent 定义 (vercel/eve 机制内化)
+- a5fd9545 feat(agent-project): 文件系统优先的 Agent 定义 (vercel/eve 机制内化)
+- 6a1dbbea test(llm): 隔离宿主 ~/.veya/config.json 对无参调用测试的污染 (+3)
+- f1905d6d test(llm): 隔离宿主 ~/.veya/config.json 对无参调用测试的污染 (+3)
+- 93d754a0 fix(brain): 无参调用默认走 veya1.1 别名路由 — 修复线上不回答
+- 18120145 fix(brain): 无参调用默认走 veya1.1 别名路由 — 修复线上不回答
+- 3430fd46 fix(guardians): ExecResult 登记 KNOWN_SYMBOLS — 契约差异非双实现
+- 789c8ce5 fix(guardians): ExecResult 登记 KNOWN_SYMBOLS — 契约差异非双实现
+- 6ee6c93c fix(master): 轻量单轮 chat() 注入 system prompt — 修复 quick 档人格丢失
+- 88696009 fix(master): 轻量单轮 chat() 注入 system prompt — 修复 quick 档人格丢失
+- 7dd0f1c3 feat(loop): rulebooks 装配 + engineering-flow review 自动注入规则书基线
+- b2c4a0ef feat(loop): rulebooks 装配 + engineering-flow review 自动注入规则书基线
+- 9810a965 perf: veya 回答提速 — 轻量快速路径 + URL 快速联网 + 网关超时防护
+- 5eb65aec perf: veya 回答提速 — 轻量快速路径 + URL 快速联网 + 网关超时防护
+- 535e43f3 fix(llm-router): 特征提取误扫 system prompt → frontier 误判 → 主脑空回答
+- 63082bff fix(llm-router): 特征提取误扫 system prompt → frontier 误判 → 主脑空回答
+- d08dbd29 feat(llm-router-v3): 长程/复杂任务深度理解与规划层 (强模型)
+- c6a955c5 feat(llm-router-v3): 长程/复杂任务深度理解与规划层 (强模型)
+- abd9ee9a fix(desktop): bundle.targets 明确列表 (deb/rpm/dmg/nsis) — targets all 强制 appimage 打包失败拖垮全平台
+- 136c84da fix(desktop): bundle.targets 明确列表 (deb/rpm/dmg/nsis) — targets all 强制 appimage 打包失败拖垮全平台
+- 20ad4eac fix(desktop): tauri resources 目录映射 + lib.rs bundled 路径 + upload 小写目录 (appimage/dmg/nsis)
+- e6bf96aa fix(desktop): tauri resources 目录映射 + lib.rs bundled 路径 + upload 小写目录 (appimage/dmg/nsis)
+- 7bb9130a fix(pyinstaller): playwright 浏览器改 headless shell 方案 (macOS .app 兼容)
+- 2306b183 fix(pyinstaller): playwright 浏览器改 headless shell 方案 (macOS .app 兼容)
+- 4df11a16 feat(llm-router-v2): 分层路由落地 — 动态成本阈值 + Frontier 档 + 质量闸门 + traces 分析
+- 75d01e5d feat(llm-router-v2): 分层路由落地 — 动态成本阈值 + Frontier 档 + 质量闸门 + traces 分析
+- 2595f72e test(replica): 8 算子实战验证 23/23 通过 + 验证脚本入库
+- 38325dd6 test(replica): 8 算子实战验证 23/23 通过 + 验证脚本入库
+- e80d3736 feat(replica): 三期 KiroCrew 层落地 (G7/G8) — 三平台复刻 8 算子全部完成
+- 51074f10 feat(replica): 三期 KiroCrew 层落地 (G7/G8) — 三平台复刻 8 算子全部完成
+- 25c84c2a fix(llm): endpoint 归一化提前到 llm_call — 错误信息显示真实请求 URL
+- 30cbe9ae fix(llm): endpoint 归一化提前到 llm_call — 错误信息显示真实请求 URL
+- 2ff1ae8c feat(replica): 一期 Vigla 层 4 算子落地 (G3/G4/G5/G6)
+- 420dcbe7 feat(replica): 一期 Vigla 层 4 算子落地 (G3/G4/G5/G6)
+- 633f9862 feat(prd): 4 算子正式 PRD + delegate_to_genesis 账本固化
+- d7b8bb70 feat(prd): 4 算子正式 PRD + delegate_to_genesis 账本固化
+- 0bd5fafa feat(officecli): OfficeCLI 集成 — 技能包 + sidecar 管理器 + 渲染-观察-修复闭环
+- 54f1565d feat(officecli): OfficeCLI 集成 — 技能包 + sidecar 管理器 + 渲染-观察-修复闭环
+- 2edb504e feat(openhands): ACP 客户端 + 多 backend 挂载 + Issue 自动拆解
+- fb8c549c feat(openhands): ACP 客户端 + 多 backend 挂载 + Issue 自动拆解
+- 73299bc6 fix(engine): 容器环境只允许 master — 外部 CLI 引擎 520/502 根治
+- 3105dc57 fix(engine): 容器环境只允许 master — 外部 CLI 引擎 520/502 根治
+- 84fbe6c8 test(veya_loop): P2/P3 行为测试矩阵 (231→256) + 蜜罐超时取证防回归
+- 72a59141 test(veya_loop): P2/P3 行为测试矩阵 (231→256) + 蜜罐超时取证防回归
+- 7fa9d372 fix(online): 插件市场/定时任务 404 — Cindy 端点挂载根 app + 前端网关探活诊断
+- 801bc889 fix(online): 插件市场/定时任务 404 — Cindy 端点挂载根 app + 前端网关探活诊断
+- d2581400 feat: P1 神经符号 API (allocate+VCG/deadlock/game) + 会话持久化 CheckpointStore
+- 3c86eca7 feat: P1 神经符号 API (allocate+VCG/deadlock/game) + 会话持久化 CheckpointStore
+- 41611d33 opt(veya_loop): P1 神经符号能力面装配 + CLI 修复 + 守护测试 (78→230)
+- cb6c6a70 opt(veya_loop): P1 神经符号能力面装配 + CLI 修复 + 守护测试 (78→230)
+- f6f89d79 fix: /api/v1/agent/stream 500 — StreamingResponse 模块级导入 (master 分支 UnboundLocalError)
+- 45a2f21f fix: /api/v1/agent/stream 500 — StreamingResponse 模块级导入 (master 分支 UnboundLocalError)
+- d5544280 fix: legacy /api/v1/agent/run dry_run 补 user_ref 伪匿名 (旧协议兼容)
+- 0056298d fix: legacy /api/v1/agent/run dry_run 补 user_ref 伪匿名 (旧协议兼容)
+- caa7a27e test: 连续对话历史测试 + HITL 断言更新
+- a4073e54 test: 连续对话历史测试 + HITL 断言更新
+- 85889669 feat: 旧 L4 网关协议兼容路由 /api/v1/agent/run|stream — 域名主脑 404 根因修复
+- e23dfa19 feat: 旧 L4 网关协议兼容路由 /api/v1/agent/run|stream — 域名主脑 404 根因修复
+- 1ee5336d feat: veya-loop 全套件 — 因果闭环/可靠性/神经符号/审计 + 主脑原生智能
+- 72568d8c feat: veya-loop 全套件 — 因果闭环/可靠性/神经符号/审计 + 主脑原生智能
+- 7aea5023 fix(llm): network retry + master brain rounds/execution fixes
+- 593f494e fix(llm): network retry + master brain rounds/execution fixes
+- a412f375 refactor: retire legacy engine layer — all endpoints on Agent OS master brain
+- e0308d8b refactor: retire legacy engine layer — all endpoints on Agent OS master brain
+- 8e42c194 Complete G10-G17: plugins SDK, checkpoint resume, cache benchmarks, release pipeline, i18n gate, deps
+- 0cabe3aa Complete G10-G17: plugins SDK, checkpoint resume, cache benchmarks, release pipeline, i18n gate, deps
+- b03431c7 Rename project to Veya; bump to 0.5.0
+- 769d7b50 Rename project to Veya; bump to 0.5.0
+- 3b1b49ef Complete G6-G9 benchmark gaps; remove leaked API key
+- 7e52192b Complete G6-G9 benchmark gaps; remove leaked API key
+- b150a44c Ignore large files in node_modules
+- 4324b41f Initial commit
+
