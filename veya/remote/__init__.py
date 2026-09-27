@@ -67,6 +67,14 @@ from .models import (
     RemoteSession,
     ToolBinding,
 )
+from .permission_engine import (
+    Decision,
+    OperationContext,
+    PermissionDecision,
+    PermissionEngine,
+    ReasonCode,
+    Scope,
+)
 from .session import RemoteSessionError, RemoteSessionManager
 from .tool_adapter import RemoteToolAdapter, default_tool_adapter
 from .workspace_binding import (
@@ -84,6 +92,7 @@ __all__ = [
     "AuditRecord",
     "CanonicalPromotionService",
     "CommitRequirement",
+    "Decision",
     "DirectCommandResult",
     "DurableJobManager",
     "EffectClass",
@@ -107,9 +116,13 @@ __all__ = [
     "L1ExecutionFinalizer",
     "L1TaskContract",
     "LatencyMetrics",
+    "OperationContext",
+    "PermissionDecision",
+    "PermissionEngine",
     "PromotionConflict",
     "PromotionEvidence",
     "PromotionPolicy",
+    "ReasonCode",
     "RemoteAudit",
     "RemoteAuth",
     "RemoteAuthError",
@@ -123,6 +136,7 @@ __all__ = [
     "RemoteToken",
     "RemoteToolAdapter",
     "RepoResolution",
+    "Scope",
     "SubstitutionEvidence",
     "TaskKind",
     "ToolBinding",

@@ -91,24 +91,23 @@ def _git_operation(argv: list[str]) -> str | None:
 
 
 def command_requires_approval(argv: Sequence[str]) -> bool:
-    """Return whether a command has an obvious destructive or remote effect."""
+    """Compatibility adapter to the canonical :class:`PermissionEngine`.
+
+    The coding runner no longer owns an approval policy.  Callers that still
+    need this legacy boolean receive the single engine's decision instead.
+    """
     if not argv:
         return True
-    executable = Path(argv[0]).name.lower()
-    args = [item.lower() for item in argv[1:]]
-    if executable in _DESTRUCTIVE_EXECUTABLES:
-        return True
-    git_op = _git_operation(list(argv))
-    if git_op in {"clean", "fetch", "gc", "pull", "push", "rebase", "reset", "restore", "clone"}:
-        return True
-    if git_op == "checkout" and any(item in {"-b", "--orphan"} for item in args):
-        return True
-    if git_op == "branch" and any(item in {"-d", "-D", "--delete", "--force"} for item in args):
-        return True
-    return executable in {"pip", "pip3", "npm", "pnpm", "yarn", "bun", "cargo", "go"} and any(
-        item in {"install", "add", "remove", "uninstall", "update", "upgrade", "get"}
-        for item in args
+    # Import lazily: ``veya.remote`` exposes the direct executor, which itself
+    # imports this runner.  Keeping the authority import at the decision point
+    # avoids a package-initialization cycle while preserving one policy owner.
+    from veya.remote.permission_engine import PermissionEngine, parse_command_context
+
+    cwd = Path.cwd().resolve()
+    decision = PermissionEngine().evaluate(
+        parse_command_context(tuple(argv), cwd=cwd, workspace_root=cwd)
     )
+    return not decision.allowed
 
 
 def command_may_use_network(argv: Sequence[str]) -> bool:
