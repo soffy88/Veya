@@ -217,8 +217,9 @@ class PermissionEngine:
                 for index, token in enumerate(words[1:], start=1)
                 if token in {"-c", "-lc", "-cl"}
             )
+            command = context.command or ()
             try:
-                inner = set(shlex.split(" ".join(context.command[flag_index + 1 :])))
+                inner = set(shlex.split(" ".join(command[flag_index + 1 :])))
             except ValueError:
                 inner = set()
             if {"sudo", "su", "mkfs", "fdisk", "parted", "mount", "umount"} & inner:
