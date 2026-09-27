@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from .executor_registry import ExecutorRuntimeIdentity
+
 
 class Decision(StrEnum):
     ALLOW = "ALLOW"
@@ -69,6 +71,7 @@ class OperationContext:
     execution_id: str | None = None
     session_id: str | None = None
     goal_run_id: str | None = None
+    executor_identity: ExecutorRuntimeIdentity | None = None
     metadata: dict[str, str] = field(default_factory=dict)
 
 

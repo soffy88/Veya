@@ -232,6 +232,14 @@ class WorkerRuntimeRegistry:
         credential_ref: str | None = None,
     ) -> WorkerRuntime:
         worker_type = worker_type.strip().lower()
+        if not provider or not model:
+            # Runtime state is a projection; identity discovery remains owned
+            # by ExecutorRegistry and is imported lazily to avoid module cycles.
+            from .executor_registry import get_executor_registry
+
+            identity = get_executor_registry().identity(worker_type)
+            provider = provider or identity.provider or ""
+            model = model or identity.model or ""
         rid = worker_runtime_id or f"{worker_type}-{uuid.uuid4().hex[:8]}"
         runtime = WorkerRuntime(
             worker_runtime_id=rid,

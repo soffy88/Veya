@@ -4,7 +4,6 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
-from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 from veya.supervision.evidence import (
     GENESIS_HASH,
     build_evidence_chain,
@@ -12,6 +11,7 @@ from veya.supervision.evidence import (
     verify_evidence_chain,
 )
 
+from .executor_registry import get_executor_registry, normalize_executor_id
 from .worker_runtime import capabilities_for
 
 
@@ -53,6 +53,9 @@ class RuntimeCapabilityManifest:
     status: Literal["READY", "DEGRADED", "UNAVAILABLE", "UNKNOWN"]
     status_reason: str
     observed_at: float
+    runtime_source: str = "unknown"
+    launcher: str | None = None
+    auth_state: str = "UNKNOWN"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -204,26 +207,21 @@ def probe_runtime_capability_manifest(
     Verifies actual binary installation, credentials, health registry status,
     and workspace capabilities. Never returns static assumptions.
     """
-    import os
     import shutil
     import subprocess
-    import sys
     import time
     from pathlib import Path
 
-    norm = executor_id.lower().strip()
-    if norm in ("agy", "antigravity"):
-        norm = "antigravity"
-    elif norm in ("open-code", "opencode_go"):
-        norm = "opencode"
+    norm = normalize_executor_id(executor_id)
+    identity = get_executor_registry().identity(norm)
 
     installed = False
     bin_path = None
     version = "unknown"
-    authenticated = False
-    reachable = True
-    provider = "unknown"
-    model = "unknown"
+    authenticated = identity.authenticated
+    reachable = identity.reachable
+    provider = identity.provider or "unknown"
+    model = identity.model or "unknown"
 
     # 1. Probe installation and version
     candidate_bins: list[str | Path] = []
@@ -234,85 +232,45 @@ def probe_runtime_capability_manifest(
             Path.home() / ".local" / "bin" / "agy",
             Path.home() / ".gemini" / "antigravity-cli" / "bin" / "agy",
         ]
-        provider = _cp.executor_provider("antigravity", "gemini")
-        model = _cp.executor_model("antigravity")
-        authenticated = bool(
-            os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("ANTIGRAVITY_API_KEY")
-            or (Path.home() / ".gemini" / "antigravity-cli" / "auth.json").is_file()
-        )
     elif norm == "opencode":
         candidate_bins = [
             "opencode",
             Path.home() / ".opencode" / "bin" / "opencode",
             Path.home() / ".local" / "bin" / "opencode",
         ]
-        provider = _cp.executor_provider("opencode")
-        model = _cp.executor_model("opencode")
-        authenticated = bool(
-            os.environ.get("OPENCODE_API_KEY")
-            or (Path.home() / ".opencode" / "auth.json").is_file()
-        )
     elif norm == "codex":
         candidate_bins = [
             "codex",
             Path.home() / ".local" / "bin" / "codex",
             Path.home() / ".nvm" / "versions" / "node" / "v26.4.0" / "bin" / "codex",
         ]
-        provider = _cp.executor_provider("codex")
-        model = _cp.executor_model("codex")
-        authenticated = bool(
-            os.environ.get("CODEX_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-            or (Path.home() / ".codex" / "config.json").is_file()
-        )
     elif norm == "pi":
         candidate_bins = [
             "pi",
             Path.home() / ".local" / "bin" / "pi",
             Path.home() / ".nvm" / "versions" / "node" / "v26.4.0" / "bin" / "pi",
         ]
-        provider = _cp.executor_provider("pi")
-        model = _cp.executor_model("pi")
-        authenticated = bool(
-            os.environ.get("PI_API_KEY")
-            or os.environ.get("ANTHROPIC_API_KEY")
-            or (Path.home() / ".pi" / "agent.json").is_file()
-        )
     elif norm == "grok":
         candidate_bins = [
             "grok",
             Path.home() / ".grok" / "bin" / "grok",
             Path.home() / ".local" / "bin" / "grok",
         ]
-        provider = _cp.executor_provider("grok")
-        model = _cp.executor_model("grok")
-        authenticated = bool(os.environ.get("GROK_API_KEY") or os.environ.get("XAI_API_KEY"))
     elif norm == "dsh":
         candidate_bins = [
             "dsh",
             Path.home() / ".local" / "bin" / "dsh",
         ]
-        provider = _cp.executor_provider("dsh")
-        model = _cp.executor_model("dsh")
-        authenticated = True
     elif norm == "acp":
         from veya.remote.acp_adapter import resolve_acp_command
 
         resolved = resolve_acp_command()
         candidate_bins = [resolved[0]] if resolved else ["openhands", "acp-agent", "agents-cli"]
-        provider = _cp.executor_provider("acp")
-        model = _cp.executor_model("acp")
-        authenticated = True
     elif norm == "hicode":
-        installed = True
-        bin_path = sys.executable
-        version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-        provider = _cp.executor_provider("hicode")
-        model = _cp.executor_model("hicode")
-        authenticated = bool(
-            os.environ.get("OPENCODE_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or True
-        )
+        installed = bool(identity.launcher)
+        bin_path = identity.launcher
+        version = "unknown"
+        # Hicode identity and auth semantics are supplied by ExecutorRegistry.
 
     if not installed:
         for cand in candidate_bins:
@@ -409,6 +367,9 @@ def probe_runtime_capability_manifest(
         status=status,
         status_reason=status_reason,
         observed_at=time.time(),
+        runtime_source=identity.runtime_source,
+        launcher=identity.launcher,
+        auth_state=identity.auth_state,
     )
 
 

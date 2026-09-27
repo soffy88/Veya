@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 
 from server.hicode_cooldown import hicode_model_mapping
 from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
+from veya.remote.executor_registry import get_executor_registry
 
 REASONIX_PACKAGE = "reasonix"
 REASONIX_VERSION = "1.21.3"
@@ -593,7 +594,10 @@ print(json.dumps({
             os.environ.get("HICODE_REASONIX_BASE_URL", ""),
             fallback=default_primary_base,
         )
-        requested_model = os.environ.get("HICODE_REASONIX_MODEL", "gemini-pro-agent").strip()
+        identity = get_executor_registry().identity("hicode")
+        requested_model = (identity.model or "").strip()
+        if not requested_model:
+            raise HicodeRuntimeError("Hicode runtime identity has no configured model")
         try:
             mapping = hicode_model_mapping(requested_model)
             primary_model = str(mapping["requested_model"])
@@ -601,10 +605,9 @@ print(json.dumps({
             # Test/dev providers may use an explicitly injected model. The
             # production Hicode identity is validated by the authority above.
             primary_model = requested_model
-        primary_provider = (
-            os.environ.get("HICODE_REASONIX_PROVIDER", "cliproxy-google").strip()
-            or "cliproxy-google"
-        )
+        primary_provider = (identity.provider or "").strip()
+        if not primary_provider:
+            raise HicodeRuntimeError("Hicode runtime identity has no configured provider")
         primary_key_env = _safe_env_name(os.environ.get("HICODE_REASONIX_API_KEY_ENV"))
         primary_api_key = os.environ.get(primary_key_env, "") if primary_key_env else ""
         cloud_base = _safe_url(

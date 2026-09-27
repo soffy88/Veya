@@ -8,7 +8,7 @@ Verifies:
    - veya/supervision/orchestrated.py (L1_WORKERS)
    - veya/supervision/retask.py (_RETASK_WORKERS)
    - veya/supervision/reap.py (EXECUTOR_MARKERS)
-2. PI strictly pinned to `veya1.2-free` across CLI argv, model identity, and configuration.
+2. PI identity is projected from its active runtime configuration across CLI argv and dispatch.
 3. OPENCODE command construction, model resolution, and proxy/HOME propagation.
 4. Explicit pin authority: worker="opencode" / worker="pi" fail closed without silent fallback.
 5. Health-aware routing sequence: AGY -> OPENCODE -> PI -> GROK -> DSH -> CODEX -> HICODE.
@@ -77,11 +77,14 @@ def test_01_opencode_registration_integrity() -> None:
 
 
 def test_02_pi_fixed_veya1_2_free(tmp_path: Path, monkeypatch) -> None:
-    """2. Verify PI strictly uses veya1.2-free in config, command, and identity."""
-    assert _CLI_WORKERS["pi"]["model"] == "veya1.2-free"
+    """2. Verify PI uses the active runtime provider/model in command and identity."""
+    from veya.remote.executor_registry import get_executor_registry
+
+    identity = get_executor_registry().identity("pi")
+    assert _CLI_WORKERS["pi"]["model"] == identity.model
 
     pi_identity = _worker_model_identity("pi")
-    assert pi_identity == ("VEYA_LOCAL", "veya1.2-free")
+    assert pi_identity == (identity.provider, identity.model)
 
     fake_pi = tmp_path / "node_modules" / "pi-coding-agent" / "cli.js"
     fake_pi.parent.mkdir(parents=True)
@@ -94,11 +97,8 @@ def test_02_pi_fixed_veya1_2_free(tmp_path: Path, monkeypatch) -> None:
     argv, _ = _worker_command("pi", "test-pi-task")
     assert "--model" in argv
     model_idx = argv.index("--model")
-    assert argv[model_idx + 1] == "veya1.2-free"
-    # Never fall back to veya1.2 without -free
-    assert "veya1.2" not in [
-        arg for i, arg in enumerate(argv) if i != model_idx and arg == "veya1.2"
-    ]
+    assert argv[model_idx + 1] == identity.model
+    assert argv[argv.index("--provider") + 1] == identity.provider
 
 
 def test_03_opencode_command_construction_and_proxy(tmp_path: Path, monkeypatch) -> None:
@@ -110,6 +110,9 @@ def test_03_opencode_command_construction_and_proxy(tmp_path: Path, monkeypatch)
     monkeypatch.setenv("VEYA_OPENCODE_BIN", str(fake_opencode))
     monkeypatch.setenv("VEYA_OPENCODE_MODEL", "opencode-go/deepseek-v4.1-flash")
     monkeypatch.setenv("VEYA_RUNTIME_PROXY", "http://127.0.0.1:7890")
+    from veya.remote.executor_registry import reset_executor_registry
+
+    reset_executor_registry()
 
     bin_path = _resolve_opencode_binary()
     assert bin_path == str(fake_opencode)
@@ -137,6 +140,9 @@ def test_03b_opencode_coding_mode_binds_execution_worktree(tmp_path: Path, monke
     fake_opencode.chmod(0o755)
     monkeypatch.setenv("VEYA_OPENCODE_BIN", str(fake_opencode))
     monkeypatch.setenv("VEYA_OPENCODE_MODEL", "qualified-model")
+    from veya.remote.executor_registry import reset_executor_registry
+
+    reset_executor_registry()
 
     argv, _ = _worker_command(
         "opencode",
@@ -164,6 +170,9 @@ def test_03c_opencode_runtime_state_is_not_in_execution_worktree(
     monkeypatch.setenv("VEYA_OPENCODE_RUNTIME_HOME", str(runtime_home))
     monkeypatch.setenv("XDG_DATA_HOME", str(source_data))
     monkeypatch.setenv("VEYA_OPENCODE_BIN", "/bin/true")
+    from veya.remote.executor_registry import reset_executor_registry
+
+    reset_executor_registry()
 
     _argv, env = _worker_command(
         "opencode",

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .approval import ApprovalStore, compute_operation_hash, get_approval_store
+from .executor_registry import get_executor_registry
 from .models import ManagedUserService, RemoteErrorCode, RemoteSession, RiskClass
 from .permission_engine import (
     Decision,
@@ -1157,6 +1158,7 @@ class ActionGateway:
                 }
             )
         elif tool_name.startswith("worker.") or tool_name in {"hicode.execute", "agy.execute"}:
+            worker_name = str(args.get("worker") or args.get("executor") or "hicode")
             context = OperationContext(
                 actor=session.principal,
                 tool=tool_name,
@@ -1165,6 +1167,7 @@ class ActionGateway:
                 cwd=current,
                 filesystem_effect="write",
                 session_id=session.session_id,
+                executor_identity=get_executor_registry().identity(worker_name),
             )
         else:
             context = OperationContext(

@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from .executor_registry import ExecutorRuntimeIdentity, get_executor_registry
 from .models import ExecutorFailureClass, ExecutorHealth
 from .worker_runtime import (
     WORKER_CAPABILITIES,
@@ -236,8 +237,14 @@ class ExecutorHealthRegistry:
     Heartbeat proves process is alive, NOT that provider is healthy.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, executor_registry: Any | None = None) -> None:
         self._records: dict[str, HealthRecord] = {}
+        self.executor_registry = executor_registry or get_executor_registry()
+
+    def identity(self, worker: str) -> ExecutorRuntimeIdentity:
+        """Project provider/model/auth from the canonical identity authority."""
+
+        return self.executor_registry.identity(worker)
 
     def _get_or_create(self, worker: str) -> HealthRecord:
         worker = normalize_executor_name(worker)

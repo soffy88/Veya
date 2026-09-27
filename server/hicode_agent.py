@@ -17,9 +17,9 @@ the child-process boundary; this module owns Veya task/event orchestration.
 - --auto 自动放行权限询问 (Reasonix 自身有 sandbox / checkpoint / 循环守卫);
 - managed runtime 缺失或版本不匹配时 fail closed (工具返回明确诊断)。
 
-Provider: 默认复用 veya 本地 opencode 网关 (127.0.0.1:10100/v1, OpenAI
-兼容, 模型 gpt-5.6-luna)。配置由 Veya adapter 生成在 Veya runtime data
-root；不依赖用户全局 ~/.reasonix 配置。Reasonix remains the underlying
+Provider/model: resolved by the canonical ExecutorRegistry from the managed
+runtime configuration. 配置由 Veya adapter 生成在 Veya runtime data root；不依赖用户全局
+~/.reasonix 配置。Reasonix remains the underlying
 MIT runtime; it is not claimed as Veya-native or fully internalized.
 """
 
@@ -46,6 +46,7 @@ from server.hicode_cooldown import classify_upstream_failure, record_cooldown
 from server.hicode_host_boundary import hicode_host_gate
 from server.hicode_runtime import HicodeRuntimeError, get_hicode_executor
 from server.process_guard import executor_spawn_kwargs
+from veya.remote.executor_registry import get_executor_registry
 
 logger = logging.getLogger("hicode")
 
@@ -53,7 +54,6 @@ logger = logging.getLogger("hicode")
 DEFAULT_WORKSPACE = os.environ.get(
     "HICODE_WORKSPACE", str(Path.home() / ".veya" / "hicode-workspace")
 )
-DEFAULT_MODEL = os.environ.get("HICODE_MODEL", "gemini-pro-agent")
 DEFAULT_MAX_STEPS = int(os.environ.get("HICODE_MAX_STEPS", "0"))  # 0 = 自动
 DEFAULT_TIMEOUT_SEC = int(os.environ.get("HICODE_TIMEOUT_SEC", "1800"))
 # 本地网关免鉴权 (10101: 无 Authorization 放行, 假 key 反而 403) —
@@ -76,6 +76,11 @@ _BOUND_WORKSPACE: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
 _BOUND_EXECUTION_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "hicode_bound_execution_id", default=None
 )
+
+
+def _hicode_identity() -> tuple[str, str]:
+    identity = get_executor_registry().identity("hicode")
+    return identity.provider or "unknown", identity.model or "unknown"
 
 
 @contextlib.contextmanager
@@ -420,8 +425,8 @@ async def _run_hicode(
                 "execution_id": _BOUND_EXECUTION_ID.get() or "",
                 "workspace": str(workspace),
                 "objective": " ".join(args[-1:])[:2000],
-                "model": DEFAULT_MODEL,
-                "provider": os.environ.get("HICODE_REASONIX_PROVIDER", "luna"),
+                "model": _hicode_identity()[1],
+                "provider": _hicode_identity()[0],
                 "context": {"bootstrap": "pre-model-request"},
             }
         )
@@ -442,7 +447,7 @@ async def _run_hicode(
     try:
         cmd = runtime.run_command(
             args,
-            model=DEFAULT_MODEL,
+            model=_hicode_identity()[1],
             timeout=timeout,
             executable=bin_path,
         )
@@ -1053,7 +1058,7 @@ async def hicode_status() -> str:
         f"  runtime fingerprint: {fingerprint['runtime_fingerprint']}\n"
         f"  runtime config: {status.config_path}\n"
         f"  workspace: {root}\n"
-        f"  模型: {DEFAULT_MODEL} (Veya-managed runtime config)\n"
+        f"  模型: {_hicode_identity()[1]} (Veya-managed runtime config)\n"
         f"  最大步数: {DEFAULT_MAX_STEPS or '自动'}, 超时: {DEFAULT_TIMEOUT_SEC}s"
     )
 
@@ -1096,7 +1101,7 @@ async def hicode_review(
         review_args += ["--base", base]
     if instructions:
         review_args += ["--instructions", instructions]
-    cmd = runtime.review_command(review_args, model=DEFAULT_MODEL, executable=bin_path)
+    cmd = runtime.review_command(review_args, model=_hicode_identity()[1], executable=bin_path)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,

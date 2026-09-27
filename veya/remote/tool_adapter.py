@@ -34,7 +34,6 @@ from typing import Any
 from runtime.coding.command_runner import CommandPolicyError
 from runtime.coding.worktree import WorktreeError, WorktreeManager
 from runtime.execution.side_effects import SideEffectLedger
-from veya.obase import canonical_proxies as _cp  # SPEC 10: no raw upstream ids in business code
 from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.remote.skills import SkillPermission
 from veya.supervision.task_memory import TaskMemory
@@ -77,6 +76,7 @@ from .executor_health import (
     normalize_executor_name,
     resolve_executor,
 )
+from .executor_registry import ExecutorRuntimeIdentity, get_executor_registry
 from .l1_contract import (
     EffectReceipt,
     L1ExecutionFinalizer,
@@ -278,21 +278,16 @@ _WORKER_TYPES = {
 # Runtime blockers are evidence-driven and temporary. Never keep stale provider
 # outage/quota snapshots after a worker has been re-qualified.
 _WORKER_BLOCKERS: dict[str, str] = {}
-# CLI worker runtime config (real, non-Hicode). DSH/Pi/Grok are provider-closed
-# against the local Veya gateway (127.0.0.1:8791); Codex uses its own runtime.
+# Compatibility projection for older callers.  It is intentionally derived
+# from ExecutorRegistry and is never consulted as an authority.
 _CLI_WORKERS = {
-    "dsh": {"provider": "VEYA_LOCAL_GATEWAY", "model": "veya1.2"},
-    "pi": {"provider": "VEYA_LOCAL", "model": "veya1.2-free"},
-    "grok": {"provider": "VEYA_LOCAL_GATEWAY", "model": "veya1.2"},
-    "codex": {"provider": "openai", "model": "gpt-5.6-luna"},
-    "antigravity": {"provider": "google-antigravity", "model": "cli-default"},
-    # raw ids come from the provider registry, not from business code (SPEC 10)
-    "opencode": {
-        "provider": _cp.executor_provider("opencode_worker_default"),
-        "model": _cp.executor_model("opencode_worker_default"),
-    },
+    worker: {
+        "provider": get_executor_registry().identity(worker).provider or "unknown",
+        "model": get_executor_registry().identity(worker).model or "unknown",
+    }
+    for worker in _WORKER_TYPES
+    if worker != "hicode"
 }
-
 _TIMEOUT_SEPARATED_CLI_WORKERS = frozenset({"pi", "grok", "codex", "antigravity", "opencode"})
 _DEFAULT_CLI_TIMEOUT_S = 600.0
 _DSH_INACTIVITY_TIMEOUT_S = 120.0
@@ -4763,34 +4758,22 @@ def _list_workspace(target: Path, *, limit: int = 200) -> list[str]:
     return lines
 
 
-def _hicode_model_identity() -> tuple[str, str]:
-    """Provider/model identity for the direct_hicode worker (P1-I, no secrets)."""
+def _worker_runtime_identity(worker: str) -> ExecutorRuntimeIdentity:
+    """Return the one canonical identity projection used by dispatch."""
 
-    model = os.environ.get("HICODE_REASONIX_MODEL") or os.environ.get("HICODE_MODEL") or "unknown"
-    base = os.environ.get("HICODE_REASONIX_BASE_URL", "")
-    if "opencode" in base:
-        provider = "opencode-go"
-    elif base:
-        provider = "local-gateway"
-    else:
-        provider = "unknown"
-    return provider, model
+    return get_executor_registry().identity(worker)
+
+
+def _hicode_model_identity() -> tuple[str, str]:
+    identity = _worker_runtime_identity("hicode")
+    return identity.provider or "unknown", identity.model or "unknown"
 
 
 def _worker_model_identity(worker: str) -> tuple[str, str]:
     """Provider/model identity for an L1 worker (no secrets)."""
 
-    if worker == "hicode":
-        return _hicode_model_identity()
-    if worker == "opencode":
-        model = _resolve_opencode_model()
-        return _cp.executor_provider("opencode_worker_default"), (
-            model or _cp.executor_model("opencode_worker_default")
-        )
-    cfg = _CLI_WORKERS.get(worker)
-    if cfg:
-        return str(cfg["provider"]), str(cfg["model"])
-    return "unknown", "unknown"
+    identity = _worker_runtime_identity(worker)
+    return identity.provider or "unknown", identity.model or "unknown"
 
 
 def worker_availability() -> dict[str, Any]:
@@ -4866,7 +4849,7 @@ def _resolve_codex_binary() -> str:
 
 def _resolve_codex_model() -> str:
     configured = str(os.environ.get("VEYA_CODEX_MODEL") or "").strip()
-    return configured or "gpt-5.6-luna"
+    return configured or (get_executor_registry().identity("codex").model or "")
 
 
 def _resolve_antigravity_binary() -> str:
@@ -4896,7 +4879,7 @@ def _resolve_antigravity_model() -> str | None:
     except (OSError, json.JSONDecodeError):
         return None
     model = str(payload.get("model") or "").strip() if isinstance(payload, dict) else ""
-    return model or None
+    return model or get_executor_registry().identity("antigravity").model
 
 
 def _resolve_opencode_binary() -> str:
@@ -4921,7 +4904,7 @@ def _resolve_opencode_binary() -> str:
 
 def _resolve_opencode_model() -> str | None:
     configured = str(os.environ.get("VEYA_OPENCODE_MODEL") or "").strip()
-    return configured or None
+    return configured or get_executor_registry().identity("opencode").model
 
 
 def _ensure_proxy_env(env: dict[str, str]) -> None:
@@ -5085,9 +5068,9 @@ def _worker_command(
         dsh_cfg = dsh_plane.load_config()
         dsh_cfg.update(
             {
-                "DSH_PROVIDER": "VEYA_LOCAL_GATEWAY",
+                "DSH_PROVIDER": get_executor_registry().identity("dsh").provider or "",
                 "DSH_BASE_URL": dsh_plane.DEFAULT_BASE_URL,
-                "DSH_MODEL": "veya1.2",
+                "DSH_MODEL": get_executor_registry().identity("dsh").model or "",
                 "DSH_API_KEY": dsh_plane.api_key(dsh_cfg),
             }
         )
@@ -5100,9 +5083,9 @@ def _worker_command(
             "-p",
             task,
             "--provider",
-            "veya",
+            get_executor_registry().identity("pi").provider or "",
             "--model",
-            "veya1.2-free",
+            get_executor_registry().identity("pi").model or "",
             "--tools",
             "read,bash,edit,write",
             "--approve",
@@ -5138,7 +5121,7 @@ def _worker_command(
             "-p",
             task,
             "--model",
-            "veya1.2",
+            get_executor_registry().identity("grok").model or "",
             "--tools",
             "read_file,search_replace,grep,list_dir,run_terminal_command",
             "--sandbox",

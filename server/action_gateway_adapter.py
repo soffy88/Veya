@@ -22,6 +22,7 @@ from server.events import append_canonical_event, current_task_id
 from server.permission_profiles import ProfileName
 from server.tool_registry import SideEffect
 from veya.platform import load
+from veya.remote.executor_registry import get_executor_registry
 from veya.remote.permission_engine import OperationContext, PermissionEngine
 
 
@@ -156,6 +157,11 @@ class ActionGatewayAdapter:
             reversibility="destructive" if effect == "destructive" else "reversible",
             remote_effect="mutation" if effect == "remote" else "none",
             goal_run_id=self.goal_run_id,
+            executor_identity=(
+                get_executor_registry().identity(str(request.arguments.get("worker")))
+                if isinstance(request.arguments, Mapping) and request.arguments.get("worker")
+                else None
+            ),
         )
         permission = self._permission_engine.evaluate(context)
         decision = permission.decision.value

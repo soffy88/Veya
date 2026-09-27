@@ -41,6 +41,12 @@ from .executor_health import (
     classify_executor_failure,
     resolve_executor,
 )
+from .executor_registry import (
+    ExecutorRegistry,
+    ExecutorRuntimeIdentity,
+    get_executor_registry,
+    normalize_executor_id,
+)
 from .l1_contract import (
     CommitRequirement,
     EffectReceipt,
