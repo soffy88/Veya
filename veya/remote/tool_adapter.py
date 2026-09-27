@@ -1169,6 +1169,7 @@ class RemoteToolAdapter:
             if self._startup_error is not None:
                 raise RuntimeError("remote startup recovery failed") from self._startup_error
             try:
+                reconciliation = self.jobs.reconcile_unfinished()
                 records = self.jobs.unfinished_records()
                 if records and self.jobs.recovery_runner_factory is None:
                     now = time.time()
@@ -1180,6 +1181,7 @@ class RemoteToolAdapter:
                         "deferred_live": live,
                         "pending_recovery": pending,
                         "recovery_degraded": pending > 0,
+                        "reconciliation": reconciliation,
                         "failures": [],
                     }
                     self._startup_complete = True
@@ -1191,6 +1193,7 @@ class RemoteToolAdapter:
                     "recovered": recovered,
                     "pending_recovery": len(failures),
                     "recovery_degraded": bool(failures),
+                    "reconciliation": reconciliation,
                     "failures": failures,
                 }
                 self._startup_complete = True
@@ -1257,11 +1260,18 @@ class RemoteToolAdapter:
             except ValueError:
                 code = RemoteErrorCode.EXECUTION_FAILED
             result = self._fail(name, session, code, exc.message)
-        except Exception:
+        except Exception as exc:
             self.metrics.record(
                 name, mode="sync", duration_ms=(time.time() - started) * 1000, ok=False
             )
-            raise
+            # Never turn an execution defect into an opaque MCP INTERNAL
+            # error. Preserve a typed failure at the protocol boundary.
+            result = self._fail(
+                name,
+                session,
+                RemoteErrorCode.EXECUTION_FAILED,
+                f"execution failure ({type(exc).__name__})",
+            )
         mode = "sync"
         if isinstance(result.result, dict) and result.result.get("accepted"):
             mode = "async"
@@ -2331,7 +2341,11 @@ class RemoteToolAdapter:
         )
 
         runtime_profile = None
-        if name in ("shell.exec", "test.run", "build.run"):
+        # ``shell.exec`` carries its already-resolved argv/string command and
+        # does not need the heavyweight toolchain inventory before durable
+        # admission.  Keeping discovery for test/build preserves their command
+        # selection while the shell submit path stays non-blocking.
+        if name in ("test.run", "build.run"):
             from veya.remote.runtime_profile import discover_runtime_profile
 
             try:
@@ -2820,6 +2834,11 @@ class RemoteToolAdapter:
         # for an orchestrator preference list, never for worker.dispatch.
         explicit_pin = True
         required_caps = item.get("required_capabilities") or item.get("capabilities") or []
+        if isinstance(required_caps, (list, tuple, set)):
+            required_caps = {
+                ("supports_shell_effect" if str(cap) == "supports_shell" else str(cap)): True
+                for cap in required_caps
+            }
         task_contract = L1TaskContract.from_dict(item.get("task_contract"))
         # The contract is explicit data.  Legacy dispatch callers are retained
         # as READ tasks; WRITE/TEST/BUILD callers must opt into their stronger
@@ -2894,6 +2913,19 @@ class RemoteToolAdapter:
             health_registry=self.health_registry,
             active_executions=len([t for t in self.jobs._tasks.values() if not t.done()]),
         )
+        if (
+            isinstance(required_caps, dict)
+            and required_caps.get("supports_shell_effect")
+            and not manifest_snapshot.supports_shell
+        ):
+            return self._submit_blocked_child(
+                session,
+                ws_binding,
+                parent,
+                _WORKER_TYPES[selected_worker],
+                selected_worker,
+                "REQUIRED_CAPABILITY_UNAVAILABLE",
+            )
 
         # 8. persist decision
         if sub_evidence is not None:
@@ -4404,6 +4436,7 @@ class RemoteToolAdapter:
                 token_id=session.token_id,
                 session_id=session.session_id,
                 workspace_realpath=session.explicit_workspace,
+                principal=session.principal,
             )
         except ExecutionError as exc:
             return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)

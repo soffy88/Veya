@@ -12,6 +12,8 @@ from veya.supervision.evidence import (
     verify_evidence_chain,
 )
 
+from .worker_runtime import capabilities_for
+
 
 @dataclass
 class RuntimeCapabilityManifest:
@@ -395,7 +397,9 @@ def probe_runtime_capability_manifest(
         supports_worktree=supports_worktree,
         supports_mcp=True,
         supports_skills=True,
-        supports_shell=True,
+        # Publish observed runtime capability, not a theoretical executor
+        # promise. Dispatch consumes the same worker registry contract.
+        supports_shell=capabilities_for(norm).supports_shell_effect,
         filesystem_isolation="isolated_worktree",
         network_isolation="loopback_proxy",
         credential_isolation="ephemeral_redacted",

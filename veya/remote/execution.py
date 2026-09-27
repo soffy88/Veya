@@ -858,6 +858,89 @@ class DurableJobManager:
         with self._lock:
             return [record for record in self._records.values() if not record.is_terminal]
 
+    def reconcile_unfinished(self) -> dict[str, int]:
+        """Converge stale child projections and mechanical parents.
+
+        A stale heartbeat alone is not terminal evidence.  Reconciliation
+        requires the durable worker lease to be absent *and* persisted failure,
+        timeout, cancellation, or direct-command evidence.  Parents are then
+        aggregated only after their children have been classified.
+        """
+
+        children_reconciled = 0
+        parents_reconciled = 0
+        with self._lock:
+            records = list(self._records.values())
+            tasks = dict(self._tasks)
+        for record in records:
+            if record.is_terminal or record.role == "parent":
+                continue
+            task = tasks.get(record.execution_id)
+            task_live = task is not None and not task.done()
+            orphaned_worker = self._orphaned_worker(record, task_live=task_live)
+            failure_evidence = bool(
+                record.failure_class
+                or record.error
+                or record.direct_status in {"failed", "timeout", "denied", "approval_required"}
+            )
+            if record.cancel_requested and not task_live:
+                self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
+                children_reconciled += 1
+            elif not task_live and (failure_evidence or orphaned_worker):
+                self._finish(
+                    record,
+                    str(ExecutionStatus.FAILED),
+                    message=record.failure_detail or record.error or "stale worker failed",
+                    error=record.failure_class or record.error or "STALE_WORKER_FAILURE",
+                )
+                children_reconciled += 1
+        children_by_parent: dict[str, list[ExecutionRecord]] = {}
+        for child in records:
+            if child.parent_execution_id:
+                children_by_parent.setdefault(child.parent_execution_id, []).append(child)
+        for parent in records:
+            if parent.role != "parent" or parent.is_terminal:
+                continue
+            before = (str(parent.status), str(parent.phase))
+            children = children_by_parent.get(parent.execution_id, [])
+            known = {child.execution_id for child in children}
+            children.extend(
+                child
+                for child in records
+                if child.execution_id in parent.child_execution_ids
+                and child.execution_id not in known
+            )
+            self.aggregate(parent, _children=children)
+            if before != (str(parent.status), str(parent.phase)) and parent.is_terminal:
+                parents_reconciled += 1
+        return {"children": children_reconciled, "parents": parents_reconciled}
+
+    def _orphaned_worker(self, record: ExecutionRecord, *, task_live: bool) -> bool:
+        """Return true only for durable evidence of a dead admitted worker.
+
+        A stale heartbeat by itself remains a visible ``STALLED`` projection.
+        Terminal reconciliation additionally requires an admitted process
+        identity, a missing in-process task, an expired heartbeat, and proof
+        that the recorded worker process is no longer alive.  This prevents a
+        quiet but healthy provider request from being converted into failure,
+        while allowing restart recovery to converge orphaned children.
+        """
+        if task_live or record.is_terminal or record.worker_pid is None:
+            return False
+        if record.phase in {str(ExecutionPhase.QUEUED), str(ExecutionPhase.STARTING)}:
+            return False
+        if record.heartbeat_at is None:
+            return False
+        if time.time() - record.heartbeat_at <= self.heartbeat_timeout_s:
+            return False
+        try:
+            os.kill(record.worker_pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return True
+        except OSError:
+            return True
+        return False
+
     async def recover_unfinished(
         self,
         runner_factory: Callable[[ExecutionRecord], Runner] | None = None,
@@ -869,6 +952,7 @@ class DurableJobManager:
         without one, records remain visible for an explicit operator retry
         instead of being replayed with an invented payload.
         """
+        self.reconcile_unfinished()
         factory = runner_factory or self.recovery_runner_factory
         recovered = 0
         for record in list(self._records.values()):
@@ -1270,10 +1354,41 @@ class DurableJobManager:
             if r.parent_execution_id == parent_id or r.execution_id in parent_child_ids
         ]
 
-    def aggregate(self, parent: ExecutionRecord) -> dict[str, Any]:
+    def aggregate(
+        self,
+        parent: ExecutionRecord,
+        *,
+        _children: list[ExecutionRecord] | None = None,
+    ) -> dict[str, Any]:
         """Mechanical child aggregation. Never ranks or picks a winner."""
 
-        children = self.children_of(parent.execution_id)
+        # Reclassify persisted stale children before counting them. This keeps
+        # status polling and startup reconciliation on the same state machine.
+        children = (
+            list(_children) if _children is not None else self.children_of(parent.execution_id)
+        )
+        for child in children:
+            if child.is_terminal:
+                continue
+            with self._lock:
+                task = self._tasks.get(child.execution_id)
+            orphaned_worker = self._orphaned_worker(
+                child, task_live=task is not None and not task.done()
+            )
+            evidence = bool(
+                child.failure_class
+                or child.error
+                or child.direct_status in {"failed", "timeout", "denied", "approval_required"}
+            )
+            if (task is None or task.done()) and (evidence or orphaned_worker):
+                self._finish(
+                    child,
+                    str(ExecutionStatus.FAILED),
+                    message=child.failure_detail or child.error or "stale worker failed",
+                    error=child.failure_class or child.error or "STALE_WORKER_FAILURE",
+                )
+        if _children is None:
+            children = self.children_of(parent.execution_id)
         children.sort(key=lambda r: r.created_at)
         counts = {
             "total": len(children),
@@ -1332,6 +1447,20 @@ class DurableJobManager:
             status, phase = "CANCELLED", "CANCELLED"
         elif counts["total"] == 0:
             status, phase = "QUEUED", "DISPATCHING"
+        elif parent.failure_mode == "fail_fast" and counts["failed"] + counts["blocked"] > 0:
+            # A terminal child failure is sufficient evidence for fail-fast
+            # aggregation. Stop any still-admitted child projection so the
+            # parent cannot claim success while work continues.
+            for child in children:
+                if child.is_terminal:
+                    continue
+                child.cancel_requested = True
+                with self._lock:
+                    task = self._tasks.get(child.execution_id)
+                if task is not None and not task.done():
+                    task.cancel()
+                self._finish(child, str(ExecutionStatus.CANCELLED), message="parent fail-fast")
+            status, phase = "FAILED", "FAILED"
         elif counts["running"] + counts["queued"] > 0:
             status, phase = "RUNNING", "WAITING_WORKERS"
         elif counts["completed"] == counts["total"]:
@@ -2306,14 +2435,13 @@ class DurableJobManager:
         workspace_realpath: str | None = None,
         principal: str | None = None,
     ) -> ExecutionRecord:
-        record = self.status(
+        record = self._authorize_cancel(
             execution_id,
             token_id=token_id,
+            session_id=session_id,
             workspace_realpath=workspace_realpath,
             principal=principal,
         )
-        if session_id is not None and record.session_id != session_id:
-            raise ExecutionError("TOOL_DENIED", "execution belongs to another session")
         if record.is_terminal:
             return record  # idempotent
         # L1 parent: stop new dispatch, cancel every active child, then the parent.
@@ -2366,6 +2494,55 @@ class DurableJobManager:
         # operator retry can ever clear.
         if not record.is_terminal:
             self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
+        return record
+
+    def _authorize_cancel(
+        self,
+        execution_id: str,
+        *,
+        token_id: str,
+        session_id: str | None,
+        workspace_realpath: str | None,
+        principal: str | None,
+    ) -> ExecutionRecord:
+        """Authorize lifecycle control without making a session the owner.
+
+        The durable execution is the lifecycle authority. Session identity is
+        retained for audit and same-session compatibility, while an authorized
+        principal may control another session's execution only when the caller
+        is bound to the same repository identity.
+        """
+
+        record = self._lookup(execution_id)
+        if record is None:
+            raise ExecutionError("NOT_FOUND", "unknown execution_id")
+        caller = str(principal or "")
+        privileged = caller in {"system", "admin"}
+        owner = caller != "" and caller == str(record.principal or record.principal_id or "")
+        token_owner = token_id == record.token_id
+        if not (token_owner or privileged or owner):
+            raise ExecutionError("TOOL_DENIED", "caller is not authorized to cancel execution")
+
+        if workspace_realpath:
+            from .workspace_binding import canonical
+
+            caller_identity = canonical(workspace_realpath)
+            own_identities = {
+                canonical(candidate)
+                for candidate in (
+                    record.requested_realpath,
+                    record.resolved_repo_root,
+                    record.repo_identity,
+                    record.worktree_path,
+                    record.worktree_repo_root,
+                )
+                if candidate
+            }
+            if caller_identity not in own_identities:
+                raise ExecutionError(
+                    "WORKSPACE_DENIED",
+                    "workspace/repository identity does not match execution",
+                )
         return record
 
     async def wait(self, execution_id: str, *, timeout_s: float | None) -> None:
