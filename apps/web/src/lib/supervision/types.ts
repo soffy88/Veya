@@ -84,6 +84,7 @@ export interface Mission {
   role_contract_version: string;
   playbook_id: string;
   playbook_version: string;
+  channel_id: string | null;
 }
 
 export interface ExecutionReport {
@@ -106,6 +107,7 @@ export interface ExecutionReport {
   executor_summary: string;
   proposed_next_action: string | null;
   created_at: number;
+  evidence_chain: Array<Record<string, unknown>>;
 }
 
 /** One Jev answer as persisted on the report (advisory only). */
