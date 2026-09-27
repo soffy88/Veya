@@ -485,40 +485,10 @@ _VEYA12_FREE_POOL: list[dict[str, str]] = [
 
 # Inferera 免费额度在 2026-08-30 探测时已耗尽，所有原 free-only 候选均从
 # veya1.2-free 活动池删除；保留空快照名，防止后续代码误把旧列表重新注册。
+# 原先注册在这里的 28 个 <512K 小上下文模型随 veya1.2-128K 长上下文池一起
+# 退役：它们的唯一上游就是配额已耗尽的 Inferera，留着只会让 alias 解析到一个
+# 必然失败的池。veya1.2-128K 现按 §11 直接落到 veya-free 资格化池。
 _INFERERA_FREE_MODELS: tuple[str, ...] = ()
-# Inferera catalog entries with context strictly below 512K.  These are moved
-# to veya1.2-128K; dots-3-note-preview-free is exactly 512K and stays here.
-_INFERERA_128K_MODELS: tuple[str, ...] = (
-    "coding-glm-4.6-free",
-    "coding-minimax-m2-free",
-    "coding-minimax-m2.1-free",
-    "coding-minimax-m2.5-free",
-    "coding-minimax-m2.7-free",
-    "coding-minimax-m3-free",
-    "gemma-4-26b-a4b-it-free",
-    "gemma-4-31b-it-free",
-    "gpt-oss-20b-free",
-    "k2.6-code-preview-free",
-    "kimi-for-coding-free",
-    "laguna-s-2.1-free",
-    "laguna-xs-2.1-free",
-    "lfm-2.5-2.6b-free",
-    "ling-3.0-flash-free",
-    "ling-3.0-tiny-free",
-    "mimo-v2-flash-free",
-    "nemotron-3-nano-30b-a3b-free",
-    "nemotron-3-nano-omni-30b-a3b-reasoning-free",
-    "nemotron-3-super-120b-a12b-free",
-    "nemotron-3.5-content-safety-free",
-    "nemotron-nano-12b-v2-vl-free",
-    "nemotron-nano-9b-v2-free",
-    "north-mini-code-free",
-    "xiaomi-mimo-v2-omni-free",
-    "xiaomi-mimo-v2-pro-free",
-    "xiaomi-mimo-v2.5-free",
-    "xiaomi-mimo-v2.5-pro-free",
-)
-_INFERERA_128K_MODEL_SET = frozenset(_INFERERA_128K_MODELS)
 
 # 进程内轮询游标 (asyncio 单线程, 普通 int 自增即可) — 跨调用推进以摊额度。
 # veya1.2 主脑池不轮转 (固定从首位 opencode-go 开始, 其余为有序兜底);
@@ -866,58 +836,16 @@ async def _veya12_vl_call(messages: list[dict], kwargs: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# veya1.2-128K 别名: 小上下文免费模型轮询 (round-robin)
+# veya1.2-128K 长上下文池: 已退役
 # ---------------------------------------------------------------------------
-# openrouter 免费池 (:free, pricing=0) 里, 512K+ 大上下文的 3 个已进
-# veya1.2-flash、图像/视频理解的 4 个已进 veya1.2-vl — 这里收 openrouter
-# 免费池里剩下的通用文本模型 (2026-08-17 逐一探活确认真出内容; 排除 2 个:
-# poolside/laguna-s-2.1:free 返回纯空白 padding 无有效 JSON, 探活当时判定
-# 故障; nvidia/nemotron-3.5-content-safety:free 是安全审核分类器, 不响应
-# 常规指令只吐"User Safety: safe"这类判定, 不是通用对话模型)。
-_OPENROUTER_128K_DEFAULT_POOL: list[dict[str, str]] = [
-    {"provider": "openrouter", "model": "cohere/north-mini-code:free"},
-    {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-30b-a3b:free"},
-    {"provider": "openrouter", "model": "nvidia/nemotron-3-super-120b-a12b:free"},
-    {"provider": "openrouter", "model": "poolside/laguna-xs-2.1:free"},
-    {"provider": "openrouter", "model": "openrouter/free"},
-    {"provider": "openrouter", "model": "liquid/lfm-2.5-2.6b:free"},
-    {"provider": "openrouter", "model": "nvidia/nemotron-nano-9b-v2:free"},
-    {"provider": "openrouter", "model": "openai/gpt-oss-20b:free"},
-    {"provider": "openrouter", "model": "z-ai/glm-5.2:free"},
-]
-_OPENROUTER_128K_DEFAULT_POOL.extend(
-    {"provider": "inferera", "model": model} for model in _INFERERA_128K_MODELS
-)
-
-_openrouter_128k_rr_cursor = 0
-
-
-def _openrouter_128k_pool() -> list[dict[str, str]]:
-    """veya1.2-128K 免费模型池: env 覆盖 OpenRouter 子池, 否则返回结构化候选。"""
-    raw = os.environ.get("VEYA_OPENROUTER_128K_POOL", "").strip()
-    if raw:
-        pool = [{"provider": "openrouter", "model": m.strip()} for m in raw.split(",") if m.strip()]
-        if pool:
-            return pool
-    return list(_OPENROUTER_128K_DEFAULT_POOL)
-
-
-async def _veya12_128k_call(messages: list[dict], kwargs: dict) -> dict:
-    """veya1.2-128K: OpenRouter 小上下文池 + Inferera 小模型轮询。"""
-    global _openrouter_128k_rr_cursor
-    pool = _openrouter_128k_pool()
-    start = _openrouter_128k_rr_cursor % len(pool)
-    _openrouter_128k_rr_cursor = (_openrouter_128k_rr_cursor + 1) % len(pool)
-    return await _veya12_rr_call(
-        messages,
-        kwargs,
-        pool=pool,
-        start=start,
-        alias="veya1.2-128K",
-        route="veya12-128k-rr",
-        pool_label="小上下文免费池",
-        fallback_reason="veya1.2-128K pool empty → gpt-5.6-luna",
-    )
+# 原池 = 9 个 openrouter :free 文本模型 + 28 个 inferera <512K 小上下文模型。
+# inferera 那一半的免费配额 2026-08-30 即已耗尽（见上方 _INFERERA_FREE_MODELS
+# 注释），openrouter 那一半在 P15 的 openrouter key 落地前根本拿不到凭据，
+# 于是 alias 解析出的必然是一个打不通的池：请求要么落空、要么被 frontier
+# 顶替，而 route 标签还写着 "小上下文免费池"。整段删除后 veya1.2-128K 由
+# LEGACY_ALIAS_MAP 解析到 veya-free，走 model-state.json 的资格化池（SPEC §5），
+# long 任务类不再有假池。
+# ---------------------------------------------------------------------------
 
 
 async def _veya_dp41_jev113_call(messages: list[dict], kwargs: dict) -> dict:
@@ -1193,30 +1121,12 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         if _resolved.canonical == "veya-vl":
             return await _cp.veya_vl_call(messages, kwargs, _resolved)
         if _resolved.canonical == "veya-free":
-            # long-context spellings keep their dedicated pool but report as
-            # the veya-free proxy's "long" capability class (§11).
-            if _low in ("veya1.2-128k", "veya-1.2-128k"):
-                _resp = await _veya12_128k_call(messages, kwargs)
-                _r = _resp.get("router") or {}
-                # never fabricate a provider: if the pool fell through to the
-                # frontier bridge the route label says so and the model stays
-                # empty, so the substitution is visible rather than implied
-                return _cp.stamp(
-                    _resp,
-                    requested_proxy=_resolved.requested,
-                    routed_proxy="veya-free",
-                    provider=str(_r.get("provider") or ""),
-                    model=str(_r.get("model") or ""),
-                    resolved_upstream=str(_r.get("model") or ""),
-                    routing_reason=(
-                        "veya-free long capability class"
-                        if _r.get("model")
-                        else f"veya-free long pool exhausted; fell through via "
-                        f"{_r.get('route') or 'unknown route'}"
-                    ),
-                    route=str(_r.get("route") or "veya-free-long"),
-                    deprecation=_cp.deprecation_for(_resolved),
-                )
+            # The veya1.2-128K long-context pool is retired.  Its candidates were
+            # Inferera catalog entries whose free quota was exhausted on
+            # 2026-08-30, and the only surviving OpenRouter :free entries were
+            # unreachable without a key.  The alias still resolves to veya-free
+            # (§11) and now answers from the eligibility-filtered pool in
+            # model-state.json like every other long request.
             return await _cp.veya_free_call(messages, kwargs, _resolved)
         # canonical == "veya1.2" — master brain, delegates internally
         _resp = await _veya12_flash_call(messages, kwargs)

@@ -75,6 +75,11 @@ _STATIC_CATALOG: dict[str, dict[str, Any]] = {
     "veya1.2-flash": {"model": "veya1.2-flash"},
     "veya1.2-free": {"model": "veya1.2-free"},
     "veya1.2-vl": {"model": "veya1.2-vl"},
+    # The dedicated 128K long-context pool is retired, but the alias must stay
+    # admitted: §11 requires a deprecated spelling to resolve — to veya-free
+    # now — with the substitution stamped, not to be rejected outright. Dropping
+    # it here would turn a visible deprecation into an opaque 400 for every
+    # caller that still has the old id in its config.
     "veya1.2-128K": {"model": "veya1.2-128K"},
     "veya-dp4.1-jev-1.13": {"model": "veya-dp4.1-jev-1.13"},
     "gpt-5.6-luna": {
@@ -176,17 +181,20 @@ _FREE_POOL_STATE_PATH = os.environ.get("VEYA_FREE_POOL_STATE", "").strip() or st
     Path.home() / ".veya" / "free-pool-state.json"
 )
 
+# The lifecycle is kept for its in-process discovery + probe reconciliation, but
+# persistence is off.  The veya-free pool's authority is ~/.veya/model-state.json
+# (SPEC §5/§7); the persisted state file had drifted far behind the running
+# gateway and was still being written, so a reader could believe 18 models were
+# active when every one of them was unknown to the live pool.  Nothing is
+# restored from disk at startup any more either — a stale record must never be
+# able to seed the fallback pool.
 _FREE_POOL_LIFECYCLE = FreePoolLifecycle(
     _llm._VEYA12_FREE_POOL,
     state_path=_FREE_POOL_STATE_PATH,
     failure_threshold=_FREE_POOL_FAILURE_THRESHOLD,
     max_active=_FREE_POOL_MAX_ACTIVE,
+    persist=False,
 )
-# Reuse the last known-good routes immediately after a restart.  The daily
-# reconciliation will atomically replace them once the fresh catalog/probes
-# complete, so a slow upstream cannot cause a startup routing gap.
-if _FREE_POOL_LIFECYCLE.active_pool:
-    _llm._replace_veya12_free_pool(_FREE_POOL_LIFECYCLE.active_pool)
 _FREE_POOL_TASK: asyncio.Task | None = None
 _FREE_POOL_RUNTIME: dict[str, Any] = {
     "refresh_interval_seconds": _FREE_POOL_REFRESH_SECONDS,

@@ -394,31 +394,80 @@ def test_llm_call_veya12_free_alias_uses_requested_pool_order(monkeypatch, tmp_p
     assert legacy["router"]["DEPRECATION"]["silent_substitution"] is False
 
 
-def test_llm_call_veya12_128k_routes_inferera_small_model(monkeypatch):
+def test_llm_call_veya12_128k_routes_through_eligible_free_pool(monkeypatch, tmp_path):
+    """veya1.2-128K no longer reaches a dedicated long-context pool.
+
+    Retiring that pool is only correct if the alias still answers — from the
+    model-state.json eligibility path — instead of falling through to the
+    frontier. This asserts the positive counterpart: a real upstream is chosen,
+    it comes from the eligible set, and the deprecation stays visible.
+    """
+    import json as _json
+
     from veya import llm as hllm
+    from veya.obase import canonical_proxies as cp
+
+    state = tmp_path / "model-state.json"
+    state.write_text(
+        _json.dumps(
+            {
+                "models": {
+                    "opencode-go:long": {
+                        "provider": "opencode-go",
+                        "model_id": "long-free",
+                        "canonical_proxy": "veya-free",
+                        "eligible": True,
+                        "discovered": True,
+                        "healthy": True,
+                        "credentials_valid": True,
+                        "endpoint_available": True,
+                        "model_available": True,
+                        "cooldown_until": None,
+                        "latency_ms": 100,
+                        "capabilities": ["text"],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cp, "_MODEL_STATE", state)
 
     seen: list[dict] = []
-    hllm._openrouter_128k_rr_cursor = 9
+    hllm._veya12_free_rr_cursor = 0
 
     async def fake_provider_call(client, provider, **kw):
         seen.append({"provider": provider, "model": kw["model"]})
         return {
-            "choices": [{"message": {"role": "assistant", "content": "small-ok"}}],
+            "choices": [{"message": {"role": "assistant", "content": "long-ok"}}],
             "usage": {},
         }
 
+    async def no_sleep(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(hllm, "provider_call", fake_provider_call)
+    monkeypatch.setattr(hllm.asyncio, "sleep", no_sleep)
+
     result = asyncio.run(
         hllm.llm_call(
-            [{"role": "user", "content": "你好"}],
+            [{"role": "user", "content": "写一份很长的文档"}],
             provider="veya1.2-128K",
             model="veya1.2-128K",
-            config={"providers": {"inferera": {"api_key": "test-key"}}},
+            config={"providers": {"opencode-go": {"api_key": "test-key"}}},
         )
     )
 
-    assert seen == [{"provider": "inferera", "model": "coding-glm-4.6-free"}]
-    assert result["choices"][0]["message"]["content"] == "small-ok"
+    # The dead inferera pool is gone: no inferera hop may appear anywhere.
+    assert all(entry["provider"] != "inferera" for entry in seen), seen
+    assert seen == [{"provider": "opencode-go", "model": "long-free"}], seen
+    assert result["choices"][0]["message"]["content"] == "long-ok"
+    assert result["router"]["ROUTED_PROXY"] == "veya-free"
+    assert result["router"]["POOL_SOURCE"] == "model-state.json:eligible"
+    deprecation = result["router"]["DEPRECATION"]
+    assert deprecation["requested_alias"] == "veya1.2-128K"
+    assert deprecation["canonical_proxy"] == "veya-free"
+    assert deprecation["silent_substitution"] is False
 
 
 # =========================================================================

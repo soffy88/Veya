@@ -63,6 +63,7 @@ class FreePoolLifecycle:
         failure_threshold: int = 3,
         max_active: int = 32,
         inactive_retry_per_source: int = 4,
+        persist: bool = True,
     ) -> None:
         self._seed_pool = [dict(entry) for entry in seed_pool]
         self._seed_keys = {entry_key(entry) for entry in self._seed_pool}
@@ -70,8 +71,12 @@ class FreePoolLifecycle:
         self._failure_threshold = max(1, int(failure_threshold))
         self._max_active = max(0, int(max_active))
         self._inactive_retry_per_source = max(1, int(inactive_retry_per_source))
+        # persist=False keeps the whole state machine in memory.  The gateway
+        # uses that: the durable pool authority is model-state.json, so a
+        # persisted copy can only drift and then mislead whoever reads it.
+        self._persist = bool(persist)
         self._lock = asyncio.Lock()
-        self._records: dict[str, dict[str, Any]] = self._load_state()
+        self._records: dict[str, dict[str, Any]] = self._load_state() if persist else {}
         self.last_refresh_at = ""
         self.last_error = ""
 
@@ -91,6 +96,7 @@ class FreePoolLifecycle:
             "last_refresh_at": self.last_refresh_at,
             "last_error": self.last_error,
             "state_path": str(self._state_path),
+            "persisted": self._persist,
             "active": len([r for r in records if r.get("active")]),
             "known": len(records),
             "models": [
@@ -286,6 +292,8 @@ class FreePoolLifecycle:
         }
 
     def _save_state(self, now_iso: str) -> None:
+        if not self._persist:
+            return
         payload = {
             "version": 1,
             "updated_at": now_iso,

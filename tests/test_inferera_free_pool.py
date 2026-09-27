@@ -18,18 +18,38 @@ def test_inferera_free_pool_excludes_depleted_models():
     assert "gpt-image-2-free" not in inferera_models
 
 
-def test_small_inferera_models_move_to_veya12_128k():
-    moved = [
-        entry["model"]
-        for entry in hllm._OPENROUTER_128K_DEFAULT_POOL
-        if entry["provider"] == "inferera"
-    ]
+def test_small_inferera_models_retired_with_128k_pool():
+    """The veya1.2-128K long-context pool is gone.
 
-    assert moved == list(hllm._INFERERA_128K_MODELS)
-    assert not any(
-        entry["provider"] == "inferera" and entry["model"] in moved
-        for entry in hllm._VEYA12_FREE_POOL
-    )
+    Its candidates were Inferera catalog entries whose free quota was exhausted
+    on 2026-08-30, so the alias resolved to a pool that could never answer. The
+    pool, the cursor and the ``VEYA_OPENROUTER_128K_POOL`` override are all
+    deleted; ``veya1.2-128K`` now falls through to the veya-free eligibility
+    path in canonical_proxies.
+    """
+    for removed in (
+        "_INFERERA_128K_MODELS",
+        "_INFERERA_128K_MODEL_SET",
+        "_OPENROUTER_128K_DEFAULT_POOL",
+        "_openrouter_128k_pool",
+        "_openrouter_128k_rr_cursor",
+        "_veya12_128k_call",
+    ):
+        assert not hasattr(hllm, removed), f"{removed} should have been retired"
+
+    # No dead provider can be reintroduced through any remaining pool.
+    assert not any(entry["provider"] == "inferera" for entry in hllm._VEYA12_FREE_POOL)
+
+
+def test_128k_alias_still_resolves_to_veya_free():
+    """Retiring the pool must not retire the alias (§11)."""
+    from veya.obase import canonical_proxies as cp
+
+    for spelling in ("veya1.2-128K", "veya1.2-128k", "veya-1.2-128k"):
+        resolved = cp.resolve_canonical(spelling)
+        assert resolved is not None, spelling
+        assert resolved.canonical == "veya-free", spelling
+        assert resolved.deprecated is True, spelling
 
 
 def test_veya12_free_keeps_only_verified_candidates():

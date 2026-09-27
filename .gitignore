@@ -78,3 +78,8 @@ deploy/ms-playwright.tar.gz
 deploy/hevi_deps/
 # goal-run 运行时产物 (本地跑 boss 编排的每轮记录, 非源码)
 .veya-project/
+# 补丁残留: patch(1) 失败留下的 .orig/.rej 是「被拒绝的改动」, 里面可能是
+# 越权改动 (例如给子进程塞 --dangerously-skip-permissions / --auto), 一旦被
+# commit 就会随镜像发出去。拒绝的补丁只能留在本地, 永不跟踪。
+*.orig
+*.rej
