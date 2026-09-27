@@ -147,6 +147,24 @@ def test_execution_delta_is_acceptance_evidence(tmp_path: Path) -> None:
     assert report.evidence_chain
 
 
+def test_execution_delta_does_not_attribute_preexisting_commit_as_delete() -> None:
+    before = {
+        "files": {
+            "existing.py": {
+                "tracked": True,
+                "worktree_blob": "blob-before",
+            }
+        },
+        "head_blobs": {"existing.py": "blob-old"},
+    }
+    after = {"files": {}, "head_blobs": {"existing.py": "blob-before"}}
+    from server.goal_run.execution_delta import execution_delta
+
+    delta = execution_delta(before, after)
+    assert delta["execution_deleted"] == []
+    assert delta["preexisting_committed"] == ["existing.py"]
+
+
 def test_executor_capability_matches_assignment() -> None:
     assert {"builtin", "hicode", "dsh"} == _KNOWN_EXECUTORS
     assert (

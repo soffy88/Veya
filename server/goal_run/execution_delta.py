@@ -49,6 +49,17 @@ def _path_record(root: Path, relative: str, status: str) -> dict[str, Any]:
     }
 
 
+def _head_blobs(root: Path) -> dict[str, str]:
+    rows = _git(str(root), ["ls-tree", "-r", "--full-tree", "HEAD"]).splitlines()
+    blobs: dict[str, str] = {}
+    for row in rows:
+        meta, separator, path = row.partition("\t")
+        fields = meta.split()
+        if separator and len(fields) >= 3 and fields[1] == "blob":
+            blobs[path] = fields[2]
+    return blobs
+
+
 def capture_git_state(project_root: str) -> dict[str, Any]:
     """Capture a deterministic, path-level snapshot without mutating Git."""
 
@@ -65,6 +76,7 @@ def capture_git_state(project_root: str) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "head": _git(str(root), ["rev-parse", "HEAD"]).strip(),
         "files": records,
+        "head_blobs": _head_blobs(root),
         "captured_at": time.time(),
     }
     payload["fingerprint"] = hashlib.sha256(
@@ -79,7 +91,22 @@ def execution_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, 
     before_paths = set(before_files)
     after_paths = set(after_files)
     created = sorted(after_paths - before_paths)
-    deleted = sorted(before_paths - after_paths)
+    deleted = []
+    committed_preexisting = []
+    after_head_blobs = dict(after.get("head_blobs") or {})
+    for path in sorted(before_paths - after_paths):
+        before_record = before_files[path]
+        # A worker may commit a pre-existing dirty file as part of startup or
+        # checkpointing. Its worktree status then disappears, but the bytes
+        # still exist in the new HEAD; that is not an execution deletion.
+        if (
+            before_record.get("tracked")
+            and before_record.get("worktree_blob")
+            and after_head_blobs.get(path) == before_record.get("worktree_blob")
+        ):
+            committed_preexisting.append(path)
+        else:
+            deleted.append(path)
     modified = sorted(
         path for path in before_paths & after_paths if before_files[path] != after_files[path]
     )
@@ -88,6 +115,7 @@ def execution_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, 
         "execution_created": created,
         "execution_modified": modified,
         "execution_deleted": deleted,
+        "preexisting_committed": committed_preexisting,
         "before_fingerprint": before.get("fingerprint"),
         "after_fingerprint": after.get("fingerprint"),
         "before_head": before.get("head"),
