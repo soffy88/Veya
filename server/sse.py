@@ -16,7 +16,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from server.events import _to_envelope
-from server.session_events import durable_session_store
+from server.session_events import durable_session_store, is_terminal
 
 router = APIRouter(prefix="/stream", tags=["sse"])
 
@@ -76,9 +76,17 @@ async def events_generator(session_id: str, request: Request | None) -> AsyncIte
 
         last_delivered_seq = catchup_seq
         for ev in catchup_events:
+            if ev["epoch"] != current_epoch or ev["seq"] <= last_delivered_seq:
+                continue
             payload = json.dumps(ev, ensure_ascii=False)
             yield f"id: {ev['id']}\ndata: {payload}\n\n"
             last_delivered_seq = ev["seq"]
+            # A durable terminal event ends the stream. This replaces the old
+            # in-memory close() sentinel, which had no durable representation:
+            # without it a finished stream stayed open until the client gave up.
+            if is_terminal(ev):
+                yield "data: [DONE]\n\n"
+                return
 
         # LIVE TAIL
         while True:
@@ -95,13 +103,17 @@ async def events_generator(session_id: str, request: Request | None) -> AsyncIte
                 return
 
             ev_epoch, ev_seq = item["epoch"], item["seq"]
-            # Deduplicate items that were already in the catchup
-            if ev_epoch == current_epoch and ev_seq <= last_delivered_seq:
+            # Skip anything from a previous turn on this session id, and anything
+            # the catchup already delivered.
+            if ev_epoch != current_epoch or ev_seq <= last_delivered_seq:
                 continue
 
             last_delivered_seq = ev_seq
             payload = json.dumps(item, ensure_ascii=False)
             yield f"id: {item['id']}\ndata: {payload}\n\n"
+            if is_terminal(item):
+                yield "data: [DONE]\n\n"
+                return
 
     finally:
         durable_session_store.unsubscribe_live(session_id, sub_q)

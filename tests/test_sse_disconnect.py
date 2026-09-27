@@ -204,3 +204,57 @@ async def test_sync_publish_preserves_order_via_ordered_drain(store):
     assert [e["seq"] for e in events] == list(range(1, 21))
     assert [e["data"]["delta"] for e in events] == [f"d{i}" for i in range(20)]
     assert store.drain_failures == []
+
+
+@pytest.mark.asyncio
+async def test_stream_route_terminates_on_durable_terminal_event(store):
+    """`/stream/{session_id}` must end on a terminal event, not hang.
+
+    The in-memory queue this replaced signalled end-of-stream with a `None`
+    sentinel pushed by close(). That sentinel had no durable representation, so
+    the durable route had no way to end a finished stream and stayed open until
+    the client gave up.
+    """
+    import json as _json
+
+    from server.sse import events_generator
+
+    sid = "s-route-term"
+    await store.publish(sid, {"type": "text_delta", "delta": "x"})
+    await store.publish_terminal(sid, {"type": "master_done", "status": "success"})
+
+    frames = [f async for f in events_generator(sid, None)]
+    assert frames[-1] == "data: [DONE]\n\n", "stream must end with [DONE]"
+    assert not any(": ping" in f for f in frames), "must not idle before terminating"
+    # Each event frame is one string: "id: <cursor>\ndata: <json>\n\n".
+    bodies = [f.split("\ndata: ", 1)[1] for f in frames if "\ndata: " in f]
+    assert len(bodies) == 2, f"expected 2 replayed events, got {len(bodies)}"
+    first = _json.loads(bodies[0])
+    assert first["id"] == "1:1" and first["seq"] == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_route_does_not_replay_previous_turn(store):
+    """A previous turn's events must not leak into the current turn's stream."""
+    import json as _json
+
+    from server.sse import events_generator
+
+    sid = "s-route-turn"
+    e1 = await store.begin_stream(sid)
+    await store.publish(sid, {"type": "text_delta", "delta": "turn1"})
+    await store.publish_terminal(sid, {"type": "master_done", "status": "ok"})
+    e2 = await store.begin_stream(sid)
+    await store.publish(sid, {"type": "text_delta", "delta": "turn2"})
+    await store.publish_terminal(sid, {"type": "master_done", "status": "ok"})
+
+    frames = [f async for f in events_generator(sid, None)]
+    assert frames[-1] == "data: [DONE]\n\n"
+    events = [_json.loads(f.split("\ndata: ", 1)[1]) for f in frames if "\ndata: " in f]
+    # Current turn only: turn2's text_delta plus its terminal master_done.
+    assert [e["epoch"] for e in events] == [e2, e2], f"leaked another epoch: {events}"
+    assert [e["seq"] for e in events] == [1, 2], f"unexpected seqs: {events}"
+    assert events[0]["data"].get("delta") == "turn2"
+    assert is_terminal(events[1])
+    assert not any(e["data"].get("delta") == "turn1" for e in events), "turn1 leaked"
+    assert e2 == e1 + 1
