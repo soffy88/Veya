@@ -414,8 +414,14 @@ class GoalRunState:
     agent_instance_id: str | None = field(default=None)
     # P0-F: immutable execution baseline and the path-level delta produced by
     # this GoalRun. Pre-existing dirty files are evidence, not agent output.
+    # ``baseline_filesystem_state`` observes the run's declared action targets so
+    # that Git-ignored execution effects remain attributable.
     baseline_git_state: dict[str, Any] | None = field(default=None)
+    baseline_filesystem_state: dict[str, Any] | None = field(default=None)
     execution_delta: dict[str, Any] | None = field(default=None)
+    # Post-cleanup observation. Recorded additively: it proves the artifact was
+    # removed without erasing the proof that execution created it.
+    cleanup_delta: dict[str, Any] | None = field(default=None)
     acceptance_verdict: str | None = field(default=None)
     done_at: datetime | None = field(default=None)
 
@@ -480,7 +486,9 @@ class GoalRunState:
             "agent_session_id": self.agent_session_id,
             "agent_instance_id": self.agent_instance_id,
             "baseline_git_state": self.baseline_git_state,
+            "baseline_filesystem_state": self.baseline_filesystem_state,
             "execution_delta": self.execution_delta,
+            "cleanup_delta": self.cleanup_delta,
             "acceptance_verdict": self.acceptance_verdict,
             "done_at": self.done_at.isoformat() if self.done_at else None,
             "routines": {routine_id: spec.to_dict() for routine_id, spec in self.routines.items()},
@@ -536,7 +544,9 @@ class GoalRunState:
         state.agent_session_id = data.get("agent_session_id")
         state.agent_instance_id = data.get("agent_instance_id")
         state.baseline_git_state = data.get("baseline_git_state")
+        state.baseline_filesystem_state = data.get("baseline_filesystem_state")
         state.execution_delta = data.get("execution_delta")
+        state.cleanup_delta = data.get("cleanup_delta")
         state.acceptance_verdict = data.get("acceptance_verdict")
         raw_done_at = data.get("done_at")
         if raw_done_at:

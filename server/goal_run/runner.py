@@ -38,7 +38,12 @@ from runtime.execution.models import (
 from runtime.execution.no_progress import NoProgressGuard
 from runtime.execution.spawn_guard import SpawnGuard
 from server.capability_model import performance_store
-from server.goal_run.execution_delta import capture_git_state, execution_delta
+from server.goal_run.execution_delta import (
+    capture_filesystem_state,
+    capture_git_state,
+    declared_target_paths,
+    execution_delta,
+)
 from server.goal_run.git_diff import current_head
 from server.goal_run.harness_adapter import GoalRunHarnessAdapter
 from server.goal_run.leaf import execute_leaf_with_memory
@@ -1156,6 +1161,14 @@ async def project_run_goal(
         # the baseline represent the caller's dirty state, not GoalRun's own
         # durable planning artifacts.
         baseline_git_state = capture_git_state(project_root)
+        # Git cannot see ignored paths, so the run's declared action targets are
+        # observed directly. Bounded to those targets — never a repo walk — and
+        # captured by this same baseline subsystem, which stays the only
+        # execution-attribution authority.
+        execution_targets = declared_target_paths(
+            project_root, getattr(integration_adapter, "resolved_actions", None)
+        )
+        baseline_filesystem_state = capture_filesystem_state(project_root, execution_targets)
 
         state, _g1_response = await g1_plan(
             interpretation=u.interpretation or goal,
@@ -1172,6 +1185,8 @@ async def project_run_goal(
             state.started_at = datetime.now(UTC)
         if state.baseline_git_state is None:
             state.baseline_git_state = baseline_git_state
+        if state.baseline_filesystem_state is None:
+            state.baseline_filesystem_state = baseline_filesystem_state
         # 保存 state
         save_goal_run(state, project_root)
         if _agent_identity:
@@ -1770,7 +1785,12 @@ async def _run_loop_and_finalize(
     _mark_unfinished(state)
     if state.baseline_git_state is not None:
         state.execution_delta = execution_delta(
-            state.baseline_git_state, capture_git_state(project_root)
+            state.baseline_git_state,
+            capture_git_state(project_root),
+            before_filesystem=state.baseline_filesystem_state,
+            after_filesystem=capture_filesystem_state(
+                project_root, list((state.baseline_filesystem_state or {}).get("targets") or {})
+            ),
         )
     durable_snapshot: dict[str, Any] | None = None
     durable_finalization_claim = None

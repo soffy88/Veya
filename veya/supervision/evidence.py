@@ -258,8 +258,11 @@ def build_execution_report(
         if getattr(node, "unfinished_work", None):
             risks.append({"task_id": task_id, "unfinished_work": list(node.unfinished_work)})
 
-    status = str(getattr(goalrun_state, "status", "") or "")
-    status = str(getattr(status, "value", status) or status)
+    # Read the enum value BEFORE stringifying: ``str(GoalStatus.completed)`` is
+    # "GoalStatus.completed", so stringifying first destroys the value and the
+    # report carries a type name instead of the outcome it is meant to record.
+    status = getattr(goalrun_state, "status", "")
+    status = str(getattr(status, "value", status) or "")
     summary = getattr(goalrun_state, "final_summary", None) or ""
     unfinished = list(getattr(goalrun_state, "unfinished_work", []) or [])
     blocked.extend({"task_id": "", "reason": str(item)} for item in unfinished)
@@ -306,13 +309,21 @@ def build_execution_report(
     # its baseline state.
     execution_delta = getattr(goalrun_state, "execution_delta", None)
     baseline_git_state = getattr(goalrun_state, "baseline_git_state", None)
+    baseline_filesystem_state = getattr(goalrun_state, "baseline_filesystem_state", None)
+    cleanup_delta = getattr(goalrun_state, "cleanup_delta", None)
     if execution_delta is not None:
         runtime_evidence.append(
             {
                 "kind": "execution_delta",
                 "source": "goal_run",
                 "baseline_git_state": baseline_git_state,
+                "baseline_filesystem_state": baseline_filesystem_state,
                 "execution_delta": execution_delta,
+                # The combined evidence is what the reviewer judges: Git for
+                # tracked work, the filesystem view for Git-ignored effects.
+                "git_delta": execution_delta.get("git_delta"),
+                "filesystem_delta": execution_delta.get("filesystem_delta"),
+                "cleanup_delta": cleanup_delta,
             }
         )
         evidence_chain = build_evidence_chain(
