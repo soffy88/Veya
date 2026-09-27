@@ -27,17 +27,9 @@ class CommandPolicyError(ValueError):
 
 _SHELLS = {"sh", "bash", "zsh", "fish", "dash", "cmd", "powershell", "pwsh"}
 _SHELL_OPERATOR_TOKENS = {";", "&", "&&", "|", "||", "<", ">", "<<", ">>", "(", ")"}
-_DESTRUCTIVE_EXECUTABLES = {
-    "chmod",
-    "chown",
-    "dd",
-    "mkfs",
-    "mkfs.ext4",
-    "rm",
-    "rmdir",
-    "shred",
-    "unlink",
-}
+# Destructive-command semantics live in the canonical PermissionEngine
+# (``veya/remote/permission_engine.py``). This runner must not keep a second
+# executable list: two lists would be two approval authorities.
 _NETWORK_EXECUTABLES = {"curl", "ftp", "nc", "netcat", "scp", "sftp", "ssh", "wget"}
 _SECRET_NAME = re.compile(r"(?i)(api[_-]?key|auth(?:orization)?|password|passwd|secret|token)")
 _SECRET_ASSIGNMENT = re.compile(

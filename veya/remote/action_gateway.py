@@ -1206,6 +1206,16 @@ class ActionGateway:
                 capability = "privileged.root_shell"
             elif context.service_effect == "system":
                 capability = "privileged.system_service"
+            elif (
+                tool_name == "shell.exec"
+                and decision.reason is ReasonCode.APPROVAL_HOST_DESTRUCTIVE
+            ):
+                # Canonical precedence: a destructive shell command is gated on
+                # the session's destructive capability, so a session without it is
+                # POLICY_BLOCKED outright rather than merely "awaiting approval".
+                # This is the same capability the pre-existing classify_action
+                # rules use, so both paths agree on what "destructive" means.
+                capability = "privileged.destructive_shell"
         operation = decision.normalized_operation or tool_name
         if context.command:
             operation = " ".join(context.command)
