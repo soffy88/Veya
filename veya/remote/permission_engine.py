@@ -118,14 +118,14 @@ def _canonical(path: Path) -> Path:
 def _scope(context: OperationContext) -> Scope:
     root = _canonical(context.workspace_root) if context.workspace_root else None
     targets = tuple(_canonical(path) for path in context.target_paths)
+    if any(path == host or host in path.parents for path in targets for host in _HOST_ROOTS):
+        return Scope.HOST
     if root and targets:
         if all(path == root or root in path.parents for path in targets):
             return Scope.PROJECT
         return Scope.OUTSIDE_ALLOWED_SCOPE
     if context.service_effect == "user" or context.privilege_level == "user":
         return Scope.USER
-    if any(any(path == host or host in path.parents for host in _HOST_ROOTS) for path in targets):
-        return Scope.HOST
     if context.remote_effect != "none" or context.network_effect != "none":
         return Scope.REMOTE
     return Scope.OUTSIDE_ALLOWED_SCOPE

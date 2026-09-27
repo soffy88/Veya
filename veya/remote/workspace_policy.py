@@ -9,8 +9,9 @@ The policy is deliberately conservative and independent of the caller:
   (``/``, ``/home``, ``/data``, ``/etc`` ...) can never be bound;
 * sensitive subtrees (credentials, secret stores, kernel/device trees) are
   rejected even inside an otherwise valid workspace;
-* writes to ``.git`` internals are refused unless the session holds the
-  destructive capability (git itself remains the only writer of its metadata).
+* Git metadata under the bound repository is project-internal. Git remains the
+  only writer of its metadata at the command layer, while the workspace guard
+  must not misclassify ``.git``/``worktrees`` as host mutation.
 """
 
 from __future__ import annotations
@@ -207,19 +208,6 @@ class WorkspacePolicy:
             ):
                 raise WorkspacePolicyError(
                     "WORKSPACE_DENIED", f"path is a protected location: {text!r}"
-                )
-        if for_write:
-            # The bound root may be a non-Git parent containing several repos.
-            # Protect every nested repository's metadata, not only
-            # ``bound_root/.git``.
-            try:
-                relative_parts = resolved.relative_to(self.root).parts
-            except ValueError:  # containment was checked above; defensive only
-                relative_parts = ()
-            inside_git = ".git" in relative_parts
-            if inside_git and not self.permissions.destructive:
-                raise WorkspacePolicyError(
-                    "POLICY_BLOCKED", "writing .git internals requires destructive capability"
                 )
         if for_write and must_exist is False and resolved.exists() and resolved.is_dir():
             raise WorkspacePolicyError(

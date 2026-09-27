@@ -105,3 +105,104 @@ def test_shell_wrapper_is_recursive_and_does_not_hide_host_mutation(tmp_path: Pa
     )
     assert safe.decision == Decision.ALLOW
     assert gated.decision == Decision.APPROVAL_REQUIRED
+
+
+def test_read_only_shell_never_privileged(tmp_path: Path) -> None:
+    engine = PermissionEngine()
+    for command in (
+        "pwd",
+        "git rev-parse --show-toplevel",
+        "git status",
+        "git diff",
+        "rg pattern .",
+        "grep pattern file.txt",
+        "find . -maxdepth 1",
+        "cat README.md",
+    ):
+        decision = engine.evaluate(
+            parse_command_context(command, cwd=tmp_path, workspace_root=tmp_path)
+        )
+        assert decision.decision == Decision.ALLOW, command
+        assert decision.reason in {ReasonCode.ALLOW_READ_ONLY, ReasonCode.ALLOW_PROJECT_GIT}
+
+
+def test_project_mutation_and_test_build_are_allowed(tmp_path: Path) -> None:
+    engine = PermissionEngine()
+    for operation, command, target in (
+        ("file.write", None, tmp_path / "new.txt"),
+        ("file.patch", None, tmp_path / "new.txt"),
+        ("file.delete", None, tmp_path / "new.txt"),
+        ("test.run", ("pytest", "-q"), None),
+        ("build.run", ("python", "-m", "compileall", "."), None),
+    ):
+        decision = engine.evaluate(
+            OperationContext(
+                operation=operation,
+                workspace_root=tmp_path,
+                cwd=tmp_path,
+                target_paths=(target,) if target else (),
+                command=command,
+                filesystem_effect="write" if target else "none",
+                process_effect="execute" if command else "none",
+            )
+        )
+        assert decision.decision == Decision.ALLOW, operation
+
+
+def test_project_git_operations_and_worktree_metadata_are_allowed(tmp_path: Path) -> None:
+    engine = PermissionEngine()
+    for operation in (
+        "add",
+        "commit",
+        "branch",
+        "switch",
+        "checkout",
+        "merge",
+        "rebase",
+        "cherry-pick",
+        "stash",
+        "worktree",
+    ):
+        decision = engine.evaluate(
+            parse_command_context(f"git {operation}", cwd=tmp_path, workspace_root=tmp_path)
+        )
+        assert decision.decision == Decision.ALLOW, operation
+
+
+def test_symlink_escape_denied_by_workspace_policy(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret\n", encoding="utf-8")
+    (workspace / "link").symlink_to(outside, target_is_directory=True)
+    from veya.remote.models import RemotePermissions
+    from veya.remote.workspace_policy import WorkspacePolicy, WorkspacePolicyError
+
+    policy = WorkspacePolicy(workspace, RemotePermissions(read=True, write=True))
+    try:
+        policy.resolve("link/secret.txt", must_exist=True)
+    except WorkspacePolicyError as exc:
+        assert exc.code == "WORKSPACE_DENIED"
+    else:  # pragma: no cover - assertion makes the security negative explicit
+        raise AssertionError("symlink escape was accepted")
+
+
+def test_host_mutations_require_approval(tmp_path: Path) -> None:
+    engine = PermissionEngine()
+    for command in ("sudo apt install curl", "systemctl restart ssh.service"):
+        decision = engine.evaluate(
+            parse_command_context(command, cwd=tmp_path, workspace_root=tmp_path)
+        )
+        assert decision.decision == Decision.APPROVAL_REQUIRED, command
+
+    etc = engine.evaluate(
+        OperationContext(
+            operation="file.write",
+            workspace_root=tmp_path,
+            cwd=tmp_path,
+            target_paths=(Path("/etc/veya.conf"),),
+            filesystem_effect="write",
+        )
+    )
+    assert etc.decision == Decision.APPROVAL_REQUIRED

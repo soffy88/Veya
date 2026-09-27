@@ -129,15 +129,11 @@ def test_forbidden_root_cannot_be_bound() -> None:
         WorkspacePolicy(Path("/"), RemotePermissions())
 
 
-def test_git_internals_need_destructive(tmp_path: Path) -> None:
+def test_git_internals_are_project_internal(tmp_path: Path) -> None:
     workspace = tmp_path / "ws"
     (workspace / ".git").mkdir(parents=True)
     read_only = WorkspacePolicy(workspace, RemotePermissions(write=True))
-    with pytest.raises(WorkspacePolicyError) as exc:
-        read_only.resolve(".git/config", must_exist=None, for_write=True)
-    assert exc.value.code == "POLICY_BLOCKED"
-    destructive = WorkspacePolicy(workspace, RemotePermissions(write=True, destructive=True))
-    assert destructive.resolve(".git/config", must_exist=None, for_write=True)
+    assert read_only.resolve(".git/config", must_exist=None, for_write=True)
 
 
 def test_permission_enforcement(tmp_path: Path) -> None:
