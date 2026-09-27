@@ -301,6 +301,24 @@ def build_execution_report(
 
     evidence_chain = build_evidence_chain(evidence_items)
 
+    # GoalRun's objective delta is durable acceptance evidence, not merely
+    # report decoration.  Preserve it before cleanup can return the worktree to
+    # its baseline state.
+    execution_delta = getattr(goalrun_state, "execution_delta", None)
+    baseline_git_state = getattr(goalrun_state, "baseline_git_state", None)
+    if execution_delta is not None:
+        runtime_evidence.append(
+            {
+                "kind": "execution_delta",
+                "source": "goal_run",
+                "baseline_git_state": baseline_git_state,
+                "execution_delta": execution_delta,
+            }
+        )
+        evidence_chain = build_evidence_chain(
+            [*evidence_items, {"category": "runtime", "kind": "execution_delta", "source": "goal_run"}]
+        )
+
     return ExecutionReport(
         mission_id=mission.mission_id,
         goalrun_id=str(getattr(goalrun_state, "goal_id", "") or "") or None,

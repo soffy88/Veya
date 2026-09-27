@@ -93,13 +93,13 @@ async def test_internal_revise_retasks_and_continues(tmp_path: Path) -> None:
         llm=_llm_sequence(
             [
                 '{"decision": "REVISE", "reason": "missing", "next_task": "add test"}',
-                '{"decision": "DONE", "reason": "complete"}',
+                '{"decision": "ACCEPT", "reason": "complete"}',
             ]
         ),
         mode="internal",
     )
     out = await loop.run_to_completion(mid)
-    assert out["status"] == "DONE"
+    assert out["status"] == "ACCEPTED"
     assert runner.calls == 2  # iteration 0 + retasked iteration 1
     assert any(e["topic"] == "RETASK_CREATED" for e in store.events(mid))
 

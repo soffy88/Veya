@@ -277,6 +277,11 @@ def plan_retask(
     budget = budget or mission.budget
 
     if review.decision in _TERMINAL_DECISIONS:
+        if review.decision is ReviewDecision.done and mission.status is not MissionStatus.accepted:
+            return RetaskOutcome(
+                MissionStatus.blocked,
+                reason="cannot complete: DONE requires a persisted ACCEPTED state",
+            )
         # Completion authority: acceptance/evidence/blockers must be satisfied.
         if report is not None and (
             report.blocked_items
@@ -293,6 +298,11 @@ def plan_retask(
             return RetaskOutcome(
                 MissionStatus.blocked,
                 reason="cannot complete: unresolved failures/blockers/artifact requirements remain",
+            )
+        if report is not None and not report.evidence_chain:
+            return RetaskOutcome(
+                MissionStatus.blocked,
+                reason="cannot complete: execution produced no verifiable evidence",
             )
         if mission.verification_profile_id and (verification is None or not verification.passed):
             return RetaskOutcome(

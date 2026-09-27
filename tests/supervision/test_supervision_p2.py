@@ -139,7 +139,13 @@ def test_executor_cannot_complete_with_unresolved_failures() -> None:
 
 
 def test_accept_and_done_map_to_terminal_states() -> None:
-    clean = ExecutionReport(mission_id="m-1", iteration=1, objective="x", status="completed")
+    clean = ExecutionReport(
+        mission_id="m-1",
+        iteration=1,
+        objective="x",
+        status="completed",
+        evidence_chain=[{"category": "runtime", "kind": "verified"}],
+    )
     accept = SupervisorReview(
         mission_id="m-1", iteration=1, supervisor="internal", decision=ReviewDecision.accept
     )
@@ -150,7 +156,9 @@ def test_accept_and_done_map_to_terminal_states() -> None:
     done = SupervisorReview(
         mission_id="m-1", iteration=1, supervisor="internal", decision=ReviewDecision.done
     )
-    assert plan_retask(done, mission=_mission(), report=clean).mission_status is MissionStatus.done
+    accepted = _mission()
+    accepted.status = MissionStatus.accepted
+    assert plan_retask(done, mission=accepted, report=clean).mission_status is MissionStatus.done
 
 
 def test_revise_produces_next_task() -> None:

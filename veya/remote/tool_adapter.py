@@ -1674,7 +1674,11 @@ class RemoteToolAdapter:
         if name.startswith("veya."):
             # Supervision surface: orchestration metadata, bound to the session
             # workspace; execution still goes through the canonical runtime.
-            payload = {key: value for key, value in args.items() if key != "workspace"}
+            payload = {
+                key: value
+                for key, value in args.items()
+                if key not in {"workspace", "path", "_repo_selector_evidence"}
+            }
             return binding.veya_tool, {**payload, "project_root": str(workspace)}, None
 
         if name in {

@@ -12,6 +12,8 @@ from typing import Any
 
 from veya.supervision import ExternalSupervisor, MissionStore, SupervisionRouter
 
+_MISSION_EXECUTORS = frozenset({"hicode", "dsh", "builtin"})
+
 
 async def _default_runner(mission: Any) -> Any:
     """Canonical execution entry: the single project dispatch (builtin/hicode/dsh)."""
@@ -40,6 +42,11 @@ def veya_mission_create(
     characteristics: list[str] | None = None,
     executor: str = "",
 ) -> dict[str, Any]:
+    if executor and executor not in _MISSION_EXECUTORS:
+        raise ValueError(
+            f"unsupported mission executor {executor!r}; expected one of "
+            f"{sorted(_MISSION_EXECUTORS)}"
+        )
     mission = _facade(project_root).create(
         goal=goal,
         supervision_mode=supervision_mode,
@@ -129,7 +136,7 @@ _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
                 "characteristics": {"type": "array", "items": {"type": "string"}},
                 "executor": {
                     "type": "string",
-                    "enum": ["hicode", "dsh", "worker", "builtin", "native_tool"],
+                    "enum": ["hicode", "dsh", "builtin"],
                     "description": "Pin the execution plane for this Mission (empty = canonical entry decides).",
                 },
             },

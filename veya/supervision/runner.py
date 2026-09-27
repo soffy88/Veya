@@ -13,8 +13,11 @@ from typing import Any
 
 Dispatch = Callable[[str, str], Awaitable[str]]
 
-# Executors the canonical project dispatch understands (spec §17/§18).
-_KNOWN_EXECUTORS = {"hicode", "dsh", "worker", "builtin", "native_tool"}
+# Executors that have a real canonical project execution path.  ``builtin`` is
+# retained as a truthful semantic-only capability; it must never be selected
+# for a mutation task.  ``worker``/``native_tool`` are not aliases for this
+# substrate and therefore cannot be admitted here.
+_KNOWN_EXECUTORS = {"hicode", "dsh", "builtin"}
 
 
 def executor_hint(mission: Any) -> str | None:
@@ -54,16 +57,85 @@ def _dispatch_for(assignee_hint: str | None) -> Dispatch:
 
 
 async def canonical_runner(mission: Any, *, dispatch: Dispatch | None = None) -> Any:
-    """Run one mission iteration through the canonical project dispatch."""
+    """Run one mission iteration through the canonical GoalRun substrate.
 
-    run = dispatch or _dispatch_for(_assignee_hint(mission))
-    text = await run(str(mission.workspace or ""), str(mission.goal))
+    A mission result is projected from the durable GoalRun state, never from
+    executor prose.  The semantic-only builtin capability is explicitly
+    fail-closed for this project-mutation path.
+    """
+
+    hint = _assignee_hint(mission)
+    if dispatch is not None:
+        text = await dispatch(str(mission.workspace or ""), str(mission.goal))
+        return types.SimpleNamespace(
+            goal_id=None,
+            status="executed",
+            tasks={},
+            final_summary=str(text),
+            unfinished_work=[],
+        )
+
+    if hint == "builtin":
+        return types.SimpleNamespace(
+            goal_id=None,
+            status="blocked",
+            tasks={},
+            final_summary=(
+                "builtin is semantic-only and cannot execute project mutation, shell, or git "
+                "effects"
+            ),
+            unfinished_work=["no executable mutation capability assigned"],
+        )
+
+    if hint not in {"hicode", "dsh"}:
+        return types.SimpleNamespace(
+            goal_id=None,
+            status="blocked",
+            tasks={},
+            final_summary=f"no executable canonical L1 executor assigned: {hint!r}",
+            unfinished_work=["canonical executor capability is unresolved"],
+        )
+
+    from server.goal_run.runner import project_run_goal
+    from server.goal_run.store import load_goal_run
+    from server.goal_run.canonical_worker import CanonicalWorkerAdapter
+
+    task = {
+        "id": f"{mission.mission_id}-q4",
+        "title": str(mission.goal)[:120],
+        "instruction": str(mission.goal),
+        "acceptance": list(getattr(mission, "acceptance_criteria", []) or [])
+        or ["execution produced verifiable evidence"],
+        "assignee": hint,
+        "depends_on": [],
+    }
+    # Existing typed adapter: skip only the advisory plan gate for an already
+    # admitted supervision mission; execution remains the canonical leaf path.
+    integration_adapter = CanonicalWorkerAdapter.for_capability(
+        task_id=task["id"],
+        objective=str(mission.goal),
+        capability=None,
+        verification_required=True,
+    )
+    integration_adapter.skip_plan_review = True
+    response = await project_run_goal(
+        project_root=str(mission.workspace or ""),
+        goal=str(mission.goal),
+        tasks=[task],
+        mode="act_eager",
+        wait=True,
+        verification_required=True,
+        integration_adapter=integration_adapter,
+    )
+    state = load_goal_run(str(mission.workspace or ""), response.goal_id)
+    if state is not None:
+        return state
     return types.SimpleNamespace(
-        goal_id=None,
-        status="executed",
+        goal_id=response.goal_id,
+        status=str(response.status),
         tasks={},
-        final_summary=str(text),
-        unfinished_work=[],
+        final_summary=response.summary or response.block_reason or "GoalRun produced no durable state",
+        unfinished_work=[response.block_reason] if response.block_reason else [],
     )
 
 

@@ -169,7 +169,7 @@ def _design_prompt(mission: Mission) -> str:
     return (
         "Design a plan for this mission. Reply with a single JSON object holding "
         "keys: tasks (list of {objective, acceptance, executor, side_effect_class}), "
-        "risks, and rationale. Executors are one of hicode, dsh, worker, native_tool.\n"
+        "risks, and rationale. Executors are one of hicode, dsh, builtin.\n"
         "Mission:\n" + json.dumps(mission.to_dict(), ensure_ascii=False)
     )
 

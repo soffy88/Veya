@@ -300,19 +300,28 @@ class HicodeTaskQueue:
                     rec.meta["process_record"] = str(process_record)
 
                 try:
-                    summary = await _execute_hicode_core(
-                        rec.spec,
-                        workspace=rec.workspace,
-                        max_steps=int(rec.meta.get("max_steps") or 0),
-                        timeout_sec=int(rec.meta.get("timeout_sec") or 900),
-                        session_id=(
-                            str(rec.meta["session_id"]) if rec.meta.get("session_id") else None
-                        ),
-                        continue_=bool(rec.meta.get("continue_")),
-                        on_event=_push,
-                        force_cli=bool(rec.meta.get("force_cli")),
-                        on_process=_capture_process,
-                    )
+                    from server.hicode_agent import bound_hicode_workspace
+
+                    # The queue already received a session-authorized project
+                    # root. Bind that root for the duration of the real CLI
+                    # execution so hicode's resolver cannot fall back to its
+                    # narrower process-global default workspace.
+                    with bound_hicode_workspace(execution_root):
+                        summary = await _execute_hicode_core(
+                            rec.spec,
+                            workspace=rec.workspace,
+                            max_steps=int(rec.meta.get("max_steps") or 0),
+                            timeout_sec=int(rec.meta.get("timeout_sec") or 900),
+                            session_id=(
+                                str(rec.meta["session_id"])
+                                if rec.meta.get("session_id")
+                                else None
+                            ),
+                            continue_=bool(rec.meta.get("continue_")),
+                            on_event=_push,
+                            force_cli=bool(rec.meta.get("force_cli")),
+                            on_process=_capture_process,
+                        )
                 except Exception as exc:
                     if getattr(exc, "failure_class", None) == "UPSTREAM_QUOTA_EXHAUSTED":
                         retry_at = getattr(exc, "retry_not_before", None)
