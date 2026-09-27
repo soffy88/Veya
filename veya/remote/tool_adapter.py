@@ -482,6 +482,15 @@ def _obj(properties: dict[str, Any], required: list[str] | None = None) -> dict[
 
 _STR = {"type": "string"}
 
+EXECUTION_TARGETS = (
+    "NEW_ISOLATED_WORKTREE",
+    "EXECUTION_WORKTREE",
+    "EXISTING_WORKTREE",
+    "CANONICAL_WORKTREE",
+    "HOST",
+)
+_EXECUTION_TARGET_SCHEMA = {"type": "string", "enum": list(EXECUTION_TARGETS)}
+
 # Every repo-sensitive tool accepts this one canonical selector.  ``workspace``
 # and legacy ``path`` remain accepted by the adapter for compatibility, but
 # clients and the outward MCP contract use ``workspace_path``.
@@ -531,7 +540,7 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "path": _STR,
                 "content": _STR,
                 "overwrite": {"type": "boolean"},
-                "execution_target": _STR,
+                "execution_target": _EXECUTION_TARGET_SCHEMA,
                 "target_scope": _STR,
                 "allow_canonical": {"type": "boolean"},
             },
@@ -549,7 +558,7 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "start_tag": _STR,
                 "new_text": _STR,
                 "end_tag": _STR,
-                "execution_target": _STR,
+                "execution_target": _EXECUTION_TARGET_SCHEMA,
                 "target_scope": _STR,
                 "allow_canonical": {"type": "boolean"},
             },
@@ -600,15 +609,7 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "network": _STR,
                 "approved": {"type": "boolean"},
                 "wait": {"type": "boolean"},
-                "execution_target": {
-                    "type": "string",
-                    "enum": [
-                        "NEW_ISOLATED_WORKTREE",
-                        "EXISTING_WORKTREE",
-                        "CANONICAL_WORKTREE",
-                        "HOST",
-                    ],
-                },
+                "execution_target": _EXECUTION_TARGET_SCHEMA,
                 "execution_domain": {
                     "type": "string",
                     "enum": ["L0_WORKSPACE_FULL", "L0_ISOLATED", "L0_HOST"],
@@ -728,15 +729,7 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "path": _STR,
                 "timeout_s": {"type": "number"},
                 "wait": {"type": "boolean"},
-                "execution_target": {
-                    "type": "string",
-                    "enum": [
-                        "NEW_ISOLATED_WORKTREE",
-                        "EXISTING_WORKTREE",
-                        "CANONICAL_WORKTREE",
-                        "HOST",
-                    ],
-                },
+                "execution_target": _EXECUTION_TARGET_SCHEMA,
                 "execution_domain": {
                     "type": "string",
                     "enum": ["L0_WORKSPACE_FULL", "L0_ISOLATED", "L0_HOST"],
@@ -764,15 +757,7 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "path": _STR,
                 "timeout_s": {"type": "number"},
                 "wait": {"type": "boolean"},
-                "execution_target": {
-                    "type": "string",
-                    "enum": [
-                        "NEW_ISOLATED_WORKTREE",
-                        "EXISTING_WORKTREE",
-                        "CANONICAL_WORKTREE",
-                        "HOST",
-                    ],
-                },
+                "execution_target": _EXECUTION_TARGET_SCHEMA,
                 "execution_domain": {
                     "type": "string",
                     "enum": ["L0_WORKSPACE_FULL", "L0_ISOLATED", "L0_HOST"],
@@ -1057,13 +1042,7 @@ for _binding in BINDINGS:
         if _binding.name in {"shell.exec", "test.run", "build.run", "file.write", "file.patch"}:
             target_schema = _properties.get("execution_target")
             if isinstance(target_schema, dict):
-                target_schema["enum"] = [
-                    "EXECUTION_WORKTREE",
-                    "CANONICAL_WORKTREE",
-                    "HOST",
-                    "NEW_ISOLATED_WORKTREE",
-                    "EXISTING_WORKTREE",
-                ]
+                target_schema["enum"] = list(EXECUTION_TARGETS)
 
 BINDING_INDEX: dict[str, ToolBinding] = {b.name: b for b in BINDINGS}
 
