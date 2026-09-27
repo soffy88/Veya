@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import types
 
 from server import dsh_plane
@@ -73,25 +72,86 @@ def test_unknown_executor_hint_is_ignored():
     assert runner_mod._assignee_hint(mission) == "dsh"
 
 
-def test_canonical_runner_pins_assignee_hint(monkeypatch):
+def test_canonical_runner_routes_through_goalrun_authority(monkeypatch):
+    """L2 execution is owned by GoalRun, not the retired ``project_ask`` leg.
+
+    The mission still declares the executor it was admitted with, but that hint
+    is a *preference* resolved by capability and health, and the chosen
+    executor travels to GoalRun as a task ``assignee``.  ``canonical_runner``
+    must not re-enter the old project dispatch entry.
+    """
     seen: dict[str, object] = {}
 
-    async def fake_project_ask(*, project_root, request, assignee_hint=None):
-        seen["project_root"] = project_root
-        seen["assignee_hint"] = assignee_hint
-        return "done"
+    class _State:
+        goal_id = "goal-dsh"
+        status = "completed"
+        final_summary = "done"
 
-    module = types.ModuleType("server.project_ask")
-    module.project_ask = fake_project_ask  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "server.project_ask", module)
+        def __init__(self) -> None:
+            self.tasks: dict[str, object] = {}
+            self.unfinished_work: list[str] = []
 
-    mission = Mission(mission_id="m2", goal="g", workspace="/tmp/ws")
-    mission.policies.execution_policy["assignee_hint"] = "dsh"
-    result = runner_mod.runner_with  # keep import used
-    assert result is not None
+    async def fake_project_run_goal(**kwargs):
+        seen.update(kwargs)
+        return types.SimpleNamespace(goal_id="goal-dsh", status="completed", summary="done")
+
+    import server.goal_run.runner as goalrun_runner
+    import server.goal_run.store as goalrun_store
+
+    monkeypatch.setattr(goalrun_runner, "project_run_goal", fake_project_run_goal)
+    monkeypatch.setattr(goalrun_store, "load_goal_run", lambda *_a, **_k: _State())
+
+    # The retired leg must not be used for execution.
+    def _forbidden(*_a, **_k):
+        raise AssertionError("canonical_runner must not dispatch through project_ask")
+
+    import server.project_ask as project_ask
+
+    monkeypatch.setattr(project_ask, "project_ask", _forbidden)
 
     import asyncio
 
+    mission = Mission(mission_id="m2", goal="g", workspace="/tmp/ws")
+    # An unauthenticated/unavailable hint is a preference, not a pin: selection
+    # must move to an eligible executor rather than execute on the named one.
+    mission.policies.execution_policy["assignee_hint"] = "dsh"
+    mission.policies.execution_policy["actions"] = [
+        {"tool": "write_file", "arguments": {"filepath": "probe.txt", "content": "x"}}
+    ]
+
     out = asyncio.run(runner_mod.canonical_runner(mission))
-    assert seen == {"project_root": "/tmp/ws", "assignee_hint": "dsh"}
+
+    # L2 -> GoalRun is the one execution authority.
+    assert seen, "canonical_runner must execute through project_run_goal"
+    assert seen["project_root"] == "/tmp/ws"
+    tasks = seen["tasks"]
+    assert isinstance(tasks, list) and len(tasks) == 1
+    # the selected executor is carried by the canonical execution task
+    assert tasks[0]["assignee"] in {"builtin", "hicode"}
+    assert tasks[0]["instruction"] == "g"
     assert out.final_summary == "done"
+
+
+def test_canonical_runner_blocks_when_no_executor_is_eligible(monkeypatch):
+    """No eligible executor must fail closed instead of reaching for GoalRun."""
+    seen: dict[str, object] = {}
+
+    async def _forbidden(**kwargs):  # pragma: no cover - must not be reached
+        seen.update(kwargs)
+        raise AssertionError("must not execute without an eligible executor")
+
+    import server.goal_run.runner as goalrun_runner
+
+    monkeypatch.setattr(goalrun_runner, "project_run_goal", _forbidden)
+
+    import asyncio
+
+    mission = Mission(mission_id="m3", goal="g", workspace="/tmp/ws")
+    mission.policies.execution_policy["assignee_hint"] = "dsh"
+
+    out = asyncio.run(runner_mod.canonical_runner(mission))
+
+    assert not seen
+    assert out.status == "blocked"
+    assert out.block_reason == "NO_HEALTHY_EXECUTION_TARGET"
+    assert out.unfinished_work
