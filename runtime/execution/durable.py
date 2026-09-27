@@ -356,6 +356,15 @@ class DurableExecutionRepository:
                     conn.execute(
                         "ALTER TABLE side_effects ADD COLUMN bot_id TEXT NOT NULL DEFAULT 'veya-default'"
                     )
+                # P3-A upgrade: the same generation added the per-action replay
+                # fingerprint, but no migration was added with it.  A database
+                # created before that change has the column missing, and the
+                # INSERT in declare_side_effect then fails with
+                # "table side_effects has no column named request_fingerprint",
+                # which blocks every side-effect write.  Add it here alongside
+                # bot_id; it is nullable, so existing rows need no backfill.
+                if "request_fingerprint" not in columns:
+                    conn.execute("ALTER TABLE side_effects ADD COLUMN request_fingerprint TEXT")
                 conn.execute(
                     "INSERT OR IGNORE INTO execution_schema_meta(version, applied_at) VALUES(?,?)",
                     (SCHEMA_VERSION, time.time()),
