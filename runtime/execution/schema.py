@@ -135,7 +135,8 @@ _TABLES = (
         bot_id TEXT NOT NULL DEFAULT 'veya-default',
         first_seen_at REAL NOT NULL,
         last_seen_at REAL NOT NULL,
-        revision INTEGER NOT NULL DEFAULT 0
+        revision INTEGER NOT NULL DEFAULT 0,
+        request_fingerprint TEXT NOT NULL DEFAULT ''
     )
     """,
     """
@@ -444,6 +445,51 @@ _TABLES = (
         next_attempt_at DOUBLE PRECISION NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS session_governance (
+        session_id TEXT PRIMARY KEY,
+        mode TEXT NOT NULL,
+        require_approval INTEGER NOT NULL,
+        freeze_root TEXT,
+        freeze_allow TEXT,
+        revision INTEGER NOT NULL DEFAULT 0,
+        updated_at DOUBLE PRECISION NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS approval_records (
+        request_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        tool_args_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        decision_reason TEXT,
+        request_hash TEXT,
+        created_at DOUBLE PRECISION NOT NULL,
+        updated_at DOUBLE PRECISION NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS session_streams (
+        session_id TEXT PRIMARY KEY,
+        epoch INTEGER NOT NULL,
+        seq_head INTEGER NOT NULL,
+        created_at DOUBLE PRECISION NOT NULL,
+        updated_at DOUBLE PRECISION NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS session_events (
+        event_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        epoch INTEGER NOT NULL,
+        seq INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at DOUBLE PRECISION NOT NULL,
+        UNIQUE (session_id, epoch, seq)
+    )
+    """,
 )
 
 _INDEXES = (
@@ -464,6 +510,8 @@ _INDEXES = (
     "CREATE INDEX IF NOT EXISTS learning_status_idx ON learning_records (scope, status, created_at)",
     "CREATE INDEX IF NOT EXISTS personal_events_cursor_idx ON personal_events (occurred_at, id)",
     "CREATE INDEX IF NOT EXISTS personal_outbox_ready_idx ON personal_outbox (published_at, next_attempt_at)",
+    "CREATE INDEX IF NOT EXISTS approval_session_idx ON approval_records (session_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS approval_status_idx ON approval_records (status, created_at)",
 )
 
 SQLITE_SCHEMA = (*_TABLES, *_INDEXES)

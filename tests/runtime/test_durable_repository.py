@@ -181,6 +181,7 @@ async def test_unknown_side_effect_is_quarantined_and_key_conflicts(tmp_path):
             target_ref="provider:item",
             request={"value": 1},
             capability="manual_only",
+            request_fingerprint="f1",
         )
         with pytest.raises(DurableExecutionError, match="different request hash"):
             await repo.declare_side_effect(
@@ -191,6 +192,7 @@ async def test_unknown_side_effect_is_quarantined_and_key_conflicts(tmp_path):
                 target_ref="provider:item",
                 request={"value": 2},
                 capability="manual_only",
+                request_fingerprint="f1",
             )
         claim = await repo.claim_next("worker-effects", lease_ttl_s=1)
         assert claim is not None
@@ -336,6 +338,7 @@ async def test_side_effect_ledger_probes_unknown_before_replay(tmp_path):
             target_ref="provider:item",
             request={"value": 1},
             capability="status_probe",
+            request_fingerprint="f1",
         )
         await repo.update_side_effect(operation_key, state="unknown")
         calls = 0
@@ -484,6 +487,7 @@ async def test_reconcile_committed_provider_evidence_does_not_replay_side_effect
             target_ref="provider:item",
             request={"value": 1},
             capability="status_probe",
+            request_fingerprint="f1",
         )
         claim = await repo.claim_next("provider-worker", lease_ttl_s=1)
         assert claim is not None

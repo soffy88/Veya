@@ -1255,9 +1255,9 @@ class MasterCoordinator:
             )
             if freeze_allow is not None:
                 if str(freeze_allow).strip() == "":
-                    _uc.clear_freeze(sid_early)
+                    await _uc.clear_freeze(sid_early)
                 else:
-                    _uc.set_freeze(sid_early, allow=str(freeze_allow))
+                    await _uc.set_freeze(sid_early, allow=str(freeze_allow))
             session_lock = await _acquire_session_lock(sid_early)
             session_lock_acquired = True
             # 视觉工具会话上下文: 工件按会话落盘 + 每会话并发闸 (vision_* 工具面)
@@ -2011,9 +2011,12 @@ class MasterCoordinator:
             )
         return cast("dict[str, Any]", result)
 
-    async def execute_continuation(self, request: CanonicalContinuationRef, project_root: str = ".") -> Any:
+    async def execute_continuation(
+        self, request: CanonicalContinuationRef, project_root: str = "."
+    ) -> Any:
         """Resume a canonical execution lineage securely."""
         from server.goal_run.runner import project_run_goal
+
         return await project_run_goal(
             project_root=project_root,
             goal=f"Resume legacy session {request.session_id}",
@@ -2041,18 +2044,24 @@ class MasterCoordinator:
 
         if request.preplanned_spec:
             tasks = request.preplanned_spec.ordered_steps
-            if request.preplanned_spec.constraints.planning_policy == PlanningPolicy.LOCKED_PLAN:
-                if request.preplanned_spec.constraints.metadata.get("genesis"):
-                    # Temporarily construct the legacy adapter internally until fully phased out of GoalRun
-                    import json
+            if (
+                request.preplanned_spec.constraints.planning_policy == PlanningPolicy.LOCKED_PLAN
+                and request.preplanned_spec.constraints.metadata.get("genesis")
+            ):
+                # Temporarily construct the legacy adapter internally until fully phased out of GoalRun
+                import json
 
-                    from server.flow_goal_run import GenesisGoalRunAdapter
-                    from server.schemas import GenesisManifest
-                    instr = tasks[0]["instruction"]
-                    manifest = GenesisManifest.model_validate(json.loads(instr))
-                    integration_adapter = GenesisGoalRunAdapter(manifest, project_root=request.project_root)
+                from server.flow_goal_run import GenesisGoalRunAdapter
+                from server.schemas import GenesisManifest
+
+                instr = tasks[0]["instruction"]
+                manifest = GenesisManifest.model_validate(json.loads(instr))
+                integration_adapter = GenesisGoalRunAdapter(
+                    manifest, project_root=request.project_root
+                )
         elif request.source == "PRODUCT":
             from server.goal_run.canonical_worker import CanonicalWorkerAdapter
+
             async def execute_bound_action(req: Any) -> Any:
                 return await self.handle_tool_call(req.tool, req.arguments)
 
@@ -2086,6 +2095,7 @@ class MasterCoordinator:
             integration_adapter=integration_adapter,
             resume_goal_id=resume_goal_id,
         )
+
 
 # 蜂群引擎全局单例(构造无副作用, eager 安全)
 _swarm_engine: SwarmOrchestrator | None = None

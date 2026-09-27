@@ -106,7 +106,8 @@ CREATE TABLE IF NOT EXISTS side_effects (
     compensation_json TEXT,
     first_seen_at DOUBLE PRECISION NOT NULL,
     last_seen_at DOUBLE PRECISION NOT NULL,
-    revision BIGINT NOT NULL DEFAULT 0
+    revision BIGINT NOT NULL DEFAULT 0,
+    request_fingerprint TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (

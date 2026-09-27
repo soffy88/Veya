@@ -79,6 +79,28 @@ class CanonicalWorkerAdapter:
         self.execution_repository: DurableExecutionRepository | None = None
         self.action_gateway: ActionGatewayAdapter | None = None
 
+    def request(
+        self, tool: str, arguments: dict[str, Any], tool_call_id: str | None = None
+    ) -> CanonicalActionRequest:
+        """Build a canonical action request for direct qualification callers."""
+        import hashlib
+        import uuid
+
+        encoded = json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
+        request_fingerprint = hashlib.sha256(f"{tool}\0{encoded}".encode()).hexdigest()[:24]
+        action_id = str(tool_call_id) if tool_call_id else f"act_{uuid.uuid4().hex[:16]}"
+        goal_run_id = str(getattr(self, "goal_run_id", self.task_id))
+        return CanonicalActionRequest(
+            action_id=action_id,
+            request_fingerprint=request_fingerprint,
+            goal_run_id=goal_run_id,
+            task_id=self.task_id,
+            tool=tool,
+            arguments=dict(arguments),
+            capability=tool,
+            idempotency_key=f"{goal_run_id}:{action_id}",
+        )
+
     async def execute_canonical_action(
         self,
         state: Any,
@@ -602,15 +624,29 @@ class MasterAgentActionAdapter:
         from server.goal_run.bot_identity import DEFAULT_BOT_ID
 
         self.bot_id = bot_id if bot_id is not None else DEFAULT_BOT_ID
+        self._request_cache: dict[str, CanonicalActionRequest] = {}
 
-    def request(self, tool: str, arguments: dict[str, Any]) -> CanonicalActionRequest:
+    def request(
+        self, tool: str, arguments: dict[str, Any], tool_call_id: str | None = None
+    ) -> CanonicalActionRequest:
         import hashlib
         import json
+        import uuid
 
         encoded = json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
-        action_id = hashlib.sha256(f"{tool}\0{encoded}".encode()).hexdigest()[:24]
-        return CanonicalActionRequest(
+        cache_key = f"{tool}\0{encoded}"
+        if tool_call_id is None and cache_key in self._request_cache:
+            return self._request_cache[cache_key]
+        # request_fingerprint strictly bounds content validation, not occurrence identity
+        request_fingerprint = hashlib.sha256(f"{tool}\0{encoded}".encode()).hexdigest()[:24]
+
+        # action_id (action_instance_id) represents the unique occurrence
+        # If provided a tool_call_id (e.g. from LLM), use it as stable occurrence ID
+        action_id = str(tool_call_id) if tool_call_id else f"act_{uuid.uuid4().hex[:16]}"
+
+        request = CanonicalActionRequest(
             action_id=action_id,
+            request_fingerprint=request_fingerprint,
             goal_run_id=self.goal_run_id,
             task_id=self.task_id,
             tool=tool,
@@ -622,9 +658,14 @@ class MasterAgentActionAdapter:
             idempotency_key=f"{self.goal_run_id}:{action_id}",
             bot_id=self.bot_id,
         )
+        if tool_call_id is None:
+            self._request_cache[cache_key] = request
+        return request
 
-    async def execute(self, tool: str, arguments: dict[str, Any]) -> CanonicalActionResult:
-        request = self.request(tool, arguments)
+    async def execute(
+        self, tool: str, arguments: dict[str, Any], tool_call_id: str | None = None
+    ) -> CanonicalActionResult:
+        request = self.request(tool, arguments, tool_call_id=tool_call_id)
         result = self.executor(request)
         if hasattr(result, "__await__"):
             result = await result

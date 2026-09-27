@@ -1,4 +1,3 @@
-
 import pytest
 
 from server.routes.flow import Phase3Request, flow_phase3
@@ -9,7 +8,7 @@ from server.schemas import GenesisManifest
 async def test_flow_adapter_translates_to_preplanned_execution_spec(monkeypatch):
     class MockManifest(GenesisManifest):
         mission_id: str = "m1"
-        elements: list = []
+        elements: list = []  # noqa: RUF012
 
     called = []
 
@@ -20,10 +19,11 @@ async def test_flow_adapter_translates_to_preplanned_execution_spec(monkeypatch)
     monkeypatch.setattr("server.coordinator_master.MasterCoordinator", lambda: MockCoordinator())
 
     req = Phase3Request(manifest=MockManifest(), session_id="s1")
-    result = await flow_phase3(req)
+    await flow_phase3(req)
 
     # Wait for the background task
     import asyncio
+
     await asyncio.sleep(0)
 
     assert len(called) == 1

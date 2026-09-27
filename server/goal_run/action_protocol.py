@@ -31,6 +31,7 @@ class CanonicalActionRequest:
     evidence_refs: tuple[str, ...] = ()
     # P3-A: the bot that owns this action. Must match the executing GoalRun.
     bot_id: str = DEFAULT_BOT_ID
+    request_fingerprint: str = ""
 
     def __post_init__(self) -> None:
         if not self.action_id or not self.goal_run_id or not self.task_id or not self.tool:
@@ -48,6 +49,7 @@ class CanonicalActionRequest:
     def from_dict(cls, value: dict[str, Any]) -> CanonicalActionRequest:
         return cls(
             action_id=str(value["action_id"]),
+            request_fingerprint=str(value.get("request_fingerprint", "")),
             goal_run_id=str(value["goal_run_id"]),
             task_id=str(value["task_id"]),
             tool=str(value["tool"]),

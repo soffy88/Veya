@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import uuid
-import hashlib
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -15,10 +15,10 @@ from server import flow_engine
 from server.flow_goal_run import phase3_task
 from server.models.execution import (
     CanonicalExecutionRequest,
-    ExecutionMode,
-    PreplannedExecutionSpec,
     ExecutionConstraints,
+    ExecutionMode,
     PlanningPolicy,
+    PreplannedExecutionSpec,
 )
 from server.schemas import GenesisManifest, RequirementDoc
 
@@ -102,12 +102,11 @@ async def flow_phase3(req: Phase3Request) -> dict[str, Any]:
         ordered_steps=[phase3_task(req.manifest)],
         required_steps=[req.manifest.mission_id],
         constraints=ExecutionConstraints(
-            planning_policy=PlanningPolicy.LOCKED_PLAN,
-            metadata={"genesis": True}
+            planning_policy=PlanningPolicy.LOCKED_PLAN, metadata={"genesis": True}
         ),
         source_metadata={"mission_id": req.manifest.mission_id},
     )
-    
+
     canonical_req = CanonicalExecutionRequest(
         source="FLOW",
         mode=ExecutionMode.STRUCTURED_CONSTRAINED,
@@ -121,6 +120,7 @@ async def flow_phase3(req: Phase3Request) -> dict[str, Any]:
     async def _run_durable() -> None:
         # A1-F: Route through MasterCoordinator instead of project_run_goal directly
         from server.coordinator_master import MasterCoordinator
+
         await MasterCoordinator().execute_structured(canonical_req)
 
     task = asyncio.create_task(

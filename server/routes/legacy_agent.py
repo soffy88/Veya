@@ -293,7 +293,7 @@ async def agent_approval(req: AgentApprovalRequest) -> dict:
     from server.user_control import resolve_approval
 
     auth_mod.set_user(auth_mod.current_user())
-    ok = resolve_approval(req.request_id, req.approved)
+    ok = await resolve_approval(req.request_id, req.approved)
     return {"ok": ok, "request_id": req.request_id, "approved": req.approved}
 
 

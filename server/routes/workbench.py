@@ -190,7 +190,7 @@ async def resolve_workbench_approval(task_id: str, request: ApprovalRequest) -> 
     # This is the PR-09 pending store, not a Workbench approval store.
     from server.user_control import resolve_approval
 
-    if not resolve_approval(request.request_id, request.approved):
+    if not await resolve_approval(request.request_id, request.approved):
         raise _stale("STALE_APPROVAL", expected=request.request_id, actual=None)
     return await _view_or_404(task_id)
 

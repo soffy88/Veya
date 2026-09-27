@@ -33,6 +33,7 @@ class SideEffectLedger:
         probe: Callable[[], Awaitable[dict[str, Any]] | dict[str, Any]] | None = None,
         claim: ClaimEnvelope | None = None,
         bot_id: str = DEFAULT_BOT_ID,
+        request_fingerprint: str = "",
     ) -> Any:
         lock = self._operation_locks.setdefault(operation_key, asyncio.Lock())
         async with lock:
@@ -48,6 +49,7 @@ class SideEffectLedger:
                 probe=probe,
                 claim=claim,
                 bot_id=bot_id,
+                request_fingerprint=request_fingerprint,
             )
 
     async def _execute_unlocked(
@@ -65,6 +67,7 @@ class SideEffectLedger:
         claim: ClaimEnvelope | None = None,
         # P3-A: the owning bot. Reusing another bot's operation key is refused.
         bot_id: str = DEFAULT_BOT_ID,
+        request_fingerprint: str = "",
     ) -> Any:
         row = await self.repository.declare_side_effect(
             goal_run_id=goal_run_id,
@@ -76,7 +79,20 @@ class SideEffectLedger:
             capability=capability,
             claim=claim,
             bot_id=bot_id,
+            request_fingerprint=request_fingerprint,
         )
+        # ACTION_INSTANCE_MUTATION_REJECTED enforcement
+        existing_fingerprint = row.get("request_fingerprint")
+        if (
+            existing_fingerprint
+            and request_fingerprint
+            and existing_fingerprint != request_fingerprint
+        ):
+            raise DurableExecutionError(
+                "ACTION_INSTANCE_MUTATION_REJECTED",
+                f"Action replay mismatch: expected fingerprint {existing_fingerprint}, got {request_fingerprint}",
+            )
+
         previous = _decode_probe(row.get("probe_result_json"))
         if row.get("state") == "committed":
             return previous.get("result")

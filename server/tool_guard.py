@@ -23,13 +23,13 @@ from __future__ import annotations
 import inspect
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 log = logging.getLogger("veya.tool_guard")
 
 # 策略签名: (tool_name, kwargs, source) -> None/"" 放行 | 非空 str 拒绝原因。
 # 可为同步或 async (返回 awaitable); async 策略仅在 acheck() 中被 await。
-Policy = Callable[[str, dict, str], "str | None"]
+Policy = Callable[[str, dict, str], str | Awaitable[str | None] | None]
 
 
 class ToolDenied(Exception):

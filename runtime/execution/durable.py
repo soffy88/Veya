@@ -274,6 +274,10 @@ class DurableExecutionRepository:
             self._sqlite_prepare()
         await self.migrate()
 
+    async def setup_schema(self) -> None:
+        """Initialize the repository schema for local qualification callers."""
+        await self.connect()
+
     async def close(self) -> None:
         if self._pool is not None:
             await self._pool.close()
@@ -681,6 +685,16 @@ class DurableExecutionRepository:
 
         return await self._pg_tx(insert_pg)
 
+    async def start_goal_run(
+        self, goal_run_id: str, bot_id: str = DEFAULT_BOT_ID
+    ) -> dict[str, Any]:
+        """Compatibility entry point for small runtime qualification probes."""
+        return await self.create_goal_run(
+            goal_run_id=goal_run_id,
+            master_agent_id=bot_id,
+            status="running",
+        )
+
     async def enqueue_work_item(
         self, spec: WorkItemSpec | dict[str, Any], *, idempotency_key: str | None = None
     ) -> dict[str, Any]:
@@ -836,6 +850,27 @@ class DurableExecutionRepository:
             return dict(row)
 
         return await self._pg_tx(insert_pg)
+
+    async def create_work_item(
+        self,
+        work_item_id: str,
+        goal_run_id: str,
+        kind: str,
+        logical_key: str,
+        *,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Compatibility entry point for direct durable qualification probes."""
+        return await self.enqueue_work_item(
+            WorkItemSpec(
+                work_item_id=work_item_id,
+                goal_run_id=goal_run_id,
+                logical_key=logical_key,
+                kind=kind,
+                payload=payload or {},
+                side_effect_policy="none",
+            )
+        )
 
     @staticmethod
     def _dependencies_satisfied(conn: Any, row: Any) -> bool:
@@ -1394,6 +1429,7 @@ class DurableExecutionRepository:
         probe_policy: str | None = None,
         claim: ClaimEnvelope | None = None,
         bot_id: str = DEFAULT_BOT_ID,
+        request_fingerprint: str = "",
     ) -> dict[str, Any]:
         """Record intent before an external call, returning the existing row on retry.
 
@@ -1428,6 +1464,16 @@ class DurableExecutionRepository:
                 "SELECT * FROM side_effects WHERE operation_key=?", (operation_key,)
             ).fetchone()
             if row:
+                existing_fingerprint = dict(row).get("request_fingerprint") or ""
+                if (
+                    existing_fingerprint
+                    and request_fingerprint
+                    and existing_fingerprint != request_fingerprint
+                ):
+                    raise DurableExecutionError(
+                        "ACTION_INSTANCE_MUTATION_REJECTED",
+                        "ACTION_INSTANCE_MUTATION_REJECTED: action instance has a different request fingerprint",
+                    )
                 if row["request_hash"] != request_hash:
                     raise DurableExecutionError(
                         "IDEMPOTENCY_CONFLICT", "operation key has a different request hash"
@@ -1448,7 +1494,7 @@ class DurableExecutionRepository:
                 return dict(row)
             effect_id = new_id()
             conn.execute(
-                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,bot_id,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,bot_id,first_seen_at,last_seen_at,request_fingerprint) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     effect_id,
                     goal_run_id,
@@ -1462,6 +1508,7 @@ class DurableExecutionRepository:
                     bot_id,
                     now,
                     now,
+                    request_fingerprint,
                 ),
             )
             self._sqlite_event(
@@ -1509,6 +1556,16 @@ class DurableExecutionRepository:
                 "SELECT * FROM side_effects WHERE operation_key=$1", operation_key
             )
             if row:
+                existing_fingerprint = dict(row).get("request_fingerprint") or ""
+                if (
+                    existing_fingerprint
+                    and request_fingerprint
+                    and existing_fingerprint != request_fingerprint
+                ):
+                    raise DurableExecutionError(
+                        "ACTION_INSTANCE_MUTATION_REJECTED",
+                        "ACTION_INSTANCE_MUTATION_REJECTED: action instance has a different request fingerprint",
+                    )
                 if row["request_hash"] != request_hash:
                     raise DurableExecutionError(
                         "IDEMPOTENCY_CONFLICT", "operation key has a different request hash"
@@ -1528,7 +1585,7 @@ class DurableExecutionRepository:
                 return dict(row)
             effect_id = new_id()
             await conn.execute(
-                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,bot_id,first_seen_at,last_seen_at) VALUES($1,$2,$3,$4,$5,$6,'declared',$7,$8,$9,$10,$10)",
+                "INSERT INTO side_effects(id,goal_run_id,work_item_id,operation_key,operation_type,target_ref,state,request_hash,probe_policy,bot_id,first_seen_at,last_seen_at,request_fingerprint) VALUES($1,$2,$3,$4,$5,$6,'declared',$7,$8,$9,$10,$10,$11)",
                 effect_id,
                 goal_run_id,
                 work_item_id,
@@ -1539,6 +1596,7 @@ class DurableExecutionRepository:
                 probe_policy or capability,
                 bot_id,
                 now,
+                request_fingerprint,
             )
             await self._pg_event(
                 conn,

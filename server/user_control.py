@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import contextvars
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from server.events import (
     current_task_id,
     fire_step,
 )
+from server.governance_store import ApprovalRecord, SessionGovernanceState, governance_store
 
 _mode: contextvars.ContextVar[str] = contextvars.ContextVar("veya_mode", default="agent")
 _require_approval: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -111,22 +113,10 @@ class _PendingQuestion:
         self.sid = sid
 
 
-_pending: dict[str, _Pending] = {}
 _pending_questions: dict[str, _PendingQuestion] = {}
 
-# Session-sticky freeze: writes locked to one subdirectory of the workspace root.
-# Not a slash command — user sets it on the request / session (same class as plan mode).
-_freeze: dict[str, tuple[str, str]] = {}  # session_id -> (root, allow_rel)
-_FREEZE_WRITE_TOOLS = frozenset(
-    {
-        "write_file",
-        "edit_hashline",
-        "ast_grep_rewrite",
-        "hicode_run",
-        "hicode_rollback",
-        "evolve_solution",
-    }
-)
+# We still use contextvars for synchronous getters when needed,
+# but the durable state is stored in governance_store.
 _PATH_KEYS = ("filepath", "path", "workspace")
 
 
@@ -161,27 +151,53 @@ def _default_freeze_root() -> Path:
     return Path(raw).expanduser().resolve()
 
 
-def set_freeze(session_id: str, *, allow: str, root: str | None = None) -> None:
+async def set_freeze(session_id: str, *, allow: str, root: str | None = None) -> None:
     """Lock writes to ``root/allow`` for this session. Empty allow = deny all freeze-write tools."""
     sid = (session_id or "").strip()
     if not sid:
         return
     base = Path(root).expanduser().resolve() if root else _default_freeze_root()
-    allow_rel = (allow or "").strip().replace("\\", "/").lstrip("/")
+    allow_rel = (allow or "").strip().replace("\\", "/", -1).lstrip("/")
     if allow_rel in {".", "./"}:
         allow_rel = ""
-    _freeze[sid] = (str(base), allow_rel)
+
+    state = await governance_store.get_state(sid)
+    if state:
+        state.freeze_root = str(base)
+        state.freeze_allow = allow_rel
+        await governance_store.set_state(state)
+    else:
+        state = SessionGovernanceState(
+            session_id=sid,
+            mode="agent",
+            require_approval=False,
+            freeze_root=str(base),
+            freeze_allow=allow_rel,
+            revision=0,
+            updated_at=time.time(),
+        )
+        await governance_store.set_state(state)
 
 
-def clear_freeze(session_id: str) -> None:
-    _freeze.pop((session_id or "").strip(), None)
+async def clear_freeze(session_id: str) -> None:
+    sid = (session_id or "").strip()
+    if not sid:
+        return
+    state = await governance_store.get_state(sid)
+    if state:
+        state.freeze_root = None
+        state.freeze_allow = None
+        await governance_store.set_state(state)
 
 
-def current_freeze() -> tuple[str, str] | None:
+async def current_freeze() -> tuple[str, str] | None:
     sid = _session_id.get()
     if not sid:
         return None
-    return _freeze.get(sid)
+    state = await governance_store.get_state(sid)
+    if state and state.freeze_root is not None:
+        return (state.freeze_root, state.freeze_allow or "")
+    return None
 
 
 def _path_in_allow(root: str, allow_rel: str, raw_path: str) -> bool:
@@ -222,12 +238,12 @@ def _safe_args(kwargs: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def resolve_approval(request_id: str, approved: bool) -> bool:
-    pending = _pending.get(request_id)
-    if pending is None:
-        return False
-    pending.approved = bool(approved)
-    pending.event.set()
+async def resolve_approval(request_id: str, approved: bool) -> bool:
+    await governance_store.resolve_approval(request_id, "approved" if approved else "denied")
+    # if it's currently waiting in process memory, let it proceed
+    pending = _pending_waiters.get(request_id)
+    if pending:
+        pending.set()
     return True
 
 
@@ -241,19 +257,52 @@ def resolve_answer(request_id: str, answer: str) -> bool:
     return True
 
 
+_pending_waiters: dict[str, asyncio.Event] = {}
+
+
 async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
     """Return a deny reason, or None to allow."""
-    rid = uuid.uuid4().hex[:12]
+    import hashlib
+    import json
+
     sid = _session_id.get()
-    pending = _Pending(tool, _safe_args(kwargs), sid)
-    _pending[rid] = pending
+    args_json = json.dumps(_safe_args(kwargs), sort_keys=True)
+    req_hash = hashlib.sha256(f"{sid}:{tool}:{args_json}".encode()).hexdigest()
+
+    # Check if we already have an approval for this exact call
+    existing = await governance_store.get_approval_by_hash(sid, req_hash)
+    if existing and existing.status != "pending":
+        if existing.status == "approved":
+            return None
+        return f"user denied '{tool}'"
+
+    if existing and existing.status == "pending":
+        rid = existing.request_id
+    else:
+        rid = uuid.uuid4().hex[:12]
+        record = ApprovalRecord(
+            request_id=rid,
+            session_id=sid,
+            tool=tool,
+            tool_args=_safe_args(kwargs),
+            status="pending",
+            decision_reason=None,
+            request_hash=req_hash,
+            created_at=time.time(),
+            updated_at=time.time(),
+        )
+        await governance_store.create_approval(record)
+
+    event = asyncio.Event()
+    _pending_waiters[rid] = event
+
     fire_step(
         {
             "type": "permission_request",
             "topic": "tool.approval_required",
             "request_id": rid,
             "tool_name": tool,
-            "tool_args": pending.args,
+            "tool_args": record.tool_args,
             "session_id": sid,
             "reason": f"「{tool}」需要你批准后才会执行",
         }
@@ -261,7 +310,7 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
     with contextlib.suppress(Exception):
         append_canonical_event(
             "tool.approval_required",
-            {"request_id": rid, "tool_name": tool, "tool_args": pending.args},
+            {"request_id": rid, "tool_name": tool, "tool_args": record.tool_args},
             actor="system",
             session_id=sid or None,
             task_id=current_task_id(),
@@ -281,62 +330,68 @@ async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
             status="suspended",
         )
     try:
-        try:
-            await asyncio.wait_for(pending.event.wait(), timeout=_APPROVAL_TIMEOUT_S)
-        except TimeoutError:
-            return f"approval timed out for '{tool}' (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
-        if pending.approved:
-            with contextlib.suppress(Exception):
-                append_canonical_event(
-                    "tool.approved",
-                    {"request_id": rid, "tool_name": tool},
-                    actor="user",
-                    session_id=sid or None,
-                    task_id=current_task_id(),
-                )
-                append_observability_event(
-                    "approval.resumed",
-                    payload={
-                        "request_id": rid,
-                        "tool_name": tool,
-                        "decision": "approved",
-                    },
-                    actor="user",
-                    session_id=sid or None,
-                    task_id=current_task_id(),
-                    tool=tool,
-                    action=tool,
-                    status="resumed",
-                )
-            fire_step(
-                {
-                    "type": "tool.approved",
-                    "tool_name": tool,
-                    "request_id": rid,
-                    "session_id": sid,
-                }
-            )
-            return None
-        with contextlib.suppress(Exception):
-            append_canonical_event(
-                "tool.denied",
-                {"request_id": rid, "tool_name": tool},
-                actor="user",
-                session_id=sid or None,
-                task_id=current_task_id(),
-            )
-        fire_step(
-            {
-                "type": "tool.denied",
-                "tool_name": tool,
-                "request_id": rid,
-                "session_id": sid,
-            }
-        )
-        return f"user denied '{tool}'"
+        start_t = time.time()
+        while time.time() - start_t < _APPROVAL_TIMEOUT_S:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(event.wait(), timeout=5.0)
+
+            # check db
+            current = await governance_store.get_approval(rid)
+            if current and current.status != "pending":
+                if current.status == "approved":
+                    with contextlib.suppress(Exception):
+                        append_canonical_event(
+                            "tool.approved",
+                            {"request_id": rid, "tool_name": tool},
+                            actor="user",
+                            session_id=sid or None,
+                            task_id=current_task_id(),
+                        )
+                        append_observability_event(
+                            "approval.resumed",
+                            payload={
+                                "request_id": rid,
+                                "tool_name": tool,
+                                "decision": "approved",
+                            },
+                            actor="user",
+                            session_id=sid or None,
+                            task_id=current_task_id(),
+                            tool=tool,
+                            action=tool,
+                            status="resumed",
+                        )
+                    fire_step(
+                        {
+                            "type": "tool.approved",
+                            "tool_name": tool,
+                            "request_id": rid,
+                            "session_id": sid,
+                        }
+                    )
+                    return None
+                else:
+                    with contextlib.suppress(Exception):
+                        append_canonical_event(
+                            "tool.denied",
+                            {"request_id": rid, "tool_name": tool},
+                            actor="user",
+                            session_id=sid or None,
+                            task_id=current_task_id(),
+                        )
+                    fire_step(
+                        {
+                            "type": "tool.denied",
+                            "tool_name": tool,
+                            "request_id": rid,
+                            "session_id": sid,
+                        }
+                    )
+                    return f"user denied '{tool}'"
+
+        return f"approval timed out for '{tool}' (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
     finally:
-        # Stop/断连取消等待时也必须释放请求，避免悬挂审批泄漏。
-        _pending.pop(rid, None)
+        _pending_waiters.pop(rid, None)
 
 
 async def request_approval(tool: str, kwargs: dict[str, Any]) -> bool:
@@ -386,27 +441,53 @@ async def user_control_policy(name: str, kwargs: dict, source: str) -> str | Non
             f"plan mode: '{name}' writes or executes. Stay read-only, draft a plan "
             f"(create_plan), and wait for the user to switch to agent mode."
         )
-    frozen = current_freeze()
-    if frozen and name in _FREEZE_WRITE_TOOLS:
-        root, allow_rel = frozen
-        target = _freeze_target(name, kwargs)
-        if not allow_rel:
-            return (
-                f"freeze: writes locked; no allow-dir set. "
-                f"Cannot run '{name}' until the user unfreezes or names a subdirectory."
-            )
-        if target is None:
-            return (
-                f"freeze: '{name}' needs an explicit path under {allow_rel}/ "
-                f"(session writes locked outside that directory)."
-            )
-        if not _path_in_allow(root, allow_rel, target):
-            return (
-                f"freeze: writes locked to '{allow_rel}/' under {root}; "
-                f"'{target}' is outside the allow-dir."
-            )
+
+    async def _check_freeze() -> str | None:
+        frozen = await current_freeze()
+        _FREEZE_WRITE_TOOLS = frozenset(
+            {
+                "write_file",
+                "edit_hashline",
+                "ast_grep_rewrite",
+                "hicode_run",
+                "hicode_rollback",
+                "evolve_solution",
+            }
+        )
+        if frozen and name in _FREEZE_WRITE_TOOLS:
+            root, allow_rel = frozen
+            target = _freeze_target(name, kwargs)
+            if not allow_rel:
+                return (
+                    f"freeze: writes locked; no allow-dir set. "
+                    f"Cannot run '{name}' until the user unfreezes or names a subdirectory."
+                )
+            if target is None:
+                return (
+                    f"freeze: '{name}' needs an explicit path under {allow_rel}/ "
+                    f"(session writes locked outside that directory)."
+                )
+            if not _path_in_allow(root, allow_rel, target):
+                return (
+                    f"freeze: writes locked to '{allow_rel}/' under {root}; "
+                    f"'{target}' is outside the allow-dir."
+                )
+        return None
+
+    freeze_err = await _check_freeze()
+    if freeze_err:
+        return freeze_err
+
     if require_approval() and name in HIGH_IMPACT:
-        return await _wait_approval(name, kwargs)
+        wait_err = await _wait_approval(name, kwargs)
+        if wait_err:
+            return wait_err
+
+        # Revalidate freeze after wait block
+        freeze_err_after = await _check_freeze()
+        if freeze_err_after:
+            return f"{freeze_err_after} (freeze applied during approval wait)"
+
     return None
 
 
