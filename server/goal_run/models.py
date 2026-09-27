@@ -412,6 +412,12 @@ class GoalRunState:
     agent_runtime_id: str | None = field(default=None)
     agent_session_id: str | None = field(default=None)
     agent_instance_id: str | None = field(default=None)
+    # P0-F: immutable execution baseline and the path-level delta produced by
+    # this GoalRun. Pre-existing dirty files are evidence, not agent output.
+    baseline_git_state: dict[str, Any] | None = field(default=None)
+    execution_delta: dict[str, Any] | None = field(default=None)
+    acceptance_verdict: str | None = field(default=None)
+    done_at: datetime | None = field(default=None)
 
     def to_taskgraph_json(self) -> dict[str, Any]:
         """转为 taskgraph.json 格式（用于落盘/序列化）。"""
@@ -473,6 +479,10 @@ class GoalRunState:
             "agent_runtime_id": self.agent_runtime_id,
             "agent_session_id": self.agent_session_id,
             "agent_instance_id": self.agent_instance_id,
+            "baseline_git_state": self.baseline_git_state,
+            "execution_delta": self.execution_delta,
+            "acceptance_verdict": self.acceptance_verdict,
+            "done_at": self.done_at.isoformat() if self.done_at else None,
             "routines": {routine_id: spec.to_dict() for routine_id, spec in self.routines.items()},
             "delegate_states": {
                 delegate_id: item.to_dict() for delegate_id, item in self.delegate_states.items()
@@ -525,6 +535,13 @@ class GoalRunState:
         state.agent_runtime_id = data.get("agent_runtime_id")
         state.agent_session_id = data.get("agent_session_id")
         state.agent_instance_id = data.get("agent_instance_id")
+        state.baseline_git_state = data.get("baseline_git_state")
+        state.execution_delta = data.get("execution_delta")
+        state.acceptance_verdict = data.get("acceptance_verdict")
+        raw_done_at = data.get("done_at")
+        if raw_done_at:
+            with contextlib.suppress(ValueError):
+                state.done_at = datetime.fromisoformat(str(raw_done_at))
         state.routines = {
             routine_id: RoutineSpec.from_dict(spec)
             for routine_id, spec in dict(data.get("routines") or {}).items()

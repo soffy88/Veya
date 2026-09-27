@@ -38,6 +38,7 @@ from runtime.execution.models import (
 from runtime.execution.no_progress import NoProgressGuard
 from runtime.execution.spawn_guard import SpawnGuard
 from server.capability_model import performance_store
+from server.goal_run.execution_delta import capture_git_state, execution_delta
 from server.goal_run.git_diff import current_head
 from server.goal_run.harness_adapter import GoalRunHarnessAdapter
 from server.goal_run.leaf import execute_leaf_with_memory
@@ -1151,6 +1152,11 @@ async def project_run_goal(
         if max_wall_s is not None:
             budget["max_wall_s"] = max_wall_s
 
+        # Capture before G1 writes taskgraph/GOAL/events files.  This makes
+        # the baseline represent the caller's dirty state, not GoalRun's own
+        # durable planning artifacts.
+        baseline_git_state = capture_git_state(project_root)
+
         state, _g1_response = await g1_plan(
             interpretation=u.interpretation or goal,
             assumptions=u.assumptions or [],
@@ -1164,6 +1170,8 @@ async def project_run_goal(
 
         if state.started_at is None:
             state.started_at = datetime.now(UTC)
+        if state.baseline_git_state is None:
+            state.baseline_git_state = baseline_git_state
         # 保存 state
         save_goal_run(state, project_root)
         if _agent_identity:
@@ -1760,6 +1768,10 @@ async def _run_loop_and_finalize(
 
     # ── G3: Finalize ───────────────────────────────────────────────────
     _mark_unfinished(state)
+    if state.baseline_git_state is not None:
+        state.execution_delta = execution_delta(
+            state.baseline_git_state, capture_git_state(project_root)
+        )
     durable_snapshot: dict[str, Any] | None = None
     durable_finalization_claim = None
     if durable_repository is not None and durable_worker_id is not None:
@@ -1825,6 +1837,7 @@ async def _run_loop_and_finalize(
                 next_action="replan" if verdict.outcome == "FAIL" else "none",
             )
     state.status = final_status
+    state.acceptance_verdict = "ACCEPT" if final_status == GoalStatus.completed else "PARTIAL"
 
     _emit_runtime_event(state, project_root, "fanin.started")
     delegate_results: list[DelegateResult] = []
@@ -1914,6 +1927,7 @@ async def _run_loop_and_finalize(
     state.final_summary = final_summary
     state.artifacts_summary = artifacts
     state.finished_at = datetime.now(UTC)
+    state.done_at = state.finished_at
     if durable_finalization_claim is not None and durable_snapshot is not None:
         await durable_repository.checkpoint_finalization(
             durable_finalization_claim,
@@ -1943,6 +1957,8 @@ async def _run_loop_and_finalize(
         project_root,
         "finalization.completed",
         status=final_status.value,
+        acceptance_verdict=state.acceptance_verdict,
+        done=True,
         artifact_count=len(artifacts),
     )
     _finalize_episode(state, project_root, outcome=final_status.value)
