@@ -23,6 +23,13 @@ from typing import Any
 
 from .approval import ApprovalStore, compute_operation_hash, get_approval_store
 from .models import ManagedUserService, RemoteErrorCode, RemoteSession, RiskClass
+from .permission_engine import (
+    Decision,
+    OperationContext,
+    PermissionEngine,
+    ReasonCode,
+    parse_command_context,
+)
 from .workspace_policy import classify_destructive
 
 
@@ -1098,6 +1105,122 @@ class ActionGateway:
     ) -> None:
         self.approval_store = approval_store or get_approval_store()
         self.service_registry = service_registry or _GLOBAL_SERVICE_REGISTRY
+        self.permission_engine = PermissionEngine()
+
+    def _engine_classification(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        session: RemoteSession,
+        cwd: str,
+    ) -> ActionClassification:
+        """Translate one remote request into the canonical engine contract."""
+        root = Path(session.active_workspace or cwd).expanduser().resolve()
+        current = Path(cwd).expanduser().resolve()
+        raw_path = args.get("path")
+        target_paths: tuple[Path, ...] = ()
+        if raw_path:
+            candidate = Path(str(raw_path))
+            target_paths = ((candidate if candidate.is_absolute() else current / candidate),)
+        if tool_name in {"file.read", "file.search", "artifact.read"}:
+            context = OperationContext(
+                actor=session.principal,
+                tool=tool_name,
+                operation=tool_name,
+                workspace_root=root,
+                cwd=current,
+                target_paths=target_paths,
+                filesystem_effect="read",
+                session_id=session.session_id,
+            )
+        elif tool_name in {"file.write", "file.patch", "artifact.write"}:
+            context = OperationContext(
+                actor=session.principal,
+                tool=tool_name,
+                operation=tool_name,
+                workspace_root=root,
+                cwd=current,
+                target_paths=target_paths,
+                filesystem_effect="write",
+                session_id=session.session_id,
+            )
+        elif tool_name == "shell.exec":
+            context = parse_command_context(
+                str(args.get("command", "")), cwd=current, workspace_root=root
+            )
+            context = OperationContext(
+                **{
+                    **context.__dict__,
+                    "actor": session.principal,
+                    "tool": tool_name,
+                    "session_id": session.session_id,
+                }
+            )
+        elif tool_name.startswith("worker.") or tool_name in {"hicode.execute", "agy.execute"}:
+            context = OperationContext(
+                actor=session.principal,
+                tool=tool_name,
+                operation=tool_name,
+                workspace_root=root,
+                cwd=current,
+                filesystem_effect="write",
+                session_id=session.session_id,
+            )
+        else:
+            context = OperationContext(
+                actor=session.principal,
+                tool=tool_name,
+                operation=tool_name,
+                workspace_root=root,
+                cwd=current,
+                filesystem_effect="read",
+                session_id=session.session_id,
+            )
+        decision = self.permission_engine.evaluate(context)
+        capability = {
+            ReasonCode.ALLOW_READ_ONLY: "workspace.read",
+            ReasonCode.ALLOW_PROJECT_MUTATION: "workspace.file_write",
+            ReasonCode.ALLOW_PROJECT_GIT: "git.normal",
+            ReasonCode.ALLOW_USER_RUNTIME: "service.user",
+            ReasonCode.ALLOW_NETWORK: "network.normal",
+            ReasonCode.ALLOW_WORKER: "worker.dispatch",
+            ReasonCode.APPROVAL_IRREVERSIBLE_REMOTE: "privileged.git_destructive",
+            ReasonCode.APPROVAL_HOST_PRIVILEGE: "privileged.host",
+            ReasonCode.APPROVAL_HOST_DESTRUCTIVE: "privileged.destructive",
+            ReasonCode.APPROVAL_SECURITY_BOUNDARY: "security.boundary",
+            ReasonCode.APPROVAL_UNKNOWN_HIGH_IMPACT: "privileged.unknown",
+            ReasonCode.DENY_SCOPE_ESCAPE: "denied.scope_escape",
+            ReasonCode.DENY_PATH_TRAVERSAL: "denied.path_traversal",
+            ReasonCode.DENY_AUTHORITY_VIOLATION: "denied.authority",
+            ReasonCode.DENY_INVALID_APPROVAL: "denied.invalid_approval",
+        }.get(decision.reason, "permission.operation")
+        command_words = tuple(context.command or ())
+        if command_words:
+            executable = Path(command_words[0]).name.lower()
+            if executable == "sudo":
+                capability = "privileged.sudo"
+            elif executable in {"su"}:
+                capability = "privileged.root_shell"
+            elif context.service_effect == "system":
+                capability = "privileged.system_service"
+        operation = decision.normalized_operation or tool_name
+        if context.command:
+            operation = " ".join(context.command)
+        category = {
+            Decision.ALLOW: ActionCategory.AUTO_OPEN,
+            Decision.APPROVAL_REQUIRED: ActionCategory.REQUIRE_APPROVAL,
+            Decision.DENY: ActionCategory.DENY,
+        }[decision.decision]
+        risk = RiskClass.P2_ROOT_MUTATION if category == ActionCategory.REQUIRE_APPROVAL else None
+        return ActionClassification(
+            category,
+            capability,
+            risk_class=risk,
+            normalized_operation=operation,
+            operation_hash=compute_operation_hash(operation, str(current), capability),
+            target=str(raw_path or tool_name),
+            reason=decision.reason.value,
+        )
 
     def check_action(
         self,
@@ -1107,9 +1230,7 @@ class ActionGateway:
         cwd: str,
     ) -> tuple[bool, RemoteErrorCode | None, str | None, ActionClassification]:
         """Verify if action is permitted to run, or requires approval."""
-        classification = classify_action(
-            tool_name, args, session, cwd, service_registry=self.service_registry
-        )
+        classification = self._engine_classification(tool_name, args, session, cwd)
 
         if classification.category == ActionCategory.AUTO_OPEN:
             # Rule 37: approved field is ignored/not required for AUTO_OPEN

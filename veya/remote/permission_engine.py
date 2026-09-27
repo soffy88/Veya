@@ -173,6 +173,30 @@ class PermissionEngine:
                 effects,
                 operation,
             )
+        if (
+            any(path.name == ".env" for path in context.target_paths)
+            and context.filesystem_effect != "read"
+        ):
+            return PermissionDecision(
+                Decision.APPROVAL_REQUIRED,
+                ReasonCode.APPROVAL_SECURITY_BOUNDARY,
+                scope,
+                effects,
+                operation,
+            )
+        home = Path.home().resolve()
+        if any(
+            path == protected or protected in path.parents
+            for path in tuple(_canonical(path) for path in context.target_paths)
+            for protected in (home / ".ssh", home / ".gnupg", home / ".aws")
+        ):
+            return PermissionDecision(
+                Decision.DENY,
+                ReasonCode.DENY_AUTHORITY_VIOLATION,
+                Scope.USER,
+                effects,
+                operation,
+            )
         if executable == "sudo" or context.privilege_level in {"root", "host"}:
             return PermissionDecision(
                 Decision.APPROVAL_REQUIRED,
