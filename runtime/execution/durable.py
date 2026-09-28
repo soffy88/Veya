@@ -254,6 +254,21 @@ class DurableExecutionRepository:
         self._sqlite_lock = threading.RLock()
         self._sqlite_memory: Any = None
         self._pool: Any = None
+        # D5 observability: transaction counters make SQLITE_LOCK_LEAK a
+        # measurement.  A non-zero ``sqlite_open_transactions`` after a round
+        # of executions means a BEGIN IMMEDIATE was never committed/rolled back.
+        self._sqlite_open_transactions = 0
+        self._sqlite_tx_total = 0
+        self._sqlite_tx_failures = 0
+
+    def sqlite_metrics(self) -> dict[str, int]:
+        """Live durable-store lock/transaction counters (no secrets)."""
+        return {
+            "sqlite_open_transactions": self._sqlite_open_transactions,
+            "sqlite_tx_total": self._sqlite_tx_total,
+            "sqlite_tx_failures": self._sqlite_tx_failures,
+            "sqlite_lock_held": 1 if self._sqlite_lock._is_owned() else 0,
+        }
 
     async def connect(self) -> None:
         if self.backend == "postgres":
@@ -378,15 +393,19 @@ class DurableExecutionRepository:
         self._sqlite_prepare()
         with self._sqlite_lock:
             conn = self._sqlite_connection()
+            self._sqlite_open_transactions += 1
+            self._sqlite_tx_total += 1
             try:
                 conn.execute("BEGIN IMMEDIATE")
                 result = fn(conn)
                 conn.commit()
                 return result
             except BaseException:
+                self._sqlite_tx_failures += 1
                 conn.rollback()
                 raise
             finally:
+                self._sqlite_open_transactions -= 1
                 if conn is not self._sqlite_memory:
                     conn.close()
 

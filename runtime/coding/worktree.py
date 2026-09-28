@@ -380,7 +380,14 @@ def repo_root_for_worktree(path: str | Path) -> Path:
     raise WorktreeError(f"cannot resolve a Veya worktree path: {candidate}")
 
 
-_ALLOWED_TERMINAL_STATES: frozenset[str] = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
+# Every terminal phase that authorises reclaiming the worktree.  TIMED_OUT and
+# TERMINATED were missing here, so a timeout or an externally terminated
+# execution retained its worktree forever and leaked one per run.  BLOCKED is
+# deliberately excluded: a blocked execution is retryable, so its worktree is
+# live state until it either resumes or reaches a real terminal phase.
+_ALLOWED_TERMINAL_STATES: frozenset[str] = frozenset(
+    {"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT", "TERMINATED"}
+)
 _TEARDOWN_LOCKS: dict[str, threading.Lock] = {}
 _TEARDOWN_LOCKS_MUTEX = threading.Lock()
 

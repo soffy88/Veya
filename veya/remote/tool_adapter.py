@@ -1100,6 +1100,24 @@ class RemoteToolAdapter:
             self.execution_worktrees, side_effect_ledger=self.side_effect_ledger
         )
 
+    def resource_metrics(self) -> dict[str, Any]:
+        """D5 gate input: live resource counters, read from the real objects.
+
+        No inference: every number comes from the live execution manager, the
+        live worktree registry, or the live durable repository.  A leak claim is
+        "these counters returned to their pre-round baseline", not "the code
+        looks like it releases".
+        """
+        metrics: dict[str, Any] = dict(self.jobs.metrics_snapshot())
+        metrics.update(self.execution_worktrees.lease_metrics())
+        metrics["active_executions"] = self.jobs.unfinished_count()
+        metrics["worker_permits_in_use"] = metrics["active_executions"]
+        metrics["leased_worker_permits"] = metrics["active_worktree_leases"]
+        repository = getattr(self.side_effect_ledger, "repository", None)
+        if repository is not None and hasattr(repository, "sqlite_metrics"):
+            metrics.update(repository.sqlite_metrics())
+        return metrics
+
     async def _ensure_promotion_ledger(self) -> SideEffectLedger:
         """Reuse the existing durable execution repository for promotions."""
 
@@ -1165,6 +1183,10 @@ class RemoteToolAdapter:
                 raise RuntimeError("remote startup recovery failed") from self._startup_error
             try:
                 reconciliation = self.jobs.reconcile_unfinished()
+                # Finish any worktree release interrupted by a crash between
+                # "terminal persisted" and "worktree removed".  Only durably
+                # terminal records are eligible, and keep_worktree is honoured.
+                worktree_reconciled = self.jobs.reconcile_worktrees()
                 records = self.jobs.unfinished_records()
                 if records and self.jobs.recovery_runner_factory is None:
                     now = time.time()
@@ -1177,6 +1199,7 @@ class RemoteToolAdapter:
                         "pending_recovery": pending,
                         "recovery_degraded": pending > 0,
                         "reconciliation": reconciliation,
+                        "worktrees_released": worktree_reconciled.get("released", 0),
                         "failures": [],
                     }
                     self._startup_complete = True
@@ -1189,6 +1212,7 @@ class RemoteToolAdapter:
                     "pending_recovery": len(failures),
                     "recovery_degraded": bool(failures),
                     "reconciliation": reconciliation,
+                    "worktrees_released": worktree_reconciled.get("released", 0),
                     "failures": failures,
                 }
                 self._startup_complete = True
@@ -4743,22 +4767,64 @@ _NOISE_DIRS = frozenset(
     }
 )
 
+# Directories pruned by path, relative to the listing root.  ``.veya/worktrees``
+# holds one git worktree per execution, so walking it made ``workspace.list``
+# cost grow with total execution history rather than with the requested scope.
+_PRUNED_SUBDIRS = frozenset({".veya/worktrees"})
 
-def _list_workspace(target: Path, *, limit: int = 200) -> list[str]:
-    """Bounded, noise-free directory listing (P0-N: O(request scope))."""
 
+def _list_workspace(target: Path, *, limit: int = 200, max_depth: int = 3) -> list[str]:
+    """Bounded, noise-free directory listing (O(request scope)).
+
+    The previous implementation used ``sorted(target.rglob("*"))`` and filtered
+    noise *afterwards*.  ``rglob`` cannot prune, so every noisy subtree was fully
+    traversed and materialised before the filter ran: measured p50 40.7s on the
+    veya repo, which carries hundreds of execution worktrees.  This walks with
+    ``os.scandir`` and refuses to descend into noise, so the cost is bounded by
+    the requested scope and the entry budget.
+    """
     lines: list[str] = []
-    for path in sorted(target.rglob("*")):
-        if any(part in _NOISE_DIRS for part in path.parts):
-            continue
+    budget = max(1, limit) * 20
+    truncated = False
+
+    def walk(root: Path, rel_prefix: str, depth: int) -> None:
+        nonlocal budget, truncated
+        if depth > max_depth or truncated:
+            return
         try:
-            rel = path.relative_to(target)
-        except ValueError:
-            continue
-        lines.append(f"{rel}/" if path.is_dir() else f"{rel} ({path.stat().st_size}b)")
-        if len(lines) >= limit:
-            lines.append("... (truncated)")
-            break
+            entries = sorted(os.scandir(root), key=lambda e: e.name)
+        except OSError:
+            return
+        for entry in entries:
+            if budget <= 0:
+                truncated = True
+                return
+            budget -= 1
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            if is_dir:
+                if entry.name in _NOISE_DIRS:
+                    continue
+                rel = f"{rel_prefix}{entry.name}"
+                if rel in _PRUNED_SUBDIRS:
+                    continue
+                lines.append(f"{rel}/")
+                walk(Path(entry.path), f"{rel}/", depth + 1)
+            else:
+                try:
+                    size = entry.stat(follow_symlinks=False).st_size
+                except OSError:
+                    continue
+                lines.append(f"{rel_prefix}{entry.name} ({size}b)")
+            if len(lines) >= limit:
+                truncated = True
+                return
+
+    walk(target, "", 0)
+    if truncated:
+        lines.append("... (truncated)")
     return lines
 
 

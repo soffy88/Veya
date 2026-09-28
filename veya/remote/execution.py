@@ -217,6 +217,10 @@ class ExecutionRecord:
     worktree_branch: str | None = None
     isolated_worktree: bool = False
     keep_worktree: bool = False
+    # Set when the terminal path successfully reclaimed this execution's
+    # worktree.  Durable evidence that the lease was released, so a restarted
+    # gateway can tell "already released" from "never released".
+    worktree_released_at: float | None = None
     # Execution-scoped worktree evidence.  These are projections of the
     # resource binding; ExecutionStore remains a projection, not a second
     # worktree or lifecycle authority.
@@ -840,13 +844,135 @@ class DurableJobManager:
         self._records: dict[str, ExecutionRecord] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._monitors: dict[str, asyncio.Task[None]] = {}
+        # D5 observability: leak-relevant resource counters.  These exist so
+        # "no leak" is a measured claim rather than an inference.
+        self._metrics: dict[str, int] = {}
         self._lock = threading.RLock()
         self._load()
+
+    def metrics_bump(self, name: str, amount: int = 1) -> None:
+        with self._lock:
+            self._metrics[name] = self._metrics.get(name, 0) + int(amount)
+
+    def metrics_snapshot(self) -> dict[str, int]:
+        """Point-in-time copy of the resource counters (D5 gate input)."""
+        with self._lock:
+            return dict(self._metrics)
 
     # ── persistence ─────────────────────────────────────────────────
     def _load(self) -> None:
         for record in self.store.load_all():
             self._records[record.execution_id] = record
+
+    @staticmethod
+    def _is_reclaimable_worktree(path: str) -> bool:
+        """Only Local2-created *execution* worktrees are ever reclaimable.
+
+        ``teardown_worktree`` guards on the ``.veya/worktrees`` path prefix, but
+        that directory also holds hand-made feature worktrees
+        (``agy-remove-dangerous-bypass``, ``v2-baseline-lint``, ...).  Those are
+        user state, not execution garbage.  WorktreeManager creates execution
+        worktrees as ``<base_dir>/task-<task_id>``, so require that exact shape
+        before reclaiming anything.
+        """
+        try:
+            resolved = Path(path).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return False
+        if resolved.name == "task-" or not resolved.name.startswith("task-"):
+            return False
+        return any(part == ".veya" for part in resolved.parts) and any(
+            part == "worktrees" for part in resolved.parts
+        )
+
+    def reconcile_worktrees(self, *, dry_run: bool = False) -> dict[str, Any]:
+        """Reclaim execution worktrees whose execution is durably terminal.
+
+        This is the crash/restart-safe half of the worktree lifecycle.  The
+        normal terminal path releases inline, but a gateway that died between
+        "terminal persisted" and "worktree removed" leaves the worktree behind
+        forever.  Startup and the operator GC both call this.
+
+        Safety properties:
+        - only records that are durably terminal are considered
+        - ``keep_worktree`` records are never touched
+        - a non-terminal record's worktree is never touched, even if the
+          process died (an in-flight execution may still be writing)
+        - teardown delegates to ``teardown_worktree``, which is fail-closed on
+          dirty / locked / /proc-referenced worktrees and only ever resolves
+          paths under ``.veya/worktrees``
+        - idempotent: a released worktree reports NOT_FOUND and is skipped
+        """
+        from runtime.coding.worktree import teardown_worktree
+
+        released: list[str] = []
+        retained: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        considered = 0
+        now = time.time()
+        with self._lock:
+            records = list(self._records.values())
+        for record in records:
+            path = record.worktree_path
+            if not path:
+                continue
+            considered += 1
+            if not record.is_terminal:
+                retained.append({"execution_id": record.execution_id, "reason": "NOT_TERMINAL"})
+                continue
+            if record.keep_worktree:
+                retained.append({"execution_id": record.execution_id, "reason": "KEEP_WORKTREE"})
+                continue
+            if record.worktree_released_at is not None and not Path(path).exists():
+                continue  # already released in a previous run
+            if not Path(path).exists():
+                if record.worktree_released_at is None:
+                    record.worktree_released_at = now
+                continue
+            if not self._is_reclaimable_worktree(path):
+                retained.append(
+                    {"execution_id": record.execution_id, "path": path, "reason": "NOT_EXECUTION_WORKTREE"}
+                )
+                continue
+            if dry_run:
+                retained.append(
+                    {"execution_id": record.execution_id, "reason": "DRY_RUN", "path": path}
+                )
+                continue
+            try:
+                outcome = teardown_worktree(path, execution_status=str(record.status))
+            except Exception as exc:  # teardown is best-effort per worktree
+                errors.append(
+                    {
+                        "execution_id": record.execution_id,
+                        "path": path,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
+            if outcome.get("cleaned"):
+                released.append(record.execution_id)
+                record.worktree_released_at = time.time()
+                self.metrics_bump("worktrees_released", 1)
+                with contextlib.suppress(Exception):
+                    self._persist(record)
+            else:
+                retained.append(
+                    {
+                        "execution_id": record.execution_id,
+                        "path": path,
+                        "reason": str(outcome.get("status")),
+                    }
+                )
+                self.metrics_bump("worktrees_retained", 1)
+        return {
+            "dry_run": dry_run,
+            "considered": considered,
+            "released": len(released),
+            "released_execution_ids": released,
+            "retained": retained,
+            "errors": errors,
+        }
 
     def unfinished_count(self) -> int:
         """Number of persisted non-terminal remote projections."""
@@ -2048,13 +2174,29 @@ class DurableJobManager:
         record.events.append(terminal_event)
         record.last_event = terminal_event
         self._persist(record)
-        if record.parent_execution_id is None and record.worktree_path and not record.keep_worktree:
+        # Reclaim the execution worktree on EVERY terminal path, not just
+        # parents.  The old `parent_execution_id is None` gate meant that
+        # worker.dispatch children -- which each own their own isolated
+        # worktree -- never released it, leaking one git worktree per child
+        # (measured: 585 leaked task-* worktrees, 692MB of .git/worktrees).
+        #
+        # teardown_worktree is fail-closed: it refuses dirty, locked, and
+        # /proc-referenced worktrees, so an execution that still owns uncommitted
+        # work keeps its worktree.  The outcome is counted, not swallowed.
+        if record.worktree_path and not record.keep_worktree:
             try:
                 from runtime.coding.worktree import teardown_worktree
 
-                teardown_worktree(record.worktree_path, execution_status=str(status))
-            except Exception:
-                pass
+                outcome = teardown_worktree(record.worktree_path, execution_status=str(status))
+            except Exception as exc:  # never let cleanup break terminal persist
+                outcome = {"cleaned": False, "status": "TEARDOWN_ERROR", "error": repr(exc)}
+            if outcome.get("cleaned"):
+                self.metrics_bump("worktrees_released", 1)
+                record.worktree_released_at = time.time()
+            else:
+                self.metrics_bump("worktrees_retained", 1)
+            self._persist(record)
+
 
     # ── progress ────────────────────────────────────────────────────
     def _record_for_update(self, execution_id: str) -> ExecutionRecord:

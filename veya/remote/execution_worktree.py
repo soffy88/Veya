@@ -147,6 +147,9 @@ class ExecutionWorktreeRegistry:
         self._lock = threading.RLock()
         self._bindings: dict[tuple[str, str], ExecutionWorktreeBinding] = {}
         self._leases: dict[tuple[str, str], ExecutionRepoWriteLease] = {}
+        self._leases_acquired = 0
+        self._leases_released = 0
+        self._leases_reaped = 0
         if self.root is not None:
             self.root.mkdir(parents=True, exist_ok=True)
             self._load()
@@ -255,6 +258,26 @@ class ExecutionWorktreeRegistry:
             binding.last_used_at = time.time()
             self._persist(binding)
 
+    def active_leases(self) -> int:
+        """Unexpired write leases currently held (D5 leak input)."""
+        now = time.time()
+        with self._lock:
+            return sum(1 for lease in self._leases.values() if lease.expires_at > now)
+
+    def lease_metrics(self) -> dict[str, int]:
+        """Lease counters so WORKTREE_LEASE_LEAK is measured, not inferred."""
+        with self._lock:
+            return {
+                "active_worktree_leases": sum(
+                    1 for lease in self._leases.values() if lease.expires_at > time.time()
+                ),
+                "tracked_worktree_leases": len(self._leases),
+                "worktree_bindings": len(self._bindings),
+                "leases_acquired": self._leases_acquired,
+                "leases_released": self._leases_released,
+                "leases_reaped": self._leases_reaped,
+            }
+
     def acquire_lease(
         self, execution_id: str, repo_identity: str, worker_id: str, *, ttl_s: float = 60.0
     ) -> ExecutionRepoWriteLease:
@@ -268,6 +291,7 @@ class ExecutionWorktreeRegistry:
                 execution_id, repo_identity, worker_id, now, now, now + max(1.0, ttl_s)
             )
             self._leases[key] = lease
+            self._leases_acquired += 1
             return lease
 
     def heartbeat_lease(self, lease: ExecutionRepoWriteLease, *, ttl_s: float = 60.0) -> None:
@@ -285,6 +309,7 @@ class ExecutionWorktreeRegistry:
             current = self._leases.get(key)
             if current and current.holder_worker_id == lease.holder_worker_id:
                 self._leases.pop(key, None)
+                self._leases_released += 1
 
     def reap_leases(self) -> int:
         now = time.time()
@@ -292,6 +317,7 @@ class ExecutionWorktreeRegistry:
             expired = [key for key, lease in self._leases.items() if lease.expires_at <= now]
             for key in expired:
                 self._leases.pop(key, None)
+                self._leases_reaped += 1
             return len(expired)
 
 
