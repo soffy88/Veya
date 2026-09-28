@@ -97,7 +97,7 @@ async def test_stop_cancels_active_chat(monkeypatch):
     sid = f"test_sid_stop_1_{uuid.uuid4().hex[:8]}"
     started = asyncio.Event()
 
-    async def _mock_chat_stream(text: str, session_id: str, **kwargs: Any):
+    async def _mock_chat_stream(self, text: str, session_id: str, **kwargs: Any):
         from server.events import fire_step
 
         fire_step({"type": "master_start", "session_id": session_id, "task_id": "t1"})
@@ -105,7 +105,7 @@ async def test_stop_cancels_active_chat(monkeypatch):
         while True:
             await asyncio.sleep(0.05)
 
-    monkeypatch.setattr(coordinator_master.master_coordinator, "chat_stream", _mock_chat_stream)
+    monkeypatch.setattr(coordinator_master.MasterCoordinator, "chat_stream", _mock_chat_stream)
 
     stream_iter = new_agent_stream_events("hello world", session_id=sid, turn_id="turn_1")
 
@@ -148,7 +148,7 @@ async def test_stale_reconnect_after_stop_does_not_restart(monkeypatch):
     sid = f"test_sid_stale_{uuid.uuid4().hex[:8]}"
     chat_calls = 0
 
-    async def _mock_chat_stream(text: str, session_id: str, **kwargs: Any):
+    async def _mock_chat_stream(self, text: str, session_id: str, **kwargs: Any):
         nonlocal chat_calls
         chat_calls += 1
         from server.events import fire_step
@@ -157,7 +157,7 @@ async def test_stale_reconnect_after_stop_does_not_restart(monkeypatch):
         while True:
             await asyncio.sleep(0.05)
 
-    monkeypatch.setattr(coordinator_master.master_coordinator, "chat_stream", _mock_chat_stream)
+    monkeypatch.setattr(coordinator_master.MasterCoordinator, "chat_stream", _mock_chat_stream)
 
     stream_iter1 = new_agent_stream_events("run something", session_id=sid, turn_id="turn_stale_1")
     await _drain_until(stream_iter1, "master_start")
@@ -187,7 +187,7 @@ async def test_concurrent_stop_and_reconnect_does_not_restart(monkeypatch):
     started = asyncio.Event()
     chat_calls = 0
 
-    async def _mock_chat_stream(text: str, session_id: str, **kwargs: Any):
+    async def _mock_chat_stream(self, text: str, session_id: str, **kwargs: Any):
         nonlocal chat_calls
         chat_calls += 1
         from server.events import fire_step
@@ -197,7 +197,7 @@ async def test_concurrent_stop_and_reconnect_does_not_restart(monkeypatch):
         while True:
             await asyncio.sleep(0.05)
 
-    monkeypatch.setattr(coordinator_master.master_coordinator, "chat_stream", _mock_chat_stream)
+    monkeypatch.setattr(coordinator_master.MasterCoordinator, "chat_stream", _mock_chat_stream)
 
     stream_iter = new_agent_stream_events("do work", session_id=sid, turn_id="turn_c1")
     await stream_iter.__anext__()
@@ -230,7 +230,7 @@ async def test_new_explicit_turn_after_stop_can_start(monkeypatch):
     sid = f"test_sid_new_turn_{uuid.uuid4().hex[:8]}"
     chat_calls = 0
 
-    async def _mock_chat_stream(text: str, session_id: str, **kwargs: Any):
+    async def _mock_chat_stream(self, text: str, session_id: str, **kwargs: Any):
         nonlocal chat_calls
         chat_calls += 1
         from server.events import fire_step
@@ -243,7 +243,7 @@ async def test_new_explicit_turn_after_stop_can_start(monkeypatch):
             fire_step({"type": "text_delta", "delta": "Answer to turn 2"})
             return {"final_answer": "Answer to turn 2"}
 
-    monkeypatch.setattr(coordinator_master.master_coordinator, "chat_stream", _mock_chat_stream)
+    monkeypatch.setattr(coordinator_master.MasterCoordinator, "chat_stream", _mock_chat_stream)
 
     # Turn 1 starts then gets stopped
     stream1 = new_agent_stream_events("first question", session_id=sid, turn_id="turn_1")
@@ -269,7 +269,7 @@ async def test_active_streams_cleanup_after_stop(monkeypatch):
     sid = f"test_sid_cleanup_{uuid.uuid4().hex[:8]}"
     started = asyncio.Event()
 
-    async def _mock_chat_stream(text: str, session_id: str, **kwargs: Any):
+    async def _mock_chat_stream(self, text: str, session_id: str, **kwargs: Any):
         from server.events import fire_step
 
         fire_step({"type": "master_start", "session_id": session_id, "task_id": "t1"})
@@ -277,7 +277,7 @@ async def test_active_streams_cleanup_after_stop(monkeypatch):
         while True:
             await asyncio.sleep(0.05)
 
-    monkeypatch.setattr(coordinator_master.master_coordinator, "chat_stream", _mock_chat_stream)
+    monkeypatch.setattr(coordinator_master.MasterCoordinator, "chat_stream", _mock_chat_stream)
 
     stream = new_agent_stream_events("question", session_id=sid, turn_id="turn_cleanup")
     await stream.__anext__()
@@ -301,7 +301,7 @@ async def test_no_second_master_start_after_stop(monkeypatch):
     sid = f"test_sid_no_second_start_{uuid.uuid4().hex[:8]}"
     master_starts: list[dict[str, Any]] = []
 
-    async def _mock_chat_stream(text: str, session_id: str, **kwargs: Any):
+    async def _mock_chat_stream(self, text: str, session_id: str, **kwargs: Any):
         from server.events import fire_step
 
         start_event = {
@@ -314,7 +314,7 @@ async def test_no_second_master_start_after_stop(monkeypatch):
         while True:
             await asyncio.sleep(0.05)
 
-    monkeypatch.setattr(coordinator_master.master_coordinator, "chat_stream", _mock_chat_stream)
+    monkeypatch.setattr(coordinator_master.MasterCoordinator, "chat_stream", _mock_chat_stream)
 
     # Initial turn
     stream = new_agent_stream_events("prompt", session_id=sid, turn_id="turn_orig")

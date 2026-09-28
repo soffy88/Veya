@@ -157,7 +157,7 @@ async def new_agent_stream_events(
 
     def _on_step(event: dict) -> None:
         """Sync producer hook for the engine (fire_step -> _on_step_ctx)."""
-        durable_session_store.publish_sync(sid, event)
+        durable_session_store.publish_sync(sid, event, epoch=stream_epoch)
 
     # Consumers that used to recover the session id from the bound method's
     # `__self__.sid` (e.g. hicode_agent._current_sid) read it from here now.
@@ -205,6 +205,8 @@ async def new_agent_stream_events(
             无论成功、取消还是自身抛错, 本协程**必须**产出一个 terminal 事件;
             否则消费端会永远阻塞在 live 队列上 (前端表现为流挂死)。
             """
+            # 先排空 sync producer 队列: 本协程的直接落盘绝不能插队到它们前面,
+            # 否则终止事件会拿到更小的 seq 并提前截断流。
             try:
                 try:
                     result = await chat_task
@@ -216,9 +218,12 @@ async def new_agent_stream_events(
                             "squad_id": "master",
                             "delta": "⏹ 已停止。后台 Hicode 任务也已真正中断。",
                         },
+                        epoch=stream_epoch,
                     )
                     await durable_session_store.publish_terminal(
-                        sid, {"type": "master_done", "session_id": sid, "status": "cancelled"}
+                        sid,
+                        {"type": "master_done", "session_id": sid, "status": "cancelled"},
+                        epoch=stream_epoch,
                     )
                     return
                 if result is None:
@@ -230,7 +235,9 @@ async def new_agent_stream_events(
                         "请重试, 或在上方更换模型/引擎。"
                     )
                 await durable_session_store.publish(
-                    sid, {"type": "text_delta", "squad_id": "master", "delta": final}
+                    sid,
+                    {"type": "text_delta", "squad_id": "master", "delta": final},
+                    epoch=stream_epoch,
                 )
                 await durable_session_store.publish_terminal(
                     sid,
@@ -241,6 +248,7 @@ async def new_agent_stream_events(
                         "cost_usd": result.get("cost_usd") or 0,
                         "rounds": result.get("rounds") or 0,
                     },
+                    epoch=stream_epoch,
                 )
             except Exception as exc:
                 # Never swallow: the failure becomes a durable terminal event so
@@ -257,6 +265,7 @@ async def new_agent_stream_events(
                             "status": "error",
                             "error": f"{type(exc).__name__}: {exc}",
                         },
+                        epoch=stream_epoch,
                     )
                 return
             if user:

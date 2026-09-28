@@ -2172,10 +2172,12 @@ async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
 
     # 3. 关联的流式会话推入终止事件(经 durable_session_store 落盘)。
     #    旧实现在这里从内存队列取 SSEQueue 并 close(); 该哨兵无法跨重启存活,
-    #    因此终止语义改为可持久化的 terminal 事件。
+    #    因此终止语义改为可持久化的 terminal 事件。事件绑定取消时刻的 epoch:
+    #    若新一轮已经开始, 绝不能把终止写进新一轮 (会提前截断它的流)。
     if session_id in _active_stream_sessions:
         _active_stream_sessions.discard(session_id)
         with contextlib.suppress(Exception):
+            cancel_epoch, _ = await durable_session_store.get_stream_head(session_id)
             await durable_session_store.publish(
                 session_id,
                 {
@@ -2183,6 +2185,7 @@ async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
                     "squad_id": "master",
                     "delta": "⏹ 已停止。后台 Hicode 任务也已真正中断。",
                 },
+                epoch=cancel_epoch,
             )
             await durable_session_store.publish_terminal(
                 session_id,
@@ -2191,6 +2194,7 @@ async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
                     "session_id": session_id,
                     "status": "cancelled",
                 },
+                epoch=cancel_epoch,
             )
 
     # 4. 取消关联的 Hicode 任务

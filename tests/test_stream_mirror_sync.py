@@ -89,8 +89,10 @@ async def test_stream_pump_mirrors_events_for_logged_in_user(monkeypatch):
         pass
 
     # 镜像里应包含 user_prompt (首帧) + 流式 text_delta (2 帧) + _finish 补发的
-    # 最终答案 text_delta + master_done。
-    kinds = [ev.get("type") for _sid, ev in captured]
+    # 最终答案 text_delta + master_done。只看本 session 的镜像: global_notifier
+    # 是进程级单例, 早先测试残留的后台任务可能还在往它推别的 session 的帧。
+    mine = [ev for _sid, ev in captured if _sid == session_id]
+    kinds = [ev.get("type") for ev in mine]
     assert "user_prompt" in kinds
     assert kinds.count("text_delta") >= 2
     assert "master_done" in kinds
