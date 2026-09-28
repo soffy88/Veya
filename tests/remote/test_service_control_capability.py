@@ -16,6 +16,27 @@ from veya.remote.tool_adapter import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _never_touch_a_real_systemd_unit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Module-wide hermeticity guard: never execute a real systemctl.
+
+    ``worker.dispatch``/``shell.exec`` service control legitimately allows
+    self-unit restart of ``veya-remote-mcp.service`` (the P7 self-restart
+    feature).  Any test in this module that drives that path without its own
+    patch therefore restarts the LIVE gateway -- which repeatedly tripped
+    systemd's StartLimitBurst=5/10s and left the unit permanently ``failed``.
+
+    Default every test here to a fake exec.  Tests that assert on argv install
+    their own ``monkeypatch.setattr(asyncio, "create_subprocess_exec", ...)``,
+    which simply wins.
+    """
+
+    async def fake_exec(*argv: str, **kwargs: Any) -> "FakeProcess":
+        raise AssertionError(f"real systemctl execution attempted in test: {argv}")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+
 def _repo(path: Path) -> None:
     subprocess.run(["git", "init", "-q", "-b", "main", str(path)], check=True)
     subprocess.run(["git", "-C", str(path), "config", "user.email", "t@t"], check=True)

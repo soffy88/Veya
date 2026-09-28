@@ -2783,7 +2783,7 @@ class RemoteToolAdapter:
                     f"task[{index}] needs a known worker ({sorted(_WORKER_TYPES)}) and a task",
                 )
             children.append(
-                self._submit_worker_child(
+                await self._submit_worker_child(
                     session, ws_binding, parent, worker, task_text, item, index
                 )
             )
@@ -2812,7 +2812,7 @@ class RemoteToolAdapter:
             duration_ms=(time.time() - started) * 1000,
         )
 
-    def _submit_worker_child(
+    async def _submit_worker_child(
         self,
         session: RemoteSession,
         ws_binding: WorkspaceBinding,
