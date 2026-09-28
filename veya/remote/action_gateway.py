@@ -1158,7 +1158,7 @@ class ActionGateway:
                 }
             )
         elif tool_name.startswith("worker.") or tool_name in {"hicode.execute", "agy.execute"}:
-            worker_name = str(args.get("worker") or args.get("executor") or "hicode")
+            worker_name = str(args.get("worker") or args.get("executor") or "")
             context = OperationContext(
                 actor=session.principal,
                 tool=tool_name,
@@ -1167,7 +1167,9 @@ class ActionGateway:
                 cwd=current,
                 filesystem_effect="write",
                 session_id=session.session_id,
-                executor_identity=get_executor_registry().identity(worker_name),
+                executor_identity=get_executor_registry().identity(worker_name)
+                if worker_name
+                else None,
             )
         else:
             context = OperationContext(

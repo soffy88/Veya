@@ -109,7 +109,7 @@ def test_future_worker_can_be_registered_without_new_authority() -> None:
 def test_manifest_health_and_dispatch_project_one_identity() -> None:
     registry = ExecutorRegistry()
     health = ExecutorHealthRegistry(executor_registry=registry)
-    for worker in ("pi", "hicode", "codex", "antigravity", "dsh"):
+    for worker in ("pi", "codex", "antigravity", "dsh", "opencode", "claude_code"):
         identity = registry.identity(worker)
         manifest = probe_runtime_capability_manifest(worker)
         assert (manifest.provider, manifest.model) == (
@@ -122,3 +122,12 @@ def test_manifest_health_and_dispatch_project_one_identity() -> None:
             identity.provider or "unknown",
             identity.model or "unknown",
         )
+
+
+def test_retired_hicode_identity_fails_closed() -> None:
+    """Hicode is retired: discovery must fail closed, never return an identity."""
+    import pytest
+
+    registry = ExecutorRegistry()
+    with pytest.raises(ValueError, match="retired"):
+        registry.identity("hicode")

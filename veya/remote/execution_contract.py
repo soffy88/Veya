@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
 from veya.supervision.evidence import (
@@ -238,6 +239,11 @@ def probe_runtime_capability_manifest(
             Path.home() / ".opencode" / "bin" / "opencode",
             Path.home() / ".local" / "bin" / "opencode",
         ]
+    elif norm == "claude_code":
+        candidate_bins = [
+            "claude",
+            Path.home() / ".local" / "bin" / "claude",
+        ]
     elif norm == "codex":
         candidate_bins = [
             "codex",
@@ -267,10 +273,7 @@ def probe_runtime_capability_manifest(
         resolved = resolve_acp_command()
         candidate_bins = [resolved[0]] if resolved else ["openhands", "acp-agent", "agents-cli"]
     elif norm == "hicode":
-        installed = bool(identity.launcher)
-        bin_path = identity.launcher
-        version = "unknown"
-        # Hicode identity and auth semantics are supplied by ExecutorRegistry.
+        raise ValueError("Executor retired: 'hicode'")
 
     if not installed:
         for cand in candidate_bins:
@@ -337,7 +340,7 @@ def probe_runtime_capability_manifest(
 
     return RuntimeCapabilityManifest(
         executor_id=norm,
-        executor_kind="l1_worker" if norm != "hicode" else "internal_hicode",
+        executor_kind="l1_worker",
         installed=installed,
         authenticated=authenticated,
         reachable=reachable,
@@ -362,7 +365,7 @@ def probe_runtime_capability_manifest(
         network_isolation="loopback_proxy",
         credential_isolation="ephemeral_redacted",
         process_isolation="process_group",
-        max_concurrency=16 if norm == "hicode" else 4,
+        max_concurrency=4,
         active_executions=active_executions,
         status=status,
         status_reason=status_reason,
@@ -373,8 +376,71 @@ def probe_runtime_capability_manifest(
     )
 
 
+# The runtime capability probe shells out to `<binary> --version` with a 2s
+# timeout, so running it inline inside worker.dispatch admission makes the
+# admission request pay that latency once per child.  The probe is a pure
+# function of (executor, workspace, health), so memoise it for a short window.
+# Admission still AWAITS a real manifest -- it just stops re-probing binaries
+# on every dispatch.  Health is part of the cache key, so a provider going
+# UNAVAILABLE invalidates immediately instead of waiting out the TTL.
+MANIFEST_CACHE_TTL_S = 15.0
+
+_manifest_cache: dict[tuple[str, str, str], tuple[float, RuntimeCapabilityManifest]] = {}
+_manifest_cache_lock = threading.Lock()
+
+
+def _manifest_health_key(executor_id: str, health_registry: Any | None) -> str:
+    if health_registry is None:
+        return ""
+    try:
+        return str(getattr(health_registry.get_health(executor_id), "value", ""))
+    except Exception:
+        return "unknown"
+
+
+def probe_runtime_capability_manifest_cached(
+    executor_id: str,
+    *,
+    workspace_path: str | Any | None = None,
+    health_registry: Any = None,
+    active_executions: int = 0,
+    ttl_s: float = MANIFEST_CACHE_TTL_S,
+) -> RuntimeCapabilityManifest:
+    """Memoised :func:`probe_runtime_capability_manifest` for the admission path.
+
+    Callers must still await this; the cache removes repeat subprocess cost,
+    it does not make the probe fire-and-forget.
+    """
+    norm = normalize_executor_id(executor_id)
+    key = (norm, str(workspace_path or ""), _manifest_health_key(norm, health_registry))
+    now = time.time()
+    with _manifest_cache_lock:
+        cached = _manifest_cache.get(key)
+        if cached is not None and now - cached[0] < ttl_s:
+            # active_executions/observed_at are live bookkeeping, not probe
+            # results: refresh them so a cached manifest never misreports.
+            return replace(cached[1], active_executions=active_executions, observed_at=now)
+
+    manifest = probe_runtime_capability_manifest(
+        norm,
+        workspace_path=workspace_path,
+        health_registry=health_registry,
+        active_executions=active_executions,
+    )
+    with _manifest_cache_lock:
+        _manifest_cache[key] = (now, manifest)
+    return manifest
+
+
+def clear_runtime_capability_manifest_cache() -> None:
+    """Drop memoised manifests. Used by tests and by explicit re-qualification."""
+    with _manifest_cache_lock:
+        _manifest_cache.clear()
+
+
 __all__ = [
     "GENESIS_HASH",
+    "MANIFEST_CACHE_TTL_S",
     "ExecutionCapabilityEnvelope",
     "ExecutionCondition",
     "ExecutionSpec",
@@ -382,6 +448,8 @@ __all__ = [
     "SessionEnvelope",
     "build_evidence_chain",
     "canonical_content_hash",
+    "clear_runtime_capability_manifest_cache",
     "probe_runtime_capability_manifest",
+    "probe_runtime_capability_manifest_cached",
     "verify_evidence_chain",
 ]
