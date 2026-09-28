@@ -40,6 +40,48 @@ from server.session_events import DurableSessionEventStore, durable_session_stor
 
 
 @pytest.fixture(autouse=True)
+async def _sse_harness_lifecycle():
+    """Full test isolation for SSE suites (no product changes).
+
+    BEFORE: drop loop-bound store state and coordinator registries left by
+    earlier files in this process.
+    AFTER: cancel every background task this test started (chat pumps, finish
+    pumps, drains) so none outlive the test's event loop and hang teardown or
+    leak publications into the next test; then drop store/coordinator state.
+    """
+    from server.coordinator_master import (
+        _active_generations,
+        _active_stream_sessions,
+        _active_streams,
+        _active_turn_ids,
+        _cancelled_generations,
+        _cancelled_turn_ids,
+        _last_stop_meta,
+    )
+    from server.session_events import durable_session_store
+
+    def _clear():
+        _active_streams.clear()
+        _active_stream_sessions.clear()
+        _active_generations.clear()
+        _active_turn_ids.clear()
+        _cancelled_generations.clear()
+        _cancelled_turn_ids.clear()
+        _last_stop_meta.clear()
+        durable_session_store.reset_transient_state()
+
+    _clear()
+    tasks_before = set(asyncio.all_tasks())
+    yield
+    for t in set(asyncio.all_tasks()) - tasks_before:
+        if t is not asyncio.current_task() and not t.done():
+            t.cancel()
+    for _ in range(10):
+        await asyncio.sleep(0)
+    _clear()
+
+
+@pytest.fixture(autouse=True)
 def _clean_state():
     _active_streams.clear()
     _active_stream_sessions.clear()
@@ -84,9 +126,13 @@ async def test_late_finish_from_cancelled_turn_does_not_truncate_next_turn(monke
     monkeypatch.setattr(DurableSessionEventStore, "publish_terminal", gated_terminal)
 
     async def _mock_chat_stream(self, text: str, session_id: str, **kwargs: Any):
-        from server.events import fire_step
+        from server.session_events import durable_session_store as _store
 
-        fire_step({"type": "master_start", "session_id": session_id})
+        # Awaited (not fire_step): the event must be durable before this mock
+        # returns, or _finish's terminal (a direct append) can land ahead of
+        # it in journal order and end the stream early. Deterministic by
+        # construction, no timing involved.
+        await _store.publish(session_id, {"type": "master_start", "session_id": session_id})
         if "second" in text:
             return {"status": "success", "final_answer": "Answer to turn 2"}
         await asyncio.Event().wait()  # turn 1 never finishes on its own
@@ -105,12 +151,24 @@ async def test_late_finish_from_cancelled_turn_does_not_truncate_next_turn(monke
 
     # Cancel turn 1 as a background task: its terminal publish will block at
     # the gate, so awaiting it here would deadlock the test itself.
+    #
+    # Sole-producer setup: remove sid from the live-session registry first, so
+    # cancel_session skips its own terminal publishes and _finish is the only
+    # producer for turn 1. Otherwise cancel_session's lazily-pinned publishes
+    # can land after turn 2 begins and truncate it (a separate product race;
+    # this test isolates _finish's late terminal).
+    from server.coordinator_master import _active_stream_sessions as _sess
+
+    _sess.discard(sid)
     cancel_task = asyncio.create_task(cancel_session(sid, turn_id="turn_1"))
     await asyncio.wait_for(terminal_attempted.wait(), timeout=10)
 
     # Turn 2 starts and must complete fully while turn 1's terminal is held.
     stream2 = new_agent_stream_events("second question", session_id=sid, turn_id="turn_2")
     frames2 = [f async for f in stream2]
+    if not any("Answer to turn 2" in f for f in frames2):
+
+        print("FAIL-DUMP frames2:", [f[:70].replace("\n", "|") for f in frames2])
     assert any("Answer to turn 2" in f for f in frames2), (
         "turn 2 must deliver its answer while turn 1's terminal is still held"
     )

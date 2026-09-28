@@ -6,11 +6,54 @@ notification_center.push_stream 是逐帧高频镜像 — 只推给同 user_id �
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
 
 from server.notification_center import NotificationCenter
+
+
+@pytest.fixture(autouse=True)
+async def _sse_harness_lifecycle():
+    """Full test isolation for SSE suites (no product changes).
+
+    BEFORE: drop loop-bound store state and coordinator registries left by
+    earlier files in this process.
+    AFTER: cancel every background task this test started (chat pumps, finish
+    pumps, drains) so none outlive the test's event loop and hang teardown or
+    leak publications into the next test; then drop store/coordinator state.
+    """
+    from server.coordinator_master import (
+        _active_generations,
+        _active_stream_sessions,
+        _active_streams,
+        _active_turn_ids,
+        _cancelled_generations,
+        _cancelled_turn_ids,
+        _last_stop_meta,
+    )
+    from server.session_events import durable_session_store
+
+    def _clear():
+        _active_streams.clear()
+        _active_stream_sessions.clear()
+        _active_generations.clear()
+        _active_turn_ids.clear()
+        _cancelled_generations.clear()
+        _cancelled_turn_ids.clear()
+        _last_stop_meta.clear()
+        durable_session_store.reset_transient_state()
+
+    _clear()
+    tasks_before = set(asyncio.all_tasks())
+    yield
+    for t in set(asyncio.all_tasks()) - tasks_before:
+        if t is not asyncio.current_task() and not t.done():
+            t.cancel()
+    for _ in range(10):
+        await asyncio.sleep(0)
+    _clear()
 
 
 @pytest.mark.asyncio
@@ -73,7 +116,7 @@ async def test_stream_pump_mirrors_events_for_logged_in_user(monkeypatch):
 
     async def fake_chat_stream(self, text, *, session_id=None, **kw):
         for delta in ("片段A", "片段B"):
-            durable_session_store.publish_sync(
+            await durable_session_store.publish(
                 session_id, {"type": "text_delta", "squad_id": "master", "delta": delta}
             )
         return {"status": "success", "final_answer": "片段A片段B"}
@@ -116,7 +159,7 @@ async def test_stream_pump_no_mirror_for_anonymous(monkeypatch):
     from server.session_events import durable_session_store
 
     async def fake_chat_stream(self, text, *, session_id=None, **kw):
-        durable_session_store.publish_sync(
+        await durable_session_store.publish(
             session_id, {"type": "text_delta", "squad_id": "master", "delta": "x"}
         )
         return {"status": "success", "final_answer": "x"}
