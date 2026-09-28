@@ -2146,6 +2146,16 @@ async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
     now = time.monotonic()
     stopped: list[str] = []
 
+    # Cancel intent binds the canonical turn epoch NOW, before any await that
+    # could let a new turn begin. Reading the head lazily at publish time
+    # would attribute this turn's terminal to the next turn if this function
+    # is still working through its preamble when the next turn starts — and
+    # that late terminal would truncate the new turn's stream.
+    try:
+        cancel_epoch, _ = await durable_session_store.get_stream_head(session_id)
+    except Exception:
+        cancel_epoch = None
+
     # 1. 记录 generation & turn_id 的 tombstone，阻止旧重连/stale 请求重入
     cur_gen = _active_generations.get(session_id, 0)
     cur_turn = _active_turn_ids.get(session_id)
@@ -2177,7 +2187,6 @@ async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
     if session_id in _active_stream_sessions:
         _active_stream_sessions.discard(session_id)
         with contextlib.suppress(Exception):
-            cancel_epoch, _ = await durable_session_store.get_stream_head(session_id)
             await durable_session_store.publish(
                 session_id,
                 {
