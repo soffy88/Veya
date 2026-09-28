@@ -36,6 +36,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from veya.remote.qualification_faults import QualificationFault
+from veya.remote.qualification_faults import checkpoint as qualification_checkpoint
+
 _logger = logging.getLogger(__name__)
 
 
@@ -75,6 +78,7 @@ class ExecutionPhase(StrEnum):
     BLOCKED = "BLOCKED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    TIMED_OUT = "TIMED_OUT"
     TERMINATED = "TERMINATED"
 
 
@@ -86,6 +90,7 @@ class ExecutionStatus(StrEnum):
     BLOCKED = "BLOCKED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    TIMED_OUT = "TIMED_OUT"
 
 
 TERMINAL_PHASES = frozenset(
@@ -94,6 +99,7 @@ TERMINAL_PHASES = frozenset(
         ExecutionPhase.BLOCKED,
         ExecutionPhase.FAILED,
         ExecutionPhase.CANCELLED,
+        ExecutionPhase.TIMED_OUT,
         ExecutionPhase.TERMINATED,
     }
 )
@@ -144,6 +150,7 @@ _LEGACY_STATE = {
     ExecutionStatus.BLOCKED: "FAILED",
     ExecutionStatus.FAILED: "FAILED",
     ExecutionStatus.CANCELLED: "CANCELLED",
+    ExecutionStatus.TIMED_OUT: "TIMED_OUT",
 }
 
 
@@ -334,6 +341,15 @@ class ExecutionRecord:
     effect_receipt: dict[str, Any] | None = None
     finalization_status: str | None = None
     finalization_failure_class: str | None = None
+    # ``dispatch_id`` is the MCP admission idempotency key.  It is distinct
+    # from execution_id so a caller can safely retry admission after a lost
+    # response and still recover the same durable execution.
+    dispatch_id: str | None = None
+    # Control-plane state is deliberately separate from the legacy provider
+    # phase.  Every admission boundary is persisted before the next one.
+    lifecycle_state: str = "REQUESTED"
+    cancellation_intent: dict[str, Any] | None = None
+    parent_reconciled_at: float | None = None
 
     @property
     def is_direct(self) -> bool:
@@ -381,6 +397,7 @@ class ExecutionRecord:
                 recent_events.insert(0, checkpoint)
         payload: dict[str, Any] = {
             "execution_id": self.execution_id,
+            "dispatch_id": self.dispatch_id,
             "execution_type": self.execution_type,
             "task_id": self.task_id,
             "tool": self.tool,
@@ -498,6 +515,9 @@ class ExecutionRecord:
             ),
             "workspace": self.requested_realpath,
             "session_id": self.session_id,
+            "lifecycle_state": self.lifecycle_state,
+            "cancellation_intent": dict(self.cancellation_intent or {}),
+            "parent_reconciled_at": self.parent_reconciled_at,
         }
         if self.is_direct:
             payload.update(
@@ -863,6 +883,36 @@ class DurableJobManager:
     def _load(self) -> None:
         for record in self.store.load_all():
             self._records[record.execution_id] = record
+        self._reconcile_stale_parents()
+
+    def _reconcile_stale_parents(self) -> int:
+        """Fail closed stale parent projections left by timed-out dispatch RPCs.
+
+        A parent worker.dispatch execution that never produced children and
+        whose heartbeat is dead is a frozen projection from a timed-out RPC,
+        not live work.  Reconcile it to FAILED so it stops consuming durable
+        capacity and blocking recovery.
+        """
+        reconciled = 0
+        now = time.time()
+        for record in list(self._records.values()):
+            if record.is_terminal or record.role != "parent":
+                continue
+            if record.child_execution_ids:
+                continue
+            if record.tool != "worker.dispatch":
+                continue
+            heartbeat_at = record.heartbeat_at
+            if heartbeat_at and now - heartbeat_at < 300:
+                continue
+            self._finish(
+                record,
+                str(ExecutionStatus.FAILED),
+                message="stale dispatch projection reconciled at startup",
+                error="STALE_DISPATCH_PROJECTION",
+            )
+            reconciled += 1
+        return reconciled
 
     @staticmethod
     def _is_reclaimable_worktree(path: str) -> bool:
@@ -978,7 +1028,6 @@ class DurableJobManager:
         """Number of persisted non-terminal remote projections."""
         with self._lock:
             return sum(not record.is_terminal for record in self._records.values())
-
     def unfinished_records(self) -> list[ExecutionRecord]:
         """Snapshot of non-terminal projections for lifecycle decisions."""
         with self._lock:
@@ -1040,6 +1089,40 @@ class DurableJobManager:
             if before != (str(parent.status), str(parent.phase)) and parent.is_terminal:
                 parents_reconciled += 1
         return {"children": children_reconciled, "parents": parents_reconciled}
+
+    def reconcile_prelaunch(self) -> int:
+        """Fail closed pre-admissions that have no child launch evidence."""
+        reconciled = 0
+        for record in self.unfinished_records():
+            if (
+                record.role != "parent"
+                or record.child_execution_ids
+                or not record.dispatch_id
+                or not record.goal_run_id
+            ):
+                continue
+            if record.lifecycle_state not in {
+                "REQUESTED",
+                "VALIDATED",
+                "ADMITTED",
+                "PERSISTED",
+                "DISPATCHED",
+            }:
+                continue
+            from server.goal_run.pre_admission import fail_pre_admission
+
+            reason = "backend restarted before worker launch"
+            if record.goal_project_root and record.goal_run_id:
+                fail_pre_admission(
+                    project_root=record.goal_project_root,
+                    goal_run_id=record.goal_run_id,
+                    reason=reason,
+                )
+            self._finish(
+                record, str(ExecutionStatus.FAILED), message=reason, error="PRELAUNCH_RECOVERY"
+            )
+            reconciled += 1
+        return reconciled
 
     def _orphaned_worker(self, record: ExecutionRecord, *, task_live: bool) -> bool:
         """Return true only for durable evidence of a dead admitted worker.
@@ -1218,7 +1301,7 @@ class DurableJobManager:
                 )
         return record
 
-    def _persist(self, record: ExecutionRecord) -> None:
+    def _persist(self, record: ExecutionRecord, *, required: bool = False) -> None:
         record.updated_at = time.time()
         try:
             self.store.save(record)
@@ -1237,6 +1320,42 @@ class DurableJobManager:
                 record.execution_id,
                 record.phase,
             )
+            if required:
+                raise ExecutionError(
+                    "PERSISTENCE_FAILED",
+                    f"durable persistence failed for {record.execution_id}",
+                ) from exc
+
+    def transition_lifecycle(
+        self, execution_id: str, state: str, *, required: bool = True
+    ) -> ExecutionRecord:
+        """Persist one canonical control-plane boundary before returning it."""
+        allowed = {
+            "REQUESTED",
+            "VALIDATED",
+            "ADMITTED",
+            "PERSISTED",
+            "DISPATCHED",
+            "RUNNING",
+            "COMPLETED",
+            "FAILED",
+            "TIMED_OUT",
+            "CANCELLED",
+        }
+        normalized = str(state).upper()
+        if normalized not in allowed:
+            raise ExecutionError("INVALID_STATE", f"unsupported lifecycle state {state!r}")
+        record = self._record_for_update(execution_id)
+        if record.is_terminal and normalized != record.lifecycle_state:
+            return record
+        record.lifecycle_state = normalized
+        if normalized == "RUNNING":
+            record.status = str(ExecutionStatus.RUNNING)
+        elif normalized in {"COMPLETED", "FAILED", "TIMED_OUT", "CANCELLED"}:
+            record.status = normalized
+            record.phase = record.status
+        self._persist(record, required=required)
+        return record
 
     # ── submit ──────────────────────────────────────────────────────
     def submit(self, **kwargs: Any) -> ExecutionRecord:
@@ -1304,6 +1423,10 @@ class DurableJobManager:
         role: str = "worker",
         preferred_worker_runtime_id: str | None = None,
         idempotency_key: str | None = None,
+        dispatch_id: str | None = None,
+        goal_run_id: str | None = None,
+        goal_task_id: str | None = None,
+        goal_project_root: str | None = None,
         spec: ExecutionSpec | None = None,
         task_contract: dict[str, Any] | None = None,
         **kwargs: Any,
@@ -1384,7 +1507,17 @@ class DurableJobManager:
             idempotency_key=idempotency_key,
             spec=spec,
             task_contract=task_contract or (spec.task_contract if spec else None),
+            dispatch_id=dispatch_id,
+            lifecycle_state="ADMITTED",
+            goal_run_id=goal_run_id,
+            goal_task_id=goal_task_id,
+            goal_project_root=goal_project_root,
         )
+        if record.dispatch_id and not record.goal_run_id:
+            raise ExecutionError(
+                "GOAL_RUN_MISSING",
+                "dispatch execution requires a canonical pre-admitted GoalRun",
+            )
         for field_name in (
             "max_steps",
             "execution_timeout_sec",
@@ -1405,7 +1538,9 @@ class DurableJobManager:
         with self._lock:
             self._evict_locked()
             self._records[record.execution_id] = record
-            self._persist(record)
+            self._persist(record, required=True)
+            record.lifecycle_state = "PERSISTED"
+            self._persist(record, required=True)
             self._tasks[record.execution_id] = asyncio.create_task(
                 self._admit_goal_run(record, runner),
                 name=f"veya-remote-admission-{record.execution_id}",
@@ -1422,9 +1557,18 @@ class DurableJobManager:
         execution_mode: str = "direct_multi",
         failure_mode: str = "collect_all",
         parent_execution_id: str | None = None,
+        dispatch_id: str | None = None,
+        executor_id: str | None = None,
+        goal_run_id: str | None = None,
+        goal_task_id: str | None = None,
+        goal_project_root: str | None = None,
     ) -> ExecutionRecord:
         """Create a parent aggregator execution with no worker of its own."""
-
+        with self._lock:
+            if dispatch_id:
+                for existing in self._records.values():
+                    if existing.dispatch_id == dispatch_id:
+                        return existing
         record = ExecutionRecord(
             execution_id=f"parent_{uuid.uuid4().hex}",
             task_id=f"task_{uuid.uuid4().hex[:16]}",
@@ -1444,19 +1588,30 @@ class DurableJobManager:
             execution_mode=execution_mode,
             orchestrator="none",
             worker_type="PARALLEL",
-            worker_id=f"parent_{uuid.uuid4().hex[:12]}",
-            phase="DISPATCHING",
+            worker_id=executor_id or f"parent_{uuid.uuid4().hex[:12]}",
+            phase="QUEUED",
             role="parent",
             failure_mode=failure_mode,
             parent_execution_id=parent_execution_id,
             heartbeat_at=time.time(),
+            dispatch_id=dispatch_id,
+            idempotency_key=dispatch_id,
+            lifecycle_state="REQUESTED",
+            goal_run_id=goal_run_id,
+            goal_task_id=goal_task_id,
+            goal_project_root=goal_project_root,
         )
+        if dispatch_id and not record.goal_run_id:
+            raise ExecutionError(
+                "GOAL_RUN_MISSING",
+                "dispatch parent requires a canonical pre-admitted GoalRun",
+            )
         record.events.append(
-            {"ts": time.time(), "kind": "submitted", "phase": "DISPATCHING", "message": "parent"}
+            {"ts": time.time(), "kind": "submitted", "phase": "QUEUED", "message": "parent"}
         )
         with self._lock:
             self._records[record.execution_id] = record
-            self._persist(record)
+            self._persist(record, required=True)
         return record
 
     def attach_child(self, parent_id: str, child_id: str) -> None:
@@ -1524,6 +1679,7 @@ class DurableJobManager:
             "failed": 0,
             "blocked": 0,
             "cancelled": 0,
+            "timed_out": 0,
         }
         summaries = []
         for child in children:
@@ -1539,6 +1695,8 @@ class DurableJobManager:
                 counts["blocked"] += 1
             elif status == "CANCELLED":
                 counts["cancelled"] += 1
+            elif status == "TIMED_OUT":
+                counts["timed_out"] += 1
             else:
                 counts["failed"] += 1
             summaries.append(
@@ -1595,9 +1753,27 @@ class DurableJobManager:
             status, phase = "PARTIAL_COMPLETED", "COMPLETED"
         elif counts["cancelled"] == counts["total"]:
             status, phase = "CANCELLED", "CANCELLED"
+        elif counts["timed_out"] == counts["total"]:
+            status, phase = "TIMED_OUT", "TIMED_OUT"
         elif counts["failed"] + counts["blocked"] == counts["total"]:
             status, phase = "FAILED", "FAILED"
-        if str(parent.status) != status or str(parent.phase) != phase:
+        else:
+            # Mixed terminal outcomes with no work left: some children failed or
+            # were cancelled while others finished, and none of the uniform
+            # branches above apply (e.g. collect_all with FAILED + CANCELLED).
+            # The chain had no fallback, so `status`/`phase` stayed unbound and
+            # `aggregate()` raised UnboundLocalError -- which runs during startup
+            # reconciliation and took the whole MCP gateway down.  A parent whose
+            # children did not all complete is FAILED, never a silent success.
+            status, phase = "FAILED", "FAILED"
+        state_changed = str(parent.status) != status or str(parent.phase) != phase
+        terminal_reconciliation_missing = status in {
+            "COMPLETED",
+            "FAILED",
+            "TIMED_OUT",
+            "CANCELLED",
+        } and (parent.lifecycle_state != status or parent.parent_reconciled_at is None)
+        if state_changed or terminal_reconciliation_missing:
             if status in ExecutionStatus._value2member_map_:
                 parent.status = ExecutionStatus(status)
             elif status == "PARTIAL_COMPLETED":
@@ -1612,16 +1788,37 @@ class DurableJobManager:
                 parent.phase = ExecutionPhase.QUEUED
             elif status == "CANCELLED":
                 parent.phase = ExecutionPhase.CANCELLED
-            elif status in {"FAILED", "BLOCKED"}:
+            elif status in {"FAILED", "BLOCKED", "TIMED_OUT"}:
                 parent.phase = ExecutionPhase(status)
             else:
                 parent.phase = ExecutionPhase.COMPLETED
             if (
-                status in {"COMPLETED", "FAILED", "CANCELLED", "PARTIAL_COMPLETED"}
+                status in {"COMPLETED", "FAILED", "TIMED_OUT", "CANCELLED", "PARTIAL_COMPLETED"}
                 and parent.completed_at is None
             ):
                 parent.completed_at = time.time()
+            if status in {"COMPLETED", "FAILED", "TIMED_OUT", "CANCELLED"}:
+                parent.lifecycle_state = status
+                parent.parent_reconciled_at = time.time()
+            elif status == "RUNNING":
+                parent.lifecycle_state = "RUNNING"
+            qualification_checkpoint(
+                "BEFORE_PARENT_RECONCILIATION",
+                execution_id=parent.execution_id,
+                dispatch_id=parent.dispatch_id,
+                goal_run_id=parent.goal_run_id,
+                goal_task_id=parent.goal_task_id,
+                status=status,
+            )
             self._persist(parent)
+            qualification_checkpoint(
+                "AFTER_PARENT_RECONCILIATION",
+                execution_id=parent.execution_id,
+                dispatch_id=parent.dispatch_id,
+                goal_run_id=parent.goal_run_id,
+                goal_task_id=parent.goal_task_id,
+                status=status,
+            )
         return {
             "status": status,
             "phase": phase,
@@ -1813,6 +2010,123 @@ class DurableJobManager:
             except Exception:
                 pass
 
+    async def _run_precreated_child(self, record: ExecutionRecord, runner: Runner) -> None:
+        """Run one precreated task without concurrently re-entering GoalRun."""
+        from server.goal_run.pre_admission import mark_task_running, reconcile_task
+
+        reporter = ProgressReporter(self, record.execution_id)
+        monitor = asyncio.create_task(
+            self._monitor(record), name=f"veya-remote-heartbeat-{record.execution_id}"
+        )
+        self._monitors[record.execution_id] = monitor
+        record.status = str(ExecutionStatus.RUNNING)
+        record.lifecycle_state = "RUNNING"
+        record.phase = str(ExecutionPhase.RUNNING)
+        record.started_at = record.started_at or time.time()
+        record.heartbeat_at = time.time()
+        record.worker_alive = True
+        self._persist(record, required=True)
+        mark_task_running(
+            project_root=record.goal_project_root or record.resolved_repo_root,
+            goal_run_id=record.goal_run_id or "",
+            goal_task_id=record.goal_task_id or "",
+        )
+        outcome = "failed"
+        reason: str | None = None
+        try:
+            qualification_checkpoint(
+                "WHILE_RUNNING",
+                execution_id=record.execution_id,
+                dispatch_id=record.dispatch_id,
+                goal_run_id=record.goal_run_id,
+                goal_task_id=record.goal_task_id,
+                executor_id=record.worker_id,
+            )
+            with use_reporter(reporter):
+                record.result_summary = str(await runner(reporter) or "")
+            record.worker_final_claim = True
+            outcome = "completed"
+            self._finish(record, str(ExecutionStatus.COMPLETED), message="completed")
+            qualification_checkpoint(
+                "AFTER_WORKER_TERMINAL",
+                execution_id=record.execution_id,
+                dispatch_id=record.dispatch_id,
+                goal_run_id=record.goal_run_id,
+                goal_task_id=record.goal_task_id,
+                status=record.status,
+            )
+        except QualificationFault as exc:
+            reason = str(exc)
+            if not record.is_terminal:
+                self._finish(
+                    record,
+                    str(ExecutionStatus.FAILED),
+                    message=reason,
+                    error="QUALIFICATION_FAULT",
+                )
+        except asyncio.CancelledError:
+            if record.cancel_requested:
+                outcome = "cancelled"
+                reason = "explicit cancellation"
+                self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
+            else:
+                reason = "worker process cancelled"
+            raise
+        except ExecutionError as exc:
+            reason = exc.message
+            if exc.code in {"TIMEOUT", "WORKER_TIMEOUT"}:
+                record.failure_class = "EXECUTION_TIMEOUT"
+                self._finish(
+                    record,
+                    str(ExecutionStatus.TIMED_OUT),
+                    message=exc.message,
+                    error="EXECUTION_TIMEOUT",
+                )
+            elif isinstance(exc, ExecutionBlocked):
+                self.set_failure(
+                    record.execution_id,
+                    failure_class="execution_blocked",
+                    source="remote_execution",
+                    detail=exc.message,
+                    code=exc.code,
+                )
+                self._finish(
+                    record, str(ExecutionStatus.BLOCKED), message=exc.message, error=exc.code
+                )
+            else:
+                self._finish(
+                    record, str(ExecutionStatus.FAILED), message=exc.message, error=exc.code
+                )
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            self._finish(
+                record, str(ExecutionStatus.FAILED), message=reason, error="PROVIDER_ERROR"
+            )
+        finally:
+            if (
+                record.is_terminal
+                and record.goal_project_root
+                and record.goal_run_id
+                and record.goal_task_id
+            ):
+                reconcile_task(
+                    project_root=record.goal_project_root,
+                    goal_run_id=record.goal_run_id,
+                    goal_task_id=record.goal_task_id,
+                    outcome=(
+                        "cancelled" if record.status == str(ExecutionStatus.CANCELLED) else outcome
+                    ),
+                    summary=record.result_summary or "",
+                    reason=reason,
+                )
+            record.worker_alive = False
+            self._persist(record)
+            with self._lock:
+                self._tasks.pop(record.execution_id, None)
+                self._monitors.pop(record.execution_id, None)
+            if not monitor.done():
+                monitor.cancel()
+
     async def _admit_goal_run(self, record: ExecutionRecord, runner: Runner) -> None:
         """Admit a remote request to GoalRun and project its response.
 
@@ -1820,6 +2134,29 @@ class DurableJobManager:
         scheduler, retry loop, lease, or terminal-state authority.
         """
         from pathlib import Path
+
+        if record.dispatch_id:
+            from server.goal_run.store import load_goal_run
+
+            canonical = load_goal_run(
+                record.goal_project_root or record.resolved_repo_root, record.goal_run_id or ""
+            )
+            if (
+                canonical is None
+                or canonical.dispatch_id != record.dispatch_id.split(":child:", 1)[0]
+                or record.goal_task_id not in canonical.tasks
+                or canonical.execution_id is None
+            ):
+                self._finish(
+                    record,
+                    str(ExecutionStatus.FAILED),
+                    message="canonical GoalRun/task admission is missing",
+                    error="CANONICAL_ADMISSION_MISSING",
+                )
+                return
+            if record.parent_execution_id:
+                await self._run_precreated_child(record, runner)
+                return
 
         # Source worktrees can intentionally contain uninitialized 3O gitlinks.
         # Keep L0/L1 admission available in that state; 3O-dependent GoalRun
@@ -1889,7 +2226,11 @@ class DurableJobManager:
                         detail = exc.message[:_FAILURE_DETAIL_BYTES]
                     elif isinstance(exc, ExecutionError):
                         error_code = exc.code
-                        failure_class = exc.code
+                        failure_class = (
+                            "EXECUTION_TIMEOUT"
+                            if exc.code in {"TIMEOUT", "WORKER_TIMEOUT"}
+                            else exc.code
+                        )
                         detail = exc.message[:_FAILURE_DETAIL_BYTES]
                     else:
                         error_code = type(exc).__name__
@@ -2058,6 +2399,13 @@ class DurableJobManager:
                 record.exit_code is not None and record.exit_code != 0
             ):
                 self._finish(record, str(ExecutionStatus.COMPLETED), message="completed")
+            elif record.failure_class == "EXECUTION_TIMEOUT":
+                self._finish(
+                    record,
+                    str(ExecutionStatus.TIMED_OUT),
+                    message=record.failure_detail or "execution timed out",
+                    error="EXECUTION_TIMEOUT",
+                )
             elif value == "blocked" or record.failure_class == "execution_blocked":
                 self._finish(
                     record,
@@ -2128,6 +2476,11 @@ class DurableJobManager:
     ) -> None:
         record.status = status
         record.phase = status
+        record.lifecycle_state = (
+            "TIMED_OUT"
+            if status == str(ExecutionStatus.FAILED) and record.failure_class == "EXECUTION_TIMEOUT"
+            else status
+        )
         record.completed_at = time.time()
         record.worker_alive = False
         if message is not None:
@@ -2173,7 +2526,23 @@ class DurableJobManager:
         }
         record.events.append(terminal_event)
         record.last_event = terminal_event
+        qualification_checkpoint(
+            "BEFORE_TERMINAL_PERSIST",
+            execution_id=record.execution_id,
+            dispatch_id=record.dispatch_id,
+            goal_run_id=record.goal_run_id,
+            goal_task_id=record.goal_task_id,
+            status=status,
+        )
         self._persist(record)
+        qualification_checkpoint(
+            "AFTER_TERMINAL_PERSIST",
+            execution_id=record.execution_id,
+            dispatch_id=record.dispatch_id,
+            goal_run_id=record.goal_run_id,
+            goal_task_id=record.goal_task_id,
+            status=status,
+        )
         # Reclaim the execution worktree on EVERY terminal path, not just
         # parents.  The old `parent_execution_id is None` gate meant that
         # worker.dispatch children -- which each own their own isolated
@@ -2196,7 +2565,6 @@ class DurableJobManager:
             else:
                 self.metrics_bump("worktrees_retained", 1)
             self._persist(record)
-
 
     # ── progress ────────────────────────────────────────────────────
     def _record_for_update(self, execution_id: str) -> ExecutionRecord:
@@ -2231,6 +2599,20 @@ class DurableJobManager:
     def lookup(self, execution_id: str) -> ExecutionRecord | None:
         """Public lookup returning the freshest record or None if unknown."""
         return self._lookup(execution_id)
+
+    def lookup_dispatch(self, dispatch_id: str) -> ExecutionRecord | None:
+        """Resolve the durable execution handle by its external idempotency key."""
+        with self._lock:
+            records = list(self._records.values())
+        for record in records:
+            if record.dispatch_id == dispatch_id:
+                return self._lookup(record.execution_id)
+        for record in self.store.load_all():
+            if record.dispatch_id == dispatch_id:
+                with self._lock:
+                    self._records[record.execution_id] = record
+                return record
+        return None
 
     def record_event(
         self, execution_id: str, *, kind: str, message: str, phase: str | None = None
@@ -2325,6 +2707,18 @@ class DurableJobManager:
             promotion = receipt.get("verification", {}).get("promotion")
             if isinstance(promotion, dict):
                 record.canonical_after_sha = promotion.get("canonical_after_sha")
+        self._persist(record)
+
+    def set_effect_receipt(self, execution_id: str, receipt: dict[str, Any]) -> None:
+        """Persist the worker effect receipt (tool/shell/file telemetry).
+
+        READ tasks never reach the finalizer, so their receipt would otherwise
+        be dropped.  This persists the telemetry for every task kind without
+        triggering any commit/promotion side effect.
+        """
+
+        record = self._record_for_update(execution_id)
+        record.effect_receipt = receipt
         self._persist(record)
 
     def set_worker_identity(
@@ -2604,7 +2998,26 @@ class DurableJobManager:
             return record
         record.cancel_requested = True
         record.message = "cancellation requested"
+        record.cancellation_intent = {
+            "execution_id": execution_id,
+            "requested_at": time.time(),
+            "session_id": session_id,
+            "reason": "explicit_process_cancel",
+        }
         self._persist(record)
+        if record.process_group_id:
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                os.killpg(record.process_group_id, 15)
+        if record.parent_execution_id:
+            with self._lock:
+                task = self._tasks.get(execution_id)
+            if task is not None and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+            if not record.is_terminal:
+                self._finish(record, str(ExecutionStatus.CANCELLED), message="execution cancelled")
+            return record
         if record.goal_run_id and record.goal_project_root:
             # Cancellation is a typed GoalRun command.  The remote projection
             # must not cancel a provider coroutine or manufacture a terminal

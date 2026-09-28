@@ -27,6 +27,7 @@ import re
 import shutil
 import tempfile
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,8 @@ from runtime.coding.command_runner import CommandPolicyError
 from runtime.coding.worktree import WorktreeError, WorktreeManager
 from runtime.execution.side_effects import SideEffectLedger
 from veya.obase.async_utils import run_sync_in_daemon_thread
+from veya.remote.qualification_faults import QualificationFault
+from veya.remote.qualification_faults import checkpoint as qualification_checkpoint
 from veya.remote.skills import SkillPermission
 from veya.supervision.task_memory import TaskMemory
 
@@ -265,12 +268,14 @@ def _allowed_service_control_command(command: str) -> bool:
 
 
 # L1 direct worker registry. Each worker keeps its own real runtime/model
-# semantics; none of these is a wrapper around Hicode.
+# semantics; none of these is a wrapper around Hicode.  Hicode is retired
+# from the active plane (source retained); claude_code is the canonical
+# Claude Code executor.
 _WORKER_TYPES = {
     "antigravity": "ANTIGRAVITY",
     "opencode": "OPENCODE",
+    "claude_code": "CLAUDE_CODE",
     "codex": "CODEX",
-    "hicode": "HICODE",
     "pi": "PI",
     "grok": "GROK",
     "dsh": "DSH",
@@ -288,7 +293,9 @@ _CLI_WORKERS = {
     for worker in _WORKER_TYPES
     if worker != "hicode"
 }
-_TIMEOUT_SEPARATED_CLI_WORKERS = frozenset({"pi", "grok", "codex", "antigravity", "opencode"})
+_TIMEOUT_SEPARATED_CLI_WORKERS = frozenset(
+    {"pi", "grok", "codex", "antigravity", "opencode", "claude_code"}
+)
 _DEFAULT_CLI_TIMEOUT_S = 600.0
 _DSH_INACTIVITY_TIMEOUT_S = 120.0
 
@@ -664,6 +671,10 @@ BINDINGS: tuple[ToolBinding, ...] = (
                         },
                         ["worker", "task"],
                     ),
+                },
+                "dispatch_id": {
+                    "type": "string",
+                    "description": "Stable idempotency key. Retries return the same durable execution.",
                 },
                 "fail_fast": {"type": "boolean"},
                 "workspace": _STR,
@@ -1182,11 +1193,18 @@ class RemoteToolAdapter:
             if self._startup_error is not None:
                 raise RuntimeError("remote startup recovery failed") from self._startup_error
             try:
+                from server.goal_run.pre_admission import reconcile_unbound_runs
+
+                unbound_reconciled = reconcile_unbound_runs(
+                    os.environ.get("VEYA_WORKSPACE_ROOT", os.getcwd()),
+                    reason="backend restarted before execution persistence",
+                )
                 reconciliation = self.jobs.reconcile_unfinished()
                 # Finish any worktree release interrupted by a crash between
                 # "terminal persisted" and "worktree removed".  Only durably
                 # terminal records are eligible, and keep_worktree is honoured.
                 worktree_reconciled = self.jobs.reconcile_worktrees()
+                prelaunch_reconciled = self.jobs.reconcile_prelaunch()
                 records = self.jobs.unfinished_records()
                 if records and self.jobs.recovery_runner_factory is None:
                     now = time.time()
@@ -1199,6 +1217,8 @@ class RemoteToolAdapter:
                         "pending_recovery": pending,
                         "recovery_degraded": pending > 0,
                         "reconciliation": reconciliation,
+                        "prelaunch_reconciled": prelaunch_reconciled,
+                        "unbound_pre_admissions_reconciled": unbound_reconciled,
                         "worktrees_released": worktree_reconciled.get("released", 0),
                         "failures": [],
                     }
@@ -1212,6 +1232,8 @@ class RemoteToolAdapter:
                     "pending_recovery": len(failures),
                     "recovery_degraded": bool(failures),
                     "reconciliation": reconciliation,
+                    "prelaunch_reconciled": prelaunch_reconciled,
+                    "unbound_pre_admissions_reconciled": unbound_reconciled,
                     "worktrees_released": worktree_reconciled.get("released", 0),
                     "failures": failures,
                 }
@@ -2780,13 +2802,12 @@ class RemoteToolAdapter:
                 RemoteErrorCode.INVALID_ARGUMENT,
                 "tasks must be a non-empty list",
             )
+        dispatch_id = str(args.get("dispatch_id") or f"dispatch_{uuid.uuid4().hex}")
         failure_mode = "fail_fast" if args.get("fail_fast") else "collect_all"
-        parent = self.jobs.create_parent(
-            session=session,
-            tool=binding.name,
-            binding=ws_binding,
-            failure_mode=failure_mode,
-        )
+        # Validate the complete admission before creating any durable child.
+        # This prevents partial admission and duplicate side effects on a
+        # malformed retry.
+        validated: list[tuple[int, str, str, dict[str, Any]]] = []
         children: list[Any] = []
         for index, item in enumerate(tasks):
             if not isinstance(item, dict):
@@ -2806,14 +2827,180 @@ class RemoteToolAdapter:
                     RemoteErrorCode.INVALID_ARGUMENT,
                     f"task[{index}] needs a known worker ({sorted(_WORKER_TYPES)}) and a task",
                 )
-            children.append(
-                await self._submit_worker_child(
-                    session, ws_binding, parent, worker, task_text, item, index
+            validated.append((index, worker, task_text, item))
+        pre_admission = None
+        parent = None
+
+        def _fault_failure(exc: QualificationFault) -> RemoteCallResult:
+            from server.goal_run.pre_admission import fail_pre_admission
+
+            if pre_admission is not None:
+                with contextlib.suppress(Exception):
+                    fail_pre_admission(
+                        project_root=project_root,
+                        goal_run_id=pre_admission.goal_run_id,
+                        reason=str(exc),
+                    )
+            if parent is not None and not parent.is_terminal:
+                self.jobs._finish(
+                    parent,
+                    str(ExecutionStatus.FAILED),
+                    message=str(exc),
+                    error="QUALIFICATION_FAULT",
                 )
+            return self._fail(
+                binding.name,
+                session,
+                RemoteErrorCode.EXECUTION_FAILED,
+                str(exc),
             )
+
+        try:
+            qualification_checkpoint(
+                "AFTER_VALIDATE",
+                dispatch_id=dispatch_id,
+                session_id=session.session_id,
+                requested_executor=validated[0][1],
+            )
+        except QualificationFault as exc:
+            return _fault_failure(exc)
+        from server.goal_run.pre_admission import (
+            bind_execution,
+            create_pending_run,
+        )
+
+        project_root = ws_binding.repo_root or ws_binding.requested_realpath
+        requested_executor = validated[0][1] if len(validated) == 1 else "parallel"
+        try:
+            qualification_checkpoint(
+                "BEFORE_GOALRUN_PRECREATE",
+                dispatch_id=dispatch_id,
+                session_id=session.session_id,
+                requested_executor=requested_executor,
+            )
+            pre_admission = create_pending_run(
+                project_root=project_root,
+                dispatch_id=dispatch_id,
+                session_id=session.session_id,
+                requested_executor=requested_executor,
+                tasks=[
+                    {"worker": worker, "task": task_text}
+                    for _index, worker, task_text, _item in validated
+                ],
+            )
+            qualification_checkpoint(
+                "AFTER_GOALRUN_PRECREATE",
+                dispatch_id=dispatch_id,
+                goal_run_id=pre_admission.goal_run_id,
+                goal_task_id=pre_admission.goal_task_id,
+            )
+        except QualificationFault as exc:
+            return _fault_failure(exc)
+        existing_parent = self.jobs.lookup_dispatch(dispatch_id)
+        try:
+            qualification_checkpoint(
+                "BEFORE_EXECUTION_PERSIST",
+                dispatch_id=dispatch_id,
+                goal_run_id=pre_admission.goal_run_id,
+                goal_task_id=pre_admission.goal_task_id,
+            )
+            parent = self.jobs.create_parent(
+                session=session,
+                tool=binding.name,
+                binding=ws_binding,
+                failure_mode=failure_mode,
+                dispatch_id=dispatch_id,
+                executor_id=requested_executor,
+                goal_run_id=pre_admission.goal_run_id,
+                goal_task_id=pre_admission.goal_task_id,
+                goal_project_root=project_root,
+            )
+            qualification_checkpoint(
+                "AFTER_EXECUTION_PERSIST",
+                dispatch_id=dispatch_id,
+                execution_id=parent.execution_id,
+                goal_run_id=parent.goal_run_id,
+                goal_task_id=parent.goal_task_id,
+            )
+        except QualificationFault as exc:
+            return _fault_failure(exc)
+        if existing_parent is not None and parent.child_execution_ids:
+            # Durable idempotent replay: never start a second worker batch.
+            children = [self.jobs.lookup(child_id) for child_id in parent.child_execution_ids]
+            children = [child for child in children if child is not None]
+        else:
+            if pre_admission.state.status.value == "failed":
+                return self._fail(
+                    binding.name,
+                    session,
+                    RemoteErrorCode.EXECUTION_FAILED,
+                    pre_admission.state.last_stop_reason
+                    or "canonical GoalRun pre-admission failed",
+                )
+            if existing_parent is None:
+                bind_execution(pre_admission, parent.execution_id, project_root)
+            self.jobs.transition_lifecycle(parent.execution_id, "VALIDATED")
+            self.jobs.transition_lifecycle(parent.execution_id, "ADMITTED")
+            try:
+                qualification_checkpoint(
+                    "AFTER_ADMISSION",
+                    dispatch_id=dispatch_id,
+                    execution_id=parent.execution_id,
+                    goal_run_id=parent.goal_run_id,
+                    goal_task_id=parent.goal_task_id,
+                )
+            except QualificationFault as exc:
+                return _fault_failure(exc)
+            self.jobs.transition_lifecycle(parent.execution_id, "PERSISTED")
+            for index, worker, task_text, item in validated:
+                try:
+                    qualification_checkpoint(
+                        "BEFORE_WORKER_LAUNCH",
+                        dispatch_id=dispatch_id,
+                        execution_id=parent.execution_id,
+                        goal_run_id=parent.goal_run_id,
+                        goal_task_id=pre_admission.task_ids[index],
+                        executor_id=worker,
+                    )
+                except QualificationFault as exc:
+                    return _fault_failure(exc)
+                children.append(
+                    await self._submit_worker_child(
+                        session,
+                        ws_binding,
+                        parent,
+                        worker,
+                        task_text,
+                        item,
+                        index,
+                        dispatch_id=dispatch_id,
+                        goal_run_id=pre_admission.goal_run_id,
+                        goal_task_id=pre_admission.task_ids[index],
+                        goal_project_root=project_root,
+                    )
+                )
+                try:
+                    qualification_checkpoint(
+                        "AFTER_WORKER_LAUNCH",
+                        dispatch_id=dispatch_id,
+                        execution_id=children[-1].execution_id,
+                        goal_run_id=parent.goal_run_id,
+                        goal_task_id=children[-1].goal_task_id,
+                        executor_id=worker,
+                    )
+                except QualificationFault as exc:
+                    return _fault_failure(exc)
+            self.jobs.transition_lifecycle(parent.execution_id, "DISPATCHED")
         payload = {
             "accepted": True,
+            "dispatch_id": dispatch_id,
             "parent_execution_id": parent.execution_id,
+            "execution_id": parent.execution_id,
+            "goal_run_id": parent.goal_run_id,
+            "goal_task_id": parent.goal_task_id,
+            "session_id": parent.session_id,
+            "executor_id": parent.worker_id,
+            "status": parent.lifecycle_state,
             "child_execution_ids": [child.execution_id for child in children],
             "failure_mode": failure_mode,
             "worker_availability": worker_availability(),
@@ -2845,12 +3032,16 @@ class RemoteToolAdapter:
         task_text: str,
         item: dict[str, Any],
         index: int,
+        dispatch_id: str,
+        goal_run_id: str,
+        goal_task_id: str,
+        goal_project_root: str,
     ) -> Any:
 
         from veya.remote.execution_contract import (
             ExecutionCapabilityEnvelope,
             ExecutionSpec,
-            probe_runtime_capability_manifest,
+            probe_runtime_capability_manifest_cached,
         )
 
         # A named worker is an exact selector.  Health/capability fallback is
@@ -2930,7 +3121,8 @@ class RemoteToolAdapter:
             health_registry=self.health_registry,
         )
 
-        manifest_snapshot = probe_runtime_capability_manifest(
+        manifest_snapshot = await run_sync_in_daemon_thread(
+            probe_runtime_capability_manifest_cached,
             selected_worker,
             workspace_path=ws_binding.requested_realpath,
             health_registry=self.health_registry,
@@ -3042,6 +3234,11 @@ class RemoteToolAdapter:
                 model=model,
                 parent_execution_id=parent.execution_id,
                 task_contract=task_contract.to_dict(),
+                idempotency_key=f"{dispatch_id}:child:{index}",
+                dispatch_id=f"{dispatch_id}:child:{index}",
+                goal_run_id=goal_run_id,
+                goal_task_id=goal_task_id,
+                goal_project_root=goal_project_root,
             )
         else:
             requested_timeout_s = float(item.get("timeout_sec") or _DEFAULT_CLI_TIMEOUT_S)
@@ -3080,6 +3277,11 @@ class RemoteToolAdapter:
                     "execution_timeout_sec": effective_timeout_s,
                     "effective_timeout_ms": int(effective_timeout_s * 1000),
                 },
+                idempotency_key=f"{dispatch_id}:child:{index}",
+                dispatch_id=f"{dispatch_id}:child:{index}",
+                goal_run_id=goal_run_id,
+                goal_task_id=goal_task_id,
+                goal_project_root=goal_project_root,
             )
         self.jobs.attach_child(parent.execution_id, child.execution_id)
         return child
@@ -3716,7 +3918,7 @@ class RemoteToolAdapter:
                 for path in changed:
                     reporter.event(path, kind="ARTIFACT_CREATED")
             reporter.phase("FINALIZING", message=f"{worker} finalizing", event="FINALIZING")
-            summary = "".join(stdout_lines).strip()
+            summary = _worker_result_summary(worker, stdout_lines)
             if not summary:
                 summary = f"{worker} exit={proc.returncode}"
             summary = summary[-4000:]
@@ -3729,8 +3931,11 @@ class RemoteToolAdapter:
                 task_kind=(task_contract.task_kind if task_contract else str(TaskKind.READ)),
                 tool_calls=_worker_tool_events(worker, stdout_lines),
                 shell_calls=_worker_shell_events(worker, stdout_lines),
-                file_writes=changed if worker == "opencode" else [],
+                file_writes=changed if worker in {"opencode", "claude_code"} else [],
             )
+            # Persist telemetry for every task kind; READ tasks never reach the
+            # finalizer, so without this their receipt would be dropped.
+            self.jobs.set_effect_receipt(reporter._execution_id, receipt.to_dict())
             contract = task_contract or L1TaskContract()
             if contract.task_kind in {
                 str(TaskKind.WRITE),
@@ -4431,10 +4636,11 @@ class RemoteToolAdapter:
             )
         except ExecutionError as exc:
             return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)
-        payload = record.to_public(heartbeat_timeout_s=self.jobs.heartbeat_timeout_s)
         if record.child_execution_ids:
             # L1 parent: mechanical aggregation only (no ranking/winner/JEV).
             aggregate = self.jobs.aggregate(record)
+        payload = record.to_public(heartbeat_timeout_s=self.jobs.heartbeat_timeout_s)
+        if record.child_execution_ids:
             payload["status"] = aggregate["status"]
             payload["phase"] = aggregate["phase"]
             payload["children"] = aggregate["children"]
@@ -4974,7 +5180,58 @@ def _resolve_opencode_binary() -> str:
 
 def _resolve_opencode_model() -> str | None:
     configured = str(os.environ.get("VEYA_OPENCODE_MODEL") or "").strip()
-    return configured or get_executor_registry().identity("opencode").model
+    if configured:
+        return configured
+    identity = get_executor_registry().identity("opencode")
+    model = identity.model
+    if not model:
+        return None
+    if "/" in model:
+        return model
+    return f"{identity.provider}/{model}" if identity.provider else model
+
+
+def _resolve_claude_binary() -> str:
+    configured = os.environ.get("VEYA_CLAUDE_BIN")
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+        raise RuntimeError(f"VEYA_CLAUDE_BIN is not executable: {candidate}")
+
+    discovered = shutil.which("claude")
+    if discovered:
+        return discovered
+    candidate = Path.home() / ".local" / "bin" / "claude"
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    raise RuntimeError("Claude Code CLI executable not found; set VEYA_CLAUDE_BIN")
+
+
+def _claude_code_worker_env() -> dict[str, str]:
+    """Run Claude Code with its native auth, without Veya endpoint leakage.
+
+    Credentials are sourced by the CLI itself (``~/.claude/.credentials.json``
+    OAuth or ``ANTHROPIC_*`` env / local bridge); no secret is copied into the
+    worker environment.  Veya-internal LLM endpoint overrides are stripped so
+    the worker can never be redirected to a second provider authority.
+    """
+
+    env = dict(os.environ)
+    for key in (
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+        "OPENAI_API_HOST",
+        "OPENAI_ENDPOINT",
+        "OPENAI_PROXY",
+        "VEYA_LLM_ENDPOINT",
+        "VEYA_OPENAI_BASE_URL",
+        "VEYA_OPENAI_ENDPOINT",
+    ):
+        env.pop(key, None)
+    env.setdefault("HOME", str(Path.home()))
+    _ensure_proxy_env(env)
+    return env
 
 
 def _ensure_proxy_env(env: dict[str, str]) -> None:
@@ -5182,6 +5439,29 @@ def _worker_command(
         if argv and bin_path:
             argv[0] = bin_path
         return argv, _opencode_runtime_env()
+    if worker == "claude_code":
+        if coding_mode and not worktree_path:
+            raise RemoteToolAdapterError(
+                RemoteErrorCode.WORKSPACE_DENIED,
+                "Claude Code coding mode requires an execution worktree",
+            )
+        bin_path = _resolve_claude_binary()
+        # No explicit --model: the local bridge maps the CLI default through
+        # its own ANTHROPIC_DEFAULT_*_MODEL config, and the declared contract
+        # model (claude-sonnet-4-5) is not a runtime identifier the bridge
+        # accepts.  Model selection stays with the provider config, never
+        # hardcoded in the adapter.
+        argv = [
+            bin_path,
+            "--print",
+            "--permission-mode",
+            "acceptEdits",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            task,
+        ]
+        return argv, _claude_code_worker_env()
     if worker == "grok":
         bin_path = shutil.which("grok") or str(Path.home() / ".grok/bin/grok")
         grok_env = dict(os.environ)
@@ -5243,7 +5523,7 @@ def _resolve_opencode_agent() -> str | None:
 def _json_worker_events(worker: str, lines: list[str]) -> list[dict[str, Any]]:
     """Parse bounded structured worker events without trusting them as effect truth."""
 
-    if worker != "opencode":
+    if worker not in {"opencode", "claude_code"}:
         return []
     events: list[dict[str, Any]] = []
     for line in lines:
@@ -5265,7 +5545,35 @@ def _event_tool_name(event: dict[str, Any]) -> str:
             nested = value.get("name") or value.get("tool")
             if isinstance(nested, str):
                 return nested
+    # Claude Code stream-json: assistant message content blocks carry tool_use.
+    message = event.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    name = block.get("name")
+                    if isinstance(name, str):
+                        return name
     return ""
+
+
+def _worker_result_summary(worker: str, lines: list[str]) -> str:
+    """Extract the final result text for workers with structured JSON output.
+
+    Claude Code stream-json emits one JSON event per line; the final
+    ``result`` event carries the clean assistant text.  Other workers keep
+    their raw stdout as the summary.
+    """
+
+    if worker == "claude_code":
+        for event in _json_worker_events(worker, lines):
+            if event.get("type") == "result":
+                result = event.get("result")
+                if isinstance(result, str) and result.strip():
+                    return result.strip()
+        return ""
+    return "".join(lines).strip()
 
 
 def _worker_tool_events(worker: str, lines: list[str]) -> list[dict[str, Any]]:

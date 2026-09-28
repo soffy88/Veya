@@ -70,18 +70,9 @@ class WorkerCapabilities:
 
 
 # Capability contract per worker type (routing may consume it; it is data, not
-# name-based branching in routing logic).
+# name-based branching in routing logic).  Hicode is retired from the active
+# plane; its source remains but it is no longer registered here.
 WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
-    "hicode": WorkerCapabilities(
-        supports_receipts=True,
-        supports_read_task=True,
-        supports_write_task=True,
-        supports_shell_effect=True,
-        supports_file_effect=True,
-        supports_structured_events=True,
-        supports_resume=False,
-        recovery_capability=str(RecoveryCapability.REATTACH),
-    ),
     "dsh": WorkerCapabilities(
         supports_persistent_context=True,
         supports_sleep=True,
@@ -129,6 +120,15 @@ WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
         supports_shell_effect=False,
         supports_file_effect=False,
         supports_structured_events=False,
+        recovery_capability=str(RecoveryCapability.REATTACH),
+    ),
+    "claude_code": WorkerCapabilities(
+        supports_receipts=True,
+        supports_read_task=True,
+        supports_write_task=True,
+        supports_shell_effect=True,
+        supports_file_effect=True,
+        supports_structured_events=True,
         recovery_capability=str(RecoveryCapability.REATTACH),
     ),
 }

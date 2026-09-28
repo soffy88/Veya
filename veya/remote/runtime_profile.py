@@ -45,6 +45,7 @@ _KNOWN_PROJECT_CLIS = (
     "grok",
     "dsh",
     "codex",
+    "claude",
     "git",
     "docker",
     "docker-compose",

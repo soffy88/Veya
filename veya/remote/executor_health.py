@@ -5,7 +5,7 @@ Separates qualification from runtime health:
 - Health: "is the executor/provider available right now"
 
 Formal Preference Order:
-AGY > CODEX > HICODE > PI > GROK (DSH preserved outside default sequence).
+AGY > OPENCODE > CLAUDE_CODE > PI > GROK > DSH > CODEX (Hicode retired).
 """
 
 from __future__ import annotations
@@ -27,19 +27,20 @@ from .worker_runtime import (
 DEFAULT_EXECUTOR_PREFERENCE: tuple[str, ...] = (
     "antigravity",
     "opencode",
+    "claude_code",
     "pi",
     "grok",
     "dsh",
     "codex",
-    "hicode",
 )
 
 EXECUTOR_ALIASES: dict[str, str] = {
     "agy": "antigravity",
     "antigravity": "antigravity",
     "opencode": "opencode",
+    "claude-code": "claude_code",
+    "claude_code": "claude_code",
     "codex": "codex",
-    "hicode": "hicode",
     "pi": "pi",
     "grok": "grok",
     "dsh": "dsh",
@@ -377,7 +378,8 @@ def resolve_executor(
     1. Capability eligibility (fail-closed if missing)
     2. Explicit pin (if specified) -> never substituted
     3. Current health (fail-closed if all candidates are UNAVAILABLE or unverified)
-    4. Preference (AGY > CODEX > HICODE > PI > GROK)
+    4. Preference (AGY > OPENCODE > CLAUDE_CODE > PI > GROK > DSH > CODEX)
+    Retired executors (hicode) are rejected before preference applies.
     """
     req_norm = normalize_executor_name(requested or "") if requested else None
 

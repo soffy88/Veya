@@ -23,8 +23,12 @@ _ALIASES = {
     "antigravity": "antigravity",
     "open-code": "opencode",
     "opencode_go": "opencode",
+    "claude-code": "claude_code",
+    "claude_code": "claude_code",
 }
-_KNOWN = ("pi", "hicode", "codex", "antigravity", "opencode", "dsh")
+_KNOWN = ("pi", "codex", "antigravity", "opencode", "claude_code", "dsh")
+# Retired executors fail closed at discovery: no identity, no launcher, no auth.
+_RETIRED_EXECUTORS = frozenset({"hicode"})
 
 
 def normalize_executor_id(value: str) -> str:
@@ -84,6 +88,7 @@ def _configured_launcher(executor_id: str) -> str | None:
         "codex": "VEYA_CODEX_BIN",
         "antigravity": "VEYA_ANTIGRAVITY_BIN",
         "opencode": "VEYA_OPENCODE_BIN",
+        "claude_code": "VEYA_CLAUDE_BIN",
         "dsh": "VEYA_DSH_BIN",
     }.get(executor_id)
     configured = os.environ.get(env_name, "").strip() if env_name else ""
@@ -138,30 +143,6 @@ def _pi_config() -> tuple[str | None, str | None, bool, str]:
     )
 
 
-def _hicode_config() -> tuple[str | None, str | None, str]:
-    provider = os.environ.get("HICODE_REASONIX_PROVIDER")
-    model = os.environ.get("HICODE_REASONIX_MODEL") or os.environ.get("HICODE_MODEL")
-    path = Path(__file__).resolve().parents[2] / "config" / "hicode_model_mapping.json"
-    if not provider or not model:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
-        if not model and isinstance(data, Mapping):
-            active = next(
-                (
-                    value
-                    for value in data.values()
-                    if isinstance(value, Mapping) and value.get("active")
-                ),
-                None,
-            )
-            if isinstance(active, Mapping):
-                model = str(active.get("requested_model") or "") or None
-                provider = provider or str(active.get("requested_provider") or "") or None
-    source = "env:hicode" if os.environ.get("HICODE_REASONIX_PROVIDER") else str(path)
-    return provider, model, source
-
 
 @dataclass
 class ExecutorRegistry:
@@ -205,6 +186,8 @@ class ExecutorRegistry:
 
     def _discover(self, executor_id: str) -> ExecutorRuntimeIdentity:
         source = "provider-registry"
+        if executor_id in _RETIRED_EXECUTORS:
+            raise ValueError(f"Executor retired: {executor_id!r}")
         if executor_id == "pi":
             provider, model, _configured, source = _pi_config()
             auth = _credential_present(
@@ -212,15 +195,6 @@ class ExecutorRegistry:
                 [Path("~/.pi/agent/auth.json").expanduser()],
             )
             launcher = _configured_launcher(executor_id) or _launcher(["pi"])
-        elif executor_id == "hicode":
-            provider, model, source = _hicode_config()
-            auth = bool(provider and model)
-            try:
-                from server.hicode_runtime import get_hicode_executor
-
-                launcher = get_hicode_executor().resolve_binary()
-            except Exception:
-                launcher = None
         else:
             contract = _cp.executor_contract(executor_id)
             env_prefix = {
@@ -228,6 +202,7 @@ class ExecutorRegistry:
                 "codex": "CODEX",
                 "dsh": "DSH",
                 "opencode": "OPENCODE",
+                "claude_code": "CLAUDE_CODE",
             }.get(executor_id, executor_id.upper())
             provider = (
                 os.environ.get(f"VEYA_{env_prefix}_PROVIDER")
@@ -239,13 +214,23 @@ class ExecutorRegistry:
                 or str(contract.get("model") or "")
                 or None
             )
+            auth_files = {
+                "codex": [Path("~/.codex/auth.json").expanduser()],
+                "opencode": [Path("~/.local/share/opencode/auth.json").expanduser()],
+                "claude_code": [Path("~/.claude/.credentials.json").expanduser()],
+            }.get(executor_id, [])
             auth = _credential_present(
                 [str(item) for item in contract.get("auth_env", ())],
-                [Path("~/.codex/config.json").expanduser()] if executor_id == "codex" else [],
+                auth_files,
             )
             bins = [str(item) for item in contract.get("bins", ())]
             bins.extend(
-                {"codex": ["codex"], "opencode": ["opencode"], "dsh": ["dsh"]}.get(executor_id, [])
+                {
+                    "codex": ["codex"],
+                    "opencode": ["opencode"],
+                    "claude_code": ["claude"],
+                    "dsh": ["dsh"],
+                }.get(executor_id, [])
             )
             launcher = _configured_launcher(executor_id) or _launcher(bins)
         reachable = launcher is not None
@@ -255,7 +240,7 @@ class ExecutorRegistry:
         )
         return ExecutorRuntimeIdentity(
             executor_id=executor_id,
-            executor_kind="internal_hicode" if executor_id == "hicode" else "l1_worker",
+            executor_kind="l1_worker",
             provider=provider,
             model=model,
             auth_state="AUTHENTICATED" if authenticated else "MISSING",

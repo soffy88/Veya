@@ -239,6 +239,11 @@ def probe_runtime_capability_manifest(
             Path.home() / ".opencode" / "bin" / "opencode",
             Path.home() / ".local" / "bin" / "opencode",
         ]
+    elif norm == "claude_code":
+        candidate_bins = [
+            "claude",
+            Path.home() / ".local" / "bin" / "claude",
+        ]
     elif norm == "codex":
         candidate_bins = [
             "codex",
@@ -268,10 +273,7 @@ def probe_runtime_capability_manifest(
         resolved = resolve_acp_command()
         candidate_bins = [resolved[0]] if resolved else ["openhands", "acp-agent", "agents-cli"]
     elif norm == "hicode":
-        installed = bool(identity.launcher)
-        bin_path = identity.launcher
-        version = "unknown"
-        # Hicode identity and auth semantics are supplied by ExecutorRegistry.
+        raise ValueError("Executor retired: 'hicode'")
 
     if not installed:
         for cand in candidate_bins:
@@ -338,7 +340,7 @@ def probe_runtime_capability_manifest(
 
     return RuntimeCapabilityManifest(
         executor_id=norm,
-        executor_kind="l1_worker" if norm != "hicode" else "internal_hicode",
+        executor_kind="l1_worker",
         installed=installed,
         authenticated=authenticated,
         reachable=reachable,
@@ -363,7 +365,7 @@ def probe_runtime_capability_manifest(
         network_isolation="loopback_proxy",
         credential_isolation="ephemeral_redacted",
         process_isolation="process_group",
-        max_concurrency=16 if norm == "hicode" else 4,
+        max_concurrency=4,
         active_executions=active_executions,
         status=status,
         status_reason=status_reason,
@@ -437,10 +439,8 @@ def clear_runtime_capability_manifest_cache() -> None:
 
 
 __all__ = [
-    "MANIFEST_CACHE_TTL_S",
-    "clear_runtime_capability_manifest_cache",
-    "probe_runtime_capability_manifest_cached",
     "GENESIS_HASH",
+    "MANIFEST_CACHE_TTL_S",
     "ExecutionCapabilityEnvelope",
     "ExecutionCondition",
     "ExecutionSpec",
@@ -448,6 +448,8 @@ __all__ = [
     "SessionEnvelope",
     "build_evidence_chain",
     "canonical_content_hash",
+    "clear_runtime_capability_manifest_cache",
     "probe_runtime_capability_manifest",
+    "probe_runtime_capability_manifest_cached",
     "verify_evidence_chain",
 ]

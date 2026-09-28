@@ -22,12 +22,14 @@ from typing import Any
 
 from .models import ExecutionReport
 
-# L1 canonical executors.
+# L1 canonical executors.  Hicode is retired from the active plane (source
+# retained); claude_code is the canonical Claude Code executor.  This tuple is
+# registration only — routing decisions stay with ExecutorRegistry.
 L1_WORKERS: tuple[str, ...] = (
     "antigravity",
     "opencode",
+    "claude_code",
     "codex",
-    "hicode",
     "pi",
     "grok",
     "dsh",

@@ -279,6 +279,12 @@ class RemoteCallResult:
             payload["result"] = {}
         if self.execution_id is not None:
             payload["execution_id"] = self.execution_id
+        # Durable dispatch handles are intentionally available at the MCP
+        # envelope level, not only inside the human-readable result object.
+        if isinstance(self.result, dict):
+            for key in ("dispatch_id", "goal_run_id", "goal_task_id", "executor_id", "status"):
+                if key in self.result:
+                    payload[key] = self.result[key]
         if self.duration_ms is not None:
             payload["duration_ms"] = round(self.duration_ms, 3)
         if not self.ok:

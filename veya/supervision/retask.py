@@ -61,9 +61,10 @@ _REDO_DECISIONS = {
 }
 
 # These are concrete L1 worker identities, not semantic routing choices.  A
-# retask may preserve one of them, but it must never silently fall back to
-# Hicode when the identity is absent or invalid.
-_RETASK_WORKERS = frozenset({"hicode", "dsh", "pi", "grok", "codex", "antigravity", "opencode"})
+# retask may preserve one of them, but it must never silently fall back to a
+# retired executor when the identity is absent or invalid.  Hicode is retired
+# from the active plane.
+_RETASK_WORKERS = frozenset({"dsh", "pi", "grok", "codex", "antigravity", "opencode", "claude_code"})
 
 
 @dataclass

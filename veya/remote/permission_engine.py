@@ -8,9 +8,11 @@ sandbox code: it only returns a decision and an auditable reason.
 
 from __future__ import annotations
 
+import os
+import re
 import shlex
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -57,6 +59,7 @@ class ReasonCode(StrEnum):
     ALLOW_USER_RUNTIME = "ALLOW_USER_RUNTIME"
     ALLOW_NETWORK = "ALLOW_NETWORK"
     ALLOW_WORKER = "ALLOW_WORKER"
+    ALLOW_TRUSTED_ADMIN = "ALLOW_TRUSTED_ADMIN"
     APPROVAL_HOST_PRIVILEGE = "APPROVAL_HOST_PRIVILEGE"
     APPROVAL_HOST_DESTRUCTIVE = "APPROVAL_HOST_DESTRUCTIVE"
     APPROVAL_SECURITY_BOUNDARY = "APPROVAL_SECURITY_BOUNDARY"
@@ -112,8 +115,91 @@ class PermissionDecision:
         return self.decision == Decision.ALLOW
 
 
-_HOST_ROOTS = tuple(Path(item) for item in ("/etc", "/usr", "/boot", "/dev", "/proc", "/sys"))
+_HOST_ROOTS = tuple(
+    Path(item) for item in ("/etc", "/usr", "/boot", "/dev", "/proc", "/sys", "/opt", "/var", "/root")
+)
+# System state that is never a Veya runtime target, so it stays gated even in
+# trusted-admin mode.  These are credential stores, not administration surfaces.
+_HOST_CREDENTIAL_ROOTS = tuple(Path(item) for item in ("/etc/shadow", "/etc/gshadow", "/etc/sudoers"))
+
+
+def _user_runtime_roots() -> tuple[Path, ...]:
+    """Veya-owned user runtime/config roots, plus the canonical user systemd dir.
+
+    Deliberately a short, explicit allowlist rather than ``$HOME``: ordinary
+    Local2 self-development needs to manage its own runtime state, but that must
+    not become a blanket allow for personal data.  ``~/.ssh``, ``~/.gnupg`` and
+    ``~/.aws`` are absent by design and stay gated by the credential boundary.
+    """
+    home = Path.home().expanduser()
+    return (
+        home / ".config" / "systemd" / "user",
+        home / ".config" / "veya",
+        home / ".veya",
+        home / ".local" / "share" / "veya",
+        home / ".cache" / "veya",
+    )
+
+
 _DESTRUCTIVE_WORDS = frozenset({"mkfs", "fdisk", "parted", "mount", "umount", "iptables", "nft"})
+# systemctl verbs that only inspect state.  Classifying them as read-only keeps
+# `systemctl --user status|show` from being reported as a mutation.
+# systemctl verbs that take the machine down.  Distinct from ordinary service
+# administration, which is privileged but reversible.
+# Commands whose operands name file content.  A ``..`` operand on one of these
+# is an escape attempt; the same operand on version-control plumbing is not.
+_TRAVERSAL_GATED_EXECUTABLES = frozenset(
+    {
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "more",
+        "tee",
+        "cp",
+        "mv",
+        "rm",
+        "sed",
+        "awk",
+        "grep",
+        "rg",
+        "install",
+        "chmod",
+        "chown",
+        "dd",
+        "truncate",
+        "tar",
+        "mkdir",
+        "touch",
+        "ln",
+        "patch",
+        "shred",
+        "vi",
+        "vim",
+        "nano",
+        "emacs",
+        "code",
+    }
+)
+_SYSTEMCTL_POWER_VERBS = frozenset({"poweroff", "reboot", "halt", "kexec", "suspend", "hibernate"})
+_SYSTEMCTL_READ_ONLY_VERBS = frozenset(
+    {
+        "status",
+        "show",
+        "is-active",
+        "is-enabled",
+        "is-failed",
+        "list-units",
+        "list-unit-files",
+        "list-timers",
+        "list-sockets",
+        "cat",
+        "get-default",
+        "show-environment",
+        "list-dependencies",
+        "list-jobs",
+    }
+)
 _READ_ONLY_GIT = frozenset({"status", "diff", "log", "show", "rev-parse", "ls-files"})
 _REMOTE_REVERSIBLE_GIT = frozenset({"fetch", "pull", "ls-remote"})
 _LOCAL_GIT = frozenset(
@@ -141,20 +227,204 @@ def _canonical(path: Path) -> Path:
     return path.expanduser().resolve(strict=False)
 
 
+def _under(path: Path, roots: Iterable[Path]) -> bool:
+    return any(path == root or root in path.parents for root in roots)
+
+
+def _escapes_workspace_by_dotdot(context: OperationContext) -> bool:
+    """True when a ``..`` operand climbs out of the workspace root.
+
+    ``DENY_PATH_TRAVERSAL`` existed as a reason code but nothing ever raised it,
+    so ``cat ../../../../etc/passwd`` resolved to an ordinary read and was
+    ALLOWed.  Only *escaping* traversal is denied: ``cat ../sibling.py`` from a
+    subdirectory is normal work and stays allowed.
+    """
+    root = _canonical(context.workspace_root) if context.workspace_root else None
+    if root is None:
+        return False
+    # Only content access is gated.  VCS plumbing legitimately places new
+    # objects relative to the repository (`git worktree add ../probe`), which
+    # locked policy treats as ordinary project mutation; that must not become a
+    # second, divergent escape policy.
+    words = _command_words(context.command)
+    if not words or words[0] not in _TRAVERSAL_GATED_EXECUTABLES:
+        return False
+    cwd = _canonical(context.cwd) if context.cwd else root
+    for operand in _positional_targets(context.command or ()):
+        if ".." not in Path(operand).parts:
+            continue
+        try:
+            resolved = Path(os.path.normpath(str(cwd / operand)))
+        except (OSError, ValueError):
+            return True
+        if resolved != root and root not in resolved.parents:
+            return True
+    return False
+
+
 def _scope(context: OperationContext) -> Scope:
     root = _canonical(context.workspace_root) if context.workspace_root else None
     targets = tuple(_canonical(path) for path in context.target_paths)
-    if any(path == host or host in path.parents for path in targets for host in _HOST_ROOTS):
+    words = _command_words(context.command)
+    executable = words[0] if words else ""
+
+    # Host credential stores are classified as HOST but are additionally marked
+    # so the credential boundary can keep gating them; scope alone never allows.
+    if any(_under(path, _HOST_ROOTS) for path in targets):
         return Scope.HOST
+    # User-owned Veya runtime state (including ~/.config/systemd/user) is USER
+    # scope, not a project escape.  Local2 administering its own service is
+    # ordinary operation, and it used to be rejected as DENY_SCOPE_ESCAPE.
+    user_roots = _user_runtime_roots()
+    if any(_under(path, user_roots) for path in targets):
+        return Scope.USER
     if root and targets:
         if all(path == root or root in path.parents for path in targets):
             return Scope.PROJECT
         return Scope.OUTSIDE_ALLOWED_SCOPE
-    if context.service_effect == "user" or context.privilege_level == "user":
-        return Scope.USER
+    # No resolvable target: classify by the operation's own semantics rather
+    # than falling through to "escape".  `sudo systemctl daemon-reload` has no
+    # path operand at all, and must read as HOST admin, not a scope escape.
+    if context.service_effect == "system" or context.privilege_level in {"root", "host"}:
+        return Scope.HOST
+    if executable in {"sudo", "doas"} or (
+        executable == "systemctl" and "--user" not in words
+    ):
+        return Scope.HOST
     if context.remote_effect != "none" or context.network_effect != "none":
+        # Must precede the user-runtime branch: `git push` has no path operand,
+        # and a greedy privilege_level fallback was labelling it USER scope.
         return Scope.REMOTE
+    if context.service_effect == "user":
+        return Scope.USER
+    if context.filesystem_effect in {"read", "none"} and context.process_effect in {
+        "none",
+        "inspect",
+    }:
+        # A pure inspection with no path operand is not an escape.
+        return Scope.USER if executable == "sudo" else Scope.PROJECT
+    if context.privilege_level == "user":
+        # Ordinary unprivileged operation with no resolvable path operand:
+        # local Git plumbing and the like.  Checked last so it cannot outrank
+        # the remote or service branches above.
+        return Scope.USER
     return Scope.OUTSIDE_ALLOWED_SCOPE
+
+
+# Credential/secret files whose *contents* must not flow into a session
+# unreviewed. This is step 3 of the canonical precedence ("secret,
+# protected-path boundaries") for the read path: extraction happens in the
+# parser for every read, but only these names gate. Everything else readable
+# (passwd, hostname, proc, project files) keeps its existing verdict.
+_SENSITIVE_READ_BASENAMES = frozenset({"shadow", "gshadow", "sudoers", "credentials"})
+_SENSITIVE_READ_SUFFIXES = (".pem",)
+
+
+def _is_sensitive_read_target(path: Path) -> bool:
+    name = path.name
+    if name in _SENSITIVE_READ_BASENAMES:
+        return True
+    if name.endswith(_SENSITIVE_READ_SUFFIXES):
+        return True
+    # SSH private keys (never the .pub halves).
+    if name.startswith("id_") and not name.endswith(".pub") and ".ssh" in path.parts:
+        return True
+    # /etc/sudoers.d/* drop-ins.
+    parts = path.parts
+    return len(parts) >= 4 and parts[1] == "etc" and parts[2] == "sudoers.d"
+
+
+# read-only command family. Anything else starting with `-` is a boolean flag.
+_READ_VALUE_FLAGS: dict[str, frozenset[str]] = {
+    "head": frozenset({"-n", "-c", "--lines", "--bytes"}),
+    "tail": frozenset({"-n", "-c", "--lines", "--bytes", "--pid"}),
+    "ls": frozenset(
+        {"-I", "--ignore", "--color", "--time-style", "--sort", "--format", "--width", "--tabsize"}
+    ),
+    "stat": frozenset({"-c", "--printf"}),
+    "grep": frozenset(
+        {
+            "-m",
+            "-A",
+            "-B",
+            "-C",
+            "--max-count",
+            "--after-context",
+            "--before-context",
+            "--context",
+            "--color",
+            "--include",
+            "--exclude",
+            "--exclude-dir",
+            "--label",
+        }
+    ),
+    "egrep": frozenset(
+        {"-m", "-A", "-B", "-C", "--max-count", "--color", "--include", "--exclude"}
+    ),
+    "fgrep": frozenset(
+        {"-m", "-A", "-B", "-C", "--max-count", "--color", "--include", "--exclude"}
+    ),
+    "rg": frozenset(
+        {"-m", "-A", "-B", "-C", "--max-count", "--colors", "--glob", "--iglob", "--type", "-t"}
+    ),
+}
+# grep-family: -e takes a search PATTERN (skip), -f takes a FILE (keep as path).
+_READ_PATTERN_FLAGS = frozenset({"-e", "--regexp"})
+_READ_FILE_FLAGS = frozenset({"-f", "--file"})
+# Read-only executables whose positional operands are file paths. Every other
+# read-only executable (echo, pwd, python, pytest, curl, …) keeps `()` targets:
+# their positionals are text, code, or URLs, not workspace paths.
+_READ_PATH_EXECUTABLES = frozenset(
+    {"cat", "head", "tail", "ls", "wc", "stat", "file", "grep", "egrep", "fgrep", "rg"}
+)
+_GREP_FAMILY = frozenset({"grep", "egrep", "fgrep", "rg"})
+
+
+def _read_targets(executable: str, raw_argv: Sequence[str]) -> tuple[str, ...]:
+    """Positional path operands of a read-only command, case-preserved.
+
+    Only for executables whose positionals are file paths. Flags, flag values,
+    and (for the grep family) the search pattern are excluded — a pattern must
+    never be mistaken for a target, and a flag value like `5` in
+    `head -n 5 file` must never resolve into the workspace. Returns raw strings
+    for the caller to resolve; makes no policy decision.
+    """
+    if executable not in _READ_PATH_EXECUTABLES:
+        return ()
+    args = [str(a) for a in raw_argv[1:]]
+    paths: list[str] = []
+    pattern_seen = False
+    value_flags = _READ_VALUE_FLAGS.get(executable, frozenset())
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        low = tok.lower()
+        if tok == "--":
+            paths.extend(args[i + 1 :])
+            break
+        if tok.startswith("-") and tok != "-":
+            if low in _READ_PATTERN_FLAGS:
+                i += 2  # -e PATTERN: a pattern, not a path
+                pattern_seen = True
+                continue
+            if low in _READ_FILE_FLAGS:
+                if i + 1 < len(args):
+                    paths.append(args[i + 1])  # -f FILE: a genuine path
+                i += 2
+                pattern_seen = True
+                continue
+            if low in value_flags:
+                i += 2  # --flag VALUE: a setting, not a path
+                continue
+            i += 1  # boolean flag (incl. -n5 / -efoo attached forms)
+            continue
+        if executable in _GREP_FAMILY and not pattern_seen:
+            pattern_seen = True  # first positional is the search pattern
+        else:
+            paths.append(tok)
+        i += 1
+    return tuple(paths)
 
 
 def _command_words(command: Iterable[str] | None) -> tuple[str, ...]:
@@ -189,6 +459,15 @@ _DESTRUCTIVE_EXECUTABLES = frozenset(
         "parted",
         "wipefs",
         "mkswap",
+        # Power state.  These were unclassified, so they fell through to the
+        # unknown-executable branch and resolved to a *reversible* project
+        # mutation -- a bare `reboot` or `shutdown -h now` was ALLOWed with no
+        # approval at all.  Taking the machine down is not a project edit.
+        "reboot",
+        "poweroff",
+        "halt",
+        "shutdown",
+        "kexec",
     }
 )
 
@@ -275,6 +554,12 @@ _MUTATING_EXECUTABLES = frozenset(
         "patch",
         "install",
         "rsync",
+        # ``tee`` was unclassified and fell through to the unknown-executable
+        # branch, which returns no target paths.  With no targets the scope
+        # could not be resolved, so ``tee /etc/systemd/system/x.service``
+        # resolved to USER scope and was ALLOWed -- a pre-existing hole where a
+        # host write looked like an ordinary project mutation.
+        "tee",
     }
 )
 
@@ -371,6 +656,80 @@ def _positional_targets(argv: Sequence[str], *, skip_options: bool = True) -> li
     return targets
 
 
+# Shell composition.  A command line can carry more than one program and more
+# than one write target, and a classifier that only reads the first token sees
+# none of it: ``printf x | tee /etc/veya.conf`` classified as an unknown
+# `printf` with no targets, and ``echo hi > /etc/veya.conf`` never mentioned the
+# redirect at all.  Both were ALLOW.  So a composed line is split and every
+# segment, plus every redirection target, is classified and then merged with the
+# most restrictive result winning.
+_SHELL_CONTROL_TOKENS = frozenset({"|", "||", "&&", ";", "&", "\n"})
+_REDIRECT_TOKENS = (">>", ">&", "<&", ">|", ">", "<")
+_REDIRECT_FD_PREFIX = re.compile(r"^\d*>")
+
+# Most restrictive first.  Merging walks this order and keeps the first hit.
+_EFFECT_SEVERITY = (
+    CommandEffect.DESTRUCTIVE_MUTATION,
+    CommandEffect.PRIVILEGED_HOST_MUTATION,
+    CommandEffect.REMOTE_IRREVERSIBLE_MUTATION,
+    CommandEffect.REMOTE_MUTATION,
+    CommandEffect.REVERSIBLE_MUTATION,
+    CommandEffect.READ_ONLY,
+    CommandEffect.NONE,
+)
+
+
+def _split_composed(argv: Sequence[str]) -> tuple[list[list[str]], list[str]]:
+    """Split a command line into program segments plus redirection targets."""
+    segments: list[list[str]] = [[]]
+    redirects: list[str] = []
+    # A redirect operator either carries its target inline (`>/etc/x`) or takes
+    # the next token as the target (`> /etc/x`).  Both forms must record a
+    # target, or `echo hi > /etc/x` silently loses the only path it touches.
+    pending_redirect = False
+    for token in (str(item) for item in argv):
+        if token in _SHELL_CONTROL_TOKENS:
+            if segments[-1]:
+                segments.append([])
+            pending_redirect = False
+            continue
+        if pending_redirect:
+            redirects.append(token)
+            pending_redirect = False
+            continue
+        stripped = _REDIRECT_FD_PREFIX.sub(">", token)
+        matched = next((op for op in _REDIRECT_TOKENS if stripped.startswith(op)), None)
+        if matched is not None:
+            remainder = stripped[len(matched) :].strip()
+            if remainder:
+                redirects.append(remainder)
+            else:
+                pending_redirect = True
+            continue
+        segments[-1].append(token)
+    return [segment for segment in segments if segment], redirects
+
+
+def _merge_effects(
+    parts: Sequence[tuple[CommandEffect, tuple[Path, ...], str, str, str]]
+) -> tuple[CommandEffect, tuple[Path, ...], str, str, str]:
+    """Combine per-segment results; the most restrictive classification wins."""
+    if not parts:
+        return CommandEffect.NONE, (), "none", "none", "reversible"
+    targets: list[Path] = []
+    for _effect, part_targets, _fs, _net, _rev in parts:
+        targets.extend(part_targets)
+    unique: list[Path] = []
+    for target in targets:
+        if target not in unique:
+            unique.append(target)
+    effect = next((candidate for candidate in _EFFECT_SEVERITY if any(part[0] is candidate for part in parts)), CommandEffect.NONE)
+    filesystem = "write" if any(part[2] == "write" for part in parts) else "read" if any(part[2] == "read" for part in parts) else "none"
+    network = "network" if any(part[3] == "network" for part in parts) else "none"
+    reversibility = "destructive" if any(part[4] == "destructive" for part in parts) else "irreversible" if any(part[4] == "irreversible" for part in parts) else "reversible"
+    return effect, tuple(unique), filesystem, network, reversibility
+
+
 def classify_command(
     argv: Sequence[str], *, cwd: Path
 ) -> tuple[CommandEffect, tuple[Path, ...], str, str, str]:
@@ -381,6 +740,30 @@ def classify_command(
     ``rm -rf /`` are both destructive but resolve to different targets, and
     ``git push`` differs from ``git push --force``.
     """
+    raw_argv = [str(item) for item in argv]
+    segments, redirects = _split_composed(raw_argv)
+    if len(segments) > 1 or redirects:
+        # Every segment and every redirect target is classified, then merged.
+        # The merge is what stops a pipe or a `>` from hiding a host write.
+        parts = [_classify_single(segment, cwd=cwd) for segment in segments]
+        for redirect in redirects:
+            candidate = Path(redirect).expanduser()
+            parts.append(
+                (
+                    CommandEffect.REVERSIBLE_MUTATION,
+                    (candidate if candidate.is_absolute() else cwd / candidate,),
+                    "write",
+                    "none",
+                    "reversible",
+                )
+            )
+        return _merge_effects(parts)
+    return _classify_single(raw_argv, cwd=cwd)
+
+
+def _classify_single(
+    argv: Sequence[str], *, cwd: Path
+) -> tuple[CommandEffect, tuple[Path, ...], str, str, str]:
     words = _command_words(argv)
     if not words:
         return CommandEffect.NONE, (), "none", "none", "reversible"
@@ -395,34 +778,58 @@ def classify_command(
         return tuple(resolved)
 
     if executable == "sudo":
-        inner = _command_words(raw_argv[1:])
-        inner_effect = (
-            classify_command(raw_argv[1:], cwd=cwd)[0] if raw_argv[1:] else CommandEffect.NONE
-        )
-        effect = (
-            CommandEffect.PRIVILEGED_HOST_MUTATION
-            if inner_effect
-            in {
-                CommandEffect.DESTRUCTIVE_MUTATION,
+        # Canonical rule: the sudo prefix dominates. Running anything as root is
+        # a privileged host operation, and the subcommand's semantics must never
+        # downgrade that privilege — not to reversible, not to destructive, not
+        # to remote. One predictable verdict for every sudo invocation.
+        if not raw_argv[1:]:
+            # Bare `sudo`: an interactive root shell.
+            return (
                 CommandEffect.PRIVILEGED_HOST_MUTATION,
-                CommandEffect.REMOTE_IRREVERSIBLE_MUTATION,
-                CommandEffect.REMOTE_MUTATION,
-            }
-            else CommandEffect.REVERSIBLE_MUTATION
+                (),
+                "write",
+                "none",
+                "irreversible",
+            )
+        inner = _command_words(raw_argv[1:])
+        _inner_effect, _inner_targets, _inner_fs, _inner_net, _inner_rev = classify_command(
+            raw_argv[1:], cwd=cwd
         )
+        # The sudo prefix dominates: one predictable effect for every sudo
+        # invocation (locked by tests/remote/test_command_semantics_matrix.py).
+        # Destructiveness is carried by ``reversibility`` instead of by the
+        # effect, so `sudo rm -rf /` stays a high-risk gate while
+        # `sudo systemctl restart` stays ordinary reversible host admin, and
+        # trusted-admin mode can tell them apart without a second authority.
         return (
-            effect,
+            CommandEffect.PRIVILEGED_HOST_MUTATION,
             (),
             "write",
             "network" if inner and inner[0] in _NETWORK_FETCH_EXECUTABLES else "none",
-            "irreversible" if effect is CommandEffect.PRIVILEGED_HOST_MUTATION else "reversible",
+            "destructive"
+            if _inner_effect is CommandEffect.DESTRUCTIVE_MUTATION
+            else ("irreversible" if _inner_effect is CommandEffect.NONE else _inner_rev),
         )
 
     if executable == "systemctl":
         user_scoped = "--user" in words
         if user_scoped:
+            # `systemctl --user` manages the caller's own service manager
+            # instance.  That is USER scope regardless of the executable being
+            # systemctl, so it is never treated as privileged host mutation.
+            # Inspection verbs are read-only; the rest are reversible mutation
+            # and still resolve through the user-runtime path.
+            subcommand = next((word for word in words[1:] if not word.startswith("-")), "")
+            if subcommand in _SYSTEMCTL_READ_ONLY_VERBS:
+                return CommandEffect.READ_ONLY, (), "read", "none", "reversible"
             return CommandEffect.REVERSIBLE_MUTATION, (), "none", "none", "reversible"
-        return CommandEffect.PRIVILEGED_HOST_MUTATION, (), "write", "none", "destructive"
+        subcommand = next((word for word in words[1:] if not word.startswith("-")), "")
+        if subcommand in _SYSTEMCTL_READ_ONLY_VERBS:
+            return CommandEffect.READ_ONLY, (), "read", "none", "reversible"
+        if subcommand in _SYSTEMCTL_POWER_VERBS:
+            return CommandEffect.DESTRUCTIVE_MUTATION, (), "write", "none", "destructive"
+        # Ordinary host service administration: privileged, but reversible.
+        return CommandEffect.PRIVILEGED_HOST_MUTATION, (), "write", "none", "reversible"
 
     if executable in _DESTRUCTIVE_EXECUTABLES or any(
         item == executable or item.startswith(f"{executable}.")
@@ -527,7 +934,28 @@ def classify_command(
         return CommandEffect.READ_ONLY, (), "none", "network", "reversible"
 
     if executable in _READ_ONLY_EXECUTABLES:
-        return CommandEffect.READ_ONLY, (), "read", "none", "reversible"
+        # Read-only keeps its effect, but the path semantics must not be lost:
+        # positional file operands are extracted and normalized so the existing
+        # workspace scope authority can see an escape. The verdict itself is
+        # unchanged — the engine, not this parser, decides ALLOW vs DENY.
+        return (
+            CommandEffect.READ_ONLY,
+            _resolve(_read_targets(executable, raw_argv)),
+            "read",
+            "none",
+            "reversible",
+        )
+
+    if executable == "sed":
+        # In-place sed rewrites its operands; without -i it only reads.
+        in_place = any(flag in words for flag in ("-i", "--in-place"))
+        return (
+            CommandEffect.REVERSIBLE_MUTATION if in_place else CommandEffect.READ_ONLY,
+            _resolve(_positional_targets(raw_argv)),
+            "write" if in_place else "read",
+            "none",
+            "reversible",
+        )
 
     if executable in _MUTATING_EXECUTABLES:
         return (
@@ -540,6 +968,37 @@ def classify_command(
 
     # Unknown executable: never assume safe.
     return CommandEffect.REVERSIBLE_MUTATION, (), "write", "none", "reversible"
+
+
+# One canonical trusted-admin policy.  Host administration is executable by
+# default (APPROVAL_REQUIRED, not DENY); an operator who has already decided
+# that this Local2 instance may administer the machine sets this explicitly.
+# It is intentionally a single, explicit value rather than scattered
+# command-specific bypasses, and it never downgrades a destructive, credential,
+# remote-irreversible, or any DENY outcome.
+TRUSTED_ADMIN_ENV = "LOCAL2_ADMIN_TRUST"
+_TRUSTED_ADMIN_ENABLED = "enabled"
+
+# Reason codes that trusted-admin mode must never soften.  A machine-wide
+# "I trust this agent with the host" does not mean "erase the disk" or "print
+# /etc/shadow".
+_TRUSTED_ADMIN_NEVER_DOWNGRADES = frozenset(
+    {
+        ReasonCode.APPROVAL_HOST_DESTRUCTIVE,
+        ReasonCode.APPROVAL_UNKNOWN_HIGH_IMPACT,
+        ReasonCode.APPROVAL_SECURITY_BOUNDARY,
+        ReasonCode.APPROVAL_IRREVERSIBLE_REMOTE,
+        ReasonCode.DENY_SCOPE_ESCAPE,
+        ReasonCode.DENY_INVALID_APPROVAL,
+        ReasonCode.DENY_AUTHORITY_VIOLATION,
+        ReasonCode.DENY_PATH_TRAVERSAL,
+    }
+)
+
+
+def trusted_admin_enabled() -> bool:
+    """True only when the operator opted in with the exact sentinel value."""
+    return (os.environ.get(TRUSTED_ADMIN_ENV) or "").strip().lower() == _TRUSTED_ADMIN_ENABLED
 
 
 class PermissionEngine:
@@ -560,6 +1019,39 @@ class PermissionEngine:
     """
 
     def evaluate(self, context: OperationContext) -> PermissionDecision:
+        """Single authority. Applies the one trusted-admin policy at one place."""
+        return self._apply_trusted_admin(context, self._evaluate(context))
+
+    def _apply_trusted_admin(
+        self, context: OperationContext, decision: PermissionDecision
+    ) -> PermissionDecision:
+        """The one place host administration may be auto-approved.
+
+        Two independent guards, because a reason code alone is not enough:
+        ``sudo rm -rf /`` classifies as PRIVILEGED_HOST_MUTATION, whose reason
+        is otherwise upgradable.  Trusted administration of the host is not
+        consent to irreversible destruction, so reversibility is checked
+        separately as well.
+        """
+        if not trusted_admin_enabled():
+            return decision
+        if decision.decision is not Decision.APPROVAL_REQUIRED:
+            return decision
+        if decision.reason in _TRUSTED_ADMIN_NEVER_DOWNGRADES:
+            return decision
+        try:
+            effect = CommandEffect(str(context.command_effect))
+        except ValueError:
+            return decision
+        if effect is CommandEffect.DESTRUCTIVE_MUTATION:
+            return decision
+        if context.reversibility == "destructive":
+            return decision
+        if decision.scope not in {Scope.HOST, Scope.USER, Scope.REMOTE}:
+            return decision
+        return replace(decision, decision=Decision.ALLOW, reason=ReasonCode.ALLOW_TRUSTED_ADMIN)
+
+    def _evaluate(self, context: OperationContext) -> PermissionDecision:
         scope = _scope(context)
         words = _command_words(context.command)
         executable = words[0] if words else ""
@@ -581,6 +1073,10 @@ class PermissionEngine:
             if value != "none"
         )
 
+        if _escapes_workspace_by_dotdot(context):
+            return PermissionDecision(
+                Decision.DENY, ReasonCode.DENY_PATH_TRAVERSAL, scope, effects, operation
+            )
         if scope == Scope.OUTSIDE_ALLOWED_SCOPE:
             return PermissionDecision(
                 Decision.DENY, ReasonCode.DENY_SCOPE_ESCAPE, scope, effects, operation
@@ -634,6 +1130,17 @@ class PermissionEngine:
             return PermissionDecision(
                 Decision.APPROVAL_REQUIRED,
                 ReasonCode.APPROVAL_HOST_PRIVILEGE,
+                scope,
+                effects,
+                operation,
+            )
+        if context.filesystem_effect == "read" and any(
+            _is_sensitive_read_target(_canonical(path)) for path in context.target_paths
+        ):
+            # Step 3 precedes the read-only ALLOW: credential contents gate.
+            return PermissionDecision(
+                Decision.APPROVAL_REQUIRED,
+                ReasonCode.APPROVAL_SECURITY_BOUNDARY,
                 scope,
                 effects,
                 operation,

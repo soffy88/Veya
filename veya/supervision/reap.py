@@ -28,6 +28,7 @@ EXECUTOR_MARKERS: dict[str, tuple[str, ...]] = {
     "codex": ("codex",),
     "antigravity": ("agy", "antigravity"),
     "opencode": ("opencode",),
+    "claude_code": ("claude",),
     "worker": (),
     "builtin": (),
     "native_tool": (),
