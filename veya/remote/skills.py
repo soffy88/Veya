@@ -1,5 +1,15 @@
 """Skill registry + governance with progressive disclosure (plane C).
 
+ADAPTER role (SKILL_REGISTRY_AUTHORITY_CONVERGENCE): this registry is a
+read-only-at-rest adapter over the canonical authority
+``server.skill_hub.VeyaSkillHub``. It mints no skill identity of its own —
+entries arrive exclusively through :meth:`SkillRegistry.sync_from_canonical`
+(delegated sync; identity validated by ``server.skill_authority``). Direct
+:meth:`SkillRegistry.register` is sealed and raises
+``SkillAuthorityError``. The store is in-memory only (rebuilt per process);
+progressive disclosure reads Level-2/Level-3 bodies from skill roots on
+demand and never preloads them.
+
 Never load hundreds of ``SKILL.md`` at once. Three levels:
 
 * Level 1 (METADATA): name + description + triggers — the default.
@@ -12,10 +22,21 @@ are ``UNTRUSTED_CONTENT`` with recorded provenance.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import Any
+
+from server.skill_authority import (
+    CANONICAL_SKILL_AUTHORITY,
+    SKILL_AUTHORITY_ROLE_ADAPTER,
+    SkillAuthorityError,
+    canonical_skill_id,
+)
+
+#: Authority role of this store. Not the write authority (see server.skill_authority).
+SKILL_AUTHORITY_ROLE = SKILL_AUTHORITY_ROLE_ADAPTER
 
 
 class SkillLevel(IntEnum):
@@ -73,12 +94,48 @@ class SkillRecord:
 
 
 class SkillRegistry:
+    """Read-only-at-rest adapter over the canonical skill authority.
+
+    Production fill path: ``server.skill_authority.sync_remote_adapter``
+    (or :meth:`sync_from_canonical` directly). ``register`` is sealed: there
+    is exactly one write authority (``server.skill_hub.VeyaSkillHub``) and
+    this adapter must not mint a second skill identity.
+    """
+
     def __init__(self) -> None:
         self._skills: dict[str, SkillRecord] = {}
         self._loaded_core: dict[str, str] = {}
+        self._canonical_ids: set[str] = set()
 
     def register(self, record: SkillRecord) -> None:
-        self._skills[record.skill_id] = record
+        raise SkillAuthorityError(
+            f"SkillRegistry.register is sealed: {type(record).__name__} identity "
+            f"({getattr(record, 'skill_id', '?')!r}) must come from the canonical "
+            f"authority {CANONICAL_SKILL_AUTHORITY} via "
+            "SkillRegistry.sync_from_canonical (see server.skill_authority)"
+        )
+
+    def sync_from_canonical(self, records: Iterable[SkillRecord]) -> int:
+        """Delegated fill from the canonical authority (the only write path).
+
+        Every record's ``skill_id`` is validated against the canonical
+        identity rule; invalid identities are rejected, never stored.
+        Idempotent: re-syncing overwrites, so the adapter cannot fork.
+        Returns the number of synced skills.
+        """
+        items = list(records)
+        synced: dict[str, SkillRecord] = {}
+        for record in items:
+            skill_id = canonical_skill_id(record.skill_id)
+            if skill_id != record.skill_id:
+                record.skill_id = skill_id
+            synced[skill_id] = record
+        self._skills = synced
+        self._loaded_core = {
+            skill_id: body for skill_id, body in self._loaded_core.items() if skill_id in synced
+        }
+        self._canonical_ids = set(synced)
+        return len(synced)
 
     def get(self, skill_id: str) -> SkillRecord | None:
         return self._skills.get(skill_id)

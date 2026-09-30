@@ -399,6 +399,7 @@ class SkillDistribution:
         self, item: Mapping[str, Any], source: SourceProvenance
     ) -> SkillDistributionRecord:
         from server.capability_model import SkillSpec
+        from server.skill_authority import stage_skill_spec
 
         spec = SkillSpec(
             skill_id=str(item["skill_id"]),
@@ -407,7 +408,9 @@ class SkillDistribution:
             not_applicable_when=list(item.get("not_applicable_when") or []),
             provenance=item["provenance"],
         )
-        self._registry().register_candidate(spec)
+        # Delegated staging write (single choke point); direct
+        # register_candidate without delegation is sealed.
+        stage_skill_spec(self._registry(), spec)
         return SkillDistributionRecord(
             skill_id=spec.skill_id,
             backend="registry",
@@ -555,6 +558,7 @@ class SkillDistribution:
         record plus ``skill.imported`` audit is added on top.
         """
         from runtime.personal import get_personal_runtime
+        from server.skill_authority import propose_teaching_candidate
 
         resolved = select_distribution_backend(backend)
         config = dict(config or {})
@@ -604,7 +608,7 @@ class SkillDistribution:
                 "version": candidate["version"],
                 "phase": "proposed",
             }
-        spec = self._registry().propose_skill(description, config)
+        spec = propose_teaching_candidate(self._registry(), description, config)
         self._event(
             "skill.imported",
             {

@@ -600,7 +600,8 @@ def test_playbook_and_skill_bot_refs(tmp_path):
     store = _JsonRegistryStore(tmp_path / "catalog.json")
     skills = SkillRegistry(store)
     skills.register_candidate(
-        SkillSpec(skill_id="brief.render", instructions="render morning brief", version=2)
+        SkillSpec(skill_id="brief.render", instructions="render morning brief", version=2),
+        via_canonical=True,
     )
     playbooks = PlaybookRegistry(store, skills=skills)
     playbooks.register_candidate(

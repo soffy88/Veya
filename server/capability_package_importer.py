@@ -134,14 +134,19 @@ def parse_skill_files(skills_dir: str | Path, package_id: str) -> list[dict[str,
 def _import_skills(skills_dir: Path, package_id: str) -> list[str]:
     skill_ids = []
     for item in parse_skill_files(skills_dir, package_id):
-        skill_registry.register_candidate(
+        # Delegated staging write: identity validated at the single choke
+        # point (server.skill_authority); never a second runtime identity.
+        from server.skill_authority import stage_skill_spec
+
+        stage_skill_spec(
+            skill_registry,
             SkillSpec(
                 skill_id=item["skill_id"],
                 instructions=item["instructions"],
                 applicable_when=list(item["applicable_when"]),
                 not_applicable_when=list(item["not_applicable_when"]),
                 provenance=item["provenance"],
-            )
+            ),
         )
         skill_ids.append(item["skill_id"])
     return skill_ids

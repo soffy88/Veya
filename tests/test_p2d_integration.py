@@ -122,7 +122,8 @@ def _seed_catalogs(tmp_path):
             evidence_requirements=["brief-sha"],
             failure_contract={"retry": "once"},
             status="verified",
-        )
+        ),
+        via_canonical=True,
     )
     playbooks = PlaybookRegistry(store, skills=skills)
     playbooks.register_candidate(

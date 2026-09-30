@@ -40,6 +40,14 @@ from server.tool_registry import (
 
 logger = logging.getLogger("skillhub")
 
+#: Authority role of this store (SKILL_REGISTRY_AUTHORITY_CONVERGENCE).
+#: VeyaSkillHub is the single canonical skill write authority: it owns skill
+#: identity (manifest ``name``), mutation (``create_skill_package`` +
+#: ``reload_skills``/``_load_skill``) and persistence
+#: (``$VEYA_SKILLS_DIR/<name>/manifest.json``). See server.skill_authority.
+SKILL_AUTHORITY_ROLE = "AUTHORITATIVE"
+CANONICAL_SKILL_AUTHORITY = "server.skill_hub.VeyaSkillHub"
+
 
 def _oskill_mod() -> Any:
     """惰性取 3O oskill 主库 (单一来源: 契约校验/元路由原语)。
@@ -176,7 +184,21 @@ class VeyaSkillHub:
             return False
 
         # ── Manifest 校验(大模型认识技能的唯一凭证) ──
-        name = manifest.get("name", "")
+        # 规范身份由单一写权威规则校验 (server.skill_authority.canonical_skill_id):
+        # 非法身份直接跳过, 投影侧绝不为同一技能另起第二个身份。
+        try:
+            from server.skill_authority import canonical_skill_id
+        except Exception:  # pragma: no cover — authority 模块缺失时退回旧校验
+            canonical_skill_id = None  # type: ignore[assignment]
+        raw_name = manifest.get("name", "")
+        if canonical_skill_id is not None:
+            try:
+                name = canonical_skill_id(raw_name)
+            except ValueError as exc:
+                logger.warning("[SkillHub] %s manifest 身份非法,跳过: %s", skill_path, exc)
+                return False
+        else:
+            name = raw_name
         description = manifest.get("description", "")
         parameters = manifest.get("parameters")
         if not name or not description:
@@ -498,6 +520,15 @@ class VeyaSkillHub:
 
     def describe(self, name: str) -> str:
         return f"{name} — {self._descriptions.get(name, '')}"
+
+    def skill_source_path(self, name: str) -> str:
+        """技能包的权威文件系统路径 (权威→投影/适配器同步用, 只读).
+
+        供 ``server.skill_authority.sync_remote_adapter`` 定位 SKILL.md 做
+        渐进加载; 空字符串表示未知技能, 调用方不得据此另起身份。
+        """
+        info = self._skills.get(name) or {}
+        return str(info.get("path") or "")
 
     def list_skills(self) -> list[str]:
         # dispatcher 模式返回空 → oservi 提示渲染 (master_agent:312) 不再逐 skill 列,

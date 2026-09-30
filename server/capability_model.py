@@ -32,6 +32,22 @@ from pathlib import Path
 from typing import Any
 
 from server.events import append_canonical_event
+from server.skill_authority import (
+    CANONICAL_SKILL_AUTHORITY,
+    SKILL_AUTHORITY_ROLE_PROJECTION,
+    SkillAuthorityError,
+    canonical_skill_id,
+)
+
+#: Authority role of the SkillRegistry in this module. PROJECTION: hub skills
+#: arrive exclusively through the delegated sync path
+#: (``sync_skills_from_hub`` / ``SkillRegistry.sync_from_canonical``);
+#: direct ``register_candidate``/``propose_skill`` without delegation is
+#: sealed. Lifecycle transitions on existing records (confirm/reject/promote/
+#: rollback/trust/benchmark/usage) stay available to the owning flows
+#: (distribution D6, teaching confirm, cindy compat) — they change state, they
+#: never mint skill identity.
+SKILL_AUTHORITY_ROLE = SKILL_AUTHORITY_ROLE_PROJECTION
 
 
 def _now_iso() -> str:
@@ -281,7 +297,15 @@ class CapabilityRegistry:
 
 
 class SkillRegistry:
-    """search, get_version, benchmark, promote, rollback。"""
+    """search, get_version, benchmark, promote, rollback.
+
+    PROJECTION over the canonical authority
+    ``server.skill_hub.VeyaSkillHub``: skill identity is minted only by the
+    hub (manifest ``name``). New specs enter this store exclusively through
+    the delegated paths (``sync_skills_from_hub``,
+    :meth:`sync_from_canonical`, ``server.skill_authority.stage_skill_spec``,
+    teaching via ``server.skill_authority.propose_teaching_candidate``).
+    """
 
     def __init__(self, store: _JsonRegistryStore | None = None):
         self._store = store or _JsonRegistryStore()
@@ -347,10 +371,39 @@ class SkillRegistry:
             matches.append(spec)
         return matches
 
-    def register_candidate(self, spec: SkillSpec) -> None:
+    def register_candidate(self, spec: SkillSpec, *, via_canonical: bool = False) -> None:
+        """Stage one skill spec. Sealed unless ``via_canonical=True``.
+
+        The flag is reserved for the authority-delegated paths
+        (``sync_skills_from_hub``, :meth:`sync_from_canonical`,
+        ``server.skill_authority.stage_skill_spec`` / teaching). Direct calls
+        minting skill identity outside the canonical authority raise
+        ``SkillAuthorityError`` — there is exactly one write authority
+        (``server.skill_hub.VeyaSkillHub``).
+        """
+        if not via_canonical:
+            raise SkillAuthorityError(
+                f"SkillRegistry.register_candidate is sealed for {spec.skill_id!r}: "
+                f"skill identity is minted only by {CANONICAL_SKILL_AUTHORITY}; "
+                "stage through server.skill_authority.stage_skill_spec / "
+                "propose_teaching_candidate, or sync via sync_skills_from_hub"
+            )
+        spec.skill_id = canonical_skill_id(spec.skill_id)
         spec.status = "candidate"
         spec.updated_at = _now_iso()
         self._store.put("skill", spec.skill_id, _to_record(spec))
+
+    def sync_from_canonical(self, specs: list[SkillSpec]) -> int:
+        """Delegated batch fill from the canonical authority (the only bulk path).
+
+        Validates every identity, overwrites idempotently so the projection
+        cannot fork from the hub. Returns the number of synced specs.
+        """
+        count = 0
+        for spec in specs:
+            self.register_candidate(spec, via_canonical=True)
+            count += 1
+        return count
 
     @staticmethod
     def _record_event(topic: str, spec: SkillSpec, **extra: Any) -> dict[str, Any] | None:
@@ -363,8 +416,21 @@ class SkillRegistry:
             )
         return None
 
-    def propose_skill(self, description: str, config: dict[str, Any] | None = None) -> SkillSpec:
+    def propose_skill(
+        self,
+        description: str,
+        config: dict[str, Any] | None = None,
+        *,
+        via_canonical: bool = False,
+    ) -> SkillSpec:
         """Propose a new skill candidate in two-phase teaching flow.
+
+        Sealed unless ``via_canonical=True`` (reserved for
+        ``server.skill_authority.propose_teaching_candidate``): teaching
+        mints staged candidates, never runtime skills. Staged candidates stay
+        ``status=candidate`` and are excluded from the default contract query;
+        they become runtime-resolvable only via the canonical hub plus
+        projection sync.
 
         Creates a skill spec with status "candidate" (pending user confirmation).
         The caller (frontend/UI) must later confirm or reject via confirm_skill()
@@ -375,14 +441,21 @@ class SkillRegistry:
         """
         import uuid
 
+        if not via_canonical:
+            raise SkillAuthorityError(
+                "SkillRegistry.propose_skill is sealed: teaching candidates must be "
+                f"staged through server.skill_authority.propose_teaching_candidate "
+                f"(canonical authority: {CANONICAL_SKILL_AUTHORITY})"
+            )
+
         name = description[:50].strip().replace(" ", "-") or f"skill-{uuid.uuid4().hex[:8]}"
-        safe_name = name
+        safe_name = canonical_skill_id(name)
         # Ensure unique name in skill_hub
         try:
             from server.skill_hub import skill_hub
 
-            if skill_hub.has(name):
-                safe_name = f"{name}-{uuid.uuid4().hex[:4]}"
+            if skill_hub.has(safe_name):
+                safe_name = canonical_skill_id(f"{safe_name}-{uuid.uuid4().hex[:4]}")
         except Exception:
             pass
         config = config or {}
@@ -399,7 +472,7 @@ class SkillRegistry:
             source_event_ids=list(config.get("source_event_ids") or []),
             trust_status="review_required",
         )
-        self.register_candidate(spec)
+        self.register_candidate(spec, via_canonical=True)
         event = self._record_event("skill.candidate_created", spec)
         if event and not spec.source_event_ids and event.get("event_id"):
             spec.source_event_ids = [str(event["event_id"])]
@@ -961,7 +1034,9 @@ performance_store = PerformanceStore()
 def sync_skills_from_hub(hub: Any) -> int:
     """把 hub(server.skill_hub.VeyaSkillHub 实例)里已加载的技能同步成 SkillSpec。
 
-    只读 hub 的公开接口(get_stats/describe/skill_risk), 不碰 hub 内部状态,
+    Delegated canonical→projection sync (the production bridge): the only
+    path that may overwrite hub-owned identities in this store. 只读 hub
+    的公开接口(get_stats/describe/skill_risk), 不碰 hub 内部状态,
     不触发重新扫描。返回同步条数。"""
     stats = hub.get_stats()
     names: list[str] = stats.get("skills", [])
@@ -979,7 +1054,7 @@ def sync_skills_from_hub(hub: Any) -> int:
             spec.not_applicable_when.append(
                 f"static scan flagged {risk.get('max_severity')} risk: {risk.get('categories')}"
             )
-        skill_registry.register_candidate(spec)
+        skill_registry.register_candidate(spec, via_canonical=True)
         count += 1
     return count
 

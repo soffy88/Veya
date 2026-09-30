@@ -46,6 +46,7 @@ def test_p1_p3_runtime_closure(tmp_path, monkeypatch):
     skill = skills.propose_skill(
         "verify output files",
         {"trigger_examples": ["验收输出"], "source_event_ids": ["trajectory.recorded"]},
+        via_canonical=True,
     )
     skills.confirm_skill(skill.skill_id)
     skills.record_usage(skill.skill_id, success=True, evidence=["file_exists:answer.txt"])
