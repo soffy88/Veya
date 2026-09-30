@@ -68,8 +68,9 @@ GATED: list[tuple[str, CommandEffect]] = [
     ("truncate -s 0 data.db", CommandEffect.DESTRUCTIVE_MUTATION),
     ("find . -name '*.log' -delete", CommandEffect.DESTRUCTIVE_MUTATION),
     ("kill -9 1", CommandEffect.DESTRUCTIVE_MUTATION),
-    # privileged host mutation
-    ("sudo apt install x", CommandEffect.REVERSIBLE_MUTATION),
+    # privileged host mutation (sudo prefix dominates: every sudo invocation is
+    # at least PRIVILEGED_HOST_MUTATION, never downgraded to reversible)
+    ("sudo apt install x", CommandEffect.PRIVILEGED_HOST_MUTATION),
     ("mount /dev/sda1 /mnt", CommandEffect.PRIVILEGED_HOST_MUTATION),
     ("iptables -F", CommandEffect.PRIVILEGED_HOST_MUTATION),
     # host / global package mutation

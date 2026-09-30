@@ -133,15 +133,48 @@ MATRIX: list[tuple[str, str, CommandEffect, Decision]] = [
         Decision.APPROVAL_REQUIRED,
     ),
     # ── sudo ─────────────────────────────────────────────────────────────
+    # Canonical rule: the sudo prefix dominates. Any sudo invocation is at
+    # least a privileged host operation; the subcommand's semantics must never
+    # downgrade it back to a reversible mutation.
     (
         "sudo: gated",
         "sudo apt install x",
-        CommandEffect.REVERSIBLE_MUTATION,
+        CommandEffect.PRIVILEGED_HOST_MUTATION,
         Decision.APPROVAL_REQUIRED,
     ),
     (
         "sudo: destructive",
         "sudo rm -rf /",
+        CommandEffect.PRIVILEGED_HOST_MUTATION,
+        Decision.APPROVAL_REQUIRED,
+    ),
+    (
+        "sudo: pip",
+        "sudo pip install x",
+        CommandEffect.PRIVILEGED_HOST_MUTATION,
+        Decision.APPROVAL_REQUIRED,
+    ),
+    (
+        "sudo: npm global",
+        "sudo npm install -g x",
+        CommandEffect.PRIVILEGED_HOST_MUTATION,
+        Decision.APPROVAL_REQUIRED,
+    ),
+    (
+        "sudo: systemctl",
+        "sudo systemctl restart x",
+        CommandEffect.PRIVILEGED_HOST_MUTATION,
+        Decision.APPROVAL_REQUIRED,
+    ),
+    (
+        "sudo: privileged read stays privileged",
+        "sudo cat /etc/shadow",
+        CommandEffect.PRIVILEGED_HOST_MUTATION,
+        Decision.APPROVAL_REQUIRED,
+    ),
+    (
+        "sudo: bare",
+        "sudo",
         CommandEffect.PRIVILEGED_HOST_MUTATION,
         Decision.APPROVAL_REQUIRED,
     ),
