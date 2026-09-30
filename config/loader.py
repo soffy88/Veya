@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
+
+from config.authority import (  # noqa: F401 — re-exported canonical chain
+    PRECEDENCE,
+    deep_merge,
+    default_paths,
+    read_file_config,
+)
 
 _DEFAULTS: dict[str, Any] = {
     "providers": {},
@@ -51,53 +57,27 @@ def _load_dotenv(root: Path | None = None) -> None:
 
 
 def load_config(path: str | None = None) -> dict[str, Any]:
-    """Load config: .env → defaults → file (if given) → env overrides."""
+    """Load config: .env → defaults → file (if given) → env overrides.
+
+    The effective dict is built by :func:`config.adapters.effective_config`
+    from :mod:`config.authority` resolutions — runtime > environment > file
+    > default — the ONE canonical chain.  Unregistered keys keep the legacy
+    deep-merge behaviour byte-identical.
+    """
+    from config.adapters import effective_config  # local import: adapters must not import loader
+
     _load_dotenv()
-    config: dict[str, Any] = dict(_DEFAULTS)
-
-    if path:
-        p = Path(path)
-        if p.exists():
-            with p.open() as f:
-                file_cfg = json.load(f)
-            config = _deep_merge(config, file_cfg)
-    else:
-        for candidate in _default_paths():
-            if candidate.exists():
-                with candidate.open() as f:
-                    file_cfg = json.load(f)
-                config = _deep_merge(config, file_cfg)
-                break
-
-    if api_key := os.environ.get("ANTHROPIC_API_KEY"):
-        config.setdefault("providers", {})["anthropic"] = {"api_key": api_key}
-    if api_key := os.environ.get("OPENAI_API_KEY"):
-        config.setdefault("providers", {})["openai"] = {"api_key": api_key}
-    if api_key := os.environ.get("DASHSCOPE_API_KEY"):
-        config.setdefault("providers", {})["dashscope"] = {"api_key": api_key}
-
-    if env_provider := os.environ.get("VEYA_LLM_PROVIDER"):
-        config.setdefault("llm", {})["provider"] = env_provider
-    if env_model := os.environ.get("VEYA_LLM_MODEL"):
-        config.setdefault("llm", {})["model"] = env_model
-
-    return config
+    file_cfg, _used = read_file_config(path)
+    return effective_config(_DEFAULTS, file_cfg, os.environ)
 
 
 def _default_paths() -> list[Path]:
-    candidates = []
-    project = Path.cwd() / ".veya.json"
-    candidates.append(project)
-    home = Path.home() / ".veya" / "config.json"
-    candidates.append(home)
-    return candidates
+    # Single implementation lives in config.authority; kept as a shim for
+    # existing importers.
+    return default_paths()
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    result = dict(base)
-    for k, v in override.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = _deep_merge(result[k], v)
-        else:
-            result[k] = v
-    return result
+    # Single implementation lives in config.authority; kept as a shim for
+    # existing importers.
+    return deep_merge(base, override)

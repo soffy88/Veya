@@ -3,7 +3,8 @@ config/settings.py — settings loader (compat shim)
 
 Legacy module restored for backward compatibility with E2E tests that
 import `from config.settings import load_settings`. Delegates to the
-canonical loader in `config.loader`.
+canonical loader in `config.loader`, which resolves through the ONE
+configuration authority (`config.authority`, P0_03).
 """
 
 from __future__ import annotations
