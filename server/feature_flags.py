@@ -6,8 +6,9 @@ semantic routing or tool hiding. Stable runtime capabilities default on.
 
 from __future__ import annotations
 
-import os
 from dataclasses import asdict, dataclass
+
+from config.adapters import feature_flag as _canonical_flag
 
 
 @dataclass(frozen=True)
@@ -31,14 +32,18 @@ FLAGS: tuple[FeatureFlag, ...] = (
 
 
 def enabled(name: str) -> bool:
-    """Read one flag without changing the frozen main-chain decisions."""
+    """Read one flag without changing the frozen main-chain decisions.
+
+    Resolved through the ONE configuration authority
+    (``config.adapters.feature_flag``: runtime > environment > file >
+    default) — no local precedence of its own.  Observable behaviour is
+    unchanged: unset → registry default; set → falsy spellings
+    (0/false/no/off) disable.
+    """
     spec = next((item for item in FLAGS if item.name == name), None)
     if spec is None:
         raise KeyError(name)
-    raw = os.environ.get(name)
-    if raw is None:
-        return spec.default
-    return raw.strip().lower() not in {"0", "false", "no", "off"}
+    return _canonical_flag(name, spec.default, consumer="server.feature_flags.enabled")
 
 
 def snapshot() -> list[dict[str, object]]:
