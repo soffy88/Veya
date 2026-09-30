@@ -312,16 +312,25 @@ def shared_capability_registry() -> Any:
 
 
 def shared_skill_registry() -> Any:
-    """The single SkillRegistry shared by all workers and supervision modes."""
+    """The single SkillRegistry shared by all workers and supervision modes.
+
+    ADAPTER fill: template skills are bootstrapped exclusively through the
+    delegated ``sync_from_canonical`` path (canonical identity rule enforced
+    by ``server.skill_authority``); direct ``register`` is sealed. Hub-owned
+    skills additionally arrive via ``sync_remote_adapter``.
+    """
 
     global _SHARED_SKILLS
     if _SHARED_SKILLS is None:
         import json
 
+        from server.skill_authority import canonical_skill_id
+
         from .skills import SkillPermission, SkillRecord, SkillRegistry
 
         _SHARED_SKILLS = SkillRegistry()
         skills_root = Path(__file__).resolve().parents[2] / "templates" / "skills"
+        bootstrapped: list[SkillRecord] = []
         if skills_root.is_dir():
             for root in sorted(skills_root.iterdir()):
                 skill_file = root / "SKILL.md"
@@ -336,7 +345,7 @@ def shared_skill_registry() -> Any:
                             manifest = payload
                 except (OSError, json.JSONDecodeError):
                     manifest = {}
-                skill_id = str(manifest.get("name") or root.name)
+                skill_id = canonical_skill_id(str(manifest.get("name") or root.name))
                 description = str(manifest.get("description") or skill_id)
                 permissions: list[str] = []
                 haystack = f"{skill_id} {description}".lower()
@@ -344,7 +353,7 @@ def shared_skill_registry() -> Any:
                     permissions.append(str(SkillPermission.NETWORK))
                 if "github" in haystack:
                     permissions.append(str(SkillPermission.GITHUB))
-                _SHARED_SKILLS.register(
+                bootstrapped.append(
                     SkillRecord(
                         skill_id=skill_id,
                         name=skill_id,
@@ -359,6 +368,7 @@ def shared_skill_registry() -> Any:
                         root=str(root),
                     )
                 )
+        _SHARED_SKILLS.sync_from_canonical(bootstrapped)
     return _SHARED_SKILLS
 
 

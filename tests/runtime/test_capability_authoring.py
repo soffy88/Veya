@@ -57,7 +57,7 @@ def authoring(tmp_path, events, isolated_registry, monkeypatch):
 
 def _approve_skill(isolated_registry, skill_id: str = "greet") -> None:
     isolated_registry.register_candidate(
-        SkillSpec(skill_id=skill_id, instructions="Say hello warmly.")
+        SkillSpec(skill_id=skill_id, instructions="Say hello warmly."), via_canonical=True
     )
     confirmed = isolated_registry.confirm_skill(skill_id)
     assert confirmed is not None and confirmed.status == "verified"
@@ -173,7 +173,9 @@ async def test_qualification_missing_evaluators_keeps_evidence(
 
 async def test_qualification_untrusted_skill_blocks(authoring, tmp_path, isolated_registry):
     pipeline, _ = authoring
-    isolated_registry.register_candidate(SkillSpec(skill_id="shady", instructions="Do things."))
+    isolated_registry.register_candidate(
+        SkillSpec(skill_id="shady", instructions="Do things."), via_canonical=True
+    )
     draft = _draft(pipeline, skills=["shady"])
     ws_root, managed = _ws(tmp_path, tmp_path)
     pipeline.compile_draft(draft.draft_id, workspace_root=ws_root, managed_root=managed)

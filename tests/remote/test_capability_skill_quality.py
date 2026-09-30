@@ -118,7 +118,7 @@ def _skill(tmp_path: Path, skill_id: str = "frontend-design") -> SkillRecord:
 
 def test_skill_progressive_disclosure(tmp_path: Path) -> None:
     registry = SkillRegistry()
-    registry.register(_skill(tmp_path))
+    registry.sync_from_canonical([_skill(tmp_path)])
     metadata = registry.metadata()
     assert metadata[0]["name"] == "Frontend Design"
     assert "step 1" not in str(metadata)  # Level 1 only
@@ -129,7 +129,7 @@ def test_skill_progressive_disclosure(tmp_path: Path) -> None:
 
 def test_skill_trigger_resolution_records_reasons(tmp_path: Path) -> None:
     registry = SkillRegistry()
-    registry.register(_skill(tmp_path))
+    registry.sync_from_canonical([_skill(tmp_path)])
     resolution = registry.resolve("build a dashboard ui")
     assert "frontend-design" in resolution["candidates"]
     assert resolution["selected"][0]["reason"].startswith("trigger:")
@@ -138,7 +138,7 @@ def test_skill_trigger_resolution_records_reasons(tmp_path: Path) -> None:
 
 def test_skill_permission_governance_blocks_escalation(tmp_path: Path) -> None:
     registry = SkillRegistry()
-    registry.register(_skill(tmp_path))
+    registry.sync_from_canonical([_skill(tmp_path)])
     allowed, missing = registry.check_permissions(
         "frontend-design", [str(SkillPermission.FILESYSTEM_READ)]
     )
@@ -148,7 +148,7 @@ def test_skill_permission_governance_blocks_escalation(tmp_path: Path) -> None:
 
 def test_skill_provenance_recorded(tmp_path: Path) -> None:
     registry = SkillRegistry()
-    registry.register(_skill(tmp_path))
+    registry.sync_from_canonical([_skill(tmp_path)])
     provenance = registry.get("frontend-design").provenance()
     assert provenance["source_commit"] == "abc123"
     assert provenance["license"] == "MIT"
@@ -166,7 +166,7 @@ async def test_execution_context_shared_bounded_and_credential_isolated(tmp_path
         [CapabilityProvider("gh-cli", priority=1, prober=_healthy, credential_ref="ref-only")],
     )
     skill_registry = SkillRegistry()
-    skill_registry.register(_skill(tmp_path))
+    skill_registry.sync_from_canonical([_skill(tmp_path)])
     memory = TaskMemory(tmp_path, "m1")
     memory.write_plan(Plan(goal="build a dashboard ui", acceptance=["responsive"]))
     memory.add_finding("uses SvelteKit", evidence="package.json")
@@ -205,7 +205,7 @@ async def test_execution_context_permission_denied_skill(tmp_path: Path) -> None
     from veya.remote.execution_context import ExecutionContextBuilder
 
     skill_registry = SkillRegistry()
-    skill_registry.register(_skill(tmp_path))
+    skill_registry.sync_from_canonical([_skill(tmp_path)])
     builder = ExecutionContextBuilder(
         skill_registry=skill_registry,
         permission_policy={"allowed": [str(SkillPermission.FILESYSTEM_READ)]},
@@ -226,7 +226,7 @@ def test_skill_eval_precision_recall_and_negative_cases(tmp_path: Path) -> None:
     from veya.remote.skill_eval import SkillEvalCase, evaluate_skill
 
     registry = SkillRegistry()
-    registry.register(_skill(tmp_path))
+    registry.sync_from_canonical([_skill(tmp_path)])
     result = evaluate_skill(
         registry,
         "frontend-design",
@@ -249,7 +249,7 @@ def test_skill_eval_detects_permission_regression(tmp_path: Path) -> None:
     from veya.remote.skill_eval import SkillEvalCase, evaluate_skill
 
     registry = SkillRegistry()
-    registry.register(_skill(tmp_path))
+    registry.sync_from_canonical([_skill(tmp_path)])
     result = evaluate_skill(
         registry,
         "frontend-design",
@@ -280,7 +280,7 @@ async def test_render_context_bounded_no_secrets_and_budget(tmp_path: Path) -> N
         [CapabilityProvider("gh-cli", priority=1, prober=_healthy, credential_ref="ref-only")],
     )
     skill_registry = SkillRegistry()
-    skill_registry.register(_skill(tmp_path))
+    skill_registry.sync_from_canonical([_skill(tmp_path)])
     builder = ExecutionContextBuilder(
         capability_registry=capability_registry,
         skill_registry=skill_registry,

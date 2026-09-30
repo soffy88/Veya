@@ -79,7 +79,7 @@ def _seed_skill(
         failure_contract={"retry": "once", "on_unknown": "block"},
         status=status,
     )
-    skills.register_candidate(spec)
+    skills.register_candidate(spec, via_canonical=True)
     if status == "verified":
         stored = skills.get_version(skill_id)
         assert stored is not None

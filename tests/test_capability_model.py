@@ -84,7 +84,7 @@ def test_capability_deprecate(tmp_path):
 
 def test_skill_promote_requires_benchmark_data(tmp_path):
     reg = SkillRegistry(_store(tmp_path))
-    reg.register_candidate(SkillSpec(skill_id="s1", instructions="do x"))
+    reg.register_candidate(SkillSpec(skill_id="s1", instructions="do x"), via_canonical=True)
 
     assert reg.promote("s1") is False  # 没有 performance 数据
 
@@ -98,7 +98,7 @@ def test_skill_promote_requires_benchmark_data(tmp_path):
 
 def test_skill_rollback(tmp_path):
     reg = SkillRegistry(_store(tmp_path))
-    reg.register_candidate(SkillSpec(skill_id="s1", instructions="do x"))
+    reg.register_candidate(SkillSpec(skill_id="s1", instructions="do x"), via_canonical=True)
     reg.benchmark("s1", {"success_rate": 1.0})
     reg.promote("s1")
     reg.rollback("s1")
@@ -107,8 +107,10 @@ def test_skill_rollback(tmp_path):
 
 def test_skill_search(tmp_path):
     reg = SkillRegistry(_store(tmp_path))
-    reg.register_candidate(SkillSpec(skill_id="s1", instructions="parse excel files"))
-    reg.register_candidate(SkillSpec(skill_id="s2", instructions="send email"))
+    reg.register_candidate(
+        SkillSpec(skill_id="s1", instructions="parse excel files"), via_canonical=True
+    )
+    reg.register_candidate(SkillSpec(skill_id="s2", instructions="send email"), via_canonical=True)
     assert [s.skill_id for s in reg.search("excel")] == ["s1"]
 
 
@@ -117,7 +119,7 @@ def test_skill_search(tmp_path):
 
 def test_skill_propose_creates_candidate(tmp_path):
     reg = SkillRegistry(_store(tmp_path))
-    spec = reg.propose_skill("A test skill for doing something useful")
+    spec = reg.propose_skill("A test skill for doing something useful", via_canonical=True)
 
     assert spec.status == "candidate"
     assert spec.skill_id is not None
@@ -133,7 +135,7 @@ def test_skill_propose_creates_candidate(tmp_path):
 
 def test_skill_confirm_changes_to_verified(tmp_path):
     reg = SkillRegistry(_store(tmp_path))
-    spec = reg.propose_skill("Test skill to confirm")
+    spec = reg.propose_skill("Test skill to confirm", via_canonical=True)
     skill_id = spec.skill_id
 
     confirmed = reg.confirm_skill(skill_id)
@@ -180,7 +182,7 @@ def test_skill_confirm_non_candidate_raises(tmp_path):
 
 def test_skill_reject_changes_to_deprecated(tmp_path):
     reg = SkillRegistry(_store(tmp_path))
-    spec = reg.propose_skill("Skill to reject")
+    spec = reg.propose_skill("Skill to reject", via_canonical=True)
     skill_id = spec.skill_id
 
     rejected = reg.reject_skill(skill_id)
