@@ -3,8 +3,41 @@ import contextlib
 import json
 import time
 import uuid
+from typing import Any
 
 from runtime.execution.runtime import get_durable_runtime
+from server.lifecycle_events import (
+    LifecycleEvent,
+    build_event,
+    coerce_stored_envelope,
+    to_journal_envelope,
+)
+
+
+def lifecycle_to_session_payload(event: LifecycleEvent) -> dict[str, Any]:
+    """Authority -> session-journal adapter: LifecycleEvent as a session payload."""
+    return to_journal_envelope(event)["payload"]
+
+
+def session_payload_to_lifecycle(session_id: str, event_type: str, data: dict) -> LifecycleEvent:
+    """Session-journal row -> LifecycleEvent. Unknown shapes coerce like legacy."""
+    stored = {
+        "event_id": data.get("event_id", str(uuid.uuid4())),
+        "topic": event_type,
+        "session_id": session_id,
+        "payload": data,
+    }
+    event = coerce_stored_envelope(stored)
+    if event.session_id == "unknown":
+        return build_event(
+            event.event_type,
+            session_id=session_id,
+            payload=event.payload,
+            event_id=event.event_id,
+            causation_id=event.causation_id,
+            correlation_id=event.correlation_id,
+        )
+    return event
 
 
 class DurableSessionEventStore:
@@ -198,6 +231,23 @@ class DurableSessionEventStore:
             self._live_subscribers[session_id].discard(q)
             if not self._live_subscribers[session_id]:
                 del self._live_subscribers[session_id]
+
+    async def persist_lifecycle_event(self, session_id: str, event: LifecycleEvent) -> dict:
+        """Project one LifecycleEvent into the durable session journal.
+
+        Durable-before-live delivery is inherited from append_event: the row
+        is committed before live subscribers are notified.
+        """
+        return await self.append_event(
+            session_id, event.event_type, lifecycle_to_session_payload(event)
+        )
+
+    async def replay_lifecycle_events(
+        self, session_id: str, epoch: int, seq_after: int
+    ) -> list[LifecycleEvent]:
+        """Session-journal catch-up decoded as LifecycleEvents (a projection)."""
+        rows = await self.catch_up(session_id, epoch, seq_after)
+        return [session_payload_to_lifecycle(session_id, row["event"], row["data"]) for row in rows]
 
 
 durable_session_store = DurableSessionEventStore()

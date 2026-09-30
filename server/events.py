@@ -246,6 +246,28 @@ class EventStore:
 
 event_store = EventStore()
 
+
+def append_lifecycle_envelope(store: EventStore | None, envelope: dict[str, Any]) -> dict[str, Any]:
+    """Durable write-ahead persistence for one LifecycleEvent envelope.
+
+    Single-attempt, no retries: persistence failure raises to the caller and
+    the event is never delivered. Idempotent on ``event_id`` via the store.
+    """
+    target = store if store is not None else event_store
+    return target.append(envelope)
+
+
+def read_lifecycle_journal(
+    store: EventStore | None = None,
+    *,
+    session_id: str | None = None,
+    topics: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Read the durable journal. The only supported source for replay."""
+    target = store if store is not None else event_store
+    return target.read_all(session_id=session_id, topics=topics)
+
+
 _on_step_ctx: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
     "on_step", default=None
 )

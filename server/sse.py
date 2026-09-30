@@ -16,6 +16,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from server.events import _to_envelope
+from server.lifecycle_events import LifecycleEvent, LifecycleEventBus, project_event_to_sse
 from server.session_events import durable_session_store
 
 router = APIRouter(prefix="/stream", tags=["sse"])
@@ -118,6 +119,45 @@ def emit(session_id: str, event: str, data: dict[str, Any]) -> None:
     task = asyncio.create_task(durable_session_store.append_event(session_id, event, envelope))
     _emit_tasks.add(task)
     task.add_done_callback(_emit_tasks.discard)
+
+
+def sse_frame_for_lifecycle(event: LifecycleEvent) -> str:
+    """SSE projection of one LifecycleEvent. Pure: no persistence, no replay."""
+    return project_event_to_sse(event)
+
+
+def emit_lifecycle(
+    session_id: str,
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    bus: LifecycleEventBus | None = None,
+    causation_id: str | None = None,
+    correlation_id: str | None = None,
+    task_id: str | None = None,
+    run_id: str | None = None,
+) -> LifecycleEvent:
+    """Authority -> durable session journal -> SSE projection, in that order.
+
+    The LifecycleEventBus persists first (durable write-ahead); the session
+    journal append is scheduled as a task (durable-before-live inside the
+    store); the returned event projects to an SSE frame via
+    sse_frame_for_lifecycle. SSE never persists or replays.
+    """
+    active = bus if bus is not None else LifecycleEventBus()
+    event = active.emit(
+        event_type,
+        session_id=session_id,
+        payload=dict(payload or {}),
+        causation_id=causation_id,
+        correlation_id=correlation_id,
+        task_id=task_id,
+        run_id=run_id,
+    )
+    task = asyncio.create_task(durable_session_store.persist_lifecycle_event(session_id, event))
+    _emit_tasks.add(task)
+    task.add_done_callback(_emit_tasks.discard)
+    return event
 
 
 @router.get("/{session_id}")
