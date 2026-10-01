@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+import server.capability_model as server_capability_model_module
 from server.capability_model import (
     CapabilityRegistry,
     CapabilitySpec,
@@ -261,27 +262,29 @@ async def test_harness_registry_execute_routes_to_run_builtin(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_harness_registry_execute_routes_to_run_hicode(tmp_path, monkeypatch):
+async def test_harness_registry_execute_rejects_retired_hicode(tmp_path, monkeypatch):
+    """hicode is retired: it must never reach an execution adapter."""
     calls = []
 
-    async def fake_run_hicode(store, task_id, project_root, request, understand_prefix):
-        calls.append(("hicode", store, task_id, project_root, request, understand_prefix))
+    async def fake_run_hicode(*args, **kwargs):
+        calls.append(args)
         return "hicode-response"
 
     monkeypatch.setattr("server.project_ask._run_hicode", fake_run_hicode)
 
     reg = HarnessRegistry(_store(tmp_path))
-    result = await reg.execute(
-        "hicode",
-        store="STORE",
-        task_id="t1",
-        request="do x",
-        project_root="/proj",
-        understand_prefix="prefix",
-    )
+    with pytest.raises(ValueError, match="retired"):
+        await reg.execute(
+            "hicode",
+            store="STORE",
+            task_id="t1",
+            request="do x",
+            project_root="/proj",
+            understand_prefix="prefix",
+        )
 
-    assert result == "hicode-response"
-    assert calls == [("hicode", "STORE", "t1", "/proj", "do x", "prefix")]
+    assert calls == [], "a retired executor must never be executed"
+    assert "hicode" not in server_capability_model_module._HARNESS_ADAPTERS
 
 
 @pytest.mark.asyncio
@@ -306,7 +309,7 @@ async def test_harness_registry_execute_routes_to_run_dsh(tmp_path, monkeypatch)
 @pytest.mark.asyncio
 async def test_harness_registry_execute_unknown_harness_raises(tmp_path):
     reg = HarnessRegistry(_store(tmp_path))
-    with pytest.raises(ValueError, match="unknown harness_id"):
+    with pytest.raises(ValueError, match="no execution adapter"):
         await reg.execute("nonexistent", store="STORE", task_id="t1", request="x")
 
 
@@ -395,6 +398,7 @@ def test_bootstrap_default_harnesses(tmp_path, monkeypatch):
     bootstrap_default_harnesses()
 
     ids = {h.harness_id for h in cm.harness_registry.list()}
-    assert ids == {"hicode", "dsh", "builtin"}
-    hicode = cm.harness_registry.get("hicode")
-    assert "SandboxBroker" in hicode.workspace_semantics
+    # The retired executor is not registerable; only live adapters are.
+    assert ids == {"dsh", "builtin"}
+    assert "hicode" not in ids
+    assert cm.harness_registry.get("hicode") is None

@@ -145,6 +145,18 @@ class ExecutionContextBuilder:
 __all__ = ["ExecutionCapabilityContext", "ExecutionContextBuilder"]
 
 
+def _compatible_workers() -> tuple[str, ...]:
+    """Workers a bootstrapped project-local skill may run on.
+
+    Projected from ExecutorRegistry so a retired executor stops being advertised
+    as compatible the moment the registry retires it. Registry-backed, never a
+    list maintained here.
+    """
+    from veya.remote.executor_registry import get_executor_registry
+
+    return tuple(sorted(get_executor_registry().snapshot()))
+
+
 def render_execution_context(context: ExecutionCapabilityContext) -> str:
     """Unified bounded prompt projection shared by every CLI worker (B3).
 
@@ -362,7 +374,7 @@ def shared_skill_registry() -> Any:
                         source="veya.templates.skills",
                         source_commit="workspace",
                         permissions_required=permissions,
-                        compatible_workers=["hicode", "dsh", "pi", "grok", "codex", "antigravity"],
+                        compatible_workers=sorted(_compatible_workers()),
                         trust_level="PROJECT_LOCAL",
                         eval_status="PASS",
                         root=str(root),
