@@ -144,6 +144,28 @@ def test_canonical_runner_blocks_when_no_executor_is_eligible(monkeypatch):
 
     monkeypatch.setattr(goalrun_runner, "project_run_goal", _forbidden)
 
+    # Inject the executor universe instead of inheriting this machine's. Without
+    # this the case is decided by whatever launchers/credentials the host happens
+    # to have: supervision reads admission from ExecutorRegistry.snapshot(), so a
+    # dev box with a logged-in executor would make "no eligible executor" false
+    # and the assertion below would stop testing fail-closed at all.
+    def _all_unhealthy(**_kwargs):
+        return [
+            runner_mod.ExecutorCandidate(
+                executor_id=name,
+                local=False,
+                capability_satisfied=True,
+                reachable=True,
+                authenticated=True,
+                admission_supported=True,
+                provider_dependency=True,
+                health="UNAVAILABLE",
+            )
+            for name in ("builtin", "dsh", "pi", "opencode", "claude_code", "codex")
+        ]
+
+    monkeypatch.setattr(runner_mod, "executor_candidates", _all_unhealthy)
+
     import asyncio
 
     mission = Mission(mission_id="m3", goal="g", workspace="/tmp/ws")
