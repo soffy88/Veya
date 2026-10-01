@@ -29,6 +29,7 @@ from .models import (
     SupervisorReview,
 )
 from .policy import ESCALATION_TRIGGERS, classify_escalation
+from .runner import _active_l1_executors
 from .store import MissionStore
 
 _TERMINAL_DECISIONS = {ReviewDecision.accept, ReviewDecision.done}
@@ -60,13 +61,26 @@ _REDO_DECISIONS = {
     ReviewDecision.rollback,
 }
 
-# These are concrete L1 worker identities, not semantic routing choices.  A
+# Concrete L1 worker identities, projected from ExecutorRegistry.snapshot().  A
 # retask may preserve one of them, but it must never silently fall back to a
-# retired executor when the identity is absent or invalid.  Hicode is retired
-# from the active plane.
-_RETASK_WORKERS = frozenset(
-    {"dsh", "pi", "grok", "codex", "antigravity", "opencode", "claude_code"}
-)
+# retired executor when the identity is absent or invalid — a retired name is
+# absent from the registry, so it is absent here without being listed.
+# Resolved lazily (PEP 562) for the same import-cycle reason as
+# ``orchestrated.L1_WORKERS``: the registry cannot be touched at import time.
+_RETASK_WORKERS_CACHE: frozenset[str] | None = None
+
+
+def _retask_workers() -> frozenset[str]:
+    global _RETASK_WORKERS_CACHE
+    if _RETASK_WORKERS_CACHE is None:
+        _RETASK_WORKERS_CACHE = frozenset(_active_l1_executors())
+    return _RETASK_WORKERS_CACHE
+
+
+def __getattr__(name: str) -> Any:
+    if name == "_RETASK_WORKERS":
+        return _retask_workers()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass
@@ -105,7 +119,7 @@ def _normalize_worker(raw: Any) -> str | None:
     if not isinstance(raw, str):
         return None
     worker = raw.strip().lower()
-    return worker if worker in _RETASK_WORKERS else None
+    return worker if worker in _retask_workers() else None
 
 
 def _relative_artifacts(raw: Any) -> list[str] | None:

@@ -73,6 +73,17 @@ def _active_executors() -> tuple[str, ...]:
     return tuple(sorted(get_executor_registry().snapshot()))
 
 
+def _active_l1_executors() -> tuple[str, ...]:
+    """Registry-active executors that can carry an L1 assignment.
+
+    Derived from the registry, minus the in-process substrate: ``builtin`` runs
+    planner-resolved canonical actions and is not an L1 provider worker, so plan
+    validation and re-dispatch exclude it.  This projects the registry; it does
+    not maintain a list of its own.
+    """
+    return tuple(name for name in _active_executors() if name != _LOCAL_EXECUTOR)
+
+
 def executor_hint(mission: Any) -> str | None:
     """Executor pinned on the mission (``policies.execution_policy.assignee_hint``).
 

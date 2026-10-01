@@ -18,22 +18,37 @@ import types
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .models import ExecutionReport
+from .runner import _active_l1_executors
 
-# L1 canonical executors.  Hicode is retired from the active plane (source
-# retained); claude_code is the canonical Claude Code executor.  This tuple is
-# registration only — routing decisions stay with ExecutorRegistry.
-L1_WORKERS: tuple[str, ...] = (
-    "antigravity",
-    "opencode",
-    "claude_code",
-    "codex",
-    "pi",
-    "grok",
-    "dsh",
-)
+# L1 canonical executors, projected from ExecutorRegistry.snapshot() — plan
+# validation accepts an assignment only when the canonical registry still knows
+# that worker.  Nothing is listed here: a retired executor (hicode) disappears
+# because the registry retired it, not because this module was edited.
+# Routing decisions stay with ExecutorRegistry.
+# Resolved lazily (PEP 562): touching the registry at import time would cycle
+# supervision -> veya.remote -> server.supervision_tools -> supervision.  The
+# public name is unchanged for callers; the value is computed once, on first use.
+if TYPE_CHECKING:  # resolved at runtime by __getattr__ below
+    L1_WORKERS: tuple[str, ...]
+
+_L1_WORKERS: tuple[str, ...] | None = None
+
+
+def _l1_workers() -> tuple[str, ...]:
+    global _L1_WORKERS
+    if _L1_WORKERS is None:
+        _L1_WORKERS = tuple(sorted(_active_l1_executors()))
+    return _L1_WORKERS
+
+
+def __getattr__(name: str) -> Any:
+    if name == "L1_WORKERS":
+        return _l1_workers()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _COMPLETED = "COMPLETED"
 _BLOCKED_BY_DEPENDENCY = "BLOCKED_BY_DEPENDENCY"
@@ -152,9 +167,9 @@ def validate_plan(subtasks: list[Subtask]) -> None:
         raise OrchestrationError("duplicate task_id in plan")
     known = set(ids)
     for subtask in subtasks:
-        if subtask.worker not in L1_WORKERS:
+        if subtask.worker not in _l1_workers():
             raise OrchestrationError(
-                f"unknown worker {subtask.worker!r}; expected one of {list(L1_WORKERS)}"
+                f"unknown worker {subtask.worker!r}; expected one of {list(_l1_workers())}"
             )
         for dep in subtask.depends_on:
             if dep not in known:
