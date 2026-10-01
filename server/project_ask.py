@@ -638,6 +638,49 @@ async def project_ask(
 # 硬约束: 不得再新增其它 tool 让 Coordinator 在派工方式之间做分支路由。
 
 
+# ── Execution adapters ──────────────────────────────────────────────────────
+# These are the *execution* half of the executor authority split. They are
+# exposed as accessors so HarnessRegistry can register them at boot without this
+# module ever choosing between them: selection belongs to ExecutorRegistry, and
+# registration order belongs to whoever initialises the registry.
+
+
+def get_builtin_harness_adapter() -> Any:
+    """The in-process adapter: records the request, runs no commands.
+
+    Every adapter has the same call shape
+    ``(store, task_id, request, project_root, understand_prefix)`` so
+    HarnessRegistry can dispatch without knowing each implementation's
+    signature. The adapter owns that knowledge, not the registry.
+    """
+
+    def _adapter(
+        store: Any,
+        task_id: str,
+        request: str,
+        project_root: str | None = None,
+        understand_prefix: str = "",
+    ) -> Any:
+        return _run_builtin(store, task_id, request)
+
+    return _adapter
+
+
+def get_dsh_harness_adapter() -> Any:
+    """The external CLI worker adapter (uniform HarnessAdapter call shape)."""
+
+    async def _adapter(
+        store: Any,
+        task_id: str,
+        request: str,
+        project_root: str | None = None,
+        understand_prefix: str = "",
+    ) -> Any:
+        return await _run_dsh(store, task_id, project_root or "", request, understand_prefix)
+
+    return _adapter
+
+
 def wire_master_tools() -> int:
     """把 project_ask / project_status 注册进 master_tools (幂等)。"""
     from server.tool_registry import master_tools
