@@ -40,6 +40,17 @@ _KNOWN = (
     "grok",
     "acp",
 )
+# Canonical routing preference for admitted executors. This is ordering only;
+# membership stays with _KNOWN and register().
+_CANONICAL_ORDER = (
+    "antigravity",
+    "opencode",
+    "claude_code",
+    "pi",
+    "grok",
+    "dsh",
+    "codex",
+)
 # Retired executors fail closed at discovery: no identity, no launcher, no auth.
 _RETIRED_EXECUTORS = frozenset({"hicode"})
 
@@ -286,6 +297,19 @@ class ExecutorRegistry:
 
     def snapshot(self) -> dict[str, ExecutorRuntimeIdentity]:
         return dict(self._identities)
+
+    def ordered_ids(self) -> tuple[str, ...]:
+        """Canonical routing order for admitted executors.
+
+        Admission membership comes from ``_KNOWN``/``register()``; the *order*
+        is explicit here because discovery sequence is not routing preference.
+        Executors absent from ``_CANONICAL_ORDER`` follow in admission sequence,
+        so newly registered executors remain visible to consumers.
+        """
+        admitted = self.snapshot()
+        ordered = [x for x in _CANONICAL_ORDER if x in admitted]
+        ordered.extend(x for x in admitted if x not in _CANONICAL_ORDER)
+        return tuple(ordered)
 
 
 _DEFAULT_REGISTRY: ExecutorRegistry | None = None

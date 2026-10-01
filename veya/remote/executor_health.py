@@ -28,15 +28,25 @@ from .worker_runtime import (
     capabilities_for,
 )
 
-DEFAULT_EXECUTOR_PREFERENCE: tuple[str, ...] = (
-    "antigravity",
-    "opencode",
-    "claude_code",
-    "pi",
-    "grok",
-    "dsh",
-    "codex",
-)
+
+def executor_order() -> tuple[str, ...]:
+    """Canonical executor universe and ordering, owned by ``ExecutorRegistry``.
+
+    ``DEFAULT_EXECUTOR_PREFERENCE`` used to be a static tuple that decided both
+    ordering *and* which executors a health snapshot could see. The registry is
+    now the sole admission authority, so the universe is projected from it.
+    """
+
+    registry = get_executor_registry()
+    routable = [
+        executor_id for executor_id in registry.ordered_ids() if executor_id in WORKER_CAPABILITIES
+    ]
+    return tuple(routable)
+
+
+# Retained as a public re-export (``veya.remote.DEFAULT_EXECUTOR_PREFERENCE``).
+# It is a registry projection, not an independent inventory.
+DEFAULT_EXECUTOR_PREFERENCE: tuple[str, ...] = executor_order()
 
 
 def normalize_executor_name(name: str) -> str:
@@ -320,7 +330,7 @@ class ExecutorHealthRegistry:
         return rec.state
 
     def snapshot(self) -> dict[str, str]:
-        return {w: str(self.get_health(w)) for w in DEFAULT_EXECUTOR_PREFERENCE}
+        return {w: str(self.get_health(w)) for w in executor_order()}
 
 
 @dataclass(frozen=True)
@@ -366,18 +376,19 @@ def resolve_executor(
     explicit_pin: bool = False,
     required_capabilities: WorkerCapabilities | dict[str, Any] | None = None,
     health_registry: ExecutorHealthRegistry | None = None,
-    preference_order: tuple[str, ...] = DEFAULT_EXECUTOR_PREFERENCE,
+    preference_order: tuple[str, ...] | None = None,
     fail_closed_unknown: bool = False,
 ) -> tuple[str, SubstitutionEvidence | None]:
     """Resolve an executor using capability eligibility, explicit pinning, health, and preference.
 
-    Order of operations (P4):
-    1. Capability eligibility (fail-closed if missing)
-    2. Explicit pin (if specified) -> never substituted
-    3. Current health (fail-closed if all candidates are UNAVAILABLE or unverified)
-    4. Preference (AGY > OPENCODE > CLAUDE_CODE > PI > GROK > DSH > CODEX)
-    Retired executors (hicode) are rejected before preference applies.
+        Order of operations (P4):
+        1. Capability eligibility (fail-closed if missing)
+        2. Explicit pin (if specified) -> never substituted
+        3. Current health (fail-closed if all candidates are UNAVAILABLE or unverified)
+    4. Preference (ExecutorRegistry canonical order)
+          Retired executors (hicode) are rejected before preference applies.
     """
+    order = executor_order() if preference_order is None else tuple(preference_order)
     req_norm = normalize_executor_name(requested or "") if requested else None
 
     if req_norm and req_norm not in WORKER_CAPABILITIES:
@@ -392,9 +403,7 @@ def resolve_executor(
         return req_norm, None
 
     # Filter candidate pool by capability compatibility (fail-closed on capability missing)
-    capable_candidates = [
-        w for w in preference_order if check_capability_compatible(w, required_capabilities)
-    ]
+    capable_candidates = [w for w in order if check_capability_compatible(w, required_capabilities)]
     if not capable_candidates:
         raise ValueError("No capable executor available for required capabilities")
 
