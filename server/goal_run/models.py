@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum, StrEnum
 from typing import Any
 
@@ -19,6 +19,7 @@ from server.goal_run.bot_identity import DEFAULT_BOT_ID
 
 
 class GoalStatus(Enum):
+    pending_execution = "pending_execution"
     planning = "planning"
     running = "running"
     recovering = "recovering"
@@ -352,12 +353,21 @@ class GoalRunState:
 
     goal_id: str
     goal_text: str  # 原始用户目标文本
+    # P0 pre-admission identity. These fields are part of the canonical
+    # taskgraph, never an adapter-side identity projection.
+    dispatch_id: str | None = None
+    session_id: str | None = None
+    requested_executor: str | None = None
+    execution_id: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     constitution: str = ""
     # P3-A: the persistent bot that owns this GoalRun. Every durable object
     # derived from this run inherits it; cross-bot resume is refused.
     bot_id: str = DEFAULT_BOT_ID
     status: GoalStatus = GoalStatus.planning
-    default_assignee: str = "hicode"
+    # Empty means "no executor preference" — the canonical entry decides. A retired
+    # executor must never be a default, so there is no literal here.
+    default_assignee: str = ""
     budget: dict[str, int] = field(
         default_factory=lambda: {
             "max_wall_s": 7200,  # 总时长上限(s)
@@ -423,6 +433,9 @@ class GoalRunState:
     # removed without erasing the proof that execution created it.
     cleanup_delta: dict[str, Any] | None = field(default=None)
     acceptance_verdict: str | None = field(default=None)
+    # §27: version attribution (agent spec / skill / workflow pins) recorded
+    # when the run finalizes, so a terminal run stays reproducible.
+    version_record: dict[str, Any] | None = field(default=None)
     done_at: datetime | None = field(default=None)
 
     def to_taskgraph_json(self) -> dict[str, Any]:
@@ -458,6 +471,11 @@ class GoalRunState:
         return {
             "version": 2,
             "goal_id": self.goal_id,
+            "dispatch_id": self.dispatch_id,
+            "session_id": self.session_id,
+            "requested_executor": self.requested_executor,
+            "execution_id": self.execution_id,
+            "created_at": self.created_at.isoformat(),
             "bot_id": self.bot_id,
             "status": self.status.value,
             "started_at": self.started_at.isoformat() if self.started_at else None,
@@ -490,6 +508,7 @@ class GoalRunState:
             "execution_delta": self.execution_delta,
             "cleanup_delta": self.cleanup_delta,
             "acceptance_verdict": self.acceptance_verdict,
+            "version_record": self.version_record,
             "done_at": self.done_at.isoformat() if self.done_at else None,
             "routines": {routine_id: spec.to_dict() for routine_id, spec in self.routines.items()},
             "delegate_states": {
@@ -511,9 +530,17 @@ class GoalRunState:
     def from_taskgraph_json(cls, data: dict[str, Any], goal_text: str) -> GoalRunState:
         """从 taskgraph.json 反序列化（用于 resume）。"""
         state = cls(goal_id=data.get("goal_id", ""), goal_text=goal_text)
+        state.dispatch_id = data.get("dispatch_id")
+        state.session_id = data.get("session_id")
+        state.requested_executor = data.get("requested_executor")
+        state.execution_id = data.get("execution_id")
+        raw_created_at = data.get("created_at")
+        if raw_created_at:
+            with contextlib.suppress(ValueError):
+                state.created_at = datetime.fromisoformat(str(raw_created_at))
         state.bot_id = str(data.get("bot_id") or DEFAULT_BOT_ID)
         state.status = GoalStatus(data.get("status", "planning"))
-        state.default_assignee = data.get("default_assignee", "hicode")
+        state.default_assignee = data.get("default_assignee", "")
         state.budget = data.get("budget", state.budget)
         state.constitution = data.get("constitution", "") or ""
         state.plan_review = data.get("plan_review")
@@ -548,6 +575,7 @@ class GoalRunState:
         state.execution_delta = data.get("execution_delta")
         state.cleanup_delta = data.get("cleanup_delta")
         state.acceptance_verdict = data.get("acceptance_verdict")
+        state.version_record = data.get("version_record")
         raw_done_at = data.get("done_at")
         if raw_done_at:
             with contextlib.suppress(ValueError):

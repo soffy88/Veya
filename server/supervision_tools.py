@@ -12,7 +12,18 @@ from typing import Any
 
 from veya.supervision import ExternalSupervisor, MissionStore, SupervisionRouter
 
-_MISSION_EXECUTORS = frozenset({"hicode", "dsh", "builtin"})
+
+def _mission_executors() -> frozenset[str]:
+    """Executors a mission may be pinned to — projected from ExecutorRegistry.
+
+    The registry is the only authority for executor identity, so a retired name
+    disappears from admission when the registry retires it, not because this
+    module was edited.  Imported lazily: ``veya.remote`` imports this module
+    while building its tool bindings, so a module-level import would cycle.
+    """
+    from veya.remote.executor_registry import get_executor_registry
+
+    return frozenset(get_executor_registry().snapshot())
 
 
 def _validated_actions(actions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -71,10 +82,10 @@ def veya_mission_create(
     executor: str = "",
     actions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    if executor and executor not in _MISSION_EXECUTORS:
+    if executor and executor not in _mission_executors():
         raise ValueError(
             f"unsupported mission executor {executor!r}; expected one of "
-            f"{sorted(_MISSION_EXECUTORS)}"
+            f"{sorted(_mission_executors())}"
         )
     resolved_actions = _validated_actions(actions)
     mission = _facade(project_root).create(
@@ -171,8 +182,14 @@ _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
                 "characteristics": {"type": "array", "items": {"type": "string"}},
                 "executor": {
                     "type": "string",
-                    "enum": ["hicode", "dsh", "builtin"],
-                    "description": "Pin the execution plane for this Mission (empty = canonical entry decides).",
+                    # No static enum: admissible executors are an ExecutorRegistry
+                    # projection, and this schema is built at import time — resolving
+                    # the registry here would re-enter this module while it is still
+                    # initialising. Admission is enforced at call time below.
+                    "description": (
+                        "Pin the execution plane for this Mission; must be an executor "
+                        "ExecutorRegistry still knows (empty = canonical entry decides)."
+                    ),
                 },
                 "actions": {
                     "type": "array",

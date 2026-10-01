@@ -57,15 +57,15 @@ async def execute_leaf(
     project_root: str,
     instruction: str,
     acceptance: list[str] | None = None,
-    assignee: str = "hicode",
+    assignee: str = "",
     memory_prefix: str = "",
 ) -> LeafResult:
     """执行单个叶子任务，复用 project_ask 内部执行路径。
 
     实现要点：
-    - assignee=hicode → 调用 project_ask 的 _run_hicode 路径（force_cli=True）
-    - assignee=dsh → 调用 project_ask 的 _run_dsh 路径
-    - assignee=builtin → 不执行，直接返回 blocked（goal_run 中不应有 builtin 任务）
+    - assignee 由 ExecutorRegistry 裁决准入（retired / unknown 一律 fail-closed）
+    - 准入后再要求存在对应 Harness；没有 harness 同样 fail-closed，不做替换
+    - 本地 substrate（builtin）不派工，直接返回 blocked
     - 组装 instruction = 任务 instruction + acceptance 列表 + 项目记忆前缀
     - 返回 LeafResult
     """
@@ -96,9 +96,45 @@ async def execute_leaf(
     # 派工执行。经 HarnessRegistry.execute() 路由(PR-15, 见
     # server/capability_model.py::HarnessRegistry.execute 的 docstring)——
     # _run_builtin/_run_hicode/_run_dsh 本身零改动, 参数/返回值跟直接调用完全一致。
-    if assignee == "builtin":
+    if not assignee:
+        return LeafResult(
+            status="blocked",
+            summary="",
+            block_reason="no executor requested; a leaf must name an admitted executor",
+            artifacts=[],
+            stop_reason="exception",
+        )
+
+    from veya.remote.executor_registry import get_executor_registry
+
+    registry = get_executor_registry()
+    if assignee not in registry.snapshot():
+        # Covers a retired executor and an unknown one identically: the registry is
+        # the only admission authority, so neither is substitutable here.
+        return LeafResult(
+            status="blocked",
+            summary="",
+            block_reason=(
+                f"executor not admitted by ExecutorRegistry: {assignee}; "
+                "refused without substitution"
+            ),
+            artifacts=[],
+            stop_reason="exception",
+        )
+
+    if harness_registry.get(assignee) is None:
+        return LeafResult(
+            status="blocked",
+            summary="",
+            block_reason=(f"no execution harness registered for admitted executor {assignee!r}"),
+            artifacts=[],
+            stop_reason="exception",
+        )
+
+    if registry.identity(assignee).executor_kind == "in_process_substrate":
+        # The substrate runs in-process and cannot take dispatched leaf work.
         resp = await harness_registry.execute(
-            "builtin", store=store, task_id=task_id, request=instruction
+            assignee, store=store, task_id=task_id, request=instruction
         )
         return LeafResult(
             status="completed" if resp.status == "completed" else "blocked",
@@ -107,36 +143,17 @@ async def execute_leaf(
             artifacts=resp.artifacts,
             stop_reason="completed" if resp.status == "completed" else "exception",
         )
-    elif assignee == "hicode":
-        resp = await harness_registry.execute(
-            "hicode", store=store, task_id=task_id, request=instruction, project_root=project_root
-        )
-        return LeafResult(
-            status=resp.status,
-            summary=resp.summary or "",
-            block_reason=resp.block_reason,
-            artifacts=resp.artifacts,
-            stop_reason="completed" if resp.status == "completed" else "exception",
-        )
-    elif assignee == "dsh":
-        resp = await harness_registry.execute(
-            "dsh", store=store, task_id=task_id, request=instruction, project_root=project_root
-        )
-        return LeafResult(
-            status=resp.status,
-            summary=resp.summary or "",
-            block_reason=resp.block_reason,
-            artifacts=resp.artifacts,
-            stop_reason="completed" if resp.status == "completed" else "exception",
-        )
-    else:
-        return LeafResult(
-            status="blocked",
-            summary="",
-            block_reason=f"unknown assignee: {assignee}",
-            artifacts=[],
-            stop_reason="exception",
-        )
+
+    resp = await harness_registry.execute(
+        assignee, store=store, task_id=task_id, request=instruction, project_root=project_root
+    )
+    return LeafResult(
+        status=resp.status,
+        summary=resp.summary or "",
+        block_reason=resp.block_reason,
+        artifacts=resp.artifacts,
+        stop_reason="completed" if resp.status == "completed" else "exception",
+    )
 
 
 def _context_prefix(store: ProjectStore) -> str:
@@ -159,7 +176,7 @@ async def execute_leaf_with_memory(
     project_root: str,
     instruction: str,
     acceptance: list[str] | None = None,
-    assignee: str = "hicode",
+    assignee: str = "",
     constitution_text: str = "",
 ) -> LeafResult:
     """带完整项目记忆的叶子执行（goal_run 专用入口）。

@@ -86,7 +86,9 @@ async def g1_plan(
     interpretation: str,
     assumptions: list[str],
     goal_text: str,
-    default_assignee: str = "hicode",
+    # The planner states executor *intent*; it does not pick an executor. Empty
+    # means no preference, so a retired name can never be invented here.
+    default_assignee: str = "",
     budget: dict[str, int] | None = None,
     max_leaf_tasks: int | None = None,
     project_root: str | None = None,

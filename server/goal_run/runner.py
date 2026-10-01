@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,21 @@ from runtime.execution.models import (
 from runtime.execution.no_progress import NoProgressGuard
 from runtime.execution.spawn_guard import SpawnGuard
 from server.capability_model import performance_store
+from server.completion_proposal import (
+    AcceptanceCriteria,
+    CompletionDecision,
+    CompletionDecisionValue,
+    CompletionProposal,
+    CriterionType,
+    VerificationEvidence,
+    VerificationPlan,
+    decide,
+    new_evidence,
+    new_proposal,
+    new_verification_plan,
+)
+from server.failure_semantics import TerminalState, is_success, reconcile_parent
+from server.goal_run.continuation import ContinuationTriggerManager
 from server.goal_run.execution_delta import (
     capture_filesystem_state,
     capture_git_state,
@@ -62,6 +78,12 @@ from server.goal_run.store import (
     save_goal_run,
     write_final_summary,
 )
+from server.goal_run.topology_selector import (
+    ExecutionTopologySelector,
+    TopologyContext,
+    TopologyDecision,
+    TopologyMode,
+)
 from server.goal_run.trust_plane import (
     append_trust_plane_records,
     build_and_write_task_episode,
@@ -69,9 +91,27 @@ from server.goal_run.trust_plane import (
 )
 from server.goal_run.verify import VerifyResult, apply_block_policy, verify_task
 from server.memory_controller import memory_controller
+from server.no_progress import NoProgressVerdict, ProgressSignal, ProgressTracker
 from server.project_understand import UnderstandResult
+from server.versioning import VersionRecord
 
 logger = logging.getLogger("veya.goal_run")
+
+
+def _is_dispatch_assignee(assignee: str) -> bool:
+    """Whether this assignee is dispatched to an external execution plane.
+
+    Membership is answered by ExecutorRegistry, not by a name set here: a leaf
+    bound to a registry-known executor is dispatched, anything else (including a
+    retired name) is not. Imported lazily so importing the runner does not drag
+    the ``veya.remote`` package in.
+    """
+    if not assignee:
+        return False
+    from veya.remote.executor_registry import get_executor_registry
+
+    return assignee in get_executor_registry().snapshot()
+
 
 # G2 调度停滞熔断: v0.1 叶子同步执行, 若连续这么多 tick 取不到任何可跑任务,
 # 判定为无法推进 (陈旧 running_id / 依赖不可达), 退出循环交 G3 收敛为 blocked,
@@ -785,6 +825,37 @@ def _take_continuous_tasks(
     return selected
 
 
+_TOPOLOGY_SELECTOR = ExecutionTopologySelector()
+
+
+def _topology_context_for_task(task: Any) -> TopologyContext:
+    """Derive the P1-03 selection factors the task graph actually states.
+
+    Only facts the run already knows are used: the author-declared ``[P]``
+    parallel marker, the declared dependencies, and the assignee that will run
+    the leaf.  Duration and tool noise are left unestimated on purpose — a
+    guessed factor would turn the recorded topology into fiction.
+    """
+    depends_on = list(task.depends_on or ())
+    return TopologyContext(
+        independence=1.0 if not depends_on else max(0.0, 1.0 - 0.25 * len(depends_on)),
+        parallelizability=1.0 if task.parallel else 0.0,
+        required_capabilities=[task.assignee] if task.assignee else [],
+        workspace_conflict_risk=0.0 if task.parallel else 0.5,
+    )
+
+
+def _select_task_topology(task: Any) -> TopologyDecision:
+    """P1-03: record the suggested execution topology for one task.
+
+    The result is advisory only.  Which executor actually runs the leaf stays
+    the one `_process_one_task` already chose; the mode is reported next to
+    ``scheduler.task_started`` so a divergence between the suggestion and the
+    real execution is visible instead of silently applied.
+    """
+    return _TOPOLOGY_SELECTOR.select(_topology_context_for_task(task))
+
+
 def _mark_unfinished(state: GoalRunState) -> None:
     """Record work that finalization could not execute or verify."""
     for task in state.tasks.values():
@@ -882,7 +953,7 @@ async def _prepare_durable_goal(
                 "depends_on": task.depends_on,
                 "parallel": task.parallel,
                 "side_effect_policy": "manual_on_unknown"
-                if task.assignee in {"hicode", "dsh"}
+                if _is_dispatch_assignee(task.assignee)
                 else "none",
                 "max_attempts": int(state.budget.get("max_retries_per_task", 2)) + 1,
             },
@@ -1174,7 +1245,7 @@ async def project_run_goal(
             interpretation=u.interpretation or goal,
             assumptions=u.assumptions or [],
             goal_text=goal,
-            default_assignee=state.default_assignee if state else "hicode",
+            default_assignee=state.default_assignee if state else "",
             budget=budget,
             project_root=project_root,
             explicit_tasks=tasks,
@@ -1437,6 +1508,157 @@ def _finalize_episode(state: Any, project_root: str, *, outcome: str) -> None:
         logger.exception("[goal_run %s] task episode finalize failed", state.goal_id)
 
 
+_TASK_TERMINAL_STATES: dict[TaskStatus, TerminalState] = {
+    TaskStatus.completed: TerminalState.SUCCEEDED,
+    TaskStatus.blocked: TerminalState.BLOCKED,
+    TaskStatus.cancelled: TerminalState.CANCELLED,
+    TaskStatus.pending: TerminalState.INTERRUPTED,
+    TaskStatus.ready: TerminalState.INTERRUPTED,
+    TaskStatus.running: TerminalState.INTERRUPTED,
+    TaskStatus.verifying: TerminalState.INTERRUPTED,
+}
+"""§24: every task status carries an explicit terminal meaning.  Work that never
+reached a terminal state is INTERRUPTED — never success."""
+
+
+def _completion_blockers(
+    state: GoalRunState,
+    *,
+    total: int,
+    completed: int,
+    blocked: int,
+    cancelled: int,
+    semantic_no_progress: bool = False,
+) -> list[str]:
+    """The concrete reasons this goal is not complete, as observed on the run."""
+    blockers: list[str] = []
+    if state.unfinished_work:
+        blockers.append(f"unfinished_work={len(state.unfinished_work)}")
+    if blocked:
+        blockers.append(f"blocked_tasks={blocked}")
+    if cancelled:
+        blockers.append(f"cancelled_tasks={cancelled}")
+    if completed < total:
+        blockers.append(f"incomplete_tasks={total - completed}")
+    if semantic_no_progress:
+        blockers.append("no_progress_detected")
+    return blockers
+
+
+def _decide_goal_completion(
+    state: GoalRunState,
+    *,
+    total: int,
+    completed: int,
+    blocked: int,
+    cancelled: int,
+    semantic_no_progress: bool = False,
+) -> tuple[GoalStatus, str, dict[str, Any]]:
+    """P0-08 + §24: derive the final status, the verdict, and the audit record.
+
+    ``reconcile_parent`` owns the aggregation: any non-success child makes the
+    goal non-success, and an empty task graph is not a success either.  The
+    CompletionProposal and its VerificationPlan are built from the goal's own
+    acceptance criteria, and ``decide()`` turns the reconciliation plus the
+    observed blockers into a CompletionDecision.  Only an ACCEPT decision is
+    reported as ``completed``/``ACCEPT``, so this seam can only tighten a
+    result — it can never turn a failing run into a success.
+    """
+    reconciled = reconcile_parent(
+        [
+            _TASK_TERMINAL_STATES.get(task.status, TerminalState.INTERRUPTED)
+            for task in state.tasks.values()
+        ]
+    )
+    criteria: AcceptanceCriteria = AcceptanceCriteria(
+        criteria_id=f"goal-criteria:{state.goal_id}",
+        goal_run_id=state.goal_id,
+        # GoalRun verifies each task against its own acceptance list, so the
+        # goal-level criterion is the custom union of those per-task checks.
+        # The acceptance strings themselves stay in taskgraph.json; this
+        # record derives the decision, it does not duplicate the plan.
+        checks=[CriterionType.CUSTOM],
+        custom_checks={"task_ids": sorted(state.tasks)},
+    )
+    plan: VerificationPlan = new_verification_plan(state.goal_id, criteria)
+    blockers = _completion_blockers(
+        state,
+        total=total,
+        completed=completed,
+        blocked=blocked,
+        cancelled=cancelled,
+        semantic_no_progress=semantic_no_progress,
+    )
+    proposal: CompletionProposal = replace(
+        new_proposal(
+            state.goal_id,
+            agent_id=str(state.agent_definition_id or state.default_assignee or ""),
+        ),
+        summary=(
+            f"{completed}/{total} tasks completed; reconciled={reconciled.value}; "
+            f"blockers={','.join(blockers) or 'none'}"
+        ),
+    )
+    evidence: list[VerificationEvidence] = [
+        new_evidence(check, "pass" if not blockers else "fail", f"goal_run:{state.goal_id}")
+        for check in plan.checks
+    ]
+    decision: CompletionDecision = decide(
+        state.goal_id,
+        all_passed=is_success(reconciled),
+        blockers=blockers,
+    )
+    accepted = decision.outcome is CompletionDecisionValue.ACCEPT
+    final_status = GoalStatus.completed if accepted else GoalStatus.partial_completed
+    record = {
+        "terminal_state": reconciled.value,
+        "criteria": criteria.to_dict(),
+        "verification_plan": plan.to_dict(),
+        "proposal": proposal.to_dict(),
+        "evidence": [item.to_dict() for item in evidence],
+        "decision": decision.to_dict(),
+    }
+    return final_status, ("ACCEPT" if accepted else "PARTIAL"), record
+
+
+def _run_version_record(state: GoalRunState) -> VersionRecord:
+    """§27: reproducibility attribution recorded when the run finalizes.
+
+    Only pins the run actually carries are recorded.  Components the run never
+    resolved stay empty rather than being guessed at.
+    """
+    return VersionRecord(
+        goal_run_id=state.goal_id,
+        agent_spec_version=str(state.agent_definition_version or ""),
+        skill_versions=(
+            {str(state.active_skill_id): str(state.active_skill_version)}
+            if state.active_skill_id is not None
+            else {}
+        ),
+        workflow_versions=(
+            {"playbook": str(state.active_playbook_version)}
+            if state.active_playbook_version is not None
+            else {}
+        ),
+    )
+
+
+def _cancel_pending_continuation_triggers(goal_run_id: str) -> int:
+    """P0-04: a terminal GoalRun must not admit a new continuation.
+
+    The trigger manager only claims and cancels triggers — it never executes a
+    task and never schedules.  A trigger still PENDING for a run that already
+    finalized would admit work into a terminal run, so it is cancelled here.
+    """
+    try:
+        return ContinuationTriggerManager().cancel_for_goal(goal_run_id)
+    except Exception:
+        logger.exception(
+            "[goal_run %s] continuation trigger cancel failed, skip (advisory)", goal_run_id
+        )
+        return 0
+
+
 async def _run_loop_and_finalize(
     *,
     state: GoalRunState,
@@ -1497,6 +1719,14 @@ async def _run_loop_and_finalize(
         "goal",
         threshold=int(state.budget.get("no_progress_goal_ticks", _MAX_STALL_TICKS)),
     )
+    # §25 semantic progress tracking.  ``goal_no_progress`` above is the fast
+    # structural path: it only fires on a *repeated identical* state signature.
+    # This tracker counts cycles that produced no real progress signal at all,
+    # so a livelock that keeps mutating the signature without finishing work is
+    # caught too.  Its verdict is also a completion blocker, so a detected
+    # no-progress run can never be reported as success.
+    progress_tracker = ProgressTracker(goal_run_id=state.goal_id)
+    semantic_no_progress: str | None = None
     safety_response: GoalRunResponse | None = None
     _write_execution_checkpoint(state, project_root, [])
     if integration_adapter is not None:
@@ -1562,8 +1792,26 @@ async def _run_loop_and_finalize(
             scheduler_state.promote_ready()
             selected = _take_continuous_tasks(state, max_concurrent, active)
             for task in selected:
-                _emit_runtime_event(state, project_root, "scheduler.task_ready", task_id=task.id)
-                _emit_runtime_event(state, project_root, "scheduler.task_started", task_id=task.id)
+                # P1-03: advisory topology suggestion for this task.  It is
+                # recorded only — the executor is unchanged.
+                topology = _select_task_topology(task)
+                _emit_runtime_event(
+                    state,
+                    project_root,
+                    "scheduler.task_ready",
+                    task_id=task.id,
+                    topology_mode=topology.mode.value,
+                    topology_reason=topology.reason,
+                )
+                _emit_runtime_event(
+                    state,
+                    project_root,
+                    "scheduler.task_started",
+                    task_id=task.id,
+                    topology_mode=topology.mode.value,
+                    topology_confidence=topology.confidence,
+                    topology_escalation_suggested=topology.mode is not TopologyMode.INLINE,
+                )
 
                 async def _run_guarded(current_task: Any = task):
                     async def execute_current(_cancel: asyncio.Event):
@@ -1634,7 +1882,7 @@ async def _run_loop_and_finalize(
                         except Exception as exc:
                             classification = (
                                 "unknown"
-                                if current_task.assignee in {"hicode", "dsh"}
+                                if _is_dispatch_assignee(current_task.assignee)
                                 else "safe_retry"
                             )
                             with contextlib.suppress(DurableExecutionError):
@@ -1659,6 +1907,7 @@ async def _run_loop_and_finalize(
                 )
             if selected:
                 goal_no_progress.reset()
+                progress_tracker.record(ProgressSignal.STATE_TRANSITION)
 
         if active:
             # Re-check the reserve periodically even when the current child is
@@ -1731,6 +1980,14 @@ async def _run_loop_and_finalize(
                     _finalize_episode(state, project_root, outcome=safety_response.status.value)
                     return safety_response
                 goal_no_progress.reset()
+                if task.status == TaskStatus.completed and task_id in state.completed_ids:
+                    progress_tracker.record(ProgressSignal.NEW_TASK_COMPLETION)
+                elif task.evidence:
+                    progress_tracker.record(ProgressSignal.NEW_EVIDENCE)
+                elif task.artifacts:
+                    progress_tracker.record(ProgressSignal.NEW_ARTIFACT)
+                else:
+                    progress_tracker.record(ProgressSignal.STATE_TRANSITION)
             _write_execution_checkpoint(state, project_root, list(active))
             if integration_adapter is not None:
                 integration_adapter.checkpoint(state, project_root, reason="task_round")
@@ -1757,13 +2014,24 @@ async def _run_loop_and_finalize(
                 for task in state.tasks.values()
             )
         )
-        if goal_no_progress.observe(
-            signature=(
-                state_signature,
-                tuple(sorted(state.completed_ids)),
-                scheduler_decision.value,
-            ),
+        # §25: the structural guard only fires on a *repeated identical*
+        # signature, so it cannot see a livelock that keeps mutating the
+        # signature without ever finishing work.  The semantic tick counts
+        # cycles that produced no progress signal at all and routes to the
+        # same finalization path.
+        semantic_verdict = progress_tracker.tick()
+        if (
+            goal_no_progress.observe(
+                signature=(
+                    state_signature,
+                    tuple(sorted(state.completed_ids)),
+                    scheduler_decision.value,
+                ),
+            )
+            or semantic_verdict is NoProgressVerdict.NO_PROGRESS_DETECTED
         ):
+            if semantic_verdict is NoProgressVerdict.NO_PROGRESS_DETECTED:
+                semantic_no_progress = "no_progress_detected"
             _mark_unfinished(state)
             state.last_stop_reason = "cross_turn_repetition"
             if finalization.start(remaining_s, no_progress=True):
@@ -1816,8 +2084,16 @@ async def _run_loop_and_finalize(
     completed = sum(1 for task in state.tasks.values() if task.status == TaskStatus.completed)
     blocked = sum(1 for task in state.tasks.values() if task.status == TaskStatus.blocked)
     cancelled = sum(1 for task in state.tasks.values() if task.status == TaskStatus.cancelled)
-    has_partial_work = bool(state.unfinished_work or blocked or cancelled or completed < total)
-    final_status = GoalStatus.partial_completed if has_partial_work else GoalStatus.completed
+    # P0-08 + §24: the parent status is derived from child semantics and the
+    # completion decision, not from an ad-hoc "any work left?" test.
+    final_status, acceptance_verdict, completion_record = _decide_goal_completion(
+        state,
+        total=total,
+        completed=completed,
+        blocked=blocked,
+        cancelled=cancelled,
+        semantic_no_progress=semantic_no_progress is not None,
+    )
     if integration_adapter is not None and hasattr(integration_adapter, "finalize_candidate"):
         verdict = await integration_adapter.finalize_candidate(state, project_root)
         if verdict is not None and verdict.outcome != "PASS":
@@ -1857,7 +2133,12 @@ async def _run_loop_and_finalize(
                 next_action="replan" if verdict.outcome == "FAIL" else "none",
             )
     state.status = final_status
-    state.acceptance_verdict = "ACCEPT" if final_status == GoalStatus.completed else "PARTIAL"
+    state.acceptance_verdict = acceptance_verdict
+    # §27: reproducibility attribution for a run that actually reached a
+    # terminal state.  P0-04: that same terminal state is what makes any
+    # still-pending continuation trigger for this run inadmissible.
+    state.version_record = _run_version_record(state).to_dict()
+    cancelled_continuations = _cancel_pending_continuation_triggers(state.goal_id)
 
     _emit_runtime_event(state, project_root, "fanin.started")
     delegate_results: list[DelegateResult] = []
@@ -1980,6 +2261,8 @@ async def _run_loop_and_finalize(
         acceptance_verdict=state.acceptance_verdict,
         done=True,
         artifact_count=len(artifacts),
+        completion=completion_record,
+        continuation_triggers_cancelled=cancelled_continuations,
     )
     _finalize_episode(state, project_root, outcome=final_status.value)
 

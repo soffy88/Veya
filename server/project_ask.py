@@ -58,7 +58,17 @@ logger = logging.getLogger("veya.project_ask")
 
 _VALID_MODES = {"auto", "act_eager", "ask_only"}
 
-_VALID_EXECUTORS = {"builtin", "hicode", "dsh"}
+
+def _valid_executors() -> set[str]:
+    """Executors this entry may name — projected from ExecutorRegistry.
+
+    Projection, not an inventory: a retired executor leaves this set because the
+    registry retired it.  Imported lazily to keep the ``veya.remote`` import graph
+    acyclic.
+    """
+    from veya.remote.executor_registry import get_executor_registry
+
+    return set(get_executor_registry().snapshot())
 
 
 def _now() -> str:
@@ -487,14 +497,14 @@ async def project_ask(
         selected_executor = executor if executor is not None else assignee_hint
         executor_error = ""
 
-    if selected_executor not in _VALID_EXECUTORS:
+    if selected_executor not in _valid_executors():
         resp = ProjectAskResponse(
             task_id=task_id,
             status="blocked",
             phase="rejected",
             block_reason=executor_error
             or (
-                f"executor is required and must be one of {sorted(_VALID_EXECUTORS)}; "
+                f"executor is required and must be one of {sorted(_valid_executors())}; "
                 f"got {selected_executor!r}"
             ),
             parent_task_id=parent_task_id,
@@ -665,10 +675,10 @@ def _wire_project_ask(master_tools: Any) -> int:
                 },
                 "executor": {
                     "type": "string",
-                    "enum": ["builtin", "hicode", "dsh"],
+                    "enum": sorted(_valid_executors()),
                     "description": (
-                        "必填。显式指定处理方式：builtin=只记录不执行任何命令/不改代码，"
-                        "hicode=派工执行代码变更，dsh=派给 dsh 外部 worker 执行。"
+                        "必填。显式指定处理方式；取值来自 ExecutorRegistry，"
+                        "空值表示交给 canonical 选择。"
                     ),
                 },
                 "parent_task_id": {
