@@ -87,9 +87,15 @@ class SideEffectClass(StrEnum):
 
 
 class ExecutorKind(StrEnum):
-    """Concrete executor a planner may choose (spec §17/§18)."""
+    """Concrete executor a planner may choose (spec §17/§18).
 
-    hicode = "hicode"  # coding / repo modification / tests / refactor
+    ``hicode`` is deliberately absent: it is retired in
+    ``veya.remote.executor_registry`` and fails closed there, so offering it here
+    would only let a planner pick an executor the registry rejects.  Which
+    concrete executors are actually admissible is the registry's answer, not this
+    enum's — see ``runner._KNOWN_EXECUTORS``.
+    """
+
     dsh = "dsh"  # shell-heavy / ops / diagnostics / environment
     worker = "worker"
     native_tool = "native_tool"
@@ -101,7 +107,7 @@ class ExecutionTask:
 
     task_id: str
     objective: str
-    executor: ExecutorKind = ExecutorKind.hicode
+    executor: ExecutorKind
     inputs: dict[str, Any] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
     acceptance: list[str] = field(default_factory=list)
@@ -125,7 +131,7 @@ class ExecutionTask:
         return cls(
             task_id=str(data["task_id"]),
             objective=str(data["objective"]),
-            executor=ExecutorKind(data.get("executor", "hicode")),
+            executor=ExecutorKind(data["executor"]),
             inputs=dict(data.get("inputs") or {}),
             constraints=[str(c) for c in data.get("constraints") or []],
             acceptance=[str(a) for a in data.get("acceptance") or []],

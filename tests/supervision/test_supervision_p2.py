@@ -30,7 +30,7 @@ def _mission(**kw) -> Mission:
 def _goalrun_state():
     node_ok = types.SimpleNamespace(
         title="write code",
-        assignee="hicode",
+        assignee="opencode",
         status="completed",
         acceptance=["unit passes"],
         verify_summary="passed",
@@ -167,7 +167,7 @@ def test_revise_produces_next_task() -> None:
         iteration=1,
         supervisor="internal",
         decision=ReviewDecision.revise,
-        next_task={"worker": "hicode", "objective": "fix the failing test"},  # type: ignore[arg-type]
+        next_task={"worker": "opencode", "objective": "fix the failing test"},  # type: ignore[arg-type]
         acceptance_delta=["regression test added"],
     )
     outcome = plan_retask(review, mission=_mission(), iteration=1)
@@ -196,7 +196,7 @@ def _worker_report(worker: str, *, required: list[str] | None = None) -> Executi
     )
 
 
-@pytest.mark.parametrize("worker", ["dsh", "pi", "grok", "hicode"])
+@pytest.mark.parametrize("worker", ["dsh", "pi", "grok", "opencode"])
 def test_retask_preserves_explicit_worker_and_artifact_obligations(worker: str) -> None:
     required = [f"case_a/{worker}.txt"]
     raw = {
@@ -345,7 +345,7 @@ def test_structured_next_task_is_normalized_without_rewriting_review(tmp_path: P
     mission = store.save(_mission())
     raw = {
         "task_id": "child-fix",
-        "worker": "HICODE",
+        "worker": "OPENCODE",
         "objective": "create the correction artifact",
         "acceptance": ["artifact exists"],
     }
@@ -432,7 +432,7 @@ def test_apply_review_persists_and_transitions(tmp_path: Path) -> None:
         iteration=1,
         supervisor="internal",
         decision=ReviewDecision.retry,
-        next_task={"worker": "hicode", "objective": "try again"},  # type: ignore[arg-type]
+        next_task={"worker": "opencode", "objective": "try again"},  # type: ignore[arg-type]
     )
     outcome = apply_review(store, mission, review, iteration=0)
     assert outcome.mission_status is MissionStatus.retasking

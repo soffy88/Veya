@@ -612,7 +612,14 @@ async def orchestrated_runner(
     if not subtasks and decompose is not None:
         subtasks = await decompose(mission)
     if not subtasks:
-        subtasks = [Subtask(task_id="task-1", objective=str(mission.goal), worker="hicode")]
+        # Fail closed. The old default named ``hicode``, which is retired in the
+        # canonical ExecutorRegistry, so an unplanned mission always failed
+        # validate_plan as an unknown worker. Inventing a worker here would only
+        # relocate that failure, so the missing plan is reported instead.
+        raise OrchestrationError(
+            "no subtasks for orchestrated mission: provide execution_policy.subtasks "
+            "or inject decompose"
+        )
     validate_plan(subtasks)
     authority = getattr(mission, "authority", None) or {}
     report = await run_plan(

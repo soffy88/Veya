@@ -111,7 +111,7 @@ async def test_case_a_happy_path(tmp_path: Path) -> None:
             runtime_evidence=[
                 {
                     "kind": "l1_execution",
-                    "worker": "hicode",
+                    "worker": "opencode",
                     "status": "COMPLETED",
                     "execution_id": "e-1",
                 }
@@ -230,7 +230,7 @@ async def test_case_c_deterministic_test_failure(tmp_path: Path) -> None:
             runtime_evidence=[
                 {
                     "kind": "l1_execution",
-                    "worker": "hicode",
+                    "worker": "opencode",
                     "status": "FAILED",
                     "execution_id": "e-fail",
                 }
@@ -245,7 +245,7 @@ async def test_case_c_deterministic_test_failure(tmp_path: Path) -> None:
                 supervisor="internal",
                 decision=ReviewDecision.retry,
                 reason="test failed, retry",
-                next_task={"worker": "hicode", "objective": "fix the test"},
+                next_task={"worker": "opencode", "objective": "fix the test"},
             )
 
     loop, _store, mid = _setup_loop(
@@ -357,7 +357,7 @@ async def test_case_f_worker_quota_exhausted_planning(tmp_path: Path) -> None:
         await decompose(
             MockMission(),
             workspace=str(tmp_path),
-            available_workers=["codex", "hicode", "pi"],
+            available_workers=["codex", "opencode", "pi"],
             health_registry=registry,
             llm=mock_llm,
         )
@@ -370,9 +370,9 @@ async def test_case_f_worker_quota_exhausted_planning(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_case_g_interruption_and_resume_recovery(tmp_path: Path) -> None:
     """Interrupted execution resumes without repeating completed subtasks."""
-    subtask1 = Subtask(task_id="sub1", objective="init db", worker="hicode")
+    subtask1 = Subtask(task_id="sub1", objective="init db", worker="opencode")
     subtask2 = Subtask(
-        task_id="sub2", objective="migrate db", worker="hicode", depends_on=("sub1",)
+        task_id="sub2", objective="migrate db", worker="opencode", depends_on=("sub1",)
     )
 
     side_effects: list[str] = []
@@ -405,7 +405,7 @@ async def test_case_g_interruption_and_resume_recovery(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_case_h_cancel_propagation(tmp_path: Path) -> None:
     """Cancel propagation stops downstream wave dispatches (POST_CANCEL_DISPATCH=0)."""
-    subtask1 = Subtask(task_id="sub1", objective="phase 1", worker="hicode")
+    subtask1 = Subtask(task_id="sub1", objective="phase 1", worker="opencode")
     subtask2 = Subtask(task_id="sub2", objective="phase 2", worker="codex", depends_on=("sub1",))
 
     cancelled = False
@@ -460,7 +460,7 @@ async def test_case_i_plan_revision_lineage(tmp_path: Path) -> None:
 
     async def planner_v2(_m: Any) -> list[dict[str, Any]]:
         return [
-            {"task_id": "task_replan_1", "objective": "new approach", "worker": "hicode"},
+            {"task_id": "task_replan_1", "objective": "new approach", "worker": "opencode"},
         ]
 
     loop = MissionLoop(
@@ -508,7 +508,7 @@ async def test_case_j_multi_worker_concurrency(tmp_path: Path) -> None:
     subtasks = [
         Subtask(task_id="t_agy", objective="antigravity work", worker="antigravity"),
         Subtask(task_id="t_codex", objective="codex work", worker="codex"),
-        Subtask(task_id="t_hicode", objective="hicode work", worker="hicode"),
+        Subtask(task_id="t_hicode", objective="hicode work", worker="opencode"),
     ]
 
     active_executions: list[str] = []

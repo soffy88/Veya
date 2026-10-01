@@ -14,7 +14,7 @@ from veya.supervision.runner import canonical_runner, runner_with
 def _state():
     node = types.SimpleNamespace(
         title="t",
-        assignee="hicode",
+        assignee="opencode",
         status="completed",
         acceptance=["ok"],
         verify_summary="passed",

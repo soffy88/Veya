@@ -14,7 +14,7 @@ from veya.supervision.external import MissionNotFound
 async def _runner(mission):
     node = types.SimpleNamespace(
         title="do it",
-        assignee="hicode",
+        assignee="opencode",
         status="completed",
         acceptance=["ok"],
         verify_summary="passed",
@@ -132,7 +132,15 @@ def test_high_level_mcp_bindings_share_the_same_server() -> None:
         b.veya_tool is None
         for b in BINDINGS
         if not b.name.startswith(
-            ("process.", "worker.", "runtime.", "approval.", "autonomous.", "interrupt.", "mission.")
+            (
+                "process.",
+                "worker.",
+                "runtime.",
+                "approval.",
+                "autonomous.",
+                "interrupt.",
+                "mission.",
+            )
         )
     )
 

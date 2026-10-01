@@ -64,7 +64,9 @@ _REDO_DECISIONS = {
 # retask may preserve one of them, but it must never silently fall back to a
 # retired executor when the identity is absent or invalid.  Hicode is retired
 # from the active plane.
-_RETASK_WORKERS = frozenset({"dsh", "pi", "grok", "codex", "antigravity", "opencode", "claude_code"})
+_RETASK_WORKERS = frozenset(
+    {"dsh", "pi", "grok", "codex", "antigravity", "opencode", "claude_code"}
+)
 
 
 @dataclass

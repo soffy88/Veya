@@ -12,7 +12,7 @@ from veya.supervision.loop import MissionLoop
 def _clean_state():
     node = types.SimpleNamespace(
         title="t",
-        assignee="hicode",
+        assignee="opencode",
         status="completed",
         acceptance=["ok"],
         verify_summary="passed",

@@ -27,7 +27,7 @@ from veya.supervision.orchestrated import Subtask
 def _state(summary: str = "completed") -> types.SimpleNamespace:
     node = types.SimpleNamespace(
         title="child",
-        assignee="hicode",
+        assignee="opencode",
         status="completed",
         acceptance=["criterion"],
         verify_summary="passed",
@@ -118,7 +118,7 @@ async def test_plan_revision_reinvokes_planner_and_preserves_old_plan(tmp_path: 
     async def planner(mission: Mission) -> list[Subtask]:
         planner_calls.append(len(planner_calls) + 1)
         objective = "initial plan" if len(planner_calls) == 1 else "corrected plan"
-        return [Subtask(task_id="child", objective=objective, worker="hicode")]
+        return [Subtask(task_id="child", objective=objective, worker="opencode")]
 
     async def runner(mission: Mission) -> types.SimpleNamespace:
         runner_versions.append(int(mission.authority["plan_version"]))
@@ -285,7 +285,7 @@ def test_task_correction_keeps_existing_retask_contract() -> None:
         supervisor="internal",
         decision=ReviewDecision.revise,
         correction_scope="TASK",
-        next_task={"worker": "hicode", "objective": "repair child"},  # type: ignore[arg-type]
+        next_task={"worker": "opencode", "objective": "repair child"},  # type: ignore[arg-type]
     )
     outcome = plan_retask(review, mission=mission)
     assert outcome.mission_status is MissionStatus.retasking
@@ -372,7 +372,7 @@ def test_artifact_manifest_uses_worktree_delta_and_materializes(tmp_path: Path) 
     entries = _artifact_manifest(
         "ex-stage-c",
         "child",
-        "HICODE",
+        "OPENCODE",
         str(tmp_path),
         str(tmp_path / ".veya" / "artifacts"),
         baseline=baseline,

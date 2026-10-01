@@ -27,7 +27,11 @@ Dispatch = Callable[[str, str], Awaitable[str]]
 # canonical substrate: it has no provider and no free-text planning ability, so
 # it can only run planner-resolved canonical actions.  ``worker``/``native_tool``
 # are not aliases for this substrate and therefore cannot be admitted here.
-_KNOWN_EXECUTORS = {"hicode", "dsh", "builtin"}
+# ``hicode`` is gone: it is retired in ``veya.remote.executor_registry``, and an
+# in-plane allowlist that still offered it would admit a worker the registry
+# rejects.  This set is the supervision plane's own admission list, not a second
+# source of executor identity — that stays in the registry.
+_KNOWN_EXECUTORS = {"dsh", "builtin"}
 
 # The in-process executor id. It never calls an external model provider.
 _LOCAL_EXECUTOR = "builtin"

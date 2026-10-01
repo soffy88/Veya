@@ -79,13 +79,13 @@ class Recorder:
         )
 
 
-def _sub(task_id: str, worker: str = "hicode", deps: tuple[str, ...] = ()) -> Subtask:
+def _sub(task_id: str, worker: str = "opencode", deps: tuple[str, ...] = ()) -> Subtask:
     return Subtask(task_id=task_id, objective=f"do {task_id}", worker=worker, depends_on=deps)
 
 
 async def test_independent_subtasks_run_concurrently() -> None:
     recorder = Recorder()
-    plan = [_sub("a", "hicode"), _sub("b", "pi"), _sub("c", "grok")]
+    plan = [_sub("a", "opencode"), _sub("b", "pi"), _sub("c", "grok")]
     report = await run_plan(
         plan, recorder, mission_id="m1", iteration=1, objective="g", parent_execution_id="parent_1"
     )
@@ -93,7 +93,7 @@ async def test_independent_subtasks_run_concurrently() -> None:
     assert recorder.max_active >= 2
     routing = [e for e in report.runtime_evidence if e.get("kind") == "routing_decision"]
     assert len(routing) == 3
-    assert {r["selected_worker"] for r in routing} == {"hicode", "pi", "grok"}
+    assert {r["selected_worker"] for r in routing} == {"opencode", "pi", "grok"}
     assert all(r["parent_execution_id"] == "parent_1" for r in routing)
 
 
@@ -147,7 +147,7 @@ async def test_dependent_task_receives_materialized_dependency_artifacts() -> No
         {
             "dependency_subtask_id": "a",
             "execution_id": "ex_a",
-            "source_worker": "hicode",
+            "source_worker": "opencode",
             "source_path": "case_a/input.txt",
             "relative_path": "case_a/input.txt",
             "materialized_path": "/workspace/.veya/artifacts/ex_a/case_a/input.txt",
@@ -362,9 +362,9 @@ async def test_unknown_worker_rejected() -> None:
 
 async def test_parse_subtasks_rejects_bad_input() -> None:
     parsed = parse_subtasks(
-        [{"task_id": "a", "objective": "x", "worker": "hicode", "depends_on": []}]
+        [{"task_id": "a", "objective": "x", "worker": "opencode", "depends_on": []}]
     )
-    assert parsed[0].worker == "hicode"
+    assert parsed[0].worker == "opencode"
     declared = parse_subtasks(
         [
             {
@@ -432,7 +432,7 @@ async def test_select_runner_routes_orchestrated_mode() -> None:
     mission = _mission(
         "veya_orchestrated",
         [
-            {"task_id": "a", "objective": "A", "worker": "hicode"},
+            {"task_id": "a", "objective": "A", "worker": "opencode"},
             {"task_id": "b", "objective": "B", "worker": "pi"},
             {"task_id": "d", "objective": "D", "worker": "dsh", "depends_on": ["a", "b"]},
         ],
@@ -450,7 +450,7 @@ async def test_orchestrated_state_projects_to_canonical_report() -> None:
     recorder = Recorder()
     mission = _mission(
         "veya_orchestrated",
-        [{"task_id": "a", "objective": "A", "worker": "hicode"}],
+        [{"task_id": "a", "objective": "A", "worker": "opencode"}],
     )
     state = await orchestrated_runner(mission, dispatch=recorder)
     report = build_execution_report(mission, state, iteration=1)
@@ -465,7 +465,7 @@ async def test_structured_plan_validation_blocks_bad_plans() -> None:
     with pytest.raises(OrchestrationError):
         validate_plan(
             parse_subtasks(
-                [{"task_id": "a", "objective": "A", "worker": "hicode", "depends_on": ["ghost"]}]
+                [{"task_id": "a", "objective": "A", "worker": "opencode", "depends_on": ["ghost"]}]
             )
         )
     with pytest.raises(OrchestrationError):
@@ -623,7 +623,7 @@ async def test_planner_adapter_reuses_canonical_planner_and_blocks_unavailable()
     async def good_llm(_messages):
         return (
             '{"subtasks":['
-            '{"id":"a","goal":"A","worker":"hicode","dependencies":[]},'
+            '{"id":"a","goal":"A","worker":"opencode","dependencies":[]},'
             '{"id":"b","goal":"B","worker":"pi","dependencies":[]},'
             '{"id":"c","goal":"C","worker":"grok","dependencies":[]},'
             '{"id":"d","goal":"D","worker":"dsh","dependencies":["a","b","c"]}]}'
@@ -632,11 +632,11 @@ async def test_planner_adapter_reuses_canonical_planner_and_blocks_unavailable()
     subs = await decompose(
         mission,
         workspace="/tmp/ws",
-        available_workers=["hicode", "dsh", "pi", "grok"],
+        available_workers=["opencode", "dsh", "pi", "grok"],
         temporarily_unavailable_workers={"codex": "UPSTREAM_QUOTA"},
         llm=good_llm,
     )
-    assert {s.worker for s in subs} == {"hicode", "dsh", "pi", "grok"}
+    assert {s.worker for s in subs} == {"opencode", "dsh", "pi", "grok"}
     assert any(s.depends_on for s in subs)
 
     async def codex_llm(_messages):
@@ -646,7 +646,7 @@ async def test_planner_adapter_reuses_canonical_planner_and_blocks_unavailable()
         await decompose(
             mission,
             workspace="/tmp/ws",
-            available_workers=["hicode", "dsh", "pi", "grok"],
+            available_workers=["opencode", "dsh", "pi", "grok"],
             temporarily_unavailable_workers={"codex": "UPSTREAM_QUOTA"},
             llm=codex_llm,
         )

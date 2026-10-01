@@ -83,7 +83,7 @@ def test_job_handle_durable(tmp_path):
 
 
 def test_restart_during_execution_marks_interrupted(tmp_path):
-    for executor in ("dsh", "hicode"):
+    for executor in ("dsh", "opencode"):
         root = tmp_path / executor
         root.mkdir()
         mission_id = _mission(root, executor=executor)

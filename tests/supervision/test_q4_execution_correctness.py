@@ -264,7 +264,7 @@ def test_execution_delta_does_not_attribute_preexisting_commit_as_delete() -> No
 
 
 def test_executor_capability_matches_assignment() -> None:
-    assert {"builtin", "hicode", "dsh"} == _KNOWN_EXECUTORS
+    assert {"builtin", "dsh"} == _KNOWN_EXECUTORS
     assert (
         executor_hint(
             types.SimpleNamespace(

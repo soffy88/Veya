@@ -50,7 +50,7 @@ def _repo(path: Path) -> Path:
 
 
 def _mission(
-    workspace: Path, *, executor: str | None = "hicode", actions: list[dict] | None = None
+    workspace: Path, *, executor: str | None = "opencode", actions: list[dict] | None = None
 ) -> Mission:
     execution_policy: dict[str, Any] = {}
     if executor is not None:
@@ -74,7 +74,7 @@ def _healthy(*executors: str) -> ExecutorHealthRegistry:
 
 def test_executor_selection_uses_capability() -> None:
     """A read-only requirement must not select a file-mutating-only executor."""
-    health = _healthy("hicode", "dsh")
+    health = _healthy("opencode", "dsh")
     read_only = WorkerCapabilities(supports_read_task=True)
     candidates = executor_candidates(
         required_capabilities=read_only.to_dict(), health_registry=health
@@ -126,17 +126,17 @@ def test_builtin_requires_resolved_actions_to_be_a_target() -> None:
 
 
 def test_executor_selection_uses_health() -> None:
-    health = _healthy("hicode", "dsh")
-    health.record_failure("hicode", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
-    assert health.get_health("hicode") == ExecutorHealth.UNAVAILABLE
+    health = _healthy("opencode", "dsh")
+    health.record_failure("opencode", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    assert health.get_health("opencode") == ExecutorHealth.UNAVAILABLE
 
     selected, eligible = select_mission_executor(
-        requested="hicode",
+        requested="opencode",
         required_capabilities=WorkerCapabilities(supports_file_effect=True).to_dict(),
         health_registry=health,
     )
-    assert selected is None or selected.executor_id != "hicode"
-    assert all(c.executor_id != "hicode" for c in eligible if c.eligible)
+    assert selected is None or selected.executor_id != "opencode"
+    assert all(c.executor_id != "opencode" for c in eligible if c.eligible)
 
 
 def test_unhealthy_executor_not_selected_when_alternative_exists(
@@ -154,12 +154,14 @@ def test_unhealthy_executor_not_selected_when_alternative_exists(
             provider_dependency=True,
         )
         return [
-            mission_runner.ExecutorCandidate(executor_id="hicode", health="UNAVAILABLE", **common),
+            mission_runner.ExecutorCandidate(
+                executor_id="opencode", health="UNAVAILABLE", **common
+            ),
             mission_runner.ExecutorCandidate(executor_id="dsh", health="HEALTHY", **common),
         ]
 
     monkeypatch.setattr(mission_runner, "executor_candidates", fake_candidates)
-    selected, eligible = select_mission_executor(requested="hicode")
+    selected, eligible = select_mission_executor(requested="opencode")
     assert selected is not None
     assert selected.executor_id == "dsh"
     assert "dsh" in [c.executor_id for c in eligible]
@@ -169,14 +171,14 @@ def test_unhealthy_hicode_not_required_when_alternative_exists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The Q4 mission must not need hicode once it is known unhealthy."""
-    health = _healthy("hicode", "dsh")
-    health.record_failure("hicode", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    health = _healthy("opencode", "dsh")
+    health.record_failure("opencode", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
     selected, _ = select_mission_executor(
-        requested="hicode",
+        requested="opencode",
         required_capabilities=WorkerCapabilities(supports_file_effect=True).to_dict(),
         health_registry=health,
     )
-    assert selected is None or selected.executor_id != "hicode"
+    assert selected is None or selected.executor_id != "opencode"
 
 
 # ── failover ─────────────────────────────────────────────────────────────
@@ -187,7 +189,7 @@ async def test_provider_failure_can_retask(monkeypatch: pytest.MonkeyPatch) -> N
 
     async def fake_run(mission: Any, *, assignee: str, actions: list[dict]) -> Any:
         calls.append(assignee)
-        if assignee == "hicode":
+        if assignee == "opencode":
             return types.SimpleNamespace(
                 goal_id="g1",
                 status="blocked",
@@ -221,18 +223,18 @@ async def test_provider_failure_can_retask(monkeypatch: pytest.MonkeyPatch) -> N
             provider_dependency=True,
         )
         return [
-            mission_runner.ExecutorCandidate(executor_id="hicode", health="HEALTHY", **common),
+            mission_runner.ExecutorCandidate(executor_id="opencode", health="HEALTHY", **common),
             mission_runner.ExecutorCandidate(executor_id="dsh", health="HEALTHY", **common),
         ]
 
     monkeypatch.setattr(mission_runner, "_run_canonical_goal", fake_run)
     monkeypatch.setattr(mission_runner, "executor_candidates", fake_candidates)
 
-    mission = _mission(Path("/tmp"), executor="hicode", actions=[WRITE_ACTION])
+    mission = _mission(Path("/tmp"), executor="opencode", actions=[WRITE_ACTION])
     result = await canonical_runner(mission)
-    assert calls == ["hicode", "dsh"]
+    assert calls == ["opencode", "dsh"]
     assert result.status == "completed"
-    assert result.executor_substitution["failed_executor"] == "hicode"
+    assert result.executor_substitution["failed_executor"] == "opencode"
     assert result.executor_substitution["selected_executor"] == "dsh"
 
 
@@ -289,7 +291,7 @@ async def test_no_available_executor_blocks_truthfully(
     def fake_candidates(**kwargs: Any) -> list[Any]:
         return [
             mission_runner.ExecutorCandidate(
-                executor_id="hicode",
+                executor_id="opencode",
                 local=False,
                 capability_satisfied=True,
                 reachable=True,
@@ -301,7 +303,7 @@ async def test_no_available_executor_blocks_truthfully(
         ]
 
     monkeypatch.setattr(mission_runner, "executor_candidates", fake_candidates)
-    mission = _mission(Path("/tmp"), executor="hicode")
+    mission = _mission(Path("/tmp"), executor="opencode")
     result = await canonical_runner(mission)
     assert result.status == "blocked"
     assert result.block_reason == "NO_HEALTHY_EXECUTION_TARGET"
@@ -332,7 +334,7 @@ async def test_provider_failure_never_reports_completion(
     def fake_candidates(**kwargs: Any) -> list[Any]:
         return [
             mission_runner.ExecutorCandidate(
-                executor_id="hicode",
+                executor_id="opencode",
                 local=False,
                 capability_satisfied=True,
                 reachable=True,
@@ -345,7 +347,7 @@ async def test_provider_failure_never_reports_completion(
 
     monkeypatch.setattr(mission_runner, "_run_canonical_goal", fake_run)
     monkeypatch.setattr(mission_runner, "executor_candidates", fake_candidates)
-    result = await canonical_runner(_mission(Path("/tmp"), executor="hicode"))
+    result = await canonical_runner(_mission(Path("/tmp"), executor="opencode"))
     assert result.status == "blocked"
     assert result.status != "completed"
 

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from .orchestrated import Subtask, validate_plan
+from .orchestrated import OrchestrationError, Subtask, validate_plan
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,8 @@ _SYSTEM = (
     "workspace (never absolute paths, never the workspace root path itself). "
     "An artifact-producing task may declare relative required_artifacts. "
     'Reply with exactly: {"subtasks":[{"id":"task-a","goal":"...",'
-    '"worker":"hicode","dependencies":[],"required_artifacts":[]}]}'
+    '"worker":"<one of available_workers>","dependencies":[],'
+    '"required_artifacts":[]}]}'
 )
 
 
@@ -159,6 +160,15 @@ async def decompose(
 
     unavailable = dict(temporarily_unavailable_workers or {})
     avail = list(available_workers)
+    # Fail closed: no worker means no plan. The old fallback named ``hicode``,
+    # which is retired in the canonical ExecutorRegistry — assigning it produced a
+    # plan that validate_plan then rejected as an unknown worker. Guessing an
+    # executor here would only move the failure, so we surface it instead.
+    if not avail:
+        raise OrchestrationError(
+            "no available worker for supervision planning; "
+            "supply available_workers from the canonical ExecutorRegistry"
+        )
 
     if health_registry is not None:
         from veya.remote.models import ExecutorHealth
@@ -195,7 +205,7 @@ async def decompose(
         interpretation=goal,
         assumptions=[],
         goal_text=goal,
-        default_assignee=avail[0].lower() if avail else "hicode",
+        default_assignee=avail[0].lower(),
         explicit_tasks=[
             {
                 "id": str(item.get("id")),
@@ -231,8 +241,6 @@ async def decompose(
         if subtask.worker not in allowed:
             # Unknown / temporarily-unavailable worker: block and require
             # re-route/replan through the canonical policy — never substitute.
-            from .orchestrated import OrchestrationError
-
             raise OrchestrationError(
                 f"planner selected unavailable worker {subtask.worker!r}; "
                 "re-route/replan required (no cross-worker substitution)"
