@@ -283,16 +283,38 @@ _WORKER_TYPES = {
 # Runtime blockers are evidence-driven and temporary. Never keep stale provider
 # outage/quota snapshots after a worker has been re-qualified.
 _WORKER_BLOCKERS: dict[str, str] = {}
-# Compatibility projection for older callers.  It is intentionally derived
-# from ExecutorRegistry and is never consulted as an authority.
-_CLI_WORKERS = {
-    worker: {
-        "provider": get_executor_registry().identity(worker).provider or "unknown",
-        "model": get_executor_registry().identity(worker).model or "unknown",
-    }
-    for worker in _WORKER_TYPES
-    if worker != "hicode"
-}
+
+
+def _cli_workers() -> dict[str, dict[str, str]]:
+    """Runtime projection of the CLI workers this adapter supports.
+
+    Reads ``ExecutorRegistry.snapshot()`` and nothing else: ``snapshot()`` is a
+    read-only view, so projecting from it can never admit an executor.  The
+    previous construction called ``identity()`` at import time, which made
+    discovery load-bearing -- a worker the registry had not admitted was
+    silently discovered *into* the registry just by importing this module.
+
+    ``_WORKER_TYPES`` still states which workers this adapter supports; it is
+    deliberately not an authority for which executors exist.
+    """
+    snapshot = get_executor_registry().snapshot()
+    result: dict[str, dict[str, str]] = {}
+    for worker in _WORKER_TYPES:
+        executor = snapshot.get(worker)
+        if executor is None:
+            # Not admitted by the registry: report nothing rather than resolving
+            # (and thereby admitting) it.
+            continue
+        result[worker] = {
+            "provider": executor.provider or "unknown",
+            "model": executor.model or "unknown",
+        }
+    return result
+
+
+# Compatibility projection for older callers, computed once at import from the
+# registry snapshot. Never consulted as an authority.
+_CLI_WORKERS = _cli_workers()
 _TIMEOUT_SEPARATED_CLI_WORKERS = frozenset(
     {"pi", "grok", "codex", "antigravity", "opencode", "claude_code"}
 )
