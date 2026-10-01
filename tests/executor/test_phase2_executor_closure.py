@@ -151,7 +151,15 @@ def test_no_second_executor_inventory_in_migrated_scope() -> None:
     offenders = [
         f"{p.relative_to(_REPO)}"
         for p in _first_party_sources()
-        if str(p.relative_to(_REPO)).startswith(("server/goal_run/", "server/capability_model.py", "server/project_ask.py", "server/supervision_tools.py", "veya/supervision/"))
+        if str(p.relative_to(_REPO)).startswith(
+            (
+                "server/goal_run/",
+                "server/capability_model.py",
+                "server/project_ask.py",
+                "server/supervision_tools.py",
+                "veya/supervision/",
+            )
+        )
         and any(name in p.read_text(encoding="utf-8") for name in _FORBIDDEN_INVENTORIES)
     ]
     assert offenders == [], f"executor inventory reappeared in: {offenders}"

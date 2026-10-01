@@ -116,15 +116,17 @@ def test_registry_admitted_workers_are_projected(worker: str) -> None:
 def test_worker_types_is_not_an_authority() -> None:
     """`_WORKER_TYPES` states adapter support, not executor existence.
 
-    ``grok`` is supported by the adapter but is not admitted by the registry, so
-    it must not be projected. That gap is a registry-registration decision, not
-    something importing this module may paper over.
+    Every worker the adapter supports must also be admitted by the registry, and
+    the projection may contain nothing the registry has not admitted. grok was
+    briefly missing here because it was only ever admitted as a side effect of
+    this module's import; it is now admitted explicitly.
     """
     from veya.remote import tool_adapter
 
-    assert "grok" in tool_adapter._WORKER_TYPES
-    assert "grok" not in get_executor_registry().snapshot()
-    assert "grok" not in tool_adapter._CLI_WORKERS
+    snapshot = get_executor_registry().snapshot()
+    assert set(tool_adapter._WORKER_TYPES) <= set(snapshot) | {"unknown-agent"}
+    assert set(tool_adapter._CLI_WORKERS) <= set(snapshot)
+    assert "grok" in tool_adapter._CLI_WORKERS
 
 
 def test_registry_lookup_is_not_mutated_by_projection() -> None:

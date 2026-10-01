@@ -26,7 +26,20 @@ _ALIASES = {
     "claude-code": "claude_code",
     "claude_code": "claude_code",
 }
-_KNOWN = ("pi", "codex", "antigravity", "opencode", "claude_code", "dsh")
+# The canonical admission set. Every executor a runtime consumer may use belongs
+# here, explicitly — it used to be reached instead by calling identity() on an
+# undeclared name, which discovered it into the registry as a side effect of an
+# unrelated lookup. grok was the case that leak was hiding.
+_KNOWN = (
+    "pi",
+    "codex",
+    "antigravity",
+    "opencode",
+    "claude_code",
+    "dsh",
+    "grok",
+    "acp",
+)
 # Retired executors fail closed at discovery: no identity, no launcher, no auth.
 _RETIRED_EXECUTORS = frozenset({"hicode"})
 
@@ -143,7 +156,6 @@ def _pi_config() -> tuple[str | None, str | None, bool, str]:
     )
 
 
-
 @dataclass
 class ExecutorRegistry:
     """Canonical identity authority; adapters receive projections from here."""
@@ -254,10 +266,20 @@ class ExecutorRegistry:
         )
 
     def identity(self, executor_id: str) -> ExecutorRuntimeIdentity:
+        """Look up an admitted executor identity. Read-only.
+
+        This is an admission *lookup*, never a discovery hook. An unregistered
+        name raises instead of being discovered into ``_identities``, so reading
+        an identity can never widen the admission surface that ``snapshot()``
+        reports. ``register()`` is the only way to add an executor.
+        """
         key = normalize_executor_id(executor_id)
-        if key not in self._identities:
-            self._identities[key] = self._discover(key)
-        return self._identities[key]
+        if key in _RETIRED_EXECUTORS:
+            raise ValueError(f"Executor retired: {key}")
+        identity = self._identities.get(key)
+        if identity is None:
+            raise ValueError(f"unknown executor: {key!r} is not registered")
+        return identity
 
     def register(self, identity: ExecutorRuntimeIdentity) -> None:
         self._identities[normalize_executor_id(identity.executor_id)] = identity

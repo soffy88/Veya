@@ -214,7 +214,45 @@ def probe_runtime_capability_manifest(
     from pathlib import Path
 
     norm = normalize_executor_id(executor_id)
-    identity = get_executor_registry().identity(norm)
+    try:
+        identity = get_executor_registry().identity(norm)
+    except ValueError:
+        # A capability probe answers "is this executor usable here?", so an
+        # executor the registry does not admit is a legitimate answer — report it
+        # as not installed rather than raising. identity() is a strict lookup now,
+        # so this is the seam that keeps a probe from becoming an admission.
+        return RuntimeCapabilityManifest(
+            executor_id=norm,
+            executor_kind="l1_worker",
+            installed=False,
+            authenticated=False,
+            reachable=False,
+            provider="unknown",
+            model="unknown",
+            runtime_version="unknown",
+            supports_streaming=False,
+            supports_cancel=False,
+            supports_suspend=False,
+            supports_resume=False,
+            supports_session_reuse=False,
+            supports_handoff=False,
+            supports_workspace=False,
+            supports_nested_repo=False,
+            supports_worktree=False,
+            supports_mcp=False,
+            supports_skills=False,
+            supports_shell=False,
+            filesystem_isolation="none",
+            network_isolation="none",
+            credential_isolation="none",
+            process_isolation="none",
+            max_concurrency=0,
+            active_executions=0,
+            observed_at=time.time(),
+            status="UNAVAILABLE",
+            status_reason="not installed",
+            launcher=None,
+        )
 
     installed = False
     bin_path = None
