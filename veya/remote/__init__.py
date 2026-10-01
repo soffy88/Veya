@@ -35,10 +35,10 @@ from .execution_worktree import (
     PromotionEvidence,
 )
 from .executor_health import (
-    DEFAULT_EXECUTOR_PREFERENCE,
     ExecutorHealthRegistry,
     SubstitutionEvidence,
     classify_executor_failure,
+    registry_order,
     resolve_executor,
 )
 from .executor_registry import (
@@ -94,7 +94,6 @@ from .workspace_binding import (
 from .workspace_policy import WorkspacePolicy, WorkspacePolicyError
 
 __all__ = [
-    "DEFAULT_EXECUTOR_PREFERENCE",
     "AuditRecord",
     "CanonicalPromotionService",
     "CommitRequirement",
@@ -159,6 +158,7 @@ __all__ = [
     "create_veya_event",
     "default_tool_adapter",
     "direct_sync_window_s",
+    "registry_order",
     "resolve_executor",
     "resolve_repo_target",
     "resolve_requested_workspace",

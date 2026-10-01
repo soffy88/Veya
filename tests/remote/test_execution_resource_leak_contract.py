@@ -73,9 +73,7 @@ def _submit(manager: DurableJobManager, tag: str, runner: object) -> str:
     ).execution_id
 
 
-def _snapshots(
-    manager: DurableJobManager, registry: ExecutionWorktreeRegistry
-) -> dict[str, int]:
+def _snapshots(manager: DurableJobManager, registry: ExecutionWorktreeRegistry) -> dict[str, int]:
     return {
         **manager.metrics_snapshot(),
         **registry.lease_metrics(),

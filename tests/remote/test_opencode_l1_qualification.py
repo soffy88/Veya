@@ -26,7 +26,7 @@ import pytest
 
 from runtime.coding.worktree import WorktreeManager, teardown_worktree
 from veya.remote.executor_health import (
-    DEFAULT_EXECUTOR_PREFERENCE,
+    registry_order,
     ExecutorFailureClass,
     ExecutorHealth,
     ExecutorHealthRegistry,
@@ -280,8 +280,8 @@ def test_06_codex_quota_exhausted_auto_skipped() -> None:
         resolve_executor(health_registry=reg)
 
     # CODEX remains in canonical preference definition; hicode does not
-    assert "codex" in DEFAULT_EXECUTOR_PREFERENCE
-    assert "hicode" not in DEFAULT_EXECUTOR_PREFERENCE
+    assert "codex" in registry_order()
+    assert "hicode" not in registry_order()
 
 
 def test_07_failure_taxonomy_for_opencode() -> None:

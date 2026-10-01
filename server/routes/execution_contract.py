@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from veya.remote.execution import DurableJobManager, ExecutionStore
 from veya.remote.execution_contract import probe_runtime_capability_manifest
-from veya.remote.executor_health import DEFAULT_EXECUTOR_PREFERENCE
+from veya.remote.executor_health import registry_order
 from veya.remote.runtime_profile import discover_runtime_profile
 
 router = APIRouter(prefix="/api/v1/execution", tags=["Execution Contract"])
@@ -31,7 +31,7 @@ async def runtime_list() -> dict[str, Any]:
     manager = get_job_manager()
     manifests: list[dict[str, Any]] = []
     active_count = len([t for t in manager._tasks.values() if not t.done()])
-    for executor_id in DEFAULT_EXECUTOR_PREFERENCE:
+    for executor_id in registry_order():
         manifest = probe_runtime_capability_manifest(
             executor_id,
             active_executions=active_count,

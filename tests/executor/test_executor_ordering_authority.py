@@ -1,7 +1,7 @@
 """Ordering/inventory authority for executors lives in ExecutorRegistry.
 
 ``executor_health`` evaluates health only. It must not own the executor
-universe: ``executor_order()`` projects membership from the registry, and the
+universe: ``registry_order()`` projects membership from the registry, and the
 registry owns canonical routing order.
 """
 
@@ -15,7 +15,7 @@ import pytest
 from veya.remote import executor_health
 from veya.remote.executor_health import (
     ExecutorHealthRegistry,
-    executor_order,
+    registry_order,
     resolve_executor,
 )
 from veya.remote.executor_registry import ExecutorRuntimeIdentity, get_executor_registry
@@ -48,16 +48,16 @@ def clean_registry():
 def test_health_snapshot_registry_driven() -> None:
     """Visible executors come from the registry projection, not a local list."""
     registry = get_executor_registry()
-    assert executor_order() == tuple(registry.ordered_ids()) or set(executor_order()).issubset(
+    assert registry_order() == tuple(registry.ordered_ids()) or set(registry_order()).issubset(
         set(registry.ordered_ids())
     )
 
     snapshot = ExecutorHealthRegistry().snapshot()
-    for executor_id in executor_order():
+    for executor_id in registry_order():
         assert executor_id in snapshot
 
     for executor_id in snapshot:
-        assert executor_id in executor_order()
+        assert executor_id in registry_order()
 
 
 def test_default_executor_preference_not_authority() -> None:
@@ -86,32 +86,32 @@ def test_default_executor_preference_not_authority() -> None:
             if isinstance(node, ast.FunctionDef) and node.name == "snapshot"
         ),
     )
-    assert "executor_order()" in (snapshot_body or "")
+    assert "registry_order()" in (snapshot_body or "")
     assert "DEFAULT_EXECUTOR_PREFERENCE" not in (snapshot_body or "")
 
 
 def test_registry_addition_visible_to_health(clean_registry) -> None:
     """A newly admitted executor becomes visible without editing executor_health."""
-    assert "zz_ordering_probe" not in executor_order()
+    assert "zz_ordering_probe" not in registry_order()
 
     clean_registry.register(_probe_identity("zz_ordering_probe"))
 
     assert "zz_ordering_probe" in clean_registry.ordered_ids()
     # Not routable until it carries runtime capability data, but it is admitted
     # and therefore ordered by the registry.
-    assert "zz_ordering_probe" not in executor_order()
+    assert "zz_ordering_probe" not in registry_order()
 
 
 def test_unknown_executor_not_visible() -> None:
     """identity() cannot widen the health universe, and resolve rejects it."""
     registry = get_executor_registry()
-    before = tuple(executor_order())
+    before = tuple(registry_order())
 
     with pytest.raises(ValueError):
         registry.identity("unknown-agent")
 
-    assert tuple(executor_order()) == before
-    assert "unknown-agent" not in executor_order()
+    assert tuple(registry_order()) == before
+    assert "unknown-agent" not in registry_order()
 
     with pytest.raises(ValueError):
         resolve_executor(requested="unknown-agent")
@@ -121,7 +121,7 @@ def test_retired_executor_rejected() -> None:
     """Retired executors stay out of the universe and fail closed on request."""
     registry = get_executor_registry()
 
-    assert "hicode" not in executor_order()
+    assert "hicode" not in registry_order()
     assert "hicode" not in registry.ordered_ids()
 
     with pytest.raises(ValueError):

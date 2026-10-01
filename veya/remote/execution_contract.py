@@ -12,7 +12,11 @@ from veya.supervision.evidence import (
     verify_evidence_chain,
 )
 
-from .executor_registry import get_executor_registry, normalize_executor_id
+from .executor_registry import (
+    get_executor_registry,
+    is_retired_executor,
+    normalize_executor_id,
+)
 from .worker_runtime import capabilities_for
 
 
@@ -214,6 +218,10 @@ def probe_runtime_capability_manifest(
     from pathlib import Path
 
     norm = normalize_executor_id(executor_id)
+    if is_retired_executor(norm):
+        # Retired is a deliberate removal, not an absent binary. Collapsing it
+        # into UNAVAILABLE would report a removed executor as merely missing.
+        raise ValueError(f"Executor retired: {norm!r}")
     try:
         identity = get_executor_registry().identity(norm)
     except ValueError:

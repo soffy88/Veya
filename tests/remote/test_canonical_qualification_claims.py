@@ -35,7 +35,7 @@ from veya.remote.execution_contract import (
     probe_runtime_capability_manifest,
 )
 from veya.remote.executor_health import (
-    DEFAULT_EXECUTOR_PREFERENCE,
+    registry_order,
     ExecutorFailureClass,
     ExecutorHealthRegistry,
     resolve_executor,
@@ -101,7 +101,7 @@ def test_claim_2_capability_missing_fails_closed():
 def test_claim_2_unavailable_candidate_fails_closed():
     """If all capable candidates are UNAVAILABLE, routing fails closed instead of picking unhealthy."""
     reg = ExecutorHealthRegistry()
-    for worker in DEFAULT_EXECUTOR_PREFERENCE:
+    for worker in registry_order():
         reg.record_failure(worker, ExecutorFailureClass.PROVIDER_UNAVAILABLE)
 
     with pytest.raises(ValueError, match=r"all capable candidates .* are UNAVAILABLE"):

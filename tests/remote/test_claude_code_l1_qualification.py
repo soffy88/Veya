@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from veya.remote.executor_health import (
-    DEFAULT_EXECUTOR_PREFERENCE,
+    registry_order,
     ExecutorFailureClass,
     ExecutorHealthRegistry,
     classify_executor_failure,
@@ -67,7 +67,7 @@ def test_01_claude_code_registration_integrity() -> None:
 
     avail = worker_availability()
     assert "CLAUDE_CODE" in avail["available_workers"]
-    assert "claude_code" in DEFAULT_EXECUTOR_PREFERENCE
+    assert "claude_code" in registry_order()
 
     # Canonical id normalizes through the single identity authority.
     registry = get_executor_registry()
@@ -213,7 +213,7 @@ def test_07_failure_taxonomy_claude_code() -> None:
 
 def test_08_hicode_retired_not_readmitted() -> None:
     """8. Retired hicode is never selected, probed, or readmitted as fallback."""
-    assert "hicode" not in DEFAULT_EXECUTOR_PREFERENCE
+    assert "hicode" not in registry_order()
     assert "hicode" not in _WORKER_TYPES
     assert "hicode" not in WORKER_CAPABILITIES
     assert "hicode" not in L1_WORKERS

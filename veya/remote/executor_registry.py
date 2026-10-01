@@ -327,10 +327,22 @@ def reset_executor_registry() -> None:
     _DEFAULT_REGISTRY = None
 
 
+def is_retired_executor(executor_id: str) -> bool:
+    """Retired executors fail closed everywhere; they are never merely absent.
+
+    A retired executor is a deliberate removal, which is distinct from an
+    executor that was simply never admitted. Callers that distinguish
+    "unknown" from "retired" need this rather than a lookup that raises.
+    """
+
+    return normalize_executor_id(executor_id) in _RETIRED_EXECUTORS
+
+
 __all__ = [
     "ExecutorRegistry",
     "ExecutorRuntimeIdentity",
     "get_executor_registry",
+    "is_retired_executor",
     "normalize_executor_id",
     "reset_executor_registry",
 ]

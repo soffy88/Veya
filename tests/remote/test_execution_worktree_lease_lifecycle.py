@@ -126,9 +126,7 @@ def _terminalize_without_release(
     ],
 )
 @pytest.mark.asyncio
-async def test_terminal_releases_worktree_for_child_execution(
-    tmp_path: Path, status: str
-) -> None:
+async def test_terminal_releases_worktree_for_child_execution(tmp_path: Path, status: str) -> None:
     """A CHILD execution must release its own worktree on every terminal path.
 
     This is the exact regression: the release hook was gated on

@@ -278,7 +278,7 @@ async def test_parallel_worker_dispatch_four_workers(tmp_path: Path, monkeypatch
         "worker.dispatch",
         {
             "tasks": [
-                {"worker": "hicode", "task": "A"},
+                {"worker": "claude_code", "task": "A"},
                 {"worker": "pi", "task": "B"},
                 {"worker": "grok", "task": "C"},
                 {"worker": "dsh", "task": "D"},
@@ -293,7 +293,7 @@ async def test_parallel_worker_dispatch_four_workers(tmp_path: Path, monkeypatch
     assert parent["aggregation"]["total"] == 4
     assert parent["aggregation"]["completed"] == 4
     workers = {child["worker_type"] for child in parent["children"]}
-    assert workers == {"HICODE", "PI", "GROK", "DSH"}  # no cross-worker substitution
+    assert workers == {"CLAUDE_CODE", "PI", "GROK", "DSH"}  # no cross-worker substitution
     # Parallel, not serialized: all four were in flight at once.
     assert tracker["started"] == 4
     assert tracker["max_active"] >= 2, tracker

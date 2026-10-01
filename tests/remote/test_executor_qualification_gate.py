@@ -35,7 +35,7 @@ from scripts.qualify_executors import (
     run_deterministic_qualification,
 )
 from veya.remote.executor_health import (
-    DEFAULT_EXECUTOR_PREFERENCE,
+    registry_order,
     ExecutorFailureClass,
     ExecutorHealth,
     ExecutorHealthRegistry,
@@ -51,7 +51,7 @@ def test_01_default_preference_order():
     cand, sub = resolve_executor()
     assert cand == "antigravity"
     assert sub is None
-    assert DEFAULT_EXECUTOR_PREFERENCE == (
+    assert registry_order() == (
         "antigravity",
         "opencode",
         "claude_code",

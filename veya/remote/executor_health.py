@@ -29,24 +29,20 @@ from .worker_runtime import (
 )
 
 
-def executor_order() -> tuple[str, ...]:
+def registry_order() -> tuple[str, ...]:
     """Canonical executor universe and ordering, owned by ``ExecutorRegistry``.
 
-    ``DEFAULT_EXECUTOR_PREFERENCE`` used to be a static tuple that decided both
-    ordering *and* which executors a health snapshot could see. The registry is
-    now the sole admission authority, so the universe is projected from it.
+    A static ``DEFAULT_EXECUTOR_PREFERENCE`` tuple used to decide both ordering
+    *and* which executors a health snapshot could see. The registry is now the
+    sole admission authority, so the universe is projected from it: registry
+    admission fixes membership, registry canonical order fixes precedence, and
+    runtime capability data decides which admitted executors are routable.
     """
 
     registry = get_executor_registry()
-    routable = [
+    return tuple(
         executor_id for executor_id in registry.ordered_ids() if executor_id in WORKER_CAPABILITIES
-    ]
-    return tuple(routable)
-
-
-# Retained as a public re-export (``veya.remote.DEFAULT_EXECUTOR_PREFERENCE``).
-# It is a registry projection, not an independent inventory.
-DEFAULT_EXECUTOR_PREFERENCE: tuple[str, ...] = executor_order()
+    )
 
 
 def normalize_executor_name(name: str) -> str:
@@ -330,7 +326,7 @@ class ExecutorHealthRegistry:
         return rec.state
 
     def snapshot(self) -> dict[str, str]:
-        return {w: str(self.get_health(w)) for w in executor_order()}
+        return {w: str(self.get_health(w)) for w in registry_order()}
 
 
 @dataclass(frozen=True)
@@ -388,7 +384,7 @@ def resolve_executor(
     4. Preference (ExecutorRegistry canonical order)
           Retired executors (hicode) are rejected before preference applies.
     """
-    order = executor_order() if preference_order is None else tuple(preference_order)
+    order = registry_order() if preference_order is None else tuple(preference_order)
     req_norm = normalize_executor_name(requested or "") if requested else None
 
     if req_norm and req_norm not in WORKER_CAPABILITIES:
@@ -450,7 +446,6 @@ def resolve_executor(
 
 
 __all__ = [
-    "DEFAULT_EXECUTOR_PREFERENCE",
     "ExecutorFailureClass",
     "ExecutorHealth",
     "ExecutorHealthRegistry",

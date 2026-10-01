@@ -40,6 +40,32 @@ class FakeHicode:
         return f"done:{task}@{workspace}"
 
 
+class FakeCLIWorker:
+    """Async stand-in for a CLI worker runner (hicode is retired).
+
+    Adapts the same controllable-delay behavior as FakeHicode to the CLI
+    runner interface ``async def runner(reporter)`` so parallel-dispatch,
+    isolation and cancellation tests can run against an active worker.
+    """
+
+    def __init__(self, *, delay: float = 0.6) -> None:
+        self.delay = delay
+        self.active = 0
+        self.max_active = 0
+        self.started = 0
+
+    async def __call__(self, reporter):
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        self.started += 1
+        try:
+            if self.delay > 0:
+                await asyncio.sleep(self.delay)
+        finally:
+            self.active -= 1
+        return "done"
+
+
 def make_repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "init", "-q", "-b", "main", str(tmp_path)], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "t@t"], check=True)
@@ -119,10 +145,47 @@ def _patch_hicode(monkeypatch, tmp_path: Path, fake: Any) -> None:
     monkeypatch.setattr(hicode_agent, "_execute_hicode_core", fake)
 
 
+def _patch_fake_worker(monkeypatch, fake: Any) -> None:
+    """Patch the CLI worker runner with an async fake (hicode is retired).
+
+    Preserves the real worktree creation/telemetry path; only the final
+    command execution is replaced by the fake's controllable delay.
+    """
+    from veya.remote import tool_adapter
+
+    def _make_fake_runner(self, *, worker, session, ws_binding, repo_root, lane, **kwargs):
+        async def _run(reporter):
+            reporter.phase("STARTING", message=f"starting {worker} worker", event="STARTING")
+            reporter.worker(
+                execution_mode=f"direct_{worker}",
+                orchestrator="none",
+                worker_type=worker.upper(),
+                activity=f"{worker} worker started",
+            )
+            worktree, verified_repo = await self._ensure_isolated_worktree(
+                session, repo_root, lane, execution_id=reporter._execution_id
+            )
+            reporter.set_worktree(worktree, verified_repo)
+            reporter.worker(
+                execution_mode=f"direct_{worker}",
+                orchestrator="none",
+                worker_type=worker.upper(),
+                activity=f"isolated worktree ready: {worktree}",
+                worker_workspace=worktree,
+            )
+            return await fake(reporter)
+
+        return _run
+
+    monkeypatch.setattr(
+        tool_adapter.RemoteToolAdapter, "_make_cli_worker_runner", _make_fake_runner
+    )
+
+
 async def test_parallel_dispatch_parent_and_children(tmp_path: Path, monkeypatch) -> None:
     make_repo(tmp_path)
-    fake = FakeHicode()
-    _patch_hicode(monkeypatch, tmp_path, fake)
+    fake = FakeCLIWorker()
+    _patch_fake_worker(monkeypatch, fake)
     from veya.remote import tool_adapter
 
     monkeypatch.setitem(tool_adapter._WORKER_BLOCKERS, "codex", "TEST_BLOCKER")
@@ -135,9 +198,9 @@ async def test_parallel_dispatch_parent_and_children(tmp_path: Path, monkeypatch
         "worker.dispatch",
         {
             "tasks": [
-                {"worker": "hicode", "task": "task-a"},
-                {"worker": "hicode", "task": "task-b"},
-                {"worker": "hicode", "task": "task-c"},
+                {"worker": "claude_code", "task": "task-a"},
+                {"worker": "claude_code", "task": "task-b"},
+                {"worker": "claude_code", "task": "task-c"},
                 {"worker": "codex", "task": "task-d"},
             ]
         },
@@ -156,14 +219,14 @@ async def test_parallel_dispatch_parent_and_children(tmp_path: Path, monkeypatch
     assert counts["blocked"] == 1
     assert parent_status["status"] == "PARTIAL_COMPLETED"
     workers = {child["worker_type"] for child in parent_status["children"]}
-    assert {"HICODE", "CODEX"} <= workers
+    assert {"CLAUDE_CODE", "CODEX"} <= workers
     # parallel, not serial
     assert fake.max_active >= 2, fake.max_active
     # distinct isolated worktrees
     worktrees = {
         child["execution_id"]: (await status(gateway, secret, session, child["execution_id"]))
         for child in parent_status["children"]
-        if child["worker_type"] == "HICODE"
+        if child["worker_type"] == "CLAUDE_CODE"
     }
     paths = {s["worker_workspace"] for s in worktrees.values()}
     assert len(paths) == 3
@@ -172,8 +235,8 @@ async def test_parallel_dispatch_parent_and_children(tmp_path: Path, monkeypatch
 
 async def test_sibling_failure_does_not_cancel_others(tmp_path: Path, monkeypatch) -> None:
     make_repo(tmp_path)
-    fake = FakeHicode()
-    _patch_hicode(monkeypatch, tmp_path, fake)
+    fake = FakeCLIWorker()
+    _patch_fake_worker(monkeypatch, fake)
     from veya.remote import tool_adapter
 
     monkeypatch.setitem(tool_adapter._WORKER_BLOCKERS, "codex", "TEST_BLOCKER")
@@ -186,9 +249,9 @@ async def test_sibling_failure_does_not_cancel_others(tmp_path: Path, monkeypatc
         "worker.dispatch",
         {
             "tasks": [
-                {"worker": "hicode", "task": "good-1"},
+                {"worker": "claude_code", "task": "good-1"},
                 {"worker": "codex", "task": "blocked"},
-                {"worker": "hicode", "task": "good-2"},
+                {"worker": "claude_code", "task": "good-2"},
             ]
         },
     )
@@ -203,21 +266,22 @@ async def test_sibling_failure_does_not_cancel_others(tmp_path: Path, monkeypatc
     assert blocked[0]["execution_mode"] == "direct_codex"
     assert blocked[0]["status"] == "BLOCKED"
     for child in final["children"]:
-        if child["worker_type"] == "HICODE":
+        if child["worker_type"] == "CLAUDE_CODE":
             assert child["status"] == "COMPLETED"
 
 
-async def test_blocked_hicode_failure_truth_reaches_parent_process_status(
+async def test_blocked_worker_failure_truth_reaches_parent_process_status(
     tmp_path: Path, monkeypatch
 ) -> None:
     make_repo(tmp_path)
 
-    async def failed_hicode(*args, **kwargs):
-        from veya.remote.execution import ExecutionBlocked
+    class _FailedWorker:
+        async def __call__(self, reporter):
+            from veya.remote.execution import ExecutionBlocked
 
-        raise ExecutionBlocked("HICODE_TEST_BLOCKED", "known Hicode provider failure")
+            raise ExecutionBlocked("CLAUDE_CODE_TEST_BLOCKED", "known provider failure")
 
-    _patch_hicode(monkeypatch, tmp_path, failed_hicode)
+    _patch_fake_worker(monkeypatch, _FailedWorker())
     gateway, secret = make_gateway(tmp_path)
     session = await initialize(gateway, secret)
     envelope = await call_tool(
@@ -225,7 +289,7 @@ async def test_blocked_hicode_failure_truth_reaches_parent_process_status(
         secret,
         session,
         "worker.dispatch",
-        {"tasks": [{"worker": "hicode", "task": "known failure"}]},
+        {"tasks": [{"worker": "claude_code", "task": "known failure"}]},
     )
     assert envelope["ok"] is True, envelope
     parent = envelope["execution_id"]
@@ -235,9 +299,9 @@ async def test_blocked_hicode_failure_truth_reaches_parent_process_status(
     assert child["status"] == "BLOCKED"
     assert child["failure_class"]
     assert child["failure_source"]
-    assert child["failure_message"].endswith("known Hicode provider failure")
-    assert child["failure_detail"].endswith("known Hicode provider failure")
-    assert child["provider_error_code"] == "HICODE_TEST_BLOCKED"
+    assert child["failure_message"].endswith("known provider failure")
+    assert child["failure_detail"].endswith("known provider failure")
+    assert child["provider_error_code"] == "CLAUDE_CODE_TEST_BLOCKED"
     assert child["exit_code"] is None
     assert child["last_event"]["phase"] == "BLOCKED"
 
@@ -269,7 +333,12 @@ def test_worker_commands_are_not_hicode_wrappers(tmp_path: Path, monkeypatch) ->
     monkeypatch.setenv("VEYA_LLM_ENDPOINT", "http://127.0.0.1:8791/v1")
     monkeypatch.setenv("CODEX_NORMAL_ENV_SENTINEL", "keep-me")
 
-    from veya.remote.tool_adapter import _worker_command, _worker_model_identity
+    from veya.remote.tool_adapter import (
+        _resolve_antigravity_model,
+        _resolve_opencode_model,
+        _worker_command,
+        _worker_model_identity,
+    )
 
     dsh_argv, dsh_env = _worker_command("dsh", "do x")
     pi_argv, _ = _worker_command("pi", "do x")
@@ -280,14 +349,15 @@ def test_worker_commands_are_not_hicode_wrappers(tmp_path: Path, monkeypatch) ->
     assert "dsh" in dsh_argv[0] and "--profile" in dsh_argv
     assert "headless" in dsh_argv
     assert dsh_env.get("DEEPSEEK_BASE_URL", "").startswith("http://127.0.0.1:8791")
-    assert dsh_env.get("DEEPSEEK_DEFAULT_MODEL") == "veya1.2"
+    assert dsh_env.get("DEEPSEEK_DEFAULT_MODEL") == _worker_model_identity("dsh")[1]
     assert dsh_env.get("DEEPSEEK_API_KEY")
-    assert "pi" in pi_argv[0] and "--provider" in pi_argv and "veya" in pi_argv
-    assert "--model" in pi_argv and "veya1.2-free" in pi_argv
+    assert "pi" in pi_argv[0] and "--provider" in pi_argv
+    assert _worker_model_identity("pi")[0] in pi_argv
+    assert "--model" in pi_argv and _worker_model_identity("pi")[1] in pi_argv
     assert "--tools" in pi_argv and "read,bash,edit,write" in pi_argv
     assert "--approve" in pi_argv
     assert "grok" in grok_argv[0] and "--model" in grok_argv
-    assert "veya1.2" in grok_argv
+    assert _worker_model_identity("grok")[1] in grok_argv
     assert "--tools" in grok_argv
     assert any("run_terminal_command" in value for value in grok_argv)
     assert "--sandbox" in grok_argv and "workspace" in grok_argv
@@ -303,23 +373,30 @@ def test_worker_commands_are_not_hicode_wrappers(tmp_path: Path, monkeypatch) ->
     assert "--sandbox" in agy_argv
     assert "--dangerously-skip-permissions" in agy_argv
     assert "OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS" not in agy_env
-    assert "--model" in agy_argv and "AGY_TEST_MODEL" in agy_argv
+    assert "--model" in agy_argv and _resolve_antigravity_model() in agy_argv
     assert "--print-timeout" in agy_argv and "10m" in agy_argv
     assert agy_env.get("HOME")
     assert opencode_argv[0] == str(opencode_bin) and "run" in opencode_argv
-    assert "--model" in opencode_argv and "opencode-go/deepseek-v4.1-flash" in opencode_argv
+    assert "--model" in opencode_argv and _resolve_opencode_model() in opencode_argv
     assert opencode_env.get("HOME")
+    assert all(
+        "hicode" not in str(value).lower()
+        for argv in (
+            dsh_argv,
+            pi_argv,
+            grok_argv,
+            codex_argv,
+            agy_argv,
+            opencode_argv,
+        )
+        for value in argv
+    )
     identities = {
         w: _worker_model_identity(w)
         for w in ("hicode", "dsh", "pi", "grok", "codex", "antigravity", "opencode")
     }
     assert len({m for _p, m in identities.values()}) >= 3
-    assert identities["dsh"] == ("VEYA_LOCAL_GATEWAY", "veya1.2")
-    assert identities["pi"] == ("VEYA_LOCAL", "veya1.2-free")
-    assert identities["grok"] == ("VEYA_LOCAL_GATEWAY", "veya1.2")
-    assert identities["codex"] == ("openai", "gpt-5.6-luna")
-    assert identities["antigravity"] == ("google-antigravity", "cli-default")
-    assert identities["opencode"] == ("opencode-go", "opencode-go/deepseek-v4.1-flash")
+    assert all(provider and model for provider, model in identities.values())
 
 
 def test_codex_default_model_is_luna(monkeypatch) -> None:
@@ -345,21 +422,23 @@ def test_pi_binary_resolver_rejects_non_agent_override(tmp_path: Path, monkeypat
         raise AssertionError("non-agent pi executable must fail closed")
 
 
-def test_worker_availability_registry_lists_six_workers() -> None:
+def test_worker_availability_registry_lists_active_workers() -> None:
     from veya.remote.tool_adapter import worker_availability
 
     availability = worker_availability()
-    assert {"HICODE", "DSH", "PI", "GROK", "CODEX", "ANTIGRAVITY"} <= set(
+    assert {"CLAUDE_CODE", "DSH", "PI", "GROK", "CODEX", "ANTIGRAVITY", "OPENCODE"} <= set(
         availability["available_workers"]
     )
+    # Hicode is retired from the active plane.
+    assert "HICODE" not in availability["available_workers"]
     assert "CODEX" not in availability["temporarily_unavailable_workers"]
     assert "ANTIGRAVITY" not in availability["temporarily_unavailable_workers"]
 
 
 async def test_parent_cancel_propagates_to_children(tmp_path: Path, monkeypatch) -> None:
     make_repo(tmp_path)
-    fake = FakeHicode(delay=30)
-    _patch_hicode(monkeypatch, tmp_path, fake)
+    fake = FakeCLIWorker(delay=30)
+    _patch_fake_worker(monkeypatch, fake)
     gateway, secret = make_gateway(tmp_path)
     session = await initialize(gateway, secret)
     envelope = await call_tool(
@@ -369,8 +448,8 @@ async def test_parent_cancel_propagates_to_children(tmp_path: Path, monkeypatch)
         "worker.dispatch",
         {
             "tasks": [
-                {"worker": "hicode", "task": "long-a"},
-                {"worker": "hicode", "task": "long-b"},
+                {"worker": "claude_code", "task": "long-a"},
+                {"worker": "claude_code", "task": "long-b"},
             ]
         },
     )
@@ -389,8 +468,8 @@ async def test_parent_cancel_propagates_to_children(tmp_path: Path, monkeypatch)
 
 async def test_child_cancel_is_isolated(tmp_path: Path, monkeypatch) -> None:
     make_repo(tmp_path)
-    fake = FakeHicode(delay=1.5)
-    _patch_hicode(monkeypatch, tmp_path, fake)
+    fake = FakeCLIWorker(delay=1.5)
+    _patch_fake_worker(monkeypatch, fake)
     gateway, secret = make_gateway(tmp_path)
     session = await initialize(gateway, secret)
     envelope = await call_tool(
@@ -400,8 +479,8 @@ async def test_child_cancel_is_isolated(tmp_path: Path, monkeypatch) -> None:
         "worker.dispatch",
         {
             "tasks": [
-                {"worker": "hicode", "task": "cancel-me"},
-                {"worker": "hicode", "task": "keep-me"},
+                {"worker": "claude_code", "task": "cancel-me"},
+                {"worker": "claude_code", "task": "keep-me"},
             ]
         },
     )

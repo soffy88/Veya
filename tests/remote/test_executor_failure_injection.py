@@ -106,7 +106,7 @@ async def wait_terminal(gateway, secret, session, execution_id, timeout=20.0):
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
         res = await get_status(gateway, secret, session, execution_id)
-        if res["status"] in ("COMPLETED", "FAILED", "CANCELLED", "BLOCKED"):
+        if res["status"] in ("COMPLETED", "FAILED", "TIMED_OUT", "CANCELLED", "BLOCKED"):
             return res
         await asyncio.sleep(0.05)
     raise AssertionError(f"execution {execution_id} never reached terminal within {timeout}s")
@@ -220,8 +220,8 @@ async def test_worker_timeout_fails_closed_no_zombie(tmp_path: Path, monkeypatch
     child_id = envelope["result"]["child_execution_ids"][0]
 
     result = await wait_terminal(gateway, secret, session, child_id, timeout=10.0)
-    assert result["status"] in ("FAILED", "BLOCKED")
-    assert result["failure_class"] in ("WORKER_TIMEOUT", "TIMEOUT")
+    assert result["status"] in ("FAILED", "TIMED_OUT", "BLOCKED")
+    assert result["failure_class"] in ("EXECUTION_TIMEOUT", "WORKER_TIMEOUT", "TIMEOUT")
     assert not result["worker_alive"]
     # Check that the sleep process is not lingering
     pid = result.get("worker_pid")
@@ -399,7 +399,7 @@ async def test_concurrency_5_executors_parallel(tmp_path: Path, monkeypatch):
             "tasks": [
                 {"worker": "antigravity", "task": "task-agy"},
                 {"worker": "codex", "task": "task-codex"},
-                {"worker": "hicode", "task": "task-hicode"},
+                {"worker": "claude_code", "task": "task-claude-code"},
                 {"worker": "pi", "task": "task-pi"},
                 {"worker": "grok", "task": "task-grok"},
             ]
@@ -448,7 +448,7 @@ async def test_explicit_executor_pinning(tmp_path: Path, monkeypatch):
     gateway, secret, _ = make_gateway(tmp_path)
     session = await initialize(gateway, secret, workspace=tmp_path)
 
-    target_workers = ["antigravity", "codex", "hicode", "pi", "grok"]
+    target_workers = ["antigravity", "codex", "claude_code", "pi", "grok"]
     envelope = await call_tool(
         gateway,
         secret,
@@ -459,4 +459,4 @@ async def test_explicit_executor_pinning(tmp_path: Path, monkeypatch):
     assert envelope["ok"] is True
     parent = await wait_terminal(gateway, secret, session, envelope["execution_id"], timeout=15.0)
     worker_types = [c["worker_type"] for c in parent["children"]]
-    assert worker_types == ["ANTIGRAVITY", "CODEX", "HICODE", "PI", "GROK"]
+    assert worker_types == ["ANTIGRAVITY", "CODEX", "CLAUDE_CODE", "PI", "GROK"]
