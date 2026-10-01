@@ -93,7 +93,7 @@ class ExecutorKind(StrEnum):
     ``veya.remote.executor_registry`` and fails closed there, so offering it here
     would only let a planner pick an executor the registry rejects.  Which
     concrete executors are actually admissible is the registry's answer, not this
-    enum's — see ``runner._KNOWN_EXECUTORS``.
+    enum's — see ``runner._active_executors``.
     """
 
     dsh = "dsh"  # shell-heavy / ops / diagnostics / environment

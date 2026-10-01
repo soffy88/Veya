@@ -24,8 +24,8 @@ from veya.remote.executor_health import (
 from veya.supervision import runner as mission_runner
 from veya.supervision.models import Mission, MissionPolicies
 from veya.supervision.runner import (
-    _KNOWN_EXECUTORS,
     _LOCAL_EXECUTOR,
+    _active_executors,
     _replay_safe,
     canonical_runner,
     executor_candidates,
@@ -95,7 +95,9 @@ def test_executor_selection_uses_capability() -> None:
 
 def test_inventory_reports_every_admitted_executor_with_real_evidence() -> None:
     inventory = {row["executor_id"]: row for row in executor_inventory()}
-    assert set(inventory) == _KNOWN_EXECUTORS
+    # The inventory must be exactly what the canonical registry declares, so
+    # supervision cannot hold a second, drifting executor list.
+    assert set(inventory) == set(_active_executors())
     for row in inventory.values():
         assert set(row) >= {
             "executor_id",

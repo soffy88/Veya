@@ -19,7 +19,12 @@ from veya.supervision.models import (
     SupervisorReview,
 )
 from veya.supervision.retask import plan_retask
-from veya.supervision.runner import _KNOWN_EXECUTORS, canonical_runner, executor_hint
+from veya.supervision.runner import (
+    _DEPRECATED_EXECUTOR_NAMES,
+    _active_executors,
+    canonical_runner,
+    executor_hint,
+)
 
 
 async def _rpc(gateway, secret: str, session: str, name: str, arguments: dict):
@@ -264,7 +269,12 @@ def test_execution_delta_does_not_attribute_preexisting_commit_as_delete() -> No
 
 
 def test_executor_capability_matches_assignment() -> None:
-    assert {"builtin", "dsh"} == _KNOWN_EXECUTORS
+    # admission is the registry's answer; supervision keeps only a retired-name
+    # deny set and no inventory of its own.
+    assert "builtin" in _active_executors()
+    assert "dsh" in _active_executors()
+    assert frozenset({"hicode"}) == _DEPRECATED_EXECUTOR_NAMES
+    assert "hicode" not in _active_executors()
     assert (
         executor_hint(
             types.SimpleNamespace(

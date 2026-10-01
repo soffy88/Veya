@@ -23,18 +23,54 @@ from typing import Any
 
 Dispatch = Callable[[str, str], Awaitable[str]]
 
-# Executors admitted to the mission plane.  ``builtin`` is the in-process
-# canonical substrate: it has no provider and no free-text planning ability, so
-# it can only run planner-resolved canonical actions.  ``worker``/``native_tool``
-# are not aliases for this substrate and therefore cannot be admitted here.
-# ``hicode`` is gone: it is retired in ``veya.remote.executor_registry``, and an
-# in-plane allowlist that still offered it would admit a worker the registry
-# rejects.  This set is the supervision plane's own admission list, not a second
-# source of executor identity — that stays in the registry.
-_KNOWN_EXECUTORS = {"dsh", "builtin"}
-
 # The in-process executor id. It never calls an external model provider.
 _LOCAL_EXECUTOR = "builtin"
+
+# Executors retired from the canonical registry.  This is NOT an admission list —
+# it exists only so supervision can refuse a retired name explicitly instead of
+# letting it fall through as an unknown worker.  The set of executors supervision
+# may actually consider is answered by the registry (see ``_active_executors``).
+_DEPRECATED_EXECUTOR_NAMES = frozenset({"hicode"})
+
+#: Identity kind used for a substrate that runs in-process with no provider.
+_LOCAL_SUBSTRATE_KIND = "in_process_substrate"
+
+
+def _ensure_local_substrate_registered() -> None:
+    """Declare the in-process substrate in the canonical ExecutorRegistry.
+
+    ``builtin`` has no provider contract, so the registry cannot discover it.  We
+    therefore *register* it through the registry's own public API rather than keep
+    a supervision-side allowlist — the registry stays the single authority for
+    which executors exist, and supervision owns no inventory of its own.
+    """
+    from veya.remote.executor_registry import ExecutorRuntimeIdentity, get_executor_registry
+
+    registry = get_executor_registry()
+    if _LOCAL_EXECUTOR in registry.snapshot():
+        return
+    registry.register(
+        ExecutorRuntimeIdentity(
+            executor_id=_LOCAL_EXECUTOR,
+            executor_kind=_LOCAL_SUBSTRATE_KIND,
+            provider=None,
+            model=None,
+            auth_state="NOT_REQUIRED",
+            reachable=True,
+            launcher=None,
+            capabilities=frozenset(),
+            runtime_source="supervision-local-substrate",
+            status="READY",
+        )
+    )
+
+
+def _active_executors() -> tuple[str, ...]:
+    """Every executor the mission plane may consider — answered by the registry."""
+    _ensure_local_substrate_registered()
+    from veya.remote.executor_registry import get_executor_registry
+
+    return tuple(sorted(get_executor_registry().snapshot()))
 
 
 def executor_hint(mission: Any) -> str | None:
@@ -43,11 +79,18 @@ def executor_hint(mission: Any) -> str | None:
     The mission owns *what* to run and on which executor; ``project_ask`` still owns
     *how* to run it. No routing decision is invented here — an unknown/absent value
     simply means "let the canonical entry decide".
+
+    Admission is the registry's answer, not a supervision-local list: a hint is
+    honoured when the canonical registry knows that executor, and refused when the
+    registry has retired it.  Refusing an unknown or retired name leaves the choice
+    with the canonical entry rather than substituting one.
     """
     policies = getattr(mission, "policies", None)
     execution = getattr(policies, "execution_policy", None) or {}
     hint = str(execution.get("assignee_hint") or "").strip().lower()
-    return hint if hint in _KNOWN_EXECUTORS else None
+    if not hint or hint in _DEPRECATED_EXECUTOR_NAMES:
+        return None
+    return hint if hint in _active_executors() else None
 
 
 # internal alias kept for the runner's own call sites / tests
@@ -112,7 +155,7 @@ class ExecutorCandidate:
 def _mission_capabilities() -> dict[str, Any]:
     from veya.remote.worker_runtime import capabilities_for
 
-    return {name: capabilities_for(name) for name in sorted(_KNOWN_EXECUTORS)}
+    return {name: capabilities_for(name) for name in _active_executors()}
 
 
 def _health_registry() -> Any:
@@ -139,11 +182,12 @@ def executor_candidates(
 
     registry = get_executor_registry()
     health = health_registry or _health_registry()
-    identity_ids = set(registry.snapshot())
     candidates: list[ExecutorCandidate] = []
-    for name in sorted(_KNOWN_EXECUTORS):
-        local = name == _LOCAL_EXECUTOR
-        identity = registry.identity(name) if (local or name in identity_ids) else None
+    for name in _active_executors():
+        identity = registry.identity(name)
+        # Local-ness is read from the registry identity, not from a name list, so
+        # supervision cannot drift from what the registry actually declares.
+        local = identity.executor_kind == _LOCAL_SUBSTRATE_KIND
         candidates.append(
             ExecutorCandidate(
                 executor_id=name,
