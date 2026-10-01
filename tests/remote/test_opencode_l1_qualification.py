@@ -22,14 +22,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from runtime.coding.worktree import WorktreeManager, teardown_worktree
 from veya.remote.executor_health import (
     DEFAULT_EXECUTOR_PREFERENCE,
-    EXECUTOR_ALIASES,
     ExecutorFailureClass,
     ExecutorHealth,
     ExecutorHealthRegistry,
     classify_executor_failure,
+    normalize_executor_name,
     resolve_executor,
 )
 from veya.remote.tool_adapter import (
@@ -54,8 +56,8 @@ def test_01_opencode_registration_integrity() -> None:
     assert _WORKER_TYPES["opencode"] == "OPENCODE"
 
     assert "opencode" in _CLI_WORKERS
-    assert _CLI_WORKERS["opencode"]["provider"] == "opencode-go"
-    assert "deepseek" in _CLI_WORKERS["opencode"]["model"]
+    assert _CLI_WORKERS["opencode"]["provider"] == "opencode"
+    assert "longcat" in _CLI_WORKERS["opencode"]["model"]
 
     assert "opencode" in _TIMEOUT_SEPARATED_CLI_WORKERS
 
@@ -72,8 +74,8 @@ def test_01_opencode_registration_integrity() -> None:
 
     avail = worker_availability()
     assert "OPENCODE" in avail["available_workers"]
-    assert "opencode" in EXECUTOR_ALIASES
-    assert EXECUTOR_ALIASES["opencode"] == "opencode"
+    assert normalize_executor_name("opencode") == "opencode"
+    assert normalize_executor_name("opencode_go") == "opencode"
 
 
 def test_02_pi_fixed_veya1_2_free(tmp_path: Path, monkeypatch) -> None:
@@ -108,7 +110,7 @@ def test_03_opencode_command_construction_and_proxy(tmp_path: Path, monkeypatch)
     fake_opencode.chmod(0o755)
 
     monkeypatch.setenv("VEYA_OPENCODE_BIN", str(fake_opencode))
-    monkeypatch.setenv("VEYA_OPENCODE_MODEL", "opencode-go/deepseek-v4.1-flash")
+    monkeypatch.setenv("VEYA_OPENCODE_MODEL", "opencode/longcat-2.5-preview-free")
     monkeypatch.setenv("VEYA_RUNTIME_PROXY", "http://127.0.0.1:7890")
     from veya.remote.executor_registry import reset_executor_registry
 
@@ -118,17 +120,17 @@ def test_03_opencode_command_construction_and_proxy(tmp_path: Path, monkeypatch)
     assert bin_path == str(fake_opencode)
 
     model = _resolve_opencode_model()
-    assert model == "opencode-go/deepseek-v4.1-flash"
+    assert model == "opencode/longcat-2.5-preview-free"
 
     identity = _worker_model_identity("opencode")
-    assert identity == ("opencode-go", "opencode-go/deepseek-v4.1-flash")
+    assert identity == ("opencode", "opencode/longcat-2.5-preview-free")
 
     argv, env = _worker_command("opencode", "write a hello world script")
     assert argv[0] == str(fake_opencode)
     assert argv[1] == "run"
     assert "write a hello world script" in argv
     assert "--model" in argv
-    assert "opencode-go/deepseek-v4.1-flash" in argv
+    assert "opencode/longcat-2.5-preview-free" in argv
     assert env.get("HOME")
     assert env.get("http_proxy") == "http://127.0.0.1:7890"
     assert env.get("https_proxy") == "http://127.0.0.1:7890"
@@ -216,7 +218,7 @@ def test_04_explicit_pin_no_silent_fallback() -> None:
 
 
 def test_05_health_aware_fallback_sequence() -> None:
-    """5. Health-aware routing sequence: AGY -> OPENCODE -> PI -> GROK -> DSH -> CODEX -> HICODE."""
+    """5. Health-aware routing sequence: AGY -> OPENCODE -> CLAUDE_CODE -> PI -> GROK -> DSH -> CODEX."""
     reg = ExecutorHealthRegistry()
 
     # 1. Healthy baseline -> AGY
@@ -230,41 +232,41 @@ def test_05_health_aware_fallback_sequence() -> None:
     assert cand2 == "opencode"
     assert sub2 is not None and sub2.selected_executor == "opencode"
 
-    # 3. AGY + OPENCODE down -> PI
+    # 3. AGY + OPENCODE down -> CLAUDE_CODE
     reg.record_failure("opencode", ExecutorFailureClass.TRANSPORT_FAILURE)
     cand3, sub3 = resolve_executor(health_registry=reg)
-    assert cand3 == "pi"
-    assert sub3 is not None and sub3.selected_executor == "pi"
+    assert cand3 == "claude_code"
+    assert sub3 is not None and sub3.selected_executor == "claude_code"
 
-    # 4. AGY + OPENCODE + PI down -> GROK
-    reg.record_failure("pi", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    # 4. AGY + OPENCODE + CLAUDE_CODE down -> PI
+    reg.record_failure("claude_code", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
     cand4, sub4 = resolve_executor(health_registry=reg)
-    assert cand4 == "grok"
-    assert sub4 is not None and sub4.selected_executor == "grok"
+    assert cand4 == "pi"
+    assert sub4 is not None and sub4.selected_executor == "pi"
 
-    # 5. AGY + OPENCODE + PI + GROK down -> DSH
-    reg.record_failure("grok", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    # 5. AGY..PI down -> GROK
+    reg.record_failure("pi", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
     cand5, sub5 = resolve_executor(health_registry=reg)
-    assert cand5 == "dsh"
-    assert sub5 is not None and sub5.selected_executor == "dsh"
+    assert cand5 == "grok"
+    assert sub5 is not None and sub5.selected_executor == "grok"
 
-    # 6. AGY..DSH down -> CODEX
-    reg.record_failure("dsh", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    # 6. AGY..GROK down -> DSH
+    reg.record_failure("grok", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
     cand6, sub6 = resolve_executor(health_registry=reg)
-    assert cand6 == "codex"
-    assert sub6 is not None and sub6.selected_executor == "codex"
+    assert cand6 == "dsh"
+    assert sub6 is not None and sub6.selected_executor == "dsh"
 
-    # 7. AGY..CODEX down -> HICODE
-    reg.record_failure("codex", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    # 7. AGY..DSH down -> CODEX
+    reg.record_failure("dsh", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
     cand7, sub7 = resolve_executor(health_registry=reg)
-    assert cand7 == "hicode"
-    assert sub7 is not None and sub7.selected_executor == "hicode"
+    assert cand7 == "codex"
+    assert sub7 is not None and sub7.selected_executor == "codex"
 
 
-def test_06_codex_and_hicode_quota_exhausted_auto_skipped() -> None:
-    """6. CODEX/HICODE auto-skipped on quota exhaustion without permanent deregistration."""
+def test_06_codex_quota_exhausted_auto_skipped() -> None:
+    """6. CODEX auto-skipped on quota exhaustion; retired hicode never readmitted."""
     reg = ExecutorHealthRegistry()
-    for w in ("antigravity", "opencode", "pi", "grok", "dsh"):
+    for w in ("antigravity", "opencode", "claude_code", "pi", "grok", "dsh"):
         reg.record_failure(w, ExecutorFailureClass.PROVIDER_UNAVAILABLE)
 
     # Codex hits 429 quota exhausted
@@ -273,14 +275,13 @@ def test_06_codex_and_hicode_quota_exhausted_auto_skipped() -> None:
     )
     assert reg.get_health("codex") == ExecutorHealth.UNAVAILABLE
 
-    # Routing auto-skips CODEX to HICODE
-    selected, sub = resolve_executor(health_registry=reg)
-    assert selected == "hicode"
-    assert sub is not None and sub.selected_executor == "hicode"
+    # Every capable executor is down: fail closed, never fall back to hicode
+    with pytest.raises(ValueError):
+        resolve_executor(health_registry=reg)
 
-    # Both remain in canonical preference definition
+    # CODEX remains in canonical preference definition; hicode does not
     assert "codex" in DEFAULT_EXECUTOR_PREFERENCE
-    assert "hicode" in DEFAULT_EXECUTOR_PREFERENCE
+    assert "hicode" not in DEFAULT_EXECUTOR_PREFERENCE
 
 
 def test_07_failure_taxonomy_for_opencode() -> None:

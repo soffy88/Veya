@@ -16,7 +16,11 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .executor_registry import ExecutorRuntimeIdentity, get_executor_registry
+from .executor_registry import (
+    ExecutorRuntimeIdentity,
+    get_executor_registry,
+    normalize_executor_id,
+)
 from .models import ExecutorFailureClass, ExecutorHealth
 from .worker_runtime import (
     WORKER_CAPABILITIES,
@@ -34,22 +38,15 @@ DEFAULT_EXECUTOR_PREFERENCE: tuple[str, ...] = (
     "codex",
 )
 
-EXECUTOR_ALIASES: dict[str, str] = {
-    "agy": "antigravity",
-    "antigravity": "antigravity",
-    "opencode": "opencode",
-    "claude-code": "claude_code",
-    "claude_code": "claude_code",
-    "codex": "codex",
-    "pi": "pi",
-    "grok": "grok",
-    "dsh": "dsh",
-}
-
 
 def normalize_executor_name(name: str) -> str:
-    key = str(name or "").strip().lower()
-    return EXECUTOR_ALIASES.get(key, key)
+    """Normalize via the ExecutorRegistry alias authority.
+
+    ``EXECUTOR_ALIASES`` used to be duplicated here; the registry is the sole
+    alias authority so ``agy``/``claude-code``/``opencode_go`` stay in sync.
+    """
+
+    return normalize_executor_id(name)
 
 
 def classify_executor_failure(
@@ -445,7 +442,6 @@ def resolve_executor(
 
 __all__ = [
     "DEFAULT_EXECUTOR_PREFERENCE",
-    "EXECUTOR_ALIASES",
     "ExecutorFailureClass",
     "ExecutorHealth",
     "ExecutorHealthRegistry",
