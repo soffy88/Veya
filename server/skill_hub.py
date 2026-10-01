@@ -27,6 +27,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+from server.skill_eligibility import (
+    CapabilityCandidate,
+    CapabilityType,
+    UnifiedCapabilityDiscovery,
+)
 from server.skill_scan import scan_skill_source
 from server.skill_scan import summarize as _summarize_risk
 from server.tool_guard import ToolDenied as _ToolDenied
@@ -412,11 +417,35 @@ class VeyaSkillHub:
             )
         return index
 
+    def _discover_skills(self, task: str, routed: list[dict]) -> list[CapabilityCandidate]:
+        """P0-07 统一能力发现: 技能经 discover → eligibility → rank 流水线 surfaced。
+
+        相关度权威仍是 3O ``select_skill`` (单一来源, 见 :meth:`_route_skills`); 本方法
+        只把它的路由结果投影成候选, 并让 ``rank`` 编码路由名次 —— 稳定排序后与路由
+        顺序逐位一致, 因此技能可用性与渐进加载都不受影响。流水线的意义是让技能
+        与其它能力 (MCP / Rules / Context / Agent) 共用同一条发现面, eligibility 闸门
+        挂在这条面上, 而不是散在调用方。
+        """
+        discovery = UnifiedCapabilityDiscovery()
+        for position, meta in enumerate(routed):
+            name = str(meta.get("name", ""))
+            discovery.register(
+                CapabilityCandidate(
+                    candidate_id=name,
+                    capability_type=CapabilityType.SKILL,
+                    name=name,
+                    description=self._descriptions.get(name, ""),
+                    rank=float(len(routed) - position),
+                )
+            )
+        return discovery.rank(discovery.discover({"intent": task}))
+
     def _route_skills(self, task: str, top_k: int) -> list[dict]:
         """元路由 (3O 单一来源): 按 task 排序技能, 附契约 (when_to_use + verification
         证据要求 + red_flags), 让模型带着"何时用/怎样算做完"选技能。
 
         oskill 不可用 → 回退按名字取前 top_k (只给 name+description), 行为退化不报错。
+        排序结果经统一能力发现流水线 (P0-07) surfaced, 不改顺序。
         """
         top_k = max(1, min(int(top_k or 3), 20))
         osk = _oskill_mod()
@@ -429,8 +458,8 @@ class VeyaSkillHub:
         else:
             ranked = index[:top_k]
         out: list[dict] = []
-        for meta in ranked:
-            name = meta.get("name", "")
+        for candidate in self._discover_skills(task, ranked):
+            name = candidate.name
             contract = self._contracts.get(name) or {}
             entry = {"name": name, "description": self._descriptions.get(name, "")}
             for field in ("when_to_use", "verification", "red_flags"):
