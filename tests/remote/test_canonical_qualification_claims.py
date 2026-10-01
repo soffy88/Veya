@@ -70,18 +70,16 @@ def test_claim_1_manifest_is_real_probe(tmp_path: Path):
     assert manifest_missing.status == "UNAVAILABLE"
     assert "not installed" in manifest_missing.status_reason
 
-    # 2. Installed internal runner (hicode) -> status READY or DEGRADED, real version probed
-    manifest_hicode = probe_runtime_capability_manifest("hicode", workspace_path=str(tmp_path))
-    assert manifest_hicode.installed is True
-    assert manifest_hicode.runtime_version != "unknown"
-    assert manifest_hicode.supports_workspace is True
+    # 2. Retired runner (hicode) -> fails closed, never a manifest.
+    with pytest.raises(ValueError, match="retired"):
+        probe_runtime_capability_manifest("hicode", workspace_path=str(tmp_path))
 
     # 3. Health registry failure recorded -> status becomes UNAVAILABLE
     reg = ExecutorHealthRegistry()
     reg.record_failure(
-        "hicode", ExecutorFailureClass.PROVIDER_UNAVAILABLE, detail="503 upstream down"
+        "opencode", ExecutorFailureClass.PROVIDER_UNAVAILABLE, detail="503 upstream down"
     )
-    manifest_unavail = probe_runtime_capability_manifest("hicode", health_registry=reg)
+    manifest_unavail = probe_runtime_capability_manifest("opencode", health_registry=reg)
     assert manifest_unavail.reachable is False
     assert manifest_unavail.status == "UNAVAILABLE"
     assert "UNAVAILABLE" in manifest_unavail.status_reason

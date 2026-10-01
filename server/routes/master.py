@@ -11,7 +11,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from server.coordinator_master import MasterCoordinator
-from server.sse import get_or_create_queue
+from server.session_events import durable_session_store
 
 router = APIRouter(prefix="/master", tags=["master"])
 
@@ -32,8 +32,7 @@ async def master_chat(req: MasterChatRequest) -> dict[str, Any]:
     sid = req.session_id
     on_step = None
     if sid:
-        queue = get_or_create_queue(sid)
-        on_step = queue.on_step
+        on_step = lambda event: durable_session_store.publish_sync(sid, event)  # noqa: E731
 
     coordinator = MasterCoordinator(
         user_api_key=req.user_api_key,

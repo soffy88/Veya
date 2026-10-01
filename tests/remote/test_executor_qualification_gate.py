@@ -27,6 +27,8 @@ import signal
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from runtime.coding.worktree import WorktreeManager, teardown_worktree
 from scripts.qualify_executors import (
     QualificationGateResult,
@@ -45,18 +47,18 @@ from veya.remote.worker_runtime import FinishBoundary
 
 
 def test_01_default_preference_order():
-    """1. AGY > OPENCODE > PI > GROK > DSH > CODEX > HICODE preference."""
+    """1. AGY > OPENCODE > CLAUDE_CODE > PI > GROK > DSH > CODEX preference."""
     cand, sub = resolve_executor()
     assert cand == "antigravity"
     assert sub is None
     assert DEFAULT_EXECUTOR_PREFERENCE == (
         "antigravity",
         "opencode",
+        "claude_code",
         "pi",
         "grok",
         "dsh",
         "codex",
-        "hicode",
     )
 
 
@@ -92,8 +94,8 @@ def test_03_unhealthy_agy_fallback_to_opencode():
     assert "antigravity is UNAVAILABLE" in sub.substitution_reason
 
 
-def test_04_unhealthy_agy_and_opencode_fallback_to_pi():
-    """4. unhealthy AGY+OPENCODE -> PI."""
+def test_04_unhealthy_agy_and_opencode_fallback_to_claude_code():
+    """4. unhealthy AGY+OPENCODE -> CLAUDE_CODE."""
     reg = ExecutorHealthRegistry()
     reg.record_failure("antigravity", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
     reg.record_failure("opencode", ExecutorFailureClass.TRANSPORT_FAILURE)
@@ -103,25 +105,25 @@ def test_04_unhealthy_agy_and_opencode_fallback_to_pi():
     selected, sub = resolve_executor(
         requested="antigravity", explicit_pin=False, health_registry=reg
     )
-    assert selected == "pi"
+    assert selected == "claude_code"
     assert sub is not None
-    assert sub.selected_executor == "pi"
+    assert sub.selected_executor == "claude_code"
 
 
-def test_04b_quota_exhausted_codex_and_hicode_auto_skipped():
-    """CODEX / HICODE 遇 quota exhausted (429 / purchase credits) 自动跳过."""
+def test_04b_quota_exhausted_codex_auto_skipped():
+    """CODEX 遇 quota exhausted (429 / purchase credits) 自动跳过."""
     reg = ExecutorHealthRegistry()
-    # If AGY, OPENCODE, PI, GROK, DSH are down:
-    for w in ("antigravity", "opencode", "pi", "grok", "dsh"):
+    # If AGY, OPENCODE, CLAUDE_CODE, PI, GROK, DSH are down:
+    for w in ("antigravity", "opencode", "claude_code", "pi", "grok", "dsh"):
         reg.record_failure(w, ExecutorFailureClass.PROVIDER_UNAVAILABLE)
     # Simulate CODEX quota exhausted:
     reg.record_failure(
         "codex", ExecutorFailureClass.PROVIDER_UNAVAILABLE, detail="429 quota exhausted"
     )
-    # Health aware routing must skip CODEX and select HICODE
-    selected, sub = resolve_executor(health_registry=reg)
-    assert selected == "hicode"
-    assert sub is not None and sub.selected_executor == "hicode"
+    # Every capable executor is down: routing must fail closed, never fall back
+    # to a retired executor (hicode).
+    with pytest.raises(ValueError):
+        resolve_executor(health_registry=reg)
 
 
 def test_05_capability_incompatible_excluded():
