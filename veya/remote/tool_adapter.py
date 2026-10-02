@@ -333,15 +333,47 @@ def _allowed_service_control_command(command: str) -> bool:
 # semantics; none of these is a wrapper around Hicode.  Hicode is retired
 # from the active plane (source retained); claude_code is the canonical
 # Claude Code executor.
-_WORKER_TYPES = {
-    "antigravity": "ANTIGRAVITY",
-    "opencode": "OPENCODE",
-    "claude_code": "CLAUDE_CODE",
-    "codex": "CODEX",
-    "pi": "PI",
-    "grok": "GROK",
-    "dsh": "DSH",
-}
+def _worker_types() -> dict[str, str]:
+    """Executor id -> the label reported in receipts.
+
+    Derived from ExecutorRegistry rather than hand-listed. A parallel dict is a
+    second inventory: it had already drifted (the registry admits ``acp``, the
+    literal did not), and because it is also used as a lookup gate, drift
+    surfaces as a KeyError mid-dispatch instead of a clean refusal.
+    """
+
+    return {eid: eid.upper() for eid in get_executor_registry().snapshot()}
+
+
+class _WorkerTypes:
+    """Mapping view that always reflects the current registry membership."""
+
+    def __getitem__(self, worker: str) -> str:
+        types = _worker_types()
+        if worker not in types:
+            raise KeyError(f"{worker!r} is not an admitted executor; admitted: {sorted(types)}")
+        return types[worker]
+
+    def __contains__(self, worker: object) -> bool:
+        return worker in _worker_types()
+
+    def get(self, worker: str, default: Any = None) -> Any:
+        return _worker_types().get(worker, default)
+
+    def __iter__(self):
+        return iter(_worker_types())
+
+    def keys(self):  # pragma: no cover - convenience for diagnostics
+        return _worker_types().keys()
+
+    def items(self):  # pragma: no cover - convenience for diagnostics
+        return _worker_types().items()
+
+    def __len__(self) -> int:
+        return len(_worker_types())
+
+
+_WORKER_TYPES = _WorkerTypes()
 # Runtime blockers are evidence-driven and temporary. Never keep stale provider
 # outage/quota snapshots after a worker has been re-qualified.
 _WORKER_BLOCKERS: dict[str, str] = {}
