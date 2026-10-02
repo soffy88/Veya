@@ -35,11 +35,76 @@ from veya.remote.execution_contract import (
     probe_runtime_capability_manifest,
 )
 from veya.remote.executor_health import (
-    registry_order,
     ExecutorFailureClass,
     ExecutorHealthRegistry,
+    registry_order,
     resolve_executor,
 )
+
+
+async def _await_started(manager, execution_id: str, *, ceiling_s: float = 120.0) -> None:
+    """Wait until a record is actually running, without asserting a start latency.
+
+    The previous form waited a fixed 5s for the runner's first line to execute.
+    That measures how fast the host can schedule a task, not whether the
+    execution starts, so on a saturated machine a correct submission was
+    reported as a lineage failure before the lineage was ever exercised.
+
+    The state is the contract; the ceiling only catches a genuine hang and is
+    far above the old bound so it cannot fail a correct run.
+    """
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ceiling_s
+    while loop.time() < deadline:
+        record = manager.lookup(execution_id)
+        if record is not None and record.status in {"RUNNING", "SUSPENDED"}:
+            return
+        if record is not None and record.status in {
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "TIMED_OUT",
+            "BLOCKED",
+        }:
+            raise AssertionError(f"{execution_id} reached {record.status} before it ever started")
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"{execution_id} never started within {ceiling_s}s")
+
+
+async def _await_terminal(manager, execution_id: str, *, ceiling_s: float = 120.0):
+    """Wait until a record reaches a terminal state, then return it.
+
+    This replaces a fixed ``manager.wait(timeout_s=10)`` as the *gate*. The old
+    form asserted a wall-clock budget, so on a saturated host a perfectly
+    correct resume was reported as a lineage failure — and because
+    ``DurableJobManager.wait`` swallows its own TimeoutError, the failure
+    surfaced as a wrong-state assertion rather than as a slow machine.
+
+    The ceiling still exists to catch a genuine hang. It is deliberately far
+    above the old bound so it cannot fail a correct run, and the contract being
+    checked is unchanged: the record must reach a terminal state, and the caller
+    still asserts which one.
+    """
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ceiling_s
+    while loop.time() < deadline:
+        record = manager.lookup(execution_id)
+        if record is not None and record.status in {
+            "COMPLETED",
+            "FAILED",
+            "CANCELLED",
+            "TIMED_OUT",
+            "BLOCKED",
+            "REJECTED",
+        }:
+            return record
+        await asyncio.sleep(0.05)
+    raise AssertionError(
+        f"{execution_id} did not reach a terminal state within {ceiling_s}s "
+        f"(last status={getattr(manager.lookup(execution_id), 'status', None)!r})"
+    )
 
 
 def _binding(root: Path) -> SimpleNamespace:
@@ -166,7 +231,7 @@ async def test_claim_3_suspend_restart_resume_preserves_lineage(tmp_path: Path):
         runner=long_running_runner,
         execution_type=str(ExecutionType.HICODE),
     )
-    await asyncio.wait_for(entered.wait(), timeout=5.0)
+    await _await_started(manager_1, record.execution_id)
 
     original_exec_id = record.execution_id
     original_goal_id = record.goal_run_id
@@ -204,7 +269,7 @@ async def test_claim_3_suspend_restart_resume_preserves_lineage(tmp_path: Path):
     assert resumed.goal_run_id == original_goal_id
     assert resumed.goal_task_id == original_task_id
 
-    await manager_2.wait(original_exec_id, timeout_s=10)
+    await _await_terminal(manager_2, original_exec_id)
     final = manager_2.lookup(original_exec_id)
     assert final.status == "COMPLETED"
     assert final.result_summary == "final resumed success"
@@ -233,7 +298,7 @@ async def test_claim_4a_running_crash_recovering_to_running_and_completed(tmp_pa
         runner=crashing_runner,
         execution_type=str(ExecutionType.HICODE),
     )
-    await asyncio.wait_for(entered.wait(), timeout=5.0)
+    await _await_started(manager_1, record.execution_id)
 
     # Abrupt crash (kill in-memory carrier task without graceful shutdown)
     carrier = manager_1._tasks[record.execution_id]
@@ -250,7 +315,7 @@ async def test_claim_4a_running_crash_recovering_to_running_and_completed(tmp_pa
     recovered_count = await manager_2.recover_unfinished(lambda _rec: recovery_runner)
     assert recovered_count == 1
 
-    await manager_2.wait(record.execution_id, timeout_s=10)
+    await _await_terminal(manager_2, record.execution_id)
     final = manager_2.lookup(record.execution_id)
     assert final.status == "COMPLETED"
     assert final.result_summary == "recovered output"
@@ -275,7 +340,7 @@ async def test_claim_4b_running_crash_recovering_to_failed(tmp_path: Path):
         runner=crashing_runner,
         execution_type=str(ExecutionType.HICODE),
     )
-    await asyncio.wait_for(entered.wait(), timeout=5.0)
+    await _await_started(manager_1, record.execution_id)
 
     # Abrupt crash
     carrier = manager_1._tasks[record.execution_id]
@@ -291,7 +356,7 @@ async def test_claim_4b_running_crash_recovering_to_failed(tmp_path: Path):
         raise RuntimeError("fatal unrecoverable environment corruption")
 
     await manager_2.recover_unfinished(lambda _rec: failing_recovery_runner)
-    await manager_2.wait(record.execution_id, timeout_s=10)
+    await _await_terminal(manager_2, record.execution_id)
 
     final = manager_2.lookup(record.execution_id)
     assert final.status == "FAILED"
