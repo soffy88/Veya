@@ -224,3 +224,118 @@ def test_request_is_the_provider_facing_surface(registry: ProviderRegistry) -> N
 def test_alias_collapse_keeps_one_record_per_provider(registry: ProviderRegistry) -> None:
     for alias in ("cliproxy", "cliproxy-google", "local_cliproxy", "Local-CLIPROXY-Google"):
         assert normalize_provider_name(alias) == "local-cliproxy-google"
+
+
+# ── P5.2 the executor declares a requirement, not provider state ──────
+
+
+def test_executor_declares_what_it_needs_from_a_provider() -> None:
+    """The requirement is a capability ask, and it is never an observation.
+
+    An empty requirement means "not recorded", not "anything acceptable":
+    acp declares nothing and must therefore be handed no provider at all,
+    rather than a full list that implies it could use any of them.
+    """
+
+    executors = get_executor_registry()
+    for executor_id in ("pi", "opencode", "codex"):
+        identity = executors.identity(executor_id)
+        assert identity.provider_capabilities, executor_id
+        assert identity.provider_request(), executor_id
+    assert executors.identity("acp").provider_capabilities == frozenset()
+    assert executors.identity("acp").provider_request() == ()
+
+
+def test_request_is_deduplicated_in_canonical_order() -> None:
+    """stream and text both match most providers; an executor gets each once."""
+
+    identity = get_executor_registry().identity("pi")
+    names = [record.name for record in identity.provider_request()]
+    assert len(names) == len(set(names)), names
+    registry = get_provider_registry()
+    assert names == [n for n in registry.ordered_ids() if n in set(names)]
+
+
+def test_executor_reaches_provider_state_only_through_the_registry() -> None:
+    """Reading the provider record must not return an executor-local copy."""
+
+    identity = get_executor_registry().identity("pi")
+    assert identity.provider_record() is get_provider_registry().identity(identity.provider)
+    for forbidden in ("provider_health", "provider_quota", "provider_auth_state"):
+        assert not hasattr(identity, forbidden), forbidden
+
+
+def test_naming_an_unregistered_provider_fails_closed() -> None:
+    """A dangling provider name must raise, not fall back to private state."""
+
+    identity = ExecutorRuntimeIdentity(
+        executor_id="probe",
+        executor_kind="l1_worker",
+        provider="no-such-provider",
+        model=None,
+        auth_state="AUTHENTICATED",
+        reachable=True,
+        launcher=None,
+    )
+    with pytest.raises(ValueError, match="unknown provider"):
+        identity.provider_record()
+
+
+def test_executor_without_a_provider_cannot_ask_for_one() -> None:
+    identity = ExecutorRuntimeIdentity(
+        executor_id="probe",
+        executor_kind="l1_worker",
+        provider=None,
+        model=None,
+        auth_state="AUTHENTICATED",
+        reachable=True,
+        launcher=None,
+    )
+    with pytest.raises(ValueError, match="names no provider"):
+        identity.provider_record()
+
+
+# ── P5.2 a provider fault must not degrade the executor ──────────────
+
+
+def test_provider_fault_is_charged_to_the_provider_not_the_executor() -> None:
+    from veya.remote.provider_registry import ProviderHealthState
+    from veya.supervision.runner import _record_failure_against_the_responsible_layer
+
+    reset_provider_registry()
+    try:
+        providers = get_provider_registry()
+        _record_failure_against_the_responsible_layer("pi", "PROVIDER_RATE_LIMIT")
+        record = providers.identity("local-cliproxy-google")
+        assert record.health_state == str(ProviderHealthState.UNHEALTHY)
+        assert record.failure_state == "PROVIDER_RATE_LIMIT"
+    finally:
+        reset_provider_registry()
+
+
+def test_executor_fault_is_still_charged_to_the_executor() -> None:
+    from veya.supervision.runner import _record_failure_against_the_responsible_layer
+
+    reset_provider_registry()
+    try:
+        providers = get_provider_registry()
+        before = providers.identity("local-cliproxy-google").health_state
+        _record_failure_against_the_responsible_layer("pi", "WORKER_CRASH")
+        assert providers.identity("local-cliproxy-google").health_state == before
+    finally:
+        reset_provider_registry()
+
+
+def test_provider_fault_leaves_executor_health_clean_for_failover() -> None:
+    """The regression this fixes: a provider wall must not exclude the
+    executor that could have recovered the mission on another attempt."""
+
+    from veya.remote.executor_health import ExecutorHealthRegistry
+    from veya.supervision.runner import _record_failure_against_the_responsible_layer
+
+    reset_provider_registry()
+    try:
+        _record_failure_against_the_responsible_layer("pi", "PROVIDER_CONFIGURATION_FAILURE")
+        assert ExecutorHealthRegistry().get_health("pi") not in ("UNAVAILABLE", "UNHEALTHY")
+    finally:
+        reset_provider_registry()

@@ -394,6 +394,52 @@ def _replay_safe(result: Any) -> bool:
     return True
 
 
+_PROVIDER_FAILURE_PREFIX = "PROVIDER_"
+
+
+def _record_failure_against_the_responsible_layer(failed_executor: str, failure_class: str) -> None:
+    """Charge a failure to the layer that actually caused it.
+
+    A provider refusal is not the executor's fault. Recording it against
+    executor health degrades an executor that launched cleanly and was then
+    turned away upstream, which then looks broken during failover selection --
+    so the one layer that could have recovered the mission is the one most
+    likely to have been excluded by the previous failure.
+    """
+
+    if str(failure_class).startswith(_PROVIDER_FAILURE_PREFIX):
+        from veya.remote.executor_registry import get_executor_registry
+        from veya.remote.provider_registry import (
+            ProviderAvailability,
+            ProviderHealthState,
+            get_provider_registry,
+            normalize_provider_name,
+        )
+
+        try:
+            provider_name = get_executor_registry().identity(failed_executor).provider
+        except ValueError:
+            provider_name = None
+        if not provider_name:
+            return
+        try:
+            providers = get_provider_registry()
+            providers.record_observation(
+                normalize_provider_name(provider_name),
+                health_state=str(ProviderHealthState.UNHEALTHY),
+                availability=str(ProviderAvailability.UNAVAILABLE),
+                failure_state=str(failure_class),
+            )
+        except ValueError:
+            # an unknown provider is not this function's job to invent
+            return
+        return
+
+    from veya.remote.executor_health import ExecutorFailureClass, ExecutorHealthRegistry
+
+    ExecutorHealthRegistry().record_failure(failed_executor, ExecutorFailureClass(failure_class))
+
+
 async def _failover_if_provider_failure(
     mission: Any,
     result: Any,
@@ -415,10 +461,13 @@ async def _failover_if_provider_failure(
     if failure_class is None:
         return result
 
-    from veya.remote.executor_health import ExecutorFailureClass, ExecutorHealthRegistry
+    _record_failure_against_the_responsible_layer(failed_executor, failure_class)
+
+    # Selection reads executor health. The registry that just took the charge is
+    # the same object selection consults, so a provider fault stays out of it.
+    from veya.remote.executor_health import ExecutorHealthRegistry
 
     health = ExecutorHealthRegistry()
-    health.record_failure(failed_executor, ExecutorFailureClass(failure_class))
 
     if not _replay_safe(result):
         blocked = types.SimpleNamespace(

@@ -340,6 +340,21 @@ class ExecutorHealthRegistry:
         reachable: bool,
         detail: str = "",
     ) -> None:
+        """Deprecated: provider reachability is provider state (spec P5.2).
+
+        This writes a provider observation onto an executor health record and
+        lets it drive the executor's own ``state``. That coupling is what P5.2
+        removes: a provider outage should not be able to mark a cleanly launched
+        executor UNAVAILABLE, and doing so also removes it from failover
+        selection -- so the one layer that could recover is the one most likely
+        to have been excluded by the previous failure.
+
+        Kept for compatibility until the taxonomy split (P5.3) lands. New code
+        should record the observation against ProviderRegistry instead. The
+        invariant this method exists to protect is real and is preserved: a live
+        process must never make an unreachable provider look HEALTHY.
+        """
+
         rec = self._get_or_create(worker)
         rec.provider_reachable = reachable
         rec.last_detail = detail

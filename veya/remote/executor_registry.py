@@ -15,9 +15,12 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from veya.executor_retirement import is_retired_executor as is_retired
+
+if TYPE_CHECKING:  # provider state stays in ProviderRegistry; imported for typing only
+    from veya.remote.provider_registry import ProviderRecord
 from veya.obase import canonical_proxies as _cp
 
 _ALIASES = {
@@ -173,6 +176,41 @@ class ExecutorRuntimeIdentity:
     health: str = "UNKNOWN"
     failure_state: str | None = None
     priority: int = 0
+    provider_capabilities: frozenset[str] = frozenset()
+
+    # ── provider reference, kept as a request rather than as state ──
+    def provider_record(self) -> ProviderRecord:
+        """The provider this executor names, as a ProviderRegistry record.
+
+        A *name* is a reference and belongs here. The provider's health, quota
+        and auth state do not: they are reached through ``request()`` so a
+        caller cannot read a stale copy off the executor instead.
+        """
+
+        from veya.remote.provider_registry import get_provider_registry
+
+        if not self.provider:
+            raise ValueError(f"executor {self.executor_id!r} names no provider")
+        return get_provider_registry().identity(self.provider)
+
+    def provider_request(self) -> tuple[ProviderRecord, ...]:
+        """Providers satisfying what this executor needs, in canonical order.
+
+        An empty ``provider_capabilities`` means "no requirement recorded", not
+        "anything goes": an executor that has not declared a requirement must
+        not be handed a provider list that implies one.
+        """
+
+        from veya.remote.provider_registry import get_provider_registry
+
+        registry = get_provider_registry()
+        if not self.provider_capabilities:
+            return ()
+        matched: dict[str, Any] = {}
+        for capability in sorted(self.provider_capabilities):
+            for record in registry.request(capability):
+                matched.setdefault(record.name, record)
+        return tuple(matched[name] for name in registry.ordered_ids() if name in matched)
 
     # ── layered projections ──
     @property
@@ -337,6 +375,21 @@ def _pi_config() -> tuple[str | None, str | None, bool, str]:
     )
 
 
+# What each executor needs FROM a provider. Deliberately a requirement and not
+# an observation: nothing here records whether the provider answered, is
+# authenticated, or has quota left. Those live in ProviderRegistry (P5.1).
+_PROVIDER_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "opencode": ("text", "stream"),
+    "claude_code": ("text", "stream", "tool_use"),
+    "codex": ("text", "stream", "tool_use"),
+    "antigravity": ("text", "stream", "tool_use"),
+    "pi": ("text", "stream"),
+    "dsh": ("text",),
+    "grok": ("text", "stream"),
+    "acp": (),
+}
+
+
 @dataclass
 class ExecutorRegistry:
     """Canonical identity authority; adapters receive projections from here."""
@@ -456,6 +509,7 @@ class ExecutorRegistry:
             executor_kind="l1_worker",
             provider=provider,
             model=model,
+            provider_capabilities=frozenset(_PROVIDER_REQUIREMENTS.get(executor_id, ())),
             auth_state="AUTHENTICATED" if authenticated else "MISSING",
             authenticated=authenticated,
             reachable=reachable,
