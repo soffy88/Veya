@@ -1,33 +1,33 @@
 """project_ask — 项目任务的唯一对外入口 (M2 + M3 dsh adapter)。
 
 硬约束 (2026-08-15 审查结论): Coordinator 只调用这一个 tool；self-do
-(builtin) vs. 派工 (hicode / dsh) 的决策在本函数内部完成，不得拆成多个
-tool 让 Coordinator 在中间做分支路由。权威任务调度仍是 server.hicode_queue
-.HicodeTaskQueue（不新建第二套队列），本模块只负责：
+(builtin) vs. 派工 (dsh) 的决策在本函数内部完成，不得拆成多个
+tool 让 Coordinator 在中间做分支路由。权威任务调度由 HarnessRegistry 路由到
+dsh 执行腿（不新建第二套队列），本模块只负责：
 
   1. 决定 builtin（只记录到 DECISIONS.md，不改代码/不执行任何命令）还是
-     派工执行（hicode 或 dsh）——builtin 的语义边界必须清楚: 调用方以为
+     派工执行（dsh）——builtin 的语义边界必须清楚: 调用方以为
      「ask 了就等于改完代码」是误用, tool description 里已写明。
   2. 派工时把 .veya-project/ 记忆（STATE/DECISIONS/LESSONS）拼进任务上下文；
-  3. 用 server.project_store.to_project_status 把 HicodeTaskQueue 的内部
+  3. 用 server.project_store.to_project_status 把执行队列的内部
      状态收敛成项目侧终态 completed | blocked（不允许静默丢失 —— 派工/等待
      过程中的任何异常、dsh 不可用/超时/无 verdict，都收敛为 blocked + 原因，
      而不是让异常裸露给调用方，也不会隐式 fallback 到另一个 worker
      ——避免同一请求被两个 worker 双跑）；
   4. 写回 .veya-project/（DECISIONS.md 或队列镜像），保证下次调用能看到历史。
 
-注意：hicode 执行仍受 HICODE_WORKSPACE 沙箱边界约束（server.hicode_agent
+注意：dsh 执行仍受授权 workspace 沙箱边界约束
 ._resolve_workspace）——如果 project_root 不在该沙箱根内，派工会以
 blocked + 明确原因收场，这是既有安全边界的正常体现，不在本模块里绕过；
-调用方需要传一个落在 HICODE_WORKSPACE 内的 project_root。
+调用方需要传一个落在授权 workspace 内的 project_root。
 
-executor 是必填白名单枚举: builtin | hicode | dsh；旧 assignee_hint 仅作显式
+executor 是必填白名单枚举: builtin | dsh；旧 assignee_hint 仅作显式
 兼容别名，缺少两者时直接 blocked，不落到任何启发式或 worker。
 
 Understand 门禁 (docs/PROJECT_AGENT.md §7, 2026-08-16 补齐): 在上述派工决策之前
 先跑一次 server.project_understand.understand() 判定。判定为 ask → 只追问、
 早退（不建业务副作用、不派工），phase=understood_ask；判定为 act → 把
-interpretation/assumptions 前置进 hicode/dsh 的 brief，再走既有执行腿，
+interpretation/assumptions 前置进 dsh 的 brief，再走既有执行腿，
 phase=executed。mode=act_eager 跳过判定直接执行；mode=ask_only 强制只追问、
 永不执行。默认 mode 由 PROJECT_ASK_DEFAULT_MODE（缺省 auto）决定。
 """
@@ -45,7 +45,7 @@ from typing import Any
 from server import dsh_plane, exec_process
 from server.events import fire_step
 from server.process_guard import executor_spawn_kwargs
-from server.project_store import ProjectAskResponse, ProjectStore, to_project_status
+from server.project_store import ProjectAskResponse, ProjectStore
 from server.project_understand import (
     UnderstandResult,
     eager_act_result,
@@ -58,17 +58,27 @@ logger = logging.getLogger("veya.project_ask")
 
 _VALID_MODES = {"auto", "act_eager", "ask_only"}
 
+#: Record-only mode. Not an executor: it never spawns a worker.
+BUILTIN_EXECUTOR = "builtin"
+
 
 def _valid_executors() -> set[str]:
-    """Executors this entry may name — projected from ExecutorRegistry.
+    """Executors this entry may name — projected from the canonical authorities.
 
-    Projection, not an inventory: a retired executor leaves this set because the
-    registry retired it.  Imported lazily to keep the ``veya.remote`` import graph
-    acyclic.
+    Two things are dispatchable here and they are not the same kind of thing:
+
+    * ``builtin`` is this module's own record-only mode. It runs no executor at
+      all, so it is not an ExecutorRegistry member and must be admitted here or
+      the entry cannot express "record this, change nothing".
+    * everything else is an admitted executor, projected from ExecutorRegistry so
+      a retired executor leaves the set automatically.
+
+    Projection, not an inventory. Imported lazily to keep the ``veya.remote``
+    import graph acyclic.
     """
     from veya.remote.executor_registry import get_executor_registry
 
-    return set(get_executor_registry().snapshot())
+    return {BUILTIN_EXECUTOR} | set(get_executor_registry().snapshot())
 
 
 def _now() -> str:
@@ -124,54 +134,7 @@ def _run_builtin(store: ProjectStore, task_id: str, request: str) -> ProjectAskR
     )
 
 
-async def _run_hicode(
-    store: ProjectStore,
-    task_id: str,
-    project_root: str,
-    request: str,
-    understand_prefix: str = "",
-) -> ProjectAskResponse:
-    """hicode：派给既有 HicodeTaskQueue 执行，异常一律收敛为 blocked。
-
-    force_cli=True：强制走 CLI 路径而不是 hicode serve。原因 (2026-08-15
-    真机 smoke 验证发现)：hicode serve 是单一持久会话, 不接受按任务传入的
-    workspace, 传入的 workspace 只用于任务前 git 快照——如果不强制 CLI,
-    不同 project_root 的任务会全部在 serve 那一个固定目录里执行, 而不是
-    调用方指定的 project_root, 彻底破坏 project_ask 的多项目隔离前提。
-    """
-    from server.hicode_queue import hicode_task_queue
-
-    parts = [p for p in (understand_prefix, _context_prefix(store)) if p]
-    brief = "\n\n".join([*parts, f"## Task\n{request}"])
-    run_dir = store.run_dir(task_id)
-    (run_dir / "brief.md").write_text(brief, encoding="utf-8")
-
-    try:
-        worker_tid = await hicode_task_queue.submit(
-            brief,
-            workspace=project_root,
-            meta={"project_ask": task_id, "force_cli": True},
-        )
-        rec = await hicode_task_queue.wait(worker_tid)
-    except Exception as exc:
-        logger.exception("project_ask hicode 派工异常 %s", task_id)
-        (run_dir / "worker.log").write_text(f"dispatch error: {exc}", encoding="utf-8")
-        return ProjectAskResponse(
-            task_id=task_id, status="blocked", block_reason=f"dispatch error: {exc}"
-        )
-
-    status, reason = to_project_status(rec.status, rec.error)
-    (run_dir / "worker.log").write_text(rec.summary or rec.error or "", encoding="utf-8")
-    return ProjectAskResponse(
-        task_id=task_id,
-        status=status,
-        summary=rec.summary,
-        block_reason=reason,
-        artifacts=[str(run_dir / "worker.log")],
-    )
-
-
-_DSH_TIMEOUT_S = 1800  # 与 hicode 默认超时对齐
+_DSH_TIMEOUT_S = 1800
 _DSH_PROMPT_CHAR_LIMIT = 6000  # headless 任务是 argv 位置参数, 截断避免 ARG_MAX/超长上下文
 _DSH_RUNTIME_BY_CWD: dict[str, Any] = {}
 
@@ -261,7 +224,7 @@ def _parse_dsh_verdict(stdout: str) -> tuple[str | None, str]:
     """宽松解析 dsh 输出里的 VERDICT/SUMMARY 行（软性约定，官方 headless 不保证输出这个页脚）。
 
     找不到合法 VERDICT 行 → 返回 (None, "")；调用方按 exit code + stdout 兜底判定
-    (见 _run_dsh)，不做隐式 fallback 到 hicode。
+    (见 _run_dsh)，不做隐式 fallback。
     """
     verdict: str | None = None
     summary = ""
@@ -286,7 +249,7 @@ async def _run_dsh(
     """dsh：外部 CLI worker (headless profile)。不可用 / 超时一律 blocked；
 
     exit 0 且有输出 → completed (headless 本就不保证 VERDICT 页脚, 靠这个兜底);
-    exit ≠ 0 → blocked + stderr。不自动 fallback 到 hicode
+    exit ≠ 0 → blocked + stderr。不自动 fallback
     (同一请求被两个 worker 双跑, 比等一次人工重试更危险)。
     """
     run_dir = store.run_dir(task_id)
@@ -445,7 +408,7 @@ def project_status(project_root: str, limit: int = 5) -> str:
 
     lines = [
         f"项目记忆: {store.dir}",
-        f"任务记录: 共 {len(tasks)} 条（镜像，非权威；权威源是 HicodeTaskQueue 内存态）",
+        f"任务记录: 共 {len(tasks)} 条（镜像，非权威；权威源是执行队列内存态）",
     ]
     if recent:
         lines.append(f"最近 {len(recent)} 条:")
@@ -482,7 +445,7 @@ async def project_ask(
     「等人」而非执行失败）；派工/等待期间的任何异常、dsh 不可用/超时/无 verdict，
     都会被捕获并收敛为 blocked + 原因，不会把裸异常抛回调用方，也不会在 worker
     之间隐式 fallback（避免同一请求被双跑）。
-    executor 是必填白名单枚举 (builtin|hicode|dsh)；旧 assignee_hint 仅作为显式
+    executor 是必填白名单枚举 (builtin|dsh)；旧 assignee_hint 仅作为显式
     兼容别名。缺少两者、两者冲突或值非法时直接 blocked。
     """
     store = ProjectStore(project_root)
@@ -589,10 +552,10 @@ async def project_ask(
         )
         return _render(resp)
 
-    # 2. Act — existing builtin/hicode/dsh paths, brief 前置 Understand 摘要。
+    # 2. Act — existing builtin/dsh paths, brief 前置 Understand 摘要。
     # 经 HarnessRegistry.execute() 路由(PR-15, 见 server/capability_model.py::
     # HarnessRegistry.execute 的 docstring)——三个函数本身零改动, 只是把"选哪个"
-    # 收口到一处, 满足 VAOM"CC/Pi/Hicode/DSH 均通过 HarnessSpec 调用"这条。
+    # 收口到一处, 满足 VAOM"各 executor 均通过 HarnessSpec 调用"这条。
     from server.capability_model import harness_registry
 
     assignee = selected_executor
@@ -700,17 +663,17 @@ def _wire_project_ask(master_tools: Any) -> int:
         "项目记忆（.veya-project/PROJECT_STATE.md 等）。默认 mode=auto 会先判定这次请求是否"
         "足够明确：不明确 → 只返回 1-3 个追问、不产生任何业务副作用（不改代码、不跑命令）；"
         "明确 → 才会真正处理，三种处理方式：builtin 只把请求记入 DECISIONS.md，**不执行任何"
-        "命令、不改任何代码**；hicode / dsh 才会真正执行代码变更。executor 必须由"
+        "命令、不改任何代码**；dsh 才会真正执行代码变更。executor 必须由"
         "MasterAgent 显式选择，纯记录/更新状态类请求也必须显式选择 builtin。若上一次调用返回了追问，把用户的回答作为新 request、"
         "parent_task_id 设为上次返回的 task_id 再调一次即可续答。project_root 必须落在 "
-        "HICODE_WORKSPACE 内，否则派工会 blocked。终态只有 completed 或 blocked"
+        "授权 workspace 内，否则派工会 blocked。终态只有 completed 或 blocked"
         "（等待用户回答追问也算 blocked，原因是 need_clarification，不是执行失败）。",
         {
             "type": "object",
             "properties": {
                 "project_root": {
                     "type": "string",
-                    "description": "项目根目录绝对路径（须位于 HICODE_WORKSPACE 内，否则派工会 blocked）。",
+                    "description": "项目根目录绝对路径（须位于授权 workspace 内，否则派工会 blocked）。",
                 },
                 "request": {
                     "type": "string",

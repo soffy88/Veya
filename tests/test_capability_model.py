@@ -264,14 +264,8 @@ async def test_harness_registry_execute_routes_to_run_builtin(tmp_path, monkeypa
 @pytest.mark.asyncio
 async def test_harness_registry_execute_rejects_retired_hicode(tmp_path, monkeypatch):
     """hicode is retired: it must never reach an execution adapter."""
-    calls = []
-
-    async def fake_run_hicode(*args, **kwargs):
-        calls.append(args)
-        return "hicode-response"
-
-    monkeypatch.setattr("server.project_ask._run_hicode", fake_run_hicode)
-
+    # No adapter stub is needed: the registry must refuse a retired harness id
+    # before any adapter lookup, so there is nothing left to intercept.
     reg = HarnessRegistry(_store(tmp_path))
     with pytest.raises(ValueError, match="retired"):
         await reg.execute(
@@ -283,7 +277,6 @@ async def test_harness_registry_execute_rejects_retired_hicode(tmp_path, monkeyp
             understand_prefix="prefix",
         )
 
-    assert calls == [], "a retired executor must never be executed"
     assert "hicode" not in server_capability_model_module._HARNESS_ADAPTERS
 
 

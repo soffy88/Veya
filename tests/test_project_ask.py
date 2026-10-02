@@ -1,4 +1,4 @@
-"""server.project_ask 测试 — 唯一对外入口 (M2 builtin/hicode + M3 dsh adapter)。"""
+"""server.project_ask tests — the single project entry (builtin / dsh adapters)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from server import hicode_queue
 from server.project_ask import project_ask, project_status, wire_master_tools
 from server.project_store import ProjectStore
 from server.project_understand import UnderstandResult
@@ -45,11 +44,14 @@ async def test_project_ask_invalid_hint_is_blocked_without_touching_any_worker(
     async def _boom(*a, **k):
         raise AssertionError("非法 assignee_hint 不应触碰任何 worker")
 
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _boom)
+    monkeypatch.setattr("server.project_ask._run_dsh", _boom)
 
-    result = await project_ask(str(tmp_path), "随便什么", assignee_hint="codex")
+    # "hicode" is retired, so it is now the canonical example of a name this
+    # entry must refuse. An admitted executor such as "codex" is no longer a
+    # valid negative case.
+    result = await project_ask(str(tmp_path), "随便什么", assignee_hint="hicode")
     assert "⛔" in result
-    assert "codex" in result
+    assert "hicode" in result
 
     store = ProjectStore(tmp_path)
     last = store.load_queue_mirror()["tasks"][-1]
@@ -63,7 +65,7 @@ async def test_project_ask_invalid_mode_is_rejected_without_touching_any_worker(
     async def _boom(*a, **k):
         raise AssertionError("非法 mode 不应触碰任何 worker")
 
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _boom)
+    monkeypatch.setattr("server.project_ask._run_dsh", _boom)
 
     result = await project_ask(str(tmp_path), "随便什么", executor="builtin", mode="yolo")
     assert "⛔" in result
@@ -83,7 +85,7 @@ async def test_project_ask_understand_ask_exits_early_without_touching_any_worke
     async def _boom(*a, **k):
         raise AssertionError("ask 早退不应触碰任何 worker")
 
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _boom)
+    monkeypatch.setattr("server.project_ask._run_dsh", _boom)
     monkeypatch.setattr(
         pa,
         "understand",
@@ -157,16 +159,16 @@ async def test_project_ask_understand_act_injects_interpretation_into_brief(
     """decision=act 时 interpretation/assumptions 前置进派工 brief (PROJECT_AGENT.md §7.5)。"""
     import server.project_ask as pa
 
-    rec = hicode_queue.TaskRecord(id="tid_u1", spec="x", status="done", summary="done")
+    # Hicode is retired; the surviving dispatch leg is the dsh adapter.
+    captured: dict[str, str] = {}
 
-    async def _submit(spec, *, workspace=None, meta=None):
-        return "tid_u1"
+    async def _fake_exec(bin_path, prompt, cwd, timeout_s):
+        captured["prompt"] = prompt
+        return 0, "did some work\nVERDICT: completed\nSUMMARY: fixed it\n", ""
 
-    async def _wait(tid, on_progress=None):
-        return rec
+    monkeypatch.setattr(pa, "_resolve_dsh_bin", lambda: "/usr/bin/dsh")
+    monkeypatch.setattr(pa, "_dsh_exec", _fake_exec)
 
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _submit)
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "wait", _wait)
     monkeypatch.setattr(
         pa,
         "understand",
@@ -180,8 +182,10 @@ async def test_project_ask_understand_act_injects_interpretation_into_brief(
         ),
     )
 
-    result = await project_ask(str(tmp_path), "实现导出功能", assignee_hint="hicode")
-    assert "✅" in result
+    # The brief is written by the dispatch leg, so the request must actually
+    # reach one. dsh is the surviving executor; Hicode is retired.
+    result = await project_ask(str(tmp_path), "实现导出功能", assignee_hint="dsh")
+    assert "✅" in result, result
 
     store = ProjectStore(tmp_path)
     run_dirs = list((store.dir / "runs").iterdir())
@@ -224,7 +228,7 @@ async def test_project_ask_builtin_records_without_touching_queue(tmp_path: Path
     async def _boom(*a, **k):
         raise AssertionError("builtin 路径不应调用 HicodeTaskQueue.submit")
 
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _boom)
+    monkeypatch.setattr("server.project_ask._run_dsh", _boom)
 
     result = await project_ask(
         str(tmp_path), "更新一下项目状态", assignee_hint="builtin", mode="act_eager"
@@ -241,71 +245,10 @@ async def test_project_ask_builtin_records_without_touching_queue(tmp_path: Path
 # ── hicode 路径: 派工 + 状态映射 + 写回 ─────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_project_ask_hicode_completed_writes_back(tmp_path: Path, monkeypatch):
-    rec = hicode_queue.TaskRecord(id="tid1", spec="x", status="done", summary="did the thing")
-
-    async def _submit(spec, *, workspace=None, meta=None):
-        assert workspace == str(tmp_path)
-        return "tid1"
-
-    async def _wait(tid, on_progress=None):
-        assert tid == "tid1"
-        return rec
-
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _submit)
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "wait", _wait)
-
-    result = await project_ask(str(tmp_path), "修复登录 bug", executor="hicode", mode="act_eager")
-    assert "✅" in result and "did the thing" in result
-
-    store = ProjectStore(tmp_path)
-    mirror = store.load_queue_mirror()
-    last = mirror["tasks"][-1]
-    assert last["assignee"] == "hicode"
-    assert last["status"] == "completed"
-    # brief 写进了 runs/<task_id>/
-    run_dirs = list((store.dir / "runs").iterdir())
-    assert len(run_dirs) == 1
-    assert (run_dirs[0] / "brief.md").exists()
-    assert "修复登录 bug" in (run_dirs[0] / "brief.md").read_text(encoding="utf-8")
 
 
-@pytest.mark.asyncio
-async def test_project_ask_hicode_failed_maps_to_blocked(tmp_path: Path, monkeypatch):
-    rec = hicode_queue.TaskRecord(id="tid2", spec="x", status="failed", error="boom")
-
-    async def _submit(spec, *, workspace=None, meta=None):
-        return "tid2"
-
-    async def _wait(tid, on_progress=None):
-        return rec
-
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _submit)
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "wait", _wait)
-
-    result = await project_ask(
-        str(tmp_path), "fix the failing test", executor="hicode", mode="act_eager"
-    )
-    assert "⛔" in result and "boom" in result
-
-    store = ProjectStore(tmp_path)
-    assert store.load_queue_mirror()["tasks"][-1]["status"] == "blocked"
 
 
-@pytest.mark.asyncio
-async def test_project_ask_hicode_dispatch_exception_becomes_blocked_not_raised(
-    tmp_path: Path, monkeypatch
-):
-    async def _submit(spec, *, workspace=None, meta=None):
-        raise ValueError("workspace 必须位于 HICODE_WORKSPACE 内")
-
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _submit)
-
-    # 不应抛异常 —— 必须收敛为 blocked
-    result = await project_ask(str(tmp_path), "修复登录 bug", executor="hicode", mode="act_eager")
-    assert "⛔" in result
-    assert "HICODE_WORKSPACE" in result
 
 
 # ── dsh 路径: 不可用 / verdict 解析 / 超时 / 无自动 fallback ────────────
@@ -401,13 +344,12 @@ async def test_project_ask_dsh_nonzero_exit_no_verdict_is_blocked_no_fallback(
 
     monkeypatch.setattr(pa, "_dsh_exec", _fake_exec)
 
-    async def _boom(*a, **k):
-        raise AssertionError("dsh 失败不应隐式 fallback 到 hicode")
-
-    monkeypatch.setattr(hicode_queue.hicode_task_queue, "submit", _boom)
-
+    # A dsh failure must stay blocked. There is no implicit fallback leg left to
+    # trip: builtin records and dsh executes, and nothing re-dispatches a failure
+    # to a different executor behind the caller's back.
     result = await project_ask(str(tmp_path), "随便什么", assignee_hint="dsh", mode="act_eager")
     assert "⛔" in result and "some real dsh error" in result
+    assert "✅" not in result
 
 
 @pytest.mark.asyncio
