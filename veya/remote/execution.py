@@ -36,6 +36,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from veya.remote.admission import AdmissionStatus
 from veya.remote.qualification_faults import QualificationFault
 from veya.remote.qualification_faults import checkpoint as qualification_checkpoint
 
@@ -177,14 +178,18 @@ _LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
             "PARTIAL_COMPLETED",
         }
     ),
-    # a suspended record is still live work
+    # A suspended record is still live work: it may be resumed and finish, so
+    # COMPLETED is reachable directly from here, not only via RUNNING.
     "SUSPENDED": frozenset(
         {
             str(ExecutionStatus.RUNNING),
+            str(ExecutionStatus.COMPLETED),
+            str(ExecutionStatus.BLOCKED),
             str(ExecutionStatus.FAILED),
             str(ExecutionStatus.CANCELLED),
             str(ExecutionStatus.TIMED_OUT),
             str(ExecutionPhase.RECOVERING),
+            str(ExecutionPhase.REJECTED),
         }
     ),
     str(ExecutionStatus.STALLED): frozenset(
@@ -1982,6 +1987,7 @@ class DurableJobManager:
             "completed": 0,
             "failed": 0,
             "blocked": 0,
+            "rejected": 0,
             "cancelled": 0,
             "timed_out": 0,
         }
@@ -1989,7 +1995,13 @@ class DurableJobManager:
         for child in children:
             public = child.to_public(heartbeat_timeout_s=self.heartbeat_timeout_s)
             status = public["status"]
-            if status == "QUEUED":
+            # Admission is read before the lifecycle. A refusal never started,
+            # so reporting it as failed or blocked would attribute a runtime
+            # fault to a decision the executor plane made before launching
+            # anything.
+            if public.get("admission_status") == "REJECTED":
+                counts["rejected"] += 1
+            elif status == "QUEUED":
                 counts["queued"] += 1
             elif status in {"RUNNING", "STALLED"}:
                 counts["running"] += 1
@@ -2035,7 +2047,10 @@ class DurableJobManager:
             status, phase = "CANCELLED", "CANCELLED"
         elif counts["total"] == 0:
             status, phase = "QUEUED", "DISPATCHING"
-        elif parent.failure_mode == "fail_fast" and counts["failed"] + counts["blocked"] > 0:
+        elif (
+            parent.failure_mode == "fail_fast"
+            and counts["failed"] + counts["blocked"] + counts["rejected"] > 0
+        ):
             # A terminal child failure is sufficient evidence for fail-fast
             # aggregation. Stop any still-admitted child projection so the
             # parent cannot claim success while work continues.
@@ -2059,7 +2074,7 @@ class DurableJobManager:
             status, phase = "CANCELLED", "CANCELLED"
         elif counts["timed_out"] == counts["total"]:
             status, phase = "TIMED_OUT", "TIMED_OUT"
-        elif counts["failed"] + counts["blocked"] == counts["total"]:
+        elif counts["failed"] + counts["blocked"] + counts["rejected"] == counts["total"]:
             status, phase = "FAILED", "FAILED"
         else:
             # Mixed terminal outcomes with no work left: some children failed or
@@ -2394,15 +2409,26 @@ class DurableJobManager:
                     error=str(ExecutionFailureClass.TOOL_TIMEOUT),
                 )
             elif isinstance(exc, ExecutionBlocked):
+                # ExecutionBlocked is raised from admission (a capability gap, a
+                # workspace the gate would not bind) and from the environment
+                # (worktree creation). The admission runner has already recorded
+                # its decision on the record, so honour it here: a refusal is
+                # reported as a refusal and never as a runtime block.
+                refused = record.admission_status == str(AdmissionStatus.REJECTED)
                 self.set_failure(
                     record.execution_id,
-                    failure_class="execution_blocked",
-                    source="remote_execution",
+                    failure_class=(record.admission_failure_class or "execution_blocked")
+                    if refused
+                    else "execution_blocked",
+                    source="remote_admission" if refused else "remote_execution",
                     detail=exc.message,
                     code=exc.code,
                 )
                 self._finish(
-                    record, str(ExecutionStatus.BLOCKED), message=exc.message, error=exc.code
+                    record,
+                    str(ExecutionStatus.BLOCKED),
+                    message=exc.message,
+                    error=exc.code,
                 )
             else:
                 self._finish(

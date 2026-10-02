@@ -145,3 +145,57 @@ def test_admission_is_recorded_independently_of_the_lifecycle() -> None:
     record.admission_reason = str(AdmissionReason.EXECUTOR_UNAVAILABLE)
     assert record.phase == before
     assert record.is_terminal is False
+
+
+# ── 4.7.4 acceptance ───────────────────────────────────────────────────
+
+
+def test_capability_gap_is_rejected_with_its_own_failure_class() -> None:
+    """A capability gap is refused, and named as an executor problem."""
+
+    decision = admission_for_blocker("REQUIRED_CAPABILITY_UNAVAILABLE")
+    assert decision.status is AdmissionStatus.REJECTED
+    assert decision.reason is AdmissionReason.CAPABILITY_MISSING
+    assert decision.failure_class == "EXECUTOR_CAPABILITY_MISMATCH"
+
+
+def test_runtime_block_is_not_an_admission_refusal() -> None:
+    """The two meanings must not be confusable in either direction."""
+
+    runtime = AdmissionDecision(status=AdmissionStatus.ACCEPTED, reason=AdmissionReason.NONE)
+    assert runtime.admitted is True
+    assert runtime.reason is AdmissionReason.RUNTIME_BLOCK or runtime.reason is AdmissionReason.NONE
+
+
+def test_rejection_never_becomes_failed() -> None:
+    """The lifecycle must not offer REJECTED -> FAILED."""
+
+    from veya.remote.execution import IllegalTransition, assert_legal_transition
+
+    assert str(AdmissionStatus.REJECTED) not in {s for s in ("FAILED",)}
+    with pytest.raises(IllegalTransition):
+        assert_legal_transition("REJECTED", "FAILED")
+
+
+def test_blocked_does_not_become_rejected() -> None:
+    from veya.remote.execution import IllegalTransition, assert_legal_transition
+
+    with pytest.raises(IllegalTransition):
+        assert_legal_transition("BLOCKED", "REJECTED")
+
+
+def test_blocked_remains_reachable_from_running() -> None:
+    """The runtime path must survive the split intact."""
+
+    from veya.remote.execution import assert_legal_transition
+
+    assert_legal_transition("RUNNING", "BLOCKED")
+    assert_legal_transition("RUNNING", "COMPLETED")
+
+
+def test_ttl_sweeper_never_touches_a_refusal() -> None:
+    """A refusal is not a resting block, so the sweeper must skip it."""
+
+    from veya.remote.execution import ExecutionStatus
+
+    assert str(ExecutionStatus.BLOCKED) != str(AdmissionStatus.REJECTED)

@@ -223,7 +223,9 @@ async def test_parallel_dispatch_parent_and_children(tmp_path: Path, monkeypatch
     counts = parent_status["aggregation"]
     assert counts["total"] == 4
     assert counts["completed"] == 3
-    assert counts["blocked"] == 1
+    # The refused child was never admitted, so it is counted as rejected
+    # rather than as a runtime block (spec P4.7.4).
+    assert counts["rejected"] == 1
     assert parent_status["status"] == "PARTIAL_COMPLETED"
     workers = {child["worker_type"] for child in parent_status["children"]}
     assert {"CLAUDE_CODE", "CODEX"} <= workers
@@ -267,7 +269,8 @@ async def test_sibling_failure_does_not_cancel_others(tmp_path: Path, monkeypatc
         gateway, secret, session, parent, {"COMPLETED", "PARTIAL_COMPLETED", "FAILED"}, timeout=30
     )
     assert final["aggregation"]["completed"] == 2
-    assert final["aggregation"]["blocked"] == 1
+    # An admission refusal is reported as a refusal, not a runtime block.
+    assert final["aggregation"]["rejected"] == 1
     blocked = [c for c in final["children"] if c["worker_type"] == "CODEX"]
     assert len(blocked) == 1
     assert blocked[0]["execution_mode"] == "direct_codex"
