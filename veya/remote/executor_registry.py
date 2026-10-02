@@ -12,7 +12,8 @@ import os
 import shutil
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -59,8 +60,102 @@ def normalize_executor_id(value: str) -> str:
     return _ALIASES.get(key, key)
 
 
+class ExecutorAvailability(StrEnum):
+    """Lifecycle state of an executor as an *inventory* concern."""
+
+    REGISTERED = "REGISTERED"
+    AVAILABLE = "AVAILABLE"
+    DEGRADED = "DEGRADED"
+    UNAVAILABLE = "UNAVAILABLE"
+    DISABLED = "DISABLED"
+    LEGACY = "LEGACY"
+
+
+#: The registry used to report READY / DEGRADED / UNKNOWN. Those words are
+#: mapped here, once, onto the availability vocabulary the contract names, so
+#: no caller has to know which generation of the enum it is reading.
+_AVAILABILITY_FROM_STATUS: dict[str, str] = {
+    "READY": str(ExecutorAvailability.AVAILABLE),
+    "DEGRADED": str(ExecutorAvailability.DEGRADED),
+    "UNAVAILABLE": str(ExecutorAvailability.UNAVAILABLE),
+    "DISABLED": str(ExecutorAvailability.DISABLED),
+    "REGISTERED": str(ExecutorAvailability.REGISTERED),
+    "UNKNOWN": str(ExecutorAvailability.REGISTERED),
+    "LEGACY": str(ExecutorAvailability.LEGACY),
+}
+
+
+def availability_for(status: str) -> str:
+    """Normalise a discovery status into the availability vocabulary."""
+
+    return _AVAILABILITY_FROM_STATUS.get(
+        str(status or "UNKNOWN").upper(), str(ExecutorAvailability.REGISTERED)
+    )
+
+
+@dataclass(frozen=True)
+class ExecutorIdentity:
+    """Who the executor is. Static; says nothing about whether it may run."""
+
+    name: str
+    kind: str
+    provider: str | None = None
+    model: str | None = None
+
+
+@dataclass(frozen=True)
+class ExecutorCapability:
+    """What the executor can do.
+
+    Kept separate from identity and runtime state on purpose: an executor can
+    exist and be registered while having no capability record at all, which is
+    exactly the state ``acp`` is in. Merging the two would make "unknown" and
+    "none" indistinguishable.
+    """
+
+    supported_operations: frozenset[str] = frozenset()
+    capabilities: frozenset[str] = frozenset()
+    write_qualified: bool = False
+
+    @property
+    def selectable(self) -> bool:
+        """An executor is selectable only once a capability record exists."""
+
+        return bool(self.capabilities or self.supported_operations)
+
+
+@dataclass(frozen=True)
+class ExecutorRuntimeState:
+    """How the executor is doing right now. Never holds credentials."""
+
+    availability: str = str(ExecutorAvailability.REGISTERED)
+    health: str = "UNKNOWN"
+    failure_state: str | None = None
+    last_seen: float = 0.0
+    auth_state: str = "UNKNOWN"
+    authenticated: bool = False
+    reachable: bool = False
+    launcher: str | None = None
+    runtime_source: str = "unknown"
+
+
+@dataclass(frozen=True)
+class ExecutorPolicy:
+    """Routing preference. An input to selection, never an override of it."""
+
+    priority: int = 0
+
+
 @dataclass(frozen=True)
 class ExecutorRuntimeIdentity:
+    """Composed view of an executor across the four concerns.
+
+    The components stay separate so that no single field can quietly become an
+    authority for a question it does not answer: identity never decides
+    availability, and policy never decides capability. This object only
+    *presents* them together for callers that need a flat record.
+    """
+
     executor_id: str
     executor_kind: str
     provider: str | None
@@ -73,6 +168,76 @@ class ExecutorRuntimeIdentity:
     updated_at: float = 0.0
     authenticated: bool = False
     status: str = "UNKNOWN"
+    supported_operations: frozenset[str] = frozenset()
+    write_qualified: bool = False
+    health: str = "UNKNOWN"
+    failure_state: str | None = None
+    priority: int = 0
+
+    # ── layered projections ──
+    @property
+    def identity(self) -> ExecutorIdentity:
+        return ExecutorIdentity(
+            name=self.executor_id,
+            kind=self.executor_kind,
+            provider=self.provider,
+            model=self.model,
+        )
+
+    @property
+    def capability(self) -> ExecutorCapability:
+        return ExecutorCapability(
+            supported_operations=self.supported_operations,
+            capabilities=self.capabilities,
+            write_qualified=self.write_qualified,
+        )
+
+    @property
+    def runtime(self) -> ExecutorRuntimeState:
+        return ExecutorRuntimeState(
+            availability=self.status,
+            health=self.health,
+            failure_state=self.failure_state,
+            last_seen=self.updated_at,
+            auth_state=self.auth_state,
+            authenticated=self.authenticated,
+            reachable=self.reachable,
+            launcher=self.launcher,
+            runtime_source=self.runtime_source,
+        )
+
+    @property
+    def policy(self) -> ExecutorPolicy:
+        return ExecutorPolicy(priority=self.priority)
+
+    @property
+    def availability(self) -> str:
+        """Availability in the contract vocabulary.
+
+        Normalised on read rather than stored, so the registry keeps the status
+        wording the rest of the system already compares against while callers
+        that want REGISTERED/AVAILABLE/DEGRADED/... get one stable vocabulary.
+        """
+
+        return availability_for(self.status)
+
+    @property
+    def selectable(self) -> bool:
+        """Capability recorded *and* availability permits selection.
+
+        Registered is not selectable, and available is not selectable without a
+        capability record: ``acp`` is the case that keeps these apart. Runtime
+        health is deliberately not consulted here — that is the health
+        registry's input to selection, not a property of the identity.
+        """
+
+        if not self.capability.selectable:
+            return False
+        return self.availability not in {
+            str(ExecutorAvailability.UNAVAILABLE),
+            str(ExecutorAvailability.DISABLED),
+            str(ExecutorAvailability.LEGACY),
+        }
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,9 +250,15 @@ class ExecutorRuntimeIdentity:
             "reachable": self.reachable,
             "launcher": self.launcher,
             "capabilities": sorted(self.capabilities),
+            "supported_operations": sorted(self.supported_operations),
             "runtime_source": self.runtime_source,
             "updated_at": self.updated_at,
             "status": self.status,
+            "health": self.health,
+            "failure_state": self.failure_state,
+            "priority": self.priority,
+            "write_qualified": self.write_qualified,
+            "selectable": self.selectable,
         }
 
 
@@ -260,6 +431,26 @@ class ExecutorRegistry:
         status = (
             "READY" if reachable and authenticated else "DEGRADED" if reachable else "UNAVAILABLE"
         )
+        # capability and priority are *inputs* read from their own authorities;
+        # this function only projects them, it never decides them.
+        from veya.remote.worker_runtime import WORKER_CAPABILITIES
+
+        record = WORKER_CAPABILITIES.get(executor_id)
+        # WorkerCapabilities is a set of booleans; the operation vocabulary the
+        # registry publishes is derived from it rather than restated, so the
+        # two cannot disagree about what an executor supports.
+        supported = (
+            frozenset(name for name, value in asdict(record).items() if value is True)
+            if record is not None
+            else frozenset()
+        )
+        capabilities = supported
+        write_qualified = bool(record.supports_write_task) if record is not None else False
+        order = (
+            _CANONICAL_ORDER.index(executor_id)
+            if executor_id in _CANONICAL_ORDER
+            else len(_CANONICAL_ORDER)
+        )
         return ExecutorRuntimeIdentity(
             executor_id=executor_id,
             executor_kind="l1_worker",
@@ -269,10 +460,17 @@ class ExecutorRegistry:
             authenticated=authenticated,
             reachable=reachable,
             launcher=launcher,
-            capabilities=frozenset(),
+            capabilities=capabilities,
             runtime_source=source,
             updated_at=time.time(),
             status=status,
+            supported_operations=supported,
+            write_qualified=write_qualified,
+            # health is UNKNOWN until evidence arrives; a fresh discovery must
+            # not look healthy just because it exists.
+            health="UNKNOWN",
+            failure_state=None,
+            priority=order,
         )
 
     def identity(self, executor_id: str) -> ExecutorRuntimeIdentity:
@@ -292,7 +490,18 @@ class ExecutorRegistry:
         return identity
 
     def register(self, identity: ExecutorRuntimeIdentity) -> None:
-        self._identities[normalize_executor_id(identity.executor_id)] = identity
+        """Admit an executor.
+
+        This is the only way an executor enters the registry, so the retirement
+        guard belongs here. ``_discover`` and ``identity()`` also refuse retired
+        names, but without this check a retired executor could be injected
+        through the very path that is supposed to be authoritative.
+        """
+
+        key = normalize_executor_id(identity.executor_id)
+        if is_retired(key):
+            raise ValueError(f"Executor retired: {key}")
+        self._identities[key] = identity
 
     def snapshot(self) -> dict[str, ExecutorRuntimeIdentity]:
         return dict(self._identities)
