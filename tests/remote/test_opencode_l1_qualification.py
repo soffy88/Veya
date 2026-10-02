@@ -26,12 +26,12 @@ import pytest
 
 from runtime.coding.worktree import WorktreeManager, teardown_worktree
 from veya.remote.executor_health import (
-    registry_order,
     ExecutorFailureClass,
     ExecutorHealth,
     ExecutorHealthRegistry,
     classify_executor_failure,
     normalize_executor_name,
+    registry_order,
     resolve_executor,
 )
 from veya.remote.tool_adapter import (
@@ -290,7 +290,8 @@ def test_07_failure_taxonomy_for_opencode() -> None:
     fc_quota = classify_executor_failure(
         detail="OpenCode provider 429: quota exhausted, purchase more credits"
     )
-    assert fc_quota == ExecutorFailureClass.PROVIDER_UNAVAILABLE
+    # A quota wall is not a provider outage.
+    assert fc_quota == ExecutorFailureClass.PROVIDER_RATE_LIMIT
 
     # auth failure
     fc_auth = classify_executor_failure(

@@ -197,7 +197,9 @@ def test_07_failure_taxonomy_claude_code() -> None:
     assert fc_auth == ExecutorFailureClass.AUTH_FAILURE
 
     fc_quota = classify_executor_failure(detail="Claude Code 429: rate limit exceeded, usage limit")
-    assert fc_quota == ExecutorFailureClass.PROVIDER_UNAVAILABLE
+    # A quota wall is not an outage: "unreachable" and "slow down" call for
+    # different operator responses, so the two must not collapse.
+    assert fc_quota == ExecutorFailureClass.PROVIDER_RATE_LIMIT
 
     fc_timeout = classify_executor_failure(
         error=TimeoutError("claude_code run hard max runtime exceeded")

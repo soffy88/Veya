@@ -161,6 +161,15 @@ def classify_executor_failure(
     ):
         return ExecutorFailureClass.AUTH_FAILURE
 
+    # 9b. Rate limiting is its own outcome. "provider unreachable" and "provider
+    # says slow down" call for different operator responses, and a quota wall
+    # must not be reported as an outage.
+    if any(
+        k in combined
+        for k in ("429", "rate_limit", "rate limit", "resource_exhausted", "too many requests")
+    ):
+        return ExecutorFailureClass.PROVIDER_RATE_LIMIT
+
     # 9. Provider connectivity / outage checks
     if any(
         k in combined
@@ -182,10 +191,40 @@ def classify_executor_failure(
             "quota",
             "purchase more credits",
             "insufficient balance",
-            "429",
         )
     ):
         return ExecutorFailureClass.PROVIDER_UNAVAILABLE
+
+    # 9c. A structured refusal from the provider is a configuration fault, not
+    # a worker fault. Real example: a provider answering HTTP 400
+    # FAILED_PRECONDITION because the account's region is unsupported. The
+    # process exited non-zero, so without this check it fell through to
+    # WORKER_CRASH and blamed the executor for the provider's policy.
+    if any(
+        k in combined
+        for k in (
+            "failed_precondition",
+            "user location is not supported",
+            "not supported for the api use",
+            "unsupported_region",
+            "invalid_request_error",
+            "400 bad request",
+        )
+    ) or ("400:" in combined and "api" in combined):
+        return ExecutorFailureClass.PROVIDER_CONFIGURATION_FAILURE
+
+    # 9d. The provider accepted the request and then ran out of time.
+    if any(
+        k in combined
+        for k in (
+            "provider timeout",
+            "read timeout on provider",
+            "provider_request_timeout",
+            "timeout_kind=inactivity_timeout",
+            "inactivity_timeout_ms",
+        )
+    ):
+        return ExecutorFailureClass.PROVIDER_TIMEOUT
 
     # 10. Environment / binary checks
     if any(

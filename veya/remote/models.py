@@ -61,6 +61,14 @@ class ExecutorFailureClass(StrEnum):
     EXECUTOR_HEALTH_FAILURE = "EXECUTOR_HEALTH_FAILURE"
     EXECUTOR_CRASH = "EXECUTOR_CRASH"
 
+    # Provider-signal classes. An executor that launches cleanly and is then
+    # refused by its provider has not crashed: the failure belongs to the
+    # provider, and reporting it as a worker fault sends an operator to the
+    # wrong layer. PROVIDER_UNAVAILABLE above predates this split and stays.
+    PROVIDER_RATE_LIMIT = "PROVIDER_RATE_LIMIT"
+    PROVIDER_TIMEOUT = "PROVIDER_TIMEOUT"
+    PROVIDER_CONFIGURATION_FAILURE = "PROVIDER_CONFIGURATION_FAILURE"
+
 
 class ExecutorHealth(StrEnum):
     """Runtime health classification states (P5)."""
