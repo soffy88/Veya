@@ -387,8 +387,15 @@ def resolve_executor(
     order = registry_order() if preference_order is None else tuple(preference_order)
     req_norm = normalize_executor_name(requested or "") if requested else None
 
-    if req_norm and req_norm not in WORKER_CAPABILITIES:
+    # Admission is registry-owned: who exists. Runtime capability data answers a
+    # different question (what this executor can do), so it must never gate
+    # admission. An admitted executor with no capability record is NOT_READY,
+    # which must fail closed rather than silently substituting another executor.
+    registry = get_executor_registry()
+    if req_norm and req_norm not in registry.ordered_ids():
         raise ValueError(f"Unknown executor: {requested!r}")
+    if req_norm and req_norm not in WORKER_CAPABILITIES:
+        raise ValueError(f"Executor not ready: {requested!r} has no runtime capability record")
 
     # Explicit pin authority: Never substitute an explicitly pinned executor
     if explicit_pin and req_norm:
