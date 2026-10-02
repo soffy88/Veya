@@ -461,6 +461,12 @@ class ExecutionRecord:
     #: Which clock expired (SUBMIT | PROCESS | TOOL) and the budget it ran
     #: against. A single "timed out" answer cannot distinguish a caller that
     #: under-specified its budget from a child process that hung.
+    #: Admission outcome, recorded independently of the lifecycle. A terminal
+    #: record is not thereby admitted: a refusal is terminal *because* it never
+    #: started, which the lifecycle alone cannot express.
+    admission_status: str = "ACCEPTED"
+    admission_reason: str = "NONE"
+    admission_failure_class: str | None = None
     timeout_type: str | None = None
     timeout_seconds: float | None = None
     #: When the execution last showed forward progress, so an inactivity
@@ -617,6 +623,9 @@ class ExecutionRecord:
             # the same request resolves to different checkouts by intent.
             "target_type": self.target_type,
             "dirty_state": self.dirty_state,
+            "admission_status": self.admission_status,
+            "admission_reason": self.admission_reason,
+            "admission_failure_class": self.admission_failure_class,
             "timeout_type": self.timeout_type,
             "timeout_seconds": self.timeout_seconds,
             "last_progress_at": self.last_progress_at,
@@ -945,6 +954,11 @@ class ProgressReporter:
             capability_ids=capability_ids,
             skill_ids=skill_ids,
         )
+
+    def admission(self, decision: Any) -> None:
+        """Record the admission decision for this execution."""
+
+        self._manager.set_admission(self._execution_id, decision)
 
     def timeout(self, *, kind: str, seconds: float | None = None) -> None:
         """Record which clock expired, so a timeout is never undifferentiated."""
@@ -3023,6 +3037,15 @@ class DurableJobManager:
         record = self._record_for_update(execution_id)
         record.worktree_path = str(worktree_path)
         record.worktree_repo_root = str(worktree_repo_root)
+        self._persist(record)
+
+    def set_admission(self, execution_id: str, decision: Any) -> None:
+        """Record the admission decision without touching the lifecycle state."""
+
+        record = self._record_for_update(execution_id)
+        record.admission_status = str(decision.status)
+        record.admission_reason = str(decision.reason)
+        record.admission_failure_class = decision.failure_class
         self._persist(record)
 
     def set_timeout(self, execution_id: str, *, kind: str, seconds: float | None = None) -> None:

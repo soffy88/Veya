@@ -43,6 +43,7 @@ from veya.remote.skills import SkillPermission
 from veya.supervision.task_memory import TaskMemory
 
 from .action_gateway import ActionCategory, ActionGateway, parse_systemctl_command
+from .admission import admission_for_blocker
 from .direct_exec import (
     DEFAULT_DIRECT_TIMEOUT_S,
     DirectApprovalRequired,
@@ -3402,7 +3403,11 @@ class RemoteToolAdapter:
                     detail="identical unresolved action/error signature",
                 )
                 raise ExecutionBlocked("ERROR_REPETITION_GUARD", blocker)
-            raise ExecutionBlocked(_admission_failure_class(blocker), blocker)
+            # Label the refusal with *why* admission declined. The lifecycle
+            # state is unchanged: splitting the semantics is a separate step,
+            # and doing both at once is what broke three suites last time.
+            reporter.admission(admission_for_blocker(blocker, blocker))
+            raise ExecutionBlocked(blocker, blocker)
 
         self._start_blocked_sweeper()
         child = self.jobs.submit(
@@ -4636,24 +4641,6 @@ class RemoteToolAdapter:
             message=message,
             result=result,
         )
-
-
-#: Admission blockers and the L1 failure class each one means. A missing
-#: capability, a disabled executor and an unhealthy one are different operator
-#: problems and must not collapse into one word.
-_ADMISSION_FAILURE_CLASSES: dict[str, str] = {
-    "REQUIRED_CAPABILITY_UNAVAILABLE": "EXECUTOR_CAPABILITY_MISMATCH",
-    "PINNED_EXECUTOR_NOT_WRITE_QUALIFIED": "EXECUTOR_CAPABILITY_MISMATCH",
-    "WORKER_NOT_WRITE_QUALIFIED": "EXECUTOR_CAPABILITY_MISMATCH",
-    "WORKER_UNAVAILABLE": "EXECUTOR_UNAVAILABLE",
-    "EXECUTOR_DISABLED": "EXECUTOR_DISABLED",
-    "EXECUTOR_HEALTH_FAILURE": "EXECUTOR_HEALTH_FAILURE",
-    "ERROR_REPETITION_GUARD": "EXECUTOR_UNAVAILABLE",
-}
-
-
-def _admission_failure_class(blocker: str) -> str:
-    return _ADMISSION_FAILURE_CLASSES.get(str(blocker), "EXECUTOR_UNAVAILABLE")
 
 
 def _direct_failure_class(result: Any) -> str:
