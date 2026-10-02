@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -216,6 +217,47 @@ def resolve_execution_target(
     if str(intent or "read").strip().lower() in {"mutation", "write", "mutate"}:
         return "NEW_ISOLATED_WORKTREE"
     return "CANONICAL_WORKTREE"
+
+
+_ISOLATED_TARGETS = frozenset({"NEW_ISOLATED_WORKTREE", "EXECUTION_WORKTREE", "EXISTING_WORKTREE"})
+
+
+def _target_activity(target_type: str) -> str:
+    """Human-readable label for the checkout an execution actually ran in."""
+
+    if target_type in _ISOLATED_TARGETS:
+        return "isolated worktree ready"
+    if target_type in ("CANONICAL_WORKTREE", "HOST"):
+        return "canonical worktree ready"
+    return f"worktree ready ({target_type})"
+
+
+def _worktree_dirty_state(worktree_path: str | Path | None) -> bool | None:
+    """Whether ``worktree_path`` carried local state at dispatch time.
+
+    ``git status`` is asked directly, so a linked worktree (whose ``.git`` is a
+    file) and a main checkout (whose ``.git`` is a directory) are both answered
+    by git rather than by a guess. ``None`` means "could not be determined",
+    which the receipt keeps distinct from "clean".
+    """
+
+    if not worktree_path:
+        return None
+    root = Path(worktree_path)
+    if not (root / ".git").exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return bool(result.stdout.strip())
 
 
 def find_existing_worktree_root(target_path: str | Path) -> Path | None:
@@ -2596,11 +2638,12 @@ class RemoteToolAdapter:
                 )
             cwd = self._map_target_to_worktree(target_path, repo_root, worktree)
             reporter.set_worktree(worktree, repo_root)
+            reporter.set_target(execution_target, _worktree_dirty_state(worktree))
             reporter.worker(
                 execution_mode="direct_command",
                 orchestrator="none",
                 worker_type="HOST",
-                activity=f"isolated worktree ready: {worktree}",
+                activity=f"{_target_activity(execution_target)}: {worktree}",
                 worker_workspace=worktree,
             )
             reporter.phase(
@@ -3414,11 +3457,12 @@ class RemoteToolAdapter:
                 dependency_artifacts or [],
             )
             reporter.set_worktree(worktree, verified_repo)
+            reporter.set_target(execution_target, _worktree_dirty_state(worktree))
             reporter.worker(
                 execution_mode=f"direct_{worker}",
                 orchestrator="none",
                 worker_type=worker.upper(),
-                activity=f"isolated worktree ready: {worktree}",
+                activity=f"{_target_activity(execution_target)}: {worktree}",
                 worker_workspace=worktree,
             )
             context, rendered_context, memory = await self._prepare_execution_context(

@@ -121,7 +121,11 @@ _PHASE_ORDER: dict[str, int] = {str(phase): index for index, phase in enumerate(
 
 
 class ExecutionType(StrEnum):
-    """Which canonical execution family a durable record belongs to."""
+    """Which canonical execution family a durable record belongs to.
+
+    ``HICODE`` is a retained historical label only. The Hicode executor was
+    retired: nothing dispatches to it, and it is never a default.
+    """
 
     HICODE = "hicode"
     DIRECT = "direct"
@@ -138,6 +142,13 @@ DIRECT_PHASE_ORDER: dict[str, int] = {
 }
 _DIRECT_TAIL_BYTES = 32_000
 _FAILURE_DETAIL_BYTES = 4_000
+
+#: How long a ``BLOCKED`` projection may rest before it is converged to a
+#: terminal failure. ``BLOCKED`` is a terminal *phase* (the worker stopped), but
+#: on its own it is not a terminal *status*: a blocked dispatch that is never
+#: retried or cancelled would otherwise stay visible as BLOCKED forever. The TTL
+#: keeps an in-flight block observable long enough to be inspected or resumed.
+_BLOCKED_TERMINAL_TTL_S = float(os.environ.get("VEYA_BLOCKED_TERMINAL_TTL_S", "900") or 900)
 _MAX_EVENTS = 40
 _MAX_FAILURE_HISTORY = 20
 _RAW_FAILURE_EVIDENCE_BYTES = 8_000
@@ -222,6 +233,16 @@ class ExecutionRecord:
     worktree_path: str | None = None
     worktree_repo_root: str | None = None
     worktree_branch: str | None = None
+    #: Resolved execution target (CANONICAL_WORKTREE | NEW_ISOLATED_WORKTREE |
+    #: EXECUTION_WORKTREE | EXISTING_WORKTREE | HOST). The caller must be able
+    #: to see which checkout actually ran, because the requested workspace and
+    #: the resolved checkout are not the same thing.
+    target_type: str | None = None
+    #: Whether the resolved checkout carried local state (tracked edits, staged
+    #: files, untracked source) at dispatch time. A canonical run on a dirty tree
+    #: and a clean worktree are not interchangeable, and the receipt has to say
+    #: which one happened.
+    dirty_state: bool | None = None
     isolated_worktree: bool = False
     keep_worktree: bool = False
     # Set when the terminal path successfully reclaimed this execution's
@@ -264,7 +285,7 @@ class ExecutionRecord:
     command_timeout_sec: float | None = None
     heartbeat_timeout_sec: float | None = None
     # P0-D/E/F: direct execution identity and bounded streaming state.
-    execution_type: str = str(ExecutionType.HICODE)
+    execution_type: str = str(ExecutionType.DIRECT)
     command: str | None = None
     cwd: str | None = None
     profile: str | None = None
@@ -408,6 +429,11 @@ class ExecutionRecord:
             "repo_identity": self.repo_identity,
             "worktree": self.worktree_path,
             "worktree_repo_root": self.worktree_repo_root,
+            # Which execution target actually ran, and the state of that
+            # checkout. A caller cannot infer this from requested_workspace:
+            # the same request resolves to different checkouts by intent.
+            "target_type": self.target_type,
+            "dirty_state": self.dirty_state,
             "worktree_binding_key": self.worktree_binding_key,
             "worktree_base_sha": self.worktree_base_sha,
             "execution_commit_sha": self.execution_commit_sha,
@@ -657,6 +683,11 @@ class ProgressReporter:
             self._execution_id,
             worktree_path=worktree_path,
             worktree_repo_root=worktree_repo_root,
+        )
+
+    def set_target(self, target_type: str, dirty_state: bool | None = None) -> None:
+        self._manager.set_target(
+            self._execution_id, target_type=target_type, dirty_state=dirty_state
         )
 
     def worker(
@@ -981,7 +1012,11 @@ class DurableJobManager:
                 continue
             if not self._is_reclaimable_worktree(path):
                 retained.append(
-                    {"execution_id": record.execution_id, "path": path, "reason": "NOT_EXECUTION_WORKTREE"}
+                    {
+                        "execution_id": record.execution_id,
+                        "path": path,
+                        "reason": "NOT_EXECUTION_WORKTREE",
+                    }
                 )
                 continue
             if dry_run:
@@ -1028,10 +1063,51 @@ class DurableJobManager:
         """Number of persisted non-terminal remote projections."""
         with self._lock:
             return sum(not record.is_terminal for record in self._records.values())
+
     def unfinished_records(self) -> list[ExecutionRecord]:
         """Snapshot of non-terminal projections for lifecycle decisions."""
         with self._lock:
             return [record for record in self._records.values() if not record.is_terminal]
+
+    def blocked_record_count(self) -> int:
+        """How many projections are currently resting in ``BLOCKED``."""
+
+        with self._lock:
+            return sum(
+                1
+                for record in self._records.values()
+                if record.status == str(ExecutionStatus.BLOCKED)
+                and record.phase == str(ExecutionPhase.BLOCKED)
+            )
+
+    def sweep_blocked_records(self, *, ttl_s: float | None = None) -> int:
+        """Converge long-resting ``BLOCKED`` projections to ``FAILED``.
+
+        ``BLOCKED`` records are terminal in phase but were never given a
+        terminal status, so nothing else advances them. After ``ttl_s`` they are
+        finished as FAILED, preserving the original blocker as the failure
+        detail so the reason is never lost. Returns the number converged.
+        """
+
+        cutoff = time.time() - (_BLOCKED_TERMINAL_TTL_S if ttl_s is None else float(ttl_s))
+        converged = 0
+        with self._lock:
+            candidates = [
+                record
+                for record in self._records.values()
+                if record.status == str(ExecutionStatus.BLOCKED)
+                and record.phase == str(ExecutionPhase.BLOCKED)
+                and (record.completed_at or record.started_at or 0.0) <= cutoff
+            ]
+        for record in candidates:
+            self._finish(
+                record,
+                str(ExecutionStatus.FAILED),
+                message="blocked execution exceeded its terminal TTL",
+                error=record.failure_class or record.error or "BLOCKED_TTL_EXPIRED",
+            )
+            converged += 1
+        return converged
 
     def reconcile_unfinished(self) -> dict[str, int]:
         """Converge stale child projections and mechanical parents.
@@ -1044,6 +1120,7 @@ class DurableJobManager:
 
         children_reconciled = 0
         parents_reconciled = 0
+        blocked_swept = self.sweep_blocked_records()
         with self._lock:
             records = list(self._records.values())
             tasks = dict(self._tasks)
@@ -1088,7 +1165,11 @@ class DurableJobManager:
             self.aggregate(parent, _children=children)
             if before != (str(parent.status), str(parent.phase)) and parent.is_terminal:
                 parents_reconciled += 1
-        return {"children": children_reconciled, "parents": parents_reconciled}
+        return {
+            "children": children_reconciled,
+            "parents": parents_reconciled,
+            "blocked_swept": blocked_swept,
+        }
 
     def reconcile_prelaunch(self) -> int:
         """Fail closed pre-admissions that have no child launch evidence."""
@@ -1409,7 +1490,7 @@ class DurableJobManager:
         runner: Runner,
         task_id: str | None = None,
         limits: dict[str, Any] | None = None,
-        execution_type: str = str(ExecutionType.HICODE),
+        execution_type: str = str(ExecutionType.DIRECT),
         command: str | None = None,
         cwd: str | None = None,
         profile: str | None = None,
@@ -2686,11 +2767,32 @@ class DurableJobManager:
     def set_worktree(
         self, execution_id: str, *, worktree_path: str, worktree_repo_root: str
     ) -> None:
-        """Record the isolated worktree identity once it has been created (P0-B)."""
+        """Record the resolved checkout identity once it has been determined (P0-B)."""
 
         record = self._record_for_update(execution_id)
         record.worktree_path = str(worktree_path)
         record.worktree_repo_root = str(worktree_repo_root)
+        self._persist(record)
+
+    def set_target(
+        self,
+        execution_id: str,
+        *,
+        target_type: str,
+        dirty_state: bool | None = None,
+    ) -> None:
+        """Record which execution target ran, and the state of that checkout.
+
+        The resolved target is not derivable from the requested workspace: a
+        request for the project root may legitimately run in an isolated
+        worktree, and a request for a worktree may run in the canonical tree.
+        Callers are entitled to see which happened.
+        """
+
+        record = self._record_for_update(execution_id)
+        record.target_type = str(target_type)
+        if dirty_state is not None:
+            record.dirty_state = bool(dirty_state)
         self._persist(record)
 
     def set_finalization(self, execution_id: str, result: dict[str, Any]) -> None:
