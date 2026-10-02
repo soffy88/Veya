@@ -162,8 +162,15 @@ def _patch_fake_worker(monkeypatch, fake: Any) -> None:
                 worker_type=worker.upper(),
                 activity=f"{worker} worker started",
             )
+            # Mirror production: the resolved execution target decides the
+            # checkout. Worker children mutate code, so the default is isolated.
             worktree, verified_repo = await self._ensure_isolated_worktree(
-                session, repo_root, lane, execution_id=reporter._execution_id
+                session,
+                repo_root,
+                lane,
+                execution_target=kwargs.get("execution_target", "NEW_ISOLATED_WORKTREE"),
+                target_path=None,
+                execution_id=reporter._execution_id,
             )
             reporter.set_worktree(worktree, verified_repo)
             reporter.worker(

@@ -12,8 +12,7 @@ Two execution families, one workspace contract:
   inside the direct sync window returns inline; a longer one returns an
   ``execution_id`` immediately and is observable via ``process.status``.
 
-LLM-backed coding (``hicode.execute``) remains a separate durable job on the
-same substrate. The adapter never runs a keyword/semantic router.
+The adapter never runs a keyword/semantic router.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -159,30 +159,46 @@ def resolve_execution_target(
     workspace: str | Path,
     workspace_path: str | Path | None = None,
     requested_execution_target: str = "",
+    *,
+    intent: str = "read",
 ) -> str:
     """Canonical execution-target resolver (P0-B).
 
     Rules (in priority order):
-    1. Explicit ``EXISTING_WORKTREE`` / ``CANONICAL_WORKTREE`` / ``HOST`` → honour.
+    1. A non-empty ``requested_execution_target`` is honoured only if it is one of
+       ``EXECUTION_TARGETS``; anything else raises ``INVALID_ARGUMENT`` rather
+       than degrading to the auto-detected default.
     2. ``workspace`` itself is a linked worktree (``.git`` is a file pointing into
        ``<main>/.git/worktrees/*``) → ``EXISTING_WORKTREE``.
     3. ``workspace_path`` resolves to a directory inside ``.veya/worktrees/``
        of some parent repo → ``EXISTING_WORKTREE``.
-    4. Otherwise → ``NEW_ISOLATED_WORKTREE``.
+    4. Otherwise → ``CANONICAL_WORKTREE`` for read/execute intent, and
+       ``NEW_ISOLATED_WORKTREE`` for ``intent="mutation"``.
+
+    Read and execute default to canonical. A fresh worktree is a clean checkout:
+    it carries no untracked source, no local virtualenv, and none of the current
+    working state, so defaulting execution to it made the current tree's own
+    modules unimportable while qualifying it.
+
+    Mutation keeps the isolated default. Writing into the owner's live tree by
+    default would drop the cross-repo write guard and the stale-write isolation
+    that ``file.write`` / ``file.patch`` / worker children rely on, which widens
+    the write boundary rather than narrowing it. A caller that genuinely means to
+    mutate the canonical tree must still pass ``CANONICAL_WORKTREE`` explicitly.
 
     This is the *only* place that maps a workspace/path to an execution target.
     All callers (shell.exec, test.run, build.run, file.write, file.patch) must
     use this function instead of guessing individually.
     """
     explicit = str(requested_execution_target or "").strip().upper()
-    if explicit in ("CANONICAL_WORKTREE", "HOST"):
+    if explicit:
+        if explicit not in EXECUTION_TARGETS:
+            raise RemoteToolAdapterError(
+                RemoteErrorCode.INVALID_ARGUMENT,
+                f"unknown execution_target {explicit!r}; expected one of: "
+                f"{', '.join(EXECUTION_TARGETS)}",
+            )
         return explicit
-    if explicit == "EXISTING_WORKTREE":
-        return "EXISTING_WORKTREE"
-    if explicit == "EXECUTION_WORKTREE":
-        return "EXECUTION_WORKTREE"
-    if explicit == "NEW_ISOLATED_WORKTREE":
-        return "NEW_ISOLATED_WORKTREE"
 
     ws = Path(workspace).expanduser().resolve()
 
@@ -197,7 +213,9 @@ def resolve_execution_target(
             if anc.parent.name == "worktrees" and anc.parent.parent.name == ".veya":
                 return "EXISTING_WORKTREE"
 
-    return "NEW_ISOLATED_WORKTREE"
+    if str(intent or "read").strip().lower() in {"mutation", "write", "mutate"}:
+        return "NEW_ISOLATED_WORKTREE"
+    return "CANONICAL_WORKTREE"
 
 
 def find_existing_worktree_root(target_path: str | Path) -> Path | None:
@@ -701,6 +719,7 @@ BINDINGS: tuple[ToolBinding, ...] = (
                 "fail_fast": {"type": "boolean"},
                 "workspace": _STR,
                 "path": _STR,
+                "execution_target": _EXECUTION_TARGET_SCHEMA,
             },
             ["tasks"],
         ),
@@ -843,25 +862,6 @@ BINDINGS: tuple[ToolBinding, ...] = (
         EffectClass.READ,
         "Read a task-scoped artifact by its path under the task output directory.",
         _obj({"path": _STR}, ["path"]),
-    ),
-    ToolBinding(
-        "hicode.execute",
-        "hicode_run",
-        EffectClass.WRITE,
-        "Delegate a real coding task to Veya's Hicode executor (reads code, edits, runs tests).",
-        _obj(
-            {
-                "task": _STR,
-                "workspace": _STR,
-                "path": _STR,
-                "max_steps": {"type": "integer"},
-                "timeout_sec": {"type": "integer"},
-                "execution_mode": {"type": "string", "enum": ["direct_hicode"]},
-            },
-            ["task"],
-        ),
-        long_running=True,
-        needs_shell=True,
     ),
 )
 
@@ -1057,7 +1057,6 @@ _EXECUTION_SCOPED_TOOLS = {
     "git.diff",
     "git.log",
     "git.promote",
-    "hicode.execute",
     "worker.dispatch",
 }
 for _binding in BINDINGS:
@@ -1112,6 +1111,7 @@ class RemoteToolAdapter:
             recovery_runner_factory=recovery_runner_factory,
         )
         self._startup_lock = asyncio.Lock()
+        self._blocked_sweeper: asyncio.Task | None = None
         self._startup_complete = False
         self._startup_error: BaseException | None = None
         self.startup_recovery_report: dict[str, Any] = {
@@ -1192,6 +1192,45 @@ class RemoteToolAdapter:
             and now - record.heartbeat_at <= self.jobs.heartbeat_timeout_s
         )
 
+    def _start_blocked_sweeper(self) -> None:
+        """Converge long-resting BLOCKED projections to a terminal status.
+
+        ``BLOCKED`` is terminal in phase, so ``reconcile_unfinished`` skips it and
+        the projection would otherwise stay BLOCKED for the life of the process.
+
+        The sweeper is demand-driven: it runs only while a BLOCKED record exists
+        and exits as soon as the last one is converged, so a healthy process
+        carries no idle background task.
+        """
+
+        if self._blocked_sweeper is not None and not self._blocked_sweeper.done():
+            return
+        if self.jobs.blocked_record_count() <= 0:
+            return
+        try:
+            interval = float(os.environ.get("VEYA_BLOCKED_SWEEP_INTERVAL_S", "60") or 60)
+        except ValueError:
+            interval = 60.0
+
+        async def sweep() -> None:
+            while self.jobs.blocked_record_count() > 0:
+                try:
+                    await asyncio.sleep(max(5.0, interval))
+                    if self.jobs.blocked_record_count() <= 0:
+                        return
+                    await run_sync_in_daemon_thread(self.jobs.sweep_blocked_records)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logging.getLogger("veya.remote.adapter").exception(
+                        "blocked-record sweep failed"
+                    )
+
+        try:
+            self._blocked_sweeper = asyncio.create_task(sweep(), name="veya-blocked-sweeper")
+        except RuntimeError:
+            self._blocked_sweeper = None
+
     async def initialize(self) -> dict[str, Any]:
         """Initialize the projection and trigger canonical GoalRun recovery.
 
@@ -1260,6 +1299,7 @@ class RemoteToolAdapter:
                     "failures": failures,
                 }
                 self._startup_complete = True
+                self._start_blocked_sweeper()
                 return dict(self.startup_recovery_report)
             except BaseException as exc:
                 self._startup_error = exc
@@ -1483,14 +1523,6 @@ class RemoteToolAdapter:
                 session, policy, binding, args, operation_binding, started, resolution=resolution
             )
 
-        # P1-B: explicit direct_hicode worker (real Hicode + LLM, no orchestrator).
-        # Injected executors (tests / qualification harness) keep the canonical
-        # durability path below; the production default executor is Hicode itself.
-        if name == "hicode.execute" and self._executor is None:
-            return await self._call_direct_hicode(
-                session, policy, binding, args, operation_binding, started
-            )
-
         # LLM-backed coding runs as a durable background job; the submit RPC
         # returns an execution_id immediately by default. Workspace binding
         # validation + worktree creation happen inside the worker so the durable
@@ -1692,15 +1724,7 @@ class RemoteToolAdapter:
                 must_exist=None,
                 for_write=True,
             )
-        elif (
-            name in _FAST_GIT_TOOLS
-            or name in _COMMAND_TOOLS
-            or name
-            in {
-                "worker.dispatch",
-                "hicode.execute",
-            }
-        ):
+        elif name in _FAST_GIT_TOOLS or name in _COMMAND_TOOLS or name == "worker.dispatch":
             requested_path = path or "."
             require_repo = True
         else:
@@ -1762,17 +1786,6 @@ class RemoteToolAdapter:
             )
             return binding.veya_tool, self._read_args(name, session, policy, base, args), None
 
-        if name == "hicode.execute":
-            # P0-A: pass the requested repo explicitly. Without this the canonical
-            # Hicode worker falls back to its process default workspace, which is
-            # exactly the wrong-repo regression this task closes. The worker later
-            # binds its isolated worktree through ``bound_hicode_workspace``;
-            # Remote containment, not HICODE_WORKSPACE, is the authority here.
-            hicode_workspace = (
-                ws_binding.repo_root if ws_binding.is_git_repo else ws_binding.requested_realpath
-            )
-            return binding.veya_tool, self._hicode_args(args, hicode_workspace), None
-
         # Mutations use the operation resolution computed before dispatch.  This
         # keeps file.write/file.patch on the same nested-repo worktree as every
         # other worktree-backed tool.
@@ -1800,6 +1813,7 @@ class RemoteToolAdapter:
                 str(repo_root),
                 workspace_path=str(target),
                 requested_execution_target=str(args.get("execution_target") or ""),
+                intent="mutation",
             )
             if is_canonical or execution_target in ("CANONICAL_WORKTREE", "HOST"):
                 mapped = target
@@ -1976,15 +1990,6 @@ class RemoteToolAdapter:
             kwargs["approved"] = True
             return kwargs
         raise RemoteToolAdapterError(RemoteErrorCode.INVALID_ARGUMENT, f"bad worktree tool {name}")
-
-    def _hicode_args(self, args: dict[str, Any], workspace: str) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {"task": str(args["task"]), "workspace": str(workspace)}
-        if args.get("max_steps"):
-            kwargs["max_steps"] = int(args["max_steps"])
-        if args.get("timeout_sec"):
-            # P0-L: ``timeout_sec`` is the execution budget, not a submit-RPC wait.
-            kwargs["timeout_sec"] = int(args["timeout_sec"])
-        return kwargs
 
     # ── helpers ─────────────────────────────────────────────────────
     def _resolve_target(
@@ -2712,7 +2717,7 @@ class RemoteToolAdapter:
         repo_root: str,
         lane: str = "",
         *,
-        execution_target: str = "NEW_ISOLATED_WORKTREE",
+        execution_target: str = "CANONICAL_WORKTREE",
         target_path: str | None = None,
         execution_id: str | None = None,
     ) -> tuple[str, str]:
@@ -2816,6 +2821,14 @@ class RemoteToolAdapter:
         ws_binding: WorkspaceBinding,
         started: float,
     ) -> RemoteCallResult:
+        # The dispatch entry resolves the execution target exactly once and
+        # hands the decision to every child. Children must not re-derive it.
+        child_execution_target = resolve_execution_target(
+            ws_binding.repo_root or ws_binding.requested_realpath,
+            workspace_path=getattr(ws_binding, "canonical_target_path", None) or None,
+            requested_execution_target=str(args.get("execution_target") or ""),
+            intent="mutation",
+        )
         tasks = args.get("tasks")
         if not isinstance(tasks, list) or not tasks:
             return self._fail(
@@ -2999,6 +3012,7 @@ class RemoteToolAdapter:
                         goal_run_id=pre_admission.goal_run_id,
                         goal_task_id=pre_admission.task_ids[index],
                         goal_project_root=project_root,
+                        execution_target=child_execution_target,
                     )
                 )
                 try:
@@ -3058,6 +3072,7 @@ class RemoteToolAdapter:
         goal_run_id: str,
         goal_task_id: str,
         goal_project_root: str,
+        execution_target: str = "CANONICAL_WORKTREE",
     ) -> Any:
 
         from veya.remote.execution_contract import (
@@ -3227,84 +3242,49 @@ class RemoteToolAdapter:
                     session, ws_binding, parent, worker_type, worker, "ERROR_REPETITION_GUARD"
                 )
         provider, model = _worker_model_identity(worker)
-        if worker == "hicode":
-            child = self.jobs.submit(
+        requested_timeout_s = float(item.get("timeout_sec") or _DEFAULT_CLI_TIMEOUT_S)
+        _, effective_timeout_s = _cli_worker_timeout_budgets(worker, requested_timeout_s)
+        child = self.jobs.submit(
+            session=session,
+            tool="worker.dispatch",
+            veya_tool=f"direct_{worker}",
+            binding=ws_binding,
+            spec=spec,
+            runner=self._make_cli_worker_runner(
+                worker=worker,
+                task=task_text,
                 session=session,
-                tool="hicode.execute",
-                veya_tool="hicode_run",
-                binding=ws_binding,
-                spec=spec,
-                runner=self._make_hicode_runner(
-                    task=task_text,
-                    session=session,
-                    ws_binding=ws_binding,
-                    repo_root=repo_root,
-                    args={"timeout_sec": int(item.get("timeout_sec") or 0)},
-                    capability_ids=[str(v) for v in item.get("capability_ids", [])],
-                    mission_id=str(item.get("mission_id") or parent.execution_id),
-                    permission_policy=dict(item.get("mission_policy") or {}),
-                    retry_action=retry_action,
-                    retry_error_class=retry_error,
-                    task_contract=task_contract,
-                    lane=lane,
-                ),
-                execution_type=str(ExecutionType.HICODE),
-                execution_mode="direct_hicode",
-                orchestrator="none",
-                worker_type=worker_type,
-                model_provider=provider,
-                model=model,
-                parent_execution_id=parent.execution_id,
-                task_contract=task_contract.to_dict(),
-                idempotency_key=f"{dispatch_id}:child:{index}",
-                dispatch_id=f"{dispatch_id}:child:{index}",
-                goal_run_id=goal_run_id,
-                goal_task_id=goal_task_id,
-                goal_project_root=goal_project_root,
-            )
-        else:
-            requested_timeout_s = float(item.get("timeout_sec") or _DEFAULT_CLI_TIMEOUT_S)
-            _, effective_timeout_s = _cli_worker_timeout_budgets(worker, requested_timeout_s)
-            child = self.jobs.submit(
-                session=session,
-                tool="worker.dispatch",
-                veya_tool=f"direct_{worker}",
-                binding=ws_binding,
-                spec=spec,
-                runner=self._make_cli_worker_runner(
-                    worker=worker,
-                    task=task_text,
-                    session=session,
-                    ws_binding=ws_binding,
-                    repo_root=repo_root,
-                    lane=lane,
-                    timeout_s=effective_timeout_s,
-                    capability_ids=[str(v) for v in item.get("capability_ids", [])],
-                    mission_id=str(item.get("mission_id") or parent.execution_id),
-                    permission_policy=dict(item.get("mission_policy") or {}),
-                    retry_action=retry_action,
-                    retry_error_class=retry_error,
-                    task_contract=task_contract,
-                    dependency_artifacts=dependency_artifacts,
-                ),
-                execution_type=str(ExecutionType.DIRECT),
-                execution_mode=f"direct_{worker}",
-                orchestrator="none",
-                worker_type=worker_type,
-                model_provider=provider,
-                model=model,
-                parent_execution_id=parent.execution_id,
-                task_contract=task_contract.to_dict(),
-                limits={
-                    "execution_timeout_sec": effective_timeout_s,
-                    "effective_timeout_ms": int(effective_timeout_s * 1000),
-                },
-                idempotency_key=f"{dispatch_id}:child:{index}",
-                dispatch_id=f"{dispatch_id}:child:{index}",
-                goal_run_id=goal_run_id,
-                goal_task_id=goal_task_id,
-                goal_project_root=goal_project_root,
-            )
+                ws_binding=ws_binding,
+                repo_root=repo_root,
+                lane=lane,
+                timeout_s=effective_timeout_s,
+                capability_ids=[str(v) for v in item.get("capability_ids", [])],
+                mission_id=str(item.get("mission_id") or parent.execution_id),
+                permission_policy=dict(item.get("mission_policy") or {}),
+                retry_action=retry_action,
+                retry_error_class=retry_error,
+                task_contract=task_contract,
+                dependency_artifacts=dependency_artifacts,
+                execution_target=execution_target,
+            ),
+            execution_type=str(ExecutionType.DIRECT),
+            execution_mode=f"direct_{worker}",
+            orchestrator="none",
+            worker_type=worker_type,
+            model_provider=provider,
+            model=model,
+            parent_execution_id=parent.execution_id,
+            task_contract=task_contract.to_dict(),
+            limits={
+                "execution_timeout_sec": effective_timeout_s,
+                "effective_timeout_ms": int(effective_timeout_s * 1000),
+            },
+            idempotency_key=f"{dispatch_id}:child:{index}",
+            dispatch_id=f"{dispatch_id}:child:{index}",
+            goal_run_id=goal_run_id,
+            goal_task_id=goal_task_id,
+            goal_project_root=goal_project_root,
+        )
         self.jobs.attach_child(parent.execution_id, child.execution_id)
         return child
 
@@ -3338,6 +3318,7 @@ class RemoteToolAdapter:
                 raise ExecutionBlocked("ERROR_REPETITION_GUARD", blocker)
             raise ExecutionBlocked("WORKER_UNAVAILABLE", blocker)
 
+        self._start_blocked_sweeper()
         child = self.jobs.submit(
             session=session,
             tool="worker.dispatch",
@@ -3352,332 +3333,6 @@ class RemoteToolAdapter:
         )
         self.jobs.attach_child(parent.execution_id, child.execution_id)
         return child
-
-    # ── direct_hicode (P1-B/H/I) ──────────────────────────────
-    async def _call_direct_hicode(
-        self,
-        session: RemoteSession,
-        policy: WorkspacePolicy,
-        binding: ToolBinding,
-        args: dict[str, Any],
-        ws_binding: WorkspaceBinding,
-        started: float,
-    ) -> RemoteCallResult:
-        name = binding.name
-        requested_mode = str(args.get("execution_mode") or "direct_hicode")
-        if requested_mode != "direct_hicode":
-            return self._fail(
-                name,
-                session,
-                RemoteErrorCode.INVALID_ARGUMENT,
-                f"unsupported execution_mode {requested_mode!r}; this gateway implements "
-                "'direct_hicode' (no auto routing)",
-            )
-        hicode_workspace = (
-            ws_binding.repo_root if ws_binding.is_git_repo else ws_binding.requested_realpath
-        )
-        provider, model = _hicode_model_identity()
-        record = self.jobs.submit(
-            session=session,
-            tool=name,
-            veya_tool="hicode_run",
-            binding=ws_binding,
-            runner=self._make_hicode_runner(
-                task=str(args["task"]),
-                session=session,
-                ws_binding=ws_binding,
-                repo_root=hicode_workspace,
-                args=args,
-            ),
-            execution_type=str(ExecutionType.HICODE),
-            execution_mode="direct_hicode",
-            orchestrator="none",
-            worker_type="HICODE",
-            model_provider=provider,
-            model=model,
-            limits=_execution_limits(name, args),
-        )
-        # P1-B: durable enqueue -> immediate execution_id; never a long RPC.
-        snapshot = dict(
-            self._redact(record.to_public(heartbeat_timeout_s=self.jobs.heartbeat_timeout_s))
-        )
-        snapshot["accepted"] = True
-        return RemoteCallResult(
-            ok=True,
-            tool=name,
-            session_id=session.session_id,
-            workspace=ws_binding.requested_realpath,
-            result=self._redact(snapshot),
-            execution_id=record.execution_id,
-            duration_ms=(time.time() - started) * 1000,
-        )
-
-    def _make_hicode_runner(
-        self,
-        *,
-        task: str,
-        session: RemoteSession,
-        ws_binding: WorkspaceBinding,
-        repo_root: str,
-        args: dict[str, Any],
-        capability_ids: list[str] | None = None,
-        mission_id: str = "",
-        permission_policy: dict[str, Any] | None = None,
-        retry_action: str = "",
-        retry_error_class: str = "",
-        lane: str = "",
-        task_contract: L1TaskContract | None = None,
-    ) -> Any:
-        async def _run(reporter: ProgressReporter) -> str:
-            reporter.phase("STARTING", message="starting Hicode worker", event="STARTING")
-            if task_contract and task_contract.promotion_policy == "AUTO_AFTER_VERIFY":
-                await self._ensure_promotion_ledger()
-            reporter.worker(
-                execution_mode="direct_hicode",
-                orchestrator="none",
-                worker_type="HICODE",
-                activity="Hicode worker started",
-            )
-            # Section 7: Hicode runs in the verified isolated task worktree, never
-            # the owner repo. The worker receives exactly the validated workspace.
-            worktree, verified_repo = await self._ensure_isolated_worktree(
-                session, repo_root, lane, execution_id=reporter._execution_id
-            )
-            reporter.set_worktree(worktree, verified_repo)
-            reporter.worker(
-                execution_mode="direct_hicode",
-                orchestrator="none",
-                worker_type="HICODE",
-                activity=f"isolated worktree ready: {worktree}",
-                worker_workspace=worktree,
-            )
-            from server.hicode_agent import bound_hicode_execution_id, bound_hicode_workspace
-
-            with (
-                bound_hicode_workspace(worktree),
-                bound_hicode_execution_id(reporter._execution_id),
-            ):
-                try:
-                    _ensure_hicode_workspace(worktree)
-                except WorkspaceBindingError as exc:
-                    raise ExecutionBlocked(exc.code, exc.message) from exc
-            reporter.event(f"checkpoint snapshot {worktree}", kind="CHECKPOINT")
-            _context, rendered_context, memory = await self._prepare_execution_context(
-                reporter,
-                task=task,
-                worker_type="hicode",
-                worktree=worktree,
-                memory_root=repo_root,
-                mission_id=mission_id or reporter._execution_id,
-                capability_ids=capability_ids or [str(v) for v in args.get("capability_ids", [])],
-                permission_policy=permission_policy or dict(args.get("mission_policy") or {}),
-            )
-            worker_input = f"{task}\n\n{rendered_context}"
-            in_flight = {"value": False}
-            owned: dict[str, int | None] = {"pid": None, "pgid": None}
-
-            def on_process(pid: int, pgid: int) -> None:
-                owned["pid"] = pid
-                owned["pgid"] = pgid
-                reporter.process(worker_pid=pid, process_group_id=pgid)
-
-            def on_event(event: dict[str, Any]) -> None:
-                stage = str(event.get("stage") or "")
-                detail = str(event.get("detail") or "")
-                tool = event.get("tool")
-                if stage == "provider_failure":
-                    if in_flight["value"]:
-                        in_flight["value"] = False
-                        reporter.model_completed(activity="model round failed")
-                    round_index = event.get("round_index")
-                    reporter.failure(
-                        failure_class=str(event.get("code") or "HICODE_PROVIDER_ROUND_FAILURE"),
-                        source="hicode_provider",
-                        detail=detail or "structured provider failure",
-                        code=str(event.get("code") or "HICODE_PROVIDER_ROUND_FAILURE"),
-                        raw_evidence=event.get("raw_evidence")
-                        if isinstance(event.get("raw_evidence"), dict)
-                        else None,
-                        round_index=round_index
-                        if isinstance(round_index, int) and not isinstance(round_index, bool)
-                        else None,
-                    )
-                elif stage == "planning":
-                    if not in_flight["value"]:
-                        in_flight["value"] = True
-                        reporter.model_started(activity=detail or "Hicode planning")
-                    reporter.phase(
-                        "THINKING",
-                        message=detail or "Hicode thinking",
-                        event="MODEL_REQUEST_STARTED",
-                    )
-                elif stage == "executing":
-                    completed = "完成" in detail
-                    if not completed and in_flight["value"]:
-                        in_flight["value"] = False
-                        reporter.model_completed(activity="model returned a tool call")
-                    reporter.tool_activity(
-                        activity=detail or f"tool {tool}",
-                        kind="TOOL_COMPLETED" if completed else "TOOL_STARTED",
-                        count=not completed,
-                    )
-                    reporter.phase(
-                        "EXECUTING",
-                        message=detail or "Hicode executing",
-                        event="TOOL_COMPLETED" if completed else "TOOL_STARTED",
-                    )
-                elif stage == "stats":
-                    if in_flight["value"]:
-                        in_flight["value"] = False
-                        reporter.model_completed(activity=detail or "model responded")
-                elif detail:
-                    reporter.event(detail, kind=stage or "activity")
-
-            try:
-                # Direct worker invocation (not the mainline queue) so cancel
-                # propagates into the Hicode loop / child process. force_cli is
-                # required so the workspace actually constrains execution.
-                # The L1 worktree is already session-authorized and isolated;
-                # bind Hicode's resolver to this child without changing the
-                # process-global HICODE_WORKSPACE policy.
-                with (
-                    bound_hicode_workspace(worktree),
-                    bound_hicode_execution_id(reporter._execution_id),
-                ):
-                    from server.hicode_agent import (
-                        HicodeExecutionError,
-                        HicodeUnavailable,
-                        _execute_hicode_core,
-                    )
-
-                    output = await _execute_hicode_core(
-                        worker_input,
-                        workspace=worktree,
-                        max_steps=int(args.get("max_steps") or 0),
-                        timeout_sec=int(args.get("timeout_sec") or 0),
-                        on_event=on_event,
-                        force_cli=True,
-                        on_process=on_process,
-                    )
-            except HicodeExecutionError as exc:
-                fc = classify_executor_failure(error=exc, detail=f"{exc.code}: {exc.detail}")
-                self.health_registry.record_failure("hicode", fc, detail=exc.detail)
-                failure_cls = str(exc.code) if exc.code else str(fc)
-                reporter.failure(
-                    failure_class=failure_cls,
-                    source="hicode_provider",
-                    detail=exc.detail,
-                    code=exc.code,
-                    raw_evidence=exc.raw_evidence,
-                )
-                self._write_task_memory_failure(
-                    memory, reporter._execution_id, exc.detail, error_class=exc.code
-                )
-                raise ExecutionError(exc.code, exc.detail) from exc
-            except HicodeUnavailable as exc:
-                detail = str(exc)[:4000]
-                fc = ExecutorFailureClass.PROVIDER_UNAVAILABLE
-                self.health_registry.record_failure("hicode", fc, detail=detail)
-                reporter.failure(
-                    failure_class=str(fc),
-                    source="hicode_runtime",
-                    detail=detail,
-                    code="HICODE_RUNTIME_UNAVAILABLE",
-                    raw_evidence={"exception_type": type(exc).__name__, "detail": detail},
-                )
-                self._write_task_memory_failure(
-                    memory,
-                    reporter._execution_id,
-                    detail,
-                    error_class="HICODE_RUNTIME_UNAVAILABLE",
-                )
-                raise ExecutionError("HICODE_RUNTIME_UNAVAILABLE", detail) from exc
-            except asyncio.CancelledError:
-                # Kill exactly this execution's process group (reasonix + its
-                # tool grandchildren); never the shared runtime/gateway.
-                self.health_registry.record_failure(
-                    "hicode", ExecutorFailureClass.WORKER_CANCELLED, detail="cancelled"
-                )
-                await terminate_process_group_id(owned["pgid"] or 0)
-                raise
-            except ExecutionError:
-                # Preserve the canonical Hicode/provider error. Do not re-wrap it.
-                raise
-            except Exception as exc:
-                fc = classify_executor_failure(error=exc, detail=f"{type(exc).__name__}: {exc}")
-                self.health_registry.record_failure("hicode", fc, detail=str(exc))
-                reporter.failure(
-                    failure_class=str(fc),
-                    source="hicode",
-                    detail=f"{type(exc).__name__}: {exc}",
-                )
-                self._write_task_memory_failure(
-                    memory,
-                    reporter._execution_id,
-                    exc,
-                    action=retry_action,
-                    error_class=retry_error_class,
-                )
-                raise
-            finally:
-                if in_flight["value"]:
-                    reporter.model_completed(activity="model request finished")
-            self.health_registry.record_success("hicode")
-            reporter.phase("FINALIZING", message="Hicode finalizing", event="FINALIZING")
-            contract = task_contract or L1TaskContract()
-            if contract.task_kind in {
-                str(TaskKind.WRITE),
-                str(TaskKind.TEST),
-                str(TaskKind.BUILD),
-            }:
-                receipt = EffectReceipt(
-                    execution_id=reporter._execution_id,
-                    worker_runtime_id=None,
-                    worker_type="HICODE",
-                    repo_identity=git_repo_identity(verified_repo),
-                    worktree_path=worktree,
-                    task_kind=contract.task_kind,
-                    tool_calls=[],
-                )
-                finalization = await run_sync_in_daemon_thread(
-                    self.l1_finalizer.finalize,
-                    execution_id=reporter._execution_id,
-                    repo=verified_repo,
-                    task_contract=contract,
-                    worker_result=WorkerResult(
-                        textual_summary=output,
-                        process_exit_code=0,
-                        effect_receipt=receipt,
-                    ),
-                )
-                reporter.finalization(finalization.to_dict())
-                reporter.event(
-                    json.dumps(finalization.to_dict(), default=str), kind="L1_FINALIZATION"
-                )
-                if not finalization.ok:
-                    reporter.failure(
-                        failure_class=finalization.failure_class or "FINALIZATION_FAILED",
-                        source="hicode",
-                        detail=finalization.message,
-                    )
-                    raise ExecutionBlocked(
-                        finalization.failure_class or "FINALIZATION_FAILED",
-                        finalization.message,
-                    )
-                output = (
-                    f"{output}\nchanged_files={','.join(finalization.receipt.changed_files)}"
-                    f"\ncommit_sha={finalization.commit_sha or ''}"
-                    f"\npromotion_status={finalization.promotion_status}"
-                )[-4000:]
-            self._write_task_memory_success(memory, reporter._execution_id, output)
-            return output
-
-        return self._lease_wrapped_runner(
-            _run,
-            ws_binding=ws_binding,
-            task_contract=task_contract,
-            worker_type="hicode",
-        )
 
     def _lease_wrapped_runner(
         self,
@@ -3730,6 +3385,7 @@ class RemoteToolAdapter:
         retry_error_class: str = "",
         dependency_artifacts: list[dict[str, Any]] | None = None,
         task_contract: L1TaskContract | None = None,
+        execution_target: str = "CANONICAL_WORKTREE",
     ) -> Any:
         async def _run(reporter: ProgressReporter) -> str:
             reporter.phase("STARTING", message=f"starting {worker} worker", event="STARTING")
@@ -3742,7 +3398,14 @@ class RemoteToolAdapter:
                 activity=f"{worker} worker started",
             )
             worktree, verified_repo = await self._ensure_isolated_worktree(
-                session, repo_root, lane, execution_id=reporter._execution_id
+                session,
+                repo_root,
+                lane,
+                execution_target=execution_target,
+                target_path=None,
+                execution_id=None
+                if execution_target in ("CANONICAL_WORKTREE", "HOST")
+                else reporter._execution_id,
             )
             staged_dependency_artifacts = await run_sync_in_daemon_thread(
                 _stage_dependency_artifacts,
@@ -4949,12 +4612,7 @@ def _execution_limits(tool: str, args: dict[str, Any]) -> dict[str, Any]:
     """Separate the distinct budgets (P0-L); never fold them into one timeout."""
 
     limits: dict[str, Any] = {}
-    if tool == "hicode.execute":
-        if args.get("max_steps"):
-            limits["max_steps"] = int(args["max_steps"])
-        if args.get("timeout_sec"):
-            limits["execution_timeout_sec"] = float(args["timeout_sec"])
-    elif args.get("timeout_s"):
+    if args.get("timeout_s"):
         limits["command_timeout_sec"] = float(args["timeout_s"])
     return limits
 
@@ -5060,11 +4718,6 @@ def _worker_runtime_identity(worker: str) -> ExecutorRuntimeIdentity:
     """Return the one canonical identity projection used by dispatch."""
 
     return get_executor_registry().identity(worker)
-
-
-def _hicode_model_identity() -> tuple[str, str]:
-    identity = _worker_runtime_identity("hicode")
-    return identity.provider or "unknown", identity.model or "unknown"
 
 
 def _worker_model_identity(worker: str) -> tuple[str, str]:
@@ -5619,32 +5272,6 @@ def _worker_shell_events(worker: str, lines: list[str]) -> list[dict[str, Any]]:
     ]
 
 
-def _ensure_hicode_workspace(workspace: str) -> None:
-    """Fail closed when the canonical Hicode resolver would not honour ``workspace``.
-
-    The remote adapter must never let Hicode silently fall back to its process
-    default workspace. Hicode's own sandbox resolver stays authoritative; this
-    only asserts that the explicit workspace it will receive is the one we bound.
-    """
-
-    try:
-        from server.hicode_agent import _resolve_workspace
-    except Exception:  # pragma: no cover - hicode unavailable; canonical tool reports it
-        return
-    try:
-        resolved = _resolve_workspace(workspace)
-    except ValueError as exc:
-        raise WorkspaceBindingError(
-            "WORKSPACE_DENIED", "HICODE_WORKSPACE_DENIED", str(exc)
-        ) from exc
-    if canonical(resolved) != canonical(workspace):
-        raise WorkspaceBindingError(
-            "WORKSPACE_DENIED",
-            "HICODE_WORKSPACE_MISMATCH",
-            f"hicode resolved {resolved} instead of the bound workspace {workspace}",
-        )
-
-
 def _canonical_extra_roots() -> tuple[Path, ...]:
     """Extra roots the canonical file tools accept (VEYA_WORKSPACE_EXTRA_DIRS)."""
 
@@ -5683,10 +5310,6 @@ async def _default_executor(name: str, kwargs: dict[str, Any]) -> str:
     from server import tool_registry as registry_module
 
     registry = registry_module.master_tools
-    if name.startswith("hicode_") and not registry.has(name):
-        from server.hicode_agent import wire_master_tools
-
-        await wire_master_tools()
     return await registry.execute(name, kwargs)
 
 

@@ -97,7 +97,7 @@ async def test_l0_shell_failure_is_structured(tmp_path: Path) -> None:
     assert result.result["failure_class"] == "COMMAND_SPAWN_FAILED"
 
 
-async def test_l0_shell_exec_smoke_uses_isolated_cwd(tmp_path: Path) -> None:
+async def test_l0_shell_exec_smoke_uses_canonical_cwd(tmp_path: Path) -> None:
     _init_repo(tmp_path)
     now = time.time()
     session = RemoteSession(
@@ -123,7 +123,7 @@ async def test_l0_shell_exec_smoke_uses_isolated_cwd(tmp_path: Path) -> None:
             ["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True
         ).strip()
     )
-    assert ".veya/worktrees/" in result.result["cwd"]
+    assert result.result["cwd"] == str(tmp_path.resolve())
 
 
 async def test_cross_session_authorized_cancel_and_denials(tmp_path: Path) -> None:

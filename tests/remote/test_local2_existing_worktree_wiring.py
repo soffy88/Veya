@@ -194,7 +194,11 @@ def test_resolver_marks_existing_worktree(linked_pair: tuple[Path, Path]) -> Non
     main, wt = linked_pair
     assert resolve_execution_target(str(wt), None, "") == "EXISTING_WORKTREE"
     assert resolve_execution_target(str(main), str(wt / "sub"), "") == "EXISTING_WORKTREE"
-    assert resolve_execution_target(str(main), None, "") == "NEW_ISOLATED_WORKTREE"
+    assert resolve_execution_target(str(main), None, "") == "CANONICAL_WORKTREE"
+    assert (
+        resolve_execution_target(str(main), None, "", intent="mutation")
+        == "NEW_ISOLATED_WORKTREE"
+    )
     assert resolve_execution_target(str(main), None, "EXISTING_WORKTREE") == "EXISTING_WORKTREE"
     assert resolve_execution_target(str(main), None, "HOST") == "HOST"
     assert resolve_execution_target(str(main), None, "CANONICAL_WORKTREE") == "CANONICAL_WORKTREE"

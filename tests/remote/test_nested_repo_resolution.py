@@ -254,7 +254,9 @@ async def test_structured_shell_selector_compat_cd_and_git_tools_use_nested_repo
     )
     assert shell["ok"] is True, shell
     assert shell["result"]["resolved_repo_root"] == str(stratum.resolve())
-    assert "/.veya/worktrees/task-" in shell["result"]["cwd"]
+    # read/execute targets the nested repo's own canonical tree, not the parent
+    # and not a throwaway worktree.
+    assert shell["result"]["cwd"] == str(stratum.resolve())
 
     compat = await _call(
         gateway,
