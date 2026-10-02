@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from veya.executor_retirement import is_retired_executor as is_retired
 from veya.obase import canonical_proxies as _cp
 
 _ALIASES = {
@@ -51,8 +52,6 @@ _CANONICAL_ORDER = (
     "dsh",
     "codex",
 )
-# Retired executors fail closed at discovery: no identity, no launcher, no auth.
-_RETIRED_EXECUTORS = frozenset({"hicode"})
 
 
 def normalize_executor_id(value: str) -> str:
@@ -209,7 +208,7 @@ class ExecutorRegistry:
 
     def _discover(self, executor_id: str) -> ExecutorRuntimeIdentity:
         source = "provider-registry"
-        if executor_id in _RETIRED_EXECUTORS:
+        if is_retired(executor_id):
             raise ValueError(f"Executor retired: {executor_id!r}")
         if executor_id == "pi":
             provider, model, _configured, source = _pi_config()
@@ -285,7 +284,7 @@ class ExecutorRegistry:
         reports. ``register()`` is the only way to add an executor.
         """
         key = normalize_executor_id(executor_id)
-        if key in _RETIRED_EXECUTORS:
+        if is_retired(key):
             raise ValueError(f"Executor retired: {key}")
         identity = self._identities.get(key)
         if identity is None:
@@ -328,14 +327,9 @@ def reset_executor_registry() -> None:
 
 
 def is_retired_executor(executor_id: str) -> bool:
-    """Retired executors fail closed everywhere; they are never merely absent.
+    """Delegate to the neutral retirement policy, normalizing aliases first."""
 
-    A retired executor is a deliberate removal, which is distinct from an
-    executor that was simply never admitted. Callers that distinguish
-    "unknown" from "retired" need this rather than a lookup that raises.
-    """
-
-    return normalize_executor_id(executor_id) in _RETIRED_EXECUTORS
+    return is_retired(normalize_executor_id(executor_id))
 
 
 __all__ = [

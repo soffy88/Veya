@@ -25,14 +25,25 @@ from veya.remote.executor_registry import (
 from veya.remote.worker_runtime import WORKER_CAPABILITIES
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_RETIREMENT_SOURCE = (_REPO_ROOT / "veya/executor_retirement.py").read_text()
 _REGISTRY_SOURCE = (_REPO_ROOT / "veya/remote/executor_registry.py").read_text()
 
 
 def test_hicode_is_a_retired_deny_marker() -> None:
-    """The only permitted hicode reference is the registry deny marker."""
+    """The deny marker lives in the neutral retirement module, not the remote plane."""
+    from veya.executor_retirement import RETIRED_EXECUTORS
+
     assert is_retired_executor("hicode") is True
-    assert "_RETIRED_EXECUTORS" in _REGISTRY_SOURCE
-    assert '"hicode"' in _REGISTRY_SOURCE
+    assert "hicode" in RETIRED_EXECUTORS
+    assert '"hicode"' in _RETIREMENT_SOURCE
+
+
+def test_retirement_marker_is_absent_from_the_remote_plane() -> None:
+    """veya/remote must carry no retired-executor name of its own."""
+    assert "hicode" not in _REGISTRY_SOURCE, (
+        "the retired marker must live in veya/executor_retirement.py"
+    )
+    assert "_RETIRED_EXECUTORS" not in _REGISTRY_SOURCE
 
 
 def test_hicode_admission_rejected() -> None:
