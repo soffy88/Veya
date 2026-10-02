@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Canonical Executor Qualification Gate (P0-P3, P8).
 
-Formal Executor Order:
-AGY > CODEX > HICODE > PI > GROK (DSH preserved outside default sequence).
+Current active qualification scope:
+OpenCode and Claude Code. Hicode is retired and builtin is an internal
+deterministic assignee, not a worker.dispatch executor.
 
 Levels:
 - LEVEL_1_DETERMINISTIC: offline / synthetic verification of all contracts.
@@ -36,7 +37,9 @@ from runtime.coding.worktree import WorktreeManager  # noqa: E402
 from veya.remote.executor_health import (  # noqa: E402
     ExecutorFailureClass,
     ExecutorHealthRegistry,
+    ProviderFailureClass,
     classify_executor_failure,
+    classify_failure,
     resolve_executor,
 )
 from veya.remote.worker_runtime import FinishBoundary  # noqa: E402
@@ -149,7 +152,7 @@ def run_deterministic_qualification(result: QualificationGateResult) -> bool:
     """Run Level 1 deterministic qualification (offline, non-flaky, fail-closed)."""
     ok = True
 
-    # 1. Routing Order & Preference (AGY > OPENCODE > PI > GROK > DSH > CODEX > HICODE)
+    # 1. Routing Order & Preference (current routing contract).
     try:
         cand, sub = resolve_executor()
         assert cand == "antigravity", f"Expected antigravity, got {cand}"
@@ -162,15 +165,15 @@ def run_deterministic_qualification(result: QualificationGateResult) -> bool:
 
         # Health aware fallback AGY -> OPENCODE
         reg = ExecutorHealthRegistry()
-        reg.record_failure("antigravity", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+        reg.record_failure("antigravity", ProviderFailureClass.PROVIDER_UNAVAILABLE)
         cand2, sub2 = resolve_executor(requested="antigravity", health_registry=reg)
         assert cand2 == "opencode", f"Expected opencode fallback, got {cand2}"
         assert sub2 is not None and sub2.selected_executor == "opencode"
 
-        # AGY + OPENCODE unhealthy -> PI
+        # AGY + OPENCODE unhealthy -> CLAUDE_CODE
         reg.record_failure("opencode", ExecutorFailureClass.TRANSPORT_FAILURE)
         cand3, _ = resolve_executor(requested="antigravity", health_registry=reg)
-        assert cand3 == "pi", f"Expected pi fallback, got {cand3}"
+        assert cand3 == "claude_code", f"Expected claude_code fallback, got {cand3}"
 
         # Capability routing
         cand4, _ = resolve_executor(
@@ -204,8 +207,8 @@ def run_deterministic_qualification(result: QualificationGateResult) -> bool:
             == ExecutorFailureClass.AUTH_FAILURE
         )
         assert (
-            classify_executor_failure(detail="502 Bad Gateway")
-            == ExecutorFailureClass.PROVIDER_UNAVAILABLE
+            classify_failure(detail="502 Bad Gateway").provider_failure_class
+            == ProviderFailureClass.PROVIDER_UNAVAILABLE
         )
         assert (
             classify_executor_failure(detail="submodule provisioning failed")
@@ -310,7 +313,7 @@ def run_deterministic_qualification(result: QualificationGateResult) -> bool:
 
     # 8. Process Reap / Zombie Prevention
     try:
-        for worker in ("antigravity", "codex", "hicode", "pi", "grok"):
+        for worker in ("opencode", "claude_code"):
             assert worker in EXECUTOR_MARKERS, f"Missing markers for {worker}"
         # No orphans for a non-existent workspace
         orphans = find_orphans("/tmp/nonexistent-workspace-12345", "antigravity")
@@ -357,8 +360,8 @@ def run_deterministic_qualification(result: QualificationGateResult) -> bool:
     for ex in (
         "EXECUTOR_AGY",
         "EXECUTOR_OPENCODE",
+        "EXECUTOR_CLAUDE_CODE",
         "EXECUTOR_CODEX",
-        "EXECUTOR_HICODE",
         "EXECUTOR_PI",
         "EXECUTOR_GROK",
     ):
@@ -419,7 +422,7 @@ async def run_live_qualification(result: QualificationGateResult, root_repo: Pat
     )
     session_id = init_res["result"]["sessionId"]
 
-    workers = ["antigravity", "codex", "hicode", "pi", "grok"]
+    workers = ["opencode", "claude_code"]
     tasks = [
         {
             "worker": w,
@@ -611,7 +614,7 @@ async def run_live_qualification(result: QualificationGateResult, root_repo: Pat
             # Categorize failure: external blocker vs internal defect (P2)
             is_external = False
             if fc in {
-                ExecutorFailureClass.PROVIDER_UNAVAILABLE,
+                ProviderFailureClass.PROVIDER_UNAVAILABLE,
                 ExecutorFailureClass.AUTH_FAILURE,
                 ExecutorFailureClass.TRANSPORT_FAILURE,
             } or any(
@@ -690,8 +693,13 @@ def format_report(res: QualificationGateResult) -> str:
         codex_stat = (
             res.executors["codex"].terminal_status if "codex" in res.executors else "UNKNOWN"
         )
-        hicode_stat = (
-            res.executors["hicode"].terminal_status if "hicode" in res.executors else "UNKNOWN"
+        opencode_stat = (
+            res.executors["opencode"].terminal_status if "opencode" in res.executors else "UNKNOWN"
+        )
+        claude_code_stat = (
+            res.executors["claude_code"].terminal_status
+            if "claude_code" in res.executors
+            else "UNKNOWN"
         )
         pi_stat = res.executors["pi"].terminal_status if "pi" in res.executors else "UNKNOWN"
         grok_stat = res.executors["grok"].terminal_status if "grok" in res.executors else "UNKNOWN"
@@ -706,8 +714,9 @@ CHILDREN_CANCELLED={res.children_cancelled}
 CHILDREN_RUNNING={res.children_running}
 CHILDREN_QUEUED={res.children_queued}
 ANTIGRAVITY_STATUS={agy_stat}
+OPENCODE_STATUS={opencode_stat}
+CLAUDE_CODE_STATUS={claude_code_stat}
 CODEX_STATUS={codex_stat}
-HICODE_STATUS={hicode_stat}
 PI_STATUS={pi_stat}
 GROK_STATUS={grok_stat}
 PARENT_AGGREGATION={res.parent_aggregation}
@@ -739,12 +748,13 @@ LIVE_BLOCKED_EXTERNAL={ext_str}
 
 AGY={"PASS" if res.executors.get("antigravity", None) and res.executors["antigravity"].terminal_status == "COMPLETED" else res.dimensions.get("EXECUTOR_AGY", "PASS")}
 OPENCODE={"PASS" if res.executors.get("opencode", None) and res.executors["opencode"].terminal_status == "COMPLETED" else res.dimensions.get("EXECUTOR_OPENCODE", "PASS")}
+CLAUDE_CODE={"PASS" if res.executors.get("claude_code", None) and res.executors["claude_code"].terminal_status == "COMPLETED" else res.dimensions.get("EXECUTOR_CLAUDE_CODE", "PASS")}
 CODEX={"PASS" if res.executors.get("codex", None) and res.executors["codex"].terminal_status == "COMPLETED" else res.dimensions.get("EXECUTOR_CODEX", "PASS")}
-HICODE={"PASS" if res.executors.get("hicode", None) and res.executors["hicode"].terminal_status == "COMPLETED" else res.dimensions.get("EXECUTOR_HICODE", "PASS")}
 PI={"PASS" if res.executors.get("pi", None) and res.executors["pi"].terminal_status == "COMPLETED" else res.dimensions.get("EXECUTOR_PI", "PASS")}
 GROK={"PASS" if res.executors.get("grok", None) and res.executors["grok"].terminal_status == "COMPLETED" else res.dimensions.get("EXECUTOR_GROK", "PASS")}
 
-DEFAULT_ORDER=AGY,OPENCODE,PI,GROK,DSH,CODEX,HICODE
+DEFAULT_ORDER=OPENCODE,CLAUDE_CODE
+HICODE=RETIRED
 HEALTH_AWARE_ROUTING=PASS
 CAPABILITY_ROUTING=PASS
 EXPLICIT_PIN=PASS

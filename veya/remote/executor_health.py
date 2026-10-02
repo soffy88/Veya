@@ -21,7 +21,12 @@ from .executor_registry import (
     get_executor_registry,
     normalize_executor_id,
 )
-from .models import ExecutorFailureClass, ExecutorHealth
+from .models import (
+    ExecutorFailureClass,
+    ExecutorHealth,
+    FailureAttribution,
+    ProviderFailureClass,
+)
 from .worker_runtime import (
     WORKER_CAPABILITIES,
     WorkerCapabilities,
@@ -55,22 +60,41 @@ def normalize_executor_name(name: str) -> str:
     return normalize_executor_id(name)
 
 
-def classify_executor_failure(
+def _coerce_failure_class(value: str) -> ExecutorFailureClass | ProviderFailureClass:
+    """Resolve a raw string to whichever namespace owns it.
+
+    Provider codes are checked first: they are the ones a caller can reach from
+    a receipt, and coercing PROVIDER_RATE_LIMIT into the executor enum would
+    reintroduce exactly the conflation this split removes.
+    """
+
+    if value.startswith("PROVIDER_"):
+        return ProviderFailureClass(value)
+    return ExecutorFailureClass(value)
+
+
+def classify_failure(
     *,
     error: Exception | None = None,
     exit_code: int | None = None,
     status: str | None = None,
     detail: str | None = None,
     event_kind: str | None = None,
-) -> ExecutorFailureClass:
-    """Map exit state, lifecycle, exceptions, and structured signals to canonical failure taxonomy."""
+) -> FailureAttribution:
+    """Map observed failure evidence to the single layer responsible for it.
+
+    Returns an attribution rather than a bare code, because the two layers call
+    for different responses: an executor fault is worth failover, a provider
+    fault usually is not. Collapsing both into one namespace is what made a
+    quota wall read as a broken executor.
+    """
     # 1. Cancelled checks
     if (
         isinstance(error, asyncio.CancelledError)
         or status in {"CANCELLED", "WORKER_CANCELLED"}
         or event_kind == "CANCELLED"
     ):
-        return ExecutorFailureClass.WORKER_CANCELLED
+        return FailureAttribution.executor(ExecutorFailureClass.WORKER_CANCELLED)
 
     # 2. Timeout checks
     if (
@@ -78,7 +102,7 @@ def classify_executor_failure(
         or status in {"TIMEOUT", "WORKER_TIMEOUT"}
         or event_kind in {"TIMEOUT", "WORKER_TIMEOUT_EVIDENCE"}
     ):
-        return ExecutorFailureClass.WORKER_TIMEOUT
+        return FailureAttribution.executor(ExecutorFailureClass.WORKER_TIMEOUT)
 
     # 3. Process signal/crash checks
     if exit_code is not None and exit_code in (
@@ -90,7 +114,7 @@ def classify_executor_failure(
         -signal.SIGBUS,
         -7,
     ):
-        return ExecutorFailureClass.WORKER_CRASH
+        return FailureAttribution.executor(ExecutorFailureClass.WORKER_CRASH)
 
     detail_str = str(detail or "").lower()
     error_str = str(error or "").lower()
@@ -98,7 +122,7 @@ def classify_executor_failure(
 
     # 4. Process reap / zombie checks
     if any(k in combined for k in ("zombie", "process reap", "process_reap", "leftover process")):
-        return ExecutorFailureClass.PROCESS_REAP_FAILURE
+        return FailureAttribution.executor(ExecutorFailureClass.PROCESS_REAP_FAILURE)
 
     # 5. Submodule checks
     if any(
@@ -111,7 +135,7 @@ def classify_executor_failure(
             "submodule provisioning failed",
         )
     ):
-        return ExecutorFailureClass.SUBMODULE_FAILURE
+        return FailureAttribution.executor(ExecutorFailureClass.SUBMODULE_FAILURE)
 
     # 6. Worktree checks
     if any(
@@ -125,7 +149,7 @@ def classify_executor_failure(
             "worktree creation failed",
         )
     ):
-        return ExecutorFailureClass.WORKTREE_FAILURE
+        return FailureAttribution.executor(ExecutorFailureClass.WORKTREE_FAILURE)
 
     # 7. Transport / network / proxy checks
     if any(
@@ -143,7 +167,7 @@ def classify_executor_failure(
             "tunnel",
         )
     ):
-        return ExecutorFailureClass.TRANSPORT_FAILURE
+        return FailureAttribution.executor(ExecutorFailureClass.TRANSPORT_FAILURE)
 
     # 8. Auth checks
     if any(
@@ -159,7 +183,7 @@ def classify_executor_failure(
             "bad credentials",
         )
     ):
-        return ExecutorFailureClass.AUTH_FAILURE
+        return FailureAttribution.executor(ExecutorFailureClass.AUTH_FAILURE)
 
     # 9b. Rate limiting is its own outcome. "provider unreachable" and "provider
     # says slow down" call for different operator responses, and a quota wall
@@ -168,7 +192,7 @@ def classify_executor_failure(
         k in combined
         for k in ("429", "rate_limit", "rate limit", "resource_exhausted", "too many requests")
     ):
-        return ExecutorFailureClass.PROVIDER_RATE_LIMIT
+        return FailureAttribution.provider(ProviderFailureClass.PROVIDER_RATE_LIMIT)
 
     # 9. Provider connectivity / outage checks
     if any(
@@ -193,7 +217,7 @@ def classify_executor_failure(
             "insufficient balance",
         )
     ):
-        return ExecutorFailureClass.PROVIDER_UNAVAILABLE
+        return FailureAttribution.provider(ProviderFailureClass.PROVIDER_UNAVAILABLE)
 
     # 9c. A structured refusal from the provider is a configuration fault, not
     # a worker fault. Real example: a provider answering HTTP 400
@@ -211,7 +235,24 @@ def classify_executor_failure(
             "400 bad request",
         )
     ) or ("400:" in combined and "api" in combined):
-        return ExecutorFailureClass.PROVIDER_CONFIGURATION_FAILURE
+        return FailureAttribution.provider(ProviderFailureClass.PROVIDER_CONFIGURATION_FAILURE)
+
+    # 9c2. A refused *provider* credential. Distinct from step 8, which keeps
+    # executor-local "not logged in" as an executor auth fault: a 401 carrying a
+    # provider-shaped body means the credential was presented and the provider
+    # declined it, which only the provider can answer for.
+    if any(
+        k in combined
+        for k in (
+            "invalid_api_key",
+            "invalid api key",
+            "authentication_error",
+            "invalid authentication",
+            "incorrect api key",
+            "invalid token",
+        )
+    ):
+        return FailureAttribution.provider(ProviderFailureClass.PROVIDER_AUTH_FAILURE)
 
     # 9d. The provider accepted the request and then ran out of time.
     if any(
@@ -224,7 +265,7 @@ def classify_executor_failure(
             "inactivity_timeout_ms",
         )
     ):
-        return ExecutorFailureClass.PROVIDER_TIMEOUT
+        return FailureAttribution.provider(ProviderFailureClass.PROVIDER_TIMEOUT)
 
     # 10. Environment / binary checks
     if any(
@@ -237,7 +278,7 @@ def classify_executor_failure(
             "environment_failure",
         )
     ):
-        return ExecutorFailureClass.ENVIRONMENT_FAILURE
+        return FailureAttribution.executor(ExecutorFailureClass.ENVIRONMENT_FAILURE)
 
     # 11. Model response checks
     if any(
@@ -250,13 +291,13 @@ def classify_executor_failure(
             "failed to refresh available models",
         )
     ):
-        return ExecutorFailureClass.MODEL_FAILURE
+        return FailureAttribution.executor(ExecutorFailureClass.MODEL_FAILURE)
 
     # 12. Fallback on exit code
     if exit_code not in (0, None):
-        return ExecutorFailureClass.WORKER_CRASH
+        return FailureAttribution.executor(ExecutorFailureClass.WORKER_CRASH)
 
-    return ExecutorFailureClass.MODEL_FAILURE
+    return FailureAttribution.executor(ExecutorFailureClass.MODEL_FAILURE)
 
 
 @dataclass
@@ -306,13 +347,21 @@ class ExecutorHealthRegistry:
     def record_failure(
         self,
         worker: str,
-        failure_class: ExecutorFailureClass | str,
+        failure_class: ExecutorFailureClass | ProviderFailureClass | str,
         detail: str = "",
     ) -> None:
+        """Record a failure against an executor's health.
+
+        Accepts a provider class so a provider fault can be counted without the
+        coercion below mistaking it for an executor code. Provider faults are
+        still the provider's; counting one here is for reporting, and callers
+        that must respect the split use ProviderRegistry instead.
+        """
+
         fc = (
             failure_class
-            if isinstance(failure_class, ExecutorFailureClass)
-            else ExecutorFailureClass(str(failure_class))
+            if isinstance(failure_class, (ExecutorFailureClass, ProviderFailureClass))
+            else _coerce_failure_class(str(failure_class))
         )
         rec = self._get_or_create(worker)
         rec.total_failures += 1
@@ -322,7 +371,7 @@ class ExecutorHealthRegistry:
         rec.last_detail = detail
 
         if fc in {
-            ExecutorFailureClass.PROVIDER_UNAVAILABLE,
+            ProviderFailureClass.PROVIDER_UNAVAILABLE,
             ExecutorFailureClass.AUTH_FAILURE,
             ExecutorFailureClass.TRANSPORT_FAILURE,
         }:
@@ -517,3 +566,27 @@ __all__ = [
     "normalize_executor_name",
     "resolve_executor",
 ]
+
+
+def classify_executor_failure(
+    *,
+    error: Exception | None = None,
+    exit_code: int | None = None,
+    status: str | None = None,
+    detail: str | None = None,
+    event_kind: str | None = None,
+) -> ExecutorFailureClass | None:
+    """Executor-side projection of :func:`classify_failure`.
+
+    Returns ``None`` when the evidence points at a provider. Callers that only
+    care whether *the executor* is at fault get an honest "no" instead of a
+    provider code they would then charge to the wrong layer.
+    """
+
+    return classify_failure(
+        error=error,
+        exit_code=exit_code,
+        status=status,
+        detail=detail,
+        event_kind=event_kind,
+    ).executor_failure_class

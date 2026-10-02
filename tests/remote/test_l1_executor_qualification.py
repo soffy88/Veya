@@ -12,7 +12,12 @@ from __future__ import annotations
 
 import pytest
 
-from veya.remote.executor_health import classify_executor_failure, resolve_executor
+from veya.remote.executor_health import (
+    ProviderFailureClass,
+    classify_executor_failure,
+    classify_failure,
+    resolve_executor,
+)
 from veya.remote.executor_registry import (
     ExecutorAvailability,
     get_executor_registry,
@@ -98,17 +103,17 @@ def test_omitted_worker_selects_through_the_registry() -> None:
         (
             'exit_code=1; stderr=400: {"code":400,"message":"User location is not '
             'supported for the API use.","status":"FAILED_PRECONDITION"}',
-            ExecutorFailureClass.PROVIDER_CONFIGURATION_FAILURE,
+            ProviderFailureClass.PROVIDER_CONFIGURATION_FAILURE,
         ),
         # a quota wall is not an outage
         (
             "429 usage_limit_reached: The usage limit has been reached",
-            ExecutorFailureClass.PROVIDER_RATE_LIMIT,
+            ProviderFailureClass.PROVIDER_RATE_LIMIT,
         ),
-        ("503 service unavailable", ExecutorFailureClass.PROVIDER_UNAVAILABLE),
+        ("503 service unavailable", ProviderFailureClass.PROVIDER_UNAVAILABLE),
         (
             "timeout_kind=INACTIVITY_TIMEOUT; inactivity_timeout_ms=300000",
-            ExecutorFailureClass.PROVIDER_TIMEOUT,
+            ProviderFailureClass.PROVIDER_TIMEOUT,
         ),
         # genuinely local faults stay local
         ("segfault", ExecutorFailureClass.WORKER_CRASH),
@@ -116,7 +121,12 @@ def test_omitted_worker_selects_through_the_registry() -> None:
     ],
 )
 def test_failure_is_attributed_to_its_own_layer(detail: str, expected) -> None:
-    assert classify_executor_failure(exit_code=1, detail=detail) is expected
+    attribution = classify_failure(exit_code=1, detail=detail)
+    if expected in {c.value for c in ProviderFailureClass}:
+        assert attribution.provider_failure_class is ProviderFailureClass(expected)
+        assert attribution.executor_failure_class is None
+    else:
+        assert attribution.executor_failure_class is expected
 
 
 def test_provider_failure_is_never_reported_as_an_executor_fault() -> None:

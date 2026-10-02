@@ -38,7 +38,6 @@ class RemoteErrorCode(StrEnum):
 class ExecutorFailureClass(StrEnum):
     """Canonical failure taxonomy (P6)."""
 
-    PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
     AUTH_FAILURE = "AUTH_FAILURE"
     TRANSPORT_FAILURE = "TRANSPORT_FAILURE"
     MODEL_FAILURE = "MODEL_FAILURE"
@@ -60,14 +59,6 @@ class ExecutorFailureClass(StrEnum):
     EXECUTOR_CAPABILITY_MISMATCH = "EXECUTOR_CAPABILITY_MISMATCH"
     EXECUTOR_HEALTH_FAILURE = "EXECUTOR_HEALTH_FAILURE"
     EXECUTOR_CRASH = "EXECUTOR_CRASH"
-
-    # Provider-signal classes. An executor that launches cleanly and is then
-    # refused by its provider has not crashed: the failure belongs to the
-    # provider, and reporting it as a worker fault sends an operator to the
-    # wrong layer. PROVIDER_UNAVAILABLE above predates this split and stays.
-    PROVIDER_RATE_LIMIT = "PROVIDER_RATE_LIMIT"
-    PROVIDER_TIMEOUT = "PROVIDER_TIMEOUT"
-    PROVIDER_CONFIGURATION_FAILURE = "PROVIDER_CONFIGURATION_FAILURE"
 
 
 class ExecutorHealth(StrEnum):
@@ -104,6 +95,92 @@ class RiskClass(StrEnum):
     P1_PRIVILEGED_HOST = "P1_PRIVILEGED_HOST"
     P2_ROOT_MUTATION = "P2_ROOT_MUTATION"
     P3_CRITICAL_HOST = "P3_CRITICAL_HOST"
+
+
+class ProviderFailureClass(StrEnum):
+    """Why a provider would not serve a request (spec P5.3).
+
+    Kept separate from :class:`ExecutorFailureClass` on purpose. An executor that
+    launches cleanly and is then refused upstream has not failed as an executor,
+    and a flat ``failure_class`` field forces a reader to guess which layer to go
+    and look at. A receipt therefore names both, and leaves one of them null.
+    """
+
+    PROVIDER_TIMEOUT = "PROVIDER_TIMEOUT"
+    PROVIDER_RATE_LIMIT = "PROVIDER_RATE_LIMIT"
+    PROVIDER_AUTH_FAILURE = "PROVIDER_AUTH_FAILURE"
+    PROVIDER_CONFIGURATION_FAILURE = "PROVIDER_CONFIGURATION_FAILURE"
+    PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+    PROVIDER_MODEL_UNAVAILABLE = "PROVIDER_MODEL_UNAVAILABLE"
+
+    @property
+    def retryable(self) -> bool:
+        """Whether retrying the same request could plausibly succeed.
+
+        A timeout or a rate limit clears on its own. A refused credential or an
+        unsupported region does not, so retrying only burns the remaining quota.
+        """
+
+        return self in {
+            ProviderFailureClass.PROVIDER_TIMEOUT,
+            ProviderFailureClass.PROVIDER_RATE_LIMIT,
+            ProviderFailureClass.PROVIDER_UNAVAILABLE,
+        }
+
+
+@dataclass(frozen=True)
+class FailureAttribution:
+    """A failure resolved to the single layer responsible for it.
+
+    Exactly one field is set. Holding both is rejected rather than tolerated:
+    a receipt claiming an executor crashed *and* its provider refused to serve
+    has not recorded a diagnosis, it has recorded a guess.
+    """
+
+    executor_failure_class: ExecutorFailureClass | None = None
+    provider_failure_class: ProviderFailureClass | None = None
+
+    def __post_init__(self) -> None:
+        if (self.executor_failure_class is None) == (self.provider_failure_class is None):
+            raise ValueError(
+                "failure must be attributed to exactly one layer: "
+                f"executor={self.executor_failure_class!r} provider={self.provider_failure_class!r}"
+            )
+
+    @classmethod
+    def executor(cls, value: ExecutorFailureClass) -> FailureAttribution:
+        return cls(executor_failure_class=value)
+
+    @classmethod
+    def provider(cls, value: ProviderFailureClass) -> FailureAttribution:
+        return cls(provider_failure_class=value)
+
+    @property
+    def is_provider_fault(self) -> bool:
+        return self.provider_failure_class is not None
+
+    @property
+    def code(self) -> str:
+        """The single canonical code, for logs that carry one field."""
+
+        value = self.executor_failure_class or self.provider_failure_class
+        return str(value)
+
+    def to_dict(self) -> dict[str, str | None]:
+        """Receipt projection: both fields named, one of them null."""
+
+        return {
+            "executor_failure_class": (
+                str(self.executor_failure_class)
+                if self.executor_failure_class is not None
+                else None
+            ),
+            "provider_failure_class": (
+                str(self.provider_failure_class)
+                if self.provider_failure_class is not None
+                else None
+            ),
+        }
 
 
 @dataclass

@@ -35,12 +35,13 @@ from scripts.qualify_executors import (
     run_deterministic_qualification,
 )
 from veya.remote.executor_health import (
-    registry_order,
     ExecutorFailureClass,
     ExecutorHealth,
     ExecutorHealthRegistry,
+    ProviderFailureClass,
     SubstitutionEvidence,
     classify_executor_failure,
+    registry_order,
     resolve_executor,
 )
 from veya.remote.worker_runtime import FinishBoundary
@@ -65,7 +66,7 @@ def test_01_default_preference_order():
 def test_02_explicit_pin_not_substituted():
     """2. explicit pin 不被替换."""
     reg = ExecutorHealthRegistry()
-    reg.record_failure("codex", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("codex", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     # Even though codex is UNAVAILABLE, explicit_pin preserves it
     selected, sub = resolve_executor(requested="codex", explicit_pin=True, health_registry=reg)
     assert selected == "codex"
@@ -81,7 +82,7 @@ def test_02_explicit_pin_not_substituted():
 def test_03_unhealthy_agy_fallback_to_opencode():
     """3. unhealthy AGY -> OPENCODE."""
     reg = ExecutorHealthRegistry()
-    reg.record_failure("antigravity", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("antigravity", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     assert reg.get_health("antigravity") == ExecutorHealth.UNAVAILABLE
 
     selected, sub = resolve_executor(
@@ -97,7 +98,7 @@ def test_03_unhealthy_agy_fallback_to_opencode():
 def test_04_unhealthy_agy_and_opencode_fallback_to_claude_code():
     """4. unhealthy AGY+OPENCODE -> CLAUDE_CODE."""
     reg = ExecutorHealthRegistry()
-    reg.record_failure("antigravity", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("antigravity", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     reg.record_failure("opencode", ExecutorFailureClass.TRANSPORT_FAILURE)
     assert reg.get_health("antigravity") == ExecutorHealth.UNAVAILABLE
     assert reg.get_health("opencode") == ExecutorHealth.UNAVAILABLE
@@ -115,10 +116,10 @@ def test_04b_quota_exhausted_codex_auto_skipped():
     reg = ExecutorHealthRegistry()
     # If AGY, OPENCODE, CLAUDE_CODE, PI, GROK, DSH are down:
     for w in ("antigravity", "opencode", "claude_code", "pi", "grok", "dsh"):
-        reg.record_failure(w, ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+        reg.record_failure(w, ProviderFailureClass.PROVIDER_UNAVAILABLE)
     # Simulate CODEX quota exhausted:
     reg.record_failure(
-        "codex", ExecutorFailureClass.PROVIDER_UNAVAILABLE, detail="429 quota exhausted"
+        "codex", ProviderFailureClass.PROVIDER_UNAVAILABLE, detail="429 quota exhausted"
     )
     # Every capable executor is down: routing must fail closed, never fall back
     # to a retired executor (hicode).

@@ -29,7 +29,9 @@ from veya.remote.executor_health import (
     ExecutorFailureClass,
     ExecutorHealth,
     ExecutorHealthRegistry,
+    ProviderFailureClass,
     classify_executor_failure,
+    classify_failure,
     normalize_executor_name,
     registry_order,
     resolve_executor,
@@ -203,7 +205,7 @@ def test_03c_opencode_runtime_state_is_not_in_execution_worktree(
 def test_04_explicit_pin_no_silent_fallback() -> None:
     """4. Explicit pin must execute real requested worker, failing closed without substitution."""
     reg = ExecutorHealthRegistry()
-    reg.record_failure("opencode", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("opencode", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     reg.record_failure("pi", ExecutorFailureClass.TRANSPORT_FAILURE)
 
     # Even if opencode is UNAVAILABLE, explicit_pin=True NEVER substitutes
@@ -227,7 +229,7 @@ def test_05_health_aware_fallback_sequence() -> None:
     assert sub1 is None
 
     # 2. AGY down -> OPENCODE
-    reg.record_failure("antigravity", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("antigravity", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     cand2, sub2 = resolve_executor(health_registry=reg)
     assert cand2 == "opencode"
     assert sub2 is not None and sub2.selected_executor == "opencode"
@@ -239,25 +241,25 @@ def test_05_health_aware_fallback_sequence() -> None:
     assert sub3 is not None and sub3.selected_executor == "claude_code"
 
     # 4. AGY + OPENCODE + CLAUDE_CODE down -> PI
-    reg.record_failure("claude_code", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("claude_code", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     cand4, sub4 = resolve_executor(health_registry=reg)
     assert cand4 == "pi"
     assert sub4 is not None and sub4.selected_executor == "pi"
 
     # 5. AGY..PI down -> GROK
-    reg.record_failure("pi", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("pi", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     cand5, sub5 = resolve_executor(health_registry=reg)
     assert cand5 == "grok"
     assert sub5 is not None and sub5.selected_executor == "grok"
 
     # 6. AGY..GROK down -> DSH
-    reg.record_failure("grok", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("grok", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     cand6, sub6 = resolve_executor(health_registry=reg)
     assert cand6 == "dsh"
     assert sub6 is not None and sub6.selected_executor == "dsh"
 
     # 7. AGY..DSH down -> CODEX
-    reg.record_failure("dsh", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("dsh", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     cand7, sub7 = resolve_executor(health_registry=reg)
     assert cand7 == "codex"
     assert sub7 is not None and sub7.selected_executor == "codex"
@@ -267,11 +269,11 @@ def test_06_codex_quota_exhausted_auto_skipped() -> None:
     """6. CODEX auto-skipped on quota exhaustion; retired hicode never readmitted."""
     reg = ExecutorHealthRegistry()
     for w in ("antigravity", "opencode", "claude_code", "pi", "grok", "dsh"):
-        reg.record_failure(w, ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+        reg.record_failure(w, ProviderFailureClass.PROVIDER_UNAVAILABLE)
 
     # Codex hits 429 quota exhausted
     reg.record_failure(
-        "codex", ExecutorFailureClass.PROVIDER_UNAVAILABLE, detail="429 rate limit quota exceeded"
+        "codex", ProviderFailureClass.PROVIDER_UNAVAILABLE, detail="429 rate limit quota exceeded"
     )
     assert reg.get_health("codex") == ExecutorHealth.UNAVAILABLE
 
@@ -287,11 +289,11 @@ def test_06_codex_quota_exhausted_auto_skipped() -> None:
 def test_07_failure_taxonomy_for_opencode() -> None:
     """7. Failure taxonomy correctly classifies OpenCode failure signals."""
     # 429 / quota
-    fc_quota = classify_executor_failure(
+    fc_quota = classify_failure(
         detail="OpenCode provider 429: quota exhausted, purchase more credits"
-    )
+    ).provider_failure_class
     # A quota wall is not a provider outage.
-    assert fc_quota == ExecutorFailureClass.PROVIDER_RATE_LIMIT
+    assert fc_quota is ProviderFailureClass.PROVIDER_RATE_LIMIT
 
     # auth failure
     fc_auth = classify_executor_failure(

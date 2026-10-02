@@ -35,8 +35,8 @@ from veya.remote.execution_contract import (
     probe_runtime_capability_manifest,
 )
 from veya.remote.executor_health import (
-    ExecutorFailureClass,
     ExecutorHealthRegistry,
+    ProviderFailureClass,
     registry_order,
     resolve_executor,
 )
@@ -142,7 +142,7 @@ def test_claim_1_manifest_is_real_probe(tmp_path: Path):
     # 3. Health registry failure recorded -> status becomes UNAVAILABLE
     reg = ExecutorHealthRegistry()
     reg.record_failure(
-        "opencode", ExecutorFailureClass.PROVIDER_UNAVAILABLE, detail="503 upstream down"
+        "opencode", ProviderFailureClass.PROVIDER_UNAVAILABLE, detail="503 upstream down"
     )
     manifest_unavail = probe_runtime_capability_manifest("opencode", health_registry=reg)
     assert manifest_unavail.reachable is False
@@ -167,7 +167,7 @@ def test_claim_2_unavailable_candidate_fails_closed():
     """If all capable candidates are UNAVAILABLE, routing fails closed instead of picking unhealthy."""
     reg = ExecutorHealthRegistry()
     for worker in registry_order():
-        reg.record_failure(worker, ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+        reg.record_failure(worker, ProviderFailureClass.PROVIDER_UNAVAILABLE)
 
     with pytest.raises(ValueError, match=r"all capable candidates .* are UNAVAILABLE"):
         resolve_executor(health_registry=reg)

@@ -533,6 +533,10 @@ class ExecutionRecord:
     selected_capability_ids: list[str] = field(default_factory=list)
     selected_skill_ids: list[str] = field(default_factory=list)
     failure_class: str | None = None
+    # Split attribution (spec P5.3). Exactly one of these is set when a
+    # failure is recorded; `failure_class` stays as the single log code.
+    executor_failure_class: str | None = None
+    provider_failure_class: str | None = None
     failure_source: str | None = None
     failure_detail: str | None = None
     failure_message: str | None = None
@@ -678,6 +682,8 @@ class ExecutionRecord:
             "selected_capability_ids": list(self.selected_capability_ids),
             "selected_skill_ids": list(self.selected_skill_ids),
             "failure_class": self.failure_class,
+            "executor_failure_class": self.executor_failure_class,
+            "provider_failure_class": self.provider_failure_class,
             "failure_source": self.failure_source,
             "failure_detail": self.failure_detail,
             "failure_message": self.failure_message,

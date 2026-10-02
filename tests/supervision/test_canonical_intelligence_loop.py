@@ -26,8 +26,8 @@ import pytest
 
 from runtime.verification.engine import VerificationEngine
 from veya.decision import JevAnswer, JevDecision, QuestionKind
-from veya.remote.executor_health import ExecutorHealthRegistry
-from veya.remote.models import ExecutorFailureClass, ExecutorHealth
+from veya.remote.executor_health import ExecutorHealthRegistry, ProviderFailureClass
+from veya.remote.models import ExecutorHealth
 from veya.supervision import MissionStore, SupervisionRouter
 from veya.supervision.loop import MissionLoop
 from veya.supervision.models import (
@@ -339,7 +339,7 @@ async def test_case_f_worker_quota_exhausted_planning(tmp_path: Path) -> None:
     registry = ExecutorHealthRegistry()
     registry.record_failure(
         "codex",
-        failure_class=ExecutorFailureClass.PROVIDER_UNAVAILABLE,
+        failure_class=ProviderFailureClass.PROVIDER_UNAVAILABLE,
         detail="429 quota exhausted",
     )
     assert registry.get_health("codex") == ExecutorHealth.UNAVAILABLE

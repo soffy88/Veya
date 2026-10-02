@@ -27,7 +27,9 @@ import pytest
 from veya.remote.executor_health import (
     ExecutorFailureClass,
     ExecutorHealthRegistry,
+    ProviderFailureClass,
     classify_executor_failure,
+    classify_failure,
     normalize_executor_name,
     registry_order,
     resolve_executor,
@@ -147,14 +149,14 @@ def test_04_health_aware_routing_with_claude_code() -> None:
     reg = ExecutorHealthRegistry()
 
     # AGY + OPENCODE down -> CLAUDE_CODE
-    reg.record_failure("antigravity", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("antigravity", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     reg.record_failure("opencode", ExecutorFailureClass.TRANSPORT_FAILURE)
     selected, sub = resolve_executor(health_registry=reg)
     assert selected == "claude_code"
     assert sub is not None and sub.selected_executor == "claude_code"
 
     # AGY + OPENCODE + CLAUDE_CODE down -> PI
-    reg.record_failure("claude_code", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("claude_code", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     selected2, _ = resolve_executor(health_registry=reg)
     assert selected2 == "pi"
 
@@ -170,7 +172,7 @@ def test_05_capability_aware_routing_with_claude_code() -> None:
     assert selected == "antigravity"
 
     # With antigravity down, claude_code is the next write-capable candidate.
-    reg.record_failure("antigravity", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("antigravity", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     selected2, _ = resolve_executor(
         required_capabilities={"supports_write_task": True},
         health_registry=reg,
@@ -181,7 +183,7 @@ def test_05_capability_aware_routing_with_claude_code() -> None:
 def test_06_explicit_pin_claude_code_not_substituted() -> None:
     """6. Explicit pin preserves claude_code even when unhealthy."""
     reg = ExecutorHealthRegistry()
-    reg.record_failure("claude_code", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    reg.record_failure("claude_code", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     selected, sub = resolve_executor(
         requested="claude_code", explicit_pin=True, health_registry=reg
     )
@@ -196,10 +198,12 @@ def test_07_failure_taxonomy_claude_code() -> None:
     )
     assert fc_auth == ExecutorFailureClass.AUTH_FAILURE
 
-    fc_quota = classify_executor_failure(detail="Claude Code 429: rate limit exceeded, usage limit")
-    # A quota wall is not an outage: "unreachable" and "slow down" call for
-    # different operator responses, so the two must not collapse.
-    assert fc_quota == ExecutorFailureClass.PROVIDER_RATE_LIMIT
+    fc_quota = classify_failure(
+        detail="Claude Code 429: rate limit exceeded, usage limit"
+    ).provider_failure_class
+    # A quota wall is not an outage: \"unreachable\" and \"slow down\" call for
+    # different operator responses, and the two must not collapse.
+    assert fc_quota is ProviderFailureClass.PROVIDER_RATE_LIMIT
 
     fc_timeout = classify_executor_failure(
         error=TimeoutError("claude_code run hard max runtime exceeded")

@@ -16,9 +16,9 @@ from typing import Any
 import pytest
 
 from veya.remote.executor_health import (
-    ExecutorFailureClass,
     ExecutorHealth,
     ExecutorHealthRegistry,
+    ProviderFailureClass,
     WorkerCapabilities,
 )
 from veya.supervision import runner as mission_runner
@@ -129,7 +129,7 @@ def test_builtin_requires_resolved_actions_to_be_a_target() -> None:
 
 def test_executor_selection_uses_health() -> None:
     health = _healthy("opencode", "dsh")
-    health.record_failure("opencode", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    health.record_failure("opencode", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     assert health.get_health("opencode") == ExecutorHealth.UNAVAILABLE
 
     selected, eligible = select_mission_executor(
@@ -174,7 +174,7 @@ def test_unhealthy_hicode_not_required_when_alternative_exists(
 ) -> None:
     """The Q4 mission must not need hicode once it is known unhealthy."""
     health = _healthy("opencode", "dsh")
-    health.record_failure("opencode", ExecutorFailureClass.PROVIDER_UNAVAILABLE)
+    health.record_failure("opencode", ProviderFailureClass.PROVIDER_UNAVAILABLE)
     selected, _ = select_mission_executor(
         requested="opencode",
         required_capabilities=WorkerCapabilities(supports_file_effect=True).to_dict(),
