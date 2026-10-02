@@ -94,7 +94,7 @@ async def test_l0_shell_failure_is_structured(tmp_path: Path) -> None:
     assert result.ok is False
     assert result.error_code.value == "EXECUTION_FAILED"
     assert isinstance(result.result, dict)
-    assert result.result["failure_class"] == "COMMAND_SPAWN_FAILED"
+    assert result.result["failure_class"] == "PROCESS_START_FAILURE"
 
 
 async def test_l0_shell_exec_smoke_uses_canonical_cwd(tmp_path: Path) -> None:

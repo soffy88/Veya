@@ -486,7 +486,7 @@ async def test_spawn_failure_is_failed_not_completed() -> None:
     assert result.status == "failed"
     assert result.exit_code is None
     assert "unable to execute command" in result.stderr_tail
-    assert _direct_failure_class(result) == "COMMAND_SPAWN_FAILED"
+    assert _direct_failure_class(result) == "PROCESS_START_FAILURE"
 
 
 def test_direct_spawn_failure_predicate() -> None:

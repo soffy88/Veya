@@ -56,11 +56,13 @@ from .execution import (
     DurableJobManager,
     ExecutionBlocked,
     ExecutionError,
+    ExecutionFailureClass,
     ExecutionPhase,
     ExecutionStatus,
     ExecutionStore,
     ExecutionType,
     ProgressReporter,
+    TimeoutKind,
     use_reporter,
 )
 from .execution_context import (
@@ -2702,8 +2704,9 @@ class RemoteToolAdapter:
                 # P0-G: a spawn failure (exit_code None), timeout, or
                 # non-zero exit must carry failure_class/source/detail so the
                 # terminal projection can never classify it as COMPLETED.
+                failure_class = _direct_failure_class(result)
                 reporter.failure(
-                    failure_class=_direct_failure_class(result),
+                    failure_class=failure_class,
                     source="direct_command",
                     detail=(
                         result.stderr_tail[-4000:]
@@ -2711,6 +2714,10 @@ class RemoteToolAdapter:
                         or f"direct command {result.status} (exit_code={result.exit_code})"
                     ),
                 )
+                if failure_class == str(ExecutionFailureClass.PROCESS_TIMEOUT):
+                    # A deadline that expired is a timeout, not a generic
+                    # failure, and the receipt has to say which budget ran out.
+                    reporter.timeout(kind=str(TimeoutKind.PROCESS), seconds=timeout_s)
             return f"direct command {result.status} (exit_code={result.exit_code})"
 
         return runner
@@ -4596,16 +4603,25 @@ class RemoteToolAdapter:
 
 
 def _direct_failure_class(result: Any) -> str:
-    """Failure taxonomy for a non-passed direct command (P0-G)."""
+    """Failure taxonomy for a non-passed direct command (P0-G).
+
+    Uses the L0 taxonomy so a direct timeout reads the same as any other
+    execution timeout, and a command that never started is distinguishable
+    from one that started and then failed.
+    """
 
     status = str(getattr(result, "status", "") or "")
     exit_code = getattr(result, "exit_code", None)
     stderr = str(getattr(result, "stderr_tail", "") or "")
     if status == "timeout" or getattr(result, "timed_out", False):
-        return "COMMAND_TIMEOUT"
+        return str(ExecutionFailureClass.PROCESS_TIMEOUT)
     if exit_code is None or "unable to execute command" in stderr:
-        return "COMMAND_SPAWN_FAILED"
-    return "COMMAND_FAILED"
+        return str(ExecutionFailureClass.PROCESS_START_FAILURE)
+    if exit_code in {-9, -15, 137, 143}:
+        # killed by signal rather than exiting: the process stopped, it did not
+        # return. That is a runtime failure, not a clean non-zero exit.
+        return str(ExecutionFailureClass.PROCESS_RUNTIME_FAILURE)
+    return str(ExecutionFailureClass.PROCESS_RUNTIME_FAILURE)
 
 
 def _terminal_error_code(record: Any) -> RemoteErrorCode:

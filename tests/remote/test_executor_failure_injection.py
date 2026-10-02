@@ -221,7 +221,13 @@ async def test_worker_timeout_fails_closed_no_zombie(tmp_path: Path, monkeypatch
 
     result = await wait_terminal(gateway, secret, session, child_id, timeout=10.0)
     assert result["status"] in ("FAILED", "TIMED_OUT", "BLOCKED")
-    assert result["failure_class"] in ("EXECUTION_TIMEOUT", "WORKER_TIMEOUT", "TIMEOUT")
+    assert result["failure_class"] in (
+        "EXECUTION_TIMEOUT",
+        "WORKER_TIMEOUT",
+        "TIMEOUT",
+        "TOOL_TIMEOUT",
+        "PROCESS_TIMEOUT",
+    )
     assert not result["worker_alive"]
     # Check that the sleep process is not lingering
     pid = result.get("worker_pid")
@@ -382,7 +388,6 @@ async def test_concurrency_5_executors_parallel(tmp_path: Path, monkeypatch):
             tracker["active"] -= 1
         return "mock_ok"
 
-    monkeypatch.setattr(RemoteToolAdapter, "_make_hicode_runner", lambda self, **kw: mock_runner)
     monkeypatch.setattr(
         RemoteToolAdapter, "_make_cli_worker_runner", lambda self, **kw: mock_runner
     )
@@ -436,14 +441,6 @@ async def test_explicit_executor_pinning(tmp_path: Path, monkeypatch):
         return runner
 
     monkeypatch.setattr(RemoteToolAdapter, "_make_cli_worker_runner", mock_cli_runner)
-    monkeypatch.setattr(
-        RemoteToolAdapter,
-        "_make_hicode_runner",
-        lambda self, **kw: (
-            assigned_workers.append("hicode"),
-            (lambda reporter: asyncio.sleep(0.01)),
-        )[1],
-    )
 
     gateway, secret, _ = make_gateway(tmp_path)
     session = await initialize(gateway, secret, workspace=tmp_path)

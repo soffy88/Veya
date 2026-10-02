@@ -25,11 +25,11 @@ from pathlib import Path
 import pytest
 
 from veya.remote.executor_health import (
-    registry_order,
     ExecutorFailureClass,
     ExecutorHealthRegistry,
     classify_executor_failure,
     normalize_executor_name,
+    registry_order,
     resolve_executor,
 )
 from veya.remote.executor_registry import get_executor_registry
@@ -454,7 +454,13 @@ async def test_12_claude_code_timeout_propagation(tmp_path: Path, monkeypatch) -
 
     result = await wait_terminal(gateway, secret, session, child_id, timeout=15.0)
     assert result["status"] in ("FAILED", "TIMED_OUT", "BLOCKED")
-    assert result["failure_class"] in ("EXECUTION_TIMEOUT", "WORKER_TIMEOUT", "TIMEOUT")
+    assert result["failure_class"] in (
+        "EXECUTION_TIMEOUT",
+        "WORKER_TIMEOUT",
+        "TIMEOUT",
+        "TOOL_TIMEOUT",
+        "PROCESS_TIMEOUT",
+    )
     assert not result["worker_alive"]
 
 

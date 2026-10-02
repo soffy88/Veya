@@ -80,6 +80,14 @@ class ExecutionPhase(StrEnum):
     CANCELLED = "CANCELLED"
     TIMED_OUT = "TIMED_OUT"
     TERMINATED = "TERMINATED"
+    #: Admission refused the request before any worker started. Distinct from
+    #: FAILED: nothing ran, so there is no runtime failure to report.
+    REJECTED = "REJECTED"
+    #: A cancel was accepted and is being carried out. The record is not
+    #: CANCELLED until the worker has actually stopped.
+    CANCEL_REQUESTED = "CANCEL_REQUESTED"
+    #: An interrupted execution was re-admitted and finished successfully.
+    RECOVERED = "RECOVERED"
 
 
 class ExecutionStatus(StrEnum):
@@ -118,6 +126,163 @@ RUNNING_PHASES = (
     ExecutionPhase.FINALIZING,
 )
 _PHASE_ORDER: dict[str, int] = {str(phase): index for index, phase in enumerate(RUNNING_PHASES)}
+
+#: States from which no further transition is legal. A finished execution is a
+#: fact; it cannot later become a failure because a late writer disagreed.
+TERMINAL_STATUSES: frozenset[str] = frozenset(
+    {
+        str(ExecutionStatus.COMPLETED),
+        str(ExecutionStatus.FAILED),
+        str(ExecutionStatus.BLOCKED),
+        str(ExecutionStatus.CANCELLED),
+        str(ExecutionStatus.TIMED_OUT),
+        str(ExecutionPhase.TERMINATED),
+        str(ExecutionPhase.REJECTED),
+    }
+)
+
+#: Legal successors per status. Absence of a key means "no transition out".
+#: RECOVERING is the single sanctioned escape hatch from a terminal failure, and
+#: it is only reachable through the recovery path, never from an arbitrary
+#: late writer.
+_LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
+    str(ExecutionStatus.QUEUED): frozenset(
+        {
+            str(ExecutionStatus.RUNNING),
+            str(ExecutionStatus.COMPLETED),
+            str(ExecutionStatus.BLOCKED),
+            str(ExecutionStatus.FAILED),
+            str(ExecutionStatus.CANCELLED),
+            str(ExecutionStatus.TIMED_OUT),
+            str(ExecutionPhase.REJECTED),
+            str(ExecutionPhase.CANCEL_REQUESTED),
+            str(ExecutionPhase.RECOVERING),
+            # reconciliation aggregates a mixed-outcome parent
+            "PARTIAL_COMPLETED",
+        }
+    ),
+    str(ExecutionStatus.RUNNING): frozenset(
+        {
+            str(ExecutionStatus.COMPLETED),
+            str(ExecutionStatus.FAILED),
+            str(ExecutionStatus.BLOCKED),
+            str(ExecutionStatus.CANCELLED),
+            str(ExecutionStatus.TIMED_OUT),
+            str(ExecutionStatus.STALLED),
+            str(ExecutionPhase.CANCEL_REQUESTED),
+            str(ExecutionPhase.RECOVERING),
+            str(ExecutionPhase.REJECTED),
+            # forced teardown of a live record
+            str(ExecutionPhase.TERMINATED),
+            "PARTIAL_COMPLETED",
+        }
+    ),
+    # a suspended record is still live work
+    "SUSPENDED": frozenset(
+        {
+            str(ExecutionStatus.RUNNING),
+            str(ExecutionStatus.FAILED),
+            str(ExecutionStatus.CANCELLED),
+            str(ExecutionStatus.TIMED_OUT),
+            str(ExecutionPhase.RECOVERING),
+        }
+    ),
+    str(ExecutionStatus.STALLED): frozenset(
+        {
+            str(ExecutionStatus.RUNNING),
+            str(ExecutionStatus.FAILED),
+            str(ExecutionStatus.CANCELLED),
+            str(ExecutionStatus.TIMED_OUT),
+        }
+    ),
+    str(ExecutionPhase.CANCEL_REQUESTED): frozenset(
+        {
+            str(ExecutionStatus.CANCELLED),
+            str(ExecutionStatus.FAILED),
+            str(ExecutionStatus.TIMED_OUT),
+        }
+    ),
+    str(ExecutionPhase.RECOVERING): frozenset(
+        {
+            str(ExecutionStatus.RUNNING),
+            str(ExecutionStatus.COMPLETED),
+            str(ExecutionStatus.FAILED),
+            str(ExecutionStatus.CANCELLED),
+            str(ExecutionStatus.TIMED_OUT),
+            str(ExecutionPhase.RECOVERED),
+        }
+    ),
+    str(ExecutionStatus.FAILED): frozenset({str(ExecutionPhase.RECOVERING)}),
+    str(ExecutionStatus.BLOCKED): frozenset({str(ExecutionPhase.RECOVERING)}),
+    str(ExecutionStatus.TIMED_OUT): frozenset({str(ExecutionPhase.RECOVERING)}),
+}
+
+
+class ExecutionFailureClass(StrEnum):
+    """L0 runtime failure taxonomy.
+
+    Scoped to the execution substrate on purpose. Provider-side and
+    worker-side classification belongs to L1/L2, where the executor and the
+    provider runtime actually live; a shell process that never started has
+    nothing useful to say about quota.
+
+    ``TOOL_TIMEOUT`` / ``PROCESS_TIMEOUT`` are deliberately distinct: the first
+    is a caller-supplied budget the tool itself declared, the second is a child
+    process that outlived its deadline. Collapsing them makes it impossible to
+    tell "we asked for too little time" from "the process hung".
+    """
+
+    PERMISSION_DENIED = "PERMISSION_DENIED"
+    TARGET_RESOLUTION_FAILURE = "TARGET_RESOLUTION_FAILURE"
+    PROCESS_START_FAILURE = "PROCESS_START_FAILURE"
+    PROCESS_RUNTIME_FAILURE = "PROCESS_RUNTIME_FAILURE"
+    TOOL_TIMEOUT = "TOOL_TIMEOUT"
+    PROCESS_TIMEOUT = "PROCESS_TIMEOUT"
+    CANCELLED = "CANCELLED"
+    UNKNOWN = "UNKNOWN"
+
+
+#: How a timeout was produced. Kept separate from the failure class so the
+#: receipt can say *which clock* expired, not merely that something did.
+class TimeoutKind(StrEnum):
+    SUBMIT = "SUBMIT_TIMEOUT"
+    PROCESS = "PROCESS_TIMEOUT"
+    TOOL = "TOOL_TIMEOUT"
+
+
+class IllegalTransition(RuntimeError):
+    """A writer tried to move a record somewhere it may not go.
+
+    Declared independently of :class:`ExecutionError` so the gate can sit with
+    the phase tables it validates, before the error taxonomy is defined.
+    """
+
+    code = "ILLEGAL_TRANSITION"
+
+    def __init__(self, current: str, target: str) -> None:
+        super().__init__(f"illegal execution transition {current!r} -> {target!r}")
+        self.current = str(current)
+        self.target = str(target)
+
+
+def is_terminal_status(status: str) -> bool:
+    return str(status) in TERMINAL_STATUSES
+
+
+def assert_legal_transition(current: str, target: str) -> None:
+    """Refuse an illegal state change instead of silently applying it.
+
+    Terminal records are immutable, with one exception: a failed, blocked or
+    timed-out record may enter RECOVERING, because that is the recovery path
+    re-admitting real work. Nothing else may leave a terminal state.
+    """
+
+    cur, tgt = str(current), str(target)
+    if cur == tgt:
+        return
+    allowed = _LEGAL_TRANSITIONS.get(cur)
+    if allowed is None or tgt not in allowed:
+        raise IllegalTransition(cur, tgt)
 
 
 class ExecutionType(StrEnum):
@@ -283,6 +448,14 @@ class ExecutionRecord:
     execution_timeout_sec: float | None = None
     effective_timeout_ms: int | None = None
     command_timeout_sec: float | None = None
+    #: Which clock expired (SUBMIT | PROCESS | TOOL) and the budget it ran
+    #: against. A single "timed out" answer cannot distinguish a caller that
+    #: under-specified its budget from a child process that hung.
+    timeout_type: str | None = None
+    timeout_seconds: float | None = None
+    #: When the execution last showed forward progress, so an inactivity
+    #: timeout can be told apart from a total-runtime timeout.
+    last_progress_at: float | None = None
     heartbeat_timeout_sec: float | None = None
     # P0-D/E/F: direct execution identity and bounded streaming state.
     execution_type: str = str(ExecutionType.DIRECT)
@@ -434,6 +607,9 @@ class ExecutionRecord:
             # the same request resolves to different checkouts by intent.
             "target_type": self.target_type,
             "dirty_state": self.dirty_state,
+            "timeout_type": self.timeout_type,
+            "timeout_seconds": self.timeout_seconds,
+            "last_progress_at": self.last_progress_at,
             "worktree_binding_key": self.worktree_binding_key,
             "worktree_base_sha": self.worktree_base_sha,
             "execution_commit_sha": self.execution_commit_sha,
@@ -759,6 +935,11 @@ class ProgressReporter:
             capability_ids=capability_ids,
             skill_ids=skill_ids,
         )
+
+    def timeout(self, *, kind: str, seconds: float | None = None) -> None:
+        """Record which clock expired, so a timeout is never undifferentiated."""
+
+        self._manager.set_timeout(self._execution_id, kind=kind, seconds=seconds)
 
     def failure(
         self,
@@ -1422,12 +1603,30 @@ class DurableJobManager:
             "FAILED",
             "TIMED_OUT",
             "CANCELLED",
+            "CANCEL_REQUESTED",
+            "REJECTED",
+            "RECOVERING",
+            "RECOVERED",
         }
         normalized = str(state).upper()
         if normalized not in allowed:
             raise ExecutionError("INVALID_STATE", f"unsupported lifecycle state {state!r}")
         record = self._record_for_update(execution_id)
         if record.is_terminal and normalized != record.lifecycle_state:
+            # Refused, but not silently: a caller that believes it advanced a
+            # finished execution must be able to see that it did not.
+            record.events.append(
+                {
+                    "ts": time.time(),
+                    "kind": "ILLEGAL_TRANSITION",
+                    "phase": str(record.lifecycle_state),
+                    "message": (
+                        f"lifecycle {record.lifecycle_state} -> {normalized} refused: "
+                        "terminal execution is immutable"
+                    ),
+                }
+            )
+            self._persist(record)
             return record
         record.lifecycle_state = normalized
         if normalized == "RUNNING":
@@ -2156,12 +2355,19 @@ class DurableJobManager:
         except ExecutionError as exc:
             reason = exc.message
             if exc.code in {"TIMEOUT", "WORKER_TIMEOUT"}:
-                record.failure_class = "EXECUTION_TIMEOUT"
+                # A caller-supplied budget is a different event from a child
+                # process that outlived its deadline. Record which clock
+                # expired instead of reporting a single undifferentiated
+                # "timed out".
+                kind = TimeoutKind.TOOL if record.command_timeout_sec else TimeoutKind.PROCESS
+                record.failure_class = str(ExecutionFailureClass.TOOL_TIMEOUT)
+                record.timeout_type = str(kind)
+                record.timeout_seconds = record.command_timeout_sec or record.execution_timeout_sec
                 self._finish(
                     record,
                     str(ExecutionStatus.TIMED_OUT),
                     message=exc.message,
-                    error="EXECUTION_TIMEOUT",
+                    error=str(ExecutionFailureClass.TOOL_TIMEOUT),
                 )
             elif isinstance(exc, ExecutionBlocked):
                 self.set_failure(
@@ -2308,7 +2514,7 @@ class DurableJobManager:
                     elif isinstance(exc, ExecutionError):
                         error_code = exc.code
                         failure_class = (
-                            "EXECUTION_TIMEOUT"
+                            str(ExecutionFailureClass.TOOL_TIMEOUT)
                             if exc.code in {"TIMEOUT", "WORKER_TIMEOUT"}
                             else exc.code
                         )
@@ -2480,12 +2686,16 @@ class DurableJobManager:
                 record.exit_code is not None and record.exit_code != 0
             ):
                 self._finish(record, str(ExecutionStatus.COMPLETED), message="completed")
-            elif record.failure_class == "EXECUTION_TIMEOUT":
+            elif record.failure_class in {
+                "EXECUTION_TIMEOUT",
+                str(ExecutionFailureClass.TOOL_TIMEOUT),
+                str(ExecutionFailureClass.PROCESS_TIMEOUT),
+            }:
                 self._finish(
                     record,
                     str(ExecutionStatus.TIMED_OUT),
                     message=record.failure_detail or "execution timed out",
-                    error="EXECUTION_TIMEOUT",
+                    error=record.failure_class,
                 )
             elif value == "blocked" or record.failure_class == "execution_blocked":
                 self._finish(
@@ -2547,6 +2757,31 @@ class DurableJobManager:
                     record.worker_alive = True
                     self._persist(record)
 
+    def transition(self, record: ExecutionRecord, target: str, *, via: str | None = None) -> None:
+        """Move a record to ``target`` only if the state machine allows it.
+
+        An illegal move is refused and recorded. The record keeps the state it
+        had, and an ``ILLEGAL_TRANSITION`` event explains the refusal, so a late
+        or buggy writer can never quietly downgrade a finished execution into a
+        failure — and never quietly upgrade one either.
+        """
+
+        current = str(record.status)
+        try:
+            assert_legal_transition(via or current, target)
+        except IllegalTransition as exc:
+            record.events.append(
+                {
+                    "ts": time.time(),
+                    "kind": "ILLEGAL_TRANSITION",
+                    "phase": current,
+                    "message": f"{current} -> {target} refused: {exc}",
+                }
+            )
+            self._persist(record)
+            raise
+        record.status = target
+
     def _finish(
         self,
         record: ExecutionRecord,
@@ -2555,11 +2790,17 @@ class DurableJobManager:
         message: str | None = None,
         error: str | None = None,
     ) -> None:
-        record.status = status
+        self.transition(record, status)
         record.phase = status
         record.lifecycle_state = (
             "TIMED_OUT"
-            if status == str(ExecutionStatus.FAILED) and record.failure_class == "EXECUTION_TIMEOUT"
+            if status == str(ExecutionStatus.FAILED)
+            and record.failure_class
+            in {
+                "EXECUTION_TIMEOUT",
+                str(ExecutionFailureClass.TOOL_TIMEOUT),
+                str(ExecutionFailureClass.PROCESS_TIMEOUT),
+            }
             else status
         )
         record.completed_at = time.time()
@@ -2772,6 +3013,17 @@ class DurableJobManager:
         record = self._record_for_update(execution_id)
         record.worktree_path = str(worktree_path)
         record.worktree_repo_root = str(worktree_repo_root)
+        self._persist(record)
+
+    def set_timeout(self, execution_id: str, *, kind: str, seconds: float | None = None) -> None:
+        """Persist timeout provenance on the record."""
+
+        record = self._record_for_update(execution_id)
+        record.timeout_type = str(kind)
+        if seconds is not None:
+            record.timeout_seconds = float(seconds)
+        if record.last_progress_at is None:
+            record.last_progress_at = record.last_output_at or record.started_at
         self._persist(record)
 
     def set_target(
@@ -3100,6 +3352,13 @@ class DurableJobManager:
             return record
         record.cancel_requested = True
         record.message = "cancellation requested"
+        # Make the waypoint observable. The record is not CANCELLED yet: the
+        # worker has been signalled but has not stopped, and reporting CANCELLED
+        # here would be a completion claim we have not earned. The status stays
+        # RUNNING so the phase gate still sees the legal RUNNING -> CANCELLED
+        # edge when the worker actually stops.
+        if not record.is_terminal:
+            record.phase = str(ExecutionPhase.CANCEL_REQUESTED)
         record.cancellation_intent = {
             "execution_id": execution_id,
             "requested_at": time.time(),
