@@ -50,6 +50,17 @@ class ExecutorFailureClass(StrEnum):
     ENVIRONMENT_FAILURE = "ENVIRONMENT_FAILURE"
     PROCESS_REAP_FAILURE = "PROCESS_REAP_FAILURE"
 
+    # L1 executor-plane classes (spec P4.5). These answer "could this executor
+    # be chosen, and did choosing it hold up" — deliberately not provider
+    # concerns. A provider timeout or a provider outage belongs to L2, where
+    # the provider runtime actually lives; reporting it as an executor fault
+    # would send the operator looking at the wrong layer.
+    EXECUTOR_UNAVAILABLE = "EXECUTOR_UNAVAILABLE"
+    EXECUTOR_DISABLED = "EXECUTOR_DISABLED"
+    EXECUTOR_CAPABILITY_MISMATCH = "EXECUTOR_CAPABILITY_MISMATCH"
+    EXECUTOR_HEALTH_FAILURE = "EXECUTOR_HEALTH_FAILURE"
+    EXECUTOR_CRASH = "EXECUTOR_CRASH"
+
 
 class ExecutorHealth(StrEnum):
     """Runtime health classification states (P5)."""

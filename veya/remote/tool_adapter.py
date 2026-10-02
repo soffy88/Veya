@@ -3379,6 +3379,10 @@ class RemoteToolAdapter:
         worker: str,
         blocker: str,
     ) -> Any:
+        # Admission refusals never reached execution, so they must not be
+        # reported as a runtime block. Every blocker routed here is a refusal
+        # at the admission gate: a capability the executor lacks, a worker the
+        # registry will not admit, or a policy that declined the dispatch.
         async def blocked_runner(reporter: ProgressReporter) -> str:
             if blocker == "ERROR_REPETITION_GUARD":
                 reporter.event(
@@ -3398,7 +3402,7 @@ class RemoteToolAdapter:
                     detail="identical unresolved action/error signature",
                 )
                 raise ExecutionBlocked("ERROR_REPETITION_GUARD", blocker)
-            raise ExecutionBlocked("WORKER_UNAVAILABLE", blocker)
+            raise ExecutionBlocked(_admission_failure_class(blocker), blocker)
 
         self._start_blocked_sweeper()
         child = self.jobs.submit(
@@ -4632,6 +4636,24 @@ class RemoteToolAdapter:
             message=message,
             result=result,
         )
+
+
+#: Admission blockers and the L1 failure class each one means. A missing
+#: capability, a disabled executor and an unhealthy one are different operator
+#: problems and must not collapse into one word.
+_ADMISSION_FAILURE_CLASSES: dict[str, str] = {
+    "REQUIRED_CAPABILITY_UNAVAILABLE": "EXECUTOR_CAPABILITY_MISMATCH",
+    "PINNED_EXECUTOR_NOT_WRITE_QUALIFIED": "EXECUTOR_CAPABILITY_MISMATCH",
+    "WORKER_NOT_WRITE_QUALIFIED": "EXECUTOR_CAPABILITY_MISMATCH",
+    "WORKER_UNAVAILABLE": "EXECUTOR_UNAVAILABLE",
+    "EXECUTOR_DISABLED": "EXECUTOR_DISABLED",
+    "EXECUTOR_HEALTH_FAILURE": "EXECUTOR_HEALTH_FAILURE",
+    "ERROR_REPETITION_GUARD": "EXECUTOR_UNAVAILABLE",
+}
+
+
+def _admission_failure_class(blocker: str) -> str:
+    return _ADMISSION_FAILURE_CLASSES.get(str(blocker), "EXECUTOR_UNAVAILABLE")
 
 
 def _direct_failure_class(result: Any) -> str:

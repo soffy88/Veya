@@ -339,6 +339,16 @@ class ExecutionError(Exception):
         self.message = message
 
 
+class ExecutionRejected(ExecutionError):
+    """Admission refused the request before any worker started.
+
+    Distinct from a runtime block: nothing ran, so there is no execution to
+    report a failure from. It lands the record in REJECTED rather than
+    BLOCKED so an operator can tell "we never tried" from "we tried and it
+    stopped".
+    """
+
+
 class ExecutionBlocked(ExecutionError):
     """Execution was refused before it could start (fail-closed)."""
 
