@@ -270,9 +270,15 @@ async def _fetch_catalog(
         return False, [], f"{type(exc).__name__}: {exc}"
 
 
-async def _discover_free_pool() -> FreePoolSnapshot:
-    """Discover free text candidates and complete source catalogs."""
-    sources = [
+def _free_pool_sources() -> list[tuple[str, str]]:
+    """Discovery sources, filtered by ``VEYA_FREE_POOL_PROVIDERS``.
+
+    Same knob as ``canonical_proxies._free_pool_allowed_providers`` so the
+    discovered pool and the routing-side filter can never disagree: dropping a
+    provider at discovery only, or only at routing, leaves a pool whose
+    members the router would still try.
+    """
+    all_sources = [
         ("opencode-go", "https://opencode.ai/zen/v1"),
         ("opencode-go", "https://opencode.ai/zen/go/v1"),
         ("openrouter", "https://openrouter.ai/api/v1"),
@@ -280,6 +286,16 @@ async def _discover_free_pool() -> FreePoolSnapshot:
         ("bai", "https://api.b.ai/v1"),
         ("gmi-serving", "https://api.gmi-serving.com/v1"),
     ]
+    raw = os.environ.get("VEYA_FREE_POOL_PROVIDERS", "").strip()
+    if not raw:
+        return all_sources
+    allowed = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    return [s for s in all_sources if s[0] in allowed]
+
+
+async def _discover_free_pool() -> FreePoolSnapshot:
+    """Discover free text candidates and complete source catalogs."""
+    sources = _free_pool_sources()
     available: dict[str, set[str]] = {}
     entries: dict[str, dict[str, str]] = {}
     healthy: set[str] = set()

@@ -667,10 +667,25 @@ async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
     so a model only enters the pool once a real probe marked it eligible. The
     static ``_VEYA12_FREE_POOL`` seed and the lifecycle
     ``_replace_veya12_free_pool`` hook are retained as fallbacks (§21).
+
+    ``_VEYA12_FREE_POOL`` holds the gateway's *live* probe results, which are
+    fresher than the state file: the lifecycle in ``scripts/veya_llm_gateway.py``
+    re-probes every 24h and evicts a model whose endpoint started answering 402
+    or 403, while the state file keeps the model ``eligible`` until something
+    else rewrites it. Preferring the live pool keeps a request from paying a
+    guaranteed-failing round trip against a model the gateway already retired;
+    the state-file pool stays the fallback so a cold gateway (no refresh yet)
+    still routes.
     """
     global _veya12_free_rr_cursor
+    live = list(_VEYA12_FREE_POOL)
     derived = _cp.free_pool_candidates()
-    pool = derived or list(_VEYA12_FREE_POOL)
+    if live:
+        pool, source = live, "gateway-probe"
+    elif derived:
+        pool, source = derived, "model-state.json:eligible"
+    else:
+        pool, source = list(_VEYA12_FREE_POOL), "static-seed-fallback"
     if not pool:
         fb = await _frontier_fallback(
             messages,
@@ -703,9 +718,7 @@ async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
         pool_label="免费池",
         fallback_reason="veya-free pool empty → gpt-5.6-luna",
     )
-    resp.setdefault("router", {})["POOL_SOURCE"] = (
-        "model-state.json:eligible" if derived else "static-seed-fallback"
-    )
+    resp.setdefault("router", {})["POOL_SOURCE"] = source
     resp["router"]["POOL_SIZE"] = len(pool)
     return resp
 

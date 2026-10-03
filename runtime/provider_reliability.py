@@ -86,7 +86,7 @@ class ReliableProviderAdapter:
                         health.malformed += 1
                         raise ValueError("malformed provider response")
                 except Exception as exc:
-                    from server.hicode_cooldown import ModelCooldown, classify_upstream_failure
+                    from veya.provider_cooldown import ModelCooldown, classify_upstream_failure
 
                     failure = classify_upstream_failure(
                         {
