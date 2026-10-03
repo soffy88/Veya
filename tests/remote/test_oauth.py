@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from base64 import b64encode
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
@@ -344,3 +345,80 @@ def test_existing_integer_store_is_migrated(tmp_path, monkeypatch) -> None:
         clients = db.execute("SELECT COUNT(*) FROM clients").fetchone()[0]
     assert declared["user_id"] == "TEXT"
     assert clients == 1  # the migration did not discard registered clients
+
+
+@pytest.mark.parametrize("encoding", ["form", "json", "basic"])
+def test_token_accepts_form_json_and_basic_encodings(tmp_path, monkeypatch, encoding) -> None:
+    """RFC 6749 says form-encoded; real clients also send JSON or Basic.
+
+    Reading only request.form() made those clients fail with a bare 400 and no
+    diagnostic, so an interop bug looked identical to a wrong password.
+    """
+
+    monkeypatch.setenv("VEYA_REMOTE_OAUTH_STORE_FILE", str(tmp_path / "oauth.db"))
+    auth = RemoteAuth()
+    grant, _ = auth.issue(
+        "soffy",
+        permissions=RemotePermissions(),
+        token_id="rt_oauth_encoding",
+        secret="static-secret",
+    )
+    monkeypatch.setattr(oauth.RemoteAuth, "from_env", classmethod(lambda cls, environ=None: auth))
+    monkeypatch.setattr(oauth, "authenticate", lambda u, p: {"user_id": uuid4().hex})
+    monkeypatch.setenv("VEYA_REMOTE_OAUTH_TOKEN_ID", grant.token_id)
+
+    client = _app()
+    redirect_uri = "http://127.0.0.1:43111/oauth/callback"
+    client_id = client.post("/register", json={"redirect_uris": [redirect_uri]}).json()["client_id"]
+    verifier = "C" * 64
+    consent = client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "state": "s",
+            "code_challenge": _pkce(verifier),
+            "code_challenge_method": "S256",
+        },
+    )
+    tx = re.search(r'name="tx_id" value="([^"]+)"', consent.text).group(1)
+    decision = client.post(
+        "/authorize/decision",
+        data={"tx_id": tx, "username": "soffy", "password": "p"},
+        follow_redirects=False,
+    )
+    assert decision.status_code == 302, decision.text
+    code = parse_qs(urlparse(decision.headers["location"]).query)["code"][0]
+
+    fields = {
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "code": code,
+        "code_verifier": verifier,
+    }
+    if encoding == "form":
+        response = client.post("/token", data=fields)
+    elif encoding == "json":
+        response = client.post("/token", json=fields)
+    else:
+        # HTTP Basic carries the client_id; the rest stays form-encoded.
+        basic = b64encode(f"{client_id}:".encode()).decode()
+        rest = {k: v for k, v in fields.items() if k != "client_id"}
+        response = client.post(
+            "/token",
+            data=rest,
+            headers={"Authorization": f"Basic {basic}"},
+        )
+    assert response.status_code == 200, f"{encoding}: {response.status_code} {response.text}"
+    assert oauth.OAuthStore().resolve_token(response.json()["access_token"]) == grant.token_id
+
+
+def test_token_refusal_records_the_request_shape(tmp_path, monkeypatch) -> None:
+    """A refused token request must say which fields and encoding arrived."""
+
+    monkeypatch.setenv("VEYA_REMOTE_OAUTH_STORE_FILE", str(tmp_path / "oauth.db"))
+    response = _app().post("/token", json={"grant_type": "authorization_code"})
+    assert response.status_code == 400
+    assert "code_verifier" in response.json()["error_description"]

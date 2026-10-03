@@ -7,6 +7,7 @@ already-configured RemoteToken, so OAuth cannot create a new permission grant.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import html
@@ -16,6 +17,7 @@ import os
 import secrets
 import sqlite3
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse, urlunparse
@@ -548,17 +550,62 @@ async def authorize_decision(request: Request) -> HTMLResponse | RedirectRespons
     return RedirectResponse(location, status_code=302)
 
 
+async def _token_params(request: Request) -> dict[str, Any]:
+    """Token-request parameters from form, JSON body, or HTTP Basic client_id.
+
+    Each source is consulted for what the previous one lacked, so a client that
+    splits its request (form body plus client_id in Basic) is read correctly
+    instead of half-dropped.
+    """
+    params: dict[str, Any] = {}
+    with contextlib.suppress(Exception):
+        params.update({str(k): str(v) for k, v in dict(await request.form()).items()})
+    if not params.get("client_id"):
+        with contextlib.suppress(Exception):
+            body = await request.json()
+            if isinstance(body, dict):
+                params.update({str(k): str(v) for k, v in body.items()})
+    if not params.get("client_id"):
+        header = request.headers.get("authorization", "")
+        if header.lower().startswith("basic "):
+            with contextlib.suppress(Exception):
+                decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8", "replace")
+                basic_id = urllib.parse.unquote_plus(decoded.split(":", 1)[0].strip())
+                if basic_id:
+                    params["client_id"] = basic_id
+    return params
+
+
 @router.post("/token", response_model=None)
 async def token(request: Request) -> JSONResponse:
-    form = await request.form()
-    if str(form.get("grant_type") or "") != "authorization_code":
-        return _error("unsupported grant_type")
-    client_id = str(form.get("client_id") or "")
-    redirect_uri = str(form.get("redirect_uri") or "")
-    code = str(form.get("code") or "")
-    verifier = str(form.get("code_verifier") or "")
+    # RFC 6749 defines the token request as form-encoded, but real clients
+    # differ: some send JSON, some put client_id in HTTP Basic. Reading only
+    # `request.form()` made every such client fail with a bare 400 and no way
+    # to tell why. Accept the documented encoding plus the two shapes seen in
+    # practice; the client_id is still verified against the registered record,
+    # so a client_id taken from a header buys nothing.
+    params = await _token_params(request)
+    if str(params.get("grant_type") or "") != "authorization_code":
+        return _reject(
+            "unsupported grant_type",
+            content_type=request.headers.get("content-type", ""),
+            grant_type=str(params.get("grant_type") or "")[:60],
+        )
+    client_id = str(params.get("client_id") or "")
+    redirect_uri = str(params.get("redirect_uri") or "")
+    code = str(params.get("code") or "")
+    verifier = str(params.get("code_verifier") or "")
     if not client_id or not redirect_uri or not code or not verifier:
-        return _error("client_id, redirect_uri, code and code_verifier are required")
+        return _reject(
+            "client_id, redirect_uri, code and code_verifier are required",
+            content_type=request.headers.get("content-type", ""),
+            present=sorted(
+                key
+                for key in ("client_id", "redirect_uri", "code", "code_verifier")
+                if params.get(key)
+            ),
+            basic_auth=bool(request.headers.get("authorization")),
+        )
     if not 43 <= len(verifier) <= 128:
         return _error("invalid code_verifier")
     try:
