@@ -2,10 +2,14 @@
 
 统一挂载三类执行后端:
   builtin — Veya 主脑 (master, 内置)
-  cli     — 本机 CLI agent (claude / codex / pi, 走 engine_runner)
-  acp     — 外部 ACP 兼容 agent (走 acp_client, JSON-RPC over stdio)
+  cli     — 本机 CLI agent (只做发现与准入查询, 不再直接执行)
+  acp     — 外部 ACP 兼容 agent (JSON-RPC over stdio)
 
 能力: 注册 / 探测 / 统一 run / 状态聚合 (Canvas 视角: 可用/忙碌/任务数)。
+
+执行权威: 只有 builtin 在本模块内执行。cli 的直接执行已关闭 (EXECUTION_FACADE_CLOSED)
+—— 详见 _run_cli 的 docstring。统一执行权威是 ExecutorRegistry → admission →
+GoalRun → L2 worker → receipt 那条链, 不在本模块。
 """
 
 from __future__ import annotations
@@ -110,7 +114,11 @@ class BackendRegistry:
         if not self._container_env():
             for eng, bin_name in CLI_BACKENDS.items():
                 if shutil.which(bin_name):
-                    out.append(BackendSpec(name=eng, kind="cli", command=[bin_name], model=eng))
+                    # model stays empty on purpose: it used to be seeded with the
+                    # engine name, so a caller that omitted `model` got an argv
+                    # like `claude -p … --model claude` — the engine name handed
+                    # back to the CLI as a model id.
+                    out.append(BackendSpec(name=eng, kind="cli", command=[bin_name]))
         return out
 
     def list(self) -> list[dict[str, Any]]:
@@ -205,17 +213,63 @@ class BackendRegistry:
     async def _run_cli(
         self, spec: BackendSpec, prompt: str, cwd: str | None, model: str, timeout_s: float
     ) -> dict[str, Any]:
-        from server.engine_runner import run_engine
+        """Refuse direct execution; report what the canonical chain would admit.
 
-        result = await run_engine(
-            spec.name, prompt, model=model or None, cwd=cwd, timeout_s=timeout_s
+        This used to call ``server.engine_runner.run_engine(spec.name)``, which
+        spawned an L2 CLI process with no ExecutorRegistry admission, no
+        permission check, no GoalRun, no receipt and no worktree binding — a
+        second execution plane reachable over unauthenticated HTTP with a
+        caller-chosen ``cwd``.
+
+        Delegating to the canonical chain needs a service principal and a
+        workspace binding; this endpoint has neither, and inventing authority
+        here would turn the bypass into an arbitrary-directory write primitive.
+        So the name still goes through ExecutorRegistry — an unknown or retired
+        executor fails closed by the registry's own answer — and an admitted one
+        is refused with the canonical entry to use instead.
+        """
+        from veya.remote.executor_registry import (
+            get_executor_registry,
+            is_retired_executor,
+            normalize_executor_id,
         )
-        return {
-            "ok": bool(result.get("ok")),
+
+        registry = get_executor_registry()
+        canonical = normalize_executor_id(spec.name)
+        admitted = sorted(registry.snapshot())
+        base = {
             "backend": spec.name,
-            "output": str(result.get("output", ""))[:4000],
-            "error": str(result.get("error", ""))[:2000],
-            "duration_s": float(result.get("duration_s", 0.0)),
+            "output": "",
+            "duration_s": 0.0,
+            "canonical_executor_id": canonical,
+            "admitted_executors": admitted,
+        }
+        if is_retired_executor(canonical):
+            return {
+                **base,
+                "ok": False,
+                "error_code": "EXECUTOR_RETIRED",
+                "error": f"executor retired, refused without substitution: {canonical!r}",
+            }
+        try:
+            identity = registry.identity(canonical)
+        except ValueError as exc:
+            return {
+                **base,
+                "ok": False,
+                "error_code": "EXECUTOR_NOT_ADMITTED",
+                "error": f"{exc}; admitted executors: {admitted}",
+            }
+        return {
+            **base,
+            "ok": False,
+            "error_code": "EXECUTION_FACADE_CLOSED",
+            "error": (
+                "direct backend execution is closed. Dispatch through the canonical "
+                f"executor authority as worker.dispatch with worker={identity.executor_id!r} "
+                "so the call is admitted, permission-checked and receipted."
+            ),
+            "canonical_entry": "worker.dispatch",
         }
 
     async def _run_acp(

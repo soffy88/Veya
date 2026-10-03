@@ -146,9 +146,17 @@ def test_backends_api_list_status_register():
     assert r.status_code == 200
     assert r.json()["backends"][0]["available"] is True
 
-    r = client.post(
-        "/api/v1/backends/register", json={"name": "api-acp", "kind": "acp", "command": ["x-agent"]}
-    )
+    # kind=acp/cli → 400: the command would be the spawned executable, and this
+    # endpoint has no authentication. See tests/architecture/
+    # test_single_execution_authority.py for the invariant.
+    for kind in ("acp", "cli"):
+        r = client.post(
+            "/api/v1/backends/register",
+            json={"name": f"api-{kind}", "kind": kind, "command": ["x"]},
+        )
+        assert r.status_code == 400
+
+    r = client.post("/api/v1/backends/register", json={"name": "api-builtin", "kind": "builtin"})
     assert r.status_code == 200 and r.json()["status"] == "registered"
 
     # 非法 kind → 400

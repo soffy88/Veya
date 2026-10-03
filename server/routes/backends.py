@@ -3,7 +3,9 @@
 GET  /api/v1/backends            注册表全貌 (发现 + 手动注册)
 GET  /api/v1/backends/status     Canvas 状态聚合 (可用/忙碌/任务数)
 POST /api/v1/backends/run        {name, prompt, cwd?, model?} 统一执行
-POST /api/v1/backends/register   {name, kind, command, agent} 注册 ACP/CLI 后端
+     kind=cli 的执行已关闭 (EXECUTION_FACADE_CLOSED) —— 统一执行权威是 worker.dispatch
+POST /api/v1/backends/register   {name, kind, agent} 注册 builtin 后端
+     kind=cli/acp 不可经 HTTP 注册 (command 可指定被 spawn 的可执行文件)
 POST /api/v1/automation/issue-decompose
       {repo_path, github?, issue_number?, body?, engine?}
       GitHub issue (或直接 body) → 拆子任务 → 写 Kanban board → 自动执行
@@ -59,10 +61,25 @@ async def backends_status() -> dict[str, Any]:
     return {"backends": get_backend_registry().status()}
 
 
+#: Kinds whose execution spawns a process. A caller-supplied `command` for
+#: either of these is an arbitrary-executable primitive on an endpoint that has
+#: no authentication, so they are not registrable over HTTP. Register them
+#: in-process (BackendRegistry.register) instead.
+_SPAWNING_BACKEND_KINDS = frozenset({"cli", "acp"})
+
+
 @router.post("/api/v1/backends/register")
 async def register_backend(req: BackendRegisterRequest) -> dict[str, Any]:
     if req.kind not in BACKEND_KINDS:
         raise HTTPException(status_code=400, detail=f"kind 可选: {BACKEND_KINDS}")
+    if req.kind in _SPAWNING_BACKEND_KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"kind={req.kind!r} 不可通过 HTTP 注册: command 由调用方指定且执行时会 "
+                "spawn 进程。请在进程内注册, 或改走统一执行权威 (worker.dispatch)。"
+            ),
+        )
     if req.kind != "builtin" and not req.command:
         raise HTTPException(status_code=400, detail="cli/acp backend 需要 command")
     spec = get_backend_registry().register(req.name, req.kind, command=req.command, agent=req.agent)
