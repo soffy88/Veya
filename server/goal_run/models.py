@@ -22,6 +22,9 @@ class GoalStatus(Enum):
     pending_execution = "pending_execution"
     planning = "planning"
     running = "running"
+    paused = "paused"
+    resumable = "resumable"
+    completing = "completing"
     recovering = "recovering"
     # Recovery terminal: the run went through crash recovery and verified
     # clean without needing new work. Fresh completions use completed;

@@ -81,8 +81,12 @@ class ExecutionPhase(StrEnum):
     TESTING = "TESTING"
     SUSPENDING = "SUSPENDING"
     SUSPENDED = "SUSPENDED"
+    CHECKPOINTING = "CHECKPOINTING"
+    PAUSED = "PAUSED"
+    RESUMABLE = "RESUMABLE"
     RESUMING = "RESUMING"
     RECOVERING = "RECOVERING"
+    COMPLETING = "COMPLETING"
     FINALIZING = "FINALIZING"
     COMPLETED = "COMPLETED"
     BLOCKED = "BLOCKED"
@@ -133,6 +137,10 @@ RUNNING_PHASES = (
     ExecutionPhase.SUSPENDED,
     ExecutionPhase.RESUMING,
     ExecutionPhase.RECOVERING,
+    ExecutionPhase.CHECKPOINTING,
+    ExecutionPhase.PAUSED,
+    ExecutionPhase.RESUMABLE,
+    ExecutionPhase.COMPLETING,
     ExecutionPhase.FINALIZING,
 )
 _PHASE_ORDER: dict[str, int] = {str(phase): index for index, phase in enumerate(RUNNING_PHASES)}
