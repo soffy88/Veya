@@ -230,15 +230,6 @@ async def lifespan(app: FastAPI):
         import logging
 
         logging.getLogger("veya.lifespan").exception("hp wire failed")
-    # Hicode 编码执行器 (本地二进制, 缺失时优雅降级; 编程任务 → hicode_run)
-    from server.hicode_agent import wire_master_tools as wire_hicode
-
-    try:
-        await wire_hicode()  # hicode_run/status → 主脑工具面
-    except Exception:
-        import logging
-
-        logging.getLogger("veya.lifespan").exception("hicode wire failed")
     # Vision Toolkit (3O 视觉特性: 文本模型的"眼睛", 默认本地 frontier 桥零配置)
     from server.vision_toolkit_tools import wire_vision_tools
 
@@ -267,7 +258,7 @@ async def lifespan(app: FastAPI):
 
         wire_eng_gates()
         # goal_run: project_run_goal / project_goal_status — 长时目标闭环
-        # (意图分诊 → 闭环规划 → 派 hicode/dsh 叶子执行 → 证据验收)。
+        # (意图分诊 → 闭环规划 → 派 executor 叶子执行 → 证据验收)。
         # 单一入口, 叶子复用既有执行路径; Veya 只编排不写码。
         from server.goal_run.wire import wire_master_tools as wire_goal_run
 
@@ -380,16 +371,6 @@ async def lifespan(app: FastAPI):
             )
     except Exception:
         _lg.exception("grid search GoalRun startup recovery failed")
-    try:
-        from server.hicode_queue import hicode_task_queue
-
-        recovered_hicode = await hicode_task_queue.recover_goal_runs(
-            os.environ.get("VEYA_PROJECT_ROOT", ".")
-        )
-        if recovered_hicode:
-            _lg.warning("hicode GoalRun startup recovery resumed %d task(s)", recovered_hicode)
-    except Exception:
-        _lg.exception("hicode GoalRun startup recovery failed")
     try:
         from server.daemon_goal_run import DaemonGoalRunBridge
         from veya.oservi.gateway import gateway_engine

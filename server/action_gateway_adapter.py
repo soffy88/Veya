@@ -74,6 +74,7 @@ class ActionGatewayAdapter:
         self._policy_profile = policy_profile
         self._policy_hook = policy_hook
         self._permission_engine = PermissionEngine()
+        self._policy_resolver = None
         if output_dir is not None:
             self.output_dir = Path(output_dir).expanduser()
         else:
@@ -106,6 +107,13 @@ class ActionGatewayAdapter:
         obase = load("obase")
         safe_arguments = obase.redact_value(dict(request.arguments))
         return await request_approval(request.action, safe_arguments)
+
+    def _get_policy_resolver(self) -> Any:
+        if self._policy_resolver is None:
+            from veya.remote.policy_resolver import PolicyResolver
+
+            self._policy_resolver = PolicyResolver(engine=self._permission_engine)
+        return self._policy_resolver
 
     def _evaluate_policy(self, request: Any) -> Any:
         if self._policy_hook is not None:
@@ -163,12 +171,29 @@ class ActionGatewayAdapter:
                 else None
             ),
         )
-        permission = self._permission_engine.evaluate(context)
-        decision = permission.decision.value
+        try:
+            from veya.remote.policy_resolver import PolicyRequest
+
+            resolver = self._get_policy_resolver()
+            policy_request = PolicyRequest(
+                actor=self.bot_id,
+                tool=request.action,
+                args=dict(request.arguments) if isinstance(request.arguments, Mapping) else {},
+                workspace=str(Path.cwd()),
+                cwd=str(Path.cwd()),
+                goal_id=self.goal_run_id,
+            )
+            policy_decision = resolver.resolve(policy_request)
+            decision = policy_decision.decision.value
+            reason = policy_decision.reason
+        except Exception:
+            permission = self._permission_engine.evaluate(context)
+            decision = permission.decision.value
+            reason = permission.reason.value
         obase = load("obase")
         return obase.ActionDecision(
             verdict=decision,
-            reason=permission.reason.value,
+            reason=str(reason),
             request_id=request.request_id,
         )
 

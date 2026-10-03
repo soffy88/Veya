@@ -1,6 +1,6 @@
 """goal_run leaf — 叶子任务执行适配层（复用 project_ask 执行路径）。
 
-硬规则：禁止复制一套 dsh/hicode 调用；抽 execute_leaf(project_root, instruction, assignee) -> LeafResult
+硬规则：禁止复制一套 dsh 调用；抽 execute_leaf(project_root, instruction, assignee) -> LeafResult
 供 project_ask act 与 goal runner 共用（可小重构）。
 
 返回 LeafResult：{
@@ -95,7 +95,7 @@ async def execute_leaf(
 
     # 派工执行。经 HarnessRegistry.execute() 路由(PR-15, 见
     # server/capability_model.py::HarnessRegistry.execute 的 docstring)——
-    # _run_builtin/_run_hicode/_run_dsh 本身零改动, 参数/返回值跟直接调用完全一致。
+    # _run_builtin/_run_dsh 本身零改动, 参数/返回值跟直接调用完全一致。
     if not assignee:
         return LeafResult(
             status="blocked",

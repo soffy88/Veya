@@ -39,7 +39,6 @@ class AutonomousPlannerAdapter:
             {
                 "goal_id": f"{plan_id}_g1",
                 "description": f"Initial subtask for: {objective}",
-                "executor": "hicode",
             }
         ]
         default_acceptance = acceptance_criteria or [

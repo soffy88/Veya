@@ -117,9 +117,21 @@ class AgentFleet:
         return cls(**data)
 
 
+class AgentInstanceKind(StrEnum):
+    PRIMARY = "PRIMARY"
+    SUBAGENT = "SUBAGENT"
+    BACKGROUND = "BACKGROUND"
+    TEAM = "TEAM"
+    TEMPORARY = "TEMPORARY"
+
+
 @dataclass
 class AgentInstance:
-    """Agent runtime carrier instance (spec §4, §39). Not a semantic authority."""
+    """Agent runtime carrier instance (spec §4, §39). Not a semantic authority.
+
+    P1-01 spec fields: agent_id, kind, status, parent_agent_id?, family_id?,
+    goal_scope, capabilities, context_policy, created_at, last_active_at.
+    """
 
     agent_instance_id: str
     fleet_id: str
@@ -137,6 +149,13 @@ class AgentInstance:
     provider: str = "default_provider"
     gpu_id: str = ""
     workspace_device: str = "disk0"
+    kind: AgentInstanceKind = AgentInstanceKind.PRIMARY
+    parent_agent_id: str | None = None
+    family_id: str | None = None
+    goal_scope: str = ""
+    capabilities: list[str] = field(default_factory=list)
+    context_policy: str = "default"
+    last_active_at: float = field(default_factory=time.time)
     failure_domain: str = "zone-a"
 
     def to_dict(self) -> dict[str, Any]:
@@ -358,9 +377,22 @@ class CollaborationAssignment:
         return cls(**data)
 
 
+class HandoffStatus(StrEnum):
+    PROPOSED = "PROPOSED"
+    ACCEPTED = "ACCEPTED"
+    ACTIVE = "ACTIVE"
+    RETURNED = "RETURNED"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
 @dataclass
 class AgentHandoff:
-    """Cross-agent handoff record using SessionEnvelope (spec §35)."""
+    """Cross-agent handoff record using SessionEnvelope (spec §35).
+
+    P1-02 spec fields: handoff_id, from_agent, to_agent, goal_scope,
+    context_projection, capability_projection, ownership_transfer, return_policy, status.
+    """
 
     handoff_id: str
     mission_id: str
@@ -371,12 +403,23 @@ class AgentHandoff:
     accepted_progress_ref: str
     workspace_ref: str
     created_at: float = field(default_factory=time.time)
+    goal_scope: str = ""
+    context_projection: str = ""
+    capability_projection: list[str] = field(default_factory=list)
+    ownership_transfer: bool = False
+    return_policy: str = "on_completion"
+    status: HandoffStatus = HandoffStatus.PROPOSED
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["status"] = self.status.value
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AgentHandoff:
+        data = dict(data)
+        if isinstance(data.get("status"), str):
+            data["status"] = HandoffStatus(data["status"])
         return cls(**data)
 
 

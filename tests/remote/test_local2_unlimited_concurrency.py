@@ -266,7 +266,6 @@ async def test_parallel_worker_dispatch_four_workers(tmp_path: Path, monkeypatch
     def make(self, **kwargs):
         return runner
 
-    monkeypatch.setattr(RemoteToolAdapter, "_make_hicode_runner", make)
     monkeypatch.setattr(RemoteToolAdapter, "_make_cli_worker_runner", make)
 
     gateway, secret, _, _ = make_gateway(tmp_path)

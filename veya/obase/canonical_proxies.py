@@ -330,6 +330,25 @@ def eligible_nim_models() -> list[dict[str, Any]]:
     return out
 
 
+def _free_pool_allowed_providers() -> frozenset[str]:
+    """Providers permitted in the veya-free pool, overridable by the operator.
+
+    ``VEYA_FREE_POOL_PROVIDERS`` narrows the pool when an upstream stops
+    serving the free tier. Two failure modes make this necessary rather than
+    cosmetic: an exhausted metered balance answers 402 on every candidate, and
+    a client-locked free tier answers 403 ``FreeTierError`` from any caller
+    outside the vendor's own app. Either way the model stays ``eligible`` in
+    the state file while being permanently unrouteable, so leaving it in the
+    pool makes every request pay a failing round trip first.
+
+    Unset (the default) keeps the full §5 provider set.
+    """
+    raw = os.environ.get("VEYA_FREE_POOL_PROVIDERS", "").strip()
+    if not raw:
+        return frozenset({"opencode-go", "openrouter", "flatkey", "gmi", "bai"})
+    return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
+
+
 def eligible_free_models(capability: str = "text") -> list[dict[str, Any]]:
     """veya-free pool: eligibility-filtered, capability-tagged, latency-ordered.
 
@@ -338,11 +357,12 @@ def eligible_free_models(capability: str = "text") -> list[dict[str, Any]]:
     first, then capability match, then measured latency.
     """
     now = time.time()
+    allowed = _free_pool_allowed_providers()
     out: list[dict[str, Any]] = []
     for entry in (_load_state().get("models") or {}).values():
         if not isinstance(entry, dict):
             continue
-        if entry.get("provider") not in ("opencode-go", "openrouter", "flatkey", "gmi", "bai"):
+        if str(entry.get("provider") or "").lower() not in allowed:
             continue
         if entry.get("canonical_proxy") != "veya-free":
             continue

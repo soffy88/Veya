@@ -23,7 +23,7 @@ async def project_run_goal_boss_mode(
     leaf_executor: Callable[..., Any] | None = None,
     output_dir: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Start the contractor engine. Leaves stay on hicode/dsh; Veya does not code."""
+    """Start the contractor engine. Leaves stay on the admitted executors; Veya does not code."""
     root = Path(project_root)
     inspector = WorkspaceInspector(root)
     out = Path(output_dir) if output_dir else root / ".veya-project" / "goal-runs" / goal_id
@@ -44,7 +44,7 @@ async def _default_leaf(
     project_root: Path | str,
     *,
     instruction: str,
-    assignee: str = "hicode",
+    assignee: str = "dsh",
     constitution_text: str = "",
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -66,7 +66,7 @@ async def _veya_leaf_runner(
     *,
     project_root: str,
     instruction: str,
-    assignee: str = "hicode",
+    assignee: str = "dsh",
     **kwargs: Any,
 ) -> dict[str, Any]:
     from server.goal_run.leaf import execute_leaf_with_memory

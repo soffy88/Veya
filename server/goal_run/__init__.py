@@ -8,6 +8,15 @@ Veya project_run_goal Spec v0.1:
 - 遵守现有纪律：不靠多 tool 做意图路由；不平行第二套与 HicodeTaskQueue 无关的「影子调度器」
 """
 
+from server.goal_run.continuation import ContinuationTriggerManager
+from server.goal_run.pre_admission import (
+    bind_execution,
+    create_pending_run,
+    find_by_dispatch_id,
+    mark_task_running,
+    reconcile_task,
+    reconcile_unbound_runs,
+)
 from server.goal_run.runner import cancel_goal, project_run_goal
 from server.goal_run.status import project_goal_status
 from server.goal_run.wire import wire_master_tools
@@ -21,9 +30,16 @@ def project_run_goal_boss_mode(*args, **kwargs):
 
 
 __all__ = [
+    "ContinuationTriggerManager",
+    "bind_execution",
     "cancel_goal",
+    "create_pending_run",
+    "find_by_dispatch_id",
+    "mark_task_running",
     "project_goal_status",
     "project_run_goal",
     "project_run_goal_boss_mode",
+    "reconcile_task",
+    "reconcile_unbound_runs",
     "wire_master_tools",
 ]

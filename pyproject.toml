@@ -141,6 +141,7 @@ exclude = [
   "tests/",
   "*.md",
   "platform/3O/",
+  "legacy/",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -177,7 +178,8 @@ target-version = "py311"
 line-length = 100
 src = ["."]
 # 3O 主库 submodule: 外部 repo 代码, 不在 Veya lint 范围 (主库自带 SELF_CHECK)
-extend-exclude = ["platform/3O/**", "platform/3O"]
+# legacy/: 已退役执行器 (Hicode) 的历史实现, 保留仅为可审阅, 不在产品 lint/CI 范围
+extend-exclude = ["platform/3O/**", "platform/3O", "legacy/**", "legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]

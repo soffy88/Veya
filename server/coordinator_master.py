@@ -41,6 +41,7 @@ from server.events import (
 )
 from server.memory_bank import VeyaMemoryBank
 from server.memory_bank import memory_bank as _default_memory_bank
+from server.session_events import durable_session_store
 from server.session_identity import new_session_id
 from server.skill_hub import VeyaSkillHub
 from server.skill_hub import skill_hub as _default_skill_hub
@@ -97,7 +98,7 @@ _REPLAN_STATE_CTX: contextvars.ContextVar[dict[str, Any] | None] = contextvars.C
 
 # Tool schemas are never selected by a pre-Master semantic classifier.
 # MasterAgent receives its canonical complete surface and decides whether to answer,
-# call a tool, start GoalRun, delegate, or invoke Hicode.
+# call a tool, start GoalRun, delegate, or invoke an executor.
 
 
 def _default_long_task_factory() -> Any:
@@ -272,14 +273,13 @@ Never output None/empty.
 
 # CODING ROUTING
 - [Canonical product task]: When task_id from ProductShell is present (canonical path ProductShell → MasterAgent → coding_task_run → GoalRun), call `coding_task_run` with the task objective. Do NOT use `write_file`/`run_in_sandbox` to bypass the harness.
-- [Ad-hoc coding]: For standalone code changes without pre-existing task context, prefer `hicode_run` (background task queue) over `write_file`/`run_in_sandbox`. Do not hand-write patches in chat.
+- [Ad-hoc coding]: For standalone code changes without pre-existing task context, call `coding_task_run` with the objective. Do NOT use `write_file`/`run_in_sandbox` to bypass the harness, and do not hand-write patches in chat.
 
 # CODE
 - Existing-code map / callers / past pitfalls: call `assemble_code_context` first (does not write).
-- Write / edit / run / test / refactor: `hicode_run` (the coding agent). Do not hand-write patches in chat.
-- Test-driven evolutionary search only when test_*.py exists AND the user asked to evolve until green: `evolve_solution`. Otherwise `hicode_run`.
+- Write / edit / run / test / refactor: `coding_task_run` (the canonical coding executor). Do not hand-write patches in chat.
+- Test-driven evolutionary search only when test_*.py exists AND the user asked to evolve until green: `evolve_solution`. Otherwise `coding_task_run`.
 - Understand-only: `mcp_codebase_*` / grep / read_file_ast / long_read.
-- Resume: 「继续上次」→ `hicode_run(continue_=true)`. Rollback: `hicode_rollback`.
 - Multi-step work: `create_plan` then execute; mark each todo done/blocked with evidence.
 
 # PLAN MODE
@@ -301,37 +301,6 @@ Unattended wake: `system_quota_should_run`. High-impact: the user may have to ap
 
 # 主库 SOP 常量 re-export(兼容既有 import)
 MASTER_SYSTEM_PROMPT = _oservi.MASTER_SYSTEM_PROMPT
-
-
-def _build_hicode_spec(user_prompt: str) -> str:
-    """规范指令生成: 主脑理解用户话术 → 结构化任务书 (Hicode 纯执行)。
-
-    模板含目标 + 执行规范 (最小改动/可运行/运行验证/报告), 让执行器有
-    明确验收契约而不必猜测用户意图。
-    """
-    return (
-        "# 任务\n"
-        f"{user_prompt.strip()}\n\n"
-        "# 执行规范\n"
-        "1. 在隔离工作区完成, 只改动完成任务所需的最小文件集。\n"
-        "2. 优先交付可运行代码; 写完后必须实际运行验证, 不能只写不跑。\n"
-        "3. 完成后报告: 改了哪些文件、运行了什么命令、验证输出是什么。\n"
-        "4. 若任务有歧义, 选最合理实现并在报告中说明假设。\n"
-    )
-
-
-def _format_hicode_result(res: dict) -> str:
-    """serve 执行结果 → 主脑可读摘要。"""
-    if res.get("status") == "error":
-        return f"⚠ hicode 执行失败: {res.get('error')}"
-    result = (res.get("result") or "").strip()
-    turns = res.get("turns") or 0
-    tools = res.get("tool_calls") or []
-    usage = res.get("usage") or {}
-    head = f"✅ hicode 执行完成 (轮次={turns}, 工具调用={len(tools)})"
-    if usage.get("promptTokens") or usage.get("completionTokens"):
-        head += f", in={usage.get('promptTokens', 0)} out={usage.get('completionTokens', 0)}"
-    return f"{head}\n{result[:8000]}"
 
 
 # 主脑输出预算自适应: 主库默认 max_tokens=8192, 但 reasoning 模型 (deepseek-v4-flash
@@ -1270,12 +1239,12 @@ class MasterCoordinator:
             ):
                 user_prompt = (
                     "[PLAN MODE — read-only. Explore and draft a plan. "
-                    "Do not write files, run code, or call hicode_run.]\n\n" + user_prompt
+                    "Do not write files, run code, or call coding_task_run.]\n\n" + user_prompt
                 )
             # ── 入口只有一个大模型: 零程序判断 ──
             # 所有请求 (长文本/URL/编程/视频/知识/设计…) 原样交给大模型,
             # 工具面全量透传 — 模型自主决定: 直接回答, 或调用哪个工具
-            # (hicode_run / fetch_url / browser_run / mcp_* 都是模型
+            # (coding_task_run / fetch_url / browser_run / mcp_* 都是模型
             # 自己的选择)。程序不预判、不裁藏、不预抓、不代做长任务。
             # 轮次计数仅作 telemetry (tracing/metrics)，不决定产品终止。
             # goal_id 只在模型自己调过 goal_start 后才存在 (server/goal_tools.py
@@ -1360,7 +1329,7 @@ class MasterCoordinator:
             await self._maybe_compact_history(sid)
             # Memory is model-directed through memory_search. Do not perform
             # keyword retrieval and inject a hidden system message here.
-            # Graft 每轮预注入仅当 VEYA_GRAFT_CONTEXT=1; 默认由 assemble_code_context / hicode 按需装配
+            # Graft 每轮预注入仅当 VEYA_GRAFT_CONTEXT=1; 默认由 assemble_code_context / executor 按需装配
             await self._inject_graft_context(sid, user_prompt)
             # 长任务无损恢复: 循环运行期间定时快照 (主库在 _histories[sid] 原地
             # 累积每轮消息), 进程被杀也只丢最后一个快照间隔, 而非整轮工作。
@@ -2109,10 +2078,8 @@ def _default_swarm_engine() -> SwarmOrchestrator:
 
 
 # ── Stop 支持 (基础设施, 不影响模型自主路由) ─────────────────────────
-# 活跃流会话注册 (供 Stop 端点 cancel chat_task) + 会话→hicode 任务映射
+# 活跃流会话注册 (供 Stop 端点 cancel chat_task)
 _active_streams: dict[str, asyncio.Task] = {}
-_session_task: dict[str, str] = {}
-_stop_tasks: set[asyncio.Task] = set()
 
 # Epoch / Generation / Tombstone 管理 (防止 Stop 后的重入、旧重连竞态)
 _active_generations: dict[str, int] = {}
@@ -2120,27 +2087,30 @@ _active_turn_ids: dict[str, str] = {}
 _cancelled_generations: dict[str, set[int]] = {}
 _cancelled_turn_ids: dict[str, set[str]] = {}
 _last_stop_meta: dict[str, dict[str, Any]] = {}
-_active_stream_queues: dict[str, Any] = {}
-
-
-async def _stop_hicode_task(task_id: str) -> bool:
-    try:
-        from server.hicode_queue import hicode_task_queue
-
-        return bool(await hicode_task_queue.stop(task_id))
-    except Exception as exc:
-        logger.warning("cancel_session: 停 hicode 任务失败: %s", exc)
-        return False
+# Sessions with a live stream pump. Replaces the old `_active_stream_queues`
+# registry, which held in-memory SSEQueue objects; the durable journal is now
+# the only event authority, so there is no per-session queue to track.
+_active_stream_sessions: set[str] = set()
 
 
 async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
-    """停止一个流式会话: 真正中断 hicode 任务 (serve /cancel) + 取消主脑。
+    """停止一个流式会话: 中断主脑流式生成。
 
     前端 Stop 按钮 → POST /api/v1/agent/stop {session_id, turn_id} → 本函数。
     返回被停止的项目列表与状态。
     """
     now = time.monotonic()
     stopped: list[str] = []
+
+    # Cancel intent binds the canonical turn epoch NOW, before any await that
+    # could let a new turn begin. Reading the head lazily at publish time
+    # would attribute this turn's terminal to the next turn if this function
+    # is still working through its preamble when the next turn starts — and
+    # that late terminal would truncate the new turn's stream.
+    try:
+        cancel_epoch, _ = await durable_session_store.get_stream_head(session_id)
+    except Exception:
+        cancel_epoch = None
 
     # 1. 记录 generation & turn_id 的 tombstone，阻止旧重连/stale 请求重入
     cur_gen = _active_generations.get(session_id, 0)
@@ -2166,31 +2136,31 @@ async def cancel_session(session_id: str, turn_id: str | None = None) -> dict:
         stopped.append("chat_stream")
     _active_streams.pop(session_id, None)
 
-    # 3. 关联的流式事件队列显式推入终止帧并关闭
-    q = _active_stream_queues.pop(session_id, None)
-    if q is not None:
+    # 3. 关联的流式会话推入终止事件(经 durable_session_store 落盘)。
+    #    旧实现在这里从内存队列取 SSEQueue 并 close(); 该哨兵无法跨重启存活,
+    #    因此终止语义改为可持久化的 terminal 事件。事件绑定取消时刻的 epoch:
+    #    若新一轮已经开始, 绝不能把终止写进新一轮 (会提前截断它的流)。
+    if session_id in _active_stream_sessions:
+        _active_stream_sessions.discard(session_id)
         with contextlib.suppress(Exception):
-            q.on_step(
+            await durable_session_store.publish(
+                session_id,
                 {
                     "type": "text_delta",
                     "squad_id": "master",
-                    "delta": "⏹ 已停止。后台 Hicode 任务也已真正中断。",
-                }
+                    "delta": "⏹ 已停止。",
+                },
+                epoch=cancel_epoch,
             )
-            q.on_step({"type": "master_done", "session_id": session_id, "status": "cancelled"})
-            q.close()
-
-    # 4. 取消关联的 Hicode 任务
-    tid = _session_task.pop(session_id, None)
-    if tid:
-        stop_task = asyncio.create_task(_stop_hicode_task(tid))
-        _stop_tasks.add(stop_task)
-        stop_task.add_done_callback(_stop_tasks.discard)
-        try:
-            if await asyncio.wait_for(asyncio.shield(stop_task), timeout=1.0):
-                stopped.append(f"hicode_task:{tid}")
-        except TimeoutError:
-            stopped.append(f"hicode_task:{tid}:stopping")
+            await durable_session_store.publish_terminal(
+                session_id,
+                {
+                    "type": "master_done",
+                    "session_id": session_id,
+                    "status": "cancelled",
+                },
+                epoch=cancel_epoch,
+            )
 
     _last_stop_meta[session_id] = {
         "time": now,

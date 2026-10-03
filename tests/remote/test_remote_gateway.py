@@ -126,7 +126,7 @@ def test_health_has_no_secrets(tmp_path: Path) -> None:
     health = gateway.health()
     assert health["status"] == "ok"
     assert secret not in json.dumps(health)
-    assert health["tools"] == 43
+    assert health["tools"] == 42  # hicode.execute retired from the surface
 
 
 async def test_initialize_requires_auth(tmp_path: Path) -> None:
@@ -158,8 +158,10 @@ async def test_tools_list_requires_session(tmp_path: Path) -> None:
         "file.read" in names
         and "veya.mission.create" in names
         and "worker.dispatch" in names
-        and len(names) == 43
+        and len(names) == 42
     )
+    # HICODE_TOOL_SURFACE=REMOVED: the retired executor must not be advertised.
+    assert not [name for name in names if "hicode" in name.lower()]
 
 
 # ── adapter routing ────────────────────────────────────────────────────
