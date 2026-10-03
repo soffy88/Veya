@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -162,3 +163,80 @@ def test_oauth_rejects_bad_redirect_and_pkce(tmp_path, monkeypatch) -> None:
         },
     )
     assert bad_method.status_code == 400
+
+
+# ── RFC 7591 dynamic registration tolerance ────────────────────────────
+# A real MCP client registers with `authorization_code` + `refresh_token` and
+# may send a scope list. Refusing those standard shapes failed DCR while
+# nothing was unsafe (no client secret is ever issued). Genuine boundary
+# violations must still be refused.
+
+
+def _dcr(**overrides) -> dict:
+    body = {
+        "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"],
+        "grant_types": ["authorization_code"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    }
+    body.update(overrides)
+    return body
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"grant_types": ["authorization_code", "refresh_token"]},
+        {"grant_types": ["refresh_token", "authorization_code"]},
+        {"scope": "mcp"},
+        {"scope": "mcp profile"},
+        {"scope": "profile,mcp"},
+        {"client_name": "Claude", "application_type": "web"},
+    ],
+    ids=[
+        "refresh_token_added",
+        "refresh_token_first",
+        "scope_plain",
+        "scope_space_list",
+        "scope_comma_list",
+        "client_name_present",
+    ],
+)
+def test_dcr_accepts_standard_public_client_shapes(tmp_path, monkeypatch, overrides) -> None:
+    monkeypatch.setenv("VEYA_REMOTE_OAUTH_STORE_FILE", str(tmp_path / "oauth.db"))
+    response = _app().post("/register", json=_dcr(**overrides))
+    assert response.status_code == 201, response.text
+    assert response.json()["client_id"]
+    assert not response.json().get("client_secret")
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"grant_types": ["implicit"]}, "authorization-code"),
+        ({"grant_types": ["authorization_code", "urn:unknown"]}, "authorization-code"),
+        ({"response_types": ["token"]}, "authorization-code"),
+        # Implicit flow returns a token in the redirect and skips PKCE;
+        # this server implements code only, so it must be refused.
+        ({"response_types": ["code", "token"]}, "authorization-code"),
+        ({"token_endpoint_auth_method": "client_secret_post"}, "authorization-code"),
+        ({"scope": "profile"}, "scope"),
+        ({"redirect_uris": ["claude://callback"]}, "HTTPS"),
+        ({"redirect_uris": ["http://claude.ai/cb"]}, "HTTPS"),
+    ],
+    ids=[
+        "implicit_only",
+        "unknown_grant",
+        "token_response_only",
+        "code_and_token_response",
+        "client_secret_method",
+        "scope_without_mcp",
+        "private_scheme_redirect",
+        "http_remote_redirect",
+    ],
+)
+def test_dcr_still_refuses_boundary_violations(tmp_path, monkeypatch, overrides, reason) -> None:
+    monkeypatch.setenv("VEYA_REMOTE_OAUTH_STORE_FILE", str(tmp_path / "oauth.db"))
+    response = _app().post("/register", json=_dcr(**overrides))
+    assert response.status_code == 400, response.text
+    assert reason in response.json()["error_description"]

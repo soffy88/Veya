@@ -11,11 +11,13 @@ import hashlib
 import hmac
 import html
 import json
+import logging
 import os
 import secrets
 import sqlite3
 import time
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Request
@@ -32,8 +34,23 @@ STORE_ENV = "VEYA_REMOTE_OAUTH_STORE_FILE"
 DEFAULT_STORE = "~/.veya/remote_oauth.db"
 CODE_TTL_S = 300.0
 TOKEN_TTL_S = 3600.0
+#: Grant/response types a dynamic client may ask for. ``refresh_token`` is
+#: accepted at *registration* because that is what standard MCP clients send;
+#: the token endpoint implements authorization_code only, and the advertised
+#: metadata says so, so nothing is promised that is not delivered.
+SUPPORTED_GRANT_TYPES = frozenset({"authorization_code", "refresh_token"})
+SUPPORTED_RESPONSE_TYPES = frozenset({"code"})
+
+
+def _scope_values(raw: Any) -> set[str]:
+    """Parse an OAuth scope request (space or comma separated) into a set."""
+    if raw is None:
+        return {SCOPE}
+    return {part for part in str(raw).replace(",", " ").split() if part}
+
 
 router = APIRouter(tags=["oauth"])
+logger = logging.getLogger("veya.remote.oauth")
 
 
 def _store_path() -> Path:
@@ -173,7 +190,16 @@ class OAuthStore:
                 (tx_id, client_id, redirect_uri, state, scope, code_challenge, created_at, expires_at)
                 VALUES(?,?,?,?,?,?,?,?)
                 """,
-                (tx_id, client_id, redirect_uri, state, scope, code_challenge, now, now + CODE_TTL_S),
+                (
+                    tx_id,
+                    client_id,
+                    redirect_uri,
+                    state,
+                    scope,
+                    code_challenge,
+                    now,
+                    now + CODE_TTL_S,
+                ),
             )
         return tx_id
 
@@ -278,7 +304,25 @@ class OAuthStore:
 
 
 def _error(message: str, status: int = 400) -> JSONResponse:
-    return JSONResponse({"error": "invalid_request", "error_description": message}, status_code=status)
+    return JSONResponse(
+        {"error": "invalid_request", "error_description": message}, status_code=status
+    )
+
+
+def _reject(message: str, **fields: Any) -> JSONResponse:
+    """Refuse an OAuth request and say *why* in the service log.
+
+    A bare 400 leaves an operator with nothing but an access-log status code:
+    the exact reason (an extra grant type, a multi-scope request, a redirect
+    URI shape the client chose) is the only thing needed to fix it, and it is
+    visible nowhere else. Only the fields that caused the refusal are logged —
+    never a secret — so a client identifier and redirect URI stay safe to log.
+    """
+
+    logger.warning(
+        "oauth request rejected: %s | %s", message, json.dumps(fields, sort_keys=True)[:500]
+    )
+    return _error(message)
 
 
 def _login_html(tx_id: str, error: str | None = None) -> str:
@@ -348,25 +392,46 @@ async def register_client(request: Request) -> JSONResponse:
     try:
         body = await request.json()
     except ValueError:
-        return _error("registration body must be JSON")
+        return _reject("registration body must be JSON")
     if not isinstance(body, dict):
-        return _error("registration body must be an object")
+        return _reject("registration body must be an object")
     redirects = body.get("redirect_uris")
     if not isinstance(redirects, list) or not redirects:
-        return _error("redirect_uris is required")
+        return _reject("redirect_uris is required", keys=sorted(body))
     redirect_uris = [str(item) for item in redirects]
     if len(set(redirect_uris)) != len(redirect_uris):
-        return _error("redirect_uris contains duplicates")
+        return _reject("redirect_uris contains duplicates", redirect_uris=redirect_uris)
     if any(not _safe_redirect(uri) for uri in redirect_uris):
-        return _error("redirect URI must be HTTPS or a loopback HTTP URI")
+        return _reject(
+            "redirect URI must be HTTPS or a loopback HTTP URI", redirect_uris=redirect_uris
+        )
     grant_types = [str(x) for x in (body.get("grant_types") or ["authorization_code"])]
     response_types = [str(x) for x in (body.get("response_types") or ["code"])]
     auth_method = str(body.get("token_endpoint_auth_method") or "none")
-    if grant_types != ["authorization_code"] or "code" not in response_types or auth_method != "none":
-        return _error("only public authorization-code clients are supported")
-    requested_scope = str(body.get("scope") or SCOPE).strip()
-    if requested_scope != SCOPE:
-        return _error("unsupported scope")
+    # RFC 7591 dynamic registration: accept a standard public-client request
+    # shape, not one exact literal. A real MCP client asks for
+    # `authorization_code` *plus* `refresh_token`; refusing that outright
+    # fails registration while nothing is actually unsafe — this server
+    # issues no client secret, and its metadata advertises only the grant it
+    # implements. What is still refused: a grant/response type outside the
+    # supported sets, a missing authorization_code, and any client-secret
+    # authentication method (a public client must not ask for one).
+    if (
+        not set(grant_types) <= SUPPORTED_GRANT_TYPES
+        or "authorization_code" not in grant_types
+        or not set(response_types) <= SUPPORTED_RESPONSE_TYPES
+        or "code" not in response_types
+        or auth_method != "none"
+    ):
+        return _reject(
+            "only public authorization-code clients are supported",
+            grant_types=grant_types,
+            response_types=response_types,
+            token_endpoint_auth_method=auth_method,
+        )
+    requested_scope = _scope_values(body.get("scope"))
+    if SCOPE not in requested_scope:
+        return _reject("unsupported scope", scope=str(body.get("scope"))[:120])
     result = OAuthStore().register_client(redirect_uris, SCOPE)
     return JSONResponse(result, status_code=201)
 
@@ -426,7 +491,9 @@ async def authorize_decision(request: Request) -> HTMLResponse | RedirectRespons
         )
     record = auth.get(remote_token_id)
     if record is None or not record.is_active():
-        return HTMLResponse(_login_html(tx_id, "RemoteToken grant is no longer active."), status_code=403)
+        return HTMLResponse(
+            _login_html(tx_id, "RemoteToken grant is no longer active."), status_code=403
+        )
     code = store.issue_code(
         request_row=tx,
         user_id=int(user["user_id"]),
