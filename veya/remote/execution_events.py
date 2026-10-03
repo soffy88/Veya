@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import threading
 import uuid
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
 
 class ExecutionEventError(ValueError):
     pass
@@ -46,7 +48,7 @@ class ExecutionEvent:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ExecutionEvent":
+    def from_dict(cls, data: dict[str, Any]) -> ExecutionEvent:
         return cls(**data)
 
 class ExecutionEventStore:
@@ -63,6 +65,7 @@ class ExecutionEventStore:
         self._events: deque[ExecutionEvent] = deque(maxlen=max_buffer_events)
         self._last_sequence = 0
         self._event_ids: set[str] = set()
+        self._subscribers: set[queue.Queue[ExecutionEvent]] = set()
         self._path = Path(root) / ".veya" / "execution-events" / f"{execution_id}.jsonl"
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._load_durable()
@@ -102,7 +105,7 @@ class ExecutionEventStore:
                 sequence=resolved_sequence,
                 event_id=event_id,
                 event_type=event_type,
-                occurred_at=datetime.now(timezone.utc).isoformat(),
+                occurred_at=datetime.now(UTC).isoformat(),
                 payload=dict(payload or {}),
                 payload_ref=payload_ref,
             )
@@ -114,6 +117,8 @@ class ExecutionEventStore:
             self._events.append(event)
             self._event_ids.add(event_id)
             self._last_sequence = resolved_sequence
+            for subscriber in tuple(self._subscribers):
+                subscriber.put_nowait(event)
             return event
 
     def append_output(self, text: str, *, payload_ref: str | None = None) -> ExecutionEvent:
@@ -132,6 +137,17 @@ class ExecutionEventStore:
                     raise ValueError("limit must be >= 1")
                 events = events[:limit]
             return events
+
+    def subscribe_live(self) -> queue.Queue[ExecutionEvent]:
+        """Subscribe after the durable append point; callers replay first, then drain this queue."""
+        subscriber: queue.Queue[ExecutionEvent] = queue.Queue()
+        with self._lock:
+            self._subscribers.add(subscriber)
+        return subscriber
+
+    def unsubscribe_live(self, subscriber: queue.Queue[ExecutionEvent]) -> None:
+        with self._lock:
+            self._subscribers.discard(subscriber)
 
     def emit_backpressure(self, *, buffered: int, capacity: int) -> ExecutionEvent:
         return self.append(

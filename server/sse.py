@@ -12,7 +12,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from server.events import _to_envelope
@@ -158,7 +158,7 @@ def emit_lifecycle(
         import asyncio
 
         loop = asyncio.get_running_loop()
-        loop.create_task(_project())
+        _task = loop.create_task(_project())  # noqa: RUF006 — task lifetime is owned by the process
     except RuntimeError:
         pass
     return event
@@ -182,6 +182,79 @@ def emit(session_id: str, event: str, data: dict[str, Any]) -> None:
     envelope = _to_envelope(payload_in)
     envelope.setdefault("session_id", session_id)
     durable_session_store.publish_sync(session_id, envelope, event_type=event)
+
+
+async def execution_events_generator(
+    execution_id: str, request: Request | None, last_seen_sequence: int
+) -> AsyncIterator[str]:
+    """Replay durable execution events, then attach to the same append stream.
+
+    Subscription is established before replay so events produced during replay are queued;
+    the cursor gate drops duplicates and therefore cannot lose the reconnect boundary.
+    """
+    from veya.remote.execution import ExecutionStore
+    from veya.remote.execution_events import ExecutionEventStore, ExecutionEventType
+
+    record = ExecutionStore.from_env(default_persistent=True).get(execution_id)
+    if record is None:
+        yield 'event: error\ndata: {"error":"EXECUTION_NOT_FOUND"}\n\n'
+        return
+    if last_seen_sequence < 0:
+        yield 'event: error\ndata: {"error":"INVALID_CURSOR"}\n\n'
+        return
+    store = ExecutionEventStore(record.requested_realpath or record.requested_workspace, execution_id)
+    subscriber = store.subscribe_live()
+    cursor = last_seen_sequence
+    try:
+        yield f"retry: {_RETRY_MS}\n\n"
+        for event in store.replay_after(cursor):
+            if event.sequence <= cursor:
+                continue
+            cursor = event.sequence
+            yield f"id: {cursor}\ndata: {json.dumps(event.to_dict(), ensure_ascii=False)}\n\n"
+            if event.event_type == ExecutionEventType.COMPLETED or (
+                event.event_type == ExecutionEventType.EXECUTION_STATE_CHANGED
+                and event.payload.get("kind") == "status"
+                and event.payload.get("status") in {"COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "TIMED_OUT", "TERMINATED"}
+            ):
+                yield "data: [DONE]\n\n"
+                return
+        while True:
+            if request is not None and await request.is_disconnected():
+                return
+            try:
+                event = await asyncio.to_thread(subscriber.get, True, _HEARTBEAT_S)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                yield ": ping\n\n"
+                continue
+            if event.sequence <= cursor:
+                continue
+            cursor = event.sequence
+            yield f"id: {cursor}\ndata: {json.dumps(event.to_dict(), ensure_ascii=False)}\n\n"
+            if event.event_type == ExecutionEventType.COMPLETED or (
+                event.event_type == ExecutionEventType.EXECUTION_STATE_CHANGED
+                and event.payload.get("kind") == "status"
+                and event.payload.get("status") in {"COMPLETED", "FAILED", "BLOCKED", "CANCELLED", "TIMED_OUT", "TERMINATED"}
+            ):
+                yield "data: [DONE]\n\n"
+                return
+    finally:
+        store.unsubscribe_live(subscriber)
+
+
+@router.get("/execution/{execution_id}")
+async def stream_execution(
+    execution_id: str,
+    request: Request,
+    last_seen_sequence: int = Query(0, ge=0),
+) -> StreamingResponse:
+    return StreamingResponse(
+        execution_events_generator(execution_id, request, last_seen_sequence),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{session_id}")

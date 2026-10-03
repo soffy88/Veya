@@ -39,6 +39,7 @@ from typing import Any
 from runtime.execution.checkpoint import CheckpointError, ExecutionCheckpointStore
 from veya.remote.admission import AdmissionStatus
 from veya.remote.execution_contract import ExecutionCondition, ExecutionSpec
+from veya.remote.execution_events import ExecutionEventStore, ExecutionEventType
 
 #: ``TimeoutKind`` now lives beside the timeout policy that gives it meaning, and
 #: is re-exported here because the phase tables below and ``tool_adapter`` both
@@ -3060,6 +3061,11 @@ class DurableJobManager:
             self._persist(record)
             raise
         record.status = target
+        self._persist(record)
+        self._execution_event_store(record).append(
+            ExecutionEventType.EXECUTION_STATE_CHANGED,
+            payload={"kind": "status", "status": target, "phase": record.phase},
+        )
 
     def _finish(
         self,
@@ -3136,6 +3142,11 @@ class DurableJobManager:
             status=status,
         )
         self._persist(record)
+        self._execution_event_store(record).append(
+            ExecutionEventType.EXECUTION_STATE_CHANGED,
+            payload={"kind": "status", "status": status, "phase": status,
+                     "message": str(record.message or status)[:400]},
+        )
         qualification_checkpoint(
             "AFTER_TERMINAL_PERSIST",
             execution_id=record.execution_id,
@@ -3215,6 +3226,35 @@ class DurableJobManager:
                 return record
         return None
 
+    def _execution_event_store(self, record: ExecutionRecord) -> ExecutionEventStore:
+        root = record.requested_realpath or record.requested_workspace or str(Path.cwd())
+        return ExecutionEventStore(root, record.execution_id)
+
+    def _append_execution_event(
+        self, record: ExecutionRecord, *, kind: str, message: str, phase: str | None = None
+    ) -> None:
+        event_type = ExecutionEventType.OUTPUT
+        upper = kind.upper()
+        if kind == "phase":
+            event_type = ExecutionEventType.EXECUTION_STATE_CHANGED
+        elif kind in {"STDOUT", "STDERR", "output"}:
+            event_type = ExecutionEventType.OUTPUT
+        elif "error" in upper or "fail" in upper:
+            event_type = ExecutionEventType.ERROR
+        elif kind == "warning":
+            event_type = ExecutionEventType.WARNING
+        elif kind == "tool":
+            event_type = ExecutionEventType.TOOL_COMPLETED
+        elif kind == "progress":
+            event_type = ExecutionEventType.PROGRESS
+        elif kind == "checkpoint":
+            event_type = ExecutionEventType.CHECKPOINT_CREATED
+        self._execution_event_store(record).append(
+            event_type,
+            payload={"kind": kind, "message": message, "phase": phase or record.phase,
+                     "step": record.current_step, "total": record.total_steps},
+        )
+
     def record_event(
         self, execution_id: str, *, kind: str, message: str, phase: str | None = None
     ) -> None:
@@ -3235,6 +3275,7 @@ class DurableJobManager:
         if not record.message or kind in {"phase", "tool", "test"}:
             record.message = message
         self._persist(record)
+        self._append_execution_event(record, kind=kind, message=message, phase=phase)
 
     def advance_phase(
         self,
@@ -3538,6 +3579,11 @@ class DurableJobManager:
         line = text.strip().splitlines()[-1] if text.strip() else ""
         if line:
             record.message = line[:400]
+            self._execution_event_store(record).append(
+                ExecutionEventType.OUTPUT,
+                payload={"stream": stream, "text": line[:400], "phase": record.phase,
+                         "step": record.current_step, "total": record.total_steps},
+            )
             record.events.append(
                 {
                     "ts": now,
