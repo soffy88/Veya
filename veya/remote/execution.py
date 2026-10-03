@@ -218,7 +218,14 @@ _LEGAL_TRANSITIONS: dict[str, frozenset[str]] = {
         }
     ),
     str(ExecutionStatus.FAILED): frozenset({str(ExecutionPhase.RECOVERING)}),
-    str(ExecutionStatus.BLOCKED): frozenset({str(ExecutionPhase.RECOVERING)}),
+    # A resting BLOCKED projection may converge to FAILED, but only through
+    # the TTL sweeper (sweep_blocked_records): the blocker is preserved as
+    # the failure detail, so the reason is never lost. No other writer may
+    # take this edge, which is why the table names it explicitly instead of
+    # leaving BLOCKED with no way out but RECOVERING.
+    str(ExecutionStatus.BLOCKED): frozenset(
+        {str(ExecutionPhase.RECOVERING), str(ExecutionStatus.FAILED)}
+    ),
     str(ExecutionStatus.TIMED_OUT): frozenset({str(ExecutionPhase.RECOVERING)}),
 }
 
