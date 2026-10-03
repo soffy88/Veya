@@ -2293,6 +2293,23 @@ class DurableJobManager:
             record.failure_message = detail_text or str(failure_class)
             record.provider_error_code = str(code or failure_class)
             record.raw_failure_evidence = evidence
+            # Layer projection: exactly one side is named, mirroring
+            # FailureAttribution.to_dict(), so a reader never has to guess
+            # which layer to go and look at. Only recognised taxonomy
+            # members are projected; generic codes (admission refusals,
+            # timeout markers) keep both sides null rather than claiming a
+            # layer they do not name.
+            from veya.remote.models import ExecutorFailureClass, ProviderFailureClass
+
+            try:
+                ProviderFailureClass(str(failure_class))
+                record.provider_failure_class = str(failure_class)
+            except ValueError:
+                try:
+                    ExecutorFailureClass(str(failure_class))
+                    record.executor_failure_class = str(failure_class)
+                except ValueError:
+                    pass
         self._persist(record)
 
     def set_continuity_field(self, execution_id: str, **fields: Any) -> None:

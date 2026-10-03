@@ -79,7 +79,7 @@ from .execution_worktree import ExecutionWorktreeRegistry
 from .executor_health import (
     ExecutorFailureClass,
     ExecutorHealthRegistry,
-    classify_executor_failure,
+    classify_failure,
     normalize_executor_name,
     resolve_executor,
 )
@@ -3673,17 +3673,45 @@ class RemoteToolAdapter:
                 stderr_tail = "".join(stderr_lines).strip()[-1200:]
                 stdout_tail = "".join(stdout_lines).strip()[-1200:]
                 detail = f"exit_code={proc.returncode}; stderr={stderr_tail}; stdout={stdout_tail}".strip()
-                fc = classify_executor_failure(exit_code=proc.returncode, detail=detail)
-                self.health_registry.record_failure(worker, fc, detail=detail)
-                reporter.failure(failure_class=str(fc), source=worker, detail=detail)
+                # Attribute to exactly one layer. A provider refusal (429 /
+                # 400 / 503 / timeout) is not an executor fault: the executor
+                # launched cleanly and was turned away upstream, so the
+                # observation belongs to ProviderRegistry and the receipt must
+                # carry the provider code, never a generic WORKER_FAILED.
+                attribution = classify_failure(exit_code=proc.returncode, detail=detail)
+                if attribution.provider_failure_class is not None:
+                    provider_code = str(attribution.provider_failure_class)
+                    _record_provider_observation(worker, provider_code, detail)
+                    reporter.failure(
+                        failure_class=provider_code,
+                        source=worker,
+                        detail=detail,
+                        code=provider_code,
+                    )
+                    self._write_task_memory_failure(
+                        memory,
+                        reporter._execution_id,
+                        detail,
+                        action=retry_action,
+                        error_class=retry_error_class or provider_code,
+                    )
+                    raise ExecutionError(provider_code, f"{worker} provider failed: {detail[:500]}")
+                executor_code = str(attribution.executor_failure_class)
+                self.health_registry.record_failure(worker, executor_code, detail=detail)
+                reporter.failure(
+                    failure_class=executor_code,
+                    source=worker,
+                    detail=detail,
+                    code=executor_code,
+                )
                 self._write_task_memory_failure(
                     memory,
                     reporter._execution_id,
                     detail,
                     action=retry_action,
-                    error_class=retry_error_class,
+                    error_class=retry_error_class or executor_code,
                 )
-                raise ExecutionError("WORKER_FAILED", f"{worker} exited with {proc.returncode}")
+                raise ExecutionError(executor_code, f"{worker} exited with {proc.returncode}")
             self.health_registry.record_success(worker)
             changed = await self._worktree_changed(worktree)
             if changed:
@@ -5149,6 +5177,39 @@ def _codex_worker_env() -> dict[str, str]:
     env.setdefault("HOME", str(Path.home()))
     _ensure_proxy_env(env)
     return env
+
+
+def _record_provider_observation(worker: str, provider_code: str, detail: str) -> None:
+    """Charge a provider refusal to the provider layer, never the executor.
+
+    Mirrors the supervision runner's responsible-layer rule at the point where
+    the evidence is richest (the worker's own stdout/stderr). A lazy import
+    keeps provider state behind ProviderRegistry; an unknown provider is not
+    this function's job to invent.
+    """
+
+    from veya.remote.provider_registry import (
+        ProviderAvailability,
+        ProviderHealthState,
+        get_provider_registry,
+        normalize_provider_name,
+    )
+
+    try:
+        provider_name = get_executor_registry().identity(worker).provider
+    except ValueError:
+        return
+    if not provider_name:
+        return
+    try:
+        get_provider_registry().record_observation(
+            normalize_provider_name(provider_name),
+            health_state=str(ProviderHealthState.UNHEALTHY),
+            availability=str(ProviderAvailability.UNAVAILABLE),
+            failure_state=str(provider_code),
+        )
+    except ValueError:
+        return
 
 
 def _worker_command(

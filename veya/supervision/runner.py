@@ -352,12 +352,35 @@ async def canonical_runner(mission: Any, *, dispatch: Dispatch | None = None) ->
     )
 
 
-_PROVIDER_FAILURE_CLASSES = {"PROVIDER_UNAVAILABLE", "AUTH_FAILURE", "TRANSPORT_FAILURE"}
+# Failover-worthy failure codes: every provider fault (a refused upstream
+# must retask, never read as completion) plus executor-local transport/auth
+# (a dead route blocks the mission no matter which layer owns it).
+_FAILOVER_FAILURE_CLASSES = frozenset(
+    {
+        "PROVIDER_UNAVAILABLE",
+        "PROVIDER_RATE_LIMIT",
+        "PROVIDER_TIMEOUT",
+        "PROVIDER_CONFIGURATION_FAILURE",
+        "PROVIDER_AUTH_FAILURE",
+        "PROVIDER_MODEL_UNAVAILABLE",
+        "TRANSPORT_FAILURE",
+        "AUTH_FAILURE",
+    }
+)
 
 
 def _failure_class_of(result: Any) -> str | None:
-    """Classify a failed iteration with the canonical executor failure taxonomy."""
-    from veya.remote.executor_health import classify_executor_failure
+    """Classify a failed iteration for failover decisions.
+
+    Returns a concrete taxonomy code, never the string ``"None"``: the old
+    implementation projected through :func:`classify_executor_failure`,
+    which yields ``None`` for every provider fault, so provider faults
+    could never trigger failover. Executor-local ``TRANSPORT_FAILURE`` /
+    ``AUTH_FAILURE`` stay failover-worthy: a dead route blocks the mission
+    no matter which layer owns it.
+    """
+
+    from veya.remote.executor_health import classify_failure
 
     for source in (
         str(getattr(result, "block_reason", "") or ""),
@@ -365,9 +388,9 @@ def _failure_class_of(result: Any) -> str | None:
     ):
         if not source:
             continue
-        failure = classify_executor_failure(detail=source)
-        if str(failure) in _PROVIDER_FAILURE_CLASSES:
-            return str(failure)
+        attribution = classify_failure(detail=source)
+        if attribution.code in _FAILOVER_FAILURE_CLASSES:
+            return attribution.code
     return None
 
 

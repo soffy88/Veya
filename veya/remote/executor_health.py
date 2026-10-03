@@ -356,8 +356,20 @@ class ExecutorHealthRegistry:
         coercion below mistaking it for an executor code. Provider faults are
         still the provider's; counting one here is for reporting, and callers
         that must respect the split use ProviderRegistry instead.
+
+        ``None`` is refused loudly: it means the caller used the
+        executor-side projection (:func:`classify_executor_failure`) on
+        evidence that points at a provider. Use :func:`classify_failure`
+        and route the provider side to ProviderRegistry instead of letting a
+        ``ValueError`` wash the root cause into a generic code downstream.
         """
 
+        if failure_class is None:
+            raise ValueError(
+                "record_failure received None: evidence points at a provider; "
+                "use classify_failure() and record the provider observation "
+                "against ProviderRegistry"
+            )
         fc = (
             failure_class
             if isinstance(failure_class, (ExecutorFailureClass, ProviderFailureClass))
