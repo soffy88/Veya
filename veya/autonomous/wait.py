@@ -27,6 +27,10 @@ class WaitConditionManager:
     def __init__(self, persistence_path: str | Path | None = None):
         self._path = Path(persistence_path) if persistence_path else None
         self._conditions: dict[str, WaitCondition] = {}
+        #: Journal lines that could not be decoded. Counted rather than skipped
+        #: silently, so a truncated or corrupted journal cannot be reported as
+        #: "this mission has no waits".
+        self.unreadable_records = 0
         if self._path and self._path.exists():
             self._load()
 
@@ -41,9 +45,10 @@ class WaitConditionManager:
                 try:
                     data = json.loads(line)
                     cond = WaitCondition.from_dict(data)
-                    self._conditions[cond.condition_id] = cond
                 except Exception:
+                    self.unreadable_records += 1
                     continue
+                self._conditions[cond.condition_id] = cond
 
     def _persist(self, cond: WaitCondition) -> None:
         if not self._path:
@@ -83,6 +88,27 @@ class WaitConditionManager:
         if mission_id:
             res = [c for c in res if c.mission_id == mission_id]
         return res
+
+    def query(
+        self,
+        mission_id: str,
+        limit: int = 100,
+        status: str | None = None,
+    ) -> list[WaitCondition]:
+        """Waits recorded for one mission, active *and* past.
+
+        ``list_active_waits`` is the active-only view the wake path needs. A
+        read of the wait journal has to include satisfied and expired
+        conditions too: otherwise a caller cannot tell "nothing was ever
+        registered" from "it already woke", and a mission whose waits all
+        resolved reads as empty. Ordered oldest first and truncated to the most
+        recent ``limit``, matching ``journal.ObservationJournal.query``.
+        """
+        res = [c for c in self._conditions.values() if c.mission_id == mission_id]
+        if status is not None:
+            res = [c for c in res if c.status == status]
+        res.sort(key=lambda c: c.created_at)
+        return res[-limit:]
 
     def evaluate_wake(self, condition_id: str, event_payload: dict[str, Any] | None = None) -> bool:
         cond = self._conditions.get(condition_id)

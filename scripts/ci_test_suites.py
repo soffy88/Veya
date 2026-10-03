@@ -57,6 +57,7 @@ SUITE_ENTRIES: dict[str, tuple[str, ...]] = {
     ),
     "unit-fast": (
         "tests/architecture/test_single_execution_authority.py",
+        "tests/remote/test_autonomous_read_semantics.py",
         "tests/server/test_server_boot_gate.py",
         "tests/test_acceptance.py",
         "tests/test_agent_loop_bridge_safety.py",

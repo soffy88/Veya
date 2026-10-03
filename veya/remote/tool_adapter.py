@@ -4497,27 +4497,84 @@ class RemoteToolAdapter:
             duration_ms=(time.time() - started) * 1000,
         )
 
+    def _read_mission_state(
+        self, tool: str, session: RemoteSession, auto_dir: Path
+    ) -> tuple[dict[str, Any], RemoteCallResult | None]:
+        """Read a mission's state.json, or say precisely why it cannot be read.
+
+        ``autonomous.status`` and ``autonomous.progress`` used to answer ok=true
+        for a missing file — as ``status: NOT_FOUND`` and ``state: UNKNOWN`` —
+        and let ``json.load`` raise out of the handler for a corrupt one. A
+        caller could not tell a mission that had not started yet from a record
+        that could not be read, and an unreadable record surfaced as an opaque
+        execution failure instead of a state error.
+        """
+        sfile = auto_dir / "state.json"
+        if not sfile.is_file():
+            return {}, self._fail(
+                tool,
+                session,
+                RemoteErrorCode.NOT_FOUND,
+                f"mission state not written yet: {sfile}",
+            )
+        try:
+            with open(sfile, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as exc:
+            return {}, self._fail(
+                tool,
+                session,
+                RemoteErrorCode.EXECUTION_FAILED,
+                f"mission state is unreadable: {sfile}: {exc}",
+            )
+        if not isinstance(data, dict) or "state" not in data:
+            # The writer always stores the full AutonomousState snapshot, so a
+            # record without "state" is a partial write, not an early mission.
+            return {}, self._fail(
+                tool,
+                session,
+                RemoteErrorCode.EXECUTION_FAILED,
+                f"mission state is incomplete (no 'state' field): {sfile}",
+            )
+        return data, None
+
     # ── autonomous.* (spec §35) ─────────────────────────────────────
     async def _autonomous_call(
         self, session: RemoteSession, name: str, args: dict[str, Any], started: float
     ) -> RemoteCallResult:
         mission_id = str(args.get("mission") or "")
         project_root = Path(session.active_workspace or os.getcwd())
+        if not mission_id:
+            # Without a mission the path below collapses to the shared parent
+            # directory, so a nameless read answers with another mission's
+            # records. Refuse instead of guessing which one was meant.
+            return self._fail(
+                name,
+                session,
+                RemoteErrorCode.INVALID_ARGUMENT,
+                "mission is required; it selects the .veya/autonomous/<mission> record set",
+            )
         auto_dir = project_root / ".veya" / "autonomous" / mission_id
+        if not auto_dir.is_dir():
+            # "No such mission" and "this mission recorded nothing" were both
+            # answered with ok=true and an empty or NOT_FOUND body.
+            return self._fail(
+                name,
+                session,
+                RemoteErrorCode.NOT_FOUND,
+                f"no autonomous mission {mission_id!r} under {auto_dir}",
+            )
 
         if name == "autonomous.status":
-            sfile = auto_dir / "state.json"
-            if sfile.is_file():
-                with open(sfile, encoding="utf-8") as f:
-                    res = json.load(f)
-            else:
-                res = {"mission_id": mission_id, "status": "NOT_FOUND"}
+            state, failure = self._read_mission_state(name, session, auto_dir)
+            if failure is not None:
+                return failure
             return RemoteCallResult(
                 ok=True,
                 tool=name,
                 session_id=session.session_id,
                 workspace=session.active_workspace,
-                result=res,
+                result=dict(state),
                 duration_ms=(time.time() - started) * 1000,
             )
 
@@ -4552,11 +4609,9 @@ class RemoteToolAdapter:
             )
 
         elif name == "autonomous.progress":
-            sfile = auto_dir / "state.json"
-            st = {}
-            if sfile.is_file():
-                with open(sfile, encoding="utf-8") as f:
-                    st = json.load(f)
+            state, failure = self._read_mission_state(name, session, auto_dir)
+            if failure is not None:
+                return failure
             return RemoteCallResult(
                 ok=True,
                 tool=name,
@@ -4564,9 +4619,9 @@ class RemoteToolAdapter:
                 workspace=session.active_workspace,
                 result={
                     "mission_id": mission_id,
-                    "objective": st.get("objective", ""),
-                    "accepted_progress": st.get("accepted_progress", []),
-                    "state": st.get("state", "UNKNOWN"),
+                    "objective": str(state.get("objective") or ""),
+                    "accepted_progress": list(state.get("accepted_progress") or []),
+                    "state": str(state["state"]),
                 },
                 duration_ms=(time.time() - started) * 1000,
             )
@@ -4576,12 +4631,22 @@ class RemoteToolAdapter:
 
             wm = WaitConditionManager(auto_dir / "waits.jsonl")
             waits = [w.to_dict() for w in wm.query(mission_id)]
+            body: dict[str, Any] = {"mission_id": mission_id, "waits": waits}
+            if wm.unreadable_records:
+                # A corrupt journal must not read as "this mission never waited".
+                return self._fail(
+                    name,
+                    session,
+                    RemoteErrorCode.EXECUTION_FAILED,
+                    f"{wm.unreadable_records} wait record(s) could not be decoded",
+                    result=body,
+                )
             return RemoteCallResult(
                 ok=True,
                 tool=name,
                 session_id=session.session_id,
                 workspace=session.active_workspace,
-                result={"waits": waits},
+                result=body,
                 duration_ms=(time.time() - started) * 1000,
             )
 
