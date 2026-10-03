@@ -36,7 +36,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from runtime.execution.checkpoint import CheckpointError, ExecutionCheckpointStore
 from veya.remote.admission import AdmissionStatus
+from veya.remote.execution_contract import ExecutionCondition, ExecutionSpec
 
 #: ``TimeoutKind`` now lives beside the timeout policy that gives it meaning, and
 #: is re-exported here because the phase tables below and ``tool_adapter`` both
@@ -46,6 +48,7 @@ from veya.remote.execution_timeout import (
     ExecutionTimeoutPolicy,
     TimeoutKind,
 )
+from veya.remote.provider_request import ProviderRequest, ProviderRequestStatus
 from veya.remote.qualification_faults import QualificationFault
 from veya.remote.qualification_faults import checkpoint as qualification_checkpoint
 
@@ -62,12 +65,6 @@ def _normalize_execution_cap(value: Any) -> int | None:
         return None
     return number if number > 0 else None
 
-
-from veya.remote.provider_request import ProviderRequest, ProviderRequestStatus
-from veya.remote.execution_contract import (  # noqa: E402
-    ExecutionCondition,
-    ExecutionSpec,
-)
 
 
 class ExecutionPhase(StrEnum):
@@ -520,6 +517,9 @@ class ExecutionRecord:
     model_provider: str | None = None
     model: str | None = None
     parent_execution_id: str | None = None
+    resumed_from_execution_id: str | None = None
+    checkpoint_id: str | None = None
+    resume_idempotency_key: str | None = None
     model_request_count: int = 0
     tool_call_count: int = 0
     model_request_started_at: float | None = None
@@ -1194,6 +1194,8 @@ class DurableJobManager:
         self.worker_registry = worker_registry
         self.outbox = outbox
         self.recovery_runner_factory = recovery_runner_factory
+        checkpoint_root = self.store.root if self.store.root is not None else Path.home() / ".veya" / "remote_executions"
+        self.checkpoint_store = ExecutionCheckpointStore(checkpoint_root)
         self.recovery_failures: list[dict[str, Any]] = []
         # Durable-write failures must be observable; a swallowed projection
         # write can silently lose a terminal/recovery transition.
@@ -1648,18 +1650,46 @@ class DurableJobManager:
         runner: Runner | None = None,
         workspace_realpath: str | None = None,
         principal: str | None = None,
+        checkpoint_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> ExecutionRecord:
-        """Forward resume to the existing GoalRun identity, idempotently."""
+        """Resume a durable checkpoint as a new Execution on the same GoalRun."""
         record = self.status(
             execution_id,
             token_id=token_id,
             workspace_realpath=workspace_realpath,
             principal=principal,
         )
-        if record.is_terminal:
-            return record
         if record.goal_run_id is None:
             raise ExecutionError("GOAL_RUN_MISSING", "remote execution has no canonical GoalRun")
+
+        key = idempotency_key or checkpoint_id or execution_id
+        with self._lock:
+            for existing in self._records.values():
+                if (
+                    existing.resumed_from_execution_id == execution_id
+                    and existing.resume_idempotency_key == key
+                ):
+                    return existing
+
+        try:
+            checkpoint = self.checkpoint_store.read_durable(checkpoint_id)
+        except CheckpointError as exc:
+            raise ExecutionError("CHECKPOINT_INVALID", str(exc)) from exc
+        if checkpoint is None:
+            raise ExecutionError("CHECKPOINT_MISSING", "no durable execution checkpoint is available")
+        if checkpoint.goal_run_id != record.goal_run_id or checkpoint.execution_id != execution_id:
+            raise ExecutionError(
+                "CHECKPOINT_LINEAGE_MISMATCH",
+                "checkpoint does not belong to the requested execution lineage",
+            )
+        if record.is_terminal and record.status not in {
+            str(ExecutionStatus.FAILED),
+            str(ExecutionStatus.TIMED_OUT),
+            str(ExecutionStatus.BLOCKED),
+        }:
+            raise ExecutionError("EXECUTION_NOT_RESUMABLE", f"execution is terminal: {record.status}")
+
         chosen = runner or (
             self.recovery_runner_factory(record) if self.recovery_runner_factory else None
         )
@@ -1667,26 +1697,73 @@ class DurableJobManager:
             raise ExecutionError(
                 "RECOVERY_RUNNER_MISSING", "provider recovery factory is unavailable"
             )
-        record.phase = ExecutionPhase.RESUMING
-        record.status = str(ExecutionStatus.RUNNING)
-        record.message = "resuming execution"
-        record.events.append(
+
+        from types import SimpleNamespace
+
+        binding = SimpleNamespace(
+            requested_path=record.requested_workspace,
+            requested_realpath=record.requested_realpath,
+            repo_root=record.resolved_repo_root,
+            repo_identity=record.repo_identity,
+            worktree_path=record.worktree_path,
+            worktree_repo_root=record.worktree_repo_root,
+            base_sha=record.worktree_base_sha,
+        )
+        session = SimpleNamespace(
+            session_id=record.session_id,
+            token_id=record.token_id,
+            principal=record.principal,
+        )
+        child = self.submit(
+            session=session,
+            tool=record.tool,
+            veya_tool=record.veya_tool,
+            binding=binding,
+            runner=chosen,
+            task_id=record.goal_task_id or record.task_id,
+            limits={
+                "max_steps": record.max_steps,
+                "execution_timeout_sec": record.execution_timeout_sec,
+                "effective_timeout_ms": record.effective_timeout_ms,
+                "command_timeout_sec": record.command_timeout_sec,
+            },
+            execution_type=record.execution_type,
+            command=record.command,
+            cwd=checkpoint.working_directory,
+            profile=record.profile,
+            execution_mode=record.execution_mode,
+            orchestrator=record.orchestrator,
+            worker_type=record.worker_type,
+            worker_id=record.worker_id,
+            model_provider=record.model_provider,
+            model=record.model,
+            parent_execution_id=execution_id,
+            role=record.agent_role,
+            preferred_worker_runtime_id=record.preferred_worker_runtime_id,
+            idempotency_key=key,
+            goal_run_id=record.goal_run_id,
+            goal_task_id=record.goal_task_id or record.task_id,
+            goal_project_root=record.goal_project_root,
+            spec=record.spec,
+            task_contract=record.task_contract,
+            keep_worktree=True,
+        )
+        child.resumed_from_execution_id = execution_id
+        child.checkpoint_id = checkpoint.checkpoint_id
+        child.resume_idempotency_key = key
+        child.phase = ExecutionPhase.RESUMING
+        child.message = "resuming from durable checkpoint"
+        child.events.append(
             {
                 "ts": time.time(),
                 "kind": "resumed",
                 "phase": str(ExecutionPhase.RESUMING),
-                "message": "resumed execution on canonical lineage",
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "resumed_from_execution_id": execution_id,
             }
         )
-        self._persist(record)
-        with self._lock:
-            current = self._tasks.get(execution_id)
-            if current is None or current.done():
-                self._tasks[execution_id] = asyncio.create_task(
-                    self._admit_goal_run(record, chosen),
-                    name=f"veya-remote-resume-{execution_id}",
-                )
-        return record
+        self._persist(child, required=True)
+        return child
 
     def _persist(self, record: ExecutionRecord, *, required: bool = False) -> None:
         record.updated_at = time.time()
