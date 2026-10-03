@@ -12,11 +12,12 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from server.events import _to_envelope
 from server.session_events import durable_session_store, is_terminal
+from veya.remote.auth import RemoteAuth, RemoteAuthError
 
 router = APIRouter(prefix="/stream", tags=["sse"])
 
@@ -184,6 +185,21 @@ def emit(session_id: str, event: str, data: dict[str, Any]) -> None:
     durable_session_store.publish_sync(session_id, envelope, event_type=event)
 
 
+def _authorize_stream(authorization: str | None, working_directory: str | None) -> None:
+    try:
+        token = RemoteAuth.from_env().verify(authorization)
+    except RemoteAuthError as exc:
+        raise HTTPException(status_code=401, detail="authentication denied") from exc
+    if not token.permissions.read:
+        raise HTTPException(status_code=403, detail="read permission required")
+    if working_directory and token.workspaces:
+        from pathlib import Path
+        target = Path(working_directory).resolve()
+        allowed = any(target == Path(root).resolve() or Path(root).resolve() in target.parents for root in token.workspaces)
+        if not allowed:
+            raise HTTPException(status_code=403, detail="workspace access denied")
+
+
 async def execution_events_generator(
     execution_id: str, request: Request | None, last_seen_sequence: int
 ) -> AsyncIterator[str]:
@@ -202,7 +218,7 @@ async def execution_events_generator(
     if last_seen_sequence < 0:
         yield 'event: error\ndata: {"error":"INVALID_CURSOR"}\n\n'
         return
-    store = ExecutionEventStore(record.requested_realpath or record.requested_workspace, execution_id)
+    store = ExecutionEventStore.shared(record.requested_realpath or record.requested_workspace, execution_id)
     subscriber = store.subscribe_live()
     cursor = last_seen_sequence
     try:
@@ -248,8 +264,14 @@ async def execution_events_generator(
 async def stream_execution(
     execution_id: str,
     request: Request,
+    authorization: str | None = Header(default=None),
     last_seen_sequence: int = Query(0, ge=0),
 ) -> StreamingResponse:
+    from veya.remote.execution import ExecutionStore
+    record = ExecutionStore.from_env(default_persistent=True).get(execution_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="execution not found")
+    _authorize_stream(authorization, record.requested_realpath or record.requested_workspace)
     return StreamingResponse(
         execution_events_generator(execution_id, request, last_seen_sequence),
         media_type="text/event-stream",

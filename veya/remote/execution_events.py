@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 
 class ExecutionEventError(ValueError):
@@ -53,6 +53,19 @@ class ExecutionEvent:
 
 class ExecutionEventStore:
     """Append-only durable stream with bounded hot-buffer and replay."""
+
+    _shared_lock = threading.RLock()
+    _shared: ClassVar[dict[tuple[str, str], ExecutionEventStore]] = {}
+
+    @classmethod
+    def shared(cls, root: str | Path, execution_id: str, *, max_buffer_events: int = 256) -> ExecutionEventStore:
+        key = (str(Path(root).resolve()), execution_id)
+        with cls._shared_lock:
+            store = cls._shared.get(key)
+            if store is None:
+                store = cls(root, execution_id, max_buffer_events=max_buffer_events)
+                cls._shared[key] = store
+            return store
 
     def __init__(self, root: str | Path, execution_id: str, *, max_buffer_events: int = 256):
         if not execution_id:

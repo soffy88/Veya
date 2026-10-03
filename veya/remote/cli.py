@@ -145,10 +145,12 @@ def _serve(host: str, port: int, log_level: str) -> int:
     from fastapi import FastAPI
 
     from server.routes.remote_mcp import router
+    from server.sse import router as sse_router
     from veya.remote.oauth import router as oauth_router
 
     app = FastAPI(title="veya-remote-mcp", docs_url=None, redoc_url=None, openapi_url=None)
     app.include_router(router)
+    app.include_router(sse_router)
     app.include_router(oauth_router)
     print(f"veya-remote-mcp listening on http://{host}:{port} (loopback only)", file=sys.stderr)
     uvicorn.run(app, host=host, port=port, log_level=log_level)

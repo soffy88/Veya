@@ -7,6 +7,16 @@ from server.sse import execution_events_generator
 from veya.remote.execution_events import ExecutionEventStore, ExecutionEventType
 
 
+def test_shared_store_delivers_live_events_across_runtime_instances(tmp_path) -> None:
+    producer = ExecutionEventStore.shared(tmp_path, "exec-live")
+    consumer = ExecutionEventStore.shared(tmp_path, "exec-live")
+    assert producer is consumer
+    subscriber = consumer.subscribe_live()
+    event = producer.append(ExecutionEventType.OUTPUT, payload={"live": True})
+    assert subscriber.get_nowait().sequence == event.sequence
+    consumer.unsubscribe_live(subscriber)
+
+
 def test_replay_cursor_and_live_subscription_have_no_duplicate_boundary(tmp_path) -> None:
     store = ExecutionEventStore(tmp_path, "exec-replay")
     first = store.append(ExecutionEventType.OUTPUT, payload={"n": 1})

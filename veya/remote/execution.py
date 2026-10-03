@@ -3228,7 +3228,7 @@ class DurableJobManager:
 
     def _execution_event_store(self, record: ExecutionRecord) -> ExecutionEventStore:
         root = record.requested_realpath or record.requested_workspace or str(Path.cwd())
-        return ExecutionEventStore(root, record.execution_id)
+        return ExecutionEventStore.shared(root, record.execution_id)
 
     def _append_execution_event(
         self, record: ExecutionRecord, *, kind: str, message: str, phase: str | None = None
