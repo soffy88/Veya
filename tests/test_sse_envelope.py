@@ -1,10 +1,10 @@
 """SSE 事件信封 (对标"Pi"清单 P1: 消息/事件 IR)——纯增量, 不改老字段。
 
 `server.events._to_envelope` 是唯一的信封逻辑, 在两个真正的落地扇入点接线:
-`server.sse.SSEQueue.on_step`(覆盖 fire_step 全部下游 + queue.on_step 直调 +
-sse.emit) 和 `server.routes.legacy_agent._engine_events`(stream_engine 那条
-独立管路)。这里只测 `_to_envelope` 本体 + `SSEQueue.on_step` 接线, 不重复测
-`_engine_events` 的路由级行为 (人工核对过, 单行 wrap, 风险低)。
+`server.chat_stream` 绑到 `_on_step_ctx` 的 producer (覆盖 fire_step 全部下游)
+和 `server.routes.legacy_agent._engine_events`(stream_engine 那条独立管路)。
+这里只测 `_to_envelope` 本体 + durable 落盘接线, 不重复测 `_engine_events`
+的路由级行为 (人工核对过, 单行 wrap, 风险低)。
 """
 
 from __future__ import annotations
@@ -73,22 +73,40 @@ def test_internal_failure_degrades_to_original_dict():
     assert out is ev  # 异常时原样返回, 不拖垮 SSE 流
 
 
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    sse._queues.clear()
-    yield
-    sse._queues.clear()
-
-
 @pytest.mark.asyncio
-async def test_sse_queue_on_step_envelopes_before_enqueue():
-    q = sse.get_or_create_queue("s-env")
-    q.on_step({"type": "tool_call", "session_id": "s-env", "tool_name": "write"})
-    item = await q._q.get()
-    # 老的扁平字段原样在
-    assert item["type"] == "tool_call"
-    assert item["tool_name"] == "write"
-    # 新信封字段也在
-    assert item["topic"] == "tool_call"
-    assert item["payload"]["tool_name"] == "write"
-    assert item["trace_id"] == "s-env"
+async def test_durable_publish_envelopes_before_persisting():
+    """The producer path still envelopes before the event hits the journal.
+
+    Replaces the old `SSEQueue.on_step` wiring test: the envelope is now built
+    upstream by `_to_envelope` / `sse.emit` and persisted by the durable store.
+    """
+    import asyncio as _asyncio
+    import uuid as _uuid
+
+    from server.session_events import durable_session_store
+
+    await durable_session_store._ensure_started()
+    # Fresh session id: the journal is persistent, so a fixed sid would pick up
+    # rows left behind by earlier runs.
+    sid = f"s-env-{_uuid.uuid4().hex}"
+    sse.emit(sid, "tool_call", {"tool_name": "write"})
+    for _ in range(200):
+        await _asyncio.sleep(0.01)
+        events = await durable_session_store.catch_up(sid, 1, 0)
+        if events:
+            break
+    assert events, "sync emit must reach the durable journal"
+    item = events[0]
+    data = item["data"]
+    # 老的扁平字段原样在 (emit() 传的是 "event" 键, 与旧实现一致)
+    assert data["event"] == "tool_call"
+    assert data["tool_name"] == "write"
+    # 信封字段也在
+    assert data["topic"] == "tool_call"
+    assert data["payload"]["tool_name"] == "write"
+    assert data["trace_id"] == sid
+    # durable cursor identity
+    assert item["event"] == "tool_call"
+    assert item["seq"] == 1
+    assert item["id"] == f"{item['epoch']}:1"
+    assert durable_session_store.drain_failures == []

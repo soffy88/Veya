@@ -246,28 +246,6 @@ class EventStore:
 
 event_store = EventStore()
 
-
-def append_lifecycle_envelope(store: EventStore | None, envelope: dict[str, Any]) -> dict[str, Any]:
-    """Durable write-ahead persistence for one LifecycleEvent envelope.
-
-    Single-attempt, no retries: persistence failure raises to the caller and
-    the event is never delivered. Idempotent on ``event_id`` via the store.
-    """
-    target = store if store is not None else event_store
-    return target.append(envelope)
-
-
-def read_lifecycle_journal(
-    store: EventStore | None = None,
-    *,
-    session_id: str | None = None,
-    topics: set[str] | None = None,
-) -> list[dict[str, Any]]:
-    """Read the durable journal. The only supported source for replay."""
-    target = store if store is not None else event_store
-    return target.read_all(session_id=session_id, topics=topics)
-
-
 _on_step_ctx: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
     "on_step", default=None
 )
@@ -403,6 +381,24 @@ def append_observability_event(
     return event
 
 
+def append_lifecycle_envelope(store: EventStore, envelope: dict[str, Any]) -> dict[str, Any]:
+    """Append a lifecycle journal envelope to the durable store."""
+    return store.append(envelope)
+
+
+_lifecycle_bus_instance: Any = None
+
+
+def get_lifecycle_bus() -> Any:
+    """Get or create the module-level LifecycleEventBus singleton."""
+    global _lifecycle_bus_instance
+    if _lifecycle_bus_instance is None:
+        from server.lifecycle_events import LifecycleEventBus
+
+        _lifecycle_bus_instance = LifecycleEventBus()
+    return _lifecycle_bus_instance
+
+
 def append_canonical_event(
     topic: str,
     payload: dict[str, Any] | None = None,
@@ -432,7 +428,7 @@ def append_canonical_event(
                 resolved_trace_id = resolved_trace_id or task.trace_id
     resolved_session_id = str(resolved_session_id or "unknown")
     resolved_trace_id = str(resolved_trace_id or resolved_session_id)
-    return event_store.append(
+    result = event_store.append(
         {
             "topic": str(topic),
             "session_id": resolved_session_id,
@@ -443,6 +439,20 @@ def append_canonical_event(
             "payload": dict(payload or {}),
         }
     )
+    with contextlib.suppress(Exception):
+        from server.lifecycle_events import TAXONOMY, build_event
+
+        if topic in TAXONOMY:
+            event = build_event(
+                topic,
+                session_id=resolved_session_id,
+                payload=payload,
+                task_id=resolved_task_id,
+                correlation_id=resolved_trace_id,
+                actor=actor,
+            )
+            get_lifecycle_bus().notify(event)
+    return result
 
 
 def fire_step(event: dict[str, Any]) -> None:

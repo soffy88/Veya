@@ -6,6 +6,8 @@ notification_center.push_stream 是逐帧高频镜像 — 只推给同 user_id �
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from server.notification_center import NotificationCenter
@@ -67,28 +69,34 @@ async def test_stream_pump_mirrors_events_for_logged_in_user(monkeypatch):
     # 必须 patch 类方法 (非实例属性) — 实例 setattr 在 teardown 会用 bound
     # method 永久遮蔽类方法, 污染后续测试。
     from server.coordinator_master import MasterCoordinator
-    from server.sse import get_or_create_queue
+    from server.session_events import durable_session_store
 
     async def fake_chat_stream(self, text, *, session_id=None, **kw):
-        q = get_or_create_queue(session_id)
-        q.on_step({"type": "text_delta", "squad_id": "master", "delta": "片段A"})
-        q.on_step({"type": "text_delta", "squad_id": "master", "delta": "片段B"})
+        for delta in ("片段A", "片段B"):
+            durable_session_store.publish_sync(
+                session_id, {"type": "text_delta", "squad_id": "master", "delta": delta}
+            )
         return {"status": "success", "final_answer": "片段A片段B"}
 
     monkeypatch.setattr(MasterCoordinator, "chat_stream", fake_chat_stream)
 
+    # Unique per run: the durable journal persists across runs, so a fixed sid
+    # would replay a previous run's terminal event and end the stream early.
+    session_id = f"sid-sync-{uuid.uuid4().hex[:8]}"
     async for _frame in cs.new_agent_stream_events(
-        "你好", session_id="sid-sync", user={"user_id": "alice", "username": "alice"}
+        "你好", session_id=session_id, user={"user_id": "alice", "username": "alice"}
     ):
         pass
 
     # 镜像里应包含 user_prompt (首帧) + 流式 text_delta (2 帧) + _finish 补发的
-    # 最终答案 text_delta + master_done。
-    kinds = [ev.get("type") for _sid, ev in captured]
+    # 最终答案 text_delta + master_done。只看本 session 的镜像: global_notifier
+    # 是进程级单例, 早先测试残留的后台任务可能还在往它推别的 session 的帧。
+    mine = [ev for _sid, ev in captured if _sid == session_id]
+    kinds = [ev.get("type") for ev in mine]
     assert "user_prompt" in kinds
     assert kinds.count("text_delta") >= 2
     assert "master_done" in kinds
-    assert all(sid == "sid-sync" for sid, _ in captured)
+    assert all(sid == session_id for sid, _ in captured)
 
 
 @pytest.mark.asyncio
@@ -105,16 +113,19 @@ async def test_stream_pump_no_mirror_for_anonymous(monkeypatch):
     )
 
     from server.coordinator_master import MasterCoordinator
-    from server.sse import get_or_create_queue
+    from server.session_events import durable_session_store
 
     async def fake_chat_stream(self, text, *, session_id=None, **kw):
-        q = get_or_create_queue(session_id)
-        q.on_step({"type": "text_delta", "squad_id": "master", "delta": "x"})
+        durable_session_store.publish_sync(
+            session_id, {"type": "text_delta", "squad_id": "master", "delta": "x"}
+        )
         return {"status": "success", "final_answer": "x"}
 
     monkeypatch.setattr(MasterCoordinator, "chat_stream", fake_chat_stream)
 
-    gen = cs.new_agent_stream_events("你好", session_id="sid-anon", user=None)
+    gen = cs.new_agent_stream_events(
+        "你好", session_id=f"sid-anon-{uuid.uuid4().hex[:8]}", user=None
+    )
     async for _frame in gen:
         pass
 

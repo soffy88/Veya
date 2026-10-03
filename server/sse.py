@@ -16,8 +16,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from server.events import _to_envelope
-from server.lifecycle_events import LifecycleEvent, LifecycleEventBus, project_event_to_sse
-from server.session_events import durable_session_store
+from server.session_events import durable_session_store, is_terminal
 
 router = APIRouter(prefix="/stream", tags=["sse"])
 
@@ -77,9 +76,17 @@ async def events_generator(session_id: str, request: Request | None) -> AsyncIte
 
         last_delivered_seq = catchup_seq
         for ev in catchup_events:
+            if ev["epoch"] != current_epoch or ev["seq"] <= last_delivered_seq:
+                continue
             payload = json.dumps(ev, ensure_ascii=False)
             yield f"id: {ev['id']}\ndata: {payload}\n\n"
             last_delivered_seq = ev["seq"]
+            # A durable terminal event ends the stream. This replaces the old
+            # in-memory close() sentinel, which had no durable representation:
+            # without it a finished stream stayed open until the client gave up.
+            if is_terminal(ev):
+                yield "data: [DONE]\n\n"
+                return
 
         # LIVE TAIL
         while True:
@@ -96,33 +103,26 @@ async def events_generator(session_id: str, request: Request | None) -> AsyncIte
                 return
 
             ev_epoch, ev_seq = item["epoch"], item["seq"]
-            # Deduplicate items that were already in the catchup
-            if ev_epoch == current_epoch and ev_seq <= last_delivered_seq:
+            # Skip anything from a previous turn on this session id, and anything
+            # the catchup already delivered.
+            if ev_epoch != current_epoch or ev_seq <= last_delivered_seq:
                 continue
 
             last_delivered_seq = ev_seq
             payload = json.dumps(item, ensure_ascii=False)
             yield f"id: {item['id']}\ndata: {payload}\n\n"
+            if is_terminal(item):
+                yield "data: [DONE]\n\n"
+                return
 
     finally:
         durable_session_store.unsubscribe_live(session_id, sub_q)
 
 
-_emit_tasks: set[asyncio.Task] = set()
+def sse_frame_for_lifecycle(event: Any) -> str:
+    """Project a LifecycleEvent to an SSE frame. Pure projection, no I/O."""
+    from server.lifecycle_events import project_event_to_sse
 
-
-def emit(session_id: str, event: str, data: dict[str, Any]) -> None:
-    """Legacy sync emit. Should now use async append_event.
-    This creates an async task to append."""
-    envelope = _to_envelope(data)
-    envelope.setdefault("session_id", session_id)
-    task = asyncio.create_task(durable_session_store.append_event(session_id, event, envelope))
-    _emit_tasks.add(task)
-    task.add_done_callback(_emit_tasks.discard)
-
-
-def sse_frame_for_lifecycle(event: LifecycleEvent) -> str:
-    """SSE projection of one LifecycleEvent. Pure: no persistence, no replay."""
     return project_event_to_sse(event)
 
 
@@ -131,33 +131,57 @@ def emit_lifecycle(
     event_type: str,
     payload: dict[str, Any] | None = None,
     *,
-    bus: LifecycleEventBus | None = None,
-    causation_id: str | None = None,
-    correlation_id: str | None = None,
-    task_id: str | None = None,
-    run_id: str | None = None,
-) -> LifecycleEvent:
-    """Authority -> durable session journal -> SSE projection, in that order.
+    bus: Any | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Emit a lifecycle event through the bus and project to session journal.
 
-    The LifecycleEventBus persists first (durable write-ahead); the session
-    journal append is scheduled as a task (durable-before-live inside the
-    store); the returned event projects to an SSE frame via
-    sse_frame_for_lifecycle. SSE never persists or replays.
+    This is the production entry point for lifecycle events. It emits through
+    the LifecycleEventBus (durable journal) and projects to the session journal
+    for SSE consumption.
     """
-    active = bus if bus is not None else LifecycleEventBus()
-    event = active.emit(
-        event_type,
-        session_id=session_id,
-        payload=dict(payload or {}),
-        causation_id=causation_id,
-        correlation_id=correlation_id,
-        task_id=task_id,
-        run_id=run_id,
-    )
-    task = asyncio.create_task(durable_session_store.persist_lifecycle_event(session_id, event))
-    _emit_tasks.add(task)
-    task.add_done_callback(_emit_tasks.discard)
+    if bus is None:
+        from server.events import get_lifecycle_bus
+
+        bus = get_lifecycle_bus()
+    event = bus.emit(event_type, session_id=session_id, payload=payload, **kwargs)
+
+    async def _project() -> None:
+        try:
+            from server.session_events import durable_session_store
+
+            await durable_session_store.persist_lifecycle_event(session_id, event)
+        except Exception:
+            pass
+
+    try:
+        import asyncio
+
+        loop = asyncio.get_running_loop()
+        loop.create_task(_project())
+    except RuntimeError:
+        pass
     return event
+
+
+def emit(session_id: str, event: str, data: dict[str, Any]) -> None:
+    """Synchronous producer entry point.
+
+    Routes through the durable store's ordered drain rather than spawning an
+    untracked task per event, so journal ordering is preserved and append
+    failures are recorded and republished as an `error` event instead of being
+    silently dropped. Awaitable callers should use
+    ``durable_session_store.publish(...)`` directly.
+    """
+    # Envelope is built from {"event": ..., **data} exactly as the pre-9876111f
+    # emit() did, so the wire payload keeps `event` at the top level. session_id
+    # is folded in *before* enveloping so trace_id is populated (the old
+    # SSEQueue.on_step set it afterwards, leaving trace_id empty).
+    payload_in = {"event": event, **data}
+    payload_in.setdefault("session_id", session_id)
+    envelope = _to_envelope(payload_in)
+    envelope.setdefault("session_id", session_id)
+    durable_session_store.publish_sync(session_id, envelope, event_type=event)
 
 
 @router.get("/{session_id}")

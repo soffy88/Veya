@@ -22,9 +22,11 @@ from typing import Any
 class DurabilityClass(StrEnum):
     """Persistence semantics per lifecycle event type."""
 
-    DURABLE = "durable"
-    REPLAYABLE = "replayable"
     EPHEMERAL = "ephemeral"
+    OBSERVABLE = "observable"
+    DURABLE = "durable"
+    AUDIT = "audit"
+    REPLAYABLE = "replayable"
 
 
 SCHEMA_VERSION = 1
@@ -72,9 +74,83 @@ TAXONOMY: dict[str, DurabilityClass] = {
     "reconciliation.started": DurabilityClass.REPLAYABLE,
     "reconciliation.completed": DurabilityClass.DURABLE,
     "reconciliation.diverged": DurabilityClass.DURABLE,
+    "reconciliation.reconciled": DurabilityClass.DURABLE,
+    "reconciliation.conflict": DurabilityClass.DURABLE,
+    # goal lifecycle — full spec taxonomy
+    "goal.admitted": DurabilityClass.DURABLE,
+    "goal.resumed": DurabilityClass.DURABLE,
+    "goal.paused": DurabilityClass.DURABLE,
+    "goal.completed": DurabilityClass.DURABLE,
+    "goal.failed": DurabilityClass.DURABLE,
+    "goal.cancelled": DurabilityClass.DURABLE,
+    # task lifecycle — full spec taxonomy
+    "task.ready": DurabilityClass.DURABLE,
+    "task.assigned": DurabilityClass.DURABLE,
+    # context lifecycle
+    "context.resolution_started": DurabilityClass.REPLAYABLE,
+    "context.ready": DurabilityClass.DURABLE,
+    "context.refreshed": DurabilityClass.OBSERVABLE,
+    # agent lifecycle
+    "agent.started": DurabilityClass.OBSERVABLE,
+    "agent.idle": DurabilityClass.OBSERVABLE,
+    "agent.resumed": DurabilityClass.OBSERVABLE,
+    "agent.stopped": DurabilityClass.OBSERVABLE,
+    # tool lifecycle
+    "tool.requested": DurabilityClass.REPLAYABLE,
+    "tool.authorization_resolved": DurabilityClass.AUDIT,
+    "tool.started": DurabilityClass.REPLAYABLE,
+    "tool.succeeded": DurabilityClass.DURABLE,
+    "tool.failed": DurabilityClass.DURABLE,
+    # approval lifecycle — full spec taxonomy
+    "approval.resolved": DurabilityClass.AUDIT,
+    # workspace projection lifecycle
+    "workspace.projection_created": DurabilityClass.DURABLE,
+    "workspace.projection_stale": DurabilityClass.OBSERVABLE,
+    "workspace.mutated": DurabilityClass.DURABLE,
+    # compaction lifecycle
+    "compaction.started": DurabilityClass.REPLAYABLE,
+    "compaction.completed": DurabilityClass.REPLAYABLE,
+    # evaluation lifecycle
+    "evaluation.started": DurabilityClass.DURABLE,
+    "evaluation.completed": DurabilityClass.DURABLE,
+    # completion lifecycle
+    "completion.proposed": DurabilityClass.DURABLE,
+    "completion.accepted": DurabilityClass.DURABLE,
+    "completion.rejected": DurabilityClass.DURABLE,
+    # artifact lifecycle
+    "artifact.published": DurabilityClass.DURABLE,
 }
 
 REPLAYABLE_CLASSES = frozenset({DurabilityClass.DURABLE, DurabilityClass.REPLAYABLE})
+PERSISTED_CLASSES = frozenset({
+    DurabilityClass.DURABLE,
+    DurabilityClass.REPLAYABLE,
+    DurabilityClass.OBSERVABLE,
+    DurabilityClass.AUDIT,
+})
+
+
+class HookFailurePolicy(StrEnum):
+    """Failure policy for hook execution."""
+
+    IGNORE = "ignore"
+    WARN = "warn"
+    BLOCK = "block"
+    RETRY = "retry"
+    FAIL_EXECUTION = "fail_execution"
+
+
+@dataclass(frozen=True)
+class HookSubscription:
+    """A hook's subscription to lifecycle events. Hooks never own lifecycle state."""
+
+    hook_id: str
+    event_filter: str | None
+    scope: str | None
+    handler: Any
+    timeout: float = 30.0
+    failure_policy: HookFailurePolicy = HookFailurePolicy.WARN
+    idempotency_policy: str = "dedup_by_event_id"
 
 
 @dataclass(frozen=True)
@@ -90,6 +166,14 @@ class LifecycleEvent:
     goal_id: str | None = None
     run_id: str | None = None
     task_id: str | None = None
+    goal_run_id: str | None = None
+    goal_task_id: str | None = None
+    execution_id: str | None = None
+    agent_id: str | None = None
+    workspace_id: str | None = None
+    context_projection_id: str | None = None
+    tool_call_id: str | None = None
+    actor: str = "lifecycle"
     payload: dict[str, Any] = field(default_factory=dict)
     durability_class: DurabilityClass = DurabilityClass.DURABLE
     schema_version: int = SCHEMA_VERSION
@@ -141,6 +225,14 @@ def build_event(
     goal_id: str | None = None,
     run_id: str | None = None,
     task_id: str | None = None,
+    goal_run_id: str | None = None,
+    goal_task_id: str | None = None,
+    execution_id: str | None = None,
+    agent_id: str | None = None,
+    workspace_id: str | None = None,
+    context_projection_id: str | None = None,
+    tool_call_id: str | None = None,
+    actor: str = "lifecycle",
     occurred_at: float | None = None,
 ) -> LifecycleEvent:
     """Construct and validate a LifecycleEvent. Root events self-correlate."""
@@ -157,6 +249,14 @@ def build_event(
         goal_id=goal_id,
         run_id=run_id,
         task_id=task_id,
+        goal_run_id=goal_run_id,
+        goal_task_id=goal_task_id,
+        execution_id=execution_id,
+        agent_id=agent_id,
+        workspace_id=workspace_id,
+        context_projection_id=context_projection_id,
+        tool_call_id=tool_call_id,
+        actor=actor,
         payload=dict(payload or {}),
         durability_class=TAXONOMY[event_type],
         schema_version=SCHEMA_VERSION,
@@ -174,7 +274,7 @@ def to_journal_envelope(event: LifecycleEvent) -> dict[str, Any]:
         "trace_id": event.correlation_id,
         "task_id": event.task_id,
         "turn_id": None,
-        "actor": "lifecycle",
+        "actor": event.actor,
         "payload": {
             "lifecycle": True,
             "lifecycle_version": event.schema_version,
@@ -188,6 +288,14 @@ def to_journal_envelope(event: LifecycleEvent) -> dict[str, Any]:
             "goal_id": event.goal_id,
             "run_id": event.run_id,
             "task_id": event.task_id,
+            "goal_run_id": event.goal_run_id,
+            "goal_task_id": event.goal_task_id,
+            "execution_id": event.execution_id,
+            "agent_id": event.agent_id,
+            "workspace_id": event.workspace_id,
+            "context_projection_id": event.context_projection_id,
+            "tool_call_id": event.tool_call_id,
+            "actor": event.actor,
             "data": dict(event.payload),
         },
     }
@@ -210,6 +318,14 @@ def coerce_stored_envelope(stored: dict[str, Any]) -> LifecycleEvent:
             goal_id=payload.get("goal_id"),
             run_id=payload.get("run_id"),
             task_id=payload.get("task_id") or stored.get("task_id"),
+            goal_run_id=payload.get("goal_run_id"),
+            goal_task_id=payload.get("goal_task_id"),
+            execution_id=payload.get("execution_id"),
+            agent_id=payload.get("agent_id"),
+            workspace_id=payload.get("workspace_id"),
+            context_projection_id=payload.get("context_projection_id"),
+            tool_call_id=payload.get("tool_call_id"),
+            actor=str(payload.get("actor") or "lifecycle"),
             payload=dict(data) if isinstance(data, dict) else {},
             durability_class=DurabilityClass(str(payload.get("durability_class", "replayable"))),
             schema_version=int(payload.get("lifecycle_version", SCHEMA_VERSION)),
@@ -248,6 +364,14 @@ def project_event_to_sse(event: LifecycleEvent) -> str:
             "goal_id": event.goal_id,
             "run_id": event.run_id,
             "task_id": event.task_id,
+            "goal_run_id": event.goal_run_id,
+            "goal_task_id": event.goal_task_id,
+            "execution_id": event.execution_id,
+            "agent_id": event.agent_id,
+            "workspace_id": event.workspace_id,
+            "context_projection_id": event.context_projection_id,
+            "tool_call_id": event.tool_call_id,
+            "actor": event.actor,
             "payload": event.payload,
             "durability_class": event.durability_class.value,
             "schema_version": event.schema_version,
@@ -320,6 +444,7 @@ class LifecycleEventBus:
         self._store = EventStore(path=journal_path)
         self._seen: dict[str, LifecycleEvent] = {}
         self._ephemeral: list[LifecycleEvent] = []
+        self._hooks: list[HookSubscription] = []
 
     @property
     def journal_path(self) -> Path:
@@ -392,18 +517,59 @@ class LifecycleEventBus:
         )
         return coerce_stored_envelope(stored)
 
+    def subscribe(self, hook: HookSubscription) -> None:
+        """Register a hook subscription. Hooks consume events; they never own state."""
+        self._hooks.append(hook)
+
+    def unsubscribe(self, hook_id: str) -> None:
+        """Remove a hook subscription by ID."""
+        self._hooks = [h for h in self._hooks if h.hook_id != hook_id]
+
+    def notify(self, event: LifecycleEvent) -> None:
+        """Notify hooks without persisting (caller already persisted the event)."""
+        self._dispatch_hooks(event)
+
+    def _dispatch_hooks(self, event: LifecycleEvent) -> None:
+        """Dispatch event to matching hooks. Hook failures follow their policy."""
+        for hook in self._hooks:
+            if hook.event_filter is not None and hook.event_filter != event.event_type:
+                continue
+            try:
+                hook.handler(event)
+            except Exception as exc:
+                if hook.failure_policy is HookFailurePolicy.IGNORE:
+                    continue
+                if hook.failure_policy is HookFailurePolicy.WARN:
+                    import logging
+                    logging.getLogger("lifecycle_hooks").warning(
+                        "hook %s failed for %s: %s", hook.hook_id, event.event_type, exc
+                    )
+                    continue
+                if hook.failure_policy is HookFailurePolicy.BLOCK:
+                    raise
+                if hook.failure_policy is HookFailurePolicy.FAIL_EXECUTION:
+                    raise
+                if hook.failure_policy is HookFailurePolicy.RETRY:
+                    for _ in range(3):
+                        try:
+                            hook.handler(event)
+                            break
+                        except Exception:
+                            continue
+
     def publish(self, event: LifecycleEvent) -> LifecycleEvent:
         """Idempotent publish: durable write-ahead, ephemeral stays in memory."""
         validate_lifecycle_event(event)
         if event.event_id in self._seen:
             return self._seen[event.event_id]
-        if event.durability_class in REPLAYABLE_CLASSES:
+        if event.durability_class in PERSISTED_CLASSES:
             from server.events import append_lifecycle_envelope
 
             append_lifecycle_envelope(self._store, to_journal_envelope(event))
         else:
             self._ephemeral.append(event)
         self._seen[event.event_id] = event
+        self._dispatch_hooks(event)
         return event
 
     def replay(
@@ -417,7 +583,7 @@ class LifecycleEventBus:
         events: list[LifecycleEvent] = []
         for row in rows:
             event = coerce_stored_envelope(row)
-            if event.durability_class not in REPLAYABLE_CLASSES:
+            if event.durability_class not in PERSISTED_CLASSES:
                 continue
             if event_types is not None and event.event_type not in event_types:
                 continue
