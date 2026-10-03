@@ -30,7 +30,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from runtime.coding.command_runner import CommandPolicyError
@@ -138,6 +138,37 @@ _FAST_READ_TOOLS = frozenset(
 _FAST_GIT_TOOLS = frozenset({"git.status", "git.diff", "git.log", "git.promote"})
 # P0-B: long-command tools -> DirectJobManager with a fast sync window.
 _COMMAND_TOOLS = frozenset({"shell.exec", "test.run", "build.run"})
+
+
+def _git_pathspec(raw: Any) -> tuple[list[str], str | None]:
+    """Validate a caller-supplied path filter into git pathspec arguments.
+
+    ``git.diff`` and ``git.log`` both advertise a ``path`` argument and both used
+    to drop it: the caller asked about one file and received the whole-tree
+    answer under ``ok=true``, with nothing in the payload recording that the
+    filter had been discarded. Measured against a worktree with edits in three
+    files, ``path="veya/remote/execution.py"`` returned a diff the same length
+    as the unfiltered one and still naming the other two files.
+
+    Returns ``(pathspec, error)``. An absent or blank filter means "no filter"
+    and yields an empty pathspec, which callers turn into no ``--`` argument at
+    all. A filter that could read as an option, escape the worktree, or is not a
+    string is refused rather than passed through.
+    """
+    if raw is None:
+        return [], None
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)) or not all(isinstance(item, str) for item in raw):
+        return [], "path must be a string or a list of strings"
+    values = [item.strip() for item in raw if item.strip()]
+    if not values:
+        return [], None
+    for value in values:
+        pure = PurePosixPath(value)
+        if pure.is_absolute() or value.startswith("-") or ".." in pure.parts:
+            return [], f"path must stay inside the worktree: {value!r}"
+    return values, None
 
 
 def _canonical_project_root(path: str | Path) -> str:
@@ -3979,11 +4010,23 @@ class RemoteToolAdapter:
                 payload = self._parse_git_status(out)
                 payload["exit_code"] = code
             elif name == "git.diff":
-                code, out, err = await self._run_capture(
-                    ["git", "-C", target, "diff", "HEAD"], timeout=30
-                )
+                pathspec, spec_error = _git_pathspec(args.get("path"))
+                if spec_error is not None:
+                    return self._fail(name, session, RemoteErrorCode.INVALID_ARGUMENT, spec_error)
+                argv = ["git", "-C", target, "diff", "HEAD"]
+                if pathspec:
+                    # "--" so git reads the filter as a pathspec, never as an option.
+                    argv += ["--", *pathspec]
+                code, out, err = await self._run_capture(argv, timeout=30)
                 text, truncated = self._limit(out)
-                payload = {"diff": text, "truncated": truncated, "exit_code": code}
+                payload = {
+                    "diff": text,
+                    "truncated": truncated,
+                    "exit_code": code,
+                    # Echo the filter that was applied, so a caller can tell a
+                    # scoped answer from a whole-tree one.
+                    "pathspec": pathspec,
+                }
             elif name == "git.promote":
                 execution_id = str(args.get("execution_id") or "")
                 if execution_id:
@@ -4118,10 +4161,14 @@ class RemoteToolAdapter:
                 )
             else:
                 limit = max(1, min(int(args.get("limit", 20)), 200))
-                code, out, err = await self._run_capture(
-                    ["git", "-C", target, "log", f"-n{limit}", "--oneline"], timeout=20
-                )
-                payload = {"log": out, "exit_code": code}
+                pathspec, spec_error = _git_pathspec(args.get("path"))
+                if spec_error is not None:
+                    return self._fail(name, session, RemoteErrorCode.INVALID_ARGUMENT, spec_error)
+                argv = ["git", "-C", target, "log", f"-n{limit}", "--oneline"]
+                if pathspec:
+                    argv += ["--", *pathspec]
+                code, out, err = await self._run_capture(argv, timeout=20)
+                payload = {"log": out, "exit_code": code, "pathspec": pathspec}
             # Keep the execution identity explicit in every fast Git response.
             # This makes metadata, repo selection and command cwd auditable as
             # one tuple and prevents a correct-looking result from hiding a
