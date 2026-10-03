@@ -213,6 +213,18 @@ class RemoteAuth:
         for record in self._tokens.values():
             if hmac.compare_digest(record.secret_sha256, candidate):
                 matched = record
+        if matched is not None and matched.is_active(now):
+            return matched
+
+        # OAuth access tokens are opaque and resolve only to an existing RemoteToken grant.
+        with contextlib.suppress(Exception):
+            from .oauth import OAuthStore
+            remote_token_id = OAuthStore().resolve_token(presented)
+            if remote_token_id:
+                oauth_grant = self._tokens.get(remote_token_id)
+                if oauth_grant is not None and oauth_grant.is_active(now):
+                    return oauth_grant
+
         if matched is None or not matched.is_active(now):
             raise RemoteAuthError("invalid or revoked token")
         return matched

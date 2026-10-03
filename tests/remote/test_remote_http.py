@@ -74,8 +74,10 @@ def test_http_auth_fail_closed(tmp_path: Path, monkeypatch) -> None:
     response = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
-    ).json()
-    assert response["error"]["data"]["error_code"] == "AUTH_DENIED"
+    )
+    assert response.status_code == 401
+    assert "resource_metadata=" in response.headers["www-authenticate"]
+    assert response.json()["error"]["data"]["error_code"] == "AUTH_DENIED"
 
 
 def test_http_session_terminate(tmp_path: Path, monkeypatch) -> None:

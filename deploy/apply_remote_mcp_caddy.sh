@@ -74,6 +74,53 @@ print(f"inserted /mcp + /mcp/health before line {idx + 1}")
 PY
 fi
 
+# OAuth discovery/registration/authorization/token endpoints must reach the same
+# Remote MCP service even when /mcp was published by an earlier run.
+CADDYFILE="$CADDYFILE" UPSTREAM="$UPSTREAM" python3 - <<'PY'
+import os, sys
+
+path = os.environ["CADDYFILE"]
+upstream = os.environ["UPSTREAM"]
+lines = open(path, encoding="utf-8").read().splitlines(keepends=True)
+
+required = [
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-authorization-server",
+    "/register",
+    "/authorize",
+    "/authorize/decision",
+    "/token",
+]
+missing = [route for route in required if not any(f"handle {route} {{" in line for line in lines)]
+if missing:
+    idx = None
+    for i, line in enumerate(lines):
+        if "handle /mcp/* {" in line:
+            for j in range(i + 1, min(i + 5, len(lines))):
+                if "172.18.0.1:8767" in lines[j]:
+                    idx = i
+                    break
+        if idx is not None:
+            break
+    if idx is None:
+        print("error: veya /mcp upstream not found; refusing to guess", file=sys.stderr)
+        sys.exit(3)
+
+    indent = lines[idx][: len(lines[idx]) - len(lines[idx].lstrip())]
+    block = []
+    for route in missing:
+        block.extend([
+            f"{indent}handle {route} {{\n",
+            f"{indent}    reverse_proxy {upstream}\n",
+            f"{indent}}}\n",
+        ])
+    lines[idx:idx] = block
+    open(path, "w", encoding="utf-8").writelines(lines)
+    print("inserted OAuth routes:", ", ".join(missing))
+else:
+    print("OAuth routes already published")
+PY
+
 restore() {
   if [ -n "$BACKUP" ] && [ -f "$BACKUP" ]; then
     log "restoring $BACKUP"

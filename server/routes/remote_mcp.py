@@ -14,11 +14,11 @@ from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import JSONResponse
 
 from veya.remote.mcp_server import create_gateway
+from veya.remote.oauth import ISSUER
 
 router = APIRouter(prefix="/mcp", tags=["remote-mcp"])
 
 _gateway: Any = None
-
 
 def get_gateway() -> Any:
     """Lazily build the process-wide gateway (credentials read at first use)."""
@@ -48,6 +48,18 @@ async def remote_mcp_jsonrpc(
     if response is None:
         # JSON-RPC notification: no body, acknowledged.
         return JSONResponse(status_code=202, content={"status": "accepted"})
+    error = response.get("error")
+    error_data = error.get("data") if isinstance(error, dict) else None
+    if isinstance(error_data, dict) and error_data.get("error_code") == "AUTH_DENIED":
+        return JSONResponse(
+            status_code=401,
+            headers={
+                "WWW-Authenticate": (
+                    f'Bearer resource_metadata="{ISSUER}/.well-known/oauth-protected-resource", scope="mcp"'
+                )
+            },
+            content=response,
+        )
     headers: dict[str, str] = {}
     result = response.get("result")
     if isinstance(result, dict) and result.get("sessionId"):
