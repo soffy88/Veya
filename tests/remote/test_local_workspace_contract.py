@@ -30,7 +30,6 @@ WORKSPACE_TOOLS = {
     "git.diff",
     "git.log",
     "worker.dispatch",
-    "hicode.execute",
 }
 
 

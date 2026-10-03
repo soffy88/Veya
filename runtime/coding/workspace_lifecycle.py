@@ -10,6 +10,12 @@ Frozen split (§7): file/workspace continuity != agent session continuity.
 D3 decides session disposition; here we only decide whether a workspace is
 reused / recovered / reset / replaced, joined by explicit refs.
 
+P0-05/P1-07: the canonical authority/revision/projection contracts live in
+``workspace_contracts`` and are recorded here as additive metadata on the same
+lifecycle record — this module stays the single authority and never forks it.
+A projection that diverged from the authority is surfaced as a classified
+conflict instead of being silently re-pointed at a newer revision.
+
 The module is stdlib-only besides sibling coding substrates. Audit emission
 is injected (``emit``) so no ``server/`` dependency is introduced.
 """
@@ -18,16 +24,41 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from runtime.coding.workspace_contracts import (
+    AuthorityType,
+    ConflictClass,
+    ConflictStrategy,
+    ExecutionLease,
+    ProjectionState,
+    WorkspaceAuthority,
+    WorkspaceMutationSet,
+    WorkspaceProjection,
+    WorkspaceRevision,
+    classify_conflict,
+    is_stale,
+    new_lease,
+    new_mutation_set,
+    new_projection,
+    new_revision,
+    reconcile_projection,
+    resolve_conflict,
+)
 from runtime.coding.worktree import WorktreeError, WorktreeManager
 
 __all__ = [
+    "AUTHORITY_METADATA_KEY",
+    "LEASES_METADATA_KEY",
+    "MUTATION_METADATA_KEY",
+    "PROJECTION_CONFLICT_KEY",
+    "PROJECTION_METADATA_KEY",
     "WORKSPACE_EVENT_TOPICS",
     "WorkspaceBusyError",
     "WorkspaceConflictError",
@@ -48,6 +79,10 @@ __all__ = [
     "release_workspace",
     "reset_workspace",
     "snapshot_workspace",
+    "workspace_authority",
+    "workspace_leases",
+    "workspace_projection",
+    "workspace_projection_conflict",
 ]
 
 WORKSPACE_EVENT_TOPICS = (
@@ -331,6 +366,413 @@ def _resolve_manager(kind: WorkspaceKind, handle: WorkspaceHandle, factory: Any 
     raise WorkspaceUnsupportedError(f"no worktree backend for kind {kind.value!r}")
 
 
+# -- P0-05/P1-07 contract plane -------------------------------------------------
+#
+# Additive metadata on the same lifecycle record: the canonical authority/revision
+# pair, the projection an execution was promoted against, the lease evidence and
+# the mutation set. None of it decides a lifecycle state — the functions above
+# remain the single authority. What it adds is that a projection whose base
+# revision no longer matches the authority is classified and recorded as a
+# conflict instead of being silently re-pointed at the newer revision.
+
+AUTHORITY_METADATA_KEY = "authority"
+PROJECTION_METADATA_KEY = "projection"
+PROJECTION_CONFLICT_KEY = "projection_conflict"
+LEASES_METADATA_KEY = "leases"
+MUTATION_METADATA_KEY = "mutation_set"
+
+_AUTHORITY_BY_KIND = {
+    WorkspaceKind.GIT_WORKTREE: AuthorityType.GIT,
+    WorkspaceKind.LOCAL: AuthorityType.FILESYSTEM,
+    WorkspaceKind.SANDBOX: AuthorityType.HYBRID,
+    WorkspaceKind.REMOTE: AuthorityType.HYBRID,
+}
+
+
+def _authority_type(handle: WorkspaceHandle) -> AuthorityType:
+    return _AUTHORITY_BY_KIND.get(handle.kind, AuthorityType.HYBRID)
+
+
+def _metadata_dict(handle: WorkspaceHandle, key: str) -> dict[str, Any]:
+    value = handle.metadata.get(key)
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _revision_from(raw: Mapping[str, Any]) -> WorkspaceRevision:
+    return WorkspaceRevision(
+        revision_id=str(raw["revision_id"]),
+        workspace_id=str(raw["workspace_id"]),
+        commit_sha=raw.get("commit_sha"),
+        tree_sha=raw.get("tree_sha"),
+        monotonic=int(raw.get("monotonic") or 0),
+        created_at=float(raw.get("created_at") or 0.0),
+    )
+
+
+def _authority_from(raw: Mapping[str, Any]) -> WorkspaceAuthority:
+    return WorkspaceAuthority(
+        workspace_id=str(raw["workspace_id"]),
+        canonical_root=str(raw["canonical_root"]),
+        authority_type=AuthorityType(raw["authority_type"]),
+        current_revision=_revision_from(raw["current_revision"]),
+        repositories=tuple(raw.get("repositories") or ()),
+    )
+
+
+def _projection_from(raw: Mapping[str, Any]) -> WorkspaceProjection:
+    return WorkspaceProjection(
+        projection_id=str(raw["projection_id"]),
+        workspace_id=str(raw["workspace_id"]),
+        base_revision=_revision_from(raw["base_revision"]),
+        generation=int(raw.get("generation") or 0),
+        backend=str(raw.get("backend") or "local"),
+        path=str(raw.get("path") or ""),
+        state=ProjectionState(raw["state"]),
+        lease_id=raw.get("lease_id"),
+        created_at=float(raw.get("created_at") or 0.0),
+        last_reconciled_at=raw.get("last_reconciled_at"),
+    )
+
+
+def _mutation_set_from(raw: Mapping[str, Any]) -> WorkspaceMutationSet:
+    return WorkspaceMutationSet(
+        mutation_id=str(raw["mutation_id"]),
+        workspace_id=str(raw["workspace_id"]),
+        projection_id=str(raw["projection_id"]),
+        base_revision=_revision_from(raw["base_revision"]),
+        changed_paths=tuple(raw.get("changed_paths") or ()),
+        deleted_paths=tuple(raw.get("deleted_paths") or ()),
+        git_state=raw.get("git_state"),
+        generated_artifacts=tuple(raw.get("generated_artifacts") or ()),
+        execution_id=str(raw.get("execution_id") or ""),
+    )
+
+
+def _lease_from(raw: Mapping[str, Any]) -> ExecutionLease:
+    return ExecutionLease(
+        lease_id=str(raw["lease_id"]),
+        workspace_id=str(raw["workspace_id"]),
+        projection_id=str(raw["projection_id"]),
+        owner_execution=str(raw["owner_execution"]),
+        scope=str(raw.get("scope") or "write"),
+        expiry=float(raw.get("expiry") or 0.0),
+    )
+
+
+def _with_metadata(handle: WorkspaceHandle, key: str, value: Any) -> WorkspaceHandle:
+    metadata = dict(handle.metadata)
+    metadata[key] = value
+    return _touch(handle, metadata=metadata)
+
+
+def _authority_of(handle: WorkspaceHandle) -> WorkspaceAuthority | None:
+    raw = _metadata_dict(handle, AUTHORITY_METADATA_KEY)
+    if not raw:
+        return None
+    try:
+        return _authority_from(raw)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _projection_of(handle: WorkspaceHandle) -> WorkspaceProjection | None:
+    raw = _metadata_dict(handle, PROJECTION_METADATA_KEY)
+    if not raw:
+        return None
+    try:
+        return _projection_from(raw)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def workspace_authority(store: WorkspaceStore, workspace_id: str) -> WorkspaceAuthority | None:
+    """Canonical authority recorded for a workspace (None when not recorded)."""
+    handle = store.get(workspace_id)
+    return None if handle is None else _authority_of(handle)
+
+
+def workspace_projection(store: WorkspaceStore, workspace_id: str) -> WorkspaceProjection | None:
+    """Projection recorded for a workspace (None when nothing was promoted)."""
+    handle = store.get(workspace_id)
+    return None if handle is None else _projection_of(handle)
+
+
+def workspace_projection_conflict(
+    store: WorkspaceStore, workspace_id: str
+) -> dict[str, Any] | None:
+    """Recorded reconciliation outcome for a diverged projection, if any."""
+    handle = store.get(workspace_id)
+    if handle is None:
+        return None
+    conflict = _metadata_dict(handle, PROJECTION_CONFLICT_KEY)
+    return conflict or None
+
+
+def _leases_of(handle: WorkspaceHandle) -> tuple[ExecutionLease, ...]:
+    raw = _metadata_dict(handle, LEASES_METADATA_KEY)
+    leases: list[ExecutionLease] = []
+    for entry in raw.values():
+        if not isinstance(entry, Mapping):
+            continue
+        try:
+            leases.append(_lease_from(entry))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return tuple(leases)
+
+
+def workspace_leases(store: WorkspaceStore, workspace_id: str) -> tuple[ExecutionLease, ...]:
+    """Leases recorded for a workspace, in insertion order."""
+    handle = store.get(workspace_id)
+    return () if handle is None else _leases_of(handle)
+
+
+def _recorded_changed_paths(handle: WorkspaceHandle) -> tuple[str, ...]:
+    raw = _metadata_dict(handle, MUTATION_METADATA_KEY)
+    if not raw:
+        return ()
+    try:
+        return _mutation_set_from(raw).changed_paths
+    except (KeyError, TypeError, ValueError):
+        return ()
+
+
+def _lease_for(handle: WorkspaceHandle, execution_id: str) -> ExecutionLease | None:
+    if not execution_id:
+        return None
+    for lease in _leases_of(handle):
+        if lease.owner_execution == execution_id:
+            return lease
+    return None
+
+
+def _backend_of(handle: WorkspaceHandle) -> str:
+    return handle.kind.value
+
+
+def _execution_id(handle: WorkspaceHandle, task_id: str | None) -> str:
+    """The run an execution binds to (evidence, not an occupancy decision)."""
+    if task_id:
+        return task_id
+    return handle.active_run_ids[-1] if handle.active_run_ids else ""
+
+
+def _git_diverged(handle: WorkspaceHandle, branch: str | None) -> bool:
+    recorded_branch = handle.metadata.get("branch")
+    if not recorded_branch or not branch:
+        return False
+    return str(recorded_branch) != branch
+
+
+def _repositories(handle: WorkspaceHandle) -> tuple[str, ...]:
+    repo_root = handle.metadata.get("repo_root")
+    return (str(repo_root),) if repo_root else ()
+
+
+def _record_authority(handle: WorkspaceHandle) -> WorkspaceHandle:
+    """Record/refresh the canonical authority for the current lifecycle epoch.
+
+    The revision is monotonic in the lifecycle generation: a generation bump
+    (recovery / baseline reset) is a new canonical revision, everything else
+    keeps the recorded identity. Idempotent.
+    """
+    existing = _authority_of(handle)
+    if existing is not None and existing.current_revision.monotonic == handle.generation:
+        return handle
+    revision = new_revision(handle.workspace_id, monotonic=handle.generation)
+    authority = WorkspaceAuthority(
+        workspace_id=handle.workspace_id,
+        canonical_root=handle.root,
+        authority_type=_authority_type(handle),
+        current_revision=revision,
+        repositories=_repositories(handle),
+    )
+    return _with_metadata(handle, AUTHORITY_METADATA_KEY, authority.to_dict())
+
+
+def _record_lease(handle: WorkspaceHandle, run_id: str) -> WorkspaceHandle:
+    """Record a write lease for a bound run (evidence, not occupancy)."""
+    projection = _projection_of(handle)
+    lease = new_lease(
+        handle.workspace_id,
+        projection.projection_id if projection is not None else "",
+        run_id,
+        scope="write",
+    )
+    leases = _metadata_dict(handle, LEASES_METADATA_KEY)
+    leases[run_id] = lease.to_dict()
+    return _with_metadata(handle, LEASES_METADATA_KEY, leases)
+
+
+def _drop_lease(handle: WorkspaceHandle, run_id: str) -> WorkspaceHandle:
+    leases = _metadata_dict(handle, LEASES_METADATA_KEY)
+    if run_id not in leases:
+        return handle
+    leases.pop(run_id)
+    return _with_metadata(handle, LEASES_METADATA_KEY, leases)
+
+
+def _drop_leases(handle: WorkspaceHandle) -> WorkspaceHandle:
+    if not _metadata_dict(handle, LEASES_METADATA_KEY):
+        return handle
+    return _with_metadata(handle, LEASES_METADATA_KEY, {})
+
+
+def _record_mutation_set(
+    handle: WorkspaceHandle,
+    *,
+    execution_id: str,
+    changed_paths: tuple[str, ...],
+    git_state: Mapping[str, Any] | None,
+) -> WorkspaceHandle:
+    """Record the mutation set a projected execution produced."""
+    projection = _projection_of(handle)
+    if projection is None:
+        return handle
+    mutation_set = new_mutation_set(
+        handle.workspace_id,
+        projection.projection_id,
+        projection.base_revision,
+        execution_id=execution_id,
+    )
+    mutation_set = replace(
+        mutation_set,
+        changed_paths=changed_paths,
+        git_state=dict(git_state) if git_state is not None else None,
+    )
+    return _with_metadata(handle, MUTATION_METADATA_KEY, mutation_set.to_dict())
+
+
+def _classify_projection_divergence(
+    handle: WorkspaceHandle,
+    projection: WorkspaceProjection,
+    authority: WorkspaceAuthority,
+    *,
+    git_diverged: bool = False,
+    path_overlap: bool = False,
+) -> tuple[ConflictClass | None, ConflictStrategy | None]:
+    """Classify why a projection no longer matches its authority.
+
+    Occupancy is deliberately not an input here: a live lease is already
+    refused by the lifecycle guards (``WorkspaceBusyError``) before any
+    promotion is attempted, and the recorded lease belongs to the very
+    execution this projection is promoted for.
+    """
+    recorded_root = _metadata_dict(handle, AUTHORITY_METADATA_KEY).get("canonical_root")
+    authority_changed = recorded_root is not None and str(recorded_root) != handle.root
+    conflict = classify_conflict(
+        base_mismatch=is_stale(projection, authority),
+        path_overlap=path_overlap,
+        git_diverged=git_diverged,
+        authority_changed=authority_changed,
+    )
+    if conflict is None:
+        return None, None
+    return conflict, resolve_conflict(conflict)
+
+
+def _record_conflict(
+    handle: WorkspaceHandle,
+    projection: WorkspaceProjection,
+    authority: WorkspaceAuthority,
+    conflict: ConflictClass,
+    strategy: ConflictStrategy,
+    reason: str,
+) -> WorkspaceHandle:
+    """Freeze the diverged projection as CONFLICT with its resolution strategy.
+
+    The recorded base revision is deliberately left untouched: overwriting it
+    would be the silent last-write-wins the contract forbids.
+    """
+    handle = _with_metadata(
+        handle,
+        PROJECTION_METADATA_KEY,
+        replace(
+            projection,
+            state=ProjectionState.CONFLICT,
+            last_reconciled_at=time.time(),
+        ).to_dict(),
+    )
+    record = {
+        "workspace_id": handle.workspace_id,
+        "projection_id": projection.projection_id,
+        "conflict": conflict.value,
+        "strategy": strategy.value,
+        "state": ProjectionState.CONFLICT.value,
+        "reason": reason,
+        "base_revision_id": projection.base_revision.revision_id,
+        "authority_revision_id": authority.current_revision.revision_id,
+        "detected_at": _utc_now(),
+    }
+    return _with_metadata(handle, PROJECTION_CONFLICT_KEY, record)
+
+
+def _reconcile_recorded_projection(
+    handle: WorkspaceHandle,
+    *,
+    git_diverged: bool = False,
+    path_overlap: bool = False,
+) -> WorkspaceHandle:
+    """Surface a diverged projection as a conflict; never repair it silently."""
+    authority = _authority_of(handle)
+    projection = _projection_of(handle)
+    if authority is None or projection is None:
+        return handle
+    state, reason = reconcile_projection(projection, authority)
+    if state is ProjectionState.READY and not git_diverged and not path_overlap:
+        return handle
+    if git_diverged:
+        reason = "DIVERGED: git head moved off the projected base"
+    elif path_overlap:
+        reason = "DIVERGED: changed paths overlap the projected base"
+    conflict, strategy = _classify_projection_divergence(
+        handle, projection, authority, git_diverged=git_diverged, path_overlap=path_overlap
+    )
+    if conflict is None or strategy is None:
+        return handle
+    return _record_conflict(handle, projection, authority, conflict, strategy, reason)
+
+
+def _promote_projection(
+    handle: WorkspaceHandle,
+    *,
+    execution_id: str,
+    backend: str = "local",
+    git_diverged: bool = False,
+    path_overlap: bool = False,
+) -> WorkspaceHandle:
+    """Promote a projection for this execution, or record why it cannot be.
+
+    An unresolved conflict is kept as-is: promotion never overwrites the base
+    revision of a projection that diverged from the authority.
+    """
+    authority = _authority_of(handle)
+    if authority is None:
+        return handle
+    projection = _projection_of(handle)
+    if _metadata_dict(handle, PROJECTION_CONFLICT_KEY):
+        return handle
+    if projection is not None and (is_stale(projection, authority) or git_diverged or path_overlap):
+        handle = _reconcile_recorded_projection(
+            handle, git_diverged=git_diverged, path_overlap=path_overlap
+        )
+        if _metadata_dict(handle, PROJECTION_CONFLICT_KEY):
+            return handle
+    promoted = replace(
+        new_projection(
+            handle.workspace_id,
+            authority.current_revision,
+            backend=backend,
+            path=handle.root,
+        ),
+        state=ProjectionState.ACTIVE,
+    )
+    lease = _lease_for(handle, execution_id)
+    if lease is not None:
+        promoted = replace(promoted, lease_id=lease.lease_id)
+    return _with_metadata(handle, PROJECTION_METADATA_KEY, promoted.to_dict())
+
+
 def create_workspace(
     store: WorkspaceStore,
     *,
@@ -354,7 +796,10 @@ def create_workspace(
             raise WorkspaceConflictError(
                 f"workspace {workspace_id!r} already exists with a different root/kind"
             )
-        return existing
+        recorded = _record_authority(existing)
+        if recorded != existing:
+            store.put(recorded)
+        return recorded
     handle = WorkspaceHandle(
         workspace_id=workspace_id,
         owner_scope=owner_scope,
@@ -363,6 +808,7 @@ def create_workspace(
         state=WorkspaceState.NEW,
         metadata=dict(metadata or {}),
     )
+    handle = _record_authority(handle)
     store.put(handle)
     _emit(
         emit,
@@ -395,6 +841,7 @@ def attach_workspace(
     runs = tuple(sorted(set(handle.active_run_ids) | {run_id}))
     state = WorkspaceState.IN_USE
     handle = _touch(handle, active_run_ids=runs, state=state)
+    handle = _record_lease(handle, run_id)
     store.put(handle)
     _emit(
         emit,
@@ -422,9 +869,13 @@ def prepare_workspace(
         raise WorkspaceError(f"unknown workspace: {workspace_id!r}")
     if handle.state in (WorkspaceState.BROKEN, WorkspaceState.DESTROYED):
         raise WorkspaceError(f"cannot prepare {handle.state.value} workspace: {workspace_id!r}")
+    branch: str | None = None
+    changed_paths: tuple[str, ...] = ()
     if handle.kind is WorkspaceKind.GIT_WORKTREE:
         manager = _resolve_manager(handle.kind, handle, worktree_manager)
-        manager.status(path=handle.root)  # raises when unregistered/missing
+        record = manager.status(path=handle.root)  # raises when unregistered/missing
+        branch = record.branch_name
+        changed_paths = tuple(record.changed_files)
     elif handle.kind is WorkspaceKind.LOCAL:
         if not Path(handle.root).is_dir():
             raise WorkspaceError(f"workspace root is not a directory: {handle.root!r}")
@@ -437,6 +888,16 @@ def prepare_workspace(
         handle = _touch(handle, state=WorkspaceState.READY)
     else:
         handle = _touch(handle)
+    # P0-05: the verified environment is what an execution is promoted against.
+    # A projection that no longer matches the authority is recorded as a
+    # conflict instead of being re-pointed at the newer revision.
+    handle = _promote_projection(
+        handle,
+        execution_id=_execution_id(handle, task_id),
+        backend=_backend_of(handle),
+        git_diverged=_git_diverged(handle, branch),
+        path_overlap=bool(set(changed_paths) & set(_recorded_changed_paths(handle))),
+    )
     store.put(handle)
     _emit(
         emit,
@@ -458,18 +919,20 @@ def snapshot_workspace(
     emit: Callable[[str, dict[str, Any]], Any] | None = None,
     task_id: str | None = None,
 ) -> WorkspaceSnapshot:
-    """Record recovery references (read-only; never copies the filesystem)."""
+    """Record recovery references (never copies the filesystem)."""
     handle = store.get(workspace_id)
     if handle is None:
         raise WorkspaceError(f"unknown workspace: {workspace_id!r}")
     branch: str | None = None
     clean: bool | None = None
     dirty: str | None = None
+    changed_paths: tuple[str, ...] = ()
     if handle.kind is WorkspaceKind.GIT_WORKTREE:
         manager = _resolve_manager(handle.kind, handle, worktree_manager)
         record = manager.status(path=handle.root)
         branch = record.branch_name
         clean = record.clean
+        changed_paths = tuple(record.changed_files)
         dirty = _dirty_hash(record.changed_files)
     snapshot = WorkspaceSnapshot(
         workspace_id=handle.workspace_id,
@@ -480,6 +943,17 @@ def snapshot_workspace(
         dirty_hash=dirty,
         artifact_refs=tuple(artifact_refs),
     )
+    # P0-05: the mutation set the projected execution produced. Lifecycle state
+    # is untouched; only the contract record is added.
+    observed = _record_mutation_set(
+        handle,
+        execution_id=_execution_id(handle, task_id),
+        changed_paths=changed_paths,
+        git_state=None if branch is None else {"branch": branch, "clean": clean},
+    )
+    if observed != handle:
+        store.put(observed)
+        handle = observed
     _emit(
         emit,
         "workspace.snapshot",
@@ -523,10 +997,14 @@ def recover_workspace(
         task_id=task_id,
         reason="orphan re-verification",
     )
+    changed_paths: tuple[str, ...] = ()
+    branch: str | None = None
     try:
         if handle.kind is WorkspaceKind.GIT_WORKTREE:
             manager = _resolve_manager(handle.kind, handle, worktree_manager)
-            manager.status(path=handle.root)
+            record = manager.status(path=handle.root)
+            changed_paths = tuple(record.changed_files)
+            branch = record.branch_name
         elif handle.kind is WorkspaceKind.LOCAL:
             if not Path(handle.root).is_dir():
                 raise WorkspaceError(f"workspace root missing: {handle.root!r}")
@@ -558,6 +1036,22 @@ def recover_workspace(
         state=WorkspaceState.READY,
         active_run_ids=pruned,
         generation=recovering.generation + 1,
+    )
+    # P0-05/P1-07: the re-verified workspace is a new canonical revision. The
+    # mutations the orphaned run left are recorded against the base they were
+    # produced from, and a projection still sitting on the superseded revision
+    # is surfaced as a classified conflict — never silently re-pointed.
+    ready = _record_authority(ready)
+    ready = _record_mutation_set(
+        ready,
+        execution_id=_execution_id(recovering, task_id),
+        changed_paths=changed_paths,
+        git_state=None if branch is None else {"branch": branch},
+    )
+    ready = _reconcile_recorded_projection(
+        ready,
+        git_diverged=_git_diverged(ready, branch),
+        path_overlap=bool(set(changed_paths) & set(_recorded_changed_paths(ready))),
     )
     store.put(ready)
     _emit(
@@ -597,6 +1091,14 @@ def reset_workspace(
         handle = _touch(handle, active_run_ids=())
     previous = handle.state.value
     handle = _touch(handle, state=WorkspaceState.READY, generation=handle.generation + 1)
+    # An explicit baseline reset is the operator decision that discards a
+    # diverged projection: new canonical revision, the stale view dropped and
+    # the conflict evidence cleared (never repaired silently).
+    handle = _record_authority(handle)
+    metadata = dict(handle.metadata)
+    metadata.pop(PROJECTION_METADATA_KEY, None)
+    metadata.pop(PROJECTION_CONFLICT_KEY, None)
+    handle = _touch(handle, metadata=metadata)
     store.put(handle)
     _emit(emit, "workspace.reset", handle, previous_state=previous, task_id=task_id, reason=reason)
     return handle
@@ -627,6 +1129,7 @@ def release_workspace(
     if not runs and handle.state is WorkspaceState.IN_USE:
         updates["state"] = WorkspaceState.RELEASED if retain else WorkspaceState.READY
     handle = _touch(handle, **updates)
+    handle = _drop_lease(handle, run_id)
     store.put(handle)
     _emit(
         emit,
@@ -697,6 +1200,19 @@ def destroy_workspace(
         )
     previous = handle.state.value
     handle = _touch(handle, state=WorkspaceState.DESTROYED, active_run_ids=())
+    # The projection an execution ran against ends with the workspace.
+    projection = _projection_of(handle)
+    if projection is not None:
+        handle = _with_metadata(
+            handle,
+            PROJECTION_METADATA_KEY,
+            replace(
+                projection,
+                state=ProjectionState.DESTROYED,
+                last_reconciled_at=time.time(),
+            ).to_dict(),
+        )
+    handle = _drop_leases(handle)
     store.put(handle)
     _emit(
         emit,

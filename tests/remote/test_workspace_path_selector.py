@@ -24,7 +24,6 @@ REPO_TOOLS = {
     "test.run",
     "build.run",
     "shell.exec",
-    "hicode.execute",
 }
 
 
@@ -136,26 +135,6 @@ async def test_workspace_path_selects_nested_repo_for_git_and_shell(gateway) -> 
     assert str(repo.resolve()) in shell["result"]["stdout_tail"]
 
 
-@pytest.mark.asyncio
-async def test_workspace_path_propagates_to_hicode_and_absolute_selector(gateway) -> None:
-    server, secret, _projects, repo, executor = gateway
-    session = await _session(server, secret)
-    accepted = await _rpc(
-        server,
-        secret,
-        session,
-        "hicode.execute",
-        {
-            "workspace_path": str(repo.resolve()),
-            "task": "read-only identity check",
-            "wait": True,
-        },
-    )
-    assert accepted["ok"] is True, accepted
-    assert any(name == "hicode_run" and call["workspace"] for name, call in executor.calls)
-    assert str(repo.resolve()) in str(
-        [call for name, call in executor.calls if name == "hicode_run"]
-    )
 
 
 @pytest.mark.asyncio

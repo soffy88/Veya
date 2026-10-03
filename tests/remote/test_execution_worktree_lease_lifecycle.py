@@ -24,8 +24,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from runtime.coding.worktree import WorktreeManager, teardown_worktree
-from veya.remote.execution import DurableJobManager, ExecutionStore, ExecutionStatus
+from veya.remote.execution import DurableJobManager, ExecutionStatus, ExecutionStore
 
 
 def _git(root: Path, *args: str) -> str:
