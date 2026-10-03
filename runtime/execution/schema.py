@@ -39,6 +39,7 @@ _TABLES = (
         root_run_id TEXT NOT NULL,
         master_agent_id TEXT NOT NULL,
         status TEXT NOT NULL,
+        goal_text TEXT NOT NULL DEFAULT '',
         plan_version INTEGER NOT NULL DEFAULT 1,
         budget_json TEXT NOT NULL,
         acceptance_json TEXT NOT NULL,
@@ -565,4 +566,7 @@ POSTGRES_ADDITIVE_COLUMNS = (
     # column without a SCHEMA_VERSION bump. IF NOT EXISTS emits only a
     # notice on repeat runs — safe under a worker-start storm.
     "ALTER TABLE side_effects ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT 'veya-default'",
+    # Agent-runtime goal text. Same idempotent pattern: pre-existing
+    # databases gain the column with an empty default, no version bump.
+    "ALTER TABLE goal_runs ADD COLUMN IF NOT EXISTS goal_text TEXT NOT NULL DEFAULT ''",
 )

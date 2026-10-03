@@ -36,6 +36,20 @@ TERMINAL_WORK_STATES = frozenset({"succeeded", "failed", "cancelled", "quarantin
 TERMINAL_GOAL_STATES = frozenset(
     {"completed", "partial_completed", "failed", "cancelled", "blocked"}
 )
+
+#: Agent-runtime GoalRun lifecycle. Existing engine states (created, running,
+#: cancelling and the TERMINAL_GOAL_STATES members) keep flowing through
+#: their own writers; this map only governs the facade below, so the
+#: admission -> execution -> recovery chain has one explicit contract.
+#: Terminal engine states have no outgoing edge here.
+GOAL_RUN_TRANSITIONS: dict[str, frozenset[str]] = {
+    "created": frozenset({"admitted", "running"}),
+    "admitted": frozenset({"running"}),
+    "running": frozenset({"completed", "failed", "recovering"}),
+    "failed": frozenset({"recovering"}),
+    "recovering": frozenset({"recovered", "failed"}),
+    "recovered": frozenset({"running"}),
+}
 RETRYABLE_DECISIONS = frozenset({"RETRY_SAFE", "IDEMPOTENT_RETRY"})
 VALID_SIDE_EFFECT_POLICIES = frozenset(
     {"none", "idempotent", "probe_required", "manual_on_unknown"}
@@ -380,6 +394,15 @@ class DurableExecutionRepository:
                 # bot_id; it is nullable, so existing rows need no backfill.
                 if "request_fingerprint" not in columns:
                     conn.execute("ALTER TABLE side_effects ADD COLUMN request_fingerprint TEXT")
+                # Agent-runtime goal text: same additive pattern, empty
+                # default so pre-existing goal_runs rows stay readable.
+                goal_columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(goal_runs)").fetchall()
+                }
+                if "goal_text" not in goal_columns:
+                    conn.execute(
+                        "ALTER TABLE goal_runs ADD COLUMN goal_text TEXT NOT NULL DEFAULT ''"
+                    )
                 conn.execute(
                     "INSERT OR IGNORE INTO execution_schema_meta(version, applied_at) VALUES(?,?)",
                     (SCHEMA_VERSION, time.time()),
@@ -631,6 +654,7 @@ class DurableExecutionRepository:
         parent_run_id: str | None = None,
         master_agent_id: str = "master",
         status: str = "created",
+        goal: str = "",
         plan_version: int = 1,
         budget: dict[str, Any] | None = None,
         acceptance: list[dict[str, Any]] | None = None,
@@ -648,13 +672,14 @@ class DurableExecutionRepository:
             if row:
                 return dict(row)
             conn.execute(
-                "INSERT INTO goal_runs(id,parent_run_id,root_run_id,master_agent_id,status,plan_version,budget_json,acceptance_json,revision,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO goal_runs(id,parent_run_id,root_run_id,master_agent_id,status,goal_text,plan_version,budget_json,acceptance_json,revision,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     run_id,
                     parent_run_id,
                     root_id,
                     master_agent_id,
                     status,
+                    goal,
                     plan_version,
                     budget_json,
                     acceptance_json,
@@ -683,12 +708,13 @@ class DurableExecutionRepository:
             if row:
                 return dict(row)
             await conn.execute(
-                "INSERT INTO goal_runs(id,parent_run_id,root_run_id,master_agent_id,status,plan_version,budget_json,acceptance_json,revision,idempotency_key,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,0,$9,$10,$10) ON CONFLICT(idempotency_key) DO NOTHING",
+                "INSERT INTO goal_runs(id,parent_run_id,root_run_id,master_agent_id,status,goal_text,plan_version,budget_json,acceptance_json,revision,idempotency_key,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$11,$11) ON CONFLICT(idempotency_key) DO NOTHING",
                 run_id,
                 parent_run_id,
                 root_id,
                 master_agent_id,
                 status,
+                goal,
                 plan_version,
                 budget_json,
                 acceptance_json,
@@ -722,6 +748,127 @@ class DurableExecutionRepository:
             master_agent_id=bot_id,
             status="running",
         )
+
+    async def transition_goal_run(
+        self, goal_run_id: str, to_status: str, *, reason: str = ""
+    ) -> dict[str, Any]:
+        """Move a GoalRun along GOAL_RUN_TRANSITIONS, atomically with an event.
+
+        Converged replays (already at ``to_status``) return the row instead of
+        raising, so a crash between commit and caller-ack is safe to retry.
+        Anything else outside the map raises ``ILLEGAL_TRANSITION``.
+        """
+
+        def insert(conn: Any) -> dict[str, Any]:
+            row = conn.execute("SELECT * FROM goal_runs WHERE id=?", (goal_run_id,)).fetchone()
+            if row is None:
+                raise DurableExecutionError("NOT_FOUND", f"goal run {goal_run_id} does not exist")
+            current = str(row["status"])
+            if current == to_status:
+                return dict(row)
+            if to_status not in GOAL_RUN_TRANSITIONS.get(current, frozenset()):
+                raise DurableExecutionError(
+                    "ILLEGAL_TRANSITION", f"goal run cannot move {current} -> {to_status}"
+                )
+            now = time.time()
+            cursor = conn.execute(
+                "UPDATE goal_runs SET status=?,revision=revision+1,updated_at=? WHERE id=? AND status=?",
+                (to_status, now, goal_run_id, current),
+            )
+            if cursor.rowcount == 0:
+                raise DurableExecutionError(
+                    "TRANSITION_CONFLICT", f"goal run {goal_run_id} changed under transition"
+                )
+            self._sqlite_event(
+                conn,
+                aggregate_type="goal_run",
+                aggregate_id=goal_run_id,
+                goal_run_id=goal_run_id,
+                event_type="goal_run.status_changed",
+                payload={"from": current, "to": to_status, "reason": reason},
+                idempotency_key=f"goal-status:{goal_run_id}:{current}:{to_status}",
+            )
+            return dict(
+                conn.execute("SELECT * FROM goal_runs WHERE id=?", (goal_run_id,)).fetchone()
+            )
+
+        if self.backend == "sqlite":
+            return await asyncio.to_thread(self._sqlite_tx, insert)
+
+        async def transition_pg(conn: Any) -> dict[str, Any]:
+            row = await conn.fetchrow("SELECT * FROM goal_runs WHERE id=$1", goal_run_id)
+            if row is None:
+                raise DurableExecutionError("NOT_FOUND", f"goal run {goal_run_id} does not exist")
+            current = str(row["status"])
+            if current == to_status:
+                return dict(row)
+            if to_status not in GOAL_RUN_TRANSITIONS.get(current, frozenset()):
+                raise DurableExecutionError(
+                    "ILLEGAL_TRANSITION", f"goal run cannot move {current} -> {to_status}"
+                )
+            now = time.time()
+            updated = await conn.execute(
+                "UPDATE goal_runs SET status=$1,revision=revision+1,updated_at=$2 WHERE id=$3 AND status=$4",
+                to_status,
+                now,
+                goal_run_id,
+                current,
+            )
+            if updated.split()[-1] == "0":
+                raise DurableExecutionError(
+                    "TRANSITION_CONFLICT", f"goal run {goal_run_id} changed under transition"
+                )
+            await self._pg_event(
+                conn,
+                aggregate_type="goal_run",
+                aggregate_id=goal_run_id,
+                goal_run_id=goal_run_id,
+                event_type="goal_run.status_changed",
+                payload={"from": current, "to": to_status, "reason": reason},
+                idempotency_key=f"goal-status:{goal_run_id}:{current}:{to_status}",
+            )
+            return dict(await conn.fetchrow("SELECT * FROM goal_runs WHERE id=$1", goal_run_id))
+
+        return await self._pg_tx(transition_pg)
+
+    async def record_goal_run_event(
+        self,
+        goal_run_id: str,
+        event_type: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Append a GoalRun-scoped event (GoalRunEvent payload surface)."""
+
+        def insert(conn: Any) -> dict[str, Any]:
+            return self._sqlite_event(
+                conn,
+                aggregate_type="goal_run",
+                aggregate_id=goal_run_id,
+                goal_run_id=goal_run_id,
+                event_type=event_type,
+                payload=dict(payload or {}),
+                idempotency_key=idempotency_key
+                or f"goal-event:{goal_run_id}:{event_type}:{time.time_ns()}",
+            )
+
+        if self.backend == "sqlite":
+            return await asyncio.to_thread(self._sqlite_tx, insert)
+
+        async def insert_pg(conn: Any) -> dict[str, Any]:
+            return await self._pg_event(
+                conn,
+                aggregate_type="goal_run",
+                aggregate_id=goal_run_id,
+                goal_run_id=goal_run_id,
+                event_type=event_type,
+                payload=dict(payload or {}),
+                idempotency_key=idempotency_key
+                or f"goal-event:{goal_run_id}:{event_type}:{time.time_ns()}",
+            )
+
+        return await self._pg_tx(insert_pg)
 
     async def enqueue_work_item(
         self, spec: WorkItemSpec | dict[str, Any], *, idempotency_key: str | None = None
