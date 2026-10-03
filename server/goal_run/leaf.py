@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,32 @@ from runtime.execution.artifacts import ArtifactStore
 
 if TYPE_CHECKING:
     from server.project_store import ProjectStore
+
+
+def _run_identity(instruction: str) -> str:
+    """Reproducible and collision-free run identity for one leaf instruction.
+
+    Both properties are required and they pull in opposite directions.
+    Reproducible: the same instruction must resolve to the same run directory,
+    or a retried or resumed leaf loses its brief, artifacts and understand
+    chain. Collision-free: two different instructions must never share a
+    directory, or the second silently overwrites the first's brief.md and
+    inherits its artifacts.
+
+    Truncating the instruction to 30 characters satisfied neither. Instructions
+    that share a prefix — which templated work does constantly ("Add a
+    regression test that proves …", "Investigate and fix the failing flaky test
+    in …") — collapsed onto one task_id, and the disk showed a runs directory
+    with a single ``leaf_Implement_directly_in_the_cano`` entry standing for
+    every instruction that began that way.
+
+    The digest is taken over the whole instruction, so it is what makes the
+    identity unique; the slug only keeps the directory readable, and is
+    sanitised to ASCII so the name stays portable.
+    """
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", instruction).strip("._")[:40].strip("._")
+    digest = hashlib.sha256(instruction.encode("utf-8")).hexdigest()[:12]
+    return f"leaf_{slug or 'task'}_{digest}"
 
 
 @dataclass
@@ -83,7 +110,7 @@ async def execute_leaf(
     parts.append(f"## Task\n{instruction}")
 
     brief = "\n\n".join(parts)
-    task_id = f"leaf_{instruction[:30].replace(' ', '_')}"
+    task_id = _run_identity(instruction)
 
     # 运行目录
     run_dir = store.run_dir(task_id)
