@@ -394,8 +394,13 @@ def reconcile_task(
         task.block_reason = reason or summary or normalized
     state.running_ids.discard(goal_task_id)
     task.execute_result = summary or task.execute_result
+    was_recovering = state.status == GoalStatus.recovering
     if all(item.status == TaskStatus.completed for item in state.tasks.values()):
-        state.status = GoalStatus.completed
+        # A run that entered reconciliation from recovery closes as
+        # recovered, not completed: the work verified clean with no new
+        # execution, and the label preserves the fact it survived a restart.
+        # Fresh runs still land completed.
+        state.status = GoalStatus.recovered if was_recovering else GoalStatus.completed
         # Verifier is the single completion authority: DONE requires every
         # task to have passed its acceptance gate above. The verdict is always
         # recorded, never absent.
@@ -465,8 +470,9 @@ def fail_pre_admission(*, project_root: str, goal_run_id: str, reason: str) -> G
 
 #: Statuses a GoalRun may be continued from. Anything else is either already
 #: live (running), pre-execution (pending_execution has no attempt to follow
-#: up on) or terminal by completion or operator intent.
-_CONTINUABLE_STATUSES = frozenset({GoalStatus.failed, GoalStatus.blocked})
+#: up on) or terminal by completion or operator intent. Recovering is
+#: included: a restarted run whose tasks are still open continues from here.
+_CONTINUABLE_STATUSES = frozenset({GoalStatus.failed, GoalStatus.blocked, GoalStatus.recovering})
 
 
 def continue_goal_run(*, project_root: str, goal_run_id: str, reason: str = "") -> dict:
@@ -543,5 +549,66 @@ def bind_continuation_execution(
             "attempt": latest.get("attempt"),
             "execution_id": execution_id,
         },
+    )
+    return state
+
+
+#: Statuses a crashed run may resume from. Terminal completions and operator
+#: cancellations are excluded: resuming them would duplicate finished work or
+#: override an operator decision. Liveness of any still-running worker stays
+#: the execution manager's job (heartbeat/lease); this only relabels the
+#: canonical run so the restart path is observable and deterministic.
+_RESUMABLE_STATUSES = frozenset({GoalStatus.running, GoalStatus.failed, GoalStatus.blocked})
+
+
+def resume_goal_run(*, project_root: str, goal_run_id: str, reason: str = "") -> GoalRunState:
+    """Mark a post-crash run as recovering, deterministically.
+
+    Reloading from disk is the resume: executor, workspace, execution_id,
+    state and the event log are already durable in the run's own directory,
+    so nothing is reconstructed from memory. Resuming an already-recovering
+    run returns it unchanged; resuming a completed/cancelled run fails.
+    """
+    state = load_goal_run(project_root, goal_run_id)
+    if state is None:
+        raise RuntimeError("canonical GoalRun disappeared during recovery")
+    if state.status == GoalStatus.recovering:
+        return state
+    if state.status not in _RESUMABLE_STATUSES:
+        raise RuntimeError(f"goal {goal_run_id} with status {state.status.value} cannot resume")
+    state.status = GoalStatus.recovering
+    state.last_stop_reason = reason or state.last_stop_reason
+    save_goal_run(state, project_root)
+    append_event(
+        project_root,
+        goal_run_id,
+        {"type": "goal_run_recovery_started", "goal_id": goal_run_id, "reason": reason},
+    )
+    return state
+
+
+def complete_recovery(*, project_root: str, goal_run_id: str) -> GoalRunState:
+    """Close recovery when the reloaded run verifies clean with no new work.
+
+    Requires every task completed; anything else must go through
+    :func:`continue_goal_run` for a new attempt instead. A recovered run is
+    terminal: it proves the crash lost nothing, without claiming a fresh
+    completion.
+    """
+    state = load_goal_run(project_root, goal_run_id)
+    if state is None:
+        raise RuntimeError("canonical GoalRun disappeared during recovery")
+    if state.status != GoalStatus.recovering:
+        raise RuntimeError(f"goal {goal_run_id} with status {state.status.value} is not recovering")
+    if not state.tasks or not all(
+        task.status == TaskStatus.completed for task in state.tasks.values()
+    ):
+        raise RuntimeError(f"goal {goal_run_id} still has unfinished tasks")
+    state.status = GoalStatus.recovered
+    save_goal_run(state, project_root)
+    append_event(
+        project_root,
+        goal_run_id,
+        {"type": "goal_run_recovered", "goal_id": goal_run_id},
     )
     return state

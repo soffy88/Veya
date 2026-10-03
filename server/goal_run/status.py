@@ -95,7 +95,12 @@ async def project_goal_status(
         next_action = "answer_clarification"
     elif state.status == GoalStatus.blocked:
         next_action = "inspect_tasks"
-    elif state.status in (GoalStatus.completed, GoalStatus.partial_completed, GoalStatus.failed):
+    elif state.status in (
+        GoalStatus.completed,
+        GoalStatus.partial_completed,
+        GoalStatus.failed,
+        GoalStatus.recovered,
+    ):
         next_action = "none"
     else:
         next_action = "wait"

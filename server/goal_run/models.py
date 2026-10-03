@@ -23,6 +23,10 @@ class GoalStatus(Enum):
     planning = "planning"
     running = "running"
     recovering = "recovering"
+    # Recovery terminal: the run went through crash recovery and verified
+    # clean without needing new work. Fresh completions use completed;
+    # recovered preserves the fact that this run survived a restart.
+    recovered = "recovered"
     finalizing = "finalizing"
     completed = "completed"
     partial_completed = "partial_completed"
