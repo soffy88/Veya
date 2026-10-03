@@ -63,6 +63,7 @@ def _normalize_execution_cap(value: Any) -> int | None:
     return number if number > 0 else None
 
 
+from veya.remote.provider_request import ProviderRequest, ProviderRequestStatus
 from veya.remote.execution_contract import (  # noqa: E402
     ExecutionCondition,
     ExecutionSpec,
@@ -537,6 +538,7 @@ class ExecutionRecord:
     affinity_state: str | None = None
     context_continuity_lost: bool = False
     provider_session_id: str | None = None
+    provider_request: ProviderRequest | None = None
     context_generation: int | None = None
     command_id: str | None = None
     command_state: str | None = None
@@ -727,6 +729,18 @@ class ExecutionRecord:
             "affinity_state": self.affinity_state,
             "context_continuity_lost": self.context_continuity_lost,
             "provider_session_id": self.provider_session_id,
+            "provider_request": None if self.provider_request is None else {
+                "request_id": self.provider_request.request_id,
+                "execution_id": self.provider_request.execution_id,
+                "goal_run_id": self.provider_request.goal_run_id,
+                "provider": self.provider_request.provider,
+                "model": self.provider_request.model,
+                "status": str(self.provider_request.status),
+                "timeout_ms": self.provider_request.timeout_ms,
+                "started_at": self.provider_request.started_at,
+                "completed_at": self.provider_request.completed_at,
+                "error_code": self.provider_request.error_code,
+            },
             "context_generation": self.context_generation,
             "command_id": self.command_id,
             "command_state": self.command_state,
@@ -838,6 +852,21 @@ class ExecutionRecord:
     def from_json(cls, payload: dict[str, Any]) -> ExecutionRecord:
         known = {f for f in cls.__dataclass_fields__}
         clean = {k: v for k, v in payload.items() if k in known}
+        provider_request = clean.get("provider_request")
+        if isinstance(provider_request, dict):
+            provider_request = ProviderRequest(
+                execution_id=str(provider_request.get("execution_id") or clean.get("execution_id") or ""),
+                goal_run_id=provider_request.get("goal_run_id"),
+                provider=provider_request.get("provider"),
+                model=provider_request.get("model"),
+                request_id=str(provider_request.get("request_id") or ""),
+                status=ProviderRequestStatus(str(provider_request.get("status") or "REQUESTED")),
+                timeout_ms=provider_request.get("timeout_ms"),
+                started_at=provider_request.get("started_at"),
+                completed_at=provider_request.get("completed_at"),
+                error_code=provider_request.get("error_code"),
+            )
+            clean["provider_request"] = provider_request
         return cls(**clean)
 
 
