@@ -130,7 +130,7 @@ class OAuthStore:
                     code_hash TEXT PRIMARY KEY,
                     client_id TEXT NOT NULL,
                     redirect_uri TEXT NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id TEXT NOT NULL,
                     remote_token_id TEXT NOT NULL,
                     code_challenge TEXT NOT NULL,
                     created_at REAL NOT NULL,
@@ -147,6 +147,45 @@ class OAuthStore:
                     revoked_at REAL
                 );
                 CREATE INDEX IF NOT EXISTS idx_tokens_expires ON tokens(expires_at);
+                """
+            )
+        self._migrate_codes_user_id()
+
+    def _migrate_codes_user_id(self) -> None:
+        """Rebuild ``codes`` when it still declares ``user_id`` as INTEGER.
+
+        ``CREATE TABLE IF NOT EXISTS`` never changes an existing table, so a
+        database created before the text-typed column keeps the old declared
+        type. SQLite would still store the hex id (dynamic typing), but the
+        schema would keep claiming otherwise; the rebuild makes the stored
+        type and the declared type agree. Authorization codes are short-lived
+        and single-use, so nothing worth keeping is discarded.
+        """
+        with self._connect() as db:
+            columns = {
+                row[1]: str(row[2]).upper() for row in db.execute("PRAGMA table_info(codes)")
+            }
+            if "user_id" not in columns or "INT" not in columns["user_id"]:
+                return
+            db.executescript(
+                """
+                CREATE TABLE codes_migrated (
+                    code_hash TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    redirect_uri TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    remote_token_id TEXT NOT NULL,
+                    code_challenge TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT OR REPLACE INTO codes_migrated
+                    SELECT code_hash, client_id, redirect_uri, CAST(user_id AS TEXT),
+                           remote_token_id, code_challenge, created_at, expires_at, used
+                    FROM codes;
+                DROP TABLE codes;
+                ALTER TABLE codes_migrated RENAME TO codes;
                 """
             )
 
@@ -217,7 +256,7 @@ class OAuthStore:
         self,
         *,
         request_row: sqlite3.Row,
-        user_id: int,
+        user_id: str,
         remote_token_id: str,
     ) -> str:
         code = secrets.token_urlsafe(32)
@@ -496,7 +535,11 @@ async def authorize_decision(request: Request) -> HTMLResponse | RedirectRespons
         )
     code = store.issue_code(
         request_row=tx,
-        user_id=int(user["user_id"]),
+        # A Veya user id is uuid4().hex, not an integer: coercing it with int()
+        # raised ValueError for every id containing a hex letter, which made
+        # every real consent 500. It is stored as text and only ever read back
+        # for attribution.
+        user_id=str(user["user_id"]),
         remote_token_id=remote_token_id,
     )
     query = {"code": code, "state": tx["state"], "iss": ISSUER}
