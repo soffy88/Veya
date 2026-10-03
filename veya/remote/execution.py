@@ -37,6 +37,15 @@ from pathlib import Path
 from typing import Any
 
 from veya.remote.admission import AdmissionStatus
+
+#: ``TimeoutKind`` now lives beside the timeout policy that gives it meaning, and
+#: is re-exported here because the phase tables below and ``tool_adapter`` both
+#: reach for it from this module.
+from veya.remote.execution_timeout import (
+    ExecutionTimeoutAttribution,
+    ExecutionTimeoutPolicy,
+    TimeoutKind,
+)
 from veya.remote.qualification_faults import QualificationFault
 from veya.remote.qualification_faults import checkpoint as qualification_checkpoint
 
@@ -254,14 +263,6 @@ class ExecutionFailureClass(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
-#: How a timeout was produced. Kept separate from the failure class so the
-#: receipt can say *which clock* expired, not merely that something did.
-class TimeoutKind(StrEnum):
-    SUBMIT = "SUBMIT_TIMEOUT"
-    PROCESS = "PROCESS_TIMEOUT"
-    TOOL = "TOOL_TIMEOUT"
-
-
 class IllegalTransition(RuntimeError):
     """A writer tried to move a record somewhere it may not go.
 
@@ -470,8 +471,8 @@ class ExecutionRecord:
     execution_timeout_sec: float | None = None
     effective_timeout_ms: int | None = None
     command_timeout_sec: float | None = None
-    #: Which clock expired (SUBMIT | PROCESS | TOOL) and the budget it ran
-    #: against. A single "timed out" answer cannot distinguish a caller that
+    #: Which clock expired (SUBMIT | PROCESS | TOOL | EXECUTION) and the budget it
+    #: ran against. A single "timed out" answer cannot distinguish a caller that
     #: under-specified its budget from a child process that hung.
     #: Admission outcome, recorded independently of the lifecycle. A terminal
     #: record is not thereby admitted: a refusal is terminal *because* it never
@@ -481,6 +482,11 @@ class ExecutionRecord:
     admission_failure_class: str | None = None
     timeout_type: str | None = None
     timeout_seconds: float | None = None
+    #: Structured form of the same timeout (P0.1): clock, layer, budget source,
+    #: whether the budget was declared, and elapsed time. ``timeout_type`` /
+    #: ``timeout_seconds`` above stay populated — this is the projection, not a
+    #: replacement, so no existing reader of those fields breaks.
+    timeout_attribution: dict[str, Any] | None = None
     #: When the execution last showed forward progress, so an inactivity
     #: timeout can be told apart from a total-runtime timeout.
     last_progress_at: float | None = None
@@ -585,6 +591,45 @@ class ExecutionRecord:
     def is_terminal(self) -> bool:
         return self.phase in {str(p) for p in TERMINAL_PHASES}
 
+    @property
+    def timeout_policy(self) -> ExecutionTimeoutPolicy:
+        """The clocks this execution declared, read back off the record.
+
+        Reading it cannot widen it: the policy is a projection of three existing
+        fields, so a caller that wants a different budget must change the record,
+        not the projection.
+        """
+
+        return ExecutionTimeoutPolicy.from_record(self)
+
+    @property
+    def elapsed_s(self) -> float | None:
+        """How long the execution has been running, or ``None`` if it never started.
+
+        This is what an execution-deadline check measures against. It is
+        deliberately based on ``started_at`` rather than on construction time so
+        an admission delay is not charged to the execution budget.
+        """
+
+        if self.started_at is None:
+            return None
+        end = self.completed_at if self.completed_at is not None else time.time()
+        return max(0.0, end - self.started_at)
+
+    def deadline_expired(self, now: float | None = None) -> bool:
+        """Whether the execution's own total-runtime deadline has passed.
+
+        Independent of the lifecycle tables on purpose: an execution can sit well
+        past its deadline while ``phase`` is still ``RUNNING`` and no child clock
+        has fired. That gap is why an execution deadline could previously only
+        be reported as a tool or process timeout.
+        """
+
+        elapsed = self.elapsed_s
+        if elapsed is None:
+            return False
+        return self.timeout_policy.expired(TimeoutKind.EXECUTION, elapsed)
+
     def to_public(self, *, heartbeat_timeout_s: float, now: float | None = None) -> dict[str, Any]:
         moment = time.time() if now is None else now
         status = self.status
@@ -644,6 +689,7 @@ class ExecutionRecord:
             "admission_failure_class": self.admission_failure_class,
             "timeout_type": self.timeout_type,
             "timeout_seconds": self.timeout_seconds,
+            "timeout_attribution": self.timeout_attribution,
             "last_progress_at": self.last_progress_at,
             "worktree_binding_key": self.worktree_binding_key,
             "worktree_base_sha": self.worktree_base_sha,
@@ -2428,10 +2474,33 @@ class DurableJobManager:
                 # process that outlived its deadline. Record which clock
                 # expired instead of reporting a single undifferentiated
                 # "timed out".
-                kind = TimeoutKind.TOOL if record.command_timeout_sec else TimeoutKind.PROCESS
+                #
+                # The clock is chosen from what the record can prove expired, and
+                # the budget is then read from that same clock. Choosing by
+                # convenience (``TOOL if command_timeout_sec``) and writing the
+                # budget from a different field produced a receipt that named a
+                # process clock while quoting a command budget, so an execution
+                # whose own deadline had passed was reported as a child fault.
+                policy = record.timeout_policy
+                elapsed = record.elapsed_s or 0.0
+                if policy.expired(TimeoutKind.EXECUTION, elapsed):
+                    kind = TimeoutKind.EXECUTION
+                elif record.command_timeout_sec and policy.expired(TimeoutKind.TOOL, elapsed):
+                    kind = TimeoutKind.TOOL
+                else:
+                    kind = TimeoutKind.PROCESS
                 record.failure_class = str(ExecutionFailureClass.TOOL_TIMEOUT)
                 record.timeout_type = str(kind)
-                record.timeout_seconds = record.command_timeout_sec or record.execution_timeout_sec
+                record.timeout_seconds = (
+                    policy.resolve(kind)
+                    or record.command_timeout_sec
+                    or record.execution_timeout_sec
+                )
+                record.timeout_attribution = policy.attribute(
+                    kind,
+                    elapsed_s=elapsed,
+                    seconds=record.timeout_seconds,
+                ).to_dict()
                 self._finish(
                     record,
                     str(ExecutionStatus.TIMED_OUT),
@@ -3104,8 +3173,21 @@ class DurableJobManager:
         record.admission_failure_class = decision.failure_class
         self._persist(record)
 
-    def set_timeout(self, execution_id: str, *, kind: str, seconds: float | None = None) -> None:
-        """Persist timeout provenance on the record."""
+    def set_timeout(
+        self,
+        execution_id: str,
+        *,
+        kind: str,
+        seconds: float | None = None,
+        attribution: ExecutionTimeoutAttribution | None = None,
+    ) -> None:
+        """Persist timeout provenance on the record.
+
+        ``attribution`` is optional and additive. When present it is the
+        structured form of the same fact; when absent the call is exactly what it
+        was before, so no existing timeout path loses provenance by not knowing
+        about this.
+        """
 
         record = self._record_for_update(execution_id)
         record.timeout_type = str(kind)
@@ -3113,7 +3195,34 @@ class DurableJobManager:
             record.timeout_seconds = float(seconds)
         if record.last_progress_at is None:
             record.last_progress_at = record.last_output_at or record.started_at
+        if attribution is not None:
+            record.timeout_attribution = attribution.to_dict()
         self._persist(record)
+
+    def attribute_timeout(
+        self,
+        execution_id: str,
+        *,
+        kind: str = TimeoutKind.EXECUTION,
+        elapsed_s: float | None = None,
+        at: float | None = None,
+    ) -> ExecutionTimeoutAttribution:
+        """Build and persist this execution's timeout attribution for one clock.
+
+        The single place an :class:`ExecutionTimeoutAttribution` is written, so a
+        receipt cannot claim a budget the record never declared. Elapsed time
+        defaults to the record's own measurement rather than being passed in, so
+        a caller cannot attribute a timeout it never actually hit.
+        """
+
+        record = self._record_for_update(execution_id)
+        elapsed = record.elapsed_s if elapsed_s is None else float(elapsed_s)
+        attribution = record.timeout_policy.attribute(
+            kind, elapsed_s=elapsed, at=at if at is not None else time.time()
+        )
+        record.timeout_attribution = attribution.to_dict()
+        self._persist(record)
+        return attribution
 
     def set_target(
         self,
@@ -3582,9 +3691,12 @@ __all__ = [
     "ExecutionRecord",
     "ExecutionStatus",
     "ExecutionStore",
+    "ExecutionTimeoutAttribution",
+    "ExecutionTimeoutPolicy",
     "ExecutionType",
     "ProgressReporter",
     "Runner",
+    "TimeoutKind",
     "direct_spawn_failure",
     "report_progress",
     "use_reporter",
