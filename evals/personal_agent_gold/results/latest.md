@@ -1,7 +1,7 @@
 # Personal Agent Gold Benchmark — personal-agent-gold-v1
 
-- Eval run: `personal-gold-a7b78efc9301417094d470e41cf47977`
-- Git SHA: `b7080b7b3089f17af6af0ca2bd9034616050301e`
+- Eval run: `personal-gold-16e30481eedc40f2bc43355cc8bfac0f`
+- Git SHA: `7a5e0d6b47bdcef94a1aa942f3f6e1a1dde945b3`
 - Scenarios: `170/170` approved
 - Labels: `human-gold-v1` (human-reviewed fixtures only)
 - Runtime schema: `3`
