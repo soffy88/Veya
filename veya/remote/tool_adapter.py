@@ -75,6 +75,7 @@ from .execution_context import (
     shared_capability_registry,
     shared_skill_registry,
 )
+from .execution_timeout import ExecutionPolicy
 from .execution_worktree import ExecutionWorktreeRegistry
 from .executor_health import (
     ExecutorFailureClass,
@@ -426,14 +427,12 @@ def _cli_worker_timeout_budgets(worker: str, requested_timeout_s: float) -> tupl
     limit, but a quiet runaway is stopped earlier.
     """
 
-    requested = max(0.0, float(requested_timeout_s))
-    if worker == "dsh":
-        return min(_DSH_INACTIVITY_TIMEOUT_S, requested), requested
-    if worker not in _TIMEOUT_SEPARATED_CLI_WORKERS:
-        return requested, requested
-    if 0.0 < requested < _DEFAULT_CLI_TIMEOUT_S:
-        return min(requested, 300.0), requested
-    return max(requested, 900.0), max(requested, 1800.0)
+    requested = max(1.0, float(requested_timeout_s))
+    policy = ExecutionPolicy.from_legacy(
+        requested,
+        separated_cli=worker in _TIMEOUT_SEPARATED_CLI_WORKERS,
+    )
+    return policy.idle_timeout_ms / 1000.0, policy.max_runtime_ms / 1000.0
 
 
 class _CLIWorkerTimeout(TimeoutError):

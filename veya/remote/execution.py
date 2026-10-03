@@ -44,6 +44,7 @@ from veya.remote.execution_contract import ExecutionCondition, ExecutionSpec
 #: is re-exported here because the phase tables below and ``tool_adapter`` both
 #: reach for it from this module.
 from veya.remote.execution_timeout import (
+    ExecutionPolicy,
     ExecutionTimeoutAttribution,
     ExecutionTimeoutPolicy,
     TimeoutKind,
@@ -477,6 +478,7 @@ class ExecutionRecord:
     execution_timeout_sec: float | None = None
     effective_timeout_ms: int | None = None
     command_timeout_sec: float | None = None
+    execution_policy: dict[str, int] = field(default_factory=dict)
     #: Which clock expired (SUBMIT | PROCESS | TOOL | EXECUTION) and the budget it
     #: ran against. A single "timed out" answer cannot distinguish a caller that
     #: under-specified its budget from a child process that hung.
@@ -813,6 +815,7 @@ class ExecutionRecord:
             "execution_timeout_sec": self.execution_timeout_sec,
             "effective_timeout_ms": self.effective_timeout_ms,
             "command_timeout_sec": self.command_timeout_sec,
+            "execution_policy": dict(self.execution_policy),
             "heartbeat_timeout_sec": self.heartbeat_timeout_sec,
             # Legacy aliases kept for existing callers/tests.
             "state": (
@@ -2008,6 +2011,19 @@ class DurableJobManager:
         ):
             if limits and limits.get(field_name) is not None:
                 setattr(record, field_name, limits[field_name])
+        requested_timeout_s = (
+            limits.get("execution_timeout_sec")
+            if limits
+            else None
+        ) or (
+            limits.get("command_timeout_sec")
+            if limits
+            else None
+        ) or 1800.0
+        record.execution_policy = ExecutionPolicy.from_legacy(
+            float(requested_timeout_s),
+            separated_cli=True,
+        ).to_dict()
         record.events.append(
             {"ts": time.time(), "kind": "submitted", "phase": record.phase, "message": "accepted"}
         )

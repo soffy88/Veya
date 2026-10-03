@@ -43,6 +43,7 @@ from pathlib import Path
 import pytest
 
 from veya.remote.execution import (
+    ExecutionPolicy,
     ExecutionRecord,
     ExecutionStatus,
     ExecutionTimeoutPolicy,
@@ -121,6 +122,24 @@ def _record(
         **limits,
     )
 
+
+
+
+def test_execution_policy_migrates_legacy_hard_max_and_preserves_clock_order():
+    policy = ExecutionPolicy.from_legacy(600.0)
+    assert policy.max_runtime_ms == 1_800_000
+    assert policy.idle_timeout_ms == 300_000
+    assert policy.provider_request_timeout_ms < policy.idle_timeout_ms < policy.max_runtime_ms
+    assert policy.to_dict()["checkpoint_interval_ms"] == 30_000
+
+
+def test_execution_policy_rejects_invalid_clock_order():
+    with pytest.raises(ValueError, match="provider_request_timeout_ms"):
+        ExecutionPolicy(
+            provider_request_timeout_ms=300_000,
+            idle_timeout_ms=300_000,
+            max_runtime_ms=1_800_000,
+        )
 
 # ── the execution deadline is a nameable clock ─────────────────────
 

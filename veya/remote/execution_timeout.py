@@ -43,6 +43,7 @@ from typing import Any
 
 __all__ = [
     "TIMEOUT_LAYERS",
+    "ExecutionPolicy",
     "ExecutionTimeoutAttribution",
     "ExecutionTimeoutPolicy",
     "TimeoutBudgetSource",
@@ -86,6 +87,57 @@ TIMEOUT_LAYERS: dict[str, str] = {
     TimeoutKind.PROCESS: "process",
     TimeoutKind.SUBMIT: "submit",
 }
+
+
+@dataclass(frozen=True)
+class ExecutionPolicy:
+    """Canonical execution-level clocks; legacy timeout fields are projections."""
+
+    idle_timeout_ms: int
+    max_runtime_ms: int
+    heartbeat_interval_ms: int = 60_000
+    checkpoint_interval_ms: int = 30_000
+    provider_request_timeout_ms: int = 120_000
+
+    def __post_init__(self) -> None:
+        for name in (
+            "idle_timeout_ms", "max_runtime_ms", "heartbeat_interval_ms",
+            "checkpoint_interval_ms", "provider_request_timeout_ms",
+        ):
+            if int(getattr(self, name)) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if not self.provider_request_timeout_ms < self.idle_timeout_ms < self.max_runtime_ms:
+            raise ValueError(
+                "provider_request_timeout_ms < idle_timeout_ms < max_runtime_ms is required"
+            )
+
+    @classmethod
+    def from_legacy(cls, requested_timeout_s: float, *, separated_cli: bool = True) -> ExecutionPolicy:
+        requested_ms = max(1_000, int(float(requested_timeout_s) * 1000))
+        if separated_cli:
+            max_ms = max(requested_ms, 1_800_000)
+            idle_ms = min(requested_ms, 300_000)
+            if idle_ms >= max_ms:
+                idle_ms = max_ms - 1_000
+            provider_ms = min(120_000, max(1_000, idle_ms // 2))
+        else:
+            max_ms = max(requested_ms, 2_000)
+            idle_ms = min(max_ms - 1_000, requested_ms)
+            provider_ms = min(60_000, max(1_000, idle_ms // 2))
+        return cls(
+            idle_timeout_ms=idle_ms,
+            max_runtime_ms=max_ms,
+            provider_request_timeout_ms=provider_ms,
+        )
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "idle_timeout_ms": self.idle_timeout_ms,
+            "max_runtime_ms": self.max_runtime_ms,
+            "heartbeat_interval_ms": self.heartbeat_interval_ms,
+            "checkpoint_interval_ms": self.checkpoint_interval_ms,
+            "provider_request_timeout_ms": self.provider_request_timeout_ms,
+        }
 
 
 @dataclass(frozen=True)
