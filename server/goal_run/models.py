@@ -433,6 +433,11 @@ class GoalRunState:
     # removed without erasing the proof that execution created it.
     cleanup_delta: dict[str, Any] | None = field(default=None)
     acceptance_verdict: str | None = field(default=None)
+    # Continuation ledger: one entry per execution attempt under the SAME
+    # goal_run_id. A new attempt never forks a new GoalRun; each entry is
+    # {"attempt": n, "execution_id": str|None, "status": pending|running|
+    # completed|failed, "reason": str, "at": float}. Old files load as [].
+    execution_attempts: list[dict[str, Any]] = field(default_factory=list)
     # §27: version attribution (agent spec / skill / workflow pins) recorded
     # when the run finalizes, so a terminal run stays reproducible.
     version_record: dict[str, Any] | None = field(default=None)
@@ -508,6 +513,7 @@ class GoalRunState:
             "execution_delta": self.execution_delta,
             "cleanup_delta": self.cleanup_delta,
             "acceptance_verdict": self.acceptance_verdict,
+            "execution_attempts": list(self.execution_attempts),
             "version_record": self.version_record,
             "done_at": self.done_at.isoformat() if self.done_at else None,
             "routines": {routine_id: spec.to_dict() for routine_id, spec in self.routines.items()},
@@ -575,6 +581,8 @@ class GoalRunState:
         state.execution_delta = data.get("execution_delta")
         state.cleanup_delta = data.get("cleanup_delta")
         state.acceptance_verdict = data.get("acceptance_verdict")
+        # Continuation ledger; old files without it load as no attempts.
+        state.execution_attempts = [dict(item) for item in data.get("execution_attempts") or []]
         state.version_record = data.get("version_record")
         raw_done_at = data.get("done_at")
         if raw_done_at:

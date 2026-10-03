@@ -461,3 +461,87 @@ def fail_pre_admission(*, project_root: str, goal_run_id: str, reason: str) -> G
         {"type": "pre_admission_reconciled", "goal_id": goal_run_id, "reason": reason},
     )
     return state
+
+
+#: Statuses a GoalRun may be continued from. Anything else is either already
+#: live (running), pre-execution (pending_execution has no attempt to follow
+#: up on) or terminal by completion or operator intent.
+_CONTINUABLE_STATUSES = frozenset({GoalStatus.failed, GoalStatus.blocked})
+
+
+def continue_goal_run(*, project_root: str, goal_run_id: str, reason: str = "") -> dict:
+    """Append a new execution attempt to an existing GoalRun.
+
+    The goal keeps its ``goal_run_id``: no new run is created, no task is
+    invented, and no execution is launched here. Blocked tasks are re-armed
+    to pending (their ``block_reason`` stays as history); completed and
+    cancelled tasks are untouched. A completed/cancelled/running goal
+    cannot be continued, so a finished goal can never duplicate execution.
+    """
+    state = load_goal_run(project_root, goal_run_id)
+    if state is None:
+        raise RuntimeError("canonical GoalRun disappeared during continuation")
+    if state.status not in _CONTINUABLE_STATUSES:
+        raise RuntimeError(
+            f"goal {goal_run_id} with status {state.status.value} cannot be continued"
+        )
+    attempt = {
+        "attempt": len(state.execution_attempts) + 1,
+        "execution_id": None,
+        "status": "pending",
+        "reason": reason,
+        "at": time.time(),
+    }
+    state.execution_attempts.append(attempt)
+    for task in state.tasks.values():
+        if task.status == TaskStatus.blocked:
+            task.status = TaskStatus.pending
+            state.running_ids.discard(task.id)
+    save_goal_run(state, project_root)
+    append_event(
+        project_root,
+        goal_run_id,
+        {
+            "type": "goal_run_continued",
+            "goal_id": goal_run_id,
+            "attempt": attempt["attempt"],
+            "reason": reason,
+        },
+    )
+    return dict(attempt)
+
+
+def bind_continuation_execution(
+    *, project_root: str, goal_run_id: str, execution_id: str
+) -> GoalRunState:
+    """Attach a launched execution to the latest pending continuation attempt.
+
+    First-bind runs keep using :func:`bind_execution`; this is only for
+    attempts opened by :func:`continue_goal_run`. Binding to a completed goal
+    is impossible: it has no pending attempt, so the call fails instead of
+    duplicating execution.
+    """
+    state = load_goal_run(project_root, goal_run_id)
+    if state is None:
+        raise RuntimeError("canonical GoalRun disappeared during continuation bind")
+    pending = [item for item in state.execution_attempts if item.get("status") == "pending"]
+    if not pending:
+        raise RuntimeError(f"goal {goal_run_id} has no pending continuation attempt")
+    latest = pending[-1]
+    if latest.get("execution_id") not in (None, execution_id):
+        raise RuntimeError(f"goal {goal_run_id} attempt is already bound to another execution")
+    latest["execution_id"] = execution_id
+    latest["status"] = "running"
+    state.execution_id = execution_id
+    save_goal_run(state, project_root)
+    append_event(
+        project_root,
+        goal_run_id,
+        {
+            "type": "goal_run_continuation_bound",
+            "goal_id": goal_run_id,
+            "attempt": latest.get("attempt"),
+            "execution_id": execution_id,
+        },
+    )
+    return state
