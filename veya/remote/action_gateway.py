@@ -31,6 +31,7 @@ from .permission_engine import (
     ReasonCode,
     parse_command_context,
 )
+from .policy_resolver import PolicyRequest, PolicyResolver
 from .workspace_policy import classify_destructive
 
 
@@ -54,6 +55,11 @@ class ActionClassification:
         operation_hash: str = "",
         target: str = "",
         reason: str = "",
+        # P0-02: set when a policy layer (not the engine) produced the denial,
+        # so the caller can report the precise public error code for that
+        # class of refusal instead of collapsing every layer deny into one.
+        policy_error_code: RemoteErrorCode | None = None,
+        policy_layer: str = "",
     ) -> None:
         self.category = category
         self.capability_id = capability_id
@@ -62,6 +68,8 @@ class ActionClassification:
         self.operation_hash = operation_hash
         self.target = target
         self.reason = reason
+        self.policy_error_code = policy_error_code
+        self.policy_layer = policy_layer
 
     @property
     def requires_approval(self) -> bool:
@@ -1107,6 +1115,67 @@ class ActionGateway:
         self.approval_store = approval_store or get_approval_store()
         self.service_registry = service_registry or _GLOBAL_SERVICE_REGISTRY
         self.permission_engine = PermissionEngine()
+        # P0-02: the layered resolver is the single effective capability
+        # calculation. PermissionEngine stays the final authority it converges
+        # with; a layer can only ever tighten the verdict, never loosen it.
+        self.policy_resolver = PolicyResolver(
+            engine=self.permission_engine, approval_store=self.approval_store
+        )
+
+    def _layer_verdict(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        session: RemoteSession,
+        cwd: str,
+    ) -> tuple[Decision | None, RemoteErrorCode | None, str, str]:
+        """Resolve the layered policy verdict for one request.
+
+        Returns (verdict, precise_error_code, constraining_layer, reason). The verdict is
+        the most severe outcome across the policy layers, or None when the
+        resolver cannot reach one (in which case the engine verdict stands
+        alone). Approvals are NOT consumed here: `check_action` owns the
+        single-use consumption so a layer check can never double-spend one.
+
+        The precise code keeps a layer denial actionable: a workspace-root
+        escape reports WORKSPACE_DENIED rather than a generic POLICY_BLOCKED,
+        which is what callers and the client contract already expect.
+        """
+        try:
+            decision = self.policy_resolver.resolve(
+                PolicyRequest(
+                    actor=session.principal,
+                    tool=tool_name,
+                    args=dict(args),
+                    workspace=str(session.active_workspace or cwd),
+                    cwd=cwd,
+                    goal_id=str(getattr(session, "goal_run_id", "") or ""),
+                    client_approved=bool(args.get("approved")),
+                    approval_id=str(args.get("approval_id") or "").strip(),
+                ),
+                consume_approval=False,
+            )
+        except Exception:
+            # A resolver fault must not silently widen access; the engine
+            # verdict is still applied by the caller either way.
+            return None, None, "", ""
+        layer = decision.constraining_layer or ""
+        code: RemoteErrorCode | None = None
+        if decision.decision is Decision.DENY:
+            if layer == "workspace":
+                code = RemoteErrorCode.WORKSPACE_DENIED
+            elif layer in {"managed", "security"}:
+                code = RemoteErrorCode.POLICY_BLOCKED
+        return decision.decision, code, layer, str(decision.reason)
+
+    @staticmethod
+    def _most_severe(*decisions: Decision | None) -> Decision:
+        """DENY > APPROVAL_REQUIRED > ALLOW. Unknown verdicts fail closed."""
+        order = {Decision.ALLOW: 0, Decision.APPROVAL_REQUIRED: 1, Decision.DENY: 2}
+        ranked = [order[d] for d in decisions if d is not None]
+        if not ranked:
+            return Decision.ALLOW
+        return {v: k for k, v in order.items()}[max(ranked)]
 
     def _engine_classification(
         self,
@@ -1181,7 +1250,16 @@ class ActionGateway:
                 filesystem_effect="read",
                 session_id=session.session_id,
             )
-        decision = self.permission_engine.evaluate(context)
+        engine_decision = self.permission_engine.evaluate(context)
+        # P0-02: converge the engine verdict with the layered policy verdict.
+        # Layers can only tighten: the most severe outcome wins, so a managed
+        # or security DENY is never widened by a lower layer's ALLOW. The
+        # engine verdict is retained for `reason`/`normalized_operation`, which
+        # stay the canonical explanation of *why* the engine decided so.
+        layer_decision, layer_code, layer_name, layer_reason = self._layer_verdict(
+            tool_name, args, session, cwd
+        )
+        decision = self._most_severe(engine_decision.decision, layer_decision)
         capability = {
             ReasonCode.ALLOW_READ_ONLY: "workspace.read",
             ReasonCode.ALLOW_PROJECT_MUTATION: "workspace.file_write",
@@ -1198,7 +1276,7 @@ class ActionGateway:
             ReasonCode.DENY_PATH_TRAVERSAL: "denied.path_traversal",
             ReasonCode.DENY_AUTHORITY_VIOLATION: "denied.authority",
             ReasonCode.DENY_INVALID_APPROVAL: "denied.invalid_approval",
-        }.get(decision.reason, "permission.operation")
+        }.get(engine_decision.reason, "permission.operation")
         command_words = tuple(context.command or ())
         if command_words:
             executable = Path(command_words[0]).name.lower()
@@ -1210,7 +1288,7 @@ class ActionGateway:
                 capability = "privileged.system_service"
             elif (
                 tool_name == "shell.exec"
-                and decision.reason is ReasonCode.APPROVAL_HOST_DESTRUCTIVE
+                and engine_decision.reason is ReasonCode.APPROVAL_HOST_DESTRUCTIVE
             ):
                 # Canonical precedence: a destructive shell command is gated on
                 # the session's destructive capability, so a session without it is
@@ -1218,14 +1296,14 @@ class ActionGateway:
                 # This is the same capability the pre-existing classify_action
                 # rules use, so both paths agree on what "destructive" means.
                 capability = "privileged.destructive_shell"
-        operation = decision.normalized_operation or tool_name
+        operation = engine_decision.normalized_operation or tool_name
         if context.command:
             operation = " ".join(context.command)
         category = {
             Decision.ALLOW: ActionCategory.AUTO_OPEN,
             Decision.APPROVAL_REQUIRED: ActionCategory.REQUIRE_APPROVAL,
             Decision.DENY: ActionCategory.DENY,
-        }[decision.decision]
+        }[decision]
         risk = RiskClass.P2_ROOT_MUTATION if category == ActionCategory.REQUIRE_APPROVAL else None
         return ActionClassification(
             category,
@@ -1234,7 +1312,11 @@ class ActionGateway:
             normalized_operation=operation,
             operation_hash=compute_operation_hash(operation, str(current), capability),
             target=str(raw_path or tool_name),
-            reason=decision.reason.value,
+            reason=layer_reason
+            if layer_decision is Decision.DENY
+            else engine_decision.reason.value,
+            policy_error_code=layer_code,
+            policy_layer=layer_name,
         )
 
     def check_action(
@@ -1247,22 +1329,16 @@ class ActionGateway:
         """Verify if action is permitted to run, or requires approval."""
         classification = self._engine_classification(tool_name, args, session, cwd)
 
-        if classification.category == ActionCategory.AUTO_OPEN:
-            # Rule 37: approved field is ignored/not required for AUTO_OPEN
-            return True, None, None, classification
-
-        if classification.category == ActionCategory.DENY:
-            return (
-                False,
-                RemoteErrorCode.POLICY_BLOCKED,
-                classification.reason or "action permanently denied",
-                classification,
-            )
-
-        # Destructive shell commands require the destructive capability in
-        # addition to human approval. Without the capability the request is
-        # POLICY_BLOCKED (BASE parity); with it, a server-issued approval_id
-        # is still mandatory (boolean approved=true never bypasses this).
+        # Gate order is load-bearing and encodes which fact is the most precise
+        # reason for refusing:
+        #   1. destructive capability  -> POLICY_BLOCKED (the session may never
+        #      run this, so approval could not have helped)
+        #   2. forged boolean approval -> INVALID_APPROVAL (a protocol error in
+        #      the request itself; checked before the AUTO_OPEN fast path
+        #      because Rule 37 otherwise returned success for a forged
+        #      `approved=true`, which is the bypass this gate exists to close)
+        #   3. AUTO_OPEN / DENY category from the converged verdict
+        #   4. missing approval_id     -> APPROVAL_REQUIRED
         if (
             classification.capability_id == "privileged.destructive_shell"
             and not session.permissions.destructive
@@ -1274,15 +1350,25 @@ class ActionGateway:
                 classification,
             )
 
-        # Rule 38: HUMAN_GATED must reject boolean approval
         approved_flag = args.get("approved")
         approval_id = str(args.get("approval_id") or "").strip()
-
         if bool(approved_flag) and not approval_id:
             return (
                 False,
                 RemoteErrorCode.INVALID_APPROVAL,
                 "boolean approved flag is rejected for privileged operations; server-issued approval_id required",
+                classification,
+            )
+
+        if classification.category == ActionCategory.AUTO_OPEN:
+            # Rule 37: approved field is ignored/not required for AUTO_OPEN
+            return True, None, None, classification
+
+        if classification.category == ActionCategory.DENY:
+            return (
+                False,
+                classification.policy_error_code or RemoteErrorCode.POLICY_BLOCKED,
+                classification.reason or "action permanently denied",
                 classification,
             )
 

@@ -116,11 +116,9 @@ class PermissionDecision:
 
 
 _HOST_ROOTS = tuple(
-    Path(item) for item in ("/etc", "/usr", "/boot", "/dev", "/proc", "/sys", "/opt", "/var", "/root")
+    Path(item)
+    for item in ("/etc", "/usr", "/boot", "/dev", "/proc", "/sys", "/opt", "/var", "/root")
 )
-# System state that is never a Veya runtime target, so it stays gated even in
-# trusted-admin mode.  These are credential stores, not administration surfaces.
-_HOST_CREDENTIAL_ROOTS = tuple(Path(item) for item in ("/etc/shadow", "/etc/gshadow", "/etc/sudoers"))
 
 
 def _user_runtime_roots() -> tuple[Path, ...]:
@@ -287,9 +285,7 @@ def _scope(context: OperationContext) -> Scope:
     # path operand at all, and must read as HOST admin, not a scope escape.
     if context.service_effect == "system" or context.privilege_level in {"root", "host"}:
         return Scope.HOST
-    if executable in {"sudo", "doas"} or (
-        executable == "systemctl" and "--user" not in words
-    ):
+    if executable in {"sudo", "doas"} or (executable == "systemctl" and "--user" not in words):
         return Scope.HOST
     if context.remote_effect != "none" or context.network_effect != "none":
         # Must precede the user-runtime branch: `git push` has no path operand,
@@ -711,7 +707,7 @@ def _split_composed(argv: Sequence[str]) -> tuple[list[list[str]], list[str]]:
 
 
 def _merge_effects(
-    parts: Sequence[tuple[CommandEffect, tuple[Path, ...], str, str, str]]
+    parts: Sequence[tuple[CommandEffect, tuple[Path, ...], str, str, str]],
 ) -> tuple[CommandEffect, tuple[Path, ...], str, str, str]:
     """Combine per-segment results; the most restrictive classification wins."""
     if not parts:
@@ -723,10 +719,29 @@ def _merge_effects(
     for target in targets:
         if target not in unique:
             unique.append(target)
-    effect = next((candidate for candidate in _EFFECT_SEVERITY if any(part[0] is candidate for part in parts)), CommandEffect.NONE)
-    filesystem = "write" if any(part[2] == "write" for part in parts) else "read" if any(part[2] == "read" for part in parts) else "none"
+    effect = next(
+        (
+            candidate
+            for candidate in _EFFECT_SEVERITY
+            if any(part[0] is candidate for part in parts)
+        ),
+        CommandEffect.NONE,
+    )
+    filesystem = (
+        "write"
+        if any(part[2] == "write" for part in parts)
+        else "read"
+        if any(part[2] == "read" for part in parts)
+        else "none"
+    )
     network = "network" if any(part[3] == "network" for part in parts) else "none"
-    reversibility = "destructive" if any(part[4] == "destructive" for part in parts) else "irreversible" if any(part[4] == "irreversible" for part in parts) else "reversible"
+    reversibility = (
+        "destructive"
+        if any(part[4] == "destructive" for part in parts)
+        else "irreversible"
+        if any(part[4] == "irreversible" for part in parts)
+        else "reversible"
+    )
     return effect, tuple(unique), filesystem, network, reversibility
 
 

@@ -31,6 +31,31 @@ _SHELL_OPERATOR_TOKENS = {";", "&", "&&", "|", "||", "<", ">", "<<", ">>", "(", 
 # (``veya/remote/permission_engine.py``). This runner must not keep a second
 # executable list: two lists would be two approval authorities.
 _NETWORK_EXECUTABLES = {"curl", "ftp", "nc", "netcat", "scp", "sftp", "ssh", "wget"}
+
+
+def _has_shell_operators(command: str) -> bool:
+    """Return True when the command string requires a real shell.
+
+    Shell operators (``&&``, ``||``, ``|``, ``>``, ``>>``, ``;``, ``$()``,
+    backticks, env-prefix assignments) cannot be represented as an argv
+    array.  When detected the command is executed through ``/bin/bash -lc``
+    so full shell syntax works while the permission boundary still
+    classifies the raw command.
+    """
+    # Env-prefix assignments (VAR=val ...) require a shell to interpret
+    if re.match(r"^[A-Z_][A-Z0-9]*=\S*\s", command):
+        return True
+    # Backtick command substitution requires a shell
+    if "`" in command:
+        return True
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        return True
+    return any(token in _SHELL_OPERATOR_TOKENS for token in tokens)
 _SECRET_NAME = re.compile(r"(?i)(api[_-]?key|auth(?:orization)?|password|passwd|secret|token)")
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)(\b(?:api[_-]?key|authorization|password|passwd|secret|token)\b\s*[=:]\s*)([^\s,;]+)"
@@ -53,15 +78,15 @@ def parse_command(command: str | Sequence[str]) -> list[str]:
     if isinstance(command, str):
         if not command.strip():
             raise CommandPolicyError("command must not be empty")
+        if _has_shell_operators(command):
+            return ["/bin/bash", "-lc", command]
         try:
-            lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+            lexer = shlex.shlex(command, posix=True)
             lexer.whitespace_split = True
             lexer.commenters = ""
             argv = list(lexer)
         except ValueError as exc:
             raise CommandPolicyError(f"invalid command quoting: {exc}") from exc
-        if any(token in _SHELL_OPERATOR_TOKENS for token in argv):
-            raise CommandPolicyError("shell operators are not allowed; pass an argv command")
     else:
         argv = list(command)
     if not argv or any(not isinstance(item, str) or not item for item in argv):

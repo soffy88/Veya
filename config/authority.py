@@ -254,6 +254,52 @@ for _s in (
         "",
     ),
     _spec("runtime.calls_override", ("VEYA_RUNTIME_CALLS",), ("runtime", "calls_override"), ""),
+    # -- P0-03 remaining domains -------------------------------------------
+    # reasoning_effort / context / tools / skills / sandbox / verification /
+    # evaluation had no canonical key at all, so each of those domains could
+    # drift between backends. They resolve through this same chain now.
+    _spec(
+        "llm.reasoning_effort",
+        ("VEYA_REASONING_EFFORT",),
+        ("llm", "reasoning_effort"),
+        "medium",
+        description="Reasoning effort for the canonical model.",
+    ),
+    _spec(
+        "context.max_tokens",
+        ("VEYA_CONTEXT_MAX_TOKENS",),
+        ("context", "max_tokens"),
+        8000,
+        kind="int",
+        minimum=1,
+        description="Token budget for a ContextProjection.",
+    ),
+    _spec(
+        "context.budget_tokens",
+        ("VEYA_CONTEXT_BUDGET",),
+        ("context", "budget_tokens"),
+        8000,
+        kind="int",
+        minimum=1,
+        description="Token budget applied during context admission.",
+    ),
+    _spec("tools.enabled", ("VEYA_TOOLS_ENABLED",), ("tools", "enabled"), True, kind="bool"),
+    _spec("skills.enabled", ("VEYA_SKILLS_ENABLED",), ("skills", "enabled"), True, kind="bool"),
+    _spec("sandbox.profile", ("VEYA_SANDBOX_PROFILE",), ("sandbox", "profile"), "default"),
+    _spec(
+        "verification.required",
+        ("VEYA_VERIFICATION_REQUIRED",),
+        ("verification", "required"),
+        True,
+        kind="bool",
+        description="Completion requires VerificationEvidence (INV-007).",
+    ),
+    _spec(
+        "evaluation.suite_version",
+        ("VEYA_EVALUATION_SUITE_VERSION",),
+        ("evaluation", "suite_version"),
+        "",
+    ),
 ):
     KEYS[_s.key] = _s
 
@@ -572,18 +618,29 @@ def explain(
         and entry["source"] != "default"  # default has its own field below
         and entry["observed"] is not None
     ]
+    reason_parts = [f"effective source: {resolution.source}"]
+    if resolution.fallback_used:
+        reason_parts.append("fallback used due to invalid value")
+    if overridden:
+        reason_parts.append(
+            f"overridden by {resolution.source}: "
+            + ", ".join(f"{o['source']}={o['observed']}" for o in overridden)
+        )
     return {
         "key": key_spec.key,
         "scope": scope,
         "context": dict(context) if context else {},
         "consumer": consumer,
         "effective_value": _display(key_spec, resolution.value),
+        "effective_source": resolution.source,
         "winning_source": resolution.source,
         "precedence": resolution.precedence,
         "precedence_chain": chain,
+        "overridden_values": overridden,
         "overridden": overridden,
         "default": _display(key_spec, resolution.default),
         "fallback_used": resolution.fallback_used,
+        "reason": "; ".join(reason_parts),
         "env_sources": {
             name: _display(key_spec, resolution.provenance["env_observed"].get(name))
             for name in key_spec.env_names
