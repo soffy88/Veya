@@ -43,27 +43,36 @@ async def verify_task(
     - 先做规则检查（文件存在性、可观察条件）
     - 再调用 LLM 判定（输入 acceptance + leaf summary）
     - 返回 VerifyResult
+    - Fail closed：任何意料之外的异常都判不通过，绝不因 verifier
+      自身故障而放行。
     """
-    # 规则检查
-    rule_passed, rule_reason = _rule_check(task, leaf_result, project_root)
+    try:
+        # 规则检查
+        rule_passed, rule_reason = _rule_check(task, leaf_result, project_root)
 
-    if not rule_passed:
-        return VerifyResult(passed=False, summary=rule_reason or "", reason=rule_reason)
+        if not rule_passed:
+            return VerifyResult(passed=False, summary=rule_reason or "", reason=rule_reason)
 
-    # 机械核实：acceptance 提到测试通过/失败数且 leaf_result 里有可辨识的数字信号时，
-    # 直接按数字裁决，不问 LLM 主观意见
-    mechanical = _mechanical_verify(task, leaf_result)
-    if mechanical is not None:
-        passed, summary = mechanical
-        return VerifyResult(passed=passed, summary=summary, reason=None if passed else summary)
+        # 机械核实：acceptance 提到测试通过/失败数且 leaf_result 里有可辨识的数字信号时，
+        # 直接按数字裁决，不问 LLM 主观意见
+        mechanical = _mechanical_verify(task, leaf_result)
+        if mechanical is not None:
+            passed, summary = mechanical
+            return VerifyResult(passed=passed, summary=summary, reason=None if passed else summary)
 
-    # LLM 判定
-    llm_passed, llm_summary = await _llm_check(task, leaf_result)
+        # LLM 判定
+        llm_passed, llm_summary = await _llm_check(task, leaf_result)
 
-    if llm_passed:
-        return VerifyResult(passed=True, summary=llm_summary)
-    else:
-        return VerifyResult(passed=False, summary=llm_summary, reason=llm_summary)
+        if llm_passed:
+            return VerifyResult(passed=True, summary=llm_summary)
+        else:
+            return VerifyResult(passed=False, summary=llm_summary, reason=llm_summary)
+    except Exception as exc:
+        return VerifyResult(
+            passed=False,
+            summary=f"verify failed: {type(exc).__name__}: {exc}",
+            reason=f"verify failed: {type(exc).__name__}: {exc}",
+        )
 
 
 def _rule_check(task: TaskNode, leaf_result: str, project_root: str) -> tuple[bool, str | None]:

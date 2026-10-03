@@ -365,19 +365,27 @@ def reconcile_task(
         # Rule + mechanical checks run synchronously here; LLM judgement stays
         # in the async verify_task path. A task that fails its acceptance
         # criteria is blocked, never completed, and the goal cannot reach DONE.
-        from server.goal_run.verify import _mechanical_verify, _rule_check
+        # Fail closed: a verifier that raises is a failed verification, never
+        # a pass by default. Without this, a task would rest in running while
+        # its execution already ended, and the goal could never converge.
+        try:
+            from server.goal_run.verify import _mechanical_verify, _rule_check
 
-        rule_ok, rule_reason = _rule_check(task, summary or "", project_root)
-        mech = _mechanical_verify(task, summary or "")
-        if not rule_ok:
+            rule_ok, rule_reason = _rule_check(task, summary or "", project_root)
+            mech = _mechanical_verify(task, summary or "")
+        except Exception as exc:
             task.status = TaskStatus.blocked
-            task.block_reason = rule_reason or "acceptance rule check failed"
-        elif mech is not None and not mech[0]:
-            task.status = TaskStatus.blocked
-            task.block_reason = mech[1] or "acceptance mechanical check failed"
+            task.block_reason = f"verifier error: {type(exc).__name__}: {exc}"
         else:
-            task.status = TaskStatus.completed
-            state.completed_ids.add(goal_task_id)
+            if not rule_ok:
+                task.status = TaskStatus.blocked
+                task.block_reason = rule_reason or "acceptance rule check failed"
+            elif mech is not None and not mech[0]:
+                task.status = TaskStatus.blocked
+                task.block_reason = mech[1] or "acceptance mechanical check failed"
+            else:
+                task.status = TaskStatus.completed
+                state.completed_ids.add(goal_task_id)
     elif normalized == "cancelled":
         task.status = TaskStatus.cancelled
         task.stop_reason = reason or "cancelled"
