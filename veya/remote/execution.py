@@ -2061,6 +2061,7 @@ class DurableJobManager:
         goal_run_id: str | None = None,
         goal_task_id: str | None = None,
         goal_project_root: str | None = None,
+        task_contract: dict[str, Any] | None = None,
     ) -> ExecutionRecord:
         """Create a parent aggregator execution with no worker of its own."""
         with self._lock:
@@ -2099,6 +2100,7 @@ class DurableJobManager:
             goal_run_id=goal_run_id,
             goal_task_id=goal_task_id,
             goal_project_root=goal_project_root,
+            task_contract=dict(task_contract or {}),
         )
         if dispatch_id and not record.goal_run_id:
             raise ExecutionError(
@@ -3427,7 +3429,8 @@ class DurableJobManager:
             record.effect_receipt = receipt
             record.execution_commit_sha = result.get("commit_sha")
             record.promotion_state = result.get("promotion_status")
-            promotion = receipt.get("verification", {}).get("promotion")
+            verification = receipt.get("verification") or {}
+            promotion = verification.get("promotion")
             if isinstance(promotion, dict):
                 record.canonical_after_sha = promotion.get("canonical_after_sha")
         self._persist(record)

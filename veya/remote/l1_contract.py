@@ -62,6 +62,7 @@ class L1TaskContract:
     allowed_roots: list[str] = field(default_factory=list)
     allow_noop: bool = False
     verification_command: str | None = None
+    raw_contract: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
     def write(
@@ -82,12 +83,17 @@ class L1TaskContract:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        if self.raw_contract:
+            return dict(self.raw_contract)
+        payload = asdict(self)
+        payload.pop("raw_contract", None)
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> L1TaskContract:
-        known = {field_name for field_name in cls.__dataclass_fields__}
-        return cls(**{key: value for key, value in (payload or {}).items() if key in known})
+        source = dict(payload or {})
+        known = {field_name for field_name in cls.__dataclass_fields__ if field_name != "raw_contract"}
+        return cls(**{key: value for key, value in source.items() if key in known}, raw_contract=source)
 
 
 @dataclass
@@ -130,6 +136,7 @@ class EffectReceipt:
     head_sha_before: str = ""
     head_sha_after: str = ""
     verification: dict[str, Any] | None = None
+    task_contract: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:

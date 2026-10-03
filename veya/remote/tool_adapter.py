@@ -773,6 +773,11 @@ BINDINGS: tuple[ToolBinding, ...] = (
                             "worker": _STR,
                             "task": _STR,
                             "timeout_sec": {"type": "integer"},
+                            "task_contract": {
+                                "type": "object",
+                                "description": "Caller-declared L1 effect/verification contract; preserved as received.",
+                                "additionalProperties": True,
+                            },
                             "task_kind": {
                                 "type": "string",
                                 "enum": ["READ", "WRITE", "TEST", "BUILD", "REVIEW"],
@@ -3001,8 +3006,8 @@ class RemoteToolAdapter:
                 session_id=session.session_id,
                 requested_executor=requested_executor,
                 tasks=[
-                    {"worker": worker, "task": task_text}
-                    for _index, worker, task_text, _item in validated
+                    {"worker": worker, "task": task_text, "task_contract": dict(item.get("task_contract") or {})}
+                    for _index, worker, task_text, item in validated
                 ],
             )
             qualification_checkpoint(
@@ -3031,6 +3036,7 @@ class RemoteToolAdapter:
                 goal_run_id=pre_admission.goal_run_id,
                 goal_task_id=pre_admission.goal_task_id,
                 goal_project_root=project_root,
+                task_contract=(dict(validated[0][3].get("task_contract") or {}) if len(validated) == 1 else {"tasks": [dict(item.get("task_contract") or {}) for _, _, _, item in validated]}),
             )
             qualification_checkpoint(
                 "AFTER_EXECUTION_PERSIST",
@@ -3733,14 +3739,20 @@ class RemoteToolAdapter:
                 repo_identity=git_repo_identity(verified_repo),
                 worktree_path=worktree,
                 task_kind=(task_contract.task_kind if task_contract else str(TaskKind.READ)),
+                task_contract=(task_contract.to_dict() if task_contract else {}),
                 tool_calls=_worker_tool_events(worker, stdout_lines),
                 shell_calls=_worker_shell_events(worker, stdout_lines),
                 file_writes=changed if worker in {"opencode", "claude_code"} else [],
             )
             # Persist telemetry for every task kind; READ tasks never reach the
             # finalizer, so without this their receipt would be dropped.
-            self.jobs.set_effect_receipt(reporter._execution_id, receipt.to_dict())
             contract = task_contract or L1TaskContract()
+            declared_kind = str(contract.task_kind or TaskKind.READ).upper()
+            observed_kind = str(receipt.task_kind or TaskKind.READ).upper()
+            if declared_kind in {str(TaskKind.WRITE), str(TaskKind.TEST), str(TaskKind.BUILD)} and observed_kind != declared_kind:
+                reporter.failure(failure_class="EFFECT_CONTRACT_MISMATCH", source=worker, detail=f"declared={declared_kind} observed={observed_kind}")
+                raise ExecutionBlocked("EFFECT_CONTRACT_MISMATCH", f"task contract downgraded: declared={declared_kind} observed={observed_kind}")
+            self.jobs.set_effect_receipt(reporter._execution_id, receipt.to_dict())
             if contract.task_kind in {
                 str(TaskKind.WRITE),
                 str(TaskKind.TEST),
