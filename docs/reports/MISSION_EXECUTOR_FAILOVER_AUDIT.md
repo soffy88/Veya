@@ -137,3 +137,61 @@ Spec 设想的 P1–P5 隐含"从零建 failover"。审计后实际工作量为:
 2. `attempted` 的生命周期:仅单次迭代内存态,跨迭代重试是否重复尝试同一 executor
 3. `_replay_safe` 的判定边界:哪些副作用被判为不可重放
 4. `executor_inventory()` 是否已有对外暴露面
+
+## 10. P0 补充验证:幂等(§11)与并发(§12)的地基不存在
+
+P1 之前先验了 P0 未验证项的第 1、2 条。两条都指向同一个结论:
+**failover 目前唯一的记忆是进程内的,因此 §11 与 §12 无法在现状上实现。**
+
+### 10.1 无 durable CAS
+
+| 检查 | 结果 |
+|---|---|
+| `server/goal_run/store.py:48` `save_goal_run` | tmp + `replace`,**崩溃安全写,但无版本检查** |
+| `server/goal_run/store.py:114` `append_event` | 追加写,无 compare-and-swap |
+| 全系统锁 | 均为 `threading.RLock`(`agent_mailbox.py:64`、`execution.py:889`、`execution.py:1213`)—— **进程内** |
+| GoalRun 侧 CAS | **不存在** |
+
+结论:两个进程各自读同一份 `execution_attempts` 并各自追加,是当前可发生的行为。
+
+### 10.2 `attempted` 只覆盖本次迭代
+
+`veya/supervision/runner.py:351` 每次迭代**新建**单元素集合:
+
+```python
+attempted={selected.executor_id},
+```
+
+它不是历史记忆,只排除本迭代刚失败的那一个。
+
+### 10.3 health 是纯内存,且未知即健康
+
+| 事实 | 位置 |
+|---|---|
+| `ExecutorHealthRegistry.__init__` 只有 `self._records = {}`,**无任何持久化路径** | `executor_health.py:324-326` |
+| `HealthRecord` 默认 `state=UNKNOWN`, `provider_reachable=True`, `consecutive_failures=0` | `executor_health.py:304-314` |
+| `get_health(allow_unknown=True)` 把 `UNKNOWN` **读作 HEALTHY** | `executor_health.py:440` |
+
+三条合起来的后果:
+
+1. **单进程内**:3 次连续失败 → `UNAVAILABLE`(`executor_health.py:390`),failover 有界,不会无限 ping-pong。
+2. **跨进程 / 重启后**:失败记忆全部丢失。一个已知坏掉的 executor 在新进程里
+   `state=UNKNOWN` → 被判为 `HEALTHY` → 重新入选。
+3. **并发**:两个 supervisor 各持独立 health 视图,可能对同一 task 分别准入
+   不同 executor。§12 要求的「only one active executor admission」在现状下
+   **不是理论风险**。
+
+### 10.4 对阶段计划的影响
+
+`ExecutorReselectionReceipt` 不只是可观测性。按 §11 与 §12,它同时是
+**failover 唯一缺失的 durable 记忆**:
+
+- 幂等键(§11)需要落盘:`mission_id + iteration_id + task_id + failure_event_id`
+  必须在 receipt 里,重复请求才能命中已有 receipt 而不是新建 attempt
+- 并发准入(§12)需要一个 CAS,而 receipt 的写入正是那个 CAS 的载体 ——
+  同一 `goal_run_id` 下「已存在本 task 的 active admission」就等于拒绝第二次
+
+因此 P3 的定位应从「补可观测性」上调为「补 durable failover 记录」,
+并且 P1/P3 需要触及 `server/goal_run/store.py` 的写入路径。
+这是 durable execution authority,属于 §2 列出的 GoalRun 权限范围,
+应在实施前单独取得同意。
