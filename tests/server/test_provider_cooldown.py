@@ -1,10 +1,34 @@
+"""Quota cooldown classification, as production actually reads it.
+
+This file was ``test_hicode_429_cooldown.py`` and imported
+``server.hicode_cooldown``. That module moved to ``veya.provider_cooldown`` when
+the Hicode executor was retired, but ``runtime/provider_reliability.py`` still
+calls ``classify_upstream_failure`` on every provider failure — so the logic was
+live the whole time and only the test's import path was stale, which is why these
+two cases were failing rather than testing anything that had gone away.
+
+Two cases were removed rather than repointed, and the difference matters:
+
+* ``test_hicode_result_projects_quota_as_terminal_cooldown`` covered
+  ``hicode_agent._hicode_result_error``, deleted with the executor. Its assertion
+  — a quota failure surfaces as ``UPSTREAM_QUOTA_EXHAUSTED`` and is not retryable
+  — is already covered below through the live adapter, so nothing was lost.
+* ``test_hicode_mapping_authority_is_unique_and_explicit`` covered
+  ``load_hicode_mapping_authority``, which now only exists under
+  ``legacy/executors/hicode/``. That tree is kept for archaeology and must not be
+  revived, so pinning its behaviour would be a test that resists the retirement.
+
+The filename followed the module: a cooldown test with "hicode" in its name
+pointed at nothing.
+"""
+
 from __future__ import annotations
 
 import pytest
 
 
 def test_resource_exhausted_is_terminal_and_parses_reset_metadata() -> None:
-    from server.hicode_cooldown import classify_upstream_failure
+    from veya.provider_cooldown import classify_upstream_failure
 
     failure = classify_upstream_failure(
         {
@@ -26,35 +50,9 @@ def test_resource_exhausted_is_terminal_and_parses_reset_metadata() -> None:
 
 
 def test_effective_cooldown_never_precedes_upstream_reset() -> None:
-    from server.hicode_cooldown import effective_cooldown_until
+    from veya.provider_cooldown import effective_cooldown_until
 
     assert effective_cooldown_until(1000.0, 7200, now=1000.0) == 8200.0
-
-
-def test_hicode_result_projects_quota_as_terminal_cooldown() -> None:
-    from server.hicode_agent import _hicode_result_error
-
-    error = _hicode_result_error(
-        {
-            "type": "result",
-            "is_error": True,
-            "error": {
-                "code": "model_cooldown",
-                "reset_seconds": 7200,
-                "provider": "cliproxy-google",
-                "model": "gemini-pro-agent",
-                "last_upstream_error": "429 RESOURCE_EXHAUSTED",
-            },
-        },
-        raw_events=[],
-        stderr_tail="",
-        exit_code=1,
-    )
-
-    assert error is not None
-    assert error.failure_class == "UPSTREAM_QUOTA_EXHAUSTED"
-    assert error.retryable_immediately is False
-    assert error.retry_not_before is not None
 
 
 @pytest.mark.asyncio
@@ -91,16 +89,3 @@ async def test_503_remains_bounded_transient_retry() -> None:
     name, result, _ = await adapter.call(request, ["primary"], goal_run_id="g", context={})
     assert (name, result) == ("primary", {"ok": True})
     assert calls == ["primary", "primary"]
-
-
-def test_hicode_mapping_authority_is_unique_and_explicit() -> None:
-    from server.hicode_cooldown import load_hicode_mapping_authority
-
-    authority = load_hicode_mapping_authority()
-    assert len(authority) == 1
-    mapping = authority["gemini-pro-agent"]
-    assert mapping["internal_provider"] == "antigravity"
-    assert mapping["upstream_model"] == "gemini-pro-default"
-    assert mapping["active"] is True
-    assert mapping["source"]
-    assert mapping["updated_at"]

@@ -96,11 +96,13 @@ AGENT_EVAL_CASES: list[EvalCase] = [
         expected={"tool": "run_in_sandbox"},
         meta={"category": "tool_selection"},
     ),
-    # §38.5 Code Modification: 改代码+跑测试该派工 hicode_run, 不是在聊天里手写patch。
+    # §38.5 Code Modification: 改代码+跑测试该派工 coding_task_run, 不是在聊天里手写patch。
+    # 这条期望值原为 hicode_run——该工具随 executor 退役已不再注册, 这个 eval
+    # 因此永远无法命中; 派工入口现在是 coding_task_run。
     EvalCase(
         id="code_modification_needs_delegation",
         input="修复 auth.py 并跑测试。",
-        expected={"tool": "hicode_run"},
+        expected={"tool": "coding_task_run"},
         meta={"category": "delegation"},
     ),
 ]

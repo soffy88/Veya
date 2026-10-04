@@ -218,8 +218,12 @@ _PARALLEL_SAFE_TOOLS: frozenset[str] = frozenset(
 
 # 工具名 → 职能分组。未登记的名字兜底进 "other" (mcp_* 网关例外, 见 _group_for)。
 _TOOL_GROUPS: dict[str, str] = {
-    # code_exec: 直接读写代码/跑命令 — 多数场景应走 project_ask 派给 hicode,
+    # code_exec: 直接读写代码/跑命令 — 多数场景应走 coding_task_run 派工,
     # 只有需要亲自核查/兜底时才启用。
+    #
+    # 组名只用于 agent_loop_run 的隔离子任务工具面, 不参与 ReAct 主链的权限或
+    # 副作用判定(主链看的是全量 get_all_schemas())。未登记的名字兜底进 other,
+    # 也就是**不进入**子任务工具面, 所以漏登记是收紧而不是放宽。
     "write_file": "code_exec",
     "edit_hashline": "code_exec",
     "read_hashline": "code_exec",
@@ -233,12 +237,6 @@ _TOOL_GROUPS: dict[str, str] = {
     "grep": "code_exec",
     "run_in_sandbox": "code_exec",
     "assemble_code_context": "code_exec",
-    "hicode_run": "code_exec",
-    "hicode_sessions": "code_exec",
-    "hicode_rollback": "code_exec",
-    "hicode_status": "code_exec",
-    "hicode_tasks": "code_exec",
-    "hicode_stop": "code_exec",
     # GitHub PR review is a MasterAgent capability; only fetch is read-only.
     "github_pr_fetch": "github_pr",
     "github_pr_review_prepare": "github_pr",

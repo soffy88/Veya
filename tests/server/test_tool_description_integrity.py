@@ -58,6 +58,38 @@ def test_no_description_names_an_internal_module_path():
     assert not offenders, f"internal implementation symbols in public descriptions: {offenders}"
 
 
+def test_no_eval_expectation_points_at_an_unregistered_tool():
+    """An eval case expecting a tool that does not exist can never score.
+
+    ``code_modification_needs_delegation`` expected ``hicode_run``. That tool
+    went with the executor retirement, so the case was unreachable — it looked
+    like coverage of the delegation rule and was not.
+    """
+
+    import pathlib
+    import re
+
+    from server.tool_registry import master_tools
+
+    registered = set(master_tools.list_tools())
+    source = (pathlib.Path(__file__).resolve().parents[2] / "server" / "agent_eval.py").read_text(
+        encoding="utf-8"
+    )
+    expected = re.findall(r'expected=\{"tool": "([\w.]+)"', source)
+    assert expected, "the extraction found no expectations at all"
+    unknown = [name for name in expected if name not in registered]
+    assert not unknown, f"eval cases expect unregistered tools and can never pass: {unknown}"
+
+
+def test_the_tool_group_table_has_no_retired_hicode_entries():
+    """The grouping table feeds the isolated subtask surface; keep it honest."""
+
+    from server.tool_registry import _TOOL_GROUPS
+
+    stale = [name for name in _TOOL_GROUPS if "hicode" in name]
+    assert not stale, f"retired executor still in _TOOL_GROUPS: {stale}"
+
+
 def test_the_sweep_actually_inspects_real_descriptions():
     # A negative assertion with no positive case proves nothing: make sure the
     # extraction really reads descriptions, including the two that were repaired.

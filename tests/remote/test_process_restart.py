@@ -20,7 +20,6 @@ _CHILD = r"""
 import asyncio, sys
 from pathlib import Path
 
-from server import hicode_agent
 from veya.remote import RemoteAudit, RemoteAuth, RemotePermissions, RemoteSessionManager, RemoteToolAdapter
 from veya.remote.execution import ExecutionStore
 from veya.remote.mcp_server import create_gateway
@@ -28,17 +27,19 @@ from veya.remote.mcp_server import create_gateway
 workspace = Path(sys.argv[1])
 store_dir = Path(sys.argv[2])
 ready = Path(sys.argv[3])
-hicode_agent.DEFAULT_WORKSPACE = str(workspace)
 
 
-async def fake(task, workspace=None, on_event=None, on_process=None, **kw):
-    if on_event:
-        on_event({"stage": "planning", "tool": None, "detail": "planning"})
+# The vehicle used to be the hicode executor, which was retired: the child
+# imported server.hicode_agent and dispatched "hicode.execute". The subject of
+# this test is restart/reattach, not the worker, so the long-running job is
+# produced by replacing the long-runner factory on the adapter — the same seam
+# the wait-contract test uses.
+async def _long_runner(_record):
     await asyncio.sleep(3600)
     return "never"
 
 
-hicode_agent._execute_hicode_core = fake
+RemoteToolAdapter._make_long_runner = lambda *a, **k: _long_runner
 
 
 async def main():
@@ -71,7 +72,13 @@ async def main():
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
-            "params": {"name": "hicode.execute", "arguments": {"task": "long task"}},
+            "params": {
+                "name": "veya.mission.run",
+                "arguments": {
+                    "project_root": str(workspace),
+                    "mission_id": "restart-mission",
+                },
+            },
         },
         authorization=f"Bearer {secret}",
         session_header=session,

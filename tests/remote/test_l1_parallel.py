@@ -138,13 +138,6 @@ async def wait_phase(gateway, secret, session, execution_id, phases, timeout=20.
     raise AssertionError(f"never reached {phases}")
 
 
-def _patch_hicode(monkeypatch, tmp_path: Path, fake: Any) -> None:
-    from server import hicode_agent
-
-    monkeypatch.setattr(hicode_agent, "DEFAULT_WORKSPACE", str(tmp_path))
-    monkeypatch.setattr(hicode_agent, "_execute_hicode_core", fake)
-
-
 def _patch_fake_worker(monkeypatch, fake: Any) -> None:
     """Patch the CLI worker runner with an async fake (hicode is retired).
 
@@ -403,7 +396,7 @@ def test_worker_commands_are_not_hicode_wrappers(tmp_path: Path, monkeypatch) ->
     )
     identities = {
         w: _worker_model_identity(w)
-        for w in ("hicode", "dsh", "pi", "grok", "codex", "antigravity", "opencode")
+        for w in ("dsh", "pi", "grok", "codex", "antigravity", "opencode")
     }
     assert len({m for _p, m in identities.values()}) >= 3
     assert all(provider and model for provider, model in identities.values())

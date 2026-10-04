@@ -17,6 +17,7 @@ from veya.remote import (
     RemoteAudit,
     RemoteAuth,
     RemotePermissions,
+    RemoteSession,
     RemoteSessionManager,
     RemoteToolAdapter,
 )
@@ -502,18 +503,6 @@ def make_hicode_gateway(
     return gateway, secret, adapter
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 # ── streaming stdout/stderr ────────────────────────────────────────────
 async def test_stdout_stream_visible(tmp_path: Path) -> None:
     make_workspace(tmp_path)
@@ -743,52 +732,58 @@ async def test_direct_job_survives_client_timeout(tmp_path: Path) -> None:
     assert final["exit_code"] == 0
 
 
+async def test_first_failure_survives_execution_store_reload(tmp_path: Path, monkeypatch) -> None:
+    """A first error must still be there after the record is reloaded.
 
+    This used to be ``test_empty_model_first_error_survives_execution_store_reload``
+    and drove the check through ``server.hicode_agent``. Its failure class had
+    exactly one producer anywhere in the tree —
+    ``legacy/executors/hicode/hicode_agent.py`` — so after the retirement it
+    asserted a failure that can no longer occur. The invariant underneath is
+    about the execution store, not about that executor, so it is asserted here
+    against a reachable failure: a runner that raises.
+    """
 
-
-
-
-
-
-
-async def test_empty_model_first_error_survives_execution_store_reload(
-    tmp_path: Path, monkeypatch
-) -> None:
     make_workspace(tmp_path)
-    from server import hicode_agent
 
-    monkeypatch.setattr(hicode_agent, "DEFAULT_WORKSPACE", str(tmp_path))
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("MARKER-first-error")
 
-    async def fake(*args, **kwargs):
-        raise hicode_agent.HicodeExecutionError(
-            "EMPTY_MODEL_RESPONSE",
-            "provider returned an empty assistant response with no tool calls",
-            raw_evidence={
-                "response": {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [],
-                },
-                "provider_request_id": "req-test-1",
-            },
-        )
+    monkeypatch.setattr(RemoteToolAdapter, "_make_long_runner", lambda *a, **k: _boom)
 
-    monkeypatch.setattr(hicode_agent, "_execute_hicode_core", fake)
     store_root = tmp_path / "execution-store"
-    gateway, secret, _ = make_hicode_gateway(tmp_path, ExecutionStore(store_root))
-    session = await initialize(gateway, secret)
-    envelope = await call_tool(gateway, secret, session, "hicode.execute", {"task": "x"})
-    execution_id = envelope["execution_id"]
-    await wait_for_phase(gateway, secret, session, execution_id, {"BLOCKED", "FAILED"}, timeout=10)
+    adapter = RemoteToolAdapter(
+        None,
+        execution_store=ExecutionStore(store_root),
+        heartbeat_timeout_s=30.0,
+    )
+    now = time.time()
+    session = RemoteSession(
+        session_id="rs-reload",
+        principal="tester",
+        token_id="rt-reload",
+        workspaces=(str(tmp_path),),
+        active_workspace=str(tmp_path),
+        permissions=PERMS,
+        created_at=now,
+        expires_at=now + 3600,
+    )
+    envelope = await adapter._call_impl(
+        session,
+        "veya.mission.run",
+        {"project_root": str(tmp_path), "mission_id": "m", "wait": True, "wait_timeout_s": 15},
+    )
+    execution_id = envelope.execution_id
+    assert execution_id
 
     restored = ExecutionStore(store_root).get(execution_id)
-    assert restored is not None
+    assert restored is not None, "the record did not survive the reload"
     public = restored.to_public(heartbeat_timeout_s=30.0)
-    assert public["failure_class"] == "EMPTY_MODEL_RESPONSE"
-    assert public["provider_error_code"] == "EMPTY_MODEL_RESPONSE"
-    assert public["raw_failure_evidence"]["provider_request_id"] == "req-test-1"
-    assert public["raw_failure_evidence"]["response"]["content"] is None
-    assert public["failure_history"][0]["failure_class"] == "EMPTY_MODEL_RESPONSE"
-    assert (
-        public["failure_history"][0]["raw_failure_evidence"]["provider_request_id"] == "req-test-1"
-    )
+    assert public["failure_class"], "a failed execution must carry a failure class"
+    assert "MARKER-first-error" in str(public["raw_failure_evidence"])
+    # The history entry carries the same root cause, and it is the *first* one:
+    # wrappers may add history but must not replace the original cause.
+    history = public["failure_history"]
+    assert history, "a failed execution must record its failure history"
+    assert history[0]["failure_class"] == public["failure_class"]
+    assert "MARKER-first-error" in str(history[0]["raw_failure_evidence"])
