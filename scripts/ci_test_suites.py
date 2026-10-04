@@ -72,6 +72,7 @@ SUITE_ENTRIES: dict[str, tuple[str, ...]] = {
         "tests/test_capability_model.py",
         "tests/test_errors.py",
         "tests/test_feature_flags.py",
+        "tests/test_backend_output_contract.py",
         "tests/test_ci_suite_integrity.py",
         "tests/test_permission_profiles.py",
         "tests/test_sandbox_profiles.py",

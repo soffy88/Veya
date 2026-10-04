@@ -73,6 +73,58 @@ class BackendSpec:
             "available": self.available(),
         }
 
+    #: Caps for this facade's output and error text, in one place so the three run
+
+
+#: branches cannot drift apart. They used to be bare [:4000] / [:2000] slices
+#: repeated per branch.
+OUTPUT_LIMIT = 4000
+ERROR_LIMIT = 2000
+
+#: Appended to a field that was cut, so a clipped answer cannot be mistaken for a
+#: short one even if a caller ignores the flag.
+TRUNCATION_MARKER = "\n...[truncated by backend facade]"
+
+
+def _capped(value: Any, limit: int) -> tuple[str, bool]:
+    """Bound one field and report whether it was cut.
+
+    The remote adapter's ``_limit`` already answers this with a marker plus a
+    ``truncated`` flag; the backend facade had no equivalent, so a caller had no
+    way to tell a short answer from a clipped one.
+    """
+    text = "" if value is None else str(value)
+    if len(text) <= limit:
+        return text, False
+    return text[:limit] + TRUNCATION_MARKER, True
+
+
+def _result(
+    *,
+    ok: bool,
+    backend: str,
+    output: Any = "",
+    error: Any = "",
+    **extra: Any,
+) -> dict[str, Any]:
+    """One response shape for every branch of :meth:`BackendRegistry.run`.
+
+    The branches used to hand back three different key sets, so a consumer could
+    not rely on ``output_truncated`` existing — it existed nowhere.
+    """
+    capped_output, output_truncated = _capped(output, OUTPUT_LIMIT)
+    capped_error, error_truncated = _capped(error, ERROR_LIMIT)
+    return {
+        **extra,
+        "ok": ok,
+        "backend": backend,
+        "output": capped_output,
+        "output_truncated": output_truncated,
+        "error": capped_error,
+        "error_truncated": error_truncated,
+        "duration_s": float(extra.get("duration_s", 0.0)),
+    }
+
 
 class BackendRegistry:
     """多 backend 注册表: 发现内置 CLI + 手动注册 ACP + 统一执行。"""
@@ -202,13 +254,12 @@ class BackendRegistry:
         )
         output = result.get("output") or result.get("squads") or ""
         ok = result.get("status") == "success"
-        return {
-            "ok": ok,
-            "backend": "master",
-            "output": str(output)[:4000] if output else "",
-            "error": "" if ok else str(result.get("error", "执行失败"))[:2000],
-            "duration_s": 0.0,
-        }
+        return _result(
+            ok=ok,
+            backend="master",
+            output=output if output else "",
+            error="" if ok else result.get("error", "执行失败"),
+        )
 
     async def _run_cli(
         self, spec: BackendSpec, prompt: str, cwd: str | None, model: str, timeout_s: float
@@ -238,39 +289,39 @@ class BackendRegistry:
         canonical = normalize_executor_id(spec.name)
         admitted = sorted(registry.snapshot())
         base = {
-            "backend": spec.name,
-            "output": "",
-            "duration_s": 0.0,
             "canonical_executor_id": canonical,
             "admitted_executors": admitted,
         }
         if is_retired_executor(canonical):
-            return {
+            return _result(
+                ok=False,
+                backend=spec.name,
+                error=f"executor retired, refused without substitution: {canonical!r}",
+                error_code="EXECUTOR_RETIRED",
                 **base,
-                "ok": False,
-                "error_code": "EXECUTOR_RETIRED",
-                "error": f"executor retired, refused without substitution: {canonical!r}",
-            }
+            )
         try:
             identity = registry.identity(canonical)
         except ValueError as exc:
-            return {
+            return _result(
+                ok=False,
+                backend=spec.name,
+                error=f"{exc}; admitted executors: {admitted}",
+                error_code="EXECUTOR_NOT_ADMITTED",
                 **base,
-                "ok": False,
-                "error_code": "EXECUTOR_NOT_ADMITTED",
-                "error": f"{exc}; admitted executors: {admitted}",
-            }
-        return {
-            **base,
-            "ok": False,
-            "error_code": "EXECUTION_FACADE_CLOSED",
-            "error": (
+            )
+        return _result(
+            ok=False,
+            backend=spec.name,
+            error=(
                 "direct backend execution is closed. Dispatch through the canonical "
                 f"executor authority as worker.dispatch with worker={identity.executor_id!r} "
                 "so the call is admitted, permission-checked and receipted."
             ),
-            "canonical_entry": "worker.dispatch",
-        }
+            error_code="EXECUTION_FACADE_CLOSED",
+            canonical_entry="worker.dispatch",
+            **base,
+        )
 
     async def _run_acp(
         self, spec: BackendSpec, prompt: str, cwd: str | None, timeout_s: float
@@ -290,21 +341,13 @@ class BackendRegistry:
                 owner=f"backend:{spec.name}",
             )
             result = await backend.run(prompt, timeout_s=timeout_s)
-            return {
-                "ok": True,
-                "backend": spec.name,
-                "output": str(result.get("output", ""))[:4000],
-                "error": "",
-                "duration_s": 0.0,
-            }
+            return _result(
+                ok=True,
+                backend=spec.name,
+                output=result.get("output", ""),
+            )
         except (ACPError, OSError) as e:
-            return {
-                "ok": False,
-                "backend": spec.name,
-                "error": str(e)[:2000],
-                "output": "",
-                "duration_s": 0.0,
-            }
+            return _result(ok=False, backend=spec.name, error=e)
         finally:
             await backend.close()
 
