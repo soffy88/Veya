@@ -116,3 +116,41 @@ P2a 落地后需要重新评估:
 * `claude_code` 是否可通过 refresh 恢复(其 `refreshToken` 也为空,当前无法刷新)
 * `opencode` 的 `/v1/models` 是否真的能区分 401 与 200 —— 未实测
 * `pi` 的 `PROVIDER_CONFIGURATION_FAILURE` 具体缺哪项配置(`auth.json` 为空是症状之一)
+---
+
+## 8. 追加实测：opencode 探测端点不可用（P2b 结论）
+
+P2b 实测 `https://opencode.ai/zen/v1/models` 能否区分凭据：
+
+```text
+真实 key       HTTP 403  'error code: 1010'
+故意错误 key   HTTP 403  'error code: 1010'
+无 Authorization HTTP 403 'error code: 1010'
+```
+
+加上工作 transport 专有的 `x-opencode-session` 头后重测，以及 `.../zen/v1`
+根路径，**三种情况仍然全部 403 error code: 1010**（Cloudflare 按 TLS 指纹拦截，
+非 header 可绕过）。
+
+⇒ **该端点完全无法区分凭据**，若接入会把能用的 opencode 判成 INVALID。
+规范禁止直连 CLI，故本环境**没有任何已验证的非生成式认证探测端点**。
+
+唯一验证可用的路径是生成式 chat/completions 调用（P0 实测 32s，消耗 token）。
+
+因此 P2b 交付**机制**而非 live 探测：
+`veya/remote/credential_probe.py` 提供懒探测 + TTL + 指数退避 + 三态 + 错误分类，
+provider 探测**留空**，如实报告 `UNPROBABLE` 并保持 `credential_valid=None`。
+机制由合成 probe 与假时钟完整验证，一旦某个 provider 拿到可信探测端点，
+注册即可，无需重构。
+
+## 9. P2 整体状态
+
+```text
+P2a 结构校验   DONE  fc10f879  零网络，消除 claude_code / pi 两个假阳性
+P2b 探测机制   DONE  本提交    机制完备，无 live provider 探测
+live 探测      BLOCKED  无已验证端点（见 §8）
+```
+
+仍未达成：**G2 严格形式**（任何未探测的 executor 都不得已呈现为已认证）。
+`codex` 是唯一凭据材料齐备却无法在本地证伪的 executor，它需要真实探测，
+而真实探测端点未验证。

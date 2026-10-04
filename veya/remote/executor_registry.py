@@ -12,13 +12,14 @@ import os
 import shutil
 import time
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from veya.executor_retirement import is_retired_executor as is_retired
 from veya.remote import credential_structure as _credential_structure
+from veya.remote.credential_probe import CredentialProbeCache, ProbeResult
 
 if TYPE_CHECKING:  # provider state stays in ProviderRegistry; imported for typing only
     from veya.remote.provider_registry import ProviderRecord
@@ -421,12 +422,21 @@ _PROVIDER_REQUIREMENTS: dict[str, tuple[str, ...]] = {
 }
 
 
+#: auth_state as a function of probe validity. None leaves whatever local
+#: evidence already established untouched, because "no probe" is not a finding.
+_AUTH_STATE_FOR_VALIDITY: dict[bool | None, str] = {
+    True: "AUTHENTICATED",
+    False: "INVALID",
+}
+
+
 @dataclass
 class ExecutorRegistry:
     """Canonical identity authority; adapters receive projections from here."""
 
     overrides: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     _identities: dict[str, ExecutorRuntimeIdentity] = field(default_factory=dict, init=False)
+    _probes: CredentialProbeCache = field(default_factory=CredentialProbeCache, init=False)
 
     def __post_init__(self) -> None:
         for key in _KNOWN:
@@ -584,6 +594,38 @@ class ExecutorRegistry:
         if identity is None:
             raise ValueError(f"unknown executor: {key!r} is not registered")
         return identity
+
+    def probe_credential(self, executor_id: str, *, force: bool = False) -> ProbeResult:
+        """Establish a credential verdict by real probe, or report why not.
+
+        Deliberately not called during discovery: the real calls measured on
+        2026-10-04 run 12.7s to 217.7s, and an import-time probe would make
+        process start depend on network weather. Callers that need certainty —
+        selection before failover, a preflight before a long run — ask for it
+        here and get a cached answer on every call after the first.
+
+        A provider with no registered probe returns UNPROBABLE and leaves
+        ``credential_valid`` at None, so an unverified endpoint can never mark a
+        working credential invalid.
+        """
+        key = normalize_executor_id(executor_id)
+        identity = self._identities.get(key)
+        if identity is None:
+            raise ValueError(f"unknown executor: {key!r} is not registered")
+        result = self._probes.probe(key, force=force)
+        # Only a finding may move the verdict. UNPROBABLE and UNKNOWN carry no
+        # information, so applying them would erase a local refutation: probing
+        # pi and learning nothing would have turned a structural False back into
+        # the unknown that P2a just removed. A completed successful call does
+        # override it, because that is stronger evidence than reading a file.
+        if result.is_valid or result.is_negative:
+            validity = self._probes.credential_valid(key)
+            self._identities[key] = replace(
+                identity,
+                credential_valid=validity,
+                auth_state=_AUTH_STATE_FOR_VALIDITY.get(validity, identity.auth_state),
+            )
+        return result
 
     def register(self, identity: ExecutorRuntimeIdentity) -> None:
         """Admit an executor.
