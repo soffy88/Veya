@@ -1651,7 +1651,8 @@ class RemoteToolAdapter:
                 ),
                 limits=_execution_limits(name, args),
             )
-            if wait_s is None or wait_s > 0:
+            waited = wait_s is None or wait_s > 0
+            if waited:
                 await self.jobs.wait(record.execution_id, timeout_s=wait_s)
             snapshot = self._redact(
                 record.to_public(heartbeat_timeout_s=self.jobs.heartbeat_timeout_s)
@@ -1667,6 +1668,30 @@ class RemoteToolAdapter:
                 failure.execution_id = record.execution_id
                 failure.duration_ms = (time.time() - started) * 1000
                 return failure
+            if waited and not record.is_terminal:
+                # The caller asked to block for the result and no terminal result
+                # arrived. This used to fall through to ok=True/accepted=True,
+                # handing back an unfinished job in a success envelope: the caller
+                # had asked to wait for a result and received a receipt for the
+                # submission instead, with nothing in the payload saying so.
+                # Failing explicitly keeps the execution_id — the only way to keep
+                # watching it — while refusing to call it a success.
+                bounded = wait_s is not None
+                pending = self._fail(
+                    name,
+                    session,
+                    RemoteErrorCode.TIMEOUT if bounded else RemoteErrorCode.EXECUTION_FAILED,
+                    (
+                        f"waited {wait_s:g}s and the execution is still {record.status}"
+                        if bounded
+                        else f"wait returned with the execution still {record.status}"
+                    )
+                    + "; poll process.status with this execution_id",
+                )
+                pending.result = {**snapshot, "accepted": False, "terminal": False}
+                pending.execution_id = record.execution_id
+                pending.duration_ms = (time.time() - started) * 1000
+                return pending
             result = dict(snapshot)
             result["accepted"] = True
             return RemoteCallResult(
