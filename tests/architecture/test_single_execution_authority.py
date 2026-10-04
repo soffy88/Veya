@@ -23,9 +23,9 @@ from pathlib import Path
 import pytest
 
 from server.backends import (
-    FACADE_PERMISSIONS,
     FACADE_PRINCIPAL,
     FACADE_ROOT_ENV,
+    FACADE_SHELL_ENV,
     BackendRegistry,
     _facade_session,
 )
@@ -175,6 +175,8 @@ async def test_backend_run_emits_execution_receipt(tmp_path, monkeypatch):
     root.mkdir()
     _init_repo(root)
     monkeypatch.setenv(FACADE_ROOT_ENV, str(root))
+    # Gate B as well: the root says where, the shell gate says whether.
+    monkeypatch.setenv(FACADE_SHELL_ENV, "1")
 
     registry = BackendRegistry()
     registry.register("opencode", "cli", command=_an_available_command())
@@ -226,18 +228,19 @@ async def test_facade_refuses_a_workspace_outside_the_declared_root(tmp_path, mo
 
 
 @pytest.mark.asyncio
-async def test_facade_session_grant_is_exactly_the_measured_minimum():
-    """The grant is a capability to dispatch, not an effect grant on the task.
+async def test_facade_session_carries_no_shell_entitlement_by_default(monkeypatch):
+    """No gate, no shell.
 
-    Measured against the permission engine: read alone is refused for lacking
-    write, read+write for lacking shell, and read+write+shell is admitted. The
-    test pins that set so a future edit cannot quietly widen it, and asserts the
-    three escalations that stay off.
+    The measured minimum grant is in ``FACADE_PERMISSIONS``; this asserts that
+    none of it is handed out implicitly. ``tests/architecture/
+    test_facade_shell_gate.py`` owns the full two-gate matrix and the canonical
+    upper bound.
     """
+    monkeypatch.delenv(FACADE_SHELL_ENV, raising=False)
     session = _facade_session(Path("/tmp"))
     assert session.principal == FACADE_PRINCIPAL
-    granted = {name for name in FACADE_PERMISSIONS if getattr(session.permissions, name)}
-    assert granted == set(FACADE_PERMISSIONS)
+    assert session.permissions.shell is False
+    assert session.permissions.read is True
     for escalated in ("git", "destructive", "service_control", "network"):
         assert getattr(session.permissions, escalated) is False, escalated
 

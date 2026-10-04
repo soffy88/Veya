@@ -124,13 +124,34 @@ def _facade_root() -> Path | None:
 FACADE_PERMISSIONS = ("read", "write", "shell")
 
 
-def _facade_session(workspace: Path) -> Any:
-    """A session for the facade principal, with the narrowest grant that works.
+#: Gate B. Shell is never implicit. Setting the root says *where* the facade may
+#: execute; this says that it may execute at all. Unset — or set to anything
+#: other than an explicit affirmative — means the facade cannot dispatch, even
+#: with a correct principal, a workspace inside the root and a READ contract.
+FACADE_SHELL_ENV = "VEYA_BACKEND_FACADE_ALLOW_SHELL"
 
-    ``shell`` is on because ``worker.dispatch`` runs commands, not because the
-    facade is trusted with arbitrary execution: the task contract is pinned to
-    READ by the caller below, and the workspace is confined to the
-    operator-declared root.
+#: The values that count as an explicit affirmative. Anything else is a denial:
+#: an operator who typos this variable should not silently get execution.
+_FACADE_SHELL_TRUE = frozenset({"1", "true"})
+
+
+def _shell_confirmed() -> bool:
+    return os.environ.get(FACADE_SHELL_ENV, "").strip().lower() in _FACADE_SHELL_TRUE
+
+
+def _facade_session(workspace: Path) -> Any:
+    """A session for the facade principal.
+
+    ``shell`` is included only when Gate B is explicitly satisfied, and it is
+    included because ``worker.dispatch`` is a write-class tool that runs commands
+    — not because the facade is trusted with arbitrary execution. The task
+    contract is pinned to READ by the caller below and the workspace is confined
+    to the declared root.
+
+    Measured minimum, recorded in :data:`FACADE_PERMISSIONS`: read alone is
+    refused for lacking write, read+write for lacking shell. So the grant cannot
+    simply be narrowed without also closing the facade, which is the point of
+    making shell a separate, explicit gate rather than a default.
     """
     from veya.remote.models import RemotePermissions, RemoteSession
 
@@ -141,7 +162,9 @@ def _facade_session(workspace: Path) -> Any:
         token_id=f"facade-{os.getpid()}",
         workspaces=(str(workspace),),
         active_workspace=str(workspace),
-        permissions=RemotePermissions(read=True, write=True, shell=True),
+        permissions=RemotePermissions(
+            read=True, write=True, shell=_shell_confirmed()
+        ),
         created_at=now,
         expires_at=now + 300,
     )
@@ -382,14 +405,19 @@ class BackendRegistry:
     ) -> dict[str, Any]:
         """Run the task through the canonical chain under the facade principal.
 
-        Every step here exists because the endpoint is unauthenticated:
+        Two gates, both required, neither implied by the other:
 
-        * the workspace must sit inside the operator-declared root, because the
-          caller's ``cwd`` is otherwise an arbitrary-directory write primitive;
-        * the session is read-only, so a dispatch that needs write, shell or git
-          is refused by the permission grant rather than by this code;
-        * the task contract is pinned to READ, so the facade cannot be talked
-          into a stronger effect than its principal holds.
+        * Gate A — :data:`FACADE_ROOT_ENV` names the repository this endpoint may
+          execute in. A caller's ``cwd`` is not trusted: it must resolve inside
+          that root or the call is refused.
+        * Gate B — :data:`FACADE_SHELL_ENV` must be explicitly affirmative.
+          Without it the facade holds no shell entitlement, and since
+          ``worker.dispatch`` needs one, the call is refused here rather than
+          left to fail deep inside the permission engine.
+
+        On top of those: the task contract is pinned to READ, so the facade
+        cannot be talked into a stronger effect than its principal holds, and the
+        normal admission chain still applies.
 
         ``veya.remote`` is imported here rather than at module scope on purpose:
         tool_adapter imports server.goal_run.pre_admission, so a module-level
@@ -428,6 +456,26 @@ class BackendRegistry:
                 error=(f"workspace is outside {FACADE_ROOT_ENV}: {workspace} is not under {root}"),
                 error_code="WORKSPACE_DENIED",
                 canonical_executor_id=identity.executor_id,
+            )
+
+        if not _shell_confirmed():
+            # Refused here on purpose. Reaching the chain without Gate B would
+            # end in the permission engine refusing a missing shell grant, which
+            # is the right outcome for the wrong reason: the caller would see a
+            # tool-denied code instead of the configuration step that would
+            # actually enable it.
+            return _result(
+                ok=False,
+                backend=spec.name,
+                error=(
+                    f"{FACADE_SHELL_ENV} is not set to an explicit affirmative; the facade "
+                    f"holds no shell entitlement. Set {FACADE_SHELL_ENV}=1 alongside "
+                    f"{FACADE_ROOT_ENV} to allow it, or dispatch worker.dispatch with "
+                    f"worker={identity.executor_id!r} through an authenticated client"
+                ),
+                error_code="SHELL_NOT_AUTHORIZED",
+                canonical_executor_id=identity.executor_id,
+                canonical_entry="worker.dispatch",
             )
 
         from veya.remote.tool_adapter import RemoteToolAdapter
