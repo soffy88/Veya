@@ -285,7 +285,8 @@ def register(master_tools: Any) -> None:
         description=(
             "Test-driven evolutionary search (sandbox MCTS). Use ONLY when (1) test_*.py already "
             "exists and (2) the user asked to search/evolve until tests pass. "
-            "Ordinary implement/fix/refactor → hicode_run. Do NOT prefer this over hicode_run. "
+            "Ordinary implement/fix/refactor → coding_task_run. Do NOT prefer this over "
+            "coding_task_run. "
             "Internally attaches a Graft map + ReasoningBank lessons, rewrites target_file if a "
             "candidate goes green. Requires target_file + at least one test_*.py."
         ),

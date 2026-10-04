@@ -236,11 +236,11 @@ def register(master_tools: object) -> None:
         name="assemble_code_context",
         description=(
             "Build a Graft code-dependency map + ReasoningBank lessons for THIS workspace. "
-            "Call BEFORE hicode_run / evolve_solution when the task touches existing code "
+            "Call BEFORE coding_task_run / evolve_solution when the task touches existing code "
             "(refactor, fix, understand callers/callees, avoid a past pitfall). "
             "Pass the user request (or the symbol/file names) as query. "
             "Does NOT write files. Empty match is normal for conceptual / non-code questions "
-            "— then answer directly or use hicode_run without a map."
+            "— then answer directly or use coding_task_run without a map."
         ),
         parameters={
             "type": "object",

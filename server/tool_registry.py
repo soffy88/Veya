@@ -3376,7 +3376,7 @@ def _register_internalized_tools(mt: Any) -> None:
         dict(
             name="agent_loop_run",
             description=(
-                "委托 omodul.AgentLoop 在隔离会话/工具面里执行一个结构化子任务, 完成后把"
+                "在一个隔离会话/工具面里执行一个结构化子任务, 完成后把"
                 "结果文本带回来 (不会暂停等你确认, 也不会污染当前对话历史)。适合: 需要自己"
                 "反复摸索多轮才能收敛的隔离子流程 (比如反复读代码+跑沙箱验证直到通过)。"
                 "多数需求应优先直接调用具体工具, 或用 project_ask 派给 hicode; 只有需要给"

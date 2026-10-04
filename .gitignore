@@ -41,6 +41,13 @@ out/
 node_modules/
 .env.local
 .env
+# Timestamped backups of secret-bearing files, e.g.
+# .env.bak-before-free-pool-providers-20260927-123436. These are copies of .env
+# with every key intact; `git status` listed one as untracked, so a `git add -A`
+# would have committed live credentials.
+.env.bak*
+.env.*.bak*
+*.env.bak*
 # System
 .DS_Store
 Thumbs.db
