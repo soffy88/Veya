@@ -2,13 +2,32 @@
 
 > 只读盘点,未修改任何源码。基线 `a32db3b0`(不含本文件)。
 
+## 0. 更正（Phase 2 期间发现）
+
+初版本报告称 `DECLARED 0` / `UNKNOWN 138`。**该结论错误**,原因是探测了不存在的
+属性 `master_tools._side_effects`,而真实声明通道是 `master_tools._tool_specs`
+(146 条 `ToolSpec`,含 `side_effect` / `effect_capability` / `operation_version`)。
+
+实测真实分布:
+
+```
+PURE_READ          39
+LOCAL_WRITE        29
+PROCESS_EXEC        7
+EXTERNAL_MUTATION   2
+UNDECLARED         69
+```
+
+即 **77/146 已声明**,其中 **38 个非只读声明全部当前 ALLOW**。
+Stage D 的爆炸半径因此是 69 个工具,而非 146。
+
 ## 1. 汇总
 
 ```
 TOTAL_TOOLS      146
-DECLARED         0
+DECLARED         77   (修正: 见 §0)
 DERIVED          8   (命中 oskill 10 条前缀表)
-UNKNOWN          138   (落到 fallback 'remote',无声明来源)
+UNKNOWN           69   (未声明,修正: 见 §0)
 CURRENT_ALLOW    146
 CURRENT_DENY     0
 CURRENT_ABSTAIN  0
@@ -43,11 +62,11 @@ adapter 在 `action_gateway_adapter.py:167` 算出的 `remote_effect` 只在
 因此 138 个工具的 effect 目前是 UNKNOWN,
 却被当作 `remote` 参与判定。
 
-### 缺陷 C — 声明通道存在但完全未使用
+### 缺陷 C — 声明通道部分使用(修正: 初版称"完全未使用")
 
 `server/tool_registry.py:123` 的 `SideEffect` 六档枚举
 (`PURE_READ/LOCAL_WRITE/PROCESS_EXEC/NETWORK_WRITE/EXTERNAL_MUTATION/PRIVILEGED`)
-实测 **0 个工具标注**;其 docstring 亦自述「目前只有 PURE_READ 被实际标注过」。
+实测 **77 个工具标注**(初版误报为 0,因探测了错误属性)。
 `veya/remote/models.py:73` 的 `EffectClass`(READ/WRITE/DESTRUCTIVE)只覆盖 remote 工具。
 
 ## 3. 仅有的 8 个 DERIVED 工具

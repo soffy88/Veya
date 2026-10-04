@@ -5,12 +5,41 @@
 > 分支：`3946a997`
 > 归因：**pre-existing**,早于本轮 15 个 commit
 
+## 0. 更正（Phase 2 期间发现,更精确且范围更窄）
+
+初版本称「没有任何工具声明 effect」/「138 个 UNKNOWN」。**该结论错误**:
+探测了不存在的 `master_tools._side_effects`,真实通道是 `master_tools._tool_specs`。
+
+实测 **77/146 已声明**(PURE_READ 39 / LOCAL_WRITE 29 / PROCESS_EXEC 7 /
+EXTERNAL_MUTATION 2),其中 **38 个非只读声明全部当前 ALLOW**。
+
+最tight的证据 —— 声明存在、进入 `ActionRequest`、然后在 `PolicyRequest` 边界被丢弃:
+
+```
+github_pr_create_draft  EXTERNAL_MUTATION -> ActionRequest.effect="remote"      -> ALLOW
+github_pr_post_review   EXTERNAL_MUTATION -> ALLOW
+veya_mission_run        PROCESS_EXEC      -> ALLOW
+coding_run_command      PROCESS_EXEC      -> ALLOW
+coding_run_tests        PROCESS_EXEC      -> ALLOW
+coding_run_lint         PROCESS_EXEC      -> ALLOW
+coding_run_typecheck    PROCESS_EXEC      -> ALLOW
+coding_build            PROCESS_EXEC      -> ALLOW
+harness_sensor_run      PROCESS_EXEC      -> ALLOW
+skill_delete            LOCAL_WRITE       -> ALLOW
+```
+
+所以断链位置比初版描述更精确:**声明一直存在并正确到达
+`ActionRequest.effect`,`_evaluate_policy` 也读到了它,但它构造的
+effect-aware `OperationContext` 在 `try` 分支成功时被丢弃**,改用不含 effect
+字段的 `PolicyRequest`。修复因此是「让 effect 跨过 `PolicyRequest` 边界」,
+而不是「先给 138 个工具补声明」。
+
 ## 1. 结论
 
 `server/action_gateway_adapter.py` 算出了正确的 effect-aware `OperationContext`,
 但在策略解析成功时**丢弃它**,改用一个**丢失了 effect 信息**的请求去问权限引擎。
-结果是 146 个已注册工具中的 138 个 —— 包括明确具破坏性与外部可见的 ——
-在没有任何一层执法的情况下获得 `ALLOW`。
+结果是所有工具 —— 包括 38 个有权威非只读声明的 —— 在没有任何一层执法的情况下
+获得 `ALLOW`;另有 69 个工具根本没有声明。
 
 这不是测试陈旧,是活的 fail-open。
 
