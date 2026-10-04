@@ -140,6 +140,10 @@ class ExecutorRuntimeState:
     reachable: bool = False
     launcher: str | None = None
     runtime_source: str = "unknown"
+    #: Projected from the identity; see ExecutorRuntimeIdentity for why these
+    #: are separate from ``authenticated``.
+    credential_present: bool = False
+    credential_valid: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -177,6 +181,16 @@ class ExecutorRuntimeIdentity:
     failure_state: str | None = None
     priority: int = 0
     provider_capabilities: frozenset[str] = frozenset()
+    #: Whether credential *material* exists — an env var or a credentials file.
+    #: This is what ``_credential_present`` answers and it is reliable, but it
+    #: says nothing about whether the credential still works.
+    credential_present: bool = False
+    #: Whether the credential was *proven* by a real authenticated call.
+    #: ``None`` means not probed, which is not the same as False and not the
+    #: same as True. Measured on 2026-10-04: three of the four executors
+    #: reporting ``authenticated=True`` failed on real contact, so a presence
+    #: check presented as authentication is a lie this field exists to prevent.
+    credential_valid: bool | None = None
 
     # ── provider reference, kept as a request rather than as state ──
     def provider_record(self) -> ProviderRecord:
@@ -223,6 +237,17 @@ class ExecutorRuntimeIdentity:
         )
 
     @property
+    def credential_proven(self) -> bool:
+        """True only when a real authenticated call proved the credential.
+
+        The distinction matters because ``authenticated`` is currently a
+        presence projection: on 2026-10-04, pi, codex and claude_code all
+        reported authenticated while failing on real contact. Consumers that
+        need "can this actually authenticate" must ask this instead.
+        """
+        return self.credential_valid is True
+
+    @property
     def capability(self) -> ExecutorCapability:
         return ExecutorCapability(
             supported_operations=self.supported_operations,
@@ -242,6 +267,8 @@ class ExecutorRuntimeIdentity:
             reachable=self.reachable,
             launcher=self.launcher,
             runtime_source=self.runtime_source,
+            credential_present=self.credential_present,
+            credential_valid=self.credential_valid,
         )
 
     @property
@@ -284,6 +311,9 @@ class ExecutorRuntimeIdentity:
             "provider": self.provider,
             "model": self.model,
             "auth_state": self.auth_state,
+            "credential_present": self.credential_present,
+            "credential_valid": self.credential_valid,
+            "credential_proven": self.credential_proven,
             "authenticated": self.authenticated,
             "reachable": self.reachable,
             "launcher": self.launcher,
@@ -480,7 +510,8 @@ class ExecutorRegistry:
             )
             launcher = _configured_launcher(executor_id) or _launcher(bins)
         reachable = launcher is not None
-        authenticated = bool(auth)
+        present = bool(auth)
+        authenticated = present
         status = (
             "READY" if reachable and authenticated else "DEGRADED" if reachable else "UNAVAILABLE"
         )
@@ -511,6 +542,11 @@ class ExecutorRegistry:
             model=model,
             provider_capabilities=frozenset(_PROVIDER_REQUIREMENTS.get(executor_id, ())),
             auth_state="AUTHENTICATED" if authenticated else "MISSING",
+            # Present is observed; valid is not. Left as None on purpose — see
+            # credential_valid — because inventing either True or False here
+            # would recreate the lie this field exists to end.
+            credential_present=present,
+            credential_valid=None,
             authenticated=authenticated,
             reachable=reachable,
             launcher=launcher,
