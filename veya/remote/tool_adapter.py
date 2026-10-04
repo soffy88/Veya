@@ -4286,7 +4286,7 @@ class RemoteToolAdapter:
             return {"path": str(target), "profile": profile.to_dict()}
         if name == "runtime.capabilities":
             target = self._resolve_in(policy, base, args.get("path") or ".", must_exist=True)
-            from veya.remote.runtime_profile import discover_runtime_profile
+            from veya.remote.runtime_profile import ExecutionDomain, discover_runtime_profile
 
             profile = discover_runtime_profile(str(target))
             caps = {
@@ -4300,13 +4300,13 @@ class RemoteToolAdapter:
                 "uv": profile.uv,
                 "docker": profile.docker,
                 "service_capabilities": list(profile.service_capabilities),
-                "available_domains": ["L0_WORKSPACE_FULL", "L0_ISOLATED", "L0_HOST"],
-                "available_targets": [
-                    "NEW_ISOLATED_WORKTREE",
-                    "EXISTING_WORKTREE",
-                    "CANONICAL_WORKTREE",
-                    "HOST",
-                ],
+                "available_domains": [str(domain.value) for domain in ExecutionDomain],
+                # Derived from the one authority that resolves targets, not a
+                # hand-maintained list. The literal this replaced named four of
+                # the five targets in EXECUTION_TARGETS and omitted
+                # EXECUTION_WORKTREE, so a caller reading the advertised surface
+                # could not see a target it was allowed to ask for.
+                "available_targets": list(EXECUTION_TARGETS),
                 "profile_hash": profile.profile_hash,
             }
             return {"path": str(target), "capabilities": caps}
