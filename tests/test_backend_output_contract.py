@@ -30,6 +30,26 @@ from server.backends import (
 SHAPE = {"ok", "backend", "output", "output_truncated", "error", "error_truncated", "duration_s"}
 
 
+def _stub_coordinator(monkeypatch, output: str) -> None:
+    """Swap the coordinator for a stub without touching the shared singleton.
+
+    ``_run_builtin`` does a function-local ``from server.coordinator_master
+    import master_coordinator``, so replacing the module attribute is enough and
+    the real coordinator's own ``chat_stream`` is never overwritten. Mutating
+    the singleton instead leaked into a later suite member:
+    test_stream_pump_mirrors_events_for_logged_in_user passed alone and failed
+    whenever this module ran first.
+    """
+
+    class _Stub:
+        async def chat_stream(self, prompt: str, model: str | None = None):
+            return {"status": "success", "output": output}
+
+    import server.coordinator_master as coordinator_module
+
+    monkeypatch.setattr(coordinator_module, "master_coordinator", _Stub())
+
+
 def _available_command() -> list[str]:
     assert shutil.which(sys.executable)
     return [sys.executable]
@@ -85,12 +105,7 @@ async def test_every_run_branch_emits_the_same_keys():
 async def test_a_long_answer_is_marked_rather_than_silently_clipped(monkeypatch):
     """Driven through run() so a branch cannot bypass the shared capping."""
 
-    from server.coordinator_master import master_coordinator
-
-    async def _long(prompt: str, model: str | None = None):
-        return {"status": "success", "output": "A" * (OUTPUT_LIMIT + 500)}
-
-    monkeypatch.setattr(master_coordinator, "chat_stream", _long)
+    _stub_coordinator(monkeypatch, "A" * (OUTPUT_LIMIT + 500))
     registry = BackendRegistry()
 
     result = await registry.run("master", "hi", timeout_s=10)
@@ -104,12 +119,7 @@ async def test_a_long_answer_is_marked_rather_than_silently_clipped(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_a_short_answer_is_not_flagged(monkeypatch):
-    from server.coordinator_master import master_coordinator
-
-    async def _short(prompt: str, model: str | None = None):
-        return {"status": "success", "output": "all good"}
-
-    monkeypatch.setattr(master_coordinator, "chat_stream", _short)
+    _stub_coordinator(monkeypatch, "all good")
     result = await BackendRegistry().run("master", "hi", timeout_s=10)
 
     assert result["output_truncated"] is False
