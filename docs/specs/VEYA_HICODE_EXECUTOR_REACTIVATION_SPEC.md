@@ -36,7 +36,7 @@ server/hicode_agent.py                已删除,仅存 legacy/
 server/hicode_runtime.py              已删除
 legacy/executors/hicode/              归档,禁止复活为实现
 deploy/hicode-entrypoint.sh           引用已删模块,脚本本身已死
-HICODE_MANAGED_PYTHON (宿主)         /home/soffy/.veya/hicode-runtime 不存在
+HICODE_MANAGED_PYTHON (宿主)         /home/soffy/.veya/hicode-runtime 存在但无 runtime(见 P0.5 §12)
 which hicode                          无
 provider-registry.json                "hicode": {..., "retired": true, "Do not re-admit."}
 ```
@@ -80,7 +80,21 @@ SF-HICODE (本 Spec)                →  再落地
 
 ### P0 — 只读考古与清单
 
-从 `b7b1a7d4`(退役 commit)之前的最后可用状态提取:
+> **P0.5 修正(2026-10-04,权威)**
+>
+> 原定提取源 `b7b1a7d4^` **判定为 INVALID** —— 该状态的 `_KNOWN` 已不含 hicode。
+> 真实最后可用基线为 **`937184cd^`**。
+>
+> ```text
+> HICODE_LAST_REAL_AVAILABLE_BASELINE = 937184cd^
+> ```
+>
+> 依据:`HICODE_REACTIVATION_P0_5_ARCHITECTURE_AND_RUNTIME_GATE_SPEC` §3
+> 与 `docs/qualification/hicode-p0-5/BASELINE.json`。
+> 审计结果见 `docs/reports/HICODE_REACTIVATION_AUDIT.md`(P0)与
+> `docs/reports/HICODE_REACTIVATION_P0_5_DECISION.md`(P0.5)。
+
+从 `937184cd^`(最后真实可用基线)提取:
 
 ```text
 旧实现依赖的模块清单

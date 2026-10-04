@@ -1,0 +1,84 @@
+{
+  "schema": "hicode_p0_5_baseline/v1",
+  "generated_at": "2026-10-04",
+  "generated_by": "SF-HICODE P0.5-A",
+  "authoritative": true,
+  "baseline": {
+    "name": "HICODE_LAST_REAL_AVAILABLE_BASELINE",
+    "commit": "937184cd^",
+    "full_ref": "937184cd^",
+    "observed_known_tuple": ["pi", "hicode", "codex", "antigravity", "opencode", "dsh"],
+    "source": "git show 937184cd^:veya/remote/executor_registry.py",
+    "reason": "Last observed state in which hicode is present in ExecutorRegistry._KNOWN."
+  },
+  "rejected_baseline": {
+    "commit": "b7b1a7d4^",
+    "full_ref": "bb90ff90",
+    "status": "INVALID",
+    "observed_known_tuple": [
+      "pi",
+      "codex",
+      "antigravity",
+      "opencode",
+      "claude_code",
+      "dsh",
+      "grok",
+      "acp"
+    ],
+    "source": "git show bb90ff90:veya/remote/executor_registry.py",
+    "reason": "hicode absent from _KNOWN. Using it would build P1 on a state that never worked.",
+    "note": "The original spec section 4 named this as the extraction source."
+  },
+  "removal_chain": [
+    {
+      "seq": 1,
+      "date": "2026-09-28",
+      "commit": "937184cd",
+      "subject": "feat(registry): land canonical Local2 executor registry (Phase A)",
+      "event": "hicode removed from _KNOWN",
+      "evidence": "git log -S'\"hicode\",' -- veya/remote/executor_registry.py",
+      "effect": "registration disappeared; implementation files still in server/"
+    },
+    {
+      "seq": 2,
+      "date": "2026-10-02",
+      "commit": "b7b1a7d4",
+      "subject": "refactor(hicode): retire the Hicode executor surface into legacy/",
+      "event": "implementation archived into legacy/",
+      "evidence": "git show --stat b7b1a7d4 -> 15 files changed, 0 insertions(+), 0 deletions(-)",
+      "effect": "pure file move; no behavioural change"
+    }
+  ],
+  "separation_finding": "hicode left in two independent events five days apart. The retirement commit was not the point at which hicode stopped being registered.",
+  "implementation_surface_at_baseline": {
+    "modules": 7,
+    "total_lines": 3340,
+    "location": "server/hicode_*.py",
+    "files": [
+      {"name": "hicode_agent.py", "lines": 1326},
+      {"name": "hicode_runtime.py", "lines": 839},
+      {"name": "hicode_queue.py", "lines": 433},
+      {"name": "hicode_serve.py", "lines": 344},
+      {"name": "hicode_cooldown.py", "lines": 207},
+      {"name": "hicode_managed_entry.py", "lines": 110},
+      {"name": "hicode_host_boundary.py", "lines": 81}
+    ]
+  },
+  "executor_kind_at_baseline": {
+    "value": "internal_hicode",
+    "capabilities": [],
+    "source": "git show 937184cd^:veya/remote/executor_registry.py",
+    "note": "Not l1_worker. capabilities is an empty frozenset, so hicode never went through WORKER_CAPABILITIES."
+  },
+  "credential_truth_at_baseline": {
+    "authenticated_expression": "bool(provider and model)",
+    "source": "git show 937184cd^:veya/remote/executor_registry.py _discover() hicode branch",
+    "verdict": "FALSE_POSITIVE_CLASS_3",
+    "reason": "authentication was inferred from the presence of a provider/model mapping, with no relation to credentials"
+  },
+  "verification": {
+    "method": "git show / git grep against historical trees",
+    "mutating_operations": 0,
+    "source_changes": 0
+  }
+}

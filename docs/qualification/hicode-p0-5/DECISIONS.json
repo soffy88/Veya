@@ -1,0 +1,210 @@
+{
+  "schema": "hicode_p0_5_decisions/v1",
+  "generated_at": "2026-10-04",
+  "generated_by": "SF-HICODE P0.5-A..I",
+  "predecessor": "8c426cfb",
+  "overall_result": "ARCHITECTURE_READY_BUT_RUNTIME_BLOCKED",
+  "p1_status": "BLOCKED",
+  "source_changes": 0,
+  "acceptance_gates": {
+    "G1_historical_baseline": {
+      "status": "PASS",
+      "value": "HICODE_LAST_REAL_AVAILABLE_BASELINE = 937184cd^",
+      "evidence": "git show 937184cd^:veya/remote/executor_registry.py | sed -n '/^_KNOWN = (/,/^)/p'"
+    },
+    "G2_namespace": {
+      "status": "BLOCKED_BY_RUNTIME",
+      "value": null,
+      "reason": "worker, health and receipt interfaces cannot be confirmed without a launchable runtime",
+      "unblock_requires": [
+        "managed Reasonix runtime exists and launches (R0 -> R4)",
+        "measure the worker boundary on that runtime",
+        "measure whether health can be probed without executing a task",
+        "rule on whether the in_process_substrate bypass semantics need a hicode variant"
+      ]
+    },
+    "G3_credential_model": {
+      "status": "PASS",
+      "value": "Model B (runtime-owned), Model A limited to the observable subset",
+      "evidence": "docs/reports/HICODE_CREDENTIAL_MODEL.md"
+    },
+    "G4_fault_domain": {
+      "status": "PASS",
+      "value": {
+        "fault_domain_id": "FD-GEMINI-UPSTREAM",
+        "shared_fault_domain": true,
+        "diversity_rules": ["FD-1", "FD-2", "FD-3", "FD-4"]
+      },
+      "evidence": "config/hicode_model_mapping.json internal_provider=antigravity"
+    },
+    "G5_legacy_failure_semantics": {
+      "status": "PASS",
+      "value": "EMPTY_MODEL_RESPONSE must not be restored from legacy; map to ProviderFailureClass.PROVIDER_MODEL_UNAVAILABLE if ever needed",
+      "evidence": "absent from all three canonical failure enums; sole remaining reference is a free-form string literal in tests/test_p0_observability.py:281"
+    },
+    "G6_effect_classification": {
+      "status": "PASS",
+      "value": "4 of 7 tools have no effect declaration; UNKNOWN != READ; not eligible for privileged admission",
+      "blocker_id": "HICODE_EFFECT_CLASSIFICATION_BLOCKER",
+      "evidence": "git show 937184cd^:server/hicode_agent.py _read_only"
+    },
+    "G7_runtime": {
+      "status": "BLOCKED",
+      "gate_state": "R0",
+      "required": "R4",
+      "evidence": "docs/qualification/hicode-p0-5/RUNTIME_EVIDENCE.json"
+    }
+  },
+  "decisions": {
+    "D1_executor_namespace": {
+      "status": "BLOCKED_BY_RUNTIME",
+      "rejected": {
+        "N1_standard_l1_worker": "Forbidden by constraint 14. l1_worker carries no distinct semantics, and routing hicode through in_process_substrate would bypass capability, authenticated and health checks (veya/supervision/runner.py:201).",
+        "N2_internal_executor": "Cannot be affirmed without runtime: worker, health and receipt interfaces unconfirmed.",
+        "N3_provider_backed": "Partially observable from config.toml, but probe semantics unconfirmed without runtime.",
+        "N4_composite": "Cannot be affirmed without runtime: sub-execution boundary and fault isolation semantics unconfirmed."
+      },
+      "historical_value": "internal_hicode",
+      "current_namespace_values": ["l1_worker", "in_process_substrate"],
+      "note": "internal_hicode and fault_domain have no counterpart in current code. fault_domain is newly defined by this phase."
+    },
+    "D2_credential_ownership": {
+      "status": "DECIDED",
+      "answers": {
+        "Q1_who_holds_the_credential": "The runtime, and it differs per provider. config.toml holds references, never secrets.",
+        "Q2_does_runtime_self_acquire": "No. cliproxy-google has no api_key_env and receives no Authorization header; opencode-go references an env var name and passes it through. No evidence of runtime-side OAuth acquisition.",
+        "Q3_does_proxy_handle_auth": "Yes for cliproxy-google, whose base_url is the local endpoint http://127.0.0.1:10100/v1.",
+        "Q4_can_registry_observe_validity": "No. Three obstacles: runtime exposes no credential state, veya holds no credential source by design, and no runtime exists to call.",
+        "Q5_must_probe_go_through_runtime": "Yes for cliproxy-google (no independent credential, so a bypass cannot distinguish invalid credential from absent passthrough). No for opencode-go.",
+        "Q6_who_proves_authenticated": "The runtime, via one genuinely completed request. No local evidence can substitute."
+      },
+      "fields": {
+        "credential_owner": "runtime",
+        "credential_source": "api_key_env name or local proxy",
+        "credential_present": "NOT_APPLICABLE",
+        "credential_valid": "runtime authentication evidence",
+        "credential_fresh": "UNVERIFIED",
+        "credential_transport": "runtime -> proxy -> provider"
+      }
+    },
+    "D3_credential_truthfulness_integration": {
+      "status": "DECIDED",
+      "third_false_positive_class": {
+        "mechanism": "authenticated = bool(provider and model)",
+        "source": "git show 937184cd^:veya/remote/executor_registry.py _discover() hicode branch",
+        "verdict": "False authentication with no relation to credentials at all — weaker than both classes SF-CRED already fixed."
+      },
+      "eligibility_requires": ["credential truth", "health truth", "capability truth"],
+      "hicode_currently_satisfies": [],
+      "note": "All three are unsatisfiable without a runtime, which is STOP condition 4."
+    },
+    "D4_antigravity_shared_fault_domain": {
+      "status": "DECIDED",
+      "fault_domain_id": "FD-GEMINI-UPSTREAM",
+      "shared_fault_domain": true,
+      "shared_resources": {
+        "upstream_model_family": "SHARED",
+        "internal_provider": "SHARED",
+        "network_endpoint": "PARTIAL",
+        "credential": "UNVERIFIED",
+        "provider_quota": "INFERRED_SHARED",
+        "rate_limit": "INFERRED_SHARED",
+        "authentication": "UNVERIFIED"
+      },
+      "independence_requires_positive_evidence": true,
+      "positive_evidence_found": false,
+      "diversity_rules": {
+        "FD-1": "Hicode and Antigravity share FD-GEMINI-UPSTREAM and must not be counted as two independent candidates in one failover chain.",
+        "FD-2": "Selection must drop already-failed candidates of the same fault domain first; if none remain, report DOMAIN_EXHAUSTED rather than retrying within the domain.",
+        "FD-3": "Receipts must record fault_domain_id; repeated failures within one domain must not accumulate as independent failover successes.",
+        "FD-4": "A shared-domain candidate expresses preference in preferred_executor, never exclusivity."
+      }
+    },
+    "D5_empty_model_response": {
+      "status": "REJECTED_RESTORE",
+      "producer_exists": false,
+      "canonical_failure_class_exists": false,
+      "verifier_consumer_exists": false,
+      "receipt_consumer_exists": "semantically false; observability accepts arbitrary code strings",
+      "canonical_mapping_if_ever_needed": "ProviderFailureClass.PROVIDER_MODEL_UNAVAILABLE",
+      "rejected_alternative": "ExecutorFailureClass.MODEL_FAILURE — places blame on the executor layer, but an empty response occurs at the provider layer.",
+      "copy_legacy_implementation": false
+    },
+    "D6_tool_effect_classification": {
+      "status": "DECIDED",
+      "tool_count": 7,
+      "pure_read": ["hicode_sessions", "hicode_status", "hicode_tasks"],
+      "no_effect_declaration": ["hicode_run", "hicode_rollback", "hicode_review", "hicode_stop"],
+      "not_tools": {
+        "contextvars": ["hicode_bound_workspace", "hicode_bound_execution_id"],
+        "event_types": ["hicode_progress"]
+      },
+      "rule": "UNKNOWN != READ",
+      "until_sf001_closed": "not eligible for privileged admission",
+      "blocker_id": "HICODE_EFFECT_CLASSIFICATION_BLOCKER",
+      "fixes_sf001": false
+    },
+    "D7_registered_vs_available_vs_usable": {
+      "status": "DECIDED",
+      "definitions": {
+        "REGISTERED": "ExecutorRegistry holds an identity",
+        "AVAILABLE": "runtime exists and health passes",
+        "USABLE": "capability, credential truth, policy, permission, admission and provider path all pass"
+      },
+      "rule": "A registry entry alone must never make Hicode a failover candidate."
+    },
+    "D8_failover_eligibility": {
+      "status": "DECIDED",
+      "rule": "ExecutorRegistry.select() requires REGISTERED and AVAILABLE and USABLE",
+      "preferred_executor_semantics": "preference only, never force"
+    }
+  },
+  "forbidden_paths": [
+    "provider && model -> authenticated=True",
+    "credential file exists -> authenticated=True",
+    "not probed -> authenticated=True",
+    "UNKNOWN effect -> treated as READ",
+    "register as l1_worker before D1 is unblocked",
+    "fake worker or stub runtime as L2 qualification",
+    "restoring EMPTY_MODEL_RESPONSE from legacy",
+    "counting Hicode and Antigravity as independent failover candidates"
+  ],
+  "p1_entry_contract": {
+    "HICODE_EXECUTOR_KIND": "BLOCKED_BY_RUNTIME",
+    "HICODE_CAPABILITIES": "UNKNOWN",
+    "HICODE_CREDENTIAL_MODEL": "Model B",
+    "HICODE_HEALTH_MODEL": "UNKNOWN",
+    "HICODE_FAULT_DOMAIN": "FD-GEMINI-UPSTREAM",
+    "HICODE_RUNTIME_ID": "NOT_FOUND",
+    "HICODE_RUNTIME_VERSION": "NOT_FOUND",
+    "HICODE_PROVIDER_BINDING": "PARTIAL_OBSERVED cliproxy-google @ http://127.0.0.1:10100/v1",
+    "HICODE_EFFECT_CLASSIFICATION": "BOUNDARY_RECORDED, 4 tools still UNKNOWN",
+    "marked_not_applicable": [],
+    "p1_blocked": true
+  },
+  "stop_conditions_met": [
+    {"id": 1, "text": "L2 runtime 不存在", "met": true},
+    {"id": 2, "text": "runtime manifest 不存在", "met": true},
+    {"id": 4, "text": "credential validity 无法获得真实证据", "met": true},
+    {"id": 5, "text": "Hicode namespace 无法确定", "met": true}
+  ],
+  "stop_conditions_not_met": [
+    {"id": 6, "text": "Antigravity fault domain 无法确定", "met": false, "note": "decided in D4"},
+    {"id": 7, "text": "legacy code 成为实现前提", "met": false},
+    {"id": 8, "text": "Hicode effect 被默认为 READ", "met": false},
+    {"id": 9, "text": "需要修改 PermissionEngine 才能继续", "met": false},
+    {"id": 10, "text": "需要绕过 ExecutorRegistry 才能继续", "met": false},
+    {"id": 11, "text": "需要伪造 health/auth 才能继续", "met": false}
+  ],
+  "required_external_prerequisite": "An executable managed Reasonix runtime plus canonical manifest satisfying all nine P0.5 section 15 fields, placed at the location HICODE_MANAGED_PYTHON points to. On arrival, re-run P0.5-G and P0.5-H. G1, G3, G4, G5, G6 decisions do not need redoing.",
+  "deliverables": [
+    "docs/reports/HICODE_REACTIVATION_P0_5_DECISION.md",
+    "docs/reports/HICODE_RUNTIME_GATE.md",
+    "docs/reports/HICODE_CREDENTIAL_MODEL.md",
+    "docs/reports/HICODE_FAULT_DOMAIN.md",
+    "docs/qualification/hicode-p0-5/DECISIONS.json",
+    "docs/qualification/hicode-p0-5/RUNTIME_EVIDENCE.json",
+    "docs/qualification/hicode-p0-5/BASELINE.json",
+    "docs/specs/VEYA_HICODE_EXECUTOR_REACTIVATION_SPEC.md"
+  ]
+}

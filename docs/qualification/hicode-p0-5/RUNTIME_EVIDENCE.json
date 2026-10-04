@@ -1,0 +1,158 @@
+{
+  "schema": "hicode_p0_5_runtime_evidence/v1",
+  "generated_at": "2026-10-04",
+  "generated_by": "SF-HICODE P0.5-G / P0.5-H",
+  "gate_state": "R0",
+  "gate_state_meaning": "NOT_FOUND",
+  "p1_prerequisite": "R4",
+  "p1_prerequisite_met": false,
+  "discovery_mode": "read_only",
+  "mutating_operations": 0,
+  "install_attempted": false,
+  "network_downloads": 0,
+  "source_changes": 0,
+  "inherited_claim_correction": {
+    "claim": "HICODE_MANAGED_PYTHON /home/soffy/.veya/hicode-runtime 不存在",
+    "claim_source": "docs/specs/VEYA_HICODE_EXECUTOR_REACTIVATION_SPEC.md section 1, restated in docs/reports/HICODE_REACTIVATION_AUDIT.md",
+    "observed": "EXISTS",
+    "observed_detail": "directory present since Sep 27 06:51, 20K total, contains only reasonix-home/.reasonix/config.toml and an empty state/ directory",
+    "corrected_statement": "The runtime directory exists but contains no runtime artifacts. R0 refers to the runtime itself being NOT_FOUND, not to the parent directory being absent.",
+    "significance": "The config.toml in this 'non-existent' directory is the primary evidence for the credential model decision (G3)."
+  },
+  "locations_probed": [
+    {
+      "path": "/home/soffy/.veya/hicode-runtime",
+      "result": "EXISTS_NO_RUNTIME",
+      "size": "20K",
+      "contents": ["reasonix-home/.reasonix/config.toml", "state/ (empty)"],
+      "evidence_cmd": "ls -laR; du -sh; find -maxdepth 4"
+    },
+    {
+      "path": "/home/soffy/.veya/hicode-runtime-managed",
+      "result": "EXISTS_EMPTY",
+      "size": "4.0K",
+      "contents": [],
+      "note": "Not named in the original spec. Discovered during discovery."
+    },
+    {
+      "path": "/home/soffy/.veya/reasonix-workspace",
+      "result": "NOT_A_RUNTIME",
+      "size": "716K",
+      "contents": ["hello.py", "host_test.py", "monitor_server.py", ".git/"],
+      "note": "User git workspace, not a managed runtime."
+    },
+    {
+      "path": "/home/soffy/.cache/reasonix",
+      "result": "PROBE_CACHE_ONLY",
+      "size": "12K",
+      "contents": ["environment/probes-865a87c907f40e47.json"],
+      "probed_binaries_found": ["docker", "git", "make", "node", "npm", "python", "python3", "rg"],
+      "probed_binaries_missing": ["cargo", "go", "rustc"],
+      "reasonix_in_probe_list": false,
+      "stored_at": "2026-09-21T07:27:09.725279411Z"
+    },
+    {
+      "path": "/data/soffy/projects",
+      "result": "NOT_FOUND",
+      "detail": "no *hicode* or *reasonix* directories"
+    },
+    {
+      "path": "PATH",
+      "result": "NOT_ON_PATH",
+      "detail": "command -v hicode and command -v reasonix both empty"
+    },
+    {
+      "path": "systemd user environment",
+      "result": "NO_UNITS",
+      "detail": "systemctl --user list-units --all has no hicode or reasonix unit"
+    },
+    {
+      "path": "container filesystem",
+      "result": "NOT_PROBED",
+      "reason": "no running hicode container; no image evidence. Probe not attempted since it would require starting containers, which exceeds read-only discovery."
+    }
+  ],
+  "executable_search": {
+    "cmd": "find /home/soffy/.cache/reasonix /home/soffy/.veya -maxdepth 4 -type f -executable",
+    "matches": ["/home/soffy/.veya/bin/vtracer"],
+    "runtime_matches": [],
+    "note": "vtracer is a vision-tracing utility, unrelated to reasonix."
+  },
+  "manifest_requirements": {
+    "spec_section": 15,
+    "fields": {
+      "runtime_id": "NOT_FOUND",
+      "runtime_version": "NOT_FOUND",
+      "binary_path": "NOT_FOUND",
+      "manifest_path": "NOT_FOUND",
+      "supported_protocol": "NOT_FOUND",
+      "proxy_configuration": "PARTIAL_OBSERVED",
+      "provider_binding": "PARTIAL_OBSERVED",
+      "credential_ownership": "UNVERIFIED",
+      "health_endpoint_or_probe": "NOT_FOUND"
+    },
+    "unrelated_manifests_found": [
+      "/home/soffy/.veya/skills/spec-pack/manifest.json",
+      "/home/soffy/.veya/skills/ecc_doc_updater/manifest.json",
+      "/home/soffy/.veya/vision-artifacts/smoke-session/ocr_1786926437/manifest.json",
+      "/home/soffy/.veya/.veya/runs/cap-probe-draft/artifact_manifest.json"
+    ],
+    "historical_requirement_source": "git show 937184cd^:server/hicode_runtime.py resolve_binary() requires version, binary and commit all present, else HICODE_RUNTIME_INCOMPATIBLE"
+  },
+  "gate_criteria": {
+    "runtime_executable_exists": "NOT_FOUND",
+    "runtime_version_identifiable": "NOT_FOUND",
+    "manifest_exists": "NOT_FOUND",
+    "manifest_matches_runtime": "NOT_FOUND",
+    "runtime_can_launch": "NOT_TESTABLE",
+    "runtime_can_report_health": "NOT_TESTABLE",
+    "runtime_can_reach_proxy_or_provider": "NOT_TESTABLE"
+  },
+  "probes_not_executed": {
+    "P0.5-H_runtime_health_probe": {
+      "executed": false,
+      "reason": "no launchable runtime exists; section 16 forbids substituting binary --version, and fabricating a probe would violate constraints 12 and 16"
+    },
+    "P0.5-H_provider_probe": {
+      "executed": false,
+      "reason": "section 17 requires NO MOCK / NO STUB / NO SYNTHETIC SUCCESS through runtime to proxy to provider; no runtime to traverse that chain"
+    }
+  },
+  "proxy_ports": {
+    "observed": [
+      {"port": 10100, "bind": "127.0.0.1", "state": "LISTEN", "holder": "bun.exe pid=2966", "relevance": "cliproxy-google base_url in config.toml"},
+      {"port": 10101, "bind": "0.0.0.0", "state": "LISTEN", "holder": "python3 pid=2982", "relevance": "historical HICODE_PROXY_UPSTREAM target"}
+    ],
+    "not_listening": [
+      {"port": 10103, "relevance": "historical HICODE_PROXY_PORT — hicode's own proxy process is also absent"}
+    ]
+  },
+  "runtime_config_observed": {
+    "path": "/home/soffy/.veya/hicode-runtime/reasonix-home/.reasonix/config.toml",
+    "redacted": true,
+    "providers": [
+      {
+        "name": "cliproxy-google",
+        "kind": "openai",
+        "base_url": "http://127.0.0.1:10100/v1",
+        "model": "gemini-pro-agent",
+        "api_key_env": null,
+        "credential_implication": "runtime holds no credential; authentication delegated to the local proxy"
+      },
+      {
+        "name": "opencode-go",
+        "kind": "openai",
+        "base_url": "https://opencode.ai/zen/go/v1",
+        "model": "deepseek-v4-flash",
+        "api_key_env": "<REDACTED len=16, environment variable NAME not a secret>",
+        "credential_implication": "runtime references an env var name; credential supplied by process environment"
+      }
+    ],
+    "significance": "Primary evidence for the Model B credential decision. Runtime-side config holds references, never secrets."
+  },
+  "stop_conditions_met": [
+    {"id": 1, "text": "L2 runtime 不存在", "met": true},
+    {"id": 2, "text": "runtime manifest 不存在", "met": true}
+  ],
+  "required_external_prerequisite": "An executable managed Reasonix runtime plus its canonical manifest satisfying all nine P0.5 section 15 fields, placed at the location HICODE_MANAGED_PYTHON points to. On arrival, P0.5-G and P0.5-H must be re-run."
+}
