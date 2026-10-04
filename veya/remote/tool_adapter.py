@@ -4631,12 +4631,24 @@ class RemoteToolAdapter:
 
             journal = ObservationJournal(auto_dir / "journal.jsonl")
             obs = [o.to_dict() for o in journal.query(mission_id, limit=limit)]
+            body: dict[str, Any] = {"observations": obs}
+            if journal.unreadable_records:
+                # A damaged append-only journal must not read as "this mission
+                # observed nothing".
+                return self._fail(
+                    name,
+                    session,
+                    RemoteErrorCode.EXECUTION_FAILED,
+                    f"{journal.unreadable_records} observation record(s) could not be decoded"
+                    f" ({journal.last_load_error})",
+                    result=body,
+                )
             return RemoteCallResult(
                 ok=True,
                 tool=name,
                 session_id=session.session_id,
                 workspace=session.active_workspace,
-                result={"observations": obs},
+                result=body,
                 duration_ms=(time.time() - started) * 1000,
             )
 

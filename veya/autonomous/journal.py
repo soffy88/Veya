@@ -26,6 +26,12 @@ class ObservationJournal:
         self._observations: list[Observation] = []
         self._by_id: dict[str, Observation] = {}
         self._by_dedup: dict[tuple[str, str], str] = {}  # (mission_id, dedup_key) -> obs_id
+        #: Lines the journal could not decode, and the last decode error. An
+        #: append-only log that silently drops unreadable records reads as a
+        #: journal that never recorded them, so the damage is counted and kept
+        #: rather than swallowed.
+        self.unreadable_records = 0
+        self.last_load_error: str | None = None
         if self._path and self._path.exists():
             self._load()
 
@@ -40,19 +46,27 @@ class ObservationJournal:
                 try:
                     data = json.loads(line)
                     obs = Observation.from_dict(data)
-                    self._observations.append(obs)
-                    self._by_id[obs.observation_id] = obs
-                    if obs.dedup_key:
-                        self._by_dedup[(obs.mission_id, obs.dedup_key)] = obs.observation_id
-                except Exception:
+                except Exception as exc:
+                    self.unreadable_records += 1
+                    if self.last_load_error is None:
+                        self.last_load_error = f"{type(exc).__name__}: {exc}"
                     continue
+                self._observations.append(obs)
+                self._by_id[obs.observation_id] = obs
+                if obs.dedup_key:
+                    self._by_dedup[(obs.mission_id, obs.dedup_key)] = obs.observation_id
 
     def _persist(self, obs: Observation) -> None:
         if not self._path:
             return
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Opened per record and flushed, so a record that reaches the file is a
+        # whole line. A long-lived handle left unflushed lost whatever the last
+        # buffered writes were when the process died, which for an append-only
+        # journal means the observation never existed.
         with open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(obs.to_dict(), ensure_ascii=False) + "\n")
+            f.flush()
 
     def append(
         self,
