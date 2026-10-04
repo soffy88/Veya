@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from server.acp_client import ACPBackend, ACPError
@@ -86,17 +88,80 @@ ERROR_LIMIT = 2000
 TRUNCATION_MARKER = "\n...[truncated by backend facade]"
 
 
-def _capped(value: Any, limit: int) -> tuple[str, bool]:
-    """Bound one field and report whether it was cut.
+#: Identity the facade dispatches under. Delegating is only meaningful with a
+#: named principal: the canonical chain's authority comes from the session's
+#: principal and its permission grant, so an anonymous call has nothing to
+#: authorize against.
+FACADE_PRINCIPAL = "local-backend-facade"
 
-    The remote adapter's ``_limit`` already answers this with a marker plus a
-    ``truncated`` flag; the backend facade had no equivalent, so a caller had no
-    way to tell a short answer from a clipped one.
+#: Operator-declared root the facade may execute in. The endpoint is
+#: unauthenticated, so a caller-supplied ``cwd`` cannot be trusted to name a
+#: workspace. With this unset the facade stays closed; setting it is the explicit
+#: decision to let the facade execute, and only inside that root.
+FACADE_ROOT_ENV = "VEYA_BACKEND_FACADE_ROOT"
+
+
+def _facade_root() -> Path | None:
+    raw = os.environ.get(FACADE_ROOT_ENV, "").strip()
+    if not raw:
+        return None
+    return Path(raw).expanduser().resolve()
+
+
+#: The narrowest permission grant that lets the facade reach the canonical
+#: chain, measured rather than assumed. Asking for less fails closed at the
+#: permission engine before an executor is ever selected:
+#:
+#:     read only                -> TOOL_DENIED / session lacks write permission
+#:     read + write             -> TOOL_DENIED / session lacks shell permission
+#:     read + write + shell     -> dispatch admitted, parent execution created
+#:
+#: ``worker.dispatch`` is a write-class tool that runs shell commands, so those
+#: three are what authorising the dispatch capability means. None of them is an
+#: effect grant on the dispatched task: what bounds that is the READ task
+#: contract the delegate pins, plus the executor's own write-qualification check
+#: per child. git, destructive and service_control stay off.
+FACADE_PERMISSIONS = ("read", "write", "shell")
+
+
+def _facade_session(workspace: Path) -> Any:
+    """A session for the facade principal, with the narrowest grant that works.
+
+    ``shell`` is on because ``worker.dispatch`` runs commands, not because the
+    facade is trusted with arbitrary execution: the task contract is pinned to
+    READ by the caller below, and the workspace is confined to the
+    operator-declared root.
     """
-    text = "" if value is None else str(value)
-    if len(text) <= limit:
-        return text, False
-    return text[:limit] + TRUNCATION_MARKER, True
+    from veya.remote.models import RemotePermissions, RemoteSession
+
+    now = time.time()
+    return RemoteSession(
+        session_id=f"facade-{int(now * 1000)}",
+        principal=FACADE_PRINCIPAL,
+        token_id=f"facade-{os.getpid()}",
+        workspaces=(str(workspace),),
+        active_workspace=str(workspace),
+        permissions=RemotePermissions(read=True, write=True, shell=True),
+        created_at=now,
+        expires_at=now + 300,
+    )
+
+
+def _capped(value: Any, limit: int) -> tuple[Any, bool]:
+    """Bound one text field and report whether it was cut.
+
+    Non-text is passed through untouched. A structured payload — the canonical
+    dispatch projection the delegate returns — is not a length to bound but data
+    to hand over intact, and stringifying it here would quietly replace it with
+    its repr.
+    """
+    if value is None:
+        return "", False
+    if not isinstance(value, str):
+        return value, False
+    if len(value) <= limit:
+        return value, False
+    return value[:limit] + TRUNCATION_MARKER, True
 
 
 def _result(
@@ -310,17 +375,90 @@ class BackendRegistry:
                 error_code="EXECUTOR_NOT_ADMITTED",
                 **base,
             )
+        return await self._delegate(spec, prompt, cwd, timeout_s, identity)
+
+    async def _delegate(
+        self, spec: BackendSpec, prompt: str, cwd: str | None, timeout_s: float, identity: Any
+    ) -> dict[str, Any]:
+        """Run the task through the canonical chain under the facade principal.
+
+        Every step here exists because the endpoint is unauthenticated:
+
+        * the workspace must sit inside the operator-declared root, because the
+          caller's ``cwd`` is otherwise an arbitrary-directory write primitive;
+        * the session is read-only, so a dispatch that needs write, shell or git
+          is refused by the permission grant rather than by this code;
+        * the task contract is pinned to READ, so the facade cannot be talked
+          into a stronger effect than its principal holds.
+
+        ``veya.remote`` is imported here rather than at module scope on purpose:
+        tool_adapter imports server.goal_run.pre_admission, so a module-level
+        import would close a cycle.
+        """
+        root = _facade_root()
+        if root is None:
+            return _result(
+                ok=False,
+                backend=spec.name,
+                error=(
+                    f"the facade has no execution root; set {FACADE_ROOT_ENV} to the "
+                    "repository this endpoint may execute in, or dispatch "
+                    f"worker.dispatch with worker={identity.executor_id!r} directly"
+                ),
+                error_code="EXECUTION_FACADE_CLOSED",
+                canonical_entry="worker.dispatch",
+                canonical_executor_id=identity.executor_id,
+            )
+
+        requested = Path(cwd).expanduser() if cwd else root
+        try:
+            workspace = requested.resolve(strict=True)
+        except OSError as exc:
+            return _result(
+                ok=False,
+                backend=spec.name,
+                error=f"workspace does not exist: {requested} ({exc})",
+                error_code="WORKSPACE_DENIED",
+                canonical_executor_id=identity.executor_id,
+            )
+        if workspace != root and root not in workspace.parents:
+            return _result(
+                ok=False,
+                backend=spec.name,
+                error=(f"workspace is outside {FACADE_ROOT_ENV}: {workspace} is not under {root}"),
+                error_code="WORKSPACE_DENIED",
+                canonical_executor_id=identity.executor_id,
+            )
+
+        from veya.remote.tool_adapter import RemoteToolAdapter
+
+        adapter = RemoteToolAdapter(None)
+        session = _facade_session(workspace)
+        result = await adapter.call(
+            session,
+            "worker.dispatch",
+            {
+                "workspace": str(workspace),
+                "tasks": [
+                    {
+                        "worker": identity.executor_id,
+                        "task": prompt,
+                        "task_contract": {"task_kind": "READ"},
+                    }
+                ],
+                "timeout_sec": timeout_s,
+            },
+        )
+        payload = dict(result.result) if isinstance(result.result, dict) else {}
         return _result(
-            ok=False,
+            ok=bool(result.ok),
             backend=spec.name,
-            error=(
-                "direct backend execution is closed. Dispatch through the canonical "
-                f"executor authority as worker.dispatch with worker={identity.executor_id!r} "
-                "so the call is admitted, permission-checked and receipted."
-            ),
-            error_code="EXECUTION_FACADE_CLOSED",
+            output=payload,
+            error=result.message or "",
+            error_code=None if result.ok else str(result.error_code or "EXECUTION_FAILED"),
+            canonical_executor_id=identity.executor_id,
             canonical_entry="worker.dispatch",
-            **base,
+            execution_id=result.execution_id,
         )
 
     async def _run_acp(

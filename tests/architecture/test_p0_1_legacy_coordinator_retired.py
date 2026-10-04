@@ -42,7 +42,12 @@ def test_legacy_module_is_explicitly_archive_only():
 def test_flow_phase1_is_workflow_plane_without_legacy_react():
     source = (ROOT / "server/routes/flow.py").read_text(encoding="utf-8")
     assert "propose_requirement" in source
-    assert "server.coordinator" not in source
+    # Uses the AST helper rather than a substring. "server.coordinator" is a
+    # prefix of "server.coordinator_master", which is the canonical coordinator,
+    # so the substring form reported the canonical import as a legacy one and
+    # failed against code this branch never touched.
+    assert not _imports_legacy(ROOT / "server/routes/flow.py")
+    assert "server.coordinator_master" in source, "the canonical coordinator should still be used"
 
 
 def test_agent_invoke_uses_canonical_master():

@@ -16,18 +16,40 @@ from __future__ import annotations
 
 import ast
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from server.backends import BackendRegistry
+from server.backends import (
+    FACADE_PERMISSIONS,
+    FACADE_PRINCIPAL,
+    FACADE_ROOT_ENV,
+    BackendRegistry,
+    _facade_session,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _source(rel: str) -> str:
     return (REPO_ROOT / rel).read_text(encoding="utf-8")
+
+
+def _init_repo(path: Path) -> None:
+    subprocess.run(["git", "init", "-q", "-b", "main", str(path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "t@t"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "t"], check=True, capture_output=True
+    )
+    (path / "file.txt").write_text("hello\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(path), "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-qm", "init"], check=True, capture_output=True
+    )
 
 
 def _an_available_command() -> list[str]:
@@ -136,15 +158,99 @@ def test_discover_does_not_seed_model_with_engine_name():
             assert spec.model == "", f"{spec.name} seeds model={spec.model!r}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BLOCKED on the deferred facade delegation: a service principal and workspace "
-        "binding are not bound to POST /api/v1/backends/run, so nothing executes "
-        "through the canonical chain and no receipt can exist. Remove this marker when "
-        "the facade dispatches worker.dispatch under a declared principal."
-    ),
-)
-def test_backend_run_emits_execution_receipt():
-    """Any execution through the backend facade must be receipted."""
-    raise NotImplementedError("gate not met: facade is fail-closed, see xfail reason")
+@pytest.mark.asyncio
+async def test_backend_run_emits_execution_receipt(tmp_path, monkeypatch):
+    """A facade run that reaches the canonical chain answers with a receipt.
+
+    This gate could not be met while the facade was closed, because nothing ran
+    and so no receipt could exist. It asserts the real success path rather than
+    "either it worked or it had an error code", which would pass vacuously.
+
+    ``opencode`` is admitted by ExecutorRegistry, so the dispatch proceeds far
+    enough to create a durable parent execution — whether the child then
+    succeeds depends on a real opencode binary being present, which is not what
+    this gate is about.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_repo(root)
+    monkeypatch.setenv(FACADE_ROOT_ENV, str(root))
+
+    registry = BackendRegistry()
+    registry.register("opencode", "cli", command=_an_available_command())
+
+    result = await registry.run("opencode", "say hello", timeout_s=1)
+
+    assert result["ok"] is True, result
+    # The receipt is the canonical one, not a facade invention: a parent
+    # execution, a GoalRun, a dispatch id and a durable child.
+    assert result.get("execution_id"), result
+    payload = result["output"]
+    assert payload.get("accepted") is True, payload
+    assert payload.get("dispatch_id"), payload
+    assert payload.get("goal_run_id"), payload
+    assert payload.get("parent_execution_id") == result["execution_id"], payload
+    assert payload.get("status") == "DISPATCHED", payload
+    assert payload.get("child_execution_ids"), payload
+
+
+@pytest.mark.asyncio
+async def test_facade_is_closed_until_an_operator_declares_a_root(tmp_path, monkeypatch):
+    monkeypatch.delenv(FACADE_ROOT_ENV, raising=False)
+    registry = BackendRegistry()
+    registry.register("opencode", "cli", command=_an_available_command())
+
+    result = await registry.run("opencode", "hi", timeout_s=5)
+
+    assert result["ok"] is False
+    assert result["error_code"] == "EXECUTION_FACADE_CLOSED"
+    assert FACADE_ROOT_ENV in result["error"]
+    assert result.get("execution_id") is None
+
+
+@pytest.mark.asyncio
+async def test_facade_refuses_a_workspace_outside_the_declared_root(tmp_path, monkeypatch):
+    monkeypatch.setenv(FACADE_ROOT_ENV, str(tmp_path / "allowed"))
+    (tmp_path / "allowed").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    registry = BackendRegistry()
+    registry.register("opencode", "cli", command=_an_available_command())
+
+    result = await registry.run("opencode", "hi", cwd=str(outside), timeout_s=5)
+
+    assert result["ok"] is False
+    assert result["error_code"] == "WORKSPACE_DENIED"
+    assert FACADE_ROOT_ENV in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_facade_session_grant_is_exactly_the_measured_minimum():
+    """The grant is a capability to dispatch, not an effect grant on the task.
+
+    Measured against the permission engine: read alone is refused for lacking
+    write, read+write for lacking shell, and read+write+shell is admitted. The
+    test pins that set so a future edit cannot quietly widen it, and asserts the
+    three escalations that stay off.
+    """
+    session = _facade_session(Path("/tmp"))
+    assert session.principal == FACADE_PRINCIPAL
+    granted = {name for name in FACADE_PERMISSIONS if getattr(session.permissions, name)}
+    assert granted == set(FACADE_PERMISSIONS)
+    for escalated in ("git", "destructive", "service_control", "network"):
+        assert getattr(session.permissions, escalated) is False, escalated
+
+
+@pytest.mark.asyncio
+async def test_retired_and_unknown_executors_still_fail_before_delegation(tmp_path, monkeypatch):
+    """Admission happens first, so a bad name never reaches the workspace check."""
+    monkeypatch.setenv(FACADE_ROOT_ENV, str(tmp_path))
+    registry = BackendRegistry()
+    registry.register("hicode", "cli", command=_an_available_command())
+    registry.register("claude", "cli", command=_an_available_command())
+
+    assert (await registry.run("hicode", "hi", timeout_s=5))["error_code"] == "EXECUTOR_RETIRED"
+    assert (await registry.run("claude", "hi", timeout_s=5))[
+        "error_code"
+    ] == "EXECUTOR_NOT_ADMITTED"
