@@ -53,11 +53,17 @@ def test_unprobed_material_is_none_not_false():
     assert identity.credential_proven is False
 
 
-def test_absence_of_credential_is_reported_as_absent_and_invalid():
-    """No credential means no valid credential. `present` still says why."""
+def test_absence_of_credential_is_absent_and_unproven():
+    """No declared credential source means unproven, not invalid.
+
+    antigravity reports no env var and no file, yet completes real tasks — it
+    authenticates by a path this inspection does not model. Real acceptance
+    caught the earlier version of this test, which asserted False and would have
+    excluded a working executor.
+    """
     identity = _identity("antigravity")
     assert identity.credential_present is False
-    assert identity.credential_valid is False
+    assert identity.credential_valid is None
     assert identity.credential_proven is False
 
 

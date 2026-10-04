@@ -63,18 +63,26 @@ def test_field_matching_ignores_case_and_separators() -> None:
 
 
 # ── CredentialInspection verdicts ──────────────────────────────────────────
-def test_unusable_covers_both_absent_and_empty() -> None:
-    """No usable material either way. `present` keeps them distinguishable."""
-    absent = CredentialInspection(present=False, material_found=False)
+def test_an_empty_declared_source_is_refutable() -> None:
+    """The operator configured a credential and it is empty: refutable."""
     empty = CredentialInspection(present=True, material_found=False, source="f")
-    assert absent.unusable is True
-    assert empty.unusable is True
-    assert absent.present is not empty.present
+    assert empty.structurally_unusable is True
 
 
-def test_material_present_is_not_unusable() -> None:
+def test_absent_is_not_refutable() -> None:
+    """No declared source is not evidence of a bad credential.
+
+    antigravity completes real tasks with no credential source this inspection
+    knows about, so refuting it would lock a working executor out of the running.
+    Found by real acceptance, not by reasoning.
+    """
+    absent = CredentialInspection(present=False, material_found=False)
+    assert absent.structurally_unusable is False
+
+
+def test_material_present_is_not_refutable() -> None:
     found = CredentialInspection(present=True, material_found=True, source="f")
-    assert found.unusable is False
+    assert found.structurally_unusable is False
 
 
 # ── inspect(): env wins, files are the fallback ────────────────────────────
@@ -90,7 +98,7 @@ def test_defined_but_empty_env_var_is_not_material(monkeypatch) -> None:
     verdict = inspect("no-such-executor", ["TEST_EXECUTOR_KEY"])
     assert verdict.present is True
     assert verdict.material_found is False
-    assert verdict.unusable is True
+    assert verdict.structurally_unusable is True
 
 
 def test_missing_everything_is_absent_and_unusable(monkeypatch) -> None:
@@ -98,7 +106,7 @@ def test_missing_everything_is_absent_and_unusable(monkeypatch) -> None:
     verdict = inspect("no-such-executor", ["TEST_EXECUTOR_KEY"])
     assert verdict.present is False
     assert verdict.material_found is False
-    assert verdict.unusable is True
+    assert verdict.structurally_unusable is False
 
 
 def test_unparseable_file_is_not_material(tmp_path, monkeypatch) -> None:

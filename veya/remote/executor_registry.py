@@ -546,12 +546,13 @@ class ExecutorRegistry:
         inspection = _credential_structure.inspect(executor_id, auth_env)
         present = inspection.present
         authenticated = present
-        # Settled locally, no network. No usable material cannot authenticate,
-        # so validity is False on evidence rather than unknown. Material that has
-        # merely never been probed stays None, because only a real call settles
-        # it — collapsing None to False here would exclude the executors that
-        # genuinely work.
-        credential_valid = False if inspection.unusable else None
+        # Settled locally, no network. A declared source that exists but holds
+        # nothing usable cannot authenticate, so validity is False on evidence.
+        # Everything else stays None: material never probed needs a real call,
+        # and no declared source at all means the path is simply unmodelled —
+        # antigravity completes real tasks with no credential source this
+        # inspection knows about, so absent is not evidence of anything.
+        credential_valid = False if inspection.structurally_unusable else None
         return ExecutorRuntimeIdentity(
             executor_id=executor_id,
             executor_kind="l1_worker",

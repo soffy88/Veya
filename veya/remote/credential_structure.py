@@ -103,15 +103,21 @@ class CredentialInspection:
     detail: str = ""
 
     @property
-    def unusable(self) -> bool:
-        """True when no usable credential material exists locally.
+    def structurally_unusable(self) -> bool:
+        """True when a declared source exists but holds nothing usable.
 
-        Covers the absent case as well as the present-but-empty one. An executor
-        with no credential has no valid credential either, and returning "unknown"
-        for that would understate what we actually know. Which of the two it is
-        stays visible through `present`, so nothing is lost.
+        The absent case is deliberately excluded, and real acceptance is why.
+        antigravity reports no credential source at all — no env var, no file —
+        and still completes real tasks, because it authenticates by some means
+        this inspection does not model. Calling that INVALID asserted a fact
+        local evidence cannot support, and the cost is severe: marking a working
+        executor invalid locks it out of the running.
+
+        An empty file is different. The operator configured a credential and it
+        is empty, which is a definite broken credential rather than an unmodelled
+        path, so that one is refutable.
         """
-        return not self.material_found
+        return self.present and not self.material_found
 
 
 def _from_env(env_names: list[str]) -> CredentialInspection:

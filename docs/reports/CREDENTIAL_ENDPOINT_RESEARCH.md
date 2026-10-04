@@ -154,3 +154,33 @@ live 探测      BLOCKED  无已验证端点（见 §8）
 仍未达成：**G2 严格形式**（任何未探测的 executor 都不得已呈现为已认证）。
 `codex` 是唯一凭据材料齐备却无法在本地证伪的 executor，它需要真实探测，
 而真实探测端点未验证。
+
+---
+
+## 10. 独立真实验收发现：absent ≠ refutable（P2a 语义修正）
+
+SF-CRED 独立真实验收（`tests/remote/test_credential_truthfulness_acceptance.py`，
+真实 `worker.dispatch`，无 mock）**证伪了 P2a 的一处收紧**：
+
+```text
+antigravity   credential_present=False   credential_valid=False
+             但真实 READ 任务 COMPLETED
+```
+
+antigravity 没有任何声明的凭据源（无 env、无文件），却能完成真实任务 ——
+它通过本检查未建模的路径完成认证。
+
+**P2a 曾把"absent"也判为 False**（理由是"没有凭据就没有有效凭据"）。
+该推理在逻辑上自洽，在现实上是错的，且后果严重：把能用的 executor 标成
+INVALID 会把它排除出运行池。
+
+修正后的规则只在**有证据**时才证伪：
+
+```text
+声明了凭据源但其中无材料   -> False（有证据：配置了但是空的）
+完全没有声明凭据源        -> None（路径未建模，不是证据）
+有材料但未探测            -> None（需真实调用）
+```
+
+单元测试无法发现这个错误 —— 它们验证的是设计自洽，不是设计正确。
+只有真实运行能。`credential_structure` 与字段测试均已补钉该发现。
