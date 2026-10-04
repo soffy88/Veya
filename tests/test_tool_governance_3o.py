@@ -127,7 +127,10 @@ def test_layer4_action_policy_does_not_allow_unknown_non_read_effect() -> None:
     adapter = ActionGatewayAdapter(policy_profile="DEVELOPMENT")
     request = obase.ActionRequest(action="unclassified_remote", effect="remote")
     decision = adapter._evaluate_policy(request)
-    assert decision.verdict == "REQUIRE_APPROVAL"
+    # APPROVAL_REQUIRED is the canonical Decision value; the previous
+    # REQUIRE_APPROVAL was a string the engine never emits, so this assertion
+    # could not have passed and was not testing the rule it claimed to.
+    assert decision.verdict == "APPROVAL_REQUIRED"
 
 
 def test_grant_check_fails_closed_for_missing_revoked_stale_and_wrong_identity() -> None:

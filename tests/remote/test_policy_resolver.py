@@ -249,6 +249,14 @@ def test_policy_precedence_goal_deny_beats_tool_allow() -> None:
         cwd=WORKSPACE,
         goal_id="g1",
         agent_id="a1",
+        # This test is about layer precedence, not effect inference. The declared
+        # effect has to be stated because an undeclared one now resolves to "none"
+        # rather than being guessed from a hardcoded tool list — which is the
+        # point of SF-001. Without it the engine reports a read-only capability
+        # that the tool layer's write grant does not intersect, the
+        # capability-intersection guard fires, and the constraining layer is
+        # correctly reported as "tool" rather than "goal".
+        effect="local_write",
     )
     decision = resolver.resolve(request)
     assert decision.decision is Decision.DENY

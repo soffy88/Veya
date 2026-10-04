@@ -42,7 +42,15 @@ def _effect_for(
             "external_mutation": "remote",
             "privileged": "destructive",
         }.get(raw, raw)
-    return classify(name)
+    classified = str(classify(name) or "").strip().lower()
+    # `classify_action_effect` answers "remote" for anything it does not
+    # recognise, and "remote" is a scope rather than an effect. Measured over the
+    # live 146-tool surface it returns "remote" for 138 of them, so taking it at
+    # face value would have declared almost the whole tool surface to be a remote
+    # mutation — and with the engine now honouring a declared remote effect, that
+    # would have put 138 tools behind approval. A non-match is unknown, which is
+    # what the effect registry already prescribes.
+    return "unknown" if classified == "remote" else classified
 
 
 class ActionGatewayAdapter:
@@ -182,6 +190,9 @@ class ActionGatewayAdapter:
                 workspace=str(Path.cwd()),
                 cwd=str(Path.cwd()),
                 goal_id=self.goal_run_id,
+                # Server-side declared effect. Without this the resolver built
+                # its own context and lost it, so the engine never saw it.
+                effect=str(request.effect or ""),
             )
             policy_decision = resolver.resolve(policy_request)
             decision = policy_decision.decision.value

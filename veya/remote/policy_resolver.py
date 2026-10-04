@@ -102,6 +102,11 @@ class PolicyRequest:
     skill_id: str = ""
     client_approved: bool = False
     approval_id: str = ""
+    #: Declared effect of the tool being invoked, resolved server-side by the
+    #: caller from the tool's own declaration. It is NOT client input: nothing
+    #: on the request path fills it, and an empty value means "not declared",
+    #: which the context builder treats as unknown rather than as read.
+    effect: str = ""
 
     @property
     def principal(self) -> str:
@@ -429,6 +434,11 @@ class ToolPolicy(PolicyLayer):
         )
 
 
+#: Write tools that have no declaration yet. See the interim-bridge note in
+#: ``_build_context``.
+_UNDECLARED_WRITE_TOOLS = frozenset({"file.write", "file.patch", "artifact.write"})
+
+
 def _build_context(request: PolicyRequest) -> OperationContext:
     workspace = request.workspace or request.cwd
     root = Path(workspace).expanduser() if workspace else Path(request.cwd or ".")
@@ -451,7 +461,39 @@ def _build_context(request: PolicyRequest) -> OperationContext:
     if raw_path:
         candidate = Path(str(raw_path))
         target_paths = ((candidate if candidate.is_absolute() else current / candidate),)
-    effect = "write" if request.tool in {"file.write", "file.patch", "artifact.write"} else "read"
+    declared = str(request.effect or "").strip().lower()
+    privilege_level = "user"
+    if not declared:
+        # INTERIM BRIDGE, not a fix. The three names below are the hardcoded list
+        # SF-001 exists to remove; they are still here because file.write,
+        # file.patch and artifact.write carry no declaration anywhere, and
+        # treating an undeclared tool as effect-free made the engine report a
+        # read-only capability that their write grants do not intersect — which
+        # blocked file writing outright. Removing them properly means declaring
+        # them at their ToolSpec, which oskill.classify_tool_effect already
+        # demands ("tool effect must be declared by a ToolSpec") and nobody has
+        # done yet. Until then an undeclared tool must not silently become
+        # effect-free, so anything outside this list stays unknown.
+        filesystem_effect = "write" if request.tool in _UNDECLARED_WRITE_TOOLS else "none"
+        remote_effect = "none"
+    elif declared == "read":
+        filesystem_effect, remote_effect = "read", "none"
+    elif declared in {"local_write", "write"}:
+        filesystem_effect, remote_effect = "write", "none"
+    elif declared == "process" or declared == "network":
+        filesystem_effect, remote_effect = "none", "none"
+    elif declared in {"remote", "external_mutation"}:
+        filesystem_effect, remote_effect = "none", "mutation"
+    elif declared in {"destructive", "privileged"}:
+        filesystem_effect, remote_effect = "write", "none"
+        # Reuse the existing host-mutation rule rather than adding one: it already
+        # requires approval for a write outside PROJECT scope, and it keys off
+        # scope plus filesystem_effect. Supplying privilege_level is what lets it
+        # fire — without this a declared destructive effect resolved to USER scope
+        # and was allowed.
+        privilege_level = "host"
+    else:
+        filesystem_effect, remote_effect = "none", "none"
     return OperationContext(
         actor=request.actor,
         tool=request.tool,
@@ -459,7 +501,9 @@ def _build_context(request: PolicyRequest) -> OperationContext:
         workspace_root=root,
         cwd=current,
         target_paths=target_paths,
-        filesystem_effect=effect,
+        filesystem_effect=filesystem_effect,
+        remote_effect=remote_effect,
+        privilege_level=privilege_level,
         goal_run_id=request.goal_id or None,
     )
 
