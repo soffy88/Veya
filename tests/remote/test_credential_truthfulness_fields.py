@@ -40,18 +40,24 @@ def test_identity_exposes_presence_and_validity_separately():
         assert "credential_proven" in payload, name
 
 
-def test_presence_is_observed_and_validity_is_tri_state():
-    """validity is None when unprobed — not False, and not True."""
+def test_unprobed_material_is_none_not_false():
+    """opencode holds a working key and has never been probed.
+
+    Its validity is None, not False. Treating unprobed as invalid would exclude
+    the only executor that actually works — the failure mode P1 was written to
+    avoid.
+    """
     identity = _identity("opencode")
     assert identity.credential_present is True
     assert identity.credential_valid is None
     assert identity.credential_proven is False
 
 
-def test_absence_of_credential_is_reported_as_absent():
+def test_absence_of_credential_is_reported_as_absent_and_invalid():
+    """No credential means no valid credential. `present` still says why."""
     identity = _identity("antigravity")
     assert identity.credential_present is False
-    assert identity.credential_valid is None
+    assert identity.credential_valid is False
     assert identity.credential_proven is False
 
 
@@ -66,14 +72,14 @@ def test_proven_requires_positive_evidence():
 def test_to_dict_does_not_lose_the_distinction():
     payload = _identity("pi").to_dict()
     assert payload["credential_present"] is True
-    assert payload["credential_valid"] is None
+    assert payload["credential_valid"] is False
     assert payload["credential_proven"] is False
 
 
 def test_runtime_projection_carries_the_fields():
     runtime = _identity("pi").runtime
     assert runtime.credential_present is True
-    assert runtime.credential_valid is None
+    assert runtime.credential_valid is False
 
 
 def test_identity_equality_is_unaffected_by_the_new_fields():
@@ -81,7 +87,7 @@ def test_identity_equality_is_unaffected_by_the_new_fields():
     make otherwise-identical records compare unequal."""
     from veya.remote.executor_registry import ExecutorRuntimeIdentity
 
-    def _make() -> "ExecutorRuntimeIdentity":
+    def _make() -> ExecutorRuntimeIdentity:
         return ExecutorRuntimeIdentity(
             executor_id="x",
             executor_kind="l1_worker",
@@ -98,17 +104,32 @@ def test_identity_equality_is_unaffected_by_the_new_fields():
     assert first.credential_valid is None
 
 
-# ── the false positive this exists to end ──────────────────────────────────
-def test_the_measured_false_positives_are_still_visible_as_unproven():
-    """Regression pin for the inventory finding.
+# ── the false positives this exists to end ─────────────────────────────────
+def test_structurally_empty_credentials_are_now_invalid():
+    """The P2a deliverable.
 
-    These three read authenticated=True from a file-existence check and failed
-    on real contact. P1 does not change that yet; it makes them askable.
+    pi and claude_code presented an existing file with nothing usable inside —
+    pi's auth.json is `{}`, claude_code's access and refresh tokens are both
+    empty strings. Both failed on real contact. Local evidence now settles them
+    as False without a network call.
     """
-    for name in ("pi", "codex", "claude_code"):
+    for name in ("pi", "claude_code"):
         identity = _identity(name)
         assert identity.credential_present is True, name
+        assert identity.credential_valid is False, name
         assert identity.credential_proven is False, name
+
+
+def test_codex_keeps_its_unprobed_state_because_material_exists():
+    """codex holds a real access_token, so structure cannot refute it.
+
+    It is the one false positive that needs P2b. Reporting False here would be
+    guessing; reporting None is the truth.
+    """
+    identity = _identity("codex")
+    assert identity.credential_present is True
+    assert identity.credential_valid is None
+    assert identity.credential_proven is False
 
 
 def test_unprobed_is_distinguishable_from_proven_and_from_refuted():

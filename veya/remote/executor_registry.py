@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from veya.executor_retirement import is_retired_executor as is_retired
+from veya.remote import credential_structure as _credential_structure
 
 if TYPE_CHECKING:  # provider state stays in ProviderRegistry; imported for typing only
     from veya.remote.provider_registry import ProviderRecord
@@ -466,8 +467,9 @@ class ExecutorRegistry:
             raise ValueError(f"Executor retired: {executor_id!r}")
         if executor_id == "pi":
             provider, model, _configured, source = _pi_config()
+            auth_env = ["PI_API_KEY", "ANTHROPIC_API_KEY"]
             auth = _credential_present(
-                ["PI_API_KEY", "ANTHROPIC_API_KEY"],
+                auth_env,
                 [Path("~/.pi/agent/auth.json").expanduser()],
             )
             launcher = _configured_launcher(executor_id) or _launcher(["pi"])
@@ -490,14 +492,10 @@ class ExecutorRegistry:
                 or str(contract.get("model") or "")
                 or None
             )
-            auth_files = {
-                "codex": [Path("~/.codex/auth.json").expanduser()],
-                "opencode": [Path("~/.local/share/opencode/auth.json").expanduser()],
-                "claude_code": [Path("~/.claude/.credentials.json").expanduser()],
-            }.get(executor_id, [])
+            auth_env = [str(item) for item in contract.get("auth_env", ())]
             auth = _credential_present(
-                [str(item) for item in contract.get("auth_env", ())],
-                auth_files,
+                auth_env,
+                _credential_structure.CREDENTIAL_FILES.get(executor_id, []),
             )
             bins = [str(item) for item in contract.get("bins", ())]
             bins.extend(
@@ -535,6 +533,15 @@ class ExecutorRegistry:
             if executor_id in _CANONICAL_ORDER
             else len(_CANONICAL_ORDER)
         )
+        inspection = _credential_structure.inspect(executor_id, auth_env)
+        present = inspection.present
+        authenticated = present
+        # Settled locally, no network. No usable material cannot authenticate,
+        # so validity is False on evidence rather than unknown. Material that has
+        # merely never been probed stays None, because only a real call settles
+        # it — collapsing None to False here would exclude the executors that
+        # genuinely work.
+        credential_valid = False if inspection.unusable else None
         return ExecutorRuntimeIdentity(
             executor_id=executor_id,
             executor_kind="l1_worker",
@@ -542,11 +549,10 @@ class ExecutorRegistry:
             model=model,
             provider_capabilities=frozenset(_PROVIDER_REQUIREMENTS.get(executor_id, ())),
             auth_state="AUTHENTICATED" if authenticated else "MISSING",
-            # Present is observed; valid is not. Left as None on purpose — see
-            # credential_valid — because inventing either True or False here
-            # would recreate the lie this field exists to end.
+            # Present is observed; valid is settled only when local evidence is
+            # decisive. None means material exists but no probe has run.
             credential_present=present,
-            credential_valid=None,
+            credential_valid=credential_valid,
             authenticated=authenticated,
             reachable=reachable,
             launcher=launcher,
