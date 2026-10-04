@@ -1,0 +1,50 @@
+{
+  "spec": "VEYA_MISSION_EXECUTOR_FAILOVER_RESELECTION_SPEC v1.0",
+  "baseline_commit": "31357429",
+  "failover_receipt_id": "resel_4a6a4b48fd074cda",
+  "execution_attempt_id": "attempt_6335ff15c774",
+  "idempotency_key": "m-p4.it-0.t-p4.fe-p4",
+  "mission_id": "m-p4",
+  "iteration_id": "it-0",
+  "task_id": "t-p4",
+  "goal_run_id": "goal_1e6679b0a8754e8a9c342510b876114c",
+  "previous_executor": "claude_code",
+  "selected_executor": "opencode",
+  "health_snapshot": {
+    "acp": "HEALTHY",
+    "antigravity": "HEALTHY",
+    "builtin": "LOCAL",
+    "claude_code": "HEALTHY",
+    "codex": "HEALTHY",
+    "dsh": "HEALTHY",
+    "grok": "HEALTHY",
+    "opencode": "HEALTHY",
+    "pi": "HEALTHY"
+  },
+  "rejected_candidates": [
+    {
+      "executor_id": "acp",
+      "reason": "UNREACHABLE"
+    },
+    {
+      "executor_id": "antigravity",
+      "reason": "UNAUTHENTICATED"
+    },
+    {
+      "executor_id": "claude_code",
+      "reason": "EXCLUDED_BY_REQUEST"
+    },
+    {
+      "executor_id": "dsh",
+      "reason": "UNAUTHENTICATED"
+    },
+    {
+      "executor_id": "grok",
+      "reason": "UNREACHABLE"
+    }
+  ],
+  "goal_run_status": "completed",
+  "acceptance_verdict": "ACCEPT",
+  "unfinished_work": [],
+  "worktree_task": "READ (opencode declares supports_write_task=False)"
+}

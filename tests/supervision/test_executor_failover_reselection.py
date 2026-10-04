@@ -250,6 +250,21 @@ def test_d5_receipt_is_persisted_verbatim(tmp_path):
     assert stored["candidate_executors"]
 
 
+def test_d5_persisted_receipt_carries_the_execution_attempt_id(tmp_path):
+    """§10 lists execution_attempt_id in the receipt.
+
+    The durable copy is what an auditor reads, so minting the id after the
+    admission left the persisted receipt with a null attempt — found while
+    freezing the P4 evidence, where the archived ledger showed
+    execution_attempt_id: None.
+    """
+    root = _project(tmp_path)
+    out = reselect_executor(_request(root), previous_executor="opencode")
+    stored = FailoverLedger.for_goal_run(root, "g-1").entries()[0]["receipt"]
+    assert stored["execution_attempt_id"], "persisted receipt lost the attempt id"
+    assert stored["execution_attempt_id"] == out.receipt.execution_attempt_id
+
+
 # ═══════════════════════════════════════════════════════ E. idempotency
 def test_e2_e4_identical_request_replays_the_same_receipt(tmp_path):
     """§11: the same failure event must not open a second attempt."""

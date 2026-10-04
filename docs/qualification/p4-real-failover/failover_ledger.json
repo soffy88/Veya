@@ -1,0 +1,233 @@
+{
+  "entries": [
+    {
+      "admitted_at": 1791092777.8902807,
+      "failure_event_id": "fe-p4",
+      "idempotency_key": "m-p4.it-0.t-p4.fe-p4",
+      "iteration_id": "it-0",
+      "mission_id": "m-p4",
+      "receipt": {
+        "admission_result": {},
+        "candidate_executors": [
+          {
+            "admission_supported": true,
+            "authenticated": false,
+            "capability_satisfied": true,
+            "eligible": false,
+            "executor_id": "acp",
+            "health": "HEALTHY",
+            "local": false,
+            "provider_dependency": true,
+            "qualified": false,
+            "reachable": false
+          },
+          {
+            "admission_supported": true,
+            "authenticated": false,
+            "capability_satisfied": true,
+            "eligible": false,
+            "executor_id": "antigravity",
+            "health": "HEALTHY",
+            "local": false,
+            "provider_dependency": true,
+            "qualified": false,
+            "reachable": true
+          },
+          {
+            "admission_supported": true,
+            "authenticated": true,
+            "capability_satisfied": true,
+            "eligible": true,
+            "executor_id": "builtin",
+            "health": "LOCAL",
+            "local": true,
+            "provider_dependency": false,
+            "qualified": true,
+            "reachable": true
+          },
+          {
+            "admission_supported": true,
+            "authenticated": true,
+            "capability_satisfied": true,
+            "eligible": true,
+            "executor_id": "claude_code",
+            "health": "HEALTHY",
+            "local": false,
+            "provider_dependency": true,
+            "qualified": true,
+            "reachable": true
+          },
+          {
+            "admission_supported": true,
+            "authenticated": true,
+            "capability_satisfied": true,
+            "eligible": true,
+            "executor_id": "codex",
+            "health": "HEALTHY",
+            "local": false,
+            "provider_dependency": true,
+            "qualified": true,
+            "reachable": true
+          },
+          {
+            "admission_supported": true,
+            "authenticated": false,
+            "capability_satisfied": true,
+            "eligible": false,
+            "executor_id": "dsh",
+            "health": "HEALTHY",
+            "local": false,
+            "provider_dependency": true,
+            "qualified": false,
+            "reachable": true
+          },
+          {
+            "admission_supported": true,
+            "authenticated": false,
+            "capability_satisfied": true,
+            "eligible": false,
+            "executor_id": "grok",
+            "health": "HEALTHY",
+            "local": false,
+            "provider_dependency": true,
+            "qualified": false,
+            "reachable": false
+          },
+          {
+            "admission_supported": true,
+            "authenticated": true,
+            "capability_satisfied": true,
+            "eligible": true,
+            "executor_id": "opencode",
+            "health": "HEALTHY",
+            "local": false,
+            "provider_dependency": true,
+            "qualified": true,
+            "reachable": true
+          },
+          {
+            "admission_supported": true,
+            "authenticated": true,
+            "capability_satisfied": true,
+            "eligible": true,
+            "executor_id": "pi",
+            "health": "HEALTHY",
+            "local": false,
+            "provider_dependency": true,
+            "qualified": true,
+            "reachable": true
+          }
+        ],
+        "capability_snapshot": {
+          "acp": {
+            "authenticated": false,
+            "capability_satisfied": true,
+            "reachable": false
+          },
+          "antigravity": {
+            "authenticated": false,
+            "capability_satisfied": true,
+            "reachable": true
+          },
+          "builtin": {
+            "authenticated": true,
+            "capability_satisfied": true,
+            "reachable": true
+          },
+          "claude_code": {
+            "authenticated": true,
+            "capability_satisfied": true,
+            "reachable": true
+          },
+          "codex": {
+            "authenticated": true,
+            "capability_satisfied": true,
+            "reachable": true
+          },
+          "dsh": {
+            "authenticated": false,
+            "capability_satisfied": true,
+            "reachable": true
+          },
+          "grok": {
+            "authenticated": false,
+            "capability_satisfied": true,
+            "reachable": false
+          },
+          "opencode": {
+            "authenticated": true,
+            "capability_satisfied": true,
+            "reachable": true
+          },
+          "pi": {
+            "authenticated": true,
+            "capability_satisfied": true,
+            "reachable": true
+          }
+        },
+        "execution_attempt_id": "attempt_6335ff15c774",
+        "goal_run_id": "g-p4",
+        "health_snapshot": {
+          "acp": "HEALTHY",
+          "antigravity": "HEALTHY",
+          "builtin": "LOCAL",
+          "claude_code": "HEALTHY",
+          "codex": "HEALTHY",
+          "dsh": "HEALTHY",
+          "grok": "HEALTHY",
+          "opencode": "HEALTHY",
+          "pi": "HEALTHY"
+        },
+        "iteration_id": "it-0",
+        "mission_id": "m-p4",
+        "previous_executor": "claude_code",
+        "reason": "canonical executor AUTH_FAILURE",
+        "receipt_id": "resel_4a6a4b48fd074cda",
+        "rejected_candidates": [
+          {
+            "executor_id": "acp",
+            "reason": "UNREACHABLE"
+          },
+          {
+            "executor_id": "antigravity",
+            "reason": "UNAUTHENTICATED"
+          },
+          {
+            "executor_id": "claude_code",
+            "reason": "EXCLUDED_BY_REQUEST"
+          },
+          {
+            "executor_id": "dsh",
+            "reason": "UNAUTHENTICATED"
+          },
+          {
+            "executor_id": "grok",
+            "reason": "UNREACHABLE"
+          }
+        ],
+        "requested_by": "p4-qualification",
+        "selected_executor": "opencode",
+        "selection_policy": {
+          "eligible_after_exclusions": [
+            "builtin",
+            "codex",
+            "opencode",
+            "pi"
+          ],
+          "exclude_executors": [
+            "claude_code"
+          ],
+          "preferred_executor": "opencode",
+          "preferred_is_a_pin": false,
+          "required_capabilities": {}
+        },
+        "task_id": "t-p4",
+        "timestamp": 1791092777.8901253
+      },
+      "state": "ACTIVE",
+      "task_id": "t-p4"
+    }
+  ],
+  "revision": 1,
+  "updated_at": 1791092777.890288
+}

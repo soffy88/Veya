@@ -364,6 +364,12 @@ def reselect_executor(
         timestamp=time.time(),
     )
 
+    # The attempt id is minted before the receipt is persisted, not after.
+    # §10 lists execution_attempt_id as part of the receipt, and the durable copy
+    # is the one an auditor reads; assigning it afterwards left the persisted
+    # receipt with execution_attempt_id: None.
+    receipt.execution_attempt_id = f"attempt_{uuid.uuid4().hex[:12]}"
+
     # §11/§12: the durable admission. Same mission, same task, same GoalRun; only
     # a new execution attempt follows from this.
     outcome = failover_ledger.admit(
@@ -395,7 +401,6 @@ def reselect_executor(
             replayed=True,
         )
 
-    receipt.execution_attempt_id = f"attempt_{uuid.uuid4().hex[:12]}"
     _emit(
         EVENT_ADMITTED,
         mission_id=request.mission_id,
