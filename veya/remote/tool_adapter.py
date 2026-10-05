@@ -2937,6 +2937,9 @@ class RemoteToolAdapter:
             "stderr_tail": record.stderr_tail,
             "bytes_stdout": record.bytes_stdout,
             "bytes_stderr": record.bytes_stderr,
+            "stdout_truncated": record.stdout_truncated,
+            "stderr_truncated": record.stderr_truncated,
+            "is_terminal": record.is_terminal,
             "text": record.stdout_tail or record.stderr_tail,
         }
         # Which runtime the project declared, and which one actually ran. Absent
@@ -3044,6 +3047,8 @@ class RemoteToolAdapter:
                 stderr_tail=result.stderr_tail,
                 bytes_stdout=result.bytes_stdout,
                 bytes_stderr=result.bytes_stderr,
+                stdout_truncated=result.stdout_truncated,
+                stderr_truncated=result.stderr_truncated,
             )
             if result.status != "passed":
                 # P0-G: a spawn failure (exit_code None), timeout, or

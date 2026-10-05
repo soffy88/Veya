@@ -514,6 +514,13 @@ class ExecutionRecord:
     stderr_tail: str = ""
     bytes_stdout: int = 0
     bytes_stderr: int = 0
+    # Whether the stored tail is the whole stream or a cut of it. ``direct_exec``
+    # computes this while pumping the pipes, but nothing carried it into the
+    # record, so ``to_public`` presented a bounded tail beside the true byte
+    # count with no way to tell the two apart: a caller reading a truncated
+    # 4000-character tail had no signal that it was truncated.
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
     last_output_at: float | None = None
     exit_code: int | None = None
     direct_status: str | None = None
@@ -843,6 +850,13 @@ class ExecutionRecord:
                     "profile": self.profile,
                     "stdout_tail": self.stdout_tail,
                     "stderr_tail": self.stderr_tail,
+                    # Whether the tails above are the whole stream or a cut of
+                    # it. Without these a caller cannot tell a short output from
+                    # a clipped one, and would quote a truncated tail as if it
+                    # were everything the process said.
+                    "stdout_truncated": self.stdout_truncated,
+                    "stderr_truncated": self.stderr_truncated,
+                    "is_terminal": self.is_terminal,
                     "last_output": (self.stdout_tail + self.stderr_tail)[-4000:],
                     "bytes_stdout": self.bytes_stdout,
                     "bytes_stderr": self.bytes_stderr,
@@ -1110,6 +1124,8 @@ class ProgressReporter:
         stderr_tail: str | None = None,
         bytes_stdout: int | None = None,
         bytes_stderr: int | None = None,
+        stdout_truncated: bool | None = None,
+        stderr_truncated: bool | None = None,
     ) -> None:
         self._manager.set_command_result(
             self._execution_id,
@@ -1122,6 +1138,8 @@ class ProgressReporter:
             stderr_tail=stderr_tail,
             bytes_stdout=bytes_stdout,
             bytes_stderr=bytes_stderr,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
         )
 
 
@@ -3621,6 +3639,8 @@ class DurableJobManager:
         stderr_tail: str | None = None,
         bytes_stdout: int | None = None,
         bytes_stderr: int | None = None,
+        stdout_truncated: bool | None = None,
+        stderr_truncated: bool | None = None,
     ) -> None:
         """Persist the final command result (P0-E)."""
 
@@ -3641,6 +3661,16 @@ class DurableJobManager:
             record.bytes_stdout = bytes_stdout
         if bytes_stderr is not None:
             record.bytes_stderr = bytes_stderr
+        # The record also clips to ``_DIRECT_TAIL_BYTES`` above, so truncation
+        # is true if either the producer said so or this store had to cut.
+        if stdout_truncated is not None:
+            record.stdout_truncated = bool(stdout_truncated)
+        elif stdout_tail is not None and len(stdout_tail) > _DIRECT_TAIL_BYTES:
+            record.stdout_truncated = True
+        if stderr_truncated is not None:
+            record.stderr_truncated = bool(stderr_truncated)
+        elif stderr_tail is not None and len(stderr_tail) > _DIRECT_TAIL_BYTES:
+            record.stderr_truncated = True
         record.result_summary = f"command {direct_status} (exit_code={exit_code})"
         self._persist(record)
 
