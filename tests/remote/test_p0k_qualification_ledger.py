@@ -71,7 +71,7 @@ def test_the_ledger_exists_and_declares_its_schema(ledger: dict[str, Any]) -> No
 
 # ── every phase commit must exist with the recorded lineage ───────────
 def test_every_phase_commit_exists_with_its_recorded_parent(ledger: dict[str, Any]) -> None:
-    for phase in ledger["phases"]:
+    for phase in [p for p in ledger["phases"] if p["commit"]]:
         recorded = phase["commit"]
         actual = git("rev-parse", "--short", recorded).strip()
         assert actual == recorded, f"{phase['phase']}: {recorded} is not a commit"
@@ -84,7 +84,7 @@ def test_every_recorded_changed_path_is_exactly_what_the_commit_touched(
     ledger: dict[str, Any],
 ) -> None:
     """A ledger that lists paths the commit did not touch is not evidence."""
-    for phase in ledger["phases"]:
+    for phase in [p for p in ledger["phases"] if p["commit"]]:
         recorded = sorted(phase["changed_paths"])
         actual = sorted(
             path
@@ -95,21 +95,38 @@ def test_every_recorded_changed_path_is_exactly_what_the_commit_touched(
 
 
 def test_the_phase_commits_form_an_unbroken_chain(ledger: dict[str, Any]) -> None:
-    phases = ledger["phases"]
+    # A phase with no commit (blocked before it could start) carries parent=None
+    # and is excluded from the chain rather than being given a fake SHA.
+    phases = [p for p in ledger["phases"] if p["commit"]]
+    assert phases, "no committed phase"
     for earlier, later in itertools.pairwise(phases):
         assert earlier["commit"] == later["parent"], f"{later['phase']} does not follow {earlier['phase']}"
     assert phases[0]["parent"] == ledger["baseline_sha"][:8]
 
 
 def test_the_head_commit_is_the_last_recorded_phase(ledger: dict[str, Any]) -> None:
-    head = git("rev-parse", "--short", "HEAD").strip()
-    last = ledger["phases"][-1]["commit"]
-    assert head == last or git("merge-base", "--is-ancestor", last, head) == ""
+    committed = [p for p in ledger["phases"] if p["commit"]]
+    last = committed[-1]["commit"]
+
+    # HEAD is not itself a phase: P0-K is the phase that wrote this ledger, so
+    # it is deliberately absent from the ledger it authored. What must hold is
+    # that the last phase commit is an ancestor of HEAD — the ledger was written
+    # on top of the work it describes, not beside it.
+    is_ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", last, "HEAD"], cwd=ROOT, check=False
+    )
+    assert is_ancestor.returncode == 0, f"{last} is not an ancestor of HEAD"
+
+    declared = ledger["generated_at_commit"]
+    assert subprocess.run(
+        ["git", "merge-base", "--is-ancestor", declared, "HEAD"], cwd=ROOT, check=False
+    ).returncode == 0, f"generated_at_commit {declared} is not an ancestor of HEAD"
 
 
 # ── statuses must be honest, not uniformly PASS ────────────────────────
 def test_statuses_come_from_the_declared_vocabulary(ledger: dict[str, Any]) -> None:
     allowed = set(ledger["status_vocabulary"])
+    assert "BLOCKED" in allowed
     for phase in ledger["phases"]:
         assert phase["status"] in allowed, f"{phase['phase']}: {phase['status']}"
 
@@ -155,6 +172,25 @@ def test_target_contract_is_deferred_on_every_phase(ledger: dict[str, Any]) -> N
     assert "local2/l0-l1-l2" in cross["verified_present_on"]
 
 
+def test_a_blocked_phase_names_its_blocker_and_claims_nothing(
+    ledger: dict[str, Any],
+) -> None:
+    """A BLOCKED verdict must carry the reason, and must not look like progress."""
+    blocked = [p for p in ledger["phases"] if p["status"] == "BLOCKED"]
+    for phase in blocked:
+        assert phase["commit"] is None, phase["phase"]
+        assert phase["tests_added"] == 0, phase["phase"]
+        assert phase["production_changed"] is False, phase["phase"]
+        assert phase["blockers"], phase["phase"]
+        for blocker in phase["blockers"]:
+            assert blocker["summary"]
+            assert blocker["why_blocked"]
+            assert blocker["evidence"]
+            assert blocker["owner"]
+        # Evidence is still required: a blocked phase reports what it did learn.
+        assert len(phase["evidence"]) >= 2, phase["phase"]
+
+
 def test_tool_bug_1_stays_open_with_a_reason(ledger: dict[str, Any]) -> None:
     """§11.8: TOOL-BUG-1 must not be swallowed to make the ledger look clean."""
     bug = ledger["cross_cutting"]["tool_bug_1"]
@@ -178,7 +214,7 @@ def test_the_green_then_repaired_mutations_are_recorded(ledger: dict[str, Any]) 
 
 # ── the ledger's claims must match the code it describes ───────────────
 def test_the_recorded_test_counts_match_the_test_files(ledger: dict[str, Any]) -> None:
-    for phase in ledger["phases"]:
+    for phase in [p for p in ledger["phases"] if p["commit"]]:
         tests_added = phase["tests_added"]
         assert tests_added > 0, phase["phase"]
         test_files = [p for p in phase["changed_paths"] if p.startswith("tests/")]
@@ -203,7 +239,7 @@ def test_the_recorded_test_counts_match_the_test_files(ledger: dict[str, Any]) -
 def test_the_recorded_production_change_flag_is_true_where_files_were_touched(
     ledger: dict[str, Any],
 ) -> None:
-    for phase in ledger["phases"]:
+    for phase in [p for p in ledger["phases"] if p["commit"]]:
         touches_production = any(
             not p.startswith("tests/") and not p.startswith("docs/")
             for p in phase["changed_paths"]
@@ -282,7 +318,18 @@ def test_the_ledger_does_not_claim_integration(ledger: dict[str, Any]) -> None:
     text = LEDGER_PATH.read_text(encoding="utf-8").lower()
     assert "integration" not in text or "deferred" in text
     phases = {phase["phase"] for phase in ledger["phases"]}
-    assert "P0-K" not in phases and "P0-L" not in phases, sorted(phases)
+    assert "P0-K" not in phases, "P0-K authored this ledger and must not appear in it"
+
+    # P0-L may appear, but only ever as BLOCKED, and only with the reason. It
+    # must never be recorded as PASS, and the closure gate must not be reached.
+    if "P0-L" in phases:
+        p0l = next(phase for phase in ledger["phases"] if phase["phase"] == "P0-L")
+        assert p0l["status"] == "BLOCKED", p0l["status"]
+        assert p0l["blockers"], "a BLOCKED phase must record what blocks it"
+        assert p0l["changed_paths"] == [], "a blocked phase changed nothing"
+        gate = ledger["cross_cutting"]["closure_gate"]
+        assert gate["status"] == "NOT_REACHED"
+        assert "COMPLETE" in gate["reason"]
 
 
 def test_the_ledger_file_is_valid_json_and_pretty(ledger: dict[str, Any]) -> None:

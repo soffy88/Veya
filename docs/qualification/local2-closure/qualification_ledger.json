@@ -157,6 +157,35 @@
           "owner": "harness work already in flight in the working tree"
         }
       ]
+    },
+    {
+      "phase": "P0-L",
+      "title": "Full Local Development E2E",
+      "status": "BLOCKED",
+      "commit": null,
+      "parent": "9d05452a",
+      "target_contract": "DEFERRED",
+      "changed_paths": [],
+      "tests_added": 0,
+      "mutations_red": 0,
+      "production_changed": false,
+      "evidence": [
+        "The explicit isolated-execution gate WORKS: test.run with execution_target=NEW_ISOLATED_WORKTREE reports target_type NEW_ISOLATED_WORKTREE, executes with cwd set to .veya/worktrees/task-*, and the command's own os.getcwd() independently matches the record's cwd.",
+        "Canonical HEAD, the modified tracked file and canonical source contents were all byte-identical across that run, so P0-J-F1 has a working remedy available even though the default stays canonical.",
+        "The sequence cannot be carried past the repair step because main has no commit surface: the git.* tools are git.status, git.diff, git.log and git.promote only.",
+        "veya/remote/git_promotion.py states 'Promotion != Commit: changes remain in working tree/index; NO auto-commit, NO auto-push', and git.promote requires an execution_id whose commit already exists."
+      ],
+      "findings": [],
+      "blockers": [
+        {
+          "id": "P0-L-B1",
+          "status": "ARCHITECTURAL",
+          "summary": "No git.stage and no git.commit exist in the governed surface, so acceptance steps 13-18 (stage, commit, verify commit, promote) cannot be executed.",
+          "why_blocked": "The only route would be shell.exec running git add/git commit, which is the bypass the closure spec forbids, or adding a commit capability, which is an architecture change rather than a qualification.",
+          "evidence": "BINDINGS git.* == [git.status, git.diff, git.log, git.promote]; runtime/coding has no coding_*commit* function",
+          "owner": "requires an architecture decision before P0-L can run"
+        }
+      ]
     }
   ],
   "cross_cutting": {
@@ -210,7 +239,11 @@
         "summary": "Reasonix runtime",
         "status": "BLOCKED"
       }
-    ]
+    ],
+    "closure_gate": {
+      "status": "NOT_REACHED",
+      "reason": "P0-L is BLOCKED, so the Local2 local development closure cannot be declared COMPLETE. Integration remains a separate, deferred phase."
+    }
   },
   "wip_preservation": {
     "tracked_modified": [
@@ -225,9 +258,23 @@
     "forbidden_operations_used": "none: no git clean, no git reset, no git stash at any point in P0-F through P0-K"
   },
   "suites": {
-    "unit-fast": { "passed": 406, "failed": 0 },
-    "runtime": { "passed": 505, "failed": 24, "baseline": true },
-    "goalrun": { "passed": 200, "failed": 1, "baseline": true },
-    "phase_suites_p0f_to_p0j": { "passed": 133, "failed": 0 }
+    "unit-fast": {
+      "passed": 406,
+      "failed": 0
+    },
+    "runtime": {
+      "passed": 505,
+      "failed": 24,
+      "baseline": true
+    },
+    "goalrun": {
+      "passed": 200,
+      "failed": 1,
+      "baseline": true
+    },
+    "phase_suites_p0f_to_p0j": {
+      "passed": 133,
+      "failed": 0
+    }
   }
 }
