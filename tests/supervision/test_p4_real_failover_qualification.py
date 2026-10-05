@@ -102,7 +102,15 @@ async def test_p4_real_failover_to_real_worker_to_verifier_to_goalrun_complete(t
     assert receipt.previous_executor == CANONICAL
     rejected = {r["executor_id"]: r["reason"] for r in receipt.rejected_candidates}
     assert rejected["acp"] == "UNREACHABLE"
-    assert rejected["antigravity"] == "UNAUTHENTICATED"
+    # antigravity is no longer rejected here, and that is the correction rather
+    # than a regression: it declares no credential source, yet real acceptance on
+    # 2026-10-04 observed it completing real tasks, so refusing it over an
+    # unprovable credential was excluding a working executor. The registry grants
+    # it NOT_APPLICABLE on that recorded evidence, per executor, rather than
+    # inferring it from credential_present being false — which is the mistake
+    # SF-001 exists to correct. dsh, which also declares nothing, stays rejected.
+    assert "antigravity" not in rejected
+    assert rejected["dsh"] == "NO_CREDENTIAL_EVIDENCE"
 
     # K — receipt identity and the durable admission.
     assert receipt.receipt_id

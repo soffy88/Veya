@@ -201,8 +201,18 @@ def _rejection_reason(candidate: Any, excluded: tuple[str, ...]) -> str | None:
         return None
     if not candidate.reachable:
         return "UNREACHABLE"
-    if not candidate.authenticated:
-        return "UNAUTHENTICATED"
+    if not candidate.credential_gate_open:
+        # Two distinct refusals, kept apart because they mean opposite things.
+        # CREDENTIAL_REFUTED is evidence: the credential cannot work.
+        # NO_CREDENTIAL_EVIDENCE is absence: the executor declares no credential
+        # source and the registry has no observation saying it needs none.
+        # Refusing on plain absence would drop opencode, which holds a working key
+        # no probe could verify, so only a refutation rejects a probed executor.
+        return (
+            "CREDENTIAL_REFUTED"
+            if candidate.credential_valid is False
+            else "NO_CREDENTIAL_EVIDENCE"
+        )
     if str(candidate.health).upper() == "UNAVAILABLE":
         return "HEALTH_UNAVAILABLE"
     return None
@@ -330,7 +340,8 @@ def reselect_executor(
             c.executor_id: {
                 "capability_satisfied": c.capability_satisfied,
                 "reachable": c.reachable,
-                "authenticated": c.authenticated,
+                "credential_valid": c.credential_valid,
+                "credential_evidence": c.credential_evidence,
             }
             for c in candidates
         },

@@ -122,10 +122,21 @@ class ExecutorCandidate:
     local: bool
     capability_satisfied: bool
     reachable: bool
-    authenticated: bool
     health: str
     admission_supported: bool
     provider_dependency: bool
+    #: None when credential validity is neither proven nor refuted, and the
+    #: string says why. This replaces the old boolean, which was computed as
+    #: `authenticated = credential_present` and therefore reported a file's
+    #: existence as authentication. On 2026-10-04 that made three of the four
+    #: selectable executors broken ones: claude_code AUTH_FAILURE, codex
+    #: PROVIDER_UNAVAILABLE, pi PROVIDER_CONFIGURATION_FAILURE.
+    credential_valid: bool | None = None
+    credential_evidence: str = "UNPROBED"
+    #: Observed, not inferred. Distinct from validity: a file can exist while the
+    #: credential in it is empty, and an executor can work with no credential at
+    #: all. Selection must never read this as authentication.
+    credential_present: bool = False
 
     @property
     def eligible(self) -> bool:
@@ -141,12 +152,44 @@ class ExecutorCandidate:
             return False
         if self.local:
             return True
-        return self.reachable and self.authenticated and self.health != "UNAVAILABLE"
+        return (
+            self.reachable
+            and self.credential_valid is not False
+            and self.credential_gate_open
+            and self.health != "UNAVAILABLE"
+        )
+
+    @property
+    def credential_gate_open(self) -> bool:
+        """Whether credential evidence leaves this executor selectable.
+
+        Three states, not two. A refutation closes the gate. Material that nobody
+        has probed leaves it open, because refusing on absence would drop
+        opencode, which holds a working key no probe could verify. No credential
+        source at all leaves it *closed* unless the registry has recorded that
+        this particular executor was observed working without one — that is what
+        NOT_APPLICABLE means, and it is granted per executor on evidence rather
+        than inferred from ``credential_present`` being false.
+        """
+        if self.credential_valid is False:
+            return False
+        if self.credential_valid is True:
+            return True
+        if self.credential_evidence == "NOT_APPLICABLE":
+            return True
+        return self.credential_present
 
     @property
     def qualified(self) -> bool:
-        """Probed readiness: reachable and holding valid credentials."""
-        return bool(self.reachable and self.authenticated)
+        """Probed readiness: reachable, and not refuted on credential evidence.
+
+        None counts as qualified, because refusing it would exclude executors
+        that demonstrably work: opencode holds a working key that no probe has
+        verified, and antigravity declares no credential at all yet completes
+        real tasks. `credential_evidence` is carried into the receipt so a reader
+        can see that the answer rests on health evidence alone.
+        """
+        return bool(self.reachable and self.credential_valid is not False)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -155,7 +198,8 @@ class ExecutorCandidate:
             "qualified": self.qualified,
             "capability_satisfied": self.capability_satisfied,
             "reachable": self.reachable,
-            "authenticated": self.authenticated,
+            "credential_valid": self.credential_valid,
+            "credential_evidence": self.credential_evidence,
             "health": self.health,
             "admission_supported": self.admission_supported,
             "provider_dependency": self.provider_dependency,
@@ -211,7 +255,15 @@ def executor_candidates(
                     )
                 ),
                 reachable=True if local else bool(getattr(identity, "reachable", False)),
-                authenticated=True if local else bool(getattr(identity, "authenticated", False)),
+                credential_valid=(True if local else getattr(identity, "credential_valid", None)),
+                credential_evidence=(
+                    "LOCAL_SUBSTRATE"
+                    if local
+                    else str(getattr(identity, "credential_evidence", "UNPROBED"))
+                ),
+                credential_present=(
+                    True if local else bool(getattr(identity, "credential_present", False))
+                ),
                 health="LOCAL" if local else str(health.get_health(name)),
                 admission_supported=True,
                 provider_dependency=not local,

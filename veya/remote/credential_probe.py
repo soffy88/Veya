@@ -64,6 +64,12 @@ class ProbeOutcome(StrEnum):
     PROVIDER_CONFIGURATION_FAILURE = "PROVIDER_CONFIGURATION_FAILURE"
     #: No verified probe exists for this provider. Not evidence either way.
     UNPROBABLE = "UNPROBABLE"
+    #: This executor owns no credential the registry can see, so credential
+    #: validity is not a gate for it. Established by real acceptance on
+    #: 2026-10-04: antigravity declares no credential source at all and still
+    #: completes real tasks, so refusing it for an unprovable credential would
+    #: exclude a working executor.
+    NOT_APPLICABLE = "NOT_APPLICABLE"
     #: A registered probe ran and failed to produce a verdict.
     UNKNOWN = "UNKNOWN"
 
@@ -97,6 +103,10 @@ class ProbeResult:
     @property
     def is_negative(self) -> bool:
         return self.outcome in NEGATIVE_OUTCOMES
+
+    @property
+    def is_not_applicable(self) -> bool:
+        return self.outcome is ProbeOutcome.NOT_APPLICABLE
 
     @property
     def is_unusable(self) -> bool:

@@ -145,10 +145,65 @@ def test_b4_every_candidate_rejection_is_named(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "veya.supervision.runner.executor_candidates",
         lambda **_kw: [
-            ExecutorCandidate("a", False, False, True, True, "HEALTHY", True, True),
-            ExecutorCandidate("b", False, True, False, True, "HEALTHY", True, True),
-            ExecutorCandidate("c", False, True, True, False, "HEALTHY", True, True),
-            ExecutorCandidate("d", False, True, True, True, "UNAVAILABLE", True, True),
+            # Keyword form throughout: the boolean that used to sit in slot 5 was
+            # `authenticated`, and replacing it with a tri-state silently shifted
+            # every positional argument by one field.
+            #
+            # Only a refutation may reject. `b` and `d` carry UNPROBED, which is
+            # absence of evidence, and neither is rejected on credential grounds.
+            ExecutorCandidate(
+                executor_id="a",
+                local=False,
+                capability_satisfied=False,
+                reachable=True,
+                health="HEALTHY",
+                admission_supported=True,
+                provider_dependency=True,
+            ),
+            ExecutorCandidate(
+                executor_id="b",
+                local=False,
+                capability_satisfied=True,
+                reachable=False,
+                health="HEALTHY",
+                admission_supported=True,
+                provider_dependency=True,
+            ),
+            ExecutorCandidate(
+                executor_id="c",
+                local=False,
+                capability_satisfied=True,
+                reachable=True,
+                health="HEALTHY",
+                admission_supported=True,
+                provider_dependency=True,
+                credential_valid=False,
+                credential_evidence="PROBE_REFUTED:AUTH_FAILURE",
+            ),
+            ExecutorCandidate(
+                executor_id="d",
+                local=False,
+                capability_satisfied=True,
+                reachable=True,
+                health="UNAVAILABLE",
+                admission_supported=True,
+                provider_dependency=True,
+                credential_valid=True,
+            ),
+            # Declares no credential source and has no recorded observation of
+            # working without one, so it is refused for absence of evidence. That
+            # is a different reason from a refutation and is named separately.
+            ExecutorCandidate(
+                executor_id="e",
+                local=False,
+                capability_satisfied=True,
+                reachable=True,
+                health="HEALTHY",
+                admission_supported=True,
+                provider_dependency=True,
+                credential_valid=None,
+                credential_evidence="UNPROBED",
+            ),
         ],
     )
     out = reselect_executor(_request(root), previous_executor="not_in_the_list")
@@ -156,8 +211,12 @@ def test_b4_every_candidate_rejection_is_named(tmp_path, monkeypatch):
     assert reasons == {
         "a": "CAPABILITY_MISMATCH",
         "b": "UNREACHABLE",
-        "c": "UNAUTHENTICATED",
+        "c": "CREDENTIAL_REFUTED",
         "d": "HEALTH_UNAVAILABLE",
+        # An executor that declares no credential and has no recorded
+        # observation of working without one is refused for absence of evidence,
+        # which is a different reason from a refutation and is named as such.
+        "e": "NO_CREDENTIAL_EVIDENCE",
     }
 
 

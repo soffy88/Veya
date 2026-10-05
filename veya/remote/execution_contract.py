@@ -25,7 +25,6 @@ class RuntimeCapabilityManifest:
     executor_id: str
     executor_kind: str
     installed: bool
-    authenticated: bool
     reachable: bool
 
     provider: str
@@ -58,6 +57,12 @@ class RuntimeCapabilityManifest:
     status: Literal["READY", "DEGRADED", "UNAVAILABLE", "UNKNOWN"]
     status_reason: str
     observed_at: float
+    #: Tri-state credential truth. None means nobody has established it, which is
+    #: not a refutation; `authenticated` was previously computed as
+    #: `credential_present` and reported a file's existence as authentication.
+    credential_valid: bool | None = None
+    #: Why `credential_valid` holds its value. See ExecutorRuntimeIdentity.
+    credential_evidence: str = "UNPROBED"
     runtime_source: str = "unknown"
     launcher: str | None = None
     auth_state: str = "UNKNOWN"
@@ -233,7 +238,8 @@ def probe_runtime_capability_manifest(
             executor_id=norm,
             executor_kind="l1_worker",
             installed=False,
-            authenticated=False,
+            credential_valid=False,
+            credential_evidence="NOT_INSTALLED",
             reachable=False,
             provider="unknown",
             model="unknown",
@@ -265,7 +271,11 @@ def probe_runtime_capability_manifest(
     installed = False
     bin_path = None
     version = "unknown"
-    authenticated = identity.authenticated
+    # credential_valid is tri-state on purpose. A refutation means the credential
+    # cannot work; None means nobody has established it, which is not a refutation
+    # and must not be reported as one.
+    credential_valid = identity.credential_valid
+    credential_evidence = identity.credential_evidence
     reachable = identity.reachable
     provider = identity.provider or "unknown"
     model = identity.model or "unknown"
@@ -365,9 +375,9 @@ def probe_runtime_capability_manifest(
     elif not reachable:
         status = "UNAVAILABLE"
         status_reason = health_reason or f"provider for {norm} unreachable"
-    elif not authenticated:
+    elif credential_valid is False:
         status = "DEGRADED"
-        status_reason = f"credentials for {norm} not configured"
+        status_reason = f"credentials for {norm} refuted ({credential_evidence})"
     elif health_reason:
         status = "DEGRADED"
         status_reason = health_reason
@@ -388,7 +398,8 @@ def probe_runtime_capability_manifest(
         executor_id=norm,
         executor_kind="l1_worker",
         installed=installed,
-        authenticated=authenticated,
+        credential_valid=credential_valid,
+        credential_evidence=credential_evidence,
         reachable=reachable,
         provider=provider,
         model=model,

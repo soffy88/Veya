@@ -19,7 +19,11 @@ from typing import TYPE_CHECKING, Any
 
 from veya.executor_retirement import is_retired_executor as is_retired
 from veya.remote import credential_structure as _credential_structure
-from veya.remote.credential_probe import CredentialProbeCache, ProbeResult
+from veya.remote.credential_probe import (
+    CredentialProbeCache,
+    ProbeOutcome,
+    ProbeResult,
+)
 
 if TYPE_CHECKING:  # provider state stays in ProviderRegistry; imported for typing only
     from veya.remote.provider_registry import ProviderRecord
@@ -146,6 +150,7 @@ class ExecutorRuntimeState:
     #: are separate from ``authenticated``.
     credential_present: bool = False
     credential_valid: bool | None = None
+    credential_evidence: str = "UNPROBED"
 
 
 @dataclass(frozen=True)
@@ -193,6 +198,12 @@ class ExecutorRuntimeIdentity:
     #: reporting ``authenticated=True`` failed on real contact, so a presence
     #: check presented as authentication is a lie this field exists to prevent.
     credential_valid: bool | None = None
+    #: Why ``credential_valid`` holds the value it does. Without it a None is
+    #: ambiguous between "no credential applies here", "material that nobody has
+    #: probed" and "a probe ran and could not conclude", and those three justify
+    #: very different amounts of trust. Never infer validity from this string;
+    #: read ``credential_valid``.
+    credential_evidence: str = "UNPROBED"
 
     # ── provider reference, kept as a request rather than as state ──
     def provider_record(self) -> ProviderRecord:
@@ -271,6 +282,7 @@ class ExecutorRuntimeIdentity:
             runtime_source=self.runtime_source,
             credential_present=self.credential_present,
             credential_valid=self.credential_valid,
+            credential_evidence=self.credential_evidence,
         )
 
     @property
@@ -315,6 +327,7 @@ class ExecutorRuntimeIdentity:
             "auth_state": self.auth_state,
             "credential_present": self.credential_present,
             "credential_valid": self.credential_valid,
+            "credential_evidence": self.credential_evidence,
             "credential_proven": self.credential_proven,
             "authenticated": self.authenticated,
             "reachable": self.reachable,
@@ -424,6 +437,10 @@ _PROVIDER_REQUIREMENTS: dict[str, tuple[str, ...]] = {
 
 #: auth_state as a function of probe validity. None leaves whatever local
 #: evidence already established untouched, because "no probe" is not a finding.
+#: Executors observed to work with no credential source of their own. Each
+#: entry needs a recorded real observation; see the note at its use site.
+_CREDENTIAL_NOT_APPLICABLE = frozenset({"antigravity"})
+
 _AUTH_STATE_FOR_VALIDITY: dict[bool | None, str] = {
     True: "AUTHENTICATED",
     False: "INVALID",
@@ -553,6 +570,20 @@ class ExecutorRegistry:
         # antigravity completes real tasks with no credential source this
         # inspection knows about, so absent is not evidence of anything.
         credential_valid = False if inspection.structurally_unusable else None
+        if credential_valid is False:
+            credential_evidence = "STRUCTURAL_REFUTED"
+        elif executor_id in _CREDENTIAL_NOT_APPLICABLE:
+            # Granted per executor, on evidence, never derived from the mere
+            # absence of a credential source. antigravity is the only entry:
+            # real acceptance on 2026-10-04 observed it completing real tasks
+            # while declaring no credential source at all, so refusing it over
+            # an unprovable credential would exclude a working executor. dsh,
+            # acp and grok also declare nothing but have never been observed to
+            # work, and "absent" is not evidence — inferring this from
+            # `credential_present` is the mistake SF-001 exists to correct.
+            credential_evidence = "NOT_APPLICABLE"
+        else:
+            credential_evidence = "UNPROBED"
         return ExecutorRuntimeIdentity(
             executor_id=executor_id,
             executor_kind="l1_worker",
@@ -564,6 +595,7 @@ class ExecutorRegistry:
             # decisive. None means material exists but no probe has run.
             credential_present=present,
             credential_valid=credential_valid,
+            credential_evidence=credential_evidence,
             authenticated=authenticated,
             reachable=reachable,
             launcher=launcher,
@@ -624,8 +656,19 @@ class ExecutorRegistry:
             self._identities[key] = replace(
                 identity,
                 credential_valid=validity,
+                credential_evidence=(
+                    "PROBE_VALID" if result.is_valid else f"PROBE_REFUTED:{result.outcome.value}"
+                ),
                 auth_state=_AUTH_STATE_FOR_VALIDITY.get(validity, identity.auth_state),
             )
+        elif result.is_not_applicable:
+            self._identities[key] = replace(identity, credential_evidence="NOT_APPLICABLE")
+        elif not result.is_valid and result.outcome is ProbeOutcome.UNPROBABLE:
+            # Unprobable is not a finding, so it cannot erase a local refutation,
+            # but it does change what a reader should assume about an unprobed
+            # executor: a probe was attempted and no endpoint could verify it.
+            if identity.credential_evidence == "UNPROBED":
+                self._identities[key] = replace(identity, credential_evidence="PROBE_UNPROBABLE")
         return result
 
     def register(self, identity: ExecutorRuntimeIdentity) -> None:

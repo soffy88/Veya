@@ -103,7 +103,11 @@ def test_inventory_reports_every_admitted_executor_with_real_evidence() -> None:
             "executor_id",
             "qualified",
             "reachable",
-            "authenticated",
+            # `authenticated` is gone: it was computed as credential_present and
+            # reported a file's existence as authentication. Validity is tri-state
+            # and carries the reason it could not be established.
+            "credential_valid",
+            "credential_evidence",
             "capability_satisfied",
             "health",
             "admission_supported",
@@ -151,7 +155,7 @@ def test_unhealthy_executor_not_selected_when_alternative_exists(
             local=False,
             capability_satisfied=True,
             reachable=True,
-            authenticated=True,
+            credential_valid=True,
             admission_supported=True,
             provider_dependency=True,
         )
@@ -220,7 +224,7 @@ async def test_provider_failure_can_retask(monkeypatch: pytest.MonkeyPatch) -> N
             local=False,
             capability_satisfied=True,
             reachable=True,
-            authenticated=True,
+            credential_valid=True,
             admission_supported=True,
             provider_dependency=True,
         )
@@ -297,7 +301,7 @@ async def test_no_available_executor_blocks_truthfully(
                 local=False,
                 capability_satisfied=True,
                 reachable=True,
-                authenticated=True,
+                credential_valid=True,
                 health="UNAVAILABLE",
                 admission_supported=True,
                 provider_dependency=True,
@@ -340,7 +344,7 @@ async def test_provider_failure_never_reports_completion(
                 local=False,
                 capability_satisfied=True,
                 reachable=True,
-                authenticated=True,
+                credential_valid=True,
                 health="HEALTHY",
                 admission_supported=True,
                 provider_dependency=True,
