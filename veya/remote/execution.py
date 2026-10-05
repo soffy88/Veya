@@ -770,6 +770,11 @@ class ExecutionRecord:
             # record is in, instead of inferring it from a missing receipt.
             "receipt_contract_status": self.receipt_contract_status,
             "receipt_contract_error": self.receipt_contract_error,
+            # P0-P: the direct path's Verifier outcome. Projected because a
+            # receipt that cannot show whether it was verified is not a truthful
+            # receipt. Observation only; it decides neither terminal status.
+            "verification_result": self.verification_result,
+            "verification_summary": self.verification_summary,
             "finalization_status": self.finalization_status,
             "finalization_failure_class": self.finalization_failure_class,
             # Lifecycle (P0-D/E).

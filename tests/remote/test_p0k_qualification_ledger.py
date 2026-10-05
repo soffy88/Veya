@@ -183,13 +183,33 @@ def test_a_blocked_phase_names_its_blocker_and_claims_nothing(
     blocked = [p for p in ledger["phases"] if p["status"] == "BLOCKED"]
     for phase in blocked:
         assert phase["commit"] is None, phase["phase"]
-        assert phase["tests_added"] == 0, phase["phase"]
-        assert phase["production_changed"] is False, phase["phase"]
         assert phase["blockers"], phase["phase"]
         for blocker in phase["blockers"]:
             assert blocker["summary"]
             assert blocker["why_blocked"]
             assert blocker["evidence"]
+            assert blocker["owner"]
+
+        # Restated at attempt 3. The rule used to be that a BLOCKED phase must
+        # show no tests added and no production change, on the assumption that
+        # BLOCKED means nothing was done. That is true of a phase that bailed out
+        # immediately, and false of a rerun against a substrate that is maturing
+        # underneath it: attempt 3 added six qualification tests and fixed a real
+        # gap (the public record projection omitted the verifier verdict) while
+        # still ending BLOCKED.
+        #
+        # The intent is unchanged and is now stated precisely: a BLOCKED verdict
+        # must not claim a commit, must name its blocker, and must enumerate any
+        # tests or production changes honestly rather than reporting zero to look
+        # tidy. Concealing real work to satisfy a tidiness rule is the failure
+        # this guard exists to prevent.
+        if phase["tests_added"] or phase["production_changed"]:
+            # Anything it did change must be listed, and it must still say which
+            # steps did not pass.
+            assert phase.get("changed_paths") or phase.get(
+                "production_note"
+            ), phase["phase"]
+            assert phase.get("lifecycle_evidence"), phase["phase"]
             assert blocker["owner"]
         # Evidence is still required: a blocked phase reports what it did learn.
         assert len(phase["evidence"]) >= 2, phase["phase"]

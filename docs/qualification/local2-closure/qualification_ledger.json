@@ -574,6 +574,76 @@
         "P0-P-F1"
       ],
       "blockers": []
+    },
+    {
+      "phase": "P0-L",
+      "attempt": "rerun-after-P0-N-P0-P-SF-RECEIPT",
+      "title": "Full Local Development E2E (attempt 3)",
+      "status": "BLOCKED",
+      "commit": null,
+      "parent": "b77d68d1",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "veya/remote/execution.py",
+        "tests/remote/test_p0l_local_development_e2e.py",
+        "tests/remote/test_p0k_qualification_ledger.py",
+        "docs/qualification/local2-closure/qualification_ledger.json"
+      ],
+      "tests_added": 6,
+      "mutations_red": 0,
+      "production_changed": true,
+      "verdict_reason": "Twelve of the thirteen lifecycle steps now complete through the governed gateway on their own evidence, and all three previously reported blockers are demonstrably gone. The chain still cannot finish: git.promote is structurally unreachable in the direct Local2 lifecycle. That step was recorded at P0-O as finding P0-O-G2 and deferred to a future Git lifecycle phase; it turns out to be exactly the step the closure chain requires.",
+      "prior_blockers_now_cleared": {
+        "git.verify": "CLEARED. The step exists as a governed READ bound to coding_git_verify and delegating to WorktreeManager.verify. Verified through the gateway against a real commit, with SHA, parent, tree and changed paths each cross-checked against the git CLI as an independent oracle. A SHA absent from the repository and a mismatched changed-path set are both refused with POLICY_BLOCKED.",
+        "direct_path_verification": "CLEARED. A failing direct test.run yields ExecutionRecord FAILED with verification_result FAIL, and the GoalRun does not reach completed. A passing run yields COMPLETED with verification_result PASS. Re-earned in this phase rather than cited from P0-P.",
+        "truthful_receipt": "CLEARED. An invalid receipt yields receipt_contract_status='invalid' with RECEIPT_CONTRACT_INVALID and no stored receipt; absent yields 'absent'; a valid receipt persists with its claims. The contract is derived from EffectReceipt rather than hand-listed."
+      },
+      "lifecycle_evidence": {
+        "1_resolve": "PASS, explicit NEW_ISOLATED_WORKTREE; canonical HEAD unchanged throughout",
+        "2_read": "PASS, file.read returned worktree content through the gateway",
+        "3_search": "PASS, file.search returned path:line matches for the pattern",
+        "4_isolated_worktree": "PASS, a distinct task worktree under .veya/worktrees was created and used",
+        "5_write": "PASS, file.write landed in the worktree and never in canonical",
+        "6_test_fail": "PASS, a real process exited non-zero with failure_class TEST_SUITE_FAILED",
+        "7_diagnose": "PASS, the failure evidence names the changed file and the assertion",
+        "8_repair": "PASS, a second governed file.write, no shell",
+        "9_test_pass": "PASS, the same command then exited 0 with verification_result PASS",
+        "10_build": "PASS, a real build.run process completed with exit 0",
+        "11_diff": "PASS, worktree-scoped diff naming only the changed file",
+        "12_stage": "PASS, through coding_git_stage to WorktreeManager",
+        "13_commit": "PASS, real SHA matching git rev-parse HEAD",
+        "14_verify": "PASS, verified=true with SHA, parent, tree and paths all agreeing with the oracle",
+        "15_promote": "BLOCKED, POLICY_BLOCKED with no execution_id and EXECUTION_FAILED with an unregistered one",
+        "16_receipt": "BLOCKED, no promotion means no promotion claim to receipt, and the git fast path creates no ExecutionRecord to carry one",
+        "17_closure": "NOT REACHED"
+      },
+      "blockers": [
+        {
+          "id": "P0-L-B5",
+          "status": "ARCHITECTURAL",
+          "summary": "git.promote cannot be reached in the direct Local2 development lifecycle. It is in _FAST_GIT_TOOLS, and the fast path returns from call before _prepare, which is the only caller of execution_worktrees.get_or_create. The promotion registry is therefore populated exclusively by the worker/L1 topology, and the direct lifecycle never produces an execution_id to promote.",
+          "why_blocked": "Closing it means either joining the git surface to the execution_worktrees lifecycle, or giving the WorktreeManager lifecycle its own promotion authority. Either is a change to promotion semantics or to worktree ownership, which is out of P0-L scope and would repeat the architecture project P0-O was careful to avoid. Reaching it through worker.dispatch would work only with an admitted LLM executor, which the closure spec forbids as a dependency of the local development loop.",
+          "evidence": "git.promote in _FAST_GIT_TOOLS; the _call_fast_git branch precedes _prepare in the dispatch chain; _prepare is the sole caller of execution_worktrees.get_or_create; assert not adapter.jobs._records confirms the direct lifecycle produces no ExecutionRecord to supply an execution_id.",
+          "relationship_to_p0o_g2": "This is P0-O-G2 escalated from a recorded finding to an actual blocker. P0-O explicitly deferred it to a future Git lifecycle phase and out of P0-P scope, which was correct at the time; the P0-L rerun is what established that it blocks the closure chain.",
+          "owner": "requires an architecture decision: a dedicated Git lifecycle phase"
+        }
+      ],
+      "findings": [],
+      "notes": [
+        "P0-J-F1 was reproduced live during this run and is worth stating plainly: an early draft of the lifecycle test called test.run without an explicit execution_target, and the run executed against the canonical tree, which still contained the unrepaired file. That is the known default-target finding, observed rather than assumed, and it is why every step in this phase passes an explicit target.",
+        "Two earlier draft failures were defects in the test, not the product: file.search was called with 'query' where the binding requires 'pattern', and the public record projection did not yet carry verification_result. The second was a genuine gap and to_public now projects the verdict, because a receipt that cannot show whether it was verified is not a truthful receipt.",
+        "No mutation gates are recorded for this phase. A BLOCKED phase has not reached the point where a mutation would test the acceptance criteria, and recording them as N/A rather than as untested PASS is deliberate.",
+        "Attempts 1 (f5af9744) and 2 (b424e00a) remain BLOCKED and unmodified. This is the third consecutive BLOCKED verdict, but for a strictly smaller and now precisely identified reason: attempt 1 lacked a commit surface, attempt 2 lacked verify and verification, attempt 3 lacks only promotion."
+      ],
+      "closure_gate": {
+        "status": "NOT_REACHED",
+        "reason": "P0-L attempt 3 is BLOCKED on P0-L-B5: git.promote is structurally unreachable in the direct Local2 lifecycle. Twelve of thirteen steps pass and all three earlier blockers are cleared, but Local2 local development closure still cannot be declared COMPLETE while the lifecycle cannot promote and cannot produce a promotion receipt. A dedicated Git lifecycle phase must decide promotion authority for the WorktreeManager lifecycle before P0-L can be rerun again. Integration remains deferred."
+      },
+      "production_note": "No new capability. One real gap was closed: ExecutionRecord.to_public did not project verification_result or verification_summary, so a caller reading the public record could not tell whether the direct path had been verified. A receipt that cannot show whether it was verified is not a truthful receipt, so the verdict is now projected. Nothing else in production changed, and no lifecycle capability was added, which is why the verdict is still BLOCKED.",
+      "evidence": [
+        "Recorded as BLOCKED with the specific step that could not be completed and why, so the verdict is falsifiable against a rerun rather than being an assertion.",
+        "The failing step is named explicitly in the phase entry's lifecycle_evidence, and the reason it failed is recorded with the file and line that establish it, so a later rerun can confirm the blocker is still present or show precisely what changed."
+      ]
     }
   ],
   "cross_cutting": {
