@@ -439,6 +439,93 @@ class WorktreeManager:
             "message": message.strip(),
         }
 
+    def verify(
+        self,
+        worktree_path: str | Path,
+        commit_sha: str,
+        *,
+        expect_paths: Any = None,
+    ) -> dict[str, Any]:
+        """Verify that a commit really exists in this worktree and says what it claims.
+
+        Read-only, and deliberately not a second opinion about the commit: it
+        reports what git holds, so a caller can check a SHA it was given instead
+        of taking one on trust. ``verified`` is computed here from those reads —
+        it is never asserted.
+
+        Fails closed. A SHA that does not resolve to a commit in this repository,
+        a commit whose parent or tree cannot be read, or a changed-path set that
+        differs from what the caller declared, all raise. A ref expression
+        resolves but is reported as unverified rather than raised, so the caller
+        can see which commit was actually inspected.
+        """
+        target = self._owned_target(worktree_path)
+        if not isinstance(commit_sha, str) or len(commit_sha.strip()) < 7:
+            raise WorktreeError("commit_sha must be a git object name")
+
+        wanted = commit_sha.strip()
+        # Resolve inside this repository only. ``cat-file -e`` fails for a SHA
+        # that exists elsewhere, which is what keeps another repository's commit
+        # from being accepted here.
+        probe = subprocess.run(
+            ["git", "-C", str(target), "cat-file", "-e", f"{wanted}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if probe.returncode != 0:
+            raise WorktreeError(f"commit not found in this repository: {wanted}")
+
+        resolved = _git_command(target, ["rev-parse", f"{wanted}^{{commit}}"]).strip()
+        if not resolved:
+            raise WorktreeError(f"commit {wanted} did not resolve to a commit")
+        if not resolved.startswith(wanted):
+            # A ref expression (HEAD, a branch, a ``~``) resolves to a real
+            # commit but is not the SHA the caller claimed. Verifying it would
+            # answer about a commit they never named, so report it as refused
+            # rather than as a passing verification.
+            return {
+                "path": str(target),
+                "repo_root": str(self.repo_root),
+                "ref_expression": wanted,
+                "resolved_sha": resolved,
+                "verified": False,
+            }
+
+        # ``_git_command`` raises on any non-zero exit, so an unreadable parent
+        # or tree fails closed here without a separate emptiness check — a commit
+        # with no readable parent, or a corrupt one, cannot return a result.
+        parent = _git_command(target, ["rev-parse", f"{resolved}^"]).strip()
+        tree = _git_command(target, ["rev-parse", f"{resolved}^{{tree}}"]).strip()
+
+        changed = [
+            line
+            for line in _git_command(
+                target,
+                ["diff-tree", "--no-commit-id", "--name-only", "-r", resolved],
+            ).splitlines()
+            if line.strip()
+        ]
+        expected = self._relative_paths(expect_paths)
+        if expected and sorted(expected) != sorted(changed):
+            raise WorktreeError(
+                f"commit paths do not match the expected set: commit={sorted(changed)} "
+                f"expected={sorted(expected)}"
+            )
+
+        return {
+            "path": str(target),
+            "repo_root": str(self.repo_root),
+            "branch_name": _git_command(target, ["rev-parse", "--abbrev-ref", "HEAD"]).strip(),
+            "commit_sha": resolved,
+            "parent_sha": parent,
+            "tree": tree,
+            "changed_paths": changed,
+            "expected_paths": sorted(expected),
+            "verified": True,
+        }
+
     def discard(
         self,
         task_id: str | None = None,

@@ -264,6 +264,40 @@ def coding_git_commit(worktree_path: str, message: str, expect_paths: Any = None
     )
 
 
+def coding_git_verify(
+    worktree_path: str, commit_sha: str, expect_paths: Any = None
+) -> dict[str, Any]:
+    """Verify an existing commit in a registered Veya worktree.
+
+    Reports what git holds rather than re-deriving it: the commit must resolve
+    inside this repository, its parent and tree must be readable, and its changed
+    paths must match what the caller declared. ``verified`` is computed by the
+    manager from those reads, never set here.
+    """
+    try:
+        record = _worktree_manager(worktree_path).verify(
+            worktree_path, commit_sha, expect_paths=expect_paths
+        )
+    except Exception as exc:
+        return _failed(f"git verify failed: {type(exc).__name__}: {exc}")
+    return _result(
+        "ok",
+        data={"git_verify": record},
+        evidence=[
+            {
+                "kind": "git_verify",
+                "path": record["path"],
+                "repo_root": record["repo_root"],
+                "commit_sha": record["commit_sha"],
+                "parent_sha": record["parent_sha"],
+                "tree": record["tree"],
+                "changed_paths": record["changed_paths"],
+                "verified": record["verified"],
+            }
+        ],
+    )
+
+
 def coding_apply_patch(worktree_path: str, patch: str) -> dict[str, Any]:
     """Apply a patch only inside a registered Veya worktree."""
     if not patch.strip():
@@ -845,6 +879,21 @@ def register_tools(registry: Any) -> int:
             SideEffect.LOCAL_WRITE,
         ),
         (
+            "coding_git_verify",
+            "Verify an existing commit in a registered isolated worktree: it must resolve in this repository, have a readable parent and tree, and match the declared changed paths.",
+            {
+                "type": "object",
+                "properties": {
+                    "worktree_path": {"type": "string"},
+                    "commit_sha": {"type": "string"},
+                    "expect_paths": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["worktree_path", "commit_sha"],
+            },
+            coding_git_verify,
+            SideEffect.PURE_READ,
+        ),
+        (
             "coding_git_stage",
             "Stage paths inside a registered isolated worktree. Refuses the canonical tree and any absolute or upward path.",
             {
@@ -1064,6 +1113,7 @@ __all__ = [
     "coding_finalize_patch",
     "coding_git_commit",
     "coding_git_stage",
+    "coding_git_verify",
     "coding_run_command",
     "coding_run_lint",
     "coding_run_tests",

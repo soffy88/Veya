@@ -232,6 +232,42 @@
           "owner": "P0-K follow-up, carried unchanged"
         }
       ]
+    },
+    {
+      "phase": "P0-N",
+      "title": "Governed git.verify",
+      "status": "PASS",
+      "commit": null,
+      "parent": "b424e00a",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "runtime/coding/worktree.py",
+        "runtime/coding/tools.py",
+        "veya/remote/tool_adapter.py",
+        "tests/remote/test_p0n_governed_git_verify.py",
+        "tests/remote/test_p0f_bounded_navigation.py",
+        "tests/remote/test_p0m_governed_commit_surface.py",
+        "tests/supervision/test_supervision_p3.py"
+      ],
+      "tests_added": 17,
+      "mutations_red": 9,
+      "production_changed": true,
+      "evidence": [
+        "git.verify is bound to a new coding_git_verify canonical tool and routes through WorktreeManager.verify, the same authority git.stage and git.commit use. It is a READ and creates no commit.",
+        "Verified through the gateway, not only at the manager: file.write -> git.stage -> git.commit -> git.verify on an explicit NEW_ISOLATED_WORKTREE, with the resulting SHA, parent, tree and changed paths each cross-checked against the git CLI used purely as an oracle.",
+        "Fails closed. A SHA absent from this repository, an empty or too-short name, a commit belonging to another repository, a changed-path set differing from the declared one, a canonical target, and an unregistered directory are all refused with POLICY_BLOCKED at the gateway.",
+        "BINDINGS moved 44 -> 45. The three recorded count guards (P0-F, P0-M, supervision sentinel) were restated with the reason rather than relaxed, and the P0-M guard additionally pins the full git.* name set so a later addition cannot quietly satisfy it.",
+        "git.promote is untouched: the guard still asserts 'Promotion != Commit' and 'NO auto-commit, NO auto-push', and git.verify is not routed to it.",
+        "Regression is unchanged against the recorded baseline: P0-F..N plus security 176 passed, unit-fast 406 passed, goalrun 1 failed / 200 passed, runtime 23 failed / 506 passed. The goalrun and runtime failures are the same ones recorded before this phase.",
+        "The 12 test_direct_fast_path failures were reproduced identically in a detached worktree at b424e00a, so they predate this phase and are not caused by it."
+      ],
+      "findings": [],
+      "blockers": [],
+      "notes": [
+        "Ref expressions are refused rather than raised: a caller passing HEAD or sha~1 gets verified=false with the resolved SHA reported, so a moving target cannot be reported as a verified commit. Verified by mutation M4.",
+        "M4 and M7 initially survived the first mutation attempt. Both were coverage gaps in the tests, not defects hidden by the implementation, and were closed by deepening the fixture and pinning the ref case; both are now RED under mutation. M5 initially went RED for the wrong reason (a corrupted tree expression rather than the removed guard), which is why the two unreachable emptiness guards were deleted instead of kept.",
+        "A separate pre-existing failure is reported and not fixed: tests/server/test_coding_tools.py asserts a 13-tool count that has been stale since P0-M (14 then 15), and that file is in no required CI suite, which is why it went unnoticed. It is out of scope here and is recorded for a separate phase."
+      ]
     }
   ],
   "cross_cutting": {
@@ -288,7 +324,7 @@
     ],
     "closure_gate": {
       "status": "NOT_REACHED",
-      "reason": "P0-L remains BLOCKED after the P0-M rerun. Three blockers stand: git.verify absent, no Verifier or GoalRun attachment on the direct path, and TOOL-BUG-1 open under section 23. Local2 local development closure cannot be declared COMPLETE. Integration remains deferred."
+      "reason": "P0-N closed the git.verify gap, but P0-L remains BLOCKED on two items that are not git surface: the direct path has no Verifier and no GoalRun attachment (P0-O, an architecture decision), and TOOL-BUG-1 leaves receipt serialization untruthful (SF-RECEIPT). Local2 local development closure cannot be declared COMPLETE. Integration remains deferred."
     }
   },
   "wip_preservation": {

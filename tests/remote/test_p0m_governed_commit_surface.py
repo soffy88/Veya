@@ -82,14 +82,27 @@ def test_promote_is_untouched_and_still_not_a_commit() -> None:
 
 
 def test_the_two_tools_are_added_and_nothing_else_moved() -> None:
-    """The binding count changes by exactly two, and that is the whole change."""
+    """P0-M's two tools are intact, and the count is stated rather than assumed.
+
+    The count has since moved again for a documented reason (P0-N added
+    ``git.verify``), so the assertion is restated instead of relaxed. The
+    original purpose stands: a phase that adds a tool without saying so is the
+    failure this catches, and a *later* phase's addition must not be able to
+    quietly satisfy this one.
+    """
     from veya.remote.tool_adapter import BINDINGS
 
     names = [binding.name for binding in BINDINGS]
-    assert len(names) == 44
+    assert len(names) == 45
     assert names.count("git.stage") == 1
     assert names.count("git.commit") == 1
     assert len(set(names)) == len(names), "duplicate binding names"
+    # P0-M's surface is exactly the git group it introduced, and P0-N's addition
+    # is the only thing that has moved since.
+    assert {n for n in names if n.startswith("git.")} == {
+        "git.status", "git.diff", "git.stage", "git.commit",
+        "git.verify", "git.log", "git.promote",
+    }
 
 
 # ── happy path, with the SHA verified independently ────────────────────

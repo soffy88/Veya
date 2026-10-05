@@ -470,6 +470,9 @@ def test_tool_binding_count_is_unchanged() -> None:
 
     * 42 -> 44 at P0-M, which added ``git.stage`` and ``git.commit`` because
       main had no governed way to record a change;
+    * 44 -> 45 at P0-N, which added ``git.verify`` because a commit handed back
+      from a governed tool still had to be checked against git, and the verify
+      step the closure spec names had no governed implementation;
     * the count asserted here is the one the supervision sentinel asserts, so
       the two cannot drift apart silently.
 
@@ -478,7 +481,7 @@ def test_tool_binding_count_is_unchanged() -> None:
     """
     from veya.remote.tool_adapter import BINDING_INDEX
 
-    assert len(BINDINGS) == 44
+    assert len(BINDINGS) == 45
     assert "git.stage" in BINDING_INDEX
     assert "git.commit" in BINDING_INDEX
 

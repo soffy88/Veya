@@ -133,8 +133,12 @@ def test_high_level_mcp_bindings_share_the_same_server() -> None:
     # way to record a change, and promote is explicitly not a commit. This count
     # is a hand-maintained decomposition of the capability surface, not a
     # capability-derived assertion, so adding a tool means restating it here.
-    # It was already stale before P0-M — the surface was 42 while this said 43.
-    assert len(BINDINGS) == 44
+    # Re-recorded again at P0-N: 44 -> 45, for ``git.verify``, which verifies an
+    # existing commit against git instead of trusting a SHA handed back from a
+    # governed tool. It is still not a commit and still not a promotion.
+    # The count was already stale before P0-M — the surface was 42 while this
+    # said 43.
+    assert len(BINDINGS) == 45
     assert not any(
         b.veya_tool is None
         for b in BINDINGS

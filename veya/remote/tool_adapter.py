@@ -145,7 +145,15 @@ _FAST_READ_TOOLS = frozenset(
     }
 )
 _FAST_GIT_TOOLS = frozenset(
-    {"git.status", "git.diff", "git.stage", "git.commit", "git.log", "git.promote"}
+    {
+        "git.status",
+        "git.diff",
+        "git.stage",
+        "git.commit",
+        "git.verify",
+        "git.log",
+        "git.promote",
+    }
 )
 # P0-B: long-command tools -> DirectJobManager with a fast sync window.
 _COMMAND_TOOLS = frozenset({"shell.exec", "test.run", "build.run"})
@@ -1061,6 +1069,22 @@ BINDINGS: tuple[ToolBinding, ...] = (
         EffectClass.WRITE,
         "Stage paths inside the session's isolated worktree. The canonical tree is not a valid target.",
         _obj({"workspace": _STR, "path": _STR, "paths": {"type": "array", "items": {"type": "string"}}}),
+        needs_git=True,
+    ),
+    ToolBinding(
+        "git.verify",
+        "coding_git_verify",
+        EffectClass.READ,
+        "Verify an existing commit in the session's isolated worktree against git itself.",
+        _obj(
+            {
+                "workspace": _STR,
+                "path": _STR,
+                "commit_sha": _STR,
+                "expect_paths": {"type": "array", "items": {"type": "string"}},
+            },
+            ["commit_sha"],
+        ),
         needs_git=True,
     ),
     ToolBinding(
@@ -2367,6 +2391,12 @@ class RemoteToolAdapter:
             return {
                 "worktree_path": worktree,
                 "message": str(args.get("message") or ""),
+                "expect_paths": _git_stage_paths(args, key="expect_paths"),
+            }
+        if name == "git.verify":
+            return {
+                "worktree_path": worktree,
+                "commit_sha": str(args.get("commit_sha") or ""),
                 "expect_paths": _git_stage_paths(args, key="expect_paths"),
             }
         if name == "git.log":
@@ -4393,7 +4423,7 @@ class RemoteToolAdapter:
                     # scoped answer from a whole-tree one.
                     "pathspec": pathspec,
                 }
-            elif name in ("git.stage", "git.commit"):
+            elif name in ("git.stage", "git.commit", "git.verify"):
                 # Stage and commit go through WorktreeManager, which is where the
                 # ownership check and the git calls live. git.status and
                 # git.diff run git inline here for speed, but a *write* must not
@@ -4413,8 +4443,13 @@ class RemoteToolAdapter:
                     # failure.
                     manager = _worktree_manager(target)
                     if name == "git.stage":
-                        paths = _git_stage_paths(args)
-                        payload = manager.stage(target, paths=paths)
+                        payload = manager.stage(target, paths=_git_stage_paths(args))
+                    elif name == "git.verify":
+                        payload = manager.verify(
+                            target,
+                            str(args.get("commit_sha") or ""),
+                            expect_paths=_git_stage_paths(args, key="expect_paths"),
+                        )
                     else:
                         message = str(args.get("message") or "")
                         if not message.strip():
