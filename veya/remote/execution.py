@@ -265,6 +265,11 @@ class ExecutionFailureClass(StrEnum):
     TARGET_RESOLUTION_FAILURE = "TARGET_RESOLUTION_FAILURE"
     PROCESS_START_FAILURE = "PROCESS_START_FAILURE"
     PROCESS_RUNTIME_FAILURE = "PROCESS_RUNTIME_FAILURE"
+    #: The command ran to completion and reported failure. Reserved for tools
+    #: whose purpose is to run something and relay its verdict (test.run,
+    #: build.run), where a non-zero exit is the requested answer rather than a
+    #: misbehaving process. A signal death or a spawn failure is never this.
+    TEST_SUITE_FAILED = "TEST_SUITE_FAILED"
     TOOL_TIMEOUT = "TOOL_TIMEOUT"
     PROCESS_TIMEOUT = "PROCESS_TIMEOUT"
     CANCELLED = "CANCELLED"

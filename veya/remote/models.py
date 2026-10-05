@@ -29,6 +29,11 @@ class RemoteErrorCode(StrEnum):
     NOT_FOUND = "NOT_FOUND"
     LIMIT_EXCEEDED = "LIMIT_EXCEEDED"
     REQUIRED_CAPABILITY_UNAVAILABLE = "REQUIRED_CAPABILITY_UNAVAILABLE"
+    #: The interpreter or toolchain the project declares is absent or does not
+    #: satisfy the project's own constraint. Distinct from EXECUTION_FAILED
+    #: because nothing ran: running anyway would report the wrong runtime's
+    #: result as the project's.
+    ENVIRONMENT_MISMATCH = "ENVIRONMENT_MISMATCH"
     INVALID_APPROVAL = "INVALID_APPROVAL"
     APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
     APPROVAL_MISMATCH = "APPROVAL_MISMATCH"

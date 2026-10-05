@@ -149,6 +149,45 @@ _FAST_GIT_TOOLS = frozenset({"git.status", "git.diff", "git.log", "git.promote"}
 _COMMAND_TOOLS = frozenset({"shell.exec", "test.run", "build.run"})
 
 
+#: Files that show a project belongs to an ecosystem. Used to gate runner
+#: selection on the project rather than on what happens to be installed.
+_ECOSYSTEM_MARKERS: dict[str, tuple[str, ...]] = {
+    "python": (
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "pytest.ini",
+        "tox.ini",
+        "requirements.txt",
+        "requirements-dev.txt",
+    ),
+    "node": ("package.json",),
+    "go": ("go.mod",),
+}
+
+
+def _project_ecosystems(repo_root: str | Path) -> frozenset[str]:
+    """Which ecosystems the project itself declares.
+
+    "Is pytest installed on this machine" is an environment fact, not a
+    statement about the project. Using it to pick a project's test runner meant a
+    Go repository with pytest available was handed ``python -m pytest -q``, and
+    the resulting error read like the project's tests had failed. Runner
+    fallback is now gated on the project showing the matching ecosystem; a
+    project that shows none is told to pass a command instead.
+    """
+    root = Path(repo_root).expanduser()
+    found: set[str] = set()
+    for ecosystem, markers in _ECOSYSTEM_MARKERS.items():
+        if any((root / marker).is_file() for marker in markers):
+            found.add(ecosystem)
+    if not found and (root / "tests").is_dir():
+        # A tests directory with no manifest still means a Python-shaped
+        # project often enough that refusing outright would be pedantic.
+        found.add("python")
+    return frozenset(found)
+
+
 def _git_pathspec(raw: Any) -> tuple[list[str], str | None]:
     """Validate a caller-supplied path filter into git pathspec arguments.
 
@@ -2560,22 +2599,34 @@ class RemoteToolAdapter:
         detected = self._detect_commands(ws_binding).get(name) or []
         if detected:
             return detected[0]
-        if name == "test.run":
-            if runtime_profile is not None:
-                if runtime_profile.pytest:
-                    if runtime_profile.python_bin:
-                        return f"{runtime_profile.python_bin} -m pytest -q"
-                    return "pytest -q"
-                if runtime_profile.pnpm:
-                    return "pnpm test"
-                if runtime_profile.node:
-                    return "npm test"
-            return "python -m pytest -q"
+        if name == "test.run" and runtime_profile is not None:
+            ecosystems = _project_ecosystems(ws_binding.repo_root)
+            if "python" in ecosystems and runtime_profile.pytest:
+                if runtime_profile.python_bin:
+                    return f"{runtime_profile.python_bin} -m pytest -q"
+                return "pytest -q"
+            if "node" in ecosystems and runtime_profile.pnpm:
+                return "pnpm test"
+            if "node" in ecosystems and runtime_profile.node:
+                return "npm test"
         if name == "build.run" and runtime_profile is not None:
-            if runtime_profile.pnpm:
+            ecosystems = _project_ecosystems(ws_binding.repo_root)
+            if "node" in ecosystems and runtime_profile.pnpm:
                 return "pnpm build"
-            if runtime_profile.node:
+            if "node" in ecosystems and runtime_profile.node:
                 return "npm run build"
+        if name == "test.run":
+            # build.run has always failed closed here. test.run used to answer
+            # "python -m pytest -q" instead, so a Go, Rust or Elixir project
+            # with no detected test command was handed a pytest invocation and
+            # the failure surfaced as a pytest error rather than as "this
+            # project has no test command I can find". A wrong guess about the
+            # runner is worse than no guess: it looks like the project's tests
+            # were run.
+            raise RemoteToolAdapterError(
+                RemoteErrorCode.INVALID_ARGUMENT,
+                "no test command detected; pass command explicitly",
+            )
         raise RemoteToolAdapterError(
             RemoteErrorCode.INVALID_ARGUMENT,
             "no build command detected; pass command explicitly",
@@ -2724,12 +2775,16 @@ class RemoteToolAdapter:
         )
 
         runtime_profile = None
+        environment: dict[str, Any] | None = None
         # ``shell.exec`` carries its already-resolved argv/string command and
         # does not need the heavyweight toolchain inventory before durable
         # admission.  Keeping discovery for test/build preserves their command
         # selection while the shell submit path stays non-blocking.
         if name in ("test.run", "build.run"):
-            from veya.remote.runtime_profile import discover_runtime_profile
+            from veya.remote.runtime_profile import (
+                discover_runtime_profile,
+                runtime_environment_report,
+            )
 
             try:
                 runtime_profile = await run_sync_in_daemon_thread(
@@ -2739,6 +2794,19 @@ class RemoteToolAdapter:
                 )
             except Exception:
                 runtime_profile = None
+            environment = runtime_environment_report(resolution.target_path, runtime_profile)
+            # The project declares what it needs; running its tests under an
+            # interpreter that does not satisfy that declaration produces a
+            # result that looks like the project's and is not. Refuse rather
+            # than fall back to whatever happens to be installed.
+            if environment["verdict"] == "ENVIRONMENT_MISMATCH":
+                detail = "; ".join(str(item["detail"]) for item in environment["mismatches"])
+                return self._fail(
+                    name,
+                    session,
+                    RemoteErrorCode.ENVIRONMENT_MISMATCH,
+                    f"declared runtime does not match the actual runtime: {detail}",
+                )
 
         try:
             command = self._resolve_command(name, args, ws_binding, runtime_profile=runtime_profile)
@@ -2777,6 +2845,7 @@ class RemoteToolAdapter:
             binding=ws_binding,
             runner=self._make_direct_runner(
                 command=command,
+                tool=name,
                 session=session,
                 ws_binding=ws_binding,
                 profile=profile,
@@ -2824,7 +2893,7 @@ class RemoteToolAdapter:
                 tool=name,
                 session_id=session.session_id,
                 workspace=ws_binding.requested_realpath,
-                result=self._redact(self._direct_inline(record)),
+                result=self._redact(self._direct_inline(record, environment=environment)),
                 execution_id=record.execution_id,
                 duration_ms=(time.time() - started) * 1000,
             )
@@ -2843,14 +2912,17 @@ class RemoteToolAdapter:
                     "command": record.command,
                     "workspace": ws_binding.requested_realpath,
                     "started_at": record.started_at,
+                    **({"environment": environment} if environment is not None else {}),
                 }
             ),
             execution_id=record.execution_id,
             duration_ms=(time.time() - started) * 1000,
         )
 
-    def _direct_inline(self, record: Any) -> dict[str, Any]:
-        return {
+    def _direct_inline(
+        self, record: Any, *, environment: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "accepted": True,
             "execution_id": record.execution_id,
             "execution_type": str(ExecutionType.DIRECT),
@@ -2858,7 +2930,7 @@ class RemoteToolAdapter:
             "phase": record.phase,
             "command": record.command,
             "cwd": record.cwd,
-            "requested_workspace": record.requested_realpath,
+            "requested_workspace": record.requested_workspace,
             "resolved_repo_root": record.resolved_repo_root,
             "exit_code": record.exit_code,
             "stdout_tail": record.stdout_tail,
@@ -2867,11 +2939,17 @@ class RemoteToolAdapter:
             "bytes_stderr": record.bytes_stderr,
             "text": record.stdout_tail or record.stderr_tail,
         }
+        # Which runtime the project declared, and which one actually ran. Absent
+        # for shell.exec, which is not asked to match a project profile.
+        if environment is not None:
+            payload["environment"] = environment
+        return payload
 
     def _make_direct_runner(
         self,
         *,
         command: str,
+        tool: str = "shell.exec",
         session: RemoteSession,
         ws_binding: WorkspaceBinding,
         profile: str,
@@ -2971,7 +3049,7 @@ class RemoteToolAdapter:
                 # P0-G: a spawn failure (exit_code None), timeout, or
                 # non-zero exit must carry failure_class/source/detail so the
                 # terminal projection can never classify it as COMPLETED.
-                failure_class = _direct_failure_class(result)
+                failure_class = _direct_failure_class(result, tool=tool)
                 reporter.failure(
                     failure_class=failure_class,
                     source="direct_command",
@@ -5051,12 +5129,26 @@ class RemoteToolAdapter:
         )
 
 
-def _direct_failure_class(result: Any) -> str:
+#: Tools whose whole purpose is to run another tool and report what it said.
+#: For these a clean non-zero exit is that tool reporting failure, not the
+#: process misbehaving, so the two must not share a terminal class.
+_VERDICT_REPORTING_TOOLS = frozenset({"test.run", "build.run"})
+
+
+def _direct_failure_class(result: Any, *, tool: str = "") -> str:
     """Failure taxonomy for a non-passed direct command (P0-G).
 
     Uses the L0 taxonomy so a direct timeout reads the same as any other
     execution timeout, and a command that never started is distinguishable
     from one that started and then failed.
+
+    A clean non-zero exit grades as ``TEST_SUITE_FAILED`` for ``test.run`` and
+    ``build.run`` only. For those tools the non-zero exit *is* the answer the
+    caller asked for — the runner ran and reported that something failed — so
+    grading it as a runtime failure says the process misbehaved, which is a
+    different claim and a wrong one. A signal death, a spawn failure and a
+    timeout keep their own classes in every tool, because those are the
+    substrate failing rather than the thing being run reporting a result.
     """
 
     status = str(getattr(result, "status", "") or "")
@@ -5070,6 +5162,8 @@ def _direct_failure_class(result: Any) -> str:
         # killed by signal rather than exiting: the process stopped, it did not
         # return. That is a runtime failure, not a clean non-zero exit.
         return str(ExecutionFailureClass.PROCESS_RUNTIME_FAILURE)
+    if tool in _VERDICT_REPORTING_TOOLS:
+        return str(ExecutionFailureClass.TEST_SUITE_FAILED)
     return str(ExecutionFailureClass.PROCESS_RUNTIME_FAILURE)
 
 

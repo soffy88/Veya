@@ -10,6 +10,7 @@ Provides:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -822,11 +823,268 @@ def execution_domain_to_profile(execution_domain: str | None) -> str | None:
     return EXECUTION_DOMAIN_PROFILE.get(str(execution_domain).strip().upper())
 
 
+def declared_runtime(repo_root: str | Path) -> dict[str, str]:
+    """What the project itself says it needs, from its own declarations.
+
+    Read from files the project checks in, never inferred from what happens to
+    be installed: ``pyproject.toml`` ``requires-python``, ``.python-version``,
+    ``package.json`` ``engines``, ``go.mod``. A project that pins nothing
+    declares nothing, and that is reported as an absence rather than as a match.
+    """
+    root = Path(repo_root).expanduser()
+    declared: dict[str, str] = {}
+
+    pyproject = root / "pyproject.toml"
+    if pyproject.is_file():
+        try:
+            import tomllib
+
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        requires = (data.get("project") or {}).get("requires-python")
+        if isinstance(requires, str) and requires.strip():
+            declared["python"] = requires.strip()
+
+    version_file = root / ".python-version"
+    if version_file.is_file():
+        try:
+            pinned = version_file.read_text(encoding="utf-8").strip().splitlines()
+        except OSError:
+            pinned = []
+        if pinned and pinned[0].strip():
+            declared.setdefault("python", pinned[0].strip())
+
+    package_json = root / "package.json"
+    if package_json.is_file():
+        try:
+            engines = (json.loads(package_json.read_text(encoding="utf-8")) or {}).get(
+                "engines"
+            ) or {}
+            node = engines.get("node")
+        except Exception:
+            node = None
+        if isinstance(node, str) and node.strip():
+            declared["node"] = node.strip()
+
+    go_mod = root / "go.mod"
+    if go_mod.is_file():
+        try:
+            for line in go_mod.read_text(encoding="utf-8").splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == "go":
+                    declared["go"] = parts[1].strip()
+                    break
+        except OSError:
+            pass
+
+    return declared
+
+
+def _version_tuple(raw: str) -> tuple[int, ...] | None:
+    """First dotted-number run in ``raw``, or ``None``.
+
+    Version strings arrive as whatever the tool printed: ``Python 3.14.4``,
+    ``go1.23.1``, ``v26.4.0``. Comparing those with a bare ``split(".")`` finds
+    no digits at all and every declared constraint then reads as "could not
+    interpret" — which is how a real mismatch turns into a silent pass.
+    """
+    import re
+
+    match = re.search(r"\d+(?:\.\d+)*", str(raw))
+    if not match:
+        return None
+    return tuple(int(part) for part in match.group(0).split("."))
+
+
+def _python_satisfies(actual: str, spec: str) -> bool | None:
+    """Whether ``actual`` meets every clause of ``spec``; ``None`` if any is unreadable.
+
+    All clauses must hold. Returning after the first one would make
+    ``>=3.12, <3.13`` report satisfied on 3.14, so the comparison is AND across
+    clauses and an unparseable clause poisons the whole answer rather than being
+    skipped. Reporting ``None`` matters: a constraint this function cannot parse
+    must not be reported as satisfied, because a silent pass is exactly the
+    failure §7.7 is about.
+    """
+    have = _version_tuple(actual)
+    if have is None:
+        return None
+    verdict: bool | None = True
+    for clause in str(spec).split(","):
+        clause = clause.strip()
+        if not clause:
+            continue
+        ok: bool | None
+        if clause.startswith("~="):
+            # Compatible release: at least the stated version, and no minor/major
+            # bump beyond it. ``~=3.12.0`` admits 3.12.5 but not 3.13.0, which a
+            # prefix equality check would get backwards.
+            want = _version_tuple(clause[2:])
+            if want is None:
+                return None
+            ok = tuple(have[: len(want)]) >= want and tuple(have[: len(want) - 1]) == want[:-1]
+        elif clause.startswith(">="):
+            want = _version_tuple(clause[2:])
+            if want is None:
+                return None
+            ok = tuple(have[: len(want)]) >= want
+        elif clause.startswith("<="):
+            want = _version_tuple(clause[2:])
+            if want is None:
+                return None
+            ok = tuple(have[: len(want)]) <= want
+        elif clause.startswith("<"):
+            want = _version_tuple(clause[1:])
+            if want is None:
+                return None
+            ok = tuple(have[: len(want)]) < want
+        elif clause.startswith("=="):
+            want = _version_tuple(clause[2:])
+            if want is None:
+                return None
+            ok = tuple(have[: len(want)]) == want
+        else:
+            # Bare version, or an operator this check does not implement. An
+            # exclusion (``!=``, ``<>*``) lands here deliberately: reporting it as
+            # uncompared is safer than approximating it.
+            want = _version_tuple(clause)
+            if want is None or not clause[0].isdigit():
+                return None
+            ok = tuple(have[: len(want)]) == want
+        if not ok:
+            verdict = False
+    return verdict
+
+
+def _node_satisfies(actual: str, spec: str) -> bool | None:
+    return _python_satisfies(actual, spec)
+
+
+def compare_runtime(declared: dict[str, str], actual: dict[str, str]) -> dict[str, Any]:
+    """Compare what the project declared against what is actually installed.
+
+    Returns ``{"mismatches": [...], "uncompared": [...]}``. A runtime with no
+    declaration is not a mismatch and not a pass — it is uncompared, kept
+    separate so the caller can tell "checked and fine" from "never checked".
+    """
+    mismatches: list[dict[str, str]] = []
+    uncompared: list[dict[str, str]] = []
+    for tool, spec in sorted(declared.items()):
+        found = actual.get(tool)
+        if not found:
+            mismatches.append(
+                {
+                    "runtime": tool,
+                    "declared": spec,
+                    "actual": "(not installed)",
+                    "detail": f"{tool} is declared as {spec} but no interpreter was found",
+                }
+            )
+            continue
+        if tool == "python":
+            ok = _python_satisfies(found, spec)
+        elif tool == "node":
+            ok = _node_satisfies(found, spec)
+        elif tool == "go":
+            ok = _python_satisfies(found, spec)
+        else:
+            ok = None
+        if ok is True:
+            continue
+        if ok is None:
+            uncompared.append(
+                {
+                    "runtime": tool,
+                    "declared": spec,
+                    "actual": found,
+                    "detail": f"declared constraint {spec!r} is not a form this check interprets",
+                }
+            )
+            continue
+        mismatches.append(
+            {
+                "runtime": tool,
+                "declared": spec,
+                "actual": found,
+                "detail": f"{tool} {found} does not satisfy declared {spec}",
+            }
+        )
+    return {"mismatches": mismatches, "uncompared": uncompared}
+
+
+def runtime_environment_report(repo_root: str | Path, profile: Any | None) -> dict[str, Any]:
+    """Declared vs actual runtime for a repository, with an explicit verdict.
+
+    ``OK`` means every declared runtime was located and satisfied.
+    ``ENVIRONMENT_MISMATCH`` means at least one declared runtime is absent or
+    unsatisfied. ``UNDECLARED`` means the project pins no runtime, so there was
+    nothing to check — which is not the same as OK and is not reported as OK.
+    ``UNCOMPARED`` means a declaration exists in a form this check does not
+    interpret; it is surfaced rather than assumed to pass.
+    """
+    declared = declared_runtime(repo_root)
+    actual: dict[str, str] = {}
+    if profile is None:
+        # Discovery did not produce a profile. That is not evidence that the
+        # declared interpreter is missing, so it is reported as uncompared
+        # rather than as a mismatch that would send someone hunting a runtime
+        # that is installed perfectly well.
+        return {
+            "verdict": "UNCOMPARED" if declared else "UNDECLARED",
+            "declared": declared,
+            "actual": {},
+            "mismatches": [],
+            "uncompared": [
+                {
+                    "runtime": tool,
+                    "declared": spec,
+                    "actual": "(not discovered)",
+                    "detail": f"runtime discovery produced no profile, so {spec!r} was not checked",
+                }
+                for tool, spec in sorted(declared.items())
+            ],
+        }
+    if profile is not None:
+        if getattr(profile, "python_version", None):
+            actual["python"] = str(profile.python_version)
+        elif getattr(profile, "python", None):
+            actual["python"] = str(profile.python)
+        if getattr(profile, "go_version", None):
+            actual["go"] = str(profile.go_version)
+        elif getattr(profile, "go", None):
+            actual["go"] = str(profile.go)
+        node_bin = getattr(profile, "node", None)
+        if node_bin:
+            _, node_version = _probe_executable(node_bin)
+            actual["node"] = node_version or str(node_bin)
+
+    comparison = compare_runtime(declared, actual)
+    if comparison["mismatches"]:
+        verdict = "ENVIRONMENT_MISMATCH"
+    elif comparison["uncompared"]:
+        verdict = "UNCOMPARED"
+    elif not declared:
+        verdict = "UNDECLARED"
+    else:
+        verdict = "OK"
+    return {
+        "verdict": verdict,
+        "declared": declared,
+        "actual": actual,
+        "mismatches": comparison["mismatches"],
+        "uncompared": comparison["uncompared"],
+    }
+
+
 __all__ = [
     "EXECUTION_DOMAIN_PROFILE",
     "ExecutionDomain",
     "ExecutionTarget",
     "WorkspaceRuntimeProfile",
+    "compare_runtime",
+    "declared_runtime",
     "discover_runtime_profile",
     "execution_domain_to_profile",
+    "runtime_environment_report",
 ]
