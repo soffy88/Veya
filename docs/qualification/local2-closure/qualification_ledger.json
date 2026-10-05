@@ -1,0 +1,233 @@
+{
+  "schema": "local2-qualification-ledger/v1",
+  "purpose": "Auditable ledger of the Local2 P0 closure. Every entry is falsifiable: commit SHAs are checked against the repository, test counts against a re-run, and statuses against the vocabulary in section 21 of the closure spec.",
+  "generated_at_commit": "65da5244",
+  "baseline_sha": "7be40df959d5a4b833b15f98af9b39fbb8fc6b9e",
+  "branch": "main",
+  "status_vocabulary": [
+    "PASS",
+    "PARTIAL",
+    "DEFERRED",
+    "BLOCKED",
+    "BASELINE",
+    "FAIL",
+    "NOT_APPLICABLE"
+  ],
+  "phases": [
+    {
+      "phase": "P0-F",
+      "title": "Read/Search Navigation",
+      "status": "PASS",
+      "commit": "d9327bf3",
+      "parent": "7be40df9",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "server/assembly.py",
+        "server/hashline.py",
+        "server/tool_registry.py",
+        "tests/remote/test_p0f_bounded_navigation.py",
+        "veya/obase/compat.py",
+        "veya/remote/tool_adapter.py"
+      ],
+      "tests_added": 24,
+      "mutations_red": 3,
+      "production_changed": true,
+      "evidence": [
+        "file.read gains start_line and a hard 8000-line ceiling enforced identically on both dispatch paths",
+        "file.search gains max_results, context_before/after and deterministic ordering via rg --sort path",
+        "the fast path previously passed max_lines straight to the renderer, so max_lines=1e7 returned the whole file on one path and 8000 lines on the other"
+      ],
+      "findings": [],
+      "blockers": []
+    },
+    {
+      "phase": "P0-G",
+      "title": "Test/Build Execution",
+      "status": "PASS",
+      "commit": "2f8a9faa",
+      "parent": "d9327bf3",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "tests/remote/test_p0g_test_build_execution.py",
+        "veya/remote/execution.py",
+        "veya/remote/models.py",
+        "veya/remote/runtime_profile.py",
+        "veya/remote/tool_adapter.py"
+      ],
+      "tests_added": 18,
+      "mutations_red": 4,
+      "production_changed": true,
+      "evidence": [
+        "ExecutionFailureClass.TEST_SUITE_FAILED separates a tool reporting a verdict from a process misbehaving, scoped by tool rather than by exit code",
+        "test.run no longer infers the runner from what is installed; the fallback is gated on project ecosystem markers and otherwise fails closed",
+        "declared runtime versus actual runtime is an execution admission gate; ENVIRONMENT_MISMATCH refuses with no execution_id"
+      ],
+      "findings": [],
+      "blockers": []
+    },
+    {
+      "phase": "P0-H",
+      "title": "Process Lifecycle",
+      "status": "PASS",
+      "commit": "6c207f41",
+      "parent": "2f8a9faa",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "tests/remote/test_p0h_process_lifecycle.py",
+        "veya/remote/execution.py",
+        "veya/remote/tool_adapter.py"
+      ],
+      "tests_added": 12,
+      "mutations_red": 3,
+      "production_changed": true,
+      "evidence": [
+        "stdout_truncated and stderr_truncated now travel from direct_exec into ExecutionRecord and to_public; previously the flags were computed and discarded",
+        "is_terminal is exposed so callers need not hardcode the terminal set",
+        "START to RUNNING to COMPLETE, FAILED and CANCELLED are each observed on a real subprocess"
+      ],
+      "findings": [
+        {
+          "id": "P0-H-F1",
+          "severity": "MEDIUM",
+          "status": "OPEN",
+          "summary": "A cancel issued while an execution is still STARTING returns ok=true and leaves the command running to COMPLETED, because there is no process group to signal yet.",
+          "why_open": "Cancelling after RUNNING does reach CANCELLED, which P0-H qualifies. The pre-RUNNING window is unproven and is a lifecycle question, not a WIP one.",
+          "evidence": "veya/remote/execution.py cancel(): os.killpg is guarded by if record.process_group_id",
+          "owner": "P0-H follow-up"
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "phase": "P0-I",
+      "title": "Security / Permission / Sandbox",
+      "status": "PASS",
+      "commit": "2feff7e6",
+      "parent": "6c207f41",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "tests/remote/test_p0i_security_invariants.py"
+      ],
+      "tests_added": 25,
+      "mutations_red": 3,
+      "production_changed": false,
+      "evidence": [
+        "five escape routes refused with no execution_id and no tool reached: parent traversal, /etc/passwd, /proc/self/environ, a sibling directory, and a symlink pointing outside",
+        "UNKNOWN resolves to UNKNOWN and is refused at the tool boundary with TOOL_DENIED; it is deliberately outside EFFECT_LATTICE",
+        "the four authorities hold none of each other's verdicts"
+      ],
+      "findings": [],
+      "blockers": []
+    },
+    {
+      "phase": "P0-J",
+      "title": "WIP Preservation",
+      "status": "PASS",
+      "commit": "65da5244",
+      "parent": "2feff7e6",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "tests/remote/test_p0j_wip_preservation.py"
+      ],
+      "tests_added": 13,
+      "mutations_red": 1,
+      "production_changed": false,
+      "evidence": [
+        "a governed file.write lands under .veya/worktrees/ and the canonical file is never created",
+        "staged index, unstaged set, untracked files, HEAD and branch survive a write, a refusal, a failing execution and a cancel",
+        "session-level content-hash comparison: every tracked modification and all 13 untracked files byte-identical across the phase"
+      ],
+      "findings": [
+        {
+          "id": "P0-J-F1",
+          "severity": "HIGH",
+          "status": "ESCALATED",
+          "summary": "Spec 10.3 asks for an isolated worktree by default for tests. On main that holds for mutation only: read and execute intent default to CANONICAL_WORKTREE, so a command that writes writes into the owner's live tree.",
+          "why_open": "The resolver documents the reason, and it is defensible: a fresh worktree is a clean checkout with no virtualenv and none of the current working state, so running there made the tree's own modules unimportable. This is a spec-versus-implementation divergence and an architecture decision, escalated rather than accepted or fixed.",
+          "evidence": "veya/remote/tool_adapter.py resolve_execution_target rule 4 and its comment; measured by tests/remote/test_p0j_wip_preservation.py::test_a_writing_command_pollutes_the_canonical_tree",
+          "owner": "architecture decision required"
+        }
+      ],
+      "blockers": [
+        {
+          "id": "P0-J-B1",
+          "status": "PRE_EXISTING",
+          "summary": "runtime.coding.tools.coding_worktree_create fails in this environment with: module 'oskill' has no attribute 'capability_intersection'.",
+          "workaround": "WorktreeManager is used directly so the adapter's isolation and identity verification remain under test.",
+          "owner": "harness work already in flight in the working tree"
+        }
+      ]
+    }
+  ],
+  "cross_cutting": {
+    "target_contract": {
+      "status": "DEFERRED",
+      "reason": "TargetContract does not exist on main. It is present only on local2/l0-l1-l2. Per spec section 3 no phase may claim convergence, and redoing P0-B/P0-E on main is forbidden.",
+      "verified_absent_from": [
+        "veya/",
+        "server/tool_registry.py"
+      ],
+      "verified_present_on": "local2/l0-l1-l2"
+    },
+    "tool_bug_1": {
+      "id": "TOOL-BUG-1",
+      "status": "OPEN",
+      "summary": "A non-dict effect receipt is silently discarded rather than rejected, so a receipt that arrives stringified is indistinguishable from no receipt at all.",
+      "evidence": "veya/remote/execution.py set_finalization_evidence assigns record.effect_receipt only when isinstance(receipt, dict); there is no else branch and no diagnostic.",
+      "why_not_closed": "Fixing it changes finalizer evidence handling on a governed path and needs its own qualification. Closing it by asserting the schema would be exactly the fake evidence this phase exists to prevent.",
+      "owner": "P0-K follow-up"
+    },
+    "mutations_green_then_repaired": [
+      {
+        "phase": "P0-G",
+        "mutation": "bypass cwd containment in run_direct_command",
+        "first_result": "GREEN",
+        "cause": "the containment check had no test anywhere in the suite",
+        "repair": "added two negative tests plus a positive counter-test, re-ran RED"
+      },
+      {
+        "phase": "P0-H",
+        "mutation": "hardcode is_terminal to True",
+        "first_result": "GREEN",
+        "cause": "every assertion was made against a record that genuinely was terminal",
+        "repair": "asserted is_terminal is False on an observed running record, re-ran RED"
+      }
+    ],
+    "baseline_failures_untouched": {
+      "status": "BASELINE",
+      "count": 41,
+      "note": "Isolated per spec section 24 and not re-baselined. runtime 24 failed / 505 passed and goalrun 1 failed / 200 passed have failure sets byte-identical to the pre-P0 measurement."
+    },
+    "known_external_blockers": [
+      {
+        "id": "A2",
+        "summary": "3O ActionGatewayEngine approval resolver semantics",
+        "status": "OPEN",
+        "reference": "7be40df9"
+      },
+      {
+        "id": "Hicode",
+        "summary": "Reasonix runtime",
+        "status": "BLOCKED"
+      }
+    ]
+  },
+  "wip_preservation": {
+    "tracked_modified": [
+      "evals/personal_agent_gold/results/latest.json",
+      "evals/personal_agent_gold/results/latest.md",
+      "runtime/harness/contract.py",
+      "runtime/harness/models.py"
+    ],
+    "untracked_count": 13,
+    "canonical_delta": 0,
+    "method": "content-hash comparison before and after every phase",
+    "forbidden_operations_used": "none: no git clean, no git reset, no git stash at any point in P0-F through P0-K"
+  },
+  "suites": {
+    "unit-fast": { "passed": 406, "failed": 0 },
+    "runtime": { "passed": 505, "failed": 24, "baseline": true },
+    "goalrun": { "passed": 200, "failed": 1, "baseline": true },
+    "phase_suites_p0f_to_p0j": { "passed": 133, "failed": 0 }
+  }
+}

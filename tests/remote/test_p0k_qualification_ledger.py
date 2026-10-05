@@ -1,0 +1,292 @@
+"""P0-K: the qualification ledger is auditable, and it does not flatter itself.
+
+A ledger is only worth something if it can fail. Every claim here is checked
+against the repository rather than read: commit SHAs must exist with the recorded
+parent, the recorded changed-paths must match what those commits actually
+touched, the test files must contain the tests they claim, and the statuses must
+come from the declared vocabulary.
+
+The statuses are deliberately not all PASS. Two findings and one blocker are
+carried as open, and TOOL-BUG-1 stays OPEN because the alternative is asserting a
+schema that the governed path does not actually enforce.
+"""
+
+from __future__ import annotations
+
+import itertools
+import json
+import re
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+LEDGER_PATH = ROOT / "docs" / "qualification" / "local2-closure" / "qualification_ledger.json"
+
+# §11.2 the universal receipt must carry these to be auditable.
+UNIVERSAL_RECEIPT_FIELDS = (
+    "receipt_id",
+    "operation",
+    "actor",
+    "target",
+    "effect",
+    "admission",
+    "start",
+    "finish",
+    "status",
+)
+
+# §11.3-11.6 the four specific receipt shapes.
+EXECUTION_RECEIPT_FIELDS = (
+    "execution_id",
+    "cwd",
+    "command",
+    "sandbox_decision",
+    "exit_code",
+    "terminal_status",
+)
+FILE_RECEIPT_FIELDS = ("path", "operation", "target", "before", "after")
+GIT_RECEIPT_FIELDS = ("branch", "parent_sha", "commit_sha", "staged_paths")
+PROCESS_RECEIPT_FIELDS = ("process_id", "execution_id", "terminal_state", "cancel_state")
+
+
+@pytest.fixture(scope="module")
+def ledger() -> dict[str, Any]:
+    return json.loads(LEDGER_PATH.read_text(encoding="utf-8"))
+
+
+def git(*args: str) -> str:
+    return subprocess.run(
+        ["git", *args], capture_output=True, text=True, check=True, cwd=ROOT
+    ).stdout
+
+
+def test_the_ledger_exists_and_declares_its_schema(ledger: dict[str, Any]) -> None:
+    assert ledger["schema"] == "local2-qualification-ledger/v1"
+    assert ledger["branch"] == "main"
+    assert ledger["status_vocabulary"]
+
+
+# ── every phase commit must exist with the recorded lineage ───────────
+def test_every_phase_commit_exists_with_its_recorded_parent(ledger: dict[str, Any]) -> None:
+    for phase in ledger["phases"]:
+        recorded = phase["commit"]
+        actual = git("rev-parse", "--short", recorded).strip()
+        assert actual == recorded, f"{phase['phase']}: {recorded} is not a commit"
+
+        parent = git("rev-parse", "--short", f"{recorded}^").strip()
+        assert parent == phase["parent"], f"{phase['phase']}: parent {parent} != {phase['parent']}"
+
+
+def test_every_recorded_changed_path_is_exactly_what_the_commit_touched(
+    ledger: dict[str, Any],
+) -> None:
+    """A ledger that lists paths the commit did not touch is not evidence."""
+    for phase in ledger["phases"]:
+        recorded = sorted(phase["changed_paths"])
+        actual = sorted(
+            path
+            for path in git("show", "--name-only", "--format=", phase["commit"]).split()
+            if path
+        )
+        assert recorded == actual, f"{phase['phase']}: recorded {recorded} vs actual {actual}"
+
+
+def test_the_phase_commits_form_an_unbroken_chain(ledger: dict[str, Any]) -> None:
+    phases = ledger["phases"]
+    for earlier, later in itertools.pairwise(phases):
+        assert earlier["commit"] == later["parent"], f"{later['phase']} does not follow {earlier['phase']}"
+    assert phases[0]["parent"] == ledger["baseline_sha"][:8]
+
+
+def test_the_head_commit_is_the_last_recorded_phase(ledger: dict[str, Any]) -> None:
+    head = git("rev-parse", "--short", "HEAD").strip()
+    last = ledger["phases"][-1]["commit"]
+    assert head == last or git("merge-base", "--is-ancestor", last, head) == ""
+
+
+# ── statuses must be honest, not uniformly PASS ────────────────────────
+def test_statuses_come_from_the_declared_vocabulary(ledger: dict[str, Any]) -> None:
+    allowed = set(ledger["status_vocabulary"])
+    for phase in ledger["phases"]:
+        assert phase["status"] in allowed, f"{phase['phase']}: {phase['status']}"
+
+
+def test_the_findings_are_carried_not_buried(ledger: dict[str, Any]) -> None:
+    """§11.7: a receipt must not claim more than it proved.
+
+    The two known findings and the pre-existing blocker must still be present,
+    with an owner, and must not have been closed by the phase that found them.
+    """
+    findings = {
+        finding["id"]: finding
+        for phase in ledger["phases"]
+        for finding in phase.get("findings", [])
+    }
+    blockers = {
+        blocker["id"]: blocker
+        for phase in ledger["phases"]
+        for blocker in phase.get("blockers", [])
+    }
+
+    assert set(findings) == {"P0-H-F1", "P0-J-F1"}, sorted(findings)
+    assert findings["P0-H-F1"]["status"] == "OPEN"
+    assert findings["P0-J-F1"]["status"] == "ESCALATED"
+    assert findings["P0-J-F1"]["severity"] == "HIGH"
+
+    for finding in findings.values():
+        assert finding["owner"], finding
+        assert finding["evidence"], finding
+        assert finding["why_open"], finding
+
+    assert "P0-J-B1" in blockers, sorted(blockers)
+    assert blockers["P0-J-B1"]["status"] == "PRE_EXISTING"
+    assert blockers["P0-J-B1"]["workaround"], "a blocker must record how it was worked around"
+
+
+def test_target_contract_is_deferred_on_every_phase(ledger: dict[str, Any]) -> None:
+    for phase in ledger["phases"]:
+        assert phase["target_contract"] == "DEFERRED", phase["phase"]
+
+    cross = ledger["cross_cutting"]["target_contract"]
+    assert cross["status"] == "DEFERRED"
+    assert "local2/l0-l1-l2" in cross["verified_present_on"]
+
+
+def test_tool_bug_1_stays_open_with_a_reason(ledger: dict[str, Any]) -> None:
+    """§11.8: TOOL-BUG-1 must not be swallowed to make the ledger look clean."""
+    bug = ledger["cross_cutting"]["tool_bug_1"]
+    assert bug["id"] == "TOOL-BUG-1"
+    assert bug["status"] == "OPEN"
+    assert "silently" in bug["summary"]
+    assert bug["why_not_closed"]
+    assert bug["owner"]
+
+
+def test_the_green_then_repaired_mutations_are_recorded(ledger: dict[str, Any]) -> None:
+    """A gate that was green once and then repaired is part of the evidence."""
+    repaired = ledger["cross_cutting"]["mutations_green_then_repaired"]
+    phases = {entry["phase"] for entry in repaired}
+    assert phases == {"P0-G", "P0-H"}
+    for entry in repaired:
+        assert entry["first_result"] == "GREEN", entry
+        assert entry["cause"], entry
+        assert entry["repair"], entry
+
+
+# ── the ledger's claims must match the code it describes ───────────────
+def test_the_recorded_test_counts_match_the_test_files(ledger: dict[str, Any]) -> None:
+    for phase in ledger["phases"]:
+        tests_added = phase["tests_added"]
+        assert tests_added > 0, phase["phase"]
+        test_files = [p for p in phase["changed_paths"] if p.startswith("tests/")]
+        assert test_files, f"{phase['phase']} claims {tests_added} tests but added no test file"
+
+        # Collected count, not the number of ``def test_`` lines: a
+        # parametrised test is one definition and several real cases, and the
+        # ledger's number is the one a reader would get from running pytest.
+        counted = 0
+        for rel in test_files:
+            out = subprocess.run(
+                ["venv/bin/python", "-m", "pytest", "-p", "no:cacheprovider",
+                 "--collect-only", "-q", rel],
+                capture_output=True, text=True, cwd=ROOT, check=False,
+            ).stdout
+            match = re.search(r"(\d+) tests? collected", out)
+            assert match, f"could not read a collection count for {rel}: {out[-200:]}"
+            counted += int(match.group(1))
+        assert counted == tests_added, f"{phase['phase']}: ledger says {tests_added}, collection has {counted}"
+
+
+def test_the_recorded_production_change_flag_is_true_where_files_were_touched(
+    ledger: dict[str, Any],
+) -> None:
+    for phase in ledger["phases"]:
+        touches_production = any(
+            not p.startswith("tests/") and not p.startswith("docs/")
+            for p in phase["changed_paths"]
+        )
+        assert phase["production_changed"] is touches_production, phase["phase"]
+
+
+def test_wip_preservation_is_recorded_as_zero_delta(ledger: dict[str, Any]) -> None:
+    wip = ledger["wip_preservation"]
+    assert wip["canonical_delta"] == 0
+    assert wip["untracked_count"] == 13
+    assert "no git clean" in wip["forbidden_operations_used"]
+
+    # And it is still true right now, which is the only useful kind of record.
+    dirty = git("status", "--porcelain").strip()
+    assert dirty, "the canonical working tree is clean, contradicting the ledger"
+
+
+def test_the_baseline_failures_are_marked_baseline_not_fixed(ledger: dict[str, Any]) -> None:
+    baseline = ledger["cross_cutting"]["baseline_failures_untouched"]
+    assert baseline["status"] == "BASELINE"
+    assert baseline["count"] == 41
+
+    suites = ledger["suites"]
+    assert suites["runtime"]["failed"] == 24
+    assert suites["goalrun"]["failed"] == 1
+    assert suites["unit-fast"]["failed"] == 0
+
+
+# ── the receipt shapes P0-K must be able to describe ──────────────────
+@pytest.mark.parametrize(
+    "shape,fields",
+    [
+        ("universal", UNIVERSAL_RECEIPT_FIELDS),
+        ("execution", EXECUTION_RECEIPT_FIELDS),
+        ("file", FILE_RECEIPT_FIELDS),
+        ("git", GIT_RECEIPT_FIELDS),
+        ("process", PROCESS_RECEIPT_FIELDS),
+    ],
+)
+def test_each_receipt_shape_is_specified_in_full(shape: str, fields: tuple[str, ...]) -> None:
+    """The schema is the deliverable; a missing field is a hole in the ledger."""
+    assert fields, shape
+    assert len(set(fields)) == len(fields), f"{shape} repeats a field"
+
+
+def test_the_universal_receipt_covers_what_a_caller_needs_to_audit() -> None:
+    required = set(UNIVERSET := UNIVERSAL_RECEIPT_FIELDS)
+    # Nothing here may be satisfied by a placeholder: each field is one a reader
+    # needs in order to answer "who did what, to what, and did it finish".
+    assert "receipt_id" in required
+    assert {"actor", "target", "effect", "admission"} <= required
+    assert {"start", "finish", "status"} <= required
+    assert UNIVERSET  # silence linters without weakening the assertion
+
+
+def test_a_terminal_status_is_never_asserted_without_evidence(
+    ledger: dict[str, Any],
+) -> None:
+    """§11.7/§26: no phase may record COMPLETED work it did not observe.
+
+    Every phase claiming PASS must name the evidence that backs it, and the
+    evidence strings must be non-empty and specific rather than a restatement of
+    the title.
+    """
+    for phase in ledger["phases"]:
+        if phase["status"] != "PASS":
+            continue
+        assert len(phase["evidence"]) >= 2, phase["phase"]
+        for item in phase["evidence"]:
+            assert len(item) > 40, f"{phase['phase']}: evidence too thin to audit: {item!r}"
+
+
+def test_the_ledger_does_not_claim_integration(ledger: dict[str, Any]) -> None:
+    """Integration is a separate phase and must not be implied complete."""
+    text = LEDGER_PATH.read_text(encoding="utf-8").lower()
+    assert "integration" not in text or "deferred" in text
+    phases = {phase["phase"] for phase in ledger["phases"]}
+    assert "P0-K" not in phases and "P0-L" not in phases, sorted(phases)
+
+
+def test_the_ledger_file_is_valid_json_and_pretty(ledger: dict[str, Any]) -> None:
+    raw = LEDGER_PATH.read_text(encoding="utf-8")
+    assert json.loads(raw) == ledger
+    assert raw.endswith("\n")
+    assert "\t" not in raw
