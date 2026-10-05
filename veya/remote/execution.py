@@ -69,6 +69,34 @@ def _normalize_execution_cap(value: Any) -> int | None:
 
 
 
+#: SF-RECEIPT. A receipt is a mapping carrying every EffectReceipt field that has
+#: no default. Anything else is not a receipt, however plausible it looks, and
+#: accepting a partial one would let a receipt claim less than the evidence it
+#: is supposed to carry (P0-K falsifiability).
+_RECEIPT_REQUIRED_FIELDS: tuple[str, ...] = (
+    "execution_id",
+    "worker_type",
+    "repo_identity",
+    "worktree_path",
+    "task_kind",
+)
+
+
+def _receipt_contract_problem(receipt: Any) -> str | None:
+    """Return why ``receipt`` is not a valid receipt, or None if it is one.
+
+    Explicit and decidable on purpose: the caller can tell a stringified receipt
+    from a structurally incomplete one, and both from a genuinely absent receipt.
+    """
+
+    if not isinstance(receipt, dict):
+        return f"expected a receipt object, got {type(receipt).__name__}"
+    missing = [name for name in _RECEIPT_REQUIRED_FIELDS if not receipt.get(name)]
+    if missing:
+        return f"receipt is missing required fields: {sorted(missing)}"
+    return None
+
+
 class ExecutionPhase(StrEnum):
     """Canonical lifecycle (external contract, stable)."""
 
@@ -600,6 +628,13 @@ class ExecutionRecord:
     # this phase does not quietly merge them.
     verification_result: str | None = None
     verification_summary: str | None = None
+    # SF-RECEIPT: the receipt contract outcome, kept as three distinct states so
+    # "no receipt" can never be confused with "a receipt that was not one".
+    #   valid   - a well-formed receipt is stored in effect_receipt
+    #   absent  - no receipt was supplied, and that is legitimate
+    #   invalid - something was supplied that is not a receipt; see the error
+    receipt_contract_status: str | None = None
+    receipt_contract_error: str | None = None
     last_event_cursor: int = 0
     idempotency_key: str | None = None
     task_contract: dict[str, Any] | None = None
@@ -731,6 +766,10 @@ class ExecutionRecord:
             "canonical_after_sha": self.canonical_after_sha,
             "task_contract": dict(self.task_contract or {}),
             "effect_receipt": dict(self.effect_receipt or {}),
+            # SF-RECEIPT: a caller can see which of the three receipt states this
+            # record is in, instead of inferring it from a missing receipt.
+            "receipt_contract_status": self.receipt_contract_status,
+            "receipt_contract_error": self.receipt_contract_error,
             "finalization_status": self.finalization_status,
             "finalization_failure_class": self.finalization_failure_class,
             # Lifecycle (P0-D/E).
@@ -3577,13 +3616,28 @@ class DurableJobManager:
         self._persist(record)
 
     def set_finalization(self, execution_id: str, result: dict[str, Any]) -> None:
-        """Persist finalizer evidence before the terminal execution decision."""
+        """Persist finalizer evidence before the terminal execution decision.
+
+        SF-RECEIPT.  A receipt that is present but not a valid receipt object is
+        a contract failure, not an absent receipt.  Previously any non-dict was
+        dropped without a word, which made an invalid receipt indistinguishable
+        from no receipt and discarded the commit/promotion claims alongside it.
+        """
 
         record = self._record_for_update(execution_id)
         record.finalization_status = str(result.get("status") or "")
         record.finalization_failure_class = result.get("failure_class")
-        receipt = result.get("receipt")
-        if isinstance(receipt, dict):
+        if "receipt" in result:
+            problem = _receipt_contract_problem(result["receipt"])
+            if problem is not None:
+                # Explicit, decidable failure. No receipt is stored, so nothing
+                # false is asserted, and the commit/promotion claims that rode in
+                # on the same payload are withheld rather than half-applied.
+                self._fail_receipt_contract(record, problem, source="finalizer")
+                return
+            receipt = result["receipt"]
+            record.receipt_contract_status = "valid"
+            record.receipt_contract_error = None
             record.effect_receipt = receipt
             record.execution_commit_sha = result.get("commit_sha")
             record.promotion_state = result.get("promotion_status")
@@ -3591,6 +3645,10 @@ class DurableJobManager:
             promotion = verification.get("promotion")
             if isinstance(promotion, dict):
                 record.canonical_after_sha = promotion.get("canonical_after_sha")
+        else:
+            # Absent is a distinct, recordable state. It is not a contract
+            # failure: a task kind that legitimately has no receipt still says so.
+            record.receipt_contract_status = "absent"
         self._persist(record)
 
     def set_effect_receipt(self, execution_id: str, receipt: dict[str, Any]) -> None:
@@ -3599,10 +3657,45 @@ class DurableJobManager:
         READ tasks never reach the finalizer, so their receipt would otherwise
         be dropped.  This persists the telemetry for every task kind without
         triggering any commit/promotion side effect.
+
+        SF-RECEIPT.  Validated like the finalizer's receipt.  Storing a
+        non-mapping here used to survive until ``to_public`` tried
+        ``dict(...)`` on it and raised, so a bad receipt surfaced as a
+        serialization crash far from its cause.
         """
 
         record = self._record_for_update(execution_id)
+        problem = _receipt_contract_problem(receipt)
+        if problem is not None:
+            self._fail_receipt_contract(record, problem, source="worker")
+            return
+        record.receipt_contract_status = "valid"
+        record.receipt_contract_error = None
         record.effect_receipt = receipt
+        self._persist(record)
+
+    def _fail_receipt_contract(
+        self, record: ExecutionRecord, problem: str, *, source: str
+    ) -> None:
+        """Record a receipt contract failure loudly and without a false receipt."""
+
+        record.receipt_contract_status = "invalid"
+        record.receipt_contract_error = f"{source}: {problem}"
+        record.effect_receipt = None
+        # Withhold any commit/promotion claim that arrived with the bad payload.
+        record.execution_commit_sha = None
+        record.promotion_state = None
+        record.canonical_after_sha = None
+        record.finalization_failure_class = "RECEIPT_CONTRACT_INVALID"
+        record.events.append(
+            {
+                "ts": time.time(),
+                "kind": "receipt_contract_failure",
+                "phase": record.phase,
+                "message": record.receipt_contract_error,
+                "source": source,
+            }
+        )
         self._persist(record)
 
     def set_worker_identity(

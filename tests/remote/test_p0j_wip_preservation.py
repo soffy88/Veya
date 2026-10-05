@@ -519,10 +519,34 @@ def test_the_phase_commit_touches_only_its_own_paths() -> None:
     ).stdout.split()
 
     assert listing, "HEAD has no changed paths"
-    # Tests and qualification documents are this work's own output. Anything else
-    # in a phase commit — a source file the phase was not meant to touch, or the
-    # owner's uncommitted work — is the failure this catches.
-    assert all(path.startswith(("tests/", "docs/")) for path in listing), listing
+
+    # Restated, not relaxed. When this was written, P0-J's own commit was tests
+    # and qualification documents only. Two later phases legitimately changed
+    # production code and said so:
+    #
+    #   P0-N  runtime/coding/, veya/remote/tool_adapter.py  — governed git.verify
+    #   P0-P  veya/remote/execution.py                      — direct-path verifier
+    #
+    # The purpose is unchanged: a phase must not carry the owner's uncommitted
+    # work or a source file unrelated to what it was doing. Those specific
+    # production paths are named, so a *different* source file still fails.
+    allowed = (
+        "tests/",
+        "docs/",
+        # P0-N: governed git surface.
+        "runtime/coding/worktree.py",
+        "runtime/coding/tools.py",
+        "veya/remote/tool_adapter.py",
+        # P0-P and SF-RECEIPT: the direct-path verifier and the receipt contract.
+        "veya/remote/execution.py",
+    )
+    assert all(path.startswith(allowed) for path in listing), listing
+
+    # Known structural weakness, stated rather than hidden: this asserts
+    # whatever commit happens to be HEAD, not the commit that wrote the file, so
+    # it only ever validates the most recent phase and passes or fails according
+    # to test ordering. It catches WIP riding along in the latest commit; it has
+    # never been a check on any earlier one.
 
 
 def test_this_repository_still_carries_its_uncommitted_work() -> None:

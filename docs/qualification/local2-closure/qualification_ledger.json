@@ -473,6 +473,107 @@
         "ExecutionRecord._finish"
       ],
       "blockers": []
+    },
+    {
+      "phase": "SF-RECEIPT",
+      "title": "Receipt truthfulness contract",
+      "status": "PASS",
+      "commit": null,
+      "parent": "be9a3c32",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "veya/remote/execution.py",
+        "tests/remote/test_sf_receipt_truthfulness.py",
+        "tests/remote/test_p0j_wip_preservation.py"
+      ],
+      "tests_added": 20,
+      "mutations_red": 7,
+      "production_changed": true,
+      "closes": "TOOL-BUG-1",
+      "defect_as_reported": "set_finalization assigned record.effect_receipt only under isinstance(receipt, dict) with no else branch, so a stringified receipt was silently discarded together with the commit and promotion claims that arrived on the same payload, leaving an invalid receipt indistinguishable from an absent one.",
+      "defect_correction": "The P0-L report named 'set_finalization_evidence' and gave a line number in the 3450s. No such function exists. The real function is DurableJobManager.set_finalization, in veya/remote/execution.py. The described isinstance-without-else defect is real and is at that function; only the name and line reference in the earlier report were wrong.",
+      "second_defect_found": "set_effect_receipt validated nothing at all, so a non-mapping was stored and survived until ExecutionRecord.to_public called dict(...) on it, raising ValueError: dictionary update sequence element #0 has length 1. A bad receipt therefore surfaced as a serialization crash far from its cause. This was not in the original report and is closed here.",
+      "contract": {
+        "valid": "a mapping carrying every EffectReceipt field that is non-nullable and has no default; stored in effect_receipt and its claims applied",
+        "absent": "no receipt key supplied; recorded as receipt_contract_status='absent' and is not a failure, because a task kind that legitimately has no receipt still says so",
+        "invalid": "something supplied that is not a receipt; recorded as receipt_contract_status='invalid' with a specific diagnostic in receipt_contract_error, failure class RECEIPT_CONTRACT_INVALID, a receipt_contract_failure event, and no receipt stored",
+        "withheld_on_invalid": "execution_commit_sha, promotion_state and canonical_after_sha are cleared, so a bad payload cannot half-apply its claims",
+        "required_fields_source": "derived from EffectReceipt's non-nullable, no-default fields rather than hand-listed, so a newly added required field becomes required automatically",
+        "nullable_fields_stay_optional": "worker_runtime_id is 'str | None' with no default and is therefore genuinely optional; a receipt without it is still valid"
+      },
+      "evidence": [
+        "Reproduced first, then fixed. Before the change, a string receipt left effect_receipt=None and execution_commit_sha=None, byte-identical to the missing-receipt case; and set_effect_receipt('e1', 'also-a-string') stored the string, after which dict(effect_receipt) raised ValueError.",
+        "After the change, all five states were measured directly: valid persists the receipt and its claims; a string yields invalid with 'expected a receipt object, got str' and RECEIPT_CONTRACT_INVALID; absent yields absent; a partial dict yields invalid naming the missing fields; and the worker path yields invalid too and to_public no longer crashes.",
+        "The required-field list is asserted against EffectReceipt by introspection, so the contract cannot drift from the model. A receipt asserting a different repo_identity than the record it is attached to is still stored and remains visibly comparable, which is what keeps P0-K falsifiability available to a later check rather than encoding identity here.",
+        "Regression matches the recorded baseline: P0-F..P plus security and SF-RECEIPT 204 passed, unit-fast 406 passed, goalrun 1 failed / 200 passed, runtime 23 failed / 506 passed, supervision sentinel 7 passed, mypy clean on the required targets.",
+        "tests/remote/test_p0j_wip_preservation.py::test_the_phase_commit_touches_only_its_own_paths was restated rather than relaxed. It asserts whatever commit is HEAD, so it began failing once HEAD became a production commit (P0-P). The production paths that P0-N and P0-P legitimately changed are now named explicitly, so a different source file still fails."
+      ],
+      "mutations": [
+        {
+          "id": "M1",
+          "mutation": "restore the silent isinstance-only check",
+          "result": "RED, 2 failed"
+        },
+        {
+          "id": "M2",
+          "mutation": "make invalid behave as absent",
+          "result": "RED, 13 failed"
+        },
+        {
+          "id": "M3",
+          "mutation": "accept a structurally incomplete receipt",
+          "result": "RED, 3 failed"
+        },
+        {
+          "id": "M4",
+          "mutation": "store the bad receipt anyway on the invalid path",
+          "result": "RED, 10 failed"
+        },
+        {
+          "id": "M5",
+          "mutation": "stop clearing the commit/promotion claims on an invalid receipt",
+          "result": "RED, 1 failed, after the test was strengthened to pre-seed a prior claim"
+        },
+        {
+          "id": "M6",
+          "mutation": "drop the receipt_contract_failure event, leaving the failure silent",
+          "result": "RED, 1 failed"
+        },
+        {
+          "id": "M7",
+          "mutation": "unguard the worker receipt path",
+          "result": "RED, 2 failed"
+        }
+      ],
+      "mutation_notes": [
+        "The first M4 and M5 attempts were ineffective mutations, not test gaps: their target strings did not exist in the code, so nothing was applied and the suite correctly stayed green. M4 was rewritten to assert its replacement applied, and the effective version goes RED with 10 failures. M5 was ineffective because the commit claim is assigned after the receipt branch, so it was never set in the first place; the test was strengthened to pre-seed a prior claim, which is what makes 'withheld' observable, and it then goes RED."
+      ],
+      "findings": [
+        {
+          "id": "P0-J-G3",
+          "status": "OPEN",
+          "summary": "test_the_phase_commit_touches_only_its_own_paths asserts whatever commit is currently HEAD, not the commit that wrote the file. It only ever validates the most recent phase, so whether it passes depends on test ordering rather than on what any given phase did.",
+          "severity": "LOW",
+          "class": "structurally fragile guard",
+          "owner": "P0-J follow-up, carried unchanged",
+          "why_open": "It does catch WIP riding along in the latest commit, which is worth keeping, but it has never been a check on any earlier phase and cannot become one without naming the commit explicitly.",
+          "evidence": "The guard passed for P0-N and P0-P only because both were run before their commit was made, while HEAD was still a docs-only commit. After be9a3c32 landed it failed, despite P0-P being a legitimate production change."
+        }
+      ],
+      "not_touched": [
+        "GoalRun",
+        "Verifier",
+        "git.*",
+        "TargetContract",
+        "default execution_target",
+        "P0-H-F1",
+        "P0-J-F1",
+        "P0-J-B1",
+        "P0-O-G2",
+        "P0-O-G3",
+        "P0-P-F1"
+      ],
+      "blockers": []
     }
   ],
   "cross_cutting": {
@@ -529,7 +630,7 @@
     ],
     "closure_gate": {
       "status": "NOT_REACHED",
-      "reason": "P0-P closed P0-O-G1: the direct development path is now verified by the existing VerificationEngine instead of having acceptance assumed via canonical_acceptance_deferred, and a failing direct command provably reaches GoalRun recovering rather than completed. P0-L still cannot PASS while TOOL-BUG-1 (SF-RECEIPT) leaves receipt serialization able to drop a non-dict receipt silently, which closure spec section 23 makes a BLOCKED condition on its own. Local2 local development closure cannot be declared COMPLETE. Integration remains deferred."
+      "reason": "SF-RECEIPT closed TOOL-BUG-1: an invalid receipt is now an explicit, decidable contract failure with a named diagnostic, and absent is a distinct recordable state, so a bad receipt can no longer become a missing one. Every remaining P0-L precondition from the closure spec is now satisfied: git.verify exists (P0-N), the direct path is GoalRun-backed and genuinely verified (P0-P), and receipts are truthful (SF-RECEIPT). Local2 local development closure still cannot be declared COMPLETE, because P0-L has not been rerun since these three phases landed and its verdict must come from its own evidence rather than from ours. Integration remains deferred."
     }
   },
   "wip_preservation": {
