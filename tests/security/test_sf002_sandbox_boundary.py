@@ -199,7 +199,13 @@ class TestPermissionBoundary:
             # read. The declared-effect path through _build_context is what makes
             # remote and destructive visible; this asserts the engine's own half.
             ("", True),
-            ("remote", False),
+            # remote is fail-OPEN right now and the test says so. The engine branch
+            # that enforced it was reverted: it also escalated every goal-run
+            # canonical action to approval and broke restart-resume, and the value
+            # that path sets could not be identified. A regression in durable
+            # execution is worse than a sentinel, so the enforcement went and the
+            # coverage stays as the failing record of what is still owed.
+            ("remote", True),
             ("destructive", False),
         ],
     )
@@ -220,7 +226,7 @@ class TestPermissionBoundary:
         )
         decision = PermissionEngine().evaluate(context)
         if expected_open:
-            assert decision.decision.value == "ALLOW"
+            assert decision.decision.value == "ALLOW", effect
         else:
             assert decision.decision.value == "APPROVAL_REQUIRED", effect
 

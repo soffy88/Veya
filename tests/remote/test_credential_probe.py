@@ -47,7 +47,7 @@ def _counting(outcome: ProbeOutcome) -> tuple[object, list[int]]:
 
 # ── UNPROBABLE: the property that protects working executors ───────────────
 def test_provider_without_a_probe_is_unprobable_not_invalid() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     result = cache.probe("opencode")
     assert result.outcome is ProbeOutcome.UNPROBABLE
     assert result.is_negative is False
@@ -57,7 +57,7 @@ def test_provider_without_a_probe_is_unprobable_not_invalid() -> None:
 
 def test_unprobable_does_not_start_backoff() -> None:
     """Nothing was learned, so a later-registered probe must still run."""
-    cache, clock = _cache()
+    cache, _clock = _cache()
     cache.probe("opencode")
     assert cache.retry_after("opencode") is None
 
@@ -68,7 +68,7 @@ def test_unprobable_does_not_start_backoff() -> None:
 
 
 def test_registering_later_is_not_blocked_by_a_stale_verdict() -> None:
-    cache, clock = _cache(ttl=1.0)
+    cache, _clock = _cache(ttl=1.0)
     cache.probe("pi")
     calls: list[int] = []
     cache.register("pi", lambda: calls.append(1) or ProbeOutcome.AUTH_FAILURE)
@@ -78,14 +78,14 @@ def test_registering_later_is_not_blocked_by_a_stale_verdict() -> None:
 
 # ── VALID requires a completed call ────────────────────────────────────────
 def test_valid_maps_to_true() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     cache.register("opencode", lambda: ProbeOutcome.VALID)
     assert cache.probe("opencode").outcome is ProbeOutcome.VALID
     assert cache.credential_valid("opencode") is True
 
 
 def test_unknown_outcome_never_becomes_valid() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     cache.register("x", lambda: ProbeOutcome.UNKNOWN)
     cache.probe("x")
     assert cache.credential_valid("x") is None
@@ -100,14 +100,14 @@ def test_unknown_outcome_never_becomes_valid() -> None:
     ],
 )
 def test_negative_outcomes_map_to_false(outcome: ProbeOutcome) -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     cache.register("x", lambda: outcome)
     cache.probe("x")
     assert cache.credential_valid("x") is False
 
 
 def test_a_raising_probe_is_unknown_not_valid() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     cache.register("x", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
     result = cache.probe("x")
     assert result.outcome is ProbeOutcome.UNKNOWN
@@ -116,13 +116,13 @@ def test_a_raising_probe_is_unknown_not_valid() -> None:
 
 
 def test_a_probe_returning_junk_is_unknown() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     cache.register("x", lambda: "totally fine")  # type: ignore[return-value]
     assert cache.probe("x").outcome is ProbeOutcome.UNKNOWN
 
 
 def test_probe_may_return_a_full_result() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     cache.register("x", lambda: ProbeResult(ProbeOutcome.AUTH_FAILURE, 0.0, "401"))
     result = cache.probe("x")
     assert result.outcome is ProbeOutcome.AUTH_FAILURE
@@ -151,7 +151,7 @@ def test_success_is_reprobed_after_the_ttl() -> None:
 
 
 def test_ttl_is_per_executor() -> None:
-    cache, clock = _cache(ttl=900.0)
+    cache, _clock = _cache(ttl=900.0)
     a_probe, a_calls = _counting(ProbeOutcome.VALID)
     b_probe, b_calls = _counting(ProbeOutcome.AUTH_FAILURE)
     cache.register("a", a_probe)
@@ -241,7 +241,7 @@ def test_unknown_is_retried_rather_than_cached() -> None:
 
 # ── force and forget ───────────────────────────────────────────────────────
 def test_force_bypasses_a_cached_success() -> None:
-    cache, clock = _cache(ttl=900.0)
+    cache, _clock = _cache(ttl=900.0)
     probe, calls = _counting(ProbeOutcome.VALID)
     cache.register("x", probe)
     cache.probe("x")
@@ -250,7 +250,7 @@ def test_force_bypasses_a_cached_success() -> None:
 
 
 def test_force_bypasses_backoff() -> None:
-    cache, clock = _cache(backoff=300.0)
+    cache, _clock = _cache(backoff=300.0)
     probe, calls = _counting(ProbeOutcome.AUTH_FAILURE)
     cache.register("x", probe)
     cache.probe("x")
@@ -259,7 +259,7 @@ def test_force_bypasses_backoff() -> None:
 
 
 def test_forget_clears_the_verdict() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     cache.register("x", lambda: ProbeOutcome.VALID)
     cache.probe("x")
     assert cache.credential_valid("x") is True
@@ -269,7 +269,7 @@ def test_forget_clears_the_verdict() -> None:
 
 
 def test_peek_never_probes() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     probe, calls = _counting(ProbeOutcome.VALID)
     cache.register("x", probe)
     assert cache.peek("x") is None
@@ -277,7 +277,7 @@ def test_peek_never_probes() -> None:
 
 
 def test_has_probe_reports_registration_without_probing() -> None:
-    cache, clock = _cache()
+    cache, _clock = _cache()
     assert cache.has_probe("x") is False
     cache.register("x", lambda: ProbeOutcome.VALID)
     assert cache.has_probe("x") is True

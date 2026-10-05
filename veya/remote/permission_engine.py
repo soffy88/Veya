@@ -1149,21 +1149,6 @@ class PermissionEngine:
                 effects,
                 operation,
             )
-        if context.remote_effect not in {"none", "read"}:
-            # A declared remote mutation reaches the engine as `remote_effect`
-            # and nothing else. Every dangerous-command branch above keys off
-            # `command_effect`, which is NONE for an ordinary tool invocation,
-            # so before this branch an unclassified remote action fell straight
-            # through to ALLOW. This mirrors the filesystem rule above rather
-            # than inventing a new one, and it sits below the destructive and
-            # irreversible branches so a worse verdict is never softened.
-            return PermissionDecision(
-                Decision.APPROVAL_REQUIRED,
-                ReasonCode.APPROVAL_IRREVERSIBLE_REMOTE,
-                scope,
-                effects,
-                operation,
-            )
         if context.filesystem_effect == "read" and any(
             _is_sensitive_read_target(_canonical(path)) for path in context.target_paths
         ):
