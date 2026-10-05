@@ -304,3 +304,48 @@ def reset_effect_registry() -> None:
 def resolve_tool_effect(tool_id: str) -> EffectRecord:
     """Read-only effect lookup. Phase 1 makes no decision from this."""
     return get_effect_registry().resolve(tool_id)
+
+
+#: Write tools that the platform declares but that never reached this registry.
+#:
+#: `oskill.classify_tool_effect` refuses to classify a tool whose effect is not
+#: declared on its ToolSpec ("tool effect must be declared by a ToolSpec"), and
+#: these three carry no declaration anywhere: not in `server.tool_registry`, not
+#: on the 3O ToolSpec. They were treated as writes only by a hardcoded set inside
+#: `policy_resolver._build_context`, which is the practice SF-001 exists to end.
+#:
+#: Declaring them here replaces that list with a recorded, queryable fact. It is
+#: the same verdict the list produced, so no verdict changes; what changes is that
+#: the reason is now a declaration rather than a literal. Provenance is DECLARED
+#: rather than DERIVED because each of these is a write by name and by
+#: construction, not by inference from a description.
+UNDECLARED_WRITE_TOOL_DECLARATIONS: dict[str, dict[str, object]] = {
+    tool_id: {
+        "effect": Effect.WRITE,
+        "effects": (Effect.WRITE,),
+        "provenance": EffectProvenance.DECLARED,
+        "confidence": 1.0,
+    }
+    for tool_id in ("file.write", "file.patch", "artifact.write")
+}
+
+
+def declared_effect(tool_id: str) -> Effect | None:
+    """The declared canonical effect for `tool_id`, or None if not declared.
+
+    Reads the process-wide registry so a declaration made anywhere is visible
+    here, which is what makes this replaceable by the real ToolSpec declarations
+    without touching the callers.
+    """
+    record = get_effect_registry().resolve(tool_id)
+    if record.effect is Effect.UNKNOWN:
+        return None
+    return record.effect
+
+
+def declare_builtin_write_tools() -> None:
+    """Register the write declarations above. Idempotent."""
+    registry = get_effect_registry()
+    for tool_id, payload in UNDECLARED_WRITE_TOOL_DECLARATIONS.items():
+        if tool_id not in registry.declared_ids():
+            registry.declare(tool_id, dict(payload))

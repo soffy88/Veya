@@ -211,3 +211,59 @@ def test_report_covers_declared_tools_and_resolves_cleanly():
 
 def test_default_registry_is_a_singleton():
     assert get_effect_registry() is get_effect_registry()
+
+
+# ── SF-001: the write declarations that replaced a hardcoded list ───────────
+def test_write_tools_carry_a_real_declaration() -> None:
+    """These three were writes only because of a literal inside the resolver.
+
+    oskill.classify_tool_effect refuses to classify a tool whose effect is not on
+    its ToolSpec, and none of these had one anywhere. Declaring them in the
+    registry keeps the same verdict while replacing a hardcoded set with a
+    recorded fact, which is what makes the registry worth querying at all.
+    """
+    from veya.remote.effect_registry import Effect, declare_builtin_write_tools, declared_effect
+
+    declare_builtin_write_tools()
+    for tool_id in ("file.write", "file.patch", "artifact.write"):
+        assert declared_effect(tool_id) is Effect.WRITE, tool_id
+
+
+def test_an_undeclared_tool_stays_unknown_rather_than_becoming_a_read() -> None:
+    from veya.remote.effect_registry import declared_effect
+
+    assert declared_effect("totally_unknown_tool_xyz") is None
+
+
+def test_the_resolver_no_longer_carries_a_hardcoded_write_list() -> None:
+    """Pins the removal.
+
+    The list is easy to reintroduce by accident, and it fails quietly: the verdicts
+    stay correct while the reason reverts to a literal nobody can query.
+    """
+    from pathlib import Path
+
+    import veya.remote.policy_resolver as resolver
+
+    source = Path(resolver.__file__).read_text(encoding="utf-8")
+    assert "_UNDECLARED_WRITE_TOOLS" not in source
+    assert "INTERIM BRIDGE" not in source
+
+
+def test_declared_write_reaches_the_operation_context() -> None:
+    """End to end: a declared write tool must not arrive as an effect-free read."""
+    from pathlib import Path
+
+    from veya.remote.policy_resolver import PolicyRequest, _build_context
+
+    root = Path.cwd()
+    context = _build_context(
+        PolicyRequest(
+            actor="sf001",
+            tool="file.write",
+            args={},
+            workspace=str(root),
+            cwd=str(root),
+        )
+    )
+    assert context.filesystem_effect == "write", context.filesystem_effect

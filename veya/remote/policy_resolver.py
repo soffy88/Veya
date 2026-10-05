@@ -434,9 +434,16 @@ class ToolPolicy(PolicyLayer):
         )
 
 
-#: Write tools that have no declaration yet. See the interim-bridge note in
-#: ``_build_context``.
-_UNDECLARED_WRITE_TOOLS = frozenset({"file.write", "file.patch", "artifact.write"})
+def _declared_effect(tool_id: str) -> object | None:
+    """Canonical declared effect for `tool_id`, imported lazily.
+
+    Lazy because the effect registry reaches back into this module's vocabulary;
+    a module-level import would be circular.
+    """
+    from veya.remote.effect_registry import declare_builtin_write_tools, declared_effect
+
+    declare_builtin_write_tools()
+    return declared_effect(tool_id)
 
 
 def _build_context(request: PolicyRequest) -> OperationContext:
@@ -464,17 +471,17 @@ def _build_context(request: PolicyRequest) -> OperationContext:
     declared = str(request.effect or "").strip().lower()
     privilege_level = "user"
     if not declared:
-        # INTERIM BRIDGE, not a fix. The three names below are the hardcoded list
-        # SF-001 exists to remove; they are still here because file.write,
-        # file.patch and artifact.write carry no declaration anywhere, and
-        # treating an undeclared tool as effect-free made the engine report a
-        # read-only capability that their write grants do not intersect — which
-        # blocked file writing outright. Removing them properly means declaring
-        # them at their ToolSpec, which oskill.classify_tool_effect already
-        # demands ("tool effect must be declared by a ToolSpec") and nobody has
-        # done yet. Until then an undeclared tool must not silently become
-        # effect-free, so anything outside this list stays unknown.
-        filesystem_effect = "write" if request.tool in _UNDECLARED_WRITE_TOOLS else "none"
+        # The caller declared nothing, so the registry decides. file.write,
+        # file.patch and artifact.write carry a declaration there; everything
+        # else resolves to None, which is unknown rather than a read.
+        #
+        # This replaced a hardcoded set in the same place, which SF-001 exists to
+        # end. Treating an undeclared tool as effect-free had blocked file writing
+        # outright, because the engine then reported a read-only capability their
+        # write grants do not intersect. The verdict is unchanged; the reason is
+        # now a recorded declaration instead of a literal.
+        resolved = _declared_effect(request.tool)
+        filesystem_effect = "write" if resolved is not None else "none"
         remote_effect = "none"
     elif declared == "read":
         filesystem_effect, remote_effect = "read", "none"
