@@ -126,8 +126,15 @@ def test_high_level_mcp_bindings_share_the_same_server() -> None:
     }
     for mcp_name, canonical in expected.items():
         assert BINDING_INDEX[mcp_name].veya_tool == canonical
-    # 17 low-level + 9 supervision + 1 L1 dispatch + 4 runtime/git tools, one server
-    assert len(BINDINGS) == 43
+    # 17 low-level + 9 supervision + 1 L1 dispatch + 6 runtime/git tools, one server.
+    #
+    # Re-recorded at P0-M. The git group was 4 (status, diff, log, promote) and
+    # is now 6: git.stage and git.commit were added because main had no governed
+    # way to record a change, and promote is explicitly not a commit. This count
+    # is a hand-maintained decomposition of the capability surface, not a
+    # capability-derived assertion, so adding a tool means restating it here.
+    # It was already stale before P0-M — the surface was 42 while this said 43.
+    assert len(BINDINGS) == 44
     assert not any(
         b.veya_tool is None
         for b in BINDINGS

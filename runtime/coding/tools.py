@@ -213,6 +213,57 @@ def coding_diff(worktree_path: str) -> dict[str, Any]:
     )
 
 
+def coding_git_stage(worktree_path: str, paths: Any = None) -> dict[str, Any]:
+    """Stage paths inside a registered Veya worktree. Refuses the canonical tree."""
+    try:
+        record = _worktree_manager(worktree_path).stage(worktree_path, paths=paths)
+    except Exception as exc:
+        return _failed(f"git stage failed: {type(exc).__name__}: {exc}")
+    return _result(
+        "ok",
+        data={"git_stage": record},
+        evidence=[
+            {
+                "kind": "git_stage",
+                "path": record["path"],
+                "branch_name": record["branch_name"],
+                "staged_paths": record["staged_paths"],
+            }
+        ],
+        side_effect=True,
+    )
+
+
+def coding_git_commit(worktree_path: str, message: str, expect_paths: Any = None) -> dict[str, Any]:
+    """Commit the staged state of a registered Veya worktree.
+
+    The returned SHA is read back from git by WorktreeManager; nothing here
+    synthesises one. An empty index, or an index holding paths the caller did
+    not expect, fails closed.
+    """
+    try:
+        record = _worktree_manager(worktree_path).commit(
+            worktree_path, message, expect_paths=expect_paths
+        )
+    except Exception as exc:
+        return _failed(f"git commit failed: {type(exc).__name__}: {exc}")
+    return _result(
+        "ok",
+        data={"git_commit": record},
+        evidence=[
+            {
+                "kind": "git_commit",
+                "path": record["path"],
+                "branch_name": record["branch_name"],
+                "commit_sha": record["commit_sha"],
+                "parent_sha": record["parent_sha"],
+                "staged_paths": record["staged_paths"],
+            }
+        ],
+        side_effect=True,
+    )
+
+
 def coding_apply_patch(worktree_path: str, patch: str) -> dict[str, Any]:
     """Apply a patch only inside a registered Veya worktree."""
     if not patch.strip():
@@ -794,6 +845,35 @@ def register_tools(registry: Any) -> int:
             SideEffect.LOCAL_WRITE,
         ),
         (
+            "coding_git_stage",
+            "Stage paths inside a registered isolated worktree. Refuses the canonical tree and any absolute or upward path.",
+            {
+                "type": "object",
+                "properties": {
+                    "worktree_path": {"type": "string"},
+                    "paths": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["worktree_path"],
+            },
+            coding_git_stage,
+            SideEffect.LOCAL_WRITE,
+        ),
+        (
+            "coding_git_commit",
+            "Commit the staged state of a registered isolated worktree. Fails closed on an empty index or unexpected staged paths; the SHA comes from git.",
+            {
+                "type": "object",
+                "properties": {
+                    "worktree_path": {"type": "string"},
+                    "message": {"type": "string"},
+                    "expect_paths": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["worktree_path", "message"],
+            },
+            coding_git_commit,
+            SideEffect.LOCAL_WRITE,
+        ),
+        (
             "coding_worktree_status",
             "读取隔离 worktree 的分支、干净状态和 changed files。仅允许 .veya/worktrees 下的注册 worktree。",
             {
@@ -982,6 +1062,8 @@ __all__ = [
     "coding_diff",
     "coding_discard",
     "coding_finalize_patch",
+    "coding_git_commit",
+    "coding_git_stage",
     "coding_run_command",
     "coding_run_lint",
     "coding_run_tests",

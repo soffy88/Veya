@@ -8,7 +8,7 @@ import subprocess
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .models import CodingWorkspace
@@ -329,6 +329,114 @@ class WorktreeManager:
             "changed_files": record.changed_files,
             "stat": stat,
             "patch": patch,
+        }
+
+    def _owned_target(self, worktree_path: str | Path) -> Path:
+        """Resolve a caller-supplied worktree and prove this manager owns it.
+
+        Reused by every mutation below. ``_assert_owned_path`` refuses the
+        workspace root itself, which is what keeps a commit out of the canonical
+        tree: the canonical directory is not below the worktree directory, so it
+        can never satisfy this.
+        """
+        target = self._assert_owned_path(worktree_path)
+        self._assert_registered(target)
+        return target
+
+    @staticmethod
+    def _relative_paths(paths: Any) -> list[str]:
+        """Validate caller paths as worktree-relative, in-target, non-absolute.
+
+        A path that is absolute or walks upwards is refused rather than
+        normalised, because either could name a file outside the worktree and
+        the caller would have no way to tell from the result.
+        """
+        if paths is None:
+            return []
+        if isinstance(paths, str):
+            paths = [paths]
+        if not isinstance(paths, (list, tuple)):
+            raise WorktreeError("paths must be a string or a list of strings")
+        clean: list[str] = []
+        for item in paths:
+            if not isinstance(item, str) or not item.strip():
+                raise WorktreeError("each path must be a non-empty string")
+            value = item.strip()
+            pure = PurePosixPath(value)
+            if pure.is_absolute() or value.startswith("-") or ".." in pure.parts:
+                raise WorktreeError(f"path must stay inside the worktree: {value!r}")
+            if "\x00" in value:
+                raise WorktreeError("path contains NUL byte")
+            clean.append(value)
+        return clean
+
+    def stage(self, worktree_path: str | Path, *, paths: Any = None) -> dict[str, Any]:
+        """Stage paths inside one owned worktree. Never the canonical tree."""
+        target = self._owned_target(worktree_path)
+        relative = self._relative_paths(paths)
+        # No paths means "everything in this worktree", still bounded by the
+        # worktree that _owned_target has already proven is not the canonical
+        # tree. "-A" is a flag, so it must not sit behind the "--" that turns the
+        # other entries into pathspecs.
+        argv = ["add", "--", *relative] if relative else ["add", "-A"]
+        output = _git_command(target, argv)
+        staged = [
+            line
+            for line in _git_command(target, ["diff", "--cached", "--name-only"]).splitlines()
+            if line.strip()
+        ]
+        return {
+            "path": str(target),
+            "branch_name": _git_command(target, ["rev-parse", "--abbrev-ref", "HEAD"]).strip(),
+            "requested_paths": relative,
+            "staged_paths": staged,
+            "output": output.strip(),
+        }
+
+    def commit(
+        self,
+        worktree_path: str | Path,
+        message: str,
+        *,
+        expect_paths: Any = None,
+    ) -> dict[str, Any]:
+        """Commit the staged state of one owned worktree.
+
+        Fails closed rather than committing something unexpected: an empty index
+        is refused, and when the caller declares the paths it expects, an index
+        holding anything else is refused too. The returned SHA is read back from
+        git, never assembled here.
+        """
+        target = self._owned_target(worktree_path)
+        if not isinstance(message, str) or not message.strip():
+            raise WorktreeError("commit message must be a non-empty string")
+        staged = [
+            line
+            for line in _git_command(target, ["diff", "--cached", "--name-only"]).splitlines()
+            if line.strip()
+        ]
+        if not staged:
+            raise WorktreeError("nothing staged; refusing to create an empty commit")
+        expected = self._relative_paths(expect_paths)
+        if expected and sorted(expected) != sorted(staged):
+            raise WorktreeError(
+                f"staged paths do not match the expected set: staged={sorted(staged)} "
+                f"expected={sorted(expected)}"
+            )
+        parent = _git_command(target, ["rev-parse", "HEAD"]).strip()
+        _git_command(target, ["commit", "-m", message.strip()])
+        commit_sha = _git_command(target, ["rev-parse", "HEAD"]).strip()
+        if not commit_sha or commit_sha == parent:
+            raise WorktreeError("git reported no new commit")
+        tree = _git_command(target, ["rev-parse", "HEAD^{tree}"]).strip()
+        return {
+            "path": str(target),
+            "branch_name": _git_command(target, ["rev-parse", "--abbrev-ref", "HEAD"]).strip(),
+            "commit_sha": commit_sha,
+            "parent_sha": parent,
+            "tree": tree,
+            "staged_paths": staged,
+            "message": message.strip(),
         }
 
     def discard(

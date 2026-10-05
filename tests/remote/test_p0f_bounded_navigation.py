@@ -464,10 +464,23 @@ def test_search_defaults_are_the_documented_ones() -> None:
 def test_tool_binding_count_is_unchanged() -> None:
     """Guards the recorded supervision baseline that counts bindings.
 
-    P0-F widens two existing contracts. It must not add or remove a tool, or the
-    baseline count recorded elsewhere stops describing reality.
+    P0-F widened two existing contracts and added no tool. The count has since
+    moved legitimately, twice over, and this guard is where that has to be
+    restated rather than quietly relaxed:
+
+    * 42 -> 44 at P0-M, which added ``git.stage`` and ``git.commit`` because
+      main had no governed way to record a change;
+    * the count asserted here is the one the supervision sentinel asserts, so
+      the two cannot drift apart silently.
+
+    The purpose is unchanged: a phase that adds a tool without saying so is the
+    failure this catches.
     """
-    assert len(BINDINGS) == 42
+    from veya.remote.tool_adapter import BINDING_INDEX
+
+    assert len(BINDINGS) == 44
+    assert "git.stage" in BINDING_INDEX
+    assert "git.commit" in BINDING_INDEX
 
 
 def test_search_arguments_carry_the_window_and_stay_deterministic() -> None:

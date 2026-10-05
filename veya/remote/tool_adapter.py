@@ -144,7 +144,9 @@ _FAST_READ_TOOLS = frozenset(
         "runtime.probe",
     }
 )
-_FAST_GIT_TOOLS = frozenset({"git.status", "git.diff", "git.log", "git.promote"})
+_FAST_GIT_TOOLS = frozenset(
+    {"git.status", "git.diff", "git.stage", "git.commit", "git.log", "git.promote"}
+)
 # P0-B: long-command tools -> DirectJobManager with a fast sync window.
 _COMMAND_TOOLS = frozenset({"shell.exec", "test.run", "build.run"})
 
@@ -315,6 +317,26 @@ def _rg_hit_records(
             }
         )
     return records, truncated
+
+
+def _git_stage_paths(args: dict[str, Any], *, key: str = "paths") -> list[str] | None:
+    """Read a caller-supplied path list for the governed git write tools.
+
+    Returns ``None`` when the caller said nothing, which the manager reads as
+    "stage everything inside this worktree" — still bounded by the worktree, so
+    it cannot reach the canonical tree. Absolute and upward paths are rejected by
+    WorktreeManager rather than here, so the rule lives in one place.
+    """
+    raw = args.get(key)
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, (list, tuple)):
+        return [item for item in raw if isinstance(item, str) and item.strip()]
+    raise RemoteToolAdapterError(
+        RemoteErrorCode.INVALID_ARGUMENT, f"{key} must be a string or a list of strings"
+    )
 
 
 def _canonical_project_root(path: str | Path) -> str:
@@ -1031,6 +1053,30 @@ BINDINGS: tuple[ToolBinding, ...] = (
         EffectClass.READ,
         "Unified diff of the session worktree against HEAD.",
         _obj({"workspace": _STR, "path": _STR}),
+        needs_git=True,
+    ),
+    ToolBinding(
+        "git.stage",
+        "coding_git_stage",
+        EffectClass.WRITE,
+        "Stage paths inside the session's isolated worktree. The canonical tree is not a valid target.",
+        _obj({"workspace": _STR, "path": _STR, "paths": {"type": "array", "items": {"type": "string"}}}),
+        needs_git=True,
+    ),
+    ToolBinding(
+        "git.commit",
+        "coding_git_commit",
+        EffectClass.WRITE,
+        "Commit the staged changes of the session's isolated worktree and return the real commit SHA.",
+        _obj(
+            {
+                "workspace": _STR,
+                "path": _STR,
+                "message": _STR,
+                "expect_paths": {"type": "array", "items": {"type": "string"}},
+            },
+            ["message"],
+        ),
         needs_git=True,
     ),
     ToolBinding(
@@ -2309,6 +2355,20 @@ class RemoteToolAdapter:
             return {"worktree_path": worktree}
         if name == "git.diff":
             return {"worktree_path": worktree}
+        if name == "git.stage":
+            # Same seam as git.status/git.diff: the worktree is resolved once, by
+            # the caller, and these tools only ever receive it. Nothing here
+            # picks a repository.
+            return {
+                "worktree_path": worktree,
+                "paths": _git_stage_paths(args),
+            }
+        if name == "git.commit":
+            return {
+                "worktree_path": worktree,
+                "message": str(args.get("message") or ""),
+                "expect_paths": _git_stage_paths(args, key="expect_paths"),
+            }
         if name == "git.log":
             limit = max(1, min(int(args.get("limit", 20)), 200))
             return {
@@ -4284,6 +4344,30 @@ class RemoteToolAdapter:
         target = self._direct_workdir(
             session, ws_binding, execution_id=str(args.get("execution_id") or "")
         )
+        if name in ("git.stage", "git.commit"):
+            # A read-only git tool may take the session worktree or the repo
+            # root. A *write* must not: it resolves the execution target the same
+            # way the mutation path does, so an explicit isolated target really
+            # is the tree being staged and committed. Without this the target
+            # would silently be the canonical repo and the write would fail
+            # closed for the wrong reason.
+            try:
+                resolved_target = resolve_execution_target(
+                    ws_binding.requested_realpath,
+                    workspace_path=resolution.target_path,
+                    requested_execution_target=str(args.get("execution_target") or ""),
+                    intent="mutation",
+                )
+                if resolved_target not in ("CANONICAL_WORKTREE", "HOST"):
+                    isolated, _repo_root = await self._ensure_isolated_worktree(
+                        session,
+                        ws_binding.repo_root,
+                        execution_target=resolved_target,
+                        target_path=resolution.target_path,
+                    )
+                    target = isolated
+            except RemoteToolAdapterError as exc:
+                return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)
         try:
             if name == "git.status":
                 code, out, err = await self._run_capture(
@@ -4309,6 +4393,65 @@ class RemoteToolAdapter:
                     # scoped answer from a whole-tree one.
                     "pathspec": pathspec,
                 }
+            elif name in ("git.stage", "git.commit"):
+                # Stage and commit go through WorktreeManager, which is where the
+                # ownership check and the git calls live. git.status and
+                # git.diff run git inline here for speed, but a *write* must not
+                # have its own second implementation of "which tree am I allowed
+                # to touch" — the manager already refuses the canonical tree, and
+                # routing through it is what keeps that one rule.
+                from runtime.coding.tools import _worktree_manager
+                from runtime.coding.worktree import WorktreeError
+
+                try:
+                    # Built from the repository root, not the worktree: the
+                    # manager's ownership base is ``<repo>/.veya/worktrees``, so
+                    # handing it the worktree makes the worktree the very thing
+                    # it refuses. Inside the try on purpose — resolving the root
+                    # is itself a containment step, and a canonical path is
+                    # refused here rather than escaping as an opaque execution
+                    # failure.
+                    manager = _worktree_manager(target)
+                    if name == "git.stage":
+                        paths = _git_stage_paths(args)
+                        payload = manager.stage(target, paths=paths)
+                    else:
+                        message = str(args.get("message") or "")
+                        if not message.strip():
+                            return self._fail(
+                                name,
+                                session,
+                                RemoteErrorCode.INVALID_ARGUMENT,
+                                "git.commit requires a non-empty message",
+                            )
+                        payload = manager.commit(
+                            target,
+                            message,
+                            expect_paths=_git_stage_paths(args, key="expect_paths"),
+                        )
+                except WorktreeError as exc:
+                    # Fail closed, and say why: an out-of-target path or an
+                    # unexpected index is a refusal, not an empty success.
+                    return self._fail(
+                        name, session, RemoteErrorCode.POLICY_BLOCKED, str(exc)
+                    )
+                except Exception as exc:
+                    # Failing to establish an owned worktree for a write is a
+                    # containment refusal however it surfaced — including when
+                    # the path is not a worktree at all, so resolving the repo
+                    # root raises something other than WorktreeError.
+                    return self._fail(
+                        name,
+                        session,
+                        RemoteErrorCode.POLICY_BLOCKED,
+                        f"refusing to {name}: {type(exc).__name__}: {exc}",
+                    )
+                # The shared tail below inspects ``code`` for a stderr message.
+                # WorktreeManager raises rather than returning a status, so a
+                # successful stage or commit has no process exit code; zero is
+                # the honest value and the failure path already returned above.
+                code = 0
+                payload["exit_code"] = 0
             elif name == "git.promote":
                 execution_id = str(args.get("execution_id") or "")
                 if execution_id:

@@ -519,7 +519,10 @@ def test_the_phase_commit_touches_only_its_own_paths() -> None:
     ).stdout.split()
 
     assert listing, "HEAD has no changed paths"
-    assert all(path.startswith("tests/") for path in listing), listing
+    # Tests and qualification documents are this work's own output. Anything else
+    # in a phase commit — a source file the phase was not meant to touch, or the
+    # owner's uncommitted work — is the failure this catches.
+    assert all(path.startswith(("tests/", "docs/")) for path in listing), listing
 
 
 def test_this_repository_still_carries_its_uncommitted_work() -> None:
