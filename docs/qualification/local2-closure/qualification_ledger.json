@@ -268,6 +268,96 @@
         "M4 and M7 initially survived the first mutation attempt. Both were coverage gaps in the tests, not defects hidden by the implementation, and were closed by deepening the fixture and pinning the ref case; both are now RED under mutation. M5 initially went RED for the wrong reason (a corrupted tree expression rather than the removed guard), which is why the two unreachable emptiness guards were deleted instead of kept.",
         "A separate pre-existing failure is reported and not fixed: tests/server/test_coding_tools.py asserts a 13-tool count that has been stale since P0-M (14 then 15), and that file is in no required CI suite, which is why it went unnoticed. It is out of scope here and is recorded for a separate phase."
       ]
+    },
+    {
+      "phase": "P0-O",
+      "title": "Direct-path GoalRun / Verifier architecture decision",
+      "type": "READ_ONLY_ARCHITECTURE_AUDIT",
+      "status": "PASS",
+      "decision": "B",
+      "implementation": "DEFERRED_TO_NEXT_PHASE",
+      "commit": null,
+      "parent": "af3e5f12",
+      "target_contract": "DEFERRED",
+      "changed_paths": [],
+      "tests_added": 0,
+      "mutations_red": 0,
+      "production_changed": false,
+      "finding": "Direct execution is already GoalRun-backed.",
+      "audit_answers": {
+        "q1_direct_associates_goal_run": "YES, verified at runtime. A gateway test.run produced goal_run_id='goal_20261005_144316_15128cb02366' and goal_task_id='remote:direct_...'. The field is empty at construction and populated later by RemoteGoalRunAdapter.before_execution (veya/remote/execution.py:2775).",
+        "q2_who_assigns_goal_run_id": "RemoteGoalRunAdapter.before_execution, from state.goal_id (veya/remote/execution.py:2775). goal_task_id is defaulted at execution.py:2948 as f'remote:{execution_id}'.",
+        "q3_canonical_verifier_authority": "Exactly one: CanonicalWorkerAdapter.finalize_candidate (server/goal_run/canonical_worker.py:586), which collects an EvidenceBundle and calls VerificationEngine.run_independent_verifier.",
+        "q4_who_consumes_accept": "server/goal_run/runner.py:2097, guarded by hasattr(integration_adapter, 'finalize_candidate'). RemoteGoalRunAdapter does not implement it, so the branch is skipped and the verdict is never produced.",
+        "q5_goalrun_complete_authority": "_decide_goal_completion (server/goal_run/runner.py:1548) is the single decider of state.status.",
+        "q6_second_completion_authority": "Two terminal authorities already coexist and always did: ExecutionRecord._finish (veya/remote/execution.py:3095) and _decide_goal_completion. This is pre-existing, is not introduced by B, and was not touched by P0-N. Recorded as an open observation, not a P0-O blocker.",
+        "q7_is_worker_dispatch_the_sole_entry": "NO. _admit_goal_run is invoked from both submit (veya/remote/execution.py:2067) and recovery (:1615). test.run, build.run and shell.exec already traverse project_run_goal.",
+        "q8_can_direct_be_execution_attempts": "Already true de facto for _COMMAND_TOOLS (shell.exec, test.run, build.run) via RemoteGoalRunAdapter.execute_semantic_task -> runner(reporter).",
+        "q9_why_worker_dispatch_needs_an_llm": "worker.dispatch requires worker in _WORKER_TYPES, which is ExecutorRegistry membership; every admitted executor is an LLM runtime. This is a property of worker.dispatch, not of GoalRun.",
+        "q10_would_direct_force_provider_dependency": "NO. execute_semantic_task calls runner(reporter) only. g1_plan consumes explicit_tasks with skip_plan_review=True, and skip_advisory_code_review=True is set on the adapter. No model call occurs on this path. P0-L needed an LLM only because it chose worker.dispatch."
+      },
+      "authority_map": {
+        "goalrun_terminal_state": "server/goal_run/runner.py:1548 _decide_goal_completion",
+        "verifier": "server/goal_run/canonical_worker.py:586 CanonicalWorkerAdapter.finalize_candidate -> VerificationEngine.run_independent_verifier",
+        "accept_consumer": "server/goal_run/runner.py:2097 hasattr(finalize_candidate) branch",
+        "git_authority": "runtime/coding/worktree.py WorktreeManager",
+        "record_terminal": "veya/remote/execution.py:3095 ExecutionRecord._finish"
+      },
+      "state_transition_map": "submit(execution_type=DIRECT) -> PERSISTED -> _admit_goal_run -> project_run_goal(state=running) -> before_execution(RUNNING/EDITING) -> execute_semantic_task -> _finish(COMPLETED|FAILED|CANCELLED) -> reconcile_task (:2698-2713) -> _decide_goal_completion -> state.status",
+      "ownership": {
+        "receipt": "ExecutionRecord + EffectReceipt. TOOL-BUG-1 is a receipt-serialization defect, not an architecture concern, and stays separate as SF-RECEIPT.",
+        "verifier": "VerificationEngine, reachable only through finalize_candidate; currently unreachable from the direct path.",
+        "goalrun_lineage": "Already established: goal_run_id + goal_task_id + reconcile_task projection.",
+        "git_surface": "The git.* fast path (_call_fast_git, veya/remote/tool_adapter.py:4364) creates no ExecutionRecord, no GoalRun, no receipt and no verifier. P0-N evidence is self-contained by design."
+      },
+      "correction": {
+        "subject": "P0-L attempt 2 (b424e00a) rationale",
+        "incorrect_conclusion": "The direct governed command path has no GoalRun attachment and no Verifier capability, so satisfying closure spec sections 24 and 25 would require an architecture extension outside the phase's permitted change set.",
+        "why_incorrect": "It was inferred from construction-time ExecutionRecord state. goal_run_id is None when the record is created and is assigned by RemoteGoalRunAdapter.before_execution once the run is admitted, so a static read of the dataclass fields at the wrong moment reported absence that does not exist at runtime.",
+        "corrected_conclusion": "Direct execution is already GoalRun-backed, the GoalRun terminal authority already exists, and reconcile_task already exists. The single actual gap is that RemoteGoalRunAdapter declares verification_required=True but does not implement finalize_candidate, which leaves canonical_acceptance_deferred as a fail-open acceptance.",
+        "scope_of_correction": "This corrects the rationale only. The P0-L attempt 2 verdict of BLOCKED still stood under the spec in force at b424e00a, because sections 24 and 25 were demonstrably unmet at af3e5f12. The recorded verdict is not rewritten and no historical entry is altered or removed; f5af9744 (attempt 1) and b424e00a (attempt 2) both remain BLOCKED."
+      },
+      "actual_gap": {
+        "id": "P0-O-G1",
+        "status": "OPEN",
+        "summary": "RemoteGoalRunAdapter sets verification_required=True but implements no finalize_candidate, so runner.py:666-677 marks the task passed=True with reason 'canonical_acceptance_deferred' and the deferral target is never invoked. Acceptance is assumed rather than verified on the direct development path.",
+        "severity": "HIGH",
+        "class": "fail-open acceptance",
+        "scope": "one method on one adapter; the VerificationEngine and the GoalRun terminal authority already exist"
+      },
+      "next_phase": {
+        "phase": "P0-P",
+        "title": "Direct-path verifier integration",
+        "seam": "RemoteGoalRunAdapter.finalize_candidate -> VerificationEngine.run_independent_verifier -> VerifyResult -> reconcile_task -> _decide_goal_completion",
+        "must_prove_failure": "direct test.run FAIL -> ExecutionRecord FAILED -> reconcile_task -> GoalRun RECOVERING, explicitly NOT COMPLETED",
+        "must_prove_success": "direct test.run PASS -> VerificationEngine -> ACCEPT -> GoalRun COMPLETE",
+        "must_not_persist": "verification_required=True -> canonical_acceptance_deferred -> passed=True",
+        "out_of_scope": [
+          "WorktreeManager",
+          "git.promote",
+          "git.verify",
+          "TargetContract",
+          "default execution target",
+          "GoalRun terminal authority (_decide_goal_completion)",
+          "the _fast_git substrate seam",
+          "TOOL-BUG-1"
+        ]
+      },
+      "separate_finding": {
+        "id": "P0-O-G2",
+        "status": "OPEN",
+        "not_a_p0p_blocker": true,
+        "summary": "The git.* fast path has no ExecutionRecord, no GoalRun, no receipt and no verifier, so the git surface and the direct execution surface have inconsistent lifecycle models.",
+        "deferral": "Decide in a future dedicated Git lifecycle phase whether git operations require ExecutionRecord / GoalRun / receipt participation. Explicitly NOT in P0-P scope; the git surface keeps its current responsibility (git.stage, git.commit, git.verify, git.promote)."
+      },
+      "evidence": [
+        "Runtime observation through the governed gateway: a real test.run on an explicit workspace produced execution_type='direct', goal_run_id='goal_20261005_144316_15128cb02366' and goal_task_id='remote:direct_4dae1f6408b64ddb96099035dfdb4aec', with dispatch_id=None. Direct execution therefore already carries GoalRun lineage, which corrects the P0-L attempt 2 rationale that inferred its absence from construction-time record state.",
+        "Static authority trace: _admit_goal_run is reached from submit (veya/remote/execution.py:2067) and from recovery (:1615), so worker.dispatch is not the sole entry into project_run_goal; the three _COMMAND_TOOLS already traverse the same GoalRun runner that the worker path uses.",
+        "Verifier authority is singular: CanonicalWorkerAdapter.finalize_candidate (server/goal_run/canonical_worker.py:586) is the only implementation, and runner.py:2097 gates acceptance on hasattr(integration_adapter, 'finalize_candidate'). An AST scan of RemoteGoalRunAdapter confirms it defines before_execution, before_iteration, checkpoint and execute_semantic_task but not finalize_candidate.",
+        "No provider dependency is required on this path: execute_semantic_task invokes runner(reporter) only, and g1_plan consumes explicit_tasks with skip_plan_review=True while the adapter sets skip_advisory_code_review=True. The LLM requirement observed in P0-L belongs to worker.dispatch's ExecutorRegistry membership check, not to GoalRun.",
+        "The resulting gap is bounded and fail-open: runner.py:666-677 assigns passed=True with reason 'canonical_acceptance_deferred' whenever an adapter declares verification_required without implementing finalize_candidate, and RemoteGoalRunAdapter sets verification_required=True at veya/remote/execution.py:2767 while implementing no verifier, so acceptance is assumed rather than earned.",
+        "The audit was read-only: no source file, no TargetContract, no default execution target, no WorktreeManager, no git.promote and no P0-L entry was modified. P0-L attempt 1 (f5af9744) and attempt 2 (b424e00a) both remain recorded as BLOCKED and were neither rewritten nor removed."
+      ]
     }
   ],
   "cross_cutting": {
@@ -324,7 +414,7 @@
     ],
     "closure_gate": {
       "status": "NOT_REACHED",
-      "reason": "P0-N closed the git.verify gap, but P0-L remains BLOCKED on two items that are not git surface: the direct path has no Verifier and no GoalRun attachment (P0-O, an architecture decision), and TOOL-BUG-1 leaves receipt serialization untruthful (SF-RECEIPT). Local2 local development closure cannot be declared COMPLETE. Integration remains deferred."
+      "reason": "P0-O decided the architecture (B) and showed the direct path is already GoalRun-backed, reducing the remaining work to one verification seam (P0-P). P0-L still cannot PASS while P0-O-G1 leaves acceptance fail-open and while TOOL-BUG-1 (SF-RECEIPT) leaves receipt serialization able to drop a non-dict receipt silently. Local2 local development closure cannot be declared COMPLETE. Integration remains deferred."
     }
   },
   "wip_preservation": {
