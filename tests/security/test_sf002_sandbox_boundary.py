@@ -199,13 +199,7 @@ class TestPermissionBoundary:
             # read. The declared-effect path through _build_context is what makes
             # remote and destructive visible; this asserts the engine's own half.
             ("", True),
-            # remote is fail-OPEN right now and the test says so. The engine branch
-            # that enforced it was reverted: it also escalated every goal-run
-            # canonical action to approval and broke restart-resume, and the value
-            # that path sets could not be identified. A regression in durable
-            # execution is worse than a sentinel, so the enforcement went and the
-            # coverage stays as the failing record of what is still owed.
-            ("remote", True),
+            ("remote", False),
             ("destructive", False),
         ],
     )
@@ -359,3 +353,71 @@ class TestEvidenceBoundary:
             outcomes.add(decision.decision.value)
         assert outcomes <= {"ALLOW", "APPROVAL_REQUIRED", "DENY"}
         assert "RUNNING" not in outcomes and "SUBMITTED" not in outcomes
+
+
+# ── approval settlement: the gateway turns every non-ALLOW into a failure ───
+class TestApprovalSettlement:
+    """A1 — an approval requirement must not surface as a failure.
+
+    The injected ActionGatewayEngine maps every non-ALLOW verdict to
+    {"status": "failed"} and never consults its own approval_resolver. Without
+    settlement in the policy hook, a caller that supplied a resolver granting
+    approval still saw the action fail. That is what broke restart-resume in
+    tests/goal_run when the remote-effect branch was first added, and the branch
+    was wrongly reverted instead of the wiring being fixed.
+    """
+
+    def _adapter(self, resolver):
+        from server.action_gateway_adapter import ActionGatewayAdapter
+
+        return ActionGatewayAdapter(approval_resolver=resolver)
+
+    def _request(self):
+        import obase
+
+        return obase.ActionRequest(action="unclassified_remote", effect="remote")
+
+    def test_a_granted_approval_becomes_allow(self) -> None:
+        adapter = self._adapter(lambda _request: True)
+        decision = adapter._evaluate_policy(self._request())
+        assert decision.verdict == "ALLOW", decision.reason
+        assert "approval granted" in decision.reason
+
+    def test_a_refused_approval_becomes_deny(self) -> None:
+        adapter = self._adapter(lambda _request: False)
+        decision = adapter._evaluate_policy(self._request())
+        assert decision.verdict == "DENY"
+        assert "approval refused" in decision.reason
+
+    def test_an_async_resolver_is_denied_explicitly_not_silently_allowed(self) -> None:
+        """A requirement nobody could evaluate must not become permission."""
+
+        async def resolver(_request):
+            return True
+
+        adapter = self._adapter(resolver)
+        decision = adapter._evaluate_policy(self._request())
+        assert decision.verdict == "DENY", (
+            "an async approval resolver cannot be awaited from the sync policy "
+            "hook; allowing it would grant permission nobody granted"
+        )
+        assert "asynchronous" in decision.reason
+
+    def test_a_raising_resolver_denies_rather_than_propagating(self) -> None:
+        def resolver(_request):
+            raise RuntimeError("boom")
+
+        adapter = self._adapter(resolver)
+        decision = adapter._evaluate_policy(self._request())
+        assert decision.verdict == "DENY"
+        assert "approval resolver failed" in decision.reason
+
+    def test_no_resolver_leaves_the_verdict_untouched(self) -> None:
+        """Without a resolver the caller's own approval flow applies.
+
+        Returning DENY here would deny on the engine's behalf, which is not this
+        hook's decision to make.
+        """
+        adapter = self._adapter(None)
+        decision = adapter._evaluate_policy(self._request())
+        assert decision.verdict == "APPROVAL_REQUIRED", decision.verdict

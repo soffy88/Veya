@@ -201,12 +201,53 @@ class ActionGatewayAdapter:
             permission = self._permission_engine.evaluate(context)
             decision = permission.decision.value
             reason = permission.reason.value
+        if decision == "APPROVAL_REQUIRED":
+            settled = self._settle_approval_sync(request, str(reason))
+            if settled is not None:
+                decision, reason = settled
         obase = load("obase")
         return obase.ActionDecision(
             verdict=decision,
             reason=str(reason),
             request_id=request.request_id,
         )
+
+    def _settle_approval_sync(self, request: Any, reason: str) -> tuple[str, str] | None:
+        """Resolve an approval requirement here, because nothing downstream will.
+
+        The injected ActionGatewayEngine maps every non-ALLOW verdict to
+        `{"status": "failed"}` and never consults its own `approval_resolver`, so
+        an approval requirement surfaces as a failure even when the caller supplied
+        a resolver that would have granted it. Settling it here means the engine
+        only ever sees ALLOW or DENY, which is what its contract implies.
+
+        Returns None when there is nothing to settle — no resolver, so the verdict
+        is left alone and the caller's own approval flow applies.
+
+        An awaitable result cannot be resolved from this synchronous policy hook.
+        That is reported as an explicit denial rather than passed through as a
+        silent failure or, worse, allowed: a requirement nobody could evaluate must
+        not become permission.
+        """
+        resolver = self._approval_resolver
+        if resolver is None:
+            return None
+        try:
+            outcome = resolver(request)
+        except Exception as exc:
+            return (
+                "DENY",
+                f"{reason}; approval resolver failed: {type(exc).__name__}",
+            )
+        if inspect.isawaitable(outcome):
+            return (
+                "DENY",
+                f"{reason}; approval resolver is asynchronous and cannot be "
+                "evaluated from the synchronous policy hook",
+            )
+        if bool(outcome):
+            return "ALLOW", f"{reason}; approval granted"
+        return "DENY", f"{reason}; approval refused"
 
     async def _record_side_effect(self, **kwargs: Any) -> Any:
         if self.ledger is None:

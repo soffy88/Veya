@@ -1149,6 +1149,26 @@ class PermissionEngine:
                 effects,
                 operation,
             )
+        if context.remote_effect == "mutation":
+            # A declared remote mutation reaches the engine as
+            # remote_effect == "mutation" and nothing else. Every
+            # dangerous-command branch above keys off command_effect, which is
+            # NONE for an ordinary tool invocation, so before this branch a
+            # declared remote action fell straight through to ALLOW. This mirrors
+            # the filesystem rule above rather than inventing a new one, and sits
+            # below the destructive and irreversible branches so a worse verdict is
+            # never softened.
+            #
+            # Matched against "mutation" exactly rather than against "not none and
+            # not read": remote_effect carries a wider vocabulary, including force,
+            # delete, rewrite and destroy, which a later branch already consumes.
+            return PermissionDecision(
+                Decision.APPROVAL_REQUIRED,
+                ReasonCode.APPROVAL_IRREVERSIBLE_REMOTE,
+                scope,
+                effects,
+                operation,
+            )
         if context.filesystem_effect == "read" and any(
             _is_sensitive_read_target(_canonical(path)) for path in context.target_paths
         ):
