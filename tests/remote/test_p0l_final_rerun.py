@@ -571,76 +571,66 @@ async def test_the_final_chain_still_refuses_unverified_promotion(
         assert git(repo, "rev-parse", "HEAD") == run.canonical_head
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "P0-L-F1: git.promote silently substitutes the session worktree when "
-        "CANONICAL_WORKTREE is requested, instead of refusing as git.stage, "
-        "git.commit and git.verify all do. P0-Q's Q12 gate passed only because "
-        "it exercised WorktreeManager.promote directly and never through the "
-        "adapter's target resolution. Strict, so fixing the defect turns this "
-        "into a failure that must be updated deliberately."
-    ),
-)
-async def test_canonical_target_must_be_refused_as_a_promotion_source(repo: Path) -> None:
-    """Q12, measured through the gateway rather than at the manager.
+@pytest.mark.parametrize("preload_session_worktree", [False, True])
+async def test_canonical_target_is_refused_as_a_promotion_source(
+    repo: Path, preload_session_worktree: bool
+) -> None:
+    """Q12 / P0-L-F1, measured through the gateway, not at the manager.
 
-    Promotion must not honour a canonical source by quietly using a different
-    tree. Substituting the source while the caller believes canonical was used is
-    the same class of authority leak P0-Q closed for execution_id.
+    Promotion must never honour a canonical source by quietly using a different
+    tree. Both session states are covered because the defect only appeared once a
+    session worktree existed: with none, ``_direct_workdir`` returned the repo
+    root and the manager refused by accident rather than by policy.
     """
     target = {"workspace": str(repo), "execution_target": "NEW_ISOLATED_WORKTREE"}
     canonical = {"workspace": str(repo), "execution_target": "CANONICAL_WORKTREE"}
-    async with Run(repo) as run:
-        # Establish a session worktree, as any real chain does.
-        await run.call(
-            "file.write",
-            {**target, "path": "calc.py", "content": "def add(a, b):\n    return a + b\n"},
-        )
-        await run.call("git.stage", {**target, "paths": ["calc.py"]})
-        committed = await run.call(
-            "git.commit", {**target, "message": "fix add", "expect_paths": ["calc.py"]}
-        )
-        worktree = committed["result"]["path"]
-        verified = await run.call(
-            "git.verify",
-            {
-                **target,
-                "commit_sha": committed["result"]["commit_sha"],
-                "expect_paths": ["calc.py"],
-            },
-        )
 
-        # The sibling Git mutations all refuse a canonical target.
+    async with Run(repo) as run:
+        commit_sha = "0" * 40
+        verification: dict[str, Any] | None = None
+        worktree = ""
+
+        if preload_session_worktree:
+            await run.call("file.write", {
+                **target, "path": "calc.py", "content": "def add(a, b):\n    return a + b\n"})
+            await run.call("git.stage", {**target, "paths": ["calc.py"]})
+            committed = await run.call(
+                "git.commit",
+                {**target, "message": "fix add", "expect_paths": ["calc.py"]})
+            assert committed["ok"] is True, committed
+            commit_sha = committed["result"]["commit_sha"]
+            worktree = committed["result"]["path"]
+            verified = await run.call(
+                "git.verify",
+                {**target, "commit_sha": commit_sha, "expect_paths": ["calc.py"]})
+            assert verified["ok"] is True, verified
+            verification = verified["result"]
+
+        # Every sibling Git tool refuses a canonical target, so promotion must too.
         for tool, args in (
             ("git.stage", {**canonical, "paths": ["calc.py"]}),
             ("git.commit", {**canonical, "message": "m", "expect_paths": ["calc.py"]}),
-            (
-                "git.verify",
-                {
-                    "workspace": str(repo),
-                    "execution_target": "CANONICAL_WORKTREE",
-                    "commit_sha": committed["result"]["commit_sha"],
-                },
-            ),
+            ("git.verify", {**canonical, "commit_sha": commit_sha}),
         ):
             envelope = await run.call(tool, args)
             assert envelope["ok"] is False, (tool, envelope)
+            assert envelope["error_code"] == "POLICY_BLOCKED", (tool, envelope)
 
-        # git.promote must refuse it too.
-        envelope = await run.call(
-            "git.promote",
-            {
-                **canonical,
-                "commit_sha": committed["result"]["commit_sha"],
-                "verification": verified["result"],
-            },
-        )
+        envelope = await run.call("git.promote", {
+            **canonical, "commit_sha": commit_sha, "verification": verification})
         assert envelope["ok"] is False, (
             "git.promote accepted a canonical source and substituted "
-            f"{envelope.get('result', {}).get('worktree')} for it"
+            f"{(envelope.get('result') or {}).get('worktree')} for it"
         )
-        assert envelope.get("result", {}).get("worktree") != worktree
+        assert envelope["error_code"] == "POLICY_BLOCKED", envelope
+        if worktree:
+            assert (envelope.get("result") or {}).get("worktree") != worktree
+
+        # Nothing was promoted into canonical.
+        assert (repo / "calc.py").read_text(encoding="utf-8") == (
+            "def add(a, b):\n    return a - b\n"
+        )
+        assert git(repo, "rev-parse", "HEAD") == run.canonical_head
 
 
 if __name__ == "__main__":

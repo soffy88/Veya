@@ -4394,12 +4394,18 @@ class RemoteToolAdapter:
                 "" if name == "git.promote" else str(args.get("execution_id") or "")
             ),
         )
-        # P0-Q: git.promote resolves its target the same governed way the other
-        # Git mutations do. Without this it fell back to _direct_workdir, which
-        # resolves through execution_id — so a stale or fabricated execution_id
-        # would decide which tree got promoted, which is exactly the authority
-        # leak P0-Q removes.
-        if name in ("git.stage", "git.commit", "git.promote"):
+        # P0-Q follow-up. Every governed Git tool resolves its target through
+        # this block, and an explicitly canonical request is now honoured as the
+        # canonical root so the manager's ownership check refuses it.
+        #
+        # Previously the canonical case simply skipped re-resolution and kept
+        # whatever _direct_workdir had chosen, which is the session's isolated
+        # worktree whenever one exists. A caller naming CANONICAL_WORKTREE was
+        # therefore silently retargeted at a different tree and could not tell
+        # from the response. That affected git.stage, git.commit and git.verify
+        # as well as git.promote; the siblings only appeared correct because
+        # they were exercised in sessions that had no worktree yet.
+        if name in ("git.stage", "git.commit", "git.verify", "git.promote"):
             # A read-only git tool may take the session worktree or the repo
             # root. A *write* must not: it resolves the execution target the same
             # way the mutation path does, so an explicit isolated target really
@@ -4413,7 +4419,12 @@ class RemoteToolAdapter:
                     requested_execution_target=str(args.get("execution_target") or ""),
                     intent="mutation",
                 )
-                if resolved_target not in ("CANONICAL_WORKTREE", "HOST"):
+                if resolved_target in ("CANONICAL_WORKTREE", "HOST"):
+                    # Refuse by targeting what the caller actually asked for.
+                    # WorktreeManager._owned_target refuses the canonical tree,
+                    # which is the one rule all four Git tools must share.
+                    target = ws_binding.repo_root
+                else:
                     isolated, _repo_root = await self._ensure_isolated_worktree(
                         session,
                         ws_binding.repo_root,
@@ -4525,9 +4536,11 @@ class RemoteToolAdapter:
                     # ``_worktree_manager`` takes a worktree and derives the
                     # repository root from it, which is what the ownership base
                     # ``<repo>/.veya/worktrees`` needs. Handing it the canonical
-                    # root instead cannot be resolved.
-                    promote_manager = _worktree_manager(target)
+                    # root instead cannot be resolved, and that refusal is the
+                    # point — so it is constructed inside the try that maps it to
+                    # POLICY_BLOCKED, exactly like the sibling Git tools.
                     try:
+                        promote_manager = _worktree_manager(target)
                         payload = promote_manager.promote(
                             target,
                             str(args.get("commit_sha") or ""),
