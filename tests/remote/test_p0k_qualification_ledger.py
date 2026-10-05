@@ -148,7 +148,10 @@ def test_the_findings_are_carried_not_buried(ledger: dict[str, Any]) -> None:
         for blocker in phase.get("blockers", [])
     }
 
-    assert set(findings) == {"P0-H-F1", "P0-J-F1"}, sorted(findings)
+    # P0-P-F1 was added at P0-P: reconcile_task measured redundant on the
+    # direct path. Restated rather than relaxed, so a phase that opens a
+    # finding still has to carry it.
+    assert set(findings) == {"P0-H-F1", "P0-J-F1", "P0-P-F1"}, sorted(findings)
     assert findings["P0-H-F1"]["status"] == "OPEN"
     assert findings["P0-J-F1"]["status"] == "ESCALATED"
     assert findings["P0-J-F1"]["severity"] == "HIGH"

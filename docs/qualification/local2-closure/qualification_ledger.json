@@ -323,7 +323,8 @@
         "summary": "RemoteGoalRunAdapter sets verification_required=True but implements no finalize_candidate, so runner.py:666-677 marks the task passed=True with reason 'canonical_acceptance_deferred' and the deferral target is never invoked. Acceptance is assumed rather than verified on the direct development path.",
         "severity": "HIGH",
         "class": "fail-open acceptance",
-        "scope": "one method on one adapter; the VerificationEngine and the GoalRun terminal authority already exist"
+        "scope": "one method on one adapter; the VerificationEngine and the GoalRun terminal authority already exist",
+        "owner": "P0-P (closed)"
       },
       "next_phase": {
         "phase": "P0-P",
@@ -348,7 +349,8 @@
         "status": "OPEN",
         "not_a_p0p_blocker": true,
         "summary": "The git.* fast path has no ExecutionRecord, no GoalRun, no receipt and no verifier, so the git surface and the direct execution surface have inconsistent lifecycle models.",
-        "deferral": "Decide in a future dedicated Git lifecycle phase whether git operations require ExecutionRecord / GoalRun / receipt participation. Explicitly NOT in P0-P scope; the git surface keeps its current responsibility (git.stage, git.commit, git.verify, git.promote)."
+        "deferral": "Decide in a future dedicated Git lifecycle phase whether git operations require ExecutionRecord / GoalRun / receipt participation. Explicitly NOT in P0-P scope; the git surface keeps its current responsibility (git.stage, git.commit, git.verify, git.promote).",
+        "owner": "future Git lifecycle phase"
       },
       "evidence": [
         "Runtime observation through the governed gateway: a real test.run on an explicit workspace produced execution_type='direct', goal_run_id='goal_20261005_144316_15128cb02366' and goal_task_id='remote:direct_4dae1f6408b64ddb96099035dfdb4aec', with dispatch_id=None. Direct execution therefore already carries GoalRun lineage, which corrects the P0-L attempt 2 rationale that inferred its absence from construction-time record state.",
@@ -358,6 +360,119 @@
         "The resulting gap is bounded and fail-open: runner.py:666-677 assigns passed=True with reason 'canonical_acceptance_deferred' whenever an adapter declares verification_required without implementing finalize_candidate, and RemoteGoalRunAdapter sets verification_required=True at veya/remote/execution.py:2767 while implementing no verifier, so acceptance is assumed rather than earned.",
         "The audit was read-only: no source file, no TargetContract, no default execution target, no WorktreeManager, no git.promote and no P0-L entry was modified. P0-L attempt 1 (f5af9744) and attempt 2 (b424e00a) both remain recorded as BLOCKED and were neither rewritten nor removed."
       ]
+    },
+    {
+      "phase": "P0-P",
+      "title": "Direct-path verifier integration",
+      "status": "PASS",
+      "commit": null,
+      "parent": "2a436807",
+      "target_contract": "DEFERRED",
+      "changed_paths": [
+        "veya/remote/execution.py",
+        "tests/remote/test_p0p_direct_path_verification.py"
+      ],
+      "tests_added": 8,
+      "mutations_red": 4,
+      "production_changed": true,
+      "closes": "P0-O-G1",
+      "seam": "RemoteGoalRunAdapter.finalize_candidate -> VerificationEngine.run_independent_verifier -> VerifyResult -> reconcile_task -> _decide_goal_completion",
+      "authority_unchanged": "The verifier authority is the existing VerificationEngine, the same one CanonicalWorkerAdapter uses. No second verifier and no second completion authority was introduced. _decide_goal_completion and ExecutionRecord._finish were not modified.",
+      "fail_open_eliminated": "RemoteGoalRunAdapter previously declared verification_required=True with no finalize_candidate, so runner.py marked the task passed=True with reason 'canonical_acceptance_deferred' and never invoked the deferral target. Acceptance is now produced by the engine and cannot be assumed.",
+      "negative_proof": {
+        "command": "test.run exiting 1",
+        "execution_record_status": "FAILED",
+        "verifier_result": "FAIL",
+        "goal_run_status": "recovering",
+        "reconcile_task_status": "blocked",
+        "reconcile_execute_result": "direct command failed (exit_code=1)",
+        "decide_goal_completion_verdict": null,
+        "conclusion": "GoalRun reached recovering, explicitly NOT completed, and the acceptance verdict was never set to ACCEPT."
+      },
+      "positive_proof": {
+        "command": "test.run exiting 0",
+        "execution_record_status": "COMPLETED",
+        "verifier_result": "PASS",
+        "goal_run_status": "completed",
+        "reconcile_task_status": "completed",
+        "reconcile_execute_result": "direct command passed (exit_code=0)",
+        "decide_goal_completion_verdict": "ACCEPT"
+      },
+      "evidence": [
+        "Measured at runtime through the governed gateway, not by calling the seam directly. All five statuses are read separately and asserted separately: ExecutionRecord status, GoalRun status, verifier result, reconcile_task status and execute_result, and the acceptance verdict written by _decide_goal_completion.",
+        "A command that prints 'PASS all tests' and then exits 1 is rejected with verdict FAIL, because run_independent_verifier keys a non-zero exit_code in evidence metadata to explicit failure. Acceptance follows the observed exit code, never the output text.",
+        "The seam runs inside project_run_goal, which is awaited before _finish, so record.status is still RUNNING at verification time and correctly says nothing about the verdict. The observation is built from the runner's exit_code and direct_status, which are set before the leaf returns. This ordering was found by a failing test, not by assumption.",
+        "An AST scan asserts finalize_candidate and execute_semantic_task both exist on RemoteGoalRunAdapter, so the hasattr gate in runner.py:2097 is now satisfied on the direct path rather than skipped.",
+        "Regression matches the recorded baseline: P0-F..N plus security 184 passed, unit-fast 406 passed, goalrun 1 failed / 200 passed, runtime 23 failed / 506 passed, supervision sentinel 7 passed, mypy clean on the required targets.",
+        "tests/remote/test_p0g_test_build_execution.py went from 1 failed / 17 passed at 2a436807 to 18 passed. The pre-existing failure, test_baseline_failure_then_patch_then_rerun_passes, was a direct symptom of the fail-open acceptance gap this phase closes, so the fix repaired it rather than masking it.",
+        "P0-O-G3 was made explicit rather than fixed. ExecutionRecord.status and GoalRun.status are recorded and asserted independently, and the two new record fields verification_result and verification_summary are documented as observation only, so this phase cannot quietly merge the two terminal authorities."
+      ],
+      "mutations": [
+        {
+          "id": "M1",
+          "mutation": "rename finalize_candidate so the hasattr gate is False",
+          "result": "RED, 7 failed"
+        },
+        {
+          "id": "M2",
+          "mutation": "bypass run_independent_verifier and fabricate a PASS verdict",
+          "result": "RED, 6 failed"
+        },
+        {
+          "id": "M3",
+          "mutation": "force record_failed = False",
+          "result": "SURVIVED, see notes"
+        },
+        {
+          "id": "M4",
+          "mutation": "skip the reconcile_task projection",
+          "result": "SURVIVED, see notes"
+        },
+        {
+          "id": "M5",
+          "mutation": "return None instead of the verdict",
+          "result": "RED, 1 failed"
+        }
+      ],
+      "mutation_notes": [
+        "M3 survived on the first attempt and was not repaired by changing the implementation. The test reached the real seam: stripping both failure signals together (record_failed and the exit_code metadata) turns 4 tests RED. M3 survives because the evidence carries two independent failure signals and run_independent_verifier checks both, so the redundancy is defence in depth rather than a weak assertion.",
+        "M4 survived and this is reported as a finding, not papered over. A direct measurement with and without reconcile_task produced byte-identical state on both the pass and fail paths: the runner's own task state machine already yields task=completed/acceptance_verdict=ACCEPT and task=blocked/verdict=None. reconcile_task is therefore a redundant projection on the direct path rather than a load-bearing acceptance gate. No assertion was contrived to make M4 go RED."
+      ],
+      "findings": [
+        {
+          "id": "P0-P-F1",
+          "status": "OPEN",
+          "summary": "reconcile_task is a redundant projection on the direct path. Disabling it leaves ExecutionRecord status, verifier result, GoalRun status, task status and acceptance verdict unchanged on both the pass and fail paths, measured directly.",
+          "severity": "LOW",
+          "class": "redundant projection, not a defect",
+          "note": "Not fixed here. It is a candidate input to the future GoalRun/ExecutionRecord terminal semantics phase that P0-O-G3 already calls for.",
+          "owner": "future GoalRun/ExecutionRecord terminal semantics phase (tracked by P0-O-G3)",
+          "evidence": [
+            "Measured directly, not inferred. Running a passing and a failing direct test.run with reconcile_task enabled and then disabled produced byte-identical state on both paths.",
+            "With reconcile_task: PASS gives task=completed and acceptance_verdict=ACCEPT; FAIL gives task=blocked and acceptance_verdict=None.",
+            "Without reconcile_task: PASS gives task=completed and acceptance_verdict=ACCEPT; FAIL gives task=blocked and acceptance_verdict=None.",
+            "Consequently mutation M4, which disables the reconcile_task projection, leaves the whole P0-P suite green. That survival is the evidence for this finding, and no assertion was added to conceal it."
+          ],
+          "why_open": "reconcile_task projects the ExecutionRecord outcome into the GoalRun task, but on the direct path the runner's own task state machine already reaches the same task status and acceptance verdict, so the projection adds no acceptance gating. Whether that projection should remain, and how it relates to _decide_goal_completion, is a question about the relationship between the two existing terminal authorities, which is P0-O-G3 and is explicitly out of P0-P scope."
+        }
+      ],
+      "not_touched": [
+        "WorktreeManager",
+        "git.stage",
+        "git.commit",
+        "git.verify",
+        "git.promote",
+        "TargetContract",
+        "default execution_target",
+        "_call_fast_git",
+        "TOOL-BUG-1",
+        "P0-H-F1",
+        "P0-J-F1",
+        "P0-J-B1",
+        "_decide_goal_completion",
+        "ExecutionRecord._finish"
+      ],
+      "blockers": []
     }
   ],
   "cross_cutting": {
@@ -414,7 +529,7 @@
     ],
     "closure_gate": {
       "status": "NOT_REACHED",
-      "reason": "P0-O decided the architecture (B) and showed the direct path is already GoalRun-backed, reducing the remaining work to one verification seam (P0-P). P0-L still cannot PASS while P0-O-G1 leaves acceptance fail-open and while TOOL-BUG-1 (SF-RECEIPT) leaves receipt serialization able to drop a non-dict receipt silently. Local2 local development closure cannot be declared COMPLETE. Integration remains deferred."
+      "reason": "P0-P closed P0-O-G1: the direct development path is now verified by the existing VerificationEngine instead of having acceptance assumed via canonical_acceptance_deferred, and a failing direct command provably reaches GoalRun recovering rather than completed. P0-L still cannot PASS while TOOL-BUG-1 (SF-RECEIPT) leaves receipt serialization able to drop a non-dict receipt silently, which closure spec section 23 makes a BLOCKED condition on its own. Local2 local development closure cannot be declared COMPLETE. Integration remains deferred."
     }
   },
   "wip_preservation": {

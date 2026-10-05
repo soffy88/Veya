@@ -592,6 +592,14 @@ class ExecutionRecord:
     goal_run_id: str | None = None
     goal_task_id: str | None = None
     goal_project_root: str | None = None
+    # P0-P: the direct path's Verifier outcome, projected for audit. These are
+    # OBSERVATION only. They do not decide ExecutionRecord status (that is
+    # _finish) and they do not decide GoalRun status (that is
+    # _decide_goal_completion). P0-O-G3 records that those are still two
+    # separate terminal authorities; keeping them apart here is deliberate so
+    # this phase does not quietly merge them.
+    verification_result: str | None = None
+    verification_summary: str | None = None
     last_event_cursor: int = 0
     idempotency_key: str | None = None
     task_contract: dict[str, Any] | None = None
@@ -2942,6 +2950,133 @@ class DurableJobManager:
                     summary=record.result_summary,
                     stop_reason="completed",
                 )
+
+            async def finalize_candidate(self, state: Any, project_root: str) -> Any | None:
+                """Gate direct completion through the existing Verification OS.
+
+                P0-P.  This adapter has always declared
+                ``verification_required = True``, but before this method existed
+                the runner's accept gate at ``runner.py`` is guarded by
+                ``hasattr(integration_adapter, "finalize_candidate")``.  That
+                guard is False here, so the runner marked the task
+                ``passed=True`` with reason ``canonical_acceptance_deferred`` and
+                never invoked the deferral target: acceptance was *assumed*.
+
+                The authority is unchanged.  This routes into the same
+                ``VerificationEngine`` that ``CanonicalWorkerAdapter`` uses; it
+                does not introduce a second verifier, and it does not touch
+                ``_decide_goal_completion`` or ``ExecutionRecord._finish``.
+
+                The verdict is produced from the record's own observed outcome,
+                so a failing direct command cannot be accepted.  The five
+                statuses are recorded separately rather than merged, because
+                ``ExecutionRecord`` and ``GoalRun`` are still two terminal
+                authorities and collapsing them here would hide P0-O-G3.
+                """
+                # Mirrors CanonicalWorkerAdapter's own guard. The flag is a
+                # property of this adapter, not of the record.
+                if not type(self).verification_required:
+                    return None
+
+                from runtime.verification.engine import VerificationEngine
+                from runtime.verification.models import (
+                    AcceptanceCriterion,
+                    EvidenceItem,
+                    VerificationSpec,
+                )
+                from server.goal_run.git_diff import current_head
+
+                task_id = record.goal_task_id or record.task_id
+                head_sha = current_head(project_root)
+                criterion = AcceptanceCriterion(
+                    id="ac-direct-command-observed",
+                    description=(
+                        "the direct command reached the verdict it claims: exit code "
+                        "and outcome recorded by the governed runner"
+                    ),
+                    required=True,
+                )
+                spec = VerificationSpec.create_for_task(
+                    task_id=task_id,
+                    goal_run_id=state.goal_id,
+                    head_sha=head_sha,
+                    acceptance_criteria=[criterion],
+                )
+                engine = VerificationEngine(project_root)
+                bundle = await engine.collect_evidence_bundle(
+                    task_id, state.goal_id, head_sha, spec
+                )
+
+                # The observation is the command's own outcome, not a
+                # restatement of the task text.
+                #
+                # Ordering matters: finalize_candidate runs INSIDE
+                # project_run_goal, which is awaited at :3076, while _finish
+                # only runs afterwards at :3113. So record.status is still
+                # RUNNING here and says nothing about the verdict. The record's
+                # exit_code and direct_status are set by the direct runner before
+                # the leaf returns, so those are the observed outcome.
+                #
+                # exit_code is carried explicitly because
+                # run_independent_verifier treats a non-zero exit_code as
+                # explicit failure evidence.
+                exit_code = record.exit_code
+                record_failed = exit_code is not None and exit_code != 0
+                bundle = bundle.add_evidence(
+                    EvidenceItem(
+                        id="direct-command-observed",
+                        kind="failure" if record_failed else "test_result",
+                        source="remote.direct_command",
+                        content=json.dumps(
+                            {
+                                "tool": record.tool,
+                                "command": record.command,
+                                "exit_code": exit_code,
+                                "status": str(record.status),
+                                "failure_class": record.failure_class,
+                                "result_summary": record.result_summary,
+                            },
+                            ensure_ascii=False,
+                            default=str,
+                        ),
+                        producer="remote",
+                        metadata={
+                            "criterion_id": criterion.id,
+                            "goal_run_id": state.goal_id,
+                            "bot_id": state.bot_id,
+                            "exit_code": exit_code,
+                            "failed": record_failed,
+                            "execution_id": record.execution_id,
+                        },
+                    )
+                )
+                bundle = bundle.scoped_to(state.bot_id)
+                verdict = await engine.run_independent_verifier(spec, bundle, head_sha)
+
+                # P0-O-G3: record each authority's outcome separately. The
+                # ExecutionRecord status is NOT overwritten here — this adapter
+                # observes it; only GoalRun reacts to the verdict.
+                record.verification_result = verdict.outcome
+                record.verification_summary = verdict.summary
+                record.events.append(
+                    {
+                        "ts": time.time(),
+                        "kind": "direct_verification",
+                        "phase": record.phase,
+                        "verdict": verdict.outcome,
+                        "summary": verdict.summary,
+                        # The record is not terminal yet at this point (see the
+                        # ordering note above), so this is the status the
+                        # ExecutionRecord authority WILL settle on, recorded
+                        # separately from the verdict. P0-O-G3 keeps the two
+                        # authorities visible rather than merged.
+                        "execution_record_status": str(record.status),
+                        "observed_exit_code": exit_code,
+                        "direct_status": record.direct_status,
+                    }
+                )
+                manager._persist(record)
+                return verdict
 
         root = Path(record.resolved_repo_root or record.requested_realpath or ".")
         project_root = str(root if root.is_dir() else Path.cwd())
