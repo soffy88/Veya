@@ -60,6 +60,7 @@ SUITE_ENTRIES: dict[str, tuple[str, ...]] = {
         "tests/remote/test_credential_truthfulness_fields.py",
         "tests/remote/test_credential_structure.py",
         "tests/remote/test_credential_probe.py",
+        "tests/security/test_sf002_sandbox_boundary.py",
         "tests/supervision/test_executor_failover_reselection.py",
         "tests/architecture/test_single_execution_authority.py",
         "tests/remote/test_autonomous_read_semantics.py",
