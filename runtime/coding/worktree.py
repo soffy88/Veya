@@ -526,6 +526,132 @@ class WorktreeManager:
             "verified": True,
         }
 
+    def promote(
+        self,
+        worktree_path: str | Path,
+        commit_sha: str,
+        verification: Any,
+        *,
+        expected_paths: Any = None,
+    ) -> dict[str, Any]:
+        """Deliver an already-verified commit to canonical, and say what happened.
+
+        P0-Q.  Promotion is not commit: this creates nothing. It consumes a
+        commit that already exists and that has already passed ``verify()``, and
+        delivers that exact commit's content to the canonical working tree using
+        the existing ``git_promotion`` substrate. The Git authority stays here:
+        the substrate performs the merge and the rollback, and this method owns
+        admission, verification gating and the resulting evidence.
+
+        Verification is a prerequisite, not a formality. The evidence must name
+        this commit, this repository and this path set, so a caller cannot promote
+        one commit with another commit's receipt, and cannot promote an unverified
+        commit at all.
+
+        The candidate is resolved from the commit, never from the caller's word:
+        the changed paths come from git, so a clean worktree still promotes
+        correctly instead of silently reporting nothing to do.
+        """
+        target = self._owned_target(worktree_path)
+
+        # 1. The candidate must be a commit in this repository. A SHA that only
+        #    exists elsewhere is not promotable here.
+        probe = subprocess.run(
+            ["git", "-C", str(target), "cat-file", "-e", f"{commit_sha}^{{commit}}"],
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+        if probe.returncode != 0:
+            raise WorktreeError(f"candidate commit not found in this repository: {commit_sha}")
+        resolved = _git_command(target, ["rev-parse", f"{commit_sha}^{{commit}}"]).strip()
+
+        # 2. Verification must exist, must have passed, and must describe *this*
+        #    candidate. No receipt means no promotion.
+        if not isinstance(verification, dict):
+            raise WorktreeError(
+                "promotion requires verification evidence produced by verify()"
+            )
+        if verification.get("verified") is not True:
+            raise WorktreeError("promotion requires a verified candidate")
+        verified_sha = str(verification.get("commit_sha") or "")
+        if verified_sha != resolved:
+            raise WorktreeError(
+                f"verification names a different commit: verified={verified_sha} "
+                f"candidate={resolved}"
+            )
+        verified_repo = str(Path(str(verification.get("repo_root") or "")).resolve() or "")
+        if verified_repo != str(self.repo_root.resolve()):
+            raise WorktreeError(
+                "verification was produced for a different repository"
+            )
+        verified_worktree = str(Path(str(verification.get("path") or "")).resolve() or "")
+        if verified_worktree != str(target.resolve()):
+            raise WorktreeError(
+                "verification was produced for a different worktree"
+            )
+
+        # 3. The candidate's own changed paths, from git. Trusting the worktree's
+        #    dirty state here would find nothing after a commit and report a
+        #    successful promotion that moved no files.
+        candidate_paths = sorted(
+            line
+            for line in _git_command(
+                target,
+                ["diff-tree", "--no-commit-id", "--name-only", "-r", resolved],
+            ).splitlines()
+            if line.strip()
+        )
+        declared = self._relative_paths(expected_paths)
+        if declared and sorted(declared) != candidate_paths:
+            raise WorktreeError(
+                f"candidate paths do not match the declared set: "
+                f"candidate={candidate_paths} declared={sorted(declared)}"
+            )
+        if sorted(verification.get("changed_paths") or []) != candidate_paths:
+            raise WorktreeError(
+                "verification path set does not match the candidate commit"
+            )
+
+        # 4. Deliver through the existing substrate, which owns the merge,
+        #    conflict classification and scoped rollback.
+        from veya.remote.git_promotion import apply_promotion, preflight_promotion
+
+        preflight = preflight_promotion(
+            target, self.repo_root, files=candidate_paths
+        )
+        result = apply_promotion(preflight)
+
+        # 5. Observe the resulting Git state rather than reporting the method's
+        #    own return value as success.
+        canonical_before = _git_command(
+            self.repo_root, ["rev-parse", "HEAD"]
+        ).strip()
+        promoted_content = {
+            path: _git_command(self.repo_root, ["diff", "--", path])
+            for path in result.promoted_files
+        }
+        landed = sorted(
+            path
+            for path, diff in promoted_content.items()
+            if diff.strip()
+        )
+        return {
+            "status": result.status,
+            "promoted_files": sorted(result.promoted_files),
+            "landed_files": landed,
+            "verified": bool(result.verified and landed),
+            "candidate_sha": resolved,
+            "verified_sha": verified_sha,
+            "parent_sha": _git_command(target, ["rev-parse", f"{resolved}^"]).strip(),
+            "tree": _git_command(target, ["rev-parse", f"{resolved}^{{tree}}"]).strip(),
+            "changed_paths": candidate_paths,
+            "repo_root": str(self.repo_root.resolve()),
+            "worktree": str(target.resolve()),
+            "canonical_root": preflight.canonical_root,
+            "canonical_head": canonical_before,
+            "classification": preflight.classification,
+            "unrelated_dirty_preserved": result.unrelated_dirty_preserved,
+        }
+
     def discard(
         self,
         task_id: str | None = None,

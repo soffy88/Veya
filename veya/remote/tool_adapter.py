@@ -1115,14 +1115,19 @@ BINDINGS: tuple[ToolBinding, ...] = (
         "git.promote",
         "git_promote",
         EffectClass.WRITE,
-        "Promote a finalized execution commit to its canonical branch through the canonical promotion service.",
+        "Promote an already-verified commit from a governed worktree into canonical. "
+        "commit_sha identifies the candidate; execution_id is optional correlation "
+        "metadata for the worker path and is not required.",
         _obj(
             {
+                "commit_sha": _STR,
+                "verification": {"type": "object"},
+                "expect_paths": {"type": "array", "items": {"type": "string"}},
                 "execution_id": _STR,
                 "repo_identity": _STR,
                 "expected_base_sha": _STR,
             },
-            ["execution_id"],
+            ["commit_sha"],
         ),
         needs_git=True,
     ),
@@ -2398,6 +2403,13 @@ class RemoteToolAdapter:
                 "worktree_path": worktree,
                 "commit_sha": str(args.get("commit_sha") or ""),
                 "expect_paths": _git_stage_paths(args, key="expect_paths"),
+            }
+        if name == "git.promote":
+            return {
+                "worktree_path": worktree,
+                "commit_sha": str(args.get("commit_sha") or ""),
+                "verification": args.get("verification"),
+                "expected_paths": _git_stage_paths(args, key="expect_paths"),
             }
         if name == "git.log":
             limit = max(1, min(int(args.get("limit", 20)), 200))
@@ -4371,10 +4383,23 @@ class RemoteToolAdapter:
         *,
         resolution: RepoResolution,
     ) -> RemoteCallResult:
+        # P0-Q: git.promote is a governed Git mutation, so its target comes from
+        # the resolution block below, not from execution_id. Resolving it through
+        # _direct_workdir first meant a stale or fabricated execution_id raised
+        # (or, worse, silently chose the tree) before governance ever ran.
         target = self._direct_workdir(
-            session, ws_binding, execution_id=str(args.get("execution_id") or "")
+            session,
+            ws_binding,
+            execution_id=(
+                "" if name == "git.promote" else str(args.get("execution_id") or "")
+            ),
         )
-        if name in ("git.stage", "git.commit"):
+        # P0-Q: git.promote resolves its target the same governed way the other
+        # Git mutations do. Without this it fell back to _direct_workdir, which
+        # resolves through execution_id — so a stale or fabricated execution_id
+        # would decide which tree got promoted, which is exactly the authority
+        # leak P0-Q removes.
+        if name in ("git.stage", "git.commit", "git.promote"):
             # A read-only git tool may take the session worktree or the repo
             # root. A *write* must not: it resolves the execution target the same
             # way the mutation path does, so an explicit isolated target really
@@ -4488,6 +4513,47 @@ class RemoteToolAdapter:
                 code = 0
                 payload["exit_code"] = 0
             elif name == "git.promote":
+                # P0-Q: the governed direct route. commit_sha is the promotion
+                # identity, so the direct lifecycle needs no execution_id, no
+                # worker, no LLM and no execution_worktrees registry. The worker
+                # and source_worktree routes below are preserved unchanged; both
+                # converge on WorktreeManager.promote.
+                if str(args.get("commit_sha") or ""):
+                    from runtime.coding.tools import _worktree_manager
+                    from runtime.coding.worktree import WorktreeError as _PromoteRefused
+
+                    # ``_worktree_manager`` takes a worktree and derives the
+                    # repository root from it, which is what the ownership base
+                    # ``<repo>/.veya/worktrees`` needs. Handing it the canonical
+                    # root instead cannot be resolved.
+                    promote_manager = _worktree_manager(target)
+                    try:
+                        payload = promote_manager.promote(
+                            target,
+                            str(args.get("commit_sha") or ""),
+                            args.get("verification"),
+                            expected_paths=_git_stage_paths(args, key="expect_paths"),
+                        )
+                    except _PromoteRefused as exc:
+                        return self._fail(
+                            name,
+                            session,
+                            RemoteErrorCode.POLICY_BLOCKED,
+                            f"promotion blocked: {exc}",
+                        )
+                    code = 0
+                    payload["exit_code"] = 0
+                    payload["workspace"] = ws_binding.requested_realpath
+                    payload["repo_root"] = ws_binding.repo_root
+                    payload["resolution"] = resolution.to_public()
+                    return RemoteCallResult(
+                        ok=True,
+                        tool=name,
+                        session_id=session.session_id,
+                        workspace=ws_binding.requested_realpath,
+                        result=self._redact(payload),
+                        duration_ms=(time.time() - started) * 1000,
+                    )
                 execution_id = str(args.get("execution_id") or "")
                 if execution_id:
                     from veya.remote.execution_worktree import (

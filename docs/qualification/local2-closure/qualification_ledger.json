@@ -644,6 +644,137 @@
         "Recorded as BLOCKED with the specific step that could not be completed and why, so the verdict is falsifiable against a rerun rather than being an assertion.",
         "The failing step is named explicitly in the phase entry's lifecycle_evidence, and the reason it failed is recorded with the file and line that establish it, so a later rerun can confirm the blocker is still present or show precisely what changed."
       ]
+    },
+    {
+      "phase": "P0-Q",
+      "title": "Governed Git Promotion Lifecycle",
+      "type": "IMPLEMENTATION + QUALIFICATION",
+      "status": "PASS",
+      "commit": null,
+      "parent": "ba6ff324",
+      "target_contract": "DEFERRED",
+      "purpose": "close P0-O-G2",
+      "authority": "WorktreeManager",
+      "changed_paths": [
+        "runtime/coding/worktree.py",
+        "veya/remote/tool_adapter.py",
+        "tests/remote/test_p0q_governed_promotion.py",
+        "docs/qualification/local2-closure/qualification_ledger.json"
+      ],
+      "tests_added": 19,
+      "mutations_red": 8,
+      "production_changed": true,
+      "promotion_identity": "commit_sha. The verification evidence must name the same commit, the same repository and the same path set; execution_id is optional correlation metadata and is not consulted for target resolution on the direct path.",
+      "direct_promotion_path": "git.promote -> git.commit_sha branch in the fast git path -> WorktreeManager.promote -> preflight_promotion/apply_promotion. No execution_id, no ExecutionRecord, no worker, no LLM executor, no execution_worktrees registry, no shell git.",
+      "worker_promotion_path": "Preserved unchanged. The execution_id and source_worktree routes remain in the same branch and still reach the existing substrate. CanonicalPromotionService is still referenced; the compatibility adapter was not deleted.",
+      "shared_authority": "Both routes converge on WorktreeManager for admission, verification gating and evidence, and on git_promotion for the merge, conflict classification and scoped rollback. No second promotion authority class was created; the forbidden names are asserted absent by a test.",
+      "verification_prerequisite": "Promotion refuses unless the evidence is a mapping with verified=true naming this commit, this repository, this worktree and this path set. There is no UNVERIFIED -> PROMOTED path, and verified is derived from an observed git diff rather than asserted.",
+      "acceptance_matrix": {
+        "Q1": "PASS existing git.promote semantics inspected and preserved: Promotion != Commit, no auto-commit, no auto-push, no reset --hard/clean/stash",
+        "Q2": "PASS direct path reaches governed promotion end to end through the gateway",
+        "Q3": "PASS no execution_id required; a fabricated one is ignored, and execution_id alone promotes nothing",
+        "Q4": "PASS WorktreeManager.promote is the sole promotion entry for the direct path",
+        "Q5": "PASS worker routes preserved; test_local2_full_capability shows the same 3 pre-existing failures as the baseline",
+        "Q6": "PASS candidate_sha == verified_sha, both cross-checked against git rev-parse",
+        "Q7": "PASS missing and false verification both refused",
+        "Q8": "PASS promoting B while holding A's evidence is refused",
+        "Q9": "PASS a SHA that exists only in another repository is refused",
+        "Q10": "PASS a declared or verified path set differing from the commit is refused",
+        "Q11": "PASS an unregistered worktree is refused, and the ownership gate is pinned independently by Q-N6b using a path outside the repository",
+        "Q12": "PASS canonical is refused as a promotion source",
+        "Q13": "PASS a promotion that lands nothing reports verified=false, pinned by committing the same content to canonical first",
+        "Q14": "PASS landed_files is derived from an observed git diff on canonical and matches the CLI oracle",
+        "Q15": "PASS every promotion claim is checkable against git; canonical HEAD is unchanged while the content lands",
+        "Q16": "PASS stage, commit and verify alone leave canonical byte-identical; only promotion changes it, as its explicit effect",
+        "Q17": "PASS WIP byte-identical; 5 tracked files, 16 untracked, stash@{0}, branches and worktrees unchanged",
+        "Q18": "PASS with one attributed environment delta, see regression_delta",
+        "Q19": "PASS 8 mutation gates RED",
+        "Q20": "PASS no second git authority introduced"
+      },
+      "mutations": [
+        {
+          "id": "M1",
+          "mutation": "remove the verification requirement",
+          "result": "RED, 1 failed"
+        },
+        {
+          "id": "M2",
+          "mutation": "accept the caller's SHA instead of the verified SHA",
+          "result": "RED, 1 failed"
+        },
+        {
+          "id": "M3",
+          "mutation": "replace WorktreeManager.promote with a shell cp-based implementation",
+          "result": "RED, 2 failed. This is the Q-N10 proof: substituting shell execution for governed promotion fails the acceptance suite."
+        },
+        {
+          "id": "M4",
+          "mutation": "gate the direct route on execution_id instead of commit_sha",
+          "result": "RED, 2 failed"
+        },
+        {
+          "id": "M5",
+          "mutation": "permit an unregistered worktree",
+          "result": "RED after strengthening, see notes"
+        },
+        {
+          "id": "M6",
+          "mutation": "permit the canonical target",
+          "result": "RED, 1 failed"
+        },
+        {
+          "id": "M7",
+          "mutation": "hard-code verified=true",
+          "result": "RED after strengthening, see notes"
+        },
+        {
+          "id": "M8",
+          "mutation": "omit the promotion receipt evidence",
+          "result": "RED, 2 failed"
+        }
+      ],
+      "mutation_notes": [
+        "M5 and M7 survived their first attempt because other gates caught the mutation, not because the tests were weak. M5 bypassed ownership, but an unregistered directory inside the repository is refused by the verification-identity check behind it, so a new test Q-N6b uses a path outside the repository, where ownership is the only thing that can refuse it. M7 hard-coded verified=true and no test exercised a promotion that lands nothing, so a new test commits the same content to canonical first and then requires verified=false.",
+        "The first M3 attempt was ineffective: it computed a fabricated payload and then still called the manager, so it changed nothing observable. It was rewritten to actually substitute a shell cp implementation, and that version is RED.",
+        "A tenth mutation was attempted for Q-N10 that merely added a stray shell git call alongside the governed path. That is not a substitution and therefore not a meaningful mutation; Q-N10 is proven by M3 and no claim is made for it."
+      ],
+      "findings": [],
+      "blockers": [],
+      "regression": {
+        "unit_fast": "406 passed, equal to baseline",
+        "goalrun": "1 failed / 200 passed, equal to baseline",
+        "supervision_sentinel": "7 passed, equal to baseline",
+        "mypy_required": "clean on server/coordinator_master.py and server/tool_registry.py",
+        "ruff": "clean on all changed files",
+        "remote_suites": "162 passed across P0-I, P0-K, P0-M, P0-N, P0-P, SF-RECEIPT, P0-L, P0-Q and remote security",
+        "runtime": "24 failed / 505 passed, against a baseline of 23 failed / 506 passed",
+        "worker_promotion_suites": "test_local2_full_capability shows the same 3 failures as ba6ff324 and test_execution_scoped_worktree_runtime is unchanged"
+      },
+      "regression_delta": {
+        "new_failure": "tests/runtime/test_p9c_automated.py::test_full_supervision_regression",
+        "root_cause": "It shells out to the supervision suite, which now fails on tests/supervision/test_p4_real_failover_qualification.py::test_p4_real_failover_to_real_worker_to_verifier_to_goalrun_complete with ('FAILED', 'PROVIDER_RATE_LIMIT').",
+        "attribution": "External, not caused by P0-Q. That test is documented as a real failover chain with no mock executor and dispatches a live LLM provider; the executor health authority classifies the response as PROVIDER_RATE_LIMIT. It was reproduced twice by running it alone, and its only worktree references are assertions about the worktree path, not promotion. Nothing in the P0-Q diff is on its path.",
+        "not_repaired_here": "Repairing it would mean either mocking the executor, which the test explicitly forbids, or waiting out a provider limit. Both are outside P0-Q and neither is P0-Q's to decide.",
+        "note": "This is the same dependency P0-O warned about: a supervision test that reaches a live provider makes the local qualification non-deterministic. The Local2 direct lifecycle deliberately has no such dependency, which is why this failure cannot reach the git surface."
+      },
+      "wip_preservation": {
+        "tracked": "5 files unchanged: .qualification-provider-real, evals results latest.json/latest.md, runtime/harness/contract.py, runtime/harness/models.py, with identical line counts to the pre-phase reading",
+        "untracked": "16 before and after",
+        "stash": "stash@{0} present and untouched",
+        "branches": "2333, unchanged",
+        "worktrees": "526 before; one temporary detached worktree was created at /tmp for the baseline comparison and removed with git worktree remove --force, which touched no repository worktree",
+        "destructive_commands": "no reset, clean, stash, checkout or destructive worktree removal was introduced by the phase"
+      },
+      "evidence": [
+        "The direct lifecycle was driven end to end through the governed gateway on an explicit NEW_ISOLATED_WORKTREE: file.write, git.stage, git.commit, git.verify, then git.promote with commit_sha and the verification evidence and no execution_id. Promotion returned PROMOTED with landed_files=['calc.py'], and the CLI oracle confirmed candidate_sha == git rev-parse HEAD in the worktree, that canonical HEAD was unchanged, that canonical HEAD's content was now the repaired file, and that git diff --name-only on canonical reported exactly calc.py.",
+        "Promotion identity is proven rather than asserted: candidate_sha, verified_sha and the verification evidence's commit_sha are all equal, and the path set in the evidence is required to equal the commit's own diff-tree output, so a caller cannot promote one commit with another commit's receipt.",
+        "Every negative gate was refused with a named reason rather than a bare False: no verification evidence, verified=false, a candidate that differs from the verified SHA, a SHA that exists only in another repository, a declared or verified path set that differs from the commit, an unregistered worktree, a path outside the repository, the canonical tree, and a SHA that does not resolve.",
+        "A promotion that has nothing to land reports verified=false. This was set up by committing the same content to canonical first, so the situation is real rather than mocked, and it is what makes the hard-coded verified=true mutation fail.",
+        "git.promote resolves its target through the same governed resolution the other Git mutations use. Before this phase it fell back to _direct_workdir, which resolves through execution_id, so a fabricated execution_id decided which tree would be promoted; that was an authority leak and is now closed. The worker and source_worktree routes are preserved in the same branch.",
+        "Replacing WorktreeManager.promote with a shell cp implementation fails the acceptance suite, which is the Q-N10 proof that shell execution cannot substitute for governed promotion.",
+        "Regression: unit-fast 406 passed and goalrun 1 failed / 200 passed both equal baseline, the supervision sentinel passes, mypy is clean on the required targets, and 162 tests pass across the remote qualification suites. Runtime moved from 23 failed / 506 passed to 24 failed / 505 passed; the single new failure is test_p9c_automated, which shells out to the supervision suite and picks up a PROVIDER_RATE_LIMIT in a live-worker failover test with no mock executor. It was reproduced twice in isolation and is recorded with that attribution rather than accepted silently.",
+        "WIP is byte-identical: the same 5 tracked files with unchanged line counts, 16 untracked files before and after, stash@{0} untouched, 2333 branches unchanged. The only worktree touched was a temporary detached checkout under /tmp used for the baseline comparison, which was removed afterwards."
+      ]
     }
   ],
   "cross_cutting": {
@@ -700,7 +831,7 @@
     ],
     "closure_gate": {
       "status": "NOT_REACHED",
-      "reason": "SF-RECEIPT closed TOOL-BUG-1: an invalid receipt is now an explicit, decidable contract failure with a named diagnostic, and absent is a distinct recordable state, so a bad receipt can no longer become a missing one. Every remaining P0-L precondition from the closure spec is now satisfied: git.verify exists (P0-N), the direct path is GoalRun-backed and genuinely verified (P0-P), and receipts are truthful (SF-RECEIPT). Local2 local development closure still cannot be declared COMPLETE, because P0-L has not been rerun since these three phases landed and its verdict must come from its own evidence rather than from ours. Integration remains deferred."
+      "reason": "P0-Q closed P0-O-G2: git.promote is now reachable from the direct governed lifecycle by commit_sha alone, gated on verification evidence that must name the same commit, repository and path set, with WorktreeManager as the single promotion authority and the worker routes preserved. Local2 local development closure still cannot be declared COMPLETE, because P0-L has not been rerun since P0-Q landed and its verdict must come from its own evidence. Integration remains deferred."
     }
   },
   "wip_preservation": {
