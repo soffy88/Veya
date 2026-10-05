@@ -186,6 +186,52 @@
           "owner": "requires an architecture decision before P0-L can run"
         }
       ]
+    },
+    {
+      "phase": "P0-L",
+      "attempt": "rerun-after-P0-M",
+      "title": "Full Local Development E2E (rerun)",
+      "status": "BLOCKED",
+      "commit": null,
+      "parent": "557ba93f",
+      "target_contract": "DEFERRED",
+      "changed_paths": [],
+      "tests_added": 0,
+      "mutations_red": 0,
+      "production_changed": false,
+      "evidence": [
+        "Steps A-M are reachable on the governed surface: the explicit NEW_ISOLATED_WORKTREE target resolves, file.read/file.search are bounded against it, file.write lands in the worktree, test.run produces a real TEST_SUITE_FAILED then a real pass after a governed repair, build.run runs for real, and git.stage/git.commit produce a commit whose SHA matches an independent git rev-parse.",
+        "git.stage and git.commit are bound to coding_git_stage and coding_git_commit and route through WorktreeManager, so P0-M's authority topology holds.",
+        "Canonical HEAD, branch and tracked file contents are unchanged throughout, so WIP preservation holds.",
+        "git.verify does not exist in the governed surface (git.* is status, diff, stage, commit, log, promote) and P0-M did not add it, so the verify step named by the rerun spec has no governed implementation."
+      ],
+      "findings": [],
+      "blockers": [
+        {
+          "id": "P0-L-B2",
+          "status": "ARCHITECTURAL",
+          "summary": "Step M (Git Verify) names git.verify, which does not exist as a governed tool. Adding it is outside the rerun's permitted change set.",
+          "why_blocked": "Section 46 freezes the governed git surface. Verification could only be done with the git CLI as an independent oracle, which is a reinterpretation of the spec rather than the spec's letter.",
+          "evidence": "BINDINGS git.* == [git.status, git.diff, git.stage, git.commit, git.log, git.promote]",
+          "owner": "requires an architecture decision"
+        },
+        {
+          "id": "P0-L-B3",
+          "status": "ARCHITECTURAL",
+          "summary": "Sections 24 and 25 require the whole lifecycle to belong to one durable GoalRun and to end in a Verifier ACCEPT, but the governed tools this rerun must use are direct RemoteToolAdapter jobs with no Verifier.",
+          "why_blocked": "ExecutionRecord carries goal_run_id and task_id but has no verifier field at all, and the direct command flow does not populate a GoalRun. The only GoalRun-attached governed path is worker.dispatch, which requires an LLM worker binary and is unavailable here. Wiring a Verifier into the direct path is outside the permitted change set.",
+          "evidence": "ExecutionRecord has no field matching 'verif'; set_effect_receipt/EffectReceipt is reached only from worker.dispatch",
+          "owner": "requires an architecture decision"
+        },
+        {
+          "id": "P0-L-B4",
+          "status": "OPEN_INHERITED",
+          "summary": "Section 23 makes a structured-receipt defect a BLOCKED condition, and TOOL-BUG-1 is still open.",
+          "why_blocked": "set_finalization_evidence still assigns record.effect_receipt only when isinstance(receipt, dict), with no else branch, so a stringified receipt is silently discarded. Section 3.6 forbids fixing it in this phase.",
+          "evidence": "veya/remote/execution.py set_finalization_evidence",
+          "owner": "P0-K follow-up, carried unchanged"
+        }
+      ]
     }
   ],
   "cross_cutting": {
@@ -242,7 +288,7 @@
     ],
     "closure_gate": {
       "status": "NOT_REACHED",
-      "reason": "P0-L is BLOCKED, so the Local2 local development closure cannot be declared COMPLETE. Integration remains a separate, deferred phase."
+      "reason": "P0-L remains BLOCKED after the P0-M rerun. Three blockers stand: git.verify absent, no Verifier or GoalRun attachment on the direct path, and TOOL-BUG-1 open under section 23. Local2 local development closure cannot be declared COMPLETE. Integration remains deferred."
     }
   },
   "wip_preservation": {
