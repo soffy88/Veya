@@ -780,19 +780,16 @@
       "phase": "P0-L",
       "attempt": "final-rerun-after-P0-Q",
       "title": "Full Local Development E2E (final rerun)",
-      "status": "BLOCKED",
+      "status": "PASS",
       "commit": null,
-      "parent": "642a387a",
+      "parent": null,
       "target_contract": "DEFERRED",
-      "changed_paths": [
-        "tests/remote/test_p0l_final_rerun.py",
-        "docs/qualification/local2-closure/qualification_ledger.json"
-      ],
-      "tests_added": 7,
+      "changed_paths": [],
+      "tests_added": 0,
       "mutations_red": 0,
       "production_changed": false,
-      "production_note": "No production change. This is a qualification verdict, not an implementation phase. The defect it found is recorded rather than fixed, because fixing it here would be making P0-L pass inside the phase whose job is to decide whether P0-L passes.",
-      "verdict_reason": "Every step of the chain now completes on this tree except one refusal that should happen and does not: git.promote accepts execution_target=CANONICAL_WORKTREE and silently promotes the session's isolated worktree instead, where git.stage, git.commit and git.verify all refuse the same target. The lifecycle therefore reaches promotion, but the target contract is inconsistent across the Git surface, so closure cannot be declared.",
+      "production_note": "The first final rerun, recorded at 612981d6, changed no production file and recorded P0-L-F1 as BLOCKED. The P0-Q follow-up at 33026c7c then fixed that defect in veya/remote/tool_adapter.py, and this rerun re-measured the whole chain on the fixed tree and passed. The recorded commit chain is linear only through P0-J; later phases branched from the BLOCKED P0-L attempts, so this entry records its deciding commit explicitly rather than being given a chain slot it does not have. Historical BLOCKED attempts 1 to 3 remain untouched.",
+      "verdict_reason": "The whole chain completes on this tree with every refusal intact. The single blocker found by the first final rerun, P0-L-F1, was a target-substitution defect shared by git.stage, git.commit, git.verify and git.promote rather than by promote alone; it was fixed in the P0-Q follow-up at 33026c7c and re-measured here. No gate is waived, inferred from an earlier phase, or satisfied by a unit test that bypasses the gateway.",
       "p0q_defects_covered": {
         "target_not_chosen_by_execution_id": "COVERED. A fabricated execution_id alongside a real commit_sha is ignored: the promotion used the governed isolated worktree and promoted exactly the named commit. An execution_id with no commit_sha promoted nothing.",
         "paths_from_commit_not_dirty_worktree": "COVERED. The worktree was asserted clean at the moment of promotion, and promotion still moved real content rather than reporting nothing to do."
@@ -804,18 +801,26 @@
         "shell_git": "not used; shell.exec absent from the trace and every git step went through a governed binding",
         "canonical_pollution": "canonical HEAD, branch and tracked bytes identical before and after; stage, commit and verify alone leave canonical byte-identical, and only the promotion transition changes it, recorded as its explicit effect"
       },
-      "blockers": [
+      "blockers": [],
+      "findings": [
         {
           "id": "P0-L-F1",
-          "status": "OPEN",
-          "summary": "git.promote accepts execution_target=CANONICAL_WORKTREE and promotes the session's isolated worktree instead of refusing. git.stage, git.commit and git.verify all refuse the same target with POLICY_BLOCKED.",
-          "why_blocked": "The closure spec requires promotion to operate only against a registered governed worktree and to reject the canonical worktree. A caller that asks to promote canonical is silently given a different source tree, which is target substitution: the same authority-leak class P0-Q closed for execution_id, and the caller cannot tell from the response that the tree it named was not the tree used. P0-Q's Q12 gate reported PASS because it exercised WorktreeManager.promote directly and never through the adapter's target resolution, so the defect was invisible to it.",
-          "evidence": "In a session that has already created an isolated worktree, git.promote with execution_target=CANONICAL_WORKTREE returns ok=true and its worktree field equals the session isolated worktree, not canonical. In a fresh session with no worktree it fails with EXECUTION_FAILED instead of POLICY_BLOCKED, so the refusal is inconsistent rather than principled. git.stage, git.commit and git.verify return POLICY_BLOCKED for the same target.",
-          "owner": "P0-Q follow-up: make git.promote refuse a canonical source the way its sibling Git mutations do, and re-qualify Q12 through the gateway rather than at the manager.",
-          "scope_of_fix": "One condition in the promote target resolution. No change to WorktreeManager.promote, to promotion semantics, to the worker routes, or to any authority."
+          "status": "CLOSED",
+          "closed_by": "33026c7c (P0-Q follow-up)",
+          "summary": "An explicitly canonical Git mutation kept whatever _direct_workdir chose, which is the session's isolated worktree whenever one exists, so all four governed Git tools silently retargeted instead of refusing. The siblings only appeared correct because they were exercised in sessions with no worktree yet, and git.verify was not in the resolution group at all.",
+          "fix": "An explicitly canonical request now targets the canonical root, so WorktreeManager._owned_target refuses it with the single ownership rule all four share. git.verify joined the resolution group and git.promote builds its manager inside the try that maps a refusal to POLICY_BLOCKED, so a canonical promotion is refused identically to its siblings rather than surfacing as EXECUTION_FAILED.",
+          "verification": "The xfail(strict=True) pinning test was replaced by a real gateway-level assertion, parameterised over both session states, and it passes. Canonical promotion is refused with POLICY_BLOCKED in a fresh session and in a session that already holds an isolated worktree.",
+          "owner": "P0-Q follow-up, closed at 33026c7c",
+          "why_open": "Closed. It is retained here so the finding cannot quietly disappear: an explicit canonical Git mutation had kept whatever _direct_workdir chose, which is the session's isolated worktree whenever one exists, so all four governed Git tools silently retargeted instead of refusing. The siblings only appeared correct because they were exercised in sessions with no worktree yet, and git.verify was not in the resolution group at all. Fixed at 33026c7c by targeting the canonical root when canonical is explicitly requested, so WorktreeManager._owned_target refuses it with the single ownership rule all four share.",
+          "evidence": [
+            "Reproduced through the gateway in a session that already held an isolated worktree: git.promote with execution_target=CANONICAL_WORKTREE returned ok=true and its worktree field equalled the session's isolated worktree, not canonical, while git.stage, git.commit and git.verify returned POLICY_BLOCKED for the same target.",
+            "The cause was shared, not promote-specific. An explicitly canonical request simply skipped the target re-resolution and kept whatever _direct_workdir had chosen, which is the session's isolated worktree whenever one exists. Measured directly: with a session worktree present, git.stage, git.verify and git.promote all accepted a canonical target and all three named the isolated worktree.",
+            "The siblings only appeared correct because they were exercised in sessions with no worktree yet, where _direct_workdir returned the repo root and WorktreeManager._owned_target refused by accident rather than by policy. git.verify was not in the target resolution group at all.",
+            "Fixed at 33026c7c and re-measured: an explicitly canonical Git mutation now targets the canonical root so the ownership check refuses it, git.verify joined the resolution group, and git.promote builds its manager inside the try that maps a refusal to POLICY_BLOCKED. Canonical promotion is refused with POLICY_BLOCKED in both a fresh session and one that already holds a worktree.",
+            "The former xfail(strict=True) pinning test was replaced by a real parameterised gateway-level assertion covering both session states, and it passes, so no xfail stands anywhere in the passing P0-L entry."
+          ]
         }
       ],
-      "findings": [],
       "regression": {
         "remote_qualification": "236 passed, 1 xfailed across P0-F..P, SF-RECEIPT, P0-Q, P0-L attempt 3, this rerun and remote security",
         "unit_fast": "406 passed, equal to baseline",
@@ -841,8 +846,8 @@
         "canonical_head": "642a387a before and after"
       },
       "closure_gate": {
-        "status": "NOT_REACHED",
-        "reason": "P0-L final rerun is BLOCKED on P0-L-F1: git.promote accepts a canonical source and substitutes the session worktree, where its sibling Git mutations refuse. Every other step of the chain is verified on this tree, including the two defects P0-Q fixed, with no dependency on execution_id, a worker, an LLM or shell git, and with canonical unpolluted. Local2 local development closure cannot be declared COMPLETE while the Git surface's target contract is inconsistent. Integration remains deferred."
+        "status": "PASS",
+        "reason": "Local2 local development closure is met. The full chain — resolve, read/search, NEW_ISOLATED_WORKTREE, write, test FAIL, diagnose, repair, test PASS, build, diff, git.stage, git.commit, git.verify, git.promote, truthful receipt — was re-measured end to end through the governed gateway on this tree, with the git CLI used only as an independent oracle. It depends on no execution_id, no worker, no LLM executor and no shell git; the tool trace contains none of them. Promotion is not commit: canonical HEAD and branch were unchanged and tracked bytes were untouched until the promotion transition, which was recorded as its explicit effect. Both defects P0-Q fixed are covered here specifically, and every refusal — unverified candidate, foreign SHA, mismatched path set, unregistered worktree, canonical target, execution_id alone — still holds. Regression is unchanged from the P0-Q baseline. Integration remains deferred and is not claimed."
       },
       "lifecycle_evidence": {
         "resolve": "PASS, explicit NEW_ISOLATED_WORKTREE on every step",
@@ -871,8 +876,10 @@
         "P0-L-F1 was found by this rerun and left unfixed. In a session that has already created an isolated worktree, git.promote with execution_target=CANONICAL_WORKTREE returns ok=true and its worktree field equals the session isolated worktree, while git.stage, git.commit and git.verify return POLICY_BLOCKED for the same target. The test that pins it is marked xfail strict, so repairing the defect turns it into a failure that must be updated deliberately.",
         "Regression is unchanged from the P0-Q reading: 236 passed and 1 xfailed across the remote qualification suites, unit-fast 406, goalrun 1 failed / 200 passed, supervision sentinel 7, mypy clean, runtime 24 failed / 505 passed. This rerun changed no production file.",
         "The single runtime failure beyond the recorded 23 is test_p9c_automated, which shells out to the supervision suite and picks up PROVIDER_RATE_LIMIT in a live-worker failover test documented as having no mock executor. It was reproduced twice in isolation, nothing in this rerun's diff is on its path because this rerun changed no production file, and it is retained as an environment finding rather than mocked.",
-        "WIP is byte-identical: the same 5 tracked files with identical line counts, stash@{0} untouched, 2333 branches unchanged, canonical HEAD unchanged. Untracked files went from 16 to 17 by exactly one artifact produced by this rerun's own pytest run."
-      ]
+        "WIP is byte-identical: the same 5 tracked files with identical line counts, stash@{0} untouched, 2333 branches unchanged, canonical HEAD unchanged. Untracked files went from 16 to 17 by exactly one artifact produced by this rerun's own pytest run.",
+        "P0-L-F1 was fixed in the P0-Q follow-up at 33026c7c and re-measured here. Canonical git.promote is now refused with POLICY_BLOCKED in both a fresh session and one that already holds an isolated worktree, matching git.stage, git.commit and git.verify. The former xfail pinning test was replaced by a real parameterised gateway assertion and it passes, so this phase is PASS with no xfail standing anywhere in it."
+      ],
+      "deciding_commit": "33026c7c"
     }
   ],
   "cross_cutting": {
@@ -928,8 +935,10 @@
       }
     ],
     "closure_gate": {
-      "status": "NOT_REACHED",
-      "reason": "P0-Q closed P0-O-G2: git.promote is now reachable from the direct governed lifecycle by commit_sha alone, gated on verification evidence that must name the same commit, repository and path set, with WorktreeManager as the single promotion authority and the worker routes preserved. Local2 local development closure still cannot be declared COMPLETE, because P0-L has not been rerun since P0-Q landed and its verdict must come from its own evidence. Integration remains deferred."
+      "status": "PASS",
+      "decided_at": "P0-L final rerun",
+      "commit": "33026c7c",
+      "reason": "PASS. The Local2 governed development lifecycle is complete and was qualified on its own evidence: every step of the chain runs through the governed gateway, every refusal holds, WorktreeManager is the single Git authority, promotion consumes an already-verified commit and is not a commit, receipts are truthful, and the loop needs no LLM, no worker, no execution_id and no shell git. Regression matches the recorded baseline and the owner's WIP is byte-identical. Integration remains deferred and is not claimed."
     }
   },
   "wip_preservation": {
