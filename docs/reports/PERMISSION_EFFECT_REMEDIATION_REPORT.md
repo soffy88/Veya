@@ -216,10 +216,64 @@ test_tool_governance_3o 17 passed
 ## 10. 下一步
 
 ```text
-1. 在 ToolSpec 上声明 file.write / file.patch / artifact.write 为 LOCAL_WRITE
-2. 删除 _UNDECLARED_WRITE_TOOLS 临时桥与 _build_context 的历史白名单
-3. 把声明接入 effect_registry,使 declared_ids() 非空
-4. 再评估 94 个未声明工具的分类(需人工读实现,静态分析不可信)
-5. SF-002
-6. SF-CRED consumer cutover(candidate.authenticated 仍在参与 selection/rejection)
+已完成
+  1. ToolSpec effect population          22c7daeb  临时桥已删,declared_ids() 0 -> 3
+  2. SF-002 两处边界缺口                  858becd8  走私形式 + 包装器绕过
+  3. SF-CRED consumer cutover             9dc0557f  candidate.authenticated 已消除
+  4. A1 审批在 policy hook 内消解          1815c9da  remote effect 强制已恢复
+
+仍欠
+  5. ~94 个未声明工具的分类（需人工读实现，静态分析不可信）
+  6. A2 —— 见下节
+  7. Hicode P1（阻塞于 Reasonix runtime，见 HICODE_REACTIVATION_P0_5_DECISION.md）
+```
+
+## 11. A2 待办 —— 3O 引擎的审批通路
+
+**状态**：OPEN，未实施。归属 `platform/3O/oservi/`，**不在 veya 本仓 git 跟踪内**。
+
+### 问题
+
+```text
+platform/3O/oservi/oservi/engines/action_gateway.py
+    if decision.verdict != "ALLOW":
+        return {"status": "failed", ...}
+```
+
+`approval_resolver` 已声明为 `Injection(kind="layer4", cardinality="0..1")`，
+但这条非 ALLOW 路径**完全不查它** —— "需审批"与"已拒绝"被同等对待。
+
+实测后果：`publish` 这类合法携带 `remote_effect="mutation"` 的 canonical action，
+即使调用方传入 `lambda _request: True`，仍被判 `failed`。
+
+### 当前靠 A1 绕过
+
+`server/action_gateway_adapter.py::_settle_approval_sync` 在 policy hook 内先消解审批，
+让引擎只见到 `ALLOW` / `DENY`。代价是消解逻辑落在 veya 侧，
+而它本属引擎的职责 —— 引擎已经声明了那个注入点却不使用。
+
+### A2 要做什么
+
+让 `ActionGatewayEngine.invoke` 在非 ALLOW 时区分 `REQUIRE_APPROVAL` 与 `DENY`：
+前者走 `approval_resolver`，解析通过则继续执行，拒绝或无法解析才返回 failed。
+
+### 为什么不在本仓做
+
+跨项目改动，且该子树未被跟踪 —— 改了不会进入 veya 历史，也无法在此 review。
+需要 3O 平台侧的独立变更。
+
+### 迁移时的兼容注意
+
+A1 若在 A2 落地后保留，会**双重解析审批**（veya 侧已消解成 ALLOW/DENY，
+引擎不会再看到 REQUIRE_APPROVAL，故实际不会重复，但语义会分叉）。届时应：
+1. 删除 `_settle_approval_sync`，恢复"无 resolver 则裁决不动"的原行为；
+2. 保留其三条失败模式测试（async / raising / no-resolver）作为回归防护；
+3. 更新本文档本节状态。
+
+### 相关证据
+
+```text
+1815c9da  A1 落地,remote 强制恢复
+3b403aeb  上一次回退(当时误判为分支错误,实为接线错误)
+报告 §7   修正的测试字面量
 ```
