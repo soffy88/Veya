@@ -1337,6 +1337,106 @@ class PermissionEngine:
         )
 
 
+#: Interpreters and trampolines that defer the real command to a nested string.
+#: classify_command grades on argv[0], so a wrapper is graded as itself and the
+#: command it hides is never seen. Measured 2026-10-04: bare `git push origin
+#: main` is REMOTE_MUTATION and requires approval, while `sh -c 'git push origin
+#: main'` was graded REVERSIBLE_MUTATION and allowed outright.
+#: Worst-wins ordering for wrapper unwrapping. Lower is milder.
+_SEVERITY: dict[CommandEffect, int] = {
+    CommandEffect.NONE: 0,
+    CommandEffect.READ_ONLY: 1,
+    CommandEffect.REVERSIBLE_MUTATION: 2,
+    CommandEffect.REMOTE_MUTATION: 3,
+    CommandEffect.REMOTE_IRREVERSIBLE_MUTATION: 4,
+    CommandEffect.DESTRUCTIVE_MUTATION: 5,
+    CommandEffect.PRIVILEGED_HOST_MUTATION: 6,
+}
+
+_COMMAND_WRAPPERS = frozenset(
+    {
+        "sh",
+        "bash",
+        "zsh",
+        "dash",
+        "ksh",
+        "csh",
+        "tcsh",
+        "fish",
+        "ssh",
+        "scp",
+        "sftp",
+        "nohup",
+        "timeout",
+        "watch",
+        "xargs",
+        "eval",
+        "env",
+    }
+)
+
+
+def unmodelled_command_construct(command: str) -> str | None:
+    """Name a construct this parser cannot honestly classify, or None.
+
+    `shlex.split` runs before classification, so by the time argv exists the
+    structure that mattered is gone: `;` and a newline are ordinary tokens, and
+    `sh -c 'git push'` is just the executable `sh`. Rather than re-parse quoting
+    — which is easy to get subtly wrong and fails open when it is — this names
+    the construct and lets the caller fail safe.
+
+    The wrappers are listed rather than unwrapped on purpose. Unwrapping needs
+    correct handling of nested quotes, and a mistake there silently downgrades a
+    dangerous command, which is the exact failure being fixed.
+    """
+    text = str(command or "")
+    if not text.strip():
+        return None
+    if "$(" in text or "`" in text:
+        return "command_substitution"
+    if "\n" in text or "\r" in text:
+        return "newline_separator"
+    if ";" in text:
+        # Only ";" is unmodelled. Pipes and &&/||/& are already classified:
+        # `ls | grep foo` is a read-only composition and must stay allowed, and
+        # `echo ok | touch pwn` is already REVERSIBLE_MUTATION. Escalating them
+        # here broke ordinary reads, which unit-fast did not catch.
+        return "semicolon_separator"
+    try:
+        first = shlex.split(text)[0]
+    except ValueError:
+        # Unbalanced quoting is itself unmodellable.
+        return "unbalanced_quoting"
+    if Path(first).name in _COMMAND_WRAPPERS:
+        inner = _wrapper_inner_command(text, Path(first).name)
+        return f"wrapper:{Path(first).name}" if inner is None else None
+    return None
+
+
+def _wrapper_inner_command(text: str, wrapper: str) -> str | None:
+    """The command a wrapper defers to, or None when it cannot be recovered.
+
+    The engine already unwraps `sh -c` / `bash -lc` for a hardcoded denylist of
+    privileged binaries, which is why `bash -lc 'sudo apt-get install curl'` was
+    caught while `bash -lc 'git push'` was not: `git` is simply absent from that
+    list. Re-classifying the inner command is strictly better than extending the
+    list, and strictly better than escalating every wrapper, because it keeps
+    `bash -lc 'pytest && ruff check .'` allowed while catching what it hides.
+    """
+    try:
+        tokens = shlex.split(text)
+    except ValueError:
+        return None
+    for index, token in enumerate(tokens):
+        if token in {"-c", "-lc", "-cl", "-lic", "-ilc"}:
+            inner = tokens[index + 1 :]
+            return " ".join(inner) if inner else None
+    if wrapper in {"ssh", "scp", "sftp"}:
+        # host is argv[1]; the remote command is the remainder.
+        return " ".join(tokens[2:]) or None
+    return None
+
+
 def parse_command_context(
     command: str | Iterable[str], *, cwd: Path, workspace_root: Path
 ) -> OperationContext:
@@ -1347,11 +1447,38 @@ def parse_command_context(
     meaning from argv, so every layer reaches the same decision.
     """
 
+    unmodelled = unmodelled_command_construct(command) if isinstance(command, str) else None
     argv = tuple(shlex.split(command) if isinstance(command, str) else command)
     executable = Path(argv[0]).name if argv else ""
     effect, target_paths, filesystem_effect, network_effect, reversibility = classify_command(
         argv, cwd=cwd
     )
+    if unmodelled is not None:
+        # Fail safe. We cannot see what is inside, so we assume the worst class
+        # rather than guess a lower one: an under-estimate here is the bypass this
+        # closes. PRIVILEGED_HOST_MUTATION cannot be ALLOWed by any later branch,
+        # and it is not downgraded even by trusted-admin, which excludes it by name.
+        effect = CommandEffect.PRIVILEGED_HOST_MUTATION
+        reversibility = "destructive"
+    else:
+        # A wrapper's inner command is classified in its own right and the worse of
+        # the two wins, so hiding a mutation behind `sh -c` cannot lower the verdict
+        # while a genuinely safe wrapper still stays allowed.
+        # Only when the raw string survives; an argv passed in by a caller has
+        # already been through the caller's own tokenizer.
+        inner = _wrapper_inner_command(command, executable) if isinstance(command, str) else None
+        if inner:
+            inner_effect = classify_command(shlex.split(inner), cwd=cwd)[0]
+            if inner_effect is CommandEffect.PRIVILEGED_HOST_MUTATION:
+                effect = CommandEffect.PRIVILEGED_HOST_MUTATION
+                reversibility = "destructive"
+            elif _SEVERITY.get(inner_effect, 0) > _SEVERITY.get(effect, 0):
+                effect = inner_effect
+                if inner_effect in {
+                    CommandEffect.REMOTE_MUTATION,
+                    CommandEffect.REMOTE_IRREVERSIBLE_MUTATION,
+                }:
+                    network_effect = "network"
     return OperationContext(
         tool="shell.exec",
         operation="shell.exec",

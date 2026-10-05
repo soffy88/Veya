@@ -91,26 +91,24 @@ class TestCommandSemantics:
             ("env_wrapper", "env touch pwn"),
         ],
     )
-    def test_tested_command_smuggling_forms_are_pinned(self, label: str, command: str) -> None:
-        """Pins the five forms that defeat the command-semantics boundary today.
+    def test_unmodelled_syntax_fails_safe(self, label: str, command: str) -> None:
+        """A mutation hidden behind syntax the parser cannot model must not pass.
 
-        Each is classified READ_ONLY and allowed, which means a mutation reaches
-        the engine disguised as a read. `parse_command_context` has no notion of
-        `;`, a newline, command substitution or a bare `env` prefix, so the second
-        command in the string is never seen.
+        These five were classified READ_ONLY and allowed: `;` and a newline are
+        not seen as separators because shlex.split turns them into ordinary tokens,
+        command substitution is never expanded, and a bare `env` prefix is not
+        stripped. The second command in the string was therefore invisible.
 
-        Fixing this means teaching the parser those forms, which changes verdicts
-        for every command that uses them and therefore touches the frozen
-        permission authority. Until that is authorised these assertions record the
-        defect rather than endorsing it. Delete each entry when it starts failing
-        for the right reason.
+        They are now graded at the top class rather than unwrapped. Unwrapping
+        needs correct nested-quote handling and a mistake there fails open, which
+        is the bug being fixed; assuming the worst cannot.
         """
         context, decision = _evaluate(command)
-        assert context.command_effect == "READ_ONLY", (
-            f"{label}: parser now recognises this form; remove the pin and assert "
-            "the corrected classification instead"
+        assert context.command_effect == "PRIVILEGED_HOST_MUTATION", (
+            f"{label}: no longer escalated; if the parser now models this form, "
+            "assert the corrected classification here instead"
         )
-        assert decision.decision.value == "ALLOW", label
+        assert decision.decision.value == "APPROVAL_REQUIRED", label
 
     def test_a_refusal_yields_no_execution_id(self) -> None:
         """A refusal is synchronous and mints nothing.
@@ -235,29 +233,29 @@ class TestPermissionBoundary:
             "ssh host 'git push'",
         ],
     )
-    def test_shell_wrappers_are_pinned_as_a_permission_bypass(self, wrapper: str) -> None:
-        """Pins a live bypass of the permission boundary.
+    def test_shell_wrappers_fail_safe_instead_of_bypassing(self, wrapper: str) -> None:
+        """A wrapper must not lower the verdict for the command it hides.
 
-        `parse_command_context` classifies by the leading executable, so anything
-        that defers the real command to another interpreter is graded on the
-        wrapper instead. Measured: bare `git push origin main` is REMOTE_MUTATION
-        and requires approval, while `sh -c 'git push origin main'` is graded
-        REVERSIBLE_MUTATION and allowed outright; `env sh -c` drops all the way to
-        READ_ONLY. The privileged and destructive classes are not affected —
-        `sh -c 'sudo rm -rf /'` still requires approval, because host scope is
-        resolved independently of the command text.
+        `parse_command_context` grades on argv[0], so anything deferring the real
+        command to a nested string used to be graded as the wrapper: bare
+        `git push origin main` is REMOTE_MUTATION and requires approval, while
+        `sh -c 'git push origin main'` was graded REVERSIBLE_MUTATION and allowed
+        outright, and `env sh -c` dropped all the way to READ_ONLY.
 
-        Fixing this means teaching the parser to unwrap these forms, which
-        changes verdicts for every command using them and therefore touches the
-        frozen permission authority. Until authorised this pins the bypass by
-        name instead of asserting the boundary holds.
+        The inner command is re-classified and the worse of the two wins, rather
+        than every wrapper being escalated blindly. The engine already unwrapped
+        `sh -c` for a hardcoded denylist of privileged binaries, which is why
+        `bash -lc 'sudo apt-get install curl'` was caught while
+        `bash -lc 'git push'` was not — `git` was simply absent from that list.
+        Extending the list would have left the next unlisted binary open, and
+        escalating every wrapper would have broken a genuinely safe wrapper,
+        which is asserted separately below.
         """
         context, decision = _evaluate(wrapper)
-        assert decision.decision.value == "ALLOW", (
-            f"{wrapper}: the wrapper no longer bypasses the boundary; remove this pin "
-            "and assert the corrected classification instead"
-        )
-        assert context.command_effect != "REMOTE_MUTATION", wrapper
+        # The property is that wrapping changes nothing: the same classification
+        # and the same verdict as the bare command.
+        assert context.command_effect == "REMOTE_MUTATION", wrapper
+        assert decision.decision.value == "APPROVAL_REQUIRED", wrapper
 
     def test_the_bare_remote_mutation_is_still_gated(self) -> None:
         """The control the bypass evades must stay in place.
