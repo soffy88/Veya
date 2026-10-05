@@ -36,7 +36,9 @@ from typing import Any
 from runtime.coding.command_runner import CommandPolicyError
 from runtime.coding.worktree import WorktreeError, WorktreeManager
 from runtime.execution.side_effects import SideEffectLedger
+from server.hashline import DEFAULT_MAX_LINES, HARD_MAX_LINES
 from veya.obase.async_utils import run_sync_in_daemon_thread
+from veya.obase.compat import build_ripgrep_args
 from veya.remote.qualification_faults import QualificationFault
 from veya.remote.qualification_faults import checkpoint as qualification_checkpoint
 from veya.remote.skills import SkillPermission
@@ -121,6 +123,13 @@ VeyaExecutor = Callable[[str, dict[str, Any]], Awaitable[str]]
 _DEFAULT_OUTPUT_LIMIT = 200_000
 _TASK_OUTPUTS = ".veya/runs"
 
+# Search-window bounds.  ``max_results`` defaults to 40 because that is what
+# ``_tool_grep`` has always returned; the ceiling is what makes the bound a
+# bound rather than a default.
+_FILE_SEARCH_DEFAULT_MAX_RESULTS = 40
+_FILE_SEARCH_HARD_MAX_RESULTS = 1000
+_FILE_SEARCH_HARD_MAX_CONTEXT = 20
+
 # P0-A: sync primitives. Never a job, never an LLM.
 _FAST_READ_TOOLS = frozenset(
     {
@@ -169,6 +178,104 @@ def _git_pathspec(raw: Any) -> tuple[list[str], str | None]:
         if pure.is_absolute() or value.startswith("-") or ".." in pure.parts:
             return [], f"path must stay inside the worktree: {value!r}"
     return values, None
+
+
+def _read_window(
+    raw: Any, *, name: str, default: int, minimum: int = 1, hard_max: int | None = None
+) -> tuple[int, str | None]:
+    """Normalise one caller-supplied read/search window parameter.
+
+    ``file.read``'s two paths disagreed about ``max_lines``: the ``read_hashline``
+    path clamped to 8000 while the fast path passed the caller's number
+    straight through, so ``max_lines=10**7`` returned 8000 lines on one path and
+    the entire file on the other, both under ``ok=true``. One builder used by
+    both is what makes it one bound instead of two.
+
+    A caller asking for more than ``hard_max`` gets the ceiling rather than an
+    error: the request is honoured as far as the contract allows, and the
+    response says which line or result index to resume from, so the clamp is
+    reported rather than silent. A caller sending something that is not a
+    positive integer is refused, because silently reading a different range than
+    the one asked for is worse than refusing.
+
+    Returns ``(value, error)``.
+    """
+    if raw is None or raw == "":
+        return default, None
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        return default, f"{name} must be an integer"
+    try:
+        value = int(raw)
+    except ValueError:
+        return default, f"{name} must be an integer"
+    if value < minimum:
+        return default, f"{name} must be >= {minimum}"
+    if hard_max is not None:
+        value = min(value, hard_max)
+    return value, None
+
+
+def _rg_hit_records(
+    stdout: str,
+    *,
+    max_results: int,
+    context_before: int = 0,
+    context_after: int = 0,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Turn ``rg --json`` output into ``{path, line, match, context}`` records.
+
+    ripgrep emits context lines as their own ``context`` events rather than
+    folding them into the match, so a record's context has to be assembled by
+    line number. Records are capped here rather than with ``rg --max-count``,
+    which limits matches *per file* and would let the total still grow with the
+    number of files.
+
+    Returns ``(records, truncated)`` where ``truncated`` means matches existed
+    beyond ``max_results`` — not that the output was clipped for space.
+    """
+    context: dict[tuple[str, int], str] = {}
+    matches: list[tuple[str, int, str]] = []
+    for raw in stdout.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        kind = event.get("type")
+        if kind not in ("match", "context"):
+            continue
+        data = event.get("data") or {}
+        path = str((data.get("path") or {}).get("text", ""))
+        try:
+            line_no = int(data.get("line_number"))
+        except (TypeError, ValueError):
+            continue
+        body = str((data.get("lines") or {}).get("text", "")).rstrip("\n")
+        if kind == "context":
+            context[(path, line_no)] = body
+        else:
+            matches.append((path, line_no, body))
+
+    truncated = len(matches) > max_results
+    records: list[dict[str, Any]] = []
+    for path, line_no, body in matches[:max_results]:
+        before = range(max(1, line_no - context_before), line_no)
+        after = range(line_no + 1, line_no + 1 + context_after)
+        around = [
+            f"{n}: {context[(path, n)]}" for n in before if (path, n) in context
+        ] + [f"{line_no}: {body}"] + [
+            f"{n}: {context[(path, n)]}" for n in after if (path, n) in context
+        ]
+        records.append(
+            {
+                "path": path,
+                "line": line_no,
+                "match": body,
+                "context": around,
+            }
+        )
+    return records, truncated
 
 
 def _canonical_project_root(path: str | Path) -> str:
@@ -669,15 +776,49 @@ BINDINGS: tuple[ToolBinding, ...] = (
         "file.read",
         "read_hashline",
         EffectClass.READ,
-        "Read a file with per-line LINE#hash tags (used by file.patch for stale-safe edits).",
-        _obj({"path": _STR, "max_lines": {"type": "integer"}}, ["path"]),
+        "Read a bounded window of a file with per-line LINE#hash tags (used by file.patch for stale-safe edits).",
+        _obj(
+            {
+                "path": _STR,
+                "start_line": {
+                    "type": "integer",
+                    "description": "first 1-based line to return (default 1)",
+                },
+                "max_lines": {
+                    "type": "integer",
+                    "description": f"cap on returned lines (default 2000, ceiling {HARD_MAX_LINES})",
+                },
+            },
+            ["path"],
+        ),
     ),
     ToolBinding(
         "file.search",
         "grep",
         EffectClass.READ,
         "Search the workspace with ripgrep. Returns path:line matches.",
-        _obj({"pattern": _STR, "glob": _STR, "path": _STR}, ["pattern"]),
+        _obj(
+            {
+                "pattern": _STR,
+                "glob": _STR,
+                "path": _STR,
+                "max_results": {
+                    "type": "integer",
+                    "description": (
+                        f"cap on returned matches (default 40, ceiling {_FILE_SEARCH_HARD_MAX_RESULTS})"
+                    ),
+                },
+                "context_before": {
+                    "type": "integer",
+                    "description": f"lines of leading context, 0..{_FILE_SEARCH_HARD_MAX_CONTEXT}",
+                },
+                "context_after": {
+                    "type": "integer",
+                    "description": f"lines of trailing context, 0..{_FILE_SEARCH_HARD_MAX_CONTEXT}",
+                },
+            },
+            ["pattern"],
+        ),
     ),
     ToolBinding(
         "file.write",
@@ -2062,7 +2203,18 @@ class RemoteToolAdapter:
             return {"path": str(target)}
         if name == "file.read":
             target = self._resolve_target(session, policy, base, args["path"], must_exist=True)
-            return {"filepath": str(target), "max_lines": int(args.get("max_lines", 2000))}
+            window, error = _read_window(
+                args.get("max_lines"),
+                name="max_lines",
+                default=DEFAULT_MAX_LINES,
+                hard_max=HARD_MAX_LINES,
+            )
+            if error:
+                raise RemoteToolAdapterError(RemoteErrorCode.INVALID_ARGUMENT, error)
+            begin, error = _read_window(args.get("start_line"), name="start_line", default=1)
+            if error:
+                raise RemoteToolAdapterError(RemoteErrorCode.INVALID_ARGUMENT, error)
+            return {"filepath": str(target), "max_lines": window, "start_line": begin}
         if name == "file.search":
             root = self._resolve_target(
                 session, policy, base, args.get("path") or ".", must_exist=True
@@ -2070,6 +2222,7 @@ class RemoteToolAdapter:
             kwargs: dict[str, Any] = {"pattern": str(args["pattern"]), "root": str(root)}
             if args.get("glob"):
                 kwargs["glob"] = str(args["glob"])
+            kwargs.update(self._search_window_args(args))
             return kwargs
         if name == "artifact.list":
             out = self._task_outputs(session, policy)
@@ -2083,6 +2236,27 @@ class RemoteToolAdapter:
             target = self._resolve_in(policy, str(out), args["path"], must_exist=True)
             return {"filepath": str(target), "max_lines": int(args.get("max_lines", 4000))}
         raise RemoteToolAdapterError(RemoteErrorCode.INVALID_ARGUMENT, f"bad read tool {name}")
+
+    def _search_window_args(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Normalise the three ``file.search`` window arguments, or refuse.
+
+        Shared by the adapter path and the direct fast path so a search cannot
+        mean one thing on one path and something else on the other.
+        """
+        out: dict[str, Any] = {}
+        specs = (
+            ("max_results", _FILE_SEARCH_DEFAULT_MAX_RESULTS, 1, _FILE_SEARCH_HARD_MAX_RESULTS),
+            ("context_before", 0, 0, _FILE_SEARCH_HARD_MAX_CONTEXT),
+            ("context_after", 0, 0, _FILE_SEARCH_HARD_MAX_CONTEXT),
+        )
+        for name, default, minimum, hard_max in specs:
+            value, error = _read_window(
+                args.get(name), name=name, default=default, minimum=minimum, hard_max=hard_max
+            )
+            if error:
+                raise RemoteToolAdapterError(RemoteErrorCode.INVALID_ARGUMENT, error)
+            out[name] = value
+        return out
 
     def _worktree_args(
         self,
@@ -4409,27 +4583,73 @@ class RemoteToolAdapter:
             # Fast reads are deliberately synchronous.  They only resolve an
             # existing target and must not create an execution worktree or
             # initialize the event loop's default executor.
+            window, error = _read_window(
+                args.get("max_lines"),
+                name="max_lines",
+                default=DEFAULT_MAX_LINES,
+                hard_max=HARD_MAX_LINES,
+            )
+            if error:
+                raise RemoteToolAdapterError(RemoteErrorCode.INVALID_ARGUMENT, error)
+            begin, error = _read_window(args.get("start_line"), name="start_line", default=1)
+            if error:
+                raise RemoteToolAdapterError(RemoteErrorCode.INVALID_ARGUMENT, error)
             content = Path(target).read_text(encoding="utf-8", errors="replace")
-            cap = max(1, int(args.get("max_lines", 2000)))
             from server.hashline import render
 
-            text, truncated = self._limit(f"[hashline {target}]\n{render(content, max_lines=cap)}")
-            return {"path": str(target), "text": text, "truncated": truncated}
+            every = content.splitlines()
+            returned = every[begin - 1 : begin - 1 + window]
+            line_truncated = len(every) > begin - 1 + window
+            rendered = render(content, max_lines=window, start_line=begin)
+            text, byte_truncated = self._limit(f"[hashline {target}]\n{rendered}")
+            result: dict[str, Any] = {
+                "path": str(target),
+                "text": text,
+                "truncated": line_truncated or byte_truncated,
+                "line_truncated": line_truncated,
+                "byte_truncated": byte_truncated,
+                "start_line": begin,
+                "end_line": begin + len(returned) - 1,
+                "lines": len(returned),
+                "total_lines": len(every),
+            }
+            if line_truncated:
+                result["next_start_line"] = begin + window
+            return result
         if name == "file.search":
             root = self._resolve_target(
                 session, policy, base, args.get("path") or ".", must_exist=True
             )
-            pattern = str(args["pattern"])
-            argv = ["rg", "--no-heading", "-n", pattern, str(root)]
-            if args.get("glob"):
-                argv[3:3] = ["-g", str(args["glob"])]
+            limits = self._search_window_args(args)
+            argv = build_ripgrep_args(
+                str(args["pattern"]),
+                root=str(root),
+                glob=str(args["glob"]) if args.get("glob") else None,
+                context_before=limits["context_before"],
+                context_after=limits["context_after"],
+            )
             code, out, err = await self._run_capture(argv, timeout=30)
             if code == 127 or "not found" in err:
                 raise RemoteToolAdapterError(
                     RemoteErrorCode.EXECUTION_FAILED, "ripgrep (rg) is not installed"
                 )
-            text, truncated = self._limit(out)
-            return {"root": str(root), "text": text, "truncated": truncated, "exit_code": code}
+            results, hit_truncated = _rg_hit_records(
+                out,
+                max_results=limits["max_results"],
+                context_before=limits["context_before"],
+                context_after=limits["context_after"],
+            )
+            rendered = "\n".join(f"{r['path']}:{r['line']}: {r['match']}" for r in results)
+            text, byte_truncated = self._limit(rendered)
+            return {
+                "root": str(root),
+                "text": text,
+                "results": results,
+                "truncated": hit_truncated or byte_truncated,
+                "hit_truncated": hit_truncated,
+                "byte_truncated": byte_truncated,
+                "exit_code": code,
+            }
         if name in {"artifact.list", "artifact.read"}:
             outputs_dir = self._task_outputs(session, policy)
             if not outputs_dir.exists():

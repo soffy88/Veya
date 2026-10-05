@@ -1254,16 +1254,17 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
     return f"✅ 已写入 {path} ({len(str(content))} 字符)。可用 read_file_ast / grep 继续理解。"
 
 
-def _tool_read_hashline(filepath: str, max_lines: int = 2000) -> str:
+def _tool_read_hashline(filepath: str, max_lines: int = 2000, start_line: int = 1) -> str:
     """Read a file with per-line LINE#hash tags for stale-safe edits."""
-    from server.hashline import render
+    from server.hashline import DEFAULT_MAX_LINES, HARD_MAX_LINES, render
 
     path = _resolve_path(filepath)
     if path.is_dir():
         raise ToolExecutionError(f"path '{filepath}' 是目录不是文件")
     source = path.read_text(encoding="utf-8", errors="replace")
-    cap = max(1, min(int(max_lines or 2000), 8000))
-    return f"[hashline {path}]\n" + str(render(source, max_lines=cap))
+    cap = max(1, min(int(max_lines or DEFAULT_MAX_LINES), HARD_MAX_LINES))
+    begin = max(1, int(start_line or 1))
+    return f"[hashline {path}]\n" + str(render(source, max_lines=cap, start_line=begin))
 
 
 def _tool_edit_hashline(
@@ -1364,26 +1365,45 @@ def _tool_ast_grep_rewrite(
     return json.dumps(rec, ensure_ascii=False)[:16000]
 
 
-def _tool_grep(pattern: str, glob: str | None = None, root: str | None = None) -> str:
+def _tool_grep(
+    pattern: str,
+    glob: str | None = None,
+    root: str | None = None,
+    max_results: int = 40,
+    context_before: int = 0,
+    context_after: int = 0,
+) -> str:
     """在项目内搜索代码(ripgrep),定位定义与引用。"""
     from server.assembly import ripgrep_search
 
     search_root = (
         str(_resolve_path(root, must_exist=True)) if root else str(_resolve_workspace_root())
     )
+    # 40 was a bare slice; it is now a named default so the ceiling is a
+    # separate, stated number rather than an accident of the slice literal.
+    cap = max(1, min(int(max_results or 40), 1000))
     try:
-        hits = ripgrep_search(pattern, root=search_root, glob=glob)
+        hits = ripgrep_search(
+            pattern,
+            root=search_root,
+            glob=glob,
+            context_before=max(0, int(context_before or 0)),
+            context_after=max(0, int(context_after or 0)),
+        )
     except FileNotFoundError as exc:
         raise ToolExecutionError("ripgrep (rg) 未安装,无法执行 grep") from exc
     if not hits:
         return f"no matches for {pattern!r}"
     lines = []
-    for hit in hits[:40]:
+    truncated = len(hits) > cap
+    for hit in hits[:cap]:
         data = hit.get("data", {})
         path = (data.get("path") or {}).get("text", "?")
         line_no = data.get("line_number", "?")
         text = (data.get("lines") or {}).get("text", "").rstrip("\n")
         lines.append(f"{path}:{line_no}: {text}")
+    if truncated:
+        lines.append(f"... {len(hits) - cap} more matches; narrow the pattern or raise max_results")
     return "\n".join(lines)
 
 
@@ -1628,7 +1648,14 @@ master_tools.register(
             "filepath": {"type": "string", "description": "path relative to workspace root"},
             "max_lines": {
                 "type": "integer",
-                "description": "cap (default 2000) to protect context",
+                "description": "cap (default 2000, ceiling 8000) to protect context",
+            },
+            "start_line": {
+                "type": "integer",
+                "description": (
+                    "first 1-based line to return (default 1). Line numbers in the "
+                    "output stay true file line numbers, so tags remain valid for edit_hashline."
+                ),
             },
         },
         "required": ["filepath"],
@@ -1805,6 +1832,18 @@ master_tools.register(
             "root": {
                 "type": "string",
                 "description": "subdirectory relative to workspace root (optional)",
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "cap on returned matches (default 40, ceiling 1000)",
+            },
+            "context_before": {
+                "type": "integer",
+                "description": "lines of leading context, 0..20",
+            },
+            "context_after": {
+                "type": "integer",
+                "description": "lines of trailing context, 0..20",
             },
         },
         "required": ["pattern"],

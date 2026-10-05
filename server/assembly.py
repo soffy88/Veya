@@ -62,9 +62,27 @@ if TYPE_CHECKING:
 
 
 # ── ripgrep_search:layer4 thin wrapper(库里无此名,按库用 helpers)────
-def ripgrep_search(pattern: str, *, root: str, glob: str | None = None) -> list:
-    """薄包装:构造 ripgrep args → subprocess → 解析结果。"""
-    args = build_ripgrep_args(pattern, root=root, glob=glob)
+def ripgrep_search(
+    pattern: str,
+    *,
+    root: str,
+    glob: str | None = None,
+    context_before: int = 0,
+    context_after: int = 0,
+) -> list:
+    """薄包装:构造 ripgrep args → subprocess → 解析结果。
+
+    Only ``match`` events are returned. Context lines arrive as their own
+    ``context`` events and are dropped here; a caller that wants the surrounding
+    lines should ask for them where they are assembled into a result.
+    """
+    args = build_ripgrep_args(
+        pattern,
+        root=root,
+        glob=glob,
+        context_before=context_before,
+        context_after=context_after,
+    )
     proc = _subprocess.run(args, capture_output=True, text=True)
     return parse_ripgrep_output(proc.stdout) if proc.stdout else []
 

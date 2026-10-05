@@ -423,9 +423,30 @@ def retry_with_backoff(
     return _run()
 
 
-def build_ripgrep_args(pattern: str, *, root: str, glob: str | None = None) -> list[str]:
-    """Build ripgrep command arguments."""
-    args = ["rg", "--json", "-n"]
+def build_ripgrep_args(
+    pattern: str,
+    *,
+    root: str,
+    glob: str | None = None,
+    context_before: int = 0,
+    context_after: int = 0,
+) -> list[str]:
+    """Build ripgrep command arguments.
+
+    ``--sort path`` is not a cosmetic choice. Without it ripgrep walks files in
+    parallel, so two identical searches can return their matches in different
+    orders; a search whose result order is not reproducible cannot be compared
+    against a previous run, and a caller that takes the first N results gets a
+    different N results next time.
+
+    ``context_before``/``context_after`` default to 0, which adds no flags, so
+    the argument vector is unchanged for every existing caller.
+    """
+    args = ["rg", "--json", "-n", "--sort", "path"]
+    if context_before > 0:
+        args += ["-B", str(int(context_before))]
+    if context_after > 0:
+        args += ["-A", str(int(context_after))]
     if glob:
         args += ["--glob", glob]
     return [*args, pattern, root]
