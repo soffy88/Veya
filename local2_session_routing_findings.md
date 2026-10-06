@@ -347,3 +347,106 @@ therefore documents the open defect. Routing suite is 13/14, not 14/14.
 * §12 mutation gates — **not run**. No mutation evidence exists for this phase,
   so none is claimed.
 * §14 full regression beyond unit-fast / ledger / supervision.
+
+
+---
+
+# Phase 5 — SR-006 CLOSED (observation identity follows the resolved target)
+
+## Correction to the previous phase
+
+My Phase 4 attribution was wrong. Re-running the suspect suites with a precise
+diff against baseline showed `_observation_for` introduced exactly **one** new
+failure, not sixteen. The other fifteen failures in
+`test_nested_repo_resolution` / `test_direct_fast_path` /
+`test_local2_existing_worktree_wiring` are **pre-existing at `32afa716`** and
+unrelated to routing. The blocker was one test, not an architecture wall.
+
+## Root cause and the fix that works
+
+`resolve_repo_target()` selects the repository from the **workspace binding**,
+before the git seam chooses its target. Two candidate fixes were measured:
+
+| candidate | result |
+|---|---|
+| `payload["repo_root"] = git_repo_root(target)` | breaks 8 tests — redefines an identity field |
+| re-run `resolve_repo_target()` from the target | fixes SR-006, breaks `test_workspace_path_is_canonical_nested_repo_selector` — discards nested-selection `evidence` |
+
+The fix that satisfies both constraints separates **selection** from **identity**:
+
+* repository *selection* (which repository the caller meant, including
+  nested-repo intent in `resolution.evidence`) is authoritative and preserved
+  verbatim;
+* only the *identity* is re-anchored, by translating the selected repository
+  from the binding root onto the resolved target via the same relative path.
+
+`_observation_for(target, fallback, binding_root)` does exactly that, using
+`dataclasses.replace` so no second target authority is introduced and
+`repo_root` keeps its meaning of repository identity.
+
+## Evidence
+
+`tests/remote/test_sr006_observation_identity.py`, 5 passed:
+
+* Case A canonical — cwd, `repo_root`, observation and
+  `git rev-parse --show-toplevel` all agree.
+* Case B session — the observation names the **session** repository and is
+  explicitly not the canonical root. Sentinel is written after the worktree
+  exists, so it exists only there.
+* Case C nested — observation matches the nested repo's oracle **and**
+  `evidence.repo_discovery == "nested_git_repository"` survives re-anchoring.
+* Do-Not-Re-Resolve — target != binding is asserted as a precondition, then the
+  observation is shown not to equal the binding root.
+* SR-005 preservation — explicit target still beats `execution_id`.
+
+## Mutations — 4 effective RED, 1 NOT effective
+
+| Mutation | Result |
+|---|---|
+| M1 force observation = binding repo_root | RED |
+| M2 ignore ResolvedTarget, use binding resolution | RED |
+| M3 use cwd parent instead of resolved target | RED |
+| M5 session worktree -> canonical repo | RED |
+| M4 nested repo -> parent repo | **NOT EFFECTIVE** |
+
+**M4 is not counted.** Case C cannot distinguish it, because there the resolved
+target *is* the nested repository, so `relative = "."` yields the same answer.
+M4 would only bite in **Case D — a nested repository inside a session worktree**,
+which is **not implemented**. That combination is the real remaining risk: the
+translation assumes the selected nested repository exists at the same relative
+path under the resolved target, and a nested repo is typically untracked, so a
+linked worktree may not materialise it.
+
+## Regression
+
+| Suite | Baseline | Result |
+|---|---|---|
+| routing suite | 13/14 | **14/14** (`test_r8...` now PASS) |
+| P0-L + P0-Q + SR-001..SR-005 | green | **81 passed** |
+| nested / direct / existing-worktree | 15 failed | **15 failed, zero new** |
+| `test_promotion_receipt_claims_match_observed_git_state` | PASS | **PASS (unmodified)** |
+| unit-fast | 406 | **406 passed** |
+| goalrun | 1F / 200P | **1F / 200P** |
+| supervision | 7 | **7 passed** |
+| runtime | 3F / 526P | **3F / 526P** |
+| ledger | 24 | **24 passed** |
+| ruff | clean | clean |
+
+## Not completed
+
+* **Case D** (nested repository inside a session worktree) — the one
+  combination that would exercise M4, and therefore the one place the
+  translation assumption is unverified.
+* Receipt Cases A–D at the promotion layer were not extended; the existing
+  canonical receipt test is unmodified and green.
+* No SR-005 precedence code was modified in this phase.
+
+## Final routing state
+
+SR-001 CLOSED · SR-002 CLOSED · SR-003 CLOSED · SR-004 CLOSED · SR-005 CLOSED ·
+**SR-006 CLOSED**
+
+`SESSION_ROUTING = PASS` except for the unimplemented Case D, which is an open
+verification gap rather than a known defect. Local2 closure untouched:
+`LOCAL2_COMPLETE = YES`, `CLOSURE_GATE = PASS`, `LOCAL2_RUNTIME_ACTIVE = YES`,
+`INTEGRATION = DEFERRED`.

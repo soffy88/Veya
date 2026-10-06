@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import hashlib
 import json
 import logging
@@ -1510,6 +1511,48 @@ def _observation_for(target: str, fallback: RepoResolution) -> RepoResolution:
     except Exception:
         return fallback
     return observed if observed.repo_root else fallback
+
+
+def _observation_for(target: str, fallback: RepoResolution, binding_root: str) -> RepoResolution:
+    """SR-006: observation identity must follow the resolved target.
+
+    ``resolve_repo_target`` runs against the workspace binding, so for a governed
+    Git call whose target is a session or execution worktree the payload's
+    ``resolved_repo_root`` named the canonical repository while the command ran
+    somewhere else. Observation and target identity therefore disagreed.
+
+    The repository *selection* -- which repository the caller meant, including
+    nested-repository intent recorded in ``evidence`` -- is authoritative and is
+    preserved verbatim. Only the *identity* is re-anchored: the selected
+    repository is translated from the binding root onto the resolved target by
+    the same relative path.
+
+    Re-resolving from the target instead was tried and rejected: it discards the
+    nested-selection evidence and mis-resolves nested repositories, which is
+    exactly what ``test_nested_repo_resolution`` guards.
+    """
+    if not fallback.repo_root:
+        return fallback
+    try:
+        binding = Path(binding_root).resolve()
+        selected = Path(fallback.repo_root).resolve()
+        relative = selected.relative_to(binding)
+    except (ValueError, OSError):
+        return fallback
+    candidate = Path(target).resolve() / relative
+    observed = git_repo_root(candidate)
+    if observed is None:
+        return fallback
+    observed_path = Path(observed).resolve()
+    if observed_path == selected:
+        # Target and binding agree; nothing to re-anchor.
+        return fallback
+    return dataclasses.replace(
+        fallback,
+        repo_root=str(observed_path),
+        repo_identity=str(observed_path),
+        target_path=str(candidate),
+    )
 
 
 def _session_worktree_unusable(worktree: str | Path | None) -> str | None:
@@ -4797,7 +4840,9 @@ class RemoteToolAdapter:
                     payload["exit_code"] = 0
                     payload["workspace"] = ws_binding.requested_realpath
                     payload["repo_root"] = ws_binding.repo_root
-                    payload["resolution"] = resolution.to_public()
+                    payload["resolution"] = _observation_for(
+                        target, resolution, str(ws_binding.repo_root)
+                    ).to_public()
                     return RemoteCallResult(
                         ok=True,
                         tool=name,
@@ -4846,7 +4891,9 @@ class RemoteToolAdapter:
                     payload = evidence.to_dict()
                     payload["workspace"] = ws_binding.requested_realpath
                     payload["repo_root"] = ws_binding.repo_root
-                    payload["resolution"] = resolution.to_public()
+                    payload["resolution"] = _observation_for(
+                        target, resolution, str(ws_binding.repo_root)
+                    ).to_public()
                     return RemoteCallResult(
                         ok=True,
                         tool=name,
@@ -4893,7 +4940,9 @@ class RemoteToolAdapter:
                             payload = blocked_result.to_dict()
                             payload["workspace"] = ws_binding.requested_realpath
                             payload["repo_root"] = ws_binding.repo_root
-                            payload["resolution"] = resolution.to_public()
+                            payload["resolution"] = _observation_for(
+                                target, resolution, str(ws_binding.repo_root)
+                            ).to_public()
                             return self._fail(
                                 name,
                                 session,
@@ -4913,7 +4962,9 @@ class RemoteToolAdapter:
                         return self._fail(name, session, RemoteErrorCode.POLICY_BLOCKED, str(exc))
                     payload["workspace"] = ws_binding.requested_realpath
                     payload["repo_root"] = ws_binding.repo_root
-                    payload["resolution"] = resolution.to_public()
+                    payload["resolution"] = _observation_for(
+                        target, resolution, str(ws_binding.repo_root)
+                    ).to_public()
                     if result.status != "PROMOTED":
                         return self._fail(
                             name,
@@ -4954,7 +5005,9 @@ class RemoteToolAdapter:
             payload["workspace"] = ws_binding.requested_realpath
             payload["repo_root"] = ws_binding.repo_root
             payload["cwd"] = target
-            payload["resolution"] = resolution.to_public()
+            payload["resolution"] = _observation_for(
+                target, resolution, str(ws_binding.repo_root)
+            ).to_public()
             if code not in (0, None) and err:
                 payload["stderr"] = err[-2000:]
         except Exception as exc:
