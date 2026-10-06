@@ -1,10 +1,11 @@
 # Local2 Session-Worktree Routing Findings
 
-**STATUS: BLOCKED / PARTIAL** — drift confirmed and root-caused; the fix is
-blocked by closure-chain regressions and is **not** committed.
+**STATUS: SR-002 PASS · SR-004 PASS** (committed). SR-001 / SR-003 / SR-005
+remain open by design.
 
-Baseline `412e855b` (`LOCAL2_COMPLETE=YES`, `CLOSURE_GATE=PASS`).
-`veya/remote/tool_adapter.py` is **unmodified**; the green baseline is intact.
+Phase baseline `82a0c89f`. SR-002 and SR-004 are implemented, closure-safe, and
+mutation-covered. The SR-001/003/005 work attempted earlier was reverted and is
+recorded below; `execution_id` precedence was never modified.
 
 Reproduction: `tests/remote/test_session_worktree_routing.py` (13 tests, not in
 CI). Against baseline: **8 failed, 5 passed**.
@@ -109,3 +110,75 @@ Per §13, GREEN mutations mean incomplete coverage, not success.
 `unit-fast`, `goalrun`, `runtime`, `supervision`, `ledger` were **not** re-run
 after the revert; the targeted remote subset was verified green (77 passed).
 No worktree was deleted, no untracked file removed, no stash touched.
+
+
+---
+
+# Phase 2 — SR-002 + SR-004 (landed)
+
+Only the two seams with zero closure coupling were touched.
+
+## SR-002 — `CURRENT_SESSION_WORKTREE`
+
+* Registered in `EXECUTION_TARGETS`.
+* Resolved in `_direct_workdir` to the session's registered worktree, or
+  `POLICY_BLOCKED` when the session has none. No canonical / cwd fallback.
+* Placed **after** the `execution_id` branch so SR-005 precedence stays
+  byte-identical (verified: the `execution_worktrees.resolve(...)` line has no
+  `+`/`-` in the diff).
+* Error-code note: the stable taxonomy has no `TARGET_INVALID` member, so
+  `POLICY_BLOCKED` is used, consistent with the existing dead-worktree refusal.
+  No new public error code was invented.
+
+## SR-004 — non-checkout directory
+
+`_invalid_git_target_reason` now requires Git working-tree identity via the
+`.git` entry: a **directory** in a normal repository, a **file** in a linked
+worktree. A linked worktree's pointer (`gitdir: ...`) is parsed and its
+recorded metadata must exist, so a dangling pointer is refused instead of
+degrading. No upward search: a non-git child of a valid repository is refused.
+
+## Tests — 14 passed
+
+`tests/remote/test_sr002_sr004.py`. Routing is proven with
+`sentinel_worktree_only.txt`, which exists **only** in the session worktree;
+`calc.py` (present in both trees) is never used as a routing oracle.
+
+## Mutations — 4/4 RED
+
+| Mutation | Result |
+|---|---|
+| M-SR2a remove `CURRENT_SESSION_WORKTREE` registration | RED |
+| M-SR2b session target falls back to canonical | RED |
+| M-SR4a allow empty dir to resolve parent repo | RED |
+| M-SR4b accept dangling linked-worktree pointer | RED |
+
+M-SR4b was initially GREEN; the dangling-pointer branch had no test. A test was
+added rather than the branch deleted, then the mutation went red.
+
+## Closure safety and regression
+
+| Suite | Baseline | Result |
+|---|---|---|
+| P0-L + P0-Q | green | **28 passed** |
+| unit-fast | 406 | **406 passed** |
+| goalrun | 1F / 200P | **1F / 200P** |
+| supervision | 7 | **7 passed** |
+| runtime | 3F / 526P | **3F / 526P** |
+| ledger | 24 | **24 passed** |
+| ruff | clean | clean |
+
+One pinned assertion in `test_p0j_wip_preservation.py` listed the exact
+`EXECUTION_TARGETS` set and was updated to include the new identifier; the
+default-asymmetry that test documents is unchanged.
+`test_the_phase_commit_touches_only_its_own_paths` fails identically at baseline
+and is pre-existing, not caused here.
+
+Routing suite went 8 → 4 failures; the remaining 4 are exactly the
+out-of-scope SR-001 / SR-003 seams.
+
+## WIP preserved
+
+`runtime/harness/contract.py` sha `b3f747b422136bf8` unchanged · stash 1 ·
+509 worktrees · no untracked file removed · only addition is this phase's test
+suite. No `reset` / `clean` / `stash` / worktree deletion.

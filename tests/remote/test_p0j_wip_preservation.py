@@ -448,10 +448,14 @@ def test_execution_defaults_to_the_canonical_worktree_by_design() -> None:
     """
     assert resolve_execution_target("/tmp/proj", intent="read") == "CANONICAL_WORKTREE"
     assert resolve_execution_target("/tmp/proj", intent="mutation") == "NEW_ISOLATED_WORKTREE"
+    # SR-002 adds CURRENT_SESSION_WORKTREE so a caller can name the session's own
+    # worktree instead of getting a silent default. The default-asymmetry this
+    # test documents is unchanged; only the set of legal identifiers grew.
     assert set(EXECUTION_TARGETS) == {
         "NEW_ISOLATED_WORKTREE",
         "EXECUTION_WORKTREE",
         "EXISTING_WORKTREE",
+        "CURRENT_SESSION_WORKTREE",
         "CANONICAL_WORKTREE",
         "HOST",
     }

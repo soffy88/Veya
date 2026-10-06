@@ -210,6 +210,26 @@ def _invalid_git_target_reason(target: str | Path) -> str | None:
         return f"directory does not exist: {path}"
     if not path.is_dir():
         return f"not a directory: {path}"
+    # SR-004: existence and directory-ness are not enough. Git target identity
+    # is carried by the .git entry, and that entry is a directory in a normal
+    # repository but a *file* in a linked worktree. Both are legitimate; neither
+    # may be synthesised by walking up to a parent that happens to be a repo.
+    dot_git = path / ".git"
+    if not dot_git.exists():
+        return f"not a git working tree (no .git entry): {path}"
+    if dot_git.is_file():
+        # A linked worktree records where its real metadata lives.
+        try:
+            pointer = dot_git.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            return f"unreadable .git worktree pointer: {path} ({exc})"
+        if not pointer.startswith("gitdir:"):
+            return f"malformed .git worktree pointer: {path}"
+        recorded = Path(pointer.split(":", 1)[1].strip())
+        if not recorded.is_absolute():
+            recorded = path / recorded
+        if not recorded.exists():
+            return f"linked worktree metadata is missing: {recorded}"
     return None
 
 
@@ -326,11 +346,11 @@ def _rg_hit_records(
     for path, line_no, body in matches[:max_results]:
         before = range(max(1, line_no - context_before), line_no)
         after = range(line_no + 1, line_no + 1 + context_after)
-        around = [
-            f"{n}: {context[(path, n)]}" for n in before if (path, n) in context
-        ] + [f"{line_no}: {body}"] + [
-            f"{n}: {context[(path, n)]}" for n in after if (path, n) in context
-        ]
+        around = (
+            [f"{n}: {context[(path, n)]}" for n in before if (path, n) in context]
+            + [f"{line_no}: {body}"]
+            + [f"{n}: {context[(path, n)]}" for n in after if (path, n) in context]
+        )
         records.append(
             {
                 "path": path,
@@ -826,6 +846,7 @@ EXECUTION_TARGETS = (
     "NEW_ISOLATED_WORKTREE",
     "EXECUTION_WORKTREE",
     "EXISTING_WORKTREE",
+    "CURRENT_SESSION_WORKTREE",
     "CANONICAL_WORKTREE",
     "HOST",
 )
@@ -1083,7 +1104,13 @@ BINDINGS: tuple[ToolBinding, ...] = (
         "coding_git_stage",
         EffectClass.WRITE,
         "Stage paths inside the session's isolated worktree. The canonical tree is not a valid target.",
-        _obj({"workspace": _STR, "path": _STR, "paths": {"type": "array", "items": {"type": "string"}}}),
+        _obj(
+            {
+                "workspace": _STR,
+                "path": _STR,
+                "paths": {"type": "array", "items": {"type": "string"}},
+            }
+        ),
         needs_git=True,
     ),
     ToolBinding(
@@ -2669,12 +2696,30 @@ class RemoteToolAdapter:
 
     # ── direct command jobs (P0-B/F/H/K) ───────────────────────────
     def _direct_workdir(
-        self, session: RemoteSession, ws_binding: WorkspaceBinding, *, execution_id: str = ""
+        self,
+        session: RemoteSession,
+        ws_binding: WorkspaceBinding,
+        *,
+        execution_id: str = "",
+        execution_target: str = "",
     ) -> str:
+        target = str(execution_target or "").strip().upper()
         if execution_id:
             return self.execution_worktrees.resolve(
                 execution_id, ws_binding.repo_root
             ).worktree_path
+        # SR-002: name the session's own worktree explicitly. Placed after the
+        # execution_id branch on purpose, so execution_id precedence is
+        # unchanged (SR-005 is out of scope here).
+        if target == "CURRENT_SESSION_WORKTREE":
+            mapped = session.worktrees.get(ws_binding.repo_root)
+            if not mapped:
+                raise RemoteToolAdapterError(
+                    RemoteErrorCode.POLICY_BLOCKED,
+                    "CURRENT_SESSION_WORKTREE requested but this session has no "
+                    "registered worktree",
+                )
+            return str(mapped)
         # Run in the session's isolated worktree when one already exists (edits
         # made via file.write/patch land there); otherwise the bound repo root.
         # The command path never *creates* a worktree, so submit stays fast.
@@ -3436,7 +3481,11 @@ class RemoteToolAdapter:
                 session_id=session.session_id,
                 requested_executor=requested_executor,
                 tasks=[
-                    {"worker": worker, "task": task_text, "task_contract": dict(item.get("task_contract") or {})}
+                    {
+                        "worker": worker,
+                        "task": task_text,
+                        "task_contract": dict(item.get("task_contract") or {}),
+                    }
                     for _index, worker, task_text, item in validated
                 ],
             )
@@ -3466,7 +3515,15 @@ class RemoteToolAdapter:
                 goal_run_id=pre_admission.goal_run_id,
                 goal_task_id=pre_admission.goal_task_id,
                 goal_project_root=project_root,
-                task_contract=(dict(validated[0][3].get("task_contract") or {}) if len(validated) == 1 else {"tasks": [dict(item.get("task_contract") or {}) for _, _, _, item in validated]}),
+                task_contract=(
+                    dict(validated[0][3].get("task_contract") or {})
+                    if len(validated) == 1
+                    else {
+                        "tasks": [
+                            dict(item.get("task_contract") or {}) for _, _, _, item in validated
+                        ]
+                    }
+                ),
             )
             qualification_checkpoint(
                 "AFTER_EXECUTION_PERSIST",
@@ -4179,9 +4236,19 @@ class RemoteToolAdapter:
             contract = task_contract or L1TaskContract()
             declared_kind = str(contract.task_kind or TaskKind.READ).upper()
             observed_kind = str(receipt.task_kind or TaskKind.READ).upper()
-            if declared_kind in {str(TaskKind.WRITE), str(TaskKind.TEST), str(TaskKind.BUILD)} and observed_kind != declared_kind:
-                reporter.failure(failure_class="EFFECT_CONTRACT_MISMATCH", source=worker, detail=f"declared={declared_kind} observed={observed_kind}")
-                raise ExecutionBlocked("EFFECT_CONTRACT_MISMATCH", f"task contract downgraded: declared={declared_kind} observed={observed_kind}")
+            if (
+                declared_kind in {str(TaskKind.WRITE), str(TaskKind.TEST), str(TaskKind.BUILD)}
+                and observed_kind != declared_kind
+            ):
+                reporter.failure(
+                    failure_class="EFFECT_CONTRACT_MISMATCH",
+                    source=worker,
+                    detail=f"declared={declared_kind} observed={observed_kind}",
+                )
+                raise ExecutionBlocked(
+                    "EFFECT_CONTRACT_MISMATCH",
+                    f"task contract downgraded: declared={declared_kind} observed={observed_kind}",
+                )
             self.jobs.set_effect_receipt(reporter._execution_id, receipt.to_dict())
             if contract.task_kind in {
                 str(TaskKind.WRITE),
@@ -4402,13 +4469,19 @@ class RemoteToolAdapter:
         # the resolution block below, not from execution_id. Resolving it through
         # _direct_workdir first meant a stale or fabricated execution_id raised
         # (or, worse, silently chose the tree) before governance ever ran.
-        target = self._direct_workdir(
-            session,
-            ws_binding,
-            execution_id=(
-                "" if name == "git.promote" else str(args.get("execution_id") or "")
-            ),
-        )
+        try:
+            target = self._direct_workdir(
+                session,
+                ws_binding,
+                execution_id=("" if name == "git.promote" else str(args.get("execution_id") or "")),
+                execution_target=str(args.get("execution_target") or ""),
+            )
+        except RemoteToolAdapterError as exc:
+            # An unresolvable target is a refusal with its own code, not a
+            # generic execution failure.
+            return self._fail(
+                name, session, getattr(exc, "code", RemoteErrorCode.POLICY_BLOCKED), str(exc)
+            )
         # R1: a session worktree can be deleted out from under the session. The
         # mapped path then no longer exists, and running git against it fails --
         # but the failure was being reported as a clean, empty repository, and the
@@ -4419,7 +4492,9 @@ class RemoteToolAdapter:
         invalid = _invalid_git_target_reason(target)
         if invalid is not None:
             return self._fail(
-                name, session, RemoteErrorCode.POLICY_BLOCKED,
+                name,
+                session,
+                RemoteErrorCode.POLICY_BLOCKED,
                 f"target worktree is not usable: {invalid}",
             )
         # P0-Q follow-up. Every governed Git tool resolves its target through
@@ -4472,7 +4547,9 @@ class RemoteToolAdapter:
                 # indistinguishable from no change.
                 if code != 0:
                     return self._fail(
-                        name, session, RemoteErrorCode.EXECUTION_FAILED,
+                        name,
+                        session,
+                        RemoteErrorCode.EXECUTION_FAILED,
                         f"git status failed in {target}: {(err or out).strip()[:400]}",
                     )
                 payload = self._parse_git_status(out)
@@ -4489,7 +4566,9 @@ class RemoteToolAdapter:
                 # R2: same rule as status -- an error must not serialise as "".
                 if code != 0:
                     return self._fail(
-                        name, session, RemoteErrorCode.EXECUTION_FAILED,
+                        name,
+                        session,
+                        RemoteErrorCode.EXECUTION_FAILED,
                         f"git diff failed in {target}: {(err or out).strip()[:400]}",
                     )
                 text, truncated = self._limit(out)
@@ -4545,9 +4624,7 @@ class RemoteToolAdapter:
                 except WorktreeError as exc:
                     # Fail closed, and say why: an out-of-target path or an
                     # unexpected index is a refusal, not an empty success.
-                    return self._fail(
-                        name, session, RemoteErrorCode.POLICY_BLOCKED, str(exc)
-                    )
+                    return self._fail(name, session, RemoteErrorCode.POLICY_BLOCKED, str(exc))
                 except Exception as exc:
                     # Failing to establish an owned worktree for a write is a
                     # containment refusal however it surfaced — including when
