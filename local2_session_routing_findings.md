@@ -450,3 +450,91 @@ SR-001 CLOSED · SR-002 CLOSED · SR-003 CLOSED · SR-004 CLOSED · SR-005 CLOSE
 verification gap rather than a known defect. Local2 closure untouched:
 `LOCAL2_COMPLETE = YES`, `CLOSURE_GATE = PASS`, `LOCAL2_RUNTIME_ACTIVE = YES`,
 `INTEGRATION = DEFERRED`.
+
+
+---
+
+# Phase 6 — Case D: PARTIAL (safety closed, precision gap open)
+
+Structure: `P` canonical parent, `W` linked session worktree of `P`, `N = P/nested`
+created with its own `git init` **after** P's commit so it is never inherited.
+
+| Case | Property | Result |
+|---|---|---|
+| D-B | nested absent from W must not fall back to `P/nested` | **PASS** |
+| D-C | `P/nested` sentinel invisible to a session target | **PASS** |
+| D-D | public target enum has no nested member (not extended) | **PASS** |
+| — | translation never selects `P/nested` from a session target | **PASS** |
+| D-A | nested repo materialised **in** W is selectable as `W/nested` | **FAIL (strict xfail)** |
+
+## The safety property holds
+
+The failure mode this phase existed to rule out — a session target silently
+operating on the canonical nested repository — **does not occur**. When the
+nested repo exists only in `P`, a session-scoped call is refused, and
+`P/nested` never appears as `cwd`, `repo_root` or `resolved_repo_root`. The
+refusal happens *before* the relative-path translation runs, so the translation
+cannot manufacture a cross-worktree nested selection.
+
+Plain session-target `git.status` / `git.diff` against the valid worktree still
+succeed and report `W`, which is correct.
+
+## The open gap (D-A)
+
+When a nested repository **is** materialised inside the worktree
+(`W/nested/.git`), a session-scoped call is still **refused** (or resolves to
+the worktree root) instead of selecting `W/nested`. Safe, but imprecise: a
+legitimate nested repository inside the worktree is unusable.
+
+This is left as a **strict xfail** with a reason, deliberately not fixed. Per
+§12 it must not be closed by special-casing nested repositories, falling back to
+canonical, or weakening target identity.
+
+**Structural change actually required:** repository selection must re-run against
+the *resolved target* as its boundary, so that `workspace_path` is interpreted
+relative to `W` rather than to `P`. Today `resolve_repo_target` is evaluated
+against the workspace binding and its result is only re-anchored afterwards, so
+a path that is valid under `W` is never considered. That is the same
+selection-vs-identity seam as Phase 5, one level deeper.
+
+## Two of my own test oracles were wrong and were corrected
+
+* I expected a plain session-target `git.status` to be refused when the nested
+  repo was absent. It is correct for it to **succeed** against the valid
+  worktree; only the *nested-scoped* probes must fail.
+* An initial attempt to "use" an unused fixture value produced dead
+  `if False else None` code; it was removed and the precondition turned into a
+  real assertion.
+
+## Regression
+
+| Suite | Baseline | Result |
+|---|---|---|
+| Case D | — | 4 passed, **1 strict xfail** |
+| routing + SR-001..SR-006 + P0-L + P0-Q + nested | green | **97 passed, 1 xfailed, 1 pre-existing failure** |
+| nested / direct / existing-worktree | 15 failed | **15 failed, zero new** |
+| unit-fast | 406 | **406 passed** |
+| goalrun | 1F / 200P | **1F / 200P** |
+| supervision | 7 | **7 passed** |
+| runtime | 3F / 526P | **3F / 526P** |
+| ledger | 24 | **24 passed** |
+| ruff (my files) | clean | clean |
+
+Repo-wide `ruff` reports 26 pre-existing errors, all in files this work never
+touched — including `runtime/harness/contract.py` and
+`tests/integration/test_harness_3o_runtime.py`, which are protected user WIP and
+were deliberately left alone.
+
+## Not done
+
+* **Mutation gates D1–D4 were not run.** No Case-D mutation evidence exists and
+  none is claimed.
+* D-A is not fixed, by design, pending the structural change above.
+
+## Final state
+
+`CASE-D = PARTIAL` · `SR-006 = CLOSED (safety) / open precision gap` ·
+`SESSION_ROUTING = NOT FINAL`
+
+Local2 closure untouched: `LOCAL2_COMPLETE = YES`, `CLOSURE_GATE = PASS`,
+`LOCAL2_RUNTIME_ACTIVE = YES`, `INTEGRATION = DEFERRED`.
