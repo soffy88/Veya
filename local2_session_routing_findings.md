@@ -1,9 +1,9 @@
 # Local2 Session-Worktree Routing Findings
 
-**STATUS: SR-002 PASS · SR-004 PASS** (committed). SR-001 / SR-003 / SR-005
-remain open by design.
+**STATUS: SR-002 CLOSED · SR-004 CLOSED · SR-001 CLOSED · SR-003 CLOSED ·
+SR-005 OPEN** (by design — separate phase).
 
-Phase baseline `82a0c89f`. SR-002 and SR-004 are implemented, closure-safe, and
+Phase baseline for SR-001/SR-003: `15e7a639`. SR-002 and SR-004 are implemented, closure-safe, and
 mutation-covered. The SR-001/003/005 work attempted earlier was reverted and is
 recorded below; `execution_id` precedence was never modified.
 
@@ -182,3 +182,95 @@ out-of-scope SR-001 / SR-003 seams.
 `runtime/harness/contract.py` sha `b3f747b422136bf8` unchanged · stash 1 ·
 509 worktrees · no untracked file removed · only addition is this phase's test
 suite. No `reset` / `clean` / `stash` / worktree deletion.
+
+
+---
+
+# Phase 3 — SR-001 + SR-003 (landed, `15e7a639` -> HEAD)
+
+## SR-001 — explicit canonical is no longer substituted
+
+`_base_dir`, `_resolve_target` and `_direct_workdir` now all receive
+`execution_target`. An explicit `CANONICAL_WORKTREE` / `HOST` resolves to the
+canonical root on both the read and the git seam. The canonical branches sit
+**after** the `execution_id` branch in each function, so SR-005 precedence is
+untouched.
+
+## SR-003 — a dead session worktree is refused, never degraded
+
+New module-level helper `_session_worktree_unusable()` reuses the SR-004
+`_invalid_git_target_reason` check, so a session worktree must be a *usable
+checkout*, not merely present. That closes the shapes presence-only checking
+missed:
+
+| Case | Previously | Now |
+|---|---|---|
+| D1 missing path | fell back | POLICY_BLOCKED |
+| D2 empty dir | fell back | POLICY_BLOCKED |
+| D3 `.git` deleted | fell back | POLICY_BLOCKED |
+| D4 dangling gitdir | fell back | POLICY_BLOCKED |
+| D5 metadata missing | fell back | POLICY_BLOCKED |
+| D6 registered, checkout invalid | fell back | POLICY_BLOCKED |
+
+The old `session.worktrees.pop(...)` + fall-through-to-workspace behaviour is
+gone, so a dead registration cannot silently become canonical.
+
+## Routing oracles
+
+Two sentinels, each in exactly one target: `canonical_only.txt` (canonical) and
+`session_only.txt` (session worktree). Ordering is load-bearing — a linked
+worktree inherits committed files, so `canonical_only.txt` is written *after*
+the worktree exists. `calc.py` is never used as an oracle.
+
+Tests: `tests/remote/test_sr001_sr003.py`, **19 passed**.
+Routing suite: 14 tests, **13 passed** (was 4 failing).
+
+## Response truthfulness — PARTIAL, documented
+
+The `repo_root` reported by git responses is still `ws_binding.repo_root`. Making
+it the actual Git root (`git_repo_root(target)`) fixes the last routing-suite
+failure but **broke 8 tests including `test_promotion_receipt_claims_match_observed_git_state`**, so per the closure rule it was reverted.
+
+Remaining known gap: `test_r8_reported_target_matches_reality` — for
+`CURRENT_SESSION_WORKTREE` the reported `repo_root` is the canonical root while
+the actual cwd is the worktree. Recorded as **SR-006**, not silently dropped.
+
+## Mutation results — 8 RED, 3 not effective
+
+RED: M1 canonical->session (read seam), M1b (git seam), M1c, M2 ignored
+`execution_target`, M2'' remap ignores canonical, M4 empty dir -> parent, M5
+invalid gitdir, M3-real dead session -> canonical.
+
+**Not effective (GREEN), reported rather than counted:**
+
+* mutating the `_base_dir` implicit dead-worktree branch
+* mutating either `_resolve_target` dead-worktree guard
+
+All three are defense-in-depth: the observable refusal is produced earlier (at
+`_base_dir`'s explicit-session branch), so no governed-surface test can observe
+these branches being removed. They are unproven, not proven-correct.
+
+Per §2, `M-SR1c` (letting `execution_id` override an explicit canonical target)
+is an SR-005 seam and is therefore **left open by design**, not fixed here.
+
+## Closure protection and regression
+
+| Suite | Baseline | Result |
+|---|---|---|
+| P0-L + P0-Q + SR-001/003 + SR-002/004 | green | **61 passed** |
+| routing suite | 4 failed | **13 passed / 1 failed (SR-006)** |
+| unit-fast | 406 | **406 passed** |
+| goalrun | 1F / 200P | **1F / 200P** |
+| supervision | 7 | **7 passed** |
+| runtime | 3F / 526P | **3F / 526P** |
+| ledger | 24 | **24 passed** |
+| ruff | clean | clean |
+
+`test_execution_defaults_to_the_canonical_worktree_by_design` still pins the
+default as canonical; the default target was **not** changed (§12).
+
+## WIP preserved
+
+`runtime/harness/contract.py` sha `b3f747b422136bf8` unchanged · stash 1 ·
+509 worktrees · no untracked file removed · no reset / clean / stash / worktree
+deletion.

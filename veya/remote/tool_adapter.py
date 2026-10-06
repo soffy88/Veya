@@ -1492,6 +1492,19 @@ RemoteJobManager = DurableJobManager
 
 
 # ── adapter ────────────────────────────────────────────────────────────
+def _session_worktree_unusable(worktree: str | Path | None) -> str | None:
+    """Why a registered session worktree cannot be used, or None if it can.
+
+    Presence is not enough. SR-003 covers a worktree whose directory survives but
+    whose checkout does not: a deleted ``.git`` entry (D3), a dangling linked-worktree
+    pointer (D4), or missing worktree metadata (D5). Those must be refused, never
+    silently answered from the canonical tree.
+    """
+    if not worktree:
+        return "no session worktree is registered"
+    return _invalid_git_target_reason(worktree)
+
+
 class RemoteToolAdapter:
     def __init__(
         self,
@@ -2216,7 +2229,10 @@ class RemoteToolAdapter:
             "artifact.read",
         }:
             base = self._base_dir(
-                session, str(workspace), execution_id=str(args.get("execution_id") or "")
+                session,
+                str(workspace),
+                execution_id=str(args.get("execution_id") or ""),
+                execution_target=str(args.get("execution_target") or ""),
             )
             return binding.veya_tool, self._read_args(name, session, policy, base, args), None
 
@@ -2358,7 +2374,14 @@ class RemoteToolAdapter:
             target = self._resolve_in(policy, base, args.get("path") or ".", must_exist=True)
             return {"path": str(target)}
         if name == "file.read":
-            target = self._resolve_target(session, policy, base, args["path"], must_exist=True)
+            target = self._resolve_target(
+                session,
+                policy,
+                base,
+                args["path"],
+                must_exist=True,
+                execution_target=str(args.get("execution_target") or ""),
+            )
             window, error = _read_window(
                 args.get("max_lines"),
                 name="max_lines",
@@ -2495,6 +2518,7 @@ class RemoteToolAdapter:
         *,
         must_exist: bool | None = True,
         for_write: bool = False,
+        execution_target: str = "",
     ) -> Path:
         """Resolve a path and map it into this session's isolated worktree.
 
@@ -2520,9 +2544,30 @@ class RemoteToolAdapter:
             require_repo=False,
         )
         target = Path(resolution.target_path)
-        if resolution.repo_root is not None:
+        explicit = str(execution_target or "").strip().upper()
+        # SR-001: an explicit canonical request is not remapped into the session
+        # worktree. Only session/isolated targets may be remapped.
+        remap_allowed = explicit not in ("CANONICAL_WORKTREE", "HOST")
+        # SR-003: a named-but-dead session worktree is refused here, at the read
+        # seam, so no caller can reach canonical through it.
+        if explicit == "CURRENT_SESSION_WORKTREE" and resolution.repo_root is not None:
+            live = session.worktrees.get(resolution.repo_root)
+            unusable = _session_worktree_unusable(live)
+            if unusable is not None:
+                raise RemoteToolAdapterError(
+                    RemoteErrorCode.POLICY_BLOCKED,
+                    "CURRENT_SESSION_WORKTREE requested but its worktree is "
+                    f"missing or invalid ({unusable}): {live}",
+                )
+        if resolution.repo_root is not None and remap_allowed:
             worktree = session.worktrees.get(resolution.repo_root)
             if worktree:
+                unusable = _session_worktree_unusable(worktree)
+                if unusable is not None:
+                    raise RemoteToolAdapterError(
+                        RemoteErrorCode.POLICY_BLOCKED,
+                        f"session worktree is missing or invalid ({unusable}): {worktree}",
+                    )
                 target = (Path(worktree) / target.relative_to(resolution.repo_root)).resolve(
                     strict=False
                 )
@@ -2540,26 +2585,72 @@ class RemoteToolAdapter:
             )
         return target
 
-    def _base_dir(self, session: RemoteSession, workspace: str, *, execution_id: str = "") -> str:
+    def _base_dir(
+        self,
+        session: RemoteSession,
+        workspace: str,
+        *,
+        execution_id: str = "",
+        execution_target: str = "",
+    ) -> str:
+        # SR-005 is out of scope: the execution_id branch stays first and is
+        # byte-identical, so its precedence is unchanged.
         if execution_id:
             repo = git_repo_root(workspace)
             if repo is not None:
                 binding = self.execution_worktrees.resolve(execution_id, repo)
                 return binding.worktree_path
+
+        target = str(execution_target or "").strip().upper()
+        repo = git_repo_root(workspace)
+        canonical_root = str(repo) if repo is not None else str(workspace)
+
+        # SR-001: an explicit canonical request is answered from the canonical
+        # root only. The session worktree, the cwd and any previous target are
+        # all irrelevant here.
+        if target in ("CANONICAL_WORKTREE", "HOST"):
+            return canonical_root
+
+        # SR-003: naming the session worktree means that exact worktree. If it is
+        # gone the call is refused -- never answered from canonical.
+        if target == "CURRENT_SESSION_WORKTREE":
+            if repo is None:
+                raise RemoteToolAdapterError(
+                    RemoteErrorCode.POLICY_BLOCKED,
+                    "CURRENT_SESSION_WORKTREE requested outside a git repository",
+                )
+            mapped = session.worktrees.get(str(repo))
+            unusable = _session_worktree_unusable(mapped)
+            if unusable is not None:
+                raise RemoteToolAdapterError(
+                    RemoteErrorCode.POLICY_BLOCKED,
+                    "CURRENT_SESSION_WORKTREE requested but its worktree is "
+                    f"missing or invalid ({unusable}): {mapped}",
+                )
+            return str(mapped)
+
         # Worktrees are keyed by repository root; fall back to the raw workspace
         # key only for the legacy non-git case.
-        repo = git_repo_root(workspace)
         if repo is not None:
             mapped = session.worktrees.get(str(repo))
             if mapped:
-                if Path(mapped).exists():
+                # SR-003: a registered-but-unusable session worktree must not
+                # quietly become the canonical tree for a session-bound read.
+                unusable = _session_worktree_unusable(mapped)
+                if unusable is None:
                     return mapped
-                session.worktrees.pop(str(repo), None)
+                raise RemoteToolAdapterError(
+                    RemoteErrorCode.POLICY_BLOCKED,
+                    f"session worktree is missing or invalid ({unusable}): {mapped}",
+                )
         raw = session.worktrees.get(workspace)
         if raw:
             if Path(raw).exists():
                 return raw
-            session.worktrees.pop(workspace, None)
+            raise RemoteToolAdapterError(
+                RemoteErrorCode.POLICY_BLOCKED,
+                f"session worktree is missing or invalid: {raw}",
+            )
         return workspace
 
     def _task_id(self, session: RemoteSession, workspace: str, lane: str = "") -> str:
@@ -2720,6 +2811,11 @@ class RemoteToolAdapter:
                     "registered worktree",
                 )
             return str(mapped)
+
+        # SR-001: an explicit canonical request runs against the canonical root.
+        # Placed after the execution_id branch, so SR-005 precedence is unchanged.
+        if target in ("CANONICAL_WORKTREE", "HOST"):
+            return str(ws_binding.repo_root)
         # Run in the session's isolated worktree when one already exists (edits
         # made via file.write/patch land there); otherwise the bound repo root.
         # The command path never *creates* a worktree, so submit stays fast.
@@ -4892,7 +4988,12 @@ class RemoteToolAdapter:
         *,
         resolution: RepoResolution,
     ) -> RemoteCallResult:
-        base = self._base_dir(session, ws_binding.requested_realpath)
+        base = self._base_dir(
+            session,
+            ws_binding.requested_realpath,
+            execution_id=str(args.get("execution_id") or ""),
+            execution_target=str(args.get("execution_target") or ""),
+        )
         try:
             payload = await self._fast_read_payload(session, policy, name, args, base)
         except RemoteToolAdapterError as exc:
@@ -5038,7 +5139,14 @@ class RemoteToolAdapter:
                 "duration_ms": result.duration_ms,
             }
         if name == "file.read":
-            target = self._resolve_target(session, policy, base, args["path"], must_exist=True)
+            target = self._resolve_target(
+                session,
+                policy,
+                base,
+                args["path"],
+                must_exist=True,
+                execution_target=str(args.get("execution_target") or ""),
+            )
             # Fast reads are deliberately synchronous.  They only resolve an
             # existing target and must not create an execution worktree or
             # initialize the event loop's default executor.
