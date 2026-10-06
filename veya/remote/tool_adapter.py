@@ -198,6 +198,21 @@ def _project_ecosystems(repo_root: str | Path) -> frozenset[str]:
     return frozenset(found)
 
 
+def _invalid_git_target_reason(target: str | Path) -> str | None:
+    """Why ``target`` cannot be used as a Git working tree, or None if it can.
+
+    R1. A missing directory, or a directory that is not a Git worktree at all,
+    is refused rather than allowed to degrade: the caller asked for a specific
+    tree and must never be handed a different one without being told.
+    """
+    path = Path(target)
+    if not path.exists():
+        return f"directory does not exist: {path}"
+    if not path.is_dir():
+        return f"not a directory: {path}"
+    return None
+
+
 def _git_pathspec(raw: Any) -> tuple[list[str], str | None]:
     """Validate a caller-supplied path filter into git pathspec arguments.
 
@@ -4394,6 +4409,19 @@ class RemoteToolAdapter:
                 "" if name == "git.promote" else str(args.get("execution_id") or "")
             ),
         )
+        # R1: a session worktree can be deleted out from under the session. The
+        # mapped path then no longer exists, and running git against it fails --
+        # but the failure was being reported as a clean, empty repository, and the
+        # response still named the dead path as ``cwd`` while the operation ran
+        # against whatever git fell back to. Refuse here instead, so the reported
+        # cwd, the tree actually used, and the caller's requested target are the
+        # same thing or the call does not happen.
+        invalid = _invalid_git_target_reason(target)
+        if invalid is not None:
+            return self._fail(
+                name, session, RemoteErrorCode.POLICY_BLOCKED,
+                f"target worktree is not usable: {invalid}",
+            )
         # P0-Q follow-up. Every governed Git tool resolves its target through
         # this block, and an explicitly canonical request is now honoured as the
         # canonical root so the manager's ownership check refuses it.
@@ -4439,6 +4467,14 @@ class RemoteToolAdapter:
                 code, out, err = await self._run_capture(
                     ["git", "-C", target, "status", "--porcelain=v1", "--branch"], timeout=20
                 )
+                # R2: a non-zero exit is not an empty status. Reporting a failed
+                # git invocation as "clean" is how a real change became
+                # indistinguishable from no change.
+                if code != 0:
+                    return self._fail(
+                        name, session, RemoteErrorCode.EXECUTION_FAILED,
+                        f"git status failed in {target}: {(err or out).strip()[:400]}",
+                    )
                 payload = self._parse_git_status(out)
                 payload["exit_code"] = code
             elif name == "git.diff":
@@ -4450,6 +4486,12 @@ class RemoteToolAdapter:
                     # "--" so git reads the filter as a pathspec, never as an option.
                     argv += ["--", *pathspec]
                 code, out, err = await self._run_capture(argv, timeout=30)
+                # R2: same rule as status -- an error must not serialise as "".
+                if code != 0:
+                    return self._fail(
+                        name, session, RemoteErrorCode.EXECUTION_FAILED,
+                        f"git diff failed in {target}: {(err or out).strip()[:400]}",
+                    )
                 text, truncated = self._limit(out)
                 payload = {
                     "diff": text,

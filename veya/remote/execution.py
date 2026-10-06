@@ -3065,7 +3065,22 @@ class DurableJobManager:
                 # run_independent_verifier treats a non-zero exit_code as
                 # explicit failure evidence.
                 exit_code = record.exit_code
-                record_failed = exit_code is not None and exit_code != 0
+                # R3: fail closed. Deriving failure from exit_code alone reported
+                # a spawn failure as PASS, because a command that never started has
+                # no exit code at all (exit_code None, failure_class set). Success is
+                # now the only thing that can produce a passing verdict.
+                # A missing exit code is NOT itself a failure: some successful
+                # paths (veya.mission.run among them) never produce one, and
+                # treating that as failure broke them. Failure is the presence of a
+                # positive failure signal -- a non-zero exit, a failure class, or a
+                # direct status that is not a success. The spawn failure this was
+                # written for has no exit code but does carry a failure class.
+                record_failed = (
+                    (exit_code is not None and exit_code != 0)
+                    or bool(record.failure_class)
+                    or str(getattr(record, "direct_status", "") or "") in
+                    {"failed", "error", "blocked"}
+                )
                 bundle = bundle.add_evidence(
                     EvidenceItem(
                         id="direct-command-observed",
@@ -3090,6 +3105,8 @@ class DurableJobManager:
                             "bot_id": state.bot_id,
                             "exit_code": exit_code,
                             "failed": record_failed,
+                            "failure_class": record.failure_class,
+                            "direct_status": getattr(record, "direct_status", None),
                             "execution_id": record.execution_id,
                         },
                     )
