@@ -1492,6 +1492,26 @@ RemoteJobManager = DurableJobManager
 
 
 # ── adapter ────────────────────────────────────────────────────────────
+def _observation_for(target: str, fallback: RepoResolution) -> RepoResolution:
+    """SR-006: the observation must describe the tree actually used.
+
+    ``resolve_repo_target`` runs against the workspace binding, so for a governed
+    Git call whose target is a session or execution worktree the payload's
+    ``resolved_repo_root`` named the canonical root while the command ran -- and
+    ``cwd`` reported -- somewhere else. That splits observation from target
+    identity. Re-resolving against the resolved target keeps the lineage
+    Target Resolver -> ResolvedTarget -> Git observation -> receipt.
+
+    ``repo_root`` is deliberately left as the binding identity; only the
+    *resolution* is re-derived, so no second target authority is introduced.
+    """
+    try:
+        observed = resolve_repo_target(target, ".", operation="git.observe", require_repo=False)
+    except Exception:
+        return fallback
+    return observed if observed.repo_root else fallback
+
+
 def _session_worktree_unusable(worktree: str | Path | None) -> str | None:
     """Why a registered session worktree cannot be used, or None if it can.
 
@@ -2593,15 +2613,17 @@ class RemoteToolAdapter:
         execution_id: str = "",
         execution_target: str = "",
     ) -> str:
-        # SR-005 is out of scope: the execution_id branch stays first and is
-        # byte-identical, so its precedence is unchanged.
-        if execution_id:
+        target = str(execution_target or "").strip().upper()
+
+        # SR-005: an explicit execution_target outranks an execution_id. The id
+        # remains authoritative for execution-context lookup, but it must not
+        # relocate a request the caller pinned. With no explicit target the
+        # established execution_id behaviour is preserved exactly.
+        if not target and execution_id:
             repo = git_repo_root(workspace)
             if repo is not None:
                 binding = self.execution_worktrees.resolve(execution_id, repo)
                 return binding.worktree_path
-
-        target = str(execution_target or "").strip().upper()
         repo = git_repo_root(workspace)
         canonical_root = str(repo) if repo is not None else str(workspace)
 
@@ -2795,13 +2817,15 @@ class RemoteToolAdapter:
         execution_target: str = "",
     ) -> str:
         target = str(execution_target or "").strip().upper()
-        if execution_id:
+        # SR-005: an explicit execution_target outranks an execution_id. The id
+        # remains authoritative for execution-context lookup, but it must not
+        # relocate a request the caller pinned. With no explicit target the
+        # established execution_id resolution is preserved exactly.
+        if not target and execution_id:
             return self.execution_worktrees.resolve(
                 execution_id, ws_binding.repo_root
             ).worktree_path
-        # SR-002: name the session's own worktree explicitly. Placed after the
-        # execution_id branch on purpose, so execution_id precedence is
-        # unchanged (SR-005 is out of scope here).
+        # SR-002: name the session's own worktree explicitly.
         if target == "CURRENT_SESSION_WORKTREE":
             mapped = session.worktrees.get(ws_binding.repo_root)
             if not mapped:

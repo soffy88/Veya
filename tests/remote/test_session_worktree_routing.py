@@ -394,12 +394,22 @@ async def test_r8_reported_target_matches_reality(repo: Path) -> None:
             if cwd:
                 assert Path(cwd).resolve() == expect.resolve(), (target, cwd, expect)
                 assert Path(cwd).resolve() == Path(os.path.realpath(cwd))
-            reported_root = result.get("repo_root")
-            if reported_root:
+            # Two distinct claims, two distinct fields:
+            #   repo_root                    -> repository IDENTITY (canonical)
+            #   resolution.resolved_repo_root -> the tree actually used
+            # The observation field is the one that must match git; asserting the
+            # identity field against the oracle was a wrong field mapping.
+            observed_root = (result.get("resolution") or {}).get("resolved_repo_root")
+            if observed_root:
                 assert (
-                    Path(reported_root).resolve()
+                    Path(observed_root).resolve()
                     == Path(git(expect, "rev-parse", "--show-toplevel")).resolve()
-                ), (target, reported_root)
+                ), (target, observed_root)
+            identity_root = result.get("repo_root")
+            if identity_root:
+                assert Path(identity_root).resolve() == repo.resolve(), (
+                    target, identity_root, repo,
+                )
 
 
 # ══ R9 — session lifecycle must not silently drop a dead worktree ══════

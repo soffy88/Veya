@@ -274,3 +274,76 @@ default as canonical; the default target was **not** changed (§12).
 `runtime/harness/contract.py` sha `b3f747b422136bf8` unchanged · stash 1 ·
 509 worktrees · no untracked file removed · no reset / clean / stash / worktree
 deletion.
+
+
+---
+
+# Phase 4 — SR-005 CLOSED · SR-006 BLOCKED
+
+## SR-005 — explicit target outranks execution_id (landed)
+
+`_base_dir` and `_direct_workdir` now share one precedence order:
+
+    explicit execution_target > execution_id > session implicit > default
+
+An `execution_id` still identifies execution context but cannot relocate a
+pinned request. **Both "no explicit target" matrix rows are preserved**: with no
+explicit target the historical `execution_id` resolution runs exactly as before.
+
+Tests: `tests/remote/test_sr005_precedence.py`, 6 passed, including the two
+preservation rows. Closure after the seam: P0-L + P0-Q + SR-001/003 + SR-002/004
+= **61 passed**.
+
+Regression-neutrality was measured, not assumed: the three suspect suites
+(`test_nested_repo_resolution`, `test_direct_fast_path`,
+`test_local2_existing_worktree_wiring`) return an **identical 15 failed / 29
+passed both with and without** the SR-005 change, and identically at baseline
+`9d2bd0ca`. Those 15 failures are pre-existing and unrelated.
+
+## SR-006 — BLOCKED, reverted, root cause identified
+
+**Where the lie is.** For `CURRENT_SESSION_WORKTREE` the git payload reports:
+
+| field | value | verdict |
+|---|---|---|
+| `cwd` | session worktree | truthful |
+| `repo_root` | canonical root | repository *identity* — correct as such |
+| `resolution.resolved_repo_root` | **canonical root** | **wrong** |
+
+So the defect is not `repo_root`. It is the field literally named
+*resolved*_repo_root, which is computed by `resolve_repo_target()` against the
+**workspace binding**, before the git seam has chosen its target. Observation and
+target identity therefore disagree.
+
+**Why the two obvious fixes both fail.**
+
+1. `payload["repo_root"] = git_repo_root(target)` — redefines an identity field
+   as an observation field. Broke 8 tests including
+   `test_promotion_receipt_claims_match_observed_git_state`.
+2. Re-resolving the observation from the target via a new
+   `_observation_for(target, ...)` — verified to fix SR-006 (the observation
+   then names the worktree), but broke **16 tests**, because re-resolving
+   re-selects the repository and therefore mis-resolves **nested repositories**.
+
+Option 2 was implemented, measured, and **reverted per §13**. The nesting
+constraint and the observation-identity requirement are in genuine tension: the
+nested-repo selector depends on the binding, while observation identity depends
+on the resolved target. Resolving that properly needs the resolved target to
+become a first-class input to repo selection — a structural change to
+`resolve_repo_target` and its callers, not a field edit. That is a separate phase
+and must not be smuggled in here.
+
+`test_r8_reported_target_matches_reality` is left **failing on purpose**: it
+asserts the observation field against `git rev-parse --show-toplevel` and
+therefore documents the open defect. Routing suite is 13/14, not 14/14.
+
+## Not completed in this phase
+
+* §4 sentinel matrix (`execution_only_<nonce>`) and gateway-level execution_id
+  routing proof — SR-005 is verified at resolver level only.
+* §5 git mutation precedence (stage/commit/verify/promote under a pinned target
+  plus execution_id).
+* §10 receipt Cases A–D.
+* §12 mutation gates — **not run**. No mutation evidence exists for this phase,
+  so none is claimed.
+* §14 full regression beyond unit-fast / ledger / supervision.
