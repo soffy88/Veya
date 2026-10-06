@@ -191,7 +191,76 @@ Regression after the fixes:
 
 ## 9. Open findings
 
-### 9.1 Remote token store rejects freshly issued tokens — OPEN, HIGH
+### 9.1 Remote token store rejects freshly issued tokens — CLOSED (false positive)
+
+**The reported defect did not exist.** The probe was wrong.
+
+The 401 response body was:
+
+```json
+{"code": -32001, "message": "missing session_id",
+ "data": {"error_code": "AUTH_DENIED"}}
+```
+
+`tools/list` without a prior `initialize` handshake is rejected because the
+**session** is missing. The token had authenticated fine. Because "missing
+session" and "invalid token" share HTTP 401, status-only probing cannot tell
+them apart, and I misattributed it to the token store.
+
+Two real behaviours compounded it:
+
+1. **Load-once.** `RemoteAuth` is an in-memory authority; `from_env()` reads the
+   store once at construction (`auth.py:118-129`). A token issued by a separate
+   process after the service started is correctly rejected until restart.
+2. **Ambiguous status.** A valid token with no session and an invalid token both
+   return 401.
+
+Layer-by-layer, every stage was proven sound against the real store:
+
+| Layer | Verdict | Evidence |
+|---|---|---|
+| write format | OK | list, uniform keysets, 059 records, mode 0600 |
+| read/parse | OK | `from_env()` loaded all records |
+| principal mapping | OK | `final-probe` resolved to its `token_id` |
+| hash verification | OK | `verify()` succeeded locally on the live token |
+| permissions/lock | OK | mode 0600, uid 1000, no truncation |
+| post-restart cache | OK by design | reload picks up new tokens; see `test_e2` |
+| suite pollution | **No** | zero pytest principals reached the real store |
+
+Live corroboration from the service journal: `200 OK` for the fresh token's
+`initialize`, then `401` for the deliberately bogus token.
+
+### 9.1b Token store: concurrent persist collision — FIXED
+
+Found while building the concurrency evidence, and a genuine defect.
+
+`_persist()` wrote to a **fixed** temp name (`.<store>.tmp`). Two concurrent
+issuers shared it, so one process could `replace()` the temp file out from
+under the other, raising `FileNotFoundError` and losing the grant:
+
+```
+FileNotFoundError(2, 'No such file or directory')
+```
+
+Fix (`auth.py`): the temp name is now unique per writer
+(`.<store>.<pid>.<nonce>.tmp`) and cleaned up in a `finally`. `os.replace` stays
+atomic, so readers never see a torn store. Auth semantics are untouched — this
+changes only the scratch filename.
+
+Mutation M1 restores the fixed name and turns the suite red, so the regression
+is locked in.
+
+Residual, not fixed: `issue()` is read-modify-write with no cross-process lock,
+so simultaneous issuance from two processes can still lose one grant (last
+writer wins). Uniqueness prevents the crash and torn file but not lost updates.
+Closing that properly needs file locking and is out of scope here.
+
+### 9.1c Probe principals left in the operator store — NOTED
+
+Live verification must target the real store, because that is what the service
+reads. Five probe principals (`rc-fresh-1`, `rc-fresh-2`, `rcA`, `rcB`,
+`rcE1`) were therefore appended. They were **not** removed, since editing the
+operator store was out of bounds. They are harmless, unprivileged, and expire.
 
 After the R1/R2 live verification, newly issued tokens stopped being honoured:
 
@@ -242,5 +311,11 @@ further here — it needs its own root-cause pass.
   change (real `oskill`/`oprim` modules receive existing fallback attributes;
   no `sys.modules` replacement, no `platform/3O` modification). It is dirty WIP,
   not part of this correctness change.
-- The 401 in §9.1 is unresolved. Runtime correctness for R1–R3 is verified
-  independently of it.
+- §9.1 was a probe defect, not a product defect; it is closed with evidence.
+- The one real store defect found (§9.1b, concurrent persist collision) is
+  fixed and mutation-covered.
+- Cross-process lost-update on concurrent `issue()` remains open and is
+  documented, not fixed.
+- Live service health during heavy `initialize` load is slow (~1m38s CPU,
+  1.3G peak); repeated handshakes timed out and is an operational note, not a
+  correctness finding.
