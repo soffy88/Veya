@@ -1555,6 +1555,29 @@ def _observation_for(target: str, fallback: RepoResolution, binding_root: str) -
     )
 
 
+def _map_nested_path(
+    worktree: Path, workspace_root: str | Path, resolution: RepoResolution
+) -> Path:
+    """Translate one resolved operation target onto a session worktree.
+
+    ``workspace_root`` is the parent repository root (P) that owns the session
+    worktree.  When the operation selected a nested repository under P, the
+    resolution's ``target_path`` sits below P; translating it onto the worktree
+    by the same relative path keeps the nested layout instead of re-resolving
+    the nested repo against the canonical tree (which would read the wrong
+    repository).  A root target (relative ``.``) maps to the worktree root.
+    """
+
+    base = Path(str(workspace_root)).resolve()
+    target = Path(resolution.target_path).resolve()
+    try:
+        relative = target.relative_to(base)
+    except ValueError:
+        # Not visibly nested under the owner root; keep the worktree root.
+        return Path(worktree).resolve()
+    return (Path(worktree).resolve() / relative).resolve()
+
+
 def _session_worktree_unusable(worktree: str | Path | None) -> str | None:
     """Why a registered session worktree cannot be used, or None if it can.
 
@@ -1910,6 +1933,11 @@ class RemoteToolAdapter:
         except WorkspaceBindingError as exc:
             return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)
         workspace = ws_binding.requested_realpath
+        # The session worktree is keyed by the parent repository root that owns
+        # it.  Capture it before ``with_resolution`` narrows the binding to a
+        # nested repository, so session-target lookups still find the worktree
+        # and nested targets can be translated onto it.
+        workspace_repo_root = ws_binding.repo_root
 
         if name.startswith("approval."):
             return self._approval_call(session, name, args, workspace, started)
@@ -1989,11 +2017,24 @@ class RemoteToolAdapter:
         # P0-A: fast metadata primitives are synchronous; never a job, never an LLM.
         if name in _FAST_READ_TOOLS:
             return await self._call_fast_read(
-                session, policy, name, args, ws_binding, started, resolution=resolution
+                session,
+                policy,
+                name,
+                args,
+                ws_binding,
+                started,
+                resolution=resolution,
+                workspace_repo_root=workspace_repo_root,
             )
         if name in _FAST_GIT_TOOLS:
             return await self._call_fast_git(
-                session, name, args, operation_binding, started, resolution=resolution
+                session,
+                name,
+                args,
+                operation_binding,
+                started,
+                resolution=resolution,
+                workspace_repo_root=workspace_repo_root,
             )
 
         # L1 parallel dispatch (mechanical; no planning/routing/JEV).
@@ -2020,7 +2061,13 @@ class RemoteToolAdapter:
                 veya_tool=str(binding.veya_tool or ""),
                 binding=operation_binding,
                 runner=self._make_long_runner(
-                    session, policy, binding, args, operation_binding, tool=name
+                    session,
+                    policy,
+                    binding,
+                    args,
+                    operation_binding,
+                    tool=name,
+                    workspace_repo_root=workspace_repo_root,
                 ),
                 limits=_execution_limits(name, args),
             )
@@ -2079,7 +2126,12 @@ class RemoteToolAdapter:
 
         try:
             veya_tool, kwargs, write_root = await self._prepare(
-                session, policy, binding, args, operation_binding
+                session,
+                policy,
+                binding,
+                args,
+                operation_binding,
+                workspace_repo_root=workspace_repo_root,
             )
         except RemoteToolAdapterError as exc:
             return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)
@@ -2266,6 +2318,8 @@ class RemoteToolAdapter:
         binding: ToolBinding,
         args: dict[str, Any],
         ws_binding: WorkspaceBinding,
+        *,
+        workspace_repo_root: str | None = None,
     ) -> tuple[str, dict[str, Any], Path | None]:
         workspace = policy.root
         ensure_readable(str(workspace))
@@ -2297,7 +2351,13 @@ class RemoteToolAdapter:
                 execution_id=str(args.get("execution_id") or ""),
                 execution_target=str(args.get("execution_target") or ""),
             )
-            return binding.veya_tool, self._read_args(name, session, policy, base, args), None
+            return (
+                binding.veya_tool,
+                self._read_args(
+                    name, session, policy, base, args, workspace_repo_root=workspace_repo_root
+                ),
+                None,
+            )
 
         # Mutations use the operation resolution computed before dispatch.  This
         # keeps file.write/file.patch on the same nested-repo worktree as every
@@ -2432,6 +2492,8 @@ class RemoteToolAdapter:
         policy: WorkspacePolicy,
         base: str,
         args: dict[str, Any],
+        *,
+        workspace_repo_root: str | None = None,
     ) -> dict[str, Any]:
         if name in {"workspace.list", "workspace.info"}:
             target = self._resolve_in(policy, base, args.get("path") or ".", must_exist=True)
@@ -2444,6 +2506,7 @@ class RemoteToolAdapter:
                 args["path"],
                 must_exist=True,
                 execution_target=str(args.get("execution_target") or ""),
+                workspace_repo_root=workspace_repo_root,
             )
             window, error = _read_window(
                 args.get("max_lines"),
@@ -2459,7 +2522,12 @@ class RemoteToolAdapter:
             return {"filepath": str(target), "max_lines": window, "start_line": begin}
         if name == "file.search":
             root = self._resolve_target(
-                session, policy, base, args.get("path") or ".", must_exist=True
+                session,
+                policy,
+                base,
+                args.get("path") or ".",
+                must_exist=True,
+                workspace_repo_root=workspace_repo_root,
             )
             kwargs: dict[str, Any] = {"pattern": str(args["pattern"]), "root": str(root)}
             if args.get("glob"):
@@ -2582,6 +2650,7 @@ class RemoteToolAdapter:
         must_exist: bool | None = True,
         for_write: bool = False,
         execution_target: str = "",
+        workspace_repo_root: str | None = None,
     ) -> Path:
         """Resolve a path and map it into this session's isolated worktree.
 
@@ -2611,10 +2680,15 @@ class RemoteToolAdapter:
         # SR-001: an explicit canonical request is not remapped into the session
         # worktree. Only session/isolated targets may be remapped.
         remap_allowed = explicit not in ("CANONICAL_WORKTREE", "HOST")
+        # The session worktree is keyed by the parent repository root that owns
+        # it.  When a nested repository was selected ``resolution.repo_root`` is
+        # the nested root, not that owner, so look the worktree up by the
+        # session's own root and translate the nested target onto it.
+        owner_root = workspace_repo_root or resolution.repo_root
         # SR-003: a named-but-dead session worktree is refused here, at the read
         # seam, so no caller can reach canonical through it.
         if explicit == "CURRENT_SESSION_WORKTREE" and resolution.repo_root is not None:
-            live = session.worktrees.get(resolution.repo_root)
+            live = session.worktrees.get(owner_root or resolution.repo_root)
             unusable = _session_worktree_unusable(live)
             if unusable is not None:
                 raise RemoteToolAdapterError(
@@ -2623,7 +2697,15 @@ class RemoteToolAdapter:
                     f"missing or invalid ({unusable}): {live}",
                 )
         if resolution.repo_root is not None and remap_allowed:
-            worktree = session.worktrees.get(resolution.repo_root)
+            # Prefer the session owner root (P); fall back to the nested
+            # resolved repo for the legacy keying where worktrees are keyed by
+            # the resolved repo rather than the containing workspace.
+            owner_root_str = owner_root or resolution.repo_root
+            worktree = session.worktrees.get(owner_root_str)
+            map_root = owner_root_str
+            if worktree is None and owner_root_str != resolution.repo_root:
+                worktree = session.worktrees.get(resolution.repo_root)
+                map_root = resolution.repo_root
             if worktree:
                 unusable = _session_worktree_unusable(worktree)
                 if unusable is not None:
@@ -2631,7 +2713,12 @@ class RemoteToolAdapter:
                         RemoteErrorCode.POLICY_BLOCKED,
                         f"session worktree is missing or invalid ({unusable}): {worktree}",
                     )
-                target = (Path(worktree) / target.relative_to(resolution.repo_root)).resolve(
+                # Translate the target onto the worktree by its path relative to
+                # the root that owns the lookup (not the nested
+                # ``resolution.repo_root``), so a nested selection lands inside
+                # the worktree instead of being resolved against the canonical
+                # nested repo.
+                target = (Path(worktree) / target.relative_to(Path(map_root).resolve())).resolve(
                     strict=False
                 )
                 worktree_root = Path(worktree).resolve()
@@ -2858,6 +2945,8 @@ class RemoteToolAdapter:
         *,
         execution_id: str = "",
         execution_target: str = "",
+        workspace_repo_root: str | None = None,
+        resolution: RepoResolution | None = None,
     ) -> str:
         target = str(execution_target or "").strip().upper()
         # SR-005: an explicit execution_target outranks an execution_id. The id
@@ -2870,13 +2959,35 @@ class RemoteToolAdapter:
             ).worktree_path
         # SR-002: name the session's own worktree explicitly.
         if target == "CURRENT_SESSION_WORKTREE":
-            mapped = session.worktrees.get(ws_binding.repo_root)
+            # The session worktree is registered against the parent repository
+            # root that owns it.  ``ws_binding.repo_root`` here is the operation
+            # binding, which is narrowed to a nested repo when one was selected;
+            # look the worktree up by the session's own root so a nested
+            # selection still finds it.
+            owner_root = workspace_repo_root or ws_binding.repo_root
+            mapped = session.worktrees.get(owner_root)
             if not mapped:
                 raise RemoteToolAdapterError(
                     RemoteErrorCode.POLICY_BLOCKED,
                     "CURRENT_SESSION_WORKTREE requested but this session has no "
                     "registered worktree",
                 )
+            # A nested repository was selected: translate it onto the session
+            # worktree.  If the nested repository is not materialised there, the
+            # call is refused -- never answered from the canonical nested repo.
+            if (
+                resolution is not None
+                and resolution.repo_root is not None
+                and canonical(resolution.repo_root) != canonical(str(owner_root))
+            ):
+                candidate = _map_nested_path(Path(mapped), str(owner_root), resolution)
+                if _invalid_git_target_reason(candidate) is not None:
+                    raise RemoteToolAdapterError(
+                        RemoteErrorCode.POLICY_BLOCKED,
+                        "requested nested repository does not exist under selected "
+                        f"session worktree: {candidate}",
+                    )
+                return str(candidate)
             return str(mapped)
 
         # SR-001: an explicit canonical request runs against the canonical root.
@@ -4627,6 +4738,7 @@ class RemoteToolAdapter:
         started: float,
         *,
         resolution: RepoResolution,
+        workspace_repo_root: str | None = None,
     ) -> RemoteCallResult:
         # P0-Q: git.promote is a governed Git mutation, so its target comes from
         # the resolution block below, not from execution_id. Resolving it through
@@ -4638,6 +4750,8 @@ class RemoteToolAdapter:
                 ws_binding,
                 execution_id=("" if name == "git.promote" else str(args.get("execution_id") or "")),
                 execution_target=str(args.get("execution_target") or ""),
+                workspace_repo_root=workspace_repo_root or ws_binding.repo_root,
+                resolution=resolution,
             )
         except RemoteToolAdapterError as exc:
             # An unresolvable target is a refusal with its own code, not a
@@ -5064,6 +5178,7 @@ class RemoteToolAdapter:
         started: float,
         *,
         resolution: RepoResolution,
+        workspace_repo_root: str | None = None,
     ) -> RemoteCallResult:
         base = self._base_dir(
             session,
@@ -5072,7 +5187,14 @@ class RemoteToolAdapter:
             execution_target=str(args.get("execution_target") or ""),
         )
         try:
-            payload = await self._fast_read_payload(session, policy, name, args, base)
+            payload = await self._fast_read_payload(
+                session,
+                policy,
+                name,
+                args,
+                base,
+                workspace_repo_root=workspace_repo_root or ws_binding.repo_root,
+            )
         except RemoteToolAdapterError as exc:
             return self._fail(name, session, RemoteErrorCode(exc.code), exc.message)
         except WorkspacePolicyError as exc:
@@ -5100,6 +5222,8 @@ class RemoteToolAdapter:
         name: str,
         args: dict[str, Any],
         base: str,
+        *,
+        workspace_repo_root: str | None = None,
     ) -> dict[str, Any]:
         if name == "workspace.info":
             target = self._resolve_in(policy, base, args.get("path") or ".", must_exist=True)
@@ -5223,6 +5347,7 @@ class RemoteToolAdapter:
                 args["path"],
                 must_exist=True,
                 execution_target=str(args.get("execution_target") or ""),
+                workspace_repo_root=workspace_repo_root,
             )
             # Fast reads are deliberately synchronous.  They only resolve an
             # existing target and must not create an execution worktree or
@@ -5262,7 +5387,12 @@ class RemoteToolAdapter:
             return result
         if name == "file.search":
             root = self._resolve_target(
-                session, policy, base, args.get("path") or ".", must_exist=True
+                session,
+                policy,
+                base,
+                args.get("path") or ".",
+                must_exist=True,
+                workspace_repo_root=workspace_repo_root,
             )
             limits = self._search_window_args(args)
             argv = build_ripgrep_args(
@@ -5328,6 +5458,7 @@ class RemoteToolAdapter:
         args: dict[str, Any],
         ws_binding: WorkspaceBinding,
         *,
+        workspace_repo_root: str | None = None,
         tool: str,
     ) -> Any:
         async def runner(reporter: ProgressReporter) -> str:
@@ -5338,7 +5469,12 @@ class RemoteToolAdapter:
             )
             try:
                 veya_tool, kwargs, write_root = await self._prepare(
-                    session, policy, binding, args, ws_binding
+                    session,
+                    policy,
+                    binding,
+                    args,
+                    ws_binding,
+                    workspace_repo_root=workspace_repo_root,
                 )
             except (RemoteToolAdapterError, WorkspacePolicyError, WorkspaceBindingError) as exc:
                 raise ExecutionBlocked(
