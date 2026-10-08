@@ -38,7 +38,7 @@ print("=== ① /share 脱敏 ===")
 # Create a session with sensitive data
 r = client.post(
     "/session",
-    json={"persona": "build", "config": {"api_key": "sk-c1a49b21757040e5abba2a578634f6c0"}},
+    json={"persona": "build", "config": {"api_key": "sk-REDACTED-test-key-0000000000000"}},
 )
 sid = r.json()["session_id"]
 
@@ -46,7 +46,7 @@ sid = r.json()["session_id"]
 from server.routes.session import _sessions, _shares
 
 _sessions[sid]["messages"] = [
-    {"role": "user", "content": "my key is sk-c1a49b21757040e5abba2a578634f6c0"},
+    {"role": "user", "content": "my key is sk-REDACTED-test-key-0000000000000"},
     {"role": "assistant", "content": "file saved to /home/soffy/projects/veya/.env"},
 ]
 
@@ -62,8 +62,8 @@ blob = json.dumps(payload)
 print(f"  redacted blob: {blob[:200]}", flush=True)
 check(
     "/share: sk-key REDACTED",
-    "sk-c1a49b21757040e5abba2a578634f6c0" not in blob,
-    "[LEAK] key still in payload" if "sk-c1a49b21757040e5abba2a578634f6c0" in blob else "ok",
+    "sk-REDACTED-test-key-0000000000000" not in blob,
+    "[LEAK] key still in payload" if "sk-REDACTED-test-key-0000000000000" in blob else "ok",
 )
 check(
     "/share: /home/soffy REDACTED",

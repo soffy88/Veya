@@ -61,9 +61,9 @@ services:
       dockerfile: deploy/Dockerfile.backend
     container_name: veya-backend
     ports:
-      - "8767:8765"      # gateway 通道 (VEYA_GATEWAY)
-      - "9120:8765"      # legacy 通道 (VEYA_LEGACY, 前端主脑/工具代理)
-      - "8768:8768"      # hicode serve (独立 oservi: submit/events/cancel/approve/plan/goal)
+      - "127.0.0.1:8767:8765"      # gateway 通道 (VEYA_GATEWAY)
+      - "127.0.0.1:9120:8765"      # legacy 通道 (VEYA_LEGACY, 前端主脑/工具代理)
+      - "127.0.0.1:8768:8768"      # hicode serve (独立 oservi: submit/events/cancel/approve/plan/goal)
     command: ["sh", "/app/hicode-entrypoint.sh"]
     environment:
       - VEYA_LLM_PROVIDER=${VEYA_LLM_PROVIDER:-veya1.2}
