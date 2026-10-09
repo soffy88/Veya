@@ -281,6 +281,18 @@ class WorkspacePolicy(PolicyLayer):
                 "workspace.abstain",
                 "workspace root unresolvable",
             )
+        # LOCAL2-U4: a pure, non-secret shell read outside the workspace (a
+        # sibling project, /tmp, the home dir) is not an escape worth denying;
+        # the engine's own wide-read rule decides it.
+        from .permission_engine import _is_wide_read
+
+        if _is_wide_read(context):
+            return LayerVerdict(
+                self.name,
+                LayerOutcome.ABSTAIN,
+                "workspace.wide-read",
+                "non-secret read outside the workspace",
+            )
         for target in context.target_paths:
             try:
                 canon = target.expanduser().resolve(strict=False)
