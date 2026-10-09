@@ -1624,6 +1624,25 @@ def _link_canonical_venvs(worktree: str | Path, repo_root: str | Path) -> list[s
                 continue
             dest.symlink_to(source, target_is_directory=True)
             linked.append(name)
+            # A ``venv/`` pattern matches directories only, so git would list
+            # the symlink as untracked.  Exclude it via the shared info/exclude
+            # (harmless for the canonical tree, which already ignores it).
+            still = subprocess.run(
+                ["git", "-C", str(wt), "check-ignore", "-q", name],
+                capture_output=True, timeout=10, check=False,
+            )
+            if still.returncode != 0:
+                common = subprocess.run(
+                    ["git", "-C", str(wt), "rev-parse", "--git-common-dir"],
+                    capture_output=True, text=True, timeout=10, check=False,
+                ).stdout.strip()
+                if common:
+                    exclude = (wt / common).resolve() / "info" / "exclude"
+                    exclude.parent.mkdir(parents=True, exist_ok=True)
+                    lines = exclude.read_text().splitlines() if exclude.exists() else []
+                    if f"/{name}" not in lines:
+                        with exclude.open("a") as fh:
+                            fh.write(f"\n# Veya Remote MCP: linked virtualenv\n/{name}\n")
     except Exception:  # never let convenience linking break execution
         logging.getLogger("veya.remote.adapter").warning(
             "could not link canonical virtualenv into %s", worktree, exc_info=True
