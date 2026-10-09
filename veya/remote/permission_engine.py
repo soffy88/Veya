@@ -1397,11 +1397,18 @@ def unmodelled_command_construct(command: str) -> str | None:
     text = str(command or "")
     if not text.strip():
         return None
-    if "$(" in text or "`" in text:
+    # LOCAL2-U3: only constructs the *shell* interprets count.  A ``;`` or a
+    # newline inside quotes belongs to the argument (``python3 -c "import a;
+    # print(a)"``), and ``$(``/backticks inside single quotes are literal.
+    # Anything the scanner cannot read (unbalanced quoting) stays unmodelled.
+    scan = _shell_lexical_scan(text)
+    if scan is None:
+        return "unbalanced_quoting"
+    if scan["substitution"]:
         return "command_substitution"
-    if "\n" in text or "\r" in text:
+    if scan["newline"]:
         return "newline_separator"
-    if ";" in text:
+    if scan["semicolon"]:
         # Only ";" is unmodelled. Pipes and &&/||/& are already classified:
         # `ls | grep foo` is a read-only composition and must stay allowed, and
         # `echo ok | touch pwn` is already REVERSIBLE_MUTATION. Escalating them
@@ -1416,6 +1423,46 @@ def unmodelled_command_construct(command: str) -> str | None:
         inner = _wrapper_inner_command(text, Path(first).name)
         return f"wrapper:{Path(first).name}" if inner is None else None
     return None
+
+
+def _shell_lexical_scan(text: str) -> dict[str, bool] | None:
+    """Report shell-significant constructs outside quoting, or None if unbalanced.
+
+    ``substitution``: ``$(`` or a backtick outside single quotes (double quotes
+    still expand them).  ``semicolon`` / ``newline``: unquoted separators.
+    """
+    found = {"substitution": False, "semicolon": False, "newline": False}
+    single = double = escaped = False
+    for index, char in enumerate(text):
+        if escaped:
+            escaped = False
+            continue
+        if single:
+            if char == "'":
+                single = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if double:
+            if char == '"':
+                double = False
+            elif char == "`" or (char == "$" and text[index + 1 : index + 2] == "("):
+                found["substitution"] = True
+            continue
+        if char == "'":
+            single = True
+        elif char == '"':
+            double = True
+        elif char == "`" or (char == "$" and text[index + 1 : index + 2] == "("):
+            found["substitution"] = True
+        elif char == ";":
+            found["semicolon"] = True
+        elif char in "\r\n":
+            found["newline"] = True
+    if single or double or escaped:
+        return None
+    return found
 
 
 def _wrapper_inner_command(text: str, wrapper: str) -> str | None:
