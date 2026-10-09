@@ -137,8 +137,36 @@ def classify_destructive(command: str) -> str | None:
         return None
     for name, pattern in _DESTRUCTIVE_PATTERNS:
         if pattern.search(command):
+            if name == "pip-install" and is_project_local_install(command):
+                continue
             return name
     return None
+
+
+# LOCAL2-U4: installing into the project's own virtualenv is ordinary
+# development, not a host mutation.  Only a single, operator-free command whose
+# interpreter is a relative ``.venv``/``venv`` inside the working tree (or
+# ``uv pip install`` without ``--system``/``--python``/``--target``, which uv
+# resolves to the project's ``.venv``) qualifies.  Everything else that says
+# ``pip install`` keeps requiring approval.
+_LOCAL_VENV_PIP = re.compile(
+    r"^\s*(?:\./)?(?:\.venv|venv)/bin/(?:pip3?|python3?\s+-m\s+pip)\s+install\s"
+)
+_UV_PIP = re.compile(r"^\s*uv\s+pip\s+install\s")
+_UV_PIP_ESCAPES = re.compile(r"(?:^|\s)--(?:system|python|target|prefix|break-system-packages)\b|(?:^|\s)-p\s")
+
+
+def is_project_local_install(command: str) -> bool:
+    text = str(command or "")
+    if any(op in text for op in (";", "&", "|", "`", "$(", ">", "<", "\n")):
+        return False
+    if ".." in text:
+        return False
+    if _LOCAL_VENV_PIP.search(text):
+        return not re.search(r"(?:^|\s)--(?:target|prefix|root|user)\b", text)
+    if _UV_PIP.search(text):
+        return not _UV_PIP_ESCAPES.search(text)
+    return False
 
 
 @dataclass

@@ -1591,6 +1591,124 @@ def _session_worktree_unusable(worktree: str | Path | None) -> str | None:
     return _invalid_git_target_reason(worktree)
 
 
+_LINKABLE_VENV_NAMES = (".venv", "venv")
+
+
+def _link_canonical_venvs(worktree: str | Path, repo_root: str | Path) -> list[str]:
+    """LOCAL2-U4: give a fresh isolated worktree the project's virtualenv.
+
+    A linked worktree is a clean checkout: it has no untracked ``.venv``, so
+    tests could not import the project's dependencies there.  Link the
+    canonical virtualenv in -- only when the canonical repo git-ignores that
+    name (so the link can never be staged or committed) and the worktree has
+    nothing at that path.  Never copies, never overwrites.
+    """
+    linked: list[str] = []
+    try:
+        wt = Path(worktree).resolve()
+        root = Path(repo_root).resolve()
+        if wt == root:
+            return linked
+        for name in _LINKABLE_VENV_NAMES:
+            source = root / name
+            dest = wt / name
+            if not (source / "bin" / "python").exists() or dest.exists() or dest.is_symlink():
+                continue
+            probe = subprocess.run(
+                ["git", "-C", str(root), "check-ignore", "-q", name],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            if probe.returncode != 0:
+                continue
+            dest.symlink_to(source, target_is_directory=True)
+            linked.append(name)
+            # A ``venv/`` pattern matches directories only, so git would list
+            # the symlink as untracked.  Exclude it via the shared info/exclude
+            # (harmless for the canonical tree, which already ignores it).
+            still = subprocess.run(
+                ["git", "-C", str(wt), "check-ignore", "-q", name],
+                capture_output=True, timeout=10, check=False,
+            )
+            if still.returncode != 0:
+                common = subprocess.run(
+                    ["git", "-C", str(wt), "rev-parse", "--git-common-dir"],
+                    capture_output=True, text=True, timeout=10, check=False,
+                ).stdout.strip()
+                if common:
+                    exclude = (wt / common).resolve() / "info" / "exclude"
+                    exclude.parent.mkdir(parents=True, exist_ok=True)
+                    lines = exclude.read_text().splitlines() if exclude.exists() else []
+                    if f"/{name}" not in lines:
+                        with exclude.open("a") as fh:
+                            fh.write(f"\n# Veya Remote MCP: linked virtualenv\n/{name}\n")
+    except Exception:  # never let convenience linking break execution
+        logging.getLogger("veya.remote.adapter").warning(
+            "could not link canonical virtualenv into %s", worktree, exc_info=True
+        )
+    return linked
+
+
+def _init_worktree_submodules(worktree: str | Path, repo_root: str | Path) -> list[str]:
+    """LOCAL2-U6: check out a fresh worktree's submodules from the canonical copies.
+
+    ``git worktree add`` leaves submodule directories empty, so a repository
+    whose code imports its submodules (Veya's ``platform/3O/*``) could not even
+    be imported inside its own isolated worktree.  Each empty submodule path is
+    initialised with its URL overridden *for this command only* to the canonical
+    checkout, so nothing is fetched from the network and the shared repository
+    config is not modified.  The pinned commit from the worktree's own tree is
+    checked out, exactly as ``git submodule update`` would.
+    """
+    done: list[str] = []
+    try:
+        wt = Path(worktree).resolve()
+        root = Path(repo_root).resolve()
+        if wt == root or not (wt / ".gitmodules").is_file():
+            return done
+        listing = subprocess.run(
+            ["git", "-C", str(wt), "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        for line in listing.stdout.splitlines():
+            key, _, sub_path = line.partition(" ")
+            name = key[len("submodule."):-len(".path")]
+            target = wt / sub_path
+            source = root / sub_path
+            if not sub_path or ".." in Path(sub_path).parts:
+                continue
+            if target.is_symlink() or (target.is_dir() and any(target.iterdir())):
+                continue
+            if not (source / ".git").exists():
+                continue
+            result = subprocess.run(
+                [
+                    "git", "-C", str(wt),
+                    "-c", "protocol.file.allow=always",
+                    "-c", f"submodule.{name}.url={source}",
+                    "submodule", "update", "--init", "--", sub_path,
+                ],
+                capture_output=True, text=True, timeout=180, check=False,
+            )
+            if result.returncode == 0:
+                done.append(sub_path)
+            else:
+                logging.getLogger("veya.remote.adapter").warning(
+                    "submodule init failed in %s for %s: %s", wt, sub_path, result.stderr[-300:]
+                )
+    except Exception:
+        logging.getLogger("veya.remote.adapter").warning(
+            "could not initialise submodules in %s", worktree, exc_info=True
+        )
+    return done
+
+
+def _bootstrap_worktree(worktree: str | Path, repo_root: str | Path) -> None:
+    _init_worktree_submodules(worktree, repo_root)
+    _link_canonical_venvs(worktree, repo_root)
+
+
 class RemoteToolAdapter:
     def __init__(
         self,
@@ -1872,6 +1990,9 @@ class RemoteToolAdapter:
                 code = RemoteErrorCode.EXECUTION_FAILED
             result = self._fail(name, session, code, exc.message)
         except Exception as exc:
+            logging.getLogger("veya.remote.adapter").exception(
+                "remote tool %s failed with an untyped exception", name
+            )
             self.metrics.record(
                 name, mode="sync", duration_ms=(time.time() - started) * 1000, ok=False
             )
@@ -1938,6 +2059,20 @@ class RemoteToolAdapter:
         # nested repository, so session-target lookups still find the worktree
         # and nested targets can be translated onto it.
         workspace_repo_root = ws_binding.repo_root
+        # LOCAL2-U1: re-attach the principal's persistent worktree (if any).
+        live_worktree = self._hydrate_session_worktree(session, workspace_repo_root)
+        # LOCAL2-U2: once the principal has edited this repository, commands
+        # run where those edits live.  Without this, file.write landed in the
+        # isolated worktree while shell.exec/test.run ran in canonical and never
+        # saw the change.  An explicit execution_target / execution_id still wins.
+        if (
+            name in _COMMAND_TOOLS
+            and live_worktree is not None
+            and not str(args.get("execution_target") or "").strip()
+            and not str(args.get("execution_id") or "").strip()
+            and not str(args.get("goal_run_id") or "").strip()
+        ):
+            args["execution_target"] = "CURRENT_SESSION_WORKTREE"
 
         if name.startswith("approval."):
             return self._approval_call(session, name, args, workspace, started)
@@ -2809,13 +2944,45 @@ class RemoteToolAdapter:
         # Deterministic per session + repository identity.  A parent workspace
         # can contain multiple repos, so the repo identity is part of the
         # isolation key and prevents stratum/hevi worktrees from colliding.
+        #
+        # LOCAL2-U1: the isolation owner is the authenticated principal, not the
+        # MCP session.  ChatGPT opens a fresh MCP session for almost every tool
+        # call, so a session-keyed worktree meant an edit made by one call was
+        # invisible to the next one (and every call leaked a new worktree).
+        # Keying by principal keeps one persistent isolated worktree per
+        # principal + repository, which every later session re-attaches to.
         repo_identity = git_repo_identity(workspace)
+        owner = session.principal or session.session_id
         seed = (
-            f"{session.session_id}:{repo_identity}"
+            f"principal:{owner}:{repo_identity}"
             if not lane
-            else f"{session.session_id}:{repo_identity}:{lane}"
+            else f"principal:{owner}:{repo_identity}:{lane}"
         ).encode()
         return "remote-" + hashlib.sha1(seed).hexdigest()[:20]
+
+    def _hydrate_session_worktree(self, session: RemoteSession, repo_root: str | None) -> str | None:
+        """Re-attach this principal's persistent worktree to a new session.
+
+        Returns the usable worktree path for ``repo_root`` or ``None`` when the
+        principal has not created one yet.  Never creates a worktree.
+        """
+        if not repo_root:
+            return None
+        key = str(repo_root)
+        current = session.worktrees.get(key)
+        if current and _session_worktree_unusable(current) is None:
+            return current
+        try:
+            task_id = self._task_id(session, key)
+        except Exception:
+            return None
+        expected = Path(key) / ".veya" / "worktrees" / f"task-{task_id}"
+        if expected.is_dir() and _session_worktree_unusable(str(expected)) is None:
+            session.worktrees[key] = str(expected)
+            # Worktrees created before LOCAL2-U6 lack submodules / venv link.
+            _bootstrap_worktree(expected, key)
+            return str(expected)
+        return None
 
     def _task_outputs(self, session: RemoteSession, policy: WorkspacePolicy) -> Path:
         return (
@@ -2878,6 +3045,7 @@ class RemoteToolAdapter:
             requested, worktree_path=str(path), worktree_repo_root=str(reported_repo)
         )
         session.worktrees[key] = str(verified.worktree_path)
+        _bootstrap_worktree(verified.worktree_path, verified.repo_root)
         return str(verified.worktree_path), str(verified.repo_root)
 
     def _resolve_in(
@@ -3645,6 +3813,8 @@ class RemoteToolAdapter:
             if not self._path_within(Path(record.path), Path(key)):
                 raise ExecutionBlocked("WORKSPACE_DENIED", "WORKTREE_ESCAPES_WORKSPACE")
             session.worktrees[key] = record.path
+            if not lane:
+                _bootstrap_worktree(record.path, record.repo_root)
             return record.path, record.repo_root
 
     # ── L1 parallel dispatch (mechanical aggregation only) ─────────────

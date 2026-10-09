@@ -93,8 +93,33 @@ def parse_command(command: str | Sequence[str]) -> list[str]:
         raise CommandPolicyError("command argv must contain non-empty strings")
     executable = Path(argv[0]).name.lower()
     if executable in _SHELLS:
+        # LOCAL2-U3: ``bash -c '<script>'`` / ``sh -lc '<script>'`` is the most
+        # common way a remote model expresses a compound command.  Reduce it to
+        # the same ``/bin/bash -lc <script>`` form the runner already uses for
+        # operator commands, so the permission layers classify the inner script
+        # exactly as if it had been sent bare.  Any other interpreter form
+        # (interactive shells, scripts with extra args, other shells) stays
+        # refused.
+        unwrapped = _unwrap_shell_c(argv)
+        if unwrapped is not None:
+            return ["/bin/bash", "-lc", unwrapped]
         raise CommandPolicyError("shell interpreters are not allowed by coding_run_command")
     return argv
+
+
+def _unwrap_shell_c(argv: Sequence[str]) -> str | None:
+    """Return the script of ``sh|bash -c|-lc|-cl SCRIPT`` or None."""
+
+    if len(argv) != 3:
+        return None
+    if Path(argv[0]).name.lower() not in {"sh", "bash", "dash"}:
+        return None
+    if argv[1] not in {"-c", "-lc", "-cl"}:
+        return None
+    script = argv[2]
+    if not isinstance(script, str) or not script.strip():
+        return None
+    return script
 
 
 def _git_operation(argv: list[str]) -> str | None:
