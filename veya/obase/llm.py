@@ -438,48 +438,43 @@ _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
 # 端点统一指向本机 veya gateway，端口由 VEYA_GATEWAY_PORT 控制；opencode-go
 # 走 chat/completions 协议。默认 8791 保持旧版常驻服务兼容。
 # key 由 scripts/veya_llm_gateway.py 从 ~/.pi/agent/opencode-keys.txt 轮询注入。
-# 1 个已验证的 opencode-go free 候选 + gmi-serving/MiniMax-M3 + 4 个已验证的
-# bai 模型。失效/额度耗尽的候选从活动池移除，避免每次请求重复撞失败端点。
+# 2026-10-10 重新验证: 原 opencode-go free (403 FreeTierError) / gmi-serving
+# (402) / bai (ConnectTimeout) 种子全部失效已移除; 现种子为 5 个实测可用的
+# OpenRouter :free 模型。网关 lifecycle 每 24h 重新探测并替换活动池。
 # 上游偶发慢响应由 _veya12_rr_call 的 12s 超时 + rejected-content 跳过处理。
 _VEYA_GATEWAY_PORT = os.environ.get("VEYA_GATEWAY_PORT", "8791").strip() or "8791"
 _VEYA_GATEWAY_CHAT_ENDPOINT = f"http://127.0.0.1:{_VEYA_GATEWAY_PORT}/v1/chat/completions"
 
 _VEYA12_FREE_POOL: list[dict[str, str]] = [
     {
-        "provider": "openai",
-        "model": "opencode-go/nemotron-3.5-lightning-free",
-        "endpoint": _VEYA_GATEWAY_CHAT_ENDPOINT,
-        "source": "opencode-go",
+        "provider": "openrouter",
+        "model": "liquid/lfm-2.5-2.6b:free",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "source": "openrouter",
     },
     {
-        "provider": "gmi-serving",
-        "model": "MiniMaxAI/MiniMax-M3",
-        "endpoint": "https://api.gmi-serving.com/v1",
-        "source": "gmi-serving",
+        "provider": "openrouter",
+        "model": "cohere/north-mini-code:free",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "source": "openrouter",
     },
     {
-        "provider": "bai",
-        "model": "deepseek-v4-flash",
-        "endpoint": "https://api.b.ai/v1",
-        "source": "bai",
+        "provider": "openrouter",
+        "model": "poolside/laguna-s-2.1:free",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "source": "openrouter",
     },
     {
-        "provider": "bai",
-        "model": "hy3",
-        "endpoint": "https://api.b.ai/v1",
-        "source": "bai",
+        "provider": "openrouter",
+        "model": "dots-studio/dots-3-note-preview:free",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "source": "openrouter",
     },
     {
-        "provider": "bai",
-        "model": "qwen3.8-flash",
-        "endpoint": "https://api.b.ai/v1",
-        "source": "bai",
-    },
-    {
-        "provider": "bai",
-        "model": "deepseek-v4-flash-vision-exp",
-        "endpoint": "https://api.b.ai/v1",
-        "source": "bai",
+        "provider": "openrouter",
+        "model": "nvidia/nemotron-3.5-lightning:free",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "source": "openrouter",
     },
 ]
 

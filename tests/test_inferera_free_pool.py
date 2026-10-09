@@ -54,10 +54,9 @@ def test_128k_alias_still_resolves_to_veya_free():
 
 def test_veya12_free_keeps_only_verified_candidates():
     assert [(entry["provider"], entry["model"]) for entry in hllm._VEYA12_FREE_POOL] == [
-        ("openai", "opencode-go/nemotron-3.5-lightning-free"),
-        ("gmi-serving", "MiniMaxAI/MiniMax-M3"),
-        ("bai", "deepseek-v4-flash"),
-        ("bai", "hy3"),
-        ("bai", "qwen3.8-flash"),
-        ("bai", "deepseek-v4-flash-vision-exp"),
+        ("openrouter", "liquid/lfm-2.5-2.6b:free"),
+        ("openrouter", "cohere/north-mini-code:free"),
+        ("openrouter", "poolside/laguna-s-2.1:free"),
+        ("openrouter", "dots-studio/dots-3-note-preview:free"),
+        ("openrouter", "nvidia/nemotron-3.5-lightning:free"),
     ]

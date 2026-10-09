@@ -31,6 +31,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -40,6 +41,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from veya.obase import llm as _llm
 from veya.obase._llm_config import get_api_key
+from veya.obase._llm_transport import _opencode_session_headers
 from veya.obase.free_pool import FreePoolLifecycle, FreePoolSnapshot, entry_key
 from veya.obase.llm import _NVIDIA_NIM_ALIASES, llm_call
 
@@ -362,12 +364,17 @@ async def _probe_free_entry(client: httpx.AsyncClient, entry: dict[str, str]) ->
     if source == "opencode-go" and model.startswith("opencode-go/"):
         model = model.split("/", 1)[1]
     endpoint = entry.get("endpoint", "")
-    if source == "opencode-go":
-        # The original seed used the local gateway endpoint.  Lifecycle probes
-        # must bypass that gateway to avoid probing the service recursively.
+    if source == "opencode-go" and (
+        not endpoint or (urlparse(endpoint).hostname or "") in {"127.0.0.1", "localhost", "::1"}
+    ):
+        # A seed may point at the local gateway.  Lifecycle probes must bypass
+        # that gateway to avoid probing the service recursively; discovered
+        # entries keep their own base (zen/v1 for free, zen/go/v1 for Go).
         endpoint = "https://opencode.ai/zen/v1"
     key = _provider_key(provider)
     headers = {"Authorization": f"Bearer {key}"} if key else {}
+    # opencode zen rejects requests without x-opencode-session (400 MissingSessionID).
+    headers.update(_opencode_session_headers(endpoint))
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": "Reply with OK."}],
