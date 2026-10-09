@@ -36,10 +36,19 @@ def test_shell_c_wrapper_is_unwrapped(command: str) -> None:
     assert argv[:2] == ["/bin/bash", "-lc"]
 
 
-@pytest.mark.parametrize("command", ["bash", "zsh -c 'echo'", "bash script.sh arg"])
-def test_other_interpreter_forms_still_refused(command: str) -> None:
+@pytest.mark.parametrize("command", ["bash", "zsh", "sh -l"])
+def test_interactive_shells_still_refused(command: str) -> None:
     with pytest.raises(CommandPolicyError):
         parse_command(command)
+
+
+@pytest.mark.parametrize("command", ["zsh -c 'echo'", "bash script.sh arg"])
+def test_non_interactive_shell_forms_run_as_given(command: str) -> None:
+    assert parse_command(command)[0] in {"zsh", "bash"}
+
+
+def test_multiline_command_runs_through_bash() -> None:
+    assert parse_command("git status\ngit log -1")[:2] == ["/bin/bash", "-lc"]
 
 
 @pytest.mark.parametrize(
@@ -47,10 +56,12 @@ def test_other_interpreter_forms_still_refused(command: str) -> None:
     [
         ('python3 -c "import a; print(a)"', None),
         ("echo '$(literal)'", None),
-        ("echo ok; rm -rf x", "semicolon_separator"),
-        ('echo "$(id)"', "command_substitution"),
-        ("echo $(id)", "command_substitution"),
-        ("ls\nrm x", "newline_separator"),
+        # LOCAL2-U4: these are parsed and graded segment by segment now.
+        ("echo ok; rm -rf x", None),
+        ('echo "$(id)"', None),
+        ("echo $(id)", None),
+        ("ls\nrm x", None),
+        ("echo $(id", "command_substitution"),
         ("echo 'unbalanced", "unbalanced_quoting"),
     ],
 )
