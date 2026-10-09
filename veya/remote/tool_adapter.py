@@ -1631,6 +1631,65 @@ def _link_canonical_venvs(worktree: str | Path, repo_root: str | Path) -> list[s
     return linked
 
 
+def _init_worktree_submodules(worktree: str | Path, repo_root: str | Path) -> list[str]:
+    """LOCAL2-U6: check out a fresh worktree's submodules from the canonical copies.
+
+    ``git worktree add`` leaves submodule directories empty, so a repository
+    whose code imports its submodules (Veya's ``platform/3O/*``) could not even
+    be imported inside its own isolated worktree.  Each empty submodule path is
+    initialised with its URL overridden *for this command only* to the canonical
+    checkout, so nothing is fetched from the network and the shared repository
+    config is not modified.  The pinned commit from the worktree's own tree is
+    checked out, exactly as ``git submodule update`` would.
+    """
+    done: list[str] = []
+    try:
+        wt = Path(worktree).resolve()
+        root = Path(repo_root).resolve()
+        if wt == root or not (wt / ".gitmodules").is_file():
+            return done
+        listing = subprocess.run(
+            ["git", "-C", str(wt), "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        for line in listing.stdout.splitlines():
+            key, _, sub_path = line.partition(" ")
+            name = key[len("submodule."):-len(".path")]
+            target = wt / sub_path
+            source = root / sub_path
+            if not sub_path or ".." in Path(sub_path).parts:
+                continue
+            if target.is_symlink() or (target.is_dir() and any(target.iterdir())):
+                continue
+            if not (source / ".git").exists():
+                continue
+            result = subprocess.run(
+                [
+                    "git", "-C", str(wt),
+                    "-c", "protocol.file.allow=always",
+                    "-c", f"submodule.{name}.url={source}",
+                    "submodule", "update", "--init", "--", sub_path,
+                ],
+                capture_output=True, text=True, timeout=180, check=False,
+            )
+            if result.returncode == 0:
+                done.append(sub_path)
+            else:
+                logging.getLogger("veya.remote.adapter").warning(
+                    "submodule init failed in %s for %s: %s", wt, sub_path, result.stderr[-300:]
+                )
+    except Exception:
+        logging.getLogger("veya.remote.adapter").warning(
+            "could not initialise submodules in %s", worktree, exc_info=True
+        )
+    return done
+
+
+def _bootstrap_worktree(worktree: str | Path, repo_root: str | Path) -> None:
+    _init_worktree_submodules(worktree, repo_root)
+    _link_canonical_venvs(worktree, repo_root)
+
+
 class RemoteToolAdapter:
     def __init__(
         self,
@@ -2901,6 +2960,8 @@ class RemoteToolAdapter:
         expected = Path(key) / ".veya" / "worktrees" / f"task-{task_id}"
         if expected.is_dir() and _session_worktree_unusable(str(expected)) is None:
             session.worktrees[key] = str(expected)
+            # Worktrees created before LOCAL2-U6 lack submodules / venv link.
+            _bootstrap_worktree(expected, key)
             return str(expected)
         return None
 
@@ -2965,7 +3026,7 @@ class RemoteToolAdapter:
             requested, worktree_path=str(path), worktree_repo_root=str(reported_repo)
         )
         session.worktrees[key] = str(verified.worktree_path)
-        _link_canonical_venvs(verified.worktree_path, verified.repo_root)
+        _bootstrap_worktree(verified.worktree_path, verified.repo_root)
         return str(verified.worktree_path), str(verified.repo_root)
 
     def _resolve_in(
@@ -3734,7 +3795,7 @@ class RemoteToolAdapter:
                 raise ExecutionBlocked("WORKSPACE_DENIED", "WORKTREE_ESCAPES_WORKSPACE")
             session.worktrees[key] = record.path
             if not lane:
-                _link_canonical_venvs(record.path, record.repo_root)
+                _bootstrap_worktree(record.path, record.repo_root)
             return record.path, record.repo_root
 
     # ── L1 parallel dispatch (mechanical aggregation only) ─────────────

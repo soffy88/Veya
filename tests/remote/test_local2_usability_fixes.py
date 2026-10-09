@@ -88,3 +88,33 @@ def test_canonical_venv_linked_only_when_ignored(tmp_path: Path) -> None:
     assert _link_canonical_venvs(wt, repo) == [".venv"]
     assert (wt / ".venv").is_symlink()
     assert _link_canonical_venvs(wt, repo) == []  # never overwrites
+
+
+def test_submodules_initialised_from_canonical_without_network(tmp_path: Path) -> None:
+    from veya.remote.tool_adapter import _init_worktree_submodules
+
+    def g(*a: str, cwd: Path) -> None:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always", *a],
+                       cwd=cwd, check=True, capture_output=True)
+
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    g("init", "-q", cwd=sub)
+    (sub / "f.txt").write_text("x")
+    g("add", ".", cwd=sub)
+    g("commit", "-qm", "s", cwd=sub)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    g("init", "-q", cwd=repo)
+    g("submodule", "add", "-q", str(sub), "lib/sub", cwd=repo)
+    g("commit", "-qm", "r", cwd=repo)
+    # pretend the public URL is unreachable: canonical checkout must be used
+    g("config", "-f", ".gitmodules", "submodule.lib/sub.url", "https://invalid.example/sub.git", cwd=repo)
+    g("commit", "-qam", "url", cwd=repo)
+    wt = tmp_path / "wt"
+    g("worktree", "add", "-q", "--detach", str(wt), cwd=repo)
+    assert not any((wt / "lib" / "sub").iterdir())
+    assert _init_worktree_submodules(wt, repo) == ["lib/sub"]
+    assert (wt / "lib" / "sub" / "f.txt").read_text() == "x"
+    shared_cfg = (repo / ".git" / "config").read_text()
+    assert "invalid.example" not in shared_cfg or str(sub) not in shared_cfg

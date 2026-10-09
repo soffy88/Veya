@@ -81,7 +81,43 @@ def worktree_branches(repo: Path) -> dict[str, str]:
     return mapping
 
 
-def examine(repo: Path, wt: Path, branch: str | None, min_age: float, busy: list[str]) -> str | None:
+def backup(repo: Path, wt: Path, branch: str | None, dest_root: Path) -> str:
+    """Save everything uncommitted in ``wt``; raise unless the copy is verified."""
+    import tarfile
+
+    dest = dest_root / repo.name / wt.name
+    dest.mkdir(parents=True, exist_ok=True)
+    head = git(wt, "rev-parse", "HEAD").stdout.strip()
+    diff = subprocess.run(
+        ["git", "-C", str(wt), "diff", "HEAD", "--binary"], capture_output=True, timeout=300, check=True
+    )
+    (dest / "tracked.patch").write_bytes(diff.stdout)
+    others = subprocess.run(
+        ["git", "-C", str(wt), "ls-files", "--others", "--exclude-standard", "-z"],
+        capture_output=True, timeout=300, check=True,
+    ).stdout.split(b"\0")
+    files = [f.decode() for f in others if f and f.decode().rstrip("/") not in (".venv", "venv")]
+    tar_path = dest / "untracked.tar.gz"
+    with tarfile.open(tar_path, "w:gz") as tar:
+        for rel in files:
+            p = wt / rel
+            if p.is_symlink() or p.is_file():
+                tar.add(p, arcname=rel, recursive=False)
+    with tarfile.open(tar_path, "r:gz") as tar:
+        stored = len(tar.getnames())
+    expected = sum(1 for rel in files if (wt / rel).is_symlink() or (wt / rel).is_file())
+    if stored != expected:
+        raise RuntimeError(f"tar holds {stored} of {expected} files")
+    (dest / "meta.json").write_text(json.dumps(
+        {"repo": str(repo), "worktree": str(wt), "branch": branch, "head": head,
+         "untracked_files": stored, "patch_bytes": len(diff.stdout),
+         "restore": "git worktree add <dir> <head> && git -C <dir> apply --binary tracked.patch && tar xzf untracked.tar.gz -C <dir>"},
+        indent=1))
+    return str(dest)
+
+
+def examine(repo: Path, wt: Path, branch: str | None, min_age: float, busy: list[str],
+            ignore_dirty: bool = False) -> str | None:
     """Return a keep-reason, or None when the worktree is safe to remove."""
     age_days = (time.time() - last_touch(wt)) / 86400
     if age_days < min_age:
@@ -93,7 +129,7 @@ def examine(repo: Path, wt: Path, branch: str | None, min_age: float, busy: list
     if st.returncode != 0:
         return "git status failed: " + st.stderr.strip()[:80]
     dirty = [l for l in st.stdout.splitlines() if l.strip() and l[3:].strip().rstrip("/") not in (".venv", "venv")]
-    if dirty:
+    if dirty and not ignore_dirty:
         return f"uncommitted changes ({len(dirty)})"
     if branch:
         others = [
@@ -114,6 +150,12 @@ def main() -> int:
     ap.add_argument("--min-age-days", type=float, default=3.0)
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument(
+        "--backup-dirty",
+        metavar="DIR",
+        help="also reclaim worktrees whose ONLY keep-reason is uncommitted changes, "
+        "after saving a patch (tracked changes) + tarball (untracked files) + meta.json to DIR",
+    )
     a = ap.parse_args()
     busy = busy_paths()
     report = {"removed": [], "kept": [], "errors": []}
@@ -131,10 +173,22 @@ def main() -> int:
                 reason = examine(repo, wt, branch, a.min_age_days, busy)
             except Exception as exc:  # keep on any doubt
                 reason = f"error: {exc}"
+            backed_up = None
+            if reason and a.backup_dirty and reason.startswith("uncommitted changes"):
+                # Re-check every other condition with dirt ignored.
+                other = examine(repo, wt, branch, a.min_age_days, busy, ignore_dirty=True)
+                if other is None:
+                    if a.apply:
+                        try:
+                            backed_up = backup(repo, wt, branch, Path(a.backup_dirty))
+                        except Exception as exc:
+                            report["errors"].append({"path": str(wt), "error": f"backup failed: {exc}"})
+                            continue
+                    reason = None
             if reason:
                 report["kept"].append({"path": str(wt), "reason": reason})
                 continue
-            entry = {"path": str(wt), "branch": branch}
+            entry = {"path": str(wt), "branch": branch, "backup": backed_up}
             if a.apply:
                 for name in (".venv", "venv"):
                     link = wt / name
