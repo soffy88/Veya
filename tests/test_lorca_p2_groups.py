@@ -126,11 +126,17 @@ async def test_message_bot_refuses_unknown_bots(lorca_env, fake_master):
 async def test_message_bot_hop_limit(lorca_env, fake_master):
     """A chain of bot messages may be at most MAX_HOP_DEPTH deep."""
 
-    del fake_master
     registry = _register(BotRegistry(), "alpha", "beta")
     messenger = BotMessenger(registry)
 
-    # depth 0..MAX_HOP_DEPTH-1 are admitted (the guard refuses depth >= max).
+    # One hop below the limit still runs (the guard refuses depth >= max, so
+    # the boundary is exact, not off by one).
+    allowed = await messenger.message_bot(
+        "alpha", "beta", "hello", user=USER, depth=MAX_HOP_DEPTH - 1
+    )
+    assert allowed.status == "complete"
+    assert len(fake_master) == 1
+
     with pytest.raises(BotMessageRefused, match="hop limit"):
         await messenger.message_bot("alpha", "beta", "hello", user=USER, depth=MAX_HOP_DEPTH)
 
