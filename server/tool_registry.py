@@ -29,6 +29,7 @@ from typing import Any, Literal, cast
 
 from runtime.coding.tools import register_tools as _register_coding_tools
 from runtime.harness.tools import register_tools as _register_harness_tools
+from server.bot_team.memory import register_tools as _register_bot_memory_tools
 from server.events import append_canonical_event, current_task_id
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
@@ -4398,6 +4399,10 @@ if not master_tools.has("tool_search"):
 # layer: it does not route requests or replace the single MasterAgent path.
 _register_coding_tools(master_tools)
 _register_harness_tools(master_tools)
+
+# P3 per-bot Markdown memory surface.  Additive capability over the existing
+# registry: the model appends notes to the running bot's own memory store.
+_register_bot_memory_tools(master_tools)
 
 # PR-08 GitHub review surface.  This is an additive MasterAgent capability,
 # not a second agent or orchestration path.
