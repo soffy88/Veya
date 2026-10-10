@@ -250,7 +250,6 @@ class RoutineState:
     # P3-A: the bot that owns this routine trigger. Cross-bot dispatch is refused.
     bot_id: str = DEFAULT_BOT_ID
     # ORCA-W4: run history for status chips in UI
-    run_history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -266,7 +265,6 @@ class RoutineState:
             version=int(value.get("version") or 1),
             consumed_trigger_ids=list(value.get("consumed_trigger_ids") or []),
             bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
-            run_history=list(value.get("run_history") or []),
         )
 
 
