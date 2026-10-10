@@ -76,6 +76,7 @@ from server.routes.vault import compat_router as vault_compat_router
 from server.routes.vault import router as vault_router
 from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
+from server.routes.review import router as review_router
 from server.routes.workbench import router as workbench_router
 from server.sse import router as sse_router
 
@@ -528,6 +529,7 @@ app.include_router(execution_contract_router)
 app.include_router(sse_router)
 from server.routes.routines import router as routines_router
 app.include_router(routines_router)
+app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-checks
 
 
 @app.get("/health")
