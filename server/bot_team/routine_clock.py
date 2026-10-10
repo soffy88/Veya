@@ -15,6 +15,103 @@ from server.goal_run.routine_history import RoutineHistoryStore
 
 _lg = logging.getLogger(__name__)
 
+# NANO-W7: Daily brief routine template
+DAILY_BRIEF_ROUTINE_TEMPLATE = {
+    "routine_id": "daily_brief",
+    "name": "晨间简报",
+    "description": "Generate and deliver personalized morning feed",
+    "enabled": False,  # Enabled per-user via VEYA_MORNING_FEED flag
+    "schedule": "daily 08:00",
+    "timezone": "Asia/Shanghai",
+    "goal_template": "Generate daily brief for user {user_id}",
+    "probe": {"kind": "always_pass"},
+    "model": "veya1.2",
+    "workspace_path": None,
+    "bot_id": "system",
+    "metadata": {
+        "template": "daily_brief",
+        "nano_w7": True,
+    },
+}
+
+
+def create_daily_brief_routine(user_id: str, *, time: str = "08:00", timezone: str = "Asia/Shanghai") -> RoutineSpec:
+    """Create a daily brief routine spec for a specific user.
+
+    This is a template that the routine clock can use when VEYA_MORNING_FEED is enabled.
+    The actual execution goes through the daily_brief omodul via MasterAgent.
+    """
+    return RoutineSpec(
+        routine_id=f"daily_brief_{user_id}",
+        name=f"晨间简报 ({user_id})",
+        description="Generate and deliver personalized morning feed",
+        enabled=True,
+        schedule=f"daily {time}",
+        timezone=timezone,
+        goal_template=f"Generate daily brief for user {user_id}",
+        probe={"kind": "always_pass"},
+        model="veya1.2",
+        workspace_path=None,
+        bot_id="system",
+        metadata={
+            "template": "daily_brief",
+            "nano_w7": True,
+            "user_id": user_id,
+        },
+    )
+
+
+async def _daily_brief_handoff_consumer(handoffs: list[dict]) -> None:
+    """Handoff consumer for daily brief routines.
+
+    Instead of running a full agent, this triggers the daily_brief omodul
+    which assembles the feed and delivers via Web Push + channels.
+    """
+    if not handoffs:
+        return
+
+    try:
+        from那些.omodul.daily_brief import daily_brief, DailyBriefConfig, DailyBriefInput
+        from server.coordinator_master import master_coordinator
+    except ImportError:
+        _lg.warning("daily_brief omodul not available, skipping")
+        return
+
+    for handoff in handoffs:
+        routine_id = handoff.get("routine_id", "")
+        user_id = handoff.get("target", {}).get("user_id", "unknown")
+        metadata = handoff.get("metadata", {})
+
+        # Extract user_id from routine_id if not in target
+        if user_id == "unknown" and routine_id.startswith("daily_brief_"):
+            user_id = routine_id[len("daily_brief_"):]
+
+        # Fetch data sections (would integrate with actual data sources)
+        # For now, use empty data - in production this would query routines, goals, goalruns, memory, RSS
+        input_data = DailyBriefInput(
+            routines=[],
+            goals=[],
+            goalruns=[],
+            memory_highlights=[],
+            rss_items=[],
+        )
+
+        config = DailyBriefConfig(
+            user_id=user_id,
+            timezone=metadata.get("timezone", "Asia/Shanghai"),
+            brief_time=metadata.get("brief_time", "08:00"),
+        )
+
+        # Run daily_brief omodul
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir)
+            result = await daily_brief(config, input_data, output_dir)
+            if result.get("status") == "completed":
+                _lg.info(f"Daily brief generated for {user_id}: {result.get('fingerprint')}")
+            else:
+                _lg.error(f"Daily brief failed for {user_id}: {result.get('error')}")
+
 def _get_tz(tz_str: str) -> ZoneInfo:
     try:
         return ZoneInfo(tz_str)
@@ -310,10 +407,21 @@ class RoutineClock:
                     self._save_state()
 
         if handoffs:
-            try:
-                await self.dispatch_fn(handoffs)
-            except Exception:
-                _lg.exception("Failed to dispatch scheduled routines")
+            # Split handoffs: daily_brief goes to special consumer, others to default
+            daily_brief_handoffs = [h for h in handoffs if h.get("metadata", {}).get("template") == "daily_brief"]
+            regular_handoffs = [h for h in handoffs if h.get("metadata", {}).get("template") != "daily_brief"]
+
+            if daily_brief_handoffs:
+                try:
+                    await _daily_brief_handoff_consumer(daily_brief_handoffs)
+                except Exception:
+                    _lg.exception("Failed to dispatch daily brief routines")
+
+            if regular_handoffs:
+                try:
+                    await self.dispatch_fn(regular_handoffs)
+                except Exception:
+                    _lg.exception("Failed to dispatch scheduled routines")
 
         return handoffs
 

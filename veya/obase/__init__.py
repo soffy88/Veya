@@ -107,6 +107,8 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "LlmClient",
     "SandboxResult",
     "VfsSandbox",
+    # channels (NANO-W7)
+    "channels",
 ]
 
 # 阶段 1: 句柄合同与全局单例句柄层
@@ -129,3 +131,5 @@ from veya.obase.interfaces import (
     SandboxResult,
     VfsSandbox,
 )
+# channels (NANO-W7)
+from veya.obase import channels

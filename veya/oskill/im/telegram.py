@@ -1,10 +1,7 @@
-"""
-veya/im/telegram.py — Telegram Bot Gateway (Layer 4).
+"""veya/oskill/im/telegram.py — Telegram Bot Gateway (Layer 4).
 
-Wires the 3O obase Telegram client into the veya IM gateway layer.
-Uses long-polling (getUpdates) for simplicity — no webhook needed.
-
-Requires: TELEGRAM_BOT_TOKEN env var.
+Uses obase.channels.TelegramClient for all IO (3O compliance).
+Pure formatting delegated to this module's format_* functions.
 """
 
 from __future__ import annotations
@@ -13,9 +10,11 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Callable
+from typing import Any
 
 try:
-    from fastapi import APIRouter, HTTPException, Request, Response
+    from fastapi import APIRouter, HTTPException, Request
 
     _HAS_FASTAPI = True
 except ImportError:
@@ -23,31 +22,21 @@ except ImportError:
     APIRouter = object  # type: ignore
     HTTPException = Exception  # type: ignore
     Request = object  # type: ignore
-    Response = object  # type: ignore
 
+from veya.obase.channels.telegram import TelegramClient, create_telegram_client
+from veya.obase.channels import chunk_text, PLATFORM_TELEGRAM
 from veya.oskill.im.pseudo import anonymize_user_id
 
-logger = logging.getLogger
+logger = logging.getLogger("veya.oskill.im.telegram")
 
 _bg_tasks: set = set()
-("veya.im.telegram")
-
-TELEGRAM_API_BASE = "https://api.telegram.org"
 
 
 class TelegramGateway:
-    """Telegram bot gateway — long-polling + agentic_loop.
+    """Telegram bot gateway — webhook/polling → pseudo-anonymize → agentic_loop → reply.
 
-    Handles:
-    - Text messages → pseudo-anonymize → agentic_loop → reply
-    - /start, /help commands
-    - Typing indicators and markdown formatting
-
-    Setup:
-        1. Create a bot with @BotFather → get token
-        2. Set TELEGRAM_BOT_TOKEN env var
-        3. Call /im/telegram/webhook to receive updates (or use polling)
-        4. (Optional) Set TELEGRAM_WEBHOOK_URL for webhook mode
+    IO delegated to veya.obase.channels.TelegramClient (oprim).
+    Formatting uses this module's pure formatters (oskill).
     """
 
     def __init__(
@@ -55,13 +44,23 @@ class TelegramGateway:
         *,
         bot_token: str | None = None,
         webhook_url: str | None = None,
-        runner: callable | None = None,
+        secret_token: str | None = None,
+        runner: Callable[..., Any] | None = None,
     ):
         self.bot_token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
         self.webhook_url = webhook_url or os.environ.get("TELEGRAM_WEBHOOK_URL", "")
+        self.secret_token = secret_token or os.environ.get("TELEGRAM_SECRET_TOKEN", "")
         self._runner = runner
+        self._client: TelegramClient | None = None
         self._last_update_id: int = 0
         self._polling_task: asyncio.Task | None = None
+
+    async def _get_client(self) -> TelegramClient:
+        if self._client is None:
+            if not self.bot_token:
+                raise RuntimeError("TELEGRAM_BOT_TOKEN not configured")
+            self._client = await create_telegram_client(self.bot_token)
+        return self._client
 
     async def send_message(
         self,
@@ -69,42 +68,14 @@ class TelegramGateway:
         text: str,
         parse_mode: str = "Markdown",
     ) -> dict | None:
-        """Send a message to a Telegram chat."""
-        if not self.bot_token:
-            return None
+        """Send a message to a Telegram chat (delegates to obase.channels)."""
+        client = await self._get_client()
+        return await client.send_chunked(chat_id, text, parse_mode=parse_mode)
 
-        try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{TELEGRAM_API_BASE}/bot{self.bot_token}/sendMessage",
-                    json={
-                        "chat_id": chat_id,
-                        "text": text[:4096],  # Telegram limit
-                        "parse_mode": parse_mode,
-                    },
-                )
-                resp.raise_for_status()
-                return resp.json()
-        except Exception as e:
-            logger.error(f"Telegram send error: {e}")
-            return None
-
-    async def send_typing(self, chat_id: int | str):
+    async def send_typing(self, chat_id: int | str) -> None:
         """Send a typing indicator."""
-        if not self.bot_token:
-            return
-        try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=10) as client:
-                await client.post(
-                    f"{TELEGRAM_API_BASE}/bot{self.bot_token}/sendChatAction",
-                    json={"chat_id": chat_id, "action": "typing"},
-                )
-        except Exception:
-            pass
+        client = await self._get_client()
+        await client.send_chat_action(chat_id, "typing")
 
     async def handle_update(self, update: dict) -> dict | None:
         """Handle a single Telegram update."""
@@ -126,40 +97,26 @@ class TelegramGateway:
 
         # Handle commands
         if text.startswith("/start"):
+            from .telegram import format_help
             return {
                 "chat_id": chat_id,
-                "text": (
-                    f"👋 Hello {username}! I'm **veya**, an AI coding agent.\n\n"
-                    f"Send me any question or task, and I'll help you.\n\n"
-                    f"*Example:* 'Fix the bug in auth.py'\n"
-                    f"*Example:* 'Write a REST API for user management'\n"
-                    f"*Example:* 'Review the latest commit'"
-                ),
+                "text": format_help(),
                 "parse_mode": "Markdown",
             }
 
         if text.startswith("/help"):
+            from .telegram import format_help
             return {
                 "chat_id": chat_id,
-                "text": (
-                    "**veya Help**\n\n"
-                    "• Send any message to start a task\n"
-                    "• /status — check bot status\n"
-                    "• /history — view recent tasks\n"
-                    "• /reset — clear conversation context"
-                ),
+                "text": format_help(),
                 "parse_mode": "Markdown",
             }
 
         if text.startswith("/status"):
+            from .telegram import format_status
             return {
                 "chat_id": chat_id,
-                "text": (
-                    f"✅ **veya** is running.\n"
-                    f"• Session: active\n"
-                    f"• User: {username} ({pseudo_id})\n"
-                    f"• Gateway: Telegram"
-                ),
+                "text": format_status(username, True, pseudo_id),
                 "parse_mode": "Markdown",
             }
 
@@ -197,21 +154,24 @@ class TelegramGateway:
             elif isinstance(content, dict):
                 content = content.get("content", str(content))
 
-            reply = str(content)[:3800]
-            cost = result.get("cost_usd", 0)
+            from .telegram import format_task_result
+            chunks = format_task_result(username, text, str(content), result.get("cost_usd", 0))
 
-            final = f"**{username}** asked:\n> _{text[:200]}..._\n\n{reply}\n\n💰 _${cost:.4f}_"
-            await self.send_message(chat_id, final)
+            for chunk in chunks:
+                await self.send_message(chat_id, chunk)
 
         except Exception as e:
             logger.error(f"Telegram agent error: {e}")
-            await self.send_message(
-                chat_id,
-                f"❌ Error: _{str(e)[:200]}_",
-            )
+            from .telegram import format_error
+            await self.send_message(chat_id, format_error(username, str(e)))
 
     async def handle_webhook_update(self, payload: dict) -> dict:
         """Handle a webhook-delivered update."""
+        # Verify secret token if configured
+        if self.secret_token:
+            if payload.get("secret_token") != self.secret_token:
+                raise HTTPException(status_code=401, detail="Invalid secret token")
+
         reply = await self.handle_update(payload)
         if reply:
             chat_id = reply.pop("chat_id", 0)
@@ -220,41 +180,45 @@ class TelegramGateway:
             await self.send_message(chat_id, text, parse_mode)
         return {"status": "ok"}
 
-    async def start_polling(self, interval_sec: float = 2.0):
+    async def start_polling(self, interval_sec: float = 2.0) -> None:
         """Start long-polling for Telegram updates."""
         if self._polling_task:
             return
-        self._polling_task = _task_ref = asyncio.create_task(self._poll_loop(interval_sec))
+        client = await self._get_client()
+        self._polling_task = asyncio.create_task(self._poll_loop(client, interval_sec))
 
-    async def stop_polling(self):
+    async def stop_polling(self) -> None:
         if self._polling_task:
             self._polling_task.cancel()
             self._polling_task = None
 
-    async def _poll_loop(self, interval_sec: float):
+    async def _poll_loop(self, client: TelegramClient, interval_sec: float) -> None:
         """Poll for updates in a loop."""
-        import httpx
-
         while True:
             try:
-                async with httpx.AsyncClient(timeout=30) as client:
-                    resp = await client.get(
-                        f"{TELEGRAM_API_BASE}/bot{self.bot_token}/getUpdates",
-                        params={
-                            "offset": self._last_update_id + 1,
-                            "timeout": int(interval_sec),
-                        },
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        for update in data.get("result", []):
-                            self._last_update_id = update.get("update_id", 0)
-                            await self.handle_update(update)
+                updates = await client.get_updates(
+                    offset=self._last_update_id + 1,
+                    timeout=int(interval_sec),
+                )
+                for update in updates:
+                    self._last_update_id = update.get("update_id", 0)
+                    await self.handle_update(update)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Telegram poll error: {e}")
                 await asyncio.sleep(interval_sec)
+
+    async def setup_webhook(self) -> None:
+        """Set up webhook if URL configured."""
+        if not self.webhook_url:
+            return
+        client = await self._get_client()
+        await client.set_webhook(
+            self.webhook_url,
+            secret_token=self.secret_token or None,
+            allowed_updates=["message"],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +229,7 @@ class TelegramGateway:
 def make_telegram_router(
     bot_token: str | None = None,
     webhook_url: str | None = None,
+    secret_token: str | None = None,
 ) -> APIRouter:
     """Build a FastAPI router for Telegram.
 
@@ -287,6 +252,7 @@ def make_telegram_router(
     gateway = TelegramGateway(
         bot_token=bot_token,
         webhook_url=webhook_url,
+        secret_token=secret_token,
         runner=_default_runner,
     )
 
@@ -324,4 +290,39 @@ def make_telegram_router(
         await gateway.stop_polling()
         return {"status": "polling_stopped"}
 
+    @router.on_event("startup")
+    async def startup():
+        await gateway.setup_webhook()
+
     return router
+
+
+# Re-export pure formatters for single-source guard
+from .telegram import (  # noqa: F401,E402
+    escape_markdown,
+    escape_html,
+    format_telegram_message,
+    format_telegram_code_block,
+    format_telegram_mention,
+    format_task_started,
+    format_task_result,
+    format_error,
+    format_status,
+    format_help,
+)
+
+__all__ = [
+    "TelegramGateway",
+    "make_telegram_router",
+    # Re-exported pure formatters
+    "escape_markdown",
+    "escape_html",
+    "format_telegram_message",
+    "format_telegram_code_block",
+    "format_telegram_mention",
+    "format_task_started",
+    "format_task_result",
+    "format_error",
+    "format_status",
+    "format_help",
+]
