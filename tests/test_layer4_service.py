@@ -166,38 +166,52 @@ def test_anonymize_user_id_one_shot():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_feishu_gateway_acks_and_anonymizes():
-    from veya.im.feishu import FeishuGateway
+# IM adapters (NANO-W7 moved the gateways out of oskill: feishu/slack violated
+# oskill purity, 3O CONFLICT-3. Transport now lives in server.channels, and
+# slack keeps pure formatting only.)
 
-    gw = FeishuGateway()
-    ack = await gw.handle_event(
-        {
+
+@pytest.mark.asyncio
+async def test_feishu_adapter_parses_and_anonymizes():
+    from server.channels.dispatch import anonymous_ref
+    from server.channels.feishu import FeishuAdapter
+
+    adapter = FeishuAdapter()
+    message = adapter.parse_inbound(
+        payload={
             "event": {
-                "message": {"content": '{"text":"你好"}'},
+                "message": {"content": '{"text":"你好"}', "chat_id": "oc_1"},
                 "sender": {"sender_id": {"open_id": "ou_123"}},
-                "chat_id": "oc_1",
             }
-        }
+        },
+        headers={},
     )
-    assert ack["ok"] is True
-    assert ack["user_ref"].startswith("u_")
-    assert "ou_123" not in ack["user_ref"]
+    assert message is not None
+    assert message.external_chat_id == "oc_1"
+    assert message.text == "你好"
+
+    user_ref = anonymous_ref(message.platform, message.external_user_id)
+    assert user_ref.startswith("u_")
+    assert "ou_123" not in user_ref
 
 
 @pytest.mark.asyncio
-async def test_slack_gateway_acks_and_challenge():
-    from veya.im.slack import SlackGateway
+async def test_feishu_adapter_url_verification_passthrough():
+    from server.channels.feishu import FeishuAdapter
 
-    gw = SlackGateway()
-    ack = await gw.handle_event(
-        {"event": {"type": "message", "text": "hello", "user": "U123", "channel": "C1"}}
-    )
-    assert ack["ok"] is True
-    assert ack["user_ref"].startswith("u_")
-    # url_verification challenge passthrough
-    ch = await gw.handle_event({"type": "url_verification", "challenge": "ch-abc"})
-    assert ch == {"challenge": "ch-abc"}
+    adapter = FeishuAdapter()
+    assert adapter.challenge_response(
+        {"type": "url_verification", "challenge": "ch-abc"}
+    ) == {"challenge": "ch-abc"}
+
+
+def test_slack_formatting_is_pure_and_chunked():
+    from veya.oskill.im.slack import format_help, format_slack_message
+
+    assert "veya Help" in format_help()["text"]
+    chunks = format_slack_message("y" * 9000)
+    assert len(chunks) > 1
+    assert all(len(c["text"]) <= 3900 for c in chunks)
 
 
 # ---------------------------------------------------------------------------
