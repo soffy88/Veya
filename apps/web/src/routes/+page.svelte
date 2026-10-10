@@ -21,6 +21,7 @@
 		Settings,
 		SquareCheckBig,
 		Trash2,
+		Users,
 		X,
 	} from "lucide-svelte";
 	import ChatConsole from "$lib/components/ChatConsole.svelte";
@@ -285,7 +286,14 @@
 		</div>
 
 		<div class="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-			<div class="px-2 pb-1 text-xs font-medium text-white/40">Recent</div>
+			<a
+				href="/team"
+				class="flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition hover:bg-white/[0.05]"
+			>
+				<Users class="size-3.5 shrink-0 text-sky-300/70" />
+				<span class="min-w-0 flex-1 truncate text-[13px] text-terminal-fg">Bot 团队</span>
+			</a>
+			<div class="px-2 pb-1 pt-3 text-xs font-medium text-white/40">Recent</div>
 
 			{#if recentWorks.length > 0}
 				<div class="mt-1 px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-violet-300/60">Work</div>
