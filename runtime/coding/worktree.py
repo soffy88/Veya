@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .models import CodingWorkspace
+from .worktree_manifest import apply_manifest, load_manifest
 
 
 class WorktreeError(RuntimeError):
@@ -262,6 +263,12 @@ class WorktreeManager:
                 ["worktree", "add", "-b", branch, str(target), start_ref],
             )
         self._provision_submodules(target)
+
+        # Apply worktree manifest (copy/share)
+        manifest = load_manifest(self.repo_root)
+        if manifest.copy or manifest.share:
+            apply_manifest(self.repo_root, target, manifest)
+
         return self.status(path=target)
 
     def _provision_submodules(self, target: Path) -> None:

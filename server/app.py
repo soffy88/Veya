@@ -77,6 +77,9 @@ from server.routes.vault import router as vault_router
 from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
 from server.routes.workbench import router as workbench_router
+from server.routes.workspace import router as workspace_router
+from server.routes.cli_agents import router as cli_agents_router
+from server.routes.usage import router as usage_router
 from server.sse import router as sse_router
 
 
@@ -517,6 +520,9 @@ app.include_router(closed_loop_router)
 app.include_router(threat_model_router)
 app.include_router(tasks_router)
 app.include_router(workbench_router)
+app.include_router(workspace_router)
+app.include_router(cli_agents_router)
+app.include_router(usage_router)
 app.include_router(telemetry_router)
 app.include_router(audit_router)
 app.include_router(backends_router)
