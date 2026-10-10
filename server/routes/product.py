@@ -123,6 +123,48 @@ async def recover_product_tasks() -> int:
     return recovered
 
 
+async def _open_task_projection(
+    *,
+    objective: str,
+    title: str | None,
+    workspace_id: str | None,
+    user: dict[str, Any],
+    trace_id: str,
+) -> tuple[str, str]:
+    """Create the Session + Task projections for one accepted task.
+
+    Returns ``(session_id, task_id)``. The transport stays at the product
+    shell: only projections are created here, execution is owned by the
+    existing GoalRun semantic loop.
+    """
+
+    session_id = new_session_id()
+    await default_history_store().save(session_id, [], user_id=user["user_id"])
+    event = append_canonical_event(
+        "session.created",
+        {"session_id": session_id, "entrypoint": "product_shell"},
+        actor=user["user_id"],
+        session_id=session_id,
+        trace_id=trace_id,
+    )
+    task = task_store.create(
+        session_id=session_id,
+        title=(title or objective[:40]).strip() or "Veya Bot task",
+        objective=objective,
+        workspace_id=workspace_id,
+        trace_id=trace_id,
+    )
+    append_canonical_event(
+        "product.task_submitted",
+        {"entrypoint": "product_shell", "session_event_id": event.get("event_id")},
+        actor=user["user_id"],
+        session_id=session_id,
+        trace_id=trace_id,
+        task_id=task.id,
+    )
+    return session_id, task.id
+
+
 async def _run_product_task(
     *,
     task_id: str,
@@ -134,8 +176,14 @@ async def _run_product_task(
     user: dict[str, Any],
     project_root: str,
     resume_goal_id: str | None = None,
-) -> None:
-    """Run one accepted task through the single GoalRun semantic loop."""
+    bot_id: str | None = None,
+) -> Any:
+    """Run one accepted task through the single GoalRun semantic loop.
+
+    Returns the canonical execution response (``None`` when the task failed
+    before one existed); callers that only need the durable task projection
+    ignore the return value.
+    """
 
     # Background asyncio tasks do not run FastAPI dependency cleanup, so bind
     # the same user explicitly before MasterAgent touches history or memory.
@@ -167,8 +215,10 @@ async def _run_product_task(
                     "task_id": task_id,
                     "semantic_llm_kwargs": semantic_llm_kwargs,
                     "resume_goal_id": resume_goal_id,
+                    # Lorca (P1): empty/None keeps the historical default bot.
+                    "bot_id": bot_id or "",
                 }
-            )
+            ),
         )
 
         response = await master_coordinator.execute_structured(req)
@@ -189,6 +239,9 @@ async def _run_product_task(
             trace_id=task_store.get(task_id).trace_id if task_store.get(task_id) else None,
             task_id=task_id,
         )
+        # Lorca (P1): the bot-team surface needs the turn's outcome so it can
+        # record what the bot answered. Fire-and-forget callers ignore it.
+        return response
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # pragma: no cover - defensive process boundary
@@ -269,38 +322,21 @@ async def create_product_task(
     if not objective:
         raise HTTPException(status_code=422, detail="objective must not be empty")
 
-    session_id = new_session_id()
     trace_id = uuid.uuid4().hex
     try:
-        await default_history_store().save(session_id, [], user_id=user["user_id"])
-        event = append_canonical_event(
-            "session.created",
-            {"session_id": session_id, "entrypoint": "product_shell"},
-            actor=user["user_id"],
-            session_id=session_id,
-            trace_id=trace_id,
-        )
-        task = task_store.create(
-            session_id=session_id,
-            title=(req.title or objective[:40]).strip() or "Veya Bot task",
+        session_id, task_id = await _open_task_projection(
             objective=objective,
+            title=req.title,
             workspace_id=req.workspace_id,
+            user=user,
             trace_id=trace_id,
-        )
-        append_canonical_event(
-            "product.task_submitted",
-            {"entrypoint": "product_shell", "session_event_id": event.get("event_id")},
-            actor=user["user_id"],
-            session_id=session_id,
-            trace_id=trace_id,
-            task_id=task.id,
         )
     except OSError as exc:
         raise HTTPException(status_code=503, detail="task state is not writable") from exc
 
     background = asyncio.create_task(
         _run_product_task(
-            task_id=task.id,
+            task_id=task_id,
             session_id=session_id,
             objective=objective,
             provider=req.provider,
@@ -313,8 +349,8 @@ async def create_product_task(
     _retain_product_task(background)
     return {
         "status": "accepted",
-        "task_id": task.id,
+        "task_id": task_id,
         "session_id": session_id,
         "trace_id": trace_id,
-        "workbench_url": f"/workbench/{task.id}",
+        "workbench_url": f"/workbench/{task_id}",
     }

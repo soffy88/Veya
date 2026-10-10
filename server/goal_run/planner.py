@@ -94,6 +94,7 @@ async def g1_plan(
     project_root: str | None = None,
     explicit_tasks: list[dict[str, Any]] | None = None,
     agent_identity: dict[str, Any] | None = None,
+    bot_id: str | None = None,
 ) -> tuple[GoalRunState, GoalRunResponse]:
     """G1 Plan：根据 interpretation 生成任务图 taskgraph.json。
 
@@ -147,6 +148,11 @@ async def g1_plan(
         default_assignee=default_assignee,
         budget=budget,
     )
+    # Lorca (P1): the run belongs to the bot that asked for it. Without this
+    # every bot's work would land in the default bot's namespace. ``None``
+    # (the old callers) keeps the GoalRunState default of ``veya-default``.
+    if bot_id:
+        state.bot_id = bot_id
     # D8: freeze run-identity snapshot at creation (refs only; None = adhoc).
     if agent_identity:
         for _k in (

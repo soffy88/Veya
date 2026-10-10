@@ -40,6 +40,11 @@ class BotSpec:
     routines the bot may trigger and which skills/playbooks are available
     to it. Availability is an explicit allowlist (fail-closed): an empty
     list allows nothing.
+
+    Lorca (P1/P2) adds the presentation and semantic-binding fields. They are
+    all optional so records written before them keep loading unchanged:
+    ``from_dict`` reads a missing key as the same default a fresh bot would
+    use, and ``to_dict`` simply carries the extra keys.
     """
 
     bot_id: str
@@ -50,6 +55,17 @@ class BotSpec:
     routine_registry_ref: str = ""
     available_skill_ids: list[str] = field(default_factory=list)
     available_playbook_ids: list[str] = field(default_factory=list)
+    #: Human-facing display name (falls back to ``bot_id``).
+    name: str = ""
+    #: The one job this bot does; it is the bot's whole scope.
+    description: str = ""
+    #: System-prompt style behaviour for the semantic call.
+    instructions: str = ""
+    #: Optional LLM binding for this bot's own turns.
+    provider: str = ""
+    model: str = ""
+    #: Where this bot's turns physically run.
+    runner_id: str = "local"
 
     def __post_init__(self) -> None:
         if not self.bot_id:
@@ -71,6 +87,9 @@ class BotSpec:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> BotSpec:
+        # Only the P3-A keys are required here. Every Lorca key is read with a
+        # default, so a record written before those fields existed loads as the
+        # same bot it was (no migration, no second schema).
         return cls(
             bot_id=str(value.get("bot_id") or ""),
             owner_id=str(value.get("owner_id") or value.get("user_id") or ""),
@@ -80,6 +99,12 @@ class BotSpec:
             routine_registry_ref=str(value.get("routine_registry_ref") or ""),
             available_skill_ids=list(value.get("available_skill_ids") or []),
             available_playbook_ids=list(value.get("available_playbook_ids") or []),
+            name=str(value.get("name") or ""),
+            description=str(value.get("description") or ""),
+            instructions=str(value.get("instructions") or ""),
+            provider=str(value.get("provider") or ""),
+            model=str(value.get("model") or ""),
+            runner_id=str(value.get("runner_id") or "local"),
         )
 
 
@@ -167,6 +192,15 @@ class BotRegistry:
             raise ValueError(f"invalid bot {spec.bot_id!r}: " + "; ".join(errors))
         self._items[spec.bot_id] = spec
         self._save()
+
+    def unregister(self, bot_id: str) -> bool:
+        """Remove one bot. Returns ``False`` when it was not registered."""
+
+        if str(bot_id) not in self._items:
+            return False
+        del self._items[str(bot_id)]
+        self._save()
+        return True
 
     def get(self, bot_id: str) -> BotSpec | None:
         return self._items.get(bot_id)

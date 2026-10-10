@@ -2063,6 +2063,10 @@ class MasterCoordinator:
             max_wall_s=7200,
             integration_adapter=integration_adapter,
             resume_goal_id=resume_goal_id,
+            # Lorca (P1): the bot identity travels with the canonical request so
+            # the GoalRun this creates belongs to that bot, not to veya-default.
+            bot_id=request.constraints.metadata.get("bot_id"),
+            semantic_llm_kwargs=request.constraints.metadata.get("semantic_llm_kwargs", {}),
         )
 
 

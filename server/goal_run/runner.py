@@ -1044,6 +1044,7 @@ async def project_run_goal(
     agent_definition_id: str | None = None,
     agent_session_id: str | None = None,
     agent_instance_id: str | None = None,
+    bot_id: str | None = None,
 ) -> GoalRunResponse:
     """project_run_goal 主入口（M4 规格）。
 
@@ -1055,6 +1056,8 @@ async def project_run_goal(
     - parent_goal_clarification: G0 追问的回答，用于续答链
     - max_wall_s: 可选，覆盖默认 max_wall_s 预算 (秒)
     - wait: True(默认) → 阻塞到终态或超时；False → 快速返回 running
+    - bot_id: Lorca(P1) 拥有本次运行的 bot。None/空 → 保持 GoalRunState 默认
+      ``veya-default``（旧调用方行为不变）。
 
     返回 GoalRunResponse（统一响应格式）。
     """
@@ -1250,6 +1253,7 @@ async def project_run_goal(
             project_root=project_root,
             explicit_tasks=tasks,
             agent_identity=_agent_identity,
+            bot_id=bot_id,
         )
 
         if state.started_at is None:
