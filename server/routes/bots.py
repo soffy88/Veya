@@ -26,6 +26,7 @@ from server.bot_team.groups import (
     run_group_turn,
 )
 from server.bot_team.messaging import MAX_HOP_DEPTH, BotMessageRefused, BotMessenger
+from server.bot_team.runners import RunnerRegistry
 from server.bot_team.turns import run_bot_turn
 from server.goal_run.bot_identity import DEFAULT_BOT_ID, BotRegistry, BotSpec
 
@@ -324,6 +325,18 @@ async def patch_bot(
     updates = req.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=422, detail="no fields to update")
+    # Lorca (P6): a bot may only be pointed at a runner that exists here, so a
+    # typo cannot turn every future turn into an unreachable-runner error.
+    requested_runner = str(updates.get("runner_id") or "").strip()
+    if (
+        requested_runner
+        and requested_runner != "local"
+        and RunnerRegistry().get(requested_runner) is None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"runner {requested_runner!r} is not registered",
+        )
     updated = BotSpec(
         bot_id=spec.bot_id,
         owner_id=spec.owner_id,
@@ -403,18 +416,20 @@ async def post_bot_message(
     response: dict[str, Any] = {
         "status": turn.status,
         "bot_id": spec.bot_id,
+        # Lorca (P6): where the turn actually ran. "local" is this server.
+        "runner_id": spec.runner_id,
         "task_id": turn.task_id,
         "session_id": turn.session_id,
         "reply": turn.reply,
         "trace_id": turn.trace_id,
-        "workbench_url": f"/workbench/{turn.task_id}",
+        # A remote turn's task lives on the runner, so its id means nothing to
+        # this server's workbench.
+        "workbench_url": f"/workbench/{turn.task_id}" if spec.runner_id == "local" else None,
     }
     if spec.bot_id == CHEF_BOT_ID:
         # Only Chef proposes a team, and the proposal is only stored here:
         # creating the bots still needs an explicit accept.
-        proposal = proposals().record(
-            turn.reply, task_id=turn.task_id, owner_id=user["user_id"]
-        )
+        proposal = proposals().record(turn.reply, task_id=turn.task_id, owner_id=user["user_id"])
         if proposal is not None:
             response["proposal"] = {
                 "id": proposal["id"],

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from server.bot_team.conversations import ConversationStore, conversation_store
+from server.bot_team.runners import LOCAL_RUNNER_ID
 from server.goal_run.bot_identity import BotSpec
 
 #: What a bot is told when its turn produced no visible answer. A bot must
@@ -97,13 +98,33 @@ async def run_bot_turn(
     context: str = "",
     workspace_id: str | None = None,
     conversations: ConversationStore | None = None,
+    trace_id: str | None = None,
 ) -> BotTurnResult:
     """Run one turn of ``bot`` and record both sides in its conversation.
 
     The request is awaited, so the caller only returns once the bot replied (or
     its turn failed visibly). The returned :class:`BotTurnResult` carries the
     product task id, which is also the durable record of the turn.
+
+    Lorca (P6): when ``bot.runner_id`` names another machine, the turn is
+    forwarded there instead of executed here. Everything a caller needs to know
+    stays in this one entry point.
     """
+
+    runner_id = (bot.runner_id or LOCAL_RUNNER_ID).strip() or LOCAL_RUNNER_ID
+    if runner_id != LOCAL_RUNNER_ID:
+        # Imported lazily: the client imports this module for its result type.
+        from server.bot_team.runner_client import forward_bot_turn
+
+        return await forward_bot_turn(
+            bot=bot,
+            text=text,
+            user=user,
+            context=context,
+            workspace_id=workspace_id,
+            trace_id=trace_id,
+            conversations=conversations,
+        )
 
     # Imported lazily: the route module pulls the product stores, and this
     # package must stay importable from the runtime/durable layers too.
@@ -111,7 +132,7 @@ async def run_bot_turn(
 
     store = conversations if conversations is not None else conversation_store()
     objective = build_objective(bot=bot, text=text, context=context)
-    trace_id = uuid.uuid4().hex
+    trace_id = str(trace_id or "").strip() or uuid.uuid4().hex
     session_id, task_id = await product_routes._open_task_projection(
         objective=objective,
         title=f"{(bot.name or bot.bot_id)}: {str(text or '')[:40]}".strip(),
