@@ -26,7 +26,7 @@ from typing import Any
 
 from fastapi import Header
 
-_DB_PATH = Path.home() / ".veya" / "auth.db"
+_DB_PATH = Path(os.environ.get("VEYA_AUTH_DB_PATH", str(Path.home() / ".veya" / "auth.db")))
 _TOKEN_TTL = 30 * 24 * 3600  # 30 天
 
 # 当前请求的用户 (FastAPI 依赖设置; 工具/存储读取做按用户隔离)
@@ -36,9 +36,14 @@ _user_ctx: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVa
 )
 
 _lock = threading.Lock()
+_db_initialized = False
 
 
 def _connect() -> sqlite3.Connection:
+    global _db_initialized
+    if not _db_initialized:
+        _init_db()
+        _db_initialized = True
     conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
@@ -46,7 +51,8 @@ def _connect() -> sqlite3.Connection:
 
 def _init_db() -> None:
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _lock, _connect() as conn:
+    with _lock, sqlite3.connect(str(_DB_PATH), check_same_thread=False) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(
             "CREATE TABLE IF NOT EXISTS users ("
             "  id TEXT PRIMARY KEY,"
@@ -63,9 +69,6 @@ def _init_db() -> None:
             "  expires_at INTEGER NOT NULL"
             ")"
         )
-
-
-_init_db()
 
 
 # ── 密码 ──────────────────────────────────────────────────────────────

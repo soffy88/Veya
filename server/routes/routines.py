@@ -9,7 +9,7 @@ from server.bot_team.routine_clock import _default_handoff_consumer
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_registry import RoutineRegistry
-from server.goal_run.project_store import ProjectStore
+from server.project_store import ProjectStore
 
 router = APIRouter(
     prefix="/api/v1/bots/{bot_id}/routines",

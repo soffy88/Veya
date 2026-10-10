@@ -35,6 +35,18 @@ except Exception:  # pragma: no cover — 子库缺失时优雅降级 (依赖它
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _patch_auth_db_path(tmp_path_factory, monkeypatch):
+    """Patch auth module's _DB_PATH before it's imported to use a temp database."""
+    # Create a temp directory for auth databases
+    auth_db_dir = tmp_path_factory.mktemp("auth_db")
+    db_path = str(auth_db_dir / "auth.db")
+    monkeypatch.setenv("VEYA_AUTH_DB_PATH", db_path)
+    # Also patch the module attribute for modules already imported
+    import server.auth as auth_mod
+    monkeypatch.setattr(auth_mod, "_DB_PATH", Path(db_path), raising=False)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_user_llm_config(monkeypatch):
     """测试默认不读开发者 ~/.veya/config.json 的 llm 段 (provider/model 兜底)。

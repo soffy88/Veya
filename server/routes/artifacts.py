@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from server import auth as auth_mod
-from server.goal_run.project_store import ProjectStore
+from server.project_store import ProjectStore
 from server.goal_run.bot_identity import DEFAULT_BOT_ID, get_current_bot_id
 
 router = APIRouter(
@@ -54,8 +54,11 @@ def _save_artifact_links(bot_id: str, links: dict) -> None:
 
 
 def _generate_token() -> str:
-    """Generate a secure random token for artifact sharing."""
-    return secrets.token_urlsafe(32)
+    """Generate a secure random token for artifact sharing.
+
+    Spec requires 24-char URL-safe token (secrets.token_urlsafe(24)).
+    """
+    return secrets.token_urlsafe(24)
 
 
 @router.post("/share")
