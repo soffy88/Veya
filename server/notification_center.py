@@ -11,11 +11,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any, Literal
 
 NotificationType = Literal["INFO", "SUCCESS", "ERROR", "HITL_REQUIRED"]
+
+#: Payload flag a message must carry to also leave the browser as a Web Push
+#: notification (see ``server/bot_team/push.py``, which registers the observer).
+#: Messages without it are in-tab only, exactly as before.
+WEB_PUSH_FLAG = "web_push"
+
+#: An observer receives broadcast messages synchronously; it must not raise.
+PushObserver = Callable[[dict[str, Any]], None]
+
+_lg = logging.getLogger("veya.notification_center")
 
 
 class NotificationCenter:
@@ -30,6 +41,9 @@ class NotificationCenter:
         self._clients: list[tuple[asyncio.Queue[dict | None], str]] = []
         # 已广播消息注册表: id -> message (供 HITL 审批端点回查 payload, 如 vault task_id)
         self._messages: dict[str, dict[str, Any]] = {}
+        # Web Push observers (see WEB_PUSH_FLAG). Empty by default: the browser
+        # toast stream behaves exactly as it did before this existed.
+        self._push_observers: list[PushObserver] = []
 
     def connect(self, user_id: str = "") -> asyncio.Queue[dict | None]:
         q: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -64,7 +78,28 @@ class NotificationCenter:
             if user_id and uid != user_id:
                 continue  # 用户级消息只推给所属用户; 匿名/其他用户只收全局
             q.put_nowait(message)
+        self._dispatch_push_observers(message)
         return message["id"]
+
+    # ── Web Push observers ─────────────────────────────────────────────
+    #
+    # The hook point for anything that must reach a device when the tab is
+    # closed (see ``server/bot_team/push.py``). Registered on messages, never
+    # on ``push_stream``, so per-token streaming stays cheap.
+
+    def add_push_observer(self, observer: PushObserver) -> None:
+        if observer not in self._push_observers:
+            self._push_observers.append(observer)
+
+    def remove_push_observer(self, observer: PushObserver) -> None:
+        self._push_observers = [item for item in self._push_observers if item != observer]
+
+    def _dispatch_push_observers(self, message: dict[str, Any]) -> None:
+        for observer in list(self._push_observers):
+            try:
+                observer(message)
+            except Exception:
+                _lg.warning("notification push observer failed", exc_info=True)
 
     def push_stream(self, session_id: str, event: dict[str, Any], user_id: str = "") -> None:
         """镜像一帧会话流事件到每用户扇出 (多端同步: 电脑执行/输出时手机实时跟随)。

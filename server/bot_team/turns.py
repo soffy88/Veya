@@ -45,6 +45,21 @@ class BotTurnResult:
         }
 
 
+@dataclass
+class BotTurnStart:
+    """A turn that is opened but not run yet.
+
+    ``task_id`` is the durable record of the turn from this point on, which is
+    what lets a caller answer the user ("accepted, here is the task") before the
+    bot has finished thinking.
+    """
+
+    bot_id: str
+    task_id: str
+    session_id: str
+    trace_id: str
+
+
 def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     """Compose the semantic prompt for one turn of ``bot``.
 
@@ -89,6 +104,82 @@ def extract_reply(response: Any, *, bot: BotSpec) -> str:
     return _NO_REPLY.format(bot=bot.name or bot.bot_id, status=_status_of(response))
 
 
+async def begin_bot_turn(
+    *,
+    bot: BotSpec,
+    text: str,
+    user: dict[str, Any],
+    context: str = "",
+    workspace_id: str | None = None,
+    conversations: ConversationStore | None = None,
+) -> BotTurnStart:
+    """Open one turn: the product-task projection and the user's message.
+
+    Everything up to here is cheap and local, so a caller can return the task id
+    to the user immediately and finish the turn later (see
+    :mod:`server.bot_team.async_turns`). Nothing has been executed for the bot.
+    """
+
+    from server.routes import product as product_routes
+
+    objective = build_objective(bot=bot, text=text, context=context)
+    trace_id = uuid.uuid4().hex
+    session_id, task_id = await product_routes._open_task_projection(
+        objective=objective,
+        title=f"{(bot.name or bot.bot_id)}: {str(text or '')[:40]}".strip(),
+        workspace_id=workspace_id,
+        user=user,
+        trace_id=trace_id,
+    )
+    store = conversations if conversations is not None else conversation_store()
+    store.append(bot.bot_id, role="user", text=str(text or ""), task_id=task_id)
+    return BotTurnStart(
+        bot_id=bot.bot_id,
+        task_id=task_id,
+        session_id=session_id,
+        trace_id=trace_id,
+    )
+
+
+async def finish_bot_turn(
+    *,
+    bot: BotSpec,
+    start: BotTurnStart,
+    text: str,
+    user: dict[str, Any],
+    context: str = "",
+    workspace_id: str | None = None,
+    conversations: ConversationStore | None = None,
+) -> BotTurnResult:
+    """Run the turn opened by :func:`begin_bot_turn` and record the reply."""
+
+    from server.routes import product as product_routes
+
+    store = conversations if conversations is not None else conversation_store()
+    objective = build_objective(bot=bot, text=text, context=context)
+    response = await product_routes._run_product_task(
+        task_id=start.task_id,
+        session_id=start.session_id,
+        objective=objective,
+        provider=bot.provider or None,
+        model=bot.model or None,
+        config={},
+        user=dict(user),
+        project_root=workspace_id or "/repo",
+        bot_id=bot.bot_id,
+    )
+    reply = extract_reply(response, bot=bot)
+    store.append(bot.bot_id, role="bot", text=reply, task_id=start.task_id)
+    return BotTurnResult(
+        bot_id=bot.bot_id,
+        task_id=start.task_id,
+        session_id=start.session_id,
+        reply=reply,
+        status=_status_of(response),
+        trace_id=start.trace_id,
+    )
+
+
 async def run_bot_turn(
     *,
     bot: BotSpec,
@@ -105,43 +196,31 @@ async def run_bot_turn(
     product task id, which is also the durable record of the turn.
     """
 
-    # Imported lazily: the route module pulls the product stores, and this
-    # package must stay importable from the runtime/durable layers too.
-    from server.routes import product as product_routes
-
-    store = conversations if conversations is not None else conversation_store()
-    objective = build_objective(bot=bot, text=text, context=context)
-    trace_id = uuid.uuid4().hex
-    session_id, task_id = await product_routes._open_task_projection(
-        objective=objective,
-        title=f"{(bot.name or bot.bot_id)}: {str(text or '')[:40]}".strip(),
-        workspace_id=workspace_id,
+    start = await begin_bot_turn(
+        bot=bot,
+        text=text,
         user=user,
-        trace_id=trace_id,
+        context=context,
+        workspace_id=workspace_id,
+        conversations=conversations,
     )
-    store.append(bot.bot_id, role="user", text=str(text or ""), task_id=task_id)
-
-    response = await product_routes._run_product_task(
-        task_id=task_id,
-        session_id=session_id,
-        objective=objective,
-        provider=bot.provider or None,
-        model=bot.model or None,
-        config={},
-        user=dict(user),
-        project_root=workspace_id or "/repo",
-        bot_id=bot.bot_id,
-    )
-    reply = extract_reply(response, bot=bot)
-    store.append(bot.bot_id, role="bot", text=reply, task_id=task_id)
-    return BotTurnResult(
-        bot_id=bot.bot_id,
-        task_id=task_id,
-        session_id=session_id,
-        reply=reply,
-        status=_status_of(response),
-        trace_id=trace_id,
+    return await finish_bot_turn(
+        bot=bot,
+        start=start,
+        text=text,
+        user=user,
+        context=context,
+        workspace_id=workspace_id,
+        conversations=conversations,
     )
 
 
-__all__ = ["BotTurnResult", "build_objective", "extract_reply", "run_bot_turn"]
+__all__ = [
+    "BotTurnResult",
+    "BotTurnStart",
+    "begin_bot_turn",
+    "build_objective",
+    "extract_reply",
+    "finish_bot_turn",
+    "run_bot_turn",
+]

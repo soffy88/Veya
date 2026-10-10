@@ -243,6 +243,22 @@ def proposal_store(root: str | Path | None = None) -> ProposalStore:
     return ProposalStore(root)
 
 
+def record_team_proposal(
+    *, bot_id: str, text: str, task_id: str = "", owner_id: str = ""
+) -> dict[str, Any] | None:
+    """Record the team a Chef reply proposes, or return ``None``.
+
+    Lives here so both ways of finishing a turn — synchronously inside the
+    request, or later in the background (``?async=1``) — record a proposal the
+    same way. A turn that is answered asynchronously must still be confirmable,
+    otherwise the Chef flow only works when the request happens to stay open.
+    """
+
+    if bot_id != CHEF_BOT_ID:
+        return None
+    return proposal_store().record(text, task_id=task_id, owner_id=owner_id)
+
+
 __all__ = [
     "CHEF_BOT_ID",
     "CHEF_INSTRUCTIONS",
@@ -253,4 +269,5 @@ __all__ = [
     "ensure_chef_seeded",
     "extract_proposal",
     "proposal_store",
+    "record_team_proposal",
 ]

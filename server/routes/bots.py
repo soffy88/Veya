@@ -12,11 +12,19 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
-from server.bot_team.chef import CHEF_BOT_ID, ProposalStore, ensure_chef_seeded, proposal_store
+from server.bot_team.async_turns import start_bot_turn_async, start_group_turn_async
+from server.bot_team.chef import (
+    CHEF_BOT_ID,
+    ProposalStore,
+    ensure_chef_seeded,
+    proposal_store,
+    record_team_proposal,
+)
 from server.bot_team.conversations import ConversationStore
 from server.bot_team.groups import (
     DEFAULT_ROUNDS_PER_MESSAGE,
@@ -26,6 +34,7 @@ from server.bot_team.groups import (
     run_group_turn,
 )
 from server.bot_team.messaging import MAX_HOP_DEPTH, BotMessageRefused, BotMessenger
+from server.bot_team.push import announce_bot_reply, announce_group_round
 from server.bot_team.turns import run_bot_turn
 from server.goal_run.bot_identity import DEFAULT_BOT_ID, BotRegistry, BotSpec
 
@@ -207,13 +216,29 @@ async def get_group_messages(group_id: str, include_hidden: bool = False) -> dic
 async def post_group_message(
     group_id: str,
     req: GroupMessageRequest,
+    async_mode: bool = Query(False, alias="async"),
     user: dict[str, Any] = Depends(auth_mod.get_current_user),
-) -> dict[str, Any]:
-    """Offer every member one turn per round, in order, then stop early."""
+) -> Any:
+    """Offer every member one turn per round, in order, then stop.
+
+    ``?async=1`` answers ``202`` with the round handle instead of holding the
+    request open: the round still runs through the same product path, and the
+    transcript endpoint below is where the replies appear.
+    """
 
     group = groups().get(group_id)
     if group is None:
         raise HTTPException(status_code=404, detail=f"group {group_id!r} not found")
+    if async_mode:
+        ref = await start_group_turn_async(
+            group=group,
+            text=req.text,
+            user=dict(user),
+            registry=bot_registry(),
+            conversations=conversations(),
+            workspace_id=req.workspace_id,
+        )
+        return JSONResponse(status_code=202, content=ref.to_dict())
     try:
         result = await run_group_turn(
             group=group,
@@ -225,6 +250,12 @@ async def post_group_message(
         )
     except OSError as exc:
         raise HTTPException(status_code=503, detail="bot conversation is not writable") from exc
+    announce_group_round(
+        group_name=group.name,
+        group_id=group.id,
+        replies=result.get("replies") or [],
+        user_id=str(user.get("user_id") or ""),
+    )
     return {"status": "completed", **result}
 
 
@@ -385,11 +416,26 @@ async def get_bot_messages(bot_id: str, include_hidden: bool = False) -> dict[st
 async def post_bot_message(
     bot_id: str,
     req: BotMessageRequest,
+    async_mode: bool = Query(False, alias="async"),
     user: dict[str, Any] = Depends(auth_mod.get_current_user),
-) -> dict[str, Any]:
-    """Talk to one bot: record the message, run its turn, record the reply."""
+) -> Any:
+    """Talk to one bot: record the message, run its turn, record the reply.
+
+    ``?async=1`` opens the turn, answers ``202`` with its ``task_id`` and the
+    endpoints that carry the result, then finishes the turn in the background.
+    The synchronous behaviour (the default) is unchanged.
+    """
 
     spec = _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
+    if async_mode:
+        ref = await start_bot_turn_async(
+            bot=spec,
+            text=req.text,
+            user=dict(user),
+            workspace_id=req.workspace_id,
+            conversations=conversations(),
+        )
+        return JSONResponse(status_code=202, content=ref.to_dict())
     try:
         turn = await run_bot_turn(
             bot=spec,
@@ -409,11 +455,21 @@ async def post_bot_message(
         "trace_id": turn.trace_id,
         "workbench_url": f"/workbench/{turn.task_id}",
     }
+    announce_bot_reply(
+        bot_name=spec.name or spec.bot_id,
+        reply=turn.reply,
+        task_id=turn.task_id,
+        user_id=str(user.get("user_id") or ""),
+        bot_id=spec.bot_id,
+    )
     if spec.bot_id == CHEF_BOT_ID:
         # Only Chef proposes a team, and the proposal is only stored here:
         # creating the bots still needs an explicit accept.
-        proposal = proposals().record(
-            turn.reply, task_id=turn.task_id, owner_id=user["user_id"]
+        proposal = record_team_proposal(
+            bot_id=spec.bot_id,
+            text=turn.reply,
+            task_id=turn.task_id,
+            owner_id=user["user_id"],
         )
         if proposal is not None:
             response["proposal"] = {

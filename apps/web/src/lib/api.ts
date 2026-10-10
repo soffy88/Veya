@@ -25,9 +25,9 @@ export interface ApiResult {
 }
 
 export interface ApiOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
-  body?: unknown;
-  query?: Record<string, string | number | boolean | undefined>;
+	method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+	body?: unknown;
+	query?: Record<string, string | number | boolean | undefined>;
 }
 
 export async function api(
