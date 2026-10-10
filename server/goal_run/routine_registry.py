@@ -43,6 +43,22 @@ def validate_routine_spec(spec: RoutineSpec) -> list[str]:
         )
     if spec.version < 1:
         errors.append("version must be >= 1")
+    # ORCA-W4: validate probe
+    if not isinstance(spec.probe, dict):
+        errors.append("probe must be a dict")
+    else:
+        kind = spec.probe.get("kind", "none")
+        if kind not in ("none", "git_changes", "command"):
+            errors.append(f"probe.kind must be one of: none, git_changes, command; got {kind!r}")
+        if kind == "git_changes" and not spec.probe.get("path"):
+            errors.append("probe.kind=git_changes requires probe.path")
+        if kind == "command" and not spec.probe.get("command"):
+            errors.append("probe.kind=command requires probe.command")
+    # ORCA-W4: validate workspace_path exists if provided
+    if spec.workspace_path:
+        from pathlib import Path
+        if not Path(spec.workspace_path).exists():
+            errors.append(f"workspace_path does not exist: {spec.workspace_path}")
     return errors
 
 

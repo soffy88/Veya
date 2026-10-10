@@ -10,6 +10,7 @@ passed-in GoalRunState.
 
 from __future__ import annotations
 
+import subprocess
 import time
 from typing import Any
 
@@ -27,6 +28,96 @@ from server.goal_run.models import (
 )
 
 HANDOFF_VIA = ("veya-bot", "master-agent", "goal-run")
+
+
+def run_probe(probe: dict[str, Any], workspace_path: str | None = None) -> dict[str, Any]:
+    """Execute a probe and return result dict with success status and details.
+
+    Probe kinds:
+    - "none": always returns success
+    - "git_changes": checks for uncommitted changes in a git repo at probe.path
+    - "command": runs a shell command, success if exit code == 0
+
+    Returns: {"success": bool, "kind": str, "detail": str, "data": dict}
+    """
+    kind = probe.get("kind", "none")
+
+    if kind == "none":
+        return {"success": True, "kind": "none", "detail": "no probe", "data": {}}
+
+    if kind == "git_changes":
+        path = probe.get("path")
+        if not path:
+            return {"success": False, "kind": "git_changes", "detail": "probe.path is required", "data": {}}
+
+        try:
+            # Check if path is a git repository
+            result = subprocess.run(
+                ["git", "-C", path, "rev-parse", "--git-dir"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return {
+                    "success": False,
+                    "kind": "git_changes",
+                    "detail": f"not a git repository: {path}",
+                    "data": {"path": path},
+                }
+
+            # Check for uncommitted changes
+            result = subprocess.run(
+                ["git", "-C", path, "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            has_changes = bool(result.stdout.strip())
+            return {
+                "success": True,
+                "kind": "git_changes",
+                "detail": "changes detected" if has_changes else "no changes",
+                "data": {"path": path, "has_changes": has_changes, "output": result.stdout.strip()},
+            }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "kind": "git_changes", "detail": "git command timed out", "data": {"path": path}}
+        except Exception as e:
+            return {"success": False, "kind": "git_changes", "detail": f"git probe error: {e}", "data": {"path": path}}
+
+    if kind == "command":
+        command = probe.get("command")
+        if not command:
+            return {"success": False, "kind": "command", "detail": "probe.command is required", "data": {}}
+
+        cwd = workspace_path or probe.get("cwd") or "."
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=probe.get("timeout", 30),
+            )
+            return {
+                "success": result.returncode == 0,
+                "kind": "command",
+                "detail": "command succeeded" if result.returncode == 0 else f"command failed with exit code {result.returncode}",
+                "data": {
+                    "command": command,
+                    "cwd": cwd,
+                    "exit_code": result.returncode,
+                    "stdout": result.stdout.strip()[-1000:],  # truncate
+                    "stderr": result.stderr.strip()[-1000:],
+                },
+            }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "kind": "command", "detail": "command timed out", "data": {"command": command, "cwd": cwd}}
+        except Exception as e:
+            return {"success": False, "kind": "command", "detail": f"command probe error: {e}", "data": {"command": command, "cwd": cwd}}
+
+    return {"success": False, "kind": kind, "detail": f"unknown probe kind: {kind}", "data": {}}
 
 
 def trigger_identity(trigger_topic: str, trigger_id: str) -> str:
@@ -49,6 +140,9 @@ def dispatch_trigger(
     started again, including after restart (state survives in taskgraph.json).
     Capped: at most ROUTINE_MAX_STARTED routines start per dispatch call.
     Same-GoalRun: a routine already bound to another GoalRun is refused.
+
+    ORCA-W4: Runs probe before handoff. If probe fails, routine is marked
+    with probe_error status in run_history and no handoff is returned.
     """
     assert_routine_execution_authority_zero()
     if ROUTINE_EXECUTION_AUTHORITY != 0:
@@ -91,6 +185,35 @@ def dispatch_trigger(
         entry.last_trigger_ref = trigger_id
         entry.canonical_goal_run_id = state.goal_id
         entry.trigger_metadata = {"trigger_id": trigger_id, **(payload or {})}
+
+        # ORCA-W4: Run probe before handoff
+        probe_result = run_probe(spec.probe, spec.workspace_path or None)
+        run_record = {
+            "trigger_id": trigger_id,
+            "trigger_identity": identity,
+            "dispatched_at": moment,
+            "probe": probe_result,
+        }
+
+        if not probe_result["success"]:
+            # Probe failed - record in run_history with probe_error status
+            run_record["status"] = "probe_error"
+            entry.run_history.append(run_record)
+            # Don't create handoff for failed probe
+            continue
+
+        # Probe succeeded - check if git_changes probe detected no changes
+        if probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
+            # No changes - record as skipped
+            run_record["status"] = "skipped"
+            entry.run_history.append(run_record)
+            # Don't create handoff for no changes
+            continue
+
+        # Probe passed - record as dispatched
+        run_record["status"] = "dispatched"
+        entry.run_history.append(run_record)
+
         target: dict[str, Any] = {}
         if spec.target_skill_id:
             target = {"skill_id": spec.target_skill_id}

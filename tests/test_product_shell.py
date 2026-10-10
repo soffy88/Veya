@@ -292,14 +292,13 @@ async def test_resume_keeps_the_original_product_task_projection(monkeypatch, tm
 
     result = await task_routes.resume_task(
         task.id,
-        TaskResumeRequest(text="continue the same task", max_rounds=2),
+        TaskResumeRequest(text="continue the same task"),
     )
 
     assert result["task_id"] == task.id
     assert calls[0]["kwargs"] == {
         "session_id": task.session_id,
         "task_id": task.id,
-        "max_rounds": 2,
     }
     assert [item.id for item in tasks.list()] == [task.id]
 
@@ -341,13 +340,12 @@ async def test_product_task_resume_reuses_persisted_provider_binding(monkeypatch
 
     await task_routes.resume_task(
         task.id,
-        TaskResumeRequest(text="continue the same task", max_rounds=2),
+        TaskResumeRequest(text="continue the same task"),
     )
 
     assert calls[0]["kwargs"] == {
         "session_id": task.session_id,
         "task_id": task.id,
-        "max_rounds": 2,
         "provider": "gmi",
         "model": "MiniMaxAI/MiniMax-M3",
     }

@@ -3,11 +3,15 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from server.goal_run.routine_registry import RoutineRegistry
+from server.goal_run.routine_dispatch import run_probe
+from server.goal_run.models import RoutineSpec
+from server.project_store import ProjectStore
 
 _lg = logging.getLogger(__name__)
 
@@ -231,14 +235,14 @@ class RoutineClock:
         now = datetime.now(UTC)
         handoffs = []
 
+        # Get all specs for finding workspace_path later
+        specs = self.registry.list(include_disabled=True)
+
         # P3-A: We might need to iterate over all routines.
         # But RoutineRegistry typically belongs to a single bot_id.
         # If the bot_id is scoped in RoutineRegistry, this is fine.
-        # Wait, how does the clock get all routines across all bots?
-        # Let's assume RoutineRegistry has a way to get all routines or we instantiate it without bot_id.
-        # Let's check routine_registry.py
 
-        for routine_id, spec in [(s.routine_id, s) for s in self.registry.list(include_disabled=True)]:
+        for routine_id, spec in [(s.routine_id, s) for s in specs]:
             if not spec.enabled:
                 continue
 
@@ -253,15 +257,66 @@ class RoutineClock:
             due_iso = compute_due(spec, now=now, last_fired_utc=last_fired_utc)
             if due_iso:
                 trigger_id = f"{routine_id}:{due_iso}"
-                handoffs.append({
-                    "routine_id": routine_id,
-                    "trigger_topic": "schedule.trigger",
+
+                # ORCA-W4: Run probe before handoff (mirrors dispatch_trigger logic)
+                probe_result = run_probe(spec.probe, spec.workspace_path or None)
+                moment = time.time()
+                run_record = {
                     "trigger_id": trigger_id,
-                    "target": {"goal_template": spec.goal_template},
-                    "bot_id": spec.bot_id,
-                })
-                self.last_fired[routine_id] = now.isoformat()
-                self._save_state()
+                    "trigger_identity": trigger_id,
+                    "dispatched_at": moment,
+                    "probe": probe_result,
+                }
+
+                # Record run history in routine state
+                try:
+                    # Load goal run state to access routine_states
+                    goal_run_state = ProjectStore(bot_id=spec.bot_id).load_goal_run_state()
+                    routine_state = goal_run_state.routine_states.get(routine_id)
+                    if routine_state is not None:
+                        if not probe_result["success"]:
+                            # Probe failed - record with probe_error status
+                            run_record["status"] = "probe_error"
+                            routine_state.run_history.append(run_record)
+                        elif probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
+                            # No changes - record as skipped
+                            run_record["status"] = "skipped"
+                            routine_state.run_history.append(run_record)
+                        else:
+                            # Probe passed - record as dispatched
+                            run_record["status"] = "dispatched"
+                            routine_state.run_history.append(run_record)
+                        # Keep only last 50 entries
+                        if len(routine_state.run_history) > 50:
+                            routine_state.run_history = routine_state.run_history[-50:]
+                        # Save back
+                        ProjectStore(bot_id=spec.bot_id).save_goal_run_state(goal_run_state)
+                except Exception:
+                    # Non-fatal: continue with dispatch
+                    pass
+
+                # Dispatch only if probe didn't skip or error
+                if not probe_result["success"]:
+                    # Probe failed - skip dispatch
+                    self.last_fired[routine_id] = now.isoformat()
+                    self._save_state()
+                    continue
+                elif probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
+                    # No changes detected - skip dispatch
+                    self.last_fired[routine_id] = now.isoformat()
+                    self._save_state()
+                    continue
+                else:
+                    # Probe passed (has_changes or other probe kinds), dispatch
+                    handoffs.append({
+                        "routine_id": routine_id,
+                        "trigger_topic": "schedule.trigger",
+                        "trigger_id": trigger_id,
+                        "target": {"goal_template": spec.goal_template},
+                        "bot_id": spec.bot_id,
+                    })
+                    self.last_fired[routine_id] = now.isoformat()
+                    self._save_state()
 
         if handoffs:
             try:
