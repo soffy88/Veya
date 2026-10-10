@@ -23,6 +23,7 @@ from server.routes.automata import webhook_router
 from server.routes.autonomous import router as autonomous_router
 from server.routes.backends import router as backends_router
 from server.routes.board import router as board_router
+from server.routes.bot_memory import router as bot_memory_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
 from server.routes.closed_loop import router as closed_loop_router
@@ -72,7 +73,6 @@ from server.routes.vault import compat_router as vault_compat_router
 from server.routes.vault import router as vault_router
 from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
-from server.routes.bot_memory import router as bot_memory_router
 from server.routes.workbench import router as workbench_router
 from server.sse import router as sse_router
 
