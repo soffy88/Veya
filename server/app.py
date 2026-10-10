@@ -380,7 +380,24 @@ async def lifespan(app: FastAPI):
         await daemon_gateway_engine.start()
     except Exception:
         _lg.exception("3O daemon GoalRun bridge startup failed")
+
+    # Routine clock: schedule.trigger source (VEYA_ROUTINE_CLOCK=1 to enable)
+    routine_clock_task: asyncio.Task | None = None
+    if os.environ.get("VEYA_ROUTINE_CLOCK", "0").strip() not in ("", "0", "false", "off", "no"):
+        try:
+            from server.bot_team.routine_clock import RoutineClock
+            from server.goal_run.routine_registry import RoutineRegistry
+            _clock = RoutineClock(RoutineRegistry())
+            routine_clock_task = asyncio.create_task(_clock.run_forever(), name="veya-routine-clock")
+        except Exception:
+            _lg.exception("routine clock startup failed")
+
     yield
+
+    if routine_clock_task is not None:
+        routine_clock_task.cancel()
+        await asyncio.gather(routine_clock_task, return_exceptions=True)
+
     if daemon_gateway_engine is not None:
         await daemon_gateway_engine.shutdown()
     if durable_runtime is not None and durable_runtime.config.enabled:
@@ -497,6 +514,8 @@ app.include_router(cindy_compat_router)
 app.include_router(voice_compat_router)
 app.include_router(execution_contract_router)
 app.include_router(sse_router)
+from server.routes.routines import router as routines_router
+app.include_router(routines_router)
 
 
 @app.get("/health")
