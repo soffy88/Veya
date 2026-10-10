@@ -49,7 +49,8 @@ class CodeStore:
                 return None
             if entry["expires_at"] < now:
                 return None
-            return entry["payload"]
+            payload: dict[str, Any] = entry["payload"]
+            return payload
 
     def purge_expired(self) -> int:
         """Drop expired codes; returns how many were removed."""

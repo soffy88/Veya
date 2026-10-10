@@ -120,7 +120,9 @@ async def _handle_webhook(request: Request, platform: str) -> dict[str, Any]:
     payload = await _json_body(request)
 
     if platform == "feishu":
-        challenge = adapter.challenge_response(payload)  # type: ignore[attr-defined]
+        challenge: dict[str, Any] | None = adapter.challenge_response(  # type: ignore[attr-defined]
+            payload
+        )
         if challenge is not None:
             return challenge
 

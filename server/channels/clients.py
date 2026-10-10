@@ -40,6 +40,8 @@ async def client_for(platform: str) -> Any:
     from veya.obase.channels.telegram import create_telegram_client
     from veya.obase.channels.wecom import create_wecom_client
 
+    client: Any
+
     if platform == PLATFORM_TELEGRAM:
         token = _require("TELEGRAM_BOT_TOKEN")
         client = await create_telegram_client(token)

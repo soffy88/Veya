@@ -125,12 +125,16 @@ class FeishuClient:
     async def send_message(
         self,
         chat_id: str,
-        text: str,
+        text: str | dict[str, Any],
         *,
         msg_type: str = "text",
         receive_id_type: str = "chat_id",
     ) -> dict[str, Any]:
-        """Send a message to a chat."""
+        """Send a message to a chat.
+
+        ``text`` is a string for ``msg_type="text"`` and an already-shaped
+        post document for ``msg_type="post"``.
+        """
         if msg_type == "text":
             content = json.dumps({"text": text}, ensure_ascii=False)
         elif msg_type == "post":
@@ -191,7 +195,7 @@ class FeishuClient:
         event_types: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create an event subscription webhook (requires app registration)."""
-        payload = {"url": url}
+        payload: dict[str, Any] = {"url": url}
         if event_types:
             payload["event_types"] = event_types
         return await self._request("POST", "/event/v1/subscriptions", json_data=payload)

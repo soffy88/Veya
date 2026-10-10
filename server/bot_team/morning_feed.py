@@ -174,17 +174,17 @@ async def _gather_routines(owner_ref: str) -> list[dict[str, Any]]:
 
 
 async def _gather_memory(owner_ref: str) -> list[dict[str, Any]]:
+    """Most recent memories for this owner, as brief highlights."""
     try:
         from runtime.personal.runtime import get_personal_runtime
 
-        runtime = get_personal_runtime()
-        candidates = runtime.list_memory_candidates(limit=5)
+        rows = await get_personal_runtime().search_memory(limit=5)
     except Exception:
         _log.debug("memory highlights unavailable for %s", owner_ref, exc_info=True)
         return []
     highlights: list[dict[str, Any]] = []
-    for candidate in candidates or []:
-        summary = candidate.get("summary") or candidate.get("text") or ""
+    for row in rows or []:
+        summary = row.get("summary") or row.get("content") or row.get("text") or ""
         if summary:
             highlights.append({"summary": str(summary)})
     return highlights

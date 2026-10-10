@@ -156,11 +156,9 @@ class WeComClient:
             raise RuntimeError("encoding_aes_key required for decryption")
 
         # Verify signature first
-        payload = {"Encrypt": encrypt}
         if not self.verify_signature(
             token=self.token or "",
-            encoding_aes_key=self.encoding_aes_key,
-            payload=payload,
+            encrypt=encrypt,
             msg_signature=msg_signature,
             timestamp=timestamp,
             nonce=nonce,

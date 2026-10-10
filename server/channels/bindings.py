@@ -135,10 +135,6 @@ class ChannelBindingStore:
             self._save(items)
         return True
 
-    def targets_for_owner(self, owner_ref: str) -> list[dict[str, Any]]:
-        """Every binding owned by ``owner_ref`` (used for feed delivery)."""
-        return self.list(owner_ref=owner_ref)
-
 
 _store: ChannelBindingStore | None = None
 _store_lock = threading.Lock()
