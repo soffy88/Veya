@@ -43,6 +43,12 @@ class BrowserControlRequest(BaseModel):
     expected_handle_version: int | None = Field(None, ge=1)
 
 
+class BrowserActionRequest(BaseModel):
+    action: Literal["design_capture"]
+    browser_session_id: str | None = Field(None, max_length=200)
+    selector: str = Field(..., min_length=1, max_length=500)
+
+
 class TaskControlRequest(BaseModel):
     action: Literal["cancel", "resume"]
     expected_version: str | None = Field(None, min_length=1, max_length=100)
@@ -370,6 +376,46 @@ async def control_workbench_browser(task_id: str, request: BrowserControlRequest
         task_id=task_id,
     )
     return await _view_or_404(task_id)
+
+
+@router.post("/{task_id}/browser/action")
+async def browser_action(task_id: str, request: BrowserActionRequest) -> dict[str, Any]:
+    """Execute a browser action (e.g., design_capture) via the PR-11 adapter."""
+
+    view = await _view_or_404(task_id)
+    browser = view["browser"]
+    session_id = request.browser_session_id or browser.get("session_id")
+    if not session_id:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "BROWSER_SESSION_UNAVAILABLE", "reason": "no browser handle observed"},
+        )
+    adapter = get_browser_adapter(str(session_id))
+    if adapter is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "BROWSER_SESSION_UNAVAILABLE",
+                "reason": "browser handle is not attached to this process",
+                "browser_session_id": str(session_id),
+            },
+        )
+
+    current = await adapter.status(
+        {
+            "session_id": str(session_id),
+            **{key: value for key, value in browser.items() if value is not None},
+        }
+    )
+    if not current.get("ok"):
+        raise _stale("STALE_BROWSER_CONTROL", expected=session_id, actual=current.get("error"))
+    handle = current.get("handle") or current.get("browser") or {}
+
+    if request.action == "design_capture":
+        result = await adapter.action(handle, "browser_design_capture", selector=request.selector)
+        return {"task_id": task_id, "result": result}
+
+    raise HTTPException(status_code=400, detail=f"unknown browser action: {request.action}")
 
 
 def _artifact_path(task_id: str, name: str) -> Path:
