@@ -131,6 +131,23 @@ class SqliteHistoryStore:
                 ")"
             )
 
+            # ORCA-W2: additive migration for databases created before the
+            # fork/handoff columns existed (never drops or rewrites history).
+            have = {row[1] for row in conn.execute("PRAGMA table_info(turns)").fetchall()}
+            for col, ddl in (
+                ("forked_from", "TEXT"),
+                ("kind", "TEXT DEFAULT 'normal'"),
+                ("handoff_target_backend", "TEXT"),
+                ("handoff_target_model", "TEXT"),
+                ("handoff_mode", "TEXT"),
+                ("handoff_note", "TEXT"),
+                ("handoff_delivery_state", "TEXT DEFAULT 'unconfirmed'"),
+                ("handoff_copyable_prompt", "TEXT"),
+                ("worktree_path", "TEXT"),
+            ):
+                if col not in have:
+                    conn.execute(f"ALTER TABLE turns ADD COLUMN {col} {ddl}")
+
             # FTS5 virtual table for full-text search
             conn.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5("
