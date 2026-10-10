@@ -68,6 +68,18 @@ USER = {"user_id": "lorca-user", "username": "lorca"}
 _P256DH = "BA9HrKZEwHPMLuYCmGQUYDBnMFkdSZpTLIq6THfHrzE"
 _AUTH = "kTZ4nDLQv9BrOsWgEQrjXA"
 
+#: A Chef reply carrying a proposal in the documented block. Only this shape is
+#: read as a team to create, and only after an explicit accept.
+_CHEF_REPLY = (
+    "Here is a team for your research work:\n\n"
+    "```veya-bots\n"
+    '{"bots": [{"bot_id": "researcher", "name": "Researcher",'
+    ' "description": "Finds sources", "instructions": "Cite sources."},'
+    ' {"bot_id": "writer", "name": "Writer",'
+    ' "description": "Writes briefs", "instructions": "Be brief."}]}\n'
+    "```"
+)
+
 
 @pytest.fixture
 def push_root(tmp_path, monkeypatch) -> Path:
@@ -578,6 +590,43 @@ async def test_group_message_async_answers_202_and_finishes(app, bot_env, fake_m
     assert payload.title == "Room"
     assert payload.body == "alpha: say:alpha"
     assert payload.url == f"/team/group/{group.id}"
+
+
+async def test_an_async_chef_turn_is_still_confirmable(app, bot_env, monkeypatch, subscribed):
+    """ "?async=1" on Chef must not lose the proposal only the store can hold."""
+
+    del subscribed
+    from server.bot_team.chef import CHEF_BOT_ID, ProposalStore
+    from server.coordinator_master import master_coordinator
+
+    client = TestClient(app)
+    client.get("/api/v1/bots")  # seeds Chef
+
+    async def propose(request: Any) -> GoalRunResponse:
+        bot_id = str(request.constraints.metadata.get("bot_id") or "")
+        return GoalRunResponse(
+            goal_id=f"goal-{bot_id}",
+            status=GoalStatus.completed,
+            phase="finalized",
+            summary=_CHEF_REPLY,
+        )
+
+    monkeypatch.setattr(master_coordinator, "execute_structured", propose)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        accepted = await ac.post(
+            f"/api/v1/bots/{CHEF_BOT_ID}/messages?async=1", json={"text": "build me a team"}
+        )
+    assert accepted.status_code == 202
+
+    drained = await drain_async_turns()
+    assert drained["failed"] == 0
+
+    proposals = ProposalStore(bot_env["root"]).list()
+    assert [item["status"] for item in proposals] == ["pending"]
+    assert [bot["bot_id"] for bot in proposals[0]["bots"]] == ["researcher", "writer"]
+    assert client.post(f"/api/v1/bots/proposals/{proposals[0]['id']}/accept").status_code == 200
 
 
 async def test_group_message_async_over_http(app, bot_env, fake_master, subscribed):

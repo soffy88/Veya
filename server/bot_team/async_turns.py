@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
+from server.bot_team.chef import record_team_proposal
 from server.bot_team.conversations import ConversationStore
 from server.bot_team.groups import GroupChat, run_group_turn
 from server.bot_team.push import announce_bot_reply, announce_group_round
@@ -37,6 +38,14 @@ from server.bot_team.turns import (
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 
 _logg = logging.getLogger("veya.bot_team.async_turns")
+
+
+@dataclass
+class AsyncOutcome:
+    """The finished half of a deferred turn, including Chef's proposal."""
+
+    result: BotTurnResult
+    proposal: dict[str, Any] | None = None
 
 
 @dataclass
@@ -70,7 +79,6 @@ class AsyncTurnRef:
 class _Pending:
     ref: AsyncTurnRef
     task: asyncio.Task[Any]
-    outcome: dict[str, Any] = field(default_factory=dict)
 
 
 #: Deferred turns still running in this process. Not a store (see module docstring).
@@ -177,7 +185,7 @@ async def _run_bot_turn(
     user: dict[str, Any],
     workspace_id: str | None,
     conversations: ConversationStore | None,
-) -> BotTurnResult:
+) -> AsyncOutcome:
     """Finish a deferred bot turn and announce it once it is on record."""
 
     turn = await finish_bot_turn(
@@ -188,6 +196,14 @@ async def _run_bot_turn(
         workspace_id=workspace_id,
         conversations=conversations,
     )
+    # A Chef turn still produces a confirmable proposal when its turn was
+    # answered asynchronously (same recording the sync endpoint does).
+    proposal = record_team_proposal(
+        bot_id=turn.bot_id,
+        text=turn.reply,
+        task_id=turn.task_id,
+        owner_id=str(user.get("user_id") or ""),
+    )
     announce_bot_reply(
         bot_name=bot.name or bot.bot_id,
         reply=turn.reply,
@@ -195,7 +211,7 @@ async def _run_bot_turn(
         user_id=str(user.get("user_id") or ""),
         bot_id=turn.bot_id,
     )
-    return turn
+    return AsyncOutcome(result=turn, proposal=proposal)
 
 
 async def _run_group_turn(

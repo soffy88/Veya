@@ -18,7 +18,13 @@ from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
 from server.bot_team.async_turns import start_bot_turn_async, start_group_turn_async
-from server.bot_team.chef import CHEF_BOT_ID, ProposalStore, ensure_chef_seeded, proposal_store
+from server.bot_team.chef import (
+    CHEF_BOT_ID,
+    ProposalStore,
+    ensure_chef_seeded,
+    proposal_store,
+    record_team_proposal,
+)
 from server.bot_team.conversations import ConversationStore
 from server.bot_team.groups import (
     DEFAULT_ROUNDS_PER_MESSAGE,
@@ -459,7 +465,12 @@ async def post_bot_message(
     if spec.bot_id == CHEF_BOT_ID:
         # Only Chef proposes a team, and the proposal is only stored here:
         # creating the bots still needs an explicit accept.
-        proposal = proposals().record(turn.reply, task_id=turn.task_id, owner_id=user["user_id"])
+        proposal = record_team_proposal(
+            bot_id=spec.bot_id,
+            text=turn.reply,
+            task_id=turn.task_id,
+            owner_id=user["user_id"],
+        )
         if proposal is not None:
             response["proposal"] = {
                 "id": proposal["id"],
