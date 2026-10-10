@@ -9,7 +9,7 @@ from server.bot_team.routine_clock import _default_handoff_consumer
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_registry import RoutineRegistry
-from server.project_store import ProjectStore
+from server.goal_run.routine_history import RoutineHistoryStore
 
 router = APIRouter(
     prefix="/api/v1/bots/{bot_id}/routines",
@@ -132,37 +132,40 @@ async def run_now(bot_id: str, routine_id: str):
     # ORCA-W4: run_now works even on disabled routines
     # Run probe first
     from server.goal_run.routine_dispatch import run_probe
-    probe_result = run_probe(spec)
+    probe_result = run_probe(spec.probe, spec.workspace_path or None)
     
     # Record run history
+    trigger_id = f"run_now:{uuid.uuid4().hex}"
+    run_entry = {
+        "trigger_id": trigger_id,
+        "status": probe_result.get("status", "dispatched"),
+        "probe": probe_result,
+        "dispatched_at": time.time(),
+    }
+    if not probe_result["success"]:
+        run_entry["status"] = "probe_error"
+    elif probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
+        run_entry["status"] = "skipped"
+    else:
+        run_entry["status"] = "dispatched"
+
     try:
-        goal_run_state = ProjectStore(bot_id=bot_id).load_goal_run_state()
-        routine_state = goal_run_state.routine_states.get(routine_id)
-        if routine_state is not None:
-            trigger_id = f"run_now:{uuid.uuid4().hex}"
-            run_entry = {
-                "trigger_id": trigger_id,
-                "status": probe_result.get("status", "dispatched"),
-                "probe_result": probe_result,
-                "at": time.time(),
-            }
-            routine_state.run_history.append(run_entry)
-            if len(routine_state.run_history) > 50:
-                routine_state.run_history = routine_state.run_history[-50:]
-            ProjectStore(bot_id=bot_id).save_goal_run_state(goal_run_state)
+        RoutineHistoryStore(bot_id=bot_id).add_record(routine_id, run_entry)
     except Exception:
         pass
     
     # Skip dispatch if probe skipped or errored
-    if probe_result.get("status") in ("skipped", "probe_error"):
-        return {"triggered": False, "reason": probe_result.get("status"), "probe_result": probe_result}
+    if not probe_result["success"] or (probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False)):
+        return {"triggered": False, "reason": run_entry["status"], "probe": probe_result}
 
     handoff = {
         "routine_id": routine_id,
         "trigger_topic": "schedule.trigger",
-        "trigger_id": f"run_now:{uuid.uuid4().hex}",
+        "trigger_id": run_entry["trigger_id"],
         "target": {"goal_template": spec.objective},
         "bot_id": bot_id,
+        "model": spec.model,
+        "workspace_path": spec.workspace_path,
     }
     await _default_handoff_consumer([handoff])
     return {"triggered": True, "handoff": handoff}
@@ -178,11 +181,9 @@ def get_history(bot_id: str, routine_id: str, limit: int = 50):
     require_same_bot(spec.bot_id, bot_id, f"routine:{routine_id}")
 
     try:
-        goal_run_state = ProjectStore(bot_id=bot_id).load_goal_run_state()
-        routine_state = goal_run_state.routine_states.get(routine_id)
-        if routine_state is None:
-            return {"history": []}
-        history = routine_state.run_history[-limit:] if routine_state.run_history else []
+        history = RoutineHistoryStore(bot_id=bot_id).get_history(routine_id)
+        if len(history) > limit:
+            history = history[-limit:]
         return {"history": history}
     except Exception:
         return {"history": []}

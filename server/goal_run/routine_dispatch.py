@@ -140,9 +140,6 @@ def dispatch_trigger(
     started again, including after restart (state survives in taskgraph.json).
     Capped: at most ROUTINE_MAX_STARTED routines start per dispatch call.
     Same-GoalRun: a routine already bound to another GoalRun is refused.
-
-    ORCA-W4: Runs probe before handoff. If probe fails, routine is marked
-    with probe_error status in run_history and no handoff is returned.
     """
     assert_routine_execution_authority_zero()
     if ROUTINE_EXECUTION_AUTHORITY != 0:
@@ -186,33 +183,7 @@ def dispatch_trigger(
         entry.canonical_goal_run_id = state.goal_id
         entry.trigger_metadata = {"trigger_id": trigger_id, **(payload or {})}
 
-        # ORCA-W4: Run probe before handoff
-        probe_result = run_probe(spec.probe, spec.workspace_path or None)
-        run_record = {
-            "trigger_id": trigger_id,
-            "trigger_identity": identity,
-            "dispatched_at": moment,
-            "probe": probe_result,
-        }
 
-        if not probe_result["success"]:
-            # Probe failed - record in run_history with probe_error status
-            run_record["status"] = "probe_error"
-            entry.run_history.append(run_record)
-            # Don't create handoff for failed probe
-            continue
-
-        # Probe succeeded - check if git_changes probe detected no changes
-        if probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
-            # No changes - record as skipped
-            run_record["status"] = "skipped"
-            entry.run_history.append(run_record)
-            # Don't create handoff for no changes
-            continue
-
-        # Probe passed - record as dispatched
-        run_record["status"] = "dispatched"
-        entry.run_history.append(run_record)
 
         target: dict[str, Any] = {}
         if spec.target_skill_id:

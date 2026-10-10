@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from server import auth as auth_mod
-from server.goal_run.project_store import ProjectStore
 from server.goal_run.bot_identity import DEFAULT_BOT_ID
 from server.tool_registry import _delegation_depth_ctx
 
@@ -24,8 +23,12 @@ class ArtifactSharingSettings(BaseModel):
 
 def _get_settings_file(bot_id: str):
     """Get the path to the settings storage file."""
-    store = ProjectStore(bot_id=bot_id)
-    return store.root / "settings.json"
+    import os
+    from pathlib import Path
+    if "VEYA_SETTINGS_PATH" in os.environ:
+        return Path(os.environ["VEYA_SETTINGS_PATH"])
+    settings_dir = Path(os.environ.get("VEYA_SETTINGS_DIR", os.path.expanduser("~/.veya/settings")))
+    return settings_dir / f"{bot_id}.json"
 
 
 def _load_settings(bot_id: str) -> dict:

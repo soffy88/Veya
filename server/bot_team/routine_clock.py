@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.routine_dispatch import run_probe
 from server.goal_run.models import RoutineSpec
-from server.project_store import ProjectStore
+from server.goal_run.routine_history import RoutineHistoryStore
 
 _lg = logging.getLogger(__name__)
 
@@ -270,27 +270,16 @@ class RoutineClock:
 
                 # Record run history in routine state
                 try:
-                    # Load goal run state to access routine_states
-                    goal_run_state = ProjectStore(bot_id=spec.bot_id).load_goal_run_state()
-                    routine_state = goal_run_state.routine_states.get(routine_id)
-                    if routine_state is not None:
-                        if not probe_result["success"]:
-                            # Probe failed - record with probe_error status
-                            run_record["status"] = "probe_error"
-                            routine_state.run_history.append(run_record)
-                        elif probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
-                            # No changes - record as skipped
-                            run_record["status"] = "skipped"
-                            routine_state.run_history.append(run_record)
-                        else:
-                            # Probe passed - record as dispatched
-                            run_record["status"] = "dispatched"
-                            routine_state.run_history.append(run_record)
-                        # Keep only last 50 entries
-                        if len(routine_state.run_history) > 50:
-                            routine_state.run_history = routine_state.run_history[-50:]
-                        # Save back
-                        ProjectStore(bot_id=spec.bot_id).save_goal_run_state(goal_run_state)
+                    if not probe_result["success"]:
+                        # Probe failed - record with probe_error status
+                        run_record["status"] = "probe_error"
+                    elif probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
+                        # No changes - record as skipped
+                        run_record["status"] = "skipped"
+                    else:
+                        # Probe passed - record as dispatched
+                        run_record["status"] = "dispatched"
+                    RoutineHistoryStore(bot_id=spec.bot_id).add_record(routine_id, run_record)
                 except Exception:
                     # Non-fatal: continue with dispatch
                     pass
@@ -314,6 +303,8 @@ class RoutineClock:
                         "trigger_id": trigger_id,
                         "target": {"goal_template": spec.goal_template},
                         "bot_id": spec.bot_id,
+                        "model": spec.model,
+                        "workspace_path": spec.workspace_path,
                     })
                     self.last_fired[routine_id] = now.isoformat()
                     self._save_state()
