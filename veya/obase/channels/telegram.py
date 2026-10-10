@@ -12,7 +12,6 @@ from typing import Any
 import httpx
 
 from veya.obase.channels import (
-    ChannelReply,
     PLATFORM_TELEGRAM,
     chunk_text,
 )
@@ -189,6 +188,7 @@ class TelegramClient:
 
 # ---- Convenience factory (not an oprim, just a helper) ----
 
+
 async def create_telegram_client(
     bot_token: str,
     *,
@@ -201,4 +201,4 @@ async def create_telegram_client(
     return client
 
 
-__all__ = ["TelegramClient", "create_telegram_client", "TELEGRAM_API_BASE"]
+__all__ = ["TELEGRAM_API_BASE", "TelegramClient", "create_telegram_client"]

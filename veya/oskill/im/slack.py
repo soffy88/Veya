@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
@@ -15,6 +14,7 @@ from veya.obase.channels import chunk_text
 SLACK_MAX_LEN = 3900
 
 # ---- Formatting oprims ----
+
 
 def escape_slack_text(text: str) -> str:
     """Escape text for Slack mrkdwn.
@@ -51,6 +51,7 @@ def build_slack_context(elements: list[dict[str, Any]]) -> dict[str, Any]:
 
 # ---- Composed formatters ----
 
+
 def format_slack_message(
     text: str,
     *,
@@ -62,7 +63,7 @@ def format_slack_message(
 
     Returns list of message dicts ready to send.
     """
-    chunks = chunk_text(text, platform="slack")  # uses default 4096
+    chunks = chunk_text(text, platform="slack", max_len=max_len)
 
     results = []
     for chunk in chunks:
@@ -117,15 +118,15 @@ def format_help() -> dict[str, Any]:
 
 
 __all__ = [
-    "escape_slack_text",
-    "format_slack_text_message",
-    "format_slack_block_message",
-    "build_slack_section",
     "build_slack_context",
-    "format_slack_message",
-    "format_task_started",
-    "format_task_result",
+    "build_slack_section",
+    "escape_slack_text",
     "format_error",
-    "format_status",
     "format_help",
+    "format_slack_block_message",
+    "format_slack_message",
+    "format_slack_text_message",
+    "format_status",
+    "format_task_result",
+    "format_task_started",
 ]

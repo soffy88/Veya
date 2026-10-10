@@ -7,8 +7,6 @@ Supports both WeCom Customer Service API and Group Chat Bot webhook.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import logging
 import time
 import xml.etree.ElementTree as ET
@@ -19,6 +17,7 @@ import httpx
 from veya.obase.channels import (
     PLATFORM_WECOM,
     chunk_text,
+    verify_wecom_signature,
 )
 
 _log = logging.getLogger("veya.obase.channels.wecom")
@@ -120,22 +119,19 @@ class WeComClient:
     def verify_signature(
         *,
         token: str,
-        encoding_aes_key: str,  # unused for signature, but part of config
-        payload: dict[str, Any],
+        encrypt: str,
         msg_signature: str,
         timestamp: str,
         nonce: str,
     ) -> bool:
-        """Verify WeCom callback signature.
-
-        WeCom: SHA1(sort(token, timestamp, nonce, encrypt))
-        """
-        import hashlib
-        encrypt = payload.get("Encrypt", "")
-        tmp_list = sorted([token, timestamp, nonce, encrypt])
-        tmp_str = "".join(tmp_list)
-        expected = hashlib.sha1(tmp_str.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(expected, msg_signature)
+        """Verify WeCom callback signature (delegates to the obase crypto oprim)."""
+        return verify_wecom_signature(
+            token=token,
+            encrypt=encrypt,
+            msg_signature=msg_signature,
+            timestamp=timestamp,
+            nonce=nonce,
+        )
 
     # ---- Message decryption (oprim: single crypto op) ----
 
@@ -153,6 +149,7 @@ class WeComClient:
         Uses WXBizMsgCrypt algorithm (AES-256-CBC).
         """
         import base64
+
         from Crypto.Cipher import AES
 
         if not self.encoding_aes_key:
@@ -186,7 +183,7 @@ class WeComClient:
         # First 16 bytes are random, next 4 bytes are msg_len (network order)
         # Then msg content, then corp_id
         msg_len = int.from_bytes(decrypted[16:20], "big")
-        content = decrypted[20:20 + msg_len]
+        content = decrypted[20 : 20 + msg_len]
         return 0, content.decode("utf-8")
 
     # ---- XML parsing (oprim: pure computation) ----
@@ -204,20 +201,9 @@ class WeComClient:
             result[child.tag] = child.text
         return result
 
-    @staticmethod
-    def build_text_reply(
-        to_user: str,
-        from_user: str,
-        content: str,
-    ) -> str:
-        """Build WeCom XML text reply."""
-        return f"""<xml>
-<ToUserName><![CDATA[{to_user}]]></ToUserName>
-<FromUserName><![CDATA[{from_user}]]></FromUserName>
-<CreateTime>{int(time.time())}</CreateTime>
-<MsgType><![CDATA[text]]></MsgType>
-<Content><![CDATA[{content}]]></Content>
-</xml>"""
+    # NOTE: pure XML reply shaping lives in veya.oskill.im.wecom
+    # (``format_wecom_text_reply_xml``) per the single-source rule; this layer
+    # keeps only transport + crypto concerns.
 
     # ---- Core send (oprim: single HTTP call) ----
 
@@ -338,6 +324,7 @@ class WeComClient:
 
 # ---- Convenience factory ----
 
+
 async def create_wecom_client(
     *,
     corp_id: str | None = None,
@@ -364,9 +351,9 @@ async def create_wecom_client(
 
 
 __all__ = [
+    "WECHAT_APP_CHAT_SEND_URL",
+    "WECHAT_SEND_URL",
+    "WECHAT_TOKEN_URL",
     "WeComClient",
     "create_wecom_client",
-    "WECHAT_TOKEN_URL",
-    "WECHAT_SEND_URL",
-    "WECHAT_APP_CHAT_SEND_URL",
 ]

@@ -1,246 +1,142 @@
-"""veya/oskill/im/dingtalk.py — DingTalk Bot Gateway (Layer 4).
+"""veya/oskill/im/dingtalk.py — Pure DingTalk message formatting (oskill).
 
-Uses obase.channels.DingTalkClient for all IO (3O compliance).
-Pure formatting delegated to this module's format_* functions.
+≥2 oprims, stateless, no IO/persistence, no user_id, no framework import.
+
+DingTalk payloads are ``{"msgtype": ..., "<msgtype>": {...}}`` envelopes; the
+formatters here build them. All DingTalk HTTP/HMAC lives in
+``veya.obase.channels.dingtalk``.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-import logging
-import os
-from collections.abc import Callable
+import re
 from typing import Any
 
-try:
-    from fastapi import APIRouter, HTTPException, Request
+from veya.obase.channels import PLATFORM_DINGTALK, chunk_text
 
-    _HAS_FASTAPI = True
-except ImportError:
-    _HAS_FASTAPI = False
-    APIRouter = object  # type: ignore
-    HTTPException = Exception  # type: ignore
-    Request = object  # type: ignore
+DINGTALK_MAX_LEN = 5000
 
-from veya.obase.channels.dingtalk import DingTalkClient, create_dingtalk_client
-from veya.obase.channels import PLATFORM_DINGTALK
-from veya.oskill.im.pseudo import anonymize_user_id
-
-logger = logging.getLogger("veya.oskill.im.dingtalk")
-
-_bg_tasks: set = set()
+# DingTalk markdown headings must be preceded by a blank line.
+_HEADING_RE = re.compile(r"(?m)^(#{1,6}\s.*)$")
 
 
-class DingTalkGateway:
-    """DingTalk robot gateway.
+# ---- Formatting oprims ----
 
-    IO delegated to veya.obase.channels.DingTalkClient (oprim).
-    Formatting uses this module's pure formatters (oskill).
+
+def escape_dingtalk_markdown(text: str) -> str:
+    """Escape characters that would otherwise break DingTalk markdown."""
+    return text.replace("@", "\u2005").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _normalize_headings(text: str) -> str:
+    """Ensure a blank line before every ATX heading (DingTalk requirement)."""
+    return _HEADING_RE.sub(lambda m: f"\n{m.group(1)}", text).lstrip("\n")
+
+
+def format_dingtalk_text_message(text: str) -> dict[str, Any]:
+    """Build a DingTalk ``text`` message."""
+    return {"msgtype": "text", "text": {"content": text}}
+
+
+def format_dingtalk_markdown_message(text: str, *, title: str = "") -> dict[str, Any]:
+    """Build a DingTalk ``markdown`` message."""
+    return {
+        "msgtype": "markdown",
+        "markdown": {"title": title, "text": _normalize_headings(text)},
+    }
+
+
+def format_dingtalk_link_message(
+    text: str,
+    title: str,
+    message_url: str,
+    pic_url: str = "",
+) -> dict[str, Any]:
+    """Build a DingTalk ``link`` message."""
+    return {
+        "msgtype": "link",
+        "link": {
+            "text": text,
+            "title": title,
+            "picUrl": pic_url,
+            "messageUrl": message_url,
+        },
+    }
+
+
+# ---- Composed formatters ----
+
+
+def format_dingtalk_message(
+    text: str,
+    *,
+    max_len: int = DINGTALK_MAX_LEN,
+    markdown: bool = True,
+) -> list[dict[str, Any]]:
+    """Format and chunk a message for DingTalk.
+
+    Oskill: composes ``chunk_text`` (obase oprim) with envelope shaping.
+    Stateless, no IO.
     """
-
-    def __init__(
-        self,
-        *,
-        app_key: str | None = None,
-        app_secret: str | None = None,
-        webhook_url: str | None = None,
-        webhook_secret: str | None = None,
-        runner: Callable[..., Any] | None = None,
-    ):
-        self.app_key = app_key or os.environ.get("DINGTALK_APP_KEY", "")
-        self.app_secret = app_secret or os.environ.get("DINGTALK_APP_SECRET", "")
-        self.webhook_url = webhook_url or os.environ.get("DINGTALK_WEBHOOK_URL", "")
-        self.webhook_secret = webhook_secret or os.environ.get("DINGTALK_WEBHOOK_SECRET", "")
-        self._runner = runner
-        self._client: DingTalkClient | None = None
-
-    async def _get_client(self) -> DingTalkClient:
-        if self._client is None:
-            self._client = await create_dingtalk_client(
-                app_key=self.app_key or None,
-                app_secret=self.app_secret or None,
-                webhook_url=self.webhook_url or None,
-                webhook_secret=self.webhook_secret or None,
-            )
-        return self._client
-
-    async def handle_webhook(self, payload: dict, request: Request | None = None) -> dict:
-        """Handle a DingTalk webhook message.
-
-        Returns response dict to send back.
-        """
-        # Verify group chat bot signature if headers present
-        if request:
-            timestamp = request.headers.get("timestamp", "")
-            sign = request.headers.get("sign", "")
-            if timestamp and sign and self.webhook_secret:
-                from veya.obase.channels import verify_dingtalk_signature
-                if not verify_dingtalk_signature(
-                    webhook_secret=self.webhook_secret,
-                    timestamp=timestamp,
-                    sign=sign,
-                ):
-                    raise HTTPException(status_code=401, detail="Invalid signature")
-
-        # Extract message
-        text_content = ""
-        sender_id = "unknown"
-        session_webhook = ""
-
-        # Group chat bot format
-        if "text" in payload:
-            text_content = payload.get("text", {}).get("content", "")
-            sender_id = payload.get("senderId", "unknown")
-            session_webhook = payload.get("sessionWebhook", "")
-        # Enterprise bot format
-        elif "msgContent" in payload:
-            text_content = payload.get("msgContent", "")
-            sender_id = payload.get("senderStaffId", "unknown")
-            session_webhook = payload.get("sessionWebhook", "")
-
-        user_id = f"dingtalk:{sender_id}"
-        pseudo_id = anonymize_user_id(user_id)
-
-        if self._runner and text_content:
-            # Background: run agent and reply
-            _task_ref = asyncio.create_task(
-                self._run_and_reply(
-                    text_content,
-                    session_webhook,
-                    pseudo_id,
-                    sender_id,
-                )
-            )
-            _bg_tasks.add(_task_ref)
-
-        from .dingtalk import format_task_started
-        return format_task_started(sender_id, text_content[:50])
-
-    async def _run_and_reply(
-        self,
-        prompt: str,
-        session_webhook: str,
-        pseudo_id: str,
-        sender_id: str,
-    ):
-        """Run agent and send reply."""
-        client = await self._get_client()
-        try:
-            result = await self._runner(prompt, user_ref=pseudo_id)
-            status = result.get("status", "completed")
-            content = result.get("result", "")
-            if isinstance(content, list):
-                text_parts = [b.get("text", "") for b in content if b.get("type") == "text"]
-                content = "\n".join(text_parts) if text_parts else str(content)
-            elif isinstance(content, dict):
-                content = content.get("content", str(content))
-
-            from .dingtalk import format_task_result, format_error
-            if status == "completed":
-                chunks = format_task_result(sender_id, prompt, str(content), result.get("cost_usd", 0.0))
-            else:
-                chunks = format_error(sender_id, str(content))
-
-            for chunk in chunks:
-                await client.send_message(
-                    str(content)[:5000],
-                    session_webhook=session_webhook,
-                )
-        except Exception as e:
-            logger.error(f"DingTalk agent run failed: {e}")
-            from .dingtalk import format_error
-            chunk = format_error(sender_id, str(e))
-            await client.send_message(
-                chunk,
-                session_webhook=session_webhook,
-            )
+    build = format_dingtalk_markdown_message if markdown else format_dingtalk_text_message
+    return [build(chunk) for chunk in chunk_text(text, platform=PLATFORM_DINGTALK, max_len=max_len)]
 
 
-def make_dingtalk_router(
-    app_key: str | None = None,
-    app_secret: str | None = None,
-    webhook_url: str | None = None,
-    webhook_secret: str | None = None,
-) -> APIRouter:
-    """Build a FastAPI router for DingTalk webhook.
-
-    Mount:  app.include_router(make_dingtalk_router(), prefix="/im/dingtalk")
-    """
-    from server.coordinator_master import master_coordinator
-
-    async def _default_runner(prompt: str, user_ref: str = "anon") -> dict:
-        try:
-            result = await master_coordinator.chat_stream(prompt, session_id=None)
-            return {
-                "status": result.get("status", "failed"),
-                "content": result.get("final_answer") or result.get("error", ""),
-                "cost_usd": result.get("cost_usd", 0.0),
-                "user_ref": user_ref,
-            }
-        except Exception as exc:
-            return {"status": "failed", "content": f"IM runner error: {exc}", "user_ref": user_ref}
-
-    gateway = DingTalkGateway(
-        app_key=app_key,
-        app_secret=app_secret,
-        webhook_url=webhook_url,
-        webhook_secret=webhook_secret,
-        runner=_default_runner,
+def format_task_started(username: str, task_preview: str) -> dict[str, Any]:
+    """Format the 'task started' acknowledgement."""
+    return format_dingtalk_markdown_message(
+        f"### 🚀 {username} started a task\n\n> {task_preview[:200]}\n\n⏳ Processing..."
     )
 
-    router = APIRouter()
 
-    @router.post("/webhook")
-    async def dingtalk_webhook(request: Request):
-        """DingTalk webhook handler."""
-        body = await request.body()
-        try:
-            payload = json.loads(body)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="Invalid JSON")
-
-        response = await gateway.handle_webhook(payload, request)
-        return response
-
-    @router.get("/status")
-    async def dingtalk_status():
-        return {
-            "status": "ok",
-            "platform": "dingtalk",
-            "enterprise_configured": bool(gateway.app_key and gateway.app_secret),
-            "group_bot_configured": bool(gateway.webhook_url),
-        }
-
-    return router
+def format_task_result(
+    username: str,
+    task_preview: str,
+    result: str,
+    cost_usd: float,
+) -> list[dict[str, Any]]:
+    """Format a completed task result, chunked for DingTalk."""
+    text = f"### {username} asked\n\n> {task_preview[:200]}\n\n{result}\n\n💰 ${cost_usd:.4f}"
+    return format_dingtalk_message(text)
 
 
-# Re-export pure formatters for single-source guard
-from .dingtalk import (  # noqa: F401,E402
-    escape_dingtalk_markdown,
-    format_dingtalk_text_message,
-    format_dingtalk_markdown_message,
-    format_dingtalk_link_message,
-    format_dingtalk_message,
-    format_task_started,
-    format_task_result,
-    format_error,
-    format_status,
-    format_help,
-)
+def format_error(username: str, error: str) -> dict[str, Any]:
+    """Format an error notification."""
+    return format_dingtalk_markdown_message(f"### ❌ {username} — Error\n\n{error[:200]}")
+
+
+def format_status(username: str, session_active: bool, pseudo_id: str) -> dict[str, Any]:
+    """Format a status response."""
+    state = "✅ Active" if session_active else "⏸ Inactive"
+    return format_dingtalk_markdown_message(
+        "### 🤖 veya status\n\n"
+        f"- Session: {state}\n"
+        f"- User: {username} ({pseudo_id})\n"
+        "- Gateway: DingTalk"
+    )
+
+
+def format_help() -> dict[str, Any]:
+    """Format the help message."""
+    return format_dingtalk_markdown_message(
+        "### veya Help\n\n"
+        "- Send any message to start a task\n"
+        "- /status — check bot status\n"
+        "- /history — view recent tasks\n"
+        "- /reset — clear conversation context"
+    )
+
 
 __all__ = [
-    "DingTalkGateway",
-    "make_dingtalk_router",
-    # Re-exported pure formatters
+    "DINGTALK_MAX_LEN",
     "escape_dingtalk_markdown",
-    "format_dingtalk_text_message",
-    "format_dingtalk_markdown_message",
     "format_dingtalk_link_message",
+    "format_dingtalk_markdown_message",
     "format_dingtalk_message",
-    "format_task_started",
-    "format_task_result",
+    "format_dingtalk_text_message",
     "format_error",
-    "format_status",
     "format_help",
+    "format_status",
+    "format_task_result",
+    "format_task_started",
 ]

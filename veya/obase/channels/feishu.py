@@ -178,7 +178,9 @@ class FeishuClient:
                 }
             }
         }
-        return await self.send_message(chat_id, post_content, msg_type="post", receive_id_type=receive_id_type)
+        return await self.send_message(
+            chat_id, post_content, msg_type="post", receive_id_type=receive_id_type
+        )
 
     # ---- Webhook management (oprim: single HTTP call) ----
 
@@ -203,6 +205,7 @@ class FeishuClient:
 
 # ---- Convenience factory ----
 
+
 async def create_feishu_client(
     app_id: str,
     app_secret: str,
@@ -215,4 +218,4 @@ async def create_feishu_client(
     return client
 
 
-__all__ = ["FeishuClient", "create_feishu_client", "FEISHU_API_BASE"]
+__all__ = ["FEISHU_API_BASE", "FeishuClient", "create_feishu_client"]

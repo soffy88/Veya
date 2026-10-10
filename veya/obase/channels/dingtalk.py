@@ -20,6 +20,7 @@ import httpx
 from veya.obase.channels import (
     PLATFORM_DINGTALK,
     chunk_text,
+    verify_dingtalk_signature,
 )
 
 _log = logging.getLogger("veya.obase.channels.dingtalk")
@@ -115,15 +116,12 @@ class DingTalkClient:
         sign: str,
         webhook_secret: str,
     ) -> bool:
-        """Verify DingTalk group chat bot webhook signature."""
-        string_to_sign = f"{timestamp}\n{webhook_secret}"
-        expected = hmac.new(
-            webhook_secret.encode("utf-8"),
-            string_to_sign.encode("utf-8"),
-            hashlib.sha256,
-        ).digest()
-        expected_b64 = base64.b64encode(expected).decode("utf-8")
-        return hmac.compare_digest(expected_b64, sign)
+        """Verify DingTalk group chat bot webhook signature (delegates to obase oprim)."""
+        return verify_dingtalk_signature(
+            webhook_secret=webhook_secret,
+            timestamp=timestamp,
+            sign=sign,
+        )
 
     def _sign_group_request(self, timestamp: str | None = None) -> tuple[str, str]:
         """Generate timestamp and signature for group bot requests."""
@@ -234,7 +232,9 @@ class DingTalkClient:
         chunks = chunk_text(text, platform=PLATFORM_DINGTALK)
         results = []
         for chunk in chunks:
-            results.append(await self.send_message(chunk, session_webhook=session_webhook, msgtype=msgtype))
+            results.append(
+                await self.send_message(chunk, session_webhook=session_webhook, msgtype=msgtype)
+            )
             await asyncio.sleep(0.05)
         return results
 
@@ -255,6 +255,7 @@ class DingTalkClient:
 
 
 # ---- Convenience factory ----
+
 
 async def create_dingtalk_client(
     *,
@@ -278,9 +279,9 @@ async def create_dingtalk_client(
 
 
 __all__ = [
-    "DingTalkClient",
-    "create_dingtalk_client",
+    "DINGTALK_GROUP_SEND_URL",
     "DINGTALK_OAUTH_URL",
     "DINGTALK_SEND_URL",
-    "DINGTALK_GROUP_SEND_URL",
+    "DingTalkClient",
+    "create_dingtalk_client",
 ]
