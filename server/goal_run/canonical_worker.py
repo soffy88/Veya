@@ -7,10 +7,12 @@ existing P1 components to one GoalRun.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
 
+from runtime import bot_scope
 from runtime.computer import PersistentComputerStore
 from runtime.context import ContextEngine
 from runtime.execution.artifacts import ArtifactStore
@@ -20,6 +22,7 @@ from runtime.knowledge_reliability import KnowledgeRuntime, RetrievalPlan
 from runtime.provider_reliability import ReliableProviderAdapter
 from runtime.verification import EvidenceBundle, EvidenceItem, VerificationEngine
 from server.action_gateway_adapter import ActionGatewayAdapter
+from server.bot_team.memory import inject_memory_context
 from server.goal_run.action_protocol import CanonicalActionRequest, CanonicalActionResult
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.git_diff import current_head
@@ -148,10 +151,18 @@ class CanonicalWorkerAdapter:
                 raise RuntimeError("GoalRun ActionGateway is not bound")
 
             async def physical(**_arguments: Any) -> Any:
-                value = gateway_executor(request)
-                if hasattr(value, "__await__"):
-                    return await value
-                return value
+                # P3: bot-scoped capabilities (per-bot Markdown memory) resolve
+                # "the running bot" from this binding.  It is set exactly where
+                # the cross-bot guard above already runs, and reset on exit, so
+                # no other execution path sees a stale identity.
+                bot_token = bot_scope.bind_current_bot(state.bot_id)
+                try:
+                    value = gateway_executor(request)
+                    if hasattr(value, "__await__"):
+                        return await value
+                    return value
+                finally:
+                    bot_scope.reset_current_bot(bot_token)
 
             result = self.action_gateway.execute(
                 request.tool,
@@ -411,6 +422,12 @@ class CanonicalWorkerAdapter:
         from server.goal_run.leaf import LeafResult
 
         session_id = self.semantic_session_id or state.goal_id
+        # P3: make the running bot's readable Markdown memory part of its own
+        # semantic context.  Additive (marked system block, refreshed per
+        # step) and gated on VEYA_BOT_MEMORY_MD — a context-assembly concern
+        # only, never an execution or routing decision.
+        with contextlib.suppress(Exception):
+            inject_memory_context(self.semantic_agent, session_id, state.bot_id)
         prior_result = (state.budget or {}).get("semantic_prior_result")
         decision = await self.semantic_agent.semantic_step(
             task.instruction,

@@ -24,6 +24,7 @@ from server.routes.autonomous import router as autonomous_router
 from server.routes.backends import router as backends_router
 from server.routes.board import router as board_router
 from server.routes.bots import router as bots_router
+from server.routes.bot_memory import router as bot_memory_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
 from server.routes.closed_loop import router as closed_loop_router
@@ -485,6 +486,7 @@ app.include_router(personal_runtime_router)
 app.include_router(product_router)
 # Lorca P1/P2: the named bot team + group chat shell (same product path).
 app.include_router(bots_router)
+app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
 if _advanced_visualization_router is not None:
     app.include_router(_advanced_visualization_router)
 app.include_router(agent_collaboration_router)
