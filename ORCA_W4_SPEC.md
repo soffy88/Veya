@@ -1,0 +1,20 @@
+# Task ORCA-W4 — routines probe + per-routine model + workspace binding; public artifact links
+Worktree /data/soffy/projects/veya-orca-w4, branch feat/orca-routines-artifacts. Report: ORCA_W4_REPORT.md. Tests: tests/test_orca_w4_routines_artifacts.py.
+Investigate first: server/goal_run/models.py (RoutineSpec), server/goal_run/routine_registry.py, routine_dispatch.py, server/bot_team/routine_clock.py, server/routes/routines.py, server/artifact_model.py.
+1. Probe. RoutineSpec gets `probe: dict` = {"kind": "none"|"git_changes"|"command", "path"?, "command"?, "timeout_s"}. At fire time (clock and run-now), run the probe BEFORE any model/GoalRun call: git_changes = uncommitted or new commits since last successful run in `path`; command = exit 0 means "has work". No work -> record a run with status "skipped" (reason) and do not dispatch. Probe errors -> status "probe_error", no dispatch.
+2. Per-routine model: `model: str = ""` passed through to the GoalRun dispatch (empty = default).
+3. Workspace binding: `workspace_path: str = ""` — run in that existing worktree instead of a fresh one; validate it exists.
+4. Create disabled + run-now: routines REST accepts enabled=false on create; POST /routines/{id}/run-now works on disabled routines. Run history endpoint shows skipped/probe_error/dispatched.
+5. Public artifact links. Setting `artifacts.public_sharing_enabled` default false, changeable ONLY via authenticated REST PUT /api/v1/settings/artifacts by the owner (not by any model tool; reject if called from an agent/tool context). When enabled: POST /api/v1/artifacts/{id}/share -> unguessable token (secrets.token_urlsafe(24)); GET /a/{token} serves it without login; DELETE revokes; list shares. Disabled -> 403 with a clear message.
+UI: routine form fields probe/model/workspace + "Run now" + history status chips; artifact "Share link" button and settings toggle.
+Tests: probe skip/dispatch/error with tmp git repo and fake dispatcher, model + workspace passthrough, disabled create + run-now, share disabled 403, enable, token access, revoke, agent-context rejection.
+## HARD RULES (sibling worktrees veya-orca-* are worked by other agents at the same time — never touch them)
+- Work ONLY in this worktree, branch named above, based on main edd2619a. Build ONLY on committed code. Do NOT read/copy/import from /data/soffy/projects/veya (canonical checkout has other agents' uncommitted WIP). Do not create server/bot_runtime/.
+- Clean-room: do not copy code from Orca (stablyai/orca) or Lorca; implement from this spec.
+- Frozen Veya authorities: MasterAgent = semantic, GoalRun = durable execution, PermissionEngine = policy. No second scheduler, no second task store, no new executor — extend existing paths. Adding a model-visible tool to MasterToolRegistry is allowed only if clearly needed; list every new model tool prominently in the report.
+- Keep edits to existing files minimal and additive (server/app.py: router include lines only). New code in new modules. New feature flags default OFF only where behaviour would otherwise change for existing users.
+- Don't touch platform/3O (symlinks; never commit), .venv, node_modules symlinks, systemd services, production config. Never commit secrets/keys/.env. Don't push or merge.
+- Python: ./.venv/bin/python -m pytest -p no:cacheprovider <one or two files>. NEVER run the whole tests/ dir (OOM). Web: one `pnpm run check` and one `pnpm run build` in apps/web with NODE_OPTIONS=--max-old-space-size=2048; never start dev servers.
+- Commit WIP early and after every passing step (small logical commits). git status needs --ignore-submodules=all.
+- Regression set to run at the end (2 pre-existing fails in test_product_shell resume are known): tests/test_lorca_p1_bots.py tests/test_lorca_p2_groups.py tests/test_p3a_bot_isolation.py tests/test_product_shell.py plus any existing test file covering a module you edited.
+- Finish with the report file named above committed: what was built, files, API routes, UI entry points, exact test commands + results, known gaps.
