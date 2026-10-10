@@ -1251,8 +1251,28 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
     if path.exists() and not overwrite:
         raise ToolExecutionError(f"文件已存在: {filepath} (overwrite=false, 不会覆盖)")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(str(content), encoding="utf-8")
-    return f"✅ 已写入 {path} ({len(str(content))} 字符)。可用 read_file_ast / grep 继续理解。"
+    content_str = str(content)
+    path.write_text(content_str, encoding="utf-8")
+    
+    # AI Attribution
+    session = _current_master_session.get()
+    if session:
+        try:
+            from server.goal_run.ai_attribution import record_ai_write
+            # Determine line count
+            lines = content_str.splitlines() or [""]
+            record_ai_write(
+                repo_root=str(_current_workspace_root.get() or _current_write_root.get() or ""),
+                file_path=filepath,
+                line_start=1,
+                line_end=len(lines),
+                session_id=session,
+                content=content_str,
+            )
+        except Exception:
+            pass
+            
+    return f"✅ 已写入 {path} ({len(content_str)} 字符)。可用 read_file_ast / grep 继续理解。"
 
 
 def _tool_read_hashline(filepath: str, max_lines: int = 2000, start_line: int = 1) -> str:
@@ -1284,6 +1304,25 @@ def _tool_edit_hashline(
     except HashlineError as exc:
         raise ToolExecutionError(str(exc)) from exc
     path.write_text(rec["content"], encoding="utf-8")
+    
+    # AI Attribution
+    session = _current_master_session.get()
+    if session and rec["new_lines"] > 0:
+        try:
+            from server.goal_run.ai_attribution import record_ai_write
+            # Start line of the new text is rec['start_line']
+            # End line is rec['start_line'] + rec['new_lines'] - 1
+            record_ai_write(
+                repo_root=str(_current_workspace_root.get() or _current_write_root.get() or ""),
+                file_path=filepath,
+                line_start=rec["start_line"],
+                line_end=rec["start_line"] + rec["new_lines"] - 1,
+                session_id=session,
+                content=new_text,
+            )
+        except Exception:
+            pass
+
     return (
         f"hashline-edited {filepath} lines {rec['start_line']}-{rec['end_line']} "
         f"({rec['replaced_lines']} → {rec['new_lines']} lines). "
