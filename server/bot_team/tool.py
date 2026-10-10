@@ -58,9 +58,7 @@ _TOOL_PARAMETERS: dict[str, Any] = {
         },
         "text": {
             "type": "string",
-            "description": (
-                "The message in plain text: what you need that bot to do or answer."
-            ),
+            "description": ("The message in plain text: what you need that bot to do or answer."),
         },
     },
     "required": ["target_bot_id", "text"],
