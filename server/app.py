@@ -23,10 +23,11 @@ from server.routes.automata import webhook_router
 from server.routes.autonomous import router as autonomous_router
 from server.routes.backends import router as backends_router
 from server.routes.board import router as board_router
-from server.routes.bot_team import router as bots_router
 from server.routes.bot_memory import router as bot_memory_router
+from server.routes.bot_team import router as bots_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
+from server.routes.cli_agents import router as cli_agents_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
@@ -60,6 +61,7 @@ from server.routes.push import router as push_router
 from server.routes.remote_mcp import router as remote_mcp_router
 from server.routes.research import router as research_router
 from server.routes.resilient import router as resilient_router
+from server.routes.review import router as review_router
 from server.routes.runners import router as runners_router
 from server.routes.security import router as security_router
 from server.routes.semantic_search import router as semantic_search_router
@@ -73,15 +75,13 @@ from server.routes.telemetry import router as telemetry_router
 from server.routes.threat_model import router as threat_model_router
 from server.routes.tool import router as tool_router
 from server.routes.tools import router as tools_router
+from server.routes.usage import router as usage_router
 from server.routes.vault import compat_router as vault_compat_router
 from server.routes.vault import router as vault_router
 from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
-from server.routes.review import router as review_router
 from server.routes.workbench import router as workbench_router
 from server.routes.workspace import router as workspace_router
-from server.routes.cli_agents import router as cli_agents_router
-from server.routes.usage import router as usage_router
 from server.sse import router as sse_router
 
 
@@ -394,10 +394,21 @@ async def lifespan(app: FastAPI):
     routine_clock_task: asyncio.Task | None = None
     if os.environ.get("VEYA_ROUTINE_CLOCK", "0").strip() not in ("", "0", "false", "off", "no"):
         try:
+            from server import feature_flags
+            from server.bot_team.morning_feed import build_routine_dispatch
             from server.bot_team.routine_clock import RoutineClock
             from server.goal_run.routine_registry import RoutineRegistry
-            _clock = RoutineClock(RoutineRegistry())
-            routine_clock_task = asyncio.create_task(_clock.run_forever(), name="veya-routine-clock")
+
+            # NANO-W7: morning-feed routines resolve through the service layer
+            # at the clock's existing dispatch_fn seam (no second scheduler);
+            # everything else keeps the default GoalRun consumer.
+            _dispatch = (
+                build_routine_dispatch() if feature_flags.enabled("VEYA_MORNING_FEED") else None
+            )
+            _clock = RoutineClock(RoutineRegistry(), dispatch_fn=_dispatch)
+            routine_clock_task = asyncio.create_task(
+                _clock.run_forever(), name="veya-routine-clock"
+            )
         except Exception:
             _lg.exception("routine clock startup failed")
 
@@ -535,8 +546,13 @@ app.include_router(cindy_compat_router)
 app.include_router(voice_compat_router)
 app.include_router(execution_contract_router)
 app.include_router(sse_router)
+from server.routes.artifacts import (
+    public_router as public_artifacts_router,
+)
+from server.routes.artifacts import (
+    router as artifacts_router,
+)
 from server.routes.routines import router as routines_router
-from server.routes.artifacts import router as artifacts_router, public_router as public_artifacts_router
 from server.routes.settings import router as settings_router
 
 app.include_router(routines_router)

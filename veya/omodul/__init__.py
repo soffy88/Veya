@@ -14,6 +14,14 @@ Following the 3O paradigm:
 
 # 阶段 4: 注入式流程控制核心 (session_tree / tool_pipeline / agent_loop / evidence_refine)
 from veya.omodul.agent_loop import AgentLoop, LoopResult
+
+# NANO-W7: morning feed omodul (same-layer re-export from package __init__)
+from veya.omodul.daily_brief import (
+    DailyBriefConfig,
+    DailyBriefInput,
+    compute_fingerprint_for,
+    daily_brief,
+)
 from veya.omodul.evidence_refine import EvidenceRefine, RefineResult
 from veya.omodul.multimodal_agent import (
     MultiModalAgent,
@@ -37,15 +45,6 @@ from veya.omodul.voice_agent import (
     VoiceSessionConfig,
     VoiceSessionResult,
     run_voice_conversation,
-)
-
-# NANO-W7: morning feed omodul (same-layer re-export from package __init__)
-from veya.omodul.daily_brief import (
-    DailyBriefConfig,
-    DailyBriefInput,
-    DailyBriefOutput,
-    daily_brief,
-    compute_fingerprint_for,
 )
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
@@ -79,7 +78,6 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # NANO-W7: Morning feed
     "DailyBriefConfig",
     "DailyBriefInput",
-    "DailyBriefOutput",
     "daily_brief",
     "compute_fingerprint_for",
 ]
