@@ -527,7 +527,13 @@ app.include_router(voice_compat_router)
 app.include_router(execution_contract_router)
 app.include_router(sse_router)
 from server.routes.routines import router as routines_router
+from server.routes.artifacts import router as artifacts_router, public_router as public_artifacts_router
+from server.routes.settings import router as settings_router
+
 app.include_router(routines_router)
+app.include_router(artifacts_router)
+app.include_router(public_artifacts_router)
+app.include_router(settings_router)
 
 
 @app.get("/health")

@@ -3,11 +3,15 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from server.goal_run.routine_registry import RoutineRegistry
+from server.goal_run.routine_dispatch import run_probe
+from server.goal_run.models import RoutineSpec
+from server.goal_run.project_store import ProjectStore
 
 _lg = logging.getLogger(__name__)
 
@@ -253,15 +257,54 @@ class RoutineClock:
             due_iso = compute_due(spec, now=now, last_fired_utc=last_fired_utc)
             if due_iso:
                 trigger_id = f"{routine_id}:{due_iso}"
-                handoffs.append({
-                    "routine_id": routine_id,
-                    "trigger_topic": "schedule.trigger",
-                    "trigger_id": trigger_id,
-                    "target": {"goal_template": spec.goal_template},
-                    "bot_id": spec.bot_id,
-                })
-                self.last_fired[routine_id] = now.isoformat()
-                self._save_state()
+                
+                # ORCA-W4: Run probe before dispatch
+                probe_result = run_probe(spec)
+                
+                # Record run history in routine state
+                try:
+                    # Load goal run state to access routine_states
+                    goal_run_state = ProjectStore(bot_id=spec.bot_id).load_goal_run_state()
+                    routine_state = goal_run_state.routine_states.get(routine_id)
+                    if routine_state is not None:
+                        run_entry = {
+                            "trigger_id": trigger_id,
+                            "status": probe_result.get("status", "dispatched"),
+                            "probe_result": probe_result,
+                            "at": time.time(),
+                        }
+                        routine_state.run_history.append(run_entry)
+                        # Keep only last 50 entries
+                        if len(routine_state.run_history) > 50:
+                            routine_state.run_history = routine_state.run_history[-50:]
+                        # Save back
+                        ProjectStore(bot_id=spec.bot_id).save_goal_run_state(goal_run_state)
+                except Exception:
+                    # Non-fatal: continue with dispatch
+                    pass
+                
+                # Dispatch only if probe didn't skip or error
+                if probe_result.get("status") == "skipped":
+                    # No changes detected, skip dispatch
+                    self.last_fired[routine_id] = now.isoformat()
+                    self._save_state()
+                    continue
+                elif probe_result.get("status") == "probe_error":
+                    # Probe failed, skip dispatch
+                    self.last_fired[routine_id] = now.isoformat()
+                    self._save_state()
+                    continue
+                else:
+                    # Probe passed (has_changes), dispatch
+                    handoffs.append({
+                        "routine_id": routine_id,
+                        "trigger_topic": "schedule.trigger",
+                        "trigger_id": trigger_id,
+                        "target": {"goal_template": spec.goal_template},
+                        "bot_id": spec.bot_id,
+                    })
+                    self.last_fired[routine_id] = now.isoformat()
+                    self._save_state()
 
         if handoffs:
             try:
