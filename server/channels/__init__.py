@@ -12,6 +12,7 @@ Layering:
 
 from __future__ import annotations
 
+from .approvals import ApprovalChannel, approval_channel, register_approval_handler
 from .base import ChannelAdapter, SignatureRejected
 from .bindings import ChannelBindingStore, binding_store, reset_binding_store
 from .clients import ChannelNotConfigured, client_for, reset_clients
@@ -40,6 +41,7 @@ def adapter_for(platform: str) -> ChannelAdapter:
 
 
 __all__ = [
+    "ApprovalChannel",
     "ChannelAdapter",
     "ChannelBindingStore",
     "ChannelNotConfigured",
@@ -53,12 +55,14 @@ __all__ = [
     "WeComAdapter",
     "adapter_for",
     "anonymous_ref",
+    "approval_channel",
     "binding_store",
     "claim_code",
     "client_for",
     "codes",
     "dispatch_inbound",
     "issue_code",
+    "register_approval_handler",
     "reset_binding_store",
     "reset_clients",
 ]
