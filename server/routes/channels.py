@@ -98,7 +98,7 @@ class FeedConfigRequest(BaseModel):
     """Per-user morning-feed configuration."""
 
     enabled: bool = True
-    time: str = Field("08:00", pattern=r"^\d{2}:\d{2}$")
+    time: str = Field("08:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     timezone: str = Field("Asia/Shanghai", max_length=64)
     sections: list[str] = Field(
         default_factory=lambda: ["routines", "goals", "goalruns", "memory", "rss"]
@@ -138,7 +138,12 @@ async def _handle_webhook(request: Request, platform: str) -> dict[str, Any]:
         return {"ok": True, "status": "ignored"}
 
     # A pasted linking code completes the binding and is never executed.
-    claimed = await _try_claim(message.text.strip())
+    claimed = await _try_claim(
+        message.text.strip(),
+        platform=platform,
+        external_chat_id=message.external_chat_id,
+        external_user_id=message.external_user_id,
+    )
     if claimed is not None:
         return claimed
 
@@ -151,17 +156,29 @@ async def _handle_webhook(request: Request, platform: str) -> dict[str, Any]:
     return outcome.to_dict()
 
 
-async def _try_claim(text: str) -> dict[str, Any] | None:
-    """Complete a pending link when ``text`` is a live linking code."""
+async def _try_claim(
+    text: str,
+    *,
+    platform: str,
+    external_chat_id: str,
+    external_user_id: str,
+) -> dict[str, Any] | None:
+    """Complete a pending link when ``text`` is a live linking code.
+
+    The binding always records the chat the code actually arrived in, not the
+    (usually unset) chat recorded when the code was issued.
+    """
     if not text or len(text) > 64:
         return None
     payload = claim_code(text)
     if payload is None:
         return None
+    if payload.get("platform") not in (None, platform):
+        return None
     record = binding_store().bind(
-        platform=str(payload["platform"]),
-        external_chat_id=str(payload.get("external_chat_id") or ""),
-        external_user_id=str(payload.get("external_user_id") or ""),
+        platform=platform,
+        external_chat_id=external_chat_id,
+        external_user_id=external_user_id,
         owner_ref=str(payload["owner_ref"]),
         target_type=str(payload["target_type"]),
         target_id=str(payload["target_id"]),
