@@ -25,18 +25,30 @@ Guard rails:
 * **Atomic writes**: ``os.replace`` so a partial write never corrupts the file.
 
 Feature flag: ``VEYA_BOT_MEMORY_MD`` (defaults to ``"0"`` in production;
-tests set it to ``"1"`` explicitly where needed).
+tests set it to ``"1"`` explicitly where needed).  The flag gates only the
+semantic-context injection (:func:`inject_memory_context`); the store, REST
+router and the ``bot_memory_note`` tool are always available.
+
+Semantic context: :func:`inject_memory_context` renders the running bot's
+memory as a marked system block inside the MasterAgent session history (same
+shape as the host's graft-context injection), refreshed per semantic step.
+The ``bot_memory_note`` tool appends to the running bot's memory, resolved
+through :func:`runtime.bot_scope.current_bot` — the identity the GoalRun
+canonical worker binds around every physical action.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import re
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
+from runtime import bot_scope
 from runtime.bot_scope import require_same_bot
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -47,6 +59,18 @@ CORE_FILE = "MEMORY.md"
 MAX_FILE_BYTES: int = 512 * 1024  # 512 KiB per file
 MAX_TOTAL_BYTES: int = 2 * 1024 * 1024  # 2 MiB total per bot store
 _VALID_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]+\.md$")
+
+MEMORY_BLOCK_MARK = "<!-- bot-memory-context"
+"""Marker prefix of injected memory blocks (idempotent replace, like the host's
+graft-context block).  Any system message starting with this prefix is removed
+before a fresh block is inserted, so repeated injections never accumulate."""
+
+_BOT_MEMORY_NOTE_DESCRIPTION = (
+    "Append a short note to the running bot's persistent Markdown memory "
+    "(~/.veya/bots/<bot_id>/memory/MEMORY.md). Use this to remember "
+    "user preferences, decisions, or facts worth keeping across sessions. "
+    "Scoped to the current bot — it can only write its own memory."
+)
 
 
 def _default_bots_root() -> Path:
@@ -148,9 +172,7 @@ class BotMemoryStore:
         path = self._path(name)
         encoded = text.encode("utf-8")
         if len(encoded) > MAX_FILE_BYTES:
-            raise ValueError(
-                f"file {name!r} exceeds size cap of {MAX_FILE_BYTES // 1024} KiB"
-            )
+            raise ValueError(f"file {name!r} exceeds size cap of {MAX_FILE_BYTES // 1024} KiB")
         self._ensure_dir()
         # Check total *after* accounting for the existing file being replaced.
         existing_size = path.stat().st_size if path.exists() else 0
@@ -251,10 +273,122 @@ def bot_memory_enabled() -> bool:
     return val not in {"", "0", "false", "off", "no"}
 
 
+# ── Semantic context injection ───────────────────────────────────────────────
+
+
+def _is_memory_block(message: Any) -> bool:
+    """Return ``True`` for a system message this module previously injected."""
+    return (
+        isinstance(message, dict)
+        and message.get("role") == "system"
+        and str(message.get("content", "")).startswith(MEMORY_BLOCK_MARK)
+    )
+
+
+def build_memory_block(bot_id: str, *, max_chars: int = 4000) -> str:
+    """Return the marked memory block for *bot_id*, or ``""`` when empty."""
+    rendered = BotMemoryStore(bot_id).render_for_prompt(max_chars=max_chars)
+    if not rendered:
+        return ""
+    return f"{MEMORY_BLOCK_MARK} bot_id={bot_id} -->\n\n{rendered.strip()}\n"
+
+
+def inject_memory_context(
+    semantic_agent: Any,
+    session_id: str,
+    bot_id: str,
+    *,
+    max_chars: int = 4000,
+) -> bool:
+    """Inject the bot's Markdown memory into the semantic history.
+
+    Additive to the existing context assembly (the same shape as the host's
+    graft-context injection): the previous block is removed and the fresh one
+    is inserted right after the system prompt, so repeated calls refresh the
+    memory the model sees instead of accumulating.
+
+    Gated on :func:`bot_memory_enabled` (``VEYA_BOT_MEMORY_MD``, default off):
+    with the flag off this is a no-op and the semantic history is untouched.
+
+    Returns ``True`` when a non-empty block was injected.
+    """
+    if not bot_memory_enabled():
+        return False
+    histories = getattr(semantic_agent, "_histories", None)
+    if not isinstance(histories, dict):
+        return False
+    messages = histories.get(session_id)
+    if messages is None:
+        messages = [{"role": "system", "content": semantic_agent.get_system_prompt()}]
+        histories[session_id] = messages
+    # Drop the previous block first: an injection is a refresh, not an append.
+    messages[:] = [message for message in messages if not _is_memory_block(message)]
+    block = build_memory_block(bot_id, max_chars=max_chars)
+    if not block:
+        return False
+    messages.insert(1, {"role": "system", "content": block})
+    return True
+
+
+# ── MasterAgent tool ─────────────────────────────────────────────────────────
+
+
+def bot_memory_note(text: str) -> str:
+    """Append *text* to the running bot's core memory file."""
+    bot_id = bot_scope.current_bot()
+    if not bot_id:
+        raise RuntimeError(
+            "bot_memory_note requires a bound bot scope (no running bot in this execution context)"
+        )
+    store = BotMemoryStore(bot_id)
+    store.append_note(text, caller_bot_id=bot_id)
+    return json.dumps(
+        {"ok": True, "bot_id": bot_id, "file": CORE_FILE, "chars": len(text)},
+        ensure_ascii=False,
+    )
+
+
+_BOT_MEMORY_NOTE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "text": {
+            "type": "string",
+            "description": "Note text to remember (plain Markdown).",
+        }
+    },
+    "required": ["text"],
+}
+
+
+def register_tools(registry: Any) -> int:
+    """Register the per-bot memory tool into the existing registry.
+
+    Idempotent (same contract as the coding/harness ``register_tools``):
+    returns the number of newly registered tools.
+    """
+    if registry.has("bot_memory_note"):
+        return 0
+    from server.tool_registry import SideEffect
+
+    registry.register(
+        "bot_memory_note",
+        _BOT_MEMORY_NOTE_DESCRIPTION,
+        _BOT_MEMORY_NOTE_SCHEMA,
+        bot_memory_note,
+        side_effect=SideEffect.LOCAL_WRITE,
+        effect_capability="idempotency_key",
+    )
+    return 1
+
+
 __all__ = [
     "CORE_FILE",
     "MAX_FILE_BYTES",
     "MAX_TOTAL_BYTES",
     "BotMemoryStore",
     "bot_memory_enabled",
+    "bot_memory_note",
+    "build_memory_block",
+    "inject_memory_context",
+    "register_tools",
 ]
