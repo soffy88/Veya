@@ -21,6 +21,15 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
+	<!-- PWA: installable home-screen shell (see src/service-worker.ts for the
+	     offline shell + push handling). SvelteKit registers the service worker
+	     itself because src/service-worker.ts exists. -->
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+	<meta name="theme-color" content="#000000" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-title" content="Veya" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black" />
 </svelte:head>
 
 <NotificationCenter />
