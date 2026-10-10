@@ -641,7 +641,6 @@ def test_daily_brief_contract_and_artifact(channels_env, tmp_path):
 def test_daily_brief_pillars_and_no_pii(channels_env):
     from veya.omodul.daily_brief import DailyBriefConfig
 
-    config = DailyBriefConfig(owner_ref="u_owner")
     assert DailyBriefConfig._enabled_pillars == {"report", "cost"}
     # The fingerprint only ever sees the non-PII owner reference.
     assert "user_id" not in DailyBriefConfig._fingerprint_fields
