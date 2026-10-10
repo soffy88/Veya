@@ -64,6 +64,15 @@ vision = [
     # (~/.veya/bin/vtracer, 见 docs/ops/TOOLCHAIN_SETUP.md §2.2), 缺失时 PIL 降级
     "httpx==0.28.1",    # 视觉 LLM 客户端
 ]
+# Lorca P5: Web Push (bot team → 手机推送). pywebpush is the sender; without it
+# ``server/bot_team/push.py`` logs one clear line per notification and skips the
+# send, so the rest of the bot team keeps working. cryptography is already on
+# the production surface (deploy/requirements.txt) and is what generates the
+# VAPID key pair, with a standard-library fallback if it is ever absent.
+push = [
+    "pywebpush==2.5.0",
+    "cryptography==50.0.0",
+]
 # 2026-08-24 (docs/dev/rfc-07-dependency-hygiene.md): cli/main.py 的 TUI 启动路径
 # 已经是 try/except 包住的懒加载 + 失败自动回退 readline loop, textual 不装也不影响
 # 任何 server/核心 CLI 路径, 是这轮调研里唯一验证过安全可挪的一个。
