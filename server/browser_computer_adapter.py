@@ -116,6 +116,7 @@ class BrowserComputerAdapter:
             "download": bind(oprim.browser_download),
             "upload": bind(oprim.browser_upload),
             "screenshot": bind(oprim.browser_screenshot),
+            "design_capture": bind(oprim.browser_design_capture),
         }
 
         async def computer_prepare(

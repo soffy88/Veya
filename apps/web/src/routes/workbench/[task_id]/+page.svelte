@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { ArrowLeft, Check, ChevronDown, CircleX, Code2, ExternalLink, Eye, Pause, Play, RefreshCw, Shield, UserRound } from "lucide-svelte";
 	import { api, formatResult } from "$lib/api";
+	import BrowserPanel from "$lib/components/BrowserPanel.svelte";
 
 	type AnyRecord = Record<string, any>;
 
@@ -242,12 +243,11 @@
 					{/if}
 
 					{#if view.browser?.session_id}
-					<section class="rounded-xl border border-terminal-edge bg-white/[0.02] p-4">
-						<div class="mb-3 flex items-center gap-2"><Eye class="size-4 text-cyan-400" /><h2 class="text-sm font-semibold">浏览器</h2></div>
-						<div class="space-y-1 text-xs text-terminal-dim"><p class="overflow-hidden text-ellipsis whitespace-nowrap">{view.browser?.current_url ?? "当前任务没有活动页面"}</p><p>控制权：<span class={view.browser?.control_state === "HUMAN_CONTROL" ? "text-amber-300" : "text-sky-300"}>{view.browser?.control_state === "HUMAN_CONTROL" ? "你" : "Veya"}</span></p></div>
-						{#if view.browser?.session_id}<div class="mt-3 flex gap-2">{#if view.browser?.control_state === "HUMAN_CONTROL"}<button type="button" class="min-h-11 rounded-lg border border-sky-500/30 px-3 py-2 text-xs text-sky-300 hover:bg-sky-500/10 disabled:opacity-40" onclick={() => void browserControl("return_control")} disabled={busy !== ""}>交还 Veya</button>{:else}<button type="button" class="min-h-11 rounded-lg border border-amber-500/30 px-3 py-2 text-xs text-amber-300 hover:bg-amber-500/10 disabled:opacity-40" onclick={() => void browserControl("takeover")} disabled={busy !== ""}>接管浏览器</button>{/if}</div>{:else}<p class="mt-3 text-xs text-terminal-dim">当前任务没有浏览器会话。</p>{/if}
-						{#if developerOpen && view.browser?.snapshot}<pre class="mt-3 max-h-48 overflow-auto rounded-md bg-black/30 p-2 font-mono text-[10px] text-terminal-dim">{json(view.browser.snapshot)}</pre>{/if}
-					</section>
+					<BrowserPanel
+						browser={view.browser}
+						taskId={taskId}
+						sessionId={view.session?.session_id || ""}
+					/>
 					{/if}
 
 

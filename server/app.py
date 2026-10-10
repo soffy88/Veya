@@ -30,6 +30,7 @@ from server.routes.cindy_compat import router as cindy_compat_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
+from server.routes.design import router as design_router
 from server.routes.evolution import router as evolution_router
 from server.routes.execution_contract import router as execution_contract_router
 from server.routes.flow import router as flow_router
@@ -483,6 +484,7 @@ app.include_router(autonomous_router)
 if _visualization_router is not None:
     app.include_router(_visualization_router)
 app.include_router(cross_language_router)
+app.include_router(design_router)
 app.include_router(performance_router)
 app.include_router(personal_runtime_router)
 app.include_router(product_router)
