@@ -93,6 +93,15 @@ class SqliteHistoryStore:
                     "  revision INTEGER NOT NULL,"
                     "  msg_json TEXT NOT NULL,"
                     "  ts INTEGER NOT NULL,"
+                    "  forked_from TEXT,"
+                    "  kind TEXT DEFAULT 'normal',"
+                    "  handoff_target_backend TEXT,"
+                    "  handoff_target_model TEXT,"
+                    "  handoff_mode TEXT,"
+                    "  handoff_note TEXT,"
+                    "  handoff_delivery_state TEXT DEFAULT 'unconfirmed',"
+                    "  handoff_copyable_prompt TEXT,"
+                    "  worktree_path TEXT,"
                     "  PRIMARY KEY (user_id, sid, revision)"
                     ")"
                 )
@@ -109,9 +118,36 @@ class SqliteHistoryStore:
                 "  revision INTEGER NOT NULL,"
                 "  msg_json TEXT NOT NULL,"
                 "  ts INTEGER NOT NULL,"
+                "  forked_from TEXT,"
+                "  kind TEXT DEFAULT 'normal',"
+                "  handoff_target_backend TEXT,"
+                "  handoff_target_model TEXT,"
+                "  handoff_mode TEXT,"
+                "  handoff_note TEXT,"
+                "  handoff_delivery_state TEXT DEFAULT 'unconfirmed',"
+                "  handoff_copyable_prompt TEXT,"
+                "  worktree_path TEXT,"
                 "  PRIMARY KEY (user_id, sid, revision)"
                 ")"
             )
+
+            # FTS5 virtual table for full-text search
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5("
+                "  user_id, sid, revision, msg_json,"
+                "  content='turns',"
+                "  content_rowid='rowid'"
+                ")"
+            )
+            # Trigger to keep FTS in sync on INSERT
+            conn.execute(
+                "CREATE TRIGGER IF NOT EXISTS turns_ai AFTER INSERT ON turns BEGIN"
+                "  INSERT INTO turns_fts(rowid, user_id, sid, revision, msg_json)"
+                "  VALUES (new.rowid, new.user_id, new.sid, new.revision, new.msg_json);"
+                "END"
+            )
+            # Note: turns table is INSERT-only (no UPDATE/DELETE), so no need for
+            # UPDATE/DELETE triggers. Revisions are immutable.
 
     # ── sync core ────────────────────────────────────────────────────
     @staticmethod
@@ -143,7 +179,20 @@ class SqliteHistoryStore:
         return loaded if isinstance(loaded, list) else []
 
     def save_sync(
-        self, sid: str, messages: list[dict[str, Any]], user_id: str | None = None
+        self,
+        sid: str,
+        messages: list[dict[str, Any]],
+        user_id: str | None = None,
+        *,
+        forked_from: str | None = None,
+        kind: str = "normal",
+        handoff_target_backend: str | None = None,
+        handoff_target_model: str | None = None,
+        handoff_mode: str | None = None,
+        handoff_note: str | None = None,
+        handoff_delivery_state: str = "unconfirmed",
+        handoff_copyable_prompt: str | None = None,
+        worktree_path: str | None = None,
     ) -> None:
         """追加一条新修订(INSERT-only)——不覆盖、不删除任何既有修订。"""
         uid = user_id or self._uid()
@@ -155,13 +204,27 @@ class SqliteHistoryStore:
             ).fetchone()
             next_revision = row[0] + 1
             conn.execute(
-                "INSERT INTO turns (user_id, sid, revision, msg_json, ts) VALUES (?,?,?,?,?)",
+                "INSERT INTO turns ("
+                "  user_id, sid, revision, msg_json, ts,"
+                "  forked_from, kind,"
+                "  handoff_target_backend, handoff_target_model, handoff_mode, handoff_note,"
+                "  handoff_delivery_state, handoff_copyable_prompt, worktree_path"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     uid,
                     sid,
                     next_revision,
                     json.dumps(messages, ensure_ascii=False, default=str),
                     now,
+                    forked_from,
+                    kind,
+                    handoff_target_backend,
+                    handoff_target_model,
+                    handoff_mode,
+                    handoff_note,
+                    handoff_delivery_state,
+                    handoff_copyable_prompt,
+                    worktree_path,
                 ),
             )
 
@@ -228,14 +291,137 @@ class SqliteHistoryStore:
             out.append({"sid": sid, "title": title, "msg_count": len(messages), "updated_at": ts})
         return sorted(out, key=lambda s: s["updated_at"], reverse=True)[:limit]
 
+    # ── FTS5 Search ──────────────────────────────────────────────────
+    def search_sync(
+        self,
+        query: str,
+        user_id: str | None = None,
+        backend: str | None = None,
+        from_ts: int | None = None,
+        to_ts: int | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Full-text search over session transcripts using FTS5.
+
+        Returns list of {sid, revision, snippet, ts, title} with user isolation.
+        """
+        uid = user_id or self._uid()
+        with self._lock, self._connect() as conn:
+            # Build the base query with user isolation
+            sql = """
+                SELECT t.sid, t.revision, t.msg_json, t.ts,
+                       snippet(turns_fts, 3, '<mark>', '</mark>', '...', 32) as snippet
+                FROM turns_fts
+                JOIN turns t ON turns_fts.rowid = t.rowid
+                WHERE turns_fts.user_id = ? AND turns_fts.msg_json MATCH ?
+            """
+            params: list[Any] = [uid, query]
+
+            if from_ts is not None:
+                sql += " AND t.ts >= ?"
+                params.append(from_ts)
+            if to_ts is not None:
+                sql += " AND t.ts <= ?"
+                params.append(to_ts)
+
+            sql += " ORDER BY t.ts DESC LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(sql, params).fetchall()
+
+        out: list[dict[str, Any]] = []
+        for sid, revision, raw, ts, snippet in rows:
+            try:
+                messages = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                messages = []
+            title = ""
+            for msg in messages if isinstance(messages, list) else []:
+                if msg.get("role") != "user":
+                    continue
+                content = msg.get("content")
+                if isinstance(content, list):
+                    content = "".join(c.get("text", "") for c in content if isinstance(c, dict))
+                text = str(content or "").replace("\n", " ").strip()
+                if text:
+                    title = text[:40]
+                    break
+            out.append({
+                "sid": sid,
+                "revision": revision,
+                "snippet": snippet,
+                "ts": ts,
+                "title": title or "Untitled",
+            })
+        return out
+
+    def rebuild_fts_sync(self, user_id: str | None = None) -> dict[str, Any]:
+        """Rebuild the FTS5 index from the turns table.
+
+        Useful for existing data before FTS was added. Runs with user isolation.
+        """
+        uid = user_id or self._uid()
+        with self._lock, self._connect() as conn:
+            # Drop and recreate the FTS table
+            conn.execute("DROP TABLE IF EXISTS turns_fts")
+            conn.execute(
+                "CREATE VIRTUAL TABLE turns_fts USING fts5("
+                "  user_id, sid, revision, msg_json,"
+                "  content='turns',"
+                "  content_rowid='rowid'"
+                ")"
+            )
+            conn.execute(
+                "CREATE TRIGGER IF NOT EXISTS turns_ai AFTER INSERT ON turns BEGIN"
+                "  INSERT INTO turns_fts(rowid, user_id, sid, revision, msg_json)"
+                "  VALUES (new.rowid, new.user_id, new.sid, new.revision, new.msg_json);"
+                "END"
+            )
+            # Populate FTS from existing turns for this user
+            cursor = conn.execute(
+                "INSERT INTO turns_fts(rowid, user_id, sid, revision, msg_json) "
+                "SELECT rowid, user_id, sid, revision, msg_json FROM turns WHERE user_id = ?",
+                (uid,)
+            )
+            rows_inserted = cursor.rowcount
+
+        return {"status": "rebuilt", "rows_indexed": rows_inserted}
+
     # ── async wrappers (不阻塞事件循环) ──────────────────────────────
     async def load(self, sid: str, user_id: str | None = None) -> list[dict[str, Any]]:
         return list(await run_sync_in_daemon_thread(self.load_sync, sid, user_id))
 
     async def save(
-        self, sid: str, messages: list[dict[str, Any]], user_id: str | None = None
+        self,
+        sid: str,
+        messages: list[dict[str, Any]],
+        user_id: str | None = None,
+        *,
+        forked_from: str | None = None,
+        kind: str = "normal",
+        handoff_target_backend: str | None = None,
+        handoff_target_model: str | None = None,
+        handoff_mode: str | None = None,
+        handoff_note: str | None = None,
+        handoff_delivery_state: str = "unconfirmed",
+        handoff_copyable_prompt: str | None = None,
+        worktree_path: str | None = None,
     ) -> None:
-        await run_sync_in_daemon_thread(self.save_sync, sid, messages, user_id)
+        await run_sync_in_daemon_thread(
+            self.save_sync,
+            sid,
+            messages,
+            user_id,
+            forked_from=forked_from,
+            kind=kind,
+            handoff_target_backend=handoff_target_backend,
+            handoff_target_model=handoff_target_model,
+            handoff_mode=handoff_mode,
+            handoff_note=handoff_note,
+            handoff_delivery_state=handoff_delivery_state,
+            handoff_copyable_prompt=handoff_copyable_prompt,
+            worktree_path=worktree_path,
+        )
 
     async def replay(
         self, sid: str, user_id: str | None = None, limit: int | None = None
@@ -246,6 +432,22 @@ class SqliteHistoryStore:
         self, user_id: str | None = None, limit: int = 50
     ) -> list[dict[str, Any]]:
         return list(await run_sync_in_daemon_thread(self.list_sessions_sync, user_id, limit))
+
+    async def search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        backend: str | None = None,
+        from_ts: int | None = None,
+        to_ts: int | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        return list(await run_sync_in_daemon_thread(
+            self.search_sync, query, user_id, backend, from_ts, to_ts, limit
+        ))
+
+    async def rebuild_fts(self, user_id: str | None = None) -> dict[str, Any]:
+        return await run_sync_in_daemon_thread(self.rebuild_fts_sync, user_id)
 
 
 _default_store: SqliteHistoryStore | None = None
