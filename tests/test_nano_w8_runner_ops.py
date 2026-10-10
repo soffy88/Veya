@@ -25,9 +25,9 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_check(self):
         """Test runner_self_update_check oprim."""
-        from从.oprim.runner_ops import runner_self_update_check
+        from.oprim.runner_ops import runner_self_update_check
 
-        with patch("从.oprim.runner_ops.httpx.Client") as mock_client:
+        with patch(".oprim.runner_ops.httpx.Client") as mock_client:
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: {
@@ -42,9 +42,9 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_check_no_update(self):
         """Test runner_self_update_check when no update available."""
-        from从.oprim.runner_ops import runner_self_update_check
+        from.oprim.runner_ops import runner_self_update_check
 
-        with patch("从.oprim.runner_ops.httpx.Client") as mock_client:
+        with patch(".oprim.runner_ops.httpx.Client") as mock_client:
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: {
@@ -57,10 +57,10 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_download(self):
         """Test runner_self_update_download oprim."""
-        from从.oprim.runner_ops import runner_self_update_download
+        from.oprim.runner_ops import runner_self_update_download
 
-        with patch("从.oprim.runner_ops.httpx.Client") as mock_client, \
-             patch("从.oprim.runner_ops.ed25519") as mock_ed25519:
+        with patch(".oprim.runner_ops.httpx.Client") as mock_client, \
+             patch(".oprim.runner_ops.ed25519") as mock_ed25519:
 
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
                 status_code=200,
@@ -79,10 +79,10 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_stage(self):
         """Test runner_self_update_stage oprim."""
-        from从.oprim.runner_ops import runner_self_update_stage
+        from.oprim.runner_ops import runner_self_update_stage
 
-        with patch("从.oprim.runner_ops.shutil.unpack_archive") as mock_unpack, \
-             patch("从.oprim.runner_ops.Path.rename") as mock_rename:
+        with patch(".oprim.runner_ops.shutil.unpack_archive") as mock_unpack, \
+             patch(".oprim.runner_ops.Path.rename") as mock_rename:
 
             result = runner_self_update_stage(
                 archive_path="/tmp/veya-runner.tar.gz",
@@ -92,9 +92,9 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_restart(self):
         """Test runner_self_update_restart oprim."""
-        from从.oprim.runner_ops import runner_self_update_restart
+        from.oprim.runner_ops import runner_self_update_restart
 
-        with patch("从.oprim.runner_ops.subprocess.run") as mock_run:
+        with patch(".oprim.runner_ops.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             result = runner_self_update_restart(
                 runner_binary="/opt/veya/veya-runner",
@@ -104,9 +104,9 @@ class TestRunnerOpsOprims:
 
     def test_runner_service_install(self):
         """Test runner_service_install oprim."""
-        from从.oprim.runner_ops import runner_service_install
+        from.oprim.runner_ops import runner_service_install
 
-        with patch("从.oprim.runner_ops.Path.write_text") as mock_write:
+        with patch(".oprim.runner_ops.Path.write_text") as mock_write:
             result = runner_service_install(
                 runner_binary="/opt/veya/veya-runner",
                 user="testuser",
@@ -117,17 +117,17 @@ class TestRunnerOpsOprims:
 
     def test_runner_service_uninstall(self):
         """Test runner_service_uninstall oprim."""
-        from从.oprim.runner_ops import runner_service_uninstall
+        from.oprim.runner_ops import runner_service_uninstall
 
-        with patch("从.oprim.runner_ops.Path.unlink") as mock_unlink:
+        with patch(".oprim.runner_ops.Path.unlink") as mock_unlink:
             result = runner_service_uninstall(user="testuser")
             assert result["success"] is True
 
     def test_runner_service_status(self):
         """Test runner_service_status oprim."""
-        from从.oprim.runner_ops import runner_service_status
+        from.oprim.runner_ops import runner_service_status
 
-        with patch("从.oprim.runner_ops.subprocess.run") as mock_run:
+        with patch(".oprim.runner_ops.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="active\n",
@@ -138,7 +138,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_safe_to_restart(self):
         """Test runner_safe_to_restart oskill."""
-        from从.oskill.runner_ops import runner_safe_to_restart
+        from.oskill.runner_ops import runner_safe_to_restart
 
         # No active turns - safe to restart
         result = runner_safe_to_restart(
@@ -168,8 +168,8 @@ class TestRunnerOpsRoutes:
     def client(self, monkeypatch):
         monkeypatch.setenv("VEYA_RUNNER_SELFUPDATE", "1")
 
-        from从.routes.runner_ops import router as runner_ops_router
-        from从 import auth as auth_mod
+        from.routes.runner_ops import router as runner_ops_router
+        from server import auth as auth_mod
 
         app = FastAPI()
         app.include_router(runner_ops_router)
@@ -208,8 +208,8 @@ class TestRunnerOpsRoutes:
         """Test flag is required."""
         monkeypatch.delenv("VEYA_RUNNER_SELFUPDATE", raising=False)
 
-        from从.routes.runner_ops import router as runner_ops_router
-        from从 import auth as auth_mod
+        from.routes.runner_ops import router as runner_ops_router
+        from import auth as auth_mod
 
         app = FastAPI()
         app.include_router(runner_ops_router)
@@ -232,8 +232,8 @@ class TestDevicesPageRunnerView:
         monkeypatch.setenv("VEYA_HANDS", "1")
         monkeypatch.setenv("VEYA_RUNNER_SELFUPDATE", "1")
 
-        from从.routes.runners import router as runners_router
-        from从 import auth as auth_mod
+        from.routes.runners import router as runners_router
+        from import auth as auth_mod
 
         app = FastAPI()
         app.include_router(runners_router)

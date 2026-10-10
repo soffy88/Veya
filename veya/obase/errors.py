@@ -32,10 +32,14 @@ class Severity(StrEnum):
 
 
 class HicodeError(Exception):
-    """Root exception for all veya errors."""
 
-    code: str = "VEYA_UNKNOWN"
     severity: Severity = Severity.ERROR
+
+
+# ── Veya-specific error base ──────────────────────────────────────────────
+class VeyaError(HicodeError):
+    """Base exception for Veya-specific errors."""
+    pass
     component: str = "veya"
 
     def __init__(

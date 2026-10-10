@@ -188,7 +188,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_png_magic_bytes(self):
         """Test PNG verification via magic bytes."""
-        from从.oskill.cli_hub import cli_hub_verify_output
+        from.oskill.cli_hub import cli_hub_verify_output
 
         # PNG magic bytes
         png_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
@@ -202,7 +202,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_zip_ooxml(self):
         """Test ZIP/OOXML verification (docx, xlsx, pptx)."""
-        from从.oskill.cli_hub import cli_hub_verify_output
+        from.oskill.cli_hub import cli_hub_verify_output
 
         # ZIP magic bytes
         zip_content = b"PK\x03\x04\x14\x00\x00\x00\x08\x00"
@@ -215,7 +215,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_mp4(self):
         """Test MP4 verification."""
-        from从.oskill.cli_hub import cli_hub_verify_output
+        from.oskill.cli_hub import cli_hub_verify_output
 
         # MP4 magic bytes (ftyp)
         mp4_content = b"\x00\x00\x00\x18ftypmp42"
@@ -228,7 +228,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_wav(self):
         """Test WAV verification."""
-        from从.oskill.cli_hub import cli_hub_verify_output
+        from.oskill.cli_hub import cli_hub_verify_output
 
         # WAV magic bytes
         wav_content = b"RIFF\x00\x00\x00\x00WAVEfmt "
@@ -241,7 +241,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_non_empty(self):
         """Test non-empty file check."""
-        from从.oskill.cli_hub import cli_hub_verify_output
+        from.oskill.cli_hub import cli_hub_verify_output
 
         result = cli_hub_verify_output(
             file_path="/tmp/test.txt",
@@ -253,7 +253,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_size_bounds(self):
         """Test file size bounds check."""
-        from从.oskill.cli_hub import cli_hub_verify_output
+        from.oskill.cli_hub import cli_hub_verify_output
 
         # 10MB file, max 5MB
         large_content = b"x" * (10 * 1024 * 1024)
