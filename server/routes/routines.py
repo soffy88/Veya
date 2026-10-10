@@ -1,17 +1,24 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from server.bot_team.routine_clock import _default_handoff_consumer
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_registry import RoutineRegistry
 
-router = APIRouter(prefix="/api/v1/bots/{bot_id}/routines", tags=["routines"])
+router = APIRouter(
+    prefix="/api/v1/bots/{bot_id}/routines",
+    tags=["routines"],
+    dependencies=[Depends(auth_mod.get_current_user)],
+)
+
 
 def _get_registry(bot_id: str) -> RoutineRegistry:
     return RoutineRegistry(bot_id=bot_id)
+
 
 class RoutineCreateRequest(BaseModel):
     objective: str
@@ -20,18 +27,23 @@ class RoutineCreateRequest(BaseModel):
     enabled: bool = True
     routine_id: str | None = None
 
+
 class RoutinePatchRequest(BaseModel):
     objective: str | None = None
     schedule: str | None = None
     timezone: str | None = None
     enabled: bool | None = None
 
-@router.get("/")
+
+@router.get("")
+@router.get("/", include_in_schema=False)
 def list_routines(bot_id: str):
     registry = _get_registry(bot_id)
     return registry.list(include_disabled=True)
 
-@router.post("/")
+
+@router.post("")
+@router.post("/", include_in_schema=False)
 def create_routine(bot_id: str, req: RoutineCreateRequest):
     registry = _get_registry(bot_id)
     rid = req.routine_id or uuid.uuid4().hex
@@ -44,10 +56,11 @@ def create_routine(bot_id: str, req: RoutineCreateRequest):
         schedule=req.schedule,
         timezone=req.timezone,
         enabled=req.enabled,
-        bot_id=bot_id
+        bot_id=bot_id,
     )
     registry.register(spec)
     return spec
+
 
 @router.patch("/{routine_id}")
 def patch_routine(bot_id: str, routine_id: str, req: RoutinePatchRequest):
@@ -71,6 +84,7 @@ def patch_routine(bot_id: str, routine_id: str, req: RoutinePatchRequest):
     registry.register(spec)  # this saves it
     return spec
 
+
 @router.delete("/{routine_id}")
 def delete_routine(bot_id: str, routine_id: str):
     registry = _get_registry(bot_id)
@@ -87,6 +101,7 @@ def delete_routine(bot_id: str, routine_id: str):
         registry._save()
         return {"deleted": True}
     return {"deleted": False}
+
 
 @router.post("/{routine_id}/run_now")
 async def run_now(bot_id: str, routine_id: str):
