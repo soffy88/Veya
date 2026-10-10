@@ -5,6 +5,8 @@
 	 */
 	import { GitBranch, RefreshCw, GitCommitHorizontal, CircleAlert, Loader2, FileText } from "lucide-svelte";
 	import { API_BASE } from "$lib/api";
+	import DiffAnnotations from "./DiffAnnotations.svelte";
+	import { sessionStore } from "$lib/sessionStore.svelte";
 
 	type GitStatus = {
 		branch: string;
@@ -156,7 +158,7 @@
 
 			<!-- diff 预览 -->
 			{#if diff}
-				<pre class="mt-3 max-h-64 overflow-auto rounded-lg border border-white/10 bg-black/40 p-3 font-mono text-[11px] leading-relaxed text-white/70">{diff}</pre>
+				<DiffAnnotations goalId={sessionStore.activeSid} diffText={diff} />
 			{/if}
 
 			<!-- commit -->
