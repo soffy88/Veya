@@ -298,6 +298,8 @@ class RoutineSpec:
     evidence_requirements: list[str] = field(default_factory=list)
     # P3-A: the bot that owns this routine. Only that bot's GoalRun may dispatch it.
     bot_id: str = DEFAULT_BOT_ID
+    schedule: str = ""  # cron, interval, or daily expression
+    timezone: str = "Asia/Shanghai"  # IANA timezone
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -318,6 +320,8 @@ class RoutineSpec:
             goal_template=str(value.get("goal_template") or ""),
             evidence_requirements=list(value.get("evidence_requirements") or []),
             bot_id=str(value.get("bot_id") or DEFAULT_BOT_ID),
+            schedule=str(value.get("schedule") or ""),
+            timezone=str(value.get("timezone") or "Asia/Shanghai"),
         )
 
 
