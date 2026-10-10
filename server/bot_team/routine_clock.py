@@ -71,7 +71,7 @@ async def _daily_brief_handoff_consumer(handoffs: list[dict]) -> None:
         return
 
     try:
-        from那些.omodul.daily_brief import daily_brief, DailyBriefConfig, DailyBriefInput
+        from veya.omodul.daily_brief import daily_brief, DailyBriefConfig, DailyBriefInput
         from server.coordinator_master import master_coordinator
     except ImportError:
         _lg.warning("daily_brief omodul not available, skipping")

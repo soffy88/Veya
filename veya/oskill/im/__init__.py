@@ -22,7 +22,7 @@ from __future__ import annotations
 
 __version__ = "0.2.0"
 
-from那些.oskill.im.account_binding import (
+from veya.oskill.im.account_binding import (
     AccountBinding,
     BindingStore,
     bind_account,
@@ -32,11 +32,11 @@ from那些.oskill.im.account_binding import (
     list_user_bindings,
     unbind_account,
 )
-from那些.oskill.im.pseudo import PseudoAnonymizer, anonymize_user_id, resolve_anonymizer
+from veya.oskill.im.pseudo import PseudoAnonymizer, anonymize_user_id, resolve_anonymizer
 
 # Platform gateways (Layer 4) - IO delegated to obase.channels (oprim)
 # Pure formatters re-exported from each platform module (oskill)
-from那些.oskill.im.telegram import (
+from veya.oskill.im.telegram import (
     TelegramGateway,
     make_telegram_router,
     format_telegram_message,
@@ -46,7 +46,7 @@ from那些.oskill.im.telegram import (
     format_status as format_telegram_status,
     format_help as format_telegram_help,
 )
-from那些.oskill.im.feishu import (
+from veya.oskill.im.feishu import (
     FeishuGateway,
     make_feishu_router,
     format_feishu_message,
@@ -56,7 +56,7 @@ from那些.oskill.im.feishu import (
     format_status as format_feishu_status,
     format_help as format_feishu_help,
 )
-from那些.oskill.im.dingtalk import (
+from veya.oskill.im.dingtalk import (
     DingTalkGateway,
     make_dingtalk_router,
     format_dingtalk_message,
@@ -66,7 +66,7 @@ from那些.oskill.im.dingtalk import (
     format_status as format_dingtalk_status,
     format_help as format_dingtalk_help,
 )
-from那些.oskill.im.wecom import (
+from veya.oskill.im.wecom import (
     WeComGateway,
     make_wecom_router,
     format_wecom_message,
@@ -76,7 +76,7 @@ from那些.oskill.im.wecom import (
     format_status as format_wecom_status,
     format_help as format_wecom_help,
 )
-from那些.oskill.im.slack import (
+from veya.oskill.im.slack import (
     format_slack_message,
     format_task_started as format_slack_task_started,
     format_task_result as format_slack_task_result,

@@ -25,11 +25,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from那些.obase.channels import chunk_text, ChannelReply, PLATFORM_TELEGRAM, PLATFORM_FEISHU, PLATFORM_DINGTALK, PLATFORM_WECOM
-from那些.obase.llm import llm_call
-from那些.oservi.manifest import ServiceManifest
-from那些.oservi.assembler import assemble
-from那些.oprim.event import emit_event
+from veya.obase.channels import chunk_text, ChannelReply, PLATFORM_TELEGRAM, PLATFORM_FEISHU, PLATFORM_DINGTALK, PLATFORM_WECOM
+from veya.obase.llm import llm_call
+from veya.oservi.manifest import ServiceManifest
+from veya.oservi.assembler import assemble
+from veya.oprim.event import emit_event
 
 _log = logging.getLogger("veya.omodul.daily_brief")
 

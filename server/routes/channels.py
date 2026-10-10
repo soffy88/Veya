@@ -88,7 +88,7 @@ def _generate_binding_id() -> str:
 @router.post("/telegram/webhook", response_model=ChannelWebhookResponse, dependencies=[Depends(require_channels_enabled)])
 async def telegram_webhook(request: Request):
     """Telegram Bot API webhook endpoint."""
-    from那些.oskill.im.telegram import make_telegram_router
+    from veya.oskill.im.telegram import make_telegram_router
     
     # Lazy-load the gateway
     gw_router = make_telegram_router()
@@ -109,7 +109,7 @@ async def telegram_webhook(request: Request):
 @router.post("/feishu/webhook", response_model=ChannelWebhookResponse, dependencies=[Depends(require_channels_enabled)])
 async def feishu_webhook(request: Request):
     """Feishu/Lark event subscription webhook endpoint."""
-    from那些.oskill.im.feishu import make_feishu_router
+    from veya.oskill.im.feishu import make_feishu_router
     
     gw_router = make_feishu_router()
     webhook_handler = gw_router.routes[0].endpoint
@@ -139,7 +139,7 @@ async def feishu_webhook(request: Request):
 @router.post("/dingtalk/webhook", response_model=ChannelWebhookResponse, dependencies=[Depends(require_channels_enabled)])
 async def dingtalk_webhook(request: Request):
     """DingTalk webhook endpoint (enterprise bot + group chat bot)."""
-    from那些.oskill.im.dingtalk import make_dingtalk_router
+    from veya.oskill.im.dingtalk import make_dingtalk_router
     
     gw_router = make_dingtalk_router()
     webhook_handler = gw_router.routes[0].endpoint
@@ -158,7 +158,7 @@ async def dingtalk_webhook(request: Request):
 @router.post("/wecom/webhook", response_model=ChannelWebhookResponse, dependencies=[Depends(require_channels_enabled)])
 async def wecom_webhook(request: Request):
     """WeCom (Enterprise WeChat) webhook endpoint."""
-    from那些.oskill.im.wecom import make_wecom_router
+    from veya.oskill.im.wecom import make_wecom_router
     
     gw_router = make_wecom_router()
     webhook_handler = gw_router.routes[0].endpoint
