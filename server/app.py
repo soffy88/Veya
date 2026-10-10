@@ -72,6 +72,7 @@ from server.routes.vault import compat_router as vault_compat_router
 from server.routes.vault import router as vault_router
 from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
+from server.routes.bot_memory import router as bot_memory_router
 from server.routes.workbench import router as workbench_router
 from server.sse import router as sse_router
 
@@ -465,6 +466,7 @@ app.include_router(cross_language_router)
 app.include_router(performance_router)
 app.include_router(personal_runtime_router)
 app.include_router(product_router)
+app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
 if _advanced_visualization_router is not None:
     app.include_router(_advanced_visualization_router)
 app.include_router(agent_collaboration_router)
