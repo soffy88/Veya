@@ -42,6 +42,14 @@ from veya.oskill.vision import (
     analyze_image_file,
     analyze_images,
 )
+from veya.oskill.hands import (
+    HandsAction,
+    HandsOskillError,
+    LLMCaller,
+    hands_approval_gate,
+    hands_operator_loop_step,
+    hands_pause_resume,
+)
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # STT
@@ -70,4 +78,11 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "MemoryAudioSink",
     "create_audio_pipeline",
     "list_audio_devices",
+    # Hands (VEYA_HANDS)
+    "HandsAction",
+    "HandsOskillError",
+    "LLMCaller",
+    "hands_approval_gate",
+    "hands_operator_loop_step",
+    "hands_pause_resume",
 ]

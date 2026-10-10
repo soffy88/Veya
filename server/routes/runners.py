@@ -35,6 +35,7 @@ from server.bot_team.runners import (
     local_runner_view,
     runner_registry,
 )
+from server.feature_flags import enabled as flag_enabled
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 
 router = APIRouter(prefix="/api/v1/runners", tags=["runners"])
@@ -285,3 +286,54 @@ async def remove_runner(
 
 
 __all__ = ["router"]
+
+
+def _check_hands_capability() -> dict[str, Any]:
+    """Check if hands capability is available on this runner."""
+    if not flag_enabled("VEYA_HANDS"):
+        return {"capable": False, "reason": "VEYA_HANDS flag not enabled"}
+
+    try:
+        from veya.oprim.hands import hands_capabilities
+        caps = hands_capabilities()
+        return {
+            "capable": caps.get("enabled", False) and any(caps.get("operations", {}).values()),
+            "tools": [op for op, avail in caps.get("operations", {}).items() if avail],
+            "details": caps,
+        }
+    except Exception as exc:
+        return {"capable": False, "reason": f"hands check failed: {exc}"}
+
+
+@router.get("/{runner_id}/health")
+async def get_runner_health(
+    runner_id: str,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """Get runner health including hands capability."""
+    del user
+    if runner_id == LOCAL_RUNNER_ID:
+        hands = _check_hands_capability()
+        return {
+            "runner_id": LOCAL_RUNNER_ID,
+            "status": "local",
+            "last_seen": None,
+            "hands_capable": hands.get("capable", False),
+            "hands_tools": hands.get("tools", []),
+        }
+    registry = runner_registry()
+    try:
+        record = registry.require(runner_id)
+    except RunnerError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # For remote runners, we'd need to query them
+    # For now, return local capability info
+    hands = _check_hands_capability()
+    return {
+        "runner_id": runner_id,
+        "status": record.status,
+        "last_seen": record.last_seen,
+        "hands_capable": hands.get("capable", False),
+        "hands_tools": hands.get("tools", []),
+    }

@@ -107,6 +107,13 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "LlmClient",
     "SandboxResult",
     "VfsSandbox",
+    # Provider Registry (VEYA_PROVIDER_REGISTRY)
+    "ProviderRegistryError",
+    "VeyaProviderSpec",
+    "ModelSourceConfig",
+    "BUILTIN_PROVIDERS",
+    "VeyaProviderRegistry",
+    "get_veya_provider_registry",
 ]
 
 # 阶段 1: 句柄合同与全局单例句柄层
@@ -128,4 +135,12 @@ from veya.obase.interfaces import (
     LlmClient,
     SandboxResult,
     VfsSandbox,
+)
+from veya.obase.provider_registry import (
+    BUILTIN_PROVIDERS,
+    ModelSourceConfig,
+    ProviderRegistryError,
+    VeyaProviderRegistry,
+    VeyaProviderSpec,
+    get_veya_provider_registry,
 )

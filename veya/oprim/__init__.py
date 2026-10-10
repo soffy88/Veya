@@ -67,6 +67,18 @@ from veya.oprim.vad import (
     vad_frame,
     vad_silero,
 )
+from veya.oprim.hands import (
+    HandsCapabilityError,
+    HandsUnsupportedError,
+    hands_capabilities,
+    hands_click,
+    hands_focus_window,
+    hands_key,
+    hands_list_windows,
+    hands_scroll,
+    hands_screenshot,
+    hands_type,
+)
 from veya.oprim.video import (
     create_image_frame,
     decode_image_base64,
@@ -161,4 +173,15 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "daemon_resume",
     "daemon_status",
     "daemon_bind",
+    # Hands (VEYA_HANDS)
+    "HandsUnsupportedError",
+    "HandsCapabilityError",
+    "hands_capabilities",
+    "hands_screenshot",
+    "hands_list_windows",
+    "hands_click",
+    "hands_type",
+    "hands_key",
+    "hands_scroll",
+    "hands_focus_window",
 ]

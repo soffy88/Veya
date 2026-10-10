@@ -26,6 +26,8 @@ export interface BotView {
 	runner_id: string | null;
 	owner_id: string;
 	config_version: number;
+	model_source?: string;
+	model_source_config?: Record<string, unknown>;
 }
 
 export interface BotMessage {
@@ -300,4 +302,141 @@ export async function featureAvailable(probe: () => Promise<unknown>): Promise<b
 	} catch {
 		return false;
 	}
+}
+
+// ── providers (NANO-W8 VEYA_PROVIDER_REGISTRY) ────────────────────────────
+
+export interface ProviderView {
+	name: string;
+	display_name: string;
+	protocol_family: string;
+	base_url: string | null;
+	capabilities: string[];
+	models: string[];
+	default_model: string | null;
+	description: string;
+	available: boolean;
+	requires_api_key: boolean;
+	has_user_key: boolean;
+}
+
+export interface CliAgentView {
+	available: boolean;
+	version?: string;
+	path?: string;
+}
+
+export interface ProvidersResponse {
+	providers: Record<string, ProviderView>;
+	cli_agents: Record<string, CliAgentView>;
+	user_keys: string[];
+}
+
+export async function listProviders(): Promise<ProvidersResponse> {
+	return unwrap(await api("gateway", "api/v1/providers", { method: "GET" }));
+}
+
+export interface CustomProviderRequest {
+	name: string;
+	display_name: string;
+	protocol_family: "openai" | "anthropic" | "gemini" | "custom";
+	base_url?: string;
+	capabilities: string[];
+	models: string[];
+	default_model?: string;
+	description: string;
+}
+
+export async function registerCustomProvider(body: CustomProviderRequest): Promise<{ status: string; provider: string }> {
+	const data = await unwrap<{ status: string; provider: string }>(
+		await api("gateway", "api/v1/providers/custom", { method: "POST", body }),
+	);
+	return data;
+}
+
+export async function unregisterCustomProvider(name: string): Promise<{ status: string; provider: string }> {
+	const data = await unwrap<{ status: string; provider: string }>(
+		await api("gateway", `api/v1/providers/custom/${encodeURIComponent(name)}`, { method: "DELETE" }),
+	);
+	return data;
+}
+
+export async function setUserApiKey(provider: string, api_key: string): Promise<{ status: string; provider: string }> {
+	const data = await unwrap<{ status: string; provider: string }>(
+		await api("gateway", "api/v1/providers/keys", { method: "POST", body: { provider, api_key } }),
+	);
+	return data;
+}
+
+export async function deleteUserApiKey(provider: string): Promise<{ status: string; provider: string }> {
+	const data = await unwrap<{ status: string; provider: string }>(
+		await api("gateway", `api/v1/providers/keys/${encodeURIComponent(provider)}`, { method: "DELETE" }),
+	);
+	return data;
+}
+
+export async function listCliAgents(): Promise<Record<string, CliAgentView>> {
+	const data = await unwrap<{ cli_agents: Record<string, CliAgentView> }>(
+		await api("gateway", "api/v1/providers/cli-agents", { method: "GET" }),
+	);
+	return data.cli_agents;
+}
+
+export interface BotModelSourceRequest {
+	bot_id: string;
+	source: "server" | "user_key" | "cli";
+	provider?: string;
+	model?: string;
+	api_key_ref?: string;
+	cli_agent?: string;
+	cli_args?: string[];
+}
+
+export async function setBotModelSource(body: BotModelSourceRequest): Promise<{ status: string; bot_id: string; source: string }> {
+	const data = await unwrap<{ status: string; bot_id: string; source: string }>(
+		await api("gateway", "api/v1/providers/bot-model-source", { method: "POST", body }),
+	);
+	return data;
+}
+
+export async function getBotModelSource(botId: string): Promise<{ bot_id: string; source: string; provider: string; model: string }> {
+	return unwrap(await api("gateway", `api/v1/providers/bot-model-source/${encodeURIComponent(botId)}`, { method: "GET" }));
+}
+
+export async function getEffectiveModel(botId: string): Promise<Record<string, unknown>> {
+	return unwrap(await api("gateway", `api/v1/providers/effective-model/${encodeURIComponent(botId)}`, { method: "GET" }));
+}
+
+// ── runners (NANO-W8 hands capability) ────────────────────────────────────
+
+export interface RunnerView {
+	runner_id: string;
+	name: string;
+	base_url: string;
+	token_ref: string;
+	last_seen: number | null;
+	status: string;
+	implicit?: boolean;
+	hands_capable?: boolean;
+	hands_tools?: string[];
+}
+
+export interface RunnersResponse {
+	runners: RunnerView[];
+}
+
+export async function listRunners(): Promise<RunnersResponse> {
+	return unwrap(await api("gateway", "api/v1/runners", { method: "GET" }));
+}
+
+export interface RunnerHealthResponse {
+	runner_id: string;
+	status: string;
+	last_seen: number | null;
+	hands_capable: boolean;
+	hands_tools: string[];
+}
+
+export async function getRunnerHealth(runnerId: string): Promise<RunnerHealthResponse> {
+	return unwrap(await api("gateway", `api/v1/runners/${encodeURIComponent(runnerId)}/health`, { method: "GET" }));
 }
