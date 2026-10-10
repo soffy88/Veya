@@ -31,6 +31,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from server import auth as auth_mod
 from server.bot_team.async_turns import (
     drain_async_turns,
     pending_refs,
@@ -150,11 +151,21 @@ def subscribed(recorder) -> dict[str, Any]:
     return recorder
 
 
+def _current_user() -> dict[str, Any]:
+    """What the bearer token resolves to for the whole module."""
+
+    return dict(USER)
+
+
 @pytest.fixture
 def app():
     application = FastAPI()
     application.include_router(bots_router)
     application.include_router(push_router)
+    # Push is a per-user surface, and without a token the routes fall back to
+    # "anonymous" (server/auth.py). Resolving the token the way the browser does
+    # keeps a turn's announcement aimed at the user who subscribed.
+    application.dependency_overrides[auth_mod.get_current_user] = _current_user
     return application
 
 
