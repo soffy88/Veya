@@ -40,7 +40,7 @@ to the PASS sentinel `[PASS]` is stored with `hidden=true` and is not returned b
 the messages endpoint. Bot ids are restricted to a safe alphabet because they
 become directory names.
 
-**4. Bot API** — `server/routes/bots.py`, mounted in `server/app.py`
+**4. Bot API** — `server/routes/bot_team.py`, mounted in `server/app.py`
 `/api/v1/bots`: `GET /` (list, seeds Chef), `POST /` (create + register),
 `GET/PATCH/DELETE /{bot_id}`, `GET /{bot_id}/messages`,
 `POST /{bot_id}/messages` (records the user message, runs a product task as that
@@ -127,7 +127,7 @@ sequential).
 ## Files
 
 New: `server/bot_team/__init__.py`, `conversations.py`, `turns.py`, `chef.py`,
-`messaging.py`, `groups.py`, `tool.py`, `server/routes/bots.py`,
+`messaging.py`, `groups.py`, `tool.py`, `server/routes/bot_team.py`,
 `tests/test_lorca_p1_bots.py`, `tests/test_lorca_p2_groups.py`,
 `tests/test_lorca_msgbot_tool.py`.
 
@@ -188,7 +188,7 @@ neither caused by this branch:
 Lint/format/typecheck:
 
 ```
-./.venv/bin/python -m ruff check server/bot_team server/routes/bots.py \
+./.venv/bin/python -m ruff check server/bot_team server/routes/bot_team.py \
   server/routes/product.py server/goal_run/bot_identity.py server/goal_run/planner.py \
   server/goal_run/runner.py server/coordinator_master.py server/app.py tests/test_lorca_p1_bots.py tests/test_lorca_p2_groups.py   # All checks passed
 ./.venv/bin/python -m ruff format --check <same paths>   # all formatted

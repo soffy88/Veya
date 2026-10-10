@@ -33,7 +33,7 @@ from server.goal_run.bot_identity import BotRegistry, BotSpec
 from server.goal_run.models import GoalRunResponse, GoalStatus
 from server.goal_run.planner import g1_plan
 from server.routes import product as product_routes
-from server.routes.bots import router as bots_router
+from server.routes.bot_team import router as bots_router
 from server.task_store import TaskStore
 
 USER = {"user_id": "lorca-user", "username": "lorca"}

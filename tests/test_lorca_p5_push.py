@@ -60,7 +60,7 @@ from server.goal_run.bot_identity import BotRegistry, BotSpec
 from server.goal_run.models import GoalRunResponse, GoalStatus
 from server.notification_center import WEB_PUSH_FLAG, global_notifier
 from server.routes import product as product_routes
-from server.routes.bots import router as bots_router
+from server.routes.bot_team import router as bots_router
 from server.routes.push import router as push_router
 from server.task_store import TaskStore
 

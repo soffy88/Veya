@@ -13,7 +13,7 @@ committed on this branch.
 | `veya/remote/auth.py` — `RemoteAuth` | bearer auth with SHA-256-digested secrets (the raw token is never persisted or logged), `hmac.compare_digest` per candidate with no early exit, **fail closed when nothing is configured**, first-class revoke/rotate, plus an OAuth access-token path | **reused as-is** for the runner-facing turn endpoint. No new auth scheme, no new token store. |
 | `veya/remote/models.py` — `RemotePermissions` | explicit capability grant (`read/write/shell/git/network/destructive/service_control`) | the runner turn endpoint requires `write` on the presenting token (fail closed, operator-visible) |
 | `server/app.py:505` — `GET /health` | a readiness probe with no auth and no secrets on the root app (and therefore on `veya/server/app.py`, which reuses the same app object) | the health check target: `GET {base_url}/health` |
-| `server/routes/bots.py` + `server/bot_team/turns.py` | the product path for a bot turn: `_open_task_projection` → `_run_product_task` → `master_coordinator.execute_structured` → GoalRun | the runner side calls exactly this; the hub side dispatches into it |
+| `server/routes/bot_team.py` + `server/bot_team/turns.py` | the product path for a bot turn: `_open_task_projection` → `_run_product_task` → `master_coordinator.execute_structured` → GoalRun | the runner side calls exactly this; the hub side dispatches into it |
 | `server/dsh_runtime.py`, `server/opencode_client.py` | the repo's established httpx client style (async, explicit timeout) | followed |
 
 No new protocol is invented: a runner turn is one authenticated JSON POST.

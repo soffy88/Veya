@@ -69,7 +69,7 @@ router-include lines only)
   declared before the `/{runner_id}` paths so the static `/turn` segment wins,
   the same trick `bots.py` uses for `/groups`.
 
-**5. Guardrails on the existing bot API** — `server/routes/bots.py`
+**5. Guardrails on the existing bot API** — `server/routes/bot_team.py`
 `PATCH /api/v1/bots/{bot_id}` refuses a `runner_id` that is not registered
 (422), and `POST /{bot_id}/messages` now reports `runner_id` and omits
 `workbench_url` for a remote turn (the task lives on the runner).
@@ -82,7 +82,7 @@ New: `server/bot_team/runners.py`, `server/bot_team/runner_client.py`,
 
 Changed: `server/app.py` (two router-include lines), `server/bot_team/turns.py`
 (one dispatch + optional `trace_id`), `server/bot_team/__init__.py` (exports),
-`server/routes/bots.py` (runner_id validation + response fields).
+`server/routes/bot_team.py` (runner_id validation + response fields).
 
 No `server/bot_runtime/`, no `platform/3O` change, no `.venv` in any commit,
 no secrets committed. No second scheduler, task store or executor, and no
@@ -135,7 +135,7 @@ management REST surface; and a remote bot message reporting `runner_id` with
 Lint/format and the web check:
 
 ```
-./.venv/bin/python -m ruff check server/bot_team server/routes/runners.py server/routes/bots.py server/app.py tests/test_lorca_p6_runners.py   # All checks passed
+./.venv/bin/python -m ruff check server/bot_team server/routes/runners.py server/routes/bot_team.py server/app.py tests/test_lorca_p6_runners.py   # All checks passed
 ./.venv/bin/python -m ruff format --check <same paths>   # all formatted
 NODE_OPTIONS=--max-old-space-size=2048 pnpm --dir apps/web check   # svelte-check found 0 errors and 0 warnings
 ```
