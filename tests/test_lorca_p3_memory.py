@@ -6,21 +6,30 @@ Covers:
     Isolation       — require_same_bot enforced when caller_bot_id is provided
     Render          — render_for_prompt truncation and empty-store behaviour
     REST            — all four endpoints via FastAPI TestClient
+    Injection       — VEYA_BOT_MEMORY_MD semantic-context injection (on/off)
+    Tool            — bot_memory_note scoped to the running bot
+    Worker wiring   — canonical worker injects + binds the bot scope
 """
 
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
 
+from runtime import bot_scope
 from runtime.bot_scope import CrossBotAccessDenied
 from server.bot_team.memory import (
     CORE_FILE,
     MAX_FILE_BYTES,
     BotMemoryStore,
+    inject_memory_context,
 )
+
+if TYPE_CHECKING:
+    from server.goal_run.canonical_worker import CanonicalWorkerAdapter
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -35,6 +44,18 @@ def store(tmp_path):
 def store_b(tmp_path):
     """A second store for a different bot (same bots_root)."""
     return BotMemoryStore("bot-beta", bots_root=tmp_path)
+
+
+@pytest.fixture()
+def rooted_store(tmp_path, monkeypatch):
+    """Store that is also the module's default root.
+
+    Helpers like :func:`inject_memory_context` build their own store from
+    ``VEYA_BOTS_ROOT`` (the documented override), so the fixture points the
+    environment at the same tmp directory the store writes to.
+    """
+    monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path))
+    return BotMemoryStore("bot-alpha", bots_root=tmp_path)
 
 
 # ── CRUD tests ────────────────────────────────────────────────────────────────
@@ -344,3 +365,237 @@ class TestRestEndpoints:
             headers={"Content-Type": "text/plain"},
         )
         assert r.status_code == 422
+
+
+# ── Semantic context injection (VEYA_BOT_MEMORY_MD) ──────────────────────────
+
+
+class _FakeSemanticAgent:
+    """Minimal stand-in for the oservi MasterAgent semantic surface."""
+
+    def __init__(self) -> None:
+        self._histories: dict[str, list[dict]] = {}
+
+    def get_system_prompt(self) -> str:
+        return "SYSTEM PROMPT"
+
+
+class TestSemanticContextInjection:
+    def test_flag_off_is_a_noop(self, rooted_store, monkeypatch):
+        monkeypatch.setenv("VEYA_BOT_MEMORY_MD", "0")
+        rooted_store.write(CORE_FILE, "note that must stay out of the prompt")
+        agent = _FakeSemanticAgent()
+        assert inject_memory_context(agent, "s1", "bot-alpha") is False
+        assert agent._histories == {}  # history untouched when disabled
+
+    def test_unset_flag_defaults_to_off(self, rooted_store, monkeypatch):
+        monkeypatch.delenv("VEYA_BOT_MEMORY_MD", raising=False)
+        rooted_store.write(CORE_FILE, "kept private by default")
+        agent = _FakeSemanticAgent()
+        assert inject_memory_context(agent, "s1", "bot-alpha") is False
+        assert agent._histories == {}
+
+    def test_flag_on_injects_memory_after_system_prompt(self, rooted_store, monkeypatch):
+        monkeypatch.setenv("VEYA_BOT_MEMORY_MD", "1")
+        rooted_store.write(CORE_FILE, "alpha core note")
+        agent = _FakeSemanticAgent()
+        assert inject_memory_context(agent, "s1", "bot-alpha") is True
+        messages = agent._histories["s1"]
+        assert [m["role"] for m in messages] == ["system", "system"]
+        assert messages[0]["content"] == "SYSTEM PROMPT"
+        assert "alpha core note" in messages[1]["content"]
+
+    def test_injection_is_refreshed_not_accumulated(self, rooted_store, monkeypatch):
+        monkeypatch.setenv("VEYA_BOT_MEMORY_MD", "1")
+        rooted_store.write(CORE_FILE, "v1")
+        agent = _FakeSemanticAgent()
+        inject_memory_context(agent, "s1", "bot-alpha")
+        rooted_store.append_note("v2")
+        inject_memory_context(agent, "s1", "bot-alpha")
+        messages = agent._histories["s1"]
+        assert len(messages) == 2  # system prompt + one memory block
+        assert "v1" in messages[1]["content"] and "v2" in messages[1]["content"]
+
+    def test_empty_store_injects_nothing(self, monkeypatch):
+        monkeypatch.setenv("VEYA_BOT_MEMORY_MD", "1")
+        agent = _FakeSemanticAgent()
+        assert inject_memory_context(agent, "s1", "bot-alpha") is False
+        # The session still gets its seeded system prompt only.
+        assert [m["role"] for m in agent._histories["s1"]] == ["system"]
+
+    def test_only_the_running_bots_memory_is_injected(self, rooted_store, store_b, monkeypatch):
+        monkeypatch.setenv("VEYA_BOT_MEMORY_MD", "1")
+        rooted_store.write(CORE_FILE, "alpha secret")
+        store_b.write(CORE_FILE, "beta secret")
+        agent = _FakeSemanticAgent()
+        inject_memory_context(agent, "s1", "bot-beta")
+        block = agent._histories["s1"][1]["content"]
+        assert "beta secret" in block
+        assert "alpha secret" not in block
+
+    def test_render_truncation_carries_into_the_block(self, rooted_store, monkeypatch):
+        monkeypatch.setenv("VEYA_BOT_MEMORY_MD", "1")
+        rooted_store.write(CORE_FILE, "A" * 3000)
+        rooted_store.write("big.md", "B" * 3000)
+        agent = _FakeSemanticAgent()
+        inject_memory_context(agent, "s1", "bot-alpha", max_chars=500)
+        block = agent._histories["s1"][1]["content"]
+        mark = "<!-- bot-memory-context bot_id=bot-alpha -->\n\n"
+        # The mark header wraps the capped render; the render itself never
+        # exceeds the requested budget.
+        assert len(block) <= len(mark) + 500 + 1
+        assert mark in block
+
+
+# ── bot_memory_note tool ─────────────────────────────────────────────────────
+
+
+class TestBotMemoryNoteTool:
+    def test_requires_a_bound_bot_scope(self):
+        from server.bot_team.memory import bot_memory_note
+
+        token = bot_scope.bind_current_bot(None)  # explicitly unbound
+        try:
+            with pytest.raises(RuntimeError, match="bot scope"):
+                bot_memory_note("orphan note")
+        finally:
+            bot_scope.reset_current_bot(token)
+
+    def test_writes_to_the_running_bots_memory(self, tmp_path, monkeypatch):
+        from server.bot_team.memory import bot_memory_note
+
+        monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path))
+        token = bot_scope.bind_current_bot("bot-tool")
+        try:
+            bot_memory_note("user prefers dark mode")
+        finally:
+            bot_scope.reset_current_bot(token)
+        assert "user prefers dark mode" in BotMemoryStore("bot-tool").read(CORE_FILE)
+
+    def test_scoped_per_running_bot(self, tmp_path, monkeypatch):
+        from server.bot_team.memory import bot_memory_note
+
+        monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path))
+        token = bot_scope.bind_current_bot("bot-one")
+        try:
+            bot_memory_note("from bot one")
+            bot_scope.reset_current_bot(token)
+            token = bot_scope.bind_current_bot("bot-two")
+            bot_memory_note("from bot two")
+        finally:
+            bot_scope.reset_current_bot(token)
+        assert "from bot one" in BotMemoryStore("bot-one").read(CORE_FILE)
+        assert "from bot two" in BotMemoryStore("bot-two").read(CORE_FILE)
+        assert "from bot two" not in BotMemoryStore("bot-one").read(CORE_FILE)
+
+    def test_register_tools_is_idempotent(self):
+        from server.bot_team.memory import register_tools
+        from server.tool_registry import master_tools
+
+        assert master_tools.has("bot_memory_note")
+        assert register_tools(master_tools) == 0  # already registered at import
+
+
+# ── Canonical worker wiring ──────────────────────────────────────────────────
+
+
+class _SemanticStub:
+    def __init__(self) -> None:
+        self._histories: dict[str, list[dict]] = {}
+        self.observed: list[dict] = []
+
+    def get_system_prompt(self) -> str:
+        return "SYSTEM PROMPT"
+
+    async def semantic_step(self, instruction, *, session_id, llm_kwargs=None, prior_result=None):
+        return {
+            "kind": "action",
+            "tool": "bot_memory_note",
+            "arguments": {"text": "note from the canonical step"},
+            "action_id": "act-1",
+        }
+
+    async def observe_action_result(self, result, *, session_id):
+        self.observed.append(result)
+
+
+class _GatewayStub:
+    def execute(self, tool, arguments, physical, **_kwargs):
+        return physical()
+
+
+def _state_with_task(bot_id: str = "bot-worker"):
+    from server.goal_run.models import GoalRunState, TaskNode, TaskStatus
+
+    state = GoalRunState(goal_id="goal-memory", goal_text="memory goal")
+    state.bot_id = bot_id
+    state.tasks["step"] = TaskNode(
+        id="step",
+        title="step",
+        instruction="remember the preference",
+        acceptance=["note stored"],
+        depends_on=[],
+        assignee="builtin",
+        status=TaskStatus.ready,
+    )
+    return state
+
+
+def _adapter(agent: _SemanticStub, seen: dict | None = None) -> CanonicalWorkerAdapter:
+    from server.goal_run.canonical_worker import CanonicalWorkerAdapter
+
+    def gateway_executor(request):
+        if seen is not None:
+            # The running-bot binding is visible at physical execution time.
+            seen["bot"] = bot_scope.current_bot()
+        return "done"
+
+    adapter = CanonicalWorkerAdapter(
+        task_id="task-memory",
+        objective="memory goal",
+        semantic_agent=agent,
+        semantic_session_id="session-memory",
+        gateway_executor=gateway_executor,
+    )
+    adapter.action_gateway = _GatewayStub()
+    return adapter
+
+
+class TestCanonicalWorkerWiring:
+    @pytest.mark.asyncio
+    async def test_semantic_task_injects_memory_when_flag_on(self, rooted_store, monkeypatch):
+        monkeypatch.setenv("VEYA_BOT_MEMORY_MD", "1")
+        rooted_store.write(CORE_FILE, "worker memory note")
+        agent = _SemanticStub()
+        adapter = _adapter(agent)
+        state = _state_with_task("bot-alpha")
+        leaf = await adapter.execute_semantic_task(state, state.tasks["step"])
+        assert leaf.status == "completed"
+        block = agent._histories["session-memory"][1]["content"]
+        assert "worker memory note" in block
+
+    @pytest.mark.asyncio
+    async def test_semantic_task_does_not_inject_when_flag_off(self, rooted_store, monkeypatch):
+        monkeypatch.setenv("VEYA_BOT_MEMORY_MD", "0")
+        rooted_store.write(CORE_FILE, "must not leak into the prompt")
+        agent = _SemanticStub()
+        adapter = _adapter(agent)
+        state = _state_with_task("bot-alpha")
+        leaf = await adapter.execute_semantic_task(state, state.tasks["step"])
+        assert leaf.status == "completed"
+        messages = [m for m in agent._histories.get("session-memory", [])]
+        assert not any(
+            str(m.get("content", "")).startswith("<!-- bot-memory-context") for m in messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_canonical_action_binds_the_running_bot(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path))
+        seen: dict = {}
+        agent = _SemanticStub()
+        adapter = _adapter(agent, seen)
+        state = _state_with_task("bot-bound")
+        assert bot_scope.current_bot() is None
+        await adapter.execute_semantic_task(state, state.tasks["step"])
+        assert seen["bot"] == "bot-bound"  # physical step saw the running bot
+        assert bot_scope.current_bot() is None  # binding reset afterwards
