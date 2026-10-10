@@ -9,10 +9,15 @@ from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
 from server.events import event_store
+from server.routes import session_handoff, session_search
 from server.session_identity import new_session_id
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 unified_router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
+
+# Include handoff/fork and search routers
+unified_router.include_router(session_handoff.router)
+unified_router.include_router(session_search.router)
 
 
 class UnifiedSessionCreateRequest(BaseModel):
