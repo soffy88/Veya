@@ -317,9 +317,10 @@ async def patch_bot(
 ) -> dict[str, Any]:
     """Update the configuration of one bot (name/description/instructions/LLM)."""
 
-    del user
     registry = bot_registry()
-    spec = _require_bot(registry, bot_id)
+    # ``owner_id`` matters here: patching the default bot (which is not in the
+    # catalog yet) registers it, and a registry record needs an owner.
+    spec = _require_bot(registry, bot_id, owner_id=user["user_id"])
     updates = req.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=422, detail="no fields to update")

@@ -233,6 +233,23 @@ def test_existing_default_bot_route_keeps_working(client, lorca_env):
     assert state.json()["bot"]["id"] == "veya-default"
 
 
+def test_default_bot_can_be_given_its_own_instructions(client, lorca_env):
+    """Patching the default bot registers it; before that it is in-memory only."""
+
+    del lorca_env
+    patched = client.patch(
+        "/api/v1/bots/veya-default",
+        json={"name": "Veya", "instructions": "Answer in one line."},
+    )
+
+    assert patched.status_code == 200
+    spec = BotRegistry().get("veya-default")
+    assert spec is not None
+    assert spec.name == "Veya"
+    assert spec.instructions == "Answer in one line."
+    assert spec.owner_id  # a registry record always has an owner
+
+
 # ── P1.2 bot_id end to end ──────────────────────────────────────────────
 
 
