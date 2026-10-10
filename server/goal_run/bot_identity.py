@@ -23,6 +23,7 @@ This module depends on the standard library only so any layer
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 from dataclasses import asdict, dataclass, field
@@ -140,6 +141,33 @@ def assert_bot_may_use_playbook(bot: BotSpec, playbook_id: str) -> None:
         raise CrossBotAccessDenied(f"playbook:{playbook_id}", bot.bot_id, f"allowlist:{bot.bot_id}")
 
 
+# ── the running bot (request context) ─────────────────────────────────────
+# The bot whose GoalRun is executing right now. It is bound by the product
+# entry (``_run_product_task``) before the semantic loop starts, so every
+# capability that runs inside that GoalRun — including a nested bot turn — can
+# see it through the context, exactly like ``current_task_id``. Nothing a model
+# sends in a tool argument can override it: the running bot is a fact of the
+# execution, not of the request payload.
+_current_bot_ctx: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "veya_current_bot", default=None
+)
+
+
+def bind_current_bot(bot_id: str | None) -> contextvars.Token:
+    """Bind the bot whose GoalRun is executing in this request context."""
+    value = str(bot_id or "").strip()
+    return _current_bot_ctx.set(value or None)
+
+
+def reset_current_bot(token: contextvars.Token) -> None:
+    _current_bot_ctx.reset(token)
+
+
+def current_bot_id() -> str | None:
+    """The bot of the running GoalRun, or ``None`` when no bot is executing."""
+    return _current_bot_ctx.get()
+
+
 class BotRegistry:
     """Bot catalog with optional JSON file persistence (mirrors RoutineRegistry)."""
 
@@ -219,8 +247,11 @@ __all__ = [
     "CrossBotAccessDenied",
     "assert_bot_may_use_playbook",
     "assert_bot_may_use_skill",
+    "bind_current_bot",
     "bot_may_use_playbook",
     "bot_may_use_skill",
+    "current_bot_id",
     "require_same_bot",
+    "reset_current_bot",
     "validate_bot_spec",
 ]

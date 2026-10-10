@@ -18,6 +18,11 @@ from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
 from server.events import append_canonical_event
+from server.goal_run.bot_identity import (
+    DEFAULT_BOT_ID,
+    bind_current_bot,
+    reset_current_bot,
+)
 from server.product_shell import configure_bot, read_bot_state
 from server.session_identity import new_session_id
 from server.task_store import task_store
@@ -221,7 +226,15 @@ async def _run_product_task(
             ),
         )
 
-        response = await master_coordinator.execute_structured(req)
+        # Lorca: the running bot of this GoalRun travels with the request
+        # context (same mechanism as ``current_task_id``), so a capability that
+        # runs inside the turn — e.g. the ``message_bot`` tool — knows which
+        # bot it is speaking as without the model ever naming it.
+        bot_token = bind_current_bot(bot_id or DEFAULT_BOT_ID)
+        try:
+            response = await master_coordinator.execute_structured(req)
+        finally:
+            reset_current_bot(bot_token)
 
         task_store.update_status(
             task_id,

@@ -4417,3 +4417,10 @@ _register_github_issue_tools(master_tools)
 from server.supervision_tools import register_tools as _register_supervision_tools  # noqa: E402
 
 _register_supervision_tools(master_tools)
+
+# Lorca bot team: one model-visible tool, message_bot(target_bot_id, text). The
+# source bot and the hop depth come from the running context, never from the
+# model; the P2 service keeps owning the refusals and the delegation runtime.
+from server.bot_team.tool import register_tools as _register_bot_team_tools  # noqa: E402
+
+_register_bot_team_tools(master_tools)
