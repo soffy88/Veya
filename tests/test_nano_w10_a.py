@@ -10,6 +10,7 @@ Run with:  .venv/bin/python -m pytest -q tests/test_nano_w10_a.py
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -21,9 +22,20 @@ from server.nano_w10.flags import (
     require_flag,
 )
 from server.nano_w10.live_stream import LiveStream, wire_to_turn_queue
-from server.nano_w10.loop_mode import LoopRunPolicy, finish_card
+from server.nano_w10.loop_mode import (
+    CARD_KIND,
+    CHECKPOINT_VERDICTS,
+    FinishCheckpointGate,
+    LoopRunPolicy,
+    card_key,
+    finish_card,
+)
 from server.nano_w10.turn_queue import TurnQueue
-from server.nano_w10.wake_router import WakeRouter, build_triage_engine
+from server.nano_w10.wake_router import (
+    WakeRouter,
+    build_triage_engine,
+    default_wake_router,
+)
 from veya.omodul.turn_intake import (
     TurnIntakeConfig,
     TurnIntakeInput,
@@ -176,7 +188,9 @@ def test_turn_intake_is_a_pure_function_of_its_collaborators() -> None:
     )
     first = turn_intake(
         config,
-        TurnIntakeInput(conversation_ref="c1", kind="direct", text="hi", external_id="m1", arrived_at=1.0),
+        TurnIntakeInput(
+            conversation_ref="c1", kind="direct", text="hi", external_id="m1", arrived_at=1.0
+        ),
         None,
         now=1.0,
     )
@@ -184,7 +198,9 @@ def test_turn_intake_is_a_pure_function_of_its_collaborators() -> None:
     assert first["action"] == "queue"
     retry = turn_intake(
         config,
-        TurnIntakeInput(conversation_ref="c1", kind="direct", text="hi", external_id="m1", arrived_at=1.2),
+        TurnIntakeInput(
+            conversation_ref="c1", kind="direct", text="hi", external_id="m1", arrived_at=1.2
+        ),
         None,
         now=1.2,
     )
@@ -281,7 +297,10 @@ def test_policy_is_fail_quiet_for_background_noise() -> None:
 
 
 def test_urgent_beats_quiet_hours_and_never_level() -> None:
-    settings = {"notification_level": "all", "quiet_hours": {"enabled": True, "start": "23:00", "end": "08:00"}}
+    settings = {
+        "notification_level": "all",
+        "quiet_hours": {"enabled": True, "start": "23:00", "end": "08:00"},
+    }
     assert worth_bugging_user({"urgent": True}, settings, now=2 * 3600)["outcome"] == "reply_now"
     never = {"notification_level": "never"}
     assert worth_bugging_user({"urgent": True, "user_directed": True}, never)["outcome"] == "silent"
@@ -289,22 +308,32 @@ def test_urgent_beats_quiet_hours_and_never_level() -> None:
 
 def test_all_four_outcomes_are_reachable() -> None:
     everything = {"notification_level": "all"}
-    assert worth_bugging_user({"user_directed": True, "urgent": True}, everything)["outcome"] == "reply_now"
-    assert worth_bugging_user({"user_directed": True, "novel": True}, everything)["outcome"] == "reply_now"
     assert (
-        worth_bugging_user({"user_directed": True, "novel": False}, everything)["outcome"] == "digest"
+        worth_bugging_user({"user_directed": True, "urgent": True}, everything)["outcome"]
+        == "reply_now"
     )
     assert (
-        worth_bugging_user({"ack_only": True}, everything)["outcome"] == "emoji_ack"
+        worth_bugging_user({"user_directed": True, "novel": True}, everything)["outcome"]
+        == "reply_now"
     )
+    assert (
+        worth_bugging_user({"user_directed": True, "novel": False}, everything)["outcome"]
+        == "digest"
+    )
+    assert worth_bugging_user({"ack_only": True}, everything)["outcome"] == "emoji_ack"
     assert worth_bugging_user({}, everything)["outcome"] == "silent"
     assert set(OUTCOMES) == {"reply_now", "digest", "emoji_ack", "silent"}
 
 
 def test_quiet_hours_move_a_user_directed_wake_into_the_digest() -> None:
-    settings = {"notification_level": "all", "quiet_hours": {"enabled": True, "start": "23:00", "end": "08:00"}}
+    settings = {
+        "notification_level": "all",
+        "quiet_hours": {"enabled": True, "start": "23:00", "end": "08:00"},
+    }
     assert (
-        worth_bugging_user({"user_directed": True, "novel": True}, settings, now=3 * 3600)["outcome"]
+        worth_bugging_user({"user_directed": True, "novel": True}, settings, now=3 * 3600)[
+            "outcome"
+        ]
         == "digest"
     )
 
@@ -318,12 +347,16 @@ def test_wake_router_dedupes_and_instructs_delivery(monkeypatch: pytest.MonkeyPa
             (owner, outcome, deliver)
         ),
     )
-    first = router.ingest(owner_ref="u1", source="user", summary="hi", user_directed=True, novel=True)
+    first = router.ingest(
+        owner_ref="u1", source="user", summary="hi", user_directed=True, novel=True
+    )
     assert first["outcome"] == "reply_now"
     assert first["deliver"] == ["push", "channel"]
     assert delivered and delivered[0][2] == ["push", "channel"]
 
-    repeat = router.ingest(owner_ref="u1", source="user", summary="hi", user_directed=True, novel=True)
+    repeat = router.ingest(
+        owner_ref="u1", source="user", summary="hi", user_directed=True, novel=True
+    )
     assert repeat["duplicate"] is True
     assert repeat["deliver"] == []
     assert len(delivered) == 1
@@ -382,6 +415,7 @@ def test_every_documented_wake_source_is_accepted() -> None:
         os.environ.pop("VEYA_WAKE_ROUTER", None)
     assert seen == set(WAKE_SOURCES)
 
+
 # ══════════════════════════════════════════════════════════════════════════
 # W3 — Goal vs Loop as a GoalRun policy (+ W5 finish checkpoint card)
 # ══════════════════════════════════════════════════════════════════════════
@@ -394,10 +428,12 @@ def test_goal_mode_never_stops_early_and_never_checkpoints() -> None:
     assert decision["stop"] is False
     assert decision["next"] == "checkpoint"  # "keep going and report"
     assert decision["mode"] == "goal"
-    assert loop_decision(mode="goal", rounds_done=1, elapsed_s=1.0, finish_condition_met=True)["stop"]
-    assert loop_decision(mode="goal", rounds_done=1, elapsed_s=1.0, user_stop=True)["reason_code"] == (
-        STOP_USER_STOP
-    )
+    assert loop_decision(mode="goal", rounds_done=1, elapsed_s=1.0, finish_condition_met=True)[
+        "stop"
+    ]
+    assert loop_decision(mode="goal", rounds_done=1, elapsed_s=1.0, user_stop=True)[
+        "reason_code"
+    ] == (STOP_USER_STOP)
     # An unknown mode degrades to goal rather than inventing a third mode.
     assert loop_decision(mode="whatever", rounds_done=99, elapsed_s=1.0)["mode"] == "goal"
 
@@ -505,18 +541,212 @@ def test_finish_checkpoint_card_is_available_without_the_loop_flag() -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# W5 — the finish checkpoint is posted before done, and can be sent back
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def _gate(tmp_path, **overrides):
+    """A gate whose collaborators are local fakes, never the real stores."""
+
+    posted: list[tuple[str, str, dict]] = []
+    events: list[tuple[str, dict]] = []
+    queue = TurnQueue()
+    defaults = {
+        "post_to_chat": lambda bot_id, text, meta: posted.append((bot_id, text, meta)),
+        "record_event": lambda topic, payload: events.append((topic, payload)),
+        "deliver_note": lambda bot_id, text: queue.intake(
+            conversation_ref=bot_id,
+            text=text,
+            kind="direct",
+            bot_ref=bot_id,
+            user_directed=True,
+        ),
+    }
+    defaults.update(overrides)
+    return FinishCheckpointGate(**defaults), posted, events, queue
+
+
+def test_finish_checkpoint_is_off_by_default_and_says_which_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VEYA_FINISH_CHECKPOINT", raising=False)
+    gate, posted, events, _queue = _gate(None)
+    assert gate.post("gr-1", bot_id="bot-x", summary="done")["error"] == {
+        "code": "FEATURE_DISABLED",
+        "flag": "VEYA_FINISH_CHECKPOINT",
+    }
+    assert gate.respond("bot-x", "fc-bot-x-gr-1", "accept")["error"]["code"] == "FEATURE_DISABLED"
+    assert posted == [] and events == []
+
+
+def test_finish_checkpoint_posts_into_the_chat_exactly_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VEYA_FINISH_CHECKPOINT", "1")
+    gate, posted, events, _queue = _gate(None)
+    first = gate.post(
+        "gr-1",
+        bot_id="bot-x",
+        summary="shipped the route",
+        did=["server/routes/bot_team.py"],
+        tests_run=["pytest -q tests/test_nano_w10_a.py"],
+    )
+    assert first["posted"] is True
+    assert first["card_id"] == card_key("bot-x", "gr-1")
+    bot_id, text, meta = posted[0]
+    assert bot_id == "bot-x"
+    assert "Finish checkpoint" in text
+    assert meta["kind"] == CARD_KIND and meta["goal_run_id"] == "gr-1"
+    assert [topic for topic, _ in events] == ["goal_run.finish_checkpoint"]
+
+    # A resumed run that re-finalizes must not double-post into the chat.
+    again = gate.post("gr-1", bot_id="bot-x", summary="shipped the route")
+    assert again["duplicate"] is True and again["posted"] is False
+    assert len(posted) == 1
+    assert gate.posted("bot-x") == [card_key("bot-x", "gr-1")]
+
+
+def test_finish_checkpoint_rejects_a_run_with_no_bot(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_FINISH_CHECKPOINT", "1")
+    gate, posted, _events, _queue = _gate(None)
+    assert gate.post("gr-1", bot_id="")["error"]["code"] == "INVALID_INPUT"
+    assert gate.post("", bot_id="bot-x")["error"]["code"] == "INVALID_INPUT"
+    assert posted == []
+
+
+def test_accept_records_the_verdict_without_touching_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VEYA_FINISH_CHECKPOINT", "1")
+    gate, _posted, events, queue = _gate(None)
+    result = gate.respond("bot-x", "fc-bot-x-gr-1", "accept")
+    assert result["verdict"] == "accept" and result["steered"] is False
+    topic, payload = events[-1]
+    assert topic == "goal_run.finish_checkpoint.response"
+    assert payload["verdict"] == "accept"
+    assert queue.list_pending("bot-x") == []
+
+
+def test_send_back_lands_through_the_item_1_turn_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A card sent back is a correction, so it takes the item-1 path."""
+
+    monkeypatch.setenv("VEYA_FINISH_CHECKPOINT", "1")
+    monkeypatch.setenv("VEYA_TURN_QUEUE", "1")
+    gate, _posted, events, queue = _gate(None)
+    assert gate.respond("bot-x", "fc-bot-x-gr-1", "send_back")["error"]["code"] == "INVALID_INPUT"
+
+    result = gate.respond("bot-x", "fc-bot-x-gr-1", "send_back", note="测试还没跑")
+    assert result["steered"] is True
+    assert result["landed"] == "queue"
+    assert [item["text"] for item in queue.list_pending("bot-x")] == ["测试还没跑"]
+    assert events[-1][1]["note"] == "测试还没跑"
+
+
+def test_an_unknown_verdict_is_refused_rather_than_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VEYA_FINISH_CHECKPOINT", "1")
+    gate, _posted, events, _queue = _gate(None)
+    assert gate.respond("bot-x", "fc-1", "maybe")["error"]["code"] == "INVALID_INPUT"
+    assert gate.respond("bot-x", "", "accept")["error"]["code"] == "INVALID_INPUT"
+    assert events == []
+    assert set(CHECKPOINT_VERDICTS) == {"accept", "send_back"}
+
+
+def test_a_card_never_takes_the_run_down_with_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unwritable chat is reported, not raised."""
+
+    monkeypatch.setenv("VEYA_FINISH_CHECKPOINT", "1")
+
+    def _boom(bot_id: str, text: str, meta: dict) -> None:
+        raise OSError("read-only file system")
+
+    gate, _posted, _events, _queue = _gate(None, post_to_chat=_boom)
+    result = gate.post("gr-1", bot_id="bot-x", summary="shipped")
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "CHAT_UNAVAILABLE"
+
+
+def test_the_runner_only_engages_the_loop_when_the_flag_and_the_brief_agree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default OFF, and even then only a brief that says \"loop\" selects Loop."""
+
+    from server.goal_run.models import GoalRunState
+    from server.goal_run.runner import _loop_policy_for
+
+    state = GoalRunState(goal_id="gr-1", goal_text="loop 3 rounds on the migration")
+    monkeypatch.delenv("VEYA_LOOP_MODE", raising=False)
+    assert _loop_policy_for(state, state.goal_text)[0] is None
+
+    monkeypatch.setenv("VEYA_LOOP_MODE", "1")
+    policy, brief = _loop_policy_for(state, state.goal_text)
+    assert policy is not None and brief["turn_budget"] == 3
+    # A Goal brief stays a Goal run even with the flag on.
+    assert _loop_policy_for(state, "ship the migration")[0] is None
+
+
+def test_the_runner_post_no_finish_card_when_the_flag_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from server.goal_run.models import GoalRunState
+    from server.goal_run.runner import _post_finish_checkpoint
+
+    monkeypatch.delenv("VEYA_FINISH_CHECKPOINT", raising=False)
+    state = GoalRunState(goal_id="gr-1", goal_text="ship it")
+    assert _post_finish_checkpoint(state, ".", completed=1, total=1, blocked=0) is None
+
+
+def test_loop_stops_on_the_budget_the_brief_asked_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    """\"loop 10 rounds\" must run ten rounds, not the oskill default of six."""
+
+    monkeypatch.setenv("VEYA_LOOP_MODE", "1")
+    policy = LoopRunPolicy()
+    brief = parse_loop_brief("loop 10 rounds on the migration")
+    ninth = policy.decide(
+        "gr-1",
+        mode="loop",
+        round_index=9,
+        rounds_done=9,
+        elapsed_s=1.0,
+        turn_budget=brief["turn_budget"],
+        time_budget_s=brief["time_budget_s"],
+    )
+    assert ninth["stop"] is False
+    tenth = policy.decide(
+        "gr-1",
+        mode="loop",
+        round_index=10,
+        rounds_done=10,
+        elapsed_s=1.0,
+        turn_budget=brief["turn_budget"],
+        time_budget_s=brief["time_budget_s"],
+    )
+    assert tenth["stop"] is True and tenth["reason_code"] == STOP_BUDGET_TURNS
+    # Without the brief's budget the default still applies.
+    assert (
+        policy.decide("gr-2", mode="loop", round_index=6, rounds_done=6, elapsed_s=1.0)[
+            "reason_code"
+        ]
+        == STOP_BUDGET_TURNS
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # W4 — live tool-result stream, plan list, correction box (lands via item 1)
 # ══════════════════════════════════════════════════════════════════════════
 
 
 def test_tool_result_is_a_first_class_step_not_just_a_call() -> None:
-    step = step_from_tool_event({"type": "tool_result", "tool_name": "file_read", "result": "contents"})
-    assert step["type"] == "tool_result" and step["detail"] == "contents" and step["status"] == "ok"
-    err = step_from_tool_event(
-        {"type": "tool_result", "tool_name": "sh", "result": "ERROR: boom"}
+    step = step_from_tool_event(
+        {"type": "tool_result", "tool_name": "file_read", "result": "contents"}
     )
+    assert step["type"] == "tool_result" and step["detail"] == "contents" and step["status"] == "ok"
+    err = step_from_tool_event({"type": "tool_result", "tool_name": "sh", "result": "ERROR: boom"})
     assert err["status"] == "error"
-    call = step_from_tool_event({"type": "tool_call", "tool_name": "sh", "tool_args": {"cmd": "ls"}})
+    call = step_from_tool_event(
+        {"type": "tool_call", "tool_name": "sh", "tool_args": {"cmd": "ls"}}
+    )
     assert call["type"] == "tool_call" and "cmd=ls" in call["detail"]
     # An event this UI does not show is not worth inventing a row for.
     assert step_from_tool_event({"type": "heartbeat"}) is None
@@ -567,7 +797,10 @@ def test_live_trace_projects_events_and_lands_a_correction(monkeypatch: pytest.M
     stream.on_step("t1", {"type": "tool_result", "tool_name": "read", "result": "42 lines"})
     assert [step["type"] for step in stream.snapshot("t1")["steps"]] == ["tool_call", "tool_result"]
 
-    stream.on_step("t1", {"type": "plan_update", "todos": [{"id": "1", "title": "step", "status": "in_progress"}]})
+    stream.on_step(
+        "t1",
+        {"type": "plan_update", "todos": [{"id": "1", "title": "step", "status": "in_progress"}]},
+    )
     assert stream.snapshot("t1")["plan"] == [{"id": "1", "title": "step", "status": "doing"}]
     assert len(pushed) == 3
 
@@ -745,3 +978,213 @@ def test_message_route_is_untouched_when_the_turn_queue_flag_is_off(
     assert response.status_code in (200, 202, 503)
     assert response.json().get("action") != "steer"
     assert response.json().get("status") != "duplicate"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# W5 route — the checkpoint verdict must verify auth, ownership, and the card
+# ══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def checkpoint_client(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """A caller who owns ``bot-x``, with one card already in that bot's chat."""
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from server import auth as auth_mod
+    from server.bot_team.conversations import ConversationStore
+    from server.goal_run.bot_identity import BotSpec
+    from server.nano_w10.loop_mode import card_key, reset_finish_checkpoint
+    from server.nano_w10.turn_queue import reset_turn_queue
+    from server.routes import bot_team as bot_routes
+
+    monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path / "bots"))
+    monkeypatch.setenv("VEYA_FINISH_CHECKPOINT", "1")
+    monkeypatch.setenv("VEYA_TURN_QUEUE", "1")
+
+    spec = BotSpec(bot_id="bot-x", owner_id="user-owner", name="X")
+    registry = type("R", (), {"get": lambda _self, bot_id: spec if bot_id == "bot-x" else None})()
+    monkeypatch.setattr(bot_routes, "bot_registry", lambda: registry)
+    ConversationStore().append(
+        "bot-x",
+        role="bot",
+        text="**Finish checkpoint**",
+        meta={"kind": CARD_KIND, "card_id": card_key("bot-x", "gr-1"), "goal_run_id": "gr-1"},
+    )
+    reset_turn_queue()
+    reset_finish_checkpoint()
+
+    app = FastAPI()
+    app.include_router(bot_routes.router)
+    app.dependency_overrides[auth_mod.require_user] = lambda: {"user_id": "user-owner"}
+    yield TestClient(app)
+    reset_turn_queue()
+    reset_finish_checkpoint()
+
+
+def test_checkpoint_route_requires_auth() -> None:
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+
+    from server import auth as auth_mod
+    from server.routes import bot_team as bot_routes
+
+    def _deny() -> dict:
+        raise HTTPException(status_code=401, detail="请先登录")
+
+    app = FastAPI()
+    app.include_router(bot_routes.router)
+    app.dependency_overrides[auth_mod.require_user] = _deny
+    response = TestClient(app).post(
+        "/api/v1/bots/bot-x/checkpoints/fc-x", json={"verdict": "accept"}
+    )
+    assert response.status_code == 401
+
+
+def test_checkpoint_route_refuses_a_bot_the_caller_does_not_own(checkpoint_client) -> None:
+    response = checkpoint_client.post(
+        "/api/v1/bots/other-bot/checkpoints/fc-other", json={"verdict": "accept"}
+    )
+    assert response.status_code == 404
+
+
+def test_checkpoint_route_refuses_a_card_that_is_not_in_that_chat(checkpoint_client) -> None:
+    """A guessed card id is a 404: the conversation log is the record."""
+
+    response = checkpoint_client.post(
+        "/api/v1/bots/bot-x/checkpoints/fc-bot-x-gr-999", json={"verdict": "accept"}
+    )
+    assert response.status_code == 404
+
+
+def test_checkpoint_route_rejects_an_unknown_verdict(checkpoint_client) -> None:
+    response = checkpoint_client.post(
+        "/api/v1/bots/bot-x/checkpoints/fc-bot-x-gr-1", json={"verdict": "maybe"}
+    )
+    assert response.status_code == 422
+
+
+def test_checkpoint_route_records_an_accept(checkpoint_client) -> None:
+    from server.bot_team.conversations import ConversationStore
+    from server.nano_w10.loop_mode import card_key
+
+    response = checkpoint_client.post(
+        "/api/v1/bots/bot-x/checkpoints/fc-bot-x-gr-1", json={"verdict": "accept"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["verdict"] == "accept" and body["card_id"] == card_key("bot-x", "gr-1")
+    # Accepting must not start a turn.
+    assert ConversationStore().list("bot-x")[-1]["meta"]["card_id"] == card_key("bot-x", "gr-1")
+
+
+def test_checkpoint_route_sends_a_card_back_through_the_turn_queue(
+    checkpoint_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from server.nano_w10.loop_mode import reset_finish_checkpoint
+    from server.nano_w10.turn_queue import get_turn_queue
+
+    reset_finish_checkpoint()  # bind the gate to the real queue, not the fake
+    response = checkpoint_client.post(
+        "/api/v1/bots/bot-x/checkpoints/fc-bot-x-gr-1",
+        json={"verdict": "send_back", "note": "这版先别合"},
+    )
+    assert response.status_code == 200
+    assert response.json()["action"] == "queue"
+    assert [item["text"] for item in get_turn_queue().list_pending("bot-x")] == ["这版先别合"]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# item 2 — the delivery binding (existing push / channels / digest only)
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def test_default_wake_router_delivers_reply_now_over_the_existing_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """reply_now fires P5 push; it is the existing notifier, not a new one."""
+
+    monkeypatch.setenv("VEYA_WAKE_ROUTER", "1")
+    sent: list[dict] = []
+
+    class _Notifier:
+        def send(self, *, user_id: str, payload: Any) -> dict:
+            sent.append({"user_id": user_id, "payload": payload})
+            return {"sent": True}
+
+    import server.bot_team.push as push_mod
+
+    monkeypatch.setattr(push_mod, "get_push_notifier", lambda: _Notifier())
+
+    result = default_wake_router().ingest(
+        owner_ref="u1",
+        source="user",
+        summary="部署失败了",
+        user_directed=True,
+        novel=True,
+    )
+    assert result["outcome"] == "reply_now"
+    assert sent and sent[0]["user_id"] == "u1"
+    assert "部署失败了" in str(sent[0]["payload"].body)
+
+
+def test_a_background_wake_never_reaches_push(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_WAKE_ROUTER", "1")
+    sent: list[dict] = []
+    result = default_wake_router().ingest(owner_ref="u1", source="routine_clock", summary="tick")
+    assert result["outcome"] == "silent"
+    assert result["deliver"] == []
+    assert sent == []
+
+
+def test_a_digest_wake_is_parked_not_pushed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_WAKE_ROUTER", "1")
+    recorded: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "server.events.append_canonical_event",
+        lambda topic, payload=None, **_: recorded.append((topic, payload)),
+    )
+    result = default_wake_router().ingest(
+        owner_ref="u1",
+        source="user",
+        summary="你说过的那件事有进展",
+        user_directed=True,
+        novel=True,
+    )
+    assert result["outcome"] in ("reply_now", "digest")
+    if result["outcome"] == "digest":
+        assert recorded and recorded[0][0] == "wake.digest"
+        assert recorded[0][1]["owner_ref"] == "u1"
+
+
+def test_the_routine_clock_only_routes_when_the_flag_is_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default OFF: the routine clock keeps its existing notification."""
+
+    from server.bot_team import routine_clock
+
+    monkeypatch.delenv("VEYA_WAKE_ROUTER", raising=False)
+    assert (
+        routine_clock._route_wake(
+            bot_id="bot-x",
+            routine_id="r1",
+            trigger_id="r1:2026-01-01T00:00:00+00:00",
+            summary="done",
+        )
+        is None
+    )
+
+    monkeypatch.setenv("VEYA_WAKE_ROUTER", "1")
+    routed = routine_clock._route_wake(
+        bot_id="bot-x",
+        routine_id="r1",
+        trigger_id="r1:2026-01-01T00:00:00+00:00",
+        summary="done",
+    )
+    assert routed is not None
+    assert routed["source"] == "routine_clock" and routed["known_source"] is True
+    # A routine that merely ticked is background: it must not interrupt anyone.
+    assert routed["outcome"] == "silent"
+    assert routed["deliver"] == []
