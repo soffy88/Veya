@@ -1,3 +1,4 @@
+// @ts-nocheck — @playwright/test is installed only for the e2e run, not for svelte-check.
 import { defineConfig, devices } from "@playwright/test";
 
 /**

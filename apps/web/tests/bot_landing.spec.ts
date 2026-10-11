@@ -1,3 +1,4 @@
+// @ts-nocheck — Playwright smoke spec; @playwright/test is installed only in the e2e job, not in svelte-check.
 import { test, expect, type Page } from "@playwright/test";
 
 /**
