@@ -46,7 +46,7 @@ class AgentMessage:
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
-        data["delivery_mode"] = self.delivery_mode.value
+        data["delivery_mode"] = str(getattr(self.delivery_mode, "value", self.delivery_mode))
         return data
 
     @classmethod

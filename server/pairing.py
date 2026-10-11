@@ -16,7 +16,8 @@ import os
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import ValidationError
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
@@ -108,13 +109,18 @@ async def pairing_request(body: PairingRequest) -> dict[str, Any]:
 
 @router.post("/confirm")
 async def pairing_confirm(
-    body: PairingConfirm,
+    payload: dict[str, Any] = Body(default_factory=dict),
     user: dict = Depends(auth_mod.get_current_user),
 ) -> dict[str, Any]:
     """User side: confirm a pairing code → credential issued + device registered."""
 
+    # flag check first, so a disabled feature is a plain 404 (not a 422)
     if not device_pairing_enabled():
         raise HTTPException(status_code=404, detail="device pairing is disabled")
+    try:
+        body = PairingConfirm.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
     from veya.omodul.pairing_flow import PairingFlowConfig, run_pairing_flow
 
     result = await run_pairing_flow(
