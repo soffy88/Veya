@@ -613,3 +613,86 @@ def test_live_trace_bounds_its_steps_and_drops_oldest(monkeypatch: pytest.Monkey
     assert snapshot["dropped"] == 3
     # The newest steps are the ones kept.
     assert snapshot["steps"][-1]["tool_name"] == "t5"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# W4 route — the correction endpoint must verify auth AND caller ownership
+# ══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def correction_client(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """A client whose auth dependency is overridden, so ownership is testable."""
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from server import auth as auth_mod
+    from server.goal_run.bot_identity import BotSpec
+    from server.routes import bot_team as bot_routes
+    from server.nano_w10.turn_queue import reset_turn_queue
+
+    monkeypatch.setenv("VEYA_TURN_QUEUE", "1")
+    monkeypatch.setenv("VEYA_LIVE_STREAM", "1")
+
+    spec = BotSpec(bot_id="bot-x", owner_id="user-owner", name="X")
+    registry = type("R", (), {"get": lambda _self, bot_id: spec if bot_id == "bot-x" else None})()
+    monkeypatch.setattr(bot_routes, "bot_registry", lambda: registry)
+    reset_turn_queue()
+
+    app = FastAPI()
+    app.include_router(bot_routes.router)
+    # Override the real dependency object FastAPI captured at import time.
+    app.dependency_overrides[auth_mod.require_user] = lambda: {"user_id": "user-owner"}
+    yield TestClient(app)
+    reset_turn_queue()
+
+
+def test_correction_route_requires_auth(correction_client, monkeypatch) -> None:
+    """An anonymous caller is refused: no login means no steer."""
+
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+
+    from server import auth as auth_mod
+    from server.routes import bot_team as bot_routes
+
+    def _deny() -> dict:
+        raise HTTPException(status_code=401, detail="请先登录")
+
+    app = FastAPI()
+    app.include_router(bot_routes.router)
+    app.dependency_overrides[auth_mod.require_user] = _deny
+    client = TestClient(app)
+    response = client.post("/api/v1/bots/bot-x/corrections", json={"text": "stop"})
+    assert response.status_code == 401
+
+
+def test_correction_route_refuses_a_bot_the_caller_does_not_own(correction_client) -> None:
+    """Ownership: another account's bot is 404, never steerable."""
+
+    response = correction_client.post("/api/v1/bots/other-bot/corrections", json={"text": "stop"})
+    assert response.status_code == 404
+
+
+def test_correction_route_steers_a_running_turn(correction_client) -> None:
+    """A correction on the caller's own bot steers, and is refused with no turn."""
+
+    from server.nano_w10.turn_queue import get_turn_queue
+
+    queue = get_turn_queue()
+    queue.intake(conversation_ref="bot-x", text="start", external_id="m1")
+    queue.mark_running("bot-x", "bot-x")
+
+    response = correction_client.post(
+        "/api/v1/bots/bot-x/corrections", json={"text": "actually use plan B"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "steered" and body["action"] == "steer"
+    assert queue.steer_log("bot-x") == ["actually use plan B"]
+
+    # With no running turn it is refused, not silently turned into a new turn.
+    queue.mark_finished("bot-x")
+    refused = correction_client.post("/api/v1/bots/bot-x/corrections", json={"text": "late"})
+    assert refused.status_code == 409

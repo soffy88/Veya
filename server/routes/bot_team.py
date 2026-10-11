@@ -528,6 +528,69 @@ async def post_bot_message(
     return response
 
 
+class BotCorrectionRequest(BaseModel):
+    """A correction typed while the bot's turn is still running (W4).
+
+    This is not a new message channel: it lands through the item-1 turn queue's
+    steer, so a correction and an inbound message follow the same path.
+    """
+
+    text: str = Field(..., min_length=1, max_length=4_000)
+
+
+@router.post("/{bot_id}/corrections")
+async def post_bot_correction(
+    bot_id: str,
+    req: BotCorrectionRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> Any:
+    """Steer a running bot turn with a correction (W4).
+
+    Auth is **required** (``require_user`` → 401 when anonymous) and the bot
+    must belong to the caller (the same ``_require_bot(owner_id=...)`` guard
+    every other bot endpoint uses), so one account cannot steer another
+    account's bot. The correction lands through the item-1 turn queue's
+    ``steer``; with no running turn it is refused rather than silently opening
+    a new one.
+    """
+
+    from server.nano_w10.live_stream import get_live_stream
+    from server.nano_w10.turn_queue import get_turn_queue, turn_queue_enabled
+
+    spec = _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
+    if not turn_queue_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "FEATURE_DISABLED", "flag": "VEYA_TURN_QUEUE"},
+        )
+    queue = get_turn_queue()
+    # A correction is only meaningful while a turn is live. If none is running
+    # it is refused (the user can send a normal message instead) rather than
+    # silently becoming a queued turn.
+    if queue.turn_state(spec.bot_id) != "running":
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "rejected",
+                "bot_id": spec.bot_id,
+                "action": "reject",
+                "reason": "no running turn to correct",
+                "hint": "该 bot 当前没有正在运行的一轮对话，请直接发消息。",
+            },
+        )
+    result = queue.steer(spec.bot_id, req.text.strip())
+    if result.get("status") == "failed":
+        return JSONResponse(status_code=409, content=result)
+    get_live_stream().correction(spec.bot_id, req.text.strip())
+    return {
+        "status": "steered",
+        "bot_id": spec.bot_id,
+        "action": result.get("action"),
+        "state": result.get("state"),
+        "reason": result.get("reason"),
+    }
+
+
 @router.post("/{bot_id}/message_bot")
 async def post_bot_to_bot_message(
     bot_id: str,
