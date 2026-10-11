@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import os
 import sys
 import time
@@ -573,6 +574,24 @@ async def _sse_from_resp(
     yield "data: [DONE]\n\n"
 
 
+_REJECTION_RE = re.compile(r"^\S+ rejected the request \(HTTP (\d{3})\)")
+
+
+def _upstream_rejection(resp: dict[str, Any]) -> tuple[int, str] | None:
+    """Detect llm_call's fallback 'X rejected the request (HTTP nnn)' reply."""
+    msg = (resp.get("choices") or [{}])[0].get("message") or {}
+    content = msg.get("content")
+    if msg.get("tool_calls") or not isinstance(content, str):
+        return None
+    match = _REJECTION_RE.match(content.strip())
+    if not match:
+        return None
+    status = int(match.group(1))
+    if status < 400 or status > 599:
+        status = 502
+    return status, content.strip()[:2000]
+
+
 @app.post("/v1/chat/completions", response_model=None)
 async def chat_completions(request: Request) -> StreamingResponse | JSONResponse:
     body: dict[str, Any] = await request.json()
@@ -599,6 +618,15 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
     if _PI_PROVIDER_CONFIG:
         call_kwargs["config"] = _PI_PROVIDER_CONFIG
     resp = await llm_call(messages, **call_kwargs)
+    upstream_error = _upstream_rejection(resp)
+    if upstream_error is not None:
+        status, message = upstream_error
+        # llm_call 把上游 HTTP 报错包成一条 assistant 文本; 对外原样当 200 返回
+        # 会让 magpie 等前置路由误判成功、不做 failover。这里还原成真实错误码。
+        return JSONResponse(
+            {"error": {"message": message, "type": "upstream_error", "code": status}},
+            status_code=status,
+        )
     resp_id = f"{requested}-{int(time.time() * 1000)}"
     created = int(time.time())
     # The public Veya contract exposes the requested logical alias as the
