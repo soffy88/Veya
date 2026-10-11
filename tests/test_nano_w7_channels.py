@@ -739,3 +739,26 @@ def test_routine_dispatch_routes_feed_and_leaves_the_rest(channels_env, monkeypa
     )
     assert seen["feed"] == ["daily_brief_u1"]
     assert seen["default"] == ["other_routine"]
+
+
+def test_bind_code_refuses_a_bot_the_caller_does_not_own(monkeypatch):
+    """Binding a chat to someone else's bot (or an unknown bot) is a 404."""
+    import pytest
+    from fastapi import HTTPException
+
+    from server.goal_run import bot_identity
+    from server.routes import channels as channels_routes
+
+    class _Spec:
+        owner_id = "someone-else"
+
+    class _Registry:
+        def get(self, bot_id):
+            return _Spec() if bot_id == "theirs" else None
+
+    monkeypatch.setattr(bot_identity, "BotRegistry", _Registry)
+    with pytest.raises(HTTPException) as exc:
+        channels_routes._require_owned_target("bot", "theirs", {"user_id": "me"})
+    assert exc.value.status_code == 404
+    with pytest.raises(HTTPException):
+        channels_routes._require_owned_target("bot", "missing", {"user_id": "me"})

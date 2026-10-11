@@ -257,6 +257,26 @@ async def wecom_webhook(request: Request, _: None = Depends(require_channels)) -
 # --------------------------------------------------------------------------
 
 
+def _require_owned_target(target_type: str, target_id: str, user: dict[str, Any]) -> None:
+    """A chat can only be bound to a bot or group the caller owns (404 otherwise)."""
+    uid = str(user.get("user_id") or "")
+    if target_type == "bot":
+        from server.goal_run.bot_identity import DEFAULT_BOT_ID, BotRegistry
+
+        spec = BotRegistry().get(target_id)
+        if spec is None and target_id != DEFAULT_BOT_ID:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bot not found")
+        if spec is not None and spec.owner_id and spec.owner_id != uid:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bot not found")
+    elif target_type == "group":
+        from server.routes.bot_team import groups
+
+        group = groups().get(target_id)
+        owner = str(getattr(group, "user_id", "") or "") if group is not None else None
+        if group is None or (owner and owner != uid):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="group not found")
+
+
 @router.post("/bind/code")
 async def create_link_code(
     payload: LinkCodeRequest,
@@ -264,6 +284,7 @@ async def create_link_code(
     _: None = Depends(require_channels),
 ) -> dict[str, Any]:
     """Issue a one-time code the owner pastes into the external chat."""
+    _require_owned_target(payload.target_type, payload.target_id, user)
     store: ChannelBindingStore = binding_store()
     binding = store.bind(
         platform=payload.platform,
