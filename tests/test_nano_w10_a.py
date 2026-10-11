@@ -695,3 +695,53 @@ def test_correction_route_steers_a_running_turn(correction_client) -> None:
     queue.mark_finished("bot-x")
     refused = correction_client.post("/api/v1/bots/bot-x/corrections", json={"text": "late"})
     assert refused.status_code == 409
+
+
+def test_turn_queue_sits_in_front_of_the_message_route(
+    correction_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the flag on: a retry is dropped and a mid-turn message steers."""
+
+    from server.nano_w10.turn_queue import get_turn_queue
+
+    queue = get_turn_queue()
+    queue.intake(conversation_ref="bot-x", text="start", external_id="m1")
+    queue.mark_running("bot-x", "bot-x")
+
+    # A mid-turn direct message steers rather than opening a second turn.
+    steer = correction_client.post(
+        "/api/v1/bots/bot-x/messages", json={"text": "actually use plan B"}
+    )
+    assert steer.status_code == 202
+    assert steer.json()["action"] == "steer"
+    assert queue.steer_log("bot-x") == ["actually use plan B"]
+
+    # The same message_id is a retry: it is dropped, not run twice.
+    queue2 = get_turn_queue()
+    first = correction_client.post(
+        "/api/v1/bots/bot-x/messages", json={"text": "hello", "message_id": "abc"}
+    )
+    # No running turn now, so it proceeds; the second identical one is a retry.
+    assert first.status_code in (200, 202)
+    second = correction_client.post(
+        "/api/v1/bots/bot-x/messages", json={"text": "hello", "message_id": "abc"}
+    )
+    assert second.status_code == 200
+    assert second.json()["status"] == "duplicate"
+
+
+def test_message_route_is_untouched_when_the_turn_queue_flag_is_off(
+    correction_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default OFF: the intake is a no-op, so the route is byte-for-byte before."""
+
+    from server.nano_w10.turn_queue import reset_turn_queue
+
+    monkeypatch.delenv("VEYA_TURN_QUEUE", raising=False)
+    reset_turn_queue()
+    response = correction_client.post("/api/v1/bots/bot-x/messages", json={"text": "hi"})
+    # It runs the ordinary turn path (200 sync result or 503 if the turn path
+    # is not available in this environment) — it is NOT a 202 steer or a drop.
+    assert response.status_code in (200, 202, 503)
+    assert response.json().get("action") != "steer"
+    assert response.json().get("status") != "duplicate"

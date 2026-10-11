@@ -149,6 +149,9 @@ class BotPatchRequest(BaseModel):
 class BotMessageRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=20_000)
     workspace_id: str | None = Field(default=None, max_length=512)
+    #: Optional client-supplied message id (NANO-W10 item 1). When present it is
+    #: the idempotency key, so a client retry never opens a second turn.
+    message_id: str | None = Field(default=None, max_length=200)
 
 
 class BotToBotMessageRequest(BaseModel):
@@ -456,6 +459,74 @@ async def get_bot_messages(bot_id: str, include_hidden: bool = False) -> dict[st
     }
 
 
+def _intake_through_turn_queue(
+    conversation_ref: str,
+    req: BotMessageRequest,
+    user: dict[str, Any],
+) -> Any | None:
+    """Run an inbound bot message through the item-1 turn queue (W10 item 1).
+
+    With ``VEYA_TURN_QUEUE`` off this returns ``None`` immediately and the route
+    behaves exactly as before — the queue is an in-front layer, not a new path.
+    With the flag on it enforces the three rules the spec asks for at the one
+    point where a turn opens:
+
+    * an idempotent retry (``message_id`` already seen) is dropped;
+    * a direct message arriving while a turn is **running** becomes a steer;
+    * messages inside the coalescing window are merged into the one turn that
+      the queue then hands to the caller.
+
+    Returns a JSONResponse when the queue short-circuits the normal path, or
+    ``None`` to let the request proceed to the ordinary turn.
+    """
+
+    from server.nano_w10.turn_queue import get_turn_queue, turn_queue_enabled
+
+    if not turn_queue_enabled():
+        return None
+    queue = get_turn_queue()
+    decision = queue.intake(
+        conversation_ref=conversation_ref,
+        text=req.text,
+        kind="direct",
+        external_id=str(req.message_id or "").strip(),
+        bot_ref=conversation_ref,
+        user_directed=True,
+    )
+    action = str(decision.get("action") or "")
+    if action == "drop":
+        # Idempotent retry: answer with the turn we already opened.
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "duplicate",
+                "bot_id": conversation_ref,
+                "action": "drop",
+                "reason": decision.get("reason", "already received"),
+            },
+        )
+    if action == "steer":
+        # A direct message mid-turn steers it; it does not wait for it.
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "steered",
+                "bot_id": conversation_ref,
+                "action": "steer",
+                "state": decision.get("state"),
+                "reason": decision.get("reason"),
+            },
+        )
+    if action == "queue":
+        pending = queue.next_turn(conversation_ref)
+        if pending and int(pending.get("count", 0)) > 1:
+            # Coalesced burst: run ONE turn over the merged members. This mutates
+            # ``req`` in place so the caller below uses the merged text; it is a
+            # local request object and is not shared.
+            req.text = str(pending.get("text") or req.text)
+    return None
+
+
 @router.post("/{bot_id}/messages")
 async def post_bot_message(
     bot_id: str,
@@ -471,6 +542,9 @@ async def post_bot_message(
     """
 
     spec = _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
+    queued = _intake_through_turn_queue(spec.bot_id, req, user)
+    if queued is not None:
+        return queued
     if async_mode:
         ref = await start_bot_turn_async(
             bot=spec,

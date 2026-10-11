@@ -228,6 +228,15 @@ class TurnQueue:
             user_directed=user_directed,
             mention=mention,
         )
+        if not str(external_id or "").strip():
+            # A message with no provider id cannot be recognised as a retry.
+            # Dedupe keys it anyway and the second message the user ever sends
+            # would look like a duplicate of the first — so skip the check
+            # rather than silently dropping real traffic.
+            config = self._config(conversation_ref, bot_ref)
+            config.seen_before = None
+            config.mark_seen = None
+            return turn_intake(config, payload, None, now=moment)
         return turn_intake(self._config(conversation_ref, bot_ref), payload, None, now=moment)
 
     # ── running a turn ──────────────────────────────────────────────────
