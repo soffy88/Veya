@@ -87,6 +87,15 @@ __manifest__: dict[str, dict[str, Any]] = {
     "container.get_kv": {"signature": "KvStore 单例句柄", "since": "0.2.0"},
     "container.get_llm": {"signature": "LlmClient 单例句柄", "since": "0.2.0"},
     "container.configure": {"signature": "句柄注入 (sandbox/bus/barrier/kv/llm)", "since": "0.2.0"},
+    # --- NANO-W9: canonical stdio JSON-RPC transport (promoted from server/acp_client.py) ---
+    "acp_stdio.StdioJsonRpcTransport": {
+        "signature": "open/request/notify/close + running (NDJSON JSON-RPC 2.0 over child stdio)",
+        "since": "0.3.0",
+    },
+    "acp_stdio.StdioJsonRpcError": {
+        "signature": "StdioJsonRpcError(message)",
+        "since": "0.3.0",
+    },
 }
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
