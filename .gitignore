@@ -90,3 +90,7 @@ deploy/hevi_deps/
 # commit 就会随镜像发出去。拒绝的补丁只能留在本地, 永不跟踪。
 *.orig
 *.rej
+
+# local backup copies (audit 2026-10-11)
+*.bak-*
+*.py.bak*

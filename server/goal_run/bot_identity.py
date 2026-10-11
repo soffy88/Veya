@@ -55,7 +55,10 @@ class BotSpec:
     config_version: int = 1
     knowledge_namespace: str = ""
     context_namespace: str = ""
+    memory_namespace: str = ""
     routine_registry_ref: str = ""
+    skill_registry_ref: str = ""
+    playbook_registry_ref: str = ""
     available_skill_ids: list[str] = field(default_factory=list)
     available_playbook_ids: list[str] = field(default_factory=list)
     #: Human-facing display name (falls back to ``bot_id``).
@@ -72,6 +75,21 @@ class BotSpec:
     #: Model source configuration (NANO-W8): "server" | "user_key" | "cli"
     model_source: str = "server"
     model_source_config: dict = field(default_factory=dict)
+    # D8: Bot product identity binding (refs only, never descriptor state).
+    definition_id: str = ""
+    definition_version: int = 0
+    deployment_id: str = ""
+    deployment_revision: int = 0
+    runtime_id: str = ""
+    instance_id: str = ""  # optional current runtime instance
+    # B1 product surface: presentation + owned resources (identity only).
+    avatar: str = ""
+    personality: str = ""
+    computer_id: str = ""
+    default_workspace_id: str = ""
+    status: str = "created"
+    created_at: str = ""
+    updated_at: str = ""
 
     def __post_init__(self) -> None:
         if not self.bot_id:
@@ -80,13 +98,34 @@ class BotSpec:
             object.__setattr__(self, "knowledge_namespace", f"knowledge:{self.bot_id}")
         if not self.context_namespace:
             object.__setattr__(self, "context_namespace", f"context:{self.bot_id}")
+        if not self.memory_namespace:
+            object.__setattr__(self, "memory_namespace", f"memory:{self.bot_id}")
         if not self.routine_registry_ref:
             object.__setattr__(self, "routine_registry_ref", f"routines:{self.bot_id}")
+        if not self.skill_registry_ref:
+            object.__setattr__(self, "skill_registry_ref", f"skills:{self.bot_id}")
+        if not self.playbook_registry_ref:
+            object.__setattr__(self, "playbook_registry_ref", f"playbooks:{self.bot_id}")
 
     @property
     def user_id(self) -> str:
         """Alias: the user who owns this bot."""
         return self.owner_id
+
+    @property
+    def has_definition(self) -> bool:
+        """Whether the Bot is bound to an immutable AgentDefinition."""
+        return bool(self.definition_id) and self.definition_version > 0
+
+    @property
+    def has_deployment(self) -> bool:
+        """Whether the Bot has an active AgentDeployment binding."""
+        return bool(self.deployment_id) and self.deployment_revision > 0
+
+    @property
+    def has_runtime(self) -> bool:
+        """Whether the Bot has a runtime implementation reference."""
+        return bool(self.runtime_id)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -113,6 +152,22 @@ class BotSpec:
             runner_id=str(value.get("runner_id") or "local"),
             model_source=str(value.get("model_source") or "server"),
             model_source_config=dict(value.get("model_source_config") or {}),
+            memory_namespace=str(value.get("memory_namespace") or ""),
+            skill_registry_ref=str(value.get("skill_registry_ref") or ""),
+            playbook_registry_ref=str(value.get("playbook_registry_ref") or ""),
+            definition_id=str(value.get("definition_id") or ""),
+            definition_version=int(value.get("definition_version") or 0),
+            deployment_id=str(value.get("deployment_id") or ""),
+            deployment_revision=int(value.get("deployment_revision") or 0),
+            runtime_id=str(value.get("runtime_id") or ""),
+            instance_id=str(value.get("instance_id") or ""),
+            avatar=str(value.get("avatar") or ""),
+            personality=str(value.get("personality") or ""),
+            computer_id=str(value.get("computer_id") or ""),
+            default_workspace_id=str(value.get("default_workspace_id") or ""),
+            status=str(value.get("status") or "created"),
+            created_at=str(value.get("created_at") or ""),
+            updated_at=str(value.get("updated_at") or ""),
         )
 
 
