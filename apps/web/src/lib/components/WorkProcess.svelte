@@ -40,6 +40,10 @@
 			}
 			case "tool_error":
 				return { Icon: CircleAlert, tone: "text-rose-300", label: `${String(ev.tool_name ?? "工具")} 失败` };
+			case "tool_result":
+				// W4: the result arrives as its own step, so the user reads the
+				// outcome without having to infer it from the call above.
+				return { Icon: CheckCircle2, tone: "text-emerald-300", label: `${String(ev.tool_name ?? "工具")} 结果` };
 			case "hicode_progress": {
 				const stage = String(ev.stage ?? "");
 				if (stage === "planning") return { Icon: Brain, tone: "text-emerald-300", label: "规划实现" };
@@ -83,6 +87,12 @@
 	}
 
 	function stepDetail(ev: ToolStep): string {
+		if (ev.type === "tool_result") {
+			return typeof ev.detail === "string" ? ev.detail.slice(0, 2400) : "";
+		}
+		if (ev.type === "correction") {
+			return typeof ev.detail === "string" ? ev.detail.slice(0, 400) : "";
+		}
 		if (ev.type === "hicode_progress" && typeof ev.detail === "string") return ev.detail.slice(0, 240);
 		if (ev.type === "plan_update" && Array.isArray(ev.todos)) {
 			const marks: Record<string, string> = { done: "✓", in_progress: "→", blocked: "!", open: "·" };
@@ -128,6 +138,7 @@
 			(step) =>
 				step.type === "tool_error" ||
 				step.type === "delegate.failed" ||
+				(step.type === "tool_result" && step.status === "error") ||
 				typeof step.error === "string",
 		).length,
 	);

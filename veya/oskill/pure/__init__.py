@@ -30,7 +30,7 @@ from __future__ import annotations
 # 元素清单（name -> {signature 摘要, 引入版本}）
 # ---------------------------------------------------------------------------
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __manifest__: dict[str, dict[str, object]] = {
     "protocol_translate.agent_messages_to_llm": {
@@ -138,8 +138,65 @@ __manifest__: dict[str, dict[str, object]] = {
         "signature": "build_preview_bundle(*, step, command, ...) -> dict",
         "since": "0.3.0",
     },
+    # --- NANO-W10 group A (turn queue / wake / loop / live trace) ---
+    "turn_priority.classify_inbound": {
+        "signature": "classify_inbound(envelope) -> str",
+        "since": "0.4.0",
+    },
+    "turn_priority.envelope_priority": {
+        "signature": "envelope_priority(envelope) -> int",
+        "since": "0.4.0",
+    },
+    "turn_priority.order_queue": {
+        "signature": "order_queue(envelopes) -> list[dict]",
+        "since": "0.4.0",
+    },
+    "turn_priority.steer_decision": {
+        "signature": "steer_decision(envelope, *, turn_state, has_start_evidence=False) -> dict",
+        "since": "0.4.0",
+    },
+    "turn_priority.coalesce_window": {
+        "signature": "coalesce_window(pending, *, now, window_s=None) -> dict",
+        "since": "0.4.0",
+    },
+    "wake_policy.is_quiet_hours": {
+        "signature": "is_quiet_hours(settings, *, now) -> bool",
+        "since": "0.4.0",
+    },
+    "wake_policy.worth_bugging_user": {
+        "signature": "worth_bugging_user(signal, settings=None, *, now=0.0) -> dict",
+        "since": "0.4.0",
+    },
+    "wake_policy.classify_wake": {
+        "signature": "classify_wake(signal, settings=None, *, now=0.0) -> dict",
+        "since": "0.4.0",
+    },
+    "loop_policy.parse_loop_brief": {
+        "signature": "parse_loop_brief(text) -> dict",
+        "since": "0.4.0",
+    },
+    "loop_policy.loop_decision": {
+        "signature": "loop_decision(*, mode, rounds_done, elapsed_s, ...) -> dict",
+        "since": "0.4.0",
+    },
+    "loop_policy.checkpoint_card": {
+        "signature": "checkpoint_card(*, mode, round_index, ...) -> dict",
+        "since": "0.4.0",
+    },
+    "live_trace.step_from_tool_event": {
+        "signature": "step_from_tool_event(event) -> dict | None",
+        "since": "0.4.0",
+    },
+    "live_trace.plan_rows": {
+        "signature": "plan_rows(todos) -> list[dict]",
+        "since": "0.4.0",
+    },
+    "live_trace.correction_action": {
+        "signature": "correction_action(correction, *, run_state, kind='direct') -> dict",
+        "since": "0.4.0",
+    },
 }
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = ["__manifest__", "__version__"]

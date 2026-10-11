@@ -101,6 +101,7 @@ class ConversationStore:
         text: str,
         task_id: str | None = None,
         hidden: bool = False,
+        meta: dict[str, Any] | None = None,
     ) -> BotMessage:
         """Append one message to ``bot_id``'s log and return it."""
 
@@ -118,6 +119,10 @@ class ConversationStore:
                 "task_id": task_id,
                 "ts": time.time(),
                 "hidden": bool(hidden) or body.strip() == PASS_SENTINEL,
+                # Optional structured marker (NANO-W10 W5 finish checkpoint).
+                # Absent on every message written before this, so an old log
+                # reads exactly as it did.
+                "meta": dict(meta) if meta else None,
             }
         )
         messages = self.list(bot_id, include_hidden=True)

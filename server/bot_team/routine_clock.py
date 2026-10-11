@@ -153,6 +153,60 @@ def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
 
     return None
 
+def _route_wake(
+    *,
+    bot_id: str,
+    routine_id: str,
+    trigger_id: str,
+    summary: str,
+    error: str = "",
+    bot_registry=None,
+) -> dict | None:
+    """NANO-W10 item 2 — route a routine's result through the one wake intake.
+
+    Returns ``None`` when ``VEYA_WAKE_ROUTER`` is off, which is the default, so
+    the caller keeps the pre-existing notification byte for byte. With the flag
+    on, push and channels fire **only** when the intake classifies the wake as
+    ``reply_now`` — a routine that merely ticked is not worth bugging anyone.
+
+    Args:
+        bot_id: the bot that ran the routine.
+        routine_id: the routine that fired.
+        trigger_id: the existing ``routine_id:due_iso`` trigger identity; it is
+            the wake's dedupe key, so one firing is one wake.
+        summary: the first line of the run's result.
+        error: the failure text, when the routine failed.
+        bot_registry: injected catalog used to resolve the routine's owner.
+
+    Returns:
+        The intake result, or ``None`` when the router is off.
+    """
+
+    from server.nano_w10.wake_router import default_wake_router, wake_router_enabled
+
+    if not wake_router_enabled():
+        return None
+
+    owner_ref = bot_id
+    try:
+        from server.goal_run.bot_identity import BotRegistry
+
+        spec = (bot_registry or BotRegistry()).get(bot_id)
+        owner_ref = str(getattr(spec, "owner_id", "") or bot_id)
+    except Exception:
+        _lg.debug("could not resolve the owner of %s; waking the bot id", bot_id, exc_info=True)
+
+    return default_wake_router().ingest(
+        owner_ref=owner_ref,
+        source="routine_clock",
+        summary=summary,
+        signal_id=trigger_id,
+        novel=bool(str(summary or "").strip()),
+        urgent=bool(error),
+        payload={"routine_id": routine_id, "bot_id": bot_id, "error": error},
+    )
+
+
 async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) -> None:
     if not handoffs:
         return
@@ -189,22 +243,39 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
         try:
             result = await master_coordinator.execute_structured(req)
             first_line = str(result).split('\n')[0] if result else "Success"
-            global_notifier.push(
-                type="SUCCESS",
-                title="Routine finished",
-                content=first_line,
-                payload={"routine_id": routine_id},
-                user_id="system"
+            routed = _route_wake(
+                bot_id=str(bot_id),
+                routine_id=str(routine_id),
+                trigger_id=str(trigger_id),
+                summary=first_line,
+                bot_registry=bot_registry,
             )
+            if routed is None:
+                global_notifier.push(
+                    type="SUCCESS",
+                    title="Routine finished",
+                    content=first_line,
+                    payload={"routine_id": routine_id},
+                    user_id="system"
+                )
         except Exception as e:
             _lg.exception(f"Handoff execution failed for routine {routine_id}")
-            global_notifier.push(
-                type="ERROR",
-                title="Routine failed",
-                content=str(e),
-                payload={"routine_id": routine_id},
-                user_id="system"
+            routed = _route_wake(
+                bot_id=str(bot_id),
+                routine_id=str(routine_id),
+                trigger_id=str(trigger_id),
+                summary=str(e),
+                error=str(e),
+                bot_registry=bot_registry,
             )
+            if routed is None:
+                global_notifier.push(
+                    type="ERROR",
+                    title="Routine failed",
+                    content=str(e),
+                    payload={"routine_id": routine_id},
+                    user_id="system"
+                )
 
 class RoutineClock:
     def __init__(self, registry: RoutineRegistry, *, clock_path=None, dispatch_fn=None):

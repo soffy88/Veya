@@ -30,6 +30,15 @@ export interface BotView {
 	model_source_config?: Record<string, unknown>;
 }
 
+export interface BotMessageMeta {
+	/** NANO-W10 W5: "finish_checkpoint" marks a card the user can answer. */
+	kind?: string;
+	card_id?: string;
+	goal_run_id?: string;
+	mode?: string;
+	round?: number;
+}
+
 export interface BotMessage {
 	id: string;
 	role: "user" | "bot";
@@ -37,6 +46,7 @@ export interface BotMessage {
 	bot_id?: string | null;
 	task_id?: string | null;
 	ts: number;
+	meta?: BotMessageMeta | null;
 }
 
 export interface GroupView {
@@ -166,6 +176,57 @@ export async function sendBotMessage(
 	});
 	if (result.status === 202) return unwrap<PendingPushTask>(result);
 	return unwrap<TurnReply>(result);
+}
+
+export interface CorrectionResult {
+	status: string;
+	bot_id: string;
+	action: string;
+	state?: string;
+	reason?: string;
+}
+
+/**
+ * Send a correction while the bot's turn is still running (NANO-W10 W4).
+ *
+ * This is not a second message channel: the backend lands it through the item-1
+ * turn queue's steer, so the running turn sees it at its next safe point. A 409
+ * means there was no running turn to correct.
+ */
+export async function sendBotCorrection(botId: string, text: string): Promise<CorrectionResult> {
+	const result = await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/corrections`, {
+		method: "POST",
+		body: { text },
+	});
+	return unwrap<CorrectionResult>(result);
+}
+
+export interface CheckpointVerdict {
+	status: string;
+	bot_id: string;
+	card_id: string;
+	verdict: "accept" | "send_back";
+	action: string;
+}
+
+/**
+ * Answer a W5 finish checkpoint card.
+ *
+ * `send_back` carries the note to the run through the item-1 turn queue — the
+ * same path a normal message takes, so a card sent back is just a correction.
+ */
+export async function answerCheckpoint(
+	botId: string,
+	cardId: string,
+	verdict: "accept" | "send_back",
+	note = "",
+): Promise<CheckpointVerdict> {
+	const result = await api(
+		"gateway",
+		`api/v1/bots/${encodeURIComponent(botId)}/checkpoints/${encodeURIComponent(cardId)}`,
+		{ method: "POST", body: { verdict, note } },
+	);
+	return unwrap<CheckpointVerdict>(result);
 }
 
 // ── groups ──────────────────────────────────────────────────────────────
