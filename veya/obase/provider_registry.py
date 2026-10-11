@@ -1,13 +1,16 @@
 """
 Veya Provider Registry — unified provider registry for model sources (VEYA_PROVIDER_REGISTRY).
 
-Extends the platform 3O obase.provider_registry with Veya-specific features:
+One registry for "which model answers this bot":
+- Builtin provider specs (OpenAI-compatible base_urls) with capability flags
 - Per-user encrypted API key storage
 - Per-bot model source selection (server / user_key / cli)
-- Capability flags (vision, image-gen) for UI feature gating
 - CLI agent delegation (codex/claude/kimi/gemini)
 
-Single source: re-exports platform 3O ProviderRegistry, adds Veya-specific API.
+Single source: the model *catalog* lives here, while the 3O canonical registry
+(``veya.platform.load("obase")``) stays the authority for provider calls,
+routing and failover.  This layer decides which provider a user picked; it
+never re-implements availability or failover.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from __future__ import annotations
 import base64
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -23,34 +26,50 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-# Import from platform 3O (single source)
-try:
-    from obase.provider_registry import (
-        ProviderRegistry as _PlatformProviderRegistry,
-        LLMCaller,
-        VLMCaller,
-        ImageGenCaller,
-        ProviderSpec,
-        OBaseRegistryConflict,
-        ProviderNotFoundError,
-        ProviderDiscoveryError,
-        ProtocolFamily,
-    )
-except ImportError:
-    # Fallback if platform 3O not available
-    _PlatformProviderRegistry = None
-    LLMCaller = None
-    VLMCaller = None
-    ImageGenCaller = None
-    ProviderSpec = None
-    OBaseRegistryConflict = Exception
-    ProviderNotFoundError = Exception
-    ProviderDiscoveryError = Exception
-    ProtocolFamily = None
+from veya.platform import load as load_3o
+
+# The canonical 3O registry is resolved through veya.platform, the single
+# assembly choke point for the main library — never by bare ``obase``, which
+# would resolve to platform/3O and bypass the 3O dependency rules (R3).
+# Only what that facade publishes is re-exported; anything deeper in the main
+# library is reached through ``load("obase")`` at the call site.
+_OBASE = load_3o("obase")
+
+ProviderRegistry = _OBASE.ProviderRegistry
+ProviderSpec = _OBASE.ProviderSpec
+ProtocolFamily = _OBASE.ProtocolFamily
+ProviderNotFoundError = _OBASE.ProviderNotFoundError
+ProviderDiscoveryError = _OBASE.ProviderDiscoveryError
+
+#: Capability display order.  Sets are unordered, so every surface that shows
+#: capabilities to a user (the settings page, the feature gate in the runner
+#: card) sorts through this — an API whose capability list reorders between
+#: calls cannot drive a stable UI.
+CAPABILITY_ORDER: tuple[str, ...] = (
+    "vision",
+    "image-gen",
+    "function-calling",
+    "streaming",
+)
+
+
+def order_capabilities(capabilities: Any) -> list[str]:
+    """Capabilities in the canonical display order, unknowns last."""
+
+    names = {str(name) for name in capabilities or ()}
+    ordered = [name for name in CAPABILITY_ORDER if name in names]
+    return ordered + sorted(names.difference(CAPABILITY_ORDER))
 
 
 class ProviderRegistryError(Exception):
     """Error in Veya provider registry operations."""
+
+
+def default_provider_storage_dir() -> Path:
+    """Where provider state is persisted (``VEYA_PROVIDER_STORAGE_DIR`` overrides)."""
+
+    raw = os.environ.get("VEYA_PROVIDER_STORAGE_DIR") or str(Path.home() / ".veya" / "providers")
+    return Path(raw).expanduser()
 
 
 # ── Encryption for API Keys ─────────────────────────────────────────────
@@ -107,6 +126,42 @@ class VeyaProviderSpec:
     # Metadata
     description: str = ""
     icon: str | None = None
+
+    @property
+    def ordered_capabilities(self) -> list[str]:
+        """Capabilities in the canonical display order."""
+
+        return order_capabilities(self.capabilities)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> VeyaProviderSpec:
+        """Rebuild a spec from its persisted form.
+
+        Unknown keys are dropped rather than raising, so a spec written by a
+        newer build still loads after a rollback.
+        """
+        known = {item.name for item in fields(cls)}
+        data = {key: value[key] for key in known if key in value}
+        data["capabilities"] = set(data.get("capabilities") or ())
+        data["models"] = list(data.get("models") or ())
+        return cls(**data)
+
+    def to_dict(self) -> dict[str, Any]:
+        """The persisted form: JSON-safe, with capabilities in display order."""
+
+        return {
+            "name": self.name,
+            "display_name": self.display_name,
+            "protocol_family": self.protocol_family,
+            "base_url": self.base_url,
+            "capabilities": self.ordered_capabilities,
+            "models": list(self.models),
+            "default_model": self.default_model,
+            "available": self.available,
+            "requires_api_key": self.requires_api_key,
+            "description": self.description,
+            "icon": self.icon,
+        }
 
 
 # Predefined provider specs (can be overridden by user config)
@@ -211,6 +266,18 @@ class ModelSourceConfig:
         if self.source not in valid_sources:
             raise ValueError(f"model_source.source must be one of {valid_sources}")
 
+    def to_dict(self) -> dict[str, Any]:
+        """The persisted form."""
+
+        return {
+            "source": self.source,
+            "provider": self.provider,
+            "model": self.model,
+            "api_key_ref": self.api_key_ref,
+            "cli_agent": self.cli_agent,
+            "cli_args": list(self.cli_args),
+        }
+
 
 # ── Veya Provider Registry ──────────────────────────────────────────────
 
@@ -226,14 +293,16 @@ class VeyaProviderRegistry:
     """
 
     def __init__(self, storage_dir: Path | None = None):
-        self.storage_dir = storage_dir or Path.home() / ".veya" / "providers"
+        self.storage_dir = storage_dir or default_provider_storage_dir()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-        # Platform 3O registry (single source)
-        self._platform = _PlatformProviderRegistry.get() if _PlatformProviderRegistry else None
+        # The canonical 3O registry stays the single authority for provider
+        # calls, routing and failover; this class only resolves which provider
+        # a user picked.
+        self._platform = ProviderRegistry.get()
 
         # Veya-specific state
-        self._user_keys: dict[str, str] = {}  # user_id -> {provider: encrypted_key}
+        self._user_keys: dict[str, dict[str, str]] = {}  # user_id -> {provider: key}
         self._bot_model_sources: dict[str, ModelSourceConfig] = {}  # bot_id -> config
         self._custom_providers: dict[str, VeyaProviderSpec] = {}
         self._cli_agents: dict[str, dict[str, Any]] = {}
@@ -241,11 +310,11 @@ class VeyaProviderRegistry:
         self._load()
 
     def _load(self) -> None:
-        """Load persisted state."""
+        """Load persisted state. A corrupt file degrades to "nothing stored"."""
         keys_file = self.storage_dir / "user_keys.json"
         if keys_file.exists():
             try:
-                data = json.loads(keys_file.read_text())
+                data = json.loads(keys_file.read_text(encoding="utf-8"))
                 for user_id, providers in data.items():
                     self._user_keys[user_id] = {
                         p: _decrypt_value(enc) for p, enc in providers.items()
@@ -256,7 +325,7 @@ class VeyaProviderRegistry:
         sources_file = self.storage_dir / "bot_model_sources.json"
         if sources_file.exists():
             try:
-                data = json.loads(sources_file.read_text())
+                data = json.loads(sources_file.read_text(encoding="utf-8"))
                 for bot_id, config in data.items():
                     self._bot_model_sources[bot_id] = ModelSourceConfig(**config)
             except Exception:
@@ -265,9 +334,9 @@ class VeyaProviderRegistry:
         custom_file = self.storage_dir / "custom_providers.json"
         if custom_file.exists():
             try:
-                data = json.loads(custom_file.read_text())
+                data = json.loads(custom_file.read_text(encoding="utf-8"))
                 for name, spec in data.items():
-                    self._custom_providers[name] = VeyaProviderSpec(**spec)
+                    self._custom_providers[name] = VeyaProviderSpec.from_dict(spec)
             except Exception:
                 pass
 
@@ -279,17 +348,17 @@ class VeyaProviderRegistry:
             user_id: {p: _encrypt_value(k) for p, k in providers.items()}
             for user_id, providers in self._user_keys.items()
         }
-        keys_file.write_text(json.dumps(data, indent=2))
+        keys_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _save_sources(self) -> None:
         sources_file = self.storage_dir / "bot_model_sources.json"
-        data = {bot_id: config.__dict__ for bot_id, config in self._bot_model_sources.items()}
-        sources_file.write_text(json.dumps(data, indent=2))
+        data = {bot_id: config.to_dict() for bot_id, config in self._bot_model_sources.items()}
+        sources_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _save_custom(self) -> None:
         custom_file = self.storage_dir / "custom_providers.json"
-        data = {name: spec.__dict__ for name, spec in self._custom_providers.items()}
-        custom_file.write_text(json.dumps(data, indent=2))
+        data = {name: spec.to_dict() for name, spec in self._custom_providers.items()}
+        custom_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     # ── Builtin Provider Specs ──────────────────────────────────────────
 
@@ -314,7 +383,11 @@ class VeyaProviderRegistry:
         return self._custom_providers.get(name)
 
     def register_custom_provider(self, spec: VeyaProviderSpec) -> None:
-        """Register a custom provider (e.g., OpenAI-compatible base_url)."""
+        """Register a custom provider (e.g., OpenAI-compatible base_url).
+
+        A builtin is never shadowed: two entries answering to one name is how
+        a user ends up sending a key to the wrong endpoint.
+        """
         if spec.name in BUILTIN_PROVIDERS:
             raise ProviderRegistryError(f"Cannot override builtin provider: {spec.name}")
         self._custom_providers[spec.name] = spec
@@ -482,19 +555,18 @@ def get_veya_provider_registry(storage_dir: Path | None = None) -> VeyaProviderR
 
 
 __all__ = [
-    "ProviderRegistryError",
-    "VeyaProviderSpec",
-    "ModelSourceConfig",
     "BUILTIN_PROVIDERS",
-    "VeyaProviderRegistry",
-    "get_veya_provider_registry",
-    # Re-export platform types
-    "LLMCaller",
-    "VLMCaller",
-    "ImageGenCaller",
-    "ProviderSpec",
-    "OBaseRegistryConflict",
-    "ProviderNotFoundError",
-    "ProviderDiscoveryError",
+    "CAPABILITY_ORDER",
+    "ModelSourceConfig",
     "ProtocolFamily",
+    "ProviderDiscoveryError",
+    "ProviderNotFoundError",
+    "ProviderRegistry",
+    "ProviderRegistryError",
+    "ProviderSpec",
+    "VeyaProviderRegistry",
+    "VeyaProviderSpec",
+    "default_provider_storage_dir",
+    "get_veya_provider_registry",
+    "order_capabilities",
 ]

@@ -61,6 +61,23 @@ class BotModelSourceRequest(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
 
+def _require_bot_owner(bot_id: str, user: dict[str, Any]) -> None:
+    """Refuse a model-source change for a bot the caller does not own.
+
+    A bot that does not exist yet is allowed through: creating a bot and
+    pointing it at a provider are one user decision, and the catalog is
+    written by the bot route under the same owner check.
+    """
+    from server.goal_run.bot_identity import BotRegistry
+
+    spec = BotRegistry().get(bot_id)
+    if spec is None:
+        return
+    owner = str(spec.owner_id or "").strip()
+    if owner and owner != str(user.get("user_id") or ""):
+        raise HTTPException(status_code=403, detail=f"bot {bot_id!r} belongs to another user")
+
+
 @router.get("")
 async def list_providers(
     user: dict[str, Any] = Depends(auth_mod.get_current_user),
@@ -79,7 +96,7 @@ async def list_providers(
                 "display_name": spec.display_name,
                 "protocol_family": spec.protocol_family,
                 "base_url": spec.base_url,
-                "capabilities": list(spec.capabilities),
+                "capabilities": spec.ordered_capabilities,
                 "models": spec.models,
                 "default_model": spec.default_model,
                 "description": spec.description,
@@ -176,6 +193,7 @@ async def set_bot_model_source(
 ) -> dict[str, Any]:
     """Set the model source for a bot."""
     _require_provider_registry()
+    _require_bot_owner(req.bot_id, user)
     registry = get_provider_registry()
 
     from veya.obase.provider_registry import ModelSourceConfig
@@ -198,11 +216,12 @@ async def get_bot_model_source(
 ) -> dict[str, Any]:
     """Get the model source configuration for a bot."""
     _require_provider_registry()
+    _require_bot_owner(bot_id, user)
     registry = get_provider_registry()
     config = registry.get_bot_model_source(bot_id)
     if config is None:
         return {"bot_id": bot_id, "source": "server", "provider": "", "model": ""}
-    return {"bot_id": bot_id, **config.__dict__}
+    return {"bot_id": bot_id, **config.to_dict()}
 
 
 @router.get("/effective-model/{bot_id}")
@@ -212,6 +231,7 @@ async def get_effective_model(
 ) -> dict[str, Any]:
     """Get the resolved effective model configuration for a bot."""
     _require_provider_registry()
+    _require_bot_owner(bot_id, user)
     registry = get_provider_registry()
     config = registry.get_effective_model_config(bot_id, user["user_id"])
     return {"bot_id": bot_id, **config}
