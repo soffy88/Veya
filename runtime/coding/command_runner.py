@@ -589,8 +589,8 @@ class CommandRunner:
             if Path(private_path).is_dir():
                 wrapped.extend(["--tmpfs", private_path])
         rp = runtime_profile or self.runtime_profile
+        mounted_entries: set[str] = set()
         if rp is not None:
-            mounted_entries: set[str] = set()
             venv_root = getattr(rp, "venv_root", None)
             entries = list(getattr(rp, "path_entries", []))
             if venv_root:

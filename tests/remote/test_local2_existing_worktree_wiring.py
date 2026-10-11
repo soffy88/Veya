@@ -79,17 +79,21 @@ def make_linked_worktree(main: Path, name: str) -> Path:
 
 
 def make_venv(project_root: Path, name: str = ".venv") -> Path:
-    """A minimal but REAL venv layout: bin/python executes (symlink to host)."""
+    """A REAL venv with pip and pytest, self-contained (no user-site dependency)."""
     venv = project_root / name
-    bindir = venv / "bin"
-    bindir.mkdir(parents=True, exist_ok=True)
-    link = bindir / "python"
-    try:
-        link.symlink_to(PY)
-    except OSError:
-        shutil.copy2(PY, link)
-    (venv / "pyvenv.cfg").write_text(
-        "home = /usr/bin\nimplementation = CPython\nversion_info = 3\n", encoding="utf-8"
+    # Create a real venv with pip.  Do NOT use --system-site-packages: the
+    # execution layer sets PYTHONNOUSERSITE=1 which strips user site-packages
+    # where pytest is installed, so the venv must be fully self-contained.
+    subprocess.run(
+        [PY, "-m", "venv", str(venv)],
+        check=True, capture_output=True,
+    )
+    venv_python = venv / "bin" / "python"
+    # Install pytest into the venv's own site-packages so it works even when
+    # PYTHONNOUSERSITE=1 is set in the execution environment.
+    subprocess.run(
+        [str(venv_python), "-m", "pip", "install", "-q", "--force-reinstall", "pytest"],
+        check=True, capture_output=True,
     )
     return venv
 
@@ -311,7 +315,7 @@ async def test_test_run_existing_worktree(linked_pair: tuple[Path, Path], no_cre
             "name": "test.run",
             "arguments": {
                 "workspace": str(wt),
-                "command": f"{PY} -m pytest --version",
+                "command": f"{main / '.venv' / 'bin' / 'python'} -m pytest --version",
                 "wait": True,
                 "wait_timeout_s": 120.0,
             },

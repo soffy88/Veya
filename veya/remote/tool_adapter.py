@@ -3391,11 +3391,11 @@ class RemoteToolAdapter:
 
         runtime_profile = None
         environment: dict[str, Any] | None = None
-        # ``shell.exec`` carries its already-resolved argv/string command and
-        # does not need the heavyweight toolchain inventory before durable
-        # admission.  Keeping discovery for test/build preserves their command
-        # selection while the shell submit path stays non-blocking.
-        if name in ("test.run", "build.run"):
+        # shell.exec needs the runtime profile for venv-relative interpreter
+        # resolution (e.g. ``venv/bin/python`` inside an existing worktree must
+        # resolve to the canonical project venv).  test/build use it for command
+        # auto-detection and environment mismatch gating.
+        if name in ("shell.exec", "test.run", "build.run"):
             from veya.remote.runtime_profile import (
                 discover_runtime_profile,
                 runtime_environment_report,
@@ -3409,19 +3409,20 @@ class RemoteToolAdapter:
                 )
             except Exception:
                 runtime_profile = None
-            environment = runtime_environment_report(resolution.target_path, runtime_profile)
-            # The project declares what it needs; running its tests under an
-            # interpreter that does not satisfy that declaration produces a
-            # result that looks like the project's and is not. Refuse rather
-            # than fall back to whatever happens to be installed.
-            if environment["verdict"] == "ENVIRONMENT_MISMATCH":
-                detail = "; ".join(str(item["detail"]) for item in environment["mismatches"])
-                return self._fail(
-                    name,
-                    session,
-                    RemoteErrorCode.ENVIRONMENT_MISMATCH,
-                    f"declared runtime does not match the actual runtime: {detail}",
-                )
+            if name in ("test.run", "build.run"):
+                environment = runtime_environment_report(resolution.target_path, runtime_profile)
+                # The project declares what it needs; running its tests under an
+                # interpreter that does not satisfy that declaration produces a
+                # result that looks like the project's and is not. Refuse rather
+                # than fall back to whatever happens to be installed.
+                if environment["verdict"] == "ENVIRONMENT_MISMATCH":
+                    detail = "; ".join(str(item["detail"]) for item in environment["mismatches"])
+                    return self._fail(
+                        name,
+                        session,
+                        RemoteErrorCode.ENVIRONMENT_MISMATCH,
+                        f"declared runtime does not match the actual runtime: {detail}",
+                    )
 
         try:
             command = self._resolve_command(name, args, ws_binding, runtime_profile=runtime_profile)
