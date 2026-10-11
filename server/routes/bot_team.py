@@ -84,6 +84,13 @@ def _default_bot_spec(owner_id: str) -> BotSpec:
 def _resolve_bot(registry: BotRegistry, bot_id: str, *, owner_id: str = "") -> BotSpec | None:
     spec = registry.get(bot_id)
     if spec is not None:
+        # W11 D2: a named bot is visible only to its owner. Shared system bots
+        # (Chef, the default bot, or bots registered without an owner) stay
+        # reachable by every signed-in user. A foreign bot answers 404, never 403,
+        # so its existence does not leak.
+        shared = spec.bot_id in (DEFAULT_BOT_ID, CHEF_BOT_ID) or spec.owner_id in ("", "system")
+        if owner_id and not shared and spec.owner_id != owner_id:
+            return None
         return spec
     if bot_id == DEFAULT_BOT_ID:
         return _default_bot_spec(owner_id)
