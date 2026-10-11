@@ -426,6 +426,7 @@ class TestBotTeamModelSource:
             return {"user_id": "test-user", "username": "test"}
 
         app.dependency_overrides[auth_mod.get_current_user] = mock_get_current_user
+        app.dependency_overrides[auth_mod.require_user] = mock_get_current_user  # W11 D2
         return TestClient(app)
 
     def test_create_bot_with_model_source(self, client):

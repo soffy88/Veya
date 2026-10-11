@@ -172,6 +172,9 @@ def _current_user() -> dict[str, Any]:
 @pytest.fixture
 def app():
     application = FastAPI()
+    # W11-AUTH: bot routes now require a signed-in user (D2).
+    from server import auth as _w11_auth
+    application.dependency_overrides[_w11_auth.require_user] = lambda: {"user_id": "anonymous", "username": "anonymous"}
     application.include_router(bots_router)
     application.include_router(push_router)
     # Push is a per-user surface, and without a token the routes fall back to
