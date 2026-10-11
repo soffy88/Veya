@@ -92,7 +92,7 @@ def _sign_payload(payload: bytes, secret: str, algo: str) -> str | None:
         except Exception:
             return None
     try:
-        return str(module.sign_payload(payload=payload, secret=secret, algo=algo))  # type: ignore[arg-type]
+        return str(module.sign_payload(payload=payload, secret=secret, algo=algo))
     except Exception:
         return None
 

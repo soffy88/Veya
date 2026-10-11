@@ -121,13 +121,14 @@ def _carry_forward(payload: dict[str, Any]) -> dict[str, Any]:
     optional layer4 router; this keeps the 7 phases chained without any omodul
     importing its sibling.
     """
-    payload = dict(payload or {})
-    previous = payload.get("artifacts") if isinstance(payload.get("artifacts"), dict) else {}
-    payload["carried"] = {**payload.get("carried", {}), **previous}
-    payload["phase"] = AGENT_NATIVE_PHASES[
+    routed: dict[str, Any] = dict(payload or {})
+    raw_artifacts = routed.get("artifacts")
+    previous: dict[str, Any] = dict(raw_artifacts) if isinstance(raw_artifacts, dict) else {}
+    routed["carried"] = {**routed.get("carried", {}), **previous}
+    routed["phase"] = AGENT_NATIVE_PHASES[
         min(int(payload.get("step_no") or 0), len(AGENT_NATIVE_PHASES) - 1)
     ]
-    return payload
+    return routed
 
 
 async def run_cli_gen(

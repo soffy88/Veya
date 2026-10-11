@@ -123,9 +123,10 @@ def normalize_receipt(
     resolved_uri = str(data.get("uri") or uri or receipt_uri(source, resolved_ref))
     raw_ts = data.get("ts", ts)
     try:
-        resolved_ts = float(raw_ts)  # type: ignore[arg-type]
+        resolved_ts = float(str(raw_ts))
     except (TypeError, ValueError):
         resolved_ts = 0.0
+
     return {
         "receipt_id": f"{source}:{resolved_ref or resolved_title}",
         "source": source,

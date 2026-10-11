@@ -23,6 +23,7 @@ with ``hash_0.prev_hash = GENESIS_HASH`` (``"0" * 64``).  The chain columns ride
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 __all__ = [
@@ -49,7 +50,7 @@ def _digest_payload(event: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in event.items() if k not in _EXCLUDED_FROM_DIGEST}
 
 
-def _obase_attr(submodule: str, attr: str) -> Any:
+def _obase_attr(submodule: str, attr: str) -> Callable[..., Any] | None:
     """Resolve an obase symbol, tolerating an older pin that lacks the re-export.
 
     Tries the package-level export first, then the submodule directly.  This is
@@ -64,11 +65,13 @@ def _obase_attr(submodule: str, attr: str) -> Any:
         package = load("obase")
         module = getattr(package, submodule, None)
         if module is not None and hasattr(module, attr):
-            return getattr(module, attr)
+            found: Callable[..., Any] = getattr(module, attr)
+            return found
     except Exception:
         pass
     try:
-        return getattr(importlib.import_module(f"obase.{submodule}"), attr)
+        resolved: Callable[..., Any] = getattr(importlib.import_module(f"obase.{submodule}"), attr)
+        return resolved
     except Exception:
         return None
 
@@ -76,7 +79,7 @@ def _obase_attr(submodule: str, attr: str) -> Any:
 def _canonical_bytes(payload: dict[str, Any]) -> bytes:
     fn = _obase_attr("canonical_json", "canonical_json")
     if fn is not None:
-        return fn(payload)
+        return bytes(fn(payload))
     import json  # pragma: no cover - only reached when obase is unmounted
 
     return json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()
@@ -85,7 +88,7 @@ def _canonical_bytes(payload: dict[str, Any]) -> bytes:
 def _sha256_hex(payload: bytes) -> str:
     fn = _obase_attr("sha256_hash", "sha256_hash")
     if fn is not None:
-        return fn(payload).hex()
+        return bytes(fn(payload)).hex()
     import hashlib  # pragma: no cover - only reached when obase is unmounted
 
     return hashlib.sha256(payload).hexdigest()
