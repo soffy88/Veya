@@ -100,4 +100,18 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "cli_hub_verify_output",
     # Runner operations (VEYA_RUNNER_SELFUPDATE)
     "runner_safe_to_restart",
+    # NANO-W10 Group D: a11y-first observation ladder
+    "OBSERVATION_TIERS",
+    "ObservationLadderError",
+    "ObservationPlan",
+    "plan_observation",
+    "screenshot_first_plan",
 ]
+
+from veya.oskill.pure.observation_ladder import (
+    OBSERVATION_TIERS,
+    ObservationLadderError,
+    ObservationPlan,
+    plan_observation,
+    screenshot_first_plan,
+)
