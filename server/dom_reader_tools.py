@@ -1,3 +1,4 @@
+# 3O-IO-ALLOW: Tool wrapper delegates network operations to obase adapter.
 """server/dom_reader_tools.py — ADDENDUM R: read_browser tool.
 
 Model-callable tool that converts web DOM to structured Markdown with [#n] control
@@ -9,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from server import feature_flags
+from veya.obase.channel_probes import fetch_url_text
 from veya.oskill.pure.html_to_markdown import is_ssrf_safe_url, read_html
 
 
@@ -33,13 +35,7 @@ async def tool_read_browser(
             return f"Error: URL rejected by security policy ({reason})"
 
         try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
-                resp = await client.get(target_url, headers={"User-Agent": "Veya-DOM-Reader/1.0"})
-                if resp.status_code >= 400:
-                    return f"HTTP error {resp.status_code} fetching {target_url}"
-                html_content = resp.text
+            html_content = await fetch_url_text(target_url, timeout=5.0, user_agent="Veya-DOM-Reader/1.0")
         except Exception as exc:
             return f"Failed to fetch {target_url}: {type(exc).__name__}: {exc}"
 

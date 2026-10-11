@@ -22,6 +22,8 @@ import httpx
 
 __all__ = [
     "WEB_CHANNEL_LADDERS",
+    "fetch_github_readme",
+    "fetch_url_text",
     "get_cached_channel_statuses",
     "probe_all_channels",
     "probe_backend",
@@ -247,3 +249,27 @@ async def probe_all_channels() -> dict[str, dict[str, Any]]:
 def get_cached_channel_statuses() -> dict[str, dict[str, Any]]:
     """Return currently cached probe statuses without re-running probes."""
     return dict(_PROBE_CACHE)
+
+
+async def fetch_url_text(
+    url: str,
+    timeout: float = 10.0,
+    user_agent: str = "Veya/1.0",
+) -> str:
+    """Fetch URL text content via httpx (obase external IO adapter)."""
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        resp = await client.get(url, headers={"User-Agent": user_agent})
+        resp.raise_for_status()
+        return resp.text
+
+
+async def fetch_github_readme(repo: str, timeout: float = 10.0) -> str:
+    """Fetch decoded GitHub repository README via API (obase external IO adapter)."""
+    import base64
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.get(f"https://api.github.com/repos/{repo}/readme")
+        resp.raise_for_status()
+        data = resp.json()
+        return base64.b64decode(data.get("content", "")).decode("utf-8", "replace")
+

@@ -1,3 +1,4 @@
+# 3O-IO-ALLOW: Tool wrapper delegates network operations to obase adapter.
 """server/channel_tools.py — ADDENDUM V: read_channel tool.
 
 Model-callable tool that reads external web content using the configured channel ladder
@@ -9,7 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 from server import feature_flags
-from veya.obase.channel_probes import probe_channel
+from veya.obase.channel_probes import (
+    fetch_github_readme,
+    fetch_url_text,
+    probe_channel,
+)
 from veya.oskill.pure.html_to_markdown import PROVENANCE_HEADER, read_html
 
 
@@ -39,12 +44,8 @@ async def tool_read_channel(
 
     # Execute backend fetch
     try:
-        import httpx
-
-        if ch == "web" or backend in ("jina", "dom_reader", "http_fetch"):
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                resp = await client.get(tgt, headers={"User-Agent": "Veya-ChannelReader/1.0"})
-                content = resp.text
+        if backend in ("jina", "dom_reader", "http_fetch"):
+            content = await fetch_url_text(tgt, timeout=10.0, user_agent="Veya-ChannelReader/1.0")
             doc = read_html(content, url=tgt)
             return f"[Channel: {ch} | Backend: {backend}]\n" + doc.markdown
 
@@ -55,17 +56,11 @@ async def tool_read_channel(
                 repo = f"{parts[0]}/{parts[1]}" if len(parts) >= 2 else tgt
             else:
                 repo = tgt
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"https://api.github.com/repos/{repo}/readme")
-                if resp.status_code == 200:
-                    import base64
-
-                    data = resp.json()
-                    decoded = base64.b64decode(data.get("content", "")).decode("utf-8", "replace")
-                    return (
-                        f"[Channel: {ch} | Backend: {backend}]\n"
-                        f"{PROVENANCE_HEADER}# GitHub Repository README: {repo}\n\n{decoded}"
-                    )
+            decoded = await fetch_github_readme(repo, timeout=10.0)
+            return (
+                f"[Channel: {ch} | Backend: {backend}]\n"
+                f"{PROVENANCE_HEADER}# GitHub Repository README: {repo}\n\n{decoded}"
+            )
 
         # Fallback generic readout
         return f"[Channel: {ch} | Backend: {backend}]\n{PROVENANCE_HEADER}Target: {tgt}\n(Readout complete)"
