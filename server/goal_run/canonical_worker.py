@@ -23,6 +23,7 @@ from runtime.provider_reliability import ReliableProviderAdapter
 from runtime.verification import EvidenceBundle, EvidenceItem, VerificationEngine
 from server.action_gateway_adapter import ActionGatewayAdapter
 from server.bot_team.memory import inject_memory_context
+from server.bot_team.steer import deliver_steers_to_turn
 from server.goal_run.action_protocol import CanonicalActionRequest, CanonicalActionResult
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.git_diff import current_head
@@ -435,6 +436,13 @@ class CanonicalWorkerAdapter:
         # only, never an execution or routing decision.
         with contextlib.suppress(Exception):
             inject_memory_context(self.semantic_agent, session_id, state.bot_id)
+        # W11-E S4: a correction typed while this turn runs arrives as a steer
+        # on the turn queue; it must reach the model, so it is injected as a
+        # user message right before the call — the following output then
+        # follows the correction. Same channel as the correction route, no new
+        # one. Off (no-op) unless VEYA_TURN_QUEUE is on.
+        with contextlib.suppress(Exception):
+            deliver_steers_to_turn(self.semantic_agent, session_id, state.bot_id)
         prior_result = (state.budget or {}).get("semantic_prior_result")
         decision = await self.semantic_agent.semantic_step(
             task.instruction,
