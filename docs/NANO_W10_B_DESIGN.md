@@ -121,12 +121,23 @@ def render_snippet(snippet: str, *, anchor: str, max_chars: int = 240) -> dict[s
 def scratch_is_live(entry_ts: float, *, now: float, ttl_seconds: float) -> bool
 def gc_scratch(text: str, *, now: float, ttl_seconds: float) -> tuple[str, int]
 def daily_log_line(*, when: float, what: str) -> str
-def gardening_proposals(text: str, *, max_chars: int, keep_lines: int = 3) -> list[dict]
+def gardening_proposals(text: str, *, max_chars: int, keep_lines: int = 3,
+                        warn_ratio: float = 0.8) -> list[dict]
 def memory_search_hits(query: str, files: Mapping[str, str], *, limit: int = 10) -> list[dict]
 def entry_allowed(text: str) -> tuple[bool, str]
 def cap_report(text: str, *, limit: int) -> dict[str, Any]
-def normalize_entry(text: str, *, source: str, added: str, bot_id: str) -> str
+def normalize_entry(text: str, *, source: str, added: str, bot_id: str,
+                    max_chars: int | None = ENTRY_MAX_CHARS) -> str
 def review_decision(text: str) -> dict[str, Any]          # {"action", "entries", "reason"}
+```
+
+### 2.1 三处实现期修正（与初稿的差异，理由随代码）
+
+| 修正 | 理由 |
+|---|---|
+| `normalize_entry(..., max_chars=None)` 可关截断 | 初稿让 `append_entry` 直接用 300 字的截断版做体积检查，结果一次 5000 字的保存会「成功」并悄悄丢掉三分之二的内容——这正是设计里明令禁止的**静默删除用户行**。现在体积检查与落盘用同一份**未截断**的行，超上限则带「make room」建议失败。300 字条目格式仍是**记忆复审**（omodul）产出的规则。 |
+| `gardening_proposals` 增加 `warn_ratio=0.8` | 初稿只在**已经超**上限时才提议修剪，用户会先撞上拒绝保存、才被告知怎么腾地方。改为到达上限 80% 就开始提议。`keep_lines` 只在**还有更旧的行可提**时才保护末尾几行，否则整份文件永远提不出任何建议。 |
+| TEAM 记忆落在 `<bots_root>/team/` 而非 `<bots_root>/team/memory/` | 团队记忆是**一个共享目录**（全体 bot 读同一份），不是某个 bot 的私有 memory 目录。同一个 `BotMemoryStore`（同一套原子写与文件名校验），只是换了根。 |
 
 # veya/oskill/pure/worker_brief.py
 def worker_view(workers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]
@@ -142,7 +153,7 @@ def merge_worker_briefs(session_brief: str, workers: Sequence[Mapping[str, Any]]
 |---|---|---|
 | 每日记忆日志 | `<bots_root>/<bot_id>/memory/daily/YYYY-MM-DD.md` | 既有 `BotMemoryStore` 目录约定 |
 | scratch | `<bots_root>/<bot_id>/memory/scratch.md` | 同上 |
-| 团队记忆 | `<bots_root>/team/MEMORY.md` + `<bots_root>/team/<topic>.md` | 新增一个 scope 目录，不改 per-bot 布局 |
+| 团队记忆 | `<bots_root>/team/MEMORY.md` + `<bots_root>/team/<topic>.md` | 共享目录（全体 bot 读同一份），不是某个 bot 的私有 memory 目录 |
 | 记忆 journal | `<bots_root>/<bot_id>/memory/journal.jsonl` | 追加式，与 `messages.json` 同风格 |
 | worker 状态 | `<bots_root>/<bot_id>/workers.json` | 与 `messages.json` 同风格（`atomic_write_json`） |
 | usage / cache 事件 | `server/events.py` 的既有 `event_store`（`~/.veya/events.jsonl`） | **不新建事件存储** |
