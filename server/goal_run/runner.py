@@ -461,6 +461,16 @@ async def _run_plan_review_gate(
     if os.environ.get("VEYA_GOAL_RUN_PLAN_REVIEW_ENABLED", "1") == "0":
         state.plan_review = {"skipped": True}
         return None
+    from server.goal_run.bot_identity import DEFAULT_BOT_ID
+
+    bot_turn = str(getattr(state, "bot_id", "") or DEFAULT_BOT_ID) != DEFAULT_BOT_ID
+    if bot_turn and len(state.tasks) <= 1:
+        # W11: a one-task plan in a named bot's turn (plain chat) has no ordering,
+        # dependencies or decomposition to review; reviewers reject it as "a
+        # verbatim copy of the goal" and park plain chat in awaiting_user.
+        # Side effects inside it still go through the action gate / approvals.
+        state.plan_review = {"skipped": True, "reason": "single-task bot turn"}
+        return None
     try:
         from server.goal_run.plan_review import dual_axis_plan_review
 

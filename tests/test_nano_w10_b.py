@@ -1103,7 +1103,8 @@ def test_memory_summary_route_checks_bot_ownership(monkeypatch, tmp_path):
     client = TestClient(app)
 
     # Anonymous caller + unknown bot -> 404, never a leaked summary.
-    assert client.get("/api/v1/bots/nobody/memory/summary").status_code == 404
+    # W11 D2: anonymous is refused outright (401); never a leaked summary.
+    assert client.get("/api/v1/bots/nobody/memory/summary").status_code in (401, 404)
 
 
 def test_usage_tokens_route_exists_and_is_authenticated():

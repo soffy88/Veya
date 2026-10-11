@@ -107,6 +107,7 @@ async def list_memory(
     user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemoryListResponse:
     """Return sorted list of ``*.md`` file names in the bot's memory directory."""
+    _require_owned(bot_id, user)
     store = _store(bot_id)
     return MemoryListResponse(bot_id=bot_id, files=store.list_files())
 
@@ -117,8 +118,16 @@ async def list_memory(
 # swallow ``/summary``, ``/search`` and ``/journal`` as memory file names (they
 # are not ``.md`` files, so the request would fail as 422 instead of reaching
 # its own handler).  Every endpoint resolves the caller and then checks that the
-# caller OWNS the bot (404 otherwise) — the existing CRUD endpoints predate that
-# check and are left untouched.
+# caller OWNS the bot (404 otherwise).  W11 D2: the file CRUD endpoints below
+# now check ownership too (``_require_owned``).
+
+
+def _require_owned(bot_id: str, user: dict[str, Any]) -> None:
+    """W11 D2: the caller's bot or a shared system bot, else 404 (bot routes' rule)."""
+    from server.goal_run.bot_identity import BotRegistry
+    from server.routes.bot_team import _require_bot
+
+    _require_bot(BotRegistry(), bot_id, owner_id=str(user.get("user_id") or ""))
 
 
 def _owned_bot(bot_id: str, user: dict[str, Any]) -> str:
@@ -231,6 +240,7 @@ async def read_memory(
     user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemoryReadResponse:
     """Return the content of *name*.  404 if the file does not exist."""
+    _require_owned(bot_id, user)
     _validate_or_422(name)
     store = _store(bot_id)
     content = store.read(name)
@@ -256,6 +266,7 @@ async def write_memory(
     - ``Content-Type: application/json`` body ``{"text": "..."}``
     - ``Content-Type: text/plain`` raw body
     """
+    _require_owned(bot_id, user)
     _validate_or_422(name)
     content_type = (request.headers.get("content-type") or "").lower()
     raw = await request.body()
@@ -294,6 +305,7 @@ async def delete_memory(
     user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemoryDeleteResponse:
     """Delete *name*.  404 if it does not exist."""
+    _require_owned(bot_id, user)
     _validate_or_422(name)
     store = _store(bot_id)
     deleted = store.delete(name)

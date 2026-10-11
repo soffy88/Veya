@@ -152,3 +152,17 @@ async def test_plan_review_approval_is_versioned_and_idempotent(tmp_path, monkey
         )
         == 1
     )
+
+
+@pytest.mark.asyncio
+async def test_single_task_bot_turn_skips_plan_review(tmp_path, monkeypatch):
+    """W11: a named bot's one-task chat turn is not parked by the plan gate."""
+    state = _state_with_one_task(tmp_path)
+    state.bot_id = "w11_helper"
+
+    async def always_reject(**kwargs):
+        raise AssertionError("plan review must not run for a single-task bot turn")
+
+    monkeypatch.setattr("server.goal_run.plan_review.dual_axis_plan_review", always_reject)
+    assert await _run_plan_review_gate(state, state.goal_text, str(tmp_path)) is None
+    assert state.plan_review.get("skipped") is True

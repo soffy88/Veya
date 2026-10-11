@@ -294,6 +294,10 @@ def client(tmp_path_factory):
 
     # W11 D2: memory routes require a signed-in user; keep the old caller.
     app.dependency_overrides[_auth.require_user] = lambda: {"user_id": "anonymous", "username": "anonymous"}
+    from server.goal_run.bot_identity import BotRegistry, BotSpec
+
+    os.environ.setdefault("VEYA_BOT_REGISTRY_PATH", str(tmp_path_factory.mktemp("reg") / "bot_registry.json"))
+    BotRegistry().register(BotSpec(bot_id=BOT, owner_id="anonymous", name="rest"))
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.pop(_auth.require_user, None)

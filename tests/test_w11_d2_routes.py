@@ -63,3 +63,16 @@ def test_routines_are_private_to_the_bot_owner(env, tmp_path, monkeypatch):
     assert client.post("/api/v1/bots/alice_bot/routines", json={"objective": "x", "schedule": "every 5m"}).status_code == 404
     who["user"] = ALICE
     assert client.post("/api/v1/bots/alice_bot/routines", json={"objective": "x", "schedule": "every 5m"}).status_code == 200
+
+
+def test_group_roles_only_for_the_group_owner(env, monkeypatch):
+    from server.routes.nano_w10_c import router as c_router
+
+    monkeypatch.setenv("VEYA_GROUP_ROLES", "1")
+    client, who = env
+    client.app.include_router(c_router)
+    gid = client.post("/api/v1/bots/groups", json={"name": "g", "bot_ids": ["alice_bot"]}).json()["group"]["id"]
+    who["user"] = BOB
+    assert client.patch(f"/api/v1/nano-w10-c/groups/{gid}/roles", json={"reply_mode": "everyone"}).status_code == 404
+    who["user"] = ALICE
+    assert client.patch(f"/api/v1/nano-w10-c/groups/{gid}/roles", json={"reply_mode": "everyone"}).status_code == 200

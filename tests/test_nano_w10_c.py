@@ -940,6 +940,12 @@ class TestNanoW10CRoutes:
         from server.app import app
         from server.bot_team.groups import GroupStore
 
+        from server.goal_run.bot_identity import BotRegistry, BotSpec
+
+        # W11 D2: roles are editable only by the owner of every member bot.
+        monkeypatch.setenv("VEYA_BOT_REGISTRY_PATH", str(tmp_path / "bot_registry.json"))
+        for bid in ("b_admin", "b_member"):
+            BotRegistry().register(BotSpec(bot_id=bid, owner_id=auth_headers["user_id"], name=bid))
         store = GroupStore()
         grp = store.create(name="ApiGrp", bot_ids=["b_admin", "b_member"])
 

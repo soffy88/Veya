@@ -59,7 +59,12 @@ async def update_group_roles(
     if group is None:
         raise HTTPException(status_code=404, detail=f"group {group_id!r} not found")
 
-    # Authorize: user has all rights in their own group
+    # W11 D2: "own group" means the caller owns every member bot; anyone else
+    # gets 404 (no existence leak), same rule as /api/v1/bots/groups.
+    from server.routes.bot_team import _group_visible
+
+    if not _group_visible(group, user["user_id"]):
+        raise HTTPException(status_code=404, detail=f"group {group_id!r} not found")
     if not evaluate_group_permission("user", "edit_reply_mode", is_own_group=True):
         raise HTTPException(status_code=403, detail="not authorized to modify group roles")
 
