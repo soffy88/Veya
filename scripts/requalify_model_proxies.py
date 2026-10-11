@@ -336,9 +336,26 @@ def nim_catalog() -> list[str]:
             timeout=30.0,
         )
         resp.raise_for_status()
-        return sorted(m["id"] for m in resp.json().get("data", []))
+        return sorted(m["id"] for m in resp.json().get("data", []) if _is_general_chat(m["id"]))
     except Exception:
         return []
+
+
+# W11: NIM's catalog also lists classifiers and single-purpose models (content
+# safety, reward, embedding, parsing, calibration, translation, retrieval). They
+# answer a probe with HTTP 200, so a probe alone marks them eligible and the
+# veya-nim proxy then routes ordinary chat to e.g. a safety classifier that
+# replies "User Safety: safe". Only general chat models enter the pool.
+_NON_CHAT_MARKERS = (
+    "safety", "guard", "reward", "embed", "rerank", "retriever", "parse",
+    "calibration", "translate", "clip", "vila", "neva", "glimmer", "ocr",
+    "-vlm", "deplot", "kosmos", "fuyu", "paligemma",
+)
+
+
+def _is_general_chat(model_id: str) -> bool:
+    low = model_id.lower()
+    return not any(marker in low for marker in _NON_CHAT_MARKERS)
 
 
 def gateway_catalog() -> list[str]:
