@@ -307,6 +307,23 @@ _FREE_POOL_STATE_PATH = os.environ.get("VEYA_FREE_POOL_STATE", "").strip() or st
 # active when every one of them was unknown to the live pool.  Nothing is
 # restored from disk at startup any more either — a stale record must never be
 # able to seed the fallback pool.
+def _free_pool_static_entries() -> list[dict[str, str]]:
+    """VEYA_FREE_POOL_STATIC: 显式指定 veya-free 成员, 格式 provider|model|endpoint;...
+
+    设置后跳过各源目录发现, 只探活这些条目 (运营方手工挑选的池)。
+    """
+    raw = os.environ.get("VEYA_FREE_POOL_STATIC", "").strip()
+    out: list[dict[str, str]] = []
+    for part in raw.split(";"):
+        bits = [b.strip() for b in part.split("|")]
+        if len(bits) == 3 and all(bits):
+            out.append({"provider": bits[0], "model": bits[1], "endpoint": bits[2], "source": bits[0]})
+    return out
+
+
+if _free_pool_static_entries():
+    _llm._replace_veya12_free_pool(_free_pool_static_entries())
+
 _FREE_POOL_LIFECYCLE = FreePoolLifecycle(
     _llm._VEYA12_FREE_POOL,
     state_path=_FREE_POOL_STATE_PATH,
@@ -415,6 +432,17 @@ def _free_pool_sources() -> list[tuple[str, str]]:
 
 async def _discover_free_pool() -> FreePoolSnapshot:
     """Discover free text candidates and complete source catalogs."""
+    static_entries = _free_pool_static_entries()
+    if static_entries:
+        avail: dict[str, set[str]] = {}
+        for e in static_entries:
+            avail.setdefault(e["source"], set()).add(e["model"].lower())
+        return FreePoolSnapshot(
+            entries=tuple(static_entries),
+            available={k: frozenset(v) for k, v in avail.items()},
+            healthy_sources=frozenset(avail),
+            errors={},
+        )
     sources = _free_pool_sources()
     available: dict[str, set[str]] = {}
     entries: dict[str, dict[str, str]] = {}
