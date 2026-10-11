@@ -120,6 +120,8 @@ _STATIC_CATALOG: dict[str, dict[str, Any]] = {
     # caller that still has the old id in its config.
     "veya1.2-128K": {"model": "veya1.2-128K"},
     "veya-dp4.1-jev-1.13": {"model": "veya-dp4.1-jev-1.13"},
+    # workbuddy 多模型轮询池: 单模型频繁 429, 轮询 + 按 retry_after 冷却 + 失败自动换下一个。
+    "veya-wb": {"model": "veya-wb", "pool": "workbuddy"},
     # opencodex (10100) retired 2026-10-12; ChatGPT frontier now comes via CLIProxyAPI.
     "gpt-5.6-luna": {
         "provider": "cliproxy",
@@ -632,6 +634,80 @@ def _upstream_rejection(resp: dict[str, Any]) -> tuple[int, str] | None:
     return status, content.strip()[:2000]
 
 
+# ---------------------------------------------------------------------------
+# veya-wb: workbuddy 轮询池
+# ---------------------------------------------------------------------------
+_WB_COOLDOWN: dict[str, float] = {}
+_WB_RR = {"next": 0}
+_WB_LAST: dict[str, Any] = {}
+
+
+def _wb_pool_models() -> list[str]:
+    raw = os.environ.get("VEYA_WB_POOL", "").strip()
+    if raw:
+        return [m.strip() for m in raw.split(",") if m.strip()]
+    return sorted(k.split("/", 1)[1] for k in _CATALOG if k.startswith("workbuddy/"))
+
+
+def _wb_cooldown_seconds(status: int, message: str) -> float:
+    if status == 429:
+        m = re.search(r"retry(?:_after\"?:?|\s+in)\s*(\d+)", message)
+        return float(m.group(1)) if m else 300.0
+    if status in (401, 403):
+        return 1800.0
+    if status >= 500:
+        return 120.0
+    return 60.0
+
+
+async def _wb_pool_call(messages: list[Any], tools: Any) -> tuple[dict[str, Any] | None, str, tuple[int, str] | None]:
+    pool = _wb_pool_models()
+    if not pool:
+        return None, "", (503, "veya-wb: workbuddy 目录为空")
+    base = _LOCAL_UPSTREAMS["workbuddy"]
+    now = time.time()
+    start = _WB_RR["next"] % len(pool)
+    _WB_RR["next"] = start + 1
+    last_err: tuple[int, str] | None = None
+    for i in range(len(pool)):
+        model = pool[(start + i) % len(pool)]
+        if _WB_COOLDOWN.get(model, 0) > now:
+            continue
+        kwargs: dict[str, Any] = {"model": model, "provider": "workbuddy", "endpoint": base, "tools": tools}
+        if _PI_PROVIDER_CONFIG:
+            kwargs["config"] = _PI_PROVIDER_CONFIG
+        try:
+            resp = await llm_call(messages, **kwargs)
+        except Exception as exc:  # 单个模型异常不拖垮整个池
+            last_err = (502, f"{model}: {type(exc).__name__}: {exc}")
+            _WB_COOLDOWN[model] = time.time() + 120
+            continue
+        err = _upstream_rejection(resp)
+        if err is None:
+            _WB_LAST.update({"model": model, "at": time.time()})
+            return resp, model, None
+        status, message = err
+        _WB_COOLDOWN[model] = time.time() + _wb_cooldown_seconds(status, message)
+        last_err = (status, f"{model}: {message}")
+        print(f"[veya-wb] {model} -> {status}, 冷却 {int(_WB_COOLDOWN[model] - time.time())}s", file=sys.stderr)
+    if last_err is None:
+        soonest = min(_WB_COOLDOWN.get(m, now) for m in pool)
+        last_err = (429, f"veya-wb: 池内 {len(pool)} 个模型全部冷却中, 最早 {int(soonest - now)}s 后恢复")
+    return None, "", last_err
+
+
+@app.get("/v1/wb-pool")
+async def wb_pool_status() -> JSONResponse:
+    now = time.time()
+    pool = _wb_pool_models()
+    return JSONResponse({
+        "pool": pool,
+        "cooling": {m: int(t - now) for m, t in _WB_COOLDOWN.items() if t > now},
+        "available": [m for m in pool if _WB_COOLDOWN.get(m, 0) <= now],
+        "last": _WB_LAST,
+    })
+
+
 @app.post("/v1/chat/completions", response_model=None)
 async def chat_completions(request: Request) -> StreamingResponse | JSONResponse:
     body: dict[str, Any] = await request.json()
@@ -657,7 +733,18 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
     # 不会覆盖 env 中的有效凭据。
     if _PI_PROVIDER_CONFIG:
         call_kwargs["config"] = _PI_PROVIDER_CONFIG
-    resp = await llm_call(messages, **call_kwargs)
+    wb_model = ""
+    if entry.get("pool") == "workbuddy":
+        resp, wb_model, wb_err = await _wb_pool_call(messages, tools)
+        if resp is None:
+            status, message = wb_err or (502, "veya-wb failed")
+            return JSONResponse(
+                {"error": {"message": message, "type": "upstream_error", "code": status}},
+                status_code=status,
+            )
+        resp.setdefault("router", {"model": f"workbuddy/{wb_model}"})
+    else:
+        resp = await llm_call(messages, **call_kwargs)
     upstream_error = _upstream_rejection(resp)
     if upstream_error is not None:
         status, message = upstream_error
