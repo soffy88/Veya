@@ -64,6 +64,8 @@ From `3O_RECONCILIATION.md` "OBSOLETE" and `AGENTS.md` "🧊 冻结架构":
 | W3 | `loop_policy`: `parse_loop_brief`, `loop_decision`, `checkpoint_card` | **oskill (pure)** | Budget/stop predicates and card rendering are pure. Reuses the caller's existing no-progress verdict rather than re-implementing it. |
 | W3 | `loop_run` | **omodul** | GoalRun *policy* (not a scheduler) is a business transaction. |
 | W3/W5 | `LoopRunPolicy`, `finish_card` | **layer4** | Reads the existing GoalRun projection; posts through the existing conversation sink. |
+| W5 | `FinishCheckpointGate` | **layer4** | Post + verdict bookkeeping over the **existing** conversation store, the **existing** canonical event store and the **item-1** turn queue. No store, no approval table of its own. |
+| W5 | `POST /api/v1/bots/{bot_id}/checkpoints/{card_id}` | **layer4 (route)** | Thin; `require_user` + `_require_bot(owner_id=...)` + "the card is in that bot's conversation". |
 | W4 | `live_trace`: `step_from_tool_event`, `plan_rows`, `correction_action` | **oskill (pure)** | Projections over already-emitted stream events; `correction_action` reuses item 1's steer vocabulary. |
 | W4 | `live_trace` (omodul) | **omodul** | Projects the existing `fire_step` stream and lands a correction; no second stream or event store. |
 | W4 | `LiveStream`, `wire_to_turn_queue` | **layer4** | Binds the omodul to the existing `on_step` callback and the item-1 queue. |
@@ -217,6 +219,11 @@ instructions (firewall provenance).
 * **W3**: `Loop` is a GoalRun **policy** — budget of turns/time, a checkpoint per
   round, stop on budget / user stop / no progress for 2 rounds. Not a scheduler.
   `Goal` mode is a no-op path, so turning the flag on cannot change a Goal run.
+  The policy is consulted at the runner's **existing task-round seam**
+  (`reason="task_round"`), and a stop verdict starts the run's **own**
+  finalization — the same edge the wall-clock reserve uses — so the ordinary
+  finalize path still runs. The round counter lives in the run's own `budget`
+  projection, so a resumed run keeps counting.
 * **W4**: live tool-result stream from the existing `server/events.py` stream +
   a per-task plan list + a correction box that lands via the item-1 steer. The
   tool **result** is a first-class step (not reconstructed by the client), the
@@ -224,8 +231,21 @@ instructions (firewall provenance).
   the correction box is literally item 1's `TurnQueue.steer` — there is no
   second control channel. New route `POST /api/v1/bots/{bot_id}/corrections`
   requires auth and bot ownership.
-* **W5**: a "what changed / tests run / open risks" finish card before done,
-  rendered by the same `checkpoint_card` element the loop checkpoints use.
+* **W5**: a "what changed / tests run / open risks" card before done, rendered
+  by the same `checkpoint_card` element the loop checkpoints use. It is posted
+  into the **existing** bot conversation (so it is read where the run happened)
+  and mirrored onto the existing canonical event store. `accept` records the
+  verdict; `send_back` is a **correction**, so the note lands through the
+  item-1 turn queue — a card sent back takes the same path as any other
+  message. Route `POST /api/v1/bots/{bot_id}/checkpoints/{card_id}` requires
+  auth, bot ownership, and that the card really is in that bot's conversation
+  (the message log is the record, so a guessed id is a 404).
+* **item 2 delivery**: `reply_now` fires the **existing** P5 push notifier and
+  the **existing** W7 channel bindings; a `digest` wake is parked on the
+  existing canonical event store, which is the seam the W7 morning feed reads.
+  The routine clock routes its result through the intake instead of pushing
+  unconditionally — but only when `VEYA_WAKE_ROUTER` is on, so the default
+  notification is unchanged byte for byte.
 
 ---
 
@@ -247,6 +267,7 @@ instructions (firewall provenance).
 | `VEYA_CHANNEL_LADDER` | off | addendum V channel ladder |
 | `VEYA_PERSISTENT_WORKERS` | off | addendum W1 persistent workers |
 | `VEYA_LOOP_MODE` | off | addendum W3 loop mode |
+| `VEYA_FINISH_CHECKPOINT` | off | addendum W5 finish checkpoint card + its verdict route |
 | `VEYA_LIVE_STREAM` | **on** | addendum W4 live stream (spec: "live stream UI may be on") |
 | item 7a tool-error shape | **on** | spec: "Flags default OFF except 7a" |
 | usage page / search fallback / `llm_tap` / channel status+doctor | **on** | read-only surfaces the addendum allows |
