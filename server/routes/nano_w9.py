@@ -13,9 +13,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from server import auth as auth_mod
 from server.nano_w9.flags import FeatureDisabled, feature_flags, require_flag
 
 router = APIRouter(prefix="/api/v1/nano-w9", tags=["nano-w9"])
@@ -310,7 +311,7 @@ class SearchRequest(BaseModel):
 
 @router.post("/search")
 async def search_receipts(
-    payload: SearchRequest, user: dict[str, Any] | None = None
+    payload: SearchRequest, user: dict[str, Any] = Depends(auth_mod.get_current_user)
 ) -> dict[str, Any]:
     """Unified, cited search over sessions / goals / groups / approvals / annotations.
 

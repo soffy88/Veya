@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from veya.oprim.receipt_query import receipt_uri
+
 __all__ = [
     "SOURCE_PRIOR",
     "build_answer",
@@ -102,6 +104,12 @@ def score_receipt(
     return w["text"] * text_score + w["recency"] * recency_score + w["source"] * source_score
 
 
+def _hit_count(receipt: dict[str, Any], terms: list[str]) -> int:
+    """How many query terms appear in the receipt's title + text."""
+    haystack = set(_terms(receipt.get("title")) + _terms(receipt.get("text")))
+    return sum(1 for t in terms if t in haystack)
+
+
 def rank_receipts(
     receipts: list[dict[str, Any]],
     *,
@@ -109,11 +117,16 @@ def rank_receipts(
     now: float = 0.0,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Order receipts best-first, dropping anything that scores zero.
+    """Order receipts best-first, dropping anything that does not answer the query.
+
+    When ``terms`` is non-empty a receipt must share **at least one** term with
+    the query.  Without that rule a high-prior source (an approval) would answer
+    *any* question purely on its source weight — the ranking would report "we
+    have seen this before" for something it has not.
 
     Args:
         receipts: canonical receipts from any number of sources.
-        terms: pre-tokenised query terms.
+        terms: pre-tokenised query terms; empty ⇒ no term filter.
         now: reference timestamp for recency (``0`` = no decay).
         limit: maximum returned entries.
 
@@ -126,10 +139,15 @@ def rank_receipts(
         ...                     terms=["x"])
         >>> out[0]["source"]
         'approval'
+        >>> rank_receipts([{"receipt_id": "b", "title": "y", "source": "approval"}],
+        ...               terms=["x"])
+        []
     """
     scored: list[dict[str, Any]] = []
     for receipt in receipts or []:
         if not isinstance(receipt, dict):
+            continue
+        if terms and _hit_count(receipt, terms) == 0:
             continue
         value = score_receipt(receipt, terms=terms, now=now)
         if value <= 0.0:
@@ -233,7 +251,7 @@ def build_citation(receipt: dict[str, Any]) -> dict[str, Any]:
         "source": source,
         "ref": ref,
         "title": title,
-        "uri": str(receipt.get("uri") or ""),
+        "uri": str(receipt.get("uri") or receipt_uri(source, ref)),
         "label": label,
     }
 

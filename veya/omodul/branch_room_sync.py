@@ -31,7 +31,7 @@ import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from veya.oskill.pure.receipt_rank_merge import build_citation, rank_receipts
 
@@ -70,12 +70,11 @@ class BranchRoomOpenConfig:
     create_group: Callable[..., Any] | None = None
     #: 注入的房间/群查找器 () -> list[dict]
     list_groups: Callable[[], list[dict[str, Any]]] | None = None
-    enabled_pillars: set[str] = field(default_factory=lambda: {"fingerprint", "decision_trail"})
 
-    _omodul_name: str = "branch_room_open"
-    _omodul_version: str = "1.0.0"
-    _fingerprint_fields: set[str] = field(default_factory=lambda: {"branch", "repo_path"})
-    _enabled_pillars: set[str] = field(default_factory=lambda: {"fingerprint", "decision_trail"})
+    _omodul_name: ClassVar[str] = "branch_room_open"
+    _omodul_version: ClassVar[str] = "1.0.0"
+    _fingerprint_fields: ClassVar[set[str]] = {"branch", "repo_path"}
+    _enabled_pillars: ClassVar[set[str]] = {"fingerprint", "decision_trail"}
 
 
 @dataclass
@@ -102,16 +101,11 @@ class BranchRoomPublishConfig:
     fetch_annotations: Callable[[str, str], list[dict[str, Any]]] | None = None
     #: 注入的 AI 首轮评审 (prompt) -> dict (含 output / cost_usd / usage)
     llm_caller: Callable[..., Any] | None = None
-    enabled_pillars: set[str] = field(
-        default_factory=lambda: {"fingerprint", "decision_trail", "cost"}
-    )
 
-    _omodul_name: str = "branch_room_publish"
-    _omodul_version: str = "1.0.0"
-    _fingerprint_fields: set[str] = field(default_factory=lambda: {"branch", "group_id"})
-    _enabled_pillars: set[str] = field(
-        default_factory=lambda: {"fingerprint", "decision_trail", "cost"}
-    )
+    _omodul_name: ClassVar[str] = "branch_room_publish"
+    _omodul_version: ClassVar[str] = "1.0.0"
+    _fingerprint_fields: ClassVar[set[str]] = {"branch", "group_id"}
+    _enabled_pillars: ClassVar[set[str]] = {"fingerprint", "decision_trail", "cost"}
 
 
 @dataclass
@@ -387,12 +381,19 @@ async def branch_room_open(
         record("open.requested", room_name=room_name, branch=branch)
 
         existing = _call(config.list_groups, default=[]) or []
-        match = next(
-            (g for g in existing if isinstance(g, dict) and str(g.get("name") or "") == room_name),
-            None,
-        )
-        if match is not None:
-            group_id = str(match.get("id") or "")
+        group_id = ""
+        for candidate in existing:
+            if isinstance(candidate, dict):
+                name = str(candidate.get("name") or "")
+                cid = str(candidate.get("id") or "")
+            else:
+                # The real P2 GroupStore yields GroupChat objects, not dicts.
+                name = str(getattr(candidate, "name", "") or "")
+                cid = str(getattr(candidate, "id", "") or "")
+            if name == room_name:
+                group_id = cid
+                break
+        if group_id:
             record("open.reused", group_id=group_id)
             return {
                 "status": "completed",
@@ -550,13 +551,16 @@ async def branch_room_publish(
         else:
             skipped.append("commits")
 
-        checks = _call(config.fetch_checks, input_data.branch, input_data.repo_path, default=[])
-        if isinstance(checks, list) and checks:
-            await post("ci", "Failing checks:\n" + "\n".join(f"- {name}" for name in checks))
-        elif isinstance(checks, list):
-            await post("ci", "CI: all checks green.")
-        else:
+        # An un-injected checker must SKIP, never claim "all green": reporting a
+        # clean CI we did not observe would put a fabricated fact in the room.
+        checks_raw = _call(config.fetch_checks, input_data.branch, input_data.repo_path)
+        checks = checks_raw if isinstance(checks_raw, list) else None
+        if checks is None:
             skipped.append("ci")
+        elif checks:
+            await post("ci", "Failing checks:\n" + "\n".join(f"- {name}" for name in checks))
+        else:
+            await post("ci", "CI: all checks green.")
 
         annotations = (
             _call(config.fetch_annotations, input_data.project_root, input_data.goal_id, default=[])

@@ -29,7 +29,7 @@ import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 __all__ = [
     "AGENT_NATIVE_PHASES",
@@ -140,10 +140,10 @@ class CliGenAnalyzeConfig:
     budget_usd: float = 2.0
     experimental: bool = True
 
-    _omodul_name: str = "agent_native_scaffold"
-    _omodul_version: str = "1.0.0"
-    _fingerprint_fields: set[str] = field(default_factory=lambda: {"repo_ref", "phase"})
-    _enabled_pillars: set[str] = field(default_factory=lambda: {"fingerprint", "cost"})
+    _omodul_name: ClassVar[str] = "agent_native_scaffold"
+    _omodul_version: ClassVar[str] = "1.0.0"
+    _fingerprint_fields: ClassVar[set[str]] = {"repo_ref", "phase"}
+    _enabled_pillars: ClassVar[set[str]] = {"fingerprint", "cost"}
 
 
 @dataclass
