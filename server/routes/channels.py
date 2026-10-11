@@ -329,9 +329,13 @@ async def unbind(
 
 
 @router.get("/status")
-async def channels_status(_: None = Depends(require_channels)) -> dict[str, Any]:
-    """Which channels are enabled and configured."""
+async def channels_status(
+    _: None = Depends(require_channels),
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """Which channels are enabled and configured, plus web-reading channel ladder probe status."""
     from server.channels import adapter_for as _adapter_for
+    from veya.obase.channel_probes import get_cached_channel_statuses, probe_all_channels
 
     configured: dict[str, bool] = {}
     for platform in PLATFORMS:
@@ -345,12 +349,19 @@ async def channels_status(_: None = Depends(require_channels)) -> dict[str, Any]
             or getattr(adapter, "webhook_secret", None)
             or getattr(adapter, "token", None)
         )
+
+    web_channels = get_cached_channel_statuses()
+    if not web_channels:
+        web_channels = await probe_all_channels()
+
     return {
         "channels_enabled": True,
         "morning_feed_enabled": feature_flags.enabled("VEYA_MORNING_FEED"),
+        "channel_ladder_enabled": feature_flags.enabled("VEYA_CHANNEL_LADDER"),
         "platforms": list(PLATFORMS),
         "configured": configured,
-        "binding_count": len(binding_store().list()),
+        "binding_count": len(binding_store().list(owner_ref=owner_ref(user))),
+        "web_channels": web_channels,
     }
 
 

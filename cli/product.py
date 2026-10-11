@@ -314,8 +314,40 @@ def run_start(argv: list[str]) -> int:
 # ---------------------------------------------------------------------------
 
 
+def run_doctor_channels(argv: list[str]) -> int:
+    """veya doctor channels — 自检网页阅读频道阶梯后端状态 (ADDENDUM V)。"""
+    import argparse
+    import asyncio
+    import json
+    from veya.obase.channel_probes import probe_all_channels
+
+    p = argparse.ArgumentParser(prog="veya doctor channels", description="自检网页阅读频道阶梯后端状态")
+    p.add_argument("--json", action="store_true", help="JSON 输出 (脚本友好)")
+    args = p.parse_args(argv)
+
+    results = asyncio.run(probe_all_channels())
+
+    if args.json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return 0
+
+    print("veya doctor channels — 网页阅读频道阶梯自检")
+    print(f"{'Channel':<15} {'Active Backend':<16} {'Status':<12} {'Fix Hint'}")
+    print("-" * 75)
+    for ch, data in results.items():
+        backend = str(data.get("active_backend", ""))
+        st = str(data.get("status", ""))
+        hint = str(data.get("fix_hint", ""))
+        st_colored = f"✓ {st}" if st == "ok" else f"✗ {st}"
+        print(f"{ch:<15} {backend:<16} {st_colored:<12} {hint}")
+    return 0
+
+
 def run_doctor(argv: list[str]) -> int:
     """veya doctor — 环境自检 (可脚本化, 输出检查清单)。"""
+    if argv and argv[0] == "channels":
+        return run_doctor_channels(argv[1:])
+
     import argparse
 
     p = argparse.ArgumentParser(prog="veya doctor", description="环境自检")

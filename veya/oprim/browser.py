@@ -42,6 +42,8 @@ class BrowserPage:
     text_content: str = ""
     elements: list[BrowserElement] = field(default_factory=list)
     screenshot_base64: str = ""
+    a11y_tree: dict[str, Any] | None = None
+    a11y_text: str = ""
 
 
 @dataclass

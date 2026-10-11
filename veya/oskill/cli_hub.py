@@ -23,6 +23,17 @@ from typing import Any
 #: The ladder, best first. Order is the policy: API → MCP → CLI → hands.
 LADDER_ORDER: tuple[str, ...] = ("api", "mcp", "cli_hub", "hands")
 
+#: Full 6-step tool ladder order per NANO-W10 主体 7c:
+#: context -> connector/MCP/API -> web search -> browser -> desktop -> ask human
+FULL_TOOL_LADDER_ORDER: tuple[str, ...] = (
+    "context",
+    "connector_api",
+    "web_search",
+    "browser",
+    "desktop",
+    "ask_human",
+)
+
 #: Magic-byte signature per expected file type.
 _MAGIC_BYTES: dict[str, bytes] = {
     "pdf": b"%PDF",
@@ -118,6 +129,113 @@ def cli_hub_tool_ladder(
         "tags": tags,
         "ranked": ranked,
         "chosen": ranked[0]["source"],
+    }
+
+
+def full_6step_tool_ladder(
+    task_tags: list[str],
+    available_sources: dict[str, list[str]],
+) -> dict[str, Any]:
+    """Rank the 6 ways a task can be carried out per NANO-W10 主体 7c:
+
+    1. context: in-context memory, previous turn artifacts
+    2. connector_api: structured API / MCP / CLI
+    3. web_search: search fallback ladder
+    4. browser: DOM-to-Markdown reader / headless browser
+    5. desktop: hands / GUI automation
+    6. ask_human: human clarification / escalation
+
+    Returns:
+        {"tags": tags, "ranked": [{"step", "tools", "reason"}...], "chosen": str}
+    """
+    tags = [str(t) for t in (task_tags or [])]
+    ranked: list[dict[str, Any]] = []
+
+    # 1. context
+    ctx = list(available_sources.get("context") or [])
+    if ctx:
+        ranked.append({
+            "step": "context",
+            "tools": ctx,
+            "reason": "in-context memory and recent artifacts have zero overhead and no side effects",
+        })
+
+    # 2. connector/MCP/API
+    api_tools = list(
+        (available_sources.get("connector_api") or [])
+        + (available_sources.get("api") or [])
+        + (available_sources.get("mcp") or [])
+        + (available_sources.get("cli_hub") or [])
+    )
+    if api_tools:
+        ranked.append({
+            "step": "connector_api",
+            "tools": api_tools,
+            "reason": "structured programmatic interfaces (API/MCP/CLI) are typed and scriptable",
+        })
+
+    # 3. web search
+    search_tools = list(available_sources.get("web_search") or [])
+    if search_tools:
+        ranked.append({
+            "step": "web_search",
+            "tools": search_tools,
+            "reason": "search fallback ladder resolves public questions without executing code",
+        })
+
+    # 4. browser
+    browser_tools = list(
+        (available_sources.get("browser") or [])
+        + (available_sources.get("read_browser") or [])
+    )
+    if browser_tools:
+        ranked.append({
+            "step": "browser",
+            "tools": browser_tools,
+            "reason": "DOM reader or headless browser reads unstructured web pages",
+        })
+
+    # 5. desktop
+    desktop_tools = list(
+        (available_sources.get("desktop") or [])
+        + (available_sources.get("hands") or [])
+    )
+    if desktop_tools:
+        ranked.append({
+            "step": "desktop",
+            "tools": desktop_tools,
+            "reason": "desktop GUI automation is fragile and used only when no programmatic interface exists",
+        })
+
+    # 6. ask human
+    human_tools = list(
+        (available_sources.get("ask_human") or [])
+        + (available_sources.get("human") or [])
+    )
+    if human_tools:
+        ranked.append({
+            "step": "ask_human",
+            "tools": human_tools,
+            "reason": "human escalation requested when automated tools cannot resolve ambiguous intent",
+        })
+
+    if not ranked:
+        ranked.append({
+            "step": "none",
+            "tools": [],
+            "reason": "no tools available across the 6-step ladder",
+        })
+
+    ranked.sort(
+        key=lambda entry: FULL_TOOL_LADDER_ORDER.index(entry["step"])
+        if entry["step"] in FULL_TOOL_LADDER_ORDER
+        else len(FULL_TOOL_LADDER_ORDER)
+    )
+
+    return {
+        "tags": tags,
+        "ranked": ranked,
+        "chosen": ranked[0]["step"],
     }
 
 

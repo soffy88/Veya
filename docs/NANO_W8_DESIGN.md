@@ -47,9 +47,16 @@
 - **Capability flags** on providers: `vision`, `image-gen` for UI feature gating
 - **CLI subscription**: Uses W1 CLI agent registry if present, else detects binaries
 
-### CLI-Hub (VEYA_CLI_HUB)
+### CLI-Hub (VEYA_CLI_HUB) & Tool Ladder
 - **oprims** in `veya/oprim/cli_hub.py`: search, read_skill, install, invoke
 - **oskill** `cli_hub_tool_ladder` in `veya/oskill/cli_hub.py`: Pure ranking logic
+- **6-Step Tool Ladder Expansion (NANO-W10 主体 7c)**:
+  1. `context` — In-context memory, previous turn artifacts, session summary (cheapest, zero IO).
+  2. `connector/MCP/API` — Structured programmatic interfaces (`api`, `mcp`, `cli_hub`). The contract the service already publishes.
+  3. `web search` — External search fallback ladder (`configured_provider -> model_native -> duckduckgo -> bing`).
+  4. `browser` — DOM-to-Markdown reader (`read_browser`) or headless Playwright for unstructured web reading.
+  5. `desktop` — Hands / GUI automation on runner display (AT-SPI / xdotool). Fragile, requires explicit escalation justification.
+  6. `ask human` — Human escalation / clarification via SideEffectLedger approval when automation cannot proceed safely.
 - **Verification**: GoalRun steps verify outputs (magic bytes, size bounds)
 
 ### Runner Self-Update (VEYA_RUNNER_SELFUPDATE)

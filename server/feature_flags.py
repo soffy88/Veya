@@ -48,6 +48,10 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_AUTO_REVIEW", False, "safety", "2027-01-01"),
     FeatureFlag("VEYA_GROUP_ROLES", False, "safety", "2027-01-01"),
     FeatureFlag("VEYA_BOT_SECRETS", False, "safety", "2027-01-01"),
+    # NANO-W10 group D (default OFF)
+    FeatureFlag("VEYA_A11Y_FIRST", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_DOM_READER", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_CHANNEL_LADDER", False, "runtime", "2027-01-01"),
 )
 
 

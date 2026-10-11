@@ -137,6 +137,83 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "mask_secret_values",
     "redact_secrets_payload",
     "secret_env_name",
+    # NANO-W10 Group D: a11y-first observation ladder
+    "OBSERVATION_TIERS",
+    "ObservationLadderError",
+    "ObservationPlan",
+    "plan_observation",
+    "screenshot_first_plan",
+    # NANO-W10 Group D: ADDENDUM R DOM reader
+    "MarkdownDocument",
+    "extract_main_html",
+    "html_to_markdown",
+    "is_ssrf_safe_url",
+    "read_html",
+    # NANO-W10 Group D: ADDENDUM T Search fallback ladder
+    "DEFAULT_SEARCH_BACKENDS",
+    "SEARCH_FAILURE_NOTICE",
+    "SearchHit",
+    "SearchLadderError",
+    "SearchPlan",
+    "format_search_results",
+    "merge_search_results",
+    "plan_search",
+    # NANO-W10 Group D: ADDENDUM V Web-reading channel ladder
+    "WEB_READING_CHANNELS",
+    "LOGIN_REQUIRED_BACKENDS",
+    "WebChannelPlan",
+    "plan_web_channel_backend",
+    "reorder_channel_backends",
+    # NANO-W10 Group D: 主体 7c 6-step tool ladder
+    "FULL_TOOL_LADDER_ORDER",
+    "full_6step_tool_ladder",
 ]
 
 
+
+from veya.oskill.cli_hub import (
+    FULL_TOOL_LADDER_ORDER,
+    full_6step_tool_ladder,
+)
+
+from veya.oskill.pure.observation_ladder import (
+    OBSERVATION_TIERS,
+    ObservationLadderError,
+    ObservationPlan,
+    plan_observation,
+    screenshot_first_plan,
+)
+from veya.oskill.pure.html_to_markdown import (
+    MarkdownDocument,
+    extract_main_html,
+    html_to_markdown,
+    is_ssrf_safe_url,
+    read_html,
+)
+from veya.oskill.pure.search_ladder import (
+    DEFAULT_SEARCH_BACKENDS,
+    SEARCH_FAILURE_NOTICE,
+    SearchHit,
+    SearchLadderError,
+    SearchPlan,
+    format_search_results,
+    merge_search_results,
+    plan_search,
+    should_fall_back,
+)
+from veya.oskill.pure.channel_ladder import (
+    CHANNEL_LADDER,
+    CHANNEL_MESSAGE_LIMIT,
+    ChannelLadderError,
+    ChannelPlan,
+    LOGIN_REQUIRED_BACKENDS,
+    READ_LADDER,
+    ReadPlan,
+    WEB_READING_CHANNELS,
+    WebChannelPlan,
+    plan_channel_delivery,
+    plan_chunks,
+    plan_read,
+    plan_web_channel_backend,
+    reorder_channel_backends,
+)

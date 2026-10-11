@@ -233,6 +233,20 @@ async def hands_operator_loop_step(
             "content": f"Previous actions:\n{history}",
         })
 
+    # If a11y-first is enabled, include desktop accessibility tree context
+    try:
+        if os.environ.get("VEYA_A11Y_FIRST", "").lower() in ("1", "true", "yes", "on"):
+            from veya.obase.a11y import capture_desktop_a11y
+
+            a11y_res = capture_desktop_a11y()
+            if a11y_res.get("available") and a11y_res.get("formatted"):
+                messages.append({
+                    "role": "user",
+                    "content": f"Desktop Accessibility Tree:\n{a11y_res['formatted']}",
+                })
+    except Exception:
+        pass
+
     # Current screen
     messages.append({"role": "user", "content": _screenshot_message(shot)})
 

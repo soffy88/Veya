@@ -344,17 +344,53 @@ class BrowserSession:
         result = await self.execute_action(BrowserAction(action="extract_html", selector=selector))
         return result.html
 
+    async def get_a11y(self) -> dict[str, Any]:
+        """Capture accessibility tree snapshot from active page."""
+        if not self._page:
+            return {"available": False, "tree": None, "formatted": "", "error": "no active page"}
+        from veya.obase.a11y import capture_browser_a11y
+
+        return await capture_browser_a11y(self._page)
+
     async def get_page_state(self) -> BrowserPage:
         """Get a complete snapshot of the current page."""
+        from veya.oskill.pure.observation_ladder import plan_observation, screenshot_first_plan
+
+        a11y_data: dict[str, Any] = {}
+        if self._page:
+            from veya.obase.a11y import capture_browser_a11y
+
+            a11y_data = await capture_browser_a11y(self._page)
+
         html = await self.get_html()
         text = await self.get_text()
-        screenshot_result = await self.screenshot()
+
+        available = {
+            "a11y": bool(a11y_data.get("available")),
+            "trimmed_html": bool(html),
+            "dom_text": bool(text),
+            "dom_html": bool(html),
+            "screenshot": True,
+        }
+        a11y_first = os.environ.get("VEYA_A11Y_FIRST", "").lower() in ("1", "true", "yes", "on")
+        if a11y_first:
+            plan = plan_observation(available)
+        else:
+            plan = screenshot_first_plan(available)
+
+        screenshot_b64 = ""
+        if plan.tier == "screenshot" or not a11y_first:
+            screenshot_result = await self.screenshot()
+            screenshot_b64 = screenshot_result.screenshot_base64
+
         return BrowserPage(
             url=self.current_url,
             title="",
             html=html,
             text_content=text,
-            screenshot_base64=screenshot_result.screenshot_base64,
+            screenshot_base64=screenshot_b64,
+            a11y_tree=a11y_data.get("tree"),
+            a11y_text=a11y_data.get("formatted", ""),
         )
 
 

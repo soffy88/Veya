@@ -26,12 +26,22 @@ export interface ChannelBindingView {
 	created_at: number;
 }
 
+export interface WebChannelStatus {
+	channel: string;
+	active_backend: string;
+	status: "ok" | "broken" | "needs-login";
+	fix_hint: string;
+	last_probe_time: number;
+}
+
 export interface ChannelsStatus {
 	channels_enabled: boolean;
 	morning_feed_enabled: boolean;
+	channel_ladder_enabled?: boolean;
 	platforms: string[];
 	configured: Record<string, boolean>;
 	binding_count: number;
+	web_channels?: Record<string, WebChannelStatus>;
 }
 
 export interface FeedConfigView {

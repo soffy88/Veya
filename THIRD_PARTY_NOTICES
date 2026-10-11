@@ -16,3 +16,30 @@ This project borrows design ideas and concepts from the following open-source pr
 - Project: totec448-spec/chat-on-steroids
 - License: MIT License
 - Borrowed Concepts: Addendum W persistent workers, compact & resume brief, loop modes. Concept porting only; no third-party code vendored.
+
+---
+
+# Third-Party Notices and Acknowledgements
+
+This file documents third-party open-source projects whose ideas, designs, or code
+patterns have been borrowed or adapted in accordance with their respective licenses.
+
+---
+
+## Agent-Reach
+- Project: Panniantong/Agent-Reach
+- License: MIT License
+- Borrowed Elements: Channel ladder design for reading web content across multiple platforms (web, YouTube, RSS, GitHub, Bilibili, Reddit, Twitter, Xiaohongshu, LinkedIn), real backend probing, and ordered fallback chains.
+- Notice:
+  Copyright (c) 2026 Panniantong
+  Licensed under the MIT License.
+
+---
+
+## DeepSeek-Bot (DS Bot)
+- Project: FeiZhuLulu/DeepSeek-Bot
+- License: Apache License, Version 2.0
+- Borrowed Elements: DOM-to-Markdown reading patterns, link and interactive control indexing ([#n] reference marks), and sensitive field exclusion.
+- Notice:
+  Copyright 2026 FeiZhuLulu
+  Licensed under the Apache License, Version 2.0.
