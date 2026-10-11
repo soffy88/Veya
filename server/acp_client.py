@@ -1,4 +1,4 @@
-"""server/acp_client.py — ACP (Agent Client Protocol) 最小客户端。
+"""server/acp_client.py — ACP (Agent Client Protocol) 客户端（ACP 语义层）。
 
 对标 OpenHands "任何 ACP 兼容 agent 均可挂载" —— 让 Veya 作为控制中心
 统一运行外部 ACP agent (OpenHands / 其他实现 agents.md 协议的工具)。
@@ -6,6 +6,12 @@
 协议: JSON-RPC 2.0 over stdio (agent 进程 stdin/stdout)。
 本客户端实现 ACP 子集:
   session/new → session/init → task/start → 收集 task/event 通知 → task/cancel/session/close
+
+**单源约定 (§1.4)**: 字节层 stdio JSON-RPC 传输的唯一实现是
+``veya/obase/acp_stdio.py::StdioJsonRpcTransport`` (obase = 外部适配层)。
+本模块只保留 **ACP 语义** (方法名、会话、task 事件聚合), 传输经注入委托,
+不再自带一份 process/IO 实现。守卫测试见 tests/test_nano_w9_buzz.py::
+``TestAcpStdioSingleSource``。
 
 用法:
     backend = ACPBackend(command=["my-acp-agent"])
@@ -17,17 +23,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import time
 from typing import Any
 
-_ID_COUNTER = 0
-
-
-def _next_id() -> int:
-    global _ID_COUNTER
-    _ID_COUNTER += 1
-    return _ID_COUNTER
+from veya.obase.acp_stdio import StdioJsonRpcError, StdioJsonRpcTransport
 
 
 class ACPError(RuntimeError):
@@ -35,7 +34,14 @@ class ACPError(RuntimeError):
 
 
 class ACPBackend:
-    """ACP agent 客户端: 管理子进程 + JSON-RPC 会话 + 任务事件收集。"""
+    """ACP agent 客户端: ACP 语义 + 注入的 stdio 传输。
+
+    Args:
+        command: 被 spawn 的 ACP agent argv。
+        agent: 报告给 agent 的身份标签。
+        cwd / env: 子进程工作目录与环境。
+        transport: 注入的传输实例 (默认构造一个 canonical StdioJsonRpcTransport)。
+    """
 
     def __init__(
         self,
@@ -44,78 +50,43 @@ class ACPBackend:
         agent: str = "general",
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+        transport: StdioJsonRpcTransport | None = None,
     ) -> None:
         self.command = command
         self.agent = agent
         self.cwd = cwd
         self.env = env
-        self._proc: asyncio.subprocess.Process | None = None
         self._session_id: str | None = None
-        self._pending: dict[int, asyncio.Future] = {}
-        self._reader_task: asyncio.Task | None = None
         self._event_log: list[dict[str, Any]] = []
-        self._writer: asyncio.StreamWriter | None = None
+        self._transport: StdioJsonRpcTransport | None = transport
+        self._owned_transport = transport is None
 
-    # ── 进程/IO ────────────────────────────────────────────────────────
-    async def _ensure_proc(self) -> None:
-        if self._proc is not None:
-            return
-        try:
-            self._proc = await asyncio.create_subprocess_exec(
-                *self.command,
+    # ── 传输 (obase 适配层, 非本模块实现) ─────────────────────────────────
+    @property
+    def transport(self) -> StdioJsonRpcTransport:
+        """返回 canonical 传输; 首次访问时按 ACPBackend 的参数构造。"""
+        if self._transport is None:
+            self._transport = StdioJsonRpcTransport(
+                self.command,
                 cwd=self.cwd,
                 env=self.env,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                on_notification=self._on_notification,
+                name="acp",
             )
-        except OSError as e:
-            raise ACPError(f"ACP 进程启动失败: {e}") from e
-        self._reader_task = asyncio.create_task(self._read_loop())
+        return self._transport
 
-    async def _read_loop(self) -> None:
-        """逐行读 stdout, 分派响应/通知。"""
-        assert self._proc is not None and self._proc.stdout is not None
-        while True:
-            line = await self._proc.stdout.readline()
-            if not line:
-                break
-            try:
-                msg = json.loads(line.decode(errors="replace"))
-            except json.JSONDecodeError:
-                continue
-            if msg.get("method") == "task/event":
-                self._event_log.append(msg.get("params") or {})
-                continue
-            rid = msg.get("id")
-            if rid is not None and rid in self._pending:
-                fut = self._pending.pop(rid)
-                if "error" in msg:
-                    fut.set_exception(ACPError(f"ACP error: {msg['error']}"))
-                else:
-                    fut.set_result(msg.get("result") or {})
-        # 进程退出: 未决请求全部失败
-        for fut in self._pending.values():
-            if not fut.done():
-                fut.set_exception(ACPError("ACP 进程已退出"))
-        self._pending.clear()
+    def _on_notification(self, params: dict[str, Any]) -> None:
+        if params.get("method") == "task/event" or "event" in params:
+            self._event_log.append(params)
 
     async def _request(
         self, method: str, params: dict[str, Any], timeout_s: float = 30.0
     ) -> dict[str, Any]:
-        await self._ensure_proc()
-        assert self._proc is not None and self._proc.stdin is not None
-        rid = _next_id()
-        fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        self._pending[rid] = fut
-        payload = {"jsonrpc": "2.0", "id": rid, "method": method, "params": params}
-        self._proc.stdin.write((json.dumps(payload) + "\n").encode())
-        await self._proc.stdin.drain()
+        """委托给 canonical 传输, 把传输错误翻成 ACPError。"""
         try:
-            return await asyncio.wait_for(fut, timeout=timeout_s)
-        except TimeoutError:
-            self._pending.pop(rid, None)
-            raise ACPError(f"ACP 请求超时: {method}") from None
+            return await self.transport.request(method, params, timeout_s=timeout_s)
+        except StdioJsonRpcError as e:
+            raise ACPError(str(e)) from e
 
     # ── ACP 会话 ───────────────────────────────────────────────────────
     async def start_session(self, timeout_s: float = 30.0) -> str:
@@ -161,7 +132,8 @@ class ACPBackend:
         deadline = time.time() + timeout_s
         while time.time() < deadline:
             for evt in self._event_log:
-                if evt.get("event", {}).get("type") == "task/end":
+                event = evt.get("event", {})
+                if isinstance(event, dict) and event.get("type") == "task/end":
                     return self._collect_result(tid)
             await asyncio.sleep(0.2)
         await self.cancel(tid)
@@ -171,12 +143,13 @@ class ACPBackend:
         texts: list[str] = []
         for evt in self._event_log:
             event = evt.get("event") or {}
-            if event.get("type") == "text":
-                content = event.get("content")
-                if isinstance(content, dict):
-                    texts.append(str(content.get("text", "")))
-                elif isinstance(content, str):
-                    texts.append(content)
+            if not isinstance(event, dict) or event.get("type") != "text":
+                continue
+            content = event.get("content")
+            if isinstance(content, dict):
+                texts.append(str(content.get("text", "")))
+            elif isinstance(content, str):
+                texts.append(content)
         return {
             "ok": True,
             "task_id": task_id,
@@ -203,16 +176,10 @@ class ACPBackend:
             with contextlib.suppress(ACPError):
                 await self._request("session/close", {"sessionId": self._session_id}, timeout_s=5.0)
             self._session_id = None
-        if self._reader_task is not None:
-            self._reader_task.cancel()
-            self._reader_task = None
-        if self._proc is not None:
-            try:
-                self._proc.kill()
-                await self._proc.wait()
-            except ProcessLookupError:
-                pass
-            self._proc = None
+        if self._transport is not None:
+            if self._owned_transport:
+                await self._transport.close()
+            self._transport = None
 
 
 __all__ = ["ACPBackend", "ACPError"]

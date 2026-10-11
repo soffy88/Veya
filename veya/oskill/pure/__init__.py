@@ -30,7 +30,7 @@ from __future__ import annotations
 # 元素清单（name -> {signature 摘要, 引入版本}）
 # ---------------------------------------------------------------------------
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __manifest__: dict[str, dict[str, object]] = {
     "protocol_translate.agent_messages_to_llm": {
@@ -89,6 +89,57 @@ __manifest__: dict[str, dict[str, object]] = {
         "signature": "default_weights() -> dict (预留占位, 确定性)",
         "since": "0.2.0",
     },
+    # --- NANO-W9 (branch rooms / triggers / receipts / trajectory) ---
+    "trigger_match.signal_matches_triggers": {
+        "signature": "signal_matches_triggers(signal, triggers) -> list[int]",
+        "since": "0.3.0",
+    },
+    "trigger_match.match_message_trigger": {
+        "signature": "match_message_trigger(signal, trigger) -> bool (mention/regex)",
+        "since": "0.3.0",
+    },
+    "trigger_match.match_reaction_trigger": {
+        "signature": "match_reaction_trigger(signal, trigger) -> bool",
+        "since": "0.3.0",
+    },
+    "trigger_match.match_webhook_trigger": {
+        "signature": "match_webhook_trigger(signal, trigger) -> bool (verified-only)",
+        "since": "0.3.0",
+    },
+    "receipt_rank_merge.score_receipt": {
+        "signature": "score_receipt(receipt, *, terms, now=0.0) -> float",
+        "since": "0.3.0",
+    },
+    "receipt_rank_merge.rank_receipts": {
+        "signature": "rank_receipts(receipts, *, terms, now=0.0, limit=20) -> list",
+        "since": "0.3.0",
+    },
+    "receipt_rank_merge.merge_receipts": {
+        "signature": "merge_receipts(receipts, *, terms, now=0.0, limit=20) -> list",
+        "since": "0.3.0",
+    },
+    "receipt_rank_merge.build_citation": {
+        "signature": "build_citation(receipt) -> dict",
+        "since": "0.3.0",
+    },
+    "receipt_rank_merge.build_answer": {
+        "signature": "build_answer(receipts, *, query='') -> dict",
+        "since": "0.3.0",
+    },
+    "trajectory_assemble.assemble_trajectory": {
+        "signature": "assemble_trajectory(entries) -> list[dict]",
+        "since": "0.3.0",
+    },
+    "trajectory_assemble.replay_states": {
+        "signature": "replay_states(entries) -> list[dict]",
+        "since": "0.3.0",
+    },
+    "trajectory_assemble.build_preview_bundle": {
+        "signature": "build_preview_bundle(*, step, command, ...) -> dict",
+        "since": "0.3.0",
+    },
 }
+
+__version__ = "0.3.0"
 
 __all__ = ["__manifest__", "__version__"]

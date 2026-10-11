@@ -48,6 +48,13 @@ from veya.oprim.approval import (
     handoff_create,
     handoff_resolve,
 )
+from veya.oprim.audit_chain import (
+    CHAIN_FIELDS,
+    GENESIS_HASH,
+    chain_head,
+    compute_event_hash,
+    verify_chain_links,
+)
 from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
 from veya.oprim.event import emit_event
 from veya.oprim.fs import (
@@ -83,6 +90,13 @@ from veya.oprim.runner_ops import (
     runner_service_install,
     runner_service_status,
     runner_service_uninstall,
+)
+from veya.oprim.receipt_query import (
+    RECEIPT_FIELDS,
+    RECEIPT_SOURCES,
+    normalize_query,
+    normalize_receipt,
+    receipt_uri,
 )
 from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
 from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list
@@ -199,6 +213,17 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "emit_event",
     "llm_call",
     "llm_stream",
+    # NANO-W9: audit hash-chain + receipt query atoms
+    "CHAIN_FIELDS",
+    "GENESIS_HASH",
+    "RECEIPT_FIELDS",
+    "RECEIPT_SOURCES",
+    "chain_head",
+    "compute_event_hash",
+    "normalize_query",
+    "normalize_receipt",
+    "receipt_uri",
+    "verify_chain_links",
     "daemon_pause",
     "daemon_resume",
     "daemon_status",
