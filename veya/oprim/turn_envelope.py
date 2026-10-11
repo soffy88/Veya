@@ -9,16 +9,60 @@ Two atomic digests over one inbound turn envelope:
   identity fields.
 
 One op per function, no oprim→oprim calls, no decision trail: the trail is
-written by the omodul above. Both reuse the canonical hash atom
-(:func:`veya.oprim.audit_chain.compute_event_hash`) rather than re-deriving a
-digest, per the single-source rule (§1.4).
+written by the omodul above. Both digest through the canonical obase atoms
+(``obase.canonical_json`` + ``obase.sha256_hash``) rather than re-deriving a
+digest, per the single-source rule (§1.4) — this module deliberately does
+**not** import another oprim, because oprim→oprim calls are forbidden.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from veya.oprim.audit_chain import GENESIS_HASH, compute_event_hash
+#: Genesis ``prev_hash`` — the same chain constant the audit chain starts from,
+#: restated here as a literal because importing it would be an oprim→oprim call.
+GENESIS_HASH = "0" * 64
+
+
+def _obase_attr(submodule: str, attr: str) -> Callable[..., Any] | None:
+    """Resolve an obase symbol, tolerating a pin that lacks the re-export."""
+
+    import importlib
+
+    try:
+        from veya.platform import load
+
+        load("obase")
+        module = getattr(load("obase"), submodule, None)
+        if module is not None and hasattr(module, attr):
+            found: Callable[..., Any] = getattr(module, attr)
+            return found
+    except Exception:
+        pass
+    try:
+        resolved: Callable[..., Any] = getattr(importlib.import_module(f"obase.{submodule}"), attr)
+        return resolved
+    except Exception:
+        return None
+
+
+def _digest(payload: dict[str, Any]) -> str:
+    """Canonical JSON + sha256, delegated to obase (never a second encoder)."""
+
+    encode = _obase_attr("canonical_json", "canonical_json")
+    if encode is not None:
+        raw = bytes(encode(payload))
+    else:  # pragma: no cover - only reached when obase is unmounted
+        import json
+
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()
+    digest = _obase_attr("sha256_hash", "sha256_hash")
+    if digest is not None:
+        return bytes(digest(raw)).hex()
+    import hashlib  # pragma: no cover - only reached when obase is unmounted
+
+    return hashlib.sha256(raw).hex()
 
 
 def idem_key(
@@ -51,7 +95,7 @@ def idem_key(
         "external_id": str(external_id or ""),
         "salt": str(salt or ""),
     }
-    return compute_event_hash(payload, prev_hash=GENESIS_HASH)[:24]
+    return _digest({**payload, "prev_hash": GENESIS_HASH})[:24]
 
 
 def envelope_fingerprint(envelope: dict[str, Any], fields: tuple[str, ...]) -> str:
@@ -73,7 +117,7 @@ def envelope_fingerprint(envelope: dict[str, Any], fields: tuple[str, ...]) -> s
     if not fields:
         return ""
     payload = {name: envelope.get(name) for name in sorted(fields)}
-    return compute_event_hash(payload, prev_hash=GENESIS_HASH)[:24]
+    return _digest({**payload, "prev_hash": GENESIS_HASH})[:24]
 
 
 __all__ = ["envelope_fingerprint", "idem_key"]
