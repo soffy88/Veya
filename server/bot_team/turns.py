@@ -94,6 +94,11 @@ def extract_reply(response: Any, *, bot: BotSpec) -> str:
 
     if response is None:
         return _NO_REPLY.format(bot=bot.name or bot.bot_id, status="unknown")
+    # W11: a completed conversational turn carries the model's own answer;
+    # show that, not the GoalRun report ("Goal: … Status: … Tasks: …").
+    direct = response.get("reply") if isinstance(response, dict) else getattr(response, "reply", None)
+    if str(direct or "").strip() and _status_of(response) in ("completed", "partial_completed"):
+        return str(direct).strip()
     if isinstance(response, dict):
         summary = response.get("summary") or response.get("final_summary")
         summary = summary or response.get("block_reason")

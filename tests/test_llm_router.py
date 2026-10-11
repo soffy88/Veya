@@ -689,6 +689,7 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
     monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
     # W11: keep the NIM tier out of these pool-order tests (no live model).
     monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
+    monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
     monkeypatch.setattr(
         "os.environ",
         {
@@ -739,6 +740,7 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
     # W11: keep the NIM tier out of these pool-order tests (no live model).
     monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
+    monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
     monkeypatch.setattr(
         "os.environ",
         {
@@ -891,3 +893,25 @@ def test_llm_call_veya_dp41_jev113_advisor_then_executor(monkeypatch):
     assert result["router"]["route"] == "veya-dp41-jev113"
     assert result["router"]["advisor"] == {"provider": "opencode", "model": "jev-1.13-free"}
     assert result["router"]["advisory_confidence"] == 0.9
+
+
+def test_veya12_pool_appends_frognano_from_pi_models_json(monkeypatch, tmp_path):
+    """W11: the local FrogNano configured for pi becomes the last veya1.2 tier."""
+    import json
+
+    from veya.obase import llm as obase_llm
+    from veya.obase._llm_config import get_api_key
+
+    cfg = tmp_path / "models.json"
+    cfg.write_text(json.dumps({"providers": {"frognano": {
+        "baseUrl": "http://100.64.0.9:18766/v1", "apiKey": "k-test",
+        "models": [{"id": "frognano-4b"}]}}}))
+    monkeypatch.setenv("VEYA_PI_MODELS_JSON", str(cfg))
+    monkeypatch.delenv("VEYA_FROGNANO_DISABLED", raising=False)
+    monkeypatch.delenv("FROGNANO_API_KEY", raising=False)
+    pool = obase_llm._veya12_pool()
+    assert pool[-1]["provider"] == "frognano"
+    assert pool[-1]["endpoint"] == "http://100.64.0.9:18766/v1"
+    assert get_api_key("frognano") == "k-test"
+    monkeypatch.setenv("VEYA_PI_MODELS_JSON", str(tmp_path / "missing.json"))
+    assert all(c["provider"] != "frognano" for c in obase_llm._veya12_pool())

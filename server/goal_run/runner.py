@@ -2453,4 +2453,5 @@ async def _run_loop_and_finalize(
         block_reason=None if final_status != GoalStatus.blocked else state.last_stop_reason,
         artifacts=artifacts,
         next_action="none",
+        reply=(str((state.budget or {}).get("reply") or "").strip() or None) if state else None,
     )

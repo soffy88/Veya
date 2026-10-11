@@ -4776,6 +4776,13 @@ class DurableExecutionRepository:
                 label="recovery_decisions",
                 timeout_s=2.0,
             )
+            # W11: a timed-out query comes back as a "__degraded__<label>" marker;
+            # iterating that string crashed startup under host load. Count it as
+            # no rows here (the warning above already recorded the degradation).
+            if isinstance(rows, str):
+                rows = []
+            if isinstance(decisions, str):
+                decisions = []
             event_rows = [(str(row["event_type"]), int(row["count"])) for row in rows]
             event_rows.extend(
                 (f"recovery.decision.{row['decision']}", int(row["count"])) for row in decisions

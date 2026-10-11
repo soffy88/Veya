@@ -111,7 +111,28 @@ def get_api_key(provider: str, config: dict | None = None) -> str:
     key = os.environ.get(env_name, "")
     if not key and provider == "opencode-go":
         key = _opencode_go_key_from_auth()
+    if not key and provider == "frognano":
+        key = str(pi_provider_entry("frognano").get("apiKey") or "")
     return key
+
+
+def pi_provider_entry(name: str) -> dict:
+    """One provider block from pi's ``~/.pi/agent/models.json`` ({} when absent).
+
+    W11: the user's local FrogNano (llama.cpp on the laptop, reached over
+    Tailscale) is configured once, for pi; Veya reads the same block instead of
+    keeping a second copy of its address and key.
+    """
+    import json
+    from pathlib import Path
+
+    path = Path(os.environ.get("VEYA_PI_MODELS_JSON") or Path.home() / ".pi" / "agent" / "models.json")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    entry = (data.get("providers") or {}).get(name) if isinstance(data, dict) else None
+    return entry if isinstance(entry, dict) else {}
 
 
 def calc_cost(provider: str, usage: dict) -> float:

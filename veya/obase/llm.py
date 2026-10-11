@@ -430,7 +430,8 @@ _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
     # W11: NVIDIA NIM (key pool, probe-qualified via model-state.json) is the
     # second tier — opencode-go hits its monthly cap and the OpenRouter :free
     # tier has a shared daily cap, which left the brain with no live model.
-    {"provider": "veya-nim", "model": "veya-nim"},
+    # Real bot turns carry ~180 tool schemas; NIM needs well over 12s for them.
+    {"provider": "veya-nim", "model": "veya-nim", "timeout": "30"},
     {
         "provider": "openrouter",
         "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -494,9 +495,33 @@ _INFERERA_FREE_MODELS: tuple[str, ...] = ()
 _veya12_free_rr_cursor = 0
 
 
+def _frognano_candidate() -> dict[str, str] | None:
+    """The user's local FrogNano as the last free tier, when it is configured.
+
+    Address and key come from pi's models.json (or VEYA_FROGNANO_ENDPOINT); the
+    laptop may be off, so it sits last and a miss just falls through. It is a
+    small reasoning model (~18 tok/s), hence its own longer per-call timeout.
+    """
+    if os.environ.get("VEYA_FROGNANO_DISABLED", "").strip() in ("1", "true"):
+        return None
+    from veya.obase._llm_config import pi_provider_entry
+
+    entry = pi_provider_entry("frognano")
+    endpoint = os.environ.get("VEYA_FROGNANO_ENDPOINT", "").strip() or str(entry.get("baseUrl") or "")
+    if not endpoint:
+        return None
+    models = entry.get("models") or [{}]
+    model = str((models[0] or {}).get("id") or "frognano-4b")
+    return {"provider": "frognano", "model": model, "endpoint": endpoint, "timeout": "60"}
+
+
 def _veya12_pool() -> list[dict[str, str]]:
     """Veya 1.2 主脑池: opencode-go DeepSeek V4.1 Flash 优先, 其余依次兜底。"""
-    return list(_VEYA12_DEFAULT_POOL)
+    pool = list(_VEYA12_DEFAULT_POOL)
+    frog = _frognano_candidate()
+    if frog is not None:
+        pool.append(frog)
+    return pool
 
 
 def _replace_veya12_free_pool(pool: list[dict[str, str]]) -> None:
@@ -582,7 +607,7 @@ async def _veya12_rr_call(
                 "tools": kwargs.get("tools"),
                 "default_content": default,
                 # 单候选超时: 免费模型上游波动大, 卡太久无意义 — 超时即跳下一个候选
-                "timeout": 12.0,
+                "timeout": float(cand.get("timeout") or 12.0),
             }
             if cand.get("endpoint"):
                 call_kwargs["endpoint"] = cand["endpoint"]

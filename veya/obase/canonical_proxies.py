@@ -994,7 +994,10 @@ async def _nim_attempt(
             continue
         except (httpx.HTTPError, ValueError) as exc:
             keys.mark_failure(key_id, None)
-            f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, httpx.TimeoutException):
+                # W11: a slow model is slow for every key; move on to the next
+                # model instead of spending another full timeout on it.
+                break
             continue
         keys.mark_success(key_id)
         msg = (resp.get("choices") or [{}])[0].get("message") or {}

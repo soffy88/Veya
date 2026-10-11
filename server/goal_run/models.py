@@ -705,3 +705,6 @@ class GoalRunResponse:
     block_reason: str | None = None  # 若 blocked，阻塞原因
     artifacts: list[str] | None = None  # 汇总产物路径
     next_action: str | None = None  # wait | inspect_tasks | none
+    # W11: the model's own user-facing answer for a conversational turn (the
+    # last direct reply), so chat surfaces show it instead of the run report.
+    reply: str | None = None
