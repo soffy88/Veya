@@ -111,8 +111,8 @@ def get_api_key(provider: str, config: dict | None = None) -> str:
     key = os.environ.get(env_name, "")
     if not key and provider == "opencode-go":
         key = _opencode_go_key_from_auth()
-    if not key and provider == "frognano":
-        key = str(pi_provider_entry("frognano").get("apiKey") or "")
+    if not key and provider in ("frognano", "workbuddy"):
+        key = str(pi_provider_entry(provider).get("apiKey") or "")
     return key
 
 

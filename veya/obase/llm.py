@@ -515,9 +515,50 @@ def _frognano_candidate() -> dict[str, str] | None:
     return {"provider": "frognano", "model": model, "endpoint": endpoint, "timeout": "60"}
 
 
+# W11: the user's WorkBuddy proxy (configured for pi, host port 8788). All of
+# these answered and produced tool calls in 1-4s in the 2026-10-11 probe.
+_WORKBUDDY_MODELS = ("deepseek-v4.1-flash", "glm-5.3", "gpt-5.6-luna", "hy3")
+
+
+def _host_reachable(url: str) -> str:
+    """Point a pi endpoint on the host's loopback at the host from a container."""
+    if _in_container():
+        for loop in ("://127.0.0.1:", "://localhost:"):
+            if loop in url:
+                gw = os.environ.get("VEYA_HOST_GATEWAY", "host.docker.internal")
+                return url.replace(loop, f"://{gw}:")
+    return url
+
+
+def _workbuddy_candidates() -> list[dict[str, str]]:
+    if os.environ.get("VEYA_WORKBUDDY_DISABLED", "").strip() in ("1", "true"):
+        return []
+    from veya.obase._llm_config import pi_provider_entry
+
+    entry = pi_provider_entry("workbuddy")
+    endpoint = str(entry.get("baseUrl") or "")
+    if not endpoint:
+        return []
+    offered = {str((m or {}).get("id") or "") for m in entry.get("models") or []}
+    endpoint = _host_reachable(endpoint)
+    return [
+        {"provider": "workbuddy", "model": m, "endpoint": endpoint, "timeout": "45"}
+        for m in _WORKBUDDY_MODELS
+        if m in offered
+    ]
+
+
 def _veya12_pool() -> list[dict[str, str]]:
-    """Veya 1.2 主脑池: opencode-go DeepSeek V4.1 Flash 优先, 其余依次兜底。"""
+    """Veya 1.2 主脑池: opencode-go DeepSeek V4.1 Flash 优先, 其余依次兜底。
+
+    WorkBuddy (when configured in pi) sits right after opencode-go, ahead of
+    the NIM and OpenRouter free tiers; FrogNano is the last resort.
+    """
     pool = list(_VEYA12_DEFAULT_POOL)
+    wb = _workbuddy_candidates()
+    if wb:
+        at = next((i for i, c in enumerate(pool) if c.get("provider") != "opencode-go"), len(pool))
+        pool[at:at] = wb
     frog = _frognano_candidate()
     if frog is not None:
         pool.append(frog)

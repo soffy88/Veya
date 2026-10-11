@@ -690,6 +690,7 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
     # W11: keep the NIM tier out of these pool-order tests (no live model).
     monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
     monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
+    monkeypatch.setenv("VEYA_WORKBUDDY_DISABLED", "1")
     monkeypatch.setattr(
         "os.environ",
         {
@@ -741,6 +742,7 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
     # W11: keep the NIM tier out of these pool-order tests (no live model).
     monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
     monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
+    monkeypatch.setenv("VEYA_WORKBUDDY_DISABLED", "1")
     monkeypatch.setattr(
         "os.environ",
         {
@@ -915,3 +917,26 @@ def test_veya12_pool_appends_frognano_from_pi_models_json(monkeypatch, tmp_path)
     assert get_api_key("frognano") == "k-test"
     monkeypatch.setenv("VEYA_PI_MODELS_JSON", str(tmp_path / "missing.json"))
     assert all(c["provider"] != "frognano" for c in obase_llm._veya12_pool())
+
+
+def test_veya12_pool_puts_workbuddy_after_opencode_go(monkeypatch, tmp_path):
+    import json
+
+    from veya.obase import llm as obase_llm
+    from veya.obase._llm_config import get_api_key
+
+    cfg = tmp_path / "models.json"
+    cfg.write_text(json.dumps({"providers": {"workbuddy": {
+        "baseUrl": "http://127.0.0.1:8788/v1", "apiKey": "wb-k",
+        "models": [{"id": "glm-5.3"}, {"id": "deepseek-v4.1-flash"}, {"id": "other"}]}}}))
+    monkeypatch.setenv("VEYA_PI_MODELS_JSON", str(cfg))
+    monkeypatch.delenv("VEYA_WORKBUDDY_DISABLED", raising=False)
+    monkeypatch.setattr(obase_llm, "_in_container", lambda: True)
+    pool = obase_llm._veya12_pool()
+    providers = [c["provider"] for c in pool]
+    first_wb = providers.index("workbuddy")
+    assert all(p == "opencode-go" for p in providers[:first_wb])
+    wb = [c for c in pool if c["provider"] == "workbuddy"]
+    assert [c["model"] for c in wb] == ["deepseek-v4.1-flash", "glm-5.3"]
+    assert wb[0]["endpoint"] == "http://host.docker.internal:8788/v1"
+    assert get_api_key("workbuddy") == "wb-k"
