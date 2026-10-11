@@ -639,3 +639,88 @@ def test_read_channel_registered_in_master_tools() -> None:
     schemas = [s for s in master_tools.get_all_schemas() if s["function"]["name"] == "read_channel"]
     assert len(schemas) == 1
     assert "read_channel" in schemas[0]["function"]["name"]
+
+
+# ===========================================================================
+# 5. 主体 7c: 6-step tool ladder expansion
+# ===========================================================================
+
+from veya.oskill.cli_hub import (
+    FULL_TOOL_LADDER_ORDER,
+    full_6step_tool_ladder,
+)
+
+
+def test_full_tool_ladder_6step_order() -> None:
+    """Full ladder must order: context -> connector_api -> web_search -> browser -> desktop -> ask_human."""
+    assert FULL_TOOL_LADDER_ORDER == (
+        "context",
+        "connector_api",
+        "web_search",
+        "browser",
+        "desktop",
+        "ask_human",
+    )
+
+
+def test_full_6step_tool_ladder_prefers_context() -> None:
+    """When context tools are present, context is chosen first with zero overhead."""
+    sources = {
+        "context": ["in_memory_recent_turn"],
+        "api": ["http_api"],
+        "web_search": ["duckduckgo"],
+        "browser": ["read_browser"],
+        "desktop": ["hands_screenshot"],
+        "ask_human": ["escalate_to_user"],
+    }
+    result = full_6step_tool_ladder(["solve_task"], sources)
+    assert result["chosen"] == "context"
+    assert result["ranked"][0]["step"] == "context"
+    assert "zero overhead" in result["ranked"][0]["reason"]
+
+
+def test_full_6step_tool_ladder_step_by_step_fallback() -> None:
+    """Ladder steps fall back in exact descending order."""
+    # Without context -> connector_api wins
+    sources = {
+        "api": ["weather_api"],
+        "web_search": ["duckduckgo"],
+        "browser": ["read_browser"],
+    }
+    res = full_6step_tool_ladder(["fetch_weather"], sources)
+    assert res["chosen"] == "connector_api"
+
+    # Without API -> web_search wins
+    sources = {
+        "web_search": ["bing"],
+        "browser": ["read_browser"],
+    }
+    res = full_6step_tool_ladder(["news"], sources)
+    assert res["chosen"] == "web_search"
+
+    # Without search -> browser wins
+    sources = {
+        "browser": ["read_browser"],
+        "desktop": ["hands"],
+    }
+    res = full_6step_tool_ladder(["scrape"], sources)
+    assert res["chosen"] == "browser"
+
+    # Without browser -> desktop wins
+    sources = {
+        "desktop": ["hands"],
+        "ask_human": ["escalate"],
+    }
+    res = full_6step_tool_ladder(["gui_task"], sources)
+    assert res["chosen"] == "desktop"
+
+    # Only ask_human
+    sources = {
+        "ask_human": ["escalate"],
+    }
+    res = full_6step_tool_ladder(["ambiguous"], sources)
+    assert res["chosen"] == "ask_human"
+
+    # Empty sources -> none
+    res = full_6step_tool_ladder(["empty"], {})
+    assert res["chosen"] == "none"

@@ -127,7 +127,15 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "WebChannelPlan",
     "plan_web_channel_backend",
     "reorder_channel_backends",
+    # NANO-W10 Group D: 主体 7c 6-step tool ladder
+    "FULL_TOOL_LADDER_ORDER",
+    "full_6step_tool_ladder",
 ]
+
+from veya.oskill.cli_hub import (
+    FULL_TOOL_LADDER_ORDER,
+    full_6step_tool_ladder,
+)
 
 from veya.oskill.pure.observation_ladder import (
     OBSERVATION_TIERS,
