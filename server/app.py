@@ -83,6 +83,7 @@ from server.routes.review import router as review_router
 from server.routes.workbench import router as workbench_router
 from server.routes.workspace import router as workspace_router
 from server.routes.cli_agents import router as cli_agents_router
+from server.routes.providers import router as providers_router
 from server.routes.usage import router as usage_router
 from server.sse import router as sse_router
 
@@ -539,6 +540,7 @@ app.include_router(tasks_router)
 app.include_router(workbench_router)
 app.include_router(workspace_router)
 app.include_router(cli_agents_router)
+app.include_router(providers_router)
 app.include_router(usage_router)
 app.include_router(telemetry_router)
 app.include_router(audit_router)
@@ -564,7 +566,30 @@ app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-chec
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.5.1"}
+    """Liveness, plus the capabilities this machine advertises.
+
+    A remote hub probes ``/health`` to decide where a bot may run, so the
+    hands capability (NANO-W8) is advertised here rather than guessed by the
+    hub from its own tools.
+    """
+    from server.feature_flags import enabled as flag_enabled
+
+    capabilities: dict[str, object] = {"hands": False}
+    if flag_enabled("VEYA_HANDS"):
+        try:
+            from veya.oprim.hands import hands_capabilities
+
+            caps = hands_capabilities()
+            capabilities = {
+                "hands": bool(caps.get("usable")),
+                "hands_tools": [
+                    op for op, available in (caps.get("operations") or {}).items() if available
+                ],
+                "hands_display": bool(caps.get("display")),
+            }
+        except Exception as exc:  # a capability probe must not fail liveness
+            capabilities = {"hands": False, "hands_detail": f"probe failed: {type(exc).__name__}"}
+    return {"status": "ok", "version": "0.5.1", "capabilities": capabilities}
 
 
 @app.get("/health/execution-runtime")

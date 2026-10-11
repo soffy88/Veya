@@ -35,6 +35,7 @@ from server.bot_team.runners import (
     local_runner_view,
     runner_registry,
 )
+from server.feature_flags import enabled as flag_enabled
 from server.goal_run.bot_identity import BotRegistry, BotSpec
 
 router = APIRouter(prefix="/api/v1/runners", tags=["runners"])
@@ -167,11 +168,16 @@ async def run_runner_turn(
 async def list_runners(
     user: dict[str, Any] = Depends(auth_mod.get_current_user),
 ) -> dict[str, Any]:
-    """Every runner. The implicit ``local`` runner is always first."""
+    """Every runner. The implicit ``local`` runner is always first.
+
+    The Devices page reads one row per machine, so each entry also carries what
+    that machine can do (hands) and what it is running (version, last seen,
+    whether an update is published for it) — see :func:`_runner_capability_view`.
+    """
 
     del user
     return {
-        "runners": runner_registry().views(),
+        "runners": [_runner_capability_view(view) for view in runner_registry().views()],
         "default_runner_id": LOCAL_RUNNER_ID,
     }
 
@@ -285,3 +291,106 @@ async def remove_runner(
 
 
 __all__ = ["router"]
+
+
+def _check_hands_capability() -> dict[str, Any]:
+    """What *this* machine can do with hands, right now.
+
+    Only meaningful for the local runner: a remote runner's capability is what
+    that machine reports, never what this server happens to have installed.
+    """
+    if not flag_enabled("VEYA_HANDS"):
+        return {"capable": False, "known": True, "tools": [], "reason": "VEYA_HANDS flag not enabled"}
+
+    try:
+        from veya.oprim.hands import hands_capabilities
+
+        caps = hands_capabilities()
+        return {
+            "capable": bool(caps.get("usable")),
+            "known": True,
+            "tools": [op for op, avail in (caps.get("operations") or {}).items() if avail],
+            "details": caps,
+        }
+    except Exception as exc:
+        return {"capable": False, "known": False, "tools": [], "reason": f"hands check failed: {exc}"}
+
+
+def _hands_for(view: dict[str, Any], probe: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The hands capability of one runner row on the Devices page."""
+
+    if view.get("runner_id") == LOCAL_RUNNER_ID:
+        local = _check_hands_capability()
+        return {
+            "hands_capable": local["capable"],
+            "hands_tools": local["tools"],
+            "hands_known": local["known"],
+        }
+    reported = (probe or {}).get("hands")
+    if reported is None:
+        # "Unknown" is the honest answer until that runner has answered a
+        # health probe. Borrowing this server's capability would tell a user
+        # that a machine they cannot see can drive a screen.
+        return {
+            "hands_capable": None,
+            "hands_tools": [],
+            "hands_known": False,
+        }
+    return {
+        "hands_capable": bool(reported),
+        "hands_tools": list((probe or {}).get("hands_tools") or []),
+        "hands_known": True,
+    }
+
+
+def _runner_capability_view(view: dict[str, Any]) -> dict[str, Any]:
+    """One Devices-page row: identity, liveness and advertised capability.
+
+    ``update_available`` stays ``None`` until the runner has been checked
+    against a release manifest this deployment configured — "not checked" and
+    "up to date" are different answers and the page must not confuse them.
+    """
+    hands = _hands_for(view)
+    return {
+        **view,
+        **hands,
+        "version": view.get("version") or "",
+        "update_available": None,
+        "update_checked": False,
+    }
+
+
+@router.get("/{runner_id}/health")
+async def get_runner_health(
+    runner_id: str,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """Get runner health including hands capability."""
+    del user
+    if runner_id == LOCAL_RUNNER_ID:
+        hands = _check_hands_capability()
+        return {
+            "runner_id": LOCAL_RUNNER_ID,
+            "status": "local",
+            "last_seen": None,
+            "hands_capable": hands.get("capable", False),
+            "hands_tools": hands.get("tools", []),
+            "hands_known": hands.get("known", True),
+        }
+    registry = runner_registry()
+    try:
+        record = registry.require(runner_id)
+    except RunnerError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # A remote runner's capabilities are whatever it last reported, never this
+    # server's own tools. Until it has answered, they are unknown.
+    hands = _hands_for(record.to_view())
+    return {
+        "runner_id": runner_id,
+        "status": record.status,
+        "last_seen": record.last_seen,
+        "hands_capable": hands["hands_capable"],
+        "hands_tools": hands["hands_tools"],
+        "hands_known": hands["hands_known"],
+    }

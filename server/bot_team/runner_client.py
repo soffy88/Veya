@@ -219,12 +219,20 @@ class RunnerClient:
             }
         if 200 <= response.status_code < 300:
             body = response.body if isinstance(response.body, dict) else {}
-            return {
+            capabilities = body.get("capabilities") if isinstance(body.get("capabilities"), dict) else {}
+            probe = {
                 "runner_id": record.runner_id,
                 "status": "online",
                 "detail": str(body.get("status") or "ok"),
                 "version": body.get("version"),
             }
+            # What the runner says about itself, only when it says it. Never
+            # inferred here: the hub's own tools say nothing about another
+            # machine's screen, and an older runner's probe stays unchanged.
+            if "hands" in capabilities:
+                probe["hands"] = capabilities.get("hands")
+                probe["hands_tools"] = list(capabilities.get("hands_tools") or [])
+            return probe
         return {
             "runner_id": record.runner_id,
             "status": "offline",

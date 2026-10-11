@@ -46,6 +46,8 @@ class BotSpec:
     all optional so records written before them keep loading unchanged:
     ``from_dict`` reads a missing key as the same default a fresh bot would
     use, and ``to_dict`` simply carries the extra keys.
+
+    NANO-W8 adds model_source for per-bot model selection (server/user_key/cli).
     """
 
     bot_id: str
@@ -67,6 +69,9 @@ class BotSpec:
     model: str = ""
     #: Where this bot's turns physically run.
     runner_id: str = "local"
+    #: Model source configuration (NANO-W8): "server" | "user_key" | "cli"
+    model_source: str = "server"
+    model_source_config: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.bot_id:
@@ -106,6 +111,8 @@ class BotSpec:
             provider=str(value.get("provider") or ""),
             model=str(value.get("model") or ""),
             runner_id=str(value.get("runner_id") or "local"),
+            model_source=str(value.get("model_source") or "server"),
+            model_source_config=dict(value.get("model_source_config") or {}),
         )
 
 
@@ -118,6 +125,8 @@ def validate_bot_spec(spec: BotSpec) -> list[str]:
         errors.append("owner_id is required")
     if spec.config_version < 1:
         errors.append("config_version must be >= 1")
+    if spec.model_source not in ("server", "user_key", "cli"):
+        errors.append("model_source must be 'server', 'user_key', or 'cli'")
     return errors
 
 

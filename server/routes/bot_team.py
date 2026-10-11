@@ -113,6 +113,8 @@ def _bot_view(spec: BotSpec) -> dict[str, Any]:
         "routine_registry_ref": spec.routine_registry_ref,
         "available_skill_ids": list(spec.available_skill_ids),
         "available_playbook_ids": list(spec.available_playbook_ids),
+        "model_source": spec.model_source,
+        "model_source_config": spec.model_source_config,
     }
 
 
@@ -127,6 +129,8 @@ class BotCreateRequest(BaseModel):
     provider: str | None = Field(default=None, max_length=128)
     model: str | None = Field(default=None, max_length=256)
     owner_id: str | None = Field(default=None, max_length=256)
+    model_source: str | None = Field(default=None, max_length=32)
+    model_source_config: dict | None = None
 
 
 class BotPatchRequest(BaseModel):
@@ -138,6 +142,8 @@ class BotPatchRequest(BaseModel):
     runner_id: str | None = Field(default=None, max_length=128)
     available_skill_ids: list[str] | None = None
     available_playbook_ids: list[str] | None = None
+    model_source: str | None = Field(default=None, max_length=32)
+    model_source_config: dict | None = None
 
 
 class BotMessageRequest(BaseModel):
@@ -311,6 +317,11 @@ async def create_bot(
     registry = bot_registry()
     if registry.get(bot_id) is not None:
         raise HTTPException(status_code=409, detail=f"bot {bot_id!r} already exists")
+
+    model_source = (req.model_source or "server").strip()
+    if model_source not in ("server", "user_key", "cli"):
+        raise HTTPException(status_code=422, detail="model_source must be 'server', 'user_key', or 'cli'")
+
     spec = BotSpec(
         bot_id=bot_id,
         owner_id=(req.owner_id or user["user_id"]).strip(),
@@ -320,6 +331,8 @@ async def create_bot(
         provider=(req.provider or "").strip(),
         model=(req.model or "").strip(),
         runner_id="local",
+        model_source=model_source,
+        model_source_config=dict(req.model_source_config or {}),
     )
     try:
         registry.register(spec)
@@ -368,6 +381,22 @@ async def patch_bot(
             status_code=422,
             detail=f"runner {requested_runner!r} is not registered",
         )
+
+    # Handle model_source validation
+    model_source = updates.get("model_source")
+    if model_source is not None:
+        model_source = str(model_source).strip()
+        if model_source not in ("server", "user_key", "cli"):
+            raise HTTPException(status_code=422, detail="model_source must be 'server', 'user_key', or 'cli'")
+    else:
+        model_source = spec.model_source
+
+    model_source_config = updates.get("model_source_config")
+    if model_source_config is not None:
+        model_source_config = dict(model_source_config)
+    else:
+        model_source_config = spec.model_source_config
+
     updated = BotSpec(
         bot_id=spec.bot_id,
         owner_id=spec.owner_id,
@@ -387,6 +416,8 @@ async def patch_bot(
         provider=str(updates.get("provider", spec.provider)),
         model=str(updates.get("model", spec.model)),
         runner_id=str(updates.get("runner_id", spec.runner_id)),
+        model_source=model_source,
+        model_source_config=model_source_config,
     )
     try:
         registry.register(updated)
