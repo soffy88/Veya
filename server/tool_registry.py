@@ -4468,3 +4468,16 @@ _register_supervision_tools(master_tools)
 from server.bot_team.tool import register_tools as _register_bot_team_tools  # noqa: E402
 
 _register_bot_team_tools(master_tools)
+
+# NANO-W10-B: layered memory tools.  Additive capability over the existing
+# registry; each is bound to the running bot via runtime.bot_scope and refuses
+# cross-bot access, and each registers only when its flag is on.
+from server.bot_team.memory_layers import register_tools as _register_memory_layer_tools  # noqa: E402
+
+_register_memory_layer_tools(master_tools)
+
+# NANO-W10-B ADDENDUM N: read_own_chat reads the EXISTING W2 session FTS index.
+# Registered only when VEYA_READ_OWN_CHAT is on; never creates a new index.
+from server.bot_team.own_chat import register_tools as _register_own_chat_tools  # noqa: E402
+
+_register_own_chat_tools(master_tools)

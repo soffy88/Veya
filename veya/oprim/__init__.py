@@ -98,6 +98,13 @@ from veya.oprim.receipt_query import (
     normalize_receipt,
     receipt_uri,
 )
+# NANO-W10 (item 4): prompt-cache discipline atoms
+from veya.oprim.prompt_cache import (
+    CACHED_USAGE_KEYS,
+    PROMPT_SECTION_NAMES,
+    cached_token_split,
+    section_digest,
+)
 from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
 from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list
 from veya.oprim.types import (
@@ -224,6 +231,11 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "normalize_receipt",
     "receipt_uri",
     "verify_chain_links",
+    # NANO-W10 (item 4): prompt-cache discipline atoms
+    "CACHED_USAGE_KEYS",
+    "PROMPT_SECTION_NAMES",
+    "cached_token_split",
+    "section_digest",
     "daemon_pause",
     "daemon_resume",
     "daemon_status",

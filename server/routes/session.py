@@ -231,6 +231,17 @@ async def compact_session(
     )
 
     summary_msg = {"role": "assistant", "content": summary_text}
+    # NANO-W10 W2: the ONE resume brief must also carry every persistent
+    # worker's summary + open items, so a fresh session continues all of them.
+    # Flag off (default) the fold is the identity, so this response is
+    # byte-identical to the pre-W2 behaviour.
+    with contextlib.suppress(Exception):
+        from server.bot_team.workers import persistent_workers_enabled, resume_brief_for
+
+        if persistent_workers_enabled():
+            summary_msg["content"] = resume_brief_for(
+                str(s.get("bot_id") or ""), summary_text
+            )
     s["messages"] = [summary_msg, *msgs[-_KEEP_RECENT:]]
     s["compacted"] = True
     _persist(session_id)

@@ -9,6 +9,7 @@ remains the single entry into ``master_coordinator.execute_structured``.
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -172,6 +173,18 @@ async def finish_bot_turn(
     )
     reply = extract_reply(response, bot=bot)
     store.append(bot.bot_id, role="bot", text=reply, task_id=start.task_id)
+    # NANO-W10 group B turn-end hooks: daily memory log, memory review, context
+    # steward, proactive-compaction gate.  Every hook is flag-gated and wrapped,
+    # so with the default flags this is a no-op that cannot fail the turn.
+    with contextlib.suppress(Exception):
+        from server.bot_team.turn_end import turn_end_hooks
+
+        await turn_end_hooks(
+            bot_id=bot.bot_id,
+            reply=reply,
+            status=_status_of(response),
+            session_id=start.session_id,
+        )
     return BotTurnResult(
         bot_id=bot.bot_id,
         task_id=start.task_id,

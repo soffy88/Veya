@@ -5,11 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from runtime.coding.quota import QuotaMeter, get_quota_meter
 from runtime.coding.cli_agents import get_cli_agent_registry
+from server import auth as auth_mod
 
 router = APIRouter(tags=["usage"])
 
@@ -63,3 +64,58 @@ async def get_quota() -> dict[str, list[dict[str, Any]]]:
 
 
 __all__ = ["router"]
+
+
+# ── NANO-W10 ADDENDUM S: token usage detail ─────────────────────────────────
+# Appended.  Read-only aggregation over the EXISTING usage events; no new store,
+# tokens only (never cost, never request text).  Authentication is required so a
+# second account cannot read the fleet's token totals.
+
+
+class TokenUsageResponse(BaseModel):
+    range: str
+    days: float
+    totals: dict[str, int]
+    by_bot: dict[str, dict[str, int]] = {}
+    by_model: dict[str, dict[str, int]] = {}
+    by_kind: dict[str, dict[str, int]] = {}
+
+
+@router.get("/api/v1/usage/tokens", response_model=TokenUsageResponse)
+async def get_token_usage(
+    range: str = "7d",
+    days: float | None = None,
+    bot_id: str = "",
+    model: str = "",
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Token usage by time range, bot and model (including steward/review calls)."""
+    import time
+
+    from server.bot_team.prompt_cache import USAGE_TOPIC, prompt_cache_enabled
+    from server.events import event_store
+    from veya.omodul.token_usage import TokenUsageConfig, TokenUsageInput, token_usage
+
+    records: list[dict[str, Any]] = []
+    if prompt_cache_enabled():
+        for row in event_store.read_all(topics={USAGE_TOPIC}):
+            records.append({**(row.get("payload") or {}), "ts": row.get("ts")})
+    out = await token_usage(
+        TokenUsageConfig(),
+        TokenUsageInput(
+            range_key=range,
+            days=days,
+            bot_id=bot_id,
+            model=model,
+            now=time.time(),
+            records=records,
+        ),
+    )
+    return {
+        "range": out["range"],
+        "days": out["days"],
+        "totals": out["totals"],
+        "by_bot": out["by_bot"],
+        "by_model": out["by_model"],
+        "by_kind": out["by_kind"],
+    }
