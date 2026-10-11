@@ -24,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from server.nano_w9.flags import require_flag
 from veya.oskill.pure.trigger_match import signal_matches_triggers
 
 __all__ = [
@@ -295,7 +296,11 @@ class RoutineSignalRouter:
         Returns:
             ``{"status", "fired", "dispatched", "approvals", "errors"}``.  A signal
             that fires nothing is ``{"status": "no_match"}`` — not an error.
+
+        Raises:
+            FeatureDisabled: when ``VEYA_ROUTINE_TRIGGERS`` is off.
         """
+        require_flag("VEYA_ROUTINE_TRIGGERS")
         hits = self.match(signal)
         if not hits:
             return {

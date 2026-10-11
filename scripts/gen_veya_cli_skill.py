@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""scripts/gen_veya_cli_skill.py — generate ``skills/veya-cli/SKILL.md``.
+
+The agent-facing documentation for the Veya CLI is **generated from the CLI's own
+argparse tree**, never hand-maintained.  ``tests/test_nano_w9_cli_harness.py``
+re-generates into a temp directory and asserts byte-equality with the checked-in
+file, so a new command without docs (or stale docs after a rename) fails CI.
+
+Usage:
+    python scripts/gen_veya_cli_skill.py            # write skills/veya-cli/SKILL.md
+    python scripts/gen_veya_cli_skill.py --check    # exit 1 when out of sync
+    python scripts/gen_veya_cli_skill.py --stdout   # print instead of writing
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+_SCRIPTS = Path(__file__).resolve().parent
+_ROOT = _SCRIPTS.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+
+from veya_cli import __version__, build_parser, command_index  # noqa: E402
+
+SKILL_PATH = _ROOT / "skills" / "veya-cli" / "SKILL.md"
+
+FRONTMATTER = """---
+name: veya-cli
+description: >-
+  Drive Veya from an agent: branch rooms, routines and event triggers, ACP
+  members, hash-chained audit verification, cited search, goal runs, and
+  execution-trajectory replay. Every command takes --json and returns
+  {"status": "ok"|"error", ...}; errors exit non-zero.
+---
+"""
+
+GUIDANCE = """\
+## How to use this skill
+
+1. **Always pass `--json`.** Every command prints exactly one JSON object on
+   stdout: `{"status": "ok", ...}` or `{"status": "error", "error": {...}}`.
+   Nothing else is ever written to stdout, so the output can be parsed without
+   filtering.
+2. **Check `status`.** A non-zero exit always accompanies `status: "error"`.
+   `error.code` is stable and machine-readable (`FEATURE_DISABLED`,
+   `INVALID_INPUT`, `CHAIN_BROKEN`, `NOT_ACP_MEMBER`, …).
+3. **Feature flags gate most surfaces.** `veya flags --json` reports them.
+   When a command answers `FEATURE_DISABLED`, the surface is switched off by
+   design — do not retry, tell the user which flag to enable.
+4. **Transport.** With no `--base-url`/`VEYA_BASE_URL` the CLI runs in-process
+   (no server needed). With `--base-url` it calls the REST API and sends
+   `Authorization: Bearer $VEYA_TOKEN` (the existing token mechanism).
+5. **Interactive mode.** Running `veya` with no subcommand opens a REPL where
+   each line is a full command; `help <group>` explains a group, `quit` exits.
+6. **Quoting.** Pass prompts and queries as single argv entries; prefer
+   `--json` parsing over scraping human output.
+"""
+
+EXAMPLES = """\
+## Examples
+
+```bash
+# What is switched on?
+veya flags --json
+
+# Open (or reuse) the room for a branch, then publish its facts.
+veya room open feat/nano-w9 --bot branch-bot --json
+veya room publish --branch feat/nano-w9 --group grp_123 --decision squash --json
+
+# "Have we seen this before?" — every answer line cites its source.
+veya search "flaky login test" --limit 10 --json
+
+# Tamper-evident audit: verify the append-only hash chain.
+veya audit verify --json
+
+# Fire an event trigger (webhook / message / reaction).
+veya routine signal message --text "ship it" --json
+veya routine signal reaction --reaction "👍" --json
+
+# Register an ACP agent as a group member, then forward one turn to it
+# (the turn runs inside the existing GoalRun; ACP is never an authority).
+veya acp members --json
+veya acp add goose --owner "$USER" --json
+veya acp turn acp:goose "review the diff" --json
+
+# Record artifact-producing steps, then replay command -> artifact states.
+veya trajectory record --step 1 --command "pnpm build" --artifact build/app.js --goal g1 --json
+veya trajectory replay g1 --json
+
+# Enqueue a goal run and poll its status.
+veya goal start "fix the flaky test" --project-root . --json
+veya goal status <goal_id> --project-root . --json
+
+# Experimental: make a repository agent-native (7 phases), gated by VEYA_CLI_GEN.
+veya cli-gen --repo . --json
+```
+"""
+
+
+def render() -> str:
+    """Render the whole SKILL.md.
+
+    Returns:
+        The markdown document, ending with a single trailing newline.
+    """
+    parser = build_parser()
+    rows = command_index(parser)
+    lines: list[str] = [FRONTMATTER, GUIDANCE, "## Command groups\n"]
+    current_group = ""
+    for row in rows:
+        group = row["path"].split()[0]
+        if group != current_group:
+            current_group = group
+            lines.append(f"\n### `{group}`\n")
+        args = " ".join(row["args"])
+        invocation = f"veya {row['path']} {args}".rstrip()
+        lines.append(f"- `{invocation}`")
+        if row["help"]:
+            lines.append(f"  - {row['help']}")
+        if row["schema"]:
+            lines.append(f"  - JSON schema: `{row['schema']}`")
+    lines.append("\n" + EXAMPLES)
+    lines.append(
+        f"\n<!-- generated by scripts/gen_veya_cli_skill.py from veya_cli {__version__} -->\n"
+    )
+    lines.append(f"<!-- commands: {len(rows)}; parser: {parser.prog} -->\n")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Generate (or check) SKILL.md.
+
+    Args:
+        argv: CLI arguments (defaults to ``sys.argv[1:]``).
+
+    Returns:
+        ``0`` on success; ``1`` when ``--check`` finds drift.
+    """
+    ap = argparse.ArgumentParser(description="Generate skills/veya-cli/SKILL.md")
+    ap.add_argument("--check", action="store_true", help="fail if the file is out of sync")
+    ap.add_argument("--stdout", action="store_true", help="print instead of writing")
+    ap.add_argument("--out", default=str(SKILL_PATH), help="output path")
+    args = ap.parse_args(argv)
+
+    content = render()
+    if args.stdout:
+        sys.stdout.write(content)
+        return 0
+
+    out = Path(args.out)
+    if args.check:
+        current = out.read_text(encoding="utf-8") if out.exists() else ""
+        if current != content:
+            sys.stderr.write(f"[FAIL] {out} is out of sync; run scripts/gen_veya_cli_skill.py\n")
+            return 1
+        sys.stdout.write(f"[OK] {out} is in sync\n")
+        return 0
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(content, encoding="utf-8")
+    sys.stdout.write(f"[OK] wrote {out}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

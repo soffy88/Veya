@@ -22,6 +22,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from server.nano_w9.flags import require_flag
+
 __all__ = [
     "ACP_MEMBER_KIND",
     "AcpMembers",
@@ -156,6 +158,8 @@ def _iter_acp_backends(backends: Any) -> list[dict[str, Any]]:
             source = backends.list() or []
         except Exception:
             source = []
+    if not isinstance(source, (list, tuple)):
+        return rows
     for spec in source or []:
         if not isinstance(spec, dict):
             spec = getattr(spec, "__dict__", {}) or {}
@@ -209,7 +213,12 @@ class AcpMembers:
     # -- membership ------------------------------------------------------
 
     def members(self) -> list[dict[str, Any]]:
-        """Every registered ACP member (``BotSpec`` projections)."""
+        """Every registered ACP member (``BotSpec`` projections).
+
+        Raises:
+            FeatureDisabled: when ``VEYA_ACP_MEMBERS`` is off.
+        """
+        require_flag("VEYA_ACP_MEMBERS")
         if self.bot_registry is None:
             return []
         try:
@@ -224,7 +233,12 @@ class AcpMembers:
         return out
 
     def candidates(self) -> list[dict[str, Any]]:
-        """Detectable ACP agents (W1 registry + existing backend store)."""
+        """Detectable ACP agents (W1 registry + existing backend store).
+
+        Raises:
+            FeatureDisabled: when ``VEYA_ACP_MEMBERS`` is off.
+        """
+        require_flag("VEYA_ACP_MEMBERS")
         return detect_acp_candidates(
             cli_registry=self.cli_registry,
             backends=self.backends,
@@ -250,7 +264,11 @@ class AcpMembers:
         Returns:
             ``{"status", "error", "member"}``.  Refuses to overwrite an existing
             bot id, and refuses when no registry is injected.
+
+        Raises:
+            FeatureDisabled: when ``VEYA_ACP_MEMBERS`` is off.
         """
+        require_flag("VEYA_ACP_MEMBERS")
         if not backend_id:
             return {"status": "error", "error": {"code": "INVALID_INPUT"}, "member": {}}
         if not owner_id:
@@ -319,8 +337,12 @@ class AcpMembers:
             wait: block until the GoalRun finishes (default: enqueue only).
 
         Returns:
-            ``{"status", "error", "goal_id", "member_id", "experimental"}``.
+            ``{"status", "error", "goal_id", "member_id"}``.
+
+        Raises:
+            FeatureDisabled: when ``VEYA_ACP_MEMBERS`` is off.
         """
+        require_flag("VEYA_ACP_MEMBERS")
         if not member_id or not is_acp_member({"runner_id": member_id}):
             return {
                 "status": "error",

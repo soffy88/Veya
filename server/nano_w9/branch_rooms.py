@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from server.nano_w9.audit_chain import stamp_event
-from server.nano_w9.flags import flag_enabled
+from server.nano_w9.flags import flag_enabled, require_flag
 from veya.omodul.branch_room_sync import (
     ROOM_NAME_PREFIX,
     BranchRoomOpenConfig,
@@ -178,6 +178,7 @@ class BranchRooms:
         Returns:
             The omodul envelope (``status``/``error``/``group_id``/``room_name``).
         """
+        require_flag("VEYA_BRANCH_ROOMS")
         config = BranchRoomOpenConfig(
             repo_path=repo_path,
             branch=branch,
@@ -214,7 +215,11 @@ class BranchRooms:
 
         Returns:
             The omodul envelope with ``posted``/``skipped``/``citations``.
+
+        Raises:
+            FeatureDisabled: when ``VEYA_BRANCH_ROOMS`` is off.
         """
+        require_flag("VEYA_BRANCH_ROOMS")
         config = BranchRoomPublishConfig(
             post_message=self._post,
             fetch_checks=self.fetch_checks,
@@ -239,7 +244,12 @@ class BranchRooms:
         return result
 
     def list_rooms(self) -> list[dict[str, Any]]:
-        """List the branch rooms currently open (read-only)."""
+        """List the branch rooms currently open (read-only).
+
+        Raises:
+            FeatureDisabled: when ``VEYA_BRANCH_ROOMS`` is off.
+        """
+        require_flag("VEYA_BRANCH_ROOMS")
         return list_branch_rooms(self.list_groups() or [])
 
 

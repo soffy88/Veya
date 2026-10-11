@@ -78,6 +78,7 @@ from server.routes.vault import router as vault_router
 from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
 from server.routes.review import router as review_router
+from server.routes.nano_w9 import router as nano_w9_router
 from server.routes.workbench import router as workbench_router
 from server.routes.workspace import router as workspace_router
 from server.routes.cli_agents import router as cli_agents_router
@@ -544,6 +545,10 @@ app.include_router(artifacts_router)
 app.include_router(public_artifacts_router)
 app.include_router(settings_router)
 app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-checks
+# NANO-W9: branch rooms, routine triggers, ACP members, audit chain,
+# search-with-receipts, trajectory replay, agent-native CLI template.
+# Every gated surface is flag-gated inside the router (default OFF).
+app.include_router(nano_w9_router)
 
 
 @app.get("/health")
