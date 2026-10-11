@@ -354,7 +354,6 @@ class BrowserSession:
 
     async def get_page_state(self) -> BrowserPage:
         """Get a complete snapshot of the current page."""
-        from server import feature_flags
         from veya.oskill.pure.observation_ladder import plan_observation, screenshot_first_plan
 
         a11y_data: dict[str, Any] = {}
@@ -373,13 +372,14 @@ class BrowserSession:
             "dom_html": bool(html),
             "screenshot": True,
         }
-        if feature_flags.enabled("VEYA_A11Y_FIRST"):
+        a11y_first = os.environ.get("VEYA_A11Y_FIRST", "").lower() in ("1", "true", "yes", "on")
+        if a11y_first:
             plan = plan_observation(available)
         else:
             plan = screenshot_first_plan(available)
 
         screenshot_b64 = ""
-        if plan.tier == "screenshot" or not feature_flags.enabled("VEYA_A11Y_FIRST"):
+        if plan.tier == "screenshot" or not a11y_first:
             screenshot_result = await self.screenshot()
             screenshot_b64 = screenshot_result.screenshot_base64
 
