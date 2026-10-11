@@ -43,6 +43,7 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from veya.obase.errors import VeyaError
 from veya.obase.runner_release import (
+    PUBLIC_KEY_ENV,
     STAGING_DIR_ENV,
     RunnerReleaseError,
     decode_ed25519_public_key,
@@ -145,6 +146,10 @@ def runner_self_update_check(
         "url": release["url"],
         "signature": release["signature"],
         "manifest_url": url,
+        # A newer version is only usable if this runner also holds the pinned
+        # key: without it the download is refused, so saying "update
+        # available" alone would send an operator looking for the wrong problem.
+        "public_key_pinned": bool(os.environ.get(PUBLIC_KEY_ENV, "").strip()),
     }
 
 
