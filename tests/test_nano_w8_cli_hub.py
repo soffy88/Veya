@@ -292,12 +292,23 @@ class TestCLIHubRoutes:
 
     def test_flag_required(self):
         """Test flag is required."""
+        from server import auth as auth_mod
+        from server.routes.cli_hub import router as cli_hub_router
         from veya.oprim.cli_hub import CLIHubUnsupportedError, search_cli
 
         # Remove flag and expect error
         with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(CLIHubUnsupportedError):
                 search_cli(query="test")
+
+        app = FastAPI()
+        app.include_router(cli_hub_router)
+
+        async def mock_get_current_user():
+            return {"user_id": "test-user"}
+
+        app.dependency_overrides[auth_mod.get_current_user] = mock_get_current_user
+        client = TestClient(app)
 
         response = client.get("/api/v1/cli-hub/search", params={"q": "test"})
         assert response.status_code == 404

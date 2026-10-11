@@ -212,6 +212,16 @@ class ActionGatewayAdapter:
             request_id=request.request_id,
         )
 
+    def evaluate_policy(self, request: Any) -> Any:
+        """Evaluate the canonical policy for one request.
+
+        The same authority :meth:`execute` uses, exposed for a caller that only
+        needs the *decision* — a REST endpoint asking "may this happen?" — so it
+        does not have to stage the action to find out. It adds no policy of its
+        own and records nothing; only :meth:`execute` performs an effect.
+        """
+        return self._evaluate_policy(request)
+
     def _settle_approval_sync(self, request: Any, reason: str) -> tuple[str, str] | None:
         """Resolve an approval requirement here, because nothing downstream will.
 
