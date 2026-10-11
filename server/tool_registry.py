@@ -4473,3 +4473,8 @@ _register_bot_team_tools(master_tools)
 from server.dom_reader_tools import register_tools as _register_dom_reader_tools  # noqa: E402
 
 _register_dom_reader_tools(master_tools)
+
+# NANO-W10 Group D: ADDENDUM V Web-reading Channel Ladder (read_channel)
+from server.channel_tools import register_tools as _register_channel_tools  # noqa: E402
+
+_register_channel_tools(master_tools)

@@ -121,7 +121,12 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "format_search_results",
     "merge_search_results",
     "plan_search",
-    "should_fall_back",
+    # NANO-W10 Group D: ADDENDUM V Web-reading channel ladder
+    "WEB_READING_CHANNELS",
+    "LOGIN_REQUIRED_BACKENDS",
+    "WebChannelPlan",
+    "plan_web_channel_backend",
+    "reorder_channel_backends",
 ]
 
 from veya.oskill.pure.observation_ladder import (
@@ -148,4 +153,20 @@ from veya.oskill.pure.search_ladder import (
     merge_search_results,
     plan_search,
     should_fall_back,
+)
+from veya.oskill.pure.channel_ladder import (
+    CHANNEL_LADDER,
+    CHANNEL_MESSAGE_LIMIT,
+    ChannelLadderError,
+    ChannelPlan,
+    LOGIN_REQUIRED_BACKENDS,
+    READ_LADDER,
+    ReadPlan,
+    WEB_READING_CHANNELS,
+    WebChannelPlan,
+    plan_channel_delivery,
+    plan_chunks,
+    plan_read,
+    plan_web_channel_backend,
+    reorder_channel_backends,
 )

@@ -306,4 +306,53 @@
 			</div>
 		{/if}
 	</section>
+
+	<!-- Web Reading Channels Section (ADDENDUM V) -->
+	<section class="mt-6 space-y-3">
+		<div class="flex items-center justify-between">
+			<h2 class="text-sm font-medium">网页阅读频道阶梯 (ADDENDUM V)</h2>
+			<span class="text-xs opacity-60">ordered backends &amp; probes</span>
+		</div>
+
+		{#if !status?.web_channels || Object.keys(status.web_channels).length === 0}
+			<p class="{cardClass} text-sm opacity-60">
+				暂无网页阅读频道探针数据（使用 <code>veya doctor channels</code> 运行自检）。
+			</p>
+		{:else}
+			<div class="{cardClass} space-y-2">
+				<div class="overflow-x-auto">
+					<table class="w-full text-left text-xs">
+						<thead>
+							<tr class="border-b border-white/10 opacity-60">
+								<th class="py-2 pr-4 font-normal">Channel</th>
+								<th class="py-2 pr-4 font-normal">Active Backend</th>
+								<th class="py-2 pr-4 font-normal">Status</th>
+								<th class="py-2 font-normal">Fix Hint</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-white/5">
+							{#each Object.entries(status.web_channels) as [name, ch] (name)}
+								<tr>
+									<td class="py-2 pr-4 font-mono font-medium">{name}</td>
+									<td class="py-2 pr-4 opacity-80">{ch.active_backend}</td>
+									<td class="py-2 pr-4">
+										{#if ch.status === 'ok'}
+											<span class="rounded bg-emerald-500/10 px-1.5 py-0.5 text-emerald-400">ok</span>
+										{:else if ch.status === 'needs-login'}
+											<span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-400">needs-login</span>
+										{:else}
+											<span class="rounded bg-rose-500/10 px-1.5 py-0.5 text-rose-400">broken</span>
+										{/if}
+									</td>
+									<td class="py-2 text-xs opacity-60 truncate max-w-[200px]" title={ch.fix_hint}>
+										{ch.fix_hint || '-'}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		{/if}
+	</section>
 </div>

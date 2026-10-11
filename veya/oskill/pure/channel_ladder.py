@@ -1,24 +1,27 @@
 """veya/oskill/pure/channel_ladder.py — ADDENDUM V: web-reading channel ladder.
 
-Pure decision logic for two related ladders:
+Pure decision logic for three related ladders:
 
 1. **Read ladder** — how to obtain the content of a web page, cheapest
-   structured source first::
-
+   structured source first:
        http_fetch → readable_extract → browser_dom → browser_screenshot
 
-   ``http_fetch`` is a plain GET; ``readable_extract`` is the DOM→Markdown
-   reader (see :mod:`veya.oskill.pure.html_to_markdown`); ``browser_dom``
-   renders with a real browser; ``browser_screenshot`` is the pixels-only
-   last resort.
+2. **Web-reading channel ladder** (ADDENDUM V) — per-channel ordered backends:
+       web:          jina → dom_reader → http_fetch
+       youtube:      yt_dlp → browser
+       rss:          feedparser → http_fetch
+       github:       gh_cli → api
+       bilibili:     cli_bilibili → browser
+       reddit:       cli_reddit → browser
+       twitter:      cli_twitter → browser
+       xiaohongshu:  cli_xiaohongshu → browser
+       linkedin:     cli_linkedin → browser
+   Changing backend = reordering the list, not code.
 
-2. **Channel ladder** — which configured chat channel to deliver a long
-   read-out through, given per-channel liveness from the real probe
-   (``veya.obase.channels.probe``).  Platforms are ordered by delivery
-   preference; the chosen channel must be *live* and able to carry the payload
-   (chunking is planned, never silent truncation).
+3. **Channel delivery ladder** — which configured chat channel to deliver a long
+   read-out through (telegram, feishu, dingtalk, wecom).
 
-Pure: no IO, no network.  Liveness is supplied by the caller.
+Pure: no IO, no network. Liveness is supplied by the caller.
 """
 
 from __future__ import annotations
@@ -27,14 +30,20 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 __all__ = [
-    "READ_LADDER",
     "CHANNEL_LADDER",
-    "ReadPlan",
-    "ChannelPlan",
+    "CHANNEL_MESSAGE_LIMIT",
     "ChannelLadderError",
-    "plan_read",
+    "ChannelPlan",
+    "LOGIN_REQUIRED_BACKENDS",
+    "READ_LADDER",
+    "ReadPlan",
+    "WEB_READING_CHANNELS",
+    "WebChannelPlan",
     "plan_channel_delivery",
     "plan_chunks",
+    "plan_read",
+    "plan_web_channel_backend",
+    "reorder_channel_backends",
 ]
 
 # Cheapest sufficient → most expensive for *reading a page*.
@@ -45,6 +54,26 @@ READ_LADDER: tuple[str, ...] = (
     "browser_screenshot",
 )
 
+# Ordered backend ladders for reading external sources per ADDENDUM V:
+WEB_READING_CHANNELS: dict[str, tuple[str, ...]] = {
+    "web": ("jina", "dom_reader", "http_fetch"),
+    "youtube": ("yt_dlp", "browser"),
+    "rss": ("feedparser", "http_fetch"),
+    "github": ("gh_cli", "api"),
+    "bilibili": ("cli_bilibili", "browser"),
+    "reddit": ("cli_reddit", "browser"),
+    "twitter": ("cli_twitter", "browser"),
+    "xiaohongshu": ("cli_xiaohongshu", "browser"),
+    "linkedin": ("cli_linkedin", "browser"),
+}
+
+# Backends that require credentials/cookies (disabled by default until approved)
+LOGIN_REQUIRED_BACKENDS: frozenset[str] = frozenset({
+    "cli_xiaohongshu",
+    "cli_linkedin",
+    "cli_twitter",
+})
+
 # Delivery preference for chat channels (matches obase PLATFORMS spelling).
 CHANNEL_LADDER: tuple[str, ...] = (
     "telegram",
@@ -53,8 +82,7 @@ CHANNEL_LADDER: tuple[str, ...] = (
     "wecom",
 )
 
-# Conservative per-platform single-message character limits (documented caps,
-# not exact vendor maxima) used to plan chunking.
+# Conservative per-platform single-message character limits
 CHANNEL_MESSAGE_LIMIT: dict[str, int] = {
     "telegram": 4096,
     "feishu": 4096,
@@ -85,6 +113,27 @@ class ReadPlan:
 
 
 @dataclass(frozen=True)
+class WebChannelPlan:
+    channel: str
+    active_backend: str
+    fallback_backends: tuple[str, ...]
+    needs_login: bool = False
+    reason: str = ""
+
+    def next_after_failure(self) -> "WebChannelPlan | None":
+        if not self.fallback_backends:
+            return None
+        head, *rest = self.fallback_backends
+        return WebChannelPlan(
+            channel=self.channel,
+            active_backend=head,
+            fallback_backends=tuple(rest),
+            needs_login=head in LOGIN_REQUIRED_BACKENDS,
+            reason=f"fallback after {self.active_backend}",
+        )
+
+
+@dataclass(frozen=True)
 class ChannelPlan:
     platform: str
     message_limit: int
@@ -110,13 +159,59 @@ def plan_read(available: Mapping[str, bool] | Sequence[str]) -> ReadPlan:
     )
 
 
-def plan_chunks(text: str, limit: int) -> list[str]:
-    """Split ``text`` into ordered chunks of at most ``limit`` characters.
+def plan_web_channel_backend(
+    channel: str,
+    available_backends: Mapping[str, bool] | Sequence[str],
+    *,
+    custom_order: Sequence[str] | None = None,
+) -> WebChannelPlan:
+    """Select the active backend for a web reading channel according to its ladder.
 
-    Splits prefer paragraph/line/space boundaries so read-outs stay readable.
-    Never drops content; a hard split is used only when a single token
-    exceeds the limit.
+    Raises ChannelLadderError if channel is unknown or no backend is available.
     """
+    if channel not in WEB_READING_CHANNELS:
+        raise ChannelLadderError(f"unknown web reading channel '{channel}'")
+
+    ladder = custom_order if custom_order is not None else WEB_READING_CHANNELS[channel]
+
+    if isinstance(available_backends, Mapping):
+        avail = {k for k, ok in available_backends.items() if ok}
+    else:
+        avail = set(available_backends)
+
+    known = [b for b in ladder if b in avail]
+    if not known:
+        raise ChannelLadderError(
+            f"no backend available for channel '{channel}' (ladder: {', '.join(ladder)})"
+        )
+
+    chosen = known[0]
+    return WebChannelPlan(
+        channel=channel,
+        active_backend=chosen,
+        fallback_backends=tuple(known[1:]),
+        needs_login=chosen in LOGIN_REQUIRED_BACKENDS,
+        reason=f"channel ladder for {channel}",
+    )
+
+
+def reorder_channel_backends(
+    channel: str,
+    new_order: Sequence[str],
+) -> tuple[str, ...]:
+    """Pure reordering of backends for a channel. Changing backend = reordering list, not code."""
+    if channel not in WEB_READING_CHANNELS:
+        raise ChannelLadderError(f"unknown web reading channel '{channel}'")
+    current = set(WEB_READING_CHANNELS[channel])
+    for item in new_order:
+        if item not in current:
+            raise ChannelLadderError(f"backend '{item}' is not valid for channel '{channel}'")
+    ordered = tuple(new_order) + tuple(b for b in WEB_READING_CHANNELS[channel] if b not in new_order)
+    return ordered
+
+
+def plan_chunks(text: str, limit: int) -> list[str]:
+    """Split ``text`` into ordered chunks of at most ``limit`` characters."""
     if limit <= 0:
         raise ChannelLadderError("message limit must be positive")
     text = text or ""
@@ -146,10 +241,7 @@ def plan_channel_delivery(
     *,
     preference: Sequence[str] = CHANNEL_LADDER,
 ) -> ChannelPlan:
-    """Choose the first live preferred channel able to carry ``text``.
-
-    Raises :class:`ChannelLadderError` when no preferred channel is live.
-    """
+    """Choose the first live preferred channel able to carry ``text``."""
     if isinstance(live_channels, Mapping):
         live = {k for k, ok in live_channels.items() if ok}
     else:

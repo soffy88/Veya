@@ -457,3 +457,185 @@ async def test_run_search_ladder_adapter_all_failed() -> None:
         assert winning_backend == "none"
         assert hits == []
         assert text == SEARCH_FAILURE_NOTICE
+
+
+# ===========================================================================
+# 4. ADDENDUM V: Channel ladder for web reading
+# ===========================================================================
+
+import json
+from cli.product import run_doctor
+from server.channel_tools import tool_read_channel
+from veya.obase.channel_probes import (
+    WEB_CHANNEL_LADDERS,
+    get_cached_channel_statuses,
+    probe_all_channels,
+    probe_backend,
+    probe_channel,
+)
+from veya.oskill.pure.channel_ladder import (
+    LOGIN_REQUIRED_BACKENDS,
+    WEB_READING_CHANNELS,
+    ChannelLadderError,
+    WebChannelPlan,
+    plan_web_channel_backend,
+    reorder_channel_backends,
+)
+
+
+def test_channel_ladder_flag_defaults_off() -> None:
+    """Flag VEYA_CHANNEL_LADDER must default to False."""
+    assert feature_flags.enabled("VEYA_CHANNEL_LADDER") is False
+
+
+def test_web_reading_channel_ladders_definition() -> None:
+    """All 9 web reading channels must have their ordered backend ladders."""
+    expected_channels = {
+        "web",
+        "youtube",
+        "rss",
+        "github",
+        "bilibili",
+        "reddit",
+        "twitter",
+        "xiaohongshu",
+        "linkedin",
+    }
+    assert expected_channels.issubset(set(WEB_READING_CHANNELS.keys()))
+    assert WEB_READING_CHANNELS["web"] == ("jina", "dom_reader", "http_fetch")
+    assert WEB_READING_CHANNELS["youtube"] == ("yt_dlp", "browser")
+    assert WEB_READING_CHANNELS["rss"] == ("feedparser", "http_fetch")
+    assert WEB_READING_CHANNELS["github"] == ("gh_cli", "api")
+
+
+def test_plan_web_channel_backend_order_and_fallback() -> None:
+    """plan_web_channel_backend follows the channel ladder."""
+    # When jina is available, picks jina
+    plan = plan_web_channel_backend(
+        "web",
+        {"jina": True, "dom_reader": True, "http_fetch": True},
+    )
+    assert plan.active_backend == "jina"
+    assert plan.fallback_backends == ("dom_reader", "http_fetch")
+
+    # When jina fails, falls back to dom_reader
+    fallback = plan.next_after_failure()
+    assert fallback is not None
+    assert fallback.active_backend == "dom_reader"
+    assert fallback.fallback_backends == ("http_fetch",)
+
+
+def test_plan_web_channel_backend_login_required() -> None:
+    """Identifies backends requiring login/credentials."""
+    plan = plan_web_channel_backend(
+        "xiaohongshu",
+        {"cli_xiaohongshu": True, "browser": True},
+    )
+    assert plan.active_backend == "cli_xiaohongshu"
+    assert plan.needs_login is True
+    assert "cli_xiaohongshu" in LOGIN_REQUIRED_BACKENDS
+
+
+def test_reorder_channel_backends_pure() -> None:
+    """Reordering backends changes preference order without modifying code."""
+    new_order = reorder_channel_backends("web", ["dom_reader", "http_fetch", "jina"])
+    assert new_order == ("dom_reader", "http_fetch", "jina")
+
+    # Partial reorder puts listed backends first
+    partial = reorder_channel_backends("web", ["http_fetch"])
+    assert partial[0] == "http_fetch"
+    assert "dom_reader" in partial
+    assert "jina" in partial
+
+
+def test_reorder_channel_backends_invalid_backend() -> None:
+    """Reordering with an invalid backend raises ChannelLadderError."""
+    with pytest.raises(ChannelLadderError):
+        reorder_channel_backends("web", ["invalid_backend"])
+
+
+@pytest.mark.asyncio
+async def test_probe_backend_and_channel() -> None:
+    """probe_backend and probe_channel return structured probe results."""
+    # Probe http_fetch which is always ok
+    status, hint = await probe_backend("http_fetch")
+    assert status == "ok"
+    assert hint == ""
+
+    # Probe channel web (will hit http_fetch as working backend)
+    res = await probe_channel("web")
+    assert res["channel"] == "web"
+    assert res["status"] == "ok"
+    assert res["active_backend"] in ("jina", "dom_reader", "http_fetch")
+    assert "last_probe_time" in res
+
+
+@pytest.mark.asyncio
+async def test_probe_login_channels_report_needs_login() -> None:
+    """Login channels report needs-login by default."""
+    res = await probe_channel("xiaohongshu")
+    assert res["channel"] == "xiaohongshu"
+    # Unless env cookie is set, reports needs-login or fallback
+    assert res["status"] in ("needs-login", "ok", "broken")
+    if res["status"] == "needs-login":
+        assert "Login required" in res["fix_hint"]
+
+
+@pytest.mark.asyncio
+async def test_probe_all_channels() -> None:
+    """probe_all_channels collects statuses for all web reading channels."""
+    all_res = await probe_all_channels()
+    assert len(all_res) == len(WEB_CHANNEL_LADDERS)
+    for ch in ("web", "youtube", "rss", "github"):
+        assert ch in all_res
+        assert "status" in all_res[ch]
+        assert "active_backend" in all_res[ch]
+
+
+def test_veya_doctor_channels_cli(capsys: pytest.CaptureFixture[str]) -> None:
+    """veya doctor channels prints readable table."""
+    code = run_doctor(["channels"])
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "网页阅读频道阶梯自检" in captured.out
+    assert "web" in captured.out
+    assert "youtube" in captured.out
+    assert "github" in captured.out
+
+
+def test_veya_doctor_channels_json_cli(capsys: pytest.CaptureFixture[str]) -> None:
+    """veya doctor channels --json prints valid json dictionary."""
+    code = run_doctor(["channels", "--json"])
+    assert code == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert isinstance(data, dict)
+    assert "web" in data
+    assert "status" in data["web"]
+
+
+@pytest.mark.asyncio
+async def test_tool_read_channel_disabled_when_flag_off() -> None:
+    """read_channel returns disabled notice when flag is OFF."""
+    with patch("server.feature_flags.enabled", return_value=False):
+        res = await tool_read_channel("web", "https://example.com")
+        assert "disabled" in res
+        assert "VEYA_CHANNEL_LADDER is OFF" in res
+
+
+@pytest.mark.asyncio
+async def test_tool_read_channel_with_provenance() -> None:
+    """read_channel marks output with firewall provenance."""
+    with patch("server.feature_flags.enabled", return_value=True):
+        with patch("server.channel_tools.probe_channel", return_value={"status": "ok", "active_backend": "test_mock"}):
+            res = await tool_read_channel("web", "https://example.com/data")
+            assert "EXTERNAL DATA" in res
+            assert "[Channel: web | Backend: test_mock]" in res
+
+
+def test_read_channel_registered_in_master_tools() -> None:
+    """read_channel must be registered in master_tools."""
+    assert master_tools.has("read_channel") is True
+    schemas = [s for s in master_tools.get_all_schemas() if s["function"]["name"] == "read_channel"]
+    assert len(schemas) == 1
+    assert "read_channel" in schemas[0]["function"]["name"]
