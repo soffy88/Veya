@@ -14,8 +14,10 @@ import json
 import pytest
 
 from server.nano_w10.flags import ALL_FLAGS, FeatureDisabled, feature_flags, flag_enabled, require_flag
+from server.nano_w10.loop_mode import LoopRunPolicy, finish_card
 from server.nano_w10.turn_queue import TurnQueue
 from server.nano_w10.wake_router import WakeRouter, build_triage_engine
+from veya.omodul.loop_run import LoopRunConfig, LoopRunInput, loop_run
 from veya.omodul.turn_intake import (
     TurnIntakeConfig,
     TurnIntakeInput,
@@ -24,6 +26,18 @@ from veya.omodul.turn_intake import (
 )
 from veya.omodul.wake_router import WAKE_SOURCES, WakeRouterConfig, WakeRouterInput, wake_router
 from veya.oprim.turn_envelope import envelope_fingerprint, idem_key
+from veya.oskill.pure.loop_policy import (
+    LOOP_MODES,
+    MODE_GOAL,
+    MODE_LOOP,
+    STOP_BUDGET_TIME,
+    STOP_BUDGET_TURNS,
+    STOP_NO_PROGRESS,
+    STOP_USER_STOP,
+    checkpoint_card,
+    loop_decision,
+    parse_loop_brief,
+)
 from veya.oskill.pure.turn_priority import (
     INBOUND_KINDS,
     STATE_DELIVERED,
@@ -357,3 +371,124 @@ def test_every_documented_wake_source_is_accepted() -> None:
     finally:
         os.environ.pop("VEYA_WAKE_ROUTER", None)
     assert seen == set(WAKE_SOURCES)
+
+# ══════════════════════════════════════════════════════════════════════════
+# W3 — Goal vs Loop as a GoalRun policy (+ W5 finish checkpoint card)
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def test_goal_mode_never_stops_early_and_never_checkpoints() -> None:
+    """Turning the flag on must not change what a Goal run does."""
+
+    decision = loop_decision(mode="goal", rounds_done=99, elapsed_s=99999.0)
+    assert decision["stop"] is False
+    assert decision["next"] == "checkpoint"  # "keep going and report"
+    assert decision["mode"] == "goal"
+    assert loop_decision(mode="goal", rounds_done=1, elapsed_s=1.0, finish_condition_met=True)["stop"]
+    assert loop_decision(mode="goal", rounds_done=1, elapsed_s=1.0, user_stop=True)["reason_code"] == (
+        STOP_USER_STOP
+    )
+    # An unknown mode degrades to goal rather than inventing a third mode.
+    assert loop_decision(mode="whatever", rounds_done=99, elapsed_s=1.0)["mode"] == "goal"
+
+
+def test_loop_stops_on_each_budget_and_on_the_user() -> None:
+    turns = loop_decision(mode="loop", rounds_done=6, elapsed_s=1.0)
+    assert turns["stop"] and turns["reason_code"] == STOP_BUDGET_TURNS
+    clock = loop_decision(mode="loop", rounds_done=1, elapsed_s=2000.0, time_budget_s=1800.0)
+    assert clock["stop"] and clock["reason_code"] == STOP_BUDGET_TIME
+    user = loop_decision(mode="loop", rounds_done=1, elapsed_s=1.0, user_stop=True)
+    assert user["stop"] and user["reason_code"] == STOP_USER_STOP
+
+
+def test_loop_stops_after_two_rounds_with_no_progress() -> None:
+    one = loop_decision(mode="loop", rounds_done=1, elapsed_s=1.0, no_progress_rounds=1)
+    assert one["stop"] is False and one["next"] == "checkpoint"
+    two = loop_decision(mode="loop", rounds_done=2, elapsed_s=1.0, no_progress_rounds=2)
+    assert two["stop"] is True and two["reason_code"] == STOP_NO_PROGRESS
+    # Progress in between resets the counter's meaning, not the budget.
+    fresh = loop_decision(mode="loop", rounds_done=3, elapsed_s=1.0, no_progress_rounds=0)
+    assert fresh["stop"] is False
+
+
+def test_loop_brief_reads_an_explicit_budget_and_otherwise_stays_goal() -> None:
+    assert parse_loop_brief("loop 10 rounds on the migration")["turn_budget"] == 10
+    minutes = parse_loop_brief("loop for 30 minutes, then report")
+    assert minutes["mode"] == "loop" and minutes["time_budget_s"] == 1800.0
+    assert parse_loop_brief("loop until the tests pass")["until_done"] is True
+    # Prose that does not start with "loop" must not silently change the mode.
+    assert parse_loop_brief("deploy 10 rounds worth of work")["mode"] == "goal"
+    assert parse_loop_brief("")["mode"] == "goal"
+
+
+def test_checkpoint_card_renders_what_changed_tests_and_risks() -> None:
+    card = checkpoint_card(
+        mode="loop",
+        round_index=2,
+        summary="fixed the retry loop",
+        did=["goal_run/runner.py"],
+        tests_run=["pytest tests/goal_run"],
+        risks=["still flaky on restart"],
+        open_items=["wire the route"],
+    )
+    assert card["title"] == "Loop checkpoint 2"
+    assert "goal_run/runner.py" in card["text"]
+    assert "pytest tests/goal_run" in card["text"]
+    assert "still flaky on restart" in card["text"]
+    assert card["text"].index("What changed") < card["text"].index("Tests run")
+    # An empty section is omitted entirely rather than rendered as a bare header.
+    bare = checkpoint_card(mode="goal", round_index=1, summary="done")
+    assert bare["title"] == "Finish checkpoint"
+    assert "Tests run" not in bare["text"]
+
+
+def test_loop_run_modul_is_flag_gated_and_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VEYA_LOOP_MODE", raising=False)
+    posted: list[tuple[str, dict]] = []
+    policy = LoopRunPolicy(post_card=lambda gid, card: posted.append((gid, card)))
+    off = policy.decide("gr-1", mode="loop", rounds_done=1, elapsed_s=1.0, summary="x")
+    assert off["status"] == "failed"
+    assert off["error"] == {"code": "FEATURE_DISABLED", "flag": "VEYA_LOOP_MODE"}
+    assert posted == []
+
+    monkeypatch.setenv("VEYA_LOOP_MODE", "1")
+    on = policy.decide(
+        "gr-1",
+        mode="loop",
+        round_index=1,
+        rounds_done=1,
+        elapsed_s=1.0,
+        summary="still working",
+        did=["a.py"],
+    )
+    assert on["next"] == "checkpoint"
+    assert on["card"]["title"] == "Loop checkpoint 1"
+    assert len(posted) == 1
+
+    # Same run, same round: the card is posted once, never twice.
+    repeat = policy.decide("gr-1", mode="loop", round_index=1, rounds_done=1, elapsed_s=1.0)
+    assert repeat["duplicate"] is True
+    assert repeat["next"] == "continue"
+    assert len(posted) == 1
+
+    stopped = policy.decide("gr-1", mode="loop", round_index=2, rounds_done=9, elapsed_s=1.0)
+    assert stopped["stop"] is True and stopped["card"]["title"] == "Loop checkpoint 2"
+    assert policy.decide("")["status"] == "failed"
+
+
+def test_loop_policy_reads_counters_from_the_existing_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VEYA_LOOP_MODE", "1")
+    policy = LoopRunPolicy(read_run=lambda gid: {"rounds_done": 3, "elapsed_s": 120.0})
+    decision = policy.decide("gr-2", mode="loop", round_index=4)
+    # The run's own counters win over the caller's defaults.
+    assert "round 4" in decision["reason"]
+    assert policy.decide("gr-2", mode="loop", round_index=4)["duplicate"] is True
+
+
+def test_finish_checkpoint_card_is_available_without_the_loop_flag() -> None:
+    card = finish_card("gr-3", summary="shipped", did=["server/events.py"], tests_run=["pytest -q"])
+    assert card["title"] == "Finish checkpoint"
+    assert "server/events.py" in card["text"] and "pytest -q" in card["text"]
+    assert card["mode"] == "goal"
