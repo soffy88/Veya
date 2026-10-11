@@ -32,12 +32,12 @@ from dataclasses import dataclass
 __all__ = [
     "CHANNEL_LADDER",
     "CHANNEL_MESSAGE_LIMIT",
-    "ChannelLadderError",
-    "ChannelPlan",
     "LOGIN_REQUIRED_BACKENDS",
     "READ_LADDER",
-    "ReadPlan",
     "WEB_READING_CHANNELS",
+    "ChannelLadderError",
+    "ChannelPlan",
+    "ReadPlan",
     "WebChannelPlan",
     "plan_channel_delivery",
     "plan_chunks",
@@ -101,7 +101,7 @@ class ReadPlan:
     fallback_strategies: tuple[str, ...]
     reason: str
 
-    def next_after_failure(self) -> "ReadPlan | None":
+    def next_after_failure(self) -> ReadPlan | None:
         if not self.fallback_strategies:
             return None
         head, *rest = self.fallback_strategies
@@ -120,7 +120,7 @@ class WebChannelPlan:
     needs_login: bool = False
     reason: str = ""
 
-    def next_after_failure(self) -> "WebChannelPlan | None":
+    def next_after_failure(self) -> WebChannelPlan | None:
         if not self.fallback_backends:
             return None
         head, *rest = self.fallback_backends

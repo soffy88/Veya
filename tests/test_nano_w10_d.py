@@ -10,23 +10,64 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from cli.product import run_doctor
 from server import feature_flags
+from server.channel_tools import tool_read_channel
+from server.dom_reader_tools import tool_read_browser
+from server.tool_registry import master_tools
 from veya.obase.a11y import (
     capture_browser_a11y,
     capture_desktop_a11y,
     format_a11y_tree,
 )
+from veya.obase.channel_probes import (
+    WEB_CHANNEL_LADDERS,
+    probe_all_channels,
+    probe_backend,
+    probe_channel,
+)
+from veya.obase.search_adapters import (
+    SEARCH_LADDER_ORDER,
+    run_search_ladder_adapter,
+)
+from veya.oskill.cli_hub import (
+    FULL_TOOL_LADDER_ORDER,
+    full_6step_tool_ladder,
+)
+from veya.oskill.pure.channel_ladder import (
+    LOGIN_REQUIRED_BACKENDS,
+    WEB_READING_CHANNELS,
+    ChannelLadderError,
+    plan_web_channel_backend,
+    reorder_channel_backends,
+)
+from veya.oskill.pure.html_to_markdown import (
+    BLOCKED_LOCAL_PORTS,
+    PROVENANCE_HEADER,
+    html_to_markdown,
+    is_ssrf_safe_url,
+    read_html,
+)
 from veya.oskill.pure.observation_ladder import (
     OBSERVATION_TIERS,
     ObservationLadderError,
-    ObservationPlan,
     plan_observation,
     screenshot_first_plan,
 )
-
+from veya.oskill.pure.search_ladder import (
+    DEFAULT_SEARCH_BACKENDS,
+    SEARCH_FAILURE_NOTICE,
+    SearchHit,
+    SearchLadderError,
+    format_search_results,
+    merge_search_results,
+    plan_search,
+)
 
 # ===========================================================================
 # 1. 主体 6: a11y-first observation ladder
@@ -167,16 +208,6 @@ def test_capture_desktop_a11y_returns_valid_structure() -> None:
 # 2. ADDENDUM R: DOM reader read_browser
 # ===========================================================================
 
-from server.dom_reader_tools import tool_read_browser
-from server.tool_registry import master_tools
-from veya.oskill.pure.html_to_markdown import (
-    BLOCKED_LOCAL_PORTS,
-    PROVENANCE_HEADER,
-    extract_main_html,
-    html_to_markdown,
-    is_ssrf_safe_url,
-    read_html,
-)
 
 
 def test_dom_reader_flag_defaults_off() -> None:
@@ -321,21 +352,6 @@ def test_read_browser_registered_in_master_tools() -> None:
 # 3. ADDENDUM T: Search fallback ladder
 # ===========================================================================
 
-from veya.obase.search_adapters import (
-    SEARCH_LADDER_ORDER,
-    run_search_ladder_adapter,
-)
-from veya.oskill.pure.search_ladder import (
-    DEFAULT_SEARCH_BACKENDS,
-    SEARCH_FAILURE_NOTICE,
-    SearchHit,
-    SearchLadderError,
-    SearchPlan,
-    format_search_results,
-    merge_search_results,
-    plan_search,
-    should_fall_back,
-)
 
 
 def test_search_ladder_default_order() -> None:
@@ -463,24 +479,6 @@ async def test_run_search_ladder_adapter_all_failed() -> None:
 # 4. ADDENDUM V: Channel ladder for web reading
 # ===========================================================================
 
-import json
-from cli.product import run_doctor
-from server.channel_tools import tool_read_channel
-from veya.obase.channel_probes import (
-    WEB_CHANNEL_LADDERS,
-    get_cached_channel_statuses,
-    probe_all_channels,
-    probe_backend,
-    probe_channel,
-)
-from veya.oskill.pure.channel_ladder import (
-    LOGIN_REQUIRED_BACKENDS,
-    WEB_READING_CHANNELS,
-    ChannelLadderError,
-    WebChannelPlan,
-    plan_web_channel_backend,
-    reorder_channel_backends,
-)
 
 
 def test_channel_ladder_flag_defaults_off() -> None:
@@ -626,11 +624,13 @@ async def test_tool_read_channel_disabled_when_flag_off() -> None:
 @pytest.mark.asyncio
 async def test_tool_read_channel_with_provenance() -> None:
     """read_channel marks output with firewall provenance."""
-    with patch("server.feature_flags.enabled", return_value=True):
-        with patch("server.channel_tools.probe_channel", return_value={"status": "ok", "active_backend": "test_mock"}):
-            res = await tool_read_channel("web", "https://example.com/data")
-            assert "EXTERNAL DATA" in res
-            assert "[Channel: web | Backend: test_mock]" in res
+    with (
+        patch("server.feature_flags.enabled", return_value=True),
+        patch("server.channel_tools.probe_channel", return_value={"status": "ok", "active_backend": "test_mock"}),
+    ):
+        res = await tool_read_channel("web", "https://example.com/data")
+        assert "EXTERNAL DATA" in res
+        assert "[Channel: web | Backend: test_mock]" in res
 
 
 def test_read_channel_registered_in_master_tools() -> None:
@@ -644,11 +644,6 @@ def test_read_channel_registered_in_master_tools() -> None:
 # ===========================================================================
 # 5. 主体 7c: 6-step tool ladder expansion
 # ===========================================================================
-
-from veya.oskill.cli_hub import (
-    FULL_TOOL_LADDER_ORDER,
-    full_6step_tool_ladder,
-)
 
 
 def test_full_tool_ladder_6step_order() -> None:

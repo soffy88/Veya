@@ -69,7 +69,7 @@ class SearchPlan:
     fallback_backends: tuple[str, ...]
     reason: str
 
-    def next_after_failure(self) -> "SearchPlan | None":
+    def next_after_failure(self) -> SearchPlan | None:
         if not self.fallback_backends:
             return None
         head, *rest = self.fallback_backends

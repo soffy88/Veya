@@ -166,9 +166,7 @@ def _is_element_hidden(attrs_d: dict[str, str]) -> bool:
     if attrs_d.get("aria-hidden", "").lower() == "true":
         return True
     style = attrs_d.get("style", "").replace(" ", "").lower()
-    if "display:none" in style or "visibility:hidden" in style:
-        return True
-    return False
+    return "display:none" in style or "visibility:hidden" in style
 
 
 def _is_sensitive_input(attrs_d: dict[str, str]) -> bool:
@@ -177,9 +175,7 @@ def _is_sensitive_input(attrs_d: dict[str, str]) -> bool:
     if input_type == "password":
         return True
     autocomplete = attrs_d.get("autocomplete", "").lower()
-    if "cc-" in autocomplete or autocomplete == "one-time-code":
-        return True
-    return False
+    return "cc-" in autocomplete or autocomplete == "one-time-code"
 
 
 # ---------------------------------------------------------------------------
@@ -402,9 +398,7 @@ class _MarkdownParser(HTMLParser):
                 self._truncated = True
                 return
             self._w.flush()
-        elif tag in _HEADING_LEVELS:
-            self._w.flush()
-        elif tag in ("p", "div", "section", "article"):
+        elif tag in _HEADING_LEVELS or tag in ("p", "div", "section", "article"):
             self._w.flush()
         elif tag == "br":
             self._w.text("  \n")
@@ -442,10 +436,7 @@ class _MarkdownParser(HTMLParser):
                 ref_num = len(self._references) + 1
                 itype = attrs_d.get("type", "text").lower()
                 name = attrs_d.get("name", "")
-                if _is_sensitive_input(attrs_d):
-                    val = "[REDACTED]"
-                else:
-                    val = attrs_d.get("value", "")
+                val = "[REDACTED]" if _is_sensitive_input(attrs_d) else attrs_d.get("value", "")
                 self._w.text(f' [#{ref_num}: input {itype} "{name}" value="{val}"]')
                 self._references.append(
                     f'[#{ref_num}] <input type="{itype}" name="{name}" value="{val}">'

@@ -221,8 +221,6 @@ async def probe_channel(channel: str) -> dict[str, Any]:
             }
             _PROBE_CACHE[channel] = result
             return result
-        elif status == "needs-login" and not first_broken_hint:
-            first_broken_hint = hint
         elif not first_broken_hint:
             first_broken_hint = hint
 

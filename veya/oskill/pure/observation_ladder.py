@@ -24,8 +24,8 @@ from dataclasses import dataclass
 
 __all__ = [
     "OBSERVATION_TIERS",
-    "ObservationPlan",
     "ObservationLadderError",
+    "ObservationPlan",
     "plan_observation",
     "screenshot_first_plan",
 ]
@@ -50,7 +50,7 @@ class ObservationPlan:
     reason: str
     fallback_tiers: tuple[str, ...]
 
-    def next_after_failure(self) -> "ObservationPlan | None":
+    def next_after_failure(self) -> ObservationPlan | None:
         """Plan to use the next available fallback after ``tier`` fails."""
         if not self.fallback_tiers:
             return None
