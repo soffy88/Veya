@@ -171,6 +171,8 @@ services:
       - ../veya:/app/veya:ro
       - ../platform:/app/platform:ro
       - ../server:/app/server:ro
+      # server.feature_flags imports config.adapters; mount config/ so merges do not outrun the image
+      - ../config:/app/config:ro
       # Execution Runtime core is mounted with server so runtime changes take
       # effect after container recreation without an image rebuild.
       - ../runtime:/app/runtime:ro
