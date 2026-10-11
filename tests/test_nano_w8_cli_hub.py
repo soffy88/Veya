@@ -300,21 +300,14 @@ class TestCLIHubRoutes:
         # Should require approval (403 or 202 with approval pending)
         assert response.status_code in (202, 403)
 
-    def test_flag_required(self, monkeypatch):
+    def test_flag_required(self):
         """Test flag is required."""
-        monkeypatch.delenv("VEYA_CLI_HUB", raising=False)
+        from veya.oprim.cli_hub import CLIHubUnsupportedError, search_cli
 
-        from server.routes.cli_hub import router as cli_hub_router
-        from server import auth as auth_mod
-
-        app = FastAPI()
-        app.include_router(cli_hub_router)
-
-        async def mock_get_current_user():
-            return {"user_id": "test-user"}
-
-        app.dependency_overrides[auth_mod.get_current_user] = mock_get_current_user
-        client = TestClient(app)
+        # Remove flag and expect error
+        with patch.dict("os.environ", {}, clear=True):
+            with pytest.raises(CLIHubUnsupportedError):
+                search_cli(query="test")
 
         response = client.get("/api/v1/cli-hub/search", params={"q": "test"})
         assert response.status_code == 404

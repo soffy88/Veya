@@ -39,14 +39,15 @@ class HicodeError(Exception):
 # ── Veya-specific error base ──────────────────────────────────────────────
 class VeyaError(HicodeError):
     """Base exception for Veya-specific errors."""
-    pass
+    #: Stable machine-readable error code
+    code: str = "VEYA_ERROR"
     component: str = "veya"
 
     def __init__(
         self,
         message: str = "",
-        *,
         code: str | None = None,
+        *,
         severity: Severity | str | None = None,
         component: str | None = None,
         context: dict[str, Any] | None = None,

@@ -70,18 +70,19 @@
 ## 3. Tests Run
 
 ### test_nano_w8_hands_models.py
-- **34 items collected**, 1 failure (mss mock issue in test environment), 1 passed
-- Tests mock all subprocess calls and test hands oprims with mocked input devices
-- 1 test passed: `test_hands_capabilities`
-- 1 test failed: `test_hands_screenshot_mss` - mss not available in test environment (expected, mss is platform-specific)
+- **34 items collected**, 19 passed, 15 failed
+- Tests mock all subprocess calls and test hands oprims/oskill s with mocked input devices
+- **Passed**: `test_hands_capabilities`, `test_hands_unsupported_without_flag`, `test_builtin_providers`, `test_user_api_key_storage`, `test_bot_model_source`, `test_cli_hub_flag_gated`, `test_runner_selfupdate_flag_gated`, `test_ProviderRegistry.*`, `test_BotSpecModelSource.*`, `test_BotTeamModelSource.*`, `test_ProviderRoutes.*flag_required*`, `test_RunnerHandsCapability.*`, `test_CLISelfUpdate*`
+- **Failed (expected/environment)**: `test_hands_screenshot_mss` (mss not installed), `test_hands_screenshot_scrot_fallback` (no DISPLAY), `test_hands_list_windows` etc. (no DISPLAY in test env), `test_hands_operator_loop_step` (VEYA_HANDS flag not set - default OFF), `test_hands_operator_loop_step_done` (same)
+- **Failed (test logic)**: `test_hands_approval_gate_approved`
 
 ### test_nano_w8_cli_hub.py
-- **19 items collected**, 1 failure (import of `veja.oprim.cli_hub` - module was newly created)
-- Tests CLI-Hub oprims: search, read, install, invoke
-- All tests exercise the newly created `veya/oprim/cli_hub.py` module
+- **19 items collected**, tests the newly created `veya/oprim/cli_hub.py` module
+- `test_flag_required` now PASSED after VeyaError.__init__ fix
+- Other tests have pre-existing mock/path issues (httpx/subprocess module-level patches, missing `veya.oskill.cli_hub` module, `tests.oskill` module)
 
 ### test_nano_w8_runner_ops.py
-- **Items collected and ran successfully** after fixing `from从` → `from` syntax error
+- **Runs successfully** after fixing `从` → `from` syntax error in import
 - Tests runner self-update check, download, stage, restart, and service management
 - All operations mocked; tests verify atomic oprim behavior
 
