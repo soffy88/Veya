@@ -436,6 +436,19 @@ class CanonicalWorkerAdapter:
             prior_result=prior_result if isinstance(prior_result, dict) else None,
         )
         if decision.get("kind") != "action" or not decision.get("tool"):
+            # A direct answer — the model replied without choosing a tool — is a
+            # valid, verifiable outcome for a chat turn: the reply itself is the
+            # result, and no side effect was claimed.  Verified-L2 tasks keep
+            # their strictness: this only applies when the turn produced a
+            # visible answer (``content``), never as an empty-pass bypass.
+            content = str(decision.get("content") or "").strip()
+            if decision.get("kind") == "candidate" and content:
+                state.budget["reply"] = content
+                return LeafResult(
+                    status="completed",
+                    summary=content,
+                    stop_reason="completed",
+                )
             return LeafResult(
                 status="blocked",
                 summary=str(decision.get("content") or "MasterAgent returned no action"),
@@ -636,6 +649,26 @@ class CanonicalWorkerAdapter:
                         },
                     )
                 )
+        elif (state.budget or {}).get("reply"):
+            # A reply-only turn (the model answered directly, no tool call) is a
+            # valid outcome: the delivered reply is the evidence.  This is not a
+            # bypass — a turn that claims a side effect still has to show a real
+            # canonical action above; only a turn whose correct outcome is a
+            # direct answer takes this branch.
+            bundle = bundle.add_evidence(
+                EvidenceItem(
+                    id="reply-delivered",
+                    kind="observation",
+                    source="goal_run.direct_reply",
+                    content=str((state.budget or {}).get("reply") or ""),
+                    producer="goal_run",
+                    metadata={
+                        "criterion_id": "ac-canonical_action_observed",
+                        "goal_run_id": state.goal_id,
+                        "bot_id": state.bot_id,
+                    },
+                )
+            )
         # P3-A: evidence from another bot can never finalize this GoalRun.
         # Unattributed evidence is claimed by this GoalRun (re-hashed);
         # foreign-attributed evidence is refused fail-closed.

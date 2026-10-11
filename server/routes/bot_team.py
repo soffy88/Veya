@@ -291,14 +291,14 @@ async def accept_proposal(
 
 @router.get("")
 async def list_bots(
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """List the bots. Chef is seeded here on the first call."""
 
     registry = bot_registry()
     ensure_chef_seeded(registry, owner_id=user["user_id"])
     return {
-        "bots": [_bot_view(spec) for spec in registry.list()],
+        "bots": [_bot_view(spec) for spec in registry.list() if spec.owner_id in (user["user_id"], "", "system", "default") or spec.bot_id in (DEFAULT_BOT_ID, CHEF_BOT_ID)],
         "default_bot_id": DEFAULT_BOT_ID,
         "chef_bot_id": CHEF_BOT_ID,
     }
@@ -307,7 +307,7 @@ async def list_bots(
 @router.post("")
 async def create_bot(
     req: BotCreateRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Register one named bot."""
 
@@ -329,7 +329,7 @@ async def create_bot(
 
     spec = BotSpec(
         bot_id=bot_id,
-        owner_id=(req.owner_id or user["user_id"]).strip(),
+        owner_id=user["user_id"],
         name=(req.name or bot_id).strip(),
         description=(req.description or "").strip(),
         instructions=(req.instructions or "").strip(),
