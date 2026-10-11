@@ -117,13 +117,31 @@ class ExecutionPolicy:
         if separated_cli:
             max_ms = max(requested_ms, 1_800_000)
             idle_ms = min(requested_ms, 300_000)
+            # Ensure idle < max regardless of requested value.
             if idle_ms >= max_ms:
                 idle_ms = max_ms - 1_000
             provider_ms = min(120_000, max(1_000, idle_ms // 2))
+            # Ensure strict ordering: provider < idle < max.
+            if provider_ms >= idle_ms:
+                provider_ms = max(1_000, idle_ms - 1_000)
+            if provider_ms >= idle_ms:
+                # idle_ms is too small (e.g. 1000) to fit a provider >= 1000
+                # strictly below it. Bump idle up.
+                idle_ms = provider_ms + 1_000
+                if idle_ms >= max_ms:
+                    idle_ms = max_ms - 1_000
+                    provider_ms = max(1_000, idle_ms - 1_000)
         else:
             max_ms = max(requested_ms, 2_000)
             idle_ms = min(max_ms - 1_000, requested_ms)
             provider_ms = min(60_000, max(1_000, idle_ms // 2))
+            if provider_ms >= idle_ms:
+                provider_ms = max(1_000, idle_ms - 1_000)
+            if provider_ms >= idle_ms:
+                idle_ms = provider_ms + 1_000
+                if idle_ms >= max_ms:
+                    idle_ms = max_ms - 1_000
+                    provider_ms = max(1_000, idle_ms - 1_000)
         return cls(
             idle_timeout_ms=idle_ms,
             max_runtime_ms=max_ms,

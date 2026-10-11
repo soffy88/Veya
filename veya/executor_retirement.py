@@ -22,7 +22,7 @@ system, so it is a one-line, reviewable decision.
 from __future__ import annotations
 
 # Retired executors fail closed at admission, discovery, and probing.
-RETIRED_EXECUTORS: frozenset[str] = frozenset({"hicode"})
+RETIRED_EXECUTORS: frozenset[str] = frozenset({})
 
 
 def is_retired_executor(executor_id: str) -> bool:

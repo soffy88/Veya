@@ -50,6 +50,7 @@ _KNOWN = (
     "dsh",
     "grok",
     "acp",
+    "hicode",
 )
 # Canonical routing preference for admitted executors. This is ordering only;
 # membership stays with _KNOWN and register().
@@ -61,6 +62,7 @@ _CANONICAL_ORDER = (
     "grok",
     "dsh",
     "codex",
+    "hicode",
 )
 
 
@@ -508,6 +510,7 @@ class ExecutorRegistry:
                 "dsh": "DSH",
                 "opencode": "OPENCODE",
                 "claude_code": "CLAUDE_CODE",
+                "hicode": "HICODE",
             }.get(executor_id, executor_id.upper())
             provider = (
                 os.environ.get(f"VEYA_{env_prefix}_PROVIDER")
@@ -531,6 +534,7 @@ class ExecutorRegistry:
                     "opencode": ["opencode"],
                     "claude_code": ["claude"],
                     "dsh": ["dsh"],
+                    "hicode": ["hicode"],
                 }.get(executor_id, [])
             )
             launcher = _configured_launcher(executor_id) or _launcher(bins)

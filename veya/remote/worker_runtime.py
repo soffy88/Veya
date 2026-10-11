@@ -73,6 +73,14 @@ class WorkerCapabilities:
 # name-based branching in routing logic).  Hicode is retired from the active
 # plane; its source remains but it is no longer registered here.
 WORKER_CAPABILITIES: dict[str, WorkerCapabilities] = {
+    "hicode": WorkerCapabilities(
+        supports_receipts=True,
+        supports_read_task=True,
+        supports_write_task=True,
+        supports_shell_effect=True,
+        supports_file_effect=True,
+        recovery_capability=str(RecoveryCapability.REATTACH),
+    ),
     "dsh": WorkerCapabilities(
         supports_persistent_context=True,
         supports_sleep=True,

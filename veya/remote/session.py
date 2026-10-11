@@ -61,15 +61,27 @@ def canonical_workspace(path: str | Path) -> str:
 
 
 def workspace_is_authorized(
-    workspace: str | Path, allowed_roots: tuple[str, ...] | list[str]
+    workspace: str | Path,
+    allowed_roots: tuple[str, ...] | list[str],
+    worktrees: dict[str, str] | None = None,
 ) -> bool:
-    """Return True when workspace is an authorized root or a descendant."""
+    """Return True when workspace is an authorized root, a descendant, or an
+    isolated worktree belonging to an authorized repo root."""
 
     requested = Path(canonical_workspace(workspace))
+    # Direct match or descendant of an allowed root
     for item in allowed_roots:
         root = Path(canonical_workspace(item))
         if requested == root or root in requested.parents:
             return True
+    # Isolated worktree belonging to an authorized repo root
+    if worktrees:
+        for repo_root, worktree_path in worktrees.items():
+            repo_root_canon = Path(canonical_workspace(repo_root))
+            if repo_root_canon in allowed_roots:
+                worktree_root = Path(canonical_workspace(worktree_path))
+                if requested == worktree_root or worktree_root in requested.parents:
+                    return True
     return False
 
 
@@ -221,12 +233,12 @@ class RemoteSessionManager:
     # ── workspace binding ───────────────────────────────────────────
     def bind_workspace(self, session: RemoteSession, workspace: str) -> str:
         requested = canonical_workspace(workspace)
-        if not workspace_is_authorized(requested, list(session.workspaces)):
+        if not workspace_is_authorized(requested, list(session.workspaces), session.worktrees):
             raise RemoteSessionError(
                 "WORKSPACE_DENIED", f"workspace switch not authorized: {requested}"
             )
         if self._default_workspace is not None and not workspace_is_authorized(
-            requested, (self._default_workspace,)
+            requested, (self._default_workspace,), session.worktrees
         ):
             raise RemoteSessionError(
                 "WORKSPACE_DENIED",

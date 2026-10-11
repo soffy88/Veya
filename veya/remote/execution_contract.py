@@ -329,7 +329,10 @@ def probe_runtime_capability_manifest(
         resolved = resolve_acp_command()
         candidate_bins = [resolved[0]] if resolved else ["openhands", "acp-agent", "agents-cli"]
     elif norm == "hicode":
-        raise ValueError("Executor retired: 'hicode'")
+        candidate_bins = [
+            "hicode",
+            Path.home() / ".local" / "bin" / "hicode",
+        ]
 
     if not installed:
         for cand in candidate_bins:
