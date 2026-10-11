@@ -417,8 +417,18 @@ export interface RunnerView {
 	last_seen: number | null;
 	status: string;
 	implicit?: boolean;
-	hands_capable?: boolean;
+	/**
+	 * What this machine can do with hands. `null` means *not known yet* — a
+	 * remote runner reports its own capability, so the hub must not answer on
+	 * its behalf before that runner has said anything.
+	 */
+	hands_capable?: boolean | null;
 	hands_tools?: string[];
+	hands_known?: boolean;
+	version?: string;
+	/** `null` until the runner has been checked against a configured manifest. */
+	update_available?: boolean | null;
+	update_checked?: boolean;
 }
 
 export interface RunnersResponse {
@@ -433,8 +443,9 @@ export interface RunnerHealthResponse {
 	runner_id: string;
 	status: string;
 	last_seen: number | null;
-	hands_capable: boolean;
+	hands_capable: boolean | null;
 	hands_tools: string[];
+	hands_known?: boolean;
 }
 
 export async function getRunnerHealth(runnerId: string): Promise<RunnerHealthResponse> {

@@ -19,6 +19,8 @@
 	let model = $state("");
 	let modelSource = $state<"server" | "user_key" | "cli">("server");
 	let modelSourceConfig = $state<Record<string, unknown>>({});
+	/** The CLI extra-args box is one line of text; the API wants a list. */
+	let cliArgsText = $state("");
 	let busy = $state(false);
 	let error = $state("");
 	let confirmDelete = $state(false);
@@ -29,6 +31,14 @@
 		{ value: "cli", label: "CLI 代理", icon: Terminal, desc: "委托给已安装的 CLI 代理 (codex/claude/kimi/gemini)" },
 	] as const;
 
+	function cliArgsToList(text: string): string[] {
+		return text.split(/\s+/).filter(part => part.length > 0);
+	}
+
+	function cliArgsToText(value: unknown): string {
+		return Array.isArray(value) ? value.join(" ") : "";
+	}
+
 	$effect(() => {
 		name = bot.name ?? "";
 		description = bot.description ?? "";
@@ -37,6 +47,7 @@
 		model = bot.model ?? "";
 		modelSource = (bot.model_source as "server" | "user_key" | "cli") ?? "server";
 		modelSourceConfig = (bot.model_source_config as Record<string, unknown>) ?? {};
+		cliArgsText = cliArgsToText(modelSourceConfig.cli_args);
 	});
 
 	function getModelSourceOption(source: string) {
@@ -54,8 +65,10 @@
 			if (provider !== (bot.provider ?? "")) patch.provider = provider;
 			if (model !== (bot.model ?? "")) patch.model = model;
 			if (modelSource !== bot.model_source) patch.model_source = modelSource;
-			if (JSON.stringify(modelSourceConfig) !== JSON.stringify(bot.model_source_config ?? {})) {
-				patch.model_source_config = modelSourceConfig;
+			// cli_args is a list on the wire; the text box is only its display form.
+			const cliArgs = cliArgsToList(cliArgsText);
+			if (JSON.stringify(cliArgs) !== JSON.stringify(bot.model_source_config?.cli_args ?? [])) {
+				patch.model_source_config = { ...modelSourceConfig, cli_args: cliArgs };
 			}
 			if (Object.keys(patch).length === 0) {
 				error = "没有改动";
@@ -138,8 +151,8 @@
 					<p class="text-xs opacity-60">选择已存储的 API Key 对应的 provider 和 model</p>
 					<div class="grid grid-cols-2 gap-2">
 						<div>
-							<label class="block text-xs opacity-60">Provider</label>
-							<select class={inputClass} bind:value={modelSourceConfig.provider}>
+							<label class="block text-xs opacity-60" for="model-source-provider">Provider</label>
+							<select id="model-source-provider" class={inputClass} bind:value={modelSourceConfig.provider}>
 								<option value="">-- 选择 provider --</option>
 								<option value="openai">OpenAI</option>
 								<option value="anthropic">Anthropic</option>
@@ -152,8 +165,8 @@
 							</select>
 						</div>
 						<div>
-							<label class="block text-xs opacity-60">Model</label>
-							<input class={inputClass} bind:value={modelSourceConfig.model} placeholder="模型名称" />
+							<label class="block text-xs opacity-60" for="model-source-model">Model</label>
+							<input id="model-source-model" class={inputClass} bind:value={modelSourceConfig.model} placeholder="模型名称" />
 						</div>
 					</div>
 					<p class="text-xs opacity-50">API Key 需在设置页的「提供商配置」中预先存储</p>
@@ -163,8 +176,8 @@
 					<p class="text-xs opacity-60">选择 CLI 代理 (需已安装并在 PATH 中)</p>
 					<div class="grid grid-cols-2 gap-2">
 						<div>
-							<label class="block text-xs opacity-60">CLI 代理</label>
-							<select class={inputClass} bind:value={modelSourceConfig.cli_agent}>
+							<label class="block text-xs opacity-60" for="model-source-cli-agent">CLI 代理</label>
+							<select id="model-source-cli-agent" class={inputClass} bind:value={modelSourceConfig.cli_agent}>
 								<option value="">-- 选择 CLI --</option>
 								<option value="codex">Codex</option>
 								<option value="claude">Claude Code</option>
@@ -173,8 +186,8 @@
 							</select>
 						</div>
 						<div>
-							<label class="block text-xs opacity-60">额外参数</label>
-							<input class={inputClass} bind:value={modelSourceConfig.cli_args} placeholder="--flag value" />
+							<label class="block text-xs opacity-60" for="model-source-cli-args">额外参数</label>
+							<input id="model-source-cli-args" class={inputClass} bind:value={cliArgsText} placeholder="--flag value" />
 						</div>
 					</div>
 				</div>
