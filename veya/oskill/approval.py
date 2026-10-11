@@ -49,11 +49,15 @@ def request_permission_decision(
     verdict = evaluate_capability_permission(
         tool=tool, args=args, grants=grants, flags={**(flags or {}), "scope": scope}
     )
-    if verdict == VERDICT_ALLOW and covered:
+    if verdict == VERDICT_ALLOW and grants:
         return {
             "decision": "allow",
-            "grant": grant,
-            "reason": "always-allow grant covers this tool+scope",
+            "grant": grant if covered else grants[0],
+            "reason": (
+                "always-allow grant covers this tool+scope"
+                if covered
+                else "session grant covers this tool+scope"
+            ),
         }
     if verdict == VERDICT_DENY:
         return {"decision": "deny", "grant": None, "reason": "policy denies this tool"}

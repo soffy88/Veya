@@ -320,7 +320,7 @@ async def _wait_approval_gated(tool: str, kwargs: dict[str, Any]) -> str | None:
     sid = _session_id.get()
     scope = service.scope_for(user_id)
     session_grant_rows = [
-        {"tool": tool, "scope_pattern": ""}
+        {"tool": tool, "scope_pattern": scope}
         for (grant_scope, grant_tool) in session_grants
         if grant_scope == scope and grant_tool == tool
     ]

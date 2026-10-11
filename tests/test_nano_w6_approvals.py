@@ -297,11 +297,15 @@ async def test_gated_approval_session_grant(wired, user_ctx):
     task2 = asyncio.create_task(uc._wait_approval("send_email", {"to": "x@y.z"}))
     await asyncio.sleep(0.2)
     assert not task2.done()
-    pending2 = store.list_approvals(scope=approvals_mod.get_approval_service().scope_for("user-1"))
-    await approvals_mod.get_approval_service().resolve(
-        approval_id=pending2[-1]["request_id"], decision="deny", principal="human"
+    # list_approvals is newest-first and includes resolved rows: pick the pending one
+    pending2 = store.list_approvals(
+        scope=approvals_mod.get_approval_service().scope_for("user-1"), status="pending"
     )
-    assert await task2 is not None
+    assert len(pending2) == 1 and pending2[0]["tool"] == "send_email"
+    await approvals_mod.get_approval_service().resolve(
+        approval_id=pending2[0]["request_id"], decision="deny", principal="human"
+    )
+    assert await asyncio.wait_for(task2, timeout=5) is not None
 
 
 async def test_handoff_done_and_cancel(wired, user_ctx):
