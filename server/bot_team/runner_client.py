@@ -219,7 +219,9 @@ class RunnerClient:
             }
         if 200 <= response.status_code < 300:
             body = response.body if isinstance(response.body, dict) else {}
-            capabilities = body.get("capabilities") if isinstance(body.get("capabilities"), dict) else {}
+            capabilities = (
+                body.get("capabilities") if isinstance(body.get("capabilities"), dict) else {}
+            )
             probe = {
                 "runner_id": record.runner_id,
                 "status": "online",
@@ -310,7 +312,6 @@ class RunnerClient:
         )
 
 
-
 def build_turn_payload(
     *,
     bot: BotSpec,
@@ -358,7 +359,6 @@ def build_turn_payload(
             payload["env"] = runner_env
 
     return payload
-
 
 
 def _failure_reply(*, bot: BotSpec, runner_id: str, base_url: str, reason: str) -> str:

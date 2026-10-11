@@ -91,7 +91,6 @@ class GroupChat:
         )
 
 
-
 class GroupStore:
     """Groups, and each group's own transcript (never a bot's conversation)."""
 
@@ -202,14 +201,10 @@ class GroupStore:
             if rounds_per_message is not None
             else current.rounds_per_message
         )
-        new_admin = (
-            str(admin_bot_id).strip() if admin_bot_id is not None else current.admin_bot_id
-        )
+        new_admin = str(admin_bot_id).strip() if admin_bot_id is not None else current.admin_bot_id
         if new_admin and new_admin not in new_members:
             raise ValueError(f"admin bot {new_admin!r} must be a member of the group")
-        new_mode = (
-            str(reply_mode).strip().lower() if reply_mode is not None else current.reply_mode
-        )
+        new_mode = str(reply_mode).strip().lower() if reply_mode is not None else current.reply_mode
         new_notice = str(notice).strip() if notice is not None else current.notice
 
         updated = GroupChat(
@@ -225,7 +220,6 @@ class GroupStore:
         items[updated.id] = updated.to_dict()
         self._save(items)
         return updated
-
 
     def delete(self, group_id: str) -> bool:
         items = self._load()

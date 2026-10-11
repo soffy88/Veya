@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -75,11 +75,13 @@ async def bot_secrets_operation(
 
         if act == "request":
             if input_data.is_group:
-                trail.append({
-                    "step": "rejected",
-                    "reason": "SECRETS_NOT_IN_GROUP",
-                    "ts": time.time(),
-                })
+                trail.append(
+                    {
+                        "step": "rejected",
+                        "reason": "SECRETS_NOT_IN_GROUP",
+                        "ts": time.time(),
+                    }
+                )
                 return {
                     "status": "failed",
                     "error": {
@@ -130,7 +132,10 @@ async def bot_secrets_operation(
         else:
             return {
                 "status": "failed",
-                "error": {"code": "InvalidAction", "message": f"unknown action {input_data.action!r}"},
+                "error": {
+                    "code": "InvalidAction",
+                    "message": f"unknown action {input_data.action!r}",
+                },
                 "decision_trail": trail,
             }
 

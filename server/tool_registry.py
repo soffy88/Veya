@@ -1267,12 +1267,13 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
     path.parent.mkdir(parents=True, exist_ok=True)
     content_str = str(content)
     path.write_text(content_str, encoding="utf-8")
-    
+
     # AI Attribution
     session = _current_master_session.get()
     if session:
         try:
             from server.goal_run.ai_attribution import record_ai_write
+
             # Determine line count
             lines = content_str.splitlines() or [""]
             record_ai_write(
@@ -1285,7 +1286,7 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
             )
         except Exception:
             pass
-            
+
     return f"✅ 已写入 {path} ({len(content_str)} 字符)。可用 read_file_ast / grep 继续理解。"
 
 
@@ -1318,12 +1319,13 @@ def _tool_edit_hashline(
     except HashlineError as exc:
         raise ToolExecutionError(str(exc)) from exc
     path.write_text(rec["content"], encoding="utf-8")
-    
+
     # AI Attribution
     session = _current_master_session.get()
     if session and rec["new_lines"] > 0:
         try:
             from server.goal_run.ai_attribution import record_ai_write
+
             # Start line of the new text is rec['start_line']
             # End line is rec['start_line'] + rec['new_lines'] - 1
             record_ai_write(
@@ -4487,4 +4489,3 @@ _register_bot_team_tools(master_tools)
 from server.bot_team.secrets import register_tools as _register_bot_secret_tools  # noqa: E402
 
 _register_bot_secret_tools(master_tools)
-

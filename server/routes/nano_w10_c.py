@@ -10,7 +10,6 @@ Strictly enforces authentication and caller ownership on every endpoint.
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -152,7 +151,9 @@ async def list_bot_secrets(
 
     del user
     is_https = request.url.is_secure or (request.headers.get("x-forwarded-proto") == "https")
-    warning = "" if is_https else "Warning: connection is not HTTPS; secret transmission is insecure"
+    warning = (
+        "" if is_https else "Warning: connection is not HTTPS; secret transmission is insecure"
+    )
 
     store = bot_secret_store()
     secrets = store.list_secrets()

@@ -54,9 +54,8 @@ def mask_secret_values(text: str, secret_map: dict[str, str]) -> str:
         if val not in val_to_name:
             val_to_name[val] = name
 
-    pattern = re.compile("|".join(re.escape(val) for val in val_to_name.keys()))
+    pattern = re.compile("|".join(re.escape(val) for val in val_to_name))
     return pattern.sub(lambda m: f"[secret:{val_to_name[m.group(0)]}]", str(text))
-
 
 
 def redact_secrets_payload(payload: Any, secret_map: dict[str, str]) -> Any:
@@ -68,10 +67,7 @@ def redact_secrets_payload(payload: Any, secret_map: dict[str, str]) -> Any:
         return mask_secret_values(payload, secret_map)
 
     if isinstance(payload, dict):
-        return {
-            key: redact_secrets_payload(value, secret_map)
-            for key, value in payload.items()
-        }
+        return {key: redact_secrets_payload(value, secret_map) for key, value in payload.items()}
 
     if isinstance(payload, list):
         return [redact_secrets_payload(item, secret_map) for item in payload]

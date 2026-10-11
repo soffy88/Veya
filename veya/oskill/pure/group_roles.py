@@ -7,7 +7,6 @@ Addendum P. Contains no IO, no store access, and no network calls.
 from __future__ import annotations
 
 import re
-from typing import Any
 
 # Allowed reply modes
 REPLY_MODES = ("everyone", "admin-first", "mention-only")

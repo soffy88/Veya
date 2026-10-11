@@ -169,7 +169,9 @@ def _write_trail(
     try:
         path = Path(output_dir) / "auto_review_trail.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(trail, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        path.write_text(
+            json.dumps(trail, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+        )
         return str(path)
     except Exception:
         # An audit artefact that cannot be written must not decide the verdict;

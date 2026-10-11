@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from server.bot_team.conversations import atomic_write_json, default_bots_root
-from veya.oskill.pure.secret_masking import mask_secret_values, secret_env_name
+from veya.oskill.pure.secret_masking import secret_env_name
 from veya.platform import obase as _load_obase
 
 _obase = _load_obase()
@@ -208,7 +208,11 @@ class BotSecretStore:
         records: list[dict[str, Any]] = []
         for raw in items.values():
             meta = BotSecretMeta.from_dict(raw)
-            if requesting_bot_id and meta.scope == "this bot" and meta.requesting_bot_id != requesting_bot_id:
+            if (
+                requesting_bot_id
+                and meta.scope == "this bot"
+                and meta.requesting_bot_id != requesting_bot_id
+            ):
                 continue
             records.append(meta.to_dict())
         return records
@@ -222,7 +226,9 @@ class BotSecretStore:
             meta = BotSecretMeta.from_dict(raw)
             if meta.status != "active":
                 continue
-            if meta.scope == "all bots" or (meta.scope == "this bot" and meta.requesting_bot_id == bid):
+            if meta.scope == "all bots" or (
+                meta.scope == "this bot" and meta.requesting_bot_id == bid
+            ):
                 val = self.get_secret_value(s_name)
                 if val:
                     env[secret_env_name(s_name)] = val
@@ -342,4 +348,3 @@ __all__ = [
     "bot_secret_store",
     "register_tools",
 ]
-

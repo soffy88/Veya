@@ -11,7 +11,6 @@ default-OFF path explicitly, because "off" is the shipped behaviour.
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import pytest
 
@@ -299,8 +298,9 @@ class TestActionGatewayAutoReview:
     @pytest.mark.asyncio
     async def test_auto_review_flag_off_bypasses_review_hook(self, monkeypatch):
         monkeypatch.setenv("VEYA_AUTO_REVIEW", "0")
-        from server.action_gateway_adapter import ActionGatewayAdapter
         from types import SimpleNamespace
+
+        from server.action_gateway_adapter import ActionGatewayAdapter
 
         hook_called = False
 
@@ -324,8 +324,9 @@ class TestActionGatewayAutoReview:
     @pytest.mark.asyncio
     async def test_auto_review_flag_on_blocks_when_hook_blocks(self, monkeypatch):
         monkeypatch.setenv("VEYA_AUTO_REVIEW", "1")
-        from server.action_gateway_adapter import ActionGatewayAdapter
         from types import SimpleNamespace
+
+        from server.action_gateway_adapter import ActionGatewayAdapter
 
         def review_hook(request):
             return {"verdict": "block", "reason": "untrusted code injection"}
@@ -345,8 +346,9 @@ class TestActionGatewayAutoReview:
     @pytest.mark.asyncio
     async def test_auto_review_flag_on_escalates_to_ask(self, monkeypatch):
         monkeypatch.setenv("VEYA_AUTO_REVIEW", "1")
-        from server.action_gateway_adapter import ActionGatewayAdapter
         from types import SimpleNamespace
+
+        from server.action_gateway_adapter import ActionGatewayAdapter
 
         def review_hook(request):
             return {"verdict": "ask", "reason": "needs human confirmation"}
@@ -366,8 +368,9 @@ class TestActionGatewayAutoReview:
     @pytest.mark.asyncio
     async def test_build_auto_review_hook_factory(self, monkeypatch):
         monkeypatch.setenv("VEYA_AUTO_REVIEW", "1")
-        from server.action_gateway_adapter import ActionGatewayAdapter, build_auto_review_hook
         from types import SimpleNamespace
+
+        from server.action_gateway_adapter import ActionGatewayAdapter, build_auto_review_hook
 
         def mock_llm(messages, **kwargs):
             return "allow\ncommand matches instruction"
@@ -423,7 +426,14 @@ class TestGroupRolesPure:
             evaluate_group_permission,
         )
 
-        for act in (ACTION_EDIT_NAME, ACTION_EDIT_NOTICE, ACTION_EDIT_MEMBERS, ACTION_EDIT_REPLY_MODE, ACTION_SPEAK, ACTION_MENTION):
+        for act in (
+            ACTION_EDIT_NAME,
+            ACTION_EDIT_NOTICE,
+            ACTION_EDIT_MEMBERS,
+            ACTION_EDIT_REPLY_MODE,
+            ACTION_SPEAK,
+            ACTION_MENTION,
+        ):
             assert evaluate_group_permission("admin", act, is_own_group=True)
             assert not evaluate_group_permission("admin", act, is_own_group=False)
         assert not evaluate_group_permission("admin", ACTION_MANAGE_ALL, is_own_group=True)
@@ -458,7 +468,9 @@ class TestGroupRolesPure:
 
         members = ["admin_bot", "helper_bot", "worker_bot"]
         # Without mention: only admin answers
-        assert select_replying_bots("admin-first", "admin_bot", members, "help please") == ["admin_bot"]
+        assert select_replying_bots("admin-first", "admin_bot", members, "help please") == [
+            "admin_bot"
+        ]
         # With mention: admin answers first, then mentioned
         res = select_replying_bots("admin-first", "admin_bot", members, "ask @helper_bot")
         assert res == ["admin_bot", "helper_bot"]
@@ -468,9 +480,13 @@ class TestGroupRolesPure:
 
         members = ["admin_bot", "helper_bot", "worker_bot"]
         # Mentioning specific bot: only that bot answers
-        assert select_replying_bots("mention-only", "admin_bot", members, "paging @worker_bot") == ["worker_bot"]
+        assert select_replying_bots("mention-only", "admin_bot", members, "paging @worker_bot") == [
+            "worker_bot"
+        ]
         # No mention: admin answers by default
-        assert select_replying_bots("mention-only", "admin_bot", members, "hello room") == ["admin_bot"]
+        assert select_replying_bots("mention-only", "admin_bot", members, "hello room") == [
+            "admin_bot"
+        ]
 
 
 class TestGroupRolesStoreAndTurn:
@@ -488,14 +504,16 @@ class TestGroupRolesStoreAndTurn:
         assert data["admin_bot_id"] == ""
         assert data["reply_mode"] == "everyone"
 
-        loaded = GroupChat.from_dict({
-            "id": "g2",
-            "name": "Room2",
-            "bot_ids": ["b1", "b2"],
-            "admin_bot_id": "b1",
-            "reply_mode": "admin-first",
-            "notice": "Welcome",
-        })
+        loaded = GroupChat.from_dict(
+            {
+                "id": "g2",
+                "name": "Room2",
+                "bot_ids": ["b1", "b2"],
+                "admin_bot_id": "b1",
+                "reply_mode": "admin-first",
+                "notice": "Welcome",
+            }
+        )
         assert loaded.admin_bot_id == "b1"
         assert loaded.reply_mode == "admin-first"
         assert loaded.notice == "Welcome"
@@ -539,7 +557,9 @@ class TestGroupRolesStoreAndTurn:
         g_store = GroupStore(root=tmp_path)
         b_reg = BotRegistry(storage_path=tmp_path / "bots.json")
         b_reg.register(BotSpec(bot_id="bot_admin", owner_id="u1", name="Admin", runner_id="local"))
-        b_reg.register(BotSpec(bot_id="bot_worker", owner_id="u1", name="Worker", runner_id="local"))
+        b_reg.register(
+            BotSpec(bot_id="bot_worker", owner_id="u1", name="Worker", runner_id="local")
+        )
 
         group = g_store.create(
             name="TestGrp",
@@ -552,6 +572,7 @@ class TestGroupRolesStoreAndTurn:
 
         async def fake_run_turn(*, bot, **kwargs):
             from types import SimpleNamespace
+
             turns_called.append(bot.bot_id)
             return SimpleNamespace(reply="ok", task_id="t1", session_id="s1")
 
@@ -560,7 +581,7 @@ class TestGroupRolesStoreAndTurn:
         # Flag OFF: everyone gets a turn
         monkeypatch.setenv("VEYA_GROUP_ROLES", "0")
         turns_called.clear()
-        res_off = await run_group_turn(
+        _ = await run_group_turn(
             group=group,
             text="talk to @bot_admin",
             user={"user_id": "u1"},
@@ -574,7 +595,7 @@ class TestGroupRolesStoreAndTurn:
         # Flag ON: only mentioned gets a turn (mention-only mode)
         monkeypatch.setenv("VEYA_GROUP_ROLES", "1")
         turns_called.clear()
-        res_on = await run_group_turn(
+        _ = await run_group_turn(
             group=group,
             text="talk to @bot_admin only",
             user={"user_id": "u1"},
@@ -643,7 +664,7 @@ class TestBotSecretStoreAndOmodul:
     """BotSecretStore management, runner env derivation, and omodul_bot_secrets."""
 
     def test_secret_request_refuses_group(self, tmp_path):
-        from server.bot_team.secrets import BotSecretStore, SECRETS_NOT_IN_GROUP
+        from server.bot_team.secrets import SECRETS_NOT_IN_GROUP, BotSecretStore
 
         store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
         with pytest.raises(ValueError) as excinfo:
@@ -655,10 +676,14 @@ class TestBotSecretStoreAndOmodul:
 
         store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
         store.request_secret("TEAM_KEY", "all bots access", "bot1")
-        store.set_secret_value("TEAM_KEY", "val_team_secret", scope="all bots", requesting_bot_id="bot1")
+        store.set_secret_value(
+            "TEAM_KEY", "val_team_secret", scope="all bots", requesting_bot_id="bot1"
+        )
 
         store.request_secret("BOT1_KEY", "only bot1", "bot1")
-        store.set_secret_value("BOT1_KEY", "val_bot1_secret", scope="this bot", requesting_bot_id="bot1")
+        store.set_secret_value(
+            "BOT1_KEY", "val_bot1_secret", scope="this bot", requesting_bot_id="bot1"
+        )
 
         # bot1 receives both
         env_bot1 = store.get_runner_env("bot1")
@@ -691,19 +716,25 @@ class TestBotSecretStoreAndOmodul:
         cfg = BotSecretConfig(store=store)
 
         # 1. request in group rejected
-        inp_group = BotSecretInput(action="request", name="K1", requesting_bot_id="b1", is_group=True)
+        inp_group = BotSecretInput(
+            action="request", name="K1", requesting_bot_id="b1", is_group=True
+        )
         res_group = await bot_secrets_operation(cfg, inp_group)
         assert res_group["status"] == "failed"
         assert res_group["error"]["code"] == "SECRETS_NOT_IN_GROUP"
 
         # 2. request direct
-        inp_req = BotSecretInput(action="request", name="K1", purpose="testing", requesting_bot_id="b1")
+        inp_req = BotSecretInput(
+            action="request", name="K1", purpose="testing", requesting_bot_id="b1"
+        )
         res_req = await bot_secrets_operation(cfg, inp_req)
         assert res_req["status"] == "completed"
         assert res_req["card"]["name"] == "K1"
 
         # 3. set value
-        inp_set = BotSecretInput(action="set_value", name="K1", value="my_secret_val", scope="all bots")
+        inp_set = BotSecretInput(
+            action="set_value", name="K1", value="my_secret_val", scope="all bots"
+        )
         res_set = await bot_secrets_operation(cfg, inp_set, output_dir=tmp_path)
         assert res_set["status"] == "completed"
         assert res_set["meta"]["status"] == "active"
@@ -723,20 +754,26 @@ class TestBotSecretToolsAndRunnerIntegration:
 
         registry = MasterToolRegistry()
         from server.bot_team.secrets import register_tools
+
         register_tools(registry)
 
         # Normal request
-        res = await registry.execute("request_secret", {"name": "TEST_KEY", "purpose": "API access"})
+        res = await registry.execute(
+            "request_secret", {"name": "TEST_KEY", "purpose": "API access"}
+        )
         assert "Secret request card created" in res
         assert "TEST_KEY" in res
 
         # Refusal in group
-        res_group = await registry.execute("request_secret", {"name": "GRP_KEY", "purpose": "group", "is_group": True})
+        res_group = await registry.execute(
+            "request_secret", {"name": "GRP_KEY", "purpose": "group", "is_group": True}
+        )
         assert "SECRETS_NOT_IN_GROUP" in res_group
 
     @pytest.mark.asyncio
     async def test_list_secrets_tool_returns_metadata(self, monkeypatch, tmp_path):
         import json
+
         from server.bot_team.secrets import BotSecretStore, register_tools
         from server.tool_registry import MasterToolRegistry
 
@@ -785,18 +822,25 @@ class TestBotSecretToolsAndRunnerIntegration:
         monkeypatch.setattr("server.bot_team.secrets.bot_secret_store", lambda: custom_store)
         monkeypatch.setenv("VEYA_BOT_SECRETS", "1")
 
-        record = RunnerRecord(runner_id="r1", name="Runner 1", base_url="http://localhost:8000", token_ref="tok1")
+        record = RunnerRecord(
+            runner_id="r1", name="Runner 1", base_url="http://localhost:8000", token_ref="tok1"
+        )
         client = RunnerClient()
 
         # Success turn reply masked
-        resp_ok = TransportResponse(status_code=200, body={"ok": True, "turn": {"reply": "Got very_secret_password_999 from runner"}})
+        resp_ok = TransportResponse(
+            status_code=200,
+            body={"ok": True, "turn": {"reply": "Got very_secret_password_999 from runner"}},
+        )
         outcome_ok = client._outcome(record, resp_ok, token="", retried=False)
         assert outcome_ok.ok
         assert "very_secret_password_999" not in outcome_ok.turn["reply"]
         assert "[secret:SENSITIVE_KEY]" in outcome_ok.turn["reply"]
 
         # Error text masked
-        resp_err = TransportResponse(status_code=500, body={"error": "Failed with very_secret_password_999 in trace"})
+        resp_err = TransportResponse(
+            status_code=500, body={"error": "Failed with very_secret_password_999 in trace"}
+        )
         outcome_err = client._outcome(record, resp_err, token="", retried=False)
         assert not outcome_err.ok
         assert "very_secret_password_999" not in outcome_err.error
@@ -865,6 +909,7 @@ class TestNanoW10CRoutes:
     @pytest.fixture
     def auth_headers(self):
         import uuid
+
         from server import auth as auth_mod
 
         username = f"u_c_{uuid.uuid4().hex[:8]}"
@@ -874,10 +919,13 @@ class TestNanoW10CRoutes:
 
     def test_unauthenticated_returns_401(self):
         from fastapi.testclient import TestClient
+
         from server.app import app
 
         client = TestClient(app)
-        res_roles = client.patch("/api/v1/nano-w10-c/groups/g1/roles", json={"reply_mode": "everyone"})
+        res_roles = client.patch(
+            "/api/v1/nano-w10-c/groups/g1/roles", json={"reply_mode": "everyone"}
+        )
         assert res_roles.status_code == 401
 
         res_secrets = client.get("/api/v1/nano-w10-c/secrets")
@@ -888,6 +936,7 @@ class TestNanoW10CRoutes:
 
     def test_group_roles_route_flag_and_crud(self, auth_headers, monkeypatch, tmp_path):
         from fastapi.testclient import TestClient
+
         from server.app import app
         from server.bot_team.groups import GroupStore
 
@@ -922,6 +971,7 @@ class TestNanoW10CRoutes:
 
     def test_bot_secrets_route_flag_and_crud(self, auth_headers, monkeypatch, tmp_path):
         from fastapi.testclient import TestClient
+
         from server.app import app
         from server.bot_team.secrets import BotSecretStore
         from server.goal_run.bot_identity import BotRegistry, BotSpec
@@ -994,6 +1044,7 @@ class TestNanoW10CRoutes:
 
     def test_eval_export_route_ownership_and_export(self, auth_headers, tmp_path):
         from fastapi.testclient import TestClient
+
         from server.app import app
         from server.goal_run.bot_identity import BotRegistry, BotSpec
         from server.goal_run.models import GoalRunState, GoalStatus
@@ -1041,6 +1092,3 @@ class TestNanoW10CRoutes:
         assert data["case"]["id"] == "goal_g_own"
         assert data["case"]["meta"]["correction"] == "handled 404"
         assert data["exported_count"] == 1
-
-
-

@@ -426,6 +426,7 @@ class ActionGatewayAdapter:
             ),
         )
 
+
 def build_auto_review_hook(
     llm_caller: Callable[..., Any] | None = None,
     *,
@@ -456,13 +457,11 @@ def build_auto_review_hook(
                 from server.firewall import VeyaFirewall
 
                 sanitized = VeyaFirewall.sanitize(inst_text)
-                if sanitized.get("has_injection") or sanitized.get("risk_level") in (
-                    "high",
-                    "critical",
-                    "suspicious",
-                ):
-                    if "instruction_injection" not in untrusted:
-                        untrusted.append("instruction_injection")
+                if (
+                    sanitized.get("has_injection")
+                    or sanitized.get("risk_level") in ("high", "critical", "suspicious")
+                ) and "instruction_injection" not in untrusted:
+                    untrusted.append("instruction_injection")
             except Exception:
                 pass
 
@@ -471,7 +470,10 @@ def build_auto_review_hook(
         if flag_enabled("VEYA_BOT_SECRETS"):
             try:
                 from server.bot_team.secrets import bot_secret_store
-                from veya.oskill.pure.secret_masking import mask_secret_values, redact_secrets_payload
+                from veya.oskill.pure.secret_masking import (
+                    mask_secret_values,
+                    redact_secrets_payload,
+                )
 
                 m_map = bot_secret_store().get_masking_map()
                 if m_map:

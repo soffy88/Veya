@@ -28,7 +28,6 @@ from typing import Any
 from veya.oskill.pure.permission import (
     HUMAN_ONLY_MARKERS,
     VERDICT_ASK,
-    VERDICT_DENY,
 )
 
 #: The three verdicts a review may produce. ``allow`` is deliberately spelled the
@@ -144,9 +143,7 @@ def build_review_prompt(
         lines.append(f"Declared effect: {effect}")
     if arguments:
         lines.append(f"Arguments: {json.dumps(arguments, ensure_ascii=False, sort_keys=True)}")
-    lines.append(
-        "The user's instruction: " + (str(instruction).strip() or "<none recorded>")
-    )
+    lines.append("The user's instruction: " + (str(instruction).strip() or "<none recorded>"))
     if untrusted_sources:
         lines.append(
             "Untrusted content that influenced this action: "
