@@ -14,9 +14,11 @@ import json
 import pytest
 
 from server.nano_w10.flags import ALL_FLAGS, FeatureDisabled, feature_flags, flag_enabled, require_flag
+from server.nano_w10.live_stream import LiveStream, live_stream_enabled, wire_to_turn_queue
 from server.nano_w10.loop_mode import LoopRunPolicy, finish_card
 from server.nano_w10.turn_queue import TurnQueue
 from server.nano_w10.wake_router import WakeRouter, build_triage_engine
+from veya.omodul.live_trace import LiveTraceConfig, LiveTraceInput, LiveTraceState, live_trace
 from veya.omodul.loop_run import LoopRunConfig, LoopRunInput, loop_run
 from veya.omodul.turn_intake import (
     TurnIntakeConfig,
@@ -26,6 +28,12 @@ from veya.omodul.turn_intake import (
 )
 from veya.omodul.wake_router import WAKE_SOURCES, WakeRouterConfig, WakeRouterInput, wake_router
 from veya.oprim.turn_envelope import envelope_fingerprint, idem_key
+from veya.oskill.pure.live_trace import (
+    PLAN_STATUSES,
+    correction_action,
+    plan_rows,
+    step_from_tool_event,
+)
 from veya.oskill.pure.loop_policy import (
     LOOP_MODES,
     MODE_GOAL,
@@ -62,11 +70,14 @@ from veya.oskill.pure.wake_policy import (
 
 def test_flags_default_off_except_readonly_surfaces() -> None:
     on_by_default = {flag for flag, default in ALL_FLAGS.items() if default}
+    # Spec: "Flags default OFF except 7a"; the addendum then allows the
+    # read-only/observability surfaces on, including the live stream UI.
     assert on_by_default == {
         "VEYA_TOOL_ERROR_FRIENDLY",
         "VEYA_LLM_TAP",
         "VEYA_SEARCH_FALLBACK",
         "VEYA_CHANNEL_STATUS",
+        "VEYA_LIVE_STREAM",
     }
     for flag in ("VEYA_TURN_QUEUE", "VEYA_AUTO_REVIEW", "VEYA_PROMPT_CACHE", "VEYA_LOOP_MODE"):
         assert ALL_FLAGS[flag] is False
@@ -492,3 +503,113 @@ def test_finish_checkpoint_card_is_available_without_the_loop_flag() -> None:
     assert card["title"] == "Finish checkpoint"
     assert "server/events.py" in card["text"] and "pytest -q" in card["text"]
     assert card["mode"] == "goal"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# W4 — live tool-result stream, plan list, correction box (lands via item 1)
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def test_tool_result_is_a_first_class_step_not_just_a_call() -> None:
+    step = step_from_tool_event({"type": "tool_result", "tool_name": "file_read", "result": "contents"})
+    assert step["type"] == "tool_result" and step["detail"] == "contents" and step["status"] == "ok"
+    err = step_from_tool_event(
+        {"type": "tool_result", "tool_name": "sh", "result": "ERROR: boom"}
+    )
+    assert err["status"] == "error"
+    call = step_from_tool_event({"type": "tool_call", "tool_name": "sh", "tool_args": {"cmd": "ls"}})
+    assert call["type"] == "tool_call" and "cmd=ls" in call["detail"]
+    # An event this UI does not show is not worth inventing a row for.
+    assert step_from_tool_event({"type": "heartbeat"}) is None
+
+
+def test_result_preview_is_truncated_with_a_visible_notice() -> None:
+    step = step_from_tool_event({"type": "tool_result", "result": "x" * 5000})
+    assert len(step["detail"]) < 5000
+    assert "chars)" in step["detail"]
+
+
+def test_plan_rows_fold_every_status_into_three_buckets() -> None:
+    rows = plan_rows(
+        [
+            {"id": "a", "title": "done thing", "status": "done"},
+            {"id": "b", "title": "doing thing", "status": "in_progress"},
+            {"id": "c", "title": "todo thing", "status": "pending"},
+            {"id": "d", "title": "blocked thing", "status": "blocked"},
+        ]
+    )
+    assert [row["status"] for row in rows] == ["done", "doing", "todo", "doing"]
+    assert set(PLAN_STATUSES) == {"done", "doing", "todo"}
+    assert plan_rows("not a list") == []
+
+
+def test_correction_steer_vs_queue_vs_reject() -> None:
+    steer = correction_action({"text": "actually stop"}, run_state="running")
+    assert steer["action"] == "steer" and steer["state"] == STATE_DELIVERED
+    queued = correction_action({"text": "note"}, run_state="pending")
+    assert queued["action"] == "queue"
+    stale = correction_action({"text": "note"}, run_state="none")
+    assert stale["action"] == "reject"
+    empty = correction_action({"text": "  "}, run_state="running")
+    assert empty["action"] == "reject"
+
+
+def test_live_trace_projects_events_and_lands_a_correction(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_LIVE_STREAM", "1")
+    pushed: list[dict] = []
+    steered: list[str] = []
+    running = {"state": "running"}
+    stream = LiveStream(
+        push=pushed.append,
+        turn_state=lambda _tid: running["state"],
+        deliver_steer=lambda _tid, text: steered.append(text) or "delivered",
+    )
+    stream.on_step("t1", {"type": "tool_call", "tool_name": "read", "tool_args": {"path": "a.py"}})
+    stream.on_step("t1", {"type": "tool_result", "tool_name": "read", "result": "42 lines"})
+    assert [step["type"] for step in stream.snapshot("t1")["steps"]] == ["tool_call", "tool_result"]
+
+    stream.on_step("t1", {"type": "plan_update", "todos": [{"id": "1", "title": "step", "status": "in_progress"}]})
+    assert stream.snapshot("t1")["plan"] == [{"id": "1", "title": "step", "status": "doing"}]
+    assert len(pushed) == 3
+
+    # Correction while running -> steer (and it lands via the injected steer).
+    result = stream.correction("t1", "also check the tests")
+    assert result["action"] == "steer" and steered == ["also check the tests"]
+    # A correction with no live run is refused, not silently started.
+    running["state"] = "none"
+    assert stream.correction("t1", "late note")["action"] == "reject"
+
+
+def test_correction_lands_through_the_item_1_turn_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The correction box must reuse item 1's steer, not a second channel."""
+
+    monkeypatch.setenv("VEYA_LIVE_STREAM", "1")
+    monkeypatch.setenv("VEYA_TURN_QUEUE", "1")
+    queue = TurnQueue(window_s=2.0)
+    queue.intake(conversation_ref="c1", text="build the thing", external_id="m1")
+    queue.mark_running("c1", "bot-1")
+    stream = wire_to_turn_queue(queue)
+    result = stream.correction("c1", "wait, use the other adapter")
+    assert result["action"] == "steer"
+    # It is item 1's own steer log, so one path serves both message kinds.
+    assert queue.steer_log("c1") == ["wait, use the other adapter"]
+
+
+def test_live_stream_is_off_when_the_flag_is_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_LIVE_STREAM", "0")
+    stream = LiveStream()
+    assert stream.on_step("t1", {"type": "tool_call", "tool_name": "read"}) is None
+    off = stream.correction("t1", "stop")
+    assert off["error"] == {"code": "FEATURE_DISABLED", "flag": "VEYA_LIVE_STREAM"}
+
+
+def test_live_trace_bounds_its_steps_and_drops_oldest(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_LIVE_STREAM", "1")
+    stream = LiveStream(max_steps=3)
+    for index in range(6):
+        stream.on_step("t1", {"type": "tool_result", "tool_name": f"t{index}", "result": "x"})
+    snapshot = stream.snapshot("t1")
+    assert len(snapshot["steps"]) == 3
+    assert snapshot["dropped"] == 3
+    # The newest steps are the ones kept.
+    assert snapshot["steps"][-1]["tool_name"] == "t5"

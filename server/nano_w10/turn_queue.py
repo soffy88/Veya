@@ -238,6 +238,40 @@ class TurnQueue:
         if queued is not None:
             queued.started = True
 
+    def steer(
+        self,
+        conversation_ref: str,
+        text: str,
+        *,
+        external_id: str = "",
+    ) -> dict[str, Any]:
+        """Deliver a steer into the running turn of one conversation.
+
+        This is the single steer entry point shared by the item-1 intake and
+        the W4 correction box, so a user correction and an inbound message use
+        **the same** path — a correction is just a direct message that arrived
+        mid-turn. Delivery is recorded, never assumed: the receipt state comes
+        back from the intake.
+
+        Returns the intake result (``{"action", "state", ...}``); when the
+        conversation has no running turn the message is queued instead of
+        steered, and when the flag is off it is refused loudly.
+        """
+
+        if not turn_queue_enabled():
+            return {
+                "status": "failed",
+                "error": {"code": "FEATURE_DISABLED", "flag": TURN_QUEUE_FLAG},
+                "action": "reject",
+                "state": STATE_UNCONFIRMED,
+            }
+        return self.intake(
+            conversation_ref=conversation_ref,
+            text=text,
+            kind="direct",
+            external_id=external_id,
+        )
+
     def mark_finished(self, conversation_ref: str) -> None:
         self._running.pop(conversation_ref, None)
         self._queues.pop(conversation_ref, None)

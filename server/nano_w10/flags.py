@@ -24,6 +24,7 @@ flag                             default   guards
 ``VEYA_CHANNEL_LADDER``          off       addendum V channel ladder order
 ``VEYA_PERSISTENT_WORKERS``      off       addendum W1 persistent workers
 ``VEYA_LOOP_MODE``               off       addendum W3 loop mode
+``VEYA_LIVE_STREAM``             **on**    addendum W4 live stream + correction
 ``VEYA_TOOL_ERROR_FRIENDLY``     **on**    item 7a agent-friendly errors
 ``VEYA_LLM_TAP``                 **on**    addendum U logging pass-through
 ``VEYA_SEARCH_FALLBACK``         **on**    addendum T search fallback
@@ -64,6 +65,7 @@ ALL_FLAGS: dict[str, bool] = {
     "VEYA_CHANNEL_LADDER": False,
     "VEYA_PERSISTENT_WORKERS": False,
     "VEYA_LOOP_MODE": False,
+    "VEYA_LIVE_STREAM": True,
     "VEYA_TOOL_ERROR_FRIENDLY": True,
     "VEYA_LLM_TAP": True,
     "VEYA_SEARCH_FALLBACK": True,
