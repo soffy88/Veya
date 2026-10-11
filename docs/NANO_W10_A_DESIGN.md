@@ -1,8 +1,14 @@
-# NANO-W10 Design — Always-on agent ergonomics
+# NANO-W10 Design — Always-on agent ergonomics (group A: turn runtime core)
 
 > Written first, before implementation, per `NANO_W10_SPEC.md` HARD RULES
 > ("Finish: write docs/NANO_Wn_DESIGN.md first, then code+tests, then commit
 > NANO_Wn_REPORT.md").
+>
+> **This document is scoped to `W10_GROUP_A.md`**: spec item 1 (turn queue),
+> item 2 (wake router), and addendum W3 (Goal vs Loop), W4 (live stream + plan
+> list + correction box), W5 (finish checkpoint card). Other workers own the
+> remaining items in parallel; their sections below are the agreed contract,
+> not this group's work.
 >
 > **Clean-room statement.** `NANO_W10_SPEC.md` line 1 names one upstream: a
 > public CS146S lecture (Lee Robinson, Oct 2026, "Grok Bot"). It is a *talk*, not a
@@ -20,7 +26,7 @@
 > | `totec448-spec/chat-on-steroids` | MIT | Design borrowed (persistent workers, goal/loop). Its ChatGPT web-UI automation/recording is explicitly **out of scope** (provider-terms risk). |
 >
 > GPL source is never consulted. Apache/MIT borrowing is design-level and is
-> recorded in `THIRD_PARTY_NOTICES.md`.
+> recorded in `THIRD_PARTY_NOTICES.md` (append-only).
 
 ---
 
@@ -44,30 +50,25 @@ From `3O_RECONCILIATION.md` "OBSOLETE" and `AGENTS.md` "🧊 冻结架构":
 
 ---
 
-## 2. Element → layer → reason (summary; full table in the report)
+## 2. Element → layer → reason (group A)
 
 | # | Element | Layer | One-line reason |
 |---|---------|-------|-----------------|
-| 1 | `turn_priority`, `classify_inbound`, `coalesce_window`, `steer_decision` | **oskill (pure)** | Ordering/coalescing rules over envelopes — deterministic, no IO, no `user_id`. |
+| 1 | `turn_envelope`: `idem_key`, `envelope_fingerprint` | **oprim** | One atomic digest each. They call `obase.canonical_json`/`sha256_hash` directly — importing another oprim is a gate violation. |
+| 1 | `turn_priority`: `classify_inbound`, `envelope_priority`, `order_queue`, `steer_decision`, `coalesce_window` | **oskill (pure)** | Ordering/coalescing/steer rules over envelopes — deterministic, no IO, no `user_id`. |
 | 1 | `turn_intake` | **omodul** | A business transaction (envelope → action) with the standard `(config, input_data, output_dir) → dict` contract. |
-| 2 | `worth_bugging_user`, `classify_wake` | **oskill (pure)** | The "reply now / digest / silent / emoji-ack" policy is a deterministic predicate over signals + settings. |
+| 1 | `TurnQueue`, `TurnQueue.steer` | **layer4 (`server/nano_w10`)** | In-process envelope bookkeeping in front of the existing turn path, exactly like `async_turns._pending`. Not a store. |
+| 2 | `worth_bugging_user`, `classify_wake`, `is_quiet_hours` | **oskill (pure)** | The "reply now / digest / silent / emoji-ack" policy is a deterministic predicate over signals + settings. |
 | 2 | `wake_router` | **omodul** | Dedupe + classify + dispatch is a transaction; the engine assembly stays layer4. |
-| 3 | `command_review`, `parse_review_verdict`, `human_only_category` | **oskill (pure)** | Prompt build + verdict parse + the human-only category rule are pure transforms. |
-| 3 | `auto_review` | **omodul** | One review call + verdict application, metered and trailed. |
-| 4 | `prompt_sections`, `cache_prefix_report` | **oskill (pure)** | Fixed-order hashed section assembly and prefix-divergence arithmetic are pure. |
-| 4 | `prompt_cache` | **omodul** | Records cached/uncached tokens into the existing usage events. |
-| M | `steward_decide`, `parse_steward_decision`, `token_budget_lines` | **oskill (pure)** | CHECKPOINT/HANDOFF choice + check lines are pure. |
-| M | `context_steward` | **omodul** | One small model call, metered (cost) + trailed. |
-| 5/O | `memory_entry_format`, `scratch_gc_plan`, `garden_trims`, `memory_search_hits` | **oskill (pure)** | Entry format, TTL GC, trim proposals and grep hits are pure transforms over lines. |
-| 6/R | `observation_ladder`, `dom_to_markdown`, `select_observation` | **oskill (pure)** | The ladder decision and the DOM→Markdown projection are pure. |
-| 6/R | `A11ySnapshotter`, `DomReaderProbe` | **obase** | Playwright / AT-SPI / DOM extraction is external-world adapter work = obase's charter. |
-| 7a | `friendly_error`, `audit_tool_errors` | **oskill (pure)** | Error shaping is a pure function; the registry sweep is layer4. |
-| 7b | `eval_case_from_failure` | **oskill (pure)** | Failure → EvalCase projection is pure; the GoalRun read + CLI are layer4. |
-| T | `search_backend_order`, `format_search_hit` | **oskill (pure)** | Backend ordering is policy; probing/fetching is obase. |
-| V | `channel_ladder_order`, `probe_result_to_status` | **oskill (pure)** | Per-channel ordered backends + status projection are pure. |
-| W1-5 | `loop_policy`, `checkpoint_card`, `worker_summary` | **oskill (pure)** | Budget/stop predicates and card rendering are pure. |
+| 2 | `WakeRouter`, `build_triage_engine` | **layer4** | Assembles the **existing** `oservi.triage(on_signal)` skeleton via `ServiceManifest`; no new engine. |
+| W3 | `loop_policy`: `parse_loop_brief`, `loop_decision`, `checkpoint_card` | **oskill (pure)** | Budget/stop predicates and card rendering are pure. Reuses the caller's existing no-progress verdict rather than re-implementing it. |
 | W3 | `loop_run` | **omodul** | GoalRun *policy* (not a scheduler) is a business transaction. |
-| all | flags, REST, CLI, UI, probes, stores | **layer4 (`server/`, `scripts/`, `apps/web`)** | Routes/auth/UI/CLI are the project service layer; stores are project-owned and injected downward. |
+| W3/W5 | `LoopRunPolicy`, `finish_card` | **layer4** | Reads the existing GoalRun projection; posts through the existing conversation sink. |
+| W4 | `live_trace`: `step_from_tool_event`, `plan_rows`, `correction_action` | **oskill (pure)** | Projections over already-emitted stream events; `correction_action` reuses item 1's steer vocabulary. |
+| W4 | `live_trace` (omodul) | **omodul** | Projects the existing `fire_step` stream and lands a correction; no second stream or event store. |
+| W4 | `LiveStream`, `wire_to_turn_queue` | **layer4** | Binds the omodul to the existing `on_step` callback and the item-1 queue. |
+| W4 | `POST /api/v1/bots/{bot_id}/corrections` | **layer4 (route)** | Thin; `require_user` + `_require_bot(owner_id=...)`; delegates to `TurnQueue.steer`. |
+| — | other spec items (3–7, M–V) | other groups | Not this group's scope. Contract only. |
 
 ---
 
@@ -215,9 +216,16 @@ instructions (firewall provenance).
   each worker's summary + open items (reuses the W2 fork/handoff brief).
 * **W3**: `Loop` is a GoalRun **policy** — budget of turns/time, a checkpoint per
   round, stop on budget / user stop / no progress for 2 rounds. Not a scheduler.
+  `Goal` mode is a no-op path, so turning the flag on cannot change a Goal run.
 * **W4**: live tool-result stream from the existing `server/events.py` stream +
-  a per-task plan list + a correction box that lands via the item-1 steer.
-* **W5**: a "what changed / tests run / open risks" finish card before done.
+  a per-task plan list + a correction box that lands via the item-1 steer. The
+  tool **result** is a first-class step (not reconstructed by the client), the
+  plan is derived from the existing `plan_update` todos rather than stored, and
+  the correction box is literally item 1's `TurnQueue.steer` — there is no
+  second control channel. New route `POST /api/v1/bots/{bot_id}/corrections`
+  requires auth and bot ownership.
+* **W5**: a "what changed / tests run / open risks" finish card before done,
+  rendered by the same `checkpoint_card` element the loop checkpoints use.
 
 ---
 
@@ -239,6 +247,7 @@ instructions (firewall provenance).
 | `VEYA_CHANNEL_LADDER` | off | addendum V channel ladder |
 | `VEYA_PERSISTENT_WORKERS` | off | addendum W1 persistent workers |
 | `VEYA_LOOP_MODE` | off | addendum W3 loop mode |
+| `VEYA_LIVE_STREAM` | **on** | addendum W4 live stream (spec: "live stream UI may be on") |
 | item 7a tool-error shape | **on** | spec: "Flags default OFF except 7a" |
 | usage page / search fallback / `llm_tap` / channel status+doctor | **on** | read-only surfaces the addendum allows |
 
