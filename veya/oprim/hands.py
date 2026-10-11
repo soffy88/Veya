@@ -10,11 +10,13 @@ Flag: VEYA_HANDS (default OFF). Capability detection at import time.
 
 from __future__ import annotations
 
+import base64
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -48,15 +50,25 @@ _HAS_WMCTRL = shutil.which("wmctrl") is not None
 _HAS_MSS = False
 _HAS_PYNPUT = False
 
+# Module-level handles, so a caller (or a test) can substitute the capture
+# backend without the oprim reaching for the import itself.  ``mss`` stays
+# ``None`` when the package is absent, which is what ``_HAS_MSS`` records.
+mss: Any = None
+pynput: Any = None
+
 # Check for python-mss and pynput (cross-platform screenshot/input)
 try:
-    import mss  # noqa: F401
+    import mss as _mss
+
+    mss = _mss
     _HAS_MSS = True
 except ImportError:
     pass
 
 try:
-    import pynput  # noqa: F401
+    import pynput as _pynput
+
+    pynput = _pynput
     _HAS_PYNPUT = True
 except ImportError:
     pass
@@ -72,25 +84,36 @@ def _check_hands_enabled() -> None:
 
 
 def _check_linux_x11() -> None:
-    """Verify we're on Linux with X11."""
+    """Verify this host is one the hands oprims can drive.
+
+    The hands backend is the X11 toolchain (xdotool/scrot), so a non-Linux
+    host is unsupported by construction.  Whether a display is actually
+    reachable is *capability*, not a hard precondition: it is reported by
+    :func:`hands_capabilities` (and checked once by the runner before it
+    advertises the capability), while each oprim reports the real failure —
+    a non-zero exit from the tool it drove.
+    """
     if _SYSTEM != "linux":
         raise HandsUnsupportedError(
             "platform",
             f"hands only implemented for Linux X11 (current: {platform.system()})"
         )
-    # Check for X11 display
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        raise HandsUnsupportedError(
-            "display",
-            "no DISPLAY or WAYLAND_DISPLAY environment variable"
-        )
 
 
-def _require_tools(operation: str, tools: list[str]) -> None:
-    """Check required tools are available."""
-    missing = [t for t in tools if not _tool_available(t)]
-    if missing:
-        raise HandsCapabilityError(operation, missing)
+def _display() -> str | None:
+    """The display this process would drive, if any."""
+    return os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+
+
+def _display_env(display: str | None) -> dict[str, str] | None:
+    """The child environment for a command aimed at ``display``.
+
+    ``None`` means "inherit": the tools then see the same DISPLAY this
+    process already has.
+    """
+    if not display:
+        return None
+    return {**os.environ, "DISPLAY": display}
 
 
 def _tool_available(name: str) -> bool:
@@ -108,7 +131,12 @@ def _tool_available(name: str) -> bool:
     return shutil.which(name) is not None
 
 
-def _run_subprocess(cmd: list[str], *, timeout: float = 10.0) -> subprocess.CompletedProcess:
+def _run_subprocess(
+    cmd: list[str],
+    *,
+    timeout: float = 10.0,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
     """Run subprocess with consistent error handling."""
     try:
         return subprocess.run(
@@ -117,6 +145,7 @@ def _run_subprocess(cmd: list[str], *, timeout: float = 10.0) -> subprocess.Comp
             text=True,
             timeout=timeout,
             check=False,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         raise HandsUnsupportedError(
@@ -132,6 +161,24 @@ def _run_subprocess(cmd: list[str], *, timeout: float = 10.0) -> subprocess.Comp
 
 # ── Oprims ──────────────────────────────────────────────────────────────
 
+def _default_capture_path() -> str:
+    """A per-process screenshot path in the system temp directory."""
+    return str(Path(tempfile.gettempdir()) / f"veya_hands_{os.getpid()}.png")
+
+
+def _read_capture(path: str) -> bytes | None:
+    """Read a captured file back, or ``None`` when it is not there."""
+    try:
+        return Path(path).read_bytes()
+    except OSError:
+        return None
+
+
+def _encode_capture(data: bytes | None) -> str | None:
+    """Base64 for a captured screenshot, so the caller needs no file access."""
+    return base64.b64encode(data).decode("ascii") if data else None
+
+
 def hands_screenshot(
     *,
     output_path: str | None = None,
@@ -140,46 +187,58 @@ def hands_screenshot(
     """
     Take a screenshot of the primary display.
 
+    Prefers python-mss (works on Wayland too) and falls back to scrot.  The
+    base64 payload is returned alongside the path so a caller that has to show
+    the frame to a model never has to read the file itself.
+
     Args:
         output_path: Where to save the screenshot (default: temp file)
         display: X11 display to use (default: $DISPLAY)
 
     Returns:
-        {"path": str, "width": int, "height": int, "format": "png"}
+        {"path": str, "width": int, "height": int, "format": "png",
+         "image_base64": str | None}
     """
     _check_hands_enabled()
     _check_linux_x11()
 
     # Prefer python-mss if available (works on Wayland too)
-    if _HAS_MSS:
-        import mss
-        import mss.tools
+    if _HAS_MSS and mss is not None:
+        if output_path is None:
+            output_path = _default_capture_path()
 
+        raw: bytes | None = None
         with mss.mss() as sct:
             monitor = sct.monitors[1]  # Primary monitor
-            if output_path is None:
-                import tempfile
-                output_path = str(Path(tempfile.gettempdir()) / f"veya_hands_{os.getpid()}.png")
-            sct.shot(mon=1, output=output_path)
-            return {
-                "path": output_path,
-                "width": monitor["width"],
-                "height": monitor["height"],
-                "format": "png",
-            }
+            shot = sct.shot(mon=1, output=output_path)
+            if isinstance(shot, (bytes, bytearray)):
+                raw = bytes(shot)
+        if raw is None:
+            raw = _read_capture(output_path)
+        return {
+            "path": output_path,
+            "width": monitor["width"],
+            "height": monitor["height"],
+            "format": "png",
+            "image_base64": _encode_capture(raw),
+        }
 
-    # Fallback: scrot
-    _require_tools("screenshot", ["scrot"])
+    # Fallback: scrot.  With no capture backend at all there is nothing to
+    # try, which is a missing capability rather than a failing command.
+    if not _tool_available("scrot"):
+        raise HandsCapabilityError(
+            "screenshot",
+            ["mss" if not _HAS_MSS else "scrot"],
+        )
     if output_path is None:
-        import tempfile
-        output_path = str(Path(tempfile.gettempdir()) / f"veya_hands_{os.getpid()}.png")
+        output_path = _default_capture_path()
 
     cmd = ["scrot"]
     if display:
         cmd.extend(["-d", display])
     cmd.append(output_path)
 
-    result = _run_subprocess(cmd)
+    result = _run_subprocess(cmd, env=_display_env(display))
     if result.returncode != 0:
         raise HandsUnsupportedError(
             "screenshot",
@@ -187,7 +246,9 @@ def hands_screenshot(
         )
 
     # Get dimensions via xdotool
-    dim_result = _run_subprocess(["xdotool", "getdisplaygeometry"])
+    dim_result = _run_subprocess(
+        ["xdotool", "getdisplaygeometry"], env=_display_env(display)
+    )
     width, height = 0, 0
     if dim_result.returncode == 0:
         try:
@@ -195,7 +256,13 @@ def hands_screenshot(
         except ValueError:
             pass
 
-    return {"path": output_path, "width": width, "height": height, "format": "png"}
+    return {
+        "path": output_path,
+        "width": width,
+        "height": height,
+        "format": "png",
+        "image_base64": _encode_capture(_read_capture(output_path)),
+    }
 
 
 def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
@@ -211,16 +278,14 @@ def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
     _check_hands_enabled()
     _check_linux_x11()
 
-    _require_tools("list_windows", ["xdotool", "wmctrl"])
 
-    env = os.environ.copy()
-    if display:
-        env["DISPLAY"] = display
+    env = _display_env(display)
 
     # Get window list with geometry from xdotool
     result = _run_subprocess(
         ["xdotool", "search", "--onlyvisible", "--name", ".*"],
         timeout=5.0,
+        env=env,
     )
     if result.returncode != 0:
         raise HandsUnsupportedError(
@@ -233,11 +298,13 @@ def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
 
     for wid in window_ids:
         # Get window title
-        title_result = _run_subprocess(["xdotool", "getwindowname", wid])
+        title_result = _run_subprocess(["xdotool", "getwindowname", wid], env=env)
         title = title_result.stdout.strip() if title_result.returncode == 0 else ""
 
         # Get window geometry
-        geom_result = _run_subprocess(["xdotool", "getwindowgeometry", "--shell", wid])
+        geom_result = _run_subprocess(
+            ["xdotool", "getwindowgeometry", "--shell", wid], env=env
+        )
         geometry = {"x": 0, "y": 0, "width": 0, "height": 0}
         if geom_result.returncode == 0:
             for line in geom_result.stdout.strip().splitlines():
@@ -247,7 +314,7 @@ def hands_list_windows(*, display: str | None = None) -> dict[str, Any]:
                         geometry[key.lower()] = int(value)
 
         # Get PID
-        pid_result = _run_subprocess(["xdotool", "getwindowpid", wid])
+        pid_result = _run_subprocess(["xdotool", "getwindowpid", wid], env=env)
         pid = 0
         if pid_result.returncode == 0:
             try:
@@ -287,14 +354,13 @@ def hands_click(
     _check_hands_enabled()
     _check_linux_x11()
 
-    _require_tools("click", ["xdotool"])
 
-    env = os.environ.copy()
-    if display:
-        env["DISPLAY"] = display
+    env = _display_env(display)
 
     # Move mouse and click
-    result = _run_subprocess(["xdotool", "mousemove", str(x), str(y), "click", str(button)])
+    result = _run_subprocess(
+        ["xdotool", "mousemove", str(x), str(y), "click", str(button)], env=env
+    )
     if result.returncode != 0:
         raise HandsUnsupportedError(
             "click",
@@ -324,11 +390,8 @@ def hands_type(
     _check_hands_enabled()
     _check_linux_x11()
 
-    _require_tools("type", ["xdotool"])
 
-    env = os.environ.copy()
-    if display:
-        env["DISPLAY"] = display
+    env = _display_env(display)
 
     # xdotool type doesn't support delay directly, use --delay
     cmd = ["xdotool", "type"]
@@ -336,7 +399,7 @@ def hands_type(
         cmd.extend(["--delay", str(delay_ms)])
     cmd.append(text)
 
-    result = _run_subprocess(cmd)
+    result = _run_subprocess(cmd, env=env)
     if result.returncode != 0:
         raise HandsUnsupportedError(
             "type",
@@ -364,13 +427,10 @@ def hands_key(
     _check_hands_enabled()
     _check_linux_x11()
 
-    _require_tools("key", ["xdotool"])
 
-    env = os.environ.copy()
-    if display:
-        env["DISPLAY"] = display
+    env = _display_env(display)
 
-    result = _run_subprocess(["xdotool", "key", key_sequence])
+    result = _run_subprocess(["xdotool", "key", key_sequence], env=env)
     if result.returncode != 0:
         raise HandsUnsupportedError(
             "key",
@@ -400,16 +460,13 @@ def hands_scroll(
     _check_hands_enabled()
     _check_linux_x11()
 
-    _require_tools("scroll", ["xdotool"])
 
-    env = os.environ.copy()
-    if display:
-        env["DISPLAY"] = display
+    env = _display_env(display)
 
     # xdotool uses button 4 for up, 5 for down
     button = "4" if direction == "up" else "5"
     for _ in range(amount):
-        result = _run_subprocess(["xdotool", "click", button])
+        result = _run_subprocess(["xdotool", "click", button], env=env)
         if result.returncode != 0:
             raise HandsUnsupportedError(
                 "scroll",
@@ -437,13 +494,10 @@ def hands_focus_window(
     _check_hands_enabled()
     _check_linux_x11()
 
-    _require_tools("focus_window", ["xdotool"])
 
-    env = os.environ.copy()
-    if display:
-        env["DISPLAY"] = display
+    env = _display_env(display)
 
-    result = _run_subprocess(["xdotool", "windowactivate", window_id])
+    result = _run_subprocess(["xdotool", "windowactivate", window_id], env=env)
     if result.returncode != 0:
         raise HandsUnsupportedError(
             "focus_window",
@@ -457,13 +511,26 @@ def hands_capabilities() -> dict[str, Any]:
     """
     Return the available hands capabilities on this system.
 
-    Returns:
-        Dict with supported operations and available tools.
+    ``usable`` is the preflight a runner (or a route) checks before it
+    advertises the capability: the flag on, a Linux host, a display to drive,
+    and at least one capture/input backend installed.
     """
+    enabled = os.environ.get("VEYA_HANDS", "").strip().lower() in ("1", "true", "yes", "on")
+    display = _display()
+    operations = {
+        "screenshot": _HAS_MSS or _HAS_SCROT,
+        "list_windows": _HAS_XDOTOOL and _HAS_WMCTRL,
+        "click": _HAS_XDOTOOL,
+        "type": _HAS_XDOTOOL,
+        "key": _HAS_XDOTOOL,
+        "scroll": _HAS_XDOTOOL,
+        "focus_window": _HAS_XDOTOOL,
+    }
     return {
-        "enabled": os.environ.get("VEYA_HANDS", "").strip().lower() in ("1", "true", "yes", "on"),
+        "enabled": enabled,
         "platform": _SYSTEM,
-        "display": os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"),
+        "display": display,
+        "supported_platform": _SYSTEM == "linux",
         "tools": {
             "xdotool": _HAS_XDOTOOL,
             "scrot": _HAS_SCROT,
@@ -471,15 +538,13 @@ def hands_capabilities() -> dict[str, Any]:
             "mss": _HAS_MSS,
             "pynput": _HAS_PYNPUT,
         },
-        "operations": {
-            "screenshot": _HAS_MSS or _HAS_SCROT,
-            "list_windows": _HAS_XDOTOOL and _HAS_WMCTRL,
-            "click": _HAS_XDOTOOL,
-            "type": _HAS_XDOTOOL,
-            "key": _HAS_XDOTOOL,
-            "scroll": _HAS_XDOTOOL,
-            "focus_window": _HAS_XDOTOOL,
-        },
+        "operations": operations,
+        "usable": bool(
+            enabled
+            and _SYSTEM == "linux"
+            and display
+            and any(operations.values())
+        ),
     }
 
 

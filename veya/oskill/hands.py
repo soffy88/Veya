@@ -2,21 +2,24 @@
 Hands oskill — composite skills for desktop automation (VEYA_HANDS).
 
 Combines hands oprims into reusable skills:
-- hands_approval_gate: checks approval + records action log + screenshot
 - hands_operator_loop_step: screenshot → VLM → action selection
+- hands_approval_gate: checks approval + records the action log
 
-Pure logic, no IO/persistence, LLM via injected LLMCaller protocol.
+Pure logic: no IO and no persistence.  Every physical effect (capture, click,
+type, key, scroll, focus) is a ``veya.oprim.hands`` oprim reached through the
+module object, and the LLM is an injected ``LLMCaller``.  The screenshot's
+pixels arrive as base64 on the oprim's result, so this layer never opens a file.
 """
 
 from __future__ import annotations
 
-import base64
-import os
+import inspect
+import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Protocol
 
 from veya.obase.errors import VeyaError
+from veya.oprim import hands as hands_oprim
 
 
 class HandsOskillError(VeyaError):
@@ -40,15 +43,35 @@ class LLMCaller(Protocol):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         max_tokens: int = 4096,
-    ) -> dict[str, Any]: ...
+    ) -> Any: ...
 
 
-def _encode_image_base64(image_path: str) -> str:
-    """Encode image file as base64 data URI."""
-    with open(image_path, "rb") as f:
-        data = f.read()
-    b64 = base64.b64encode(data).decode("ascii")
-    return f"data:image/png;base64,{b64}"
+def _screenshot_message(shot: dict[str, Any]) -> list[dict[str, Any]]:
+    """Turn an oprim screenshot result into one multimodal message.
+
+    The base64 payload is already on the oprim result, so this is string
+    assembly only.  A capture that produced no payload still reports what is
+    known rather than sending a broken image reference.
+    """
+    payload = shot.get("image_base64")
+    if not payload:
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"Current screen: {shot.get('width')}x{shot.get('height')} "
+                    f"(no image payload available for {shot.get('path')})"
+                ),
+            }
+        ]
+    image_format = str(shot.get("format") or "png")
+    return [
+        {"type": "text", "text": "Current screen:"},
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/{image_format};base64,{payload}"},
+        },
+    ]
 
 
 def _build_hands_tools() -> list[dict[str, Any]]:
@@ -177,7 +200,7 @@ async def hands_operator_loop_step(
     One step of the hands operator loop: screenshot → VLM → action.
 
     Args:
-        llm: Injected LLM/VLM caller
+        llm: Injected LLM/VLM caller (sync or async)
         objective: High-level task description
         previous_actions: History of actions taken so far
         screenshot_path: Optional pre-captured screenshot path
@@ -186,15 +209,12 @@ async def hands_operator_loop_step(
     Returns:
         HandsAction with the selected action and parameters.
     """
-    from veya.oprim import hands_screenshot, hands_list_windows
-
-    # Capture screenshot if not provided
+    # Capture screenshot if not provided.  The oprim carries the pixels with
+    # the path, so nothing below touches the filesystem.
     if screenshot_path is None:
-        shot_result = hands_screenshot()
-        screenshot_path = shot_result["path"]
-
-    # Encode screenshot for VLM
-    image_b64 = _encode_image_base64(screenshot_path)
+        shot = hands_oprim.hands_screenshot()
+    else:
+        shot = hands_oprim.hands_screenshot(output_path=screenshot_path)
 
     # Build message history
     messages = [
@@ -213,14 +233,8 @@ async def hands_operator_loop_step(
             "content": f"Previous actions:\n{history}",
         })
 
-    # Current screenshot
-    messages.append({
-        "role": "user",
-        "content": [
-            {"type": "text", "text": "Current screen:"},
-            {"type": "image_url", "image_url": {"url": image_b64}},
-        ],
-    })
+    # Current screen
+    messages.append({"role": "user", "content": _screenshot_message(shot)})
 
     # Call VLM
     response = llm(
@@ -228,20 +242,22 @@ async def hands_operator_loop_step(
         tools=_build_hands_tools(),
         max_tokens=max_tokens,
     )
+    if inspect.isawaitable(response):
+        response = await response
 
     # Parse tool call
-    tool_calls = response.get("choices", [{}])[0].get("message", {}).get("tool_calls", [])
+    message = (response.get("choices") or [{}])[0].get("message", {})
+    tool_calls = message.get("tool_calls") or []
     if not tool_calls:
         # No tool call, treat as done
         return HandsAction(
             action="done",
             params={},
-            reasoning=response.get("choices", [{}])[0].get("message", {}).get("content", "No tool call returned"),
+            reasoning=message.get("content") or "No tool call returned",
         )
 
     tool_call = tool_calls[0]
     func_name = tool_call["function"]["name"]
-    import json
     func_args = json.loads(tool_call["function"]["arguments"])
 
     return HandsAction(
@@ -264,7 +280,7 @@ async def hands_approval_gate(
     Run a hands action through the approval gate.
 
     Uses the existing ActionGatewayAdapter (W6) for approval.
-    Records action log + screenshot as GoalRun artifacts.
+    Records the action log + screenshot as GoalRun artifacts.
 
     Args:
         action: The action to execute
@@ -277,17 +293,22 @@ async def hands_approval_gate(
     Returns:
         Result dict with approval decision and execution result.
     """
-    from veya.oprim import (
-        hands_click, hands_type, hands_key, hands_scroll, hands_focus_window, hands_screenshot
-    )
+    params = action.params
 
-    # Map action to oprim
-    action_map = {
-        "click": lambda: hands_click(action.params["x"], action.params["y"], button=action.params.get("button", 1)),
-        "type": lambda: hands_type(action.params["text"], delay_ms=action.params.get("delay_ms", 0)),
-        "key": lambda: hands_key(action.params["key_sequence"]),
-        "scroll": lambda: hands_scroll(direction=action.params.get("direction", "down"), amount=action.params.get("amount", 3)),
-        "focus_window": lambda: hands_focus_window(action.params["window_id"]),
+    # Map action to oprim.  Resolved on the module at call time so the physical
+    # effect is always the current oprim, never a stale re-export.
+    action_map: dict[str, Any] = {
+        "click": lambda: hands_oprim.hands_click(
+            params["x"], params["y"], button=params.get("button", 1)
+        ),
+        "type": lambda: hands_oprim.hands_type(
+            params["text"], delay_ms=params.get("delay_ms", 0)
+        ),
+        "key": lambda: hands_oprim.hands_key(params["key_sequence"]),
+        "scroll": lambda: hands_oprim.hands_scroll(
+            direction=params.get("direction", "down"), amount=params.get("amount", 3)
+        ),
+        "focus_window": lambda: hands_oprim.hands_focus_window(params["window_id"]),
     }
 
     if action.action not in action_map:
@@ -300,18 +321,18 @@ async def hands_approval_gate(
     # Build approval request
     approval_request = {
         "action": f"hands.{action.action}",
-        "arguments": action.params,
+        "arguments": dict(params),
         "reasoning": action.reasoning,
         "goal_run_id": goal_run_id,
         "bot_id": bot_id,
     }
 
-    # Check approval
-    approved = True
-    reason = "auto-approved (no resolver)"
+    # Check approval.  No resolver means no approver answered, which is not
+    # permission: the gate refuses rather than assuming consent.
+    approved = False
+    reason = "approval required (no resolver bound)"
 
     if approval_resolver is not None:
-        import inspect
         result = approval_resolver(approval_request)
         if inspect.isawaitable(result):
             result = await result
@@ -327,24 +348,22 @@ async def hands_approval_gate(
 
     # Execute the action
     try:
-        result = action_map[action.action]()
+        exec_result = action_map[action.action]()
         executed = True
-        exec_result = result
     except Exception as exc:
         executed = False
         exec_result = {"error": str(exc)}
 
     # Capture post-action screenshot for audit
     try:
-        post_shot = hands_screenshot()
-        screenshot_path = post_shot["path"]
+        screenshot_path = hands_oprim.hands_screenshot()["path"]
     except Exception:
         screenshot_path = None
 
     # Record in audit log
     audit_record = {
         "action": f"hands.{action.action}",
-        "arguments": action.params,
+        "arguments": dict(params),
         "reasoning": action.reasoning,
         "approved": approved,
         "executed": executed,
@@ -355,7 +374,6 @@ async def hands_approval_gate(
     }
 
     if audit_writer is not None:
-        import inspect
         result = audit_writer(audit_record)
         if inspect.isawaitable(result):
             await result
@@ -375,7 +393,7 @@ async def hands_approval_gate(
                 bot_id=bot_id,
             )
         except Exception:
-            pass  # Non-fatal
+            pass  # Non-fatal: the audit record above is already written
 
     return {
         "approved": approved,
