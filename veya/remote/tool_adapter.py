@@ -2366,14 +2366,25 @@ class RemoteToolAdapter:
 
         normalized = dict(args)
         workspace_path = normalized.pop("workspace_path", None)
-        if workspace_path is not None:
+        if workspace_path is not None and str(workspace_path).strip():
+            # LOCAL2-U4: agents use ``workspace_path`` for two things -- the
+            # repository (absolute, or relative to a parent ``workspace``) and,
+            # for command tools, the working directory.  Accept both instead of
+            # failing the call.
+            selector = str(workspace_path).strip()
             existing_path = normalized.get("path")
-            if existing_path is not None and str(existing_path) != str(workspace_path):
-                raise RemoteToolAdapterError(
-                    RemoteErrorCode.INVALID_ARGUMENT,
-                    "path and workspace_path select different targets",
-                )
-            normalized["path"] = workspace_path
+            workspace_arg = normalized.get("workspace")
+            if Path(selector).is_absolute() and not workspace_arg:
+                normalized["workspace"] = selector
+            elif Path(selector).is_absolute() and str(workspace_arg) != selector:
+                normalized["workspace"] = selector
+            elif workspace_arg and (
+                name not in _COMMAND_TOOLS
+                or (existing_path is not None and str(existing_path) != selector)
+            ):
+                normalized["workspace"] = str(Path(str(workspace_arg)) / selector)
+            elif existing_path is None:
+                normalized["path"] = selector
 
         if name not in _COMMAND_TOOLS or normalized.get("path") or not normalized.get("command"):
             return normalized

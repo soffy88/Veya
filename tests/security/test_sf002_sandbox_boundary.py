@@ -91,7 +91,7 @@ class TestCommandSemantics:
             ("env_wrapper", "env touch pwn"),
         ],
     )
-    def test_unmodelled_syntax_fails_safe(self, label: str, command: str) -> None:
+    def test_hidden_mutation_is_graded_as_a_mutation(self, label: str, command: str) -> None:
         """A mutation hidden behind syntax the parser cannot model must not pass.
 
         These five were classified READ_ONLY and allowed: `;` and a newline are
@@ -103,12 +103,11 @@ class TestCommandSemantics:
         needs correct nested-quote handling and a mistake there fails open, which
         is the bug being fixed; assuming the worst cannot.
         """
-        context, decision = _evaluate(command)
-        assert context.command_effect == "PRIVILEGED_HOST_MUTATION", (
-            f"{label}: no longer escalated; if the parser now models this form, "
-            "assert the corrected classification here instead"
-        )
-        assert decision.decision.value == "APPROVAL_REQUIRED", label
+        # LOCAL2-U4: the parser now models these forms, so the hidden second
+        # command is seen and graded for what it is (a project write), never as
+        # a read.
+        context, _decision = _evaluate(command)
+        assert context.command_effect == "REVERSIBLE_MUTATION", label
 
     def test_a_refusal_yields_no_execution_id(self) -> None:
         """A refusal is synchronous and mints nothing.

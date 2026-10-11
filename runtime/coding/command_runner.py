@@ -48,6 +48,10 @@ def _has_shell_operators(command: str) -> bool:
     # Backtick command substitution requires a shell
     if "`" in command:
         return True
+    # LOCAL2-U4: a multi-line command (several commands, or a heredoc) is
+    # shell text; splitting it on whitespace would run one mangled command.
+    if "\n" in command.strip():
+        return True
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
         lexer.whitespace_split = True
@@ -103,7 +107,13 @@ def parse_command(command: str | Sequence[str]) -> list[str]:
         unwrapped = _unwrap_shell_c(argv)
         if unwrapped is not None:
             return ["/bin/bash", "-lc", unwrapped]
-        raise CommandPolicyError("shell interpreters are not allowed by coding_run_command")
+        # LOCAL2-U4: other non-interactive shell forms (``zsh -c ...``,
+        # ``bash -e -c ...``, ``bash script.sh args``) run as given; the
+        # permission engine grades what they run.  Only a bare interactive
+        # shell, which would wait on stdin, is refused.
+        if len(argv) > 1 and any(not item.startswith("-") for item in argv[1:]):
+            return argv
+        raise CommandPolicyError("interactive shells are not allowed by coding_run_command")
     return argv
 
 

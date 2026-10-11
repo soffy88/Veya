@@ -312,7 +312,78 @@ def _scope(context: OperationContext) -> Scope:
 # protected-path boundaries") for the read path: extraction happens in the
 # parser for every read, but only these names gate. Everything else readable
 # (passwd, hostname, proc, project files) keeps its existing verdict.
-_SENSITIVE_READ_BASENAMES = frozenset({"shadow", "gshadow", "sudoers", "credentials"})
+_SENSITIVE_READ_BASENAMES = frozenset(
+    {"shadow", "gshadow", "sudoers", "credentials", "remote_mcp_auth_header", ".git-credentials"}
+)
+
+# LOCAL2-U4: read-only inspection outside the session workspace (sibling
+# projects, /tmp, the user's home) is ordinary agent work and is allowed, but
+# only when no target is a secret.  The list is wider than the in-workspace one
+# because these paths are not the project's own files.
+_WIDE_READ_ROOTS = tuple(
+    Path(item) for item in ("/data", "/tmp", "/var/tmp", "/srv", "/mnt", "/media")
+)
+_WIDE_READ_SECRET_DIRS = (
+    ".ssh",
+    ".gnupg",
+    ".aws",
+    ".azure",
+    ".kube",
+    ".docker",
+    ".password-store",
+    ".config/gcloud",
+    ".local/share/keyrings",
+    ".mozilla",
+    ".config/google-chrome",
+    ".config/chromium",
+)
+_WIDE_READ_SECRET_NAMES = frozenset(
+    {".netrc", ".pgpass", ".git-credentials", "auth.json", "credentials.json", ".npmrc", ".pypirc"}
+)
+_WIDE_READ_SECRET_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".kdbx", ".keystore")
+
+
+def _is_wide_read_secret(path: Path) -> bool:
+    if _is_sensitive_read_target(path):
+        return True
+    name = path.name
+    if name in _WIDE_READ_SECRET_NAMES or name.endswith(_WIDE_READ_SECRET_SUFFIXES):
+        return True
+    if name == ".env" or name.startswith(".env.") or "token" in name.lower():
+        return True
+    if name.startswith("id_") and not name.endswith(".pub"):
+        return True
+    home = Path.home().expanduser()
+    return any(_under(path, (home / item,)) for item in _WIDE_READ_SECRET_DIRS)
+
+
+def _is_wide_read(context: "OperationContext") -> bool:
+    """A pure read whose every target is a non-secret path under a wide root."""
+    try:
+        effect = CommandEffect(str(context.command_effect))
+    except ValueError:
+        return False
+    if effect not in {CommandEffect.READ_ONLY, CommandEffect.NONE}:
+        return False
+    if context.filesystem_effect not in {"read", "none"}:
+        return False
+    if context.process_effect not in {"none", "inspect"}:
+        return False
+    if context.remote_effect != "none" or context.service_effect not in {"none"}:
+        return False
+    if not context.target_paths or context.tool != "shell.exec":
+        return False
+    roots = (*_WIDE_READ_ROOTS, Path.home().expanduser())
+    for raw in context.target_paths:
+        try:
+            path = Path(os.path.normpath(str(raw.expanduser())))
+            resolved = _canonical(path)
+        except (OSError, ValueError):
+            return False
+        for candidate in (path, resolved):
+            if not _under(candidate, roots) or _is_wide_read_secret(candidate):
+                return False
+    return True
 _SENSITIVE_READ_SUFFIXES = (".pem",)
 
 
@@ -659,9 +730,14 @@ def _positional_targets(argv: Sequence[str], *, skip_options: bool = True) -> li
 # redirect at all.  Both were ALLOW.  So a composed line is split and every
 # segment, plus every redirection target, is classified and then merged with the
 # most restrictive result winning.
-_SHELL_CONTROL_TOKENS = frozenset({"|", "||", "&&", ";", "&", "\n"})
-_REDIRECT_TOKENS = (">>", ">&", "<&", ">|", ">", "<")
-_REDIRECT_FD_PREFIX = re.compile(r"^\d*>")
+_SHELL_CONTROL_TOKENS = frozenset({"|", "||", "&&", ";", "&", "\n", "|&", ";;", ";&"})
+_REDIRECT_TOKENS = ("&>>", "&>", ">>", ">&", "<&", ">|", "<<<", "<<", ">", "<")
+_INPUT_REDIRECTS = frozenset({"<", "<&", "<<", "<<<"})
+_REDIRECT_FD_PREFIX = re.compile(r"^\d+(?=[<>])")
+# Output sinks that are not files the command mutates.  ``2>/dev/null`` used to
+# record /dev/null as a host write target and gate an ordinary read.
+_NON_FILE_SINKS = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "-"})
+_FD_DUP_TARGET = re.compile(r"^&?\d*-?$")
 
 # Most restrictive first.  Merging walks this order and keeps the first hit.
 _EFFECT_SEVERITY = (
@@ -676,34 +752,67 @@ _EFFECT_SEVERITY = (
 
 
 def _split_composed(argv: Sequence[str]) -> tuple[list[list[str]], list[str]]:
-    """Split a command line into program segments plus redirection targets."""
+    """Split a command line into program segments plus *write* redirection targets.
+
+    Input redirections (``<``, ``<<``, ``<<<``) and descriptor duplication
+    (``2>&1``) touch no file the command could mutate, and output into
+    ``/dev/null`` is not a write either; none of them is recorded as a target.
+    """
     segments: list[list[str]] = [[]]
     redirects: list[str] = []
     # A redirect operator either carries its target inline (`>/etc/x`) or takes
     # the next token as the target (`> /etc/x`).  Both forms must record a
     # target, or `echo hi > /etc/x` silently loses the only path it touches.
-    pending_redirect = False
-    for token in (str(item) for item in argv):
+    pending: str | None = None
+    tokens = [str(item) for item in argv]
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        # shlex splits `2>&1` into `2>`, `&`, `1` and `&>x` into `&`, `>x`;
+        # re-join them so a descriptor duplication is not read as a background
+        # separator.
+        if token == "&" and pending is not None:
+            token = ">&"
+            pending = None
+            if index < len(tokens):
+                index += 1  # the duplicated descriptor
+            continue
+        if token == "&" and index < len(tokens) and tokens[index].startswith(">"):
+            tokens[index] = "&" + tokens[index]
+            continue
         if token in _SHELL_CONTROL_TOKENS:
             if segments[-1]:
                 segments.append([])
-            pending_redirect = False
+            pending = None
             continue
-        if pending_redirect:
-            redirects.append(token)
-            pending_redirect = False
+        if pending is not None:
+            if pending not in _INPUT_REDIRECTS:
+                _record_write_redirect(pending, token, redirects)
+            pending = None
             continue
-        stripped = _REDIRECT_FD_PREFIX.sub(">", token)
+        stripped = _REDIRECT_FD_PREFIX.sub("", token)
         matched = next((op for op in _REDIRECT_TOKENS if stripped.startswith(op)), None)
         if matched is not None:
             remainder = stripped[len(matched) :].strip()
             if remainder:
-                redirects.append(remainder)
+                if matched not in _INPUT_REDIRECTS:
+                    _record_write_redirect(matched, remainder, redirects)
             else:
-                pending_redirect = True
+                pending = matched
             continue
         segments[-1].append(token)
     return [segment for segment in segments if segment], redirects
+
+
+def _record_write_redirect(operator: str, target: str, redirects: list[str]) -> None:
+    if operator in {">&", "&>", "&>>"} and _FD_DUP_TARGET.match(target):
+        return
+    if _FD_DUP_TARGET.match(target) and target.startswith("&"):
+        return
+    if target in _NON_FILE_SINKS:
+        return
+    redirects.append(target)
 
 
 def _merge_effects(
@@ -792,6 +901,11 @@ def _classify_single(
             resolved.append(candidate if candidate.is_absolute() else cwd / candidate)
         return tuple(resolved)
 
+    if executable in _COMMAND_WRAPPERS:
+        wrapped = _classify_wrapper(executable, raw_argv, cwd=cwd)
+        if wrapped is not None:
+            return wrapped
+
     if executable == "sudo":
         # Canonical rule: the sudo prefix dominates. Running anything as root is
         # a privileged host operation, and the subcommand's semantics must never
@@ -876,8 +990,7 @@ def _classify_single(
         return CommandEffect.DESTRUCTIVE_MUTATION, (), "write", "none", "destructive"
 
     if executable == "find":
-        destructive_args = {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls"}
-        if any(item in destructive_args for item in words[1:]):
+        if "-delete" in words[1:]:
             return (
                 CommandEffect.DESTRUCTIVE_MUTATION,
                 _resolve(_positional_targets(raw_argv)),
@@ -885,13 +998,52 @@ def _classify_single(
                 "none",
                 "destructive",
             )
-        return (
-            CommandEffect.READ_ONLY,
-            _resolve(_positional_targets(raw_argv)),
-            "read",
-            "none",
-            "reversible",
+        # LOCAL2-U4: `find -exec CMD {} \;` is graded by what CMD does, so
+        # `find . -name '*.py' -exec grep -n foo {} +` stays a read while
+        # `find . -exec rm {} +` is still destructive.
+        exec_flags = {"-exec", "-execdir", "-ok", "-okdir"}
+        find_args: list[str] = []
+        parts: list[tuple[CommandEffect, tuple[Path, ...], str, str, str]] = []
+        index = 1
+        while index < len(raw_argv):
+            token = raw_argv[index]
+            if token.lower() in exec_flags:
+                inner: list[str] = []
+                index += 1
+                while index < len(raw_argv) and raw_argv[index] not in {";", "+"}:
+                    inner.append(raw_argv[index])
+                    index += 1
+                index += 1
+                if not inner:
+                    return CommandEffect.DESTRUCTIVE_MUTATION, (), "write", "none", "destructive"
+                parts.append(classify_command(inner, cwd=cwd))
+                continue
+            if token.lower() in {"-fls", "-fprint", "-fprint0", "-fprintf"} and index + 1 < len(
+                raw_argv
+            ):
+                parts.append(
+                    (
+                        CommandEffect.REVERSIBLE_MUTATION,
+                        _resolve([raw_argv[index + 1]]),
+                        "write",
+                        "none",
+                        "reversible",
+                    )
+                )
+                index += 2
+                continue
+            find_args.append(token)
+            index += 1
+        parts.append(
+            (
+                CommandEffect.READ_ONLY,
+                _resolve(_positional_targets([raw_argv[0], *find_args])),
+                "read",
+                "none",
+                "reversible",
+            )
         )
+        return _merge_effects(parts)
 
     if executable in _HOST_MUTATION_EXECUTABLES:
         return CommandEffect.PRIVILEGED_HOST_MUTATION, (), "write", "none", "destructive"
@@ -1088,11 +1240,16 @@ class PermissionEngine:
             if value != "none"
         )
 
-        if _escapes_workspace_by_dotdot(context):
+        wide_read = _is_wide_read(context)
+        if not wide_read and _escapes_workspace_by_dotdot(context):
             return PermissionDecision(
                 Decision.DENY, ReasonCode.DENY_PATH_TRAVERSAL, scope, effects, operation
             )
         if scope == Scope.OUTSIDE_ALLOWED_SCOPE:
+            if wide_read:
+                return PermissionDecision(
+                    Decision.ALLOW, ReasonCode.ALLOW_READ_ONLY, Scope.USER, effects, operation
+                )
             return PermissionDecision(
                 Decision.DENY, ReasonCode.DENY_SCOPE_ESCAPE, scope, effects, operation
             )
@@ -1380,6 +1537,322 @@ _COMMAND_WRAPPERS = frozenset(
     }
 )
 
+# ── shell text normalisation (LOCAL2-U4) ───────────────────────────────────
+# Remote agents batch read-only inspection into one line (`git status; git
+# diff --stat | head`) and write files with heredocs.  Those used to be graded
+# as unmodelled -> PRIVILEGED_HOST_MUTATION, so every batched read needed a
+# human.  They are now parsed: heredoc bodies are removed (they are data, not
+# commands), unquoted newlines become `;`, command substitutions are lifted out
+# and classified in their own right, and the remaining line is tokenised with
+# shell punctuation so every segment is classified and the worst one wins.
+
+_HEREDOC_START = re.compile(r"(?<!<)<<(?!<)(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_.-]*)\2")
+_SUBSTITUTION_PLACEHOLDER = "__veya_subst__"
+_MAX_SHELL_NESTING = 4
+
+
+def _strip_heredocs(text: str) -> tuple[str, list[str]] | None:
+    """Drop heredoc bodies; return the remaining text and any unquoted bodies.
+
+    An unquoted heredoc (``<<EOF``) still expands ``$(...)`` in its body, so
+    those bodies are returned for substitution scanning.  None when a heredoc is
+    never terminated.
+    """
+    if "<<" not in text:
+        return text, []
+    lines = text.split("\n")
+    out: list[str] = []
+    expanding: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        out.append(line)
+        index += 1
+        for match in _HEREDOC_START.finditer(line):
+            strip_tabs = match.group(1) == "-"
+            unquoted = match.group(2) == ""
+            delimiter = match.group(3)
+            body: list[str] = []
+            while True:
+                if index >= len(lines):
+                    return None
+                candidate = lines[index]
+                index += 1
+                if (candidate.lstrip("\t") if strip_tabs else candidate) == delimiter:
+                    break
+                body.append(candidate)
+            if unquoted:
+                expanding.append("\n".join(body))
+    return "\n".join(out), expanding
+
+
+def _lift_substitutions(text: str) -> tuple[str, list[str]] | None:
+    """Replace ``$(...)``, ``<(...)``, ``>(...)`` and backticks outside single
+    quotes with a placeholder word; return the text and the inner commands.
+
+    None when a substitution cannot be delimited (unbalanced).
+    """
+    out: list[str] = []
+    inner: list[str] = []
+    single = double = escaped = False
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if escaped:
+            escaped = False
+            out.append(char)
+            index += 1
+            continue
+        if single:
+            if char == "'":
+                single = False
+            out.append(char)
+            index += 1
+            continue
+        if char == "\\":
+            escaped = True
+            out.append(char)
+            index += 1
+            continue
+        if char == "'" and not double:
+            single = True
+            out.append(char)
+            index += 1
+            continue
+        if char == '"':
+            double = not double
+            out.append(char)
+            index += 1
+            continue
+        opener = text[index : index + 2]
+        if opener == "$(" or (not double and opener in {"<(", ">("}):
+            depth = 0
+            end = index + 1
+            quote: str | None = None
+            while end < length:
+                current = text[end]
+                if quote:
+                    if current == quote:
+                        quote = None
+                elif current in {"'", '"'}:
+                    quote = current
+                elif current == "(":
+                    depth += 1
+                elif current == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                end += 1
+            if end >= length:
+                return None
+            body = text[index + 2 : end]
+            if body.startswith("(") and body.endswith(")"):
+                body = ""  # $(( arithmetic ))
+            if body.strip():
+                inner.append(body)
+            out.append(_SUBSTITUTION_PLACEHOLDER)
+            index = end + 1
+            continue
+        if char == "`":
+            end = text.find("`", index + 1)
+            if end < 0:
+                return None
+            body = text[index + 1 : end]
+            if body.strip():
+                inner.append(body)
+            out.append(_SUBSTITUTION_PLACEHOLDER)
+            index = end + 1
+            continue
+        out.append(char)
+        index += 1
+    if single or double:
+        return None
+    return "".join(out), inner
+
+
+def _newlines_to_separators(text: str) -> str:
+    """Unquoted newlines separate commands; backslash-newline continues one."""
+    out: list[str] = []
+    single = double = escaped = False
+    for char in text:
+        if escaped:
+            escaped = False
+            if char == "\n":
+                out[-1] = " "  # drop the backslash of a line continuation
+                continue
+            out.append(char)
+            continue
+        if single:
+            if char == "'":
+                single = False
+            out.append(char)
+            continue
+        if char == "\\":
+            escaped = True
+            out.append(char)
+            continue
+        if double:
+            if char == '"':
+                double = False
+            out.append(char)
+            continue
+        if char == "'":
+            single = True
+        elif char == '"':
+            double = True
+        elif char in "\r\n":
+            out.append(" ; ")
+            continue
+        elif char == "#" and (not out or out[-1] in " \t;|&"):
+            # A comment runs to end of line; mark it so the tokenizer drops it.
+            out.append(" ")
+            out.append(char)
+            continue
+        out.append(char)
+    return "".join(out)
+
+
+def _shell_tokens(text: str) -> list[str]:
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    tokens: list[str] = []
+    skipping = False
+    for token in lexer:
+        if token in _SHELL_CONTROL_TOKENS:
+            skipping = False
+            tokens.append(token)
+            continue
+        if skipping:
+            continue
+        if token.startswith("#") and (not tokens or tokens[-1] in _SHELL_CONTROL_TOKENS):
+            skipping = True
+            continue
+        tokens.append(token)
+    return tokens
+
+
+def _prepare_shell_text(text: str) -> tuple[list[str], list[str]] | None:
+    """Tokens of the top-level line plus the substitution bodies inside it."""
+    stripped = _strip_heredocs(text)
+    if stripped is None:
+        return None
+    body_text, expanding_bodies = stripped
+    lifted = _lift_substitutions(body_text)
+    if lifted is None:
+        return None
+    line, inner = lifted
+    for heredoc_body in expanding_bodies:
+        lifted_body = _lift_substitutions(heredoc_body.replace("'", " ").replace('"', " "))
+        if lifted_body is None:
+            return None
+        inner.extend(lifted_body[1])
+    try:
+        tokens = _shell_tokens(_newlines_to_separators(line))
+    except ValueError:
+        return None
+    return tokens, inner
+
+
+def _worse_effect(
+    left: tuple[CommandEffect, tuple[Path, ...], str, str, str],
+    right: tuple[CommandEffect, tuple[Path, ...], str, str, str],
+) -> tuple[CommandEffect, tuple[Path, ...], str, str, str]:
+    return _merge_effects([left, right])
+
+
+def classify_shell_text(
+    text: str, *, cwd: Path, _depth: int = 0
+) -> tuple[tuple[str, ...], tuple[CommandEffect, tuple[Path, ...], str, str, str]] | None:
+    """Tokenise and classify raw shell text; None when it cannot be modelled."""
+    if _depth > _MAX_SHELL_NESTING:
+        return None
+    prepared = _prepare_shell_text(text)
+    if prepared is None:
+        return None
+    tokens, inner = prepared
+    result = classify_command(tokens, cwd=cwd)
+    for body in inner:
+        nested = classify_shell_text(body, cwd=cwd, _depth=_depth + 1)
+        if nested is None:
+            return None
+        result = _worse_effect(result, nested[1])
+    return tuple(tokens), result
+
+
+
+# Options that consume the following argument, per wrapper.
+_WRAPPER_VALUE_OPTIONS: dict[str, frozenset[str]] = {
+    "timeout": frozenset({"-s", "--signal", "-k", "--kill-after"}),
+    "xargs": frozenset({"-n", "-I", "-i", "-P", "-d", "-L", "-l", "-s", "-a", "-E", "-e", "--max-args", "--max-procs", "--delimiter", "--arg-file", "--replace"}),
+    "watch": frozenset({"-n", "--interval", "-d", "--differences"}),
+    "env": frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}),
+    "nohup": frozenset(),
+}
+
+
+def _classify_wrapper(
+    executable: str, raw_argv: Sequence[str], *, cwd: Path
+) -> tuple[CommandEffect, tuple[Path, ...], str, str, str] | None:
+    """Grade a wrapper by the command it runs (LOCAL2-U4).
+
+    ``sh -c TEXT`` / ``eval TEXT`` classify TEXT as shell; ``timeout``, ``env``,
+    ``nohup``, ``xargs`` and ``watch`` classify the command that follows their
+    own options.  A shell reading a script from stdin cannot be seen and stays
+    privileged; a shell running a script file is a project process.
+    """
+    args = [str(item) for item in raw_argv[1:]]
+    if executable in {"sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish"}:
+        for index, token in enumerate(args):
+            if token.startswith("-") and not token.startswith("--") and "c" in token[1:]:
+                if index + 1 >= len(args):
+                    return None
+                parsed = classify_shell_text(args[index + 1], cwd=cwd)
+                if parsed is None:
+                    return CommandEffect.PRIVILEGED_HOST_MUTATION, (), "write", "none", "destructive"
+                return parsed[1]
+        script = next((token for token in args if not token.startswith("-")), None)
+        if script is None or script == _SUBSTITUTION_PLACEHOLDER:
+            # `curl ... | bash`: the program arrives on stdin and is invisible.
+            return CommandEffect.PRIVILEGED_HOST_MUTATION, (), "write", "none", "destructive"
+        candidate = Path(script).expanduser()
+        target = candidate if candidate.is_absolute() else cwd / candidate
+        return CommandEffect.REVERSIBLE_MUTATION, (target,), "read", "none", "reversible"
+    if executable == "eval":
+        parsed = classify_shell_text(" ".join(args), cwd=cwd)
+        if parsed is None:
+            return CommandEffect.PRIVILEGED_HOST_MUTATION, (), "write", "none", "destructive"
+        return parsed[1]
+    if executable in {"ssh", "scp", "sftp"}:
+        return CommandEffect.REMOTE_MUTATION, (), "write", "network", "reversible"
+    value_options = _WRAPPER_VALUE_OPTIONS.get(executable)
+    if value_options is None:
+        return None
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "--":
+            index += 1
+            break
+        if executable == "env" and "=" in token and not token.startswith("-"):
+            index += 1
+            continue
+        if token.startswith("-"):
+            index += 2 if token in value_options else 1
+            continue
+        if executable == "timeout":
+            index += 1  # the duration
+            executable = "timeout:done"
+            continue
+        break
+    inner = args[index:]
+    if not inner:
+        if executable == "xargs":
+            return CommandEffect.READ_ONLY, (), "read", "none", "reversible"  # xargs echo
+        return CommandEffect.READ_ONLY, (), "none", "none", "reversible"
+    return classify_command(inner, cwd=cwd)
+
 
 def unmodelled_command_construct(command: str) -> str | None:
     """Name a construct this parser cannot honestly classify, or None.
@@ -1401,27 +1874,20 @@ def unmodelled_command_construct(command: str) -> str | None:
     # newline inside quotes belongs to the argument (``python3 -c "import a;
     # print(a)"``), and ``$(``/backticks inside single quotes are literal.
     # Anything the scanner cannot read (unbalanced quoting) stays unmodelled.
+    # LOCAL2-U4: `;`, newlines, heredocs and `$(...)` are parsed by
+    # classify_shell_text (every segment and every substitution body is
+    # classified, worst wins), so they are no longer unmodelled.  What stays
+    # unmodelled is text that cannot be delimited at all.
     scan = _shell_lexical_scan(text)
-    if scan is None:
+    prepared = _prepare_shell_text(text)
+    if prepared is None:
+        if scan is not None and scan["substitution"]:
+            return "command_substitution"
         return "unbalanced_quoting"
-    if scan["substitution"]:
-        return "command_substitution"
-    if scan["newline"]:
-        return "newline_separator"
-    if scan["semicolon"]:
-        # Only ";" is unmodelled. Pipes and &&/||/& are already classified:
-        # `ls | grep foo` is a read-only composition and must stay allowed, and
-        # `echo ok | touch pwn` is already REVERSIBLE_MUTATION. Escalating them
-        # here broke ordinary reads, which unit-fast did not catch.
-        return "semicolon_separator"
-    try:
-        first = shlex.split(text)[0]
-    except ValueError:
-        # Unbalanced quoting is itself unmodellable.
-        return "unbalanced_quoting"
-    if Path(first).name in _COMMAND_WRAPPERS:
-        inner = _wrapper_inner_command(text, Path(first).name)
-        return f"wrapper:{Path(first).name}" if inner is None else None
+    if not prepared[0]:
+        return None
+    first = prepared[0][0]
+    del first  # wrappers are graded per segment by _classify_wrapper
     return None
 
 
@@ -1500,11 +1966,23 @@ def parse_command_context(
     """
 
     unmodelled = unmodelled_command_construct(command) if isinstance(command, str) else None
-    argv = tuple(shlex.split(command) if isinstance(command, str) else command)
+    parsed = classify_shell_text(command, cwd=cwd) if isinstance(command, str) else None
+    if parsed is not None:
+        argv = parsed[0]
+        effect, target_paths, filesystem_effect, network_effect, reversibility = parsed[1]
+    else:
+        if isinstance(command, str):
+            try:
+                argv = tuple(shlex.split(command))
+            except ValueError:
+                argv = (command,)
+                unmodelled = unmodelled or "unbalanced_quoting"
+        else:
+            argv = tuple(command)
+        effect, target_paths, filesystem_effect, network_effect, reversibility = classify_command(
+            argv, cwd=cwd
+        )
     executable = Path(argv[0]).name if argv else ""
-    effect, target_paths, filesystem_effect, network_effect, reversibility = classify_command(
-        argv, cwd=cwd
-    )
     if unmodelled is not None:
         # Fail safe. We cannot see what is inside, so we assume the worst class
         # rather than guess a lower one: an under-estimate here is the bypass this
@@ -1520,7 +1998,12 @@ def parse_command_context(
         # already been through the caller's own tokenizer.
         inner = _wrapper_inner_command(command, executable) if isinstance(command, str) else None
         if inner:
-            inner_effect = classify_command(shlex.split(inner), cwd=cwd)[0]
+            inner_parsed = classify_shell_text(inner, cwd=cwd)
+            inner_effect = (
+                inner_parsed[1][0]
+                if inner_parsed is not None
+                else CommandEffect.PRIVILEGED_HOST_MUTATION
+            )
             if inner_effect is CommandEffect.PRIVILEGED_HOST_MUTATION:
                 effect = CommandEffect.PRIVILEGED_HOST_MUTATION
                 reversibility = "destructive"
