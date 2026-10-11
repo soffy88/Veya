@@ -6,61 +6,58 @@ Atomic operations for CLI-Hub integration: search, read skills, install, invoke.
 from __future__ import annotations
 
 import os
-import shutil
-from pathlib import Path
-from typing import Any
+import json
+from typing import Any, Callable
 
 from veya.obase.errors import VeyaError
 
 
 class CLIHubUnsupportedError(VeyaError):
     """Raised when CLI-Hub capability is not available."""
+    def __init__(self, op_name: str, reason: str):
+        super().__init__(f"CLI-Hub unsupported for {op_name}: {reason}")
 
 
-def search_cli(query: str) -> dict[str, Any]:
+def search_cli(*, query: str, http_get: Callable[[str], Any]) -> dict[str, Any]:
     """Search CLI-Hub registry for tools matching query."""
     if not os.environ.get("VEYA_CLI_HUB", "").strip().lower() in ("1", "true", "yes", "on"):
         raise CLIHubUnsupportedError("search_cli", "VEYA_CLI_HUB flag not set")
-    # Return mock results
-    return {"results": [{"name": "test-tool", "description": "A test tool"}]}
+    
+    response = http_get(f"https://hkuds.github.io/CLI-Anything/search?q={query}")
+    return response.json()
 
 
-def read_cli_skill(skill_id: str) -> dict[str, Any]:
+def read_cli_skill(*, skill_id: str, http_get: Callable[[str], Any]) -> dict[str, Any]:
     """Read a skill file from CLI-Hub registry."""
     if not os.environ.get("VEYA_CLI_HUB", "").strip().lower() in ("1", "true", "yes", "on"):
         raise CLIHubUnsupportedError("read_cli_skill", "VEYA_CLI_HUB flag not set")
-    # Return mock skill content
-    return {"content": f"# {skill_id} skill description"}
+    
+    response = http_get(f"https://hkuds.github.io/CLI-Anything/skills/{skill_id}")
+    return {"content": response.text}
 
 
-def install_cli_on_runner(package: str, version: str) -> dict[str, Any]:
+def install_cli_on_runner(*, package: str, version: str, run_cmd: Callable[[list[str]], Any]) -> dict[str, Any]:
     """Install a CLI package on the runner."""
     if not os.environ.get("VEYA_CLI_HUB", "").strip().lower() in ("1", "true", "yes", "on"):
         raise CLIHubUnsupportedError("install_cli_on_runner", "VEYA_CLI_HUB flag not set")
-    # Check if package is already installed
-    exe_name = f"{package}-{version}".replace(".", "_")
-    if shutil.which(exe_name) is not None:
-        return {"success": True, "already_installed": True}
-    # Try to install
-    install_path = Path("/opt/veya/cli") / package / version
-    install_path.parent.mkdir(parents=True, exist_ok=True)
-    return {"success": True, "already_installed": False}
+    
+    result = run_cmd(["pip", "install", f"{package}=={version}"])
+    if result.returncode == 0:
+        return {"success": True, "already_installed": False}
+    return {"success": False, "error": result.stderr}
 
 
-def invoke_cli(command: list[str], args: dict[str, Any] | None = None) -> dict[str, Any]:
+def invoke_cli(*, command: list[str], args: dict[str, Any] | None = None, run_cmd: Callable[[list[str]], Any]) -> dict[str, Any]:
     """Invoke a CLI command with optional JSON args."""
     if not os.environ.get("VEYA_CLI_HUB", "").strip().lower() in ("1", "true", "yes", "on"):
         raise CLIHubUnsupportedError("invoke_cli", "VEYA_CLI_HUB flag not set")
-    # Build the command
+    
     cmd = command[:]
     if args:
-        cmd.extend(["--args", str(args)])
-    # Try to run the command
-    result = shutil.which(cmd[0])
-    if result is not None:
-        return {"success": True, "output": f"Output from {cmd[0]}"}
-    return {"success": True, "output": '{"result": "success"}'}
+        cmd.extend(["--json", json.dumps(args)])
+    
+    result = run_cmd(cmd)
+    if result.returncode == 0:
+        return {"success": True, "output": result.stdout}
+    return {"success": False, "error": result.stderr}
 
-
-# Predefined error class
-CLIHubUnsupportedError = CLIHubUnsupportedError

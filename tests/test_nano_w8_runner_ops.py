@@ -25,7 +25,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_check(self):
         """Test runner_self_update_check oprim."""
-        from.oprim.runner_ops import runner_self_update_check
+        from veya.oprim.runner_ops import runner_self_update_check
 
         with patch(".oprim.runner_ops.httpx.Client") as mock_client:
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
@@ -42,7 +42,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_check_no_update(self):
         """Test runner_self_update_check when no update available."""
-        from.oprim.runner_ops import runner_self_update_check
+        from veya.oprim.runner_ops import runner_self_update_check
 
         with patch(".oprim.runner_ops.httpx.Client") as mock_client:
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
@@ -57,7 +57,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_download(self):
         """Test runner_self_update_download oprim."""
-        from.oprim.runner_ops import runner_self_update_download
+        from veya.oprim.runner_ops import runner_self_update_download
 
         with patch(".oprim.runner_ops.httpx.Client") as mock_client, \
              patch(".oprim.runner_ops.ed25519") as mock_ed25519:
@@ -79,7 +79,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_stage(self):
         """Test runner_self_update_stage oprim."""
-        from.oprim.runner_ops import runner_self_update_stage
+        from veya.oprim.runner_ops import runner_self_update_stage
 
         with patch(".oprim.runner_ops.shutil.unpack_archive") as mock_unpack, \
              patch(".oprim.runner_ops.Path.rename") as mock_rename:
@@ -92,7 +92,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_self_update_restart(self):
         """Test runner_self_update_restart oprim."""
-        from.oprim.runner_ops import runner_self_update_restart
+        from veya.oprim.runner_ops import runner_self_update_restart
 
         with patch(".oprim.runner_ops.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
@@ -104,7 +104,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_service_install(self):
         """Test runner_service_install oprim."""
-        from.oprim.runner_ops import runner_service_install
+        from veya.oprim.runner_ops import runner_service_install
 
         with patch(".oprim.runner_ops.Path.write_text") as mock_write:
             result = runner_service_install(
@@ -117,7 +117,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_service_uninstall(self):
         """Test runner_service_uninstall oprim."""
-        from.oprim.runner_ops import runner_service_uninstall
+        from veya.oprim.runner_ops import runner_service_uninstall
 
         with patch(".oprim.runner_ops.Path.unlink") as mock_unlink:
             result = runner_service_uninstall(user="testuser")
@@ -125,7 +125,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_service_status(self):
         """Test runner_service_status oprim."""
-        from.oprim.runner_ops import runner_service_status
+        from veya.oprim.runner_ops import runner_service_status
 
         with patch(".oprim.runner_ops.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
@@ -138,7 +138,7 @@ class TestRunnerOpsOprims:
 
     def test_runner_safe_to_restart(self):
         """Test runner_safe_to_restart oskill."""
-        from.oskill.runner_ops import runner_safe_to_restart
+        from veya.oskill.runner_ops import runner_safe_to_restart
 
         # No active turns - safe to restart
         result = runner_safe_to_restart(

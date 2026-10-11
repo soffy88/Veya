@@ -45,48 +45,38 @@ class TestCLIHubOprims:
         """Test search_cli oprim."""
         from veya.oprim.cli_hub import search_cli
 
-        with patch("veya.oprim.cli_hub.httpx.Client") as mock_client:
-            mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
-                status_code=200,
-                json=lambda: {"results": [{"name": "test-tool", "description": "A test tool"}]},
-            )
-            result = search_cli(query="test")
-            assert "results" in result
+        http_get = MagicMock()
+        http_get.return_value.json = lambda: {"results": [{"name": "test-tool", "description": "A test tool"}]}
+        result = search_cli(query="test", http_get=http_get)
+        assert "results" in result
 
     def test_read_cli_skill(self):
         """Test read_cli_skill oprim."""
         from veya.oprim.cli_hub import read_cli_skill
 
-        with patch("veya.oprim.cli_hub.httpx.Client") as mock_client:
-            mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
-                status_code=200,
-                text="# Test Skill\n\nDescription...",
-            )
-            result = read_cli_skill(skill_id="test-skill")
-            assert "content" in result
+        http_get = MagicMock()
+        http_get.return_value.text = "# Test Skill\n\nDescription..."
+        result = read_cli_skill(skill_id="test-skill", http_get=http_get)
+        assert "content" in result
 
     def test_install_cli_on_runner(self):
         """Test install_cli_on_runner oprim."""
         from veya.oprim.cli_hub import install_cli_on_runner
 
-        with patch("veya.oprim.cli_hub.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="installed", stderr="")
-            result = install_cli_on_runner(package="test-package", version="1.0.0")
-            assert result["success"] is True
+        run_cmd = MagicMock()
+        run_cmd.return_value = MagicMock(returncode=0, stdout="installed", stderr="")
+        result = install_cli_on_runner(package="test-package", version="1.0.0", run_cmd=run_cmd)
+        assert result["success"] is True
 
     def test_invoke_cli(self):
         """Test invoke_cli oprim."""
         from veya.oprim.cli_hub import invoke_cli
 
-        with patch("veya.oprim.cli_hub.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout='{"result": "success"}',
-                stderr=""
-            )
-            result = invoke_cli(command=["test-cli", "run"], args={"input": "data"})
-            assert result["success"] is True
-            assert "output" in result
+        run_cmd = MagicMock()
+        run_cmd.return_value = MagicMock(returncode=0, stdout='{"result": "success"}', stderr="")
+        result = invoke_cli(command=["test-cli", "run"], args={"input": "data"}, run_cmd=run_cmd)
+        assert result["success"] is True
+        assert "output" in result
 
     def test_cli_hub_flag_required(self):
         """Test CLI Hub oprims require VEYA_CLI_HUB flag."""
@@ -94,7 +84,7 @@ class TestCLIHubOprims:
         from veya.oprim.cli_hub import CLIHubUnsupportedError, search_cli
 
         with pytest.raises(CLIHubUnsupportedError):
-            search_cli(query="test")
+            search_cli(query="test", http_get=MagicMock())
 
 
 class TestCLIHubToolLadder:
@@ -188,7 +178,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_png_magic_bytes(self):
         """Test PNG verification via magic bytes."""
-        from.oskill.cli_hub import cli_hub_verify_output
+        from veya.oskill.cli_hub import cli_hub_verify_output
 
         # PNG magic bytes
         png_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
@@ -202,7 +192,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_zip_ooxml(self):
         """Test ZIP/OOXML verification (docx, xlsx, pptx)."""
-        from.oskill.cli_hub import cli_hub_verify_output
+        from veya.oskill.cli_hub import cli_hub_verify_output
 
         # ZIP magic bytes
         zip_content = b"PK\x03\x04\x14\x00\x00\x00\x08\x00"
@@ -215,7 +205,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_mp4(self):
         """Test MP4 verification."""
-        from.oskill.cli_hub import cli_hub_verify_output
+        from veya.oskill.cli_hub import cli_hub_verify_output
 
         # MP4 magic bytes (ftyp)
         mp4_content = b"\x00\x00\x00\x18ftypmp42"
@@ -228,7 +218,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_wav(self):
         """Test WAV verification."""
-        from.oskill.cli_hub import cli_hub_verify_output
+        from veya.oskill.cli_hub import cli_hub_verify_output
 
         # WAV magic bytes
         wav_content = b"RIFF\x00\x00\x00\x00WAVEfmt "
@@ -241,7 +231,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_non_empty(self):
         """Test non-empty file check."""
-        from.oskill.cli_hub import cli_hub_verify_output
+        from veya.oskill.cli_hub import cli_hub_verify_output
 
         result = cli_hub_verify_output(
             file_path="/tmp/test.txt",
@@ -253,7 +243,7 @@ class TestCLIHubOutputVerification:
 
     def test_verify_size_bounds(self):
         """Test file size bounds check."""
-        from.oskill.cli_hub import cli_hub_verify_output
+        from veya.oskill.cli_hub import cli_hub_verify_output
 
         # 10MB file, max 5MB
         large_content = b"x" * (10 * 1024 * 1024)
