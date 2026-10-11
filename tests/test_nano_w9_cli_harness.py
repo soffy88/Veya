@@ -209,16 +209,20 @@ class TestJsonContract:
         assert payload["status"] == "ok"
         assert payload["length"] == 0
 
-    def test_audit_verify_reports_a_broken_chain(self, cli_env, tmp_path):
+    def test_audit_verify_reports_a_broken_chain(self, cli_env, monkeypatch):
+        from server import events as events_module
         from server.nano_w9.audit_chain import stamp_event, verify_audit_chain
 
-        os.environ.update(
-            {
-                "VEYA_EVENT_STORE_PATH": cli_env["VEYA_EVENT_STORE_PATH"],
-                "VEYA_AUDIT_CHAIN": "1",
-            }
+        monkeypatch.setenv("VEYA_EVENT_STORE_PATH", cli_env["VEYA_EVENT_STORE_PATH"])
+        monkeypatch.setenv("VEYA_AUDIT_CHAIN", "1")
+        # ``event_store`` is a module-level singleton bound at import time; the
+        # env var alone would still read whatever store this process opened first.
+        monkeypatch.setattr(
+            events_module,
+            "event_store",
+            events_module.EventStore(Path(cli_env["VEYA_EVENT_STORE_PATH"])),
         )
-        try:
+        if True:
             stamp_event("git.event", {"n": 0})
             stamp_event("git.event", {"n": 1})
             path = Path(cli_env["VEYA_EVENT_STORE_PATH"])
@@ -228,9 +232,6 @@ class TestJsonContract:
             lines[0] = json.dumps(record, ensure_ascii=False)
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             assert verify_audit_chain()["status"] == "broken"
-        finally:
-            for key in ("VEYA_EVENT_STORE_PATH", "VEYA_AUDIT_CHAIN"):
-                os.environ.pop(key, None)
 
         result = run_cli("audit", "verify", "--json", env={**cli_env, "VEYA_AUDIT_CHAIN": "1"})
         assert result.returncode == 1
