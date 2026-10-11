@@ -53,9 +53,11 @@ export interface GroupView {
 	id: string;
 	name: string;
 	bot_ids: string[];
-	user_id: string;
 	rounds_per_message: number;
 	created_at: number;
+	admin_bot_id?: string | null;
+	reply_mode?: string | null;
+	notice?: string | null;
 }
 
 export interface PendingPushTask {
@@ -82,6 +84,8 @@ export interface RoutineView {
 	timezone: string;
 	enabled: boolean;
 	last_run_at?: number | null;
+	last_fired_utc?: string | null;
+	bot_id?: string;
 }
 
 export interface PushStatus {
@@ -245,6 +249,28 @@ export async function createGroup(name: string, botIds: string[]): Promise<Group
 	return data.group;
 }
 
+export interface GroupRolesPatch {
+	name?: string;
+	admin_bot_id?: string | null;
+	reply_mode?: string | null;
+	notice?: string | null;
+}
+
+/**
+ * Change a group's roles (W11 W-5). Flag-gated server-side
+ * (``VEYA_GROUP_ROLES``): a deployment without it answers 404, which the group
+ * page reads as "roles are not on this deployment".
+ */
+export async function patchGroupRoles(groupId: string, body: GroupRolesPatch): Promise<GroupView> {
+	const data = await unwrap<{ group: GroupView }>(
+		await api("gateway", `api/v1/nano-w10-c/groups/${encodeURIComponent(groupId)}/roles`, {
+			method: "PATCH",
+			body,
+		}),
+	);
+	return data.group;
+}
+
 export async function listGroupMessages(groupId: string): Promise<BotMessage[]> {
 	const data = await unwrap<{ messages: BotMessage[] }>(
 		await api("gateway", `api/v1/bots/groups/${encodeURIComponent(groupId)}/messages`, { method: "GET" }),
@@ -278,16 +304,16 @@ export async function acceptProposal(proposalId: string): Promise<void> {
 	if (!result.ok) throw new Error(detailOf(result));
 }
 
-// ── memory (sibling branch — probed, never assumed) ──────────────────────
+// ── memory (W4: the endpoints exist; the shapes are the server's) ──────────
 
 export async function listMemory(botId: string): Promise<MemoryDoc[]> {
-	const data = await unwrap<{ files?: MemoryDoc[]; docs?: MemoryDoc[]; names?: string[] }>(
+	const data = await unwrap<{ files?: string[]; names?: string[] }>(
 		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/memory`, { method: "GET" }),
 	);
-	if (Array.isArray(data.files)) return data.files;
-	if (Array.isArray(data.docs)) return data.docs;
-	// Whichever shape the sibling lands on, a name list is still usable.
-	return (data.names ?? []).map((name) => ({ name, content: "" }));
+	// The listing carries file *names*; the body of each is a separate read
+	// (getMemory), which is what keeps a long memory cheap to list.
+	const names = Array.isArray(data.files) ? data.files : (data.names ?? []);
+	return names.map((name) => ({ name: String(name), content: "" }));
 }
 
 export async function getMemory(botId: string, name: string): Promise<MemoryDoc> {
@@ -302,7 +328,7 @@ export async function putMemory(botId: string, name: string, content: string): P
 	return unwrap<MemoryDoc>(
 		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/memory/${encodeURIComponent(name)}`, {
 			method: "PUT",
-			body: { content },
+			body: { text: content },
 		}),
 	);
 }
@@ -314,16 +340,18 @@ export async function deleteMemory(botId: string, name: string): Promise<void> {
 	if (!result.ok) throw new Error(detailOf(result));
 }
 
-// ── routines (sibling branch — probed, never assumed) ────────────────────
+// ── routines (W4) ─────────────────────────────────────────────────────────
 
 export async function listRoutines(botId: string): Promise<RoutineView[]> {
-	const data = await unwrap<{ routines?: RoutineView[] }>(
+	// The collection answers with the array itself, not a wrapper object.
+	const data = await unwrap<RoutineView[] | { routines?: RoutineView[] }>(
 		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/routines`, { method: "GET" }),
 	);
-	return data.routines ?? [];
+	return Array.isArray(data) ? data : (data.routines ?? []);
 }
 
 export async function createRoutine(botId: string, body: Record<string, unknown>): Promise<RoutineView> {
+	// The create response is the stored spec itself (not wrapped in "routine").
 	return unwrap<RoutineView>(
 		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/routines`, { method: "POST", body }),
 	);
@@ -363,6 +391,32 @@ export async function featureAvailable(probe: () => Promise<unknown>): Promise<b
 	} catch {
 		return false;
 	}
+}
+
+// ── models (the create-bot picker's catalog) ──────────────────────────────
+
+export interface ModelOption {
+	id: string;
+	provider: string;
+	provider_label: string;
+	/** The model a default bot would use — what the picker preselects. */
+	default: boolean;
+}
+
+export interface ModelsResponse {
+	default_model: string | null;
+	default_provider: string | null;
+	models: ModelOption[];
+}
+
+/**
+ * Selectable models. Unlike ``/api/v1/providers`` this route is not
+ * flag-gated, so the picker works on a default deployment; it is read-only and
+ * login-gated, so a logged-out visitor gets 401 and the picker falls back to a
+ * plain model field.
+ */
+export async function listModels(): Promise<ModelsResponse> {
+	return unwrap<ModelsResponse>(await api("gateway", "api/v1/models", { method: "GET" }));
 }
 
 // ── providers (NANO-W8 VEYA_PROVIDER_REGISTRY) ────────────────────────────
@@ -511,4 +565,40 @@ export interface RunnerHealthResponse {
 
 export async function getRunnerHealth(runnerId: string): Promise<RunnerHealthResponse> {
 	return unwrap(await api("gateway", `api/v1/runners/${encodeURIComponent(runnerId)}/health`, { method: "GET" }));
+}
+
+// ── secrets (NANO-W10 C, VEYA_BOT_SECRETS) ────────────────────────────────
+
+export interface BotSecretView {
+	name: string;
+	purpose: string;
+	scope: string;
+	requesting_bot_id: string;
+	status: string;
+	created_at: number;
+	last_used_at: number;
+}
+
+/**
+ * Metadata for the secrets this bot may use — never a value (the endpoint
+ * refuses to return one, and the settings tab only ever renders this metadata).
+ * Flag-gated server-side: a deployment without ``VEYA_BOT_SECRETS`` answers
+ * 404, which the tab reads as "secrets are not on this deployment".
+ */
+export async function listBotSecrets(botId: string): Promise<BotSecretView[]> {
+	const data = await unwrap<{ secrets?: Array<Record<string, unknown>> }>(
+		await api("gateway", "api/v1/nano-w10-c/secrets", { method: "GET" }),
+	);
+	const rows = Array.isArray(data.secrets) ? data.secrets : [];
+	return rows
+		.map((row) => ({
+			name: String(row.name ?? ""),
+			purpose: String(row.purpose ?? ""),
+			scope: String(row.scope ?? "this bot"),
+			requesting_bot_id: String(row.requesting_bot_id ?? ""),
+			status: String(row.status ?? ""),
+			created_at: Number(row.created_at ?? 0),
+			last_used_at: Number(row.last_used_at ?? 0),
+		}))
+		.filter((row) => row.name && (!botId || row.scope !== "this bot" || row.requesting_bot_id === botId));
 }
