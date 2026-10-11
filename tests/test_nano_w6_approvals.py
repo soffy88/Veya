@@ -572,3 +572,17 @@ def test_flag_off_by_default(monkeypatch):
     assert approvals_mod.approval_gates_enabled() is False
     monkeypatch.setenv("VEYA_APPROVAL_GATES", "1")
     assert approvals_mod.approval_gates_enabled() is True
+
+
+async def test_rest_resolve_rejects_other_users_approval(approval_store):
+    """A signed-in user cannot answer another account's approval (404, still pending)."""
+
+    from server import approvals as approvals_mod
+
+    service = approvals_mod.configure_service(store=approval_store)
+    record = await service.request(tool="delete_file", args={}, user_id="user-1")
+    rid = record["approval_id"]
+    client = _rest_client()  # no token -> anonymous account
+    resp = client.post(f"/api/v1/approvals/{rid}/resolve", json={"decision": "once"})
+    assert resp.status_code == 404
+    assert service.get(rid)["status"] == "pending"

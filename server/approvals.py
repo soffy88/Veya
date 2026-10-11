@@ -364,8 +364,13 @@ async def resolve_approval_endpoint(
 ) -> dict[str, Any]:
     """Resolve a pending approval (guard L: human unless delegated)."""
 
+    # an approval can only be answered from the account it belongs to
+    service = get_approval_service()
+    current = service.get(approval_id)
+    if not current or str(current.get("scope") or "") != _scope_of(user):
+        raise HTTPException(status_code=404, detail="approval not found")
     principal = _principal_of_request(body)
-    result = await get_approval_service().resolve(
+    result = await service.resolve(
         approval_id=approval_id,
         decision=body.decision,
         reason=body.reason,
@@ -414,11 +419,20 @@ async def create_handoff(
     return result
 
 
+def _own_handoff_or_404(handoff_id: str, user: dict[str, Any]) -> None:
+    """A handoff can only be completed/cancelled from the account it belongs to."""
+
+    current = get_approval_service().get_handoff(handoff_id)
+    if not current or str(current.get("scope") or "") != _scope_of(user):
+        raise HTTPException(status_code=404, detail="handoff not found")
+
+
 @router.post("/handoff/{handoff_id}/done")
 async def handoff_done(
     handoff_id: str,
     user: dict = Depends(auth_mod.get_current_user),
 ) -> dict[str, Any]:
+    _own_handoff_or_404(handoff_id, user)
     return await get_approval_service().resume_handoff(handoff_id=handoff_id, done=True)
 
 
@@ -427,6 +441,7 @@ async def handoff_cancel(
     handoff_id: str,
     user: dict = Depends(auth_mod.get_current_user),
 ) -> dict[str, Any]:
+    _own_handoff_or_404(handoff_id, user)
     return await get_approval_service().resume_handoff(handoff_id=handoff_id, done=False)
 
 
