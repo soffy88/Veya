@@ -936,7 +936,7 @@ def test_token_usage_aggregates_by_range_bot_model_and_kind():
             "kind": "steward",
             "usage": {"input_tokens": 50, "cache_read_input_tokens": 50},
         },
-        {"ts": now - 400_000, "bot_id": "bot-b", "usage": {"prompt_tokens": 999}},
+        {"ts": now - 10 * 86_400, "bot_id": "bot-b", "usage": {"prompt_tokens": 999}},
     ]
     out = asyncio.run(
         token_usage(
@@ -944,7 +944,7 @@ def test_token_usage_aggregates_by_range_bot_model_and_kind():
             TokenUsageInput(range_key="7d", now=now, records=records),
         )
     )
-    assert out["totals"]["input_tokens"] == 150  # the 400k-second-old row is out of range
+    assert out["totals"]["input_tokens"] == 150  # the 10-day-old row is outside a 7d range
     assert out["totals"]["cached_input_tokens"] == 90
     assert out["by_bot"]["bot-a"]["calls"] == 2
     assert out["by_model"]["m1"]["output_tokens"] == 5

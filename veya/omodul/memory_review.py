@@ -97,11 +97,23 @@ async def _maybe_await(value: Any) -> Any:
 
 
 async def _call(injected: Callable[..., Any] | None, *args: Any, **kwargs: Any) -> Any:
+    """Call an injected best-effort helper; a broken one is skipped, not fatal."""
     if injected is None:
         return None
     with contextlib.suppress(Exception):
         return await _maybe_await(injected(*args, **kwargs))
     return None
+
+
+async def _call_model(caller: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Call the injected model.
+
+    Unlike :func:`_call` this does **not** suppress: a provider outage is a
+    reported failure, not a silent empty reply. Suppressing it would make a
+    broken model indistinguishable from a model that had nothing to say, and the
+    review would then look like it had run and found nothing to keep.
+    """
+    return await _maybe_await(caller(*args, **kwargs))
 
 
 def _reply_text(raw: Any) -> tuple[str, float]:
@@ -216,7 +228,7 @@ async def memory_review(
                 ),
             },
         ]
-        raw = await _call(config.llm_caller, prompt)
+        raw = await _call_model(config.llm_caller, prompt)
         content, cost = _reply_text(raw)
         record("review.replied", chars=len(content))
         if not content.strip():

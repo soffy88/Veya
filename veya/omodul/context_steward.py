@@ -125,16 +125,21 @@ def _write_trail(output_dir: Path | None, trail: list[dict[str, Any]]) -> str | 
 
 
 async def _reply_text(config: ContextStewardConfig, messages: list[dict[str, Any]]) -> tuple[str, float]:
-    """调用注入的 LLM，返回 ``(content, cost_usd)``；失败返回 ``("", 0.0)``。"""
+    """Call the injected LLM, returning ``(content, cost_usd)``.
+
+    A failing provider returns ``("", 0.0)`` so the caller reports "no decision"
+    and leaves the conversation untouched. The await is deliberately *outside*
+    any suppression: swallowing it would leave a never-awaited coroutine in hand
+    and turn a provider outage into a fabricated decision.
+    """
     caller = config.llm_caller
     if caller is None:
         return ("", 0.0)
-    result: Any = None
+    result: Any
     try:
         result = caller(messages)
-        with contextlib.suppress(Exception):
-            if hasattr(result, "__await__"):
-                result = await result  # type: ignore[misc]
+        if hasattr(result, "__await__"):
+            result = await result
     except Exception:
         return ("", 0.0)
     if isinstance(result, str):

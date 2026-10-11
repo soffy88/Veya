@@ -64,16 +64,28 @@ def render_snippet(snippet: str, *, anchor: str, max_chars: int = 240) -> dict[s
         anchor: the anchor for this hit.
         max_chars: maximum returned length.
 
+    ``chars`` counts the characters of the **original** snippet that this row
+    represents, not the length of the rendered string: the trailing ellipsis is a
+    rendering marker, not content, and counting it would make a row claim to
+    carry more of the transcript than it does.
+
     Returns:
         ``{"anchor", "text", "chars", "truncated"}``.
 
     Example:
         >>> render_snippet("<mark>hi</mark> there", anchor="part 1 #a")["text"]
         'hi there'
+        >>> render_snippet("x" * 500, anchor="part 1 #a", max_chars=10)["chars"]
+        10
     """
     text = str(snippet or "").replace("<mark>", "").replace("</mark>", "").strip()
     limit = max(1, int(max_chars))
     truncated = len(text) > limit
     if truncated:
         text = text[:limit].rstrip() + "…"
-    return {"anchor": anchor, "text": text, "chars": len(text), "truncated": truncated}
+    return {
+        "anchor": anchor,
+        "text": text,
+        "chars": min(len(text), limit),
+        "truncated": truncated,
+    }

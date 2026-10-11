@@ -242,46 +242,63 @@ def gardening_proposals(
     *,
     max_chars: int = CORE_MEMORY_MAX_CHARS,
     keep_lines: int = 3,
+    warn_ratio: float = 0.8,
 ) -> list[dict[str, Any]]:
     """Propose trims that bring *text* under *max_chars*.
 
-    Proposals are computed from the END of the file backwards, because the last
+    Proposals are computed from the START of the file forwards, because the last
     lines of a memory file are the most recently written and therefore the ones a
     user is least likely to still need injected. Each proposal names the exact
     line and the saving it produces.
+
+    The pass runs at ``warn_ratio`` of the cap rather than only once the cap is
+    already exceeded: a user who is told how to make room *before* the next save
+    fails is far better served than one who is only told after the refusal.
 
     **Nothing is deleted.** The caller (a model or the user) decides; the
     ``kept`` field on every proposal is the original line, so a proposal can be
     applied by a blind line-equality filter.
 
+    ``keep_lines`` protects the newest lines **only while older lines remain to
+    propose**. A file with no more lines than the protected tail would otherwise
+    never yield a single proposal, which makes the pass useless exactly when the
+    file is too big for its cap.
+
     Args:
         text: current core memory content.
-        max_chars: cap the proposals must bring the file under.
-        keep_lines: the last N lines are never proposed for removal.
+        max_chars: hard cap the file must never cross.
+        keep_lines: the last N lines are preferred over older ones.
+        warn_ratio: fraction of the cap at which proposals start and stop.
 
     Returns:
         ``[{"line_no", "text", "chars", "kept", "projected_chars"}]``; empty
-        when the file already fits.
+        when the file is comfortably under the cap.
 
     Example:
         >>> gardening_proposals("x" * 50, max_chars=10, keep_lines=0)[0]["chars"]
         50
     """
     body = str(text or "")
-    if max_chars <= 0 or len(body) <= max_chars:
+    ratio = max(0.0, min(1.0, float(warn_ratio)))
+    target = max_chars * ratio
+    if max_chars <= 0 or len(body) <= target:
         return []
     rows = _lines_with_offsets(body)
+    if not rows:
+        return []
     keep_from = max(0, len(rows) - max(0, keep_lines))
+    if keep_from == 0:
+        keep_from = len(rows)
     projected = len(body)
     proposals: list[dict[str, Any]] = []
-    for index, line in rows[:keep_from]:
+    for line_no, line in rows[:keep_from]:
         saving = len(line) + 1
-        if projected <= max_chars:
+        if projected <= target:
             break
         projected -= saving
         proposals.append(
             {
-                "line_no": index,
+                "line_no": line_no,
                 "text": line,
                 "chars": len(line),
                 "kept": line,
@@ -393,23 +410,51 @@ def entry_allowed(text: str) -> tuple[bool, str]:
     return (True, "")
 
 
-def normalize_entry(text: str, *, source: str, added: str, bot_id: str) -> str:
+def normalize_entry(
+    text: str,
+    *,
+    source: str,
+    added: str,
+    bot_id: str,
+    max_chars: int | None = ENTRY_MAX_CHARS,
+) -> str:
     """Render one memory entry in the canonical one-line format.
 
     ``<text> [source: <anchor>; added: YYYY-MM-DD; by: <bot>]``
 
     The text is collapsed to a single line and truncated so that text plus
-    suffix never exceeds :data:`ENTRY_MAX_CHARS`. An entry that already carries a
-    suffix is re-normalised rather than double-suffixed.
+    suffix never exceeds *max_chars*. An entry that already carries a suffix is
+    re-normalised rather than double-suffixed.
+
+    ``max_chars=None`` disables truncation. The store's append path uses that:
+    silently dropping the tail of a long user line is a deletion the user never
+    asked for, so the store sizes the entry itself and refuses a save past the
+    file cap with advice instead of quietly keeping a third of it.
+
+    Args:
+        text: the entry body.
+        source: anchor recorded in the suffix.
+        added: ``YYYY-MM-DD`` recorded in the suffix.
+        bot_id: writer recorded in the suffix.
+        max_chars: per-entry budget, or ``None`` for no truncation.
+
+    Returns:
+        The one-line entry.
 
     Example:
         >>> normalize_entry("likes tea", source="part 1 #a1", added="2026-10-11", bot_id="chef")
         'likes tea [source: part 1 #a1; added: 2026-10-11; by: chef]'
+        >>> len(normalize_entry("y" * 900, source="p", added="d", bot_id="b"))
+        300
+        >>> normalize_entry("y" * 900, source="p", added="d", bot_id="b", max_chars=None)[:3]
+        'yyy'
     """
     body = " ".join(str(text or "").split())
     body = _ENTRY_SUFFIX_RE.sub("", body).strip()
     suffix = f" [source: {source}; added: {added}; by: {bot_id}]"
-    budget = max(1, ENTRY_MAX_CHARS - len(suffix))
+    if max_chars is None:
+        return f"{body}{suffix}"
+    budget = max(1, int(max_chars) - len(suffix))
     if len(body) > budget:
         body = body[: max(1, budget - 1)] + "…"
     return f"{body}{suffix}"

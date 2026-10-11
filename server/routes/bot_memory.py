@@ -21,6 +21,12 @@ PUT  /api/v1/bots/{bot_id}/memory/{name}
 
 DELETE /api/v1/bots/{bot_id}/memory/{name}
     Delete one memory file.  Returns 404 if absent.
+
+NANO-W10 additions (item 5 + ADDENDUM O) — same prefix, all ownership-checked:
+GET  /api/v1/bots/{bot_id}/memory/summary   Regenerated prose summary + cap status
+GET  /api/v1/bots/{bot_id}/memory/search    Grep core + scratch + daily logs
+GET  /api/v1/bots/{bot_id}/memory/journal   Before/after record of memory changes
+GET  /api/v1/bots/{bot_id}/workers          Persistent-worker rows (W1)
 """
 
 from __future__ import annotations
@@ -105,95 +111,14 @@ async def list_memory(
     return MemoryListResponse(bot_id=bot_id, files=store.list_files())
 
 
-@router.get(
-    "/{bot_id}/memory/{name}",
-    response_model=MemoryReadResponse,
-    summary="Read one bot memory file",
-)
-async def read_memory(
-    bot_id: str,
-    name: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
-) -> MemoryReadResponse:
-    """Return the content of *name*.  404 if the file does not exist."""
-    _validate_or_422(name)
-    store = _store(bot_id)
-    content = store.read(name)
-    if not content and name not in store.list_files():
-        raise HTTPException(status_code=404, detail=f"memory file {name!r} not found")
-    return MemoryReadResponse(bot_id=bot_id, name=name, content=content)
-
-
-@router.put(
-    "/{bot_id}/memory/{name}",
-    response_model=MemoryWriteResponse,
-    summary="Write (create or overwrite) one bot memory file",
-)
-async def write_memory(
-    bot_id: str,
-    name: str,
-    request: Request,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
-) -> MemoryWriteResponse:
-    """Write *name* atomically.
-
-    Accepts either:
-    - ``Content-Type: application/json`` body ``{"text": "..."}``
-    - ``Content-Type: text/plain`` raw body
-    """
-    _validate_or_422(name)
-    content_type = (request.headers.get("content-type") or "").lower()
-    raw = await request.body()
-    if "application/json" in content_type:
-        import json as _json
-
-        try:
-            payload = _json.loads(raw)
-            text = str(payload.get("text", ""))
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"invalid JSON body: {exc}") from exc
-    else:
-        # Treat body as plain UTF-8 text.
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise HTTPException(status_code=400, detail="body must be UTF-8") from exc
-
-    store = _store(bot_id)
-    try:
-        store.write(name, text)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    return MemoryWriteResponse(bot_id=bot_id, name=name)
-
-
-@router.delete(
-    "/{bot_id}/memory/{name}",
-    response_model=MemoryDeleteResponse,
-    summary="Delete one bot memory file",
-)
-async def delete_memory(
-    bot_id: str,
-    name: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
-) -> MemoryDeleteResponse:
-    """Delete *name*.  404 if it does not exist."""
-    _validate_or_422(name)
-    store = _store(bot_id)
-    deleted = store.delete(name)
-    if not deleted:
-        raise HTTPException(status_code=404, detail=f"memory file {name!r} not found")
-    return MemoryDeleteResponse(bot_id=bot_id, name=name, deleted=True)
-
-
-__all__ = ["router"]
-
-
 # ── NANO-W10 (item 5 + ADDENDUM O): layered memory read surface ─────────────
-# Appended to the existing per-bot memory router.  Every endpoint resolves the
-# caller and then checks that the caller OWNS the bot (404 otherwise) — the
-# existing CRUD endpoints above predate that check and are left untouched.
+# Declared BEFORE the ``/{bot_id}/memory/{name}`` catch-all below, because
+# FastAPI resolves in registration order and the catch-all would otherwise
+# swallow ``/summary``, ``/search`` and ``/journal`` as memory file names (they
+# are not ``.md`` files, so the request would fail as 422 instead of reaching
+# its own handler).  Every endpoint resolves the caller and then checks that the
+# caller OWNS the bot (404 otherwise) — the existing CRUD endpoints predate that
+# check and are left untouched.
 
 
 def _owned_bot(bot_id: str, user: dict[str, Any]) -> str:
@@ -293,3 +218,88 @@ async def bot_workers(
         "enabled": persistent_workers_enabled(),
         "workers": worker_registry(bot_id).list(),
     }
+
+
+@router.get(
+    "/{bot_id}/memory/{name}",
+    response_model=MemoryReadResponse,
+    summary="Read one bot memory file",
+)
+async def read_memory(
+    bot_id: str,
+    name: str,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> MemoryReadResponse:
+    """Return the content of *name*.  404 if the file does not exist."""
+    _validate_or_422(name)
+    store = _store(bot_id)
+    content = store.read(name)
+    if not content and name not in store.list_files():
+        raise HTTPException(status_code=404, detail=f"memory file {name!r} not found")
+    return MemoryReadResponse(bot_id=bot_id, name=name, content=content)
+
+
+@router.put(
+    "/{bot_id}/memory/{name}",
+    response_model=MemoryWriteResponse,
+    summary="Write (create or overwrite) one bot memory file",
+)
+async def write_memory(
+    bot_id: str,
+    name: str,
+    request: Request,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> MemoryWriteResponse:
+    """Write *name* atomically.
+
+    Accepts either:
+    - ``Content-Type: application/json`` body ``{"text": "..."}``
+    - ``Content-Type: text/plain`` raw body
+    """
+    _validate_or_422(name)
+    content_type = (request.headers.get("content-type") or "").lower()
+    raw = await request.body()
+    if "application/json" in content_type:
+        import json as _json
+
+        try:
+            payload = _json.loads(raw)
+            text = str(payload.get("text", ""))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"invalid JSON body: {exc}") from exc
+    else:
+        # Treat body as plain UTF-8 text.
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="body must be UTF-8") from exc
+
+    store = _store(bot_id)
+    try:
+        store.write(name, text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return MemoryWriteResponse(bot_id=bot_id, name=name)
+
+
+@router.delete(
+    "/{bot_id}/memory/{name}",
+    response_model=MemoryDeleteResponse,
+    summary="Delete one bot memory file",
+)
+async def delete_memory(
+    bot_id: str,
+    name: str,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> MemoryDeleteResponse:
+    """Delete *name*.  404 if it does not exist."""
+    _validate_or_422(name)
+    store = _store(bot_id)
+    deleted = store.delete(name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"memory file {name!r} not found")
+    return MemoryDeleteResponse(bot_id=bot_id, name=name, deleted=True)
+
+
+__all__ = ["router"]

@@ -107,17 +107,20 @@ def read_own_chat(query: str, limit: int = 5, part: int = 0) -> str:
         running = _running_bot()
     except RuntimeError as exc:
         return json.dumps({"ok": False, "hits": [], "error": str(exc)}, ensure_ascii=False)
+
+    def blocking_search() -> dict[str, Any]:
+        # The daemon worker has no running loop of its own, so the async FTS
+        # query is driven here rather than being handed to the thread helper as
+        # a bare coroutine (which would only ever be constructed, never awaited).
+        return asyncio.run(search_own_chat(query, limit=limit, part=part, bot_id=running))
+
     try:
         # The model-tool path runs inside a live event loop, so the blocking FTS
         # query goes to a daemon thread (the repo's established helper) instead of
         # asyncio.run, which would raise inside a running loop.
         from veya.obase.async_utils import run_sync_in_daemon_thread
 
-        payload = asyncio.run(
-            run_sync_in_daemon_thread(
-                search_own_chat, query, limit=limit, part=part, bot_id=running
-            )
-        )
+        payload = asyncio.run(run_sync_in_daemon_thread(blocking_search))
         return json.dumps(payload, ensure_ascii=False)
     except Exception as exc:
         return json.dumps(

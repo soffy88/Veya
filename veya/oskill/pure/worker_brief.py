@@ -35,7 +35,11 @@ def _int(value: Any) -> int:
 def worker_view(workers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Project worker records into the rows the existing UI renders.
 
-    One row per worker: ``name``, ``status``, ``last_task``, ``context_size``.
+    One row per worker: ``name``, ``status``, ``last_task``, ``context_size``,
+    plus the ``summary`` / ``open_items`` W2 writes into the resume brief. Those
+    two travel with the row rather than being re-read from disk by the brief
+    builder, so the UI and the brief can never disagree about a worker.
+
     Unknown statuses collapse to ``idle`` rather than surfacing a value the UI
     has never seen; retired workers are kept (the user can see what is left) but
     flagged.
@@ -57,12 +61,19 @@ def worker_view(workers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
         status = str(worker.get("status") or "idle").strip().lower()
         if status not in WORKER_STATUSES:
             status = "idle"
+        open_items = worker.get("open_items")
+        if isinstance(open_items, Sequence) and not isinstance(open_items, str):
+            items = [str(item).strip() for item in open_items if str(item).strip()]
+        else:
+            items = []
         rows.append(
             {
                 "name": str(worker.get("name") or ""),
                 "status": status,
                 "last_task": str(worker.get("last_task") or ""),
                 "context_size": _int(worker.get("context_size")),
+                "summary": str(worker.get("summary") or ""),
+                "open_items": items,
             }
         )
     rows.sort(key=lambda row: row["name"])

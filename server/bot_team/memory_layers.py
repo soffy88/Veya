@@ -106,6 +106,11 @@ class LayeredMemoryStore:
         self.bots_root = root
         self._store = BotMemoryStore(bot_id, bots_root=root)
         self._team_store = BotMemoryStore(TEAM_SCOPE_ID, bots_root=root)
+        # The TEAM scope is a shared directory, not a bot's private memory dir:
+        # ``<bots_root>/team/MEMORY.md`` + ``<bots_root>/team/<topic>.md``, so every
+        # bot reads one file instead of each holding a private copy. Same
+        # BotMemoryStore (same atomic write, same name validation), different root.
+        self._team_store.memory_dir = root / TEAM_SCOPE_ID
 
     # ── paths ────────────────────────────────────────────────────────────
 
@@ -227,7 +232,9 @@ class LayeredMemoryStore:
         """Append one normalised entry to the core memory, honouring the cap.
 
         A save past the cap **fails** with a message saying how to make room —
-        it never truncates a user-written line silently.
+        it never truncates a user-written line silently. The size check therefore
+        runs against the entry the caller actually wrote, not against a shortened
+        copy of it.
         """
         if caller_bot_id is not None:
             require_same_bot(caller_bot_id, self.bot_id, f"memory:{scope}")
@@ -237,12 +244,13 @@ class LayeredMemoryStore:
                 "team memory is off; set VEYA_TEAM_MEMORY=1 to enable it"
             )
         limit = TEAM_MEMORY_MAX_CHARS if scope == TEAM_SCOPE_ID else CORE_MEMORY_MAX_CHARS
-        entry = normalize_entry(
-            text,
-            source=source or f"part 1 #{self.bot_id[:8]}",
-            added=added or time.strftime("%Y-%m-%d", time.gmtime()),
-            bot_id=self.bot_id,
-        )
+        anchor = source or f"part 1 #{self.bot_id[:8]}"
+        when = added or time.strftime("%Y-%m-%d", time.gmtime())
+        # ``max_chars=None`` keeps the line as written: the size check and the
+        # bytes on disk must agree, or a "successful" save would silently drop
+        # the tail the user just dictated. The 300-char entry format is the
+        # *review* pass's rule (veya.omodul.memory_review) and is applied there.
+        entry = normalize_entry(text, source=anchor, added=when, bot_id=self.bot_id, max_chars=None)
         existing = store.read(CORE_FILE)
         prospective = len(existing) + (2 if existing else 0) + len(entry) + 1
         if prospective > limit:
