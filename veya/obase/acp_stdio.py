@@ -226,7 +226,9 @@ class StdioJsonRpcTransport:
         request_id = self.allocate_id()
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
-        await self._write({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}})
+        await self._write(
+            {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}}
+        )
         try:
             return await asyncio.wait_for(
                 future, timeout=self.timeout_s if timeout_s is None else float(timeout_s)

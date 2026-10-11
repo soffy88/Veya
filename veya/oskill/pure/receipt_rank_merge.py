@@ -24,8 +24,8 @@ from typing import Any
 
 __all__ = [
     "SOURCE_PRIOR",
-    "build_citation",
     "build_answer",
+    "build_citation",
     "merge_receipts",
     "rank_receipts",
     "score_receipt",
@@ -99,9 +99,7 @@ def score_receipt(
 
     source_score = SOURCE_PRIOR.get(str(receipt.get("source") or ""), 0.4)
 
-    return (
-        w["text"] * text_score + w["recency"] * recency_score + w["source"] * source_score
-    )
+    return w["text"] * text_score + w["recency"] * recency_score + w["source"] * source_score
 
 
 def rank_receipts(
@@ -273,7 +271,9 @@ def build_answer(receipts: list[dict[str, Any]], *, query: str = "") -> dict[str
         label = citation.get("label") or "[unknown]"
         uri = citation.get("uri") or ""
         link = f" <{uri}>" if uri else ""
-        lines.append(f"{index}. {label}{link} — {snippet}" if snippet else f"{index}. {label}{link}")
+        lines.append(
+            f"{index}. {label}{link} — {snippet}" if snippet else f"{index}. {label}{link}"
+        )
     return {
         "query": query,
         "answer": "\n".join(lines),

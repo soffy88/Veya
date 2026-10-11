@@ -70,9 +70,7 @@ def match_webhook_trigger(signal: dict[str, Any], trigger: dict[str, Any]) -> bo
     if events and signal.get("event") not in events:
         return False
     sources = _as_list(trigger.get("sources") or trigger.get("source"))
-    if sources and signal.get("source") not in sources:
-        return False
-    return True
+    return not (sources and signal.get("source") not in sources)
 
 
 def match_message_trigger(signal: dict[str, Any], trigger: dict[str, Any]) -> bool:
@@ -139,9 +137,7 @@ def match_reaction_trigger(signal: dict[str, Any], trigger: dict[str, Any]) -> b
     if str(signal.get("reaction") or "") not in wanted:
         return False
     author_filter = trigger.get("on_message_author")
-    if author_filter and str(signal.get("message_author") or "") != str(author_filter):
-        return False
-    return True
+    return not (author_filter and str(signal.get("message_author") or "") != str(author_filter))
 
 
 def signal_matches_triggers(signal: dict[str, Any], triggers: list[dict[str, Any]]) -> list[int]:

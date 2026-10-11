@@ -39,13 +39,6 @@ from veya.oprim.audit_chain import (
 )
 from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
 from veya.oprim.event import emit_event
-from veya.oprim.receipt_query import (
-    RECEIPT_FIELDS,
-    RECEIPT_SOURCES,
-    normalize_query,
-    normalize_receipt,
-    receipt_uri,
-)
 from veya.oprim.fs import (
     fs_delete,
     fs_exists,
@@ -56,6 +49,13 @@ from veya.oprim.fs import (
     fs_write_text,
 )
 from veya.oprim.llm import llm_call, llm_stream
+from veya.oprim.receipt_query import (
+    RECEIPT_FIELDS,
+    RECEIPT_SOURCES,
+    normalize_query,
+    normalize_receipt,
+    receipt_uri,
+)
 from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
 from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list
 from veya.oprim.types import (

@@ -30,10 +30,10 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
-    "RECEIPT_SOURCES",
     "RECEIPT_FIELDS",
-    "normalize_receipt",
+    "RECEIPT_SOURCES",
     "normalize_query",
+    "normalize_receipt",
     "receipt_uri",
 ]
 

@@ -121,7 +121,9 @@ def chain_head(records: list[dict[str, Any]]) -> str:
     if isinstance(stored, str) and stored:
         return stored
     prev = last.get("prev_hash")
-    return compute_event_hash(last, prev_hash=prev if isinstance(prev, str) and prev else GENESIS_HASH)
+    return compute_event_hash(
+        last, prev_hash=prev if isinstance(prev, str) and prev else GENESIS_HASH
+    )
 
 
 def verify_chain_links(records: list[dict[str, Any]]) -> tuple[bool, str, int]:
