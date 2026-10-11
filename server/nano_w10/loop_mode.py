@@ -22,7 +22,7 @@ from typing import Any
 
 from server.nano_w10.flags import flag_enabled
 from veya.omodul.loop_run import LoopRunConfig, LoopRunInput, loop_run, parse_loop_brief
-from veya.oskill.pure.loop_policy import MODE_GOAL
+from veya.oskill.pure.loop_policy import MODE_GOAL, MODE_LOOP
 
 _log = logging.getLogger("veya.nano_w10.loop_mode")
 
@@ -221,10 +221,24 @@ def finish_checkpoint_enabled() -> bool:
     return flag_enabled(FINISH_CHECKPOINT_FLAG)
 
 
-def card_key(bot_id: str, goal_run_id: str) -> str:
-    """Stable id of one run's card inside one bot's chat."""
+def card_key(
+    bot_id: str,
+    goal_run_id: str,
+    *,
+    mode: str = MODE_GOAL,
+    round_index: int = 0,
+) -> str:
+    """Stable id of one card inside one bot's chat.
 
-    return f"fc-{bot_id}-{goal_run_id}"
+    A loop posts one card **per round**, so the round is part of the key; a
+    finish card is one per run, so it is not. Without this a round-1 card would
+    make the run's finish card look like a duplicate.
+    """
+
+    base = f"fc-{bot_id}-{goal_run_id}"
+    if str(mode).strip().lower() == MODE_LOOP and int(round_index) > 0:
+        return f"{base}-r{int(round_index)}"
+    return base
 
 
 class FinishCheckpointGate:
@@ -307,24 +321,36 @@ class FinishCheckpointGate:
             tests_run=tests_run,
             risks=risks,
         )
-        return self.publish(chat, run_id, card)
+        return self.publish(bot_id, goal_run_id, card, flag=FINISH_CHECKPOINT_FLAG)
 
     def publish(
         self,
         bot_id: str,
         goal_run_id: str,
         card: dict[str, Any],
+        *,
+        flag: str = FINISH_CHECKPOINT_FLAG,
     ) -> dict[str, Any]:
-        """Post a card that was already rendered (e.g. a loop round's card)."""
+        """Post a card that was already rendered (e.g. a loop round's card).
 
-        if not finish_checkpoint_enabled():
-            return _disabled("publish")
+        ``flag`` is the gate that governs this card: a loop round's checkpoint
+        is loop behaviour (``VEYA_LOOP_MODE``), the finish card is W5 behaviour
+        (``VEYA_FINISH_CHECKPOINT``). Posting one never requires the other.
+        """
+
+        if not flag_enabled(flag):
+            return _disabled("publish", flag)
         run_id = str(goal_run_id or "").strip()
         chat = str(bot_id or "").strip()
         if not run_id or not chat or not isinstance(card, dict):
             return _invalid("bot_id, goal_run_id and a rendered card are required")
 
-        key = card_key(chat, run_id)
+        key = card_key(
+            chat,
+            run_id,
+            mode=str(card.get("mode") or MODE_GOAL),
+            round_index=int(card.get("round") or 0),
+        )
         if key in self._posted:
             return {
                 "status": "completed",
@@ -428,12 +454,12 @@ class FinishCheckpointGate:
         }
 
 
-def _disabled(op: str) -> dict[str, Any]:
+def _disabled(op: str, flag: str = FINISH_CHECKPOINT_FLAG) -> dict[str, Any]:
     """The one shape an off flag ever returns."""
 
     return {
         "status": "failed",
-        "error": {"code": "FEATURE_DISABLED", "flag": FINISH_CHECKPOINT_FLAG},
+        "error": {"code": "FEATURE_DISABLED", "flag": flag},
         "op": op,
         "card": None,
         "card_id": "",

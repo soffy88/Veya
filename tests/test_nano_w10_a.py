@@ -667,6 +667,39 @@ def test_a_card_never_takes_the_run_down_with_it(monkeypatch: pytest.MonkeyPatch
     assert result["error"]["code"] == "CHAT_UNAVAILABLE"
 
 
+def test_a_loop_round_card_does_not_consume_the_finish_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One card per loop round, plus one finish card per run."""
+
+    monkeypatch.setenv("VEYA_LOOP_MODE", "1")
+    monkeypatch.delenv("VEYA_FINISH_CHECKPOINT", raising=False)
+    gate, posted, _events, _queue = _gate(None)
+    round_card = checkpoint_card(mode="loop", round_index=1, summary="first pass")
+    first = gate.publish("bot-x", "gr-1", round_card, flag="VEYA_LOOP_MODE")
+    assert first["posted"] is True
+    assert first["card_id"] == card_key("bot-x", "gr-1", mode="loop", round_index=1)
+    assert gate.publish("bot-x", "gr-1", round_card, flag="VEYA_LOOP_MODE")["duplicate"] is True
+    assert len(posted) == 1
+
+    # The finish card is W5 behaviour and is refused while its own flag is off.
+    monkeypatch.setenv("VEYA_FINISH_CHECKPOINT", "1")
+    finish = gate.post("gr-1", bot_id="bot-x", summary="done")
+    assert finish["posted"] is True
+    assert finish["card_id"] == card_key("bot-x", "gr-1")
+    assert len(posted) == 2
+
+
+def test_a_loop_round_card_needs_the_loop_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VEYA_LOOP_MODE", raising=False)
+    gate, posted, _events, _queue = _gate(None)
+    result = gate.publish(
+        "bot-x", "gr-1", checkpoint_card(mode="loop", round_index=1), flag="VEYA_LOOP_MODE"
+    )
+    assert result["error"] == {"code": "FEATURE_DISABLED", "flag": "VEYA_LOOP_MODE"}
+    assert posted == []
+
+
 def test_the_runner_only_engages_the_loop_when_the_flag_and_the_brief_agree(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -950,7 +983,7 @@ def test_turn_queue_sits_in_front_of_the_message_route(
     assert queue.steer_log("bot-x") == ["actually use plan B"]
 
     # The same message_id is a retry: it is dropped, not run twice.
-    queue2 = get_turn_queue()
+    get_turn_queue()
     first = correction_client.post(
         "/api/v1/bots/bot-x/messages", json={"text": "hello", "message_id": "abc"}
     )

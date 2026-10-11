@@ -1643,18 +1643,25 @@ def _loop_policy_for(state: GoalRunState, goal_text: str) -> tuple[Any | None, d
         ``(policy_or_None, parsed_brief)``.
     """
 
-    from server.nano_w10.loop_mode import get_loop_policy, loop_mode_enabled
+    from server.nano_w10.loop_mode import (
+        LOOP_MODE_FLAG,
+        get_finish_checkpoint_gate,
+        get_loop_policy,
+        loop_mode_enabled,
+    )
     from veya.oskill.pure.loop_policy import parse_loop_brief
 
     brief = parse_loop_brief(str(goal_text or state.goal_text or ""))
     if not loop_mode_enabled() or brief.get("mode") != "loop":
         return None, brief
-    from server.nano_w10.loop_mode import get_finish_checkpoint_gate
-
     gate = get_finish_checkpoint_gate()
     return (
         get_loop_policy(
-            post_card=lambda goal_run_id, card: gate.publish(state.bot_id, goal_run_id, card)
+            # A round checkpoint is loop behaviour: it is gated by the loop flag
+            # alone, so VEYA_LOOP_MODE can be tried without also turning W5 on.
+            post_card=lambda goal_run_id, card: gate.publish(
+                state.bot_id, goal_run_id, card, flag=LOOP_MODE_FLAG
+            )
         ),
         brief,
     )
