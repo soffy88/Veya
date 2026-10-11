@@ -798,9 +798,14 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
         resp, wb_model, wb_err = await _pool_call(pool_up, messages, tools)
         if resp is None:
             status, message = wb_err or (502, f"{_POOL_ALIAS[pool_up]} failed")
+            # 池层面失败是瞬时的 (成员各自冷却), 对外不报 429: magpie 等前置路由会把
+            # 429 当成整个 provider key 的配额耗尽, 一次性冷却 15 分钟。
+            if status == 429:
+                status = 503
             return JSONResponse(
                 {"error": {"message": message, "type": "upstream_error", "code": status}},
                 status_code=status,
+                headers={"Retry-After": "5"},
             )
         resp.setdefault("router", {"model": f"{pool_up}/{wb_model}"})
     else:
