@@ -12,14 +12,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
-import time
 import traceback
-import uuid
-import urllib.request
 import urllib.error
+import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -68,9 +68,10 @@ class LiveHarness:
         self._test_client = None
 
     def _setup_local_client(self, user_name: str, password: str):
+        from fastapi.testclient import TestClient
+
         from server import auth as auth_mod
         from server.app import app as root_app
-        from fastapi.testclient import TestClient
 
         u = auth_mod.create_user(user_name, password)
         tok = auth_mod.issue_token(u["user_id"])
@@ -111,7 +112,7 @@ class LiveHarness:
         if remote_ok:
             try:
                 # Probe a W10 flag on remote
-                probe = self._raw_http_request("PATCH", "/api/v1/nano-w10-c/groups/probe/roles", {"reply_mode": "everyone"})
+                self._raw_http_request("PATCH", "/api/v1/nano-w10-c/groups/probe/roles", {"reply_mode": "everyone"})
             except RuntimeError as exc:
                 if "is disabled" in str(exc) or "404" in str(exc):
                     remote_ok = False
@@ -200,10 +201,8 @@ class LiveHarness:
 
     def cleanup(self):
         for bot_id in self.created_bots:
-            try:
+            with contextlib.suppress(Exception):
                 self._request("DELETE", f"/api/v1/bots/{bot_id}")
-            except Exception:
-                pass
         self.created_bots.clear()
 
 
@@ -425,7 +424,7 @@ def s9(h: Any) -> bool:
     # 1. Secret request refused in group
     try:
         sec_store.request_secret("TEST_TOKEN", "api access", bot_id, is_group=True)
-        assert False, "Should raise SECRETS_NOT_IN_GROUP in group"
+        raise AssertionError("Should raise SECRETS_NOT_IN_GROUP in group")
     except ValueError as exc:
         assert "SECRETS_NOT_IN_GROUP" in str(exc)
 

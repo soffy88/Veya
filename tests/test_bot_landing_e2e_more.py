@@ -12,16 +12,13 @@ Run with: .venv/bin/python -m pytest -q tests/test_bot_landing_e2e_more.py
 
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server import auth as auth_mod
@@ -32,10 +29,8 @@ from server.bot_team.memory_layers import LayeredMemoryStore
 from server.bot_team.routine_clock import RoutineClock
 from server.bot_team.secrets import BotSecretStore
 from server.goal_run.bot_identity import BotRegistry, BotSpec
-from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_registry import RoutineRegistry
 from server.nano_w10.loop_mode import (
-    CARD_KIND,
     FinishCheckpointGate,
     LoopRunPolicy,
     card_key,
@@ -50,7 +45,7 @@ from veya.oskill.pure.group_roles import (
     evaluate_group_permission,
     select_replying_bots,
 )
-from veya.oskill.pure.loop_policy import MODE_LOOP, checkpoint_card, parse_loop_brief
+from veya.oskill.pure.loop_policy import MODE_LOOP, parse_loop_brief
 
 PROD_FLAGS: dict[str, str] = {
     "VEYA_TURN_QUEUE": "1",

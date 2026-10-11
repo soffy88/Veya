@@ -50,7 +50,7 @@ def register_tools(registry: Any = None) -> int:
 
     target = registry if (registry is not None and hasattr(registry, "has")) else master_tools
     added = 0
-    for name, description, parameters, func, effect in _TOOLS:
+    for name, description, parameters, func, _effect in _TOOLS:
         if target.has(name):
             continue
         target.register(
