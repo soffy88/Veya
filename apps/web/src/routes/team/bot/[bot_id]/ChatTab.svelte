@@ -17,6 +17,7 @@
 	import {
 		acceptProposal,
 		listBotMessages,
+		sendBotCorrection,
 		sendBotMessage,
 		type BotMessage,
 		type PendingPushTask,
@@ -38,6 +39,12 @@
 	let proposal = $state<{ id: string; bots: Array<Record<string, unknown>> } | null>(null);
 	let accepting = $state(false);
 	let accepted = $state<string[]>([]);
+	let correctionNote = $state("");
+
+	// W4: while a turn is in flight this box corrects it instead of queuing a
+	// second turn. The backend lands it through the item-1 steer, so there is
+	// one path, not a parallel control channel.
+	const turnRunning = $derived(pendingTaskId !== "");
 
 	async function scrollToEnd(): Promise<void> {
 		await tick();
@@ -92,7 +99,32 @@
 		}
 	}
 
+	async function submitCorrection(): Promise<void> {
+		const text = draft.trim();
+		if (!text || sending) return;
+		draft = "";
+		sending = true;
+		error = "";
+		try {
+			const result = await sendBotCorrection(botId, text);
+			correctionNote = result.action === "steer" ? "已发送到当前这一轮" : `已${result.action === "queue" ? "排队" : "处理"}`;
+			messages = [
+				...messages,
+				{ id: `local-${Date.now()}`, role: "user", text, ts: Date.now() / 1000 },
+			];
+			await scrollToEnd();
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			sending = false;
+		}
+	}
+
 	async function submit(): Promise<void> {
+		if (turnRunning) {
+			await submitCorrection();
+			return;
+		}
 		const text = draft.trim();
 		if (!text || sending) return;
 		draft = "";
@@ -189,7 +221,7 @@
 	>
 		<textarea
 			class="{inputClass} max-h-32 min-h-11 resize-none py-2.5"
-			placeholder="发消息…"
+			placeholder={turnRunning ? "纠正当前这一轮…" : "发消息…"}
 			bind:value={draft}
 			rows="1"
 			onkeydown={(event) => {
@@ -203,4 +235,9 @@
 			<Send size={16} />
 		</button>
 	</form>
+	{#if turnRunning}
+		<p class="border-t border-white/[0.05] px-4 py-1.5 text-[11px] text-terminal-dim">
+			这一轮还在跑 — 现在发送的内容会作为纠正送进去，而不是新开一轮。{correctionNote}
+		</p>
+	{/if}
 </div>

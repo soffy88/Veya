@@ -168,6 +168,29 @@ export async function sendBotMessage(
 	return unwrap<TurnReply>(result);
 }
 
+export interface CorrectionResult {
+	status: string;
+	bot_id: string;
+	action: string;
+	state?: string;
+	reason?: string;
+}
+
+/**
+ * Send a correction while the bot's turn is still running (NANO-W10 W4).
+ *
+ * This is not a second message channel: the backend lands it through the item-1
+ * turn queue's steer, so the running turn sees it at its next safe point. A 409
+ * means there was no running turn to correct.
+ */
+export async function sendBotCorrection(botId: string, text: string): Promise<CorrectionResult> {
+	const result = await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/corrections`, {
+		method: "POST",
+		body: { text },
+	});
+	return unwrap<CorrectionResult>(result);
+}
+
 // ── groups ──────────────────────────────────────────────────────────────
 
 export async function listGroups(): Promise<GroupView[]> {
