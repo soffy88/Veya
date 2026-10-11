@@ -4,7 +4,7 @@ One file for the whole wave, per `NANO_W10_SPEC.md` line 2.  Sections are added
 in spec order (1..7, then the ADDENDUMs).  Every dependency that would touch
 ``~/.veya`` or a live service is injected; temp dirs are the only filesystem.
 
-Run with:  .venv/bin/python -m pytest -q tests/test_nano_w10_always_on.py
+Run with:  .venv/bin/python -m pytest -q tests/test_nano_w10_a.py
 """
 
 from __future__ import annotations
@@ -15,12 +15,14 @@ import pytest
 
 from server.nano_w10.flags import ALL_FLAGS, FeatureDisabled, feature_flags, flag_enabled, require_flag
 from server.nano_w10.turn_queue import TurnQueue
+from server.nano_w10.wake_router import WakeRouter, build_triage_engine
 from veya.omodul.turn_intake import (
     TurnIntakeConfig,
     TurnIntakeInput,
     compute_fingerprint_for,
     turn_intake,
 )
+from veya.omodul.wake_router import WAKE_SOURCES, WakeRouterConfig, WakeRouterInput, wake_router
 from veya.oprim.turn_envelope import envelope_fingerprint, idem_key
 from veya.oskill.pure.turn_priority import (
     INBOUND_KINDS,
@@ -31,6 +33,11 @@ from veya.oskill.pure.turn_priority import (
     envelope_priority,
     order_queue,
     steer_decision,
+)
+from veya.oskill.pure.wake_policy import (
+    OUTCOMES,
+    is_quiet_hours,
+    worth_bugging_user,
 )
 
 
@@ -224,3 +231,129 @@ def test_turn_intake_trail_is_recorded() -> None:
     )
     assert any(entry.get("event") == "intake.queued" for entry in trail)
     assert json.dumps(trail)  # trail entries must be JSON-serialisable
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 2 — wake router + "worth bugging the user?"
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def test_quiet_hours_wrap_past_midnight() -> None:
+    settings = {"quiet_hours": {"enabled": True, "start": "23:00", "end": "08:00"}}
+    assert is_quiet_hours(settings, now=2 * 3600) is True
+    assert is_quiet_hours(settings, now=23 * 3600 + 1800) is True
+    assert is_quiet_hours(settings, now=12 * 3600) is False
+    assert is_quiet_hours({"quiet_hours": {"enabled": False}}, now=2 * 3600) is False
+    assert is_quiet_hours({}, now=2 * 3600) is False
+
+
+def test_policy_is_fail_quiet_for_background_noise() -> None:
+    quiet = worth_bugging_user({"user_directed": False, "novel": False})
+    assert quiet["outcome"] == "silent"
+    # An unknown notification level never lets a background wake interrupt.
+    assert worth_bugging_user({"user_directed": False, "novel": True}, {})["outcome"] == "silent"
+    # ...but it does not silence a user who is actually waiting.
+    assert worth_bugging_user({"user_directed": True, "novel": True}, {})["outcome"] == "reply_now"
+
+
+def test_urgent_beats_quiet_hours_and_never_level() -> None:
+    settings = {"notification_level": "all", "quiet_hours": {"enabled": True, "start": "23:00", "end": "08:00"}}
+    assert worth_bugging_user({"urgent": True}, settings, now=2 * 3600)["outcome"] == "reply_now"
+    never = {"notification_level": "never"}
+    assert worth_bugging_user({"urgent": True, "user_directed": True}, never)["outcome"] == "silent"
+
+
+def test_all_four_outcomes_are_reachable() -> None:
+    everything = {"notification_level": "all"}
+    assert worth_bugging_user({"user_directed": True, "urgent": True}, everything)["outcome"] == "reply_now"
+    assert worth_bugging_user({"user_directed": True, "novel": True}, everything)["outcome"] == "reply_now"
+    assert (
+        worth_bugging_user({"user_directed": True, "novel": False}, everything)["outcome"] == "digest"
+    )
+    assert (
+        worth_bugging_user({"ack_only": True}, everything)["outcome"] == "emoji_ack"
+    )
+    assert worth_bugging_user({}, everything)["outcome"] == "silent"
+    assert set(OUTCOMES) == {"reply_now", "digest", "emoji_ack", "silent"}
+
+
+def test_quiet_hours_move_a_user_directed_wake_into_the_digest() -> None:
+    settings = {"notification_level": "all", "quiet_hours": {"enabled": True, "start": "23:00", "end": "08:00"}}
+    assert (
+        worth_bugging_user({"user_directed": True, "novel": True}, settings, now=3 * 3600)["outcome"]
+        == "digest"
+    )
+
+
+def test_wake_router_dedupes_and_instructs_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_WAKE_ROUTER", "1")
+    delivered: list[tuple] = []
+    router = WakeRouter(
+        settings=lambda: {"notification_level": "all"},
+        on_deliver=lambda owner, outcome, summary, payload, deliver: delivered.append(
+            (owner, outcome, deliver)
+        ),
+    )
+    first = router.ingest(owner_ref="u1", source="user", summary="hi", user_directed=True, novel=True)
+    assert first["outcome"] == "reply_now"
+    assert first["deliver"] == ["push", "channel"]
+    assert delivered and delivered[0][2] == ["push", "channel"]
+
+    repeat = router.ingest(owner_ref="u1", source="user", summary="hi", user_directed=True, novel=True)
+    assert repeat["duplicate"] is True
+    assert repeat["deliver"] == []
+    assert len(delivered) == 1
+
+    ack = router.ingest(owner_ref="u1", source="runner_result", summary="done", ack_only=True)
+    assert ack["outcome"] == "emoji_ack"
+    assert ack["deliver"] == []
+
+    noise = router.ingest(owner_ref="u1", source="routine_clock", summary="tick")
+    assert noise["outcome"] == "silent" and noise["deliver"] == []
+
+
+def test_wake_router_is_off_by_default_and_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VEYA_WAKE_ROUTER", raising=False)
+    result = WakeRouter().ingest(owner_ref="u1", source="user", summary="hi")
+    assert result["status"] == "failed"
+    assert result["error"] == {"code": "FEATURE_DISABLED", "flag": "VEYA_WAKE_ROUTER"}
+
+
+def test_wake_router_rejects_a_signal_with_no_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VEYA_WAKE_ROUTER", "1")
+    result = WakeRouter().ingest(owner_ref="", source="user", summary="hi")
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "INVALID_INPUT"
+
+
+def test_wake_router_reuses_the_existing_triage_skeleton(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = build_triage_engine()
+    if engine is None:  # 3O submodules absent in this checkout
+        pytest.skip("oservi triage skeleton unavailable")
+    assert type(engine).__name__ == "TriageEngine"
+    engine.run()  # non-blocking for on_signal
+    assert callable(engine.process)
+
+
+def test_every_documented_wake_source_is_accepted() -> None:
+    assert set(WAKE_SOURCES) == {
+        "user",
+        "routine_clock",
+        "event_trigger",
+        "channel",
+        "runner_result",
+        "subagent_done",
+    }
+    seen: set[str] = set()
+    router = WakeRouter(settings=lambda: {"notification_level": "all"})
+    import os
+
+    os.environ["VEYA_WAKE_ROUTER"] = "1"
+    try:
+        for index, source in enumerate(WAKE_SOURCES):
+            result = router.ingest(owner_ref=f"u{index}", source=source, summary="s")
+            assert result["known_source"] is True
+            seen.add(result["source"])
+    finally:
+        os.environ.pop("VEYA_WAKE_ROUTER", None)
+    assert seen == set(WAKE_SOURCES)

@@ -255,7 +255,7 @@ from "broken".
 `tests/guardians/test_3o_migration_guards.py` must show **zero NEW** violations
 against the pre-existing baseline (recorded in the report).
 
-Test file: `tests/test_nano_w10_always_on.py`.
+Test file: `tests/test_nano_w10_a.py`.
 Regression set: `tests/test_lorca_p1_bots.py`, `tests/test_lorca_p2_groups.py`,
 `tests/test_p3a_bot_isolation.py`, `tests/test_product_shell.py`
 (2 resume failures are pre-existing).
