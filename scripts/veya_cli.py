@@ -178,8 +178,13 @@ class Transport:
         import httpx
 
         clean = {k: v for k, v in params.items() if v not in (None, "", [], {})}
-        with httpx.Client(timeout=30.0) as client:
-            response = client.get(f"{self.base_url}{path}", params=clean, headers=self.headers())
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.get(
+                    f"{self.base_url}{path}", params=clean, headers=self.headers()
+                )
+        except httpx.HTTPError as exc:
+            return error_envelope("HTTP_UNREACHABLE", str(exc), base_url=self.base_url, path=path)
         if response.status_code >= 400:
             return error_envelope(
                 "HTTP_ERROR", f"{response.status_code} from {path}", status=response.status_code
@@ -190,8 +195,11 @@ class Transport:
         """HTTP POST against the existing API."""
         import httpx
 
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(f"{self.base_url}{path}", json=body, headers=self.headers())
+        try:
+            with httpx.Client(timeout=60.0) as client:
+                response = client.post(f"{self.base_url}{path}", json=body, headers=self.headers())
+        except httpx.HTTPError as exc:
+            return error_envelope("HTTP_UNREACHABLE", str(exc), base_url=self.base_url, path=path)
         if response.status_code >= 400:
             return error_envelope(
                 "HTTP_ERROR",
@@ -386,7 +394,13 @@ def cmd_audit_verify(transport: Transport, args: argparse.Namespace) -> dict[str
 
     result = verify_audit_chain()
     if not result.get("ok"):
-        return error_envelope("CHAIN_BROKEN", str(result.get("reason") or ""), **result)
+        # The chain report stays at the top level so an agent can act on
+        # ``broken_index`` without digging into the error object.
+        return {
+            "status": "error",
+            "error": {"code": "CHAIN_BROKEN", "message": str(result.get("reason") or "")},
+            **result,
+        }
     return merge_ok(result)
 
 
@@ -924,7 +938,9 @@ def dispatch(
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:  # argparse already printed help/usage
-        return int(exc.code or EXIT_USAGE)
+        # argparse exits 0 for --help/--version; anything else is a usage error.
+        code = exc.code
+        return EXIT_OK if code in (0, None) else int(code)
     handler = getattr(args, "handler", None)
     if handler is None:
         return run_repl(transport, stream=stream)
