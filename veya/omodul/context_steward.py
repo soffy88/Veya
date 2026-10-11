@@ -83,19 +83,50 @@ class ContextStewardInput:
     force_threshold: str | None = None
 
 
+#: Identity fields that must never reach a fingerprint or a decision trail
+#: (§5.5.1).  Mirrors the canonical set; kept local because an omodul may not
+#: import another omodul (OMODUL_DIRECT_OMODUL_CALLS), and the redaction itself
+#: still goes through obase's single implementation via the platform loader.
+_PII_KEYS: frozenset[str] = frozenset(
+    {"user_id", "student_id", "account_id", "email", "phone", "name", "username", "device_id"}
+)
+
+
 def compute_fingerprint_for(config: Any, input_data: Any) -> str:
-    """暴露给服务层做去重判断（§5.5 MUST）。
+    """Expose the fingerprint for service-layer dedup (§5.5 MUST).
+
+    Hashes the fields the config declares in ``_fingerprint_fields`` with the
+    canonical audit-chain hash.  Implemented here rather than borrowed from
+    another omodul because omodul→omodul calls are gated; the *hash* is still
+    the single oprim implementation, so two omoduls fingerprinting the same
+    fields agree byte for byte.
 
     Args:
-        config: omodul 配置（读 ``_fingerprint_fields``）。
-        input_data: omodul 输入。
+        config: omodul config (reads ``_fingerprint_fields``).
+        input_data: omodul input.
 
     Returns:
-        24 字符稳定指纹；字段缺失时返回空串而不是抛错。
+        24-char stable fingerprint; empty string when the fields are missing.
     """
-    from veya.omodul.branch_room_sync import compute_fingerprint_for as _impl
+    fields = set(getattr(config, "_fingerprint_fields", set()) or set())
+    if not fields or input_data is None:
+        return ""
+    if hasattr(input_data, "model_dump"):
+        data = input_data.model_dump()
+    elif hasattr(input_data, "__dict__"):
+        data = dict(input_data.__dict__)
+    elif isinstance(input_data, dict):
+        data = dict(input_data)
+    else:
+        return ""
+    try:
+        from veya.oprim.audit_chain import GENESIS_HASH, compute_event_hash
 
-    return _impl(config, input_data)
+        return compute_event_hash(
+            {k: data.get(k) for k in sorted(fields)}, prev_hash=GENESIS_HASH
+        )[:24]
+    except Exception:
+        return ""
 
 
 def _fingerprint_for(config: Any, input_data: Any) -> str:
@@ -105,13 +136,33 @@ def _fingerprint_for(config: Any, input_data: Any) -> str:
         return ""
 
 
+def _strip_pii(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _strip_pii(v) for k, v in value.items() if str(k).lower() not in _PII_KEYS}
+    if isinstance(value, list):
+        return [_strip_pii(item) for item in value]
+    return value
+
+
+def _redact(value: Any) -> Any:
+    """Drop identity keys, then let obase mask anything secret-shaped."""
+    stripped = _strip_pii(value)
+    try:
+        from veya.platform import load
+
+        fn = getattr(load("obase"), "redact_value", None)
+        if fn is not None:
+            return fn(stripped)
+    except Exception:
+        pass
+    return stripped
+
+
 def _write_trail(output_dir: Path | None, trail: list[dict[str, Any]]) -> str | None:
     if output_dir is None:
         return None
     try:
         import json
-
-        from veya.omodul.branch_room_sync import _redact
 
         path = Path(output_dir) / "context_steward_trail.json"
         path.parent.mkdir(parents=True, exist_ok=True)
