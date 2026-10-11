@@ -67,6 +67,68 @@ def _path_record(root: Path, relative: str, status: str) -> dict[str, Any]:
     }
 
 
+def _path_records(root: Path, entries: list[tuple[str, str]]) -> dict[str, dict[str, Any]]:
+    """Batched :func:`_path_record` for every status entry.
+
+    Three git processes per path made one snapshot of a workspace with ~300
+    untracked files cost ~900 subprocesses (~1 s), twice per remote execution.
+    ``ls-files --stage`` answers ``tracked`` and ``index_blob`` for all paths at
+    once and ``hash-object --stdin-paths`` hashes every regular file in one
+    process. Anything the batch cannot represent falls back to the per-path
+    form, so every record is identical to what :func:`_path_record` returns.
+    """
+    if not entries:
+        return {}
+    # A porcelain-quoted name (non-ASCII, quotes, control characters) is kept
+    # on the per-path form, exactly as before, so it never changes meaning.
+    plain = [rel for rel, _ in entries if not any(ch in rel for ch in '"\\\n\t')]
+    try:
+        staged: dict[str, str] = {}
+        listing = _git(str(root), ["ls-files", "--stage", "-z", "--", *plain]) if plain else ""
+        for row in listing.split("\0"):
+            meta, separator, name = row.partition("\t")
+            fields = meta.split()
+            if separator and len(fields) >= 2:
+                staged.setdefault(name, fields[1])
+        hashable = [rel for rel in plain if (root / rel).is_file()]
+        blobs: dict[str, str] = {}
+        if hashable:
+            proc = subprocess.run(
+                ["git", "hash-object", "--stdin-paths"],
+                cwd=str(root),
+                input="\n".join(hashable) + "\n",
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            hashes = proc.stdout.split()
+            if proc.returncode != 0 or len(hashes) != len(hashable):
+                raise ValueError("hash-object batch failed")
+            blobs = dict(zip(hashable, hashes, strict=True))
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return {rel: _path_record(root, rel, code) for rel, code in entries}
+
+    plain_set = set(plain)
+    records: dict[str, dict[str, Any]] = {}
+    for rel, code in entries:
+        path = root / rel
+        if rel not in plain_set or (path.exists() and rel not in blobs):
+            # Not a regular file (a directory, a nested repo, a broken link):
+            # keep the exact per-path semantics for it.
+            records[rel] = _path_record(root, rel, code)
+            continue
+        records[rel] = {
+            "path": rel,
+            "status": code,
+            "tracked": rel in staged,
+            "content_sha256": _sha256(path),
+            "index_blob": staged.get(rel),
+            "worktree_blob": blobs.get(rel),
+        }
+    return records
+
+
 def _head_blobs(root: Path) -> dict[str, str]:
     rows = _git(str(root), ["ls-tree", "-r", "--full-tree", "HEAD"]).splitlines()
     blobs: dict[str, str] = {}
@@ -83,14 +145,15 @@ def capture_git_state(project_root: str) -> dict[str, Any]:
 
     root = Path(project_root).expanduser().resolve()
     status = _git(str(root), ["status", "--porcelain=v1", "--untracked-files=all"])
-    records: dict[str, dict[str, Any]] = {}
+    entries: list[tuple[str, str]] = []
     for line in status.splitlines():
         if len(line) < 4:
             continue
         code, relative = line[:2], line[3:]
         if " -> " in relative:
             relative = relative.split(" -> ", 1)[1]
-        records[relative] = _path_record(root, relative, code)
+        entries.append((relative, code))
+    records = _path_records(root, entries)
     payload: dict[str, Any] = {
         "head": _git(str(root), ["rev-parse", "HEAD"]).strip(),
         "files": records,

@@ -1380,11 +1380,46 @@ class DurableJobManager:
         now = time.time()
         with self._lock:
             records = list(self._records.values())
+        # Session worktrees are reused across executions: on ubuntu26, 822
+        # terminal records pointed at only 33 paths, and each record paid its
+        # own /proc scan + git status on the first initialize (~65 s). Decide
+        # once per path, and never reclaim a path a live or kept record holds.
+        held_paths = {
+            str(Path(r.worktree_path).expanduser())
+            for r in records
+            if r.worktree_path and (not r.is_terminal or r.keep_worktree)
+        }
+        decided: dict[str, dict[str, Any]] = {}
         for record in records:
             path = record.worktree_path
             if not path:
                 continue
             considered += 1
+            path_key = str(Path(path).expanduser())
+            if record.is_terminal and not record.keep_worktree and path_key in held_paths:
+                retained.append(
+                    {
+                        "execution_id": record.execution_id,
+                        "path": path,
+                        "reason": "SHARED_WITH_LIVE_EXECUTION",
+                    }
+                )
+                continue
+            if path_key in decided:
+                prior = decided[path_key]
+                if prior.get("cleaned"):
+                    record.worktree_released_at = prior["released_at"]
+                    with contextlib.suppress(Exception):
+                        self._persist(record)
+                else:
+                    retained.append(
+                        {
+                            "execution_id": record.execution_id,
+                            "path": path,
+                            "reason": str(prior.get("status")),
+                        }
+                    )
+                continue
             if not record.is_terminal:
                 retained.append({"execution_id": record.execution_id, "reason": "NOT_TERMINAL"})
                 continue
@@ -1422,9 +1457,10 @@ class DurableJobManager:
                     }
                 )
                 continue
+            decided[path_key] = {**outcome, "released_at": time.time()}
             if outcome.get("cleaned"):
                 released.append(record.execution_id)
-                record.worktree_released_at = time.time()
+                record.worktree_released_at = decided[path_key]["released_at"]
                 self.metrics_bump("worktrees_released", 1)
                 with contextlib.suppress(Exception):
                     self._persist(record)
