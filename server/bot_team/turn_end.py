@@ -82,12 +82,18 @@ async def maybe_steward_turn_end(
 
     if not steward_enabled():
         return {"status": "skipped", "action": "none", "error": None}
-    from veya.omodul.context_steward import ContextStewardConfig, ContextStewardInput, context_steward
     from server.bot_team.memory_review_bridge import _llm_caller
+    from veya.omodul.context_steward import (
+        ContextStewardConfig,
+        ContextStewardInput,
+        context_steward,
+    )
 
     with contextlib.suppress(Exception):
         return await context_steward(
-            ContextStewardConfig(llm_caller=_llm_caller, window=window, reply_reserve=reply_reserve),
+            ContextStewardConfig(
+                llm_caller=_llm_caller, window=window, reply_reserve=reply_reserve
+            ),
             ContextStewardInput(session_ref=session_id, part=part, messages=list(messages)),
         )
     return {"status": "skipped", "action": "none", "error": None}
@@ -113,7 +119,6 @@ async def turn_end_hooks(
     }
     if prompt_cache_enabled() and messages:
         with contextlib.suppress(Exception):
-            from veya.oskill.pure.prompt_cache import ordered_sections
             from veya.oskill.pure.context_compress import estimate_messages_tokens
 
             tokens = int(estimate_messages_tokens(messages))

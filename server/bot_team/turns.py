@@ -237,8 +237,7 @@ async def run_bot_turn(
         )
     if mention is not None and mention.get("error"):
         names = ", ".join(
-            str(view.get("name") or view.get("runner_id"))
-            for view in mention.get("runners", [])
+            str(view.get("name") or view.get("runner_id")) for view in mention.get("runners", [])
         )
         reply = (
             f"找不到 runner {mention['error'].replace('unknown runner ', '')}。"

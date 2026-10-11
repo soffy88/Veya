@@ -286,8 +286,7 @@ def prewarm_due(
         False
     """
     window = max(0.0, float(debounce_seconds))
-    if last_signal_at is not None and now - float(last_signal_at) < window:
-        return False
-    if last_warm_at is not None and now - float(last_warm_at) < window:
-        return False
-    return True
+    return not (
+        (last_signal_at is not None and now - float(last_signal_at) < window)
+        or (last_warm_at is not None and now - float(last_warm_at) < window)
+    )

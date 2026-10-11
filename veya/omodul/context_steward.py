@@ -35,11 +35,11 @@ from veya.oskill.pure.steward_decide import (
 
 __all__ = [
     "CHECKPOINT",
+    "HANDOFF",
     "ContextStewardConfig",
     "ContextStewardInput",
-    "HANDOFF",
-    "context_steward",
     "compute_fingerprint_for",
+    "context_steward",
 ]
 
 #: Below / check / hard — mirrors ``steward_threshold``' return values.
@@ -122,9 +122,9 @@ def compute_fingerprint_for(config: Any, input_data: Any) -> str:
     try:
         from veya.oprim.audit_chain import GENESIS_HASH, compute_event_hash
 
-        return compute_event_hash(
-            {k: data.get(k) for k in sorted(fields)}, prev_hash=GENESIS_HASH
-        )[:24]
+        return compute_event_hash({k: data.get(k) for k in sorted(fields)}, prev_hash=GENESIS_HASH)[
+            :24
+        ]
     except Exception:
         return ""
 
@@ -175,7 +175,9 @@ def _write_trail(output_dir: Path | None, trail: list[dict[str, Any]]) -> str | 
         return None
 
 
-async def _reply_text(config: ContextStewardConfig, messages: list[dict[str, Any]]) -> tuple[str, float]:
+async def _reply_text(
+    config: ContextStewardConfig, messages: list[dict[str, Any]]
+) -> tuple[str, float]:
     """Call the injected LLM, returning ``(content, cost_usd)``.
 
     A failing provider returns ``("", 0.0)`` so the caller reports "no decision"
@@ -199,7 +201,11 @@ async def _reply_text(config: ContextStewardConfig, messages: list[dict[str, Any
         content = result.get("content")
         if not isinstance(content, str):
             choices = result.get("choices") or []
-            message = (choices[0].get("message") or {}) if choices and isinstance(choices[0], dict) else {}
+            message = (
+                (choices[0].get("message") or {})
+                if choices and isinstance(choices[0], dict)
+                else {}
+            )
             content = message.get("content")
         try:
             cost = float(result.get("cost_usd") or 0.0)

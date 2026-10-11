@@ -164,7 +164,7 @@ def make_handler(state: TapState, upstream: str, log_path: str, bot: str, kind: 
             divergence = state.observe(bot, body)
             summary = _request_summary(body)
 
-            request = urllib.request.Request(  # noqa: S310 — operator-supplied upstream
+            request = urllib.request.Request(
                 upstream,
                 data=body,
                 method=self.command,
@@ -179,7 +179,7 @@ def make_handler(state: TapState, upstream: str, log_path: str, bot: str, kind: 
             status = 0
             payload: Any = None
             try:
-                with urllib.request.urlopen(request, timeout=600) as response:  # noqa: S310
+                with urllib.request.urlopen(request, timeout=600) as response:
                     status = int(response.status)
                     raw = response.read()
             except urllib.error.HTTPError as exc:
@@ -220,8 +220,8 @@ def make_handler(state: TapState, upstream: str, log_path: str, bot: str, kind: 
             self.end_headers()
             self.wfile.write(raw)
 
-        do_POST = _forward  # noqa: N815 — BaseHTTPRequestHandler naming
-        do_GET = _forward  # noqa: N815
+        do_POST = _forward
+        do_GET = _forward
 
     return Handler
 
@@ -267,7 +267,11 @@ def cache_hit_rate(log_path: str) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="LLM logging pass-through (dev tooling)")
     parser.add_argument("--listen", default="127.0.0.1:8899", help="host:port to bind")
-    parser.add_argument("--upstream", required=True, help="provider endpoint to forward to")
+    parser.add_argument(
+        "--upstream",
+        default="",
+        help="provider endpoint to forward to (required unless --stats)",
+    )
     parser.add_argument("--log", default=os.path.expanduser("~/.veya/llm_tap.jsonl"))
     parser.add_argument("--bot", default="", help="bot label (default: $VEYA_TAP_BOT)")
     parser.add_argument("--kind", default="main", choices=list(CALL_KINDS))
@@ -277,6 +281,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.stats:
         print(json.dumps(cache_hit_rate(args.log), ensure_ascii=False, indent=2))
         return 0
+
+    if not args.upstream:
+        parser.error("--upstream is required when serving (omit it only for --stats)")
 
     host, _, port = args.listen.rpartition(":")
     state = TapState()
@@ -288,7 +295,9 @@ def main(argv: list[str] | None = None) -> int:
         args.kind if args.kind in CALL_KINDS else "other",
     )
     server = ThreadingHTTPServer((host or "127.0.0.1", int(port or 8899)), handler)
-    print(f"llm_tap listening on {args.listen} -> {args.upstream} (log: {args.log})", file=sys.stderr)
+    print(
+        f"llm_tap listening on {args.listen} -> {args.upstream} (log: {args.log})", file=sys.stderr
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

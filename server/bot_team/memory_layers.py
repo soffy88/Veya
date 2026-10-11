@@ -51,12 +51,12 @@ from veya.oskill.pure.memory_layers import (
 
 __all__ = [
     "DAILY_DIR",
-    "bot_memory_search",
     "JOURNAL_FILE",
     "SCRATCH_FILE",
     "TEAM_SCOPE_ID",
     "LayeredMemoryStore",
     "bot_memory_enabled",
+    "bot_memory_search",
     "scratch_ttl_seconds",
     "team_memory_enabled",
 ]
@@ -137,7 +137,9 @@ class LayeredMemoryStore:
 
     # ── daily ────────────────────────────────────────────────────────────
 
-    def append_daily(self, what: str, *, when: float | None = None, caller_bot_id: str | None = None):
+    def append_daily(
+        self, what: str, *, when: float | None = None, caller_bot_id: str | None = None
+    ):
         """Append one "what was done" line to today's log. Never injected."""
         if caller_bot_id is not None:
             require_same_bot(caller_bot_id, self.bot_id, "memory:daily")
@@ -159,7 +161,9 @@ class LayeredMemoryStore:
 
     # ── scratch ──────────────────────────────────────────────────────────
 
-    def write_scratch(self, text: str, *, expires_in: float | None = None, caller_bot_id: str | None = None):
+    def write_scratch(
+        self, text: str, *, expires_in: float | None = None, caller_bot_id: str | None = None
+    ):
         """Write one scratch entry with a TTL stamp. Injected while live."""
         if caller_bot_id is not None:
             require_same_bot(caller_bot_id, self.bot_id, "memory:scratch")
@@ -216,9 +220,7 @@ class LayeredMemoryStore:
     def gardening(self, scope: str = "bot", *, keep_lines: int = 3) -> list[dict[str, Any]]:
         """Trim **proposals** for the core memory. Nothing is deleted here."""
         limit = TEAM_MEMORY_MAX_CHARS if scope == TEAM_SCOPE_ID else CORE_MEMORY_MAX_CHARS
-        return gardening_proposals(
-            self.core_text(scope), max_chars=limit, keep_lines=keep_lines
-        )
+        return gardening_proposals(self.core_text(scope), max_chars=limit, keep_lines=keep_lines)
 
     def append_entry(
         self,
@@ -240,9 +242,7 @@ class LayeredMemoryStore:
             require_same_bot(caller_bot_id, self.bot_id, f"memory:{scope}")
         store = self._team_store if scope == TEAM_SCOPE_ID else self._store
         if scope == TEAM_SCOPE_ID and not team_memory_enabled():
-            raise PermissionError(
-                "team memory is off; set VEYA_TEAM_MEMORY=1 to enable it"
-            )
+            raise PermissionError("team memory is off; set VEYA_TEAM_MEMORY=1 to enable it")
         limit = TEAM_MEMORY_MAX_CHARS if scope == TEAM_SCOPE_ID else CORE_MEMORY_MAX_CHARS
         anchor = source or f"part 1 #{self.bot_id[:8]}"
         when = added or time.strftime("%Y-%m-%d", time.gmtime())
@@ -522,13 +522,9 @@ def remember(text: str, source: str = "") -> str:
     """
     bot_id = _bound_bot()
     try:
-        result = LayeredMemoryStore(bot_id).append_entry(
-            text, source=source, caller_bot_id=bot_id
-        )
+        result = LayeredMemoryStore(bot_id).append_entry(text, source=source, caller_bot_id=bot_id)
     except (ValueError, PermissionError) as exc:
-        return json.dumps(
-            {"ok": False, "bot_id": bot_id, "error": str(exc)}, ensure_ascii=False
-        )
+        return json.dumps({"ok": False, "bot_id": bot_id, "error": str(exc)}, ensure_ascii=False)
     return json.dumps({"ok": True, **result}, ensure_ascii=False)
 
 
@@ -536,7 +532,9 @@ def forget(text: str) -> str:
     """Remove the first core-memory line of the running bot containing *text*."""
     bot_id = _bound_bot()
     result = LayeredMemoryStore(bot_id).remove_entry(text, caller_bot_id=bot_id)
-    return json.dumps({"ok": bool(result.get("ok")), "bot_id": bot_id, **result}, ensure_ascii=False)
+    return json.dumps(
+        {"ok": bool(result.get("ok")), "bot_id": bot_id, **result}, ensure_ascii=False
+    )
 
 
 def recall(limit: int = 10) -> str:

@@ -29,12 +29,12 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from veya.omodul.context_steward import (  # noqa: E402
+from veya.omodul.context_steward import (
     ContextStewardConfig,
     ContextStewardInput,
     context_steward,
 )
-from veya.oskill.pure.steward_decide import CHECKPOINT, HANDOFF  # noqa: E402
+from veya.oskill.pure.steward_decide import CHECKPOINT, HANDOFF
 
 
 def _msg(role: str, text: str) -> dict[str, str]:
@@ -182,14 +182,24 @@ async def run_all(*, live: bool, broken: bool) -> tuple[list[dict[str, Any]], bo
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Offline context-steward eval")
-    parser.add_argument("--live", action="store_true", help="call the real model instead of the mock")
-    parser.add_argument("--broken", action="store_true", help="make the model return garbage on purpose")
+    parser.add_argument(
+        "--live", action="store_true", help="call the real model instead of the mock"
+    )
+    parser.add_argument(
+        "--broken", action="store_true", help="make the model return garbage on purpose"
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON instead of a table")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
-    if args.live and not os.environ.get("OPENCODE_API_KEY") and not os.environ.get("OPENAI_API_KEY"):
-        print("note: no API key visible; the live call will degrade to a stub reply", file=sys.stderr)
+    if (
+        args.live
+        and not os.environ.get("OPENCODE_API_KEY")
+        and not os.environ.get("OPENAI_API_KEY")
+    ):
+        print(
+            "note: no API key visible; the live call will degrade to a stub reply", file=sys.stderr
+        )
 
     rows, ok = asyncio.run(run_all(live=args.live, broken=args.broken))
     if args.json:
@@ -200,10 +210,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{'case'.ljust(width)}  expected   actual     result")
     for row in rows:
         mark = "PASS" if row["passed"] else "FAIL"
-        print(
-            f"{row['case'].ljust(width)}  {row['expected']:<10} "
-            f"{str(row['actual']):<10}  {mark}"
-        )
+        print(f"{row['case'].ljust(width)}  {row['expected']:<10} {row['actual']!s:<10}  {mark}")
         if args.verbose:
             print(f"    why: {row['why']}")
             if row.get("error"):

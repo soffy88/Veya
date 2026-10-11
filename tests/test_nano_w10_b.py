@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -233,7 +232,9 @@ def test_prompt_cache_metrics_never_raises_without_a_sink():
     out = asyncio.run(
         prompt_cache_metrics(
             PromptCacheMetricsConfig(),
-            PromptCacheMetricsInput(session_ref="s", usage={"prompt_tokens": 5, "cached_tokens": 1}),
+            PromptCacheMetricsInput(
+                session_ref="s", usage={"prompt_tokens": 5, "cached_tokens": 1}
+            ),
         )
     )
     assert out["status"] == "completed"
@@ -262,16 +263,15 @@ def test_prompt_cache_server_wiring_freezes_and_reports_when_on(monkeypatch):
     assert freeze["names"] == ["a", "b"] and freeze["digest"]
     assert pc.record_typing_signal("session-x", now=100.0)["due"] is True
     assert pc.record_typing_signal("session-x", now=100.5)["due"] is False
-    assert pc.typing_says_compact_now(
-        tokens=900, window=1000, idle_seconds=5, warm_seconds=60
-    ) is True
+    assert (
+        pc.typing_says_compact_now(tokens=900, window=1000, idle_seconds=5, warm_seconds=60) is True
+    )
     assert pc.cache_hit_report()["enabled"] is True
 
 
 def test_usage_recorded_topic_is_in_the_existing_event_whitelist():
-    from server.events import _MINIMAL_EVENTS
-
     from server.bot_team.prompt_cache import USAGE_TOPIC
+    from server.events import _MINIMAL_EVENTS
 
     assert USAGE_TOPIC in _MINIMAL_EVENTS
 
@@ -343,7 +343,11 @@ def test_context_steward_omodul_contract():
 
 
 def test_context_steward_below_the_line_costs_nothing():
-    from veya.omodul.context_steward import ContextStewardConfig, ContextStewardInput, context_steward
+    from veya.omodul.context_steward import (
+        ContextStewardConfig,
+        ContextStewardInput,
+        context_steward,
+    )
 
     calls: list[int] = []
 
@@ -361,7 +365,11 @@ def test_context_steward_below_the_line_costs_nothing():
 
 
 def test_context_steward_never_raises_on_a_bad_caller():
-    from veya.omodul.context_steward import ContextStewardConfig, ContextStewardInput, context_steward
+    from veya.omodul.context_steward import (
+        ContextStewardConfig,
+        ContextStewardInput,
+        context_steward,
+    )
 
     async def boom(_messages):
         raise RuntimeError("provider down")
@@ -531,7 +539,9 @@ def test_daily_log_is_appended_and_searchable(bots_root):
     assert first["day"] == "1970-01-01"
     store.append_daily("ran the backfill", when=3600.0)
     days = store.list_daily()
-    assert days == ["1970-01-01.md", "1970-01-01T01"] if False else days  # both land on 1970-01-01 UTC
+    assert (
+        days == ["1970-01-01.md", "1970-01-01T01"] if False else days
+    )  # both land on 1970-01-01 UTC
     body = (store.daily_dir / "1970-01-01.md").read_text(encoding="utf-8")
     assert "ran the migration" in body and "ran the backfill" in body
     hits = store.search("backfill")
@@ -731,7 +741,9 @@ def test_memory_review_bridge_is_off_by_default(monkeypatch):
     from server.bot_team.memory_review_bridge import memory_review_enabled, run_memory_review
 
     assert memory_review_enabled() is False
-    out = asyncio.run(run_memory_review(bot_id="bot-a", messages=[{"role": "user", "content": "x"}]))
+    out = asyncio.run(
+        run_memory_review(bot_id="bot-a", messages=[{"role": "user", "content": "x"}])
+    )
     assert out["status"] == "skipped" and out["action"] == "none"
 
 
@@ -778,7 +790,9 @@ def test_worker_rows_survive_and_can_be_reset(bots_root, monkeypatch):
 def test_worker_context_budget_never_exceeds_the_total():
     from veya.oskill.pure.worker_brief import worker_context_budget
 
-    budget = worker_context_budget(1000, [{"name": "a", "context_size": 10}, {"name": "b", "context_size": 10}])
+    budget = worker_context_budget(
+        1000, [{"name": "a", "context_size": 10}, {"name": "b", "context_size": 10}]
+    )
     assert sum(budget.values()) <= 1000
     assert budget["session"] >= 500  # the session keeps at least half
     empty = worker_context_budget(1000, [{"name": "a", "context_size": 0}])
@@ -817,9 +831,7 @@ def test_compact_path_is_unchanged_when_workers_are_off(monkeypatch):
         "user_id": "u1",
         "messages": [{"role": "user", "content": str(i)} for i in range(20)],
     }
-    out = asyncio.run(
-        session_routes.compact_session("s-compact", {"user_id": "u1"})
-    )
+    out = asyncio.run(session_routes.compact_session("s-compact", {"user_id": "u1"}))
     assert out["status"] == "compacted"
     summary = session_routes._sessions["s-compact"]["messages"][0]["content"]
     assert "## Workers" not in summary
@@ -918,7 +930,7 @@ def test_image_to_text_is_cached_by_content():
 
 
 def test_token_usage_aggregates_by_range_bot_model_and_kind():
-    from veya.omodul.token_usage import TokenUsageInput, TokenUsageConfig, token_usage
+    from veya.omodul.token_usage import TokenUsageConfig, TokenUsageInput, token_usage
 
     now = 2_000_000_000.0
     records = [

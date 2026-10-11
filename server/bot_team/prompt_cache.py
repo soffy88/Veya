@@ -35,8 +35,8 @@ __all__ = [
     "record_typing_signal",
     "should_prewarm",
     "steward_enabled",
-    "typing_says_compact_now",
     "turn_tool_freeze",
+    "typing_says_compact_now",
 ]
 
 #: Appended to the existing event whitelist in ``server/events.py``. No new store.
@@ -113,12 +113,12 @@ def record_call_usage(
             "cached_input_tokens": 0,
             "uncached_input_tokens": 0,
         }
+    from server.events import append_canonical_event
     from veya.omodul.prompt_cache_metrics import (
         PromptCacheMetricsConfig,
         PromptCacheMetricsInput,
         prompt_cache_metrics,
     )
-    from server.events import append_canonical_event
 
     def sink(record: dict[str, Any]) -> None:
         append_canonical_event(
@@ -198,7 +198,9 @@ def cache_hit_report(*, session_id: str | None = None) -> dict[str, Any]:
     for row in rows:
         payload.append(
             {
-                "cached_input_tokens": int((row.get("payload") or {}).get("cached_input_tokens") or 0),
+                "cached_input_tokens": int(
+                    (row.get("payload") or {}).get("cached_input_tokens") or 0
+                ),
                 "uncached_input_tokens": int(
                     (row.get("payload") or {}).get("uncached_input_tokens") or 0
                 ),

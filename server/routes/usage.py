@@ -8,8 +8,8 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from runtime.coding.quota import QuotaMeter, get_quota_meter
 from runtime.coding.cli_agents import get_cli_agent_registry
+from runtime.coding.quota import get_quota_meter
 from server import auth as auth_mod
 
 router = APIRouter(tags=["usage"])

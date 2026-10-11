@@ -124,8 +124,10 @@ async def token_usage(
     """
     trail: list[dict[str, Any]] = []
     try:
-        days = input_data.days if input_data.days is not None else RANGE_DAYS.get(
-            input_data.range_key, RANGE_DAYS["7d"]
+        days = (
+            input_data.days
+            if input_data.days is not None
+            else RANGE_DAYS.get(input_data.range_key, RANGE_DAYS["7d"])
         )
         now = float(input_data.now or 0.0)
         from_ts = now - float(days) * 86400.0
