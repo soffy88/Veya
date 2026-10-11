@@ -66,6 +66,11 @@ class Task:
 _DEFAULT_PATH = str(Path.home() / ".veya" / "tasks.json")
 
 
+_TASK_PROJECTION_TOPICS = frozenset(
+    {"tool.approval_required", "tool.approved", "checkpoint.created"}
+)
+
+
 class TaskProjection:
     """Rebuild the Task read model from persisted task lifecycle events."""
 
@@ -87,11 +92,7 @@ class TaskProjection:
 
     def apply(self, event: dict[str, Any]) -> bool:
         topic = str(event.get("topic") or event.get("type") or event.get("event") or "")
-        if not topic.startswith("task.") and topic not in {
-            "tool.approval_required",
-            "tool.approved",
-            "checkpoint.created",
-        }:
+        if not topic.startswith("task.") and topic not in _TASK_PROJECTION_TOPICS:
             return False
 
         payload = event.get("payload")
@@ -190,7 +191,13 @@ class TaskStore:
         )
 
     def _rebuild_from_events(self, *, save: bool) -> None:
-        projection = TaskProjection.from_events(self.event_store.read_all())
+        # Only the topics TaskProjection.apply consumes; the store pre-filters
+        # raw lines so the rest of a large shared log is never decoded.
+        projection = TaskProjection.from_events(
+            self.event_store.read_all(
+                topics=set(_TASK_PROJECTION_TOPICS), topic_prefixes=("task.",)
+            )
+        )
         if not projection.tasks:
             return
         with self._lock:
