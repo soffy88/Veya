@@ -81,6 +81,7 @@ from server.routes.voice_compat import router as voice_compat_router
 from server.routes.vscode import router as vscode_router
 from server.routes.review import router as review_router
 from server.routes.nano_w9 import router as nano_w9_router
+from server.routes.nano_w10_c import router as nano_w10_c_router
 from server.routes.workbench import router as workbench_router
 from server.routes.workspace import router as workspace_router
 from server.routes.cli_agents import router as cli_agents_router
@@ -567,6 +568,9 @@ app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-chec
 # search-with-receipts, trajectory replay, agent-native CLI template.
 # Every gated surface is flag-gated inside the router (default OFF).
 app.include_router(nano_w9_router)
+# NANO-W10 Group C: group roles, bot secrets, failure -> eval flywheel export
+app.include_router(nano_w10_c_router)
+
 
 
 @app.get("/health")

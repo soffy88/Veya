@@ -32,15 +32,23 @@ from server.agent_eval import (
     compare_runs,
     eval_run_from_dict,
     eval_run_to_dict,
+    load_eval_cases_from_jsonl,
     run_agent_eval_suite,
 )
 from server.coordinator_master import MasterCoordinator
 
 
 async def _main(args: argparse.Namespace) -> int:
+    cases = AGENT_EVAL_CASES
+    if args.from_failures:
+        cases = load_eval_cases_from_jsonl(args.from_failures)
+        if not cases:
+            print(f"未能从 {args.from_failures} 读取到有效用例", file=sys.stderr)
+            return 1
+
     coord = MasterCoordinator(max_rounds=args.max_rounds)
-    run = await run_agent_eval_suite(coord, suite_name=args.suite_name)
-    payload = eval_run_to_dict(run, cases=AGENT_EVAL_CASES)
+    run = await run_agent_eval_suite(coord, cases, suite_name=args.suite_name)
+    payload = eval_run_to_dict(run, cases=cases)
     print(json.dumps(payload["summary"], ensure_ascii=False, indent=2))
     print(json.dumps(payload["category_breakdown"], ensure_ascii=False, indent=2))
 
@@ -70,9 +78,11 @@ def main() -> None:
     parser.add_argument("--max-rounds", type=int, default=4)
     parser.add_argument("--save", help="跑完把结果存成 JSON(供以后 --compare-against 用)")
     parser.add_argument("--compare-against", help="跟一份已存的基线 JSON 做统计显著性对比")
+    parser.add_argument("--from-failures", help="从导出的失败用例 JSONL 运行评估")
     args = parser.parse_args()
     sys.exit(asyncio.run(_main(args)))
 
 
 if __name__ == "__main__":
     main()
+

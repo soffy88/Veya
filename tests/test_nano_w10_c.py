@@ -803,3 +803,244 @@ class TestBotSecretToolsAndRunnerIntegration:
         assert "[secret:SENSITIVE_KEY]" in outcome_err.error
 
 
+# ---------------------------------------------------------------------------
+# item 7b & REST surface tests (auth, ownership, flags)
+# ---------------------------------------------------------------------------
+
+
+class TestEvalExport:
+    """Failure -> EvalCase export flywheel (Item 7b)."""
+
+    def test_export_goal_run_as_eval_case(self, tmp_path):
+        from server.agent_eval import export_goal_run_as_eval_case
+        from server.goal_run.models import GoalRunState, GoalStatus
+        from server.goal_run.store import save_goal_run
+
+        state = GoalRunState(
+            goal_id="g_test_fail",
+            goal_text="debug auth token expiry",
+            status=GoalStatus.failed,
+        )
+        save_goal_run(state, project_root=str(tmp_path))
+
+        case = export_goal_run_as_eval_case(
+            "g_test_fail",
+            project_root=str(tmp_path),
+            correction="fixed clock skew calculation",
+        )
+        assert case.id == "goal_g_test_fail"
+        assert case.input == "debug auth token expiry"
+        assert case.expected["status"] == "completed"
+        assert case.meta["category"] == "failure_recovery"
+        assert case.meta["original_status"] == "failed"
+        assert case.meta["correction"] == "fixed clock skew calculation"
+
+    def test_export_failures_to_jsonl_and_load_back(self, tmp_path):
+        from server.agent_eval import export_failures_to_jsonl, load_eval_cases_from_jsonl
+        from server.goal_run.models import GoalRunState, GoalStatus
+        from server.goal_run.store import save_goal_run
+
+        state = GoalRunState(
+            goal_id="g_jsonl_fail",
+            goal_text="write parser tests",
+            status=GoalStatus.failed,
+        )
+        save_goal_run(state, project_root=str(tmp_path))
+
+        out_jsonl = tmp_path / "exported_evals.jsonl"
+        count = export_failures_to_jsonl(["g_jsonl_fail"], out_jsonl, project_root=str(tmp_path))
+        assert count == 1
+        assert out_jsonl.exists()
+
+        cases = load_eval_cases_from_jsonl(out_jsonl)
+        assert len(cases) == 1
+        assert cases[0].id == "goal_g_jsonl_fail"
+        assert cases[0].input == "write parser tests"
+        assert cases[0].expected["status"] == "completed"
+
+
+class TestNanoW10CRoutes:
+    """REST routes for group roles, secrets, and eval export with auth and ownership."""
+
+    @pytest.fixture
+    def auth_headers(self):
+        import uuid
+        from server import auth as auth_mod
+
+        username = f"u_c_{uuid.uuid4().hex[:8]}"
+        user = auth_mod.create_user(username, "password_123456")
+        token = auth_mod.issue_token(user["user_id"])
+        return {"Authorization": f"Bearer {token}", "user_id": user["user_id"]}
+
+    def test_unauthenticated_returns_401(self):
+        from fastapi.testclient import TestClient
+        from server.app import app
+
+        client = TestClient(app)
+        res_roles = client.patch("/api/v1/nano-w10-c/groups/g1/roles", json={"reply_mode": "everyone"})
+        assert res_roles.status_code == 401
+
+        res_secrets = client.get("/api/v1/nano-w10-c/secrets")
+        assert res_secrets.status_code == 401
+
+        res_export = client.post("/api/v1/nano-w10-c/eval/export", json={"goal_id": "g1"})
+        assert res_export.status_code == 401
+
+    def test_group_roles_route_flag_and_crud(self, auth_headers, monkeypatch, tmp_path):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        from server.bot_team.groups import GroupStore
+
+        store = GroupStore()
+        grp = store.create(name="ApiGrp", bot_ids=["b_admin", "b_member"])
+
+        headers = {"Authorization": auth_headers["Authorization"]}
+        client = TestClient(app)
+
+        # Flag OFF: 404
+        monkeypatch.setenv("VEYA_GROUP_ROLES", "0")
+        res_off = client.patch(
+            f"/api/v1/nano-w10-c/groups/{grp.id}/roles",
+            json={"reply_mode": "admin-first", "admin_bot_id": "b_admin"},
+            headers=headers,
+        )
+        assert res_off.status_code == 404
+
+        # Flag ON: 200
+        monkeypatch.setenv("VEYA_GROUP_ROLES", "1")
+        res_on = client.patch(
+            f"/api/v1/nano-w10-c/groups/{grp.id}/roles",
+            json={"reply_mode": "admin-first", "admin_bot_id": "b_admin", "notice": "Notice 1"},
+            headers=headers,
+        )
+        assert res_on.status_code == 200
+        data = res_on.json()
+        assert data["status"] == "updated"
+        assert data["group"]["admin_bot_id"] == "b_admin"
+        assert data["group"]["reply_mode"] == "admin-first"
+        assert data["group"]["notice"] == "Notice 1"
+
+    def test_bot_secrets_route_flag_and_crud(self, auth_headers, monkeypatch, tmp_path):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        from server.bot_team.secrets import BotSecretStore
+        from server.goal_run.bot_identity import BotRegistry, BotSpec
+
+        custom_store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        monkeypatch.setattr("server.bot_team.secrets.bot_secret_store", lambda: custom_store)
+        monkeypatch.setattr("server.routes.nano_w10_c.bot_secret_store", lambda: custom_store)
+
+        # Register bot owned by caller
+        b_reg = BotRegistry()
+        b_reg.register(BotSpec(bot_id="b_test", owner_id=auth_headers["user_id"]))
+
+        headers = {"Authorization": auth_headers["Authorization"]}
+        client = TestClient(app)
+
+        # Flag OFF: 404
+        monkeypatch.setenv("VEYA_BOT_SECRETS", "0")
+        res_off = client.get("/api/v1/nano-w10-c/secrets", headers=headers)
+        assert res_off.status_code == 404
+
+        # Flag ON: full workflow
+        monkeypatch.setenv("VEYA_BOT_SECRETS", "1")
+
+        # 1. request in group refused
+        res_grp = client.post(
+            "/api/v1/nano-w10-c/secrets/request",
+            json={"name": "S1", "purpose": "p", "bot_id": "b_test", "is_group": True},
+            headers=headers,
+        )
+        assert res_grp.status_code == 422
+        assert "SECRETS_NOT_IN_GROUP" in res_grp.text
+
+        # 2. direct request
+        res_req = client.post(
+            "/api/v1/nano-w10-c/secrets/request",
+            json={"name": "S1", "purpose": "p", "bot_id": "b_test", "is_group": False},
+            headers=headers,
+        )
+        assert res_req.status_code == 200
+        assert res_req.json()["status"] == "requested"
+
+        # 3. set value
+        res_val = client.post(
+            "/api/v1/nano-w10-c/secrets/S1/value",
+            json={"value": "top_secret_val", "scope": "this bot", "bot_id": "b_test"},
+            headers=headers,
+        )
+        assert res_val.status_code == 200
+        assert res_val.json()["status"] == "saved"
+
+        # 4. list secrets (warning when not HTTPS; value never leaked)
+        res_list = client.get("/api/v1/nano-w10-c/secrets", headers=headers)
+        assert res_list.status_code == 200
+        assert "top_secret_val" not in res_list.text
+        assert len(res_list.json()["secrets"]) >= 1
+
+        # 5. update scope
+        res_scope = client.patch(
+            "/api/v1/nano-w10-c/secrets/S1/scope",
+            json={"scope": "all bots"},
+            headers=headers,
+        )
+        assert res_scope.status_code == 200
+        assert res_scope.json()["meta"]["scope"] == "all bots"
+
+        # 6. delete
+        res_del = client.delete("/api/v1/nano-w10-c/secrets/S1", headers=headers)
+        assert res_del.status_code == 200
+        assert res_del.json()["status"] == "deleted"
+
+    def test_eval_export_route_ownership_and_export(self, auth_headers, tmp_path):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        from server.goal_run.bot_identity import BotRegistry, BotSpec
+        from server.goal_run.models import GoalRunState, GoalStatus
+        from server.goal_run.store import save_goal_run
+
+        headers = {"Authorization": auth_headers["Authorization"]}
+        client = TestClient(app)
+
+        b_reg = BotRegistry()
+        b_reg.register(BotSpec(bot_id="bot_alien", owner_id="stranger_user"))
+        b_reg.register(BotSpec(bot_id="bot_own", owner_id=auth_headers["user_id"]))
+
+        # 1. GoalRun owned by another user -> 403 Forbidden
+        state_other = GoalRunState(
+            goal_id="g_alien",
+            goal_text="secret project",
+            bot_id="bot_alien",
+            status=GoalStatus.failed,
+        )
+        save_goal_run(state_other, ".")
+        res_forbidden = client.post(
+            "/api/v1/nano-w10-c/eval/export",
+            json={"goal_id": "g_alien"},
+            headers=headers,
+        )
+        assert res_forbidden.status_code == 403
+
+        # 2. GoalRun owned by caller -> 200 Success
+        state_own = GoalRunState(
+            goal_id="g_own",
+            goal_text="fix broken endpoint",
+            bot_id="bot_own",
+            status=GoalStatus.failed,
+        )
+        save_goal_run(state_own, ".")
+        out_file = str(tmp_path / "route_export.jsonl")
+        res_ok = client.post(
+            "/api/v1/nano-w10-c/eval/export",
+            json={"goal_id": "g_own", "correction": "handled 404", "output_path": out_file},
+            headers=headers,
+        )
+        assert res_ok.status_code == 200
+        data = res_ok.json()
+        assert data["status"] == "exported"
+        assert data["case"]["id"] == "goal_g_own"
+        assert data["case"]["meta"]["correction"] == "handled 404"
+        assert data["exported_count"] == 1
+
+
+
