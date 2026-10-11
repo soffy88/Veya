@@ -187,18 +187,21 @@ class GroupMessageRequest(BaseModel):
 @router.post("/groups")
 async def create_group(
     req: GroupCreateRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
-    """Create a group chat of 1..6 member bots."""
+    """Create a group chat of 1..6 member bots (all of them the caller's)."""
 
-    del user
     registry = bot_registry()
     if len(req.bot_ids) > MAX_GROUP_MEMBERS:
         raise HTTPException(
             status_code=422,
             detail=f"a group may have at most {MAX_GROUP_MEMBERS} members",
         )
-    unknown = [bot_id for bot_id in req.bot_ids if registry.get(bot_id) is None]
+    unknown = [
+        bot_id
+        for bot_id in req.bot_ids
+        if _resolve_bot(registry, bot_id, owner_id=user["user_id"]) is None
+    ]
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown member bots: {unknown}")
     try:
@@ -212,17 +215,47 @@ async def create_group(
     return {"status": "created", "group": group.to_dict()}
 
 
+def _group_visible(group: Any, user_id: str) -> bool:
+    """W11 D2: a group belongs to whoever owns every member bot.
+
+    Groups carry no owner of their own; deriving it from the members keeps one
+    source of truth (the bot registry) and needs no schema change.
+    """
+
+    registry = bot_registry()
+    members = list(getattr(group, "bot_ids", None) or [])
+    return bool(members) and all(
+        _resolve_bot(registry, bot_id, owner_id=user_id) is not None for bot_id in members
+    )
+
+
+def _require_group(group_id: str, user_id: str) -> Any:
+    group = groups().get(group_id)
+    if group is None or not _group_visible(group, user_id):
+        raise HTTPException(status_code=404, detail=f"group {group_id!r} not found")
+    return group
+
+
 @router.get("/groups")
-async def list_groups() -> dict[str, Any]:
-    return {"groups": [group.to_dict() for group in groups().list()]}
+async def list_groups(
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    return {
+        "groups": [
+            group.to_dict() for group in groups().list() if _group_visible(group, user["user_id"])
+        ]
+    }
 
 
 @router.get("/groups/{group_id}/messages")
-async def get_group_messages(group_id: str, include_hidden: bool = False) -> dict[str, Any]:
+async def get_group_messages(
+    group_id: str,
+    include_hidden: bool = False,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
     """The group transcript. Hidden PASS replies are excluded by default."""
 
-    if groups().get(group_id) is None:
-        raise HTTPException(status_code=404, detail=f"group {group_id!r} not found")
+    _require_group(group_id, user["user_id"])
     return {
         "group_id": group_id,
         "messages": groups().messages(group_id, include_hidden=include_hidden),
@@ -234,7 +267,7 @@ async def post_group_message(
     group_id: str,
     req: GroupMessageRequest,
     async_mode: bool = Query(False, alias="async"),
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> Any:
     """Offer every member one turn per round, in order, then stop.
 
@@ -243,9 +276,7 @@ async def post_group_message(
     transcript endpoint below is where the replies appear.
     """
 
-    group = groups().get(group_id)
-    if group is None:
-        raise HTTPException(status_code=404, detail=f"group {group_id!r} not found")
+    group = _require_group(group_id, user["user_id"])
     if async_mode:
         ref = await start_group_turn_async(
             group=group,
@@ -279,7 +310,7 @@ async def post_group_message(
 @router.post("/proposals/{proposal_id}/accept")
 async def accept_proposal(
     proposal_id: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Create the bots Chef proposed. Nothing is created without this call."""
 
@@ -361,7 +392,7 @@ async def create_bot(
 @router.get("/{bot_id}")
 async def get_bot(
     bot_id: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     return {"bot": _bot_view(_require_bot(bot_registry(), bot_id, owner_id=user["user_id"]))}
 
@@ -370,7 +401,7 @@ async def get_bot(
 async def patch_bot(
     bot_id: str,
     req: BotPatchRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Update the configuration of one bot (name/description/instructions/LLM)."""
 
@@ -443,7 +474,10 @@ async def patch_bot(
 
 
 @router.delete("/{bot_id}")
-async def delete_bot(bot_id: str) -> dict[str, Any]:
+async def delete_bot(
+    bot_id: str,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
     """Remove one bot and forget its conversation."""
 
     if bot_id == DEFAULT_BOT_ID:
@@ -452,6 +486,7 @@ async def delete_bot(bot_id: str) -> dict[str, Any]:
         # Chef is seeded on every list; deleting it would only bring it back.
         raise HTTPException(status_code=422, detail="Chef cannot be deleted")
     registry = bot_registry()
+    _require_bot(registry, bot_id, owner_id=user["user_id"])
     if not registry.unregister(bot_id):
         raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
     conversations().clear(bot_id)
@@ -459,11 +494,15 @@ async def delete_bot(bot_id: str) -> dict[str, Any]:
 
 
 @router.get("/{bot_id}/messages")
-async def get_bot_messages(bot_id: str, include_hidden: bool = False) -> dict[str, Any]:
+async def get_bot_messages(
+    bot_id: str,
+    include_hidden: bool = False,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
     """One bot's conversation. Hidden PASS replies are excluded by default."""
 
-    # Resolve through the registry so an unknown bot is 404, not an empty log.
-    _require_bot(bot_registry(), bot_id)
+    # Resolve through the registry so an unknown (or someone else's) bot is 404.
+    _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
     return {
         "bot_id": bot_id,
         "messages": conversations().list(bot_id, include_hidden=include_hidden),
@@ -543,7 +582,7 @@ async def post_bot_message(
     bot_id: str,
     req: BotMessageRequest,
     async_mode: bool = Query(False, alias="async"),
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> Any:
     """Talk to one bot: record the message, run its turn, record the reply.
 
@@ -743,10 +782,16 @@ async def post_checkpoint_verdict(
 async def post_bot_to_bot_message(
     bot_id: str,
     req: BotToBotMessageRequest,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Let one bot message another through the existing delegation runtime."""
 
+    # Both ends must be the caller's bots (W11 D2).
+    _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
+    if req.target_bot_id != bot_id and _resolve_bot(
+        bot_registry(), req.target_bot_id, owner_id=user["user_id"]
+    ) is None:
+        raise HTTPException(status_code=422, detail=f"unknown target bot {req.target_bot_id!r}")
     messenger = BotMessenger(bot_registry(), conversations=conversations())
     try:
         outcome = await messenger.message_bot(
