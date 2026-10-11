@@ -7,13 +7,22 @@
 	 * reply is only "there" once the transcript carries a bot message with the
 	 * task id the 202 handed back, so that is exactly what the poll waits for.
 	 *
+	 * While the turn runs, the tab also reads the turn's own workbench
+	 * projection (`GET /api/v1/workbench/{task_id}`) — the redacted canonical
+	 * timeline of the task the turn opened — and renders its tool calls through
+	 * the same `WorkProcess` the console uses, plus its pending side-effect
+	 * approvals as cards the user can answer. Both come from the projection the
+	 * workbench page already renders; nothing here starts, records or re-orders
+	 * anything.
+	 *
 	 * Chef is the exception (`inline`): a Chef turn's whole product is the
 	 * confirmable proposal, which only the synchronous response carries, so its
 	 * chat must wait for the turn instead of deferring it.
 	 */
 	import { onDestroy, onMount } from "svelte";
 	import { tick } from "svelte";
-	import { Check, CornerUpLeft, Send } from "lucide-svelte";
+	import { Check, CornerUpLeft, RotateCw, Send } from "lucide-svelte";
+	import WorkProcess from "$lib/components/WorkProcess.svelte";
 	import {
 		acceptProposal,
 		answerCheckpoint,
@@ -24,7 +33,15 @@
 		type PendingPushTask,
 		type TurnReply,
 	} from "$lib/team/api";
+	import {
+		fetchTaskLive,
+		resolveTaskApproval,
+		type PendingApproval,
+	} from "$lib/team/live";
+	import { latestBotMessage, markRead } from "$lib/team/unread";
+	import { turnStore } from "$lib/team/turns.svelte";
 	import { actionClass, inputClass, primaryClass } from "$lib/team/ui";
+	import type { ToolStep } from "$lib/chatTypes";
 
 	let { botId, botName, mode }: { botId: string; botName: string; mode: "background" | "inline" } =
 		$props();
@@ -37,6 +54,7 @@
 	let thread: HTMLDivElement | undefined = $state();
 	let timer: ReturnType<typeof setInterval> | null = null;
 	let pendingTaskId = "";
+	let pendingSessionId = "";
 	let proposal = $state<{ id: string; bots: Array<Record<string, unknown>> } | null>(null);
 	let accepting = $state(false);
 	let accepted = $state<string[]>([]);
@@ -44,6 +62,12 @@
 	// W5: the id of the card whose verdict is in flight, so the buttons cannot
 	// be pressed twice while the answer is being recorded.
 	let answering = $state("");
+	// W-2: live tool steps and the turn's pending side-effect approvals.
+	let liveSteps = $state<ToolStep[]>([]);
+	let approvals = $state<PendingApproval[]>([]);
+	let answeringApproval = $state("");
+	/** The last thing the user asked, so a failed turn can be retried as-is. */
+	let lastAttempt = $state("");
 
 	// W4: while a turn is in flight this box corrects it instead of queuing a
 	// second turn. The backend lands it through the item-1 steer, so there is
@@ -64,6 +88,16 @@
 		try {
 			messages = await listBotMessages(botId);
 			error = "";
+			markRead(botId);
+			// A turn that finished before this tab opened still has its steps on
+			// the record: read the last task's projection once so reopening a chat
+			// shows what the bot did, not just what it said.
+			const lastTaskId = latestBotMessage(messages)?.task_id ?? "";
+			if (lastTaskId && lastTaskId !== pendingTaskId) {
+				pendingTaskId = lastTaskId;
+				await pollLive();
+				pendingTaskId = "";
+			}
 			await scrollToEnd();
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -77,6 +111,37 @@
 		timer = null;
 	}
 
+	function resetTurn(): void {
+		pendingTaskId = "";
+		pendingSessionId = "";
+		liveSteps = [];
+		approvals = [];
+		turnStore.clear(botId);
+	}
+
+	/**
+	 * One live read of the running turn: its tool steps and whatever it is
+	 * waiting for. A projection that cannot answer (task not visible yet, a
+	 * flaky minute) leaves the panel as it was instead of blanking it.
+	 */
+	async function pollLive(): Promise<void> {
+		if (!pendingTaskId) return;
+		const live = await fetchTaskLive(pendingTaskId);
+		if (!live || !pendingTaskId) return;
+		liveSteps = live.steps;
+		// Approvals are only actionable while a turn is actually running: a card
+		// left over from a finished turn would be a button that does nothing.
+		if (turnRunning) {
+			approvals = live.approvals;
+			turnStore.setApprovals(botId, live.approvals);
+		}
+		if (!live.running) {
+			// The projection says the task is done; the transcript poll is what
+			// confirms the reply landed, and it is already running.
+			return;
+		}
+	}
+
 	async function poll(): Promise<void> {
 		let fresh: BotMessage[];
 		try {
@@ -86,10 +151,32 @@
 		}
 		const landed = fresh.some((item) => item.role === "bot" && item.task_id === pendingTaskId);
 		messages = fresh;
-		await scrollToEnd();
 		if (landed) {
-			pendingTaskId = "";
+			// A turn that produced no visible reply is a failure the user can see,
+			// never a silent empty bubble.
+			const reply = fresh.filter((item) => item.role === "bot" && item.task_id === pendingTaskId).at(-1);
+			if (reply && !String(reply.text ?? "").trim()) {
+				error = `${botName} 这一轮没有给出回复。可以重试，或去任务详情看原因。`;
+			}
+			resetTurn();
 			stopPolling();
+		}
+		markRead(botId);
+		await scrollToEnd();
+	}
+
+	async function answerSideEffect(approval: PendingApproval, approved: boolean): Promise<void> {
+		if (!pendingTaskId || answeringApproval) return;
+		answeringApproval = approval.request_id;
+		error = "";
+		try {
+			await resolveTaskApproval(pendingTaskId, approval.request_id, approved);
+			approvals = approvals.filter((item) => item.request_id !== approval.request_id);
+			await pollLive();
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			answeringApproval = "";
 		}
 	}
 
@@ -162,31 +249,41 @@
 		}
 	}
 
-	async function submit(): Promise<void> {
-		if (turnRunning) {
-			await submitCorrection();
-			return;
-		}
-		const text = draft.trim();
-		if (!text || sending) return;
+	async function send(text: string): Promise<void> {
+		const trimmed = text.trim();
+		if (!trimmed || sending) return;
 		draft = "";
 		sending = true;
 		error = "";
 		proposal = null;
-		messages = [...messages, { id: `local-${Date.now()}`, role: "user", text, ts: Date.now() / 1000 }];
+		lastAttempt = trimmed;
+		messages = [...messages, { id: `local-${Date.now()}`, role: "user", text: trimmed, ts: Date.now() / 1000 }];
 		await scrollToEnd();
 		try {
-			const result = await sendBotMessage(botId, text, { background: mode === "background" });
+			const result = await sendBotMessage(botId, trimmed, { background: mode === "background" });
 			const pending = result as PendingPushTask;
 			if (pending.task_id) {
 				pendingTaskId = pending.task_id;
+				pendingSessionId = pending.session_id ?? "";
+				turnStore.start(botId, { taskId: pending.task_id, sessionId: pendingSessionId });
 				stopPolling();
-				timer = setInterval(() => void poll(), 2500);
+				timer = setInterval(() => {
+					void poll();
+					void pollLive();
+				}, 2500);
 				await poll();
+				await pollLive();
 			} else {
 				const inline = result as TurnReply;
 				if (inline.proposal) {
 					proposal = { id: inline.proposal.id, bots: inline.proposal.bots ?? [] };
+				}
+				if (inline.task_id) {
+					// A synchronous Chef turn still opened a task: its steps are
+					// already on the record and worth showing.
+					pendingTaskId = inline.task_id;
+					await pollLive();
+					pendingTaskId = "";
 				}
 				await load();
 			}
@@ -197,8 +294,19 @@
 		}
 	}
 
+	async function submit(): Promise<void> {
+		if (turnRunning) {
+			await submitCorrection();
+			return;
+		}
+		await send(draft);
+	}
+
 	onMount(load);
-	onDestroy(stopPolling);
+	onDestroy(() => {
+		stopPolling();
+		resetTurn();
+	});
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col">
@@ -247,8 +355,49 @@
 		{/if}
 	</div>
 
+	<!-- W-2: what the turn is actually doing, and what it is waiting for. -->
+	{#if turnRunning || liveSteps.length > 0 || approvals.length > 0}
+		<div class="space-y-2 border-t border-white/[0.05] px-4 pt-2">
+			{#if liveSteps.length > 0}
+				<WorkProcess steps={liveSteps} streaming={turnRunning} />
+			{/if}
+			{#each approvals as approval (approval.request_id)}
+				<div class="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3">
+					<p class="text-sm font-medium text-amber-100">需要你批准：{approval.tool_name}</p>
+					<p class="mt-0.5 text-xs opacity-70">{approval.reason}</p>
+					<div class="mt-2 flex gap-2">
+						<button
+							class={primaryClass}
+							onclick={() => void answerSideEffect(approval, true)}
+							disabled={answeringApproval !== ""}
+						>
+							<Check size={14} /> 批准
+						</button>
+						<button
+							class={actionClass}
+							onclick={() => void answerSideEffect(approval, false)}
+							disabled={answeringApproval !== ""}
+						>
+							拒绝
+						</button>
+						{#if answeringApproval === approval.request_id}
+							<span class="self-center text-xs opacity-60">处理中…</span>
+						{/if}
+					</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
 	{#if error}
-		<p class="border-t border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">{error}</p>
+		<div class="border-t border-red-500/30 bg-red-500/10 px-4 py-2">
+			<p class="text-xs text-red-300">{error}</p>
+			{#if lastAttempt && !sending}
+				<button class="{actionClass} mt-2" onclick={() => void send(lastAttempt)}>
+					<RotateCw size={14} /> 重试这一句
+				</button>
+			{/if}
+		</div>
 	{/if}
 
 	{#if proposal}

@@ -9,7 +9,7 @@
 	 */
 	import { onDestroy, onMount } from "svelte";
 	import { tick } from "svelte";
-	import { ArrowLeft, Send, Users } from "lucide-svelte";
+	import { ArrowLeft, AtSign, Send, Settings2, Users } from "lucide-svelte";
 	import {
 		listBots,
 		listGroupMessages,
@@ -20,9 +20,9 @@
 	} from "$lib/team/api";
 	import PushToggle from "$lib/team/PushToggle.svelte";
 	import { actionClass, inputClass, primaryClass } from "$lib/team/ui";
+	import GroupRolesSheet from "./GroupRolesSheet.svelte";
 
 	let { data } = $props<{ data: { groupId: string } }>();
-	const groupId = $derived(data.groupId);
 
 	let group = $state<GroupView | null>(null);
 	let bots = $state<Record<string, string>>({});
@@ -34,6 +34,12 @@
 	let thread: HTMLDivElement | undefined = $state();
 	let timer: ReturnType<typeof setInterval> | null = null;
 	let expectedCount = 0;
+	// W-5: who answers is a group setting; the sheet edits it through the same
+	// roles endpoint the group already has.
+	let showRoles = $state(false);
+	let rolesSupported = $state(true);
+	let composer: HTMLTextAreaElement | undefined = $state();
+	const groupId = $derived(data.groupId);
 
 	async function load(): Promise<void> {
 		try {
@@ -110,6 +116,14 @@
 		}
 	}
 
+	/** W-5: append "@bot " to the draft — the backend matches @bot ids verbatim. */
+	function mention(botId: string): void {
+		const token = `@${botId} `;
+		if (draft.includes(token)) return;
+		draft = `${draft.trimEnd()} ${token}`.trim();
+		composer?.focus();
+	}
+
 	onMount(loadGroup);
 	onDestroy(stopPolling);
 </script>
@@ -123,14 +137,31 @@
 			{#if group}
 				<p class="truncate text-[10px] opacity-50">
 					{group.bot_ids.map((id) => bots[id] ?? id).join("、")}
+					{#if group.reply_mode === "admin-first"} · 主 bot 先回{/if}
+					{#if group.reply_mode === "mention-only"} · 只回被点的{/if}
 				</p>
 			{/if}
 		</div>
+		{#if group}
+			<button
+				class={actionClass}
+				onclick={() => (showRoles = true)}
+				title="群角色"
+				aria-label="群角色设置"
+			>
+				<Settings2 size={16} />
+			</button>
+		{/if}
 		<PushToggle />
 	</header>
 
 	{#if error}
 		<p class="bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>
+	{/if}
+	{#if !rolesSupported}
+		<p class="bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+			这个部署还没有群角色功能（VEYA_GROUP_ROLES 未开启）— 现在每个成员都会按顺序回消息。
+		</p>
 	{/if}
 
 	<div bind:this={thread} class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -168,6 +199,21 @@
 		{/if}
 	</div>
 
+	{#if group && group.bot_ids.length > 1}
+		<!-- W-5: @mention decides who answers; the chips insert the exact token. -->
+		<div class="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-white/[0.05] px-3 pt-2">
+			<AtSign size={12} class="opacity-40" />
+			{#each group.bot_ids as botId (botId)}
+				<button
+					class="min-h-11 rounded-full border border-white/10 bg-white/[0.04] px-3 text-xs"
+					onclick={() => mention(botId)}
+				>
+					@{bots[botId] ?? botId}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
 	<form
 		class="flex shrink-0 items-end gap-2 border-t border-white/[0.07] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
 		onsubmit={(event) => {
@@ -176,8 +222,9 @@
 		}}
 	>
 		<textarea
+			bind:this={composer}
 			class="{inputClass} max-h-32 min-h-11 resize-none py-2.5"
-			placeholder="发给整个群…"
+			placeholder={group?.notice ? group.notice : "发给整个群…"}
 			bind:value={draft}
 			rows="1"
 			onkeydown={(event) => {
@@ -192,3 +239,21 @@
 		</button>
 	</form>
 </div>
+
+{#if group}
+	<GroupRolesSheet
+		open={showRoles}
+		{group}
+		memberNames={bots}
+		onclose={() => (showRoles = false)}
+		onsaved={(updated) => {
+			group = updated;
+			showRoles = false;
+			rolesSupported = true;
+		}}
+		onunsupported={() => {
+			showRoles = false;
+			rolesSupported = false;
+		}}
+	/>
+{/if}

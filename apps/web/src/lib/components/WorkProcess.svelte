@@ -5,9 +5,11 @@
 		ChevronDown,
 		CircleAlert,
 		Code2,
+		Globe,
 		History,
 		ListTodo,
 		Loader2,
+		Search,
 		Sparkles,
 		Square,
 		Wrench,
@@ -34,9 +36,14 @@
 				if (tool.includes("git_")) return { Icon: History, tone: "text-sky-300", label: "检查 Git" };
 				if (tool.includes("test_run")) return { Icon: CheckCircle2, tone: "text-emerald-300", label: "运行测试" };
 				if (tool.includes("build_run")) return { Icon: CheckCircle2, tone: "text-emerald-300", label: "构建项目" };
-				if (tool.includes("hicode")) return { Icon: Code2, tone: "text-emerald-300", label: "执行代码任务" };
-				if (tool.includes("workspace")) return { Icon: Wrench, tone: "text-amber-300", label: "检查工作区" };
-				return { Icon: Wrench, tone: "text-amber-300", label: "使用工具" };
+			if (tool.includes("hicode")) return { Icon: Code2, tone: "text-emerald-300", label: "执行代码任务" };
+			if (tool.includes("workspace")) return { Icon: Wrench, tone: "text-amber-300", label: "检查工作区" };
+			// web reading (the W10-D ladder): a bot reading a page is the same
+			// step shape as a console turn, so it gets the same human label.
+			if (tool.includes("browser_run")) return { Icon: Globe, tone: "text-cyan-300", label: "用浏览器打开页面" };
+			if (tool.includes("fetch_url")) return { Icon: Globe, tone: "text-cyan-300", label: "读取网页" };
+			if (tool.includes("search")) return { Icon: Search, tone: "text-cyan-300", label: "搜索资料" };
+			return { Icon: Wrench, tone: "text-amber-300", label: "使用工具" };
 			}
 			case "tool_error":
 				return { Icon: CircleAlert, tone: "text-rose-300", label: `${String(ev.tool_name ?? "工具")} 失败` };

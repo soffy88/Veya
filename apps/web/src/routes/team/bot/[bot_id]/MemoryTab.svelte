@@ -1,9 +1,10 @@
 <script lang="ts">
 	/**
-	 * Per-bot memory editor.
+	 * Per-bot memory: what the bot remembers about you (W11 W-4).
 	 *
-	 * Memory is a sibling branch: this panel probes the endpoint once and, if the
-	 * deployment does not have it, says so instead of rendering a dead form.
+	 * The listing endpoint returns file *names*; each body is its own read, which
+	 * is what keeps a long memory cheap to open. Deleting a file is "遗忘" — the
+	 * only verb the backend has for forgetting, so the button says it plainly.
 	 */
 	import { onMount } from "svelte";
 	import { Plus, Save, Trash2 } from "lucide-svelte";
@@ -25,17 +26,20 @@
 	let loading = $state(true);
 	let busy = $state(false);
 	let error = $state("");
+	let confirmForget = $state("");
 
 	async function open(doc: MemoryDoc): Promise<void> {
 		selected = doc.name;
-		content = doc.content ?? "";
-		if (!content) {
-			// A name-only listing still needs the body to be editable.
-			try {
-				content = (await getMemory(botId, doc.name)).content ?? "";
-			} catch {
-				/* keep whatever the listing gave us */
-			}
+		error = "";
+		if (doc.content) {
+			content = doc.content;
+			return;
+		}
+		// A name-only listing still needs the body to be editable.
+		try {
+			content = (await getMemory(botId, doc.name)).content ?? "";
+		} catch {
+			content = "";
 		}
 	}
 
@@ -55,6 +59,7 @@
 	function startNew(): void {
 		selected = "";
 		content = "";
+		confirmForget = "";
 	}
 
 	async function save(): Promise<void> {
@@ -72,12 +77,13 @@
 		}
 	}
 
-	async function remove(name: string): Promise<void> {
+	async function forget(name: string): Promise<void> {
 		busy = true;
 		error = "";
 		try {
 			await deleteMemory(botId, name);
 			if (selected === name) startNew();
+			confirmForget = "";
 			await load();
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
@@ -114,18 +120,34 @@
 		{#if error}<p class="text-xs text-red-300">{error}</p>{/if}
 
 		{#if docs.length > 0}
+			<h3 class="text-xs opacity-60">已记住 {docs.length} 条</h3>
 			<ul class="space-y-2">
 				{#each docs as doc (doc.name)}
 					<li class="{cardClass} flex items-center gap-2 !p-3">
 						<button class="min-w-0 flex-1 truncate text-left text-sm" onclick={() => void open(doc)}>
 							{doc.name}
 						</button>
-						<button class={actionClass} onclick={() => void remove(doc.name)} title="删除">
-							<Trash2 size={14} />
-						</button>
+						{#if confirmForget === doc.name}
+							<button
+								class="{actionClass} !border-red-500/40 !text-red-300"
+								onclick={() => void forget(doc.name)}
+							>
+								确认遗忘
+							</button>
+						{:else}
+							<button
+								class={actionClass}
+								onclick={() => (confirmForget = doc.name)}
+								title="让 bot 忘掉这一条"
+							>
+								<Trash2 size={14} />
+							</button>
+						{/if}
 					</li>
 				{/each}
 			</ul>
+		{:else}
+			<p class="{cardClass} text-sm opacity-60">还没有记忆。在聊天里说「记住…」，或在这里新建一条。</p>
 		{/if}
 	{/if}
 </div>

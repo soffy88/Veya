@@ -6,8 +6,8 @@
 	 * gets renamed or re-pointed at another model; nothing here can start a turn.
 	 */
 	import { onMount } from "svelte";
-	import { Trash2, Database, Key, Terminal } from "lucide-svelte";
-	import { deleteBot, patchBot, type BotView } from "$lib/team/api";
+	import { Trash2, Database, Key, Terminal, Lock } from "lucide-svelte";
+	import { deleteBot, listBotSecrets, patchBot, type BotSecretView, type BotView } from "$lib/team/api";
 	import { actionClass, cardClass, inputClass, primaryClass } from "$lib/team/ui";
 
 	let { bot, onSaved }: { bot: BotView; onSaved: () => void } = $props();
@@ -24,6 +24,11 @@
 	let busy = $state(false);
 	let error = $state("");
 	let confirmDelete = $state(false);
+	// W-4: secrets are metadata only. The endpoint refuses to return a value, so
+	// this tab has nothing to mask — it shows name/purpose/scope and nothing else.
+	let secrets = $state<BotSecretView[]>([]);
+	let secretsSupported = $state(true);
+	let secretsLoading = $state(true);
 
 	const MODEL_SOURCE_OPTIONS = [
 		{ value: "server", label: "服务器默认", icon: Database, desc: "使用服务器配置的默认模型" },
@@ -94,6 +99,29 @@
 			busy = false;
 		}
 	}
+
+	async function loadSecrets(): Promise<void> {
+		secretsLoading = true;
+		try {
+			// `VEYA_BOT_SECRETS` off (or a deployment without it) answers 404 —
+			// which is "no secrets here", not a broken panel.
+			secrets = await listBotSecrets(bot.bot_id);
+			secretsSupported = true;
+		} catch {
+			secretsSupported = false;
+		} finally {
+			secretsLoading = false;
+		}
+	}
+
+	function secretScopeLabel(secret: BotSecretView): string {
+		const scope = secret.requesting_bot_id === bot.bot_id ? "只有这个 bot 能用" : "所有 bot 可用";
+		return `${secret.scope} · ${scope}`;
+	}
+
+	onMount(() => {
+		void loadSecrets();
+	});
 </script>
 
 <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -199,6 +227,30 @@
 		{#if error}<p class="text-xs text-red-300">{error}</p>{/if}
 		<button class={primaryClass} type="submit" disabled={busy}>保存</button>
 	</form>
+
+	<div class="{cardClass} !p-3">
+		<div class="mb-2 flex items-center gap-2">
+			<Lock size={14} class="opacity-60" />
+			<h2 class="text-sm font-medium">密钥（只显示名称，永不显示值）</h2>
+		</div>
+		{#if secretsLoading}
+			<p class="text-xs opacity-60">加载中…</p>
+		{:else if !secretsSupported}
+			<p class="text-xs opacity-70">这个部署还没有 secrets 功能（VEYA_BOT_SECRETS 未开启）。</p>
+		{:else if secrets.length === 0}
+			<p class="text-xs opacity-70">还没有密钥。bot 在聊天里需要某个 key 时会先问你要，你在这里保管。</p>
+		{:else}
+			<ul class="space-y-2">
+				{#each secrets as secret (secret.name)}
+					<li class="rounded-lg border border-white/[0.07] bg-white/[0.02] p-2.5">
+						<p class="text-sm font-medium">{secret.name}</p>
+						<p class="mt-0.5 text-xs opacity-60">{secret.purpose || "bot 申请使用"}</p>
+						<p class="mt-0.5 text-[11px] opacity-50">{secretScopeLabel(secret)}</p>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</div>
 
 	<div class="{cardClass} !p-3">
 		<p class="mb-2 text-xs opacity-60">删除这个机器人（同时清空它的对话）</p>

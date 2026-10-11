@@ -21,6 +21,16 @@ export function slugifyBotId(name: string): string {
 	return ascii;
 }
 
+/** FNV-1a: a short, stable suffix derived from the name itself. */
+function shortHash(value: string): string {
+	let hash = 0x811c9dc5;
+	for (let index = 0; index < value.length; index += 1) {
+		hash ^= value.codePointAt(index) ?? 0;
+		hash = Math.imul(hash, 0x01000193) >>> 0;
+	}
+	return hash.toString(36).slice(0, 6).padStart(6, "0");
+}
+
 /**
  * A valid, unused bot id for `name`. When the slug is empty (a name in another
  * script) or already taken, a suffix is appended so the field never forces the
@@ -28,7 +38,8 @@ export function slugifyBotId(name: string): string {
  */
 export function suggestBotId(name: string, taken: Iterable<string> = []): string {
 	const existing = new Set(taken);
-	const base = slugifyBotId(name) || "bot";
+	const trimmed = String(name ?? "").trim();
+	const base = slugifyBotId(trimmed) || `bot-${shortHash(trimmed)}`;
 	if (!existing.has(base) && BOT_ID_RE.test(base)) return base;
 	for (let suffix = 2; suffix < 1000; suffix += 1) {
 		const candidate = `${base}-${suffix}`;
