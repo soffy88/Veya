@@ -11,10 +11,22 @@ from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.routine_history import RoutineHistoryStore
 
+def _require_owned_bot(
+    bot_id: str,
+    user: dict = Depends(auth_mod.require_user),
+) -> None:
+    """W11 D2: routines belong to the bot's owner; anyone else gets 404."""
+
+    from server.goal_run.bot_identity import BotRegistry
+    from server.routes.bot_team import _require_bot
+
+    _require_bot(BotRegistry(), bot_id, owner_id=user["user_id"])
+
+
 router = APIRouter(
     prefix="/api/v1/bots/{bot_id}/routines",
     tags=["routines"],
-    dependencies=[Depends(auth_mod.get_current_user)],
+    dependencies=[Depends(_require_owned_bot)],
 )
 
 

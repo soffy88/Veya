@@ -290,8 +290,13 @@ def client(tmp_path_factory):
     # Import app after patching the env so the store picks up the override.
     from server.app import app
 
+    from server import auth as _auth
+
+    # W11 D2: memory routes require a signed-in user; keep the old caller.
+    app.dependency_overrides[_auth.require_user] = lambda: {"user_id": "anonymous", "username": "anonymous"}
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
+    app.dependency_overrides.pop(_auth.require_user, None)
     os.environ.pop("VEYA_BOTS_ROOT", None)
 
 
