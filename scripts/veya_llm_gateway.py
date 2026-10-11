@@ -64,6 +64,41 @@ async def _app_lifespan(_app: FastAPI):
 app = FastAPI(title="veya LLM gateway", lifespan=_app_lifespan)
 
 # ---------------------------------------------------------------------------
+# 入站鉴权: 本机 / docker 网桥免鉴权 (magpie、relay、容器照旧), 其余来源
+# (tailnet、局域网) 必须带 VEYA_GATEWAY_KEYS 中的任一 Bearer key。
+# ---------------------------------------------------------------------------
+import ipaddress as _ipaddress
+
+from fastapi.responses import JSONResponse as _AuthJSONResponse
+
+_GATEWAY_KEYS = {k.strip() for k in os.environ.get("VEYA_GATEWAY_KEYS", "").split(",") if k.strip()}
+_TRUSTED_NETS = [
+    _ipaddress.ip_network(n)
+    for n in os.environ.get("VEYA_GATEWAY_TRUSTED_NETS", "127.0.0.0/8,::1/128,172.16.0.0/12").split(",")
+    if n.strip()
+]
+
+
+@app.middleware("http")
+async def _inbound_auth(request: Request, call_next):
+    host = request.client.host if request.client else ""
+    try:
+        addr = _ipaddress.ip_address(host)
+        if addr.version == 6 and addr.ipv4_mapped:
+            addr = addr.ipv4_mapped
+        trusted = any(addr in net for net in _TRUSTED_NETS)
+    except ValueError:
+        trusted = False
+    if not trusted:
+        auth = request.headers.get("authorization", "")
+        token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        if not _GATEWAY_KEYS or token not in _GATEWAY_KEYS:
+            return _AuthJSONResponse(
+                {"error": {"message": "unauthorized", "type": "auth_error"}}, status_code=401
+            )
+    return await call_next(request)
+
+# ---------------------------------------------------------------------------
 # 模型目录: 静态别名/frontier + 启动时从 opencode zen 拉取的全量直连模型。
 # veya1.2-free 的活动池由下方生命周期任务独立维护。
 # ---------------------------------------------------------------------------
@@ -85,10 +120,11 @@ _STATIC_CATALOG: dict[str, dict[str, Any]] = {
     # caller that still has the old id in its config.
     "veya1.2-128K": {"model": "veya1.2-128K"},
     "veya-dp4.1-jev-1.13": {"model": "veya-dp4.1-jev-1.13"},
+    # opencodex (10100) retired 2026-10-12; ChatGPT frontier now comes via CLIProxyAPI.
     "gpt-5.6-luna": {
-        "provider": "openai",
+        "provider": "cliproxy",
         "model": "gpt-5.6-luna",
-        "endpoint": "http://127.0.0.1:10100/v1",
+        "endpoint": "http://127.0.0.1:8317/v1",
     },
 }
 # Keep the external gateway catalog aligned with the aliases accepted by the
@@ -142,6 +178,7 @@ def _fetch_zen_catalog() -> dict[str, dict[str, Any]]:
 _LOCAL_UPSTREAMS: dict[str, str] = {
     "cliproxy": os.environ.get("VEYA_CLIPROXY_BASE", "http://127.0.0.1:8317/v1"),
     "freellmapi": os.environ.get("VEYA_FREELLMAPI_BASE", "http://127.0.0.1:3001/v1"),
+    "workbuddy": os.environ.get("VEYA_WORKBUDDY_BASE", "http://127.0.0.1:8788/v1"),
 }
 _NON_CHAT_MARKERS = ("image", "embed", "tts", "whisper", "diffusion", "codex-auto-review")
 
@@ -154,6 +191,9 @@ def _read_local_upstream_key(name: str) -> str:
             cfg = yaml.safe_load((Path.home() / "cliproxyapi" / "config.yaml").read_text())
             keys = (cfg or {}).get("api-keys") or []
             return str(keys[0]) if keys else ""
+        if name == "workbuddy":
+            pi_cfg = json.loads((Path.home() / ".pi" / "agent" / "models.json").read_text())
+            return str(((pi_cfg.get("providers") or {}).get("workbuddy") or {}).get("apiKey") or "")
         if name == "freellmapi":
             import sqlite3
 
