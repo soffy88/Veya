@@ -31,14 +31,14 @@ from typing import Any
 __all__ = [
     "INBOUND_KINDS",
     "PRIORITY_ORDER",
+    "STATE_DELIVERED",
+    "STATE_STARTED",
+    "STATE_UNCONFIRMED",
     "classify_inbound",
     "coalesce_window",
     "envelope_priority",
     "order_queue",
     "steer_decision",
-    "STATE_DELIVERED",
-    "STATE_STARTED",
-    "STATE_UNCONFIRMED",
 ]
 
 #: Inbound kinds, most important first. The order *is* the priority policy:

@@ -110,7 +110,7 @@ def envelope_fingerprint(envelope: dict[str, Any], fields: tuple[str, ...]) -> s
         than a digest over nothing.
 
     Example:
-        >>> envelope_fingerprint({"a": 1}, ()) 
+        >>> envelope_fingerprint({"a": 1}, ())
         ''
     """
 

@@ -13,20 +13,24 @@ import json
 
 import pytest
 
-from server.nano_w10.flags import ALL_FLAGS, FeatureDisabled, feature_flags, flag_enabled, require_flag
-from server.nano_w10.live_stream import LiveStream, live_stream_enabled, wire_to_turn_queue
+from server.nano_w10.flags import (
+    ALL_FLAGS,
+    FeatureDisabled,
+    feature_flags,
+    flag_enabled,
+    require_flag,
+)
+from server.nano_w10.live_stream import LiveStream, wire_to_turn_queue
 from server.nano_w10.loop_mode import LoopRunPolicy, finish_card
 from server.nano_w10.turn_queue import TurnQueue
 from server.nano_w10.wake_router import WakeRouter, build_triage_engine
-from veya.omodul.live_trace import LiveTraceConfig, LiveTraceInput, LiveTraceState, live_trace
-from veya.omodul.loop_run import LoopRunConfig, LoopRunInput, loop_run
 from veya.omodul.turn_intake import (
     TurnIntakeConfig,
     TurnIntakeInput,
     compute_fingerprint_for,
     turn_intake,
 )
-from veya.omodul.wake_router import WAKE_SOURCES, WakeRouterConfig, WakeRouterInput, wake_router
+from veya.omodul.wake_router import WAKE_SOURCES
 from veya.oprim.turn_envelope import envelope_fingerprint, idem_key
 from veya.oskill.pure.live_trace import (
     PLAN_STATUSES,
@@ -35,9 +39,6 @@ from veya.oskill.pure.live_trace import (
     step_from_tool_event,
 )
 from veya.oskill.pure.loop_policy import (
-    LOOP_MODES,
-    MODE_GOAL,
-    MODE_LOOP,
     STOP_BUDGET_TIME,
     STOP_BUDGET_TURNS,
     STOP_NO_PROGRESS,
@@ -49,7 +50,6 @@ from veya.oskill.pure.loop_policy import (
 from veya.oskill.pure.turn_priority import (
     INBOUND_KINDS,
     STATE_DELIVERED,
-    STATE_UNCONFIRMED,
     classify_inbound,
     coalesce_window,
     envelope_priority,
@@ -61,7 +61,6 @@ from veya.oskill.pure.wake_policy import (
     is_quiet_hours,
     worth_bugging_user,
 )
-
 
 # ══════════════════════════════════════════════════════════════════════════
 # 0 — flags (HARD RULES: default OFF except 7a / read-only surfaces)
@@ -629,8 +628,8 @@ def correction_client(monkeypatch: pytest.MonkeyPatch, tmp_path):
 
     from server import auth as auth_mod
     from server.goal_run.bot_identity import BotSpec
-    from server.routes import bot_team as bot_routes
     from server.nano_w10.turn_queue import reset_turn_queue
+    from server.routes import bot_team as bot_routes
 
     monkeypatch.setenv("VEYA_TURN_QUEUE", "1")
     monkeypatch.setenv("VEYA_LIVE_STREAM", "1")

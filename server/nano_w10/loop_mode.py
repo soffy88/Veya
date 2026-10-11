@@ -21,7 +21,7 @@ from typing import Any
 
 from server.nano_w10.flags import flag_enabled
 from veya.omodul.loop_run import LoopRunConfig, LoopRunInput, loop_run, parse_loop_brief
-from veya.oskill.pure.loop_policy import MODE_GOAL, MODE_LOOP
+from veya.oskill.pure.loop_policy import MODE_GOAL
 
 _log = logging.getLogger("veya.nano_w10.loop_mode")
 

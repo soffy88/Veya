@@ -50,8 +50,8 @@ _log = logging.getLogger(__name__)
 __all__ = [
     "TurnIntakeConfig",
     "TurnIntakeInput",
-    "turn_intake",
     "compute_fingerprint_for",
+    "turn_intake",
 ]
 
 #: Fields the fingerprint covers. ``conversation_ref`` is the stable non-PII

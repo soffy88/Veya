@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from veya.oskill.pure.live_trace import correction_action, plan_rows, step_from_tool_event
-from veya.oskill.pure.turn_priority import STATE_DELIVERED, STATE_UNCONFIRMED
+from veya.oskill.pure.turn_priority import STATE_UNCONFIRMED
 
 _log = logging.getLogger(__name__)
 
@@ -34,8 +34,8 @@ __all__ = [
     "LiveTraceConfig",
     "LiveTraceInput",
     "LiveTraceState",
-    "live_trace",
     "compute_fingerprint_for",
+    "live_trace",
 ]
 
 _FINGERPRINT_FIELDS = ("task_id", "seq", "type")

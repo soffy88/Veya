@@ -45,8 +45,8 @@ _log = logging.getLogger(__name__)
 __all__ = [
     "LoopRunConfig",
     "LoopRunInput",
-    "loop_run",
     "compute_fingerprint_for",
+    "loop_run",
 ]
 
 #: The fingerprint covers the run identity, so the same round of the same run
@@ -265,7 +265,6 @@ def _write_trail(output_dir: Path | None, trail: list[dict[str, Any]]) -> str:
         return ""
 
 
-# Re-exported so the layer-4 call site imports the brief parser from the same
-# place it imports the policy decision.
-__all__.append("parse_loop_brief")
-__all__.append("STOP_CONTINUE")
+# Re-exported so the layer-4 call site imports the brief parser and the stop
+# vocabulary from the same place it imports the policy decision.
+__all__ += ["STOP_CONTINUE", "parse_loop_brief"]
