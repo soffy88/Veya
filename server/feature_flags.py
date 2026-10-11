@@ -52,6 +52,17 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_A11Y_FIRST", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_DOM_READER", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_CHANNEL_LADDER", False, "runtime", "2027-01-01"),
+    # NANO-W10 Group A flags (spec D3: registered in shared table as single authority)
+    FeatureFlag("VEYA_TURN_QUEUE", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_WAKE_ROUTER", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_LOOP_MODE", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_FINISH_CHECKPOINT", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_LIVE_STREAM", True, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_TOOL_ERROR_FRIENDLY", True, "safety", "2027-01-01"),
+    FeatureFlag("VEYA_LLM_TAP", True, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_SEARCH_FALLBACK", True, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_CHANNEL_STATUS", True, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_BOT_MEMORY_MD", False, "learning", "2027-01-01"),
 )
 
 
