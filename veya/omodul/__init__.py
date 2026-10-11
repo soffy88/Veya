@@ -48,6 +48,17 @@ from veya.omodul.voice_agent import (
     VoiceSessionResult,
     run_voice_conversation,
 )
+from veya.omodul.auto_review import (
+    AutoReviewConfig,
+    AutoReviewInput,
+    auto_review,
+)
+from veya.omodul.bot_secrets import (
+    BotSecretConfig,
+    BotSecretInput,
+    bot_secrets_operation,
+)
+
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # Voice
@@ -82,4 +93,13 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "DailyBriefInput",
     "daily_brief",
     "compute_fingerprint_for",
+    # NANO-W10 Group C: command auto-review (item 3)
+    "AutoReviewConfig",
+    "AutoReviewInput",
+    "auto_review",
+    # NANO-W10 Group C: bot secrets (addendum Q)
+    "BotSecretConfig",
+    "BotSecretInput",
+    "bot_secrets_operation",
 ]
+

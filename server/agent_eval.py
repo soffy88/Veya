@@ -32,9 +32,13 @@ __all__ = [
     "compare_runs",
     "cost_per_case",
     "eval_run_to_dict",
+    "export_failures_to_jsonl",
+    "export_goal_run_as_eval_case",
+    "load_eval_cases_from_jsonl",
     "run_agent_eval_suite",
     "unnecessary_tool_rate",
 ]
+
 
 # 用例覆盖三种代表性场景: 直接回答 / 工具成功 / 工具失败后恢复
 # (跟 tests/test_master_tools.py 的既有断言场景保持一致, 不额外发明新契约)。
@@ -244,3 +248,88 @@ def eval_run_from_dict(data: dict[str, Any]) -> EvalRun:
     run.scores = dict(data["scores"])
     run.details = dict(data.get("details", {}))
     return run
+
+
+def export_goal_run_as_eval_case(
+    goal_id: str,
+    project_root: str = ".",
+    *,
+    correction: str | None = None,
+) -> EvalCase:
+    """Export a failed/corrected GoalRun as an EvalCase (NANO-W10 Item 7b)."""
+    from server.goal_run.store import load_goal_run
+
+    state = load_goal_run(project_root, goal_id)
+    if state is None:
+        raise FileNotFoundError(f"GoalRun {goal_id!r} not found in {project_root}")
+
+    case_id = f"goal_{goal_id}"
+    input_text = state.goal_text
+    expected = {
+        "status": "completed",
+    }
+    meta = {
+        "category": "failure_recovery",
+        "goal_id": goal_id,
+        "bot_id": state.bot_id,
+        "original_status": getattr(state.status, "value", str(state.status)),
+        "correction": correction or "",
+        "exported_from": "failed_goal_run",
+    }
+    return EvalCase(id=case_id, input=input_text, expected=expected, meta=meta)
+
+
+def export_failures_to_jsonl(
+    goal_ids: list[str],
+    output_path: str | Any,
+    project_root: str = ".",
+    *,
+    correction: str | None = None,
+) -> int:
+    """Export one or more failed GoalRuns to a JSONL file of EvalCases."""
+    import json
+    from pathlib import Path
+
+    out_p = Path(output_path)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with out_p.open("w", encoding="utf-8") as f:
+        for gid in goal_ids:
+            try:
+                case = export_goal_run_as_eval_case(gid, project_root, correction=correction)
+                row = {
+                    "id": case.id,
+                    "input": case.input,
+                    "expected": case.expected,
+                    "meta": case.meta,
+                }
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                count += 1
+            except FileNotFoundError:
+                continue
+    return count
+
+
+def load_eval_cases_from_jsonl(path: str | Any) -> list[EvalCase]:
+    """Load EvalCase instances from a JSONL file."""
+    import json
+    from pathlib import Path
+
+    p = Path(path)
+    if not p.exists():
+        return []
+    cases: list[EvalCase] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        item = json.loads(line)
+        cases.append(
+            EvalCase(
+                id=item["id"],
+                input=item["input"],
+                expected=item.get("expected", {}),
+                meta=item.get("meta", {}),
+            )
+        )
+    return cases

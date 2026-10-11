@@ -35,6 +35,7 @@ from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
 from veya.obase import telemetry
 from veya.obase.async_utils import run_sync_in_daemon_thread
+from veya.oskill.pure.tool_error_text import explain_tool_error
 from veya.oskill.pure.validate_args import validate_args
 
 logger = __import__("logging").getLogger("master.tools")
@@ -429,9 +430,13 @@ def _validate_arguments(
     verdict = validate_args(arguments, validator)
     if verdict.ok:
         return
+    # NANO-W10 7a: the same failure, phrased so the model can act on it.
     raise ToolExecutionError(
-        f"{owner} '{name}' arguments failed JSON schema validation: "
-        + "; ".join(verdict.errors[:3])
+        explain_tool_error(
+            name,
+            "arguments failed JSON schema validation: " + "; ".join(verdict.errors[:3]),
+            arguments=arguments if isinstance(arguments, dict) else None,
+        )
     )
 
 
@@ -658,7 +663,10 @@ class MasterToolRegistry:
         func = self._functions.get(name)
         if func is None:
             raise ToolExecutionError(
-                f"Tool '{name}' not found. Available: {', '.join(self.list_tools())}"
+                explain_tool_error(
+                    name,
+                    "is not a registered tool. Available: " + ", ".join(self.list_tools()),
+                )
             )
 
         def _event(topic: str, **payload: Any) -> None:
@@ -800,7 +808,11 @@ class MasterToolRegistry:
                 }
             )
             raise ToolExecutionError(
-                f"tool '{name}' timed out after {effective_timeout:g}s"
+                explain_tool_error(
+                    name,
+                    f"timed out after {effective_timeout:g}s (the tool's own time budget)",
+                    arguments=kwargs,
+                )
             ) from exc
         except ToolExecutionError as exc:
             _checkpoint("after_failed")
@@ -837,7 +849,9 @@ class MasterToolRegistry:
                     "duration_ms": round((time.time() - _span_start) * 1000, 3),
                 }
             )
-            raise ToolExecutionError(f"tool '{name}' failed: {type(exc).__name__}: {exc}") from exc
+            raise ToolExecutionError(
+                explain_tool_error(name, f"{type(exc).__name__}: {exc}", arguments=kwargs)
+            ) from exc
 
 
 # =========================================================================
@@ -1253,12 +1267,13 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
     path.parent.mkdir(parents=True, exist_ok=True)
     content_str = str(content)
     path.write_text(content_str, encoding="utf-8")
-    
+
     # AI Attribution
     session = _current_master_session.get()
     if session:
         try:
             from server.goal_run.ai_attribution import record_ai_write
+
             # Determine line count
             lines = content_str.splitlines() or [""]
             record_ai_write(
@@ -1271,7 +1286,7 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
             )
         except Exception:
             pass
-            
+
     return f"✅ 已写入 {path} ({len(content_str)} 字符)。可用 read_file_ast / grep 继续理解。"
 
 
@@ -1304,12 +1319,13 @@ def _tool_edit_hashline(
     except HashlineError as exc:
         raise ToolExecutionError(str(exc)) from exc
     path.write_text(rec["content"], encoding="utf-8")
-    
+
     # AI Attribution
     session = _current_master_session.get()
     if session and rec["new_lines"] > 0:
         try:
             from server.goal_run.ai_attribution import record_ai_write
+
             # Start line of the new text is rec['start_line']
             # End line is rec['start_line'] + rec['new_lines'] - 1
             record_ai_write(
@@ -4481,3 +4497,8 @@ _register_memory_layer_tools(master_tools)
 from server.bot_team.own_chat import register_tools as _register_own_chat_tools  # noqa: E402
 
 _register_own_chat_tools(master_tools)
+
+# NANO-W10 Group C: per-bot secret tools (request_secret, list_secrets)
+from server.bot_team.secrets import register_tools as _register_bot_secret_tools  # noqa: E402
+
+_register_bot_secret_tools(master_tools)
