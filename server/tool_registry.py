@@ -4468,3 +4468,8 @@ _register_supervision_tools(master_tools)
 from server.bot_team.tool import register_tools as _register_bot_team_tools  # noqa: E402
 
 _register_bot_team_tools(master_tools)
+
+# NANO-W10 Group D: ADDENDUM R DOM Reader (read_browser)
+from server.dom_reader_tools import register_tools as _register_dom_reader_tools  # noqa: E402
+
+_register_dom_reader_tools(master_tools)

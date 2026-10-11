@@ -106,6 +106,12 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "ObservationPlan",
     "plan_observation",
     "screenshot_first_plan",
+    # NANO-W10 Group D: ADDENDUM R DOM reader
+    "MarkdownDocument",
+    "extract_main_html",
+    "html_to_markdown",
+    "is_ssrf_safe_url",
+    "read_html",
 ]
 
 from veya.oskill.pure.observation_ladder import (
@@ -114,4 +120,11 @@ from veya.oskill.pure.observation_ladder import (
     ObservationPlan,
     plan_observation,
     screenshot_first_plan,
+)
+from veya.oskill.pure.html_to_markdown import (
+    MarkdownDocument,
+    extract_main_html,
+    html_to_markdown,
+    is_ssrf_safe_url,
+    read_html,
 )
