@@ -578,6 +578,33 @@ def assemble_feed_tracker(*, subscription: Callable, ingest: Callable | None = N
 
 
 # =====================================================================
+# E-7 morning_feed — 晨间简报编排 (NANO-W7)
+# =====================================================================
+
+
+def assemble_morning_feed(
+    *,
+    steps: list[Callable],
+    router: Callable | None = None,
+) -> Engine:
+    """晨间简报: sequential_composer 编排 daily_brief 等 omodul 步骤。
+
+    复用既有引擎骨架(§8.7 sequential_composer),不新增引擎;装配在
+    layer4(§8)。触发沿用既有 routine clock(P4),不引入第二个调度器。
+    """
+    inject: dict[str, Any] = {"steps": steps}  # steps is a list → "1..n" correct
+    if router is not None:
+        inject["router"] = router  # single callable for "0..1"
+    manifest = ServiceManifest(
+        name="morning_feed",
+        skeleton="sequential_composer",
+        inject=inject,
+        trigger={"on_demand": True},
+    )
+    return assemble(manifest)
+
+
+# =====================================================================
 # E-6 mcp_bridge — MCP 路由(连接池在 obase.mcp_client,R5)
 # =====================================================================
 

@@ -16,6 +16,14 @@ Following the 3O paradigm:
 from veya.omodul.agent_loop import AgentLoop, LoopResult
 from veya.omodul.approval_flow import ApprovalFlowConfig, run_approval_flow
 from veya.omodul.pairing_flow import PairingFlowConfig, run_pairing_flow
+
+# NANO-W7: morning feed omodul (same-layer re-export from package __init__)
+from veya.omodul.daily_brief import (
+    DailyBriefConfig,
+    DailyBriefInput,
+    compute_fingerprint_for,
+    daily_brief,
+)
 from veya.omodul.evidence_refine import EvidenceRefine, RefineResult
 from veya.omodul.multimodal_agent import (
     MultiModalAgent,
@@ -69,4 +77,9 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "ToolPipeline",
     "ToolRunResult",
     "ToolSpec",
+    # NANO-W7: Morning feed
+    "DailyBriefConfig",
+    "DailyBriefInput",
+    "daily_brief",
+    "compute_fingerprint_for",
 ]

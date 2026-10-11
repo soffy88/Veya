@@ -30,6 +30,9 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_TOOL_CONTRACT_V1", True, "safety", "2027-01-01"),
     FeatureFlag("VEYA_EVENT_STORE_V1", True, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_PERMISSION_PROFILES_V1", True, "safety", "2027-01-01"),
+    # NANO-W7
+    FeatureFlag("VEYA_CHANNELS", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_MORNING_FEED", False, "runtime", "2027-01-01"),
 )
 
 

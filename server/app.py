@@ -396,10 +396,20 @@ async def lifespan(app: FastAPI):
     routine_clock_task: asyncio.Task | None = None
     if os.environ.get("VEYA_ROUTINE_CLOCK", "0").strip() not in ("", "0", "false", "off", "no"):
         try:
+            from server import feature_flags
+            from server.bot_team.morning_feed import build_routine_dispatch
             from server.bot_team.routine_clock import RoutineClock
             from server.goal_run.routine_registry import RoutineRegistry
-            _clock = RoutineClock(RoutineRegistry())
-            routine_clock_task = asyncio.create_task(_clock.run_forever(), name="veya-routine-clock")
+            # NANO-W7: morning-feed routines resolve through the service layer
+            # at the clock's existing dispatch_fn seam (no second scheduler);
+            # everything else keeps the default GoalRun consumer.
+            _dispatch = (
+                build_routine_dispatch() if feature_flags.enabled("VEYA_MORNING_FEED") else None
+            )
+            _clock = RoutineClock(RoutineRegistry(), dispatch_fn=_dispatch)
+            routine_clock_task = asyncio.create_task(
+                _clock.run_forever(), name="veya-routine-clock"
+            )
         except Exception:
             _lg.exception("routine clock startup failed")
 
@@ -541,12 +551,14 @@ app.include_router(execution_contract_router)
 app.include_router(sse_router)
 from server.routes.routines import router as routines_router
 from server.routes.artifacts import router as artifacts_router, public_router as public_artifacts_router
+from server.routes.channels import router as channels_router
 from server.routes.settings import router as settings_router
 
 app.include_router(routines_router)
 app.include_router(artifacts_router)
 app.include_router(public_artifacts_router)
 app.include_router(settings_router)
+app.include_router(channels_router)  # NANO-W7: flag-gated, 404 while off
 app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-checks
 
 
