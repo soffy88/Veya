@@ -24,7 +24,13 @@ class DeliveryMode(StrEnum):
 
 @dataclass(frozen=True)
 class AgentMessage:
-    """A message between agents."""
+    """A message between agents.
+
+    ``delivery_state`` (NANO-W6 addendum K): ``delivered`` once the brief/steer
+    reached the target's inbox/session, ``started`` when there is positive
+    evidence the model began (first token/tool call/event from that run),
+    otherwise ``unconfirmed`` — delivery is never assumed.
+    """
 
     message_id: str
     sender: str
@@ -36,10 +42,11 @@ class AgentMessage:
     created_at: float = field(default_factory=time.time)
     delivered_at: float | None = None
     acknowledged_at: float | None = None
+    delivery_state: str = "unconfirmed"
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
-        data["delivery_mode"] = self.delivery_mode.value
+        data["delivery_mode"] = str(getattr(self.delivery_mode, "value", self.delivery_mode))
         return data
 
     @classmethod
@@ -128,6 +135,7 @@ class AgentMailbox:
                 for m in msgs:
                     if m.get("delivered_at") is None:
                         m["delivered_at"] = now
+                        m["delivery_state"] = "delivered"
                 all_msgs[recipient] = msgs
                 self._write_all(all_msgs)
             return result
@@ -150,3 +158,35 @@ class AgentMailbox:
         with self._lock:
             msgs = self._read_all().get(recipient, [])
             return sum(1 for m in msgs if m.get("delivered_at") is None)
+
+    @staticmethod
+    def derive_delivery_state(
+        message: AgentMessage, events: list[dict[str, Any]] | None = None
+    ) -> str:
+        """Derive the delivery state (pure oskill over the message + events).
+
+        ``delivered`` — the message reached the target's inbox/session;
+        ``started`` — positive evidence the model began (any event from the
+        target run); ``unconfirmed`` — no start signal; never assumed.
+        """
+
+        from veya.oskill.pure.delivery_state import derive_delivery_state as derive
+
+        return derive(
+            delivered=message.delivered_at is not None,
+            has_start_evidence=bool(events),
+        )
+
+    def list_for_recipient(self, recipient: str) -> list[dict[str, Any]]:
+        """All messages for a recipient with their delivery state attached."""
+
+        with self._lock:
+            msgs = self._read_all().get(recipient, [])
+        out: list[dict[str, Any]] = []
+        for m in msgs:
+            row = dict(m)
+            row["delivery_state"] = self.derive_delivery_state(
+                AgentMessage.from_dict(m), None
+            )
+            out.append(row)
+        return out

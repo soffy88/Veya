@@ -21,6 +21,8 @@ class FeatureFlag:
 
 FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_TASK_CENTER_V1", True, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_APPROVAL_GATES", False, "safety", "2027-06-01"),
+    FeatureFlag("VEYA_DEVICE_PAIRING", False, "safety", "2027-06-01"),
     FeatureFlag("VEYA_SESSION_UNIFIED_V1", True, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_MEMORY_V2", True, "learning", "2027-01-01"),
     FeatureFlag("VEYA_SKILL_TEACH_V1", True, "learning", "2027-01-01"),

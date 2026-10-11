@@ -203,6 +203,44 @@ async def run_bot_turn(
     stays in this one entry point.
     """
 
+    # NANO-W6: an explicit @runner mention routes the turn to that runner,
+    # regardless of where the bot is bound. Unknown names get a helpful error
+    # listing the registered runners — never a silent fallback to local.
+    from server.bot_team.mention import route_text_to_runner
+
+    mention = route_text_to_runner(text)
+    if mention is not None and "runner_id" in mention:
+        # Imported lazily: the client imports this module for its result type.
+        from server.bot_team.runner_client import forward_bot_turn
+
+        return await forward_bot_turn(
+            bot=bot,
+            text=mention["rest"] or text,
+            user=user,
+            context=context,
+            workspace_id=workspace_id,
+            trace_id=trace_id,
+            conversations=conversations,
+        )
+    if mention is not None and mention.get("error"):
+        names = ", ".join(
+            str(view.get("name") or view.get("runner_id"))
+            for view in mention.get("runners", [])
+        )
+        reply = (
+            f"找不到 runner {mention['error'].replace('unknown runner ', '')}。"
+            f"已注册的 runner：{names or '（无）'}。"
+            f"请用 @<runner-name> 重试，例如 @{names.split(', ')[0].split(' ')[0] if names else 'runner'} <消息>。"
+        )
+        return BotTurnResult(
+            bot_id=bot.bot_id,
+            task_id="",
+            session_id="",
+            reply=reply,
+            status="error",
+            trace_id=trace_id or "",
+        )
+
     runner_id = (bot.runner_id or LOCAL_RUNNER_ID).strip() or LOCAL_RUNNER_ID
     if runner_id != LOCAL_RUNNER_ID:
         # Imported lazily: the client imports this module for its result type.

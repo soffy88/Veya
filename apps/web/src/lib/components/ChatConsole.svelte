@@ -636,11 +636,27 @@ import WorkProcess from "./WorkProcess.svelte";
 		}
 	}
 
-	async function resolveApproval(approved: boolean) {
+	async function resolveApproval(approved: boolean, scope: "once" | "session" | "always" = "once") {
 		const req = pendingApproval;
 		if (!req) return;
 		approvalError = "";
 		try {
+			// NANO-W6: with approval gates on, the request lives in the approvals
+			// service (once/session/always/deny); 404 means gates are off, so fall
+			// back to the legacy session-scoped endpoint.
+			const gated = await fetch(`${API_BASE}/api/v1/approvals/${encodeURIComponent(req.request_id)}/resolve`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...authHeader() },
+				body: JSON.stringify({ decision: approved ? scope : "deny" }),
+			});
+			if (gated.ok) {
+				pendingApproval = null;
+				return;
+			}
+			if (gated.status !== 404) {
+				approvalError = `审批提交失败 (HTTP ${gated.status})，请重试。`;
+				return;
+			}
 			const res = await fetch(`${API_BASE}/api/v1/agent/approval`, {
 				method: "POST",
 				headers: { "content-type": "application/json", ...authHeader() },
@@ -881,6 +897,18 @@ import WorkProcess from "./WorkProcess.svelte";
 					onclick={() => void resolveApproval(true)}
 					class="rounded-lg bg-emerald-500/90 px-2.5 py-1 text-xs text-black hover:bg-emerald-400"
 				>批准</button>
+				<button
+					type="button"
+					onclick={() => void resolveApproval(true, "session")}
+					class="rounded-lg bg-white/10 px-2.5 py-1 text-xs text-white/80 hover:bg-white/20"
+					title="本会话内同一工具不再询问"
+				>本会话</button>
+				<button
+					type="button"
+					onclick={() => void resolveApproval(true, "always")}
+					class="rounded-lg bg-white/10 px-2.5 py-1 text-xs text-white/80 hover:bg-white/20"
+					title="以后总是允许（可在 /approvals 撤销）"
+				>总是</button>
 				<button
 					type="button"
 					onclick={() => void resolveApproval(false)}
