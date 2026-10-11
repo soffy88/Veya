@@ -14,6 +14,7 @@ Gated by ``VEYA_LOOP_MODE`` (default OFF).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -91,6 +92,8 @@ class LoopRunPolicy:
         round_index: int = 1,
         rounds_done: int = 0,
         elapsed_s: float = 0.0,
+        turn_budget: int | None = None,
+        time_budget_s: float | None = None,
         no_progress_rounds: int = 0,
         user_stop: bool = False,
         finish_condition_met: bool = False,
@@ -130,11 +133,17 @@ class LoopRunPolicy:
                 _log.debug("loop policy could not read the run", exc_info=True)
                 run = {}
 
+        # The budget the user's own brief stated wins over the oskill default:
+        # "loop 10 rounds" must actually run ten rounds, not six.
         config = LoopRunConfig(
             seen_before=self._seen_before,
             mark_seen=self._mark_seen,
             trail_sink=self._trail_sink,
         )
+        if turn_budget is not None:
+            config.default_turn_budget = max(1, int(turn_budget))
+        if time_budget_s is not None:
+            config.default_time_budget_s = float(time_budget_s)
         result = loop_run(
             config,
             LoopRunInput(
@@ -194,4 +203,339 @@ def finish_card(
     )
 
 
-__all__ = ["LOOP_MODE_FLAG", "LoopRunPolicy", "finish_card", "loop_mode_enabled"]
+# ── W5: the finish checkpoint, posted before a run marks itself done ──────
+
+FINISH_CHECKPOINT_FLAG = "VEYA_FINISH_CHECKPOINT"
+
+#: Verdicts the user may give a card. ``send_back`` is a correction, so it
+#: lands through the item-1 turn queue — there is no second way to talk to a
+#: run.
+CHECKPOINT_VERDICTS: tuple[str, ...] = ("accept", "send_back")
+
+CARD_KIND = "finish_checkpoint"
+
+
+def finish_checkpoint_enabled() -> bool:
+    """Is the W5 finish checkpoint on? (spec W5; HARD RULES: default OFF)."""
+
+    return flag_enabled(FINISH_CHECKPOINT_FLAG)
+
+
+def card_key(bot_id: str, goal_run_id: str) -> str:
+    """Stable id of one run's card inside one bot's chat."""
+
+    return f"fc-{bot_id}-{goal_run_id}"
+
+
+class FinishCheckpointGate:
+    """Posts the W5 card and records the user's answer to it.
+
+    The gate owns **no store and no approval**:
+
+    * the card is posted into the **existing** bot conversation (so the user
+      reads it where the run happened) and mirrored onto the **existing**
+      stream/event path;
+    * the answer is appended with :func:`server.events.append_canonical_event`
+      — the existing event store, never a new table;
+    * ``send_back`` lands the user's note through the **item-1** turn queue, so
+      a correction and a normal message share one path.
+
+    Parameters
+    ----------
+    post_to_chat:
+        ``(bot_id, text, meta) -> Any`` — the existing ``ConversationStore``.
+    record_event:
+        ``(topic, payload) -> Any`` — the existing canonical event store.
+    deliver_note:
+        ``(bot_id, text) -> dict`` — the item-1 ``TurnQueue.steer``/intake.
+    """
+
+    def __init__(
+        self,
+        *,
+        post_to_chat: Callable[[str, str, dict[str, Any]], Any] | None = None,
+        record_event: Callable[[str, dict[str, Any]], Any] | None = None,
+        deliver_note: Callable[[str, str], dict[str, Any]] | None = None,
+    ) -> None:
+        self._post_to_chat = post_to_chat
+        self._record_event = record_event
+        self._deliver_note = deliver_note
+        self._posted: dict[str, str] = {}
+
+    # ── public surface ──────────────────────────────────────────────────
+
+    def posted(self, bot_id: str) -> list[str]:
+        """Card ids this process already posted for ``bot_id``."""
+
+        prefix = f"fc-{bot_id}-"
+        return [key for key in self._posted if key.startswith(prefix)]
+
+    def post(
+        self,
+        goal_run_id: str,
+        *,
+        bot_id: str = "",
+        summary: str = "",
+        did: list[str] | None = None,
+        open_items: list[str] | None = None,
+        tests_run: list[str] | None = None,
+        risks: list[str] | None = None,
+        mode: str = MODE_GOAL,
+        round_index: int = 1,
+    ) -> dict[str, Any]:
+        """Build and post one card. Returns the standard status envelope.
+
+        Posting the same run twice in one process is refused rather than
+        duplicated — a resumed run that re-finalizes must not double-post.
+        """
+
+        if not finish_checkpoint_enabled():
+            return _disabled("post")
+        run_id = str(goal_run_id or "").strip()
+        chat = str(bot_id or "").strip()
+        if not run_id or not chat:
+            return _invalid("goal_run_id and bot_id are required")
+
+        from veya.oskill.pure.loop_policy import checkpoint_card
+
+        card = checkpoint_card(
+            mode=mode,
+            round_index=round_index,
+            summary=summary,
+            did=did,
+            open_items=open_items,
+            tests_run=tests_run,
+            risks=risks,
+        )
+        return self.publish(chat, run_id, card)
+
+    def publish(
+        self,
+        bot_id: str,
+        goal_run_id: str,
+        card: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Post a card that was already rendered (e.g. a loop round's card)."""
+
+        if not finish_checkpoint_enabled():
+            return _disabled("publish")
+        run_id = str(goal_run_id or "").strip()
+        chat = str(bot_id or "").strip()
+        if not run_id or not chat or not isinstance(card, dict):
+            return _invalid("bot_id, goal_run_id and a rendered card are required")
+
+        key = card_key(chat, run_id)
+        if key in self._posted:
+            return {
+                "status": "completed",
+                "error": None,
+                "card": card,
+                "card_id": key,
+                "posted": False,
+                "duplicate": True,
+            }
+
+        meta = {
+            "kind": CARD_KIND,
+            "card_id": key,
+            "goal_run_id": run_id,
+            "mode": str(card.get("mode") or MODE_GOAL),
+            "round": int(card.get("round") or 1),
+        }
+        self._posted[key] = str(card.get("text") or "")
+
+        if self._post_to_chat is not None:
+            try:
+                self._post_to_chat(chat, str(card.get("text") or ""), meta)
+            except Exception as exc:
+                _log.warning("finish checkpoint card not posted to the chat: %s", exc)
+                return {
+                    "status": "failed",
+                    "error": {"code": "CHAT_UNAVAILABLE", "reason": type(exc).__name__},
+                    "card": card,
+                    "card_id": key,
+                    "posted": False,
+                    "duplicate": False,
+                }
+        if self._record_event is not None:
+            with contextlib.suppress(Exception):
+                self._record_event("goal_run.finish_checkpoint", {"card_id": key, **card})
+        return {
+            "status": "completed",
+            "error": None,
+            "card": card,
+            "card_id": key,
+            "posted": True,
+            "duplicate": False,
+        }
+
+    def respond(
+        self,
+        bot_id: str,
+        card_id: str,
+        verdict: str,
+        *,
+        note: str = "",
+    ) -> dict[str, Any]:
+        """Record ``accept`` / ``send_back`` for a posted card.
+
+        ``send_back`` is a correction: the note goes to the item-1 turn queue
+        so it lands the same way any other message from this user would.
+        """
+
+        if not finish_checkpoint_enabled():
+            return _disabled("respond")
+        chat = str(bot_id or "").strip()
+        answer = str(verdict or "").strip().lower()
+        if not chat or not str(card_id or "").strip() or answer not in CHECKPOINT_VERDICTS:
+            return _invalid(
+                f"verdict must be one of {', '.join(CHECKPOINT_VERDICTS)}", verdict=answer
+            )
+
+        payload: dict[str, Any] = {
+            "card_id": str(card_id),
+            "bot_id": chat,
+            "verdict": answer,
+            "note": str(note or "").strip(),
+        }
+        if self._record_event is not None:
+            with contextlib.suppress(Exception):
+                self._record_event("goal_run.finish_checkpoint.response", payload)
+
+        steered = False
+        if answer == "send_back":
+            if not payload["note"]:
+                return _invalid("sending a card back needs a note", verdict=answer)
+            if self._deliver_note is None:
+                return {
+                    "status": "completed",
+                    "error": None,
+                    "verdict": answer,
+                    "card_id": str(card_id),
+                    "steered": False,
+                    "reason": "no turn queue bound; the note is recorded as an event only",
+                }
+            landed = self._deliver_note(chat, str(payload["note"]))
+            steered = bool(isinstance(landed, dict) and landed.get("action") in ("steer", "queue"))
+            payload["landed"] = (landed or {}).get("action") if isinstance(landed, dict) else None
+        return {
+            "status": "completed",
+            "error": None,
+            "verdict": answer,
+            "card_id": str(card_id),
+            "steered": steered,
+            "landed": payload.get("landed"),
+        }
+
+
+def _disabled(op: str) -> dict[str, Any]:
+    """The one shape an off flag ever returns."""
+
+    return {
+        "status": "failed",
+        "error": {"code": "FEATURE_DISABLED", "flag": FINISH_CHECKPOINT_FLAG},
+        "op": op,
+        "card": None,
+        "card_id": "",
+        "verdict": "",
+        "posted": False,
+        "steered": False,
+        "duplicate": False,
+    }
+
+
+def _invalid(reason: str, *, verdict: str = "") -> dict[str, Any]:
+    """Malformed input never raises, and never looks like a feature failure."""
+
+    return {
+        "status": "failed",
+        "error": {"code": "INVALID_INPUT", "reason": reason},
+        "card": None,
+        "card_id": "",
+        "verdict": verdict,
+        "posted": False,
+        "steered": False,
+        "duplicate": False,
+    }
+
+
+def _default_gate() -> FinishCheckpointGate:
+    """Bind the gate to the project's existing conversation/event/turn paths."""
+
+    def _post_to_chat(bot_id: str, text: str, meta: dict[str, Any]) -> Any:
+        from server.bot_team.conversations import ConversationStore
+
+        return ConversationStore().append(
+            bot_id,
+            role="bot",
+            text=text,
+            meta=meta,
+        )
+
+    def _record_event(topic: str, payload: dict[str, Any]) -> Any:
+        from server.events import append_canonical_event
+
+        return append_canonical_event(topic, payload, actor="bot")
+
+    def _deliver_note(bot_id: str, text: str) -> dict[str, Any]:
+        from server.nano_w10.turn_queue import get_turn_queue
+
+        return get_turn_queue().intake(
+            conversation_ref=bot_id,
+            text=text,
+            kind="direct",
+            bot_ref=bot_id,
+            user_directed=True,
+        )
+
+    return FinishCheckpointGate(
+        post_to_chat=_post_to_chat,
+        record_event=_record_event,
+        deliver_note=_deliver_note,
+    )
+
+
+_GATE: FinishCheckpointGate | None = None
+
+
+def get_finish_checkpoint_gate() -> FinishCheckpointGate:
+    """The process-wide :class:`FinishCheckpointGate`."""
+
+    global _GATE
+    if _GATE is None:
+        _GATE = _default_gate()
+    return _GATE
+
+
+def get_loop_policy(post_card: Callable[[str, dict[str, Any]], Any] | None = None) -> LoopRunPolicy:
+    """Build the :class:`LoopRunPolicy` for one run.
+
+    ``post_card`` is supplied by the caller because the card has to land in
+    *that run's* bot chat; there is no ambient bot to guess.
+    """
+
+    return LoopRunPolicy(post_card=post_card)
+
+
+def reset_finish_checkpoint() -> None:
+    """Drop the process gate singleton (tests / operator reset)."""
+
+    global _GATE
+    _GATE = None
+
+
+__all__ = [
+    "CARD_KIND",
+    "CHECKPOINT_VERDICTS",
+    "FINISH_CHECKPOINT_FLAG",
+    "LOOP_MODE_FLAG",
+    "FinishCheckpointGate",
+    "LoopRunPolicy",
+    "card_key",
+    "finish_card",
+    "finish_checkpoint_enabled",
+    "get_finish_checkpoint_gate",
+    "get_loop_policy",
+    "loop_mode_enabled",
+    "reset_finish_checkpoint",
+]

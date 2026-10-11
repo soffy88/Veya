@@ -1625,6 +1625,95 @@ def _decide_goal_completion(
     return final_status, ("ACCEPT" if accepted else "PARTIAL"), record
 
 
+def _loop_policy_for(state: GoalRunState, goal_text: str) -> tuple[Any | None, dict[str, Any]]:
+    """NANO-W10 W3 — the Loop policy for this run, or ``None`` for a Goal run.
+
+    Loop is a **policy over the run this loop already drives**, never a
+    scheduler and never a second run. Two things must hold before it engages:
+
+    * ``VEYA_LOOP_MODE`` is on (spec: default OFF), and
+    * the user's own brief explicitly says "loop …" — :func:`parse_loop_brief`
+      degrades every other phrasing to ``goal``.
+
+    Args:
+        state: the run being driven.
+        goal_text: the user's brief.
+
+    Returns:
+        ``(policy_or_None, parsed_brief)``.
+    """
+
+    from server.nano_w10.loop_mode import get_loop_policy, loop_mode_enabled
+    from veya.oskill.pure.loop_policy import parse_loop_brief
+
+    brief = parse_loop_brief(str(goal_text or state.goal_text or ""))
+    if not loop_mode_enabled() or brief.get("mode") != "loop":
+        return None, brief
+    from server.nano_w10.loop_mode import get_finish_checkpoint_gate
+
+    gate = get_finish_checkpoint_gate()
+    return (
+        get_loop_policy(
+            post_card=lambda goal_run_id, card: gate.publish(state.bot_id, goal_run_id, card)
+        ),
+        brief,
+    )
+
+
+def _post_finish_checkpoint(
+    state: GoalRunState,
+    project_root: str,
+    *,
+    completed: int,
+    total: int,
+    blocked: int,
+) -> dict[str, Any] | None:
+    """NANO-W10 W5 — post the finish card *before* the run marks itself done.
+
+    Spec W5: "before a GoalRun/Loop marks done, it posts a short 'what changed /
+    tests run / open risks' card". The card is rendered by the same element the
+    loop checkpoints use and posted through the existing bot conversation, so
+    the user reads it where the run happened.
+
+    Gated by ``VEYA_FINISH_CHECKPOINT`` (default OFF) and never fatal: a card
+    that cannot be posted is reported, it does not block finalization.
+    """
+
+    from server.nano_w10.loop_mode import finish_checkpoint_enabled, get_finish_checkpoint_gate
+
+    if not finish_checkpoint_enabled():
+        return None
+    gate = get_finish_checkpoint_gate()
+    did = sorted(task.id for task in state.tasks.values() if task.status == TaskStatus.completed)
+    risks = [
+        f"{task.id}: {task.block_reason or task.stop_reason}"
+        for task in state.tasks.values()
+        if task.status in (TaskStatus.blocked, TaskStatus.cancelled) and task.block_reason
+    ]
+    if state.acceptance_verdict and state.acceptance_verdict != "ACCEPT":
+        risks.append(f"acceptance={state.acceptance_verdict}")
+    try:
+        result = gate.post(
+            state.goal_id,
+            bot_id=state.bot_id,
+            summary=f"{completed}/{total} tasks completed, {blocked} blocked.",
+            did=did,
+            open_items=list(state.unfinished_work),
+            risks=risks,
+        )
+    except Exception as exc:  # a card must never take the run down with it
+        logger.warning("finish checkpoint card failed: %s", exc)
+        return None
+    _emit_runtime_event(
+        state,
+        project_root,
+        "finish_checkpoint.posted",
+        card_id=str(result.get("card_id") or ""),
+        posted=bool(result.get("posted")),
+    )
+    return result
+
+
 def _run_version_record(state: GoalRunState) -> VersionRecord:
     """§27: reproducibility attribution recorded when the run finalizes.
 
@@ -1719,6 +1808,14 @@ async def _run_loop_and_finalize(
     # and immediately fill the freed slot, so a slow sibling cannot create a
     # hidden batch barrier.
     active: dict[str, asyncio.Task[Any]] = {}
+    # NANO-W10 W3: Loop mode is a policy over THIS loop, not a second scheduler.
+    # ``loop_policy`` stays None for every Goal run (flag off, or a brief that
+    # does not say "loop"), and the block at the task-round seam below is then
+    # skipped entirely.
+    loop_policy, loop_brief = _loop_policy_for(state, goal)
+    loop_rounds_done = int(state.budget.get("loop_rounds_done", 0) or 0)
+    loop_no_progress_rounds = int(state.budget.get("loop_no_progress_rounds", 0) or 0)
+    loop_completed_before = len(state.completed_ids)
     goal_no_progress = NoProgressGuard(
         "goal",
         threshold=int(state.budget.get("no_progress_goal_ticks", _MAX_STALL_TICKS)),
@@ -1996,6 +2093,58 @@ async def _run_loop_and_finalize(
             if integration_adapter is not None:
                 integration_adapter.checkpoint(state, project_root, reason="task_round")
             save_goal_run(state, project_root)
+            if loop_policy is not None:
+                # One round of work has drained. The Loop policy decides whether
+                # this run keeps going, checkpoints, or stops. Stopping is done
+                # by starting the run's OWN finalization — the same edge the
+                # budget reserve uses — so the ordinary finalize path still runs.
+                loop_rounds_done += 1
+                progressed = len(state.completed_ids) > loop_completed_before
+                loop_completed_before = len(state.completed_ids)
+                loop_no_progress_rounds = 0 if progressed else loop_no_progress_rounds + 1
+                state.budget["loop_rounds_done"] = loop_rounds_done
+                state.budget["loop_no_progress_rounds"] = loop_no_progress_rounds
+                verdict = loop_policy.decide(
+                    state.goal_id,
+                    mode="loop",
+                    round_index=loop_rounds_done,
+                    rounds_done=loop_rounds_done,
+                    elapsed_s=max(0.0, time.time() - start_ts),
+                    turn_budget=int(loop_brief.get("turn_budget") or 0) or None,
+                    time_budget_s=float(loop_brief.get("time_budget_s") or 0.0) or None,
+                    no_progress_rounds=loop_no_progress_rounds,
+                    user_stop=bool(cancel_event and cancel_event.is_set()),
+                    summary=(
+                        f"round {loop_rounds_done}: "
+                        f"{loop_completed_before}/{len(state.tasks)} tasks completed so far"
+                    ),
+                    did=[
+                        task.id
+                        for task in state.tasks.values()
+                        if task.status == TaskStatus.completed
+                    ][-5:],
+                )
+                _emit_runtime_event(
+                    state,
+                    project_root,
+                    "goal_run.loop_round",
+                    round=loop_rounds_done,
+                    next=verdict.get("next"),
+                    stop=bool(verdict.get("stop")),
+                    reason=verdict.get("reason"),
+                )
+                if verdict.get("stop") and not finalization.started:
+                    finalization.started = True
+                    state.finalization_started = True
+                    state.status = GoalStatus.finalizing
+                    state.last_stop_reason = f"loop:{verdict.get('reason_code')}"
+                    _emit_runtime_event(
+                        state,
+                        project_root,
+                        "finalization.started",
+                        reason=f"loop_{verdict.get('reason_code')}",
+                        round=loop_rounds_done,
+                    )
             continue
 
         # No active work remains.  Completed/blocked/cancelled are now ready
@@ -2231,6 +2380,15 @@ async def _run_loop_and_finalize(
     )
     state.final_summary = final_summary
     state.artifacts_summary = artifacts
+    # W5: the finish card goes out *before* the run is marked done, so the user
+    # reads it while the run is still the thing that just happened.
+    _post_finish_checkpoint(
+        state,
+        project_root,
+        completed=completed,
+        total=total,
+        blocked=blocked,
+    )
     state.finished_at = datetime.now(UTC)
     state.done_at = state.finished_at
     if durable_finalization_claim is not None and durable_snapshot is not None:

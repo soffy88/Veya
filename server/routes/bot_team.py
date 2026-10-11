@@ -323,7 +323,9 @@ async def create_bot(
 
     model_source = (req.model_source or "server").strip()
     if model_source not in ("server", "user_key", "cli"):
-        raise HTTPException(status_code=422, detail="model_source must be 'server', 'user_key', or 'cli'")
+        raise HTTPException(
+            status_code=422, detail="model_source must be 'server', 'user_key', or 'cli'"
+        )
 
     spec = BotSpec(
         bot_id=bot_id,
@@ -390,7 +392,9 @@ async def patch_bot(
     if model_source is not None:
         model_source = str(model_source).strip()
         if model_source not in ("server", "user_key", "cli"):
-            raise HTTPException(status_code=422, detail="model_source must be 'server', 'user_key', or 'cli'")
+            raise HTTPException(
+                status_code=422, detail="model_source must be 'server', 'user_key', or 'cli'"
+            )
     else:
         model_source = spec.model_source
 
@@ -662,6 +666,69 @@ async def post_bot_correction(
         "action": result.get("action"),
         "state": result.get("state"),
         "reason": result.get("reason"),
+    }
+
+
+class CheckpointVerdictRequest(BaseModel):
+    """The user's answer to a W5 finish checkpoint card."""
+
+    verdict: str = Field(..., description="accept | send_back")
+    note: str = Field("", max_length=4_000, description="required when sending the card back")
+
+
+@router.post("/{bot_id}/checkpoints/{card_id}")
+async def post_checkpoint_verdict(
+    bot_id: str,
+    card_id: str,
+    req: CheckpointVerdictRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> Any:
+    """Accept or send back a finish checkpoint card (W5).
+
+    Auth is **required** (``require_user``) and the bot must belong to the
+    caller, so one account can never answer another account's card. The card
+    must also exist **in that bot's own conversation** — the existing message
+    log is the record of what was posted, so a guessed card id is a 404 rather
+    than an accepted verdict. ``send_back`` lands the note through the item-1
+    turn queue: a card sent back is a correction, not a second channel.
+    """
+
+    from server.nano_w10.loop_mode import CHECKPOINT_VERDICTS, get_finish_checkpoint_gate
+
+    spec = _require_bot(bot_registry(), bot_id, owner_id=user["user_id"])
+    verdict = str(req.verdict or "").strip().lower()
+    if verdict not in CHECKPOINT_VERDICTS:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_INPUT",
+                "reason": f"verdict must be one of {list(CHECKPOINT_VERDICTS)}",
+            },
+        )
+    store = conversations()
+    owned = any(
+        str((message.get("meta") or {}).get("card_id") or "") == card_id
+        for message in store.list(spec.bot_id, include_hidden=True)
+    )
+    if not owned:
+        raise HTTPException(status_code=404, detail="该检查卡不在这个 bot 的对话里")
+
+    result = get_finish_checkpoint_gate().respond(
+        spec.bot_id,
+        card_id,
+        verdict,
+        note=req.note,
+    )
+    if result.get("status") == "failed":
+        code = str((result.get("error") or {}).get("code") or "")
+        status = 409 if code == "FEATURE_DISABLED" else 422
+        return JSONResponse(status_code=status, content=result)
+    return {
+        "status": "recorded",
+        "bot_id": spec.bot_id,
+        "card_id": card_id,
+        "verdict": verdict,
+        "action": result.get("landed") or verdict,
     }
 
 

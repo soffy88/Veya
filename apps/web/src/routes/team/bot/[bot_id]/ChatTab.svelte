@@ -13,9 +13,10 @@
 	 */
 	import { onDestroy, onMount } from "svelte";
 	import { tick } from "svelte";
-	import { Check, Send } from "lucide-svelte";
+	import { Check, CornerUpLeft, Send } from "lucide-svelte";
 	import {
 		acceptProposal,
+		answerCheckpoint,
 		listBotMessages,
 		sendBotCorrection,
 		sendBotMessage,
@@ -40,11 +41,19 @@
 	let accepting = $state(false);
 	let accepted = $state<string[]>([]);
 	let correctionNote = $state("");
+	// W5: the id of the card whose verdict is in flight, so the buttons cannot
+	// be pressed twice while the answer is being recorded.
+	let answering = $state("");
 
 	// W4: while a turn is in flight this box corrects it instead of queuing a
 	// second turn. The backend lands it through the item-1 steer, so there is
 	// one path, not a parallel control channel.
 	const turnRunning = $derived(pendingTaskId !== "");
+
+	function cardIdOf(message: BotMessage): string {
+		const meta = message.meta ?? {};
+		return meta.kind === "finish_checkpoint" ? (meta.card_id ?? "") : "";
+	}
 
 	async function scrollToEnd(): Promise<void> {
 		await tick();
@@ -120,6 +129,39 @@
 		}
 	}
 
+	async function answerCard(
+		message: BotMessage,
+		verdict: "accept" | "send_back",
+	): Promise<void> {
+		const cardId = cardIdOf(message);
+		if (!cardId || answering !== "") return;
+		if (verdict === "send_back" && !draft.trim()) {
+			// A card sent back without a note is not a correction; say so
+			// instead of silently doing nothing.
+			correctionNote = "退回需要写点什么 — 先在上面输入框里说明。";
+			return;
+		}
+		const note = verdict === "send_back" ? draft.trim() : "";
+		answering = cardId;
+		error = "";
+		try {
+			await answerCheckpoint(botId, cardId, verdict, note);
+			correctionNote = verdict === "accept" ? "已接受这张检查卡。" : "已退回，并把它作为纠正送回这一轮。";
+			if (verdict === "send_back") {
+				draft = "";
+				messages = [
+					...messages,
+					{ id: `local-${Date.now()}`, role: "user", text: note, ts: Date.now() / 1000 },
+				];
+				await scrollToEnd();
+			}
+		} catch (err) {
+			error = err instanceof Error ? err.message : String(err);
+		} finally {
+			answering = "";
+		}
+	}
+
 	async function submit(): Promise<void> {
 		if (turnRunning) {
 			await submitCorrection();
@@ -167,16 +209,36 @@
 			<p class="text-sm opacity-60">和 {botName} 说第一句话吧。</p>
 		{/if}
 		{#each messages as message (message.id)}
-			<div class="flex {message.role === 'user' ? 'justify-end' : 'justify-start'}">
-				<div
-					class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words {message.role ===
-					'user'
-						? 'bg-gradient-to-br from-sky-500/90 to-violet-600/90 text-white'
-						: 'bg-white/[0.05] text-terminal-fg'}"
-				>
-					{message.text}
+			{#if cardIdOf(message)}
+				{@const cardId = cardIdOf(message)}
+				<div class="flex justify-start">
+					<div class="max-w-[85%] rounded-2xl border border-amber-500/30 bg-amber-500/[0.07] px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words text-terminal-fg">
+						{message.text}
+						<div class="mt-2 flex gap-2">
+							<button class={primaryClass} onclick={() => void answerCard(message, "accept")} disabled={answering !== ""}>
+								<Check size={14} /> 接受
+							</button>
+							<button class={actionClass} onclick={() => void answerCard(message, "send_back")} disabled={answering !== ""}>
+								<CornerUpLeft size={14} /> 退回并说明
+							</button>
+							{#if answering === cardId}
+								<span class="self-center text-xs opacity-60">处理中…</span>
+							{/if}
+						</div>
+					</div>
 				</div>
-			</div>
+			{:else}
+				<div class="flex {message.role === 'user' ? 'justify-end' : 'justify-start'}">
+					<div
+						class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap break-words {message.role ===
+						'user'
+							? 'bg-gradient-to-br from-sky-500/90 to-violet-600/90 text-white'
+							: 'bg-white/[0.05] text-terminal-fg'}"
+					>
+						{message.text}
+					</div>
+				</div>
+			{/if}
 		{/each}
 		{#if sending}
 			<div class="flex justify-start">
