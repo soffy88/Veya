@@ -125,6 +125,10 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "BUILTIN_PROVIDERS",
     "VeyaProviderRegistry",
     "get_veya_provider_registry",
+    # A11y (NANO-W10 Group D 主体 6)
+    "capture_browser_a11y",
+    "capture_desktop_a11y",
+    "format_a11y_tree",
 ]
 
 # 阶段 1: 句柄合同与全局单例句柄层
@@ -156,4 +160,9 @@ from veya.obase.provider_registry import (
     VeyaProviderRegistry,
     VeyaProviderSpec,
     get_veya_provider_registry,
+)
+from veya.obase.a11y import (
+    capture_browser_a11y,
+    capture_desktop_a11y,
+    format_a11y_tree,
 )

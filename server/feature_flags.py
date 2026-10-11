@@ -38,6 +38,10 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_PROVIDER_REGISTRY", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_CLI_HUB", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_RUNNER_SELFUPDATE", False, "runtime", "2027-01-01"),
+    # NANO-W10 group D (default OFF)
+    FeatureFlag("VEYA_A11Y_FIRST", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_DOM_READER", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_CHANNEL_LADDER", False, "runtime", "2027-01-01"),
 )
 
 
