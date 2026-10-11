@@ -19,7 +19,28 @@ from pydantic import BaseModel
 from server import auth as auth_mod
 from server.nano_w9.flags import FeatureDisabled, feature_flags, require_flag
 
-router = APIRouter(prefix="/api/v1/nano-w9", tags=["nano-w9"])
+# Every W9 surface requires a resolved caller (the repo-wide auth dependency).
+router = APIRouter(
+    prefix="/api/v1/nano-w9",
+    tags=["nano-w9"],
+    dependencies=[Depends(auth_mod.get_current_user)],
+)
+
+
+def _allowed_roots() -> list[str]:
+    raw = os.environ.get("VEYA_ALLOWED_REPO_ROOTS") or os.environ.get("VEYA_PROJECT_ROOT") or os.getcwd()
+    return [os.path.realpath(r) for r in raw.split(os.pathsep) if r.strip()]
+
+
+def _safe_path(value: str, field: str) -> str:
+    """Reject client-supplied paths outside the configured roots (400)."""
+    if not value or value == ".":
+        return value
+    real = os.path.realpath(value)
+    for root in _allowed_roots():
+        if real == root or real.startswith(root.rstrip(os.sep) + os.sep):
+            return value
+    raise HTTPException(status_code=400, detail={"code": "PATH_NOT_ALLOWED", "field": field})
 
 
 def _guard(flag: str) -> None:
@@ -142,6 +163,7 @@ def _branch_rooms_facade():
 async def open_branch_room(payload: OpenRoomRequest) -> dict[str, Any]:
     """Open (or reuse) the room for a branch."""
     _guard("VEYA_BRANCH_ROOMS")
+    _safe_path(payload.repo_path, "repo_path")
     facade = _branch_rooms_facade()
     result = await facade.open_room(
         payload.branch, bot_ids=payload.bot_ids, repo_path=payload.repo_path
@@ -155,6 +177,8 @@ async def open_branch_room(payload: OpenRoomRequest) -> dict[str, Any]:
 async def publish_branch_room(payload: PublishRoomRequest) -> dict[str, Any]:
     """Publish commits / CI / annotations / AI review / merge decision into a room."""
     _guard("VEYA_BRANCH_ROOMS")
+    _safe_path(payload.repo_path, "repo_path")
+    _safe_path(payload.project_root, "project_root")
     facade = _branch_rooms_facade()
     result = await facade.publish(
         branch=payload.branch,
@@ -209,7 +233,10 @@ def _routine_router():
 async def handle_signal(payload: SignalRequest) -> dict[str, Any]:
     """Feed one inbound signal to the routine trigger router."""
     _guard("VEYA_ROUTINE_TRIGGERS")
-    result = await _routine_router().handle(payload.model_dump())
+    signal = payload.model_dump()
+    # "verified" is asserted by trusted adapters in-process, never by an HTTP caller
+    signal["verified"] = False
+    result = await _routine_router().handle(signal)
     return {"status": result["status"], **result}
 
 
@@ -254,12 +281,14 @@ async def list_acp_members() -> dict[str, Any]:
 
 
 @router.post("/acp/members")
-async def register_acp_member(payload: AcpMemberRequest) -> dict[str, Any]:
-    """Register an ACP backend as a group/bot member."""
+async def register_acp_member(
+    payload: AcpMemberRequest, user: dict[str, Any] = Depends(auth_mod.get_current_user)
+) -> dict[str, Any]:
+    """Register an ACP backend as a group/bot member (owned by the caller)."""
     _guard("VEYA_ACP_MEMBERS")
     result = _acp_members().register_member(
         payload.backend_id,
-        owner_id=payload.owner_id,
+        owner_id=str(user.get("user_id") or ""),
         display_name=payload.display_name,
         description=payload.description,
     )
@@ -394,6 +423,7 @@ async def run_cli_gen(payload: CliGenRequest) -> dict[str, Any]:
     _guard("VEYA_CLI_GEN")
     from server.nano_w9.cli_gen import run_cli_gen
 
+    _safe_path(payload.output_dir, "output_dir")
     result = await run_cli_gen(
         repo_ref=payload.repo_ref,
         output_dir=payload.output_dir or None,

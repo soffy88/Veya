@@ -1149,3 +1149,32 @@ class TestThreeOLayerContract:
         assert "nano_w9" not in source, "W9 must not add a model-callable tool"
         assert "branch_room" not in source
         assert "audit_chain" not in source
+
+
+
+def test_w9_routes_reject_paths_outside_allowed_roots(tmp_path, monkeypatch):
+    """Client-supplied repo/output paths must stay under the configured roots."""
+    import pytest
+    from fastapi import HTTPException
+
+    from server.routes import nano_w9 as routes
+
+    monkeypatch.setenv("VEYA_ALLOWED_REPO_ROOTS", str(tmp_path))
+    inside = tmp_path / "repo"
+    inside.mkdir()
+    assert routes._safe_path(str(inside), "repo_path") == str(inside)
+    assert routes._safe_path("", "repo_path") == ""
+    with pytest.raises(HTTPException) as exc:
+        routes._safe_path("/etc", "repo_path")
+    assert exc.value.status_code == 400
+    with pytest.raises(HTTPException):
+        routes._safe_path(str(tmp_path / ".." / "elsewhere"), "output_dir")
+
+
+def test_w9_router_requires_caller():
+    """Every W9 route carries the auth dependency."""
+    from server import auth as auth_mod
+    from server.routes import nano_w9 as routes
+
+    deps = [d.dependency for d in routes.router.dependencies]
+    assert auth_mod.get_current_user in deps
