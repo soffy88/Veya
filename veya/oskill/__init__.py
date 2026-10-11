@@ -73,6 +73,11 @@ from veya.oskill.pure.group_roles import (
     extract_mentions,
     select_replying_bots,
 )
+from veya.oskill.pure.secret_masking import (
+    mask_secret_values,
+    redact_secrets_payload,
+    secret_env_name,
+)
 
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
@@ -128,5 +133,10 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "evaluate_group_permission",
     "extract_mentions",
     "select_replying_bots",
+    # NANO-W10 Group C: secret masking (addendum Q)
+    "mask_secret_values",
+    "redact_secrets_payload",
+    "secret_env_name",
 ]
+
 

@@ -583,3 +583,223 @@ class TestGroupRolesStoreAndTurn:
         )
         assert turns_called == ["bot_admin"]
 
+
+# ---------------------------------------------------------------------------
+# addendum Q — per-bot secrets and masking
+# ---------------------------------------------------------------------------
+
+
+class TestSecretMaskingPure:
+    """oskill pure secret masking and env name derivation."""
+
+    def test_secret_env_name(self):
+        from veya.oskill.pure.secret_masking import secret_env_name
+
+        assert secret_env_name("github-token") == "VEYA_SECRET_GITHUB_TOKEN"
+        assert secret_env_name("API.KEY") == "VEYA_SECRET_API_KEY"
+        assert secret_env_name("open_ai_key") == "VEYA_SECRET_OPEN_AI_KEY"
+
+    def test_mask_secret_values(self):
+        from veya.oskill.pure.secret_masking import mask_secret_values
+
+        secrets = {
+            "GH_TOKEN": "ghp_1234567890abcdef",
+            "SHORT_KEY": "sk-123456",
+        }
+        text = "Executed curl with token ghp_1234567890abcdef and key sk-123456."
+        masked = mask_secret_values(text, secrets)
+        assert "ghp_1234567890abcdef" not in masked
+        assert "sk-123456" not in masked
+        assert "[secret:GH_TOKEN]" in masked
+        assert "[secret:SHORT_KEY]" in masked
+
+    def test_mask_secret_values_order_precedence(self):
+        from veya.oskill.pure.secret_masking import mask_secret_values
+
+        # If one secret is a substring of another, the longer one must be masked first
+        secrets = {
+            "SUB": "secret",
+            "LONG": "secret_extended_value",
+        }
+        text = "Value is secret_extended_value."
+        masked = mask_secret_values(text, secrets)
+        assert "[secret:LONG]" in masked
+        assert "[secret:SUB]" not in masked
+
+    def test_redact_secrets_payload(self):
+        from veya.oskill.pure.secret_masking import redact_secrets_payload
+
+        secrets = {"API_KEY": "secret12345"}
+        payload = {
+            "args": ["echo", "secret12345"],
+            "meta": {"nested": "value is secret12345 here"},
+        }
+        redacted = redact_secrets_payload(payload, secrets)
+        assert redacted["args"][1] == "[secret:API_KEY]"
+        assert redacted["meta"]["nested"] == "value is [secret:API_KEY] here"
+
+
+class TestBotSecretStoreAndOmodul:
+    """BotSecretStore management, runner env derivation, and omodul_bot_secrets."""
+
+    def test_secret_request_refuses_group(self, tmp_path):
+        from server.bot_team.secrets import BotSecretStore, SECRETS_NOT_IN_GROUP
+
+        store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        with pytest.raises(ValueError) as excinfo:
+            store.request_secret("KEY", "purpose", "bot1", is_group=True)
+        assert SECRETS_NOT_IN_GROUP in str(excinfo.value)
+
+    def test_store_and_derive_runner_env(self, tmp_path):
+        from server.bot_team.secrets import BotSecretStore
+
+        store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        store.request_secret("TEAM_KEY", "all bots access", "bot1")
+        store.set_secret_value("TEAM_KEY", "val_team_secret", scope="all bots", requesting_bot_id="bot1")
+
+        store.request_secret("BOT1_KEY", "only bot1", "bot1")
+        store.set_secret_value("BOT1_KEY", "val_bot1_secret", scope="this bot", requesting_bot_id="bot1")
+
+        # bot1 receives both
+        env_bot1 = store.get_runner_env("bot1")
+        assert env_bot1.get("VEYA_SECRET_TEAM_KEY") == "val_team_secret"
+        assert env_bot1.get("VEYA_SECRET_BOT1_KEY") == "val_bot1_secret"
+
+        # bot2 receives only TEAM_KEY
+        env_bot2 = store.get_runner_env("bot2")
+        assert env_bot2.get("VEYA_SECRET_TEAM_KEY") == "val_team_secret"
+        assert "VEYA_SECRET_BOT1_KEY" not in env_bot2
+
+    def test_list_secrets_never_leaks_values(self, tmp_path):
+        from server.bot_team.secrets import BotSecretStore
+
+        store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        store.set_secret_value("SECRET_X", "super_secret_value", scope="all bots")
+        listed = store.list_secrets()
+        assert len(listed) == 1
+        item = listed[0]
+        assert item["name"] == "SECRET_X"
+        assert item["status"] == "active"
+        assert "super_secret_value" not in str(item)
+
+    @pytest.mark.asyncio
+    async def test_omodul_bot_secrets_contract(self, tmp_path):
+        from server.bot_team.secrets import BotSecretStore
+        from veya.omodul.bot_secrets import BotSecretConfig, BotSecretInput, bot_secrets_operation
+
+        store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        cfg = BotSecretConfig(store=store)
+
+        # 1. request in group rejected
+        inp_group = BotSecretInput(action="request", name="K1", requesting_bot_id="b1", is_group=True)
+        res_group = await bot_secrets_operation(cfg, inp_group)
+        assert res_group["status"] == "failed"
+        assert res_group["error"]["code"] == "SECRETS_NOT_IN_GROUP"
+
+        # 2. request direct
+        inp_req = BotSecretInput(action="request", name="K1", purpose="testing", requesting_bot_id="b1")
+        res_req = await bot_secrets_operation(cfg, inp_req)
+        assert res_req["status"] == "completed"
+        assert res_req["card"]["name"] == "K1"
+
+        # 3. set value
+        inp_set = BotSecretInput(action="set_value", name="K1", value="my_secret_val", scope="all bots")
+        res_set = await bot_secrets_operation(cfg, inp_set, output_dir=tmp_path)
+        assert res_set["status"] == "completed"
+        assert res_set["meta"]["status"] == "active"
+        assert res_set.get("trail_path") is not None
+
+
+class TestBotSecretToolsAndRunnerIntegration:
+    """Model tools and runner client integration with secrets."""
+
+    @pytest.mark.asyncio
+    async def test_request_secret_tool_creates_card_and_refuses_group(self, monkeypatch, tmp_path):
+        from server.bot_team.secrets import BotSecretStore
+        from server.tool_registry import MasterToolRegistry
+
+        custom_store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        monkeypatch.setattr("server.bot_team.secrets.bot_secret_store", lambda: custom_store)
+
+        registry = MasterToolRegistry()
+        from server.bot_team.secrets import register_tools
+        register_tools(registry)
+
+        # Normal request
+        res = await registry.execute("request_secret", {"name": "TEST_KEY", "purpose": "API access"})
+        assert "Secret request card created" in res
+        assert "TEST_KEY" in res
+
+        # Refusal in group
+        res_group = await registry.execute("request_secret", {"name": "GRP_KEY", "purpose": "group", "is_group": True})
+        assert "SECRETS_NOT_IN_GROUP" in res_group
+
+    @pytest.mark.asyncio
+    async def test_list_secrets_tool_returns_metadata(self, monkeypatch, tmp_path):
+        import json
+        from server.bot_team.secrets import BotSecretStore, register_tools
+        from server.tool_registry import MasterToolRegistry
+
+        custom_store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        custom_store.set_secret_value("TOKEN_Y", "secret_pass_123", scope="all bots")
+        monkeypatch.setattr("server.bot_team.secrets.bot_secret_store", lambda: custom_store)
+
+        registry = MasterToolRegistry()
+        register_tools(registry)
+
+        res = await registry.execute("list_secrets", {})
+        data = json.loads(res)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["name"] == "TOKEN_Y"
+        assert "secret_pass_123" not in res
+
+    def test_build_turn_payload_injects_env_flag_gated(self, monkeypatch, tmp_path):
+        from server.bot_team.runner_client import build_turn_payload
+        from server.bot_team.secrets import BotSecretStore
+        from server.goal_run.bot_identity import BotSpec
+
+        custom_store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        custom_store.set_secret_value("RUNNER_KEY", "runner_secret_val", scope="all bots")
+        monkeypatch.setattr("server.bot_team.secrets.bot_secret_store", lambda: custom_store)
+
+        bot = BotSpec(bot_id="b1", owner_id="u1", name="Bot 1")
+
+        # Flag OFF: env not injected
+        monkeypatch.setenv("VEYA_BOT_SECRETS", "0")
+        payload_off = build_turn_payload(bot=bot, text="hi", user={"user_id": "u1"})
+        assert "env" not in payload_off
+
+        # Flag ON: env injected
+        monkeypatch.setenv("VEYA_BOT_SECRETS", "1")
+        payload_on = build_turn_payload(bot=bot, text="hi", user={"user_id": "u1"})
+        assert "env" in payload_on
+        assert payload_on["env"]["VEYA_SECRET_RUNNER_KEY"] == "runner_secret_val"
+
+    def test_runner_outcome_masks_secrets(self, monkeypatch, tmp_path):
+        from server.bot_team.runner_client import RunnerClient, RunnerRecord, TransportResponse
+        from server.bot_team.secrets import BotSecretStore
+
+        custom_store = BotSecretStore(root=tmp_path, vault_dir=tmp_path / "vault")
+        custom_store.set_secret_value("SENSITIVE_KEY", "very_secret_password_999", scope="all bots")
+        monkeypatch.setattr("server.bot_team.secrets.bot_secret_store", lambda: custom_store)
+        monkeypatch.setenv("VEYA_BOT_SECRETS", "1")
+
+        record = RunnerRecord(runner_id="r1", name="Runner 1", base_url="http://localhost:8000", token_ref="tok1")
+        client = RunnerClient()
+
+        # Success turn reply masked
+        resp_ok = TransportResponse(status_code=200, body={"ok": True, "turn": {"reply": "Got very_secret_password_999 from runner"}})
+        outcome_ok = client._outcome(record, resp_ok, token="", retried=False)
+        assert outcome_ok.ok
+        assert "very_secret_password_999" not in outcome_ok.turn["reply"]
+        assert "[secret:SENSITIVE_KEY]" in outcome_ok.turn["reply"]
+
+        # Error text masked
+        resp_err = TransportResponse(status_code=500, body={"error": "Failed with very_secret_password_999 in trace"})
+        outcome_err = client._outcome(record, resp_err, token="", retried=False)
+        assert not outcome_err.ok
+        assert "very_secret_password_999" not in outcome_err.error
+        assert "[secret:SENSITIVE_KEY]" in outcome_err.error
+
+

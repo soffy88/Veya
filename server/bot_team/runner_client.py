@@ -275,19 +275,40 @@ class RunnerClient:
     def _outcome(
         self, record: RunnerRecord, response: TransportResponse, *, token: str, retried: bool
     ) -> ForwardOutcome:
+        from server.feature_flags import enabled as flag_enabled
+
         body = response.body if isinstance(response.body, dict) else {}
+        mask_map: dict[str, str] = {}
+        if flag_enabled("VEYA_BOT_SECRETS"):
+            try:
+                from server.bot_team.secrets import bot_secret_store
+
+                mask_map = bot_secret_store().get_masking_map()
+            except Exception:
+                pass
+
         if response.status_code == 200 and body.get("ok"):
             turn = body.get("turn") if isinstance(body.get("turn"), dict) else {}
+            if mask_map and isinstance(turn, dict) and "reply" in turn:
+                from veya.oskill.pure.secret_masking import mask_secret_values
+
+                turn["reply"] = mask_secret_values(str(turn["reply"]), mask_map)
             return ForwardOutcome(ok=True, status_code=200, turn=turn, retried=retried)
         error = str(body.get("error") or body.get("detail") or "") or (
             f"HTTP {response.status_code} from {record.runner_id!r}"
         )
+        redacted = redact_secret(error, token)
+        if mask_map:
+            from veya.oskill.pure.secret_masking import mask_secret_values
+
+            redacted = mask_secret_values(redacted, mask_map)
         return ForwardOutcome(
             ok=False,
             status_code=response.status_code,
-            error=redact_secret(error, token),
+            error=redacted,
             retried=retried,
         )
+
 
 
 def build_turn_payload(
@@ -305,7 +326,9 @@ def build_turn_payload(
     need this bot in its own registry to execute the turn faithfully.
     """
 
-    return {
+    from server.feature_flags import enabled as flag_enabled
+
+    payload: dict[str, Any] = {
         "version": _TURN_PAYLOAD_VERSION,
         "runner_id": bot.runner_id,
         "trace_id": str(trace_id or ""),
@@ -326,6 +349,16 @@ def build_turn_payload(
         "text": str(text or ""),
         "context": str(context or ""),
     }
+
+    if flag_enabled("VEYA_BOT_SECRETS"):
+        from server.bot_team.secrets import bot_secret_store
+
+        runner_env = bot_secret_store().get_runner_env(bot.bot_id)
+        if runner_env:
+            payload["env"] = runner_env
+
+    return payload
+
 
 
 def _failure_reply(*, bot: BotSpec, runner_id: str, base_url: str, reason: str) -> str:

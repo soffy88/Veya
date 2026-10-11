@@ -53,6 +53,11 @@ from veya.omodul.auto_review import (
     AutoReviewInput,
     auto_review,
 )
+from veya.omodul.bot_secrets import (
+    BotSecretConfig,
+    BotSecretInput,
+    bot_secrets_operation,
+)
 
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
@@ -92,4 +97,9 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "AutoReviewConfig",
     "AutoReviewInput",
     "auto_review",
+    # NANO-W10 Group C: bot secrets (addendum Q)
+    "BotSecretConfig",
+    "BotSecretInput",
+    "bot_secrets_operation",
 ]
+

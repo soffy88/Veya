@@ -4482,3 +4482,9 @@ _register_supervision_tools(master_tools)
 from server.bot_team.tool import register_tools as _register_bot_team_tools  # noqa: E402
 
 _register_bot_team_tools(master_tools)
+
+# NANO-W10 Group C: per-bot secret tools (request_secret, list_secrets)
+from server.bot_team.secrets import register_tools as _register_bot_secret_tools  # noqa: E402
+
+_register_bot_secret_tools(master_tools)
+

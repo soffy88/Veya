@@ -449,12 +449,13 @@ def build_auto_review_hook(
         else:
             command = action
 
+        inst_text = str(instruction or "")
         untrusted = list(untrusted_sources or [])
-        if instruction:
+        if inst_text:
             try:
                 from server.firewall import VeyaFirewall
 
-                sanitized = VeyaFirewall.sanitize(instruction)
+                sanitized = VeyaFirewall.sanitize(inst_text)
                 if sanitized.get("has_injection") or sanitized.get("risk_level") in (
                     "high",
                     "critical",
@@ -465,16 +466,32 @@ def build_auto_review_hook(
             except Exception:
                 pass
 
+        from server.feature_flags import enabled as flag_enabled
+
+        if flag_enabled("VEYA_BOT_SECRETS"):
+            try:
+                from server.bot_team.secrets import bot_secret_store
+                from veya.oskill.pure.secret_masking import mask_secret_values, redact_secrets_payload
+
+                m_map = bot_secret_store().get_masking_map()
+                if m_map:
+                    command = mask_secret_values(command, m_map)
+                    inst_text = mask_secret_values(inst_text, m_map)
+                    args = redact_secrets_payload(args, m_map)
+            except Exception:
+                pass
+
         cfg = AutoReviewConfig(llm_caller=llm_caller)
         inp = AutoReviewInput(
             command=command,
-            instruction=instruction,
+            instruction=inst_text,
             tool=action,
             effect=effect,
             untrusted_sources=untrusted,
             arguments=args,
             goal_run_id=getattr(request, "goal_run_id", "") or "",
         )
+
         return await auto_review(cfg, inp, output_dir=output_dir)
 
     return _hook
