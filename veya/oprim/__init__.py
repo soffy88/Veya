@@ -30,8 +30,22 @@ from veya.oprim.audio import (
 )
 
 # 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑)
+from veya.oprim.audit_chain import (
+    CHAIN_FIELDS,
+    GENESIS_HASH,
+    chain_head,
+    compute_event_hash,
+    verify_chain_links,
+)
 from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
 from veya.oprim.event import emit_event
+from veya.oprim.receipt_query import (
+    RECEIPT_FIELDS,
+    RECEIPT_SOURCES,
+    normalize_query,
+    normalize_receipt,
+    receipt_uri,
+)
 from veya.oprim.fs import (
     fs_delete,
     fs_exists,
@@ -157,6 +171,17 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "emit_event",
     "llm_call",
     "llm_stream",
+    # NANO-W9: audit hash-chain + receipt query atoms
+    "CHAIN_FIELDS",
+    "GENESIS_HASH",
+    "RECEIPT_FIELDS",
+    "RECEIPT_SOURCES",
+    "chain_head",
+    "compute_event_hash",
+    "normalize_query",
+    "normalize_receipt",
+    "receipt_uri",
+    "verify_chain_links",
     "daemon_pause",
     "daemon_resume",
     "daemon_status",
