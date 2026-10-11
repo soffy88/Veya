@@ -687,6 +687,8 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
     monkeypatch.setattr(hllm.asyncio, "sleep", _no_sleep)
+    # W11: keep the NIM tier out of these pool-order tests (no live model).
+    monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
     monkeypatch.setattr(
         "os.environ",
         {
@@ -709,7 +711,6 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
         == [
             "deepseek-v4.1-flash",
             "nvidia/nemotron-3-ultra-550b-a55b:free",
-            "minimax/minimax-m3:free",
         ]
         * 3
         + ["gpt-5.6-luna"] * 4
@@ -736,6 +737,8 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
         }
 
     monkeypatch.setattr(hllm, "provider_call", flaky_provider_call)
+    # W11: keep the NIM tier out of these pool-order tests (no live model).
+    monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
     monkeypatch.setattr(
         "os.environ",
         {

@@ -427,11 +427,14 @@ _VEYA12_DEFAULT_POOL: list[dict[str, str]] = [
         "model": "deepseek-v4.1-flash",
         "endpoint": "https://opencode.ai/zen/go/v1",
     },
+    # W11: NVIDIA NIM (key pool, probe-qualified via model-state.json) is the
+    # second tier — opencode-go hits its monthly cap and the OpenRouter :free
+    # tier has a shared daily cap, which left the brain with no live model.
+    {"provider": "veya-nim", "model": "veya-nim"},
     {
         "provider": "openrouter",
         "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
     },
-    {"provider": "openrouter", "model": "minimax/minimax-m3:free"},
 ]
 
 # veya1.2-free: opencode-go 免费模型轮询 (不走 veya1.2 主脑代理)。
@@ -598,6 +601,9 @@ async def _veya12_rr_call(
                 or content.strip().lower() in ("none", "null")
                 or (content.strip() and content.strip() == default and not tool_calls)
                 or ("rejected the request (HTTP" in content)
+                # A nested proxy (veya-nim) that has no live model answers with
+                # error=True and an explanatory text — that is a miss, not a reply.
+                or resp.get("error") is True
             ):
                 last_err = f"{cand_provider}/{cand_model} 返回无效/错误内容: {content!r}"
                 continue
