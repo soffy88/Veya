@@ -57,6 +57,8 @@ from server.routes.product import router as product_router
 from server.routes.projects import router as projects_router
 from server.routes.prompt import router as prompt_router
 from server.routes.push import router as push_router
+from server.approvals import router as approvals_router
+from server.pairing import router as pairing_router
 from server.routes.remote_mcp import router as remote_mcp_router
 from server.routes.research import router as research_router
 from server.routes.resilient import router as resilient_router
@@ -498,6 +500,8 @@ app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
 # Lorca P5: Web Push (public key + per-user subscriptions). Importing the
 # module also installs the notification-centre push hook.
 app.include_router(push_router)
+app.include_router(approvals_router)
+app.include_router(pairing_router)
 # Lorca P6: the machines a bot may run on (+ the endpoint a remote hub calls).
 app.include_router(runners_router)
 if _advanced_visualization_router is not None:

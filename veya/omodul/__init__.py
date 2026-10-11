@@ -14,6 +14,8 @@ Following the 3O paradigm:
 
 # 阶段 4: 注入式流程控制核心 (session_tree / tool_pipeline / agent_loop / evidence_refine)
 from veya.omodul.agent_loop import AgentLoop, LoopResult
+from veya.omodul.approval_flow import ApprovalFlowConfig, run_approval_flow
+from veya.omodul.pairing_flow import PairingFlowConfig, run_pairing_flow
 from veya.omodul.evidence_refine import EvidenceRefine, RefineResult
 from veya.omodul.multimodal_agent import (
     MultiModalAgent,

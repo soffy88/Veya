@@ -26,6 +26,7 @@ from server.events import (
     fire_step,
 )
 from server.governance_store import ApprovalRecord, SessionGovernanceState, governance_store
+from server.approvals import approval_gates_enabled
 
 _mode: contextvars.ContextVar[str] = contextvars.ContextVar("veya_mode", default="agent")
 _require_approval: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -239,6 +240,29 @@ def _safe_args(kwargs: dict[str, Any]) -> dict[str, Any]:
 
 
 async def resolve_approval(request_id: str, approved: bool) -> bool:
+    # NANO-W6: the gated flow records approvals in the W6 store; resolve
+    # there first so a pending W6 request is completed (and its waiter woken)
+    # before the legacy session-scoped store is consulted.
+    from server.approvals import (
+        approval_gates_enabled,
+        get_approval_service,
+        wake_pending_approval,
+    )
+
+    if approval_gates_enabled():
+        service = get_approval_service()
+        record = service.get(request_id)
+        if record is not None and record.get("status") == "pending":
+            try:
+                await service.resolve(
+                    approval_id=request_id,
+                    decision="once" if approved else "deny",
+                    principal="human",
+                )
+                wake_pending_approval(request_id)
+                return True
+            except Exception:
+                pass
     await governance_store.resolve_approval(request_id, "approved" if approved else "denied")
     # if it's currently waiting in process memory, let it proceed
     pending = _pending_waiters.get(request_id)
@@ -260,8 +284,192 @@ def resolve_answer(request_id: str, answer: str) -> bool:
 _pending_waiters: dict[str, asyncio.Event] = {}
 
 
+def _is_gated_tool(name: str) -> bool:
+    """Whether a tool call must pass the W6 approval gate (destructive /
+    outbound / payment-like, or already high-impact)."""
+
+    from veya.oskill.pure.permission import GATED_MARKERS
+
+    return name in HIGH_IMPACT or any(marker in name for marker in GATED_MARKERS)
+
+
 async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:
     """Return a deny reason, or None to allow."""
+    from server.approvals import approval_gates_enabled
+
+    if not approval_gates_enabled():
+        return await _wait_approval_legacy(tool, kwargs)
+    return await _wait_approval_gated(tool, kwargs)
+
+
+async def _wait_approval_gated(tool: str, kwargs: dict[str, Any]) -> str | None:
+    """NANO-W6 gated approval: always-allow grants → durable request + push
+    relay → resume on once/session/always/deny."""
+
+    from server.approvals import (
+        _pending_waiters,
+        get_approval_service,
+        session_grants,
+    )
+    from veya.oskill.approval import request_permission_decision
+
+    service = get_approval_service()
+    from server.auth import current_user
+
+    user_id = str(current_user().get("user_id") or "anonymous")
+    sid = _session_id.get()
+    scope = service.scope_for(user_id)
+    session_grant_rows = [
+        {"tool": tool, "scope_pattern": ""}
+        for (grant_scope, grant_tool) in session_grants
+        if grant_scope == scope and grant_tool == tool
+    ]
+    decision = request_permission_decision(
+        tool=tool,
+        args=kwargs,
+        scope=scope,
+        flags={},
+        store=service.store,
+        extra_grants=session_grant_rows,
+    )
+    if decision["decision"] == "allow":
+        return None
+    if decision["decision"] == "deny":
+        return decision["reason"]
+
+    record = await service.request(
+        tool=tool,
+        args=_safe_args(kwargs),
+        user_id=user_id,
+        session_id=sid,
+    )
+    rid = str(record["approval_id"])
+    event = asyncio.Event()
+    _pending_waiters[rid] = event
+
+    fire_step(
+        {
+            "type": "permission_request",
+            "topic": "tool.approval_required",
+            "request_id": rid,
+            "tool_name": tool,
+            "tool_args": record["approval"]["tool_args"],
+            "session_id": sid,
+            "reason": f"「{tool}」需要你批准后才会执行",
+        }
+    )
+    with contextlib.suppress(Exception):
+        append_canonical_event(
+            "tool.approval_required",
+            {
+                "request_id": rid,
+                "tool_name": tool,
+                "tool_args": record["approval"]["tool_args"],
+                "scope": scope,
+            },
+            actor="system",
+            session_id=sid or None,
+            task_id=current_task_id(),
+        )
+    try:
+        start_t = time.time()
+        while time.time() - start_t < _APPROVAL_TIMEOUT_S:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(event.wait(), timeout=5.0)
+            current = service.get(rid)
+            if current and current.get("status") != "pending":
+                verdict = current.get("decision")
+                if verdict in {"once", "session", "always"}:
+                    if verdict == "session":
+                        session_grants.add((scope, tool))
+                    with contextlib.suppress(Exception):
+                        append_canonical_event(
+                            "tool.approved",
+                            {"request_id": rid, "tool_name": tool, "scope": scope},
+                            actor="user",
+                            session_id=sid or None,
+                            task_id=current_task_id(),
+                        )
+                    fire_step(
+                        {
+                            "type": "tool.approved",
+                            "tool_name": tool,
+                            "request_id": rid,
+                            "session_id": sid,
+                        }
+                    )
+                    return None
+                reason = current.get("decision_reason") or f"user denied '{tool}'"
+                with contextlib.suppress(Exception):
+                    append_canonical_event(
+                        "tool.denied",
+                        {"request_id": rid, "tool_name": tool, "scope": scope},
+                        actor="user",
+                        session_id=sid or None,
+                        task_id=current_task_id(),
+                    )
+                fire_step(
+                    {
+                        "type": "tool.denied",
+                        "tool_name": tool,
+                        "request_id": rid,
+                        "session_id": sid,
+                    }
+                )
+                return reason
+        return f"approval timed out for '{tool}' (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
+    finally:
+        _pending_waiters.pop(rid, None)
+
+
+async def request_handoff(reason: str) -> str:
+    """Pause until the user completes (Done) or cancels a manual step.
+
+    A tool that needs the user to do something only a human can do (login,
+    captcha, a code) calls this; the run stays paused with a handoff record
+    until Done/Cancel arrives on ``/api/v1/handoff/{id}``.
+    """
+
+    from server.approvals import _pending_handoffs, approval_gates_enabled, get_approval_service
+
+    if not approval_gates_enabled():
+        return "[handoff requested while approval gates are disabled]"
+    service = get_approval_service()
+    from server.auth import current_user
+
+    record = await service.request_handoff(
+        reason=reason,
+        user_id=str(current_user().get("user_id") or "anonymous"),
+        session_id=_session_id.get(),
+    )
+    hid = str(record["handoff_id"])
+    event = asyncio.Event()
+    _pending_handoffs[hid] = event
+    fire_step(
+        {
+            "type": "handoff_required",
+            "handoff_id": hid,
+            "reason": reason,
+            "session_id": _session_id.get(),
+        }
+    )
+    try:
+        start_t = time.time()
+        while time.time() - start_t < _APPROVAL_TIMEOUT_S:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(event.wait(), timeout=5.0)
+            current = service.get_handoff(hid)
+            if current and current.get("status") != "pending":
+                if current.get("status") == "done":
+                    return None
+                return f"user cancelled the manual step: {reason}"
+        return f"handoff timed out (waited {_APPROVAL_TIMEOUT_S:.0f}s)"
+    finally:
+        _pending_handoffs.pop(hid, None)
+
+
+async def _wait_approval_legacy(tool: str, kwargs: dict[str, Any]) -> str | None:
+    """The pre-W6 session-scoped approval wait (unchanged behaviour)."""
     import hashlib
     import json
 
@@ -478,7 +686,9 @@ async def user_control_policy(name: str, kwargs: dict, source: str) -> str | Non
     if freeze_err:
         return freeze_err
 
-    if require_approval() and name in HIGH_IMPACT:
+    if (require_approval() and name in HIGH_IMPACT) or (
+        approval_gates_enabled() and _is_gated_tool(name)
+    ):
         wait_err = await _wait_approval(name, kwargs)
         if wait_err:
             return wait_err

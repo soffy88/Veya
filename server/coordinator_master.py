@@ -560,6 +560,12 @@ class MasterCoordinator:
         install_default_tool_policies()
         install_user_control_policy()
 
+        # NANO-W6: approval-gate tools (request_handoff) register only when
+        # VEYA_APPROVAL_GATES=1 — the frozen tool surface is unchanged off.
+        from server.approval_tools import register_tools as register_approval_tools
+
+        register_approval_tools(self)
+
         # 主库 system_* 分支原本早于静态 registry 直接执行，绕过统一守卫。
         # 宿主在装配点包一层，使旧 ReAct 与 strict bridge 共用同一执行契约。
         self._raw_handle_tool_call = self._agent.handle_tool_call

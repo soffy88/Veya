@@ -30,6 +30,17 @@ from veya.oprim.audio import (
 )
 
 # 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑)
+from veya.oprim.approval import (
+    approval_create,
+    approval_resolve,
+    grant_list,
+    grant_lookup,
+    grant_put,
+    grant_revoke,
+    grant_scope_match,
+    handoff_create,
+    handoff_resolve,
+)
 from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
 from veya.oprim.event import emit_event
 from veya.oprim.fs import (
@@ -42,6 +53,7 @@ from veya.oprim.fs import (
     fs_write_text,
 )
 from veya.oprim.llm import llm_call, llm_stream
+from veya.oprim.pairing import pairing_code_consume, pairing_code_create
 from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
 from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list
 from veya.oprim.types import (
@@ -161,4 +173,16 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "daemon_resume",
     "daemon_status",
     "daemon_bind",
+    # NANO-W6: approval / grant / handoff / pairing atoms
+    "approval_create",
+    "approval_resolve",
+    "grant_lookup",
+    "grant_scope_match",
+    "grant_put",
+    "grant_revoke",
+    "grant_list",
+    "handoff_create",
+    "handoff_resolve",
+    "pairing_code_create",
+    "pairing_code_consume",
 ]

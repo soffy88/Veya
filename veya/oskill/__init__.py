@@ -37,6 +37,7 @@ from veya.oskill.turn_detection import (
     TurnHandlingConfig,
     detect_turn_end,
 )
+from veya.oskill.approval import request_permission_decision
 from veya.oskill.vision import (
     analyze_image,
     analyze_image_file,
@@ -70,4 +71,6 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "MemoryAudioSink",
     "create_audio_pipeline",
     "list_audio_devices",
+    # NANO-W6: composite permission decision
+    "request_permission_decision",
 ]
