@@ -108,6 +108,18 @@ class ConversationStore:
         if role not in ("user", "bot"):
             raise ValueError(f"role must be 'user' or 'bot', got {role!r}")
         body = str(text or "")
+        try:
+            from server.feature_flags import enabled as _flag_enabled
+
+            if _flag_enabled("VEYA_BOT_SECRETS"):
+                from server.bot_team.secrets import bot_secret_store
+                from veya.oskill.pure.secret_masking import mask_secret_values
+
+                mask_map = bot_secret_store().get_masking_map()
+                if mask_map:
+                    body = mask_secret_values(body, mask_map)
+        except Exception:
+            pass
         # The PASS sentinel is an internal control reply: it is stored, never
         # shown. This is the single place that rule is applied.
         message = BotMessage(

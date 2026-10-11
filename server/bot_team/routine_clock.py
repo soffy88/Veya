@@ -243,6 +243,22 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
         try:
             result = await master_coordinator.execute_structured(req)
             first_line = str(result).split('\n')[0] if result else "Success"
+            try:
+                from server.bot_team.conversations import conversation_store
+
+                text_to_post = str(result or first_line or f"Routine {routine_id} executed").strip()
+                conversation_store().append(
+                    str(bot_id),
+                    role="bot",
+                    text=text_to_post,
+                    meta={
+                        "source": "routine",
+                        "routine_id": str(routine_id),
+                        "trigger_id": str(trigger_id),
+                    },
+                )
+            except Exception:
+                _lg.debug("could not append routine output to bot conversation", exc_info=True)
             routed = _route_wake(
                 bot_id=str(bot_id),
                 routine_id=str(routine_id),

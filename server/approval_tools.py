@@ -41,18 +41,19 @@ _TOOLS = [
 ]
 
 
-def register_tools(registry: Any) -> int:
+def register_tools(registry: Any = None) -> int:
     """Register W6 approval tools when the gate flag is on."""
 
     if not approval_gates_enabled():
         return 0
-    from server.tool_registry import SideEffect
+    from server.tool_registry import SideEffect, master_tools
 
+    target = registry if (registry is not None and hasattr(registry, "has")) else master_tools
     added = 0
-    for name, description, parameters, func, effect in _TOOLS:
-        if registry.has(name):
+    for name, description, parameters, func, _effect in _TOOLS:
+        if target.has(name):
             continue
-        registry.register(
+        target.register(
             name,
             description,
             parameters,

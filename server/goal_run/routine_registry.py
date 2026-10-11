@@ -94,6 +94,7 @@ class RoutineRegistry:
             return
         if not isinstance(data, dict):
             return
+        self._items.clear()
         for routine_id, record in data.items():
             if isinstance(record, dict):
                 self._items[str(routine_id)] = RoutineSpec.from_dict(record)
@@ -121,6 +122,7 @@ class RoutineRegistry:
         self._save()
 
     def get(self, routine_id: str, version: int | None = None) -> RoutineSpec | None:
+        self._load()
         spec = self._items.get(routine_id)
         if spec is None:
             return None
@@ -129,6 +131,7 @@ class RoutineRegistry:
         return spec
 
     def list(self, *, include_disabled: bool = False) -> list[RoutineSpec]:
+        self._load()
         items = list(self._items.values())
         if include_disabled:
             return items

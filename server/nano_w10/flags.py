@@ -94,21 +94,18 @@ class FeatureDisabled(RuntimeError):
 def flag_enabled(flag: str, *, default: bool = False) -> bool:
     """Is ``flag`` on?
 
-    Args:
-        flag: one of :data:`ALL_FLAGS`.
-        default: value used when the env var is unset.
-
-    Returns:
-        Parsed truthiness (``""``/``"0"``/``"false"``/``"off"``/``"no"`` are off).
-
-    Example:
-        >>> flag_enabled("VEYA_LOOP_MODE", default=False) in (True, False)
-        True
+    Delegates to the shared authority :mod:`server.feature_flags` (spec D3:
+    single source of truth; nano_w10/flags.py is a thin reader).
     """
-    raw = os.environ.get(flag)
-    if raw is None:
-        return default
-    return raw.strip().lower() not in _FALSY
+    try:
+        from server import feature_flags as _shared_flags
+
+        return _shared_flags.enabled(flag)
+    except KeyError:
+        raw = os.environ.get(flag)
+        if raw is None:
+            return default
+        return raw.strip().lower() not in _FALSY
 
 
 def require_flag(flag: str) -> None:
