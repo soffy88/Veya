@@ -65,3 +65,13 @@ def test_promotion_of_a_new_file_reports_it_landed(tmp_path: Path) -> None:
     assert (repo / "util.py").read_text(encoding="utf-8") == "Y = 2\n"
     assert result["landed_files"] == ["util.py"]
     assert result["verified"] is True
+
+
+def test_approval_request_schema_declares_risk_class_enum() -> None:
+    from veya.remote.models import RiskClass
+    from veya.remote.tool_adapter import BINDING_INDEX
+
+    prop = BINDING_INDEX["approval.request"].schema["properties"]["risk_class"]
+    assert prop["type"] == "string"
+    assert prop["enum"] == [r.value for r in RiskClass]
+    assert prop["enum"] == ["P1_PRIVILEGED_HOST", "P2_ROOT_MUTATION", "P3_CRITICAL_HOST"]

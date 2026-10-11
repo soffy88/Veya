@@ -101,6 +101,7 @@ from .models import (
     RemoteCallResult,
     RemoteErrorCode,
     RemoteSession,
+    RiskClass,
     ToolBinding,
 )
 from .worker_runtime import capabilities_for
@@ -970,7 +971,9 @@ BINDINGS: tuple[ToolBinding, ...] = (
             {
                 "capability_id": _STR,
                 "operation": _STR,
-                "risk_class": _STR,
+                # Advertise the only values the server accepts (Local2 audit
+                # 2026-10-12: a bare string let clients send e.g. "low").
+                "risk_class": {"type": "string", "enum": [r.value for r in RiskClass]},
                 "ttl_s": {"type": "number"},
             },
             ["capability_id", "operation", "risk_class"],
@@ -2312,9 +2315,14 @@ class RemoteToolAdapter:
         store = self.action_gateway.approval_store
         try:
             if name == "approval.request":
-                from .models import RiskClass
-
-                risk = RiskClass(str(args.get("risk_class") or "P2_ROOT_MUTATION"))
+                raw_risk = str(args.get("risk_class") or "P2_ROOT_MUTATION")
+                try:
+                    risk = RiskClass(raw_risk)
+                except ValueError:
+                    allowed = ", ".join(r.value for r in RiskClass)
+                    raise ValueError(
+                        f"risk_class {raw_risk!r} is not one of: {allowed}"
+                    ) from None
                 record = store.create_approval(
                     principal=session.principal,
                     capability_id=str(args["capability_id"]),
