@@ -26,6 +26,7 @@ import contextlib
 import contextvars
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -186,6 +187,14 @@ class EventEnvelope:
 
 
 _DEFAULT_EVENT_STORE_PATH = str(Path.home() / ".veya" / "events.jsonl")
+_EVENT_ID_RE = re.compile(rb'"event_id":\s*"([^"\\]+)"')
+
+
+def _json_string_forms(value: str) -> tuple[str, ...]:
+    """How ``value`` can appear inside a JSON line (with or without ensure_ascii)."""
+    return tuple(
+        {json.dumps(value, ensure_ascii=False)[1:-1], json.dumps(value, ensure_ascii=True)[1:-1]}
+    )
 
 
 class EventStore:
@@ -198,24 +207,42 @@ class EventStore:
         self._lock = threading.RLock()
         self._known_event_ids: set[str] | None = None
 
+    def _load_known_event_ids(self) -> set[str]:
+        """Collect every stored event_id without decoding each line as JSON.
+
+        The store is an unbounded append-only log (hundreds of MB on a long
+        lived host). Decoding every line just to read one key blocked the
+        asyncio loop for seconds; a byte-level scan finds the same ids.
+        """
+        known: set[str] = set()
+        if not self.path.exists():
+            return known
+        with self.path.open("rb") as handle:
+            for line in handle:
+                for match in _EVENT_ID_RE.finditer(line):
+                    known.add(match.group(1).decode("utf-8", "replace"))
+        return known
+
     def append(self, event: EventEnvelope | dict[str, Any]) -> dict[str, Any]:
+        caller_supplied_id = isinstance(event, EventEnvelope) or (
+            isinstance(event, dict) and bool(event.get("event_id"))
+        )
         envelope = event.to_dict() if isinstance(event, EventEnvelope) else _to_envelope(event)
         with self._lock:
             event_id = str(envelope.get("event_id") or "")
-            if self._known_event_ids is None:
-                self._known_event_ids = set()
-                if self.path.exists():
-                    for line in self.path.read_text(encoding="utf-8").splitlines():
-                        with contextlib.suppress(json.JSONDecodeError):
-                            stored = json.loads(line)
-                            if stored.get("event_id"):
-                                self._known_event_ids.add(str(stored["event_id"]))
-            if event_id and event_id in self._known_event_ids:
-                return envelope
+            # Idempotency only matters for an id the caller chose (a replay or
+            # a retried publish). An id _to_envelope just minted is a fresh
+            # uuid4 and cannot already be on disk, so it never pays for the
+            # one-time scan of the whole log.
+            if event_id and caller_supplied_id:
+                if self._known_event_ids is None:
+                    self._known_event_ids = self._load_known_event_ids()
+                if event_id in self._known_event_ids:
+                    return envelope
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(envelope, ensure_ascii=False) + "\n")
-            if event_id:
+            if event_id and self._known_event_ids is not None:
                 self._known_event_ids.add(event_id)
         return envelope
 
@@ -225,24 +252,55 @@ class EventStore:
         task_id: str | None = None,
         session_id: str | None = None,
         topics: set[str] | None = None,
+        topic_prefixes: tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
+        """Return stored events matching every given filter.
+
+        Filters are applied to the decoded event as before. Before decoding, a
+        line that cannot contain a requested value (its JSON-encoded string is
+        absent from the raw line) is skipped, so a filtered read of a large log
+        no longer decodes every line. The pre-check only ever over-selects.
+        ``topic_prefixes`` matches a topic read from ``topic``/``type``/``event``.
+        """
         if not self.path.exists():
             return []
+        needles: list[tuple[str, ...]] = []
+        if task_id is not None:
+            needles.append(_json_string_forms(task_id))
+        if session_id is not None:
+            needles.append(_json_string_forms(session_id))
+        if topics is not None or topic_prefixes is not None:
+            needles.append(
+                tuple(
+                    form
+                    for value in (*(topics or ()), *(topic_prefixes or ()))
+                    for form in _json_string_forms(value)
+                )
+            )
         result: list[dict[str, Any]] = []
-        with self._lock:
-            for line in self.path.read_text(encoding="utf-8").splitlines():
+        with self._lock, self.path.open(encoding="utf-8", errors="replace") as handle:
+            for line in handle:
                 if not line.strip():
+                    continue
+                if any(not any(n in line for n in group) for group in needles):
                     continue
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(event, dict):
+                    continue
                 if task_id is not None and event.get("task_id") != task_id:
                     continue
                 if session_id is not None and event.get("session_id") != session_id:
                     continue
-                if topics is not None and event.get("topic") not in topics:
-                    continue
+                if topics is not None or topic_prefixes is not None:
+                    topic = event.get("topic")
+                    loose = str(topic or event.get("type") or event.get("event") or "")
+                    in_topics = topics is not None and topic in topics
+                    in_prefix = topic_prefixes is not None and loose.startswith(topic_prefixes)
+                    if not (in_topics or in_prefix):
+                        continue
                 result.append(event)
         return result
 

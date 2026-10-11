@@ -12,6 +12,14 @@ import pytest
 # 测试套件内禁止 test_gate 递归启动 pytest(agent 执行分队 → H4 hook → pytest → 死循环)
 os.environ.setdefault("VEYA_SKIP_TEST_GATE", "1")
 
+# The canonical EventStore and TaskStore default to ~/.veya/. Tests must never
+# append to (or replay) the developer's real, unbounded event log: on a long
+# lived host it reached 670 MB and every run added thousands of remote:* events.
+# setdefault keeps an explicit override; individual tests may still pass paths.
+_TEST_STATE_DIR = Path(__import__("tempfile").mkdtemp(prefix="veya-test-state-"))
+os.environ.setdefault("VEYA_EVENT_STORE_PATH", str(_TEST_STATE_DIR / "events.jsonl"))
+os.environ.setdefault("VEYA_TASK_STORE_PATH", str(_TEST_STATE_DIR / "tasks.json"))
+
 # Ensure project root is on sys.path (needed for CI environments)
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
