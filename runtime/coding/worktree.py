@@ -632,8 +632,14 @@ class WorktreeManager:
         canonical_before = _git_command(
             self.repo_root, ["rev-parse", "HEAD"]
         ).strip()
+        # ``git diff`` alone is blind to a new (untracked) file, so a commit
+        # that only adds files reported landed_files=[] and verified=False.
+        # ``status --porcelain`` sees modified, added, deleted and untracked.
         promoted_content = {
-            path: _git_command(self.repo_root, ["diff", "--", path])
+            path: _git_command(
+                self.repo_root,
+                ["status", "--porcelain=v1", "--untracked-files=all", "--", path],
+            )
             for path in result.promoted_files
         }
         landed = sorted(
