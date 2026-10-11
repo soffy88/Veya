@@ -21,6 +21,12 @@ PUT  /api/v1/bots/{bot_id}/memory/{name}
 
 DELETE /api/v1/bots/{bot_id}/memory/{name}
     Delete one memory file.  Returns 404 if absent.
+
+NANO-W10 additions (item 5 + ADDENDUM O) — same prefix, all ownership-checked:
+GET  /api/v1/bots/{bot_id}/memory/summary   Regenerated prose summary + cap status
+GET  /api/v1/bots/{bot_id}/memory/search    Grep core + scratch + daily logs
+GET  /api/v1/bots/{bot_id}/memory/journal   Before/after record of memory changes
+GET  /api/v1/bots/{bot_id}/workers          Persistent-worker rows (W1)
 """
 
 from __future__ import annotations
@@ -103,6 +109,115 @@ async def list_memory(
     """Return sorted list of ``*.md`` file names in the bot's memory directory."""
     store = _store(bot_id)
     return MemoryListResponse(bot_id=bot_id, files=store.list_files())
+
+
+# ── NANO-W10 (item 5 + ADDENDUM O): layered memory read surface ─────────────
+# Declared BEFORE the ``/{bot_id}/memory/{name}`` catch-all below, because
+# FastAPI resolves in registration order and the catch-all would otherwise
+# swallow ``/summary``, ``/search`` and ``/journal`` as memory file names (they
+# are not ``.md`` files, so the request would fail as 422 instead of reaching
+# its own handler).  Every endpoint resolves the caller and then checks that the
+# caller OWNS the bot (404 otherwise) — the existing CRUD endpoints predate that
+# check and are left untouched.
+
+
+def _owned_bot(bot_id: str, user: dict[str, Any]) -> str:
+    """Resolve *bot_id* for *user*, or 404.  Never leaks another user's bot."""
+    from server.goal_run.bot_identity import BotRegistry
+
+    spec = BotRegistry().get(bot_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
+    owner = str(getattr(spec, "owner_id", "") or "")
+    if not owner or owner != str(user.get("user_id") or ""):
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
+    return bot_id
+
+
+class MemorySummaryResponse(BaseModel):
+    bot_id: str
+    summary: str
+    entry_count: int
+    daily_days: list[str] = Field(default_factory=list)
+    scratch_live: int = 0
+    cap: dict[str, Any] = Field(default_factory=dict)
+    gardening_pending: int = 0
+
+
+class MemorySearchResponse(BaseModel):
+    bot_id: str
+    query: str
+    hits: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@router.get(
+    "/{bot_id}/memory/summary",
+    response_model=MemorySummaryResponse,
+    summary="Short prose summary of one bot's memory",
+)
+async def memory_summary(
+    bot_id: str,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> MemorySummaryResponse:
+    """Regenerated-on-read summary plus cap / gardening status."""
+    _owned_bot(bot_id, user)
+    from server.bot_team.memory_layers import LayeredMemoryStore
+
+    return MemorySummaryResponse(**LayeredMemoryStore(bot_id).summary())
+
+
+@router.get(
+    "/{bot_id}/memory/search",
+    response_model=MemorySearchResponse,
+    summary="Grep one bot's layered memory",
+)
+async def memory_search_route(
+    bot_id: str,
+    q: str,
+    limit: int = 10,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> MemorySearchResponse:
+    """Search core + topics + live scratch + dated daily logs."""
+    _owned_bot(bot_id, user)
+    from server.bot_team.memory_layers import LayeredMemoryStore
+
+    hits = LayeredMemoryStore(bot_id).search(q, limit=limit)
+    return MemorySearchResponse(bot_id=bot_id, query=q, hits=hits)
+
+
+@router.get(
+    "/{bot_id}/memory/journal",
+    summary="Recent memory changes (before/after)",
+)
+async def memory_journal(
+    bot_id: str,
+    limit: int = 50,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """The append-only record of what the review pass changed."""
+    _owned_bot(bot_id, user)
+    from server.bot_team.memory_layers import LayeredMemoryStore
+
+    return {"bot_id": bot_id, "records": LayeredMemoryStore(bot_id).journal(limit=limit)}
+
+
+@router.get(
+    "/{bot_id}/workers",
+    summary="Persistent worker rows for one bot",
+)
+async def bot_workers(
+    bot_id: str,
+    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+) -> dict[str, Any]:
+    """Worker list (name, status, last task, context size). Empty when disabled."""
+    _owned_bot(bot_id, user)
+    from server.bot_team.workers import persistent_workers_enabled, worker_registry
+
+    return {
+        "bot_id": bot_id,
+        "enabled": persistent_workers_enabled(),
+        "workers": worker_registry(bot_id).list(),
+    }
 
 
 @router.get(

@@ -262,3 +262,37 @@ async def analyze_cpu_usage(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         return {"status": "success", "analysis": stats}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"CPU analysis failed: {e!s}")
+
+
+# ── NANO-W10 (item 4): prompt-cache hit rate ────────────────────────────────
+# Appended, never reordered.  Read-only, gated on VEYA_PROMPT_CACHE (default
+# OFF): with the flag off the surface reports zeros + enabled=false rather than
+# 404 — a disabled metric is not an error.  The numbers come from the EXISTING
+# usage events, not a new store.
+
+
+@router.get("/prompt-cache")
+async def prompt_cache_stats(
+    session_id: str | None = None,
+    _user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Prompt-cache hit rate over recorded model calls."""
+    from server.bot_team.prompt_cache import cache_hit_report
+
+    return cache_hit_report(session_id=session_id)
+
+
+@router.post("/prompt-cache/typing-signal")
+async def prompt_cache_typing_signal(
+    session_id: str = "",
+    _user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Debounced 'user is typing' signal; reports whether a prewarm is due.
+
+    Thin: the debounce state lives in ``server.bot_team.prompt_cache`` and is
+    process-local, which is correct — a prewarm only helps while the provider
+    cache is still warm, and a restart means it is not.
+    """
+    from server.bot_team.prompt_cache import record_typing_signal
+
+    return record_typing_signal(session_id)

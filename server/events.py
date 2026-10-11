@@ -158,6 +158,9 @@ _MINIMAL_EVENTS = frozenset(
         "finalization.partial_completed",
         "outbox.published",
         "migration.comparison",
+        # NANO-W10 (item 4 + ADDENDUM S): prompt-cache / token usage accounting.
+        # Appended to the existing store's whitelist — no second event store.
+        "usage.recorded",
         *_OBSERVABILITY_TOPICS,
     }
 )
