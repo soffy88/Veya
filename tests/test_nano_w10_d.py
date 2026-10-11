@@ -315,3 +315,145 @@ def test_read_browser_registered_in_master_tools() -> None:
     schemas = [s for s in master_tools.get_all_schemas() if s["function"]["name"] == "read_browser"]
     assert len(schemas) == 1
     assert "read_browser" in schemas[0]["function"]["name"]
+
+
+# ===========================================================================
+# 3. ADDENDUM T: Search fallback ladder
+# ===========================================================================
+
+from veya.obase.search_adapters import (
+    SEARCH_LADDER_ORDER,
+    run_search_ladder_adapter,
+)
+from veya.oskill.pure.search_ladder import (
+    DEFAULT_SEARCH_BACKENDS,
+    SEARCH_FAILURE_NOTICE,
+    SearchHit,
+    SearchLadderError,
+    SearchPlan,
+    format_search_results,
+    merge_search_results,
+    plan_search,
+    should_fall_back,
+)
+
+
+def test_search_ladder_default_order() -> None:
+    """Search order must be configured_provider -> model_native -> duckduckgo -> bing."""
+    assert DEFAULT_SEARCH_BACKENDS == (
+        "configured_provider",
+        "model_native",
+        "duckduckgo",
+        "bing",
+    )
+    assert SEARCH_LADDER_ORDER == DEFAULT_SEARCH_BACKENDS
+
+
+def test_plan_search_picks_configured_provider_when_available() -> None:
+    """Picks configured provider first and exposes fallbacks."""
+    available = {
+        "configured_provider": True,
+        "model_native": True,
+        "duckduckgo": True,
+        "bing": True,
+    }
+    plan = plan_search(available)
+    assert plan.backend == "configured_provider"
+    assert plan.fallback_backends == ("model_native", "duckduckgo", "bing")
+
+    next_plan = plan.next_after_failure()
+    assert next_plan is not None
+    assert next_plan.backend == "model_native"
+
+
+def test_plan_search_falls_back_when_configured_provider_missing() -> None:
+    """Falls back to public search when provider and model native are absent."""
+    available = {
+        "configured_provider": False,
+        "model_native": False,
+        "duckduckgo": True,
+        "bing": True,
+    }
+    plan = plan_search(available)
+    assert plan.backend == "duckduckgo"
+    assert plan.fallback_backends == ("bing",)
+
+
+def test_plan_search_raises_when_no_backend_available() -> None:
+    """Raises SearchLadderError when available is empty."""
+    with pytest.raises(SearchLadderError):
+        plan_search({})
+
+
+def test_merge_search_results_deduplication() -> None:
+    """Deduplicates hits by normalized URL preserving precedence order."""
+    hits1 = [
+        SearchHit(url="https://example.com/a/", title="A1", backend="configured_provider"),
+        SearchHit(url="https://example.com/b", title="B1", backend="configured_provider"),
+    ]
+    hits2 = [
+        SearchHit(url="https://example.com/a", title="A2 duplicate", backend="duckduckgo"),
+        SearchHit(url="https://example.com/c", title="C1", backend="duckduckgo"),
+    ]
+    merged = merge_search_results(hits1, hits2)
+    assert len(merged) == 3
+    assert merged[0].url == "https://example.com/a/"
+    assert merged[0].backend == "configured_provider"
+    assert merged[1].url == "https://example.com/b"
+    assert merged[2].url == "https://example.com/c"
+
+
+def test_format_search_results_structure_and_backend_line() -> None:
+    """Every search result block prepends 'Search backend: <name>'."""
+    hits = [
+        SearchHit(
+            url="https://example.com/news",
+            title="News Page",
+            snippet="Breaking news today.",
+            backend="duckduckgo",
+        ),
+    ]
+    formatted = format_search_results(hits)
+    assert formatted.startswith("Search backend: duckduckgo")
+    assert "Title: News Page" in formatted
+    assert "URL: https://example.com/news" in formatted
+    assert "Snippet: Breaking news today." in formatted
+
+
+def test_format_search_results_failure_notice_when_empty() -> None:
+    """When no results found, instructs the model not to guess URLs."""
+    assert format_search_results([]) == SEARCH_FAILURE_NOTICE
+    assert "Do not guess or fabricate URLs" in SEARCH_FAILURE_NOTICE
+
+
+@pytest.mark.asyncio
+async def test_run_search_ladder_adapter_fallback() -> None:
+    """run_search_ladder_adapter steps through backends until one succeeds."""
+    with patch(
+        "veya.obase.search_adapters.execute_search_backend",
+        side_effect=[
+            [],  # configured_provider fails
+            [{"url": "https://bing.com/hit", "title": "Hit", "snippet": "Text"}],  # model_native succeeds
+        ],
+    ):
+        winning_backend, hits, text = await run_search_ladder_adapter(
+            "test query",
+            backends=("configured_provider", "model_native"),
+        )
+        assert winning_backend == "model_native"
+        assert len(hits) == 1
+        assert "Search backend: model_native" in text
+        assert "URL: https://bing.com/hit" in text
+
+
+@pytest.mark.asyncio
+async def test_run_search_ladder_adapter_all_failed() -> None:
+    """When all backends fail, returns failure notice."""
+    with patch("veya.obase.search_adapters.execute_search_backend", return_value=[]):
+        winning_backend, hits, text = await run_search_ladder_adapter(
+            "nonexistent query",
+            backends=("configured_provider", "duckduckgo"),
+        )
+        assert winning_backend == "none"
+        assert hits == []
+        assert text == SEARCH_FAILURE_NOTICE

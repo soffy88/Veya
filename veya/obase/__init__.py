@@ -166,3 +166,12 @@ from veya.obase.a11y import (
     capture_desktop_a11y,
     format_a11y_tree,
 )
+from veya.obase.search_adapters import (
+    SEARCH_LADDER_ORDER,
+    execute_search_backend,
+    run_search_ladder_adapter,
+    search_bing,
+    search_configured_provider,
+    search_duckduckgo,
+    search_model_native,
+)

@@ -112,6 +112,16 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "html_to_markdown",
     "is_ssrf_safe_url",
     "read_html",
+    # NANO-W10 Group D: ADDENDUM T Search fallback ladder
+    "DEFAULT_SEARCH_BACKENDS",
+    "SEARCH_FAILURE_NOTICE",
+    "SearchHit",
+    "SearchLadderError",
+    "SearchPlan",
+    "format_search_results",
+    "merge_search_results",
+    "plan_search",
+    "should_fall_back",
 ]
 
 from veya.oskill.pure.observation_ladder import (
@@ -127,4 +137,15 @@ from veya.oskill.pure.html_to_markdown import (
     html_to_markdown,
     is_ssrf_safe_url,
     read_html,
+)
+from veya.oskill.pure.search_ladder import (
+    DEFAULT_SEARCH_BACKENDS,
+    SEARCH_FAILURE_NOTICE,
+    SearchHit,
+    SearchLadderError,
+    SearchPlan,
+    format_search_results,
+    merge_search_results,
+    plan_search,
+    should_fall_back,
 )
