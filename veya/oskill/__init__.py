@@ -58,6 +58,17 @@ from veya.oskill.vision import (
     analyze_image_file,
     analyze_images,
 )
+from veya.oskill.pure.tool_error_text import (
+    explain_tool_error,
+    suggest_next_step,
+)
+from veya.oskill.pure.command_review import (
+    build_review_prompt,
+    classify_provenance,
+    is_human_only,
+    parse_review_verdict,
+)
+
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     # STT
@@ -100,4 +111,12 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "cli_hub_verify_output",
     # Runner operations (VEYA_RUNNER_SELFUPDATE)
     "runner_safe_to_restart",
+    # NANO-W10 Group C: tool error text (item 7a)
+    "explain_tool_error",
+    "suggest_next_step",
+    # NANO-W10 Group C: command review (item 3)
+    "build_review_prompt",
+    "classify_provenance",
+    "is_human_only",
+    "parse_review_verdict",
 ]

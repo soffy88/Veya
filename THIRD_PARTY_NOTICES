@@ -1,0 +1,18 @@
+# Third Party Notices
+
+This project borrows design ideas and concepts from the following open-source projects:
+
+## DeepSeek-Bot
+- Project: FeiZhuLulu/DeepSeek-Bot
+- License: Apache License 2.0
+- Borrowed Concepts: DS Bot ideas (Addendum P: group roles, admin bot and reply modes; Addendum Q: per-bot secret requests with card UI, scoped injection, and secret masking). Concept porting only; no third-party code vendored.
+
+## Agent-Reach
+- Project: Panniantong/Agent-Reach
+- License: MIT License
+- Borrowed Concepts: Addendum V channel ladder for web reading, probe-based backend fallback, fix hints. Concept porting only; no third-party code vendored.
+
+## Chat On Steroids
+- Project: totec448-spec/chat-on-steroids
+- License: MIT License
+- Borrowed Concepts: Addendum W persistent workers, compact & resume brief, loop modes. Concept porting only; no third-party code vendored.

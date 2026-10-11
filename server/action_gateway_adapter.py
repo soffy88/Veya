@@ -71,12 +71,18 @@ class ActionGatewayAdapter:
         # recorded under this bot and never replayed by another bot.
         bot_id: str = DEFAULT_BOT_ID,
         authorization_principal: Principal | None = None,
+        # NANO-W10 item 3: an optional pre-policy reviewer.  It may only
+        # *downgrade* a verdict (allow -> ask/block); it can never grant
+        # something the policy chain would have refused, and it is bound only
+        # while VEYA_AUTO_REVIEW is on, so the default path is unchanged.
+        review_hook: Callable[[Any], Any] | None = None,
     ) -> None:
         self.ledger = ledger
         self.goal_run_id = goal_run_id or current_task_id() or "veya:unbound"
         self.work_item_id = work_item_id or self.goal_run_id
         self.bot_id = bot_id
         self.authorization_principal = authorization_principal
+        self.review_hook = review_hook
         self._approval_resolver = approval_resolver
         self._audit_writer = audit_writer or self._append_event
         self._policy_profile = policy_profile
@@ -219,7 +225,64 @@ class ActionGatewayAdapter:
         needs the *decision* — a REST endpoint asking "may this happen?" — so it
         does not have to stage the action to find out. It adds no policy of its
         own and records nothing; only :meth:`execute` performs an effect.
+
+        The reviewer is deliberately *not* consulted here: this is the raw policy
+        answer, and a caller asking "may this happen?" must not have a model call
+        silently move the answer.
         """
+        return self._evaluate_policy(request)
+
+    async def _evaluate_policy_with_review(self, request: Any) -> Any:
+        """The engine's policy evaluator: the review verdict, then the policy.
+
+        The reviewer may only turn an ALLOW into an ask or a block.  It runs
+        first so a blocked command never reaches the permission engine, and any
+        failure inside it denies — a reviewer that could not answer has granted
+        nothing.
+        """
+
+        from server.feature_flags import enabled as flag_enabled
+
+        if not flag_enabled("VEYA_AUTO_REVIEW"):
+            return self._evaluate_policy(request)
+        hook = self.review_hook
+        if hook is None:
+            return self._evaluate_policy(request)
+        obase = load("obase")
+        try:
+            outcome = hook(request)
+            if inspect.isawaitable(outcome):
+                outcome = await outcome
+            verdict = str((outcome or {}).get("verdict") or "").lower()
+            reason = str((outcome or {}).get("reason") or "auto-review")
+            if verdict == "ask":
+                # APPROVAL_REQUIRED is the engine's own "a human must decide"
+                # verdict, so the escalation lands on the existing
+                # SideEffectLedger approval path below rather than a new one.
+                settled = self._settle_approval_sync(request, f"auto-review: {reason}")
+                if settled is not None:
+                    return obase.ActionDecision(
+                        verdict=settled[0],
+                        reason=settled[1],
+                        request_id=request.request_id,
+                    )
+                return obase.ActionDecision(
+                    verdict="APPROVAL_REQUIRED",
+                    reason=f"auto-review asked for a human: {reason}",
+                    request_id=request.request_id,
+                )
+            if verdict == "block":
+                return obase.ActionDecision(
+                    verdict="DENY",
+                    reason=f"auto-review blocked this action: {reason}",
+                    request_id=request.request_id,
+                )
+        except Exception as exc:
+            return obase.ActionDecision(
+                verdict="DENY",
+                reason=f"auto-review failed: {type(exc).__name__}",
+                request_id=request.request_id,
+            )
         return self._evaluate_policy(request)
 
     def _settle_approval_sync(self, request: Any, reason: str) -> tuple[str, str] | None:
@@ -341,7 +404,7 @@ class ActionGatewayAdapter:
             return result
 
         engine = oservi.ActionGatewayEngine(
-            policy_evaluator=self._evaluate_policy,
+            policy_evaluator=self._evaluate_policy_with_review,
             audit_append=oprim.audit_append,
             executor=oprim.tool_invoke,
             side_effect_record=oprim.side_effect_record,
@@ -363,5 +426,58 @@ class ActionGatewayAdapter:
             ),
         )
 
+def build_auto_review_hook(
+    llm_caller: Callable[..., Any] | None = None,
+    *,
+    instruction: str = "",
+    untrusted_sources: list[str] | None = None,
+    output_dir: Path | None = None,
+) -> Callable[[Any], Any]:
+    """Create a review hook callable for ActionGatewayAdapter.
 
-__all__ = ["ActionGatewayAdapter"]
+    Uses omodul_auto_review with provenance checked against firewall.sanitize.
+    """
+    from veya.omodul.auto_review import AutoReviewConfig, AutoReviewInput, auto_review
+
+    async def _hook(request: Any) -> dict[str, Any]:
+        action = getattr(request, "action", "") or ""
+        args = dict(getattr(request, "arguments", {}) or {})
+        effect = getattr(request, "effect", "") or ""
+        command = ""
+        if action in ("terminal_run", "shell_exec", "run_command", "exec"):
+            command = str(args.get("command") or args.get("cmd") or action)
+        else:
+            command = action
+
+        untrusted = list(untrusted_sources or [])
+        if instruction:
+            try:
+                from server.firewall import VeyaFirewall
+
+                sanitized = VeyaFirewall.sanitize(instruction)
+                if sanitized.get("has_injection") or sanitized.get("risk_level") in (
+                    "high",
+                    "critical",
+                    "suspicious",
+                ):
+                    if "instruction_injection" not in untrusted:
+                        untrusted.append("instruction_injection")
+            except Exception:
+                pass
+
+        cfg = AutoReviewConfig(llm_caller=llm_caller)
+        inp = AutoReviewInput(
+            command=command,
+            instruction=instruction,
+            tool=action,
+            effect=effect,
+            untrusted_sources=untrusted,
+            arguments=args,
+            goal_run_id=getattr(request, "goal_run_id", "") or "",
+        )
+        return await auto_review(cfg, inp, output_dir=output_dir)
+
+    return _hook
+
+
+__all__ = ["ActionGatewayAdapter", "build_auto_review_hook"]
