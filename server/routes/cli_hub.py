@@ -39,8 +39,6 @@ from server.privileged_action_gate import GateOutcome, request_privileged_action
 from veya.obase.cli_hub import cli_hub_registry_base_url, cli_hub_registry_configured
 from veya.oprim.cli_hub import (
     CLIHubUnsupportedError,
-    install_cli_on_runner,
-    invoke_cli,
     read_cli_skill,
     search_cli,
 )

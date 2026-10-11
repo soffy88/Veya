@@ -15,7 +15,6 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -549,14 +548,14 @@ def hands_capabilities() -> dict[str, Any]:
 
 
 __all__ = [
-    "HandsUnsupportedError",
     "HandsCapabilityError",
-    "hands_screenshot",
-    "hands_list_windows",
-    "hands_click",
-    "hands_type",
-    "hands_key",
-    "hands_scroll",
-    "hands_focus_window",
+    "HandsUnsupportedError",
     "hands_capabilities",
+    "hands_click",
+    "hands_focus_window",
+    "hands_key",
+    "hands_list_windows",
+    "hands_screenshot",
+    "hands_scroll",
+    "hands_type",
 ]

@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from server.action_gateway_adapter import ActionGatewayAdapter
 from veya.platform import load
@@ -68,7 +69,7 @@ def _request_id(action: str, arguments: Mapping[str, Any]) -> str:
     """A stable id for one exact request, so a retry is the same request."""
 
     body = json.dumps(dict(arguments), sort_keys=True, ensure_ascii=False, default=str)
-    digest = hashlib.sha256(f"{action}:{body}".encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(f"{action}:{body}".encode()).hexdigest()[:16]
     return f"veya-privileged:{action}:{digest}"
 
 
@@ -119,7 +120,6 @@ def request_privileged_action(
 
 
 __all__ = [
-    "GateOutcome",
     "HTTP_FOR_STATUS",
     "STATUS_APPROVAL_REQUIRED",
     "STATUS_APPROVED",
@@ -127,5 +127,6 @@ __all__ = [
     "VERDICT_ALLOW",
     "VERDICT_APPROVAL_REQUIRED",
     "VERDICT_DENY",
+    "GateOutcome",
     "request_privileged_action",
 ]

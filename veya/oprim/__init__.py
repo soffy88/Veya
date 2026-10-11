@@ -28,6 +28,13 @@ from veya.oprim.audio import (
     split_into_frames,
     wav_to_pcm,
 )
+from veya.oprim.cli_hub import (
+    CLIHubUnsupportedError,
+    install_cli_on_runner,
+    invoke_cli,
+    read_cli_skill,
+    search_cli,
+)
 
 # 阶段 3: 物理触手原子 (注入句柄, 无业务逻辑)
 from veya.oprim.daemon import daemon_bind, daemon_pause, daemon_resume, daemon_status
@@ -41,7 +48,30 @@ from veya.oprim.fs import (
     fs_write,
     fs_write_text,
 )
+from veya.oprim.hands import (
+    HandsCapabilityError,
+    HandsUnsupportedError,
+    hands_capabilities,
+    hands_click,
+    hands_focus_window,
+    hands_key,
+    hands_list_windows,
+    hands_screenshot,
+    hands_scroll,
+    hands_type,
+)
 from veya.oprim.llm import llm_call, llm_stream
+from veya.oprim.runner_ops import (
+    RunnerOpsError,
+    runner_self_update_check,
+    runner_self_update_download,
+    runner_self_update_restart,
+    runner_self_update_rollback,
+    runner_self_update_stage,
+    runner_service_install,
+    runner_service_status,
+    runner_service_uninstall,
+)
 from veya.oprim.shell import shell_exec, shell_exec_args, shell_run_script
 from veya.oprim.snapshot import snapshot_commit, snapshot_delete, snapshot_fetch, snapshot_list
 from veya.oprim.types import (
@@ -66,18 +96,6 @@ from veya.oprim.vad import (
     vad_energy,
     vad_frame,
     vad_silero,
-)
-from veya.oprim.hands import (
-    HandsCapabilityError,
-    HandsUnsupportedError,
-    hands_capabilities,
-    hands_click,
-    hands_focus_window,
-    hands_key,
-    hands_list_windows,
-    hands_scroll,
-    hands_screenshot,
-    hands_type,
 )
 from veya.oprim.video import (
     create_image_frame,
@@ -184,4 +202,20 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "hands_key",
     "hands_scroll",
     "hands_focus_window",
+    # CLI-Hub (VEYA_CLI_HUB)
+    "CLIHubUnsupportedError",
+    "search_cli",
+    "read_cli_skill",
+    "install_cli_on_runner",
+    "invoke_cli",
+    # Runner operations (VEYA_RUNNER_SELFUPDATE)
+    "RunnerOpsError",
+    "runner_self_update_check",
+    "runner_self_update_download",
+    "runner_self_update_stage",
+    "runner_self_update_rollback",
+    "runner_self_update_restart",
+    "runner_service_install",
+    "runner_service_uninstall",
+    "runner_service_status",
 ]

@@ -7,8 +7,6 @@ All model calls and input devices are mocked.
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -417,8 +415,8 @@ class TestBotTeamModelSource:
         monkeypatch.setenv("VEYA_HANDS", "1")
         monkeypatch.setenv("VEYA_PROVIDER_REGISTRY", "1")
 
-        from server.routes.bot_team import router as bots_router
         from server import auth as auth_mod
+        from server.routes.bot_team import router as bots_router
 
         app = FastAPI()
         app.include_router(bots_router)
@@ -478,8 +476,8 @@ class TestProviderRoutes:
         monkeypatch.setenv("VEYA_PROVIDER_REGISTRY", "1")
         monkeypatch.setenv("VEYA_HANDS", "1")
 
-        from server.routes.providers import router as providers_router
         from server import auth as auth_mod
+        from server.routes.providers import router as providers_router
 
         app = FastAPI()
         app.include_router(providers_router)
@@ -551,8 +549,8 @@ class TestProviderRoutes:
         """Test flag is required."""
         monkeypatch.delenv("VEYA_PROVIDER_REGISTRY", raising=False)
 
-        from server.routes.providers import router as providers_router
         from server import auth as auth_mod
+        from server.routes.providers import router as providers_router
 
         app = FastAPI()
         app.include_router(providers_router)
@@ -577,8 +575,8 @@ class TestRunnerHandsCapability:
     def client(self, monkeypatch):
         monkeypatch.setenv("VEYA_HANDS", "1")
 
-        from server.routes.runners import router as runners_router
         from server import auth as auth_mod
+        from server.routes.runners import router as runners_router
 
         app = FastAPI()
         app.include_router(runners_router)

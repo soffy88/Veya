@@ -7,9 +7,7 @@ All external calls and system operations mocked.
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -174,8 +172,8 @@ class TestRunnerOpsRoutes:
     def client(self, monkeypatch):
         monkeypatch.setenv("VEYA_RUNNER_SELFUPDATE", "1")
 
-        from server.routes.runner_ops import router as runner_ops_router
         from server import auth as auth_mod
+        from server.routes.runner_ops import router as runner_ops_router
 
         app = FastAPI()
         app.include_router(runner_ops_router)
@@ -214,8 +212,8 @@ class TestRunnerOpsRoutes:
         """Test flag is required."""
         monkeypatch.delenv("VEYA_RUNNER_SELFUPDATE", raising=False)
 
-        from server.routes.runner_ops import router as runner_ops_router
         from server import auth as auth_mod
+        from server.routes.runner_ops import router as runner_ops_router
 
         app = FastAPI()
         app.include_router(runner_ops_router)
@@ -238,8 +236,8 @@ class TestDevicesPageRunnerView:
         monkeypatch.setenv("VEYA_HANDS", "1")
         monkeypatch.setenv("VEYA_RUNNER_SELFUPDATE", "1")
 
-        from server.routes.runners import router as runners_router
         from server import auth as auth_mod
+        from server.routes.runners import router as runners_router
 
         app = FastAPI()
         app.include_router(runners_router)

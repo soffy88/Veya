@@ -41,10 +41,10 @@ from server.privileged_action_gate import request_privileged_action
 from veya.obase.runner_release import MANIFEST_URL_ENV
 from veya.oprim.runner_ops import (
     RunnerOpsError,
+    runner_self_update_check,
     runner_service_install,
     runner_service_status,
     runner_service_uninstall,
-    runner_self_update_check,
 )
 
 router = APIRouter(prefix="/api/v1/runner", tags=["runner-ops"])

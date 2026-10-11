@@ -108,10 +108,10 @@ def read_json(response: Any) -> dict[str, Any]:
 
 
 __all__ = [
-    "CLIHubRegistryError",
     "DEFAULT_CLI_HUB_TIMEOUT_S",
-    "HttpGetter",
     "SUGGESTED_CLI_HUB_BASE_URL",
+    "CLIHubRegistryError",
+    "HttpGetter",
     "cli_hub_registry_base_url",
     "cli_hub_registry_configured",
     "cli_hub_timeout_s",

@@ -501,9 +501,9 @@ def _systemctl_user(argv: list[str]) -> dict[str, Any]:
 __all__ = [
     "DEFAULT_DOWNLOAD_TIMEOUT_S",
     "DEFAULT_MANIFEST_TIMEOUT_S",
-    "RunnerOpsError",
     "SERVICE_UNIT_NAME",
     "SUGGESTED_RELEASE_MANIFEST_URL",
+    "RunnerOpsError",
     "runner_self_update_check",
     "runner_self_update_download",
     "runner_self_update_restart",

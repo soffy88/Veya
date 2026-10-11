@@ -441,10 +441,10 @@ async def hands_pause_resume(
 
 
 __all__ = [
-    "HandsOskillError",
     "HandsAction",
+    "HandsOskillError",
     "LLMCaller",
-    "hands_operator_loop_step",
     "hands_approval_gate",
+    "hands_operator_loop_step",
     "hands_pause_resume",
 ]

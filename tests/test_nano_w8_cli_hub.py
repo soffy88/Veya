@@ -7,9 +7,7 @@ All external calls mocked.
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -264,8 +262,8 @@ class TestCLIHubRoutes:
     def client(self, monkeypatch):
         monkeypatch.setenv("VEYA_CLI_HUB", "1")
 
-        from server.routes.cli_hub import router as cli_hub_router
         from server import auth as auth_mod
+        from server.routes.cli_hub import router as cli_hub_router
 
         app = FastAPI()
         app.include_router(cli_hub_router)
