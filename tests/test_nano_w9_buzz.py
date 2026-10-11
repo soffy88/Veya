@@ -11,7 +11,6 @@ Run with:  venv/bin/python -m pytest -q tests/test_nano_w9_buzz.py
 
 from __future__ import annotations
 
-import asyncio
 import json
 import sys
 from pathlib import Path
@@ -48,6 +47,7 @@ from server.nano_w9.routine_triggers import (
 from server.nano_w9.search_receipts import ReceiptSearch
 from server.nano_w9.trajectory import Trajectory
 from server.routes.nano_w9 import router as nano_w9_router
+from veya.obase.acp_stdio import StdioJsonRpcError, StdioJsonRpcTransport
 from veya.omodul.agent_native_scaffold import (
     AGENT_NATIVE_PHASES,
     CliGenAnalyzeConfig,
@@ -64,7 +64,6 @@ from veya.omodul.branch_room_sync import (
     branch_room_publish,
     compute_fingerprint_for,
 )
-from veya.obase.acp_stdio import StdioJsonRpcError, StdioJsonRpcTransport
 from veya.oprim.audit_chain import GENESIS_HASH, chain_head, compute_event_hash, verify_chain_links
 from veya.oprim.receipt_query import RECEIPT_SOURCES, normalize_query, normalize_receipt
 from veya.oskill.pure.receipt_rank_merge import (
@@ -887,7 +886,6 @@ class TestAgentNativeTemplate:
         assert any((r.get("error") or {}).get("code") == "INVALID_INPUT" for r in result["results"])
 
     async def test_each_phase_omodul_never_raises(self, w9_env):
-        from veya.omodul.agent_native_scaffold import CliGenAnalyzeConfig
 
         cfg = CliGenAnalyzeConfig(executor=None)
         result = await cli_gen_analyze(cfg, CliGenAnalyzeInput(repo_ref="/tmp/x"), None)
@@ -897,7 +895,6 @@ class TestAgentNativeTemplate:
         assert docs["phase"] == "docs"
 
     async def test_a_raising_executor_is_caught_by_the_phase(self, w9_env):
-        from veya.omodul.agent_native_scaffold import CliGenAnalyzeConfig
 
         def boom(context):
             raise ValueError("nope")
@@ -1098,8 +1095,6 @@ class TestThreeOLayerContract:
 
     def test_omodul_signature_is_the_standard_three(self):
         import inspect
-
-        from veya.omodul.branch_room_sync import branch_room_open, branch_room_publish
 
         for fn in (branch_room_open, branch_room_publish):
             positional = [
