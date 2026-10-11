@@ -122,6 +122,7 @@ _STATIC_CATALOG: dict[str, dict[str, Any]] = {
     "veya-dp4.1-jev-1.13": {"model": "veya-dp4.1-jev-1.13"},
     # workbuddy 多模型轮询池: 单模型频繁 429, 轮询 + 按 retry_after 冷却 + 失败自动换下一个。
     "veya-wb": {"model": "veya-wb", "pool": "workbuddy"},
+    "veya-fllm": {"model": "veya-fllm", "pool": "freellmapi"},
     # opencodex (10100) retired 2026-10-12; ChatGPT frontier now comes via CLIProxyAPI.
     "gpt-5.6-luna": {
         "provider": "cliproxy",
@@ -637,21 +638,32 @@ def _upstream_rejection(resp: dict[str, Any]) -> tuple[int, str] | None:
 # ---------------------------------------------------------------------------
 # veya-wb: workbuddy 轮询池
 # ---------------------------------------------------------------------------
-_WB_COOLDOWN: dict[str, float] = {}
-_WB_RR = {"next": 0}
-_WB_LAST: dict[str, Any] = {}
+_POOL_ENV = {"workbuddy": "VEYA_WB_POOL", "freellmapi": "VEYA_FLLM_POOL"}
+_POOL_ALIAS = {"workbuddy": "veya-wb", "freellmapi": "veya-fllm"}
+_POOL_COOLDOWN: dict[str, dict[str, float]] = {k: {} for k in _POOL_ENV}
+_POOL_RR: dict[str, int] = {k: 0 for k in _POOL_ENV}
+_POOL_LAST: dict[str, dict[str, Any]] = {k: {} for k in _POOL_ENV}
+_POOL_TIMEOUT = {"workbuddy": 120.0, "freellmapi": float(os.environ.get("VEYA_FLLM_TIMEOUT", "30"))}
+_POOL_MAX_TRIES = {"workbuddy": 0, "freellmapi": int(os.environ.get("VEYA_FLLM_MAX_TRIES", "6"))}
+_POOL_DEADLINE = {"workbuddy": 0.0, "freellmapi": float(os.environ.get("VEYA_FLLM_DEADLINE", "75"))}
+
+
+def _pool_models(upstream: str) -> list[str]:
+    raw = os.environ.get(_POOL_ENV[upstream], "").strip()
+    if raw:
+        return [m.strip() for m in raw.split(",") if m.strip()]
+    if upstream == "workbuddy":
+        return sorted(k.split("/", 1)[1] for k in _CATALOG if k.startswith("workbuddy/"))
+    return []
 
 
 def _wb_pool_models() -> list[str]:
-    raw = os.environ.get("VEYA_WB_POOL", "").strip()
-    if raw:
-        return [m.strip() for m in raw.split(",") if m.strip()]
-    return sorted(k.split("/", 1)[1] for k in _CATALOG if k.startswith("workbuddy/"))
+    return _pool_models("workbuddy")
 
 
 def _wb_cooldown_seconds(status: int, message: str) -> float:
     if status == 429:
-        m = re.search(r"retry(?:_after\"?:?|\s+in)\s*(\d+)", message)
+        m = re.search(r"retry(?:_after\"?:?|\s+in|-after:?)\s*(\d+)", message, re.I)
         return float(m.group(1)) if m else 300.0
     if status in (401, 403):
         return 1800.0
@@ -660,52 +672,71 @@ def _wb_cooldown_seconds(status: int, message: str) -> float:
     return 60.0
 
 
-async def _wb_pool_call(messages: list[Any], tools: Any) -> tuple[dict[str, Any] | None, str, tuple[int, str] | None]:
-    pool = _wb_pool_models()
+async def _pool_call(upstream: str, messages: list[Any], tools: Any) -> tuple[dict[str, Any] | None, str, tuple[int, str] | None]:
+    alias = _POOL_ALIAS[upstream]
+    pool = _pool_models(upstream)
     if not pool:
-        return None, "", (503, "veya-wb: workbuddy 目录为空")
-    base = _LOCAL_UPSTREAMS["workbuddy"]
+        return None, "", (503, f"{alias}: 池为空")
+    cool = _POOL_COOLDOWN[upstream]
+    base = _LOCAL_UPSTREAMS[upstream]
     now = time.time()
-    start = _WB_RR["next"] % len(pool)
-    _WB_RR["next"] = start + 1
+    start = _POOL_RR[upstream] % len(pool)
+    _POOL_RR[upstream] = start + 1
     last_err: tuple[int, str] | None = None
+    tries = 0
     for i in range(len(pool)):
         model = pool[(start + i) % len(pool)]
-        if _WB_COOLDOWN.get(model, 0) > now:
+        if cool.get(model, 0) > now:
             continue
-        kwargs: dict[str, Any] = {"model": model, "provider": "workbuddy", "endpoint": base, "tools": tools}
+        if _POOL_MAX_TRIES[upstream] and tries >= _POOL_MAX_TRIES[upstream]:
+            break
+        if _POOL_DEADLINE[upstream] and time.time() - now > _POOL_DEADLINE[upstream]:
+            break
+        tries += 1
+        kwargs: dict[str, Any] = {"model": model, "provider": upstream, "endpoint": base, "tools": tools}
         if _PI_PROVIDER_CONFIG:
             kwargs["config"] = _PI_PROVIDER_CONFIG
         try:
-            resp = await llm_call(messages, **kwargs)
-        except Exception as exc:  # 单个模型异常不拖垮整个池
-            last_err = (502, f"{model}: {type(exc).__name__}: {exc}")
-            _WB_COOLDOWN[model] = time.time() + 120
+            resp = await asyncio.wait_for(llm_call(messages, **kwargs), timeout=_POOL_TIMEOUT[upstream])
+        except Exception as exc:  # 单个模型异常/超时不拖垮整个池
+            last_err = (502 if not isinstance(exc, asyncio.TimeoutError) else 504, f"{model}: {type(exc).__name__}: {exc}")
+            cool[model] = time.time() + 120
+            print(f"[{alias}] {model} -> {type(exc).__name__}, 冷却 120s", file=sys.stderr)
             continue
         err = _upstream_rejection(resp)
         if err is None:
-            _WB_LAST.update({"model": model, "at": time.time()})
+            _POOL_LAST[upstream].update({"model": model, "at": time.time()})
             return resp, model, None
         status, message = err
-        _WB_COOLDOWN[model] = time.time() + _wb_cooldown_seconds(status, message)
+        cool[model] = time.time() + _wb_cooldown_seconds(status, message)
         last_err = (status, f"{model}: {message}")
-        print(f"[veya-wb] {model} -> {status}, 冷却 {int(_WB_COOLDOWN[model] - time.time())}s", file=sys.stderr)
+        print(f"[{alias}] {model} -> {status}, 冷却 {int(cool[model] - time.time())}s", file=sys.stderr)
     if last_err is None:
-        soonest = min(_WB_COOLDOWN.get(m, now) for m in pool)
-        last_err = (429, f"veya-wb: 池内 {len(pool)} 个模型全部冷却中, 最早 {int(soonest - now)}s 后恢复")
+        soonest = min(cool.get(m, now) for m in pool)
+        last_err = (429, f"{alias}: 池内 {len(pool)} 个模型全部冷却中, 最早 {int(soonest - now)}s 后恢复")
     return None, "", last_err
+
+
+def _pool_status(upstream: str) -> dict[str, Any]:
+    now = time.time()
+    pool = _pool_models(upstream)
+    cool = _POOL_COOLDOWN[upstream]
+    return {
+        "pool": pool,
+        "cooling": {m: int(t - now) for m, t in cool.items() if t > now},
+        "available": [m for m in pool if cool.get(m, 0) <= now],
+        "last": _POOL_LAST[upstream],
+    }
 
 
 @app.get("/v1/wb-pool")
 async def wb_pool_status() -> JSONResponse:
-    now = time.time()
-    pool = _wb_pool_models()
-    return JSONResponse({
-        "pool": pool,
-        "cooling": {m: int(t - now) for m, t in _WB_COOLDOWN.items() if t > now},
-        "available": [m for m in pool if _WB_COOLDOWN.get(m, 0) <= now],
-        "last": _WB_LAST,
-    })
+    return JSONResponse(_pool_status("workbuddy"))
+
+
+@app.get("/v1/fllm-pool")
+async def fllm_pool_status() -> JSONResponse:
+    return JSONResponse(_pool_status("freellmapi"))
 
 
 @app.post("/v1/chat/completions", response_model=None)
@@ -734,15 +765,16 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
     if _PI_PROVIDER_CONFIG:
         call_kwargs["config"] = _PI_PROVIDER_CONFIG
     wb_model = ""
-    if entry.get("pool") == "workbuddy":
-        resp, wb_model, wb_err = await _wb_pool_call(messages, tools)
+    if entry.get("pool") in _POOL_ENV:
+        pool_up = entry["pool"]
+        resp, wb_model, wb_err = await _pool_call(pool_up, messages, tools)
         if resp is None:
-            status, message = wb_err or (502, "veya-wb failed")
+            status, message = wb_err or (502, f"{_POOL_ALIAS[pool_up]} failed")
             return JSONResponse(
                 {"error": {"message": message, "type": "upstream_error", "code": status}},
                 status_code=status,
             )
-        resp.setdefault("router", {"model": f"workbuddy/{wb_model}"})
+        resp.setdefault("router", {"model": f"{pool_up}/{wb_model}"})
     else:
         resp = await llm_call(messages, **call_kwargs)
     upstream_error = _upstream_rejection(resp)
