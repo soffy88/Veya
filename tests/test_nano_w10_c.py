@@ -387,3 +387,199 @@ class TestActionGatewayAutoReview:
         )
         decision = await adapter._evaluate_policy_with_review(req)
         assert decision.verdict == "ALLOW"
+
+
+# ---------------------------------------------------------------------------
+# addendum P — group roles and reply modes
+# ---------------------------------------------------------------------------
+
+
+class TestGroupRolesPure:
+    """oskill pure group permission matrix and reply mode selector."""
+
+    def test_permission_matrix_user(self):
+        from veya.oskill.pure.group_roles import evaluate_group_permission
+
+        assert evaluate_group_permission("user", "edit_name", is_own_group=True)
+        assert evaluate_group_permission("user", "delete_group", is_own_group=True)
+        assert not evaluate_group_permission("user", "edit_name", is_own_group=False)
+
+    def test_permission_matrix_main_bot(self):
+        from veya.oskill.pure.group_roles import evaluate_group_permission
+
+        assert evaluate_group_permission("main_bot", "manage_all", is_own_group=False)
+        assert evaluate_group_permission("chef", "edit_reply_mode", is_own_group=False)
+        assert evaluate_group_permission("main_bot", "delete_group", is_own_group=True)
+
+    def test_permission_matrix_admin(self):
+        from veya.oskill.pure.group_roles import (
+            ACTION_EDIT_MEMBERS,
+            ACTION_EDIT_NAME,
+            ACTION_EDIT_NOTICE,
+            ACTION_EDIT_REPLY_MODE,
+            ACTION_MANAGE_ALL,
+            ACTION_MENTION,
+            ACTION_SPEAK,
+            evaluate_group_permission,
+        )
+
+        for act in (ACTION_EDIT_NAME, ACTION_EDIT_NOTICE, ACTION_EDIT_MEMBERS, ACTION_EDIT_REPLY_MODE, ACTION_SPEAK, ACTION_MENTION):
+            assert evaluate_group_permission("admin", act, is_own_group=True)
+            assert not evaluate_group_permission("admin", act, is_own_group=False)
+        assert not evaluate_group_permission("admin", ACTION_MANAGE_ALL, is_own_group=True)
+
+    def test_permission_matrix_member(self):
+        from veya.oskill.pure.group_roles import (
+            ACTION_EDIT_NAME,
+            ACTION_MENTION,
+            ACTION_SPEAK,
+            evaluate_group_permission,
+        )
+
+        assert evaluate_group_permission("member", ACTION_SPEAK, is_own_group=True)
+        assert evaluate_group_permission("member", ACTION_MENTION, is_own_group=True)
+        assert not evaluate_group_permission("member", ACTION_EDIT_NAME, is_own_group=True)
+
+    def test_extract_mentions(self):
+        from veya.oskill.pure.group_roles import extract_mentions
+
+        members = ["coder_bot", "reviewer_bot", "chef"]
+        text = "Hey @coder_bot and @CHEF, could you check @unknown_bot's work?"
+        assert extract_mentions(text, members) == ["coder_bot", "chef"]
+
+    def test_select_replying_bots_everyone(self):
+        from veya.oskill.pure.group_roles import select_replying_bots
+
+        members = ["bot1", "bot2", "bot3"]
+        assert select_replying_bots("everyone", "bot1", members, "hi all") == members
+
+    def test_select_replying_bots_admin_first(self):
+        from veya.oskill.pure.group_roles import select_replying_bots
+
+        members = ["admin_bot", "helper_bot", "worker_bot"]
+        # Without mention: only admin answers
+        assert select_replying_bots("admin-first", "admin_bot", members, "help please") == ["admin_bot"]
+        # With mention: admin answers first, then mentioned
+        res = select_replying_bots("admin-first", "admin_bot", members, "ask @helper_bot")
+        assert res == ["admin_bot", "helper_bot"]
+
+    def test_select_replying_bots_mention_only(self):
+        from veya.oskill.pure.group_roles import select_replying_bots
+
+        members = ["admin_bot", "helper_bot", "worker_bot"]
+        # Mentioning specific bot: only that bot answers
+        assert select_replying_bots("mention-only", "admin_bot", members, "paging @worker_bot") == ["worker_bot"]
+        # No mention: admin answers by default
+        assert select_replying_bots("mention-only", "admin_bot", members, "hello room") == ["admin_bot"]
+
+
+class TestGroupRolesStoreAndTurn:
+    """GroupStore serialization, update, and run_group_turn routing."""
+
+    def test_group_chat_dataclass_defaults_and_serialization(self):
+        from server.bot_team.groups import GroupChat
+
+        gc = GroupChat(id="g1", name="Room", bot_ids=("b1", "b2"))
+        assert gc.admin_bot_id == ""
+        assert gc.reply_mode == "everyone"
+        assert gc.notice == ""
+
+        data = gc.to_dict()
+        assert data["admin_bot_id"] == ""
+        assert data["reply_mode"] == "everyone"
+
+        loaded = GroupChat.from_dict({
+            "id": "g2",
+            "name": "Room2",
+            "bot_ids": ["b1", "b2"],
+            "admin_bot_id": "b1",
+            "reply_mode": "admin-first",
+            "notice": "Welcome",
+        })
+        assert loaded.admin_bot_id == "b1"
+        assert loaded.reply_mode == "admin-first"
+        assert loaded.notice == "Welcome"
+
+    def test_group_store_create_and_update(self, tmp_path):
+        from server.bot_team.groups import GroupStore
+
+        store = GroupStore(root=tmp_path)
+        group = store.create(
+            name="Dev Team",
+            bot_ids=["bot_a", "bot_b"],
+            admin_bot_id="bot_a",
+            reply_mode="admin-first",
+            notice="Rules here",
+        )
+        assert group.admin_bot_id == "bot_a"
+        assert group.reply_mode == "admin-first"
+        assert group.notice == "Rules here"
+
+        updated = store.update(
+            group.id,
+            name="Dev Team 2",
+            admin_bot_id="bot_b",
+            reply_mode="mention-only",
+            notice="New rules",
+        )
+        assert updated is not None
+        assert updated.name == "Dev Team 2"
+        assert updated.admin_bot_id == "bot_b"
+        assert updated.reply_mode == "mention-only"
+        assert updated.notice == "New rules"
+
+    @pytest.mark.asyncio
+    async def test_run_group_turn_respects_group_roles_flag(self, tmp_path, monkeypatch):
+        from server.bot_team.conversations import ConversationStore
+        from server.bot_team.groups import GroupStore, run_group_turn
+        from server.goal_run.bot_identity import BotRegistry, BotSpec
+
+        # Set up store and registry
+        c_store = ConversationStore(root=tmp_path)
+        g_store = GroupStore(root=tmp_path)
+        b_reg = BotRegistry(storage_path=tmp_path / "bots.json")
+        b_reg.register(BotSpec(bot_id="bot_admin", owner_id="u1", name="Admin", runner_id="local"))
+        b_reg.register(BotSpec(bot_id="bot_worker", owner_id="u1", name="Worker", runner_id="local"))
+
+        group = g_store.create(
+            name="TestGrp",
+            bot_ids=["bot_admin", "bot_worker"],
+            admin_bot_id="bot_admin",
+            reply_mode="mention-only",
+        )
+
+        turns_called: list[str] = []
+
+        async def fake_run_turn(*, bot, **kwargs):
+            from types import SimpleNamespace
+            turns_called.append(bot.bot_id)
+            return SimpleNamespace(reply="ok", task_id="t1", session_id="s1")
+
+        monkeypatch.setattr("server.bot_team.groups.run_bot_turn", fake_run_turn)
+
+        # Flag OFF: everyone gets a turn
+        monkeypatch.setenv("VEYA_GROUP_ROLES", "0")
+        turns_called.clear()
+        res_off = await run_group_turn(
+            group=group,
+            text="talk to @bot_admin",
+            user={"user_id": "u1"},
+            registry=b_reg,
+            conversations=c_store,
+        )
+        assert len(turns_called) == 2
+        assert "bot_admin" in turns_called
+        assert "bot_worker" in turns_called
+
+        # Flag ON: only mentioned gets a turn (mention-only mode)
+        monkeypatch.setenv("VEYA_GROUP_ROLES", "1")
+        turns_called.clear()
+        res_on = await run_group_turn(
+            group=group,
+            text="talk to @bot_admin only",
+            user={"user_id": "u1"},
+            registry=b_reg,
+            conversations=c_store,
+        )
+        assert turns_called == ["bot_admin"]
+

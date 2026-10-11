@@ -55,6 +55,9 @@ class GroupChat:
     bot_ids: tuple[str, ...]
     rounds_per_message: int = DEFAULT_ROUNDS_PER_MESSAGE
     created_at: float = 0.0
+    admin_bot_id: str = ""
+    reply_mode: str = "everyone"
+    notice: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,6 +66,9 @@ class GroupChat:
             "bot_ids": list(self.bot_ids),
             "rounds_per_message": self.rounds_per_message,
             "created_at": self.created_at,
+            "admin_bot_id": self.admin_bot_id,
+            "reply_mode": self.reply_mode,
+            "notice": self.notice,
         }
 
     @classmethod
@@ -79,7 +85,11 @@ class GroupChat:
                 ),
             ),
             created_at=float(value.get("created_at") or 0.0),
+            admin_bot_id=str(value.get("admin_bot_id") or ""),
+            reply_mode=str(value.get("reply_mode") or "everyone"),
+            notice=str(value.get("notice") or ""),
         )
+
 
 
 class GroupStore:
@@ -114,6 +124,9 @@ class GroupStore:
         name: str,
         bot_ids: list[str],
         rounds_per_message: int = DEFAULT_ROUNDS_PER_MESSAGE,
+        admin_bot_id: str = "",
+        reply_mode: str = "everyone",
+        notice: str = "",
     ) -> GroupChat:
         """Create a group. Members must be unique and within the size limit."""
 
@@ -133,17 +146,86 @@ class GroupStore:
         if len(members) > MAX_GROUP_MEMBERS:
             raise ValueError(f"a group may have at most {MAX_GROUP_MEMBERS} members")
         rounds = max(1, min(MAX_ROUNDS_PER_MESSAGE, int(rounds_per_message or 1)))
+        admin_id = str(admin_bot_id or "").strip()
+        if admin_id and admin_id not in members:
+            raise ValueError(f"admin bot {admin_id!r} must be a member of the group")
         group = GroupChat(
             id=f"grp_{uuid.uuid4().hex[:16]}",
             name=group_name[:120],
             bot_ids=tuple(members),
             rounds_per_message=rounds,
             created_at=time.time(),
+            admin_bot_id=admin_id or (members[0] if members else ""),
+            reply_mode=str(reply_mode or "everyone").strip().lower(),
+            notice=str(notice or "").strip(),
         )
         items = self._load()
         items[group.id] = group.to_dict()
         self._save(items)
         return group
+
+    def update(
+        self,
+        group_id: str,
+        *,
+        name: str | None = None,
+        bot_ids: list[str] | None = None,
+        rounds_per_message: int | None = None,
+        admin_bot_id: str | None = None,
+        reply_mode: str | None = None,
+        notice: str | None = None,
+    ) -> GroupChat | None:
+        """Update metadata, members, admin, reply mode or notice of an existing group."""
+        items = self._load()
+        raw = items.get(str(group_id))
+        if raw is None:
+            return None
+        current = GroupChat.from_dict(raw)
+
+        new_members: tuple[str, ...] = current.bot_ids
+        if bot_ids is not None:
+            validated: list[str] = []
+            for b in bot_ids:
+                v = str(b or "").strip()
+                if not v or v in validated:
+                    continue
+                validated.append(v)
+            if not validated:
+                raise ValueError("group needs at least one member bot")
+            if len(validated) > MAX_GROUP_MEMBERS:
+                raise ValueError(f"a group may have at most {MAX_GROUP_MEMBERS} members")
+            new_members = tuple(validated)
+
+        new_name = str(name).strip()[:120] if name is not None else current.name
+        new_rounds = (
+            max(1, min(MAX_ROUNDS_PER_MESSAGE, int(rounds_per_message)))
+            if rounds_per_message is not None
+            else current.rounds_per_message
+        )
+        new_admin = (
+            str(admin_bot_id).strip() if admin_bot_id is not None else current.admin_bot_id
+        )
+        if new_admin and new_admin not in new_members:
+            raise ValueError(f"admin bot {new_admin!r} must be a member of the group")
+        new_mode = (
+            str(reply_mode).strip().lower() if reply_mode is not None else current.reply_mode
+        )
+        new_notice = str(notice).strip() if notice is not None else current.notice
+
+        updated = GroupChat(
+            id=current.id,
+            name=new_name,
+            bot_ids=new_members,
+            rounds_per_message=new_rounds,
+            created_at=current.created_at,
+            admin_bot_id=new_admin,
+            reply_mode=new_mode,
+            notice=new_notice,
+        )
+        items[updated.id] = updated.to_dict()
+        self._save(items)
+        return updated
+
 
     def delete(self, group_id: str) -> bool:
         items = self._load()
@@ -245,14 +327,28 @@ async def run_group_turn(
     groups.append_message(group.id, role="user", text=str(text or ""))
 
     # A member that is gone is reported, never blocking the others.
-    available = [bot_id for bot_id in group.bot_ids if registry.get(bot_id) is not None]
+    from server.feature_flags import enabled as flag_enabled
+
+    if flag_enabled("VEYA_GROUP_ROLES"):
+        from veya.oskill.pure.group_roles import select_replying_bots
+
+        candidate_ids = select_replying_bots(
+            reply_mode=group.reply_mode,
+            admin_bot_id=group.admin_bot_id or (group.bot_ids[0] if group.bot_ids else ""),
+            member_bot_ids=list(group.bot_ids),
+            text=str(text or ""),
+        )
+    else:
+        candidate_ids = list(group.bot_ids)
+
+    available = [bot_id for bot_id in candidate_ids if registry.get(bot_id) is not None]
     replies: list[dict[str, Any]] = []
     passed: list[str] = []
     skipped: list[str] = []
     rounds_run = 0
     for _round in range(max(1, group.rounds_per_message)):
         rounds_run += 1
-        for bot_id in group.bot_ids:
+        for bot_id in candidate_ids:
             bot: BotSpec | None = registry.get(bot_id)
             if bot is None:
                 skipped.append(bot_id)

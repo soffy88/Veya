@@ -68,6 +68,11 @@ from veya.oskill.pure.command_review import (
     is_human_only,
     parse_review_verdict,
 )
+from veya.oskill.pure.group_roles import (
+    evaluate_group_permission,
+    extract_mentions,
+    select_replying_bots,
+)
 
 
 __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
@@ -119,4 +124,9 @@ __all__ = [  # noqa: RUF022 - public symbols are grouped by API layer
     "classify_provenance",
     "is_human_only",
     "parse_review_verdict",
+    # NANO-W10 Group C: group roles (addendum P)
+    "evaluate_group_permission",
+    "extract_mentions",
+    "select_replying_bots",
 ]
+
