@@ -172,6 +172,18 @@ async def finish_bot_turn(
         bot_id=bot.bot_id,
     )
     reply = extract_reply(response, bot=bot)
+    try:
+        from server.feature_flags import enabled as _flag_enabled
+
+        if _flag_enabled("VEYA_BOT_SECRETS"):
+            from server.bot_team.secrets import bot_secret_store
+            from veya.oskill.pure.secret_masking import mask_secret_values
+
+            mask_map = bot_secret_store().get_masking_map()
+            if mask_map:
+                reply = mask_secret_values(reply, mask_map)
+    except Exception:
+        pass
     store.append(bot.bot_id, role="bot", text=reply, task_id=start.task_id)
     # NANO-W10 group B turn-end hooks: daily memory log, memory review, context
     # steward, proactive-compaction gate.  Every hook is flag-gated and wrapped,
