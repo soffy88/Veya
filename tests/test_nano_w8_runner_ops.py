@@ -27,7 +27,7 @@ class TestRunnerOpsOprims:
         """Test runner_self_update_check oprim."""
         from veya.oprim.runner_ops import runner_self_update_check
 
-        with patch(".oprim.runner_ops.httpx.Client") as mock_client:
+        with patch("veya.oprim.runner_ops.httpx.Client") as mock_client:
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: {
@@ -44,7 +44,7 @@ class TestRunnerOpsOprims:
         """Test runner_self_update_check when no update available."""
         from veya.oprim.runner_ops import runner_self_update_check
 
-        with patch(".oprim.runner_ops.httpx.Client") as mock_client:
+        with patch("veya.oprim.runner_ops.httpx.Client") as mock_client:
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
                 status_code=200,
                 json=lambda: {
@@ -59,30 +59,36 @@ class TestRunnerOpsOprims:
         """Test runner_self_update_download oprim."""
         from veya.oprim.runner_ops import runner_self_update_download
 
-        with patch(".oprim.runner_ops.httpx.Client") as mock_client, \
-             patch(".oprim.runner_ops.ed25519") as mock_ed25519:
+        # A real 32-byte ed25519 public key, base64: the pinned key is decoded
+        # before the (mocked) verifier runs, so a placeholder string that is
+        # not base64 never reaches the signature check at all.
+        pinned_key_b64 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+
+        with patch("veya.oprim.runner_ops.httpx.Client") as mock_client, \
+             patch("veya.oprim.runner_ops.ed25519") as mock_ed25519:
 
             mock_client.return_value.__enter__.return_value.get.return_value = MagicMock(
                 status_code=200,
                 content=b"fake binary content",
                 headers={"content-length": "1024"},
             )
-            mock_ed25519.VerifyingKey.return_value.verify.return_value = None
+            mock_ed25519.Ed25519PublicKey.from_public_bytes.return_value.verify.return_value = None
 
             result = runner_self_update_download(
                 url="https://example.com/veya-runner.tar.gz",
                 expected_signature="abc123",
-                public_key_b64="public_key_base64",
+                public_key_b64=pinned_key_b64,
             )
             assert result["success"] is True
             assert "path" in result
+            assert result["signature_verified"] is True
 
     def test_runner_self_update_stage(self):
         """Test runner_self_update_stage oprim."""
         from veya.oprim.runner_ops import runner_self_update_stage
 
-        with patch(".oprim.runner_ops.shutil.unpack_archive") as mock_unpack, \
-             patch(".oprim.runner_ops.Path.rename") as mock_rename:
+        with patch("veya.oprim.runner_ops.shutil.unpack_archive") as mock_unpack, \
+             patch("veya.oprim.runner_ops.Path.rename") as mock_rename:
 
             result = runner_self_update_stage(
                 archive_path="/tmp/veya-runner.tar.gz",
@@ -94,7 +100,7 @@ class TestRunnerOpsOprims:
         """Test runner_self_update_restart oprim."""
         from veya.oprim.runner_ops import runner_self_update_restart
 
-        with patch(".oprim.runner_ops.subprocess.run") as mock_run:
+        with patch("veya.oprim.runner_ops.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             result = runner_self_update_restart(
                 runner_binary="/opt/veya/veya-runner",
@@ -106,7 +112,7 @@ class TestRunnerOpsOprims:
         """Test runner_service_install oprim."""
         from veya.oprim.runner_ops import runner_service_install
 
-        with patch(".oprim.runner_ops.Path.write_text") as mock_write:
+        with patch("veya.oprim.runner_ops.Path.write_text") as mock_write:
             result = runner_service_install(
                 runner_binary="/opt/veya/veya-runner",
                 user="testuser",
@@ -119,7 +125,7 @@ class TestRunnerOpsOprims:
         """Test runner_service_uninstall oprim."""
         from veya.oprim.runner_ops import runner_service_uninstall
 
-        with patch(".oprim.runner_ops.Path.unlink") as mock_unlink:
+        with patch("veya.oprim.runner_ops.Path.unlink") as mock_unlink:
             result = runner_service_uninstall(user="testuser")
             assert result["success"] is True
 
@@ -127,7 +133,7 @@ class TestRunnerOpsOprims:
         """Test runner_service_status oprim."""
         from veya.oprim.runner_ops import runner_service_status
 
-        with patch(".oprim.runner_ops.subprocess.run") as mock_run:
+        with patch("veya.oprim.runner_ops.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="active\n",

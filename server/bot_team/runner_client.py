@@ -219,11 +219,16 @@ class RunnerClient:
             }
         if 200 <= response.status_code < 300:
             body = response.body if isinstance(response.body, dict) else {}
+            capabilities = body.get("capabilities") if isinstance(body.get("capabilities"), dict) else {}
             return {
                 "runner_id": record.runner_id,
                 "status": "online",
                 "detail": str(body.get("status") or "ok"),
                 "version": body.get("version"),
+                # What the runner says about itself. Never inferred here: the
+                # hub's own tools say nothing about another machine's screen.
+                "hands": capabilities.get("hands"),
+                "hands_tools": capabilities.get("hands_tools") or [],
             }
         return {
             "runner_id": record.runner_id,
