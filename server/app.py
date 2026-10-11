@@ -86,6 +86,7 @@ from server.routes.workbench import router as workbench_router
 from server.routes.workspace import router as workspace_router
 from server.routes.cli_agents import router as cli_agents_router
 from server.routes.providers import router as providers_router
+from server.routes.bot_models import router as bot_models_router
 from server.routes.usage import router as usage_router
 from server.sse import router as sse_router
 
@@ -543,6 +544,7 @@ app.include_router(workbench_router)
 app.include_router(workspace_router)
 app.include_router(cli_agents_router)
 app.include_router(providers_router)
+app.include_router(bot_models_router)
 app.include_router(usage_router)
 app.include_router(telemetry_router)
 app.include_router(audit_router)

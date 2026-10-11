@@ -1,15 +1,28 @@
 <script lang="ts">
 	/**
-	 * /team — the bot team's front door.
+	 * /team — the bot team's front door (W11 W-1/W-3/W-6).
 	 *
-	 * Bot list + create/edit, group list + create, and the Chef entry point.
-	 * Everything is a link into a page that owns one thing, because this list has
-	 * to stay readable on a phone.
+	 * This is where a first-time user creates a bot, so the page leads with that
+	 * and only then with the list. Every bot card carries what a phone user
+	 * needs to pick one: whether it is busy, what it last said, and whether
+	 * there is anything unread.
 	 */
 	import { onMount } from "svelte";
-	import { ArrowRight, ChefHat, MessageSquare, Plus, RefreshCw, Users } from "lucide-svelte";
-	import { createBot, createGroup, listBots, listGroups, type BotView, type GroupView } from "$lib/team/api";
-	import { actionClass, cardClass, inputClass, primaryClass } from "$lib/team/ui";
+	import { ArrowRight, ChefHat, MessageSquare, Plus, RefreshCw, Trash2, Users } from "lucide-svelte";
+	import {
+		createGroup,
+		deleteBot,
+		listBotMessages,
+		listBots,
+		listGroups,
+		type BotMessage,
+		type BotView,
+		type GroupView,
+	} from "$lib/team/api";
+	import { hasUnread, latestBotMessage, markRead } from "$lib/team/unread";
+import { actionClass, cardClass, firstLine, inputClass, primaryClass } from "$lib/team/ui";
+import { turnStore } from "$lib/team/turns.svelte";
+import NewBotSheet from "./NewBotSheet.svelte";
 
 	let bots = $state<BotView[]>([]);
 	let groups = $state<GroupView[]>([]);
@@ -17,16 +30,21 @@
 	let loading = $state(true);
 	let error = $state("");
 
+	/** bot_id → the newest thing it said, for the card's second line. */
+	let lastSaid = $state<Record<string, string>>({});
+	let unread = $state<Record<string, boolean>>({});
+
 	let showNewBot = $state(false);
-	let newBotId = $state("");
-	let newBotName = $state("");
-	let newBotDescription = $state("");
-	let busy = $state(false);
-	let formError = $state("");
+	let confirmDeleteId = $state("");
 
 	let showNewGroup = $state(false);
 	let groupName = $state("");
 	let groupMembers = $state<string[]>([]);
+	let busy = $state(false);
+	let formError = $state("");
+
+	/** A brand-new account has neither a bot nor a group yet. */
+	const firstRun = $derived(!loading && bots.length === 0 && groups.length === 0);
 
 	async function load(): Promise<void> {
 		loading = true;
@@ -36,6 +54,7 @@
 			bots = botList.bots ?? [];
 			chefId = botList.chef_bot_id || "chef";
 			groups = groupList;
+			await loadSummaries();
 		} catch (err) {
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
@@ -43,20 +62,42 @@
 		}
 	}
 
-	async function submitBot(): Promise<void> {
-		if (!newBotId.trim()) return;
+	/**
+	 * One read per bot for its last line and unread dot. A team is a handful of
+	 * bots, and both facts come off the same transcript, so this is one request
+	 * per bot rather than a second endpoint to keep in sync.
+	 */
+	async function loadSummaries(): Promise<void> {
+		const said: Record<string, string> = {};
+		const unreadMap: Record<string, boolean> = {};
+		await Promise.all(
+			(bots ?? []).map(async (bot) => {
+				try {
+					const messages: BotMessage[] = await listBotMessages(bot.bot_id);
+					const last = latestBotMessage(messages);
+					said[bot.bot_id] = last ? firstLine(last.text) : "";
+					unreadMap[bot.bot_id] = hasUnread(bot.bot_id, messages);
+				} catch {
+					// A bot whose transcript cannot be read still gets a card; only
+					// its second line is missing.
+				}
+			}),
+		);
+		lastSaid = said;
+		unread = unreadMap;
+	}
+
+	function openBot(botId: string): void {
+		markRead(botId);
+		location.assign(`/team/bot/${botId}`);
+	}
+
+	async function remove(bot: BotView): Promise<void> {
 		busy = true;
 		formError = "";
 		try {
-			await createBot({
-				bot_id: newBotId.trim(),
-				name: newBotName.trim() || newBotId.trim(),
-				description: newBotDescription.trim(),
-			});
-			newBotId = "";
-			newBotName = "";
-			newBotDescription = "";
-			showNewBot = false;
+			await deleteBot(bot.bot_id);
+			confirmDeleteId = "";
 			await load();
 		} catch (err) {
 			formError = err instanceof Error ? err.message : String(err);
@@ -90,6 +131,13 @@
 			: [...groupMembers, botId];
 	}
 
+	function phaseLabel(botId: string): string {
+		const phase = turnStore.phase(botId);
+		if (phase === "awaiting_approval") return "待批准";
+		if (phase === "running") return "运行中";
+		return "";
+	}
+
 	onMount(load);
 </script>
 
@@ -106,6 +154,19 @@
 
 	{#if error}
 		<div class="{cardClass} mb-4 border-red-500/40 text-sm text-red-300">{error}</div>
+	{/if}
+
+	{#if firstRun}
+		<!-- W-6: the first thing a new account sees is what to do first. -->
+		<div class="{cardClass} mb-6 border-sky-500/30 bg-sky-500/[0.06]">
+			<h2 class="text-sm font-semibold text-sky-200">从第一个 Bot 开始</h2>
+			<p class="mt-1 text-xs opacity-70">
+				给它一个名字和一句话职责，选一种起点，就能直接聊天。它会记住你的事、按计划自己干活，需要动到文件或外部服务时会先问你。
+			</p>
+			<button class="{primaryClass} mt-3" onclick={() => (showNewBot = true)}>
+				<Plus size={16} /> 新建 Bot
+			</button>
+		</div>
 	{/if}
 
 	<!-- Chef: the one bot that proposes a team instead of answering questions. -->
@@ -126,38 +187,10 @@
 	<section class="mb-6">
 		<div class="mb-2 flex items-center justify-between">
 			<h2 class="text-sm font-medium opacity-80">机器人</h2>
-			<button class={actionClass} onclick={() => (showNewBot = !showNewBot)}>
+			<button class={actionClass} onclick={() => (showNewBot = true)}>
 				<Plus size={16} /> 新建
 			</button>
 		</div>
-
-		{#if showNewBot}
-			<form
-				class="{cardClass} mb-3 space-y-2"
-				onsubmit={(event) => {
-					event.preventDefault();
-					void submitBot();
-				}}
-			>
-				<input
-					class={inputClass}
-					placeholder="bot id（小写字母/数字/._-）"
-					bind:value={newBotId}
-					autocomplete="off"
-				/>
-				<input class={inputClass} placeholder="名字（可选）" bind:value={newBotName} autocomplete="off" />
-				<textarea
-					class="{inputClass} min-h-20 py-2"
-					placeholder="它负责什么（可选）"
-					bind:value={newBotDescription}
-				></textarea>
-				{#if formError}<p class="text-xs text-red-300">{formError}</p>{/if}
-				<div class="flex gap-2">
-					<button class={primaryClass} type="submit" disabled={busy || !newBotId.trim()}>创建</button>
-					<button class={actionClass} type="button" onclick={() => (showNewBot = false)}>取消</button>
-				</div>
-			</form>
-		{/if}
 
 		{#if loading && bots.length === 0}
 			<p class="{cardClass} text-sm opacity-60">加载中…</p>
@@ -166,17 +199,51 @@
 		{:else}
 			<ul class="space-y-2">
 				{#each bots as bot (bot.bot_id)}
-					<li>
-						<a href="/team/bot/{bot.bot_id}" class="{cardClass} flex items-center gap-3 transition hover:border-sky-500/40">
-							<MessageSquare size={16} class="shrink-0 opacity-50" />
-							<span class="min-w-0 flex-1">
-								<span class="block truncate text-sm font-medium">{bot.name || bot.bot_id}</span>
-								{#if bot.description}
-									<span class="block truncate text-xs opacity-60">{bot.description}</span>
+					{@const phase = phaseLabel(bot.bot_id)}
+					<li class="{cardClass} flex items-start gap-3">
+						<button class="min-w-0 flex-1 text-left" onclick={() => openBot(bot.bot_id)}>
+							<span class="flex items-center gap-2">
+								<MessageSquare size={16} class="shrink-0 opacity-50" />
+								<span class="min-w-0 flex-1 truncate text-sm font-medium">{bot.name || bot.bot_id}</span>
+								{#if unread[bot.bot_id]}
+									<span class="size-2 shrink-0 rounded-full bg-sky-400" title="有新消息"></span>
 								{/if}
 							</span>
-							{#if bot.model}<span class="shrink-0 text-[10px] opacity-50">{bot.model}</span>{/if}
-						</a>
+							{#if phase}
+								<span
+									class="mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] {phase === '待批准'
+										? 'bg-amber-500/15 text-amber-200'
+										: 'bg-sky-500/15 text-sky-200'}"
+								>
+									{phase}
+								</span>
+							{/if}
+							{#if lastSaid[bot.bot_id]}
+								<span class="mt-1 block truncate text-xs opacity-60">{lastSaid[bot.bot_id]}</span>
+							{:else if bot.description}
+								<span class="mt-1 block truncate text-xs opacity-60">{bot.description}</span>
+							{/if}
+							{#if bot.model}
+								<span class="mt-1 block text-[10px] opacity-40">{bot.model}</span>
+							{/if}
+						</button>
+						{#if confirmDeleteId === bot.bot_id}
+							<button
+								class="{actionClass} shrink-0 !border-red-500/40 !text-red-300"
+								onclick={() => void remove(bot)}
+								disabled={busy}
+							>
+								确认删除
+							</button>
+						{:else}
+							<button
+								class="{actionClass} shrink-0"
+								onclick={() => (confirmDeleteId = bot.bot_id)}
+								title="删除这个机器人"
+							>
+								<Trash2 size={14} />
+							</button>
+						{/if}
 					</li>
 				{/each}
 			</ul>
@@ -249,3 +316,13 @@
 		{/if}
 	</section>
 </div>
+
+<NewBotSheet
+	open={showNewBot}
+	takenIds={bots.map((bot) => bot.bot_id)}
+	onclose={() => (showNewBot = false)}
+	oncreated={(botId) => {
+		showNewBot = false;
+		openBot(botId);
+	}}
+/>
