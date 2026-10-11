@@ -331,9 +331,16 @@ class CanonicalWorkerAdapter:
         if spec_path.exists():
             from runtime.verification.models import VerificationSpec
 
-            self.spec = VerificationSpec.load(spec_path)
-            if self.spec.goal_run_id != state.goal_id:
-                raise RuntimeError("verification spec is bound to a different GoalRun")
+            loaded_spec = VerificationSpec.load(spec_path)
+            if loaded_spec.goal_run_id == state.goal_id:
+                self.spec = loaded_spec
+            else:
+                self.spec = await self.verification_engine.generate_verification_spec(
+                    self.task_id,
+                    state.goal_id,
+                    current_head(root),
+                    feature_name=self.feature_name,
+                )
         else:
             self.spec = await self.verification_engine.generate_verification_spec(
                 self.task_id,
