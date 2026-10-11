@@ -133,7 +133,80 @@ def _fetch_zen_catalog() -> dict[str, dict[str, Any]]:
     return catalog
 
 
-_CATALOG: dict[str, dict[str, Any]] = {**_STATIC_CATALOG, **_fetch_zen_catalog()}
+# ---------------------------------------------------------------------------
+# 本机上游: 把已部署的本地路由 (CLIProxyAPI / FreeLLMAPI) 并入网关目录,
+# 让 veya 网关成为唯一入口。key 从各自本地配置读取 (可被 *_API_KEY env 覆盖),
+# 只写进本进程 env, 让 llm_call / 免费池探活的 get_api_key 统一解析。
+# ---------------------------------------------------------------------------
+_LOCAL_UPSTREAMS: dict[str, str] = {
+    "cliproxy": os.environ.get("VEYA_CLIPROXY_BASE", "http://127.0.0.1:8317/v1"),
+    "freellmapi": os.environ.get("VEYA_FREELLMAPI_BASE", "http://127.0.0.1:3001/v1"),
+}
+_NON_CHAT_MARKERS = ("image", "embed", "tts", "whisper", "diffusion", "codex-auto-review")
+
+
+def _read_local_upstream_key(name: str) -> str:
+    try:
+        if name == "cliproxy":
+            import yaml
+
+            cfg = yaml.safe_load((Path.home() / "cliproxyapi" / "config.yaml").read_text())
+            keys = (cfg or {}).get("api-keys") or []
+            return str(keys[0]) if keys else ""
+        if name == "freellmapi":
+            import sqlite3
+
+            db = Path.home() / "freellmapi" / "server" / "data" / "freeapi.db"
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                row = con.execute(
+                    "SELECT value FROM settings WHERE key = 'unified_api_key'"
+                ).fetchone()
+            finally:
+                con.close()
+            return str(row[0]) if row and row[0] else ""
+    except Exception as exc:  # 本地上游缺失不阻塞网关
+        print(f"[veya-llm-gateway] 警告: 读取 {name} key 失败: {type(exc).__name__}", file=sys.stderr)
+    return ""
+
+
+def _local_upstream_key(name: str) -> str:
+    env_name = f"{name.upper()}_API_KEY"
+    key = os.environ.get(env_name, "") or _read_local_upstream_key(name)
+    if key:
+        os.environ[env_name] = key
+    return key
+
+
+def _fetch_local_upstream_catalog() -> dict[str, dict[str, Any]]:
+    """启动时把本机上游的聊天模型挂成 ``<upstream>/<model>`` 目录项。"""
+    catalog: dict[str, dict[str, Any]] = {}
+    for name, base in _LOCAL_UPSTREAMS.items():
+        key = _local_upstream_key(name)
+        if not key:
+            print(f"[veya-llm-gateway] 警告: 无 {name} key, 跳过", file=sys.stderr)
+            continue
+        try:
+            resp = httpx.get(
+                f"{base}/models", headers={"Authorization": f"Bearer {key}"}, timeout=8.0
+            )
+            resp.raise_for_status()
+            ids = [str(m.get("id") or "") for m in resp.json().get("data", [])]
+        except Exception as exc:
+            print(f"[veya-llm-gateway] 警告: 拉取 {name} 目录失败: {exc}", file=sys.stderr)
+            continue
+        for mid in ids:
+            if not mid or any(marker in mid.lower() for marker in _NON_CHAT_MARKERS):
+                continue
+            catalog[f"{name}/{mid}"] = {"provider": name, "model": mid, "endpoint": base}
+    return catalog
+
+
+_CATALOG: dict[str, dict[str, Any]] = {
+    **_STATIC_CATALOG,
+    **_fetch_zen_catalog(),
+    **_fetch_local_upstream_catalog(),
+}
 print(f"[veya-llm-gateway] 模型目录就绪: {len(_CATALOG)} 个", file=sys.stderr)
 
 
@@ -287,6 +360,7 @@ def _free_pool_sources() -> list[tuple[str, str]]:
         ("inferera", "https://api.inferera.com/v1"),
         ("bai", "https://api.b.ai/v1"),
         ("gmi-serving", "https://api.gmi-serving.com/v1"),
+        ("freellmapi", _LOCAL_UPSTREAMS["freellmapi"]),
     ]
     raw = os.environ.get("VEYA_FREE_POOL_PROVIDERS", "").strip()
     if not raw:
@@ -320,6 +394,22 @@ async def _discover_free_pool() -> FreePoolSnapshot:
             if not model_id:
                 continue
             ids.add(model_id.lower())
+            if source == "freellmapi":
+                # FreeLLMAPI 自己在 ~300 个免费模型间做 failover; 只收它的 auto
+                # 入口, 不把它的成员逐个灌进池子 (否则与 openrouter :free 重复探活)。
+                if model_id != "auto":
+                    continue
+                entry = {
+                    "provider": "freellmapi",
+                    "model": model_id,
+                    "endpoint": base,
+                    "source": source,
+                }
+                key = entry_key(entry)
+                if key not in entries:
+                    entries[key] = entry
+                    per_source_count[source] = per_source_count.get(source, 0) + 1
+                continue
             if not _is_free_text_model(model):
                 continue
             if per_source_count.get(source, 0) >= _FREE_POOL_MAX_DISCOVERED_PER_SOURCE:
