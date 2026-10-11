@@ -49,26 +49,46 @@ def _digest_payload(event: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in event.items() if k not in _EXCLUDED_FROM_DIGEST}
 
 
-def _canonical_bytes(payload: dict[str, Any]) -> bytes:
+def _obase_attr(submodule: str, attr: str) -> Any:
+    """Resolve an obase symbol, tolerating an older pin that lacks the re-export.
+
+    Tries the package-level export first, then the submodule directly.  This is
+    what keeps §1.4 true (obase owns canonical JSON + hashing) without pinning the
+    caller to one obase version.  Returns ``None`` when obase is unmounted.
+    """
+    import importlib
+
     try:
         from veya.platform import load
 
-        return load("obase").canonical_json(payload)
-    except Exception:  # pragma: no cover - submodules absent (graceful degrade)
-        import json
+        package = load("obase")
+        module = getattr(package, submodule, None)
+        if module is not None and hasattr(module, attr):
+            return getattr(module, attr)
+    except Exception:
+        pass
+    try:
+        return getattr(importlib.import_module(f"obase.{submodule}"), attr)
+    except Exception:
+        return None
 
-        return json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()
+
+def _canonical_bytes(payload: dict[str, Any]) -> bytes:
+    fn = _obase_attr("canonical_json", "canonical_json")
+    if fn is not None:
+        return fn(payload)
+    import json  # pragma: no cover - only reached when obase is unmounted
+
+    return json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()
 
 
 def _sha256_hex(payload: bytes) -> str:
-    try:
-        from veya.platform import load
+    fn = _obase_attr("sha256_hash", "sha256_hash")
+    if fn is not None:
+        return fn(payload).hex()
+    import hashlib  # pragma: no cover - only reached when obase is unmounted
 
-        return load("obase").sha256_hash(payload).hex()
-    except Exception:  # pragma: no cover - submodules absent (graceful degrade)
-        import hashlib
-
-        return hashlib.sha256(payload).hexdigest()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def compute_event_hash(event: dict[str, Any], *, prev_hash: str = GENESIS_HASH) -> str:

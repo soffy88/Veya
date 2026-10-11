@@ -268,14 +268,48 @@ def compute_fingerprint_for(config: Any, input_data: Any) -> str:
     return _fingerprint({k: data.get(k) for k in sorted(fields)})
 
 
+#: decision_trail / fingerprint 禁含的真实身份字段（§5.5.1）。
+_PII_KEYS: frozenset[str] = frozenset(
+    {"user_id", "student_id", "account_id", "email", "phone", "name", "username", "device_id"}
+)
+
+
+def _strip_pii(value: Any) -> Any:
+    """Recursively drop identity keys (mirrors obase Trail._public_event)."""
+    if isinstance(value, dict):
+        return {k: _strip_pii(v) for k, v in value.items() if str(k).lower() not in _PII_KEYS}
+    if isinstance(value, list):
+        return [_strip_pii(v) for v in value]
+    return value
+
+
 def _redact(value: Any) -> Any:
-    """decision_trail 禁真实 PII（§5.5.1）；复用 obase.redact_value。"""
+    """decision_trail 禁真实 PII（§5.5.1）。
+
+    Identity **keys** are dropped first (obase's ``redact_value`` masks values,
+    not key names, so it cannot satisfy §5.5.1 on its own), then the result goes
+    through ``obase.redact_value`` so residual secret-shaped values are still
+    handled by the single canonical implementation.
+    """
+    import importlib
+
+    stripped = _strip_pii(value)
     try:
         from veya.platform import load
 
-        return load("obase").redact_value(value)
-    except Exception:  # pragma: no cover - submodules absent
-        return value
+        fn = getattr(load("obase"), "redact_value", None)
+        if fn is not None:
+            return fn(stripped)
+    except Exception:
+        pass
+    try:
+        module = importlib.import_module("obase.pseudo_anonymizer")
+        fn = getattr(module, "redact_value", None)
+        if fn is not None:
+            return fn(stripped)
+    except Exception:
+        pass
+    return stripped
 
 
 def _write_trail(
