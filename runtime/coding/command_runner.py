@@ -27,6 +27,18 @@ class CommandPolicyError(ValueError):
 
 _SHELLS = {"sh", "bash", "zsh", "fish", "dash", "cmd", "powershell", "pwsh"}
 _SHELL_OPERATOR_TOKENS = {";", "&", "&&", "|", "||", "<", ">", "<<", ">>", "(", ")"}
+# Shell builtins with no executable on PATH. Sent bare (``cd sub``, ``exit 3``,
+# ``export A=1``) they cannot be exec'd as argv and used to fail as
+# PROCESS_START_FAILURE; they must run through the shell like operator commands.
+_SHELL_BUILTINS = frozenset(
+    {
+        ".", "alias", "builtin", "cd", "command", "declare", "dirs", "exit",
+        "export", "getopts", "hash", "help", "history", "jobs", "let", "local",
+        "popd", "pushd", "read", "readonly", "return", "set", "shift", "shopt",
+        "source", "times", "trap", "type", "typeset", "ulimit", "umask",
+        "unalias", "unset", "wait",
+    }
+)
 # Destructive-command semantics live in the canonical PermissionEngine
 # (``veya/remote/permission_engine.py``). This runner must not keep a second
 # executable list: two lists would be two approval authorities.
@@ -43,7 +55,11 @@ def _has_shell_operators(command: str) -> bool:
     classifies the raw command.
     """
     # Env-prefix assignments (VAR=val ...) require a shell to interpret
-    if re.match(r"^[A-Z_][A-Z0-9]*=\S*\s", command):
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s", command.lstrip()):
+        return True
+    # A bare shell builtin has no binary to exec (Local2 audit 2026-10-12).
+    stripped = command.strip()
+    if stripped and stripped.split(None, 1)[0] in _SHELL_BUILTINS:
         return True
     # Backtick command substitution requires a shell
     if "`" in command:
