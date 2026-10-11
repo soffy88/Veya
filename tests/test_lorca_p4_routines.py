@@ -17,6 +17,9 @@ from server.routes.routines import router
 def test_app(tmp_path, monkeypatch):
     monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routines.json"))
     app = FastAPI()
+    # W11 D2: routine routes check bot ownership; these tests cover routine logic.
+    from server.routes import routines as _routines_mod
+    app.dependency_overrides[_routines_mod._require_owned_bot] = lambda: None
     app.include_router(router)
     return app
 

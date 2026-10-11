@@ -104,7 +104,7 @@ def _validate_or_422(name: str) -> None:
 )
 async def list_memory(
     bot_id: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemoryListResponse:
     """Return sorted list of ``*.md`` file names in the bot's memory directory."""
     store = _store(bot_id)
@@ -157,7 +157,7 @@ class MemorySearchResponse(BaseModel):
 )
 async def memory_summary(
     bot_id: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemorySummaryResponse:
     """Regenerated-on-read summary plus cap / gardening status."""
     _owned_bot(bot_id, user)
@@ -175,7 +175,7 @@ async def memory_search_route(
     bot_id: str,
     q: str,
     limit: int = 10,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemorySearchResponse:
     """Search core + topics + live scratch + dated daily logs."""
     _owned_bot(bot_id, user)
@@ -192,7 +192,7 @@ async def memory_search_route(
 async def memory_journal(
     bot_id: str,
     limit: int = 50,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """The append-only record of what the review pass changed."""
     _owned_bot(bot_id, user)
@@ -207,7 +207,7 @@ async def memory_journal(
 )
 async def bot_workers(
     bot_id: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> dict[str, Any]:
     """Worker list (name, status, last task, context size). Empty when disabled."""
     _owned_bot(bot_id, user)
@@ -228,7 +228,7 @@ async def bot_workers(
 async def read_memory(
     bot_id: str,
     name: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemoryReadResponse:
     """Return the content of *name*.  404 if the file does not exist."""
     _validate_or_422(name)
@@ -248,7 +248,7 @@ async def write_memory(
     bot_id: str,
     name: str,
     request: Request,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemoryWriteResponse:
     """Write *name* atomically.
 
@@ -291,7 +291,7 @@ async def write_memory(
 async def delete_memory(
     bot_id: str,
     name: str,
-    user: dict[str, Any] = Depends(auth_mod.get_current_user),
+    user: dict[str, Any] = Depends(auth_mod.require_user),
 ) -> MemoryDeleteResponse:
     """Delete *name*.  404 if it does not exist."""
     _validate_or_422(name)

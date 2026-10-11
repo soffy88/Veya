@@ -50,3 +50,16 @@ def test_anonymous_is_refused():
     assert c.get("/api/v1/bots/x/messages").status_code == 401
     assert c.delete("/api/v1/bots/x").status_code == 401
     assert c.get("/api/v1/bots/groups").status_code == 401
+
+
+def test_routines_are_private_to_the_bot_owner(env, tmp_path, monkeypatch):
+    from server.routes.routines import router as routines_router
+
+    monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routines.json"))
+    client, who = env
+    client.app.include_router(routines_router)
+    who["user"] = BOB
+    assert client.get("/api/v1/bots/alice_bot/routines").status_code == 404
+    assert client.post("/api/v1/bots/alice_bot/routines", json={"objective": "x", "schedule": "every 5m"}).status_code == 404
+    who["user"] = ALICE
+    assert client.post("/api/v1/bots/alice_bot/routines", json={"objective": "x", "schedule": "every 5m"}).status_code == 200
