@@ -360,6 +360,7 @@ async def _run_bot_turn_handoff(
             text=str(goal_text or f"Run routine {routine_id}"),
             user=user,
             context=f"Routine {routine_id} fired.",
+            reply_meta={"source": "routine", "routine_id": str(routine_id)},
         )
         summary = (turn.reply or "").splitlines()[0] if turn.reply else "Success"
         routed = _route_wake(

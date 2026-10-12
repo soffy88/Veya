@@ -232,8 +232,13 @@ async def finish_bot_turn(
     context: str = "",
     workspace_id: str | None = None,
     conversations: ConversationStore | None = None,
+    reply_meta: dict[str, Any] | None = None,
 ) -> BotTurnResult:
-    """Run the turn opened by :func:`begin_bot_turn` and record the reply."""
+    """Run the turn opened by :func:`begin_bot_turn` and record the reply.
+
+    ``reply_meta`` tags the bot's reply (a routine turn marks it
+    ``{"source": "routine", "routine_id": …}`` so the UI can tell it apart).
+    """
 
     from server.routes import product as product_routes
 
@@ -302,7 +307,7 @@ async def finish_bot_turn(
                 reply = mask_secret_values(reply, mask_map)
     except Exception:
         pass
-    store.append(bot.bot_id, role="bot", text=reply, task_id=start.task_id)
+    store.append(bot.bot_id, role="bot", text=reply, task_id=start.task_id, meta=reply_meta)
     # NANO-W10 group B turn-end hooks: daily memory log, memory review, context
     # steward, proactive-compaction gate.  Every hook is flag-gated and wrapped,
     # so with the default flags this is a no-op that cannot fail the turn.
@@ -334,6 +339,7 @@ async def run_bot_turn(
     workspace_id: str | None = None,
     conversations: ConversationStore | None = None,
     trace_id: str | None = None,
+    reply_meta: dict[str, Any] | None = None,
 ) -> BotTurnResult:
     """Run one turn of ``bot`` and record both sides in its conversation.
 
@@ -415,6 +421,7 @@ async def run_bot_turn(
         context=context,
         workspace_id=workspace_id,
         conversations=conversations,
+        reply_meta=reply_meta,
     )
     if not _approval_gates_on():
         return await finishing
