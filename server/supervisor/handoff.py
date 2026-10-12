@@ -70,7 +70,7 @@ async def supervisor_handoff(
         _lg.debug("could not append supervisor report to conversation", exc_info=True)
 
     global_notifier.push(
-        type="WARNING" if report["is_stalled"] else "INFO" if report["status"] == "completed" else "SUCCESS",
+        type="SUCCESS" if report["status"] == "completed" else "INFO",
         title=f"[监工] {report['status']}",
         content=report["body"],
         payload={"goal_run_id": goal_run_id, "report_seq": report["report_seq"]},
