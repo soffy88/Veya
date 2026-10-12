@@ -184,4 +184,58 @@ the 61 direct-IO entries above are pre-existing `main` debt, not W12
 
 **Caveat:** `check_3o_gates.py --strict` and `check_no_direct_io.py --baseline` both exit 1 because of 61 pre-existing `main` violations (identical to a clean `d4ed7fab` worktree, verified by `diff` of sorted violation lists). This is not a W12 regression. W12 introduces **zero new** gate violations, which is exactly what `W12_FIX.md` asked for.
 
+---
+
+## Re-verification (2026-10-12T23:20Z, this continuation)
+
+The prior session (f41b7d9f) claimed W12 was done. This continuation re-ran
+**every** gate the user asked for against a clean worktree and confirmed the
+numbers — no mocks, no placeholders.
+
+Commands run:
+
+```bash
+# W12-specific tests
+.venv/bin/python -m pytest tests/test_w12_supervisor.py tests/test_w12_brain_breaker.py -v
+# → 31 passed in 0.72s
+
+# Spec-listed regression set
+.venv/bin/python -m pytest tests/test_lorca_*.py tests/test_orca_*.py \
+  tests/test_p3a_bot_isolation.py tests/test_product_shell.py \
+  tests/test_nano_*.py tests/test_w11_*.py tests/test_llm_router.py \
+  tests/test_w12_*.py tests/remote/test_policy_resolver.py \
+  tests/remote/test_effect_registry_authority.py -q
+# → 920 passed, 27 warnings in 146.85s
+
+# Gate scripts
+.venv/bin/python scripts/check_no_direct_io.py . --baseline scripts/baseline_direct_io.txt
+# → 61 entries, exit 1; grep -i supervisor/binding returns ZERO matches
+
+.venv/bin/python scripts/check_no_direct_io.py . --strict
+# → 349 entries, exit 1; grep -i supervisor/binding returns ZERO matches
+
+.venv/bin/python scripts/check_3o_gates.py --strict
+# → DIRECT_IO_NEW_VIOLATIONS=61, DIRECT_MEMORY_WRITE_VIOLATIONS=0,
+#   OMODUL_DIRECT_CALLS_VIOLATIONS=0, OPRIM_PEER_CALLS_VIOLATIONS=0,
+#   existing gates: check_no_reverse_dep=0, check_oskill_pure=0
+#   (check_no_direct_io subcall rc=1 is the same 61 pre-existing main entries)
+```
+
+`server/supervisor/binding.py` carries the `# 3O-IO-ALLOW` header (line 1)
+matching peer per-record JSON stores (`server/bot_team/memory_layers.py`,
+`server/goal_run/bot_identity.py`, `server/bot_team/prompt_cache.py`,
+`server/bot_team/workers.py`). Neither `check_no_direct_io.py` nor
+`check_3o_gates.py --strict` reports **any** entry for
+`server/supervisor/` or `binding.py`. W12_FIX.md is resolved.
+
+**Why the gate scripts still exit 1:** the 61 baseline entries
+(`server/goal_run/*`, `server/bot_team/*`, `server/routes/*`,
+`server/sse.py`, `veya/oskill/*`) are all present on `main` at
+`d4ed7fab` — the previous agent verified this by `diff`ing sorted
+violation lists from a clean worktree. That debt predates W12 and
+is unrelated to `W12_FIX.md`. Fixing it would require either adding
+`# 3O-IO-ALLOW` markers to each of those ~40 pre-existing files or
+regenerating the baseline; both are separate PRs, out of scope for
+this task.
+
 Not pushed. `.venv`, `node_modules`, `platform/3O`, and `veya/remote/*` WIP untouched.
