@@ -64,7 +64,7 @@ tests/test_w14_mcp_pack.py           17 passed
 tests/test_product_shell.py          13 passed
 ```
 
-All checks pass (ruff, mypy).
+All checks pass (ruff clean; mypy clean on the three touched files).
 
 ## Spec compliance
 
@@ -78,10 +78,11 @@ All checks pass (ruff, mypy).
 | Required env var NAMES declared (never values) | ✅ |
 | Side effect declared (external_read → PURE_READ) | ✅ |
 | Ownership check on attach route | ✅ |
-| Tests for all contract points | ✅ |
 | Auth check on attach route | ✅ |
 | Public list route (no auth) | ✅ |
 | No secret values in response | ✅ |
+| NOTICE/attribution lines for five upstream projects | ✅ (THIRD_PARTY_NOTICES.md) |
+| Tests for all contract points | ✅ |
 
 ## Unresolved / follow-up
 
@@ -96,6 +97,7 @@ All checks pass (ruff, mypy).
 - `94b37e5a` w14: add MCP preset pack (config + module + flag + app wire)
 - `bb3da133` w14: wire MCP preset pack into app lifespan
 - `7cac9e9e` w14: complete MCP preset pack + report
+- `2d7da917` w14: fix mypy/ruff errors; add five upstream notices
 
 ---
 W14 implementation complete. All tests pass. No new registry/scheduler/approval
