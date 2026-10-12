@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -575,6 +576,19 @@ class CanonicalWorkerAdapter:
                 answer = str((follow or {}).get("content") or "").strip()
                 if (follow or {}).get("kind") == "candidate" and answer:
                     state.budget["reply"] = answer
+                else:
+                    logger.info(
+                        "bot turn follow-up gave no direct answer: kind=%s tool=%s",
+                        (follow or {}).get("kind"),
+                        (follow or {}).get("tool"),
+                    )
+            if not str((state.budget or {}).get("reply") or "").strip():
+                # The model would not phrase an answer; the read result itself
+                # is still what the user asked for — show it rather than a
+                # "this step failed" sentence for work that succeeded.
+                observed = str(result.result or "").strip()
+                if observed:
+                    state.budget["reply"] = observed[:1500]
         return LeafResult(
             status="completed",
             summary=str(result.result or "canonical action completed"),
@@ -876,3 +890,5 @@ class MasterAgentActionAdapter:
 
 
 __all__ = ["CanonicalWorkerAdapter", "MasterAgentActionAdapter"]
+
+logger = logging.getLogger(__name__)
