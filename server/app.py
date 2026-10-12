@@ -291,10 +291,6 @@ async def lifespan(app: FastAPI):
         import logging
 
         logging.getLogger("veya.lifespan").exception("mcp-presets wire failed")
-    except Exception:
-        import logging
-
-        logging.getLogger("veya.lifespan").exception("cognition wire failed")
     try:
         from server.tool_registry import master_tools
 
