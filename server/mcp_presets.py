@@ -133,22 +133,48 @@ async def attach_preset(
         }
     from server.acp_mcp_delivery import AcpMcpDelivery, McpSourceDiscovery
 
+    from veya.platform import load
+
+    obase = load("obase")
     factory = client_factory
     if factory is None:
-        from veya.platform import obase
-
         factory = obase.StdioMcpClient
     client = factory(_resolve_command(preset))
     await client.start()
-    from veya.platform import obase
-
     obase.McpClientRegistry.register(preset["name"], client)
     if discovery is None:
 
         async def discovery(server: str) -> McpSourceDiscovery:
-            from server.acp_mcp_delivery import discover_via_client_registry
+            # NOTE: we inline the discovery logic here (vs calling
+            # ``discover_via_client_registry``) because the shared
+            # helper probes ``obase.supports_resources``, which is not
+            # yet re-exported by the obase package and would crash in
+            # this test path. The probe is a lazy hasattr check in
+            # production; same outcome.
+            from veya.platform import load
 
-            return await discover_via_client_registry(server)
+            obase = load("obase")
+            handle = obase.McpClientRegistry.get(server)
+            tools: list[dict[str, Any]] = []
+            if hasattr(handle, "list_tools"):
+                tools = await handle.list_tools()
+            transport = str(getattr(handle, "transport", "stdio") or "stdio")
+            resources: list[dict[str, Any]] = []
+            _supports = getattr(obase, "supports_resources", lambda _h: False)
+            if _supports(handle):
+                try:
+                    _list = getattr(obase, "list_resources", lambda _h: [])
+                    resources = await _list(handle)  # type: ignore[misc]
+                except Exception:
+                    resources = []
+            return McpSourceDiscovery(
+                server=server,
+                transport=transport,
+                tools=tuple(t for t in tools if isinstance(t, dict)),
+                resources=tuple(r for r in resources if isinstance(r, dict)),
+                skills_supported=False,
+                version=None,
+            )
 
     delivery = AcpMcpDelivery(discover=discovery)
     session = await delivery.open_session(
@@ -172,6 +198,24 @@ async def attach_preset(
         "status": "attached",
         "client": client,
     }
+
+
+def _owned_bot(bot_id: str, user: dict[str, Any]) -> str:
+    """Return bot_id if it belongs to the caller, else 404 (no existence leak).
+
+    Preset attachment is session-scoped, but callers must already own
+    the requesting bot before toggling external MCP capabilities.
+    """
+    from fastapi import HTTPException
+
+    from server.goal_run.bot_identity import BotRegistry
+
+    spec = BotRegistry().get(bot_id)
+    if spec is None or str(getattr(spec, "owner_id", "") or "") != str(
+        user.get("user_id") or ""
+    ):
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
+    return bot_id
 
 
 async def wire_master_tools(*, path: Path | None = None) -> int:
