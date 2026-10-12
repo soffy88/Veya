@@ -64,6 +64,19 @@ class BotTurnStart:
     trace_id: str
 
 
+def _turn_queue() -> Any:
+    """The process turn queue, or ``None`` when ``VEYA_TURN_QUEUE`` is off.
+
+    The queue is the one authority for "is this conversation running", so a
+    turn marks itself there for its whole duration — that is what lets a
+    mid-turn correction (W11-E S4) reach it.
+    """
+
+    from server.nano_w10.turn_queue import get_turn_queue, turn_queue_enabled
+
+    return get_turn_queue() if turn_queue_enabled() else None
+
+
 def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     """Compose the semantic prompt for one turn of ``bot``.
 
@@ -197,6 +210,11 @@ async def begin_bot_turn(
     )
     store = conversations if conversations is not None else conversation_store()
     store.append(bot.bot_id, role="user", text=str(text or ""), task_id=task_id)
+    # W11-E S4: the turn is now in flight. Marking the conversation running is
+    # what lets a correction typed mid-turn reach this turn instead of 409ing.
+    queue = _turn_queue()
+    if queue is not None:
+        queue.mark_running(bot.bot_id)
     return BotTurnStart(
         bot_id=bot.bot_id,
         task_id=task_id,
@@ -221,17 +239,48 @@ async def finish_bot_turn(
 
     store = conversations if conversations is not None else conversation_store()
     objective = build_objective(bot=bot, text=text, context=context)
-    response = await product_routes._run_product_task(
-        task_id=start.task_id,
-        session_id=start.session_id,
-        objective=objective,
-        provider=bot.provider or None,
-        model=bot.model or None,
-        config={},
-        user=dict(user),
-        project_root=workspace_id or "/repo",
-        bot_id=bot.bot_id,
-    )
+    queue = _turn_queue()
+    try:
+        response = await product_routes._run_product_task(
+            task_id=start.task_id,
+            session_id=start.session_id,
+            objective=objective,
+            provider=bot.provider or None,
+            model=bot.model or None,
+            config={},
+            user=dict(user),
+            project_root=workspace_id or "/repo",
+            bot_id=bot.bot_id,
+        )
+        # W11-E S4: a correction that arrived after the model's last call was
+        # not seen by it.  Answer again with the correction in view, inside the
+        # same turn, so the reply the user gets follows what they asked last.
+        rounds = 0
+        while queue is not None and rounds < 2:
+            late = queue.drain_steers(bot.bot_id)
+            late = [str(t).strip() for t in late if str(t or "").strip()]
+            if not late:
+                break
+            rounds += 1
+            corrected = (
+                f"{text}\n\n用户在你回答过程中更正了要求（以更正为准）：" + "；".join(late)
+            )
+            response = await product_routes._run_product_task(
+                task_id=start.task_id,
+                session_id=start.session_id,
+                objective=build_objective(bot=bot, text=corrected, context=context),
+                provider=bot.provider or None,
+                model=bot.model or None,
+                config={},
+                user=dict(user),
+                project_root=workspace_id or "/repo",
+                bot_id=bot.bot_id,
+            )
+    finally:
+        # W11-E S4: the turn is over (or failed) — release the conversation so
+        # the next correction is not steered into a turn that no longer runs.
+        if queue is not None:
+            queue.mark_finished(bot.bot_id)
     reply = extract_reply(response, bot=bot)
     try:
         from server.feature_flags import enabled as _flag_enabled
