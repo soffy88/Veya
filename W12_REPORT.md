@@ -82,7 +82,7 @@ $ .venv/bin/python -m pytest tests/test_w12_supervisor.py tests/test_w12_brain_b
 ============================= 31 passed in 1.24s ==============================
 ````
 
-`tests/test_w12_supervisor.py` (16 tests):
+`tests/test_w12_supervisor.py` (21 tests):
 - flag off → `supervise_task` raises
 - flag on → GoalRun + RoutineSpec + SupervisorBinding created together
 - phrase parsing (basic, short forms, no-cadence, zero-interval)
@@ -173,13 +173,14 @@ and `check_no_direct_io.py --baseline` **still exits 1** — because
 the 61 direct-IO entries above are pre-existing `main` debt, not W12
 
 
-## Final verification (2026-10-12T22:54:26Z)
+## Final verification (2026-10-12T23:10:45Z)
 
-- `tests/test_w12_supervisor.py` (16) + `tests/test_w12_brain_breaker.py` (10) = **26 W12-specific tests, all passed**
+- `tests/test_w12_supervisor.py` (21) + `tests/test_w12_brain_breaker.py` (10) = **31 W12-specific tests, all passed**
 - Full regression (`tests/test_lorca_*.py tests/test_orca_*.py tests/test_p3a_bot_isolation.py tests/test_product_shell.py tests/test_nano_*.py tests/test_w11_*.py tests/test_llm_router.py tests/test_w12_*.py tests/remote/test_policy_resolver.py tests/remote/test_effect_registry_authority.py`): **920 passed, 27 warnings in 196 s**
 - `scripts/check_no_direct_io.py . --baseline`: 61 entries (all pre-existing on main; **zero in `server/supervisor/`**)
 - `scripts/check_no_direct_io.py . --strict`: 349 entries (all pre-existing on main; **zero in `server/supervisor/`**)
 - `scripts/check_3o_gates.py --json`: DIRECT_MEMORY_WRITE=0, OMODUL=0, OPRIM_PEER=0; DIRECT_IO_NEW_VIOLATIONS=61 (all pre-existing)
+- mypy: Success (0 issues in 7 source files after fixing WARNING→SUCCESS/INFO in handoff.py)
 
 **Caveat:** `check_3o_gates.py --strict` and `check_no_direct_io.py --baseline` both exit 1 because of 61 pre-existing `main` violations (identical to a clean `d4ed7fab` worktree, verified by `diff` of sorted violation lists). This is not a W12 regression. W12 introduces **zero new** gate violations, which is exactly what `W12_FIX.md` asked for.
 
