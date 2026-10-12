@@ -691,6 +691,7 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
     monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
     monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
     monkeypatch.setenv("VEYA_WORKBUDDY_DISABLED", "1")
+    monkeypatch.setenv("VEYA_GATEWAY_POOL_DISABLED", "1")
     monkeypatch.setattr(
         "os.environ",
         {
@@ -743,6 +744,7 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
     monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
     monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
     monkeypatch.setenv("VEYA_WORKBUDDY_DISABLED", "1")
+    monkeypatch.setenv("VEYA_GATEWAY_POOL_DISABLED", "1")
     monkeypatch.setattr(
         "os.environ",
         {
