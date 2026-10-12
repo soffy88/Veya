@@ -238,8 +238,16 @@ async def finish_bot_turn(
     from server.routes import product as product_routes
 
     store = conversations if conversations is not None else conversation_store()
-    objective = build_objective(bot=bot, text=text, context=context)
     queue = _turn_queue()
+    if queue is not None:
+        # W11 S3: people send a thought in pieces.  Hold the first model call a
+        # moment so messages typed right after this one join the same answer,
+        # instead of one model run per piece (each piece cost a full run).
+        await asyncio.sleep(_coalesce_window_s())
+        burst = [str(t).strip() for t in queue.drain_steers(bot.bot_id) if str(t or "").strip()]
+        if burst:
+            text = "\n".join([str(text or "")] + burst)
+    objective = build_objective(bot=bot, text=text, context=context)
     try:
         response = await product_routes._run_product_task(
             task_id=start.task_id,
@@ -413,6 +421,15 @@ async def run_bot_turn(
     return await _finish_or_await_approval(
         finishing, bot=bot, start=start, user=user, conversations=conversations
     )
+
+
+def _coalesce_window_s() -> float:
+    import os
+
+    try:
+        return max(0.0, float(os.environ.get("VEYA_TURN_COALESCE_S", "2.0") or 0))
+    except ValueError:
+        return 2.0
 
 
 #: Friendly reply while a side-effect action waits on the user's approval.

@@ -19,10 +19,17 @@ from veya.oskill.pure.html_to_markdown import PROVENANCE_HEADER, read_html
 
 
 async def tool_read_channel(
-    channel: str,
-    target: str,
+    channel: str = "web",
+    target: str = "",
+    url: str = "",
+    **_ignored: Any,
 ) -> str:
-    """Read content from an external web channel (web, youtube, rss, github, etc.)."""
+    """Read content from an external web channel (web, youtube, rss, github, etc.).
+
+    W11 S2: models often call this with ``url=`` (or a stray ``category=``)
+    instead of ``target=``; a page read must not fail on an argument name.
+    """
+    target = target or url
     if not feature_flags.enabled("VEYA_CHANNEL_LADDER"):
         return (
             "read_channel is currently disabled (feature flag VEYA_CHANNEL_LADDER is OFF). "
@@ -37,8 +44,12 @@ async def tool_read_channel(
     # Probe channel to find active working backend
     probe_res = await probe_channel(ch)
     if probe_res.get("status") != "ok":
-        hint = probe_res.get("fix_hint", "channel backend unavailable")
-        return f"Error: channel '{ch}' backend is not ready ({hint})."
+        if ch == "web" and tgt.startswith(("http://", "https://")):
+            # The plain web read needs no ladder backend: fetch directly.
+            probe_res = {"status": "ok", "active_backend": "http_fetch"}
+        else:
+            hint = probe_res.get("fix_hint", "channel backend unavailable")
+            return f"Error: channel '{ch}' backend is not ready ({hint})."
 
     backend = probe_res.get("active_backend", "")
 
@@ -84,14 +95,14 @@ def register_tools(registry: Any) -> int:
                 "properties": {
                     "channel": {
                         "type": "string",
-                        "description": "Channel identifier (web, youtube, rss, github, bilibili, reddit, etc.).",
+                        "description": "Channel identifier (web, youtube, rss, github, bilibili, reddit, etc.). Default web.",
                     },
                     "target": {
                         "type": "string",
                         "description": "Target URL, repo name, or content identifier.",
                     },
                 },
-                "required": ["channel", "target"],
+                "required": ["target"],
             },
             tool_read_channel,
             SideEffect.PURE_READ,
