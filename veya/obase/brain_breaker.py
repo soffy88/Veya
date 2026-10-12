@@ -125,7 +125,12 @@ def record_provider_failure(provider: str, exc: Any, *, now: float | None = None
 
 
 def breaker_state(provider: str, *, now: float | None = None) -> dict[str, Any] | None:
-    """Read-only breaker view for one provider (health route)."""
+    """Read-only breaker view for one provider (health route).
+
+    Returns a copy; the ``state`` field is widened from ``open`` to
+    ``half_open`` when the cooldown has elapsed, without mutating the
+    stored record (the next successful call closes it).
+    """
     moment = now if now is not None else time.time()
     with _lock:
         record = _breakers.get(provider)
@@ -133,7 +138,7 @@ def breaker_state(provider: str, *, now: float | None = None) -> dict[str, Any] 
             return None
         view = dict(record)
         if view.get("state") == "open" and float(view.get("reopen_at") or 0) <= moment:
-            view["state"] = "half_open"  # cooldown ended: one re-probe due
+            view["state"] = "half_open"
         return view
 
 
@@ -175,6 +180,11 @@ def all_tiers_open(providers: list[str], *, now: float | None = None) -> bool:
     return all(breaker_open(p, now=now) for p in providers)
 
 
+def enabled() -> bool:
+    """Is the brain-breaker feature flag on?"""
+    return _flag_on()
+
+
 def reset() -> None:
     """Test hook: drop all breaker state."""
     with _lock:
@@ -186,6 +196,7 @@ __all__ = [
     "breaker_open",
     "breaker_state",
     "classify_quota_error",
+    "enabled",
     "note_provider_success",
     "record_provider_failure",
     "reset",

@@ -49,6 +49,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+#: Friendly reply when every brain tier is unavailable (B2).
+_MODEL_UNAVAILABLE_REPLY = "模型服务暂时没有响应，这条消息没有处理。请稍后再发一次。"
+
 # Re-export the extracted layers so ``veya.llm.<name>`` (import path +
 # monkeypatch surface) is unchanged after the god-module decomposition.
 from veya.obase import brain_breaker as _breaker  # noqa: E402 — W12 B1/B2
@@ -755,6 +758,17 @@ async def _veya12_rr_call(
 
 async def _veya12_flash_call(messages: list[dict], kwargs: dict) -> dict:
     """veya1.2: opencode-go DeepSeek V4.1 Flash 优先，OpenRouter 依次兜底。"""
+    # B2: when every brain tier is open, fail fast (<3 s) instead of looping
+    # through providers that are all known-bad.
+    if _breaker.enabled() and _breaker.all_tiers_open([c["provider"] for c in _veya12_pool()]):
+        return {
+            "choices": [
+                {"message": {"role": "assistant", "content": _MODEL_UNAVAILABLE_REPLY}}
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "error": True,
+            "router": {"route": "breaker_all_open", "reason": "all brain tiers open"},
+        }
     return await _veya12_rr_call(
         messages,
         kwargs,
