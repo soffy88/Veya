@@ -16,15 +16,16 @@ authority.
 - `server/supervisor/__init__.py` — `enabled()` flag check.
 - `server/supervisor/binding.py` — `SupervisorBinding` dataclass +
   JSON store (`save_binding` / `get_binding` / `list_bindings` /
-  `delete_binding` / `bindings_for_goal`). `report_seq` is monotonic
-  per routine so restarts never replay the same report.
+  `delete_binding` / `bindings_for_goal`). `report_seq` is advanced
+  on every routine fire, so restarts never replay the same report.
 - `server/supervisor/reporting.py` — `build_progress_report()` derives
   status / todos-done / last-evidence / stall from `GoalRunState`
   **only**. It never invents progress; a vanished GoalRun returns
   `"找不到该任务的执行状态。"`.
-- `server/supervisor/handoff.py` — `supervisor_handoff()` posts the
-  report into the bot's own conversation with
-  `meta.source="supervisor"`, emits a HEARTBEAT nudge on stall
+- `server/supervisor/handoff.py` — `supervisor_handoff()` advances
+  `report_seq` (A7: monotonic per binding, persisted before the
+  report is built), posts the report into the bot's own conversation
+  with `meta.source="supervisor"`, emits a HEARTBEAT nudge on stall
   (counted via `binding.nudges_sent`), and on `is_done` closes the
   binding and disables the routine (A5).
 - `server/supervision_tools.py` — new model-callable tool
@@ -33,7 +34,11 @@ authority.
   `local_write`. Raises `RuntimeError("supervisor is disabled; set
   VEYA_SUPERVISOR=1 to enable")` when the flag is off.
 - `server/bot_team/turns.py` — `parse_supervisor_phrase()` pure parser
-  for `"每N分钟告诉我进度/汇报/上报/报告/给我进度/进展/情况/状态"`.
+  for `"每N分钟告诉我进度/汇报/上报/报告/给我进度/进展/情况/状态"`,
+  **and** `_supervise_from_phrase()` which `run_bot_turn()` calls before
+  `begin_bot_turn`: a matching phrase in a real bot turn now starts a
+  supervised task (A2 trigger wired, not just parsed). The user's
+  message is still recorded in the conversation.
 - `server/bot_team/routine_clock.py` — `_try_supervisor_handoff()`
   intercepts supervisor-bound routines before the normal bot-turn path.
 - `server/routes/supervised.py` — REST controller:
@@ -48,10 +53,13 @@ authority.
 `register_tools()`), side effect `LOCAL_WRITE`, capability
 `manual_only`. It is the **only** new tool in this PR.
 
-### Plain-language trigger
+### Plain-language trigger (wired into the bot turn path)
 `parse_supervisor_phrase("把 X 修好，每 30 分钟告诉我进度")` →
 `{"report_every_minutes": 30, "stall_after_minutes": 15}` (stall
-defaults to half the report interval).
+defaults to half the report interval). `run_bot_turn` calls the parser
+on every local turn: a match starts a supervised task via
+`supervise_task` and replies with the binding id and cadence — the
+model does not have to discover the tool on its own (A2).
 
 ## Part B — Brain circuit breaker (flag `VEYA_BRAIN_BREAKER=1`)
 
@@ -75,22 +83,27 @@ defaults to half the report interval).
 
 ## Tests
 
-All offline, all Chinese user-facing text.
+All offline, all Chinese user-facing text. Measured:
 
 ```
-$ .venv/bin/python -m pytest tests/test_w12_supervisor.py tests/test_w12_brain_breaker.py -v
-============================= 26 passed in 1.13s ==============================
+$ .venv/bin/python -m pytest -q tests/test_w12_supervisor.py tests/test_w12_brain_breaker.py
+============================== 31 passed in 0.93s ==============================
 ```
 
-`tests/test_w12_supervisor.py` (16 tests):
+`tests/test_w12_supervisor.py` (21 tests):
 - flag off → `supervise_task` raises
 - flag on → GoalRun + RoutineSpec + SupervisorBinding created together
 - phrase parsing (basic, short forms, no-cadence, zero-interval)
+- phrase → `supervise_task` wiring: a matching bot-turn text invokes
+  the tool with the parsed cadence; a non-phrase turn is not
+  intercepted; the user's message is still recorded
 - progress report (1/3 done, no-invented-progress, all-completed)
 - stall detection (stalled when idle, not stalled when recent)
 - missing GoalRun → friendly message, no crash
 - ownership: foreign bot → 404; owner bot → allowed
-- restart-resume: `bindings_for_goal` excludes closed, no dup seq
+- restart-resume: `bindings_for_goal` excludes closed; report_seq
+  increments across consecutive reports (1, 2, 3); a restart after a
+  persisted seq 7 resumes at seq 8 — no replayed seq
 - binding CRUD roundtrip
 
 `tests/test_w12_brain_breaker.py` (10 tests):
@@ -104,20 +117,23 @@ $ .venv/bin/python -m pytest tests/test_w12_supervisor.py tests/test_w12_brain_b
 ## Regression
 
 ```
-$ .venv/bin/python -m pytest tests/test_lorca_*.py tests/test_orca_*.py \
+$ .venv/bin/python -m pytest -q tests/test_lorca_*.py tests/test_orca_*.py \
     tests/test_p3a_bot_isolation.py tests/test_product_shell.py \
     tests/test_nano_*.py tests/test_w11_*.py tests/test_llm_router.py \
     tests/test_w12_*.py tests/remote/test_policy_resolver.py \
-    tests/remote/test_effect_registry_authority.py -q
-================= 915 passed, 27 warnings in 160.35s =================
+    tests/remote/test_effect_registry_authority.py
+================= 920 passed, 27 warnings in 184.40s ==========
 ```
 
-(Excludes the 3 known env-bound `tests/test_canonical_proxies.py`
+(The spec's regression set without `tests/test_w12_*.py` is 889 passed;
+excludes the 3 known env-bound `tests/test_canonical_proxies.py`
 failures, unchanged from base.)
 
 ## Commits (on `feat/w12-supervisor`)
 
 ```
+40fe3715 w12(supervisor): wire phrase→supervise_task in bot turn, increment report_seq per report (A2, A7)
+c1326348 w12: write W12_REPORT.md with full implementation summary
 37807e04 w12: lint fixes (import sorting, unused imports, parenthesized and-chain)
 92b90c16 w12(supervisor): wire A3/A4/A5 handoff into routine_clock, add completion/close logic
 6893891a w12(supervisor): add binding store, progress reporter, REST routes, supervise_task tool, phrase parser
@@ -129,5 +145,8 @@ d6fe83b5 w12(breaker): add brain circuit breaker module (VEYA_BRAIN_BREAKER=1)
 01012c51 w12: add supervisor + brain breaker spec
 ```
 
-Not pushed. `platform/3O`, `.venv`, `node_modules`, and
-`veya/remote/*` WIP untouched.
+Review notes for 40fe3715: before this commit the A2 phrase parser
+existed but was never called from the bot turn path (dead code), and
+`report_seq` was initialized to 0 and never advanced, so every
+routine fire posted with seq=0 and a restart replayed the same report
+id. Both are now fixed and covered by tests.
