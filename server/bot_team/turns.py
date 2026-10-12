@@ -128,6 +128,16 @@ def _sanitised_summary(response: Any) -> str:
     else:
         summary = getattr(response, "summary", None) or getattr(response, "final_summary", None)
         summary = summary or getattr(response, "block_reason", None)
+    text = str(summary or "").strip()
+    # A finished turn's own summary is the answer; only reword what is raw
+    # diagnostics or a failure.
+    if (
+        text
+        and _status_of(response) in ("completed", "partial_completed")
+        and not any(marker in text for marker in _RAW_MARKERS)
+        and not text.startswith("Goal:")
+    ):
+        return text
     return _friendly_reason(summary)
 
 
