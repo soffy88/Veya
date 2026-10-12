@@ -290,7 +290,18 @@ def _is_gated_tool(name: str) -> bool:
 
     from veya.oskill.pure.permission import GATED_MARKERS
 
+    if name in _NEVER_GATED:
+        return False
     return name in HIGH_IMPACT or any(marker in name for marker in GATED_MARKERS)
+
+
+#: Reversible, self-owned bookkeeping that the name markers ("write",
+#: "create", "remove") would otherwise catch: a bot noting or forgetting a fact
+#: in its own journaled memory, or drafting its plan.  Asking the user to
+#: approve these made "please remember X" stall on an approval card (W11 S5).
+_NEVER_GATED = frozenset(
+    {"memory_write", "remember", "forget", "memory_forget", "bot_memory_note", "create_plan"}
+)
 
 
 async def _wait_approval(tool: str, kwargs: dict[str, Any]) -> str | None:

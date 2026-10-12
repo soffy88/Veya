@@ -434,15 +434,26 @@ def _approval_gates_on() -> bool:
         return False
 
 
-def _new_pending_approvals(user: dict[str, Any], since: float) -> list[dict[str, Any]]:
-    """Pending approvals the user's scope gained since ``since`` (epoch secs)."""
+def _new_pending_approvals(
+    user: dict[str, Any], since: float, session_id: str = ""
+) -> list[dict[str, Any]]:
+    """Pending approvals *this turn* opened since ``since`` (epoch secs).
+
+    Matched on the turn's session id, so another turn of the same user that is
+    still waiting on its own approval is never mistaken for this one.
+    """
 
     from server.approvals import get_approval_service
 
     service = get_approval_service()
     scope = service.scope_for(str((user or {}).get("user_id") or "anonymous"))
     rows = service.list_pending(scope=scope)
-    return [row for row in rows if float(row.get("created_at") or 0) >= since]
+    return [
+        row
+        for row in rows
+        if float(row.get("created_at") or 0) >= since
+        and str(row.get("session_id") or "") == str(session_id or "")
+    ]
 
 
 async def _finish_or_await_approval(
@@ -464,14 +475,21 @@ async def _finish_or_await_approval(
     reply in the conversation like any other turn.
     """
 
+    from server import user_control
+
     since = time.time() - 1.0
-    task = asyncio.ensure_future(finishing)
+    # The turn's approvals carry its session id, which is how we recognise them.
+    token = user_control._session_id.set(start.session_id)
+    try:
+        task = asyncio.ensure_future(finishing)
+    finally:
+        user_control._session_id.reset(token)
     while not task.done():
         done, _ = await asyncio.wait({task}, timeout=0.5)
         if done:
             break
         try:
-            pending = _new_pending_approvals(user, since)
+            pending = _new_pending_approvals(user, since, start.session_id)
         except Exception:
             pending = []
         if pending:
