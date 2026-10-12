@@ -2301,6 +2301,11 @@ async def _run_loop_and_finalize(
                 block_reason=state.last_stop_reason,
                 artifacts=None,
                 next_action="replan" if verdict.outcome == "FAIL" else "none",
+                # W11-C (S12): the friendly sentence the turn already produced
+                # (approval pending / approval refused / blocked) is the
+                # user-visible answer; the raw verifier summary stays in
+                # ``block_reason`` and the run record.
+                reply=_durable_reply(state),
             )
     state.status = final_status
     state.acceptance_verdict = acceptance_verdict
@@ -2463,5 +2468,19 @@ async def _run_loop_and_finalize(
         block_reason=None if final_status != GoalStatus.blocked else state.last_stop_reason,
         artifacts=artifacts,
         next_action="none",
-        reply=(str((state.budget or {}).get("reply") or "").strip() or None) if state else None,
+        reply=_durable_reply(state),
     )
+
+
+def _durable_reply(state: Any) -> str | None:
+    """The user-visible answer a turn recorded in its durable budget (W11-C/S12).
+
+    ``None`` when the turn never produced one, so callers fall back to their own
+    default.  The value is taken verbatim: the worker already reworded it into a
+    friendly sentence before storing it, so the raw reason is never repeated
+    here.
+    """
+
+    if state is None:
+        return None
+    return str((state.budget or {}).get("reply") or "").strip() or None

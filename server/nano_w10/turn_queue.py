@@ -149,6 +149,16 @@ class TurnQueue:
 
         return list(self._steers.get(conversation_ref, []))
 
+    def drain_steers(self, conversation_ref: str) -> list[str]:
+        """Take (and clear) the steers waiting for the running turn.
+
+        A steer is delivered mid-turn, so the turn itself must consume it
+        before its next model call. Draining — not peeking — means a steer is
+        injected exactly once; the queue keeps no second copy.
+        """
+
+        return self._steers.pop(conversation_ref, [])
+
     # ── intake ──────────────────────────────────────────────────────────
 
     def _config(self, conversation_ref: str, bot_ref: str) -> TurnIntakeConfig:

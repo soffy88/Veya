@@ -9,7 +9,9 @@ remains the single entry into ``master_coordinator.execute_structured``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -62,6 +64,19 @@ class BotTurnStart:
     trace_id: str
 
 
+def _turn_queue() -> Any:
+    """The process turn queue, or ``None`` when ``VEYA_TURN_QUEUE`` is off.
+
+    The queue is the one authority for "is this conversation running", so a
+    turn marks itself there for its whole duration — that is what lets a
+    mid-turn correction (W11-E S4) reach it.
+    """
+
+    from server.nano_w10.turn_queue import get_turn_queue, turn_queue_enabled
+
+    return get_turn_queue() if turn_queue_enabled() else None
+
+
 def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     """Compose the semantic prompt for one turn of ``bot``.
 
@@ -89,16 +104,37 @@ def _status_of(response: Any) -> str:
     return str(getattr(status, "value", status) or "unknown")
 
 
-def extract_reply(response: Any, *, bot: BotSpec) -> str:
-    """Pick the user-visible answer out of a canonical execution response."""
+#: Raw internal strings that must never become a bot's reply (W11-C / S12).
+#: They are diagnostics: they stay in the task record and the event log.
+_RAW_MARKERS = (
+    "Missing required evidence",
+    "ac-canonical_action_observed",
+    "Traceback (most recent call last)",
+    'File "',
+)
 
-    if response is None:
-        return _NO_REPLY.format(bot=bot.name or bot.bot_id, status="unknown")
-    # W11: a completed conversational turn carries the model's own answer;
-    # show that, not the GoalRun report ("Goal: … Status: … Tasks: …").
-    direct = response.get("reply") if isinstance(response, dict) else getattr(response, "reply", None)
-    if str(direct or "").strip() and _status_of(response) in ("completed", "partial_completed"):
-        return str(direct).strip()
+
+def _friendly_reason(raw: Any) -> str:
+    """A friendly Chinese sentence for one raw failure reason."""
+
+    text = str(raw or "").strip()
+    lowered = text.lower()
+    if not text:
+        return "这一步没有完成，我没有改动任何文件。你可以让我换一种方式再试。"
+    if any(marker in text for marker in _RAW_MARKERS):
+        return "这一步我没能拿到可以确认完成的证据，所以先停在这里，没有改动你的文件。"
+    if "approval" in lowered or "notauthorized" in lowered or "not authorized" in lowered:
+        return "这个操作需要你批准后才能执行。批准列表里有一条待处理的申请，通过后我会继续。"
+    if "timed out" in lowered or "timeout" in lowered:
+        return "等待审批超时了，操作没有执行。需要的话你可以在批准列表里重新发起。"
+    if text.startswith("Goal:"):
+        return "这一步没有完成，我没有改动任何文件。你可以让我换一种方式再试。"
+    return "这一步没有完成：" + text[:120]
+
+
+def _sanitised_summary(response: Any) -> str:
+    """Pick the summary/block reason and reword it for the user (S12)."""
+
     if isinstance(response, dict):
         summary = response.get("summary") or response.get("final_summary")
         summary = summary or response.get("block_reason")
@@ -106,6 +142,39 @@ def extract_reply(response: Any, *, bot: BotSpec) -> str:
         summary = getattr(response, "summary", None) or getattr(response, "final_summary", None)
         summary = summary or getattr(response, "block_reason", None)
     text = str(summary or "").strip()
+    # A finished turn's own summary is the answer; only reword what is raw
+    # diagnostics or a failure.
+    if (
+        text
+        and _status_of(response) in ("completed", "partial_completed")
+        and not any(marker in text for marker in _RAW_MARKERS)
+        and not text.startswith("Goal:")
+    ):
+        return text
+    return _friendly_reason(summary)
+
+
+def extract_reply(response: Any, *, bot: BotSpec) -> str:
+    """Pick the user-visible answer out of a canonical execution response.
+
+    W11-C (S12): whatever went wrong, the user sees a clear friendly Chinese
+    sentence.  A raw verifier reason ("Missing required evidence: …"), a
+    criterion id ("ac-canonical_action_observed"), a traceback or the GoalRun
+    report card ("Goal: … Status: … Tasks: …") is never shown.  The raw reason
+    stays in the task record and the event log, which is where an operator
+    looks for it.
+    """
+
+    if response is None:
+        return _NO_REPLY.format(bot=bot.name or bot.bot_id, status="unknown")
+    # W11: a completed conversational turn carries the model's own answer;
+    # show that, not the GoalRun report ("Goal: … Status: … Tasks: …").
+    direct = (
+        response.get("reply") if isinstance(response, dict) else getattr(response, "reply", None)
+    )
+    if str(direct or "").strip() and _status_of(response) in ("completed", "partial_completed"):
+        return str(direct).strip()
+    text = _sanitised_summary(response)
     if text:
         return text
     return _NO_REPLY.format(bot=bot.name or bot.bot_id, status=_status_of(response))
@@ -141,6 +210,11 @@ async def begin_bot_turn(
     )
     store = conversations if conversations is not None else conversation_store()
     store.append(bot.bot_id, role="user", text=str(text or ""), task_id=task_id)
+    # W11-E S4: the turn is now in flight. Marking the conversation running is
+    # what lets a correction typed mid-turn reach this turn instead of 409ing.
+    queue = _turn_queue()
+    if queue is not None:
+        queue.mark_running(bot.bot_id)
     return BotTurnStart(
         bot_id=bot.bot_id,
         task_id=task_id,
@@ -165,17 +239,48 @@ async def finish_bot_turn(
 
     store = conversations if conversations is not None else conversation_store()
     objective = build_objective(bot=bot, text=text, context=context)
-    response = await product_routes._run_product_task(
-        task_id=start.task_id,
-        session_id=start.session_id,
-        objective=objective,
-        provider=bot.provider or None,
-        model=bot.model or None,
-        config={},
-        user=dict(user),
-        project_root=workspace_id or "/repo",
-        bot_id=bot.bot_id,
-    )
+    queue = _turn_queue()
+    try:
+        response = await product_routes._run_product_task(
+            task_id=start.task_id,
+            session_id=start.session_id,
+            objective=objective,
+            provider=bot.provider or None,
+            model=bot.model or None,
+            config={},
+            user=dict(user),
+            project_root=workspace_id or "/repo",
+            bot_id=bot.bot_id,
+        )
+        # W11-E S4: a correction that arrived after the model's last call was
+        # not seen by it.  Answer again with the correction in view, inside the
+        # same turn, so the reply the user gets follows what they asked last.
+        rounds = 0
+        while queue is not None and rounds < 2:
+            late = queue.drain_steers(bot.bot_id)
+            late = [str(t).strip() for t in late if str(t or "").strip()]
+            if not late:
+                break
+            rounds += 1
+            corrected = (
+                f"{text}\n\n用户在你回答过程中更正了要求（以更正为准）：" + "；".join(late)
+            )
+            response = await product_routes._run_product_task(
+                task_id=start.task_id,
+                session_id=start.session_id,
+                objective=build_objective(bot=bot, text=corrected, context=context),
+                provider=bot.provider or None,
+                model=bot.model or None,
+                config={},
+                user=dict(user),
+                project_root=workspace_id or "/repo",
+                bot_id=bot.bot_id,
+            )
+    finally:
+        # W11-E S4: the turn is over (or failed) — release the conversation so
+        # the next correction is not steered into a turn that no longer runs.
+        if queue is not None:
+            queue.mark_finished(bot.bot_id)
     reply = extract_reply(response, bot=bot)
     try:
         from server.feature_flags import enabled as _flag_enabled
@@ -294,7 +399,7 @@ async def run_bot_turn(
         workspace_id=workspace_id,
         conversations=conversations,
     )
-    return await finish_bot_turn(
+    finishing = finish_bot_turn(
         bot=bot,
         start=start,
         text=text,
@@ -303,6 +408,86 @@ async def run_bot_turn(
         workspace_id=workspace_id,
         conversations=conversations,
     )
+    if not _approval_gates_on():
+        return await finishing
+    return await _finish_or_await_approval(
+        finishing, bot=bot, start=start, user=user, conversations=conversations
+    )
+
+
+#: Friendly reply while a side-effect action waits on the user's approval.
+APPROVAL_WAIT_REPLY = (
+    "这个操作需要你批准后才会执行。我已经在批准列表里提交了申请，"
+    "批准后我会继续，结果会发在这里。"
+)
+
+#: Turns still running after their caller got the "waiting for approval" reply.
+_BACKGROUND_TURNS: set[Any] = set()
+
+
+def _approval_gates_on() -> bool:
+    try:
+        from server.approvals import approval_gates_enabled
+
+        return bool(approval_gates_enabled())
+    except Exception:
+        return False
+
+
+def _new_pending_approvals(user: dict[str, Any], since: float) -> list[dict[str, Any]]:
+    """Pending approvals the user's scope gained since ``since`` (epoch secs)."""
+
+    from server.approvals import get_approval_service
+
+    service = get_approval_service()
+    scope = service.scope_for(str((user or {}).get("user_id") or "anonymous"))
+    rows = service.list_pending(scope=scope)
+    return [row for row in rows if float(row.get("created_at") or 0) >= since]
+
+
+async def _finish_or_await_approval(
+    finishing: Any,
+    *,
+    bot: BotSpec,
+    start: BotTurnStart,
+    user: dict[str, Any],
+    conversations: ConversationStore | None,
+) -> BotTurnResult:
+    """W11-C (S11): never hold a chat request hostage to a human approval.
+
+    The side-effect action itself is gated by the existing approval authority
+    (``server.user_control`` -> ``ApprovalService``), which pauses the turn
+    until the user decides.  The chat caller should not sit on an open request
+    for that: as soon as the turn opens a pending approval we answer with a
+    friendly "waiting for your approval" reply.  The turn keeps running in the
+    background, performs the action once approved, and records its final
+    reply in the conversation like any other turn.
+    """
+
+    since = time.time() - 1.0
+    task = asyncio.ensure_future(finishing)
+    while not task.done():
+        done, _ = await asyncio.wait({task}, timeout=0.5)
+        if done:
+            break
+        try:
+            pending = _new_pending_approvals(user, since)
+        except Exception:
+            pending = []
+        if pending:
+            _BACKGROUND_TURNS.add(task)
+            task.add_done_callback(_BACKGROUND_TURNS.discard)
+            store = conversations if conversations is not None else conversation_store()
+            store.append(bot.bot_id, role="bot", text=APPROVAL_WAIT_REPLY, task_id=start.task_id)
+            return BotTurnResult(
+                bot_id=bot.bot_id,
+                task_id=start.task_id,
+                session_id=start.session_id,
+                reply=APPROVAL_WAIT_REPLY,
+                status="awaiting_approval",
+                trace_id=start.trace_id,
+            )
+    return task.result()
 
 
 __all__ = [

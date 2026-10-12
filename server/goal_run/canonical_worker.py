@@ -23,9 +23,47 @@ from runtime.provider_reliability import ReliableProviderAdapter
 from runtime.verification import EvidenceBundle, EvidenceItem, VerificationEngine
 from server.action_gateway_adapter import ActionGatewayAdapter
 from server.bot_team.memory import inject_memory_context
+from server.bot_team.steer import deliver_steers_to_turn
 from server.goal_run.action_protocol import CanonicalActionRequest, CanonicalActionResult
 from server.goal_run.bot_identity import require_same_bot
 from server.goal_run.git_diff import current_head
+
+
+def _user_facing_block_reply(state: Any, raw_reason: str) -> str:
+    """Friendly Chinese sentence for a blocked bot turn (W11-C / S11 + S12).
+
+    The raw reason stays durably in the GoalRun record (``block_reason``,
+    failure evidence, event log); only the *user-visible* answer is reworded.
+    Never returns an empty string when there is something to say.
+    """
+
+    reason = str(raw_reason or "")
+    lowered = reason.lower()
+    budget = getattr(state, "budget", None)
+    pending = budget.get("pending_approval") if isinstance(budget, dict) else None
+    if isinstance(pending, dict):
+        if pending.get("decided") is True:
+            # Approved but the action still did not run — say so plainly rather
+            # than asking the user to approve again.
+            return "审批已经通过了，但这一步还是没执行成功。我可以再试一次。"
+        return _pending_approval_reply(state)
+    if "approval" in lowered or "notauthorized" in lowered or "not authorized" in lowered:
+        return "这个操作需要你批准后才能执行。批准列表里有一条待处理的申请，通过后我会继续。"
+    if "missing required evidence" in lowered or "insufficient" in lowered:
+        return "这一步我没能拿到可以确认结果的证据，所以先停在这里，没有改动你的文件。你可以让我换一种方式再试。"
+    if "timed out" in lowered or "timeout" in lowered:
+        return "等待审批超时了，操作没有执行。需要的话你可以在批准列表里重新发起。"
+    return (
+        "这一步没能完成，我没有改动任何文件。原因是:"
+        + (reason[:120] or "未知")
+        + "你可以让我换一种方式再试。"
+    )
+
+
+def _pending_approval_reply(state: Any) -> str:
+    """The friendly sentence shown while a side-effect action awaits approval."""
+
+    return "这个操作需要你批准后才会执行。我已经在批准列表里提交了申请，通过后我会继续。"
 
 
 class CanonicalWorkerAdapter:
@@ -435,6 +473,13 @@ class CanonicalWorkerAdapter:
         # only, never an execution or routing decision.
         with contextlib.suppress(Exception):
             inject_memory_context(self.semantic_agent, session_id, state.bot_id)
+        # W11-E S4: a correction typed while this turn runs arrives as a steer
+        # on the turn queue; it must reach the model, so it is injected as a
+        # user message right before the call — the following output then
+        # follows the correction. Same channel as the correction route, no new
+        # one. Off (no-op) unless VEYA_TURN_QUEUE is on.
+        with contextlib.suppress(Exception):
+            deliver_steers_to_turn(self.semantic_agent, session_id, state.bot_id)
         prior_result = (state.budget or {}).get("semantic_prior_result")
         decision = await self.semantic_agent.semantic_step(
             task.instruction,
@@ -497,10 +542,19 @@ class CanonicalWorkerAdapter:
                 }
                 for item in result.failure_evidence
             ]
+            # W11-C (S11/S12): the raw error string ("Missing required
+            # evidence …", "approval denied or unavailable", an
+            # ActionNotAuthorized message) must never reach the user as the
+            # turn's reply.  Record it durably for the operator and answer with
+            # a friendly sentence instead.
+            raw_reason = str(failure.get("error") or result.status)
+            reply = _user_facing_block_reply(state, raw_reason)
+            if reply and not str((state.budget or {}).get("reply") or "").strip():
+                state.budget["reply"] = reply
             return LeafResult(
                 status="blocked",
                 summary="",
-                block_reason=str(failure.get("error") or result.status),
+                block_reason=raw_reason,
                 evidence=failure_evidence,
                 stop_reason="exception",
                 unfinished_work=[task.instruction],

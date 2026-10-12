@@ -467,6 +467,27 @@ def test_loop_brief_reads_an_explicit_budget_and_otherwise_stays_goal() -> None:
     assert parse_loop_brief("")["mode"] == "goal"
 
 
+def test_loop_directive_is_found_inside_a_wrapped_bot_brief() -> None:
+    """W11-D: a bot turn wraps the user's words in the bot's persona, so the
+    brief that reaches a run is not necessarily just what the user typed."""
+
+    wrapped = (
+        "Be terse.\n\nYour one job: Lists tips\n\nloop 2 rounds: 每轮列出一个学习 Python 的建议"
+    )
+    parsed = parse_loop_brief(wrapped)
+    assert parsed["mode"] == "loop"
+    assert parsed["turn_budget"] == 2
+
+    # "loop" as an ordinary noun is not a directive: no budget, no mode change.
+    for prose in (
+        "develop the loop feature",
+        "the retry loop is stuck",
+        "loops of feedback",
+        "do a loop on this later",
+    ):
+        assert parse_loop_brief(prose)["mode"] == "goal", prose
+
+
 def test_checkpoint_card_renders_what_changed_tests_and_risks() -> None:
     card = checkpoint_card(
         mode="loop",
