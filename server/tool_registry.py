@@ -134,6 +134,50 @@ class SideEffect(Enum):
     PRIVILEGED = "privileged"
 
 
+#: Declarations for live tools whose registration passes no ``side_effect``
+#: (SF-001 follow-up, measured over the 155-tool surface on 2026-10-12).  Only
+#: non-read tools are listed: an undeclared read stays as it was.
+_UNDECLARED_SIDE_EFFECTS: dict[str, SideEffect] = {
+    **{
+        name: SideEffect.EXTERNAL_MUTATION
+        for name in (
+            "wayfind_gh_add_fog",
+            "wayfind_gh_add_ticket",
+            "wayfind_gh_claim",
+            "wayfind_gh_complete",
+            "wayfind_gh_graduate_fog",
+            "wayfind_gh_resolve",
+            "wayfind_gh_rule_out_of_scope",
+            "wayfind_gh_wire_blocking",
+        )
+    },
+    **{name: SideEffect.PRIVILEGED for name in ("team_delete", "team_approve_shutdown")},
+    **{
+        name: SideEffect.PROCESS_EXEC
+        for name in (
+            "run_in_sandbox",
+            "browser_run",
+            "agent_loop_run",
+            "run_backtest_coprocessor",
+            "evolve_solution",
+            "delegate_to_genesis",
+        )
+    },
+    **{
+        name: SideEffect.LOCAL_WRITE
+        for name in (
+            "write_file",
+            "ast_grep_rewrite",
+            "edit_hashline",
+            "edit_diagram",
+            "produce_wechat_article",
+            "team_create",
+            "team_shutdown_request",
+        )
+    },
+}
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
@@ -530,6 +574,13 @@ class MasterToolRegistry:
         """
         if not name or not callable(func):
             raise ValueError("register requires a non-empty tool name and a callable")
+        if side_effect is None:
+            # SF-001 follow-up: a tool registered without a declaration reached
+            # the permission engine as "unknown" and was allowed with no path
+            # or approval check.  These are the live tools that mutate files,
+            # run processes, delete teams or write to GitHub; their owners did
+            # not pass side_effect, so the registry supplies the declaration.
+            side_effect = _UNDECLARED_SIDE_EFFECTS.get(name)
         if effect_capability not in {
             "none",
             "idempotency_key",

@@ -111,7 +111,13 @@ _RAW_MARKERS = (
     "ac-canonical_action_observed",
     "Traceback (most recent call last)",
     'File "',
+    "this is a shim response",
+    "兜底失败",
 )
+
+
+#: The reply when no model answered at all (W11 S12 follow-up).
+_MODEL_UNAVAILABLE_REPLY = "模型服务暂时没有响应，这条消息没有处理。请稍后再发一次。"
 
 
 def _friendly_reason(raw: Any) -> str:
@@ -121,6 +127,8 @@ def _friendly_reason(raw: Any) -> str:
     lowered = text.lower()
     if not text:
         return "这一步没有完成，我没有改动任何文件。你可以让我换一种方式再试。"
+    if "this is a shim response" in text or "兜底失败" in text:
+        return _MODEL_UNAVAILABLE_REPLY
     if any(marker in text for marker in _RAW_MARKERS):
         return "这一步我没能拿到可以确认完成的证据，所以先停在这里，没有改动你的文件。"
     if "approval" in lowered or "notauthorized" in lowered or "not authorized" in lowered:
@@ -172,8 +180,16 @@ def extract_reply(response: Any, *, bot: BotSpec) -> str:
     direct = (
         response.get("reply") if isinstance(response, dict) else getattr(response, "reply", None)
     )
-    if str(direct or "").strip() and _status_of(response) in ("completed", "partial_completed"):
+    if (
+        str(direct or "").strip()
+        and _status_of(response) in ("completed", "partial_completed")
+        and not any(marker in str(direct) for marker in _RAW_MARKERS)
+    ):
         return str(direct).strip()
+    if any(marker in str(direct or "") for marker in ("this is a shim response", "兜底失败")):
+        # No model answered (every provider failed or none is configured): say
+        # so plainly instead of showing the router's placeholder text.
+        return _MODEL_UNAVAILABLE_REPLY
     text = _sanitised_summary(response)
     if text:
         return text
