@@ -559,6 +559,22 @@ class CanonicalWorkerAdapter:
                 stop_reason="exception",
                 unfinished_work=[task.instruction],
             )
+        if state.bot_id and not str((state.budget or {}).get("reply") or "").strip():
+            # W11 S2: a bot chat turn that used a tool (read a page, searched)
+            # owes the user an answer built from what the tool returned, not
+            # the raw observation.  One follow-up step with the observed
+            # result; a further action is not taken here (that stays the
+            # scheduler's call), only a direct answer is accepted.
+            with contextlib.suppress(Exception):
+                follow = await self.semantic_agent.semantic_step(
+                    task.instruction,
+                    session_id=session_id,
+                    llm_kwargs=self.semantic_llm_kwargs or None,
+                    prior_result=result.to_dict(),
+                )
+                answer = str((follow or {}).get("content") or "").strip()
+                if (follow or {}).get("kind") == "candidate" and answer:
+                    state.budget["reply"] = answer
         return LeafResult(
             status="completed",
             summary=str(result.result or "canonical action completed"),

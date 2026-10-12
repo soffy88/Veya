@@ -1700,6 +1700,11 @@ def _post_finish_checkpoint(
 
     if not finish_checkpoint_enabled():
         return None
+    if total <= 1 and not blocked and getattr(state, "bot_id", None):
+        # W11 S3: a one-step chat turn already answers in the conversation;
+        # a "what changed" card after every message is noise (and pushes the
+        # answer off the end of the thread).  Multi-step runs and loops keep it.
+        return None
     gate = get_finish_checkpoint_gate()
     did = sorted(task.id for task in state.tasks.values() if task.status == TaskStatus.completed)
     risks = [
