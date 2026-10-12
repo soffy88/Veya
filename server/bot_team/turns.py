@@ -263,7 +263,7 @@ async def finish_bot_turn(
                 break
             rounds += 1
             corrected = (
-                f"{text}\n\n用户在你回答过程中更正了要求（以更正为准）：" + "；".join(late)
+                f"{text}\n\n用户在你回答过程中又发来了消息（一起回答；与前面冲突时以新消息为准）：" + "；".join(late)
             )
             response = await product_routes._run_product_task(
                 task_id=start.task_id,

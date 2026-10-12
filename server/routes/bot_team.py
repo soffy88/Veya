@@ -9,6 +9,8 @@ conversations and routing.
 
 from __future__ import annotations
 
+import contextlib
+
 import re
 from typing import Any
 
@@ -556,7 +558,10 @@ def _intake_through_turn_queue(
             },
         )
     if action == "steer":
-        # A direct message mid-turn steers it; it does not wait for it.
+        # A direct message mid-turn steers it; it does not wait for it.  It is
+        # still the user's message, so it lands in the conversation (W11 S3).
+        with contextlib.suppress(Exception):
+            conversations().append(conversation_ref, role="user", text=str(req.text or ""))
         return JSONResponse(
             status_code=202,
             content={

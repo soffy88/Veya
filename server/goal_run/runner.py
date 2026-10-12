@@ -154,7 +154,7 @@ async def _claim_durable_goal_task(
             kinds={"goal_leaf"},
             goal_run_id=state.goal_id,
             logical_key=current_task.id,
-            lease_ttl_s=30,
+            lease_ttl_s=_leaf_lease_ttl_s(),
         )
         if claim is not None:
             return claim
@@ -2241,7 +2241,7 @@ async def _run_loop_and_finalize(
         durable_finalization_claim = await durable_repository.resume_finalization(
             state.goal_id,
             worker_id=durable_worker_id,
-            lease_ttl_s=30,
+            lease_ttl_s=_leaf_lease_ttl_s(),
         )
         if durable_finalization_claim is not None:
             await durable_repository.start(durable_finalization_claim)
@@ -2484,3 +2484,18 @@ def _durable_reply(state: Any) -> str | None:
     if state is None:
         return None
     return str((state.budget or {}).get("reply") or "").strip() or None
+
+
+def _leaf_lease_ttl_s() -> float:
+    """Lease for one GoalRun leaf/finalization claim.
+
+    The leaf is not heart-beaten while the model answers, so the lease must
+    outlive one tool-heavy model call (W11: 30s fenced out most live bot turns
+    with STALE_FENCE).  Operators size it with VEYA_EXECUTION_LEASE_TTL_S.
+    """
+    import os
+
+    try:
+        return max(30.0, float(os.environ.get("VEYA_EXECUTION_LEASE_TTL_S", "30") or 30))
+    except ValueError:
+        return 30.0
