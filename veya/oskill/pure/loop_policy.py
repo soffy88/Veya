@@ -22,6 +22,7 @@ No IO, no clock, no ``user_id``: the caller supplies ``now``.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 __all__ = [
@@ -80,8 +81,16 @@ def parse_loop_brief(text: str) -> dict[str, Any]:
     """
 
     lowered = str(text or "").strip().lower()
-    if not lowered.startswith("loop"):
+    # A bot turn wraps the user's own words in its persona, so the brief that
+    # reaches a run is not necessarily just what the user typed: "loop 2
+    # rounds: …" can follow an instruction line. Find the loop **directive**
+    # wherever it sits, but never mistake the bare word "loop" in prose
+    # ("develop the loop feature") for one: it must be followed by a budget
+    # or the end of the brief.
+    directive = re.search(r"\bloop\b\s*(until|\bfor\b|\d|$)", lowered)
+    if directive is None:
         return _goal_brief("no loop directive in the brief")
+    lowered = lowered[directive.start():]
     if "until" in lowered:
         # "loop until done" — runs on the Goal criterion, budget is the cap.
         return {

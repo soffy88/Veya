@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from server.goal_run.bot_identity import BotRegistry
 from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.routine_dispatch import run_probe
 from server.goal_run.models import RoutineSpec
@@ -226,6 +227,22 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
         target = handoff.get("target", {})
         goal_text = target.get("goal_template", f"Run routine {routine_id}")
 
+        # A bot-owned routine runs as a real bot turn: the same product path
+        # the UI drives, so the bot's own answer lands in its conversation
+        # (meta carries source/routine_id) instead of a raw GoalRun repr.
+        bot_spec = _resolve_bot_for_routine(bot_id, bot_registry=bot_registry)
+        if bot_spec is not None:
+            await _run_bot_turn_handoff(
+                bot_spec=bot_spec,
+                goal_text=goal_text,
+                routine_id=routine_id,
+                trigger_id=trigger_id,
+                bot_registry=bot_registry,
+            )
+            continue
+
+        # Legacy unscoped path (no bot catalog entry): keep the pre-existing
+        # notification byte for byte.
         req = CanonicalExecutionRequest(
             source="ROUTINE",
             mode=ExecutionMode.STRUCTURED_CONSTRAINED,
@@ -292,6 +309,92 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
                     payload={"routine_id": routine_id},
                     user_id="system"
                 )
+
+
+def _resolve_bot_for_routine(bot_id: str, *, bot_registry=None) -> "object | None":
+    """Resolve the bot a routine runs as.
+
+    Returns its :class:`BotSpec` when the catalog knows it (so the routine
+    runs through the bot-turn pipeline), else ``None`` to fall back to the
+    legacy unscoped path. The default bot is resolved to its synthesised spec
+    so default-bot routines also run as turns.
+    """
+
+    from server.goal_run.bot_identity import BotSpec, DEFAULT_BOT_ID
+
+    try:
+        registry = bot_registry or BotRegistry()
+        spec = registry.get(str(bot_id))
+        if spec is not None:
+            return spec
+        if str(bot_id) == DEFAULT_BOT_ID:
+            return BotSpec(bot_id=DEFAULT_BOT_ID, owner_id="system", name="Veya Bot",
+                           description="The default Veya bot.", runner_id="local")
+    except Exception:
+        _lg.debug("could not resolve bot %s for routine", bot_id, exc_info=True)
+    return None
+
+
+async def _run_bot_turn_handoff(
+    *,
+    bot_spec: "object",
+    goal_text: str,
+    routine_id: str,
+    trigger_id: str,
+    bot_registry=None,
+) -> None:
+    """Run a bot-owned routine as one bot turn and record the reply.
+
+    Uses ``server.bot_team.turns.run_bot_turn`` — the single product entry the
+    UI drives — so the bot's own answer is extracted and appended to its
+    conversation. Any failure is reported, never swallowed silently.
+    """
+
+    from server.bot_team.turns import run_bot_turn
+    from server.notification_center import global_notifier
+
+    user = {"user_id": getattr(bot_spec, "owner_id", "") or "system", "username": ""}
+    try:
+        turn = await run_bot_turn(
+            bot=bot_spec,
+            text=str(goal_text or f"Run routine {routine_id}"),
+            user=user,
+            context=f"Routine {routine_id} fired.",
+        )
+        summary = (turn.reply or "").splitlines()[0] if turn.reply else "Success"
+        routed = _route_wake(
+            bot_id=str(bot_spec.bot_id),
+            routine_id=str(routine_id),
+            trigger_id=str(trigger_id),
+            summary=summary,
+            bot_registry=bot_registry,
+        )
+        if routed is None:
+            global_notifier.push(
+                type="SUCCESS",
+                title="Routine finished",
+                content=summary,
+                payload={"routine_id": routine_id},
+                user_id="system"
+            )
+    except Exception as e:
+        _lg.exception("Bot-turn routine %s failed", routine_id)
+        routed = _route_wake(
+            bot_id=str(bot_spec.bot_id),
+            routine_id=str(routine_id),
+            trigger_id=str(trigger_id),
+            summary=str(e),
+            error=str(e),
+            bot_registry=bot_registry,
+        )
+        if routed is None:
+            global_notifier.push(
+                type="ERROR",
+                title="Routine failed",
+                content=str(e),
+                payload={"routine_id": routine_id},
+                user_id="system"
+            )
 
 class RoutineClock:
     def __init__(self, registry: RoutineRegistry, *, clock_path=None, dispatch_fn=None):

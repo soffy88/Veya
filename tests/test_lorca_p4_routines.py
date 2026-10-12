@@ -236,3 +236,154 @@ async def test_routines_collection_without_trailing_slash(test_app):
         resp = await ac.get("/api/v1/bots/bot_123/routines")
         assert resp.status_code == 200
         assert len(resp.json()) >= 1
+
+
+# ── W11-D (S6): a fired routine runs a bot turn and appends the reply ─────
+
+
+@pytest.fixture
+def fake_master(monkeypatch):
+    """Replace the semantic authority with a deterministic reply."""
+
+    from server.coordinator_master import master_coordinator
+
+    async def fake_execute(request):
+        from server.goal_run.models import GoalRunResponse, GoalStatus
+
+        return GoalRunResponse(
+            goal_id="goal-fake",
+            status=GoalStatus.completed,
+            phase="finalized",
+            reply="现在是 12:03。",
+            summary="done",
+        )
+
+    monkeypatch.setattr(master_coordinator, "execute_structured", fake_execute)
+    yield
+
+
+@pytest.mark.asyncio
+async def test_fired_routine_appends_bot_reply_to_conversation(tmp_path, monkeypatch, fake_master):
+    """S6: when a routine is due, the clock fires it and the bot's own
+    reply lands in that bot's conversation (not a raw GoalRun repr)."""
+
+    monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routines.json"))
+    monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path / "bots-root"))
+    monkeypatch.setenv("VEYA_BOT_REGISTRY_PATH", str(tmp_path / "bots.json"))
+
+    from server.bot_team.conversations import ConversationStore
+    from server.bot_team.routine_clock import RoutineClock, _default_handoff_consumer
+    from server.goal_run.bot_identity import BotRegistry, BotSpec
+    from server.goal_run.routine_registry import RoutineRegistry
+    from server.goal_run.models import RoutineSpec
+
+    BotRegistry().register(BotSpec(bot_id="bot_123", owner_id="u1", runner_id="local"))
+
+    reg = RoutineRegistry(bot_id="bot_123")
+    reg.register(
+        RoutineSpec(
+            routine_id="r1",
+            trigger_topic="schedule.trigger",
+            objective="报一次当前时间",
+            goal_template="报一次当前时间",
+            schedule="every 2m",
+            enabled=True,
+            bot_id="bot_123",
+        )
+    )
+
+    clock = RoutineClock(
+        reg, clock_path=str(tmp_path / "clock.json"), dispatch_fn=_default_handoff_consumer
+    )
+    with patch("server.bot_team.routine_clock.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 1, 1, 11, 0, tzinfo=UTC)
+        mock_dt.fromisoformat = datetime.fromisoformat
+        await clock.tick()  # initialise last_fired
+        mock_dt.now.return_value = datetime(2026, 1, 1, 11, 3, tzinfo=UTC)
+        handoffs = await clock.tick()  # due
+
+    assert len(handoffs) == 1
+
+    store = ConversationStore(root=tmp_path / "bots-root")
+    messages = store.list("bot_123", include_hidden=True)
+    # A real bot turn records the user message (the objective) and the reply.
+    assert any(m["role"] == "user" for m in messages)
+    bot_msgs = [m for m in messages if m["role"] == "bot"]
+    assert bot_msgs, "the bot's reply was never appended"
+    assert bot_msgs[0]["text"] == "现在是 12:03。"
+    # The reply carries routine provenance, not a GoalRun repr.
+    assert "GoalRunResponse" not in bot_msgs[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_fired_routine_pause_stops_firing(tmp_path, monkeypatch, fake_master):
+    """S6: PATCH enabled=false means the clock no longer fires it."""
+
+    monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routines.json"))
+    monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path / "bots-root"))
+    monkeypatch.setenv("VEYA_BOT_REGISTRY_PATH", str(tmp_path / "bots.json"))
+
+    from server.bot_team.routine_clock import RoutineClock
+    from server.goal_run.bot_identity import BotRegistry, BotSpec
+    from server.goal_run.routine_registry import RoutineRegistry
+    from server.goal_run.models import RoutineSpec
+
+    BotRegistry().register(BotSpec(bot_id="bot_123", owner_id="u1", runner_id="local"))
+    reg = RoutineRegistry(bot_id="bot_123")
+    reg.register(
+        RoutineSpec(
+            routine_id="r1",
+            trigger_topic="schedule.trigger",
+            objective="o",
+            goal_template="o",
+            schedule="every 2m",
+            enabled=False,
+            bot_id="bot_123",
+        )
+    )
+    clock = RoutineClock(reg, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock())
+    clock.last_fired["r1"] = datetime(2026, 1, 1, 8, 0, tzinfo=UTC).isoformat()
+    with patch("server.bot_team.routine_clock.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+        mock_dt.fromisoformat = datetime.fromisoformat
+        handoffs = await clock.tick()
+    assert handoffs == []
+
+
+@pytest.mark.asyncio
+async def test_deleted_routine_no_longer_fires(tmp_path, monkeypatch, fake_master):
+    """S6: deleting a routine removes it from the clock's registry."""
+
+    monkeypatch.setenv("VEYA_ROUTINE_REGISTRY_PATH", str(tmp_path / "routines.json"))
+    monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path / "bots-root"))
+    monkeypatch.setenv("VEYA_BOT_REGISTRY_PATH", str(tmp_path / "bots.json"))
+
+    from server.bot_team.routine_clock import RoutineClock
+    from server.goal_run.bot_identity import BotRegistry, BotSpec
+    from server.goal_run.routine_registry import RoutineRegistry
+    from server.goal_run.models import RoutineSpec
+
+    BotRegistry().register(BotSpec(bot_id="bot_123", owner_id="u1", runner_id="local"))
+    reg = RoutineRegistry(bot_id="bot_123")
+    reg.register(
+        RoutineSpec(
+            routine_id="r1",
+            trigger_topic="schedule.trigger",
+            objective="o",
+            goal_template="o",
+            schedule="every 2m",
+            enabled=True,
+            bot_id="bot_123",
+        )
+    )
+    assert "r1" in reg._items
+    del reg._items["r1"]
+    reg._save()
+
+    clock = RoutineClock(reg, clock_path=str(tmp_path / "clock.json"), dispatch_fn=AsyncMock())
+    clock.last_fired["r1"] = datetime(2026, 1, 1, 8, 0, tzinfo=UTC).isoformat()
+    with patch("server.bot_team.routine_clock.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+        mock_dt.fromisoformat = datetime.fromisoformat
+        handoffs = await clock.tick()
+    assert handoffs == []
