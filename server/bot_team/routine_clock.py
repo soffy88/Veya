@@ -9,10 +9,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from server.goal_run.bot_identity import BotRegistry
-from server.goal_run.routine_registry import RoutineRegistry
 from server.goal_run.routine_dispatch import run_probe
-from server.goal_run.models import RoutineSpec
 from server.goal_run.routine_history import RoutineHistoryStore
+from server.goal_run.routine_registry import RoutineRegistry
 
 _lg = logging.getLogger(__name__)
 
@@ -326,7 +325,7 @@ def _resolve_bot_for_routine(bot_id: str, *, bot_registry=None) -> "object | Non
     so default-bot routines also run as turns.
     """
 
-    from server.goal_run.bot_identity import BotSpec, DEFAULT_BOT_ID
+    from server.goal_run.bot_identity import DEFAULT_BOT_ID, BotSpec
 
     try:
         registry = bot_registry or BotRegistry()
@@ -348,8 +347,8 @@ async def _try_supervisor_handoff(*, routine_id: str, bot_id: str) -> bool:
     should skip its normal handoff), False otherwise. Disabled by the
     VEYA_SUPERVISOR flag; also a no-op when the routine has no binding.
     """
-    from server.supervisor import enabled as is_supervisor_enabled
     from server.supervisor import binding as supervisor_binding
+    from server.supervisor import enabled as is_supervisor_enabled
 
     if not is_supervisor_enabled():
         return False

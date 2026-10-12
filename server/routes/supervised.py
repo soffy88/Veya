@@ -18,7 +18,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
-from server.goal_run.bot_identity import DEFAULT_BOT_ID
 from server.goal_run.routine_registry import RoutineRegistry
 from server.supervisor import binding as supervisor_binding
 from server.supervisor import enabled as supervisor_enabled

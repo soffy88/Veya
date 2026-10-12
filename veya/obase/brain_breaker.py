@@ -58,7 +58,7 @@ def classify_quota_error(text: str) -> str:
         return "monthly"
     if "daily" in lowered:
         return "daily"
-    if "429" in lowered or "rate" in lowered and "limit" in lowered:
+    if "429" in lowered or ("rate" in lowered and "limit" in lowered):
         return "plain"
     return ""
 
