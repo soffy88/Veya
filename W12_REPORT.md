@@ -129,47 +129,58 @@ failures, unchanged from base.)
 surfaced as a new entry in `scripts/check_no_direct_io.py` / `scripts
 /check_3o_gates.py --strict` (`server/supervisor/binding.py:114
 FILE_W os.replace`). The module now carries the same explicit
-`# 3O-IO-ALLOW` exemption that the other per-record JSON stores in
-this repo use (e.g. `server/bot_team/memory_layers.py`,
-`server/goal_run/routine_registry.py`) — the binding record is the
-one place A1 says to persist the supervisor↔routine link, and
-moving it into `veya/oprim` would create a second binding store
-(against the frozen "no second store" invariant). With the marker
-in place, `check_no_direct_io.py` reports **zero new entries for
-`server/supervisor/binding.py`**.
+`# 3O-IO-ALLOW` exemption that other per-record JSON stores in
+this repo use (`server/bot_team/memory_layers.py`,
+`server/bot_team/workers.py`, `server/goal_run/bot_identity.py`,
+`server/bot_team/prompt_cache.py` — all use tmp+`os.replace` +
+marker). `server/goal_run/routine_registry.py` is the same tmp+
+`os.replace` pattern but is covered by the **baseline** (lines 412–413
+of `scripts/baseline_direct_io.txt`), not by a marker. The binding
+record is the one place A1 says to persist the supervisor↔routine
+link, and moving it into `veya/oprim` would create a second binding
+store (against the frozen "no second store" invariant). With the
+marker in place, `check_no_direct_io.py` reports **zero new entries
+for `server/supervisor/binding.py`**.
 
-Gate output (this worktree, after fix):
+Gate output (verified against a clean `d4ed7fab` worktree, this
+worktree, and `main` — all three identical):
 
 ```
-$ python3 scripts/check_no_direct_io.py . --baseline scripts/baseline_direct_io.txt
-61 new violations, none in server/supervisor/ (all pre-existing on main)
+$ .venv/bin/python scripts/check_no_direct_io.py . --baseline scripts/baseline_direct_io.txt
+共 61 处新增直接 I/O（存量 288 条在基线内）。   # rc=1
+# zero entries reference server/supervisor/ (grep confirms)
 
-$ python3 scripts/check_3o_gates.py --json
-existing_gate_rcs: [0, 0, 1]   # check_no_direct_io: baseline-only failures
-DIRECT_IO_NEW_VIOLATIONS: 61     # none reference supervisor/binding.py
+$ .venv/bin/python scripts/check_no_direct_io.py . --strict
+共 349 处新增直接 I/O（存量 0 条在基线内）。      # rc=1
+# zero entries reference server/supervisor/
+
+$ .venv/bin/python scripts/check_3o_gates.py --json
+DIRECT_IO_NEW_VIOLATIONS: 61    # zero supervisor entries
+DIRECT_MEMORY_WRITE_VIOLATIONS: 0
+OMODUL_DIRECT_CALLS_VIOLATIONS: 0
+OPRIM_PEER_CALLS_VIOLATIONS: 0
 ```
 
-The remaining `--strict` entries are pre-existing on `main`
+The 61 `--strict`/baseline entries are **identical** to a clean
+`d4ed7fab` worktree (verified via `diff` of the sorted violation
+lists — zero delta) — all pre-existing on `main`
 (`server/goal_run/*`, `server/bot_team/*`, `server/routes/*`,
-`server/sse.py`, `veya/oskill/*`) — identical count and files before
-and after this change; `check_no_reverse_dep.py` and
-`check_oskill_pure.py` both return 0.
+`server/sse.py`, `veya/oskill/*`). `check_no_reverse_dep.py`
+and `check_oskill_pure.py` both return 0.
 
-## Commits (on `feat/w12-supervisor`)
+**Important caveat:** `check_3o_gates.py --strict` **still exits 1**
+and `check_no_direct_io.py --baseline` **still exits 1** — because
+the 61 direct-IO entries above are pre-existing `main` debt, not W12
 
-```
-37807e04 w12: lint fixes (import sorting, unused imports, parenthesized and-chain)
-92b90c16 w12(supervisor): wire A3/A4/A5 handoff into routine_clock, add completion/close logic
-6893891a w12(supervisor): add binding store, progress reporter, REST routes, supervise_task tool, phrase parser
-7ef4bb08 w12(breaker): add B2 fast-fail + enabled() helper + tests
-6678aaf1 w12: register VEYA_BRAIN_BREAKER and VEYA_SUPERVISOR flags
-afb8aa79 w12(breaker): deduplicate re-probe loop in _veya12_rr_call
-bcad1792 w12(breaker): wire breaker into llm.py and /health
-d6fe83b5 w12(breaker): add brain circuit breaker module (VEYA_BRAIN_BREAKER=1)
-01012c51 w12: add supervisor + brain breaker spec
-b3a99060 w12: gate fix request
-+ gate-fix commit (this change)
-```
 
-Not pushed. `platform/3O`, `.venv`, `node_modules`, and
-`veya/remote/*` WIP untouched.
+## Final verification (2026-10-12T22:54:26Z)
+
+- `tests/test_w12_supervisor.py` (16) + `tests/test_w12_brain_breaker.py` (10) = **26 W12-specific tests, all passed**
+- Full regression (`tests/test_lorca_*.py tests/test_orca_*.py tests/test_p3a_bot_isolation.py tests/test_product_shell.py tests/test_nano_*.py tests/test_w11_*.py tests/test_llm_router.py tests/test_w12_*.py tests/remote/test_policy_resolver.py tests/remote/test_effect_registry_authority.py`): **920 passed, 27 warnings in 196 s**
+- `scripts/check_no_direct_io.py . --baseline`: 61 entries (all pre-existing on main; **zero in `server/supervisor/`**)
+- `scripts/check_no_direct_io.py . --strict`: 349 entries (all pre-existing on main; **zero in `server/supervisor/`**)
+- `scripts/check_3o_gates.py --json`: DIRECT_MEMORY_WRITE=0, OMODUL=0, OPRIM_PEER=0; DIRECT_IO_NEW_VIOLATIONS=61 (all pre-existing)
+
+**Caveat:** `check_3o_gates.py --strict` and `check_no_direct_io.py --baseline` both exit 1 because of 61 pre-existing `main` violations (identical to a clean `d4ed7fab` worktree, verified by `diff` of sorted violation lists). This is not a W12 regression. W12 introduces **zero new** gate violations, which is exactly what `W12_FIX.md` asked for.
+
+Not pushed. `.venv`, `node_modules`, `platform/3O`, and `veya/remote/*` WIP untouched.

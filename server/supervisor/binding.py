@@ -1,8 +1,10 @@
 # 3O-IO-ALLOW — server/supervisor/binding.py
 # 理由：SupervisorBinding 是 A1 规范里「persisted where routines already
-# persist」的绑定簿；同为 per-record JSON 簿的既有模块（如
-# server/goal_run/routine_registry.py）也用同一套 tmp + os.replace 原子写，
-# 此处对齐该约定。新增第二套存储会违反「不新增第二套存储」的冻结约束；
+# persist」的绑定簿；per-record JSON 簿是仓库既有模式（同形模块
+# server/bot_team/memory_layers.py、server/goal_run/bot_identity.py 等
+# 均使用 tmp + os.replace 原子写 + 显式 # 3O-IO-ALLOW 标记；
+# server/goal_run/routine_registry.py 走 baseline 覆盖路径）。
+# 新增第二套存储会违反「不新增第二套存储」的冻结约束；
 # 判定/状态算法在 server/supervisor/reporting.py + handoff.py。
 """W12 Supervisor binding record (flag VEYA_SUPERVISOR=1).
 
