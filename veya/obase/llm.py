@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Re-export the extracted layers so ``veya.llm.<name>`` (import path +
 # monkeypatch surface) is unchanged after the god-module decomposition.
+from veya.obase import brain_breaker as _breaker  # noqa: E402 — W12 B1/B2
 from veya.obase import canonical_proxies as _cp  # noqa: E402 — SPEC v1.0 §2/§10 canonical proxies
 from veya.obase._llm_config import (  # noqa: E402, F401 — facade re-export after logger
     _API_KEY_ENV,
@@ -660,6 +661,25 @@ async def _veya12_rr_call(
     """Run one of the veya1.2 round-robin pools with common retry semantics."""
     candidates = pool[start:] + pool[:start]  # 从游标处旋转
 
+    # B1: skip providers whose breaker is open; re-probe on the first open one.
+    open_providers: set[str] = set()
+    safe_candidates: list[dict[str, str]] = []
+    for cand in candidates:
+        p = cand.get("provider", "")
+        if p in open_providers:
+            continue
+        if _breaker.breaker_open(p):
+            open_providers.add(p)
+            continue
+        safe_candidates.append(cand)
+    # One cheap re-probe per tier per call to close a wrongly-open breaker.
+    for cand in candidates:
+        p = cand.get("provider", "")
+        if p not in open_providers and _breaker.breaker_open(p):
+            open_providers.add(p)
+            safe_candidates.append(cand)
+    candidates = safe_candidates
+
     default = kwargs.get("default_content") or f"{pool_label}调用失败"
     last_err = ""
     _retry_rounds = 3
@@ -771,12 +791,14 @@ async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
     still routes.
     """
     global _veya12_free_rr_cursor
-    live = list(_VEYA12_FREE_POOL)
     derived = _cp.free_pool_candidates()
-    if live:
-        pool, source = live, "gateway-probe"
-    elif derived:
+    live = list(_VEYA12_FREE_POOL)
+    # B4: model-state.json eligibility is the authoritative pool when it has
+    # entries. The static seed only serves as fallback for a cold gateway.
+    if derived:
         pool, source = derived, "model-state.json:eligible"
+    elif live:
+        pool, source = live, "gateway-probe"
     else:
         pool, source = list(_VEYA12_FREE_POOL), "static-seed-fallback"
     if not pool:
@@ -1347,6 +1369,11 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
         # surface the status + body instead of a raw 500 with no explanation.
         status = exc.response.status_code
         detail = exc.response.text.strip()[:300]
+        # B1: a quota/limit 429 opens the provider breaker.
+        try:
+            _breaker.record_provider_failure(provider, exc)
+        except Exception:
+            pass
         content = kwargs.get(
             "default_content",
             f"{provider} rejected the request (HTTP {status}): {detail or 'no detail returned'}",

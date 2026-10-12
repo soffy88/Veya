@@ -600,7 +600,16 @@ async def health():
             }
         except Exception as exc:  # a capability probe must not fail liveness
             capabilities = {"hands": False, "hands_detail": f"probe failed: {type(exc).__name__}"}
-    return {"status": "ok", "version": "0.5.1", "capabilities": capabilities}
+    result = {"status": "ok", "version": "0.5.1", "capabilities": capabilities}
+    # B3: breaker state is read-only and secret-free.
+    if flag_enabled("VEYA_BRAIN_BREAKER"):
+        try:
+            from veya.obase import brain_breaker
+
+            result["llm_breakers"] = brain_breaker.snapshot()
+        except Exception:
+            pass
+    return result
 
 
 @app.get("/health/execution-runtime")
