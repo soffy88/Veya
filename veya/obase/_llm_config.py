@@ -113,6 +113,10 @@ def get_api_key(provider: str, config: dict | None = None) -> str:
         key = _opencode_go_key_from_auth()
     if not key and provider in ("frognano", "workbuddy"):
         key = str(pi_provider_entry(provider).get("apiKey") or "")
+    if not key and provider == "veya-gw":
+        # The host Veya gateway (pi provider "veya"): its free pool backs the brain
+        # when opencode-go is over its cap and WorkBuddy is not configured.
+        key = str(pi_provider_entry("veya").get("apiKey") or "")
     return key
 
 

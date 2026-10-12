@@ -548,6 +548,32 @@ def _workbuddy_candidates() -> list[dict[str, str]]:
     ]
 
 
+def _veya_gateway_candidates() -> list[dict[str, str]]:
+    """The host Veya gateway's free pool (pi provider ``veya``, model veya-free).
+
+    W11 live landing: opencode-go hit its Go usage cap and NIM times out on
+    real bot turns (~180 tool schemas), which left every turn waiting minutes
+    on fallbacks.  The gateway's veya-free pool answers tool calls in seconds.
+    """
+    if os.environ.get("VEYA_GATEWAY_POOL_DISABLED", "").strip() in ("1", "true"):
+        return []
+    from veya.obase._llm_config import pi_provider_entry
+
+    entry = pi_provider_entry("veya")
+    endpoint = str(entry.get("baseUrl") or "")
+    offered = {str((m or {}).get("id") or "") for m in entry.get("models") or []}
+    if not endpoint or "veya-free" not in offered:
+        return []
+    return [
+        {
+            "provider": "veya-gw",
+            "model": "veya-free",
+            "endpoint": _host_reachable(endpoint),
+            "timeout": "45",
+        }
+    ]
+
+
 def _veya12_pool() -> list[dict[str, str]]:
     """Veya 1.2 主脑池: opencode-go DeepSeek V4.1 Flash 优先, 其余依次兜底。
 
@@ -555,7 +581,7 @@ def _veya12_pool() -> list[dict[str, str]]:
     the NIM and OpenRouter free tiers; FrogNano is the last resort.
     """
     pool = list(_VEYA12_DEFAULT_POOL)
-    wb = _workbuddy_candidates()
+    wb = _workbuddy_candidates() + _veya_gateway_candidates()
     if wb:
         at = next((i for i, c in enumerate(pool) if c.get("provider") != "opencode-go"), len(pool))
         pool[at:at] = wb
