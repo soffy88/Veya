@@ -196,6 +196,30 @@ async def finish_bot_turn(
             project_root=workspace_id or "/repo",
             bot_id=bot.bot_id,
         )
+        # W11-E S4: a correction that arrived after the model's last call was
+        # not seen by it.  Answer again with the correction in view, inside the
+        # same turn, so the reply the user gets follows what they asked last.
+        rounds = 0
+        while queue is not None and rounds < 2:
+            late = queue.drain_steers(bot.bot_id)
+            late = [str(t).strip() for t in late if str(t or "").strip()]
+            if not late:
+                break
+            rounds += 1
+            corrected = (
+                f"{text}\n\n用户在你回答过程中更正了要求（以更正为准）：" + "；".join(late)
+            )
+            response = await product_routes._run_product_task(
+                task_id=start.task_id,
+                session_id=start.session_id,
+                objective=build_objective(bot=bot, text=corrected, context=context),
+                provider=bot.provider or None,
+                model=bot.model or None,
+                config={},
+                user=dict(user),
+                project_root=workspace_id or "/repo",
+                bot_id=bot.bot_id,
+            )
     finally:
         # W11-E S4: the turn is over (or failed) — release the conversation so
         # the next correction is not steered into a turn that no longer runs.

@@ -149,6 +149,7 @@ class LayeredMemoryStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
             path.write_text(f"# {day}\n\n", encoding="utf-8")
+        what = self._mask_forgotten(str(what or ""))
         with path.open("a", encoding="utf-8") as handle:
             handle.write(daily_log_line(when=stamp, what=what) + "\n")
         return {"day": day, "path": str(path)}
@@ -265,24 +266,82 @@ class LayeredMemoryStore:
         return {"ok": True, "scope": scope, "entry": entry, "chars": len(body), "limit": limit}
 
     def remove_entry(self, needle: str, *, scope: str = "bot", caller_bot_id: str | None = None):
-        """Remove the first core-memory line containing *needle*; journal the change."""
+        """Forget a fact: drop every matching core line, scrub it from scratch and
+        the daily logs, and keep it out of future daily lines.  Journaled.
+
+        W11-E (S5): "forget" must mean the fact is gone from what search can find,
+        not only from the first core line that happens to contain the exact words
+        the model chose ("我喜欢黑咖啡" vs the stored "用户喜欢黑咖啡").
+        """
         if caller_bot_id is not None:
             require_same_bot(caller_bot_id, self.bot_id, f"memory:{scope}")
         store = self._team_store if scope == TEAM_SCOPE_ID else self._store
         existing = store.read(CORE_FILE)
-        if needle not in existing:
-            return {"ok": False, "removed": "", "reason": "entry not found"}
-        kept = []
-        removed = ""
+        candidates = _forget_needles(needle)
+        if not candidates:
+            return {"ok": False, "removed": "", "reason": "empty entry"}
+        kept: list[str] = []
+        removed: list[str] = []
         for line in existing.splitlines():
-            if not removed and needle in line:
-                removed = line
+            if not line.startswith("#") and any(c in line for c in candidates):
+                removed.append(line)
                 continue
             kept.append(line)
-        body = "\n".join(kept).strip() + ("\n" if kept else "")
-        store.write(CORE_FILE, body)
-        self._journal({"op": "remove", "scope": scope, "before": existing, "after": body})
-        return {"ok": True, "removed": removed}
+        if removed:
+            body = "\n".join(kept).strip() + ("\n" if kept else "")
+            store.write(CORE_FILE, body)
+            self._journal({"op": "remove", "scope": scope, "before": existing, "after": body})
+        scrubbed = 0
+        if scope != TEAM_SCOPE_ID:
+            scrubbed = self._scrub_files(candidates)
+            self._remember_forgotten(candidates)
+        if not removed and not scrubbed:
+            return {"ok": False, "removed": "", "reason": "entry not found"}
+        return {"ok": True, "removed": "\n".join(removed), "scrubbed_lines": scrubbed}
+
+    # ── forgetting ───────────────────────────────────────────────────────
+
+    @property
+    def forgotten_path(self) -> Path:
+        return self.memory_dir / "forgotten.json"
+
+    def _forgotten(self) -> list[str]:
+        try:
+            data = json.loads(self.forgotten_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        return [str(x) for x in data if str(x).strip()] if isinstance(data, list) else []
+
+    def _remember_forgotten(self, needles: list[str]) -> None:
+        merged = sorted(set(self._forgotten()) | set(needles))
+        try:
+            self.forgotten_path.parent.mkdir(parents=True, exist_ok=True)
+            self.forgotten_path.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            return
+
+    def _mask_forgotten(self, text: str) -> str:
+        for needle in self._forgotten():
+            if needle and needle in text:
+                text = text.replace(needle, "[已遗忘]")
+        return text
+
+    def _scrub_files(self, needles: list[str]) -> int:
+        """Drop lines mentioning a forgotten fact from scratch and daily logs."""
+        paths = [self.scratch_path] + [self.daily_dir / day for day in self.list_daily()]
+        total = 0
+        for path in paths:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            lines = text.splitlines()
+            kept = [ln for ln in lines if not any(n in ln for n in needles)]
+            if len(kept) != len(lines):
+                total += len(lines) - len(kept)
+                path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+                self._journal({"op": "scrub", "file": path.name, "removed": len(lines) - len(kept)})
+        return total
 
     # ── journal ──────────────────────────────────────────────────────────
 
@@ -556,3 +615,20 @@ def recall(limit: int = 10) -> str:
         },
         ensure_ascii=False,
     )
+
+
+_FORGET_PREFIX = re.compile(r"^(请)?(忘掉|忘记|删除|删掉|不要再记)?(关于)?(我|用户|你|the user|user|i)\s*", re.I)
+_FORGET_SUFFIX = re.compile(r"(这件事|这条|这个)?(的记忆)?[。.!！]*$")
+
+
+def _forget_needles(needle: str) -> list[str]:
+    """The forms a fact may be stored under: as given, and without the pronoun
+    the model or the user put in front ("我喜欢黑咖啡" -> "喜欢黑咖啡")."""
+    raw = str(needle or "").strip()
+    if not raw:
+        return []
+    core = _FORGET_SUFFIX.sub("", _FORGET_PREFIX.sub("", raw)).strip()
+    out = [raw]
+    if core and core != raw and len(core) >= 2:
+        out.append(core)
+    return out
