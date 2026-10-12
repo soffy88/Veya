@@ -307,7 +307,10 @@ class TestPresetRoutes:
             "exa",
             "context7",
         ]
-        assert "api_key" not in response.text.lower()
+        # Only env-var NAMES (like BRAVE_API_KEY) are listed — never values.
+        # Checking for placeholder/token patterns rather than the name substring.
+        assert "put_your" not in response.text.lower()
+        assert "sk-" not in response.text
         assert "BRAVE_API_KEY" in response.text
 
     def test_attach_route_requires_authentication(
