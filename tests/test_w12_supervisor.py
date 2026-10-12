@@ -63,8 +63,8 @@ def test_supervise_task_disabled_by_default(supervisor_off, bot_ctx, tmp_path):
 def test_supervise_task_creates_goalrun_routine_binding(
     supervisor_on, bot_ctx, tmp_path
 ):
-    from server.goal_run.store import load_goal_run
     from server.goal_run.routine_registry import RoutineRegistry
+    from server.goal_run.store import load_goal_run
     from server.supervision_tools import supervise_task
 
     result = supervise_task(
@@ -387,9 +387,9 @@ def test_owned_binding_rejects_other_bot(supervisor_on, bot_ctx, tmp_path):
     supervisor_on.save_binding(binding)
 
     # The route helper must refuse a request from bot_b
-    from server.routes.supervised import _owned_binding
-
     from fastapi import HTTPException
+
+    from server.routes.supervised import _owned_binding
 
     with pytest.raises(HTTPException) as exc:
         _owned_binding("b7", "bot_b", {"user_id": "user_b", "username": "b"})

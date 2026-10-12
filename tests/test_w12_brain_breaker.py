@@ -11,8 +11,6 @@ import pytest
 from tests.conftest import ROOT  # noqa: F401 — path bootstrap
 
 
-
-
 @pytest.fixture
 def breaker_on(monkeypatch):
     """Enable the brain-breaker flag and reset state per test."""

@@ -21,7 +21,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 _BINDING_ENV = "VEYA_SUPERVISOR_BINDING_PATH"
 _DEFAULT_BINDING_PATH = Path.home() / ".veya" / "supervisor_bindings.json"
 

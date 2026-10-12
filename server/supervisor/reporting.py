@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from server.goal_run.models import GoalRunState, GoalStatus
+from server.goal_run.models import GoalStatus
 from server.goal_run.store import load_goal_run
 
 
@@ -18,7 +18,7 @@ def build_progress_report(
     *,
     goal_run_id: str,
     project_root: str,
-    binding: "SupervisorBinding",  # type: ignore[name-defined] — forward ref to avoid cycle
+    binding,  # SupervisorBinding — import avoided to prevent cycle
 ) -> dict[str, Any]:
     """Build a progress report from GoalRun state only.
 
@@ -32,7 +32,6 @@ def build_progress_report(
 
     Must not invent progress. If nothing changed since last report, say so.
     """
-    from server.supervisor.binding import SupervisorBinding
 
     state = load_goal_run(project_root, goal_run_id)
     if state is None:
@@ -63,8 +62,10 @@ def build_progress_report(
 
     is_stalled = False
     stall_reason = None
-    if state.status in (GoalStatus.running, GoalStatus.planning):
-        if now - last_activity > stall_after_s:
+    if (
+        state.status in (GoalStatus.running, GoalStatus.planning)
+        and now - last_activity > stall_after_s
+    ):
             is_stalled = True
             stall_reason = f"任务已 {binding.stall_after_minutes} 分钟无活动"
 
@@ -100,5 +101,7 @@ def build_progress_report(
         "is_stalled": is_stalled,
         "stall_reason": stall_reason,
         "is_done": is_done,
+        "nudges_sent": binding.nudges_sent,
+        "repairs_remaining": max(0, binding.max_repairs - binding.nudges_sent),
         "body": body,
     }

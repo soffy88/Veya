@@ -227,6 +227,12 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
         target = handoff.get("target", {})
         goal_text = target.get("goal_template", f"Run routine {routine_id}")
 
+        # W12 supervisor path: if this routine is bound to a GoalRun via
+        # a supervisor binding, run the supervisor handoff instead of
+        # dispatching a bot turn.
+        if await _try_supervisor_handoff(routine_id=routine_id, bot_id=str(bot_id)):
+            continue
+
         # A bot-owned routine runs as a real bot turn: the same product path
         # the UI drives, so the bot's own answer lands in its conversation
         # (meta carries source/routine_id) instead of a raw GoalRun repr.
@@ -333,6 +339,44 @@ def _resolve_bot_for_routine(bot_id: str, *, bot_registry=None) -> "object | Non
     except Exception:
         _lg.debug("could not resolve bot %s for routine", bot_id, exc_info=True)
     return None
+
+
+async def _try_supervisor_handoff(*, routine_id: str, bot_id: str) -> bool:
+    """Run a supervisor routine handoff if one is bound to the routine.
+
+    Returns True when this routine was a supervisor routine (the caller
+    should skip its normal handoff), False otherwise. Disabled by the
+    VEYA_SUPERVISOR flag; also a no-op when the routine has no binding.
+    """
+    from server.supervisor import enabled as is_supervisor_enabled
+    from server.supervisor import binding as supervisor_binding
+
+    if not is_supervisor_enabled():
+        return False
+
+    binding = None
+    try:
+        for item in supervisor_binding.list_bindings(owner_id=bot_id):
+            if item.routine_id == routine_id:
+                binding = item
+                break
+    except Exception:
+        _lg.debug("could not load supervisor bindings for %s", bot_id, exc_info=True)
+        return False
+    if binding is None:
+        return False
+
+    from server.supervisor.handoff import supervisor_handoff
+
+    try:
+        await supervisor_handoff(
+            binding=binding,
+            goal_run_id=binding.goal_run_id,
+            project_root=binding.project_root,
+        )
+    except Exception:
+        _lg.exception("supervisor handoff failed for routine %s", routine_id)
+    return True
 
 
 async def _run_bot_turn_handoff(

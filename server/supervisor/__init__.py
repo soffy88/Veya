@@ -11,10 +11,7 @@ progress reports — it never invents progress or creates a second runtime.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from typing import Any
-
-from server.goal_run.bot_identity import DEFAULT_BOT_ID
+from server.goal_run.bot_identity import DEFAULT_BOT_ID  # noqa: F401 — re-exported for bindings
 
 #: The env-var flag that gates the supervisor (default OFF).
 _SUPERVISOR_ENV = "VEYA_SUPERVISOR"
