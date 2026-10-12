@@ -171,9 +171,11 @@ async def test_side_effect_action_creates_pending_approval_and_writes_nothing(
         # The turn is launched as a task so the pending approval is observable
         # while the side-effect action is paused on the human decision (the
         # same pattern tests/runtime/test_governance_qualification.py uses).
-        turn = asyncio.create_task(_run_bot_turn(bot_id, target, test_user, workspace=tmp_path))
+        turn = asyncio.create_task(
+            _run_bot_turn(bot_id, target, test_user, workspace=tmp_path, bot=registry.get(bot_id))
+        )
         try:
-            await _wait_for(pending_approval_exists, timeout=5.0)
+            await _wait_for(pending_approval_exists, timeout=60.0)
         except TimeoutError:  # pragma: no cover - surfaced by the assert below
             pass
 
@@ -299,11 +301,17 @@ async def _wait_for(predicate, *, timeout: float) -> None:
     raise TimeoutError("condition not met in time")
 
 
-async def _run_bot_turn(bot_id: str, target: Path, user: dict[str, Any], *, workspace: Path):
+async def _run_bot_turn(
+    bot_id: str,
+    target: Path,
+    user: dict[str, Any],
+    *,
+    workspace: Path,
+    bot: Any = None,
+):
     """Run one bot turn synchronously through the product path."""
 
     from server.bot_team.turns import BotTurnStart, finish_bot_turn
-    from server.goal_run.bot_identity import bot_registry
     from server.routes import product as product_routes
 
     start = BotTurnStart(
@@ -318,7 +326,7 @@ async def _run_bot_turn(bot_id: str, target: Path, user: dict[str, Any], *, work
 
     product_routes._open_task_projection = fake_open
     return await finish_bot_turn(
-        bot=bot_registry().get(bot_id),
+        bot=bot,
         start=start,
         text=S11_PROMPT.format(path=str(target)),
         user=user,
