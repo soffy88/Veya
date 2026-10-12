@@ -282,6 +282,19 @@ async def lifespan(app: FastAPI):
         import logging
 
         logging.getLogger("veya.lifespan").exception("cognition wire failed")
+    # W14: MCP preset pack (MarkItDown / MinerU / Brave Search / Exa / Context7)
+    from server.mcp_presets import wire_master_tools as wire_w14
+
+    try:
+        wire_w14()  # mcp_markitdown / mcp_mineru / … → 主脑工具面
+    except Exception:
+        import logging
+
+        logging.getLogger("veya.lifespan").exception("mcp-presets wire failed")
+    except Exception:
+        import logging
+
+        logging.getLogger("veya.lifespan").exception("cognition wire failed")
     try:
         from server.tool_registry import master_tools
 

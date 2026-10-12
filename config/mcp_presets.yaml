@@ -1,0 +1,78 @@
+# W14 — MCP preset pack (5 external MCP servers).
+#
+# Additive ONLY: presets describe how to launch / reach an EXTERNAL
+# process or remote endpoint. Veya never vendors their code, never
+# runs them unless VEYA_MCP_PRESETS=1, and never infers a required
+# key VALUE from this file — only the env var *names* live here.
+#
+# All five servers are read-only over their MCP surface: their
+# declared side effect is `external_read` (mapped to PURE_READ in
+# the tool registry — see server.mcp_presets.EFFECT). They launch
+# as separate processes / remote endpoints, exactly like the
+# existing codebase_memory / hevi / open_design connectors.
+
+- name: markitdown
+  description: "Microsoft MarkItDown — Docs/Office/PDF → Markdown conversion"
+  transport: stdio
+  command:
+    # python -m markitdown.mcp (packages/markitdown-mcp, MIT)
+    - "{venv_python}"
+    - "-m"
+    - "markitdown.mcp"
+  env: []            # no API key required
+  side_effect: external_read
+  license: MIT
+  attribution: "https://github.com/microsoft/markitdown"
+
+- name: mineru
+  description: "MinerU — PDF/OCR document parsing, strong Chinese support"
+  transport: stdio
+  command:
+    # Separate process only; AGPL-licensed upstream — never copy code,
+    # only launch it (see W14_REPORT.md license notes).
+    - "{venv_python}"
+    - "-m"
+    - "mineru.mcp"
+  env: []            # no API key required
+  side_effect: external_read
+  license: AGPL-3.0
+  attribution: "https://github.com/opendatalab/MinerU-Ecosystem"
+
+- name: brave-search
+  description: "Brave Search MCP — web search via the Brave Search API"
+  transport: stdio
+  command:
+    - "{venv_python}"
+    - "-m"
+    - "brave_search_mcp"
+  env:
+    - BRAVE_API_KEY  # key VALUE never lives in this file
+  side_effect: external_read
+  license: MIT
+  attribution: "https://github.com/brave/brave-search-mcp-server"
+
+- name: exa
+  description: "Exa MCP — semantic web search by Exa"
+  transport: stdio
+  command:
+    - "{venv_python}"
+    - "-m"
+    - "exa_mcp_server"
+  env:
+    - EXA_API_KEY    # key VALUE never lives in this file
+  side_effect: external_read
+  license: MIT
+  attribution: "https://github.com/exa-labs/exa-mcp-server"
+
+- name: context7
+  description: "Context7 — up-to-date library docs for coding agents"
+  transport: stdio
+  command:
+    - "{venv_python}"
+    - "-m"
+    - "context7"
+  env:
+    - CONTEXT7_API_KEY  # optional upstream key; presence still gates attach
+  side_effect: external_read
+  license: MIT
+  attribution: "https://github.com/upstash/context7"
