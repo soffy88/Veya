@@ -25,7 +25,7 @@ import urllib.request
 import uuid
 from typing import Any
 
-RAW_LEAKS = ("Missing required evidence", "Traceback (most recent call last)", "ac-canonical_action_observed")
+RAW_LEAKS = ("Missing required evidence", "Traceback (most recent call last)", "ac-canonical_action_observed", "verbatim copy of the goal")
 TURN_TIMEOUT = 300
 
 
@@ -309,7 +309,7 @@ def s11(a: Client, b: Client) -> str:
     assert asked, f"no approval asked: reply={reply[:160]!r}"
     if len(pending) > n_before:
         aid = pending[-1].get("approval_id") or pending[-1].get("id")
-        st, res = a.call("POST", f"/api/v1/approvals/{aid}/resolve", {"decision": "approve"}, timeout=120)
+        st, res = a.call("POST", f"/api/v1/approvals/{aid}/resolve", {"decision": "once"}, timeout=120)
         assert st == 200, f"approve {st} {res}"
     return f"pending={len(pending) - n_before} reply={reply[:60]!r}"
 

@@ -448,20 +448,6 @@ class CanonicalWorkerAdapter:
             output_dir=root / ".veya" / "action_gateway",
             bot_id=state.bot_id,
         )
-        # W11-C (S11): the canonical path never consulted the user-control
-        # approval gate, so a side-effect tool in a bot turn was executed
-        # immediately with no pending approval anywhere.  Bind the *existing*
-        # ApprovalService through the Gateway's own injection points when the
-        # caller did not supply its own pair; both stay None (and the default
-        # behaviour is unchanged) when the flag is off.
-        if self.policy_hook is None and self.approval_resolver is None:
-            from server.goal_run.bot_approval import build_side_effect_gate
-
-            gate_hook, gate_resolver = build_side_effect_gate(state=state)
-            if gate_hook is not None:
-                self.action_gateway.review_hook = None
-                self.action_gateway._policy_hook = gate_hook
-                self.action_gateway._approval_resolver = gate_resolver
         if self.knowledge_plan is not None:
             self.knowledge_runtime = KnowledgeRuntime(self.knowledge_plan)
         self.checkpoint(state, project_root, reason="before_first_action")

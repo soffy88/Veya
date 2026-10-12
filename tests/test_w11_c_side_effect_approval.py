@@ -67,12 +67,19 @@ def client(test_user):
 
 
 @pytest.fixture
-def gate_env(monkeypatch: pytest.MonkeyPatch):
-    """Approval gates ON, with a short wait so a paused action fails fast."""
+def gate_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Approval gates ON, on an isolated approval store."""
+
+    import server.approvals as approvals_mod
+    from veya.obase.approvals import ApprovalStore
 
     for flag, value in PROD_FLAGS.items():
         monkeypatch.setenv(flag, value)
     monkeypatch.setenv("VEYA_APPROVAL_TIMEOUT_S", "5")
+    previous = approvals_mod._service
+    approvals_mod.configure_service(store=ApprovalStore(tmp_path / "approvals.db"))
+    yield
+    approvals_mod._service = previous
 
 
 # ── fakes ───────────────────────────────────────────────────────────────────
@@ -113,7 +120,10 @@ class _FakeLLM:
 
     async def __call__(self, messages: list, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("llm")
-        return _write_file_tool_call(self.path)
+        if len(self.calls) == 1:
+            return _write_file_tool_call(self.path)
+        # After the write, the model reports and stops asking for tools.
+        return {"choices": [{"message": {"role": "assistant", "content": "已写入。"}}]}
 
 
 def _run_turn(client: TestClient, bot_id: str, text: str) -> dict[str, Any]:
@@ -138,54 +148,70 @@ def _resolve(client: TestClient, approval_id: str, decision: str = "approve") ->
 
 @pytest.mark.asyncio
 async def test_side_effect_action_creates_pending_approval_and_writes_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gate_env, test_user
+    gate_env, test_user, tmp_path, monkeypatch
 ):
-    """The canonical path must ask before it writes: pending approval, no file."""
+    """S11: a write in a bot turn opens a pending approval on the existing path,
+    the chat call answers at once with a friendly "waiting" reply, nothing is
+    written until the user approves, and the approved action then runs."""
 
-    from server import coordinator_master as cm
-    from server.goal_run.bot_identity import BotRegistry, BotSpec
+    import server.coordinator_master as cm
+    from server import auth as auth_mod
+    from server.bot_team import turns as turns_mod
+    from server.bot_team.conversations import ConversationStore
+    from server.goal_run.bot_identity import BotSpec
 
-    monkeypatch.setenv("VEYA_OUTPUT_DIR", str(tmp_path / "runs"))
-    monkeypatch.setenv("VEYA_EXECUTION_SQLITE_PATH", str(tmp_path / "execution.sqlite3"))
     monkeypatch.setenv("VEYA_BOTS_ROOT", str(tmp_path / "bots"))
+    monkeypatch.setenv("VEYA_WRITE_ROOT", str(tmp_path))
     (tmp_path / "bots").mkdir(parents=True, exist_ok=True)
-
     target = tmp_path / "approval_target.txt"
-    assert not target.exists()
 
-    bot_id = f"bot_s11_{uuid.uuid4().hex[:6]}"
-    registry = BotRegistry()
-    registry.register(
-        BotSpec(bot_id=bot_id, owner_id=test_user["user_id"], name="S11", runner_id="local")
+    bot = BotSpec(
+        bot_id=f"bot_s11_{uuid.uuid4().hex[:6]}",
+        owner_id=test_user["user_id"],
+        name="S11",
+        runner_id="local",
     )
-
     fake_llm = _FakeLLM(str(target))
-    coordinator = cm.MasterCoordinator(
-        llm_fn=fake_llm, model="fake-model", provider="fake-provider"
-    )
+    coordinator = cm.MasterCoordinator(llm_fn=fake_llm, model="fake-model", provider="fake-provider")
     auth_mod.set_user(test_user)
+    conversations = ConversationStore(root=tmp_path / "conv") if "root" in ConversationStore.__init__.__code__.co_varnames else None
 
+    from server.routes import product as product_routes
+
+    async def fake_open(**kwargs: Any) -> tuple[str, str]:
+        return f"s_{uuid.uuid4().hex[:8]}", f"t_{uuid.uuid4().hex[:8]}"
+
+    monkeypatch.setattr(product_routes, "_open_task_projection", fake_open)
     original = cm.master_coordinator
     cm.master_coordinator = coordinator
     try:
-        # The turn is launched as a task so the pending approval is observable
-        # while the side-effect action is paused on the human decision (the
-        # same pattern tests/runtime/test_governance_qualification.py uses).
-        turn = asyncio.create_task(
-            _run_bot_turn(bot_id, target, test_user, workspace=tmp_path, bot=registry.get(bot_id))
+        result = await asyncio.wait_for(
+            turns_mod.run_bot_turn(
+                bot=bot,
+                text=S11_PROMPT.format(path=str(target)),
+                user=test_user,
+                workspace_id=str(tmp_path),
+                conversations=conversations,
+            ),
+            timeout=60.0,
         )
-        try:
-            await _wait_for(pending_approval_exists, timeout=60.0)
-        except TimeoutError:  # pragma: no cover - surfaced by the assert below
-            pass
-
+        assert result.status == "awaiting_approval", result
+        assert "批准" in result.reply
+        for marker in ("Missing required evidence", "ac-canonical_action_observed", "Traceback"):
+            assert marker not in result.reply
         pending = _approval_service_records()
         assert pending, "no pending approval was created for the side-effect action"
-        approval_id = str(pending[-1]["request_id"])
         assert not target.exists(), "file was written before the approval was granted"
 
-        await _resolve_approval(approval_id, approved=True)
-        result = await asyncio.wait_for(turn, timeout=30.0)
+        for row in pending:
+            await _resolve_approval(str(row["request_id"]), approved=True)
+        background = list(turns_mod._BACKGROUND_TURNS)
+        assert background, "the paused turn must keep running in the background"
+        try:
+            await asyncio.wait_for(asyncio.gather(*background, return_exceptions=True), timeout=60.0)
+        except TimeoutError:
+            print("AFTER", target.exists(), fake_llm.calls, [(r["request_id"], r["tool"]) for r in _approval_service_records()])
+            raise
     finally:
         cm.master_coordinator = original
 

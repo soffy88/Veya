@@ -602,9 +602,47 @@ async def _wait_approval_legacy(tool: str, kwargs: dict[str, Any]) -> str | None
         _pending_waiters.pop(rid, None)
 
 
+#: One-shot grants: an action the user approved at the ActionGateway is not
+#: asked again when the same physical tool call reaches the tool guard a moment
+#: later (W11-C / S11).  Keyed by user, tool and redacted arguments; consumed
+#: on first use, so one approval still covers exactly one action.
+_approved_once: dict[str, int] = {}
+
+
+def _once_key(tool: str, kwargs: dict[str, Any]) -> str:
+    import hashlib
+    import json
+
+    from server.auth import current_user
+
+    user_id = str(current_user().get("user_id") or "anonymous")
+    name = str(tool or "").split(".")[-1]
+    try:
+        body = json.dumps(_safe_args(dict(kwargs or {})), sort_keys=True, default=str)
+    except Exception:
+        body = repr(kwargs)
+    return hashlib.sha256(f"{user_id}|{name}|{body}".encode()).hexdigest()
+
+
+def _consume_once(tool: str, kwargs: dict[str, Any]) -> bool:
+    key = _once_key(tool, kwargs)
+    count = _approved_once.get(key, 0)
+    if count <= 0:
+        return False
+    if count == 1:
+        _approved_once.pop(key, None)
+    else:
+        _approved_once[key] = count - 1
+    return True
+
+
 async def request_approval(tool: str, kwargs: dict[str, Any]) -> bool:
     """Request approval through the existing user-control pending store."""
-    return await _wait_approval(tool, kwargs) is None
+    approved = await _wait_approval(tool, kwargs) is None
+    if approved:
+        key = _once_key(tool, kwargs)
+        _approved_once[key] = _approved_once.get(key, 0) + 1
+    return approved
 
 
 async def ask_question(question: str, options: list[str] | None = None) -> str:
@@ -689,6 +727,8 @@ async def user_control_policy(name: str, kwargs: dict, source: str) -> str | Non
     if (require_approval() and name in HIGH_IMPACT) or (
         approval_gates_enabled() and _is_gated_tool(name)
     ):
+        if _consume_once(name, kwargs):
+            return None
         wait_err = await _wait_approval(name, kwargs)
         if wait_err:
             return wait_err

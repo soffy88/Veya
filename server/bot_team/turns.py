@@ -9,7 +9,9 @@ remains the single entry into ``master_coordinator.execute_structured``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -338,7 +340,7 @@ async def run_bot_turn(
         workspace_id=workspace_id,
         conversations=conversations,
     )
-    return await finish_bot_turn(
+    finishing = finish_bot_turn(
         bot=bot,
         start=start,
         text=text,
@@ -347,6 +349,86 @@ async def run_bot_turn(
         workspace_id=workspace_id,
         conversations=conversations,
     )
+    if not _approval_gates_on():
+        return await finishing
+    return await _finish_or_await_approval(
+        finishing, bot=bot, start=start, user=user, conversations=conversations
+    )
+
+
+#: Friendly reply while a side-effect action waits on the user's approval.
+APPROVAL_WAIT_REPLY = (
+    "这个操作需要你批准后才会执行。我已经在批准列表里提交了申请，"
+    "批准后我会继续，结果会发在这里。"
+)
+
+#: Turns still running after their caller got the "waiting for approval" reply.
+_BACKGROUND_TURNS: set[Any] = set()
+
+
+def _approval_gates_on() -> bool:
+    try:
+        from server.approvals import approval_gates_enabled
+
+        return bool(approval_gates_enabled())
+    except Exception:
+        return False
+
+
+def _new_pending_approvals(user: dict[str, Any], since: float) -> list[dict[str, Any]]:
+    """Pending approvals the user's scope gained since ``since`` (epoch secs)."""
+
+    from server.approvals import get_approval_service
+
+    service = get_approval_service()
+    scope = service.scope_for(str((user or {}).get("user_id") or "anonymous"))
+    rows = service.list_pending(scope=scope)
+    return [row for row in rows if float(row.get("created_at") or 0) >= since]
+
+
+async def _finish_or_await_approval(
+    finishing: Any,
+    *,
+    bot: BotSpec,
+    start: BotTurnStart,
+    user: dict[str, Any],
+    conversations: ConversationStore | None,
+) -> BotTurnResult:
+    """W11-C (S11): never hold a chat request hostage to a human approval.
+
+    The side-effect action itself is gated by the existing approval authority
+    (``server.user_control`` -> ``ApprovalService``), which pauses the turn
+    until the user decides.  The chat caller should not sit on an open request
+    for that: as soon as the turn opens a pending approval we answer with a
+    friendly "waiting for your approval" reply.  The turn keeps running in the
+    background, performs the action once approved, and records its final
+    reply in the conversation like any other turn.
+    """
+
+    since = time.time() - 1.0
+    task = asyncio.ensure_future(finishing)
+    while not task.done():
+        done, _ = await asyncio.wait({task}, timeout=0.5)
+        if done:
+            break
+        try:
+            pending = _new_pending_approvals(user, since)
+        except Exception:
+            pending = []
+        if pending:
+            _BACKGROUND_TURNS.add(task)
+            task.add_done_callback(_BACKGROUND_TURNS.discard)
+            store = conversations if conversations is not None else conversation_store()
+            store.append(bot.bot_id, role="bot", text=APPROVAL_WAIT_REPLY, task_id=start.task_id)
+            return BotTurnResult(
+                bot_id=bot.bot_id,
+                task_id=start.task_id,
+                session_id=start.session_id,
+                reply=APPROVAL_WAIT_REPLY,
+                status="awaiting_approval",
+                trace_id=start.trace_id,
+            )
+    return task.result()
 
 
 __all__ = [
