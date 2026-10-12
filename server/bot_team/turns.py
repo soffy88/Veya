@@ -89,23 +89,67 @@ def _status_of(response: Any) -> str:
     return str(getattr(status, "value", status) or "unknown")
 
 
-def extract_reply(response: Any, *, bot: BotSpec) -> str:
-    """Pick the user-visible answer out of a canonical execution response."""
+#: Raw internal strings that must never become a bot's reply (W11-C / S12).
+#: They are diagnostics: they stay in the task record and the event log.
+_RAW_MARKERS = (
+    "Missing required evidence",
+    "ac-canonical_action_observed",
+    "Traceback (most recent call last)",
+    'File "',
+)
 
-    if response is None:
-        return _NO_REPLY.format(bot=bot.name or bot.bot_id, status="unknown")
-    # W11: a completed conversational turn carries the model's own answer;
-    # show that, not the GoalRun report ("Goal: … Status: … Tasks: …").
-    direct = response.get("reply") if isinstance(response, dict) else getattr(response, "reply", None)
-    if str(direct or "").strip() and _status_of(response) in ("completed", "partial_completed"):
-        return str(direct).strip()
+
+def _friendly_reason(raw: Any) -> str:
+    """A friendly Chinese sentence for one raw failure reason."""
+
+    text = str(raw or "").strip()
+    lowered = text.lower()
+    if not text:
+        return "这一步没有完成，我没有改动任何文件。你可以让我换一种方式再试。"
+    if any(marker in text for marker in _RAW_MARKERS):
+        return "这一步我没能拿到可以确认完成的证据，所以先停在这里，没有改动你的文件。"
+    if "approval" in lowered or "notauthorized" in lowered or "not authorized" in lowered:
+        return "这个操作需要你批准后才能执行。批准列表里有一条待处理的申请，通过后我会继续。"
+    if "timed out" in lowered or "timeout" in lowered:
+        return "等待审批超时了，操作没有执行。需要的话你可以在批准列表里重新发起。"
+    if text.startswith("Goal:"):
+        return "这一步没有完成，我没有改动任何文件。你可以让我换一种方式再试。"
+    return "这一步没有完成：" + text[:120]
+
+
+def _sanitised_summary(response: Any) -> str:
+    """Pick the summary/block reason and reword it for the user (S12)."""
+
     if isinstance(response, dict):
         summary = response.get("summary") or response.get("final_summary")
         summary = summary or response.get("block_reason")
     else:
         summary = getattr(response, "summary", None) or getattr(response, "final_summary", None)
         summary = summary or getattr(response, "block_reason", None)
-    text = str(summary or "").strip()
+    return _friendly_reason(summary)
+
+
+def extract_reply(response: Any, *, bot: BotSpec) -> str:
+    """Pick the user-visible answer out of a canonical execution response.
+
+    W11-C (S12): whatever went wrong, the user sees a clear friendly Chinese
+    sentence.  A raw verifier reason ("Missing required evidence: …"), a
+    criterion id ("ac-canonical_action_observed"), a traceback or the GoalRun
+    report card ("Goal: … Status: … Tasks: …") is never shown.  The raw reason
+    stays in the task record and the event log, which is where an operator
+    looks for it.
+    """
+
+    if response is None:
+        return _NO_REPLY.format(bot=bot.name or bot.bot_id, status="unknown")
+    # W11: a completed conversational turn carries the model's own answer;
+    # show that, not the GoalRun report ("Goal: … Status: … Tasks: …").
+    direct = (
+        response.get("reply") if isinstance(response, dict) else getattr(response, "reply", None)
+    )
+    if str(direct or "").strip() and _status_of(response) in ("completed", "partial_completed"):
+        return str(direct).strip()
+    text = _sanitised_summary(response)
     if text:
         return text
     return _NO_REPLY.format(bot=bot.name or bot.bot_id, status=_status_of(response))
