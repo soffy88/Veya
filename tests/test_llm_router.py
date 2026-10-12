@@ -7,6 +7,7 @@ import json
 import sys
 import time
 from pathlib import Path
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 for lib in ("oprim", "omodul", "oservi", "obase", "oskill"):
@@ -691,7 +692,6 @@ def test_llm_call_veya12_none_content_retries_and_errors(monkeypatch):
     monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
     monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
     monkeypatch.setenv("VEYA_WORKBUDDY_DISABLED", "1")
-    monkeypatch.setenv("VEYA_GATEWAY_POOL_DISABLED", "1")
     monkeypatch.setattr(
         "os.environ",
         {
@@ -744,7 +744,6 @@ def test_llm_call_veya12_none_then_good_returns_good(monkeypatch):
     monkeypatch.setattr("veya.obase.canonical_proxies.eligible_nim_models", lambda: [])
     monkeypatch.setenv("VEYA_FROGNANO_DISABLED", "1")
     monkeypatch.setenv("VEYA_WORKBUDDY_DISABLED", "1")
-    monkeypatch.setenv("VEYA_GATEWAY_POOL_DISABLED", "1")
     monkeypatch.setattr(
         "os.environ",
         {
@@ -942,3 +941,22 @@ def test_veya12_pool_puts_workbuddy_after_opencode_go(monkeypatch, tmp_path):
     assert [c["model"] for c in wb] == ["deepseek-v4.1-flash", "glm-5.3"]
     assert wb[0]["endpoint"] == "http://host.docker.internal:8788/v1"
     assert get_api_key("workbuddy") == "wb-k"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_host_gateway_pool(monkeypatch):
+    """The host gateway pool (veya-gw) is deployment wiring, not router logic:
+    keep it out of every routing test so pool-order assertions stay exact."""
+    monkeypatch.setenv("VEYA_GATEWAY_POOL_DISABLED", "1")
+    # The repo .env narrows the live free pool (VEYA_FREE_POOL_PROVIDERS) for
+    # production; routing tests assert the default §5 provider set.
+    monkeypatch.delenv("VEYA_FREE_POOL_PROVIDERS", raising=False)
+    # The module seeds _VEYA12_FREE_POOL with a static list that the gateway
+    # lifecycle later overwrites with live probes; these tests drive the
+    # model-state.json derivation, so start from an empty live pool.
+    from veya.obase import llm as _obase_llm
+
+    monkeypatch.setattr(_obase_llm, "_VEYA12_FREE_POOL", [])
+    # Whether the local opencodex bridge happens to be running on this host is
+    # not router logic: treat it as up so the frontier fallback is exercised.
+    monkeypatch.setattr(_obase_llm, "_ensure_frontier_bridge", lambda _endpoint: True)
