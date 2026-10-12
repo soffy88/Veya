@@ -661,23 +661,18 @@ async def _veya12_rr_call(
     """Run one of the veya1.2 round-robin pools with common retry semantics."""
     candidates = pool[start:] + pool[:start]  # 从游标处旋转
 
-    # B1: skip providers whose breaker is open; re-probe on the first open one.
+    # B1: skip providers whose breaker is open; re-probe the first occurrence
+    # of each open tier so a wrongly-open breaker can close itself.
     open_providers: set[str] = set()
     safe_candidates: list[dict[str, str]] = []
     for cand in candidates:
         p = cand.get("provider", "")
-        if p in open_providers:
-            continue
         if _breaker.breaker_open(p):
-            open_providers.add(p)
+            if p not in open_providers:
+                open_providers.add(p)
+                safe_candidates.append(cand)  # re-probe this tier
             continue
         safe_candidates.append(cand)
-    # One cheap re-probe per tier per call to close a wrongly-open breaker.
-    for cand in candidates:
-        p = cand.get("provider", "")
-        if p not in open_providers and _breaker.breaker_open(p):
-            open_providers.add(p)
-            safe_candidates.append(cand)
     candidates = safe_candidates
 
     default = kwargs.get("default_content") or f"{pool_label}调用失败"
