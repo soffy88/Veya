@@ -104,3 +104,48 @@ project is TypeScript-only, the idea was ported by hand into the repo's Python
     fork/handoff brief (no new store).
 - **Notes:** Web-UI automation/recording from the upstream was deliberately not
   borrowed.
+
+## MarkItDown (microsoft/markitdown)
+
+- **Upstream:** microsoft/markitdown
+- **License:** MIT
+- **Use:** design borrowed, no code vendored.
+- **Borrowed by:** W14 (MCP preset pack)
+- **What was borrowed:** The MarkItDown MCP server design — launching a separate stdio process that converts documents (docs/office/PDF → markdown). Veya does not vendor any of the markitdown source; it only launches the installed Python package (`packages/markitdown-mcp`) as an external process.
+- **Notes:** No upstream code copied. The preset definition in `config/mcp_presets.yaml` only declares the launch command and env var names; no API key values are stored.
+
+## MinerU
+
+- **Upstream:** opendatalab/MinerU-Ecosystem
+- **License:** AGPL-3.0
+- **Use:** design borrowed, no code vendored.
+- **Borrowed by:** W14 (MCP preset pack)
+- **What was borrowed:** The MinerU MCP server design — a separate process for PDF/OCR document parsing with strong Chinese-language support. Per the AGPL license, **no upstream source code is copied or vendored into this repository**; the preset only launches the installed `mineru.mcp` module as an isolated process.
+- **Notes:** AGPL requires that any derivative work remain under AGPL. Veya's integration is strictly via process spawn (stdio), not code embedding. The attribution URL is `https://github.com/opendatalab/MinerU-Ecosystem`.
+
+## Brave Search
+
+- **Upstream:** brave/brave-search-mcp-server
+- **License:** MIT
+- **Use:** design borrowed, no code vendored.
+- **Borrowed by:** W14 (MCP preset pack)
+- **What was borrowed:** The Brave Search MCP server pattern — a separate stdio process that exposes web search via the Brave Search API. Veya does not vendor any Brave MCP source; it only launches `brave_search_mcp` as an external process.
+- **Notes:** Requires the user to provide `BRAVE_API_KEY` in their environment. The preset declares only the env var *name*, never the value. Attribution URL: `https://github.com/brave/brave-search-mcp-server`.
+
+## Exa
+
+- **Upstream:** exa-labs/exa-mcp-server
+- **License:** MIT
+- **Use:** design borrowed, no code vendored.
+- **Borrowed by:** W14 (MCP preset pack)
+- **What was borrowed:** The Exa MCP server pattern — a separate stdio process exposing semantic web search. Veya does not vendor any Exa source; it launches `exa_mcp_server` as an external process.
+- **Notes:** Requires the user to provide `EXA_API_KEY` in their environment. The preset declares only the env var *name*. Attribution URL: `https://github.com/exa-labs/exa-mcp-server`.
+
+## Context7
+
+- **Upstream:** upstash/context7
+- **License:** MIT
+- **Use:** design borrowed, no code vendored.
+- **Borrowed by:** W14 (MCP preset pack)
+- **What was borrowed:** The Context7 MCP server pattern — a separate stdio process providing up-to-date library documentation for coding agents. Veya does not vendor any Context7 source; it launches `context7` as an external process.
+- **Notes:** Requires the user to provide `CONTEXT7_API_KEY` in their environment (optional upstream key; presence gates attach). The preset declares only the env var *name*. Attribution URL: `https://github.com/upstash/context7`.

@@ -42,7 +42,7 @@ def _python() -> str:
 
 def _load_presets(path: Path | None = None) -> list[dict[str, Any]]:
     """解析唯一 preset 定义文件 (YAML → dict 列表; 非法结构抛 ValueError)。"""
-    import yaml
+    import yaml  # type: ignore[import-untyped]
 
     raw = (path or PRESET_FILE).read_text(encoding="utf-8")
     parsed = yaml.safe_load(raw) or []
@@ -132,7 +132,6 @@ async def attach_preset(
             "status": "unavailable: missing " + ", ".join(missing),
         }
     from server.acp_mcp_delivery import AcpMcpDelivery, McpSourceDiscovery
-
     from veya.platform import load
 
     obase = load("obase")
@@ -163,8 +162,8 @@ async def attach_preset(
             _supports = getattr(obase, "supports_resources", lambda _h: False)
             if _supports(handle):
                 try:
-                    _list = getattr(obase, "list_resources", lambda _h: [])
-                    resources = await _list(handle)  # type: ignore[misc]
+                    _list: Any = getattr(obase, "list_resources", lambda _h: [])
+                    resources = await _list(handle)
                 except Exception:
                     resources = []
             return McpSourceDiscovery(
@@ -251,7 +250,7 @@ async def wire_master_tools(*, path: Path | None = None) -> int:
 def _build_client(preset: dict[str, Any]) -> Any:
     from veya.platform import obase
 
-    return obase.StdioMcpClient(_resolve_command(preset))
+    return obase.StdioMcpClient(_resolve_command(preset))  # type: ignore[attr-defined]
 
 
 async def _collect_adapters(preset: dict[str, Any], client: Any) -> list[dict[str, Any]]:
