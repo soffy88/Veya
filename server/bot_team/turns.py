@@ -97,6 +97,43 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     return "\n\n".join(part for part in parts if part)
 
 
+# ---------------------------------------------------------------------------
+# W12-A2: plain phrasing → supervise_task
+# ---------------------------------------------------------------------------
+
+# Matches "每N分钟告诉我进度" / "每N分钟汇报" / "每N分钟告诉我进度" etc.
+_SUPERVISOR_PHRASE_RE = __import__("re").compile(
+    r"(?:每|每隔)?\s*(\d+)\s*(?:分钟|min|分钟一次|分钟)"
+    r"(?:告诉|汇报|上报|报告|给我)?"
+    r"(?:进度|进展|情况|状态)?"
+)
+
+
+def parse_supervisor_phrase(text: str) -> dict[str, Any] | None:
+    """Parse plain phrasing like "每30分钟告诉我进度" into supervisor params.
+
+    Returns a dict with `report_every_minutes` (and optionally
+    `stall_after_minutes`) when the text contains a reporting cadence,
+    else ``None``. Pure pattern match — no side effects, no model call.
+    """
+    import re
+
+    raw = str(text or "")
+    if not raw:
+        return None
+    m = _SUPERVISOR_PHRASE_RE.search(raw)
+    if not m:
+        return None
+    minutes = int(m.group(1))
+    if minutes <= 0:
+        return None
+    return {
+        "report_every_minutes": minutes,
+        "stall_after_minutes": max(1, minutes // 2),
+    }
+
+
+
 def _status_of(response: Any) -> str:
     status = getattr(response, "status", None)
     if status is None and isinstance(response, dict):
@@ -556,4 +593,5 @@ __all__ = [
     "extract_reply",
     "finish_bot_turn",
     "run_bot_turn",
+    "parse_supervisor_phrase",
 ]

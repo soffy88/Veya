@@ -511,6 +511,7 @@ app.include_router(product_router)
 # Lorca P1/P2: the named bot team + group chat shell (same product path).
 app.include_router(bots_router)
 app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
+from server.routes.supervised import router as supervised_router
 # Lorca P5: Web Push (public key + per-user subscriptions). Importing the
 # module also installs the notification-centre push hook.
 app.include_router(push_router)
@@ -564,6 +565,7 @@ app.include_router(routines_router)
 app.include_router(artifacts_router)
 app.include_router(public_artifacts_router)
 app.include_router(settings_router)
+app.include_router(supervised_router)
 app.include_router(channels_router)  # NANO-W7: flag-gated, 404 while off
 app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-checks
 # NANO-W9: branch rooms, routine triggers, ACP members, audit chain,
