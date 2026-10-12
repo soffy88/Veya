@@ -485,3 +485,241 @@ def test_binding_crud_roundtrip(supervisor_on, bot_ctx, tmp_path):
     assert supervisor_on.delete_binding("b10") is True
     assert supervisor_on.get_binding("b10") is None
     assert supervisor_on.delete_binding("b10") is False
+
+
+# ---------------------------------------------------------------------------
+# A2 — phrase → supervise_task wiring (bot turn path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_supervisor_phrase_starts_supervised_task(
+    supervisor_on, bot_ctx, tmp_path, monkeypatch
+):
+    """\"每30分钟告诉我进度\" in a bot turn starts a supervised task."""
+    from server.bot_team.turns import _supervise_from_phrase
+    from server.goal_run.bot_identity import BotSpec
+
+    calls: list[dict] = []
+
+    def fake_supervise(**kwargs):
+        calls.append(kwargs)
+        from server.supervisor.binding import SupervisorBinding
+
+        binding = SupervisorBinding(
+            binding_id="fake_b",
+            goal_run_id="goal_fake",
+            routine_id="routine_fake",
+            owner_id="bot_test",
+            bot_id="bot_test",
+            objective="把 X 修好，每 30 分钟告诉我进度",
+            project_root=str(tmp_path),
+            report_every_minutes=kwargs["report_every_minutes"],
+            stall_after_minutes=kwargs["stall_after_minutes"],
+            max_repairs=kwargs.get("max_repairs", 3),
+        )
+        supervisor_on.save_binding(binding)
+        return {
+            "binding": binding.to_dict(),
+            "goal_run_id": "goal_fake",
+            "routine_id": "routine_fake",
+            "report_every_minutes": 30,
+            "stall_after_minutes": 15,
+            "max_repairs": 3,
+        }
+
+    import server.supervision_tools as st
+    monkeypatch.setattr(st, "supervise_task", fake_supervise)
+
+    bot = BotSpec(bot_id="bot_test", owner_id="user_test", name="T", description="")
+    result = await _supervise_from_phrase(
+        bot=bot,
+        text="把 X 修好，每 30 分钟告诉我进度",
+        user={"user_id": "user_test"},
+        workspace_id=str(tmp_path),
+        conversations=None,
+    )
+    assert result is not None
+    assert result.status == "completed"
+    assert "已启动监工任务" in result.reply
+    assert calls, "supervise_task must be invoked for a supervisor phrase"
+    assert calls[0]["report_every_minutes"] == 30
+    assert calls[0]["stall_after_minutes"] == 15
+
+
+@pytest.mark.asyncio
+async def test_non_phrase_turn_not_intercepted(supervisor_on, bot_ctx, tmp_path):
+    """Ordinary chat text is not a supervisor phrase."""
+    from server.bot_team.turns import _supervise_from_phrase
+    from server.goal_run.bot_identity import BotSpec
+
+    bot = BotSpec(bot_id="bot_test", owner_id="user_test", name="T", description="")
+    result = await _supervise_from_phrase(
+        bot=bot,
+        text="帮我看看这个报错",
+        user={"user_id": "user_test"},
+        workspace_id=str(tmp_path),
+        conversations=None,
+    )
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# A7 — report_seq increments per report, restart never replays
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_report_seq_increments_across_reports(
+    supervisor_on, bot_ctx, tmp_path
+):
+    """Every routine fire posts a distinct, monotonic report_seq."""
+    from server.supervisor.binding import SupervisorBinding
+    from server.supervisor.handoff import supervisor_handoff
+
+    _make_state(
+        tmp_path,
+        "goal_seq",
+        {"t1": ("任务1", "completed", "evidence")},
+        "running",
+    )
+    binding = SupervisorBinding(
+        binding_id="seq_b",
+        goal_run_id="goal_seq",
+        routine_id="seq_r",
+        owner_id="bot_test",
+        bot_id="bot_test",
+        objective="把 X 修好",
+        project_root=str(tmp_path),
+        report_every_minutes=30,
+        stall_after_minutes=20,
+        max_repairs=3,
+        report_seq=0,
+        last_activity_at=time.time(),
+    )
+    supervisor_on.save_binding(binding)
+
+    seqs = []
+    for _ in range(3):
+        await supervisor_handoff(
+            binding=supervisor_on.get_binding("seq_b"),
+            goal_run_id="goal_seq",
+            project_root=str(tmp_path),
+        )
+        reloaded = supervisor_on.get_binding("seq_b")
+        seqs.append(reloaded.report_seq)
+
+    assert seqs == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_restart_does_not_replay_report_seq(
+    supervisor_on, bot_ctx, tmp_path
+):
+    """After a restart (fresh load from disk) the next report is
+    seq N+1, not a replay of the last seq the user already saw."""
+    from server.supervisor.binding import SupervisorBinding
+    from server.supervisor.handoff import supervisor_handoff
+
+    _make_state(
+        tmp_path,
+        "goal_restart2",
+        {"t1": ("任务1", "completed", "ev")},
+        "running",
+    )
+    binding = SupervisorBinding(
+        binding_id="restart_b",
+        goal_run_id="goal_restart2",
+        routine_id="restart_r",
+        owner_id="bot_test",
+        bot_id="bot_test",
+        objective="把 X 修好",
+        project_root=str(tmp_path),
+        report_seq=7,
+        last_activity_at=time.time(),
+    )
+    supervisor_on.save_binding(binding)
+
+    # Simulate restart: load a fresh binding object from disk.
+    await supervisor_handoff(
+        binding=supervisor_on.get_binding("restart_b"),
+        goal_run_id="goal_restart2",
+        project_root=str(tmp_path),
+    )
+    after_restart = supervisor_on.get_binding("restart_b")
+    assert after_restart.report_seq == 8
+
+    # And the next fire is 9, not another 8.
+    await supervisor_handoff(
+        binding=supervisor_on.get_binding("restart_b"),
+        goal_run_id="goal_restart2",
+        project_root=str(tmp_path),
+    )
+    assert supervisor_on.get_binding("restart_b").report_seq == 9
+
+
+# ---------------------------------------------------------------------------
+# A2 — phrase path records the user message
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_supervisor_phrase_records_user_message(
+    supervisor_on, bot_ctx, tmp_path, monkeypatch
+):
+    """A supervisor phrase should record the user's message in the
+    conversation before returning the tool-result reply."""
+    from server.bot_team.turns import _supervise_from_phrase
+    from server.goal_run.bot_identity import BotSpec
+    from server.supervisor import binding as supervisor_binding
+
+    calls: list[dict] = []
+
+    def fake_supervise(**kwargs):
+        calls.append(kwargs)
+        from server.supervisor.binding import SupervisorBinding
+
+        binding = SupervisorBinding(
+            binding_id="fake_b",
+            goal_run_id="goal_fake",
+            routine_id="routine_fake",
+            owner_id="bot_test",
+            bot_id="bot_test",
+            objective=kwargs["objective"],
+            project_root=str(tmp_path),
+            report_every_minutes=kwargs["report_every_minutes"],
+            stall_after_minutes=kwargs["stall_after_minutes"],
+            max_repairs=kwargs.get("max_repairs", 3),
+        )
+        supervisor_binding.save_binding(binding)
+        return {
+            "binding": binding.to_dict(),
+            "goal_run_id": "goal_fake",
+            "routine_id": "routine_fake",
+            "report_every_minutes": 30,
+            "stall_after_minutes": 15,
+            "max_repairs": 3,
+        }
+
+    import server.supervision_tools as st
+    monkeypatch.setattr(st, "supervise_task", fake_supervise)
+
+    recorded = []
+
+    class FakeStore:
+        def append(self, bot_id, *, role, text, **kw):
+            recorded.append({"bot_id": bot_id, "role": role, "text": text})
+
+    bot = BotSpec(bot_id="bot_test", owner_id="user_test", name="T", description="")
+    result = await _supervise_from_phrase(
+        bot=bot,
+        text="把 X 修好，每 30 分钟告诉我进度",
+        user={"user_id": "user_test"},
+        workspace_id=str(tmp_path),
+        conversations=FakeStore(),
+    )
+    assert result is not None
+    assert result.status == "completed"
+    assert any(r["role"] == "user" and "把 X 修好" in r["text"] for r in recorded), (
+        "user message must be recorded"
+    )

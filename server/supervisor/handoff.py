@@ -37,6 +37,15 @@ async def supervisor_handoff(
 
     goal_state = load_goal_run(project_root, goal_run_id)
 
+    # A7: advance report_seq BEFORE building the report so every posted
+    # report carries a unique, monotonic id. A restart never replays the
+    # same seq because the persisted binding has already moved on.
+    binding.report_seq = binding.report_seq + 1
+    binding.last_report_at = time.time()
+    from server.supervisor import binding as bind_mod
+
+    bind_mod.save_binding(binding)
+
     report = build_progress_report(
         goal_run_id=goal_run_id,
         project_root=project_root,
