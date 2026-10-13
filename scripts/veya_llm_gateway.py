@@ -649,13 +649,20 @@ _REJECTION_RE = re.compile(r"^\S+ rejected the request \(HTTP (\d{3})\)")
 
 
 def _upstream_rejection(resp: dict[str, Any]) -> tuple[int, str] | None:
-    """Detect llm_call's fallback 'X rejected the request (HTTP nnn)' reply."""
+    """Detect llm_call's fallback 'X rejected the request (HTTP nnn)' reply.
+
+    Also catches the alias pools' exhausted payload (``error: True`` with an
+    explanatory assistant text, e.g. "veya1.2 免费池调用失败: ..."): returning
+    that as HTTP 200 made callers count a failure as a success and skip failover.
+    """
     msg = (resp.get("choices") or [{}])[0].get("message") or {}
     content = msg.get("content")
     if msg.get("tool_calls") or not isinstance(content, str):
         return None
     match = _REJECTION_RE.match(content.strip())
     if not match:
+        if resp.get("error") is True:
+            return 502, content.strip()[:2000]
         return None
     status = int(match.group(1))
     if status < 400 or status > 599:
@@ -671,9 +678,20 @@ _POOL_ALIAS = {"workbuddy": "veya-wb", "freellmapi": "veya-fllm"}
 _POOL_COOLDOWN: dict[str, dict[str, float]] = {k: {} for k in _POOL_ENV}
 _POOL_RR: dict[str, int] = {k: 0 for k in _POOL_ENV}
 _POOL_LAST: dict[str, dict[str, Any]] = {k: {} for k in _POOL_ENV}
+# 连续失败计数: 同一成员反复超时/报错时冷却指数拉长 (上限 1h), 成功即清零 —
+# 否则死模型每 120s 重新进入轮询, 每次白耗一个 30s 超时, 把整池拖成 504。
+_POOL_FAILS: dict[str, dict[str, int]] = {k: {} for k in _POOL_ENV}
+_POOL_COOLDOWN_CAP = float(os.environ.get("VEYA_POOL_COOLDOWN_CAP", "3600"))
 _POOL_TIMEOUT = {"workbuddy": 120.0, "freellmapi": float(os.environ.get("VEYA_FLLM_TIMEOUT", "30"))}
 _POOL_MAX_TRIES = {"workbuddy": 0, "freellmapi": int(os.environ.get("VEYA_FLLM_MAX_TRIES", "6"))}
 _POOL_DEADLINE = {"workbuddy": 0.0, "freellmapi": float(os.environ.get("VEYA_FLLM_DEADLINE", "75"))}
+
+
+def _pool_backoff(upstream: str, model: str, base: float) -> float:
+    """Record one failure and return the escalated cooldown (seconds)."""
+    fails = _POOL_FAILS[upstream].get(model, 0) + 1
+    _POOL_FAILS[upstream][model] = fails
+    return min(max(base, base * (2 ** (fails - 1))), max(base, _POOL_COOLDOWN_CAP))
 
 
 def _pool_models(upstream: str) -> list[str]:
@@ -728,15 +746,17 @@ async def _pool_call(upstream: str, messages: list[Any], tools: Any) -> tuple[di
             resp = await asyncio.wait_for(llm_call(messages, **kwargs), timeout=_POOL_TIMEOUT[upstream])
         except Exception as exc:  # 单个模型异常/超时不拖垮整个池
             last_err = (502 if not isinstance(exc, asyncio.TimeoutError) else 504, f"{model}: {type(exc).__name__}: {exc}")
-            cool[model] = time.time() + 120
-            print(f"[{alias}] {model} -> {type(exc).__name__}, 冷却 120s", file=sys.stderr)
+            wait = _pool_backoff(upstream, model, 120.0)
+            cool[model] = time.time() + wait
+            print(f"[{alias}] {model} -> {type(exc).__name__}, 冷却 {int(wait)}s", file=sys.stderr)
             continue
         err = _upstream_rejection(resp)
         if err is None:
+            _POOL_FAILS[upstream].pop(model, None)
             _POOL_LAST[upstream].update({"model": model, "at": time.time()})
             return resp, model, None
         status, message = err
-        cool[model] = time.time() + _wb_cooldown_seconds(status, message)
+        cool[model] = time.time() + _pool_backoff(upstream, model, _wb_cooldown_seconds(status, message))
         last_err = (status, f"{model}: {message}")
         print(f"[{alias}] {model} -> {status}, 冷却 {int(cool[model] - time.time())}s", file=sys.stderr)
     if last_err is None:
@@ -755,6 +775,42 @@ def _pool_status(upstream: str) -> dict[str, Any]:
         "available": [m for m in pool if cool.get(m, 0) <= now],
         "last": _POOL_LAST[upstream],
     }
+
+
+def _failover_chain(requested: str) -> list[str]:
+    """VEYA_GATEWAY_FAILOVER="veya1.2:veya-free,veya-nim;veya1.1:veya-free" (alias → ordered fallbacks)."""
+    raw = os.environ.get("VEYA_GATEWAY_FAILOVER", "").strip()
+    key = str(requested).lower()
+    for part in raw.split(";"):
+        src, sep, dst = part.partition(":")
+        if sep and src.strip().lower() == key:
+            return [d.strip() for d in dst.split(",") if d.strip() and d.strip().lower() != key]
+    return []
+
+
+async def _call_entry(
+    entry: dict[str, Any], messages: list[Any], tools: Any
+) -> tuple[dict[str, Any] | None, tuple[int, str] | None]:
+    """Run one catalog entry; return (resp, None) on success or (None, (status, message))."""
+    if entry.get("pool") in _POOL_ENV:
+        pool_up = entry["pool"]
+        resp, wb_model, wb_err = await _pool_call(pool_up, messages, tools)
+        if resp is None:
+            return None, (wb_err or (502, f"{_POOL_ALIAS[pool_up]} failed"))
+        resp.setdefault("router", {"model": f"{pool_up}/{wb_model}"})
+        return resp, None
+    call_kwargs: dict[str, Any] = {"model": entry["model"], "tools": tools}
+    if entry.get("provider"):
+        call_kwargs["provider"] = entry["provider"]
+    if entry.get("endpoint"):
+        call_kwargs["endpoint"] = entry["endpoint"]
+    if _PI_PROVIDER_CONFIG:
+        call_kwargs["config"] = _PI_PROVIDER_CONFIG
+    resp = await llm_call(messages, **call_kwargs)
+    err = _upstream_rejection(resp)
+    if err is not None:
+        return None, err
+    return resp, None
 
 
 @app.get("/v1/wb-pool")
@@ -781,43 +837,38 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
         )
     messages = body.get("messages") or []
     tools = body.get("tools")
-    call_kwargs: dict[str, Any] = {"model": entry["model"], "tools": tools}
-    if entry.get("provider"):
-        call_kwargs["provider"] = entry["provider"]
-    if entry.get("endpoint"):
-        call_kwargs["endpoint"] = entry["endpoint"]
-    # 所有 veya1.x 别名都注入 pi 的 provider key 池 (env 没设的 bai/scnet/gmi-serving 等
-    # 也能从 ~/.pi/agent/models.json 拿到 key)。get_api_key 优先 config > env,
-    # _PI_PROVIDER_CONFIG 已过滤掉以 '!' 开头的 shell 扩展 key (如 opencode-go),
-    # 不会覆盖 env 中的有效凭据。
-    if _PI_PROVIDER_CONFIG:
-        call_kwargs["config"] = _PI_PROVIDER_CONFIG
-    wb_model = ""
-    if entry.get("pool") in _POOL_ENV:
-        pool_up = entry["pool"]
-        resp, wb_model, wb_err = await _pool_call(pool_up, messages, tools)
-        if resp is None:
-            status, message = wb_err or (502, f"{_POOL_ALIAS[pool_up]} failed")
-            # 池层面失败是瞬时的 (成员各自冷却), 对外不报 429: magpie 等前置路由会把
-            # 429 当成整个 provider key 的配额耗尽, 一次性冷却 15 分钟。
-            if status == 429:
-                status = 503
-            return JSONResponse(
-                {"error": {"message": message, "type": "upstream_error", "code": status}},
-                status_code=status,
-                headers={"Retry-After": "5"},
-            )
-        resp.setdefault("router", {"model": f"{pool_up}/{wb_model}"})
-    else:
-        resp = await llm_call(messages, **call_kwargs)
-    upstream_error = _upstream_rejection(resp)
-    if upstream_error is not None:
-        status, message = upstream_error
+    # 所有 veya1.x 别名都注入 pi 的 provider key 池 (见 _call_entry); 池别名走
+    # _pool_call。失败时按 VEYA_GATEWAY_FAILOVER 依次换别名, 全失败才回真实错误码。
+    resp, err = await _call_entry(entry, messages, tools)
+    failover_from: list[dict[str, Any]] = []
+    if resp is None:
+        for alt in _failover_chain(requested):
+            alt_entry = _CATALOG.get(alt) or _CATALOG.get(alt.lower())
+            if alt_entry is None:
+                continue
+            failover_from.append({"model": alt, "after_error": (err or (502, ""))[1][:200]})
+            alt_resp, alt_err = await _call_entry(alt_entry, messages, tools)
+            if alt_resp is not None:
+                router = alt_resp.get("router") or alt_resp.get("_routed") or {}
+                inner = router.get("model") if isinstance(router, dict) else None
+                alt_resp["router"] = {"model": f"{alt}/{inner}" if inner else alt, "failover": True}
+                resp = alt_resp
+                print(f"[veya-llm-gateway] {requested} 失败 → failover {alt} 成功", file=sys.stderr)
+                break
+            err = alt_err
+    if resp is None:
+        status, message = err or (502, "upstream failed")
+        # 池层面失败是瞬时的 (成员各自冷却), 对外不报 429: magpie 等前置路由会把
+        # 429 当成整个 provider key 的配额耗尽, 一次性冷却 15 分钟。
+        pooled = entry.get("pool") in _POOL_ENV
+        if status == 429 and pooled:
+            status = 503
         # llm_call 把上游 HTTP 报错包成一条 assistant 文本; 对外原样当 200 返回
         # 会让 magpie 等前置路由误判成功、不做 failover。这里还原成真实错误码。
         return JSONResponse(
             {"error": {"message": message, "type": "upstream_error", "code": status}},
             status_code=status,
+            headers={"Retry-After": "5"} if pooled or status in (502, 503, 504) else None,
         )
     resp_id = f"{requested}-{int(time.time() * 1000)}"
     created = int(time.time())
@@ -833,6 +884,8 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
             "resolved_model": resolved_model,
             "alias": requested,
         }
+        if failover_from:
+            resp["veya_routing"]["failover"] = failover_from
     if body.get("stream"):
         return StreamingResponse(
             _sse_from_resp(resp, resp_id, created, requested), media_type="text/event-stream"
