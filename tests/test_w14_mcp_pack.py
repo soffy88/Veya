@@ -177,6 +177,32 @@ class TestDeclaredSideEffects:
         assert spec is not None
         assert spec.side_effect == SideEffect.PURE_READ
 
+    async def test_collected_adapters_tag_untrusted_content(self, flag_on: None) -> None:
+        """Fetched content is data, not instructions — the untrusted note
+        rides in the tool description per existing repo conventions."""
+
+        class _FakeClient:
+            async def list_tools(self) -> list[dict[str, Any]]:
+                return [
+                    {
+                        "name": "convert",
+                        "description": "Convert a document to Markdown",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"path": {"type": "string"}},
+                            "required": ["path"],
+                        },
+                    }
+                ]
+
+        adapters = await mcp_presets._collect_adapters(
+            {"name": "markitdown"}, _FakeClient()
+        )
+        assert len(adapters) == 1
+        assert adapters[0]["name"] == "mcp_markitdown_convert"
+        assert mcp_presets.UNTRUSTED_NOTE in adapters[0]["description"]
+        assert "Convert a document to Markdown" in adapters[0]["description"]
+
 
 def master_tools_spec(name: str) -> Any:
     from server.tool_registry import master_tools
