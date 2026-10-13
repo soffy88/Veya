@@ -558,11 +558,17 @@ app.include_router(sse_router)
 from server.routes.routines import router as routines_router
 from server.routes.artifacts import router as artifacts_router, public_router as public_artifacts_router
 from server.routes.channels import router as channels_router
+from server.routes.html_pages import (
+    public_router as public_html_pages_router,
+    router as html_pages_router,
+)
 from server.routes.settings import router as settings_router
 
 app.include_router(routines_router)
 app.include_router(artifacts_router)
 app.include_router(public_artifacts_router)
+app.include_router(html_pages_router)  # answer-me-with-html: rendered pages
+app.include_router(public_html_pages_router)
 app.include_router(settings_router)
 app.include_router(channels_router)  # NANO-W7: flag-gated, 404 while off
 app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-checks
