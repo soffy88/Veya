@@ -196,3 +196,55 @@ async def test_binding_gives_up_after_repairs_exhausted(supervisor_on, tmp_path)
     )
     closed = supervisor_on.get_binding("b_goal_stuck")
     assert closed.status == "closed" and closed.closed_reason == "gave_up"
+
+
+@pytest.mark.asyncio
+async def test_supervised_run_executes_through_the_bot_task_path(monkeypatch, tmp_path):
+    """The run must go through the product task path (it has an executor).
+
+    A bare ROUTINE request ended the live run partial in 1s with
+    "no executor requested; a leaf must name an admitted executor".
+    """
+    from server import supervision_tools
+    from server.routes import product as product_routes
+
+    seen = {}
+
+    async def fake_open(**kw):
+        seen["open"] = kw
+        return "sess_1", "task_1"
+
+    async def fake_run(**kw):
+        seen["run"] = kw
+        return "ok"
+
+    monkeypatch.setattr(product_routes, "_open_task_projection", fake_open)
+    monkeypatch.setattr(product_routes, "_run_product_task", fake_run)
+    out = await supervision_tools._run_supervised_goal(
+        project_root=str(tmp_path),
+        objective="统计 README 行数",
+        goal_run_id="goal_x",
+        bot_id="bot_x",
+        binding_id="sup_x",
+        user={"user_id": "u1"},
+        provider="p",
+        model="m",
+    )
+    assert out == "ok"
+    run = seen["run"]
+    assert run["resume_goal_id"] == "goal_x"
+    assert run["bot_id"] == "bot_x"
+    assert run["project_root"] == str(tmp_path)
+    assert run["task_id"] == "task_1" and run["session_id"] == "sess_1"
+    assert (run["provider"], run["model"]) == ("p", "m")
+    assert run["user"]["user_id"] == "u1"
+    assert seen["open"]["workspace_id"] == str(tmp_path)
+
+
+def test_supervise_tool_entry_runs_on_the_event_loop():
+    import inspect
+
+    from server import supervision_tools
+
+    entry = next(t for t in supervision_tools._TOOLS if t[0] == "supervise_task")
+    assert inspect.iscoroutinefunction(entry[3])

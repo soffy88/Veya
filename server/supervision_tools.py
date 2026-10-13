@@ -174,6 +174,10 @@ def supervise_task(
     max_repairs: int = 3,
     bot_id: str | None = None,
     dispatch: bool | None = None,
+    user: dict[str, Any] | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    run_objective: str | None = None,
 ) -> dict[str, Any]:
     """Start a supervised long task (flag VEYA_SUPERVISOR=1).
 
@@ -263,10 +267,13 @@ def supervise_task(
     if _dispatch_enabled() if dispatch is None else dispatch:
         dispatched = _dispatch_supervised_run(
             project_root=project_root,
-            objective=objective,
+            objective=run_objective or objective,
             goal_run_id=goal_id,
             bot_id=bot_id,
             binding_id=binding.binding_id,
+            user=user,
+            provider=provider,
+            model=model,
         )
 
     return {
@@ -295,43 +302,58 @@ _SUPERVISED_RUNS: set[Any] = set()
 
 
 async def _run_supervised_goal(
-    *, project_root: str, objective: str, goal_run_id: str, bot_id: str, binding_id: str
+    *,
+    project_root: str,
+    objective: str,
+    goal_run_id: str,
+    bot_id: str,
+    binding_id: str,
+    user: dict[str, Any] | None = None,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> Any:
-    """Plan and execute the pre-registered GoalRun through the canonical entry."""
+    """Execute the pre-registered GoalRun as a real bot task.
+
+    Runs through the product task path a bot turn uses (task projection +
+    ``_run_product_task``), so the leaf has the bot's model and the canonical
+    worker that can actually act. A bare ``ROUTINE`` request has no executor
+    for its leaf ("no executor requested") and ends partial immediately.
+    ``resume_goal_id`` makes the run plan under the id the binding holds.
+    """
 
     import logging
+    import uuid as _uuid
 
-    from server.coordinator_master import master_coordinator
-    from server.goal_run.bot_identity import bind_current_bot, reset_current_bot
-    from server.models.execution import (
-        CanonicalExecutionRequest,
-        ExecutionConstraints,
-        ExecutionMode,
-    )
+    from server import auth as auth_mod
+    from server.routes import product as product_routes
 
-    req = CanonicalExecutionRequest(
-        source="ROUTINE",
-        mode=ExecutionMode.STRUCTURED_CONSTRAINED,
-        objective=objective,
-        project_root=project_root,
-        constraints=ExecutionConstraints(
-            metadata={
-                "bot_id": bot_id,
-                "resume_goal_id": goal_run_id,
-                "supervisor_binding_id": binding_id,
-            }
-        ),
-    )
-    token = bind_current_bot(bot_id)
+    run_user = dict(user or auth_mod.current_user() or {})
+    run_user.setdefault("user_id", "veya-supervisor")
     try:
-        return await master_coordinator.execute_structured(req)
+        session_id, task_id = await product_routes._open_task_projection(
+            objective=objective,
+            title=f"[监工] {objective[:40]}",
+            workspace_id=project_root,
+            user=run_user,
+            trace_id=f"supervisor-{binding_id}-{_uuid.uuid4().hex[:8]}",
+        )
+        return await product_routes._run_product_task(
+            task_id=task_id,
+            session_id=session_id,
+            objective=objective,
+            provider=provider or None,
+            model=model or None,
+            config={},
+            user=run_user,
+            project_root=project_root,
+            resume_goal_id=goal_run_id,
+            bot_id=bot_id,
+        )
     except Exception:
         logging.getLogger(__name__).exception(
             "supervised GoalRun %s failed to execute", goal_run_id
         )
         return None
-    finally:
-        reset_current_bot(token)
 
 
 def _dispatch_supervised_run(**kwargs: Any) -> bool:
@@ -356,6 +378,16 @@ def _dispatch_supervised_run(**kwargs: Any) -> bool:
     )
     thread.start()
     return True
+
+
+async def _supervise_task_tool(**kwargs: Any) -> dict[str, Any]:
+    """Tool entry: run on the event loop so the dispatched run joins it.
+
+    A sync tool runs in a worker thread with no loop; the run it dispatched
+    would then need its own loop, away from the process's durable pool.
+    """
+
+    return supervise_task(**kwargs)
 
 
 _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
@@ -569,7 +601,7 @@ _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
             },
             "required": ["project_root", "objective"],
         },
-        supervise_task,
+        _supervise_task_tool,
         "local_write",
     ),
 )
