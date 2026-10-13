@@ -104,3 +104,43 @@ project is TypeScript-only, the idea was ported by hand into the repo's Python
     fork/handoff brief (no new store).
 - **Notes:** Web-UI automation/recording from the upstream was deliberately not
   borrowed.
+
+## yobiru
+
+- **Upstream:** chekusu/yobiru
+- **License:** MIT
+- **Use:** design borrowed, no code vendored.
+- **Borrowed by:** W13 (cross-device agent control)
+- **What was borrowed** (three ideas, reimplemented in Veya's own architecture
+  under `server/remote_control/`):
+  - **Machine identity via Tailscale.** A remote peer is identified by
+    `tailscale whois --json <ip>` (node + user login), checked against a local
+    policy — tailnet default, optional allowlist, deny wins, rules by
+    hostname / FQDN / `tag:` / `user:`. Reimplemented in
+    `server/remote_control/identity.py` behind an injectable runner seam.
+    Message access never implies permission to wake, execute or auto-reply.
+  - **Receiver-side wake policy per sender + agent.** The sender may *request*
+    wake now / batch / none; the receiving side decides, with quiet hours and a
+    rate limit. Reimplemented in `server/remote_control/wake.py` on top of the
+    existing `RoutineRegistry` + `RoutineClock` (no new scheduler).
+  - **File handoff with integrity.** A staged attachment is fetched behind an
+    expiring (default 24h) link bound to one recipient; the recipient verifies
+    size **and** SHA-256 before use, and the contents are treated as data, never
+    instructions. Reimplemented in `server/remote_control/files.py`.
+- **Notes:** yobiru is a TypeScript project; the ideas were ported into this
+  repo's Python layers by hand. No upstream source code is present.
+- **Not borrowed:** the delivery vocabulary (`accepted → woken → acked → done`,
+  never claiming completion without verifier evidence) is credited in
+  `W13_REMOTE_CONTROL_SPEC.md` §3 to `cmux` as inspiration prose; the
+  implementation reuses this repository's own verifier (`server/goal_run/verify.py`)
+  and needs no upstream material.
+
+## Paseo (clean-room — no borrowing)
+
+- **Upstream:** getpaseo/paseo
+- **License:** AGPL-3.0
+- **Use:** **clean-room only.** Named in `W13_REMOTE_CONTROL_SPEC_DRAFT.md` as
+  inspiration, but **no upstream file was opened, no code and no prose was
+  copied**, and nothing in this repository derives from Paseo source. W13's
+  remote-control code was written from the requirements in
+  `W13_REMOTE_CONTROL_SPEC.md` and from Veya's own code.
