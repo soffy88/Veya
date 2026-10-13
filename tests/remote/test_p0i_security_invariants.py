@@ -435,13 +435,15 @@ async def test_an_unmodellable_trailing_command_fails_safe(repo: Path) -> None:
     """§9.6, and the rule P0-H leaned on: what the parser cannot model is graded
     at the top class rather than read as benign.
 
-    ``python -c "import sys; sys.exit(0)"`` alone is permitted — an inline
-    interpreter is not privileged. The ``;`` is what matters: the parser splits
-    it and the trailing segment is not a command it can model, so the whole
-    string is escalated and approval is requested instead of the string being
-    read as a harmless first command. Relaxing this to give a test a convenient
-    carrier would trade a security property for ergonomics, so it is pinned as it
-    stands rather than worked around.
+    A well-formed ``python -c "import sys; sys.exit(0)"`` is permitted — an
+    inline interpreter is not privileged, and LOCAL2-U4 made the parser
+    quote-aware so the ``;`` *inside* the quoted program is program text, not a
+    command boundary. An *unterminated* command is different: the parser cannot
+    model where it ends, so the whole string is escalated and approval is
+    requested instead of the string being read as a harmless first command.
+    Relaxing this to give a test a convenient carrier would trade a security
+    property for ergonomics, so it is pinned as it stands rather than worked
+    around.
     """
     gateway, secret = make_gateway([repo])
     session = await open_session(gateway, secret, str(repo))
@@ -451,7 +453,7 @@ async def test_an_unmodellable_trailing_command_fails_safe(repo: Path) -> None:
         secret,
         session,
         "shell.exec",
-        {"command": f'{PY} -c "import sys; sys.exit(0)"', "workspace": str(repo), "wait": True},
+        {"command": f'{PY} -c "import sys; sys.exit(0)', "workspace": str(repo), "wait": True},
     )
 
     assert envelope["ok"] is False, envelope

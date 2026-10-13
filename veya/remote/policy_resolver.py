@@ -284,7 +284,7 @@ class WorkspacePolicy(PolicyLayer):
         # LOCAL2-U4: a pure, non-secret shell read outside the workspace (a
         # sibling project, /tmp, the home dir) is not an escape worth denying;
         # the engine's own wide-read rule decides it.
-        from .permission_engine import _is_wide_read
+        from .permission_engine import _is_plain_outside_write, _is_wide_read
 
         if _is_wide_read(context):
             return LayerVerdict(
@@ -292,6 +292,18 @@ class WorkspacePolicy(PolicyLayer):
                 LayerOutcome.ABSTAIN,
                 "workspace.wide-read",
                 "non-secret read outside the workspace",
+            )
+        # LOCAL2-R2: a plain, reversible write into the user's own home / /tmp /
+        # data root is not a containment escape.  The engine already allowed it
+        # (ALLOW_PROJECT_MUTATION); denying it here would refuse a compound
+        # command merely because one segment writes outside the bound root, even
+        # when every other segment is an ordinary read.
+        if _is_plain_outside_write(context):
+            return LayerVerdict(
+                self.name,
+                LayerOutcome.ABSTAIN,
+                "workspace.outside-write",
+                "plain reversible write outside the workspace",
             )
         for target in context.target_paths:
             try:

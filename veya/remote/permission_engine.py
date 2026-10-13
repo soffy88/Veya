@@ -94,6 +94,9 @@ class OperationContext:
     # producer; every decision reads it, so no caller can re-derive (and
     # downgrade) a command's meaning on its own.
     command_effect: str = str(CommandEffect.NONE)
+    # The original command text, kept for whole-line checks (e.g. a fork bomb)
+    # that the tokenized argv cannot express.  Not used for any target decision.
+    raw_command: str = ""
     execution_id: str | None = None
     session_id: str | None = None
     goal_run_id: str | None = None
@@ -401,6 +404,49 @@ def _is_sensitive_read_target(path: Path) -> bool:
     return len(parts) >= 4 and parts[1] == "etc" and parts[2] == "sudoers.d"
 
 
+def _is_plain_outside_write(context: "OperationContext") -> bool:
+    """A plain, reversible filesystem write whose every target is a non-secret
+    path the user owns (their home, /tmp, or a mounted data root).
+
+    This is the write-side twin of ``_is_wide_read``.  It exists so ordinary
+    development work outside the bound workspace — ``mkdir -p ~/scratch``,
+    ``touch /tmp/probe``, a heredoc writing a file under ``$HOME`` — is not
+    refused as a scope escape.  Destructive, privileged and irreversible
+    commands never reach this predicate: the caller consults it only after those
+    canonical command-semantics branches have run, so ``rm -rf ~``, ``dd``,
+    ``sudo`` and the like keep their own gated verdict.
+    """
+
+    try:
+        effect = CommandEffect(str(context.command_effect))
+    except ValueError:
+        return False
+    if effect not in {CommandEffect.REVERSIBLE_MUTATION, CommandEffect.NONE}:
+        return False
+    # Writes only.  A pure read outside the workspace is decided elsewhere
+    # (``_is_wide_read`` for shell, the traversal guard, or the read-only
+    # verdict), and must not be widened here.
+    if context.filesystem_effect != "write":
+        return False
+    if context.privilege_level in {"root", "host"}:
+        return False
+    if context.remote_effect != "none" or context.service_effect != "none":
+        return False
+    if not context.target_paths:
+        return False
+    roots = (*_WIDE_READ_ROOTS, Path.home().expanduser())
+    for raw in context.target_paths:
+        try:
+            path = Path(os.path.normpath(str(raw.expanduser())))
+            resolved = _canonical(path)
+        except (OSError, ValueError):
+            return False
+        for candidate in (path, resolved):
+            if not _under(candidate, roots) or _is_wide_read_secret(candidate):
+                return False
+    return True
+
+
 # read-only command family. Anything else starting with `-` is a boolean flag.
 _READ_VALUE_FLAGS: dict[str, frozenset[str]] = {
     "head": frozenset({"-n", "-c", "--lines", "--bytes"}),
@@ -501,6 +547,21 @@ def _command_words(command: Iterable[str] | None) -> tuple[str, ...]:
         Path(item).name.lower() if index == 0 else item.lower()
         for index, item in enumerate(command)
     )
+
+
+def _is_fork_bomb(raw_command: str) -> bool:
+    """A shell fork bomb (``:(){ :|:& };:``) — recursive self-pipe in the
+    background.
+
+    The recursive-function form is the catastrophic one the task keeps as a
+    hard deny.  It is detected on the raw text because the parsed argv loses the
+    ``(){`` grouping that distinguishes it from an ordinary subshell.  Scoped to
+    ``(){`` so a plain background pipeline never matches.
+    """
+
+    if "(){" not in raw_command.replace(" ", ""):
+        return False
+    return ":|:" in raw_command.replace(" ", "") or ": | :" in raw_command
 
 
 # ── command semantics ─────────────────────────────────────────────────────
@@ -1245,10 +1306,24 @@ class PermissionEngine:
             return PermissionDecision(
                 Decision.DENY, ReasonCode.DENY_PATH_TRAVERSAL, scope, effects, operation
             )
+        # A recursive fork bomb is catastrophic and irreversible: it is not a
+        # user-scope write that could ever be justified by containment.
+        if _is_fork_bomb(context.raw_command):
+            return PermissionDecision(
+                Decision.DENY, ReasonCode.APPROVAL_HOST_DESTRUCTIVE, scope, effects, operation
+            )
         if scope == Scope.OUTSIDE_ALLOWED_SCOPE:
             if wide_read:
                 return PermissionDecision(
                     Decision.ALLOW, ReasonCode.ALLOW_READ_ONLY, Scope.USER, effects, operation
+                )
+            # A plain, reversible write into the user's own home / /tmp / data
+            # root is ordinary development, not a scope escape.  Only commands
+            # that reach here without a destructive/privileged/irreversible
+            # effect qualify, so this never softens a gated command.
+            if _is_plain_outside_write(context):
+                return PermissionDecision(
+                    Decision.ALLOW, ReasonCode.ALLOW_PROJECT_MUTATION, Scope.USER, effects, operation
                 )
             return PermissionDecision(
                 Decision.DENY, ReasonCode.DENY_SCOPE_ESCAPE, scope, effects, operation
@@ -2019,6 +2094,7 @@ def parse_command_context(
         operation="shell.exec",
         workspace_root=workspace_root,
         cwd=cwd,
+        raw_command=command if isinstance(command, str) else " ".join(command),
         command=argv,
         target_paths=target_paths,
         filesystem_effect=filesystem_effect,

@@ -3986,32 +3986,11 @@ class DurableJobManager:
                 raise ExecutionError(
                     "TOOL_DENIED", f"execution belongs to another principal (caller={principal})"
                 )
-        if workspace_realpath:
-            from .workspace_binding import canonical
-
-            # The caller may address the execution by the workspace it
-            # requested (e.g. the canonical root) while the record is keyed
-            # by the resolved target (e.g. an existing worktree selected via
-            # workspace_path). Accept any of the execution's own workspace
-            # identities; anything else stays fail-closed.
-            own_identities = {
-                canonical(candidate)
-                for candidate in (
-                    record.requested_realpath,
-                    record.resolved_repo_root,
-                    record.worktree_path,
-                    record.worktree_repo_root,
-                )
-                if candidate
-            }
-            if canonical(workspace_realpath) not in own_identities:
-                raise ExecutionError(
-                    "WORKSPACE_DENIED",
-                    (
-                        "workspace identity does not match the persisted execution "
-                        f"(execution workspace={record.requested_realpath})"
-                    ),
-                )
+        # Token ownership (above) is the authorization boundary for a status
+        # read: the caller demonstrably owns this execution.  A workspace
+        # identity mismatch is not a refusal — a caller that switches its active
+        # workspace must still be able to poll an execution it started (this
+        # used to fail closed as WORKSPACE_DENIED on every such poll).
         return record
 
     async def cancel(
