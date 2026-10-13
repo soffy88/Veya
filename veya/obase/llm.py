@@ -810,6 +810,16 @@ async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
         pool, source = live, "gateway-probe"
     else:
         pool, source = list(_VEYA12_FREE_POOL), "static-seed-fallback"
+    # Bot chat (W11): the in-process free pool calls OpenRouter :free models
+    # directly and dies as soon as their per-day quota is spent, while the host
+    # gateway veya-free pool (more upstreams, live probing) still answers in
+    # seconds.  Try the gateway first, like _veya12_pool already does; it is
+    # skipped inside the gateway itself (VEYA_GATEWAY_POOL_DISABLED) and when
+    # pi does not offer veya-free.
+    gateway = _veya_gateway_candidates()
+    if gateway:
+        pool = gateway + [c for c in pool if c.get("provider") != "veya-gw"]
+        source = f"gateway+{source}"
     if not pool:
         fb = await _frontier_fallback(
             messages,
@@ -832,6 +842,14 @@ async def _veya12_free_call(messages: list[dict], kwargs: dict) -> dict:
         }
     start = _veya12_free_rr_cursor % len(pool)
     _veya12_free_rr_cursor = (_veya12_free_rr_cursor + 1) % len(pool)
+    if gateway:
+        # The gateway does its own round robin; keep it first and rotate only
+        # the direct candidates behind it.
+        rest = pool[len(gateway):]
+        if rest:
+            k = start % len(rest)
+            rest = rest[k:] + rest[:k]
+        pool, start = gateway + rest, 0
     resp = await _veya12_rr_call(
         messages,
         kwargs,
@@ -1250,7 +1268,11 @@ async def llm_call(messages: list[dict], **kwargs: Any) -> dict:
     # Runs BEFORE the legacy alias branches below so that, e.g., a config
     # injected provider="veya1.2" cannot swallow a requested "veya1.2-free".
     # ------------------------------------------------------------------
-    _resolved = _cp.resolve_canonical(model, provider)
+    # provider "veya-gw" is the host gateway: it owns the veya-free / veya1.2
+    # aliases itself.  Resolving them here again turned every gateway
+    # candidate into a recursive call of the in-process pool, so the gateway
+    # was never actually reached (W11 bot chat).
+    _resolved = None if provider == "veya-gw" else _cp.resolve_canonical(model, provider)
     if _resolved is not None:
         _low = _resolved.requested.lower()
         if _resolved.canonical == "veya-nim":
