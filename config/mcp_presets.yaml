@@ -1,0 +1,97 @@
+# W14 — MCP preset pack (5 external MCP servers).
+#
+# Additive ONLY: presets describe how to launch / reach an EXTERNAL
+# process or remote endpoint. Veya never vendors their code, never
+# runs them unless VEYA_MCP_PRESETS=1, and never infers a required
+# key VALUE from this file — only the env var *names* live here.
+#
+# All five servers are read-only over their MCP surface: their
+# declared side effect is `external_read` (mapped to PURE_READ in
+# the tool registry — see server.mcp_presets.EFFECTS). They launch
+# as separate processes / remote endpoints, exactly like the
+# existing codebase_memory / hevi / open_design connectors.
+#
+# Command tokens may use two placeholders, both substituted by
+# server.mcp_presets._resolve_command:
+#   {venv_python} — absolute path to the running interpreter
+#   {venv_bin}    — its sibling bin/ directory (for pip console scripts)
+#
+# Each command below is the entry point its upstream publishes; `runtime`
+# records which install path is needed. See W14_REPORT.md for the
+# upstream file each one was taken from.
+
+- name: markitdown
+  description: "Microsoft MarkItDown — Docs/Office/PDF → Markdown conversion"
+  transport: stdio
+  runtime: python          # pip install markitdown-mcp
+  command:
+    # [project.scripts] markitdown-mcp = "markitdown_mcp.__main__:main"
+    - "{venv_bin}/markitdown-mcp"
+  env: []            # no API key required
+  side_effect: external_read
+  license: MIT
+  attribution: "https://github.com/microsoft/markitdown"
+
+- name: mineru
+  description: "MinerU — PDF/OCR document parsing, strong Chinese support"
+  transport: stdio
+  runtime: python          # pip install mineru-open-mcp
+  command:
+    # MinerU-Ecosystem/mcp [project.scripts]:
+    #   mineru-open-mcp = "mineru_open_mcp.cli:main"
+    # (package is mineru_open_mcp and ships no __main__.py, so the console
+    # script is the documented way to start it)
+    - "{venv_bin}/mineru-open-mcp"
+  env: []            # flash mode needs no token; MINERU_API_TOKEN is optional
+  side_effect: external_read
+  # The MCP server package (MinerU-Ecosystem/mcp) is MIT and the
+  # MinerU-Ecosystem repo is Apache-2.0. The MinerU *core* was AGPL-3.0
+  # before upstream relicensed it (opendatalab/MinerU@e148afa, 2026-04-14).
+  # We launch it as a separate process and vendor none of it either way.
+  license: MIT
+  attribution: "https://github.com/opendatalab/MinerU-Ecosystem"
+
+- name: brave-search
+  description: "Brave Search MCP — web search via the Brave Search API"
+  transport: stdio
+  runtime: node             # npm @brave/brave-search-mcp-server (Node ESM, no python)
+  command:
+    # package.json: "bin": {"brave-search-mcp-server": "dist/index.js"}
+    - "npx"
+    - "-y"
+    - "@brave/brave-search-mcp-server"
+  env:
+    - BRAVE_API_KEY  # key VALUE never lives in this file
+  side_effect: external_read
+  license: MIT
+  attribution: "https://github.com/brave/brave-search-mcp-server"
+
+- name: exa
+  description: "Exa MCP — semantic web search by Exa"
+  transport: stdio
+  runtime: node             # npm exa-mcp-server
+  command:
+    # package.json: "bin": {"exa-mcp-server": "dist/stdio.cjs"}
+    - "npx"
+    - "-y"
+    - "exa-mcp-server"
+  env:
+    - EXA_API_KEY    # key VALUE never lives in this file
+  side_effect: external_read
+  license: MIT
+  attribution: "https://github.com/exa-labs/exa-mcp-server"
+
+- name: context7
+  description: "Context7 — up-to-date library docs for coding agents"
+  transport: stdio
+  runtime: node             # npm @upstash/context7-mcp
+  command:
+    # npm: @upstash/context7-mcp "bin": {"context7-mcp": "dist/index.js"}
+    - "npx"
+    - "-y"
+    - "@upstash/context7-mcp"
+  env:
+    - CONTEXT7_API_KEY  # optional upstream key; presence still gates attach
+  side_effect: external_read
+  license: MIT
+  attribution: "https://github.com/upstash/context7"
