@@ -206,7 +206,7 @@ def advance(
     return {
         "session": sessions_mod.get_session(session_id),
         "wake": decision.to_dict(),
-        "launched": result.ok,
+        "launched": result.pid is not None,
         "launch": result.to_dict(),
         "refused": False,
     }
@@ -449,13 +449,7 @@ async def request_handoff(
     return {"session": session, "approval_id": approval_id}
 
 
-def handoff(
-    session_id: str,
-    *,
-    approval_id: str,
-    target_host_id: str = "",
-    target_agent_label: str = "",
-) -> RemoteSession:
+def handoff(session_id: str, *, approval_id: str) -> RemoteSession:
     """Apply an approved hand-off. The new session starts at ``accepted``.
 
     The target is the one recorded when the hand-off was *requested* — the
@@ -468,10 +462,10 @@ def handoff(
     if session is None:
         raise RemoteControlRefused("session not found", code="not_found")
     approval_mod.require_approved(approval_id or session.handoff_approval_id)
-    target_host = target_host_id or session.target_host_id
+    target_host = session.target_host_id
     if not target_host:
         raise RemoteControlRefused("no hand-off target recorded", code="no_target")
-    target_label = target_agent_label or session.target_agent_label or session.agent_label
+    target_label = session.target_agent_label or session.agent_label
     _require_host(target_host, session.owner_id)
     context = sessions_mod.build_handoff_context(session)
     created = sessions_mod.create_session(
