@@ -514,6 +514,16 @@ async def _supervise_from_phrase(
         return None
 
     project_root = str(workspace_id or "")
+    if not project_root:
+        # No workspace bound: never fall back to the process cwd (/app is
+        # read-only in prod). Use the bot's own dir under the write root.
+        import os
+        from pathlib import Path
+
+        base = Path(os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work")))
+        bot_root = base / "supervised" / str(bot.bot_id)
+        bot_root.mkdir(parents=True, exist_ok=True)
+        project_root = str(bot_root)
 
     # Record the user's message so the turn is durable like any other
     # bot turn — the supervisor reply is the bot's answer to it.
