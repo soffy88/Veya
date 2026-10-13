@@ -66,14 +66,22 @@ def test_review_writer_mirrors_bot_scope_on_running_loop(v2_store):
 
     async def scenario():
         write = _make_writer(LayeredMemoryStore("bot_mirror"))
-        assert write("add", "用户住在杭州")["ok"]
+        assert write("add", "用户住在杭州 [source: part 1 #x; added: 2026-10-13; by: bot_mirror]")["ok"]
         await asyncio.gather(*list(memory_v2_mirror._BG_TASKS))
-        return await v2_store.search_memory(
+        active = await v2_store.search_memory(
             "杭州", scope_type="user", scope_id="user_mirror", limit=10
         )
+        return active
 
-    rows = asyncio.run(scenario())
-    assert [r["content"] for r in rows] == ["用户住在杭州"]
+    # Review entries are model proposals: a reviewable candidate, not an active fact.
+    assert asyncio.run(scenario()) == []
+    import sqlite3
+
+    conn = sqlite3.connect(str(v2_store.sqlite_path))
+    rows = conn.execute(
+        "SELECT proposed_content,status FROM memory_candidates WHERE scope_id='user_mirror'"
+    ).fetchall()
+    assert rows == [("用户住在杭州", "candidate")]
 
 
 def test_mirror_off_without_execution_db(monkeypatch):

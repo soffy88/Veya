@@ -137,7 +137,10 @@ def _make_writer(store: LayeredMemoryStore):
         if written.get("ok") and target_scope == "bot":
             # Personal MemoryRecord v2 copy of the reviewed entry (bot scope only;
             # TEAM memory is shared, not one user's).
-            mirror_remember(store.bot_id, entry, entrypoint="bot_memory_review", confidence=0.7)
+            # Model-proposed, so a reviewable candidate (not an active fact).
+            mirror_remember(
+                store.bot_id, entry, entrypoint="bot_memory_review", confidence=0.7, commit=False
+            )
         return written
 
     return write
