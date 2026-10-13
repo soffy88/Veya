@@ -1,0 +1,12 @@
+你在 /data/soffy/projects/veya-w12fix（分支 fix/w12-live-progress，基于 canonical main 47ccc52b）。HARD SAFETY RULES：只能修改本 worktree 内的文件；禁止删除或移动 worktree 外的任何数据；禁止 rm -rf 带通配符；不要碰 .venv（共享软链）和 platform/3O；磁盘不足时写 W12FIX_BLOCKED.md 并退出；不要 push，不要重启任何服务。
+
+问题（线上真实测试）：bot 收到「每 5 分钟告诉我进度：统计 README.md 有多少行」→ server/bot_team/turns.py::_supervise_from_phrase 启动 supervise_task 成功（binding sup_3bbf0cff，project_root = ~/.veya/work/supervised/<bot_id>），但 5 分钟后 routine e646adf9634b43af87454539bf35b11e 触发时，server/bot_team/routine_clock.py::_default_handoff_consumer 里 _try_supervisor_handoff 返回 False，落到 legacy 路径 project_root="." → FileNotFoundError '.veya-project/goal-runs'（生产 cwd /app 只读），用户永远收不到进度报告和最终报告。
+
+任务：
+1. 查清 _try_supervisor_handoff 为什么找不到绑定（binding 持久化位置 / 查找键 / bot_id / project_root 不一致等，见 server/supervisor/binding.py、handoff.py、reporting.py、server/supervision_tools.py）。修好，使触发时走监工路径：发进度报告到该 bot 会话，目标完成且 verifier 通过后发最终报告。
+2. legacy 路径不得再用 project_root="." 写 cwd；无 workspace 时用 VEYA_WRITE_ROOT（默认 ~/.veya/work）下的目录。
+3. 加回归测试：端到端模拟（phrase → supervise_task → routine 触发 handoff → bot 会话出现进度报告；完成后出现最终报告），用 tmp_path 和 monkeypatch，不打真模型。
+4. 跑 .venv/bin/python -m pytest -q tests/test_w12_*.py tests/test_w1*.py tests/test_nano_*.py tests/test_lorca_*.py tests/test_orca_*.py tests/test_p3a_bot_isolation.py tests/test_product_shell.py 全过（允许 test_canonical_proxies 的 3 个已知环境失败）。
+5. 提交，写 W12FIX_REPORT.md（根因、改动、测试数）。
+
+注意：上次运行因读入超大内容（>32MB）中断。读文件/日志一律用 grep、sed -n、head 限定范围，不要整读大文件、docker logs 或二进制。
