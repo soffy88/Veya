@@ -14,3 +14,8 @@ Phase A — backend, flag VEYA_REMOTE_CONTROL default OFF:
 Phase B — web (apps/web): mobile-friendly "Remote" page: hosts, running agents, start task (text + browser speech-to-text), approve/deny cards, done notifications. pnpm check 0 errors + build.
 
 Rules: Paseo is AGPL — clean-room only, never copy code or text. Yobiru MIT ideas → add attribution in NOTICE. Do not touch platform/3O/*, .venv, or uncommitted veya/remote/* files (someone else's WIP; put new code in server/remote_control/). No new scheduler, event store, approval, capability registry. Tests in tests/test_w13_*.py (mock tailscale/network). Run only those plus tests/test_product_shell.py and tests/test_w12_supervisor.py, one or two files per pytest call. Commit after each passing step with `git add -A -- . ':!.venv' ':!platform/3O'`. If resumed, read git log and uncommitted files first. Finish with W13_REPORT.md committed listing flags, new model-callable tools, routes, what is left.
+
+## HARD SAFETY RULES (added after an incident)
+- Only create/modify/delete files inside this worktree (/data/soffy/projects/veya-w13). NEVER delete, move or clean anything outside it (other projects, ~/.cache, /tmp/* of others, venvs, node_modules). Never run rm -rf with globs. Never touch .venv (it is a symlink to the shared venv).
+- If the disk is full or space is low: STOP, write the problem to W13_BLOCKED.md and exit. Do not free space yourself.
+- server/remote_control/ contains uncommitted work from a weaker previous worker: review it critically, keep what is correct, rewrite what is not, and add tests.
