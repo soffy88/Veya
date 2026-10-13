@@ -11,7 +11,8 @@ Contract:
   bot reads or writes there.  This module only *adds* a durable V2 copy.
 - An explicit ``remember`` is a user instruction, so it is committed (candidate
   -> commit, the normal V2 provenance path).  A conflict with an existing fact
-  is left as a reviewable candidate, never forced.
+  is left as a reviewable candidate, never forced.  An entry the turn-end
+  memory *review* (a model proposal) wrote is mirrored as a candidate only.
 - ``forget`` marks the owner's matching active V2 records forgotten, so a fact
   the user removed from the bot does not survive in V2.
 - Records are user-scoped to the bot's owner, so the existing user-boundary
@@ -26,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from typing import Any
 
 logger = logging.getLogger("veya.bot_team.memory_v2_mirror")
@@ -39,6 +41,9 @@ __all__ = [
 ]
 
 _BG_TASKS: set[asyncio.Task[Any]] = set()
+# The file store's "[source: ...; added: ...; by: ...]" suffix is file metadata,
+# not part of the fact.
+_META = re.compile(r"\s*\[source:[^\]]*\]\s*$")
 
 
 def mirror_enabled() -> bool:
@@ -84,11 +89,13 @@ async def mirror_remember_async(
     confidence: float = 0.9,
     memory_type: str = "semantic",
     owner_id: str | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
-    """Write one bot-memory fact into V2 as a committed record."""
+    """Write one bot-memory fact into V2: committed for an explicit user
+    instruction, a reviewable candidate for a model-proposed entry."""
     if not mirror_enabled():
         return {"status": "skipped", "reason": "mirror off"}
-    content = str(text or "").strip()
+    content = _META.sub("", str(text or "")).strip()
     if not bot_id or not content:
         return {"status": "skipped", "reason": "empty"}
     owner = owner_id or _owner_of(bot_id)
@@ -111,8 +118,10 @@ async def mirror_remember_async(
         reason=f"bot memory ({entrypoint}) bot={bot_id}",
         provenance={"actor": owner, "bot_id": bot_id, "entrypoint": entrypoint},
     )
+    if not commit:
+        return {"status": "candidate", "candidate_id": candidate["id"]}
     try:
-        commit = await store.commit_memory_candidate(candidate["id"])
+        committed = await store.commit_memory_candidate(candidate["id"])
     except PersonalRuntimeError as exc:
         # Conflicts stay reviewable candidates; that is the V2 contract.
         logger.warning(
@@ -122,7 +131,7 @@ async def mirror_remember_async(
             exc,
         )
         return {"status": "candidate", "candidate_id": candidate["id"], "code": exc.code}
-    record = (commit or {}).get("record") or {}
+    record = (committed or {}).get("record") or {}
     return {"status": "committed", "candidate_id": candidate["id"], "record_id": record.get("id")}
 
 
