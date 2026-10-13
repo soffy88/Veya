@@ -77,9 +77,7 @@ class TestPresetParse:
     def test_env_fields_are_names_not_values(self) -> None:
         brave = _preset("brave-search")
         assert brave["env"] == ["BRAVE_API_KEY"]
-        assert "BRAVE_API_KEY" not in yaml.safe_load(
-            Path(mcp_presets.PRESET_FILE).read_text()
-        )
+        assert "BRAVE_API_KEY" not in yaml.safe_load(Path(mcp_presets.PRESET_FILE).read_text())
 
     def test_invalid_preset_raises(self, tmp_path: Path) -> None:
         bad = tmp_path / "bad.yaml"
@@ -135,19 +133,35 @@ class TestDeclaredSideEffects:
             assert EFFECTS[preset["side_effect"]] == "pure_read"
 
     def test_gateway_tools_carry_declared_side_effect(self, flag_on: None) -> None:
-        from server.tool_registry import SideEffect, master_tools
+        """The preset gateway must be registered with a declared side effect.
 
-        # Fresh registration path: adapters without a live client are
-        # simply absent; the declaration contract is what matters.
-        spec = master_tools.spec_for("mcp_brave-search")
-        if spec is None:
-            # Not wired in this process (flag off / no process) — the
-            # declaration path is exercised by the adapter test below.
-            return
-        assert spec.side_effect in {
-            SideEffect.PURE_READ,
-            SideEffect.EXTERNAL_MUTATION,
-        }
+        Wired explicitly against the registry rather than reading a
+        possibly-absent spec: an early `return` here would make the test
+        pass without asserting anything.
+        """
+        from server.tool_registry import SideEffect, master_tools, register_mcp_tools
+
+        adapters = [
+            {
+                "name": "fixture_action",
+                "description": "fixture action",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"q": {"type": "string"}},
+                    "required": ["q"],
+                },
+                "func": _ok,
+            }
+        ]
+        assert (
+            register_mcp_tools("preset-side-effect", adapters, side_effect=SideEffect.PURE_READ)
+            == 1
+        )
+        spec = master_tools.spec_for("mcp_preset-side-effect")
+        assert spec is not None, "gateway tool was not registered at all"
+        # All five presets are read-only over their MCP surface, so a
+        # mutating declaration would be a spec violation, not an option.
+        assert spec.side_effect is SideEffect.PURE_READ
 
     def test_register_mcp_tools_declares_side_effect(self, flag_on: None) -> None:
         from server.tool_registry import SideEffect, register_mcp_tools
@@ -195,9 +209,7 @@ class TestDeclaredSideEffects:
                     }
                 ]
 
-        adapters = await mcp_presets._collect_adapters(
-            {"name": "markitdown"}, _FakeClient()
-        )
+        adapters = await mcp_presets._collect_adapters({"name": "markitdown"}, _FakeClient())
         assert len(adapters) == 1
         assert adapters[0]["name"] == "mcp_markitdown_convert"
         assert mcp_presets.UNTRUSTED_NOTE in adapters[0]["description"]
@@ -230,21 +242,111 @@ class TestWireMasterTools:
     async def test_missing_key_never_spawns_process(
         self, flag_on: None, no_keys: pytest.MonkeyPatch
     ) -> None:
+        """A preset whose required KEY is absent is never launched.
+
+        Recorded spawn attempts are asserted, not just the returned count:
+        the wiring loop swallows per-preset failures, so a launch failure
+        used to leave this test green while markitdown/mineru still tried.
+        """
+        attempts: list[str] = []
+
+        def spy_build(preset: dict[str, Any]) -> Any:
+            attempts.append(preset["name"])
+            raise AssertionError(f"preset {preset['name']!r} spawned without its key")
+
         monkey = pytest.MonkeyPatch()
 
         try:
-            monkey.setattr(mcp_presets, "_build_client", _must_not_spawn)
+            monkey.setattr(mcp_presets, "_build_client", spy_build)
             registered = await mcp_presets.wire_master_tools()
         finally:
             monkey.undo()
 
         assert registered == 0
+        assert attempts == ["markitdown", "mineru"], (
+            "keyless presets are supposed to launch; keyed ones are not"
+        )
+
+    async def test_registries_gateway_tools_when_a_preset_wires(
+        self, flag_on: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End-to-end wiring: a live preset reaches the main tool registry.
+
+        Guards the launch path itself, which is where a client resolved
+        from the wrong object (`veya.platform.obase` is a loader
+        function, not the module) fails for every preset.
+        """
+        from server.tool_registry import SideEffect, master_tools
+
+        for key in ("BRAVE_API_KEY", "EXA_API_KEY", "CONTEXT7_API_KEY"):
+            monkeypatch.setenv(key, "fixture")
+        monkeypatch.setattr(mcp_presets, "_build_client", lambda _preset: _FakeMcpClient([]))
+
+        try:
+            registered = await mcp_presets.wire_master_tools()
+            assert registered == 5, "one gateway tool per preset"
+            for name in ("markitdown", "mineru", "brave-search", "exa", "context7"):
+                spec = master_tools.spec_for(f"mcp_{name}")
+                assert spec is not None, f"{name} gateway missing from registry"
+                assert spec.side_effect is SideEffect.PURE_READ
+        finally:
+            for name in ("markitdown", "mineru", "brave-search", "exa", "context7"):
+                master_tools._functions.pop(f"mcp_{name}", None)
+
+    def test_build_client_resolves_a_real_stdio_client(self) -> None:
+        """_build_client must resolve the obase *module*, not its loader.
+
+        `veya.platform.obase` is a loader function with none of obase's
+        attributes, so building a client from it raises AttributeError for
+        every preset — silently, inside the wiring loop. Constructing a
+        client does not launch it, so this stays process-free.
+        """
+        from veya.platform import load
+
+        client = mcp_presets._build_client(_preset("markitdown"))
+
+        assert isinstance(client, load("obase").StdioMcpClient)
+        assert type(client).__name__ == "StdioMcpClient"
+
+    def test_lifespan_awaits_the_preset_wire(self) -> None:
+        """server/app.py must await wire_master_tools, not just call it.
+
+        The wire is a coroutine function; calling it without `await`
+        produces a never-awaited coroutine and silently wires nothing.
+        Checked on the AST so the regression cannot come back quietly.
+        """
+        import ast
+
+        app_path = Path(mcp_presets.__file__).resolve().parents[1] / "server" / "app.py"
+        tree = ast.parse(app_path.read_text(encoding="utf-8"))
+        direct_calls = {
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "wire_w14"
+        }
+        awaited_calls = {
+            node.value.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Await)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "wire_w14"
+        }
+        assert direct_calls, "server/app.py no longer calls wire_w14"
+        assert direct_calls == awaited_calls, (
+            f"wire_w14() called without await on line(s) "
+            f"{sorted(direct_calls - awaited_calls)} — the preset pack would not wire"
+        )
+
+
+async def _ok(**_kwargs: Any) -> dict[str, Any]:
+    return {"ok": True}
 
 
 def _must_not_spawn(preset: dict[str, Any]) -> Any:
-    raise AssertionError(
-        f"preset {preset.get('name')!r} spawned a process without its key"
-    )
+    raise AssertionError(f"preset {preset.get('name')!r} spawned a process without its key")
 
 
 # ---------------------------------------------------------------------------
@@ -390,9 +492,7 @@ class TestPresetRoutes:
         from server.routes import mcp_presets as preset_routes
 
         monkeypatch.setenv("BRAVE_API_KEY", "fixture")
-        monkeypatch.setattr(
-            preset_routes.mcp_presets, "attach_preset", _fake_attach
-        )
+        monkeypatch.setattr(preset_routes.mcp_presets, "attach_preset", _fake_attach)
 
         calls: list[dict[str, Any]] = []
 
@@ -401,9 +501,7 @@ class TestPresetRoutes:
             return {"user_id": "user-2"}
 
         monkeypatch.setattr(auth_mod, "require_user", require_user)
-        monkeypatch.setattr(
-            preset_routes.mcp_presets, "_owned_bot", _owned_bot_other
-        )
+        monkeypatch.setattr(preset_routes.mcp_presets, "_owned_bot", _owned_bot_other)
         response = preset_router.post(
             "/api/v1/mcp-presets/brave-search/attach",
             json={"bot_id": "bot-1"},

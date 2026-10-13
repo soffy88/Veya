@@ -288,7 +288,7 @@ async def lifespan(app: FastAPI):
     from server.mcp_presets import wire_master_tools as wire_w14
 
     try:
-        wire_w14()  # mcp_markitdown / mcp_mineru / … → 主脑工具面
+        await wire_w14()  # mcp_markitdown / mcp_mineru / … → 主脑工具面
     except Exception:
         import logging
 
