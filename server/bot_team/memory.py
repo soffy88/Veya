@@ -342,6 +342,9 @@ def bot_memory_note(text: str) -> str:
         )
     store = BotMemoryStore(bot_id)
     store.append_note(text, caller_bot_id=bot_id)
+    from server.bot_team.memory_v2_mirror import mirror_remember
+
+    mirror_remember(bot_id, text, entrypoint="bot_memory_note")
     return json.dumps(
         {"ok": True, "bot_id": bot_id, "file": CORE_FILE, "chars": len(text)},
         ensure_ascii=False,
