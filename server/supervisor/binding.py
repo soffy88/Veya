@@ -2,7 +2,7 @@
 # 理由：SupervisorBinding 是 A1 规范里「persisted where routines already
 # persist」的绑定簿；per-record JSON 簿是仓库既有模式（同形模块
 # server/bot_team/memory_layers.py、server/goal_run/bot_identity.py 等
-# 均使用 tmp + os.replace 原子写 + 显式 # 3O-IO-ALLOW 标记；
+# 均使用 atomic_write_json 原子写 + 显式 # 3O-IO-ALLOW 标记；
 # server/goal_run/routine_registry.py 走 baseline 覆盖路径）。
 # 新增第二套存储会违反「不新增第二套存储」的冻结约束；
 # 判定/状态算法在 server/supervisor/reporting.py + handoff.py。
@@ -115,11 +115,11 @@ def _read_all() -> dict[str, dict[str, Any]]:
 
 
 def _write_all(bindings: dict[str, dict[str, Any]]) -> None:
+    from server.bot_team.conversations import atomic_write_json
+
     path = _binding_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(bindings, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_write_json(path, bindings)
 
 
 def save_binding(binding: SupervisorBinding) -> SupervisorBinding:
