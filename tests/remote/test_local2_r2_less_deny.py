@@ -231,7 +231,8 @@ def test_ordinary_pipelines_are_not_a_fork_bomb(tmp_path: Path, command: str) ->
 def test_plain_outside_write_does_not_unlock_destructive_git(tmp_path: Path) -> None:
     _repo(tmp_path)
     gw = ActionGateway()
-    for command in ("git push origin main", "git push --force", "git reset --hard"):
+    # LOCAL2-R3: a plain (non-force) push is ordinary work now.
+    for command in ("git push --force", "git reset --hard"):
         ok, _code, _msg, cl = gw.check_action(
             "shell.exec", {"command": command}, _session(tmp_path), str(tmp_path)
         )

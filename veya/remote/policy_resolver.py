@@ -85,6 +85,7 @@ _ENGINE_CAPABILITY = {
     ReasonCode.DENY_PATH_TRAVERSAL: "denied.path_traversal",
     ReasonCode.DENY_AUTHORITY_VIOLATION: "denied.authority",
     ReasonCode.DENY_INVALID_APPROVAL: "denied.invalid_approval",
+    ReasonCode.DENY_CATASTROPHIC: "denied.catastrophic",
 }
 
 
@@ -225,9 +226,9 @@ class SecurityPolicy(PolicyLayer):
         if raw_command and _SECRET_DISCOVERY.search(raw_command):
             return LayerVerdict(
                 self.name,
-                LayerOutcome.DENY,
+                LayerOutcome.APPROVAL_REQUIRED,
                 "security.secret-discovery",
-                "credential discovery is permanently denied",
+                "reading credentials requires approval",
             )
         home = Path.home().resolve()
         for target in context.target_paths:
@@ -241,9 +242,9 @@ class SecurityPolicy(PolicyLayer):
             ):
                 return LayerVerdict(
                     self.name,
-                    LayerOutcome.DENY,
+                    LayerOutcome.APPROVAL_REQUIRED,
                     "security.credential-boundary",
-                    "credential store access denied",
+                    "credential store access requires approval",
                 )
         if any(Path(str(p)).name == ".env" for p in context.target_paths) and (
             context.filesystem_effect != "read" or "secret" in raw_command.lower()
@@ -257,6 +258,21 @@ class SecurityPolicy(PolicyLayer):
         return LayerVerdict(
             self.name, LayerOutcome.ABSTAIN, "security.abstain", "no secret boundary hit"
         )
+
+
+def _under_user_roots(path: Path) -> bool:
+    """Home, /tmp and the data roots belong to the user (LOCAL2-R3)."""
+
+    roots = (
+        Path.home().expanduser().resolve(),
+        Path("/tmp"),
+        Path("/var/tmp"),
+        Path("/data"),
+        Path("/srv"),
+        Path("/mnt"),
+        Path("/media"),
+    )
+    return any(path == r or r in path.parents for r in roots)
 
 
 class WorkspacePolicy(PolicyLayer):
@@ -311,16 +327,21 @@ class WorkspacePolicy(PolicyLayer):
             except OSError:
                 return LayerVerdict(
                     self.name,
-                    LayerOutcome.DENY,
+                    LayerOutcome.APPROVAL_REQUIRED,
                     "workspace.unresolvable-target",
-                    "unresolvable target denied",
+                    "unresolvable target requires approval",
                 )
             if canon != root and root not in canon.parents:
+                # LOCAL2-R3: on the user's own machine leaving the bound
+                # workspace is not a refusal.  Reads and anything under the
+                # user's own roots go to the engine; the rest is reviewed.
+                if context.filesystem_effect in {"read", "none"} or _under_user_roots(canon):
+                    continue
                 return LayerVerdict(
                     self.name,
-                    LayerOutcome.DENY,
+                    LayerOutcome.APPROVAL_REQUIRED,
                     "workspace.escape",
-                    f"target escapes workspace root: {target}",
+                    f"target outside workspace requires approval: {target}",
                 )
         return LayerVerdict(
             self.name,
@@ -607,7 +628,10 @@ class PolicyResolver:
         matched = [v.layer for v in verdicts if v.outcome != LayerOutcome.ABSTAIN]
 
         # Anti-forgery invariant: a client boolean is never a permission fact.
-        if request.client_approved and not request.approval_id:
+        needs_review = engine_decision.decision is not Decision.ALLOW or any(
+            v.outcome in {LayerOutcome.APPROVAL_REQUIRED, LayerOutcome.DENY} for v in verdicts
+        )
+        if request.client_approved and not request.approval_id and needs_review:
             return PolicyDecision(
                 decision=Decision.DENY,
                 reason=str(ReasonCode.DENY_INVALID_APPROVAL),
@@ -628,7 +652,9 @@ class PolicyResolver:
         effective: frozenset[str] = (
             frozenset.intersection(*grants) if grants else frozenset({engine_capability})
         )
-        if not effective or engine_capability not in effective:
+        if (not effective or engine_capability not in effective) and (
+            engine_decision.decision is not Decision.APPROVAL_REQUIRED
+        ):
             constraining = next(
                 (
                     v.layer

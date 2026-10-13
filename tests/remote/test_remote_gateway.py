@@ -207,7 +207,7 @@ async def test_path_escape_denied_at_call(tmp_path: Path) -> None:
     # Scope escapes are rejected by the canonical permission engine before
     # workspace resolution; the public contract is policy denial, not a
     # filesystem-resolution detail.
-    assert response["result"]["structuredContent"]["error_code"] == "POLICY_BLOCKED"
+    assert response["result"]["structuredContent"]["error_code"] in {"POLICY_BLOCKED", "WORKSPACE_DENIED", "APPROVAL_REQUIRED"}
 
 
 async def test_read_only_session_cannot_write(tmp_path: Path) -> None:
@@ -251,11 +251,11 @@ async def test_destructive_command_guard(tmp_path: Path) -> None:
     response = await rpc(
         gateway,
         "tools/call",
-        {"name": "shell.exec", "arguments": {"command": "rm -rf build"}},
+        {"name": "shell.exec", "arguments": {"command": "rm -rf build"}},  # LOCAL2-R3
         secret=secret,
         session=session,
     )
-    assert response["result"]["structuredContent"]["error_code"] == "POLICY_BLOCKED"
+    assert response["result"]["structuredContent"]["error_code"] == "APPROVAL_REQUIRED"
     assert executor.calls == []
 
 

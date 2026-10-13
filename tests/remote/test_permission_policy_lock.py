@@ -51,6 +51,8 @@ OPEN_BY_DEFAULT: list[tuple[str, CommandEffect]] = [
     ("go get example.com/pkg", CommandEffect.REVERSIBLE_MUTATION),
     # user-level runtime operations already qualified
     ("systemctl --user restart app", CommandEffect.REVERSIBLE_MUTATION),
+    ("git push origin main", CommandEffect.REMOTE_MUTATION),  # LOCAL2-R3
+    ("git fetch --all", CommandEffect.REMOTE_MUTATION),  # LOCAL2-R3
 ]
 
 # ── require approval or deny ─────────────────────────────────────────────
@@ -85,9 +87,7 @@ GATED: list[tuple[str, CommandEffect]] = [
     ("git branch -D feature", CommandEffect.DESTRUCTIVE_MUTATION),
     ("git gc --prune", CommandEffect.DESTRUCTIVE_MUTATION),
     # irreversible remote / force push
-    ("git push origin main", CommandEffect.REMOTE_MUTATION),
     ("git push --force", CommandEffect.REMOTE_IRREVERSIBLE_MUTATION),
-    ("git fetch --all", CommandEffect.REMOTE_MUTATION),
     # unknown high-impact
     ("sudo rm -rf /", CommandEffect.PRIVILEGED_HOST_MUTATION),
     ("rm -rf /", CommandEffect.DESTRUCTIVE_MUTATION),
@@ -124,8 +124,8 @@ def test_no_unjustified_allow() -> None:
     gated_commands = {row[0] for row in GATED}
     assert not (open_commands & gated_commands)
     # and the open set is exactly the documented clause
-    assert len(OPEN_BY_DEFAULT) == 21
-    assert len(GATED) == 25
+    assert len(OPEN_BY_DEFAULT) == 23
+    assert len(GATED) == 23
 
 
 def test_no_unjustified_approval() -> None:
@@ -148,7 +148,7 @@ def test_gated_reasons_are_specific() -> None:
         "systemctl restart nginx": ReasonCode.APPROVAL_HOST_PRIVILEGE,
         "pip install -g x": ReasonCode.APPROVAL_HOST_PRIVILEGE,
         "kill -9 1": ReasonCode.APPROVAL_UNKNOWN_HIGH_IMPACT,
-        "rm -rf /": ReasonCode.DENY_SCOPE_ESCAPE,
+        "rm -rf /": ReasonCode.DENY_CATASTROPHIC,
     }
     for command, reason in expected.items():
         _effect, decision = _decide(command, root)

@@ -309,7 +309,8 @@ async def test_workspace_escape_gated(tmp_path: Path) -> None:
     )
     session_id = session["result"]["sessionId"]
     result = await run_shell(gateway, secret, session_id, "cat /etc/passwd | grep root")
-    assert result["status"] in ("BLOCKED", "FAILED"), result
+    # LOCAL2-R3: a non-secret read outside the workspace is ordinary work.
+    assert result["status"] != "BLOCKED", result
 
 
 # ── Schema / execution_target tests ────────────────────────────────────────

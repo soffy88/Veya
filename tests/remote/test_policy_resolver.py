@@ -94,14 +94,14 @@ def test_deny_workspace_escape() -> None:
     resolver = _resolver()
     request = PolicyRequest(
         actor="tester",
-        tool="file.read",
+        tool="file.write",
         args={"path": "/etc/passwd"},
         workspace=WORKSPACE,
         cwd=WORKSPACE,
     )
     decision = resolver.resolve(request)
-    assert decision.decision is Decision.DENY
-    assert decision.constraining_layer in {"workspace", "permission-engine"}
+    # LOCAL2-R3: a host write outside the workspace is approval-gated.
+    assert decision.decision is Decision.APPROVAL_REQUIRED
 
 
 def test_higher_layer_deny_cannot_be_overridden_below() -> None:
@@ -209,8 +209,10 @@ def test_forged_approved_true_rejected() -> None:
         cwd=WORKSPACE,
         client_approved=True,
     )
-    denied = resolver.resolve(forged_allow)
-    assert denied.decision is Decision.DENY
+    # LOCAL2-R3: a stray boolean on an action that needs no approval is
+    # ignored (it grants nothing it did not already have).
+    ignored = resolver.resolve(forged_allow)
+    assert ignored.decision is Decision.ALLOW
 
 
 def test_explain_output_shape() -> None:
@@ -231,7 +233,15 @@ def test_explain_output_shape() -> None:
     assert explanation["approval"]["capability_id"] == "privileged.sudo"
     assert explanation["engine_decision"] == "APPROVAL_REQUIRED"
     assert isinstance(explanation["why"], str) and explanation["why"]
-    deny_explanation = resolver.explain(_read_request(client_approved=True))
+    deny_explanation = resolver.explain(
+        PolicyRequest(
+            actor="tester",
+            tool="shell.exec",
+            args={"command": "mkfs.ext4 /dev/sdb1"},
+            workspace=WORKSPACE,
+            cwd=WORKSPACE,
+        )
+    )
     assert deny_explanation["decision"] == "DENY"
     assert deny_explanation["why"]
 
@@ -324,8 +334,8 @@ def test_gateway_chain_allow_approval_deny() -> None:
     assert ok is False and str(code) == "APPROVAL_REQUIRED"
     denied = PolicyRequest(
         actor="tester",
-        tool="file.read",
-        args={"path": "/etc/passwd"},
+        tool="shell.exec",
+        args={"command": "mkfs.ext4 /dev/sdb1"},
         workspace=WORKSPACE,
         cwd=WORKSPACE,
     )

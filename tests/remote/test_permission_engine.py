@@ -81,8 +81,9 @@ def test_scope_escape_is_denied(tmp_path: Path) -> None:
         )
     )
     assert decision.scope == Scope.OUTSIDE_ALLOWED_SCOPE
-    assert decision.decision == Decision.DENY
-    assert decision.reason == ReasonCode.DENY_SCOPE_ESCAPE
+    # LOCAL2-R3: reviewed, not refused.
+    assert decision.decision == Decision.APPROVAL_REQUIRED
+    assert decision.reason == ReasonCode.APPROVAL_HOST_PRIVILEGE
 
 
 def test_privileged_host_intent_requires_approval(tmp_path: Path) -> None:

@@ -69,6 +69,7 @@ class ReasonCode(StrEnum):
     DENY_INVALID_APPROVAL = "DENY_INVALID_APPROVAL"
     DENY_AUTHORITY_VIOLATION = "DENY_AUTHORITY_VIOLATION"
     DENY_PATH_TRAVERSAL = "DENY_PATH_TRAVERSAL"
+    DENY_CATASTROPHIC = "DENY_CATASTROPHIC"
 
 
 @dataclass(frozen=True)
@@ -360,7 +361,7 @@ def _is_wide_read_secret(path: Path) -> bool:
     return any(_under(path, (home / item,)) for item in _WIDE_READ_SECRET_DIRS)
 
 
-def _is_wide_read(context: "OperationContext") -> bool:
+def _is_wide_read(context: OperationContext) -> bool:
     """A pure read whose every target is a non-secret path under a wide root."""
     try:
         effect = CommandEffect(str(context.command_effect))
@@ -387,6 +388,8 @@ def _is_wide_read(context: "OperationContext") -> bool:
             if not _under(candidate, roots) or _is_wide_read_secret(candidate):
                 return False
     return True
+
+
 _SENSITIVE_READ_SUFFIXES = (".pem",)
 
 
@@ -404,7 +407,7 @@ def _is_sensitive_read_target(path: Path) -> bool:
     return len(parts) >= 4 and parts[1] == "etc" and parts[2] == "sudoers.d"
 
 
-def _is_plain_outside_write(context: "OperationContext") -> bool:
+def _is_plain_outside_write(context: OperationContext) -> bool:
     """A plain, reversible filesystem write whose every target is a non-secret
     path the user owns (their home, /tmp, or a mounted data root).
 
@@ -562,6 +565,145 @@ def _is_fork_bomb(raw_command: str) -> bool:
     if "(){" not in raw_command.replace(" ", ""):
         return False
     return ":|:" in raw_command.replace(" ", "") or ": | :" in raw_command
+
+
+# LOCAL2-R3: the only hard denials left on the user's own machine.  Everything
+# else that is dangerous is approval-gated, never refused outright.
+_DISK_TOOLS = frozenset(
+    {"wipefs", "fdisk", "sfdisk", "sgdisk", "gdisk", "cfdisk", "parted", "blkdiscard"}
+)
+_BLOCK_DEVICE = re.compile(
+    r"/dev/(?:sd[a-z]|nvme\d|vd[a-z]|xvd[a-z]|hd[a-z]|mmcblk\d|md\d|dm-\d|mapper/|disk/|loop\d)"
+)
+_SEGMENT_SPLIT = re.compile(r"(?:;|&&|\|\||\||\n)")
+_PREFIX_WORDS = frozenset({"sudo", "doas", "nohup", "time", "exec", "env", "command", "nice"})
+
+
+def _catastrophic_tree(raw_target: str) -> bool:
+    """True when ``raw_target`` names a whole disk / root / home / projects tree."""
+
+    target = raw_target.strip().strip("'\"")
+    if not target:
+        return False
+    for token in ("${HOME}", "$HOME"):
+        target = target.replace(token, "~")
+    changed = True
+    while changed and len(target) > 1:
+        changed = False
+        for suffix in ("/.*", "/*", "/"):
+            if target.endswith(suffix):
+                target = target[: -len(suffix)] or "/"
+                changed = True
+                break
+    if target in {"/", "~"}:
+        return True
+    if not (target.startswith("/") or target.startswith("~")):
+        return False
+    try:
+        path = Path(os.path.normpath(os.path.expanduser(target)))
+    except (OSError, ValueError):
+        return False
+    home = Path.home().expanduser()
+    if path == Path("/") or len(path.parts) <= 2:  # "/", "/data", "/home", "/etc"
+        return True
+    protected = {home, home.parent}
+    for env in ("VEYA_WORKSPACE_ROOT", "HICODE_WORKSPACE"):
+        value = os.environ.get(env)
+        if value:
+            root = Path(os.path.normpath(value))
+            protected.add(root)
+            protected.update(p for p in root.parents if len(p.parts) > 1)
+    return path in protected
+
+
+def _catastrophic_segments(text: str) -> list[list[str]]:
+    """Split shell text into simple commands, honouring quotes (heredoc bodies
+    are removed by the caller, so text inside them is never a command)."""
+
+    try:
+        lexer = shlex.shlex(_newlines_to_separators(text), posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return [segment.split() for segment in _SEGMENT_SPLIT.split(text)]
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token and set(token) <= set(";&|"):
+            segments.append([])
+        else:
+            segments[-1].append(token)
+    return [segment for segment in segments if segment]
+
+
+def catastrophic_reason(raw_command: str) -> str | None:
+    """Return a human reason when the command is catastrophic, else ``None``."""
+
+    if not raw_command:
+        return None
+    if _is_fork_bomb(raw_command):
+        return "fork bomb"
+    stripped = _strip_heredocs(raw_command)
+    text = stripped[0] if stripped is not None else raw_command
+    for words in _catastrophic_segments(text):
+        if any(
+            w in {">", ">>", "1>"} and i + 1 < len(words) and _BLOCK_DEVICE.match(words[i + 1])
+            for i, w in enumerate(words)
+        ) or any(_BLOCK_DEVICE.match(w.lstrip(">")) and w.startswith(">") for w in words):
+            return "overwriting a raw block device"
+        while words and (
+            words[0] in _PREFIX_WORDS
+            or (words[0].startswith("-") and len(words) > 1)
+            or ("=" in words[0] and not words[0].startswith("="))
+        ):
+            words = words[1:]
+        if not words:
+            continue
+        exe = Path(words[0]).name.lower()
+        args = words[1:]
+        if exe in {"sh", "bash", "zsh", "dash"}:
+            for index, flag in enumerate(args[:-1]):
+                if flag.startswith("-") and not flag.startswith("--") and "c" in flag:
+                    inner = catastrophic_reason(args[index + 1])
+                    if inner:
+                        return inner
+                    break
+        if exe == "find" and "-delete" in args:
+            roots = [a for a in args if not a.startswith("-")][:1]
+            if roots and _catastrophic_tree(roots[0]):
+                return "find -delete over a root, home or whole-projects tree"
+        if exe.startswith("mkfs") or exe == "mkswap":
+            return "formatting a filesystem"
+        if exe in _DISK_TOOLS and any(_BLOCK_DEVICE.search(a) for a in args):
+            return "repartitioning or wiping a disk"
+        if exe == "dd" and any(a.startswith("of=") and _BLOCK_DEVICE.search(a) for a in args):
+            return "dd onto a raw block device"
+        if exe == "shred" and any(_BLOCK_DEVICE.search(a) for a in args):
+            return "shredding a raw block device"
+        flags = [a for a in args if a.startswith("-")]
+        recursive = any(
+            f in {"--recursive", "-R"} or (not f.startswith("--") and ("r" in f or "R" in f))
+            for f in flags
+        )
+        if exe == "rm" and recursive:
+            if "--no-preserve-root" in args:
+                return "rm --no-preserve-root"
+            if any(_catastrophic_tree(a) for a in args if not a.startswith("-")):
+                return "recursive delete of a root, home or whole-projects tree"
+        if exe in {"chmod", "chown", "chgrp"} and recursive:
+            operands = [a for a in args if not a.startswith("-")][1:]
+            if any(a.strip().strip("'\"") in {"/", "/*"} for a in operands):
+                return "recursive ownership/permission change of /"
+    return None
+
+
+_CONTAINER_PRIVILEGED = re.compile(
+    r"\b(?:docker|podman)\s+(?:container\s+)?(?:run|create)\b[^;&|\n]*?"
+    r"(?:--privileged\b|--pid[= ]host\b|-v\s*/:|--volume[= ]/:)"
+)
+_CONTAINER_DESTRUCTIVE = re.compile(
+    r"\b(?:docker|podman)(?:-compose|\s+compose)?\b[^;&|\n]*?\s"
+    r"(?:rm|rmi|kill|stop|down|prune)\b"
+)
 
 
 # ── command semantics ─────────────────────────────────────────────────────
@@ -1301,16 +1443,41 @@ class PermissionEngine:
             if value != "none"
         )
 
+        # LOCAL2-R3: the only hard denials on the user's own machine are
+        # catastrophic, unrecoverable host operations (format / wipe a disk,
+        # recursive delete of /, a top-level dir, $HOME or the projects root,
+        # a fork bomb).  They are not approval-capable.
+        if catastrophic_reason(context.raw_command):
+            return PermissionDecision(
+                Decision.DENY, ReasonCode.DENY_CATASTROPHIC, scope, effects, operation
+            )
         wide_read = _is_wide_read(context)
         if not wide_read and _escapes_workspace_by_dotdot(context):
+            # LOCAL2-R3: a ``..`` escape is reviewed, not refused.
             return PermissionDecision(
-                Decision.DENY, ReasonCode.DENY_PATH_TRAVERSAL, scope, effects, operation
+                Decision.APPROVAL_REQUIRED,
+                ReasonCode.APPROVAL_SECURITY_BOUNDARY,
+                scope,
+                effects,
+                operation,
             )
-        # A recursive fork bomb is catastrophic and irreversible: it is not a
-        # user-scope write that could ever be justified by containment.
-        if _is_fork_bomb(context.raw_command):
+        # LOCAL2-R3: stopping / removing containers, images or volumes needs a
+        # human; restart / logs / ps stay open.
+        if _CONTAINER_PRIVILEGED.search(context.raw_command or ""):
             return PermissionDecision(
-                Decision.DENY, ReasonCode.APPROVAL_HOST_DESTRUCTIVE, scope, effects, operation
+                Decision.APPROVAL_REQUIRED,
+                ReasonCode.APPROVAL_HOST_PRIVILEGE,
+                scope,
+                effects,
+                operation,
+            )
+        if _CONTAINER_DESTRUCTIVE.search(context.raw_command or ""):
+            return PermissionDecision(
+                Decision.APPROVAL_REQUIRED,
+                ReasonCode.APPROVAL_HOST_DESTRUCTIVE,
+                scope,
+                effects,
+                operation,
             )
         if scope == Scope.OUTSIDE_ALLOWED_SCOPE:
             if wide_read:
@@ -1323,10 +1490,44 @@ class PermissionEngine:
             # effect qualify, so this never softens a gated command.
             if _is_plain_outside_write(context):
                 return PermissionDecision(
-                    Decision.ALLOW, ReasonCode.ALLOW_PROJECT_MUTATION, Scope.USER, effects, operation
+                    Decision.ALLOW,
+                    ReasonCode.ALLOW_PROJECT_MUTATION,
+                    Scope.USER,
+                    effects,
+                    operation,
+                )
+            # LOCAL2-R3: outside the bound workspace nothing is refused any
+            # more; it is either an ordinary read, or it goes to approval.
+            if effect is CommandEffect.DESTRUCTIVE_MUTATION:
+                return PermissionDecision(
+                    Decision.APPROVAL_REQUIRED,
+                    ReasonCode.APPROVAL_HOST_DESTRUCTIVE,
+                    scope,
+                    effects,
+                    operation,
+                )
+            if (
+                context.filesystem_effect in {"read", "none"}
+                and effect in {CommandEffect.READ_ONLY, CommandEffect.NONE}
+                and context.process_effect in {"none", "inspect"}
+            ):
+                if any(_is_wide_read_secret(_canonical(p)) for p in context.target_paths):
+                    return PermissionDecision(
+                        Decision.APPROVAL_REQUIRED,
+                        ReasonCode.APPROVAL_SECURITY_BOUNDARY,
+                        scope,
+                        effects,
+                        operation,
+                    )
+                return PermissionDecision(
+                    Decision.ALLOW, ReasonCode.ALLOW_READ_ONLY, Scope.USER, effects, operation
                 )
             return PermissionDecision(
-                Decision.DENY, ReasonCode.DENY_SCOPE_ESCAPE, scope, effects, operation
+                Decision.APPROVAL_REQUIRED,
+                ReasonCode.APPROVAL_HOST_PRIVILEGE,
+                scope,
+                effects,
+                operation,
             )
         # Canonical command semantics. Scope and danger are orthogonal: a
         # project-scoped destructive command is still destructive, and an
@@ -1349,6 +1550,13 @@ class PermissionEngine:
                 operation,
             )
         if effect is CommandEffect.REMOTE_MUTATION:
+            # LOCAL2-R3: git clone/fetch/pull and a non-force push are routine
+            # development on the user's own machine.  Force push stays
+            # REMOTE_IRREVERSIBLE_MUTATION (approval) above.
+            if executable == "git":
+                return PermissionDecision(
+                    Decision.ALLOW, ReasonCode.ALLOW_PROJECT_GIT, scope, effects, operation
+                )
             return PermissionDecision(
                 Decision.APPROVAL_REQUIRED,
                 ReasonCode.APPROVAL_HOST_PRIVILEGE,
@@ -1429,9 +1637,10 @@ class PermissionEngine:
             for path in tuple(_canonical(path) for path in context.target_paths)
             for protected in (home / ".ssh", home / ".gnupg", home / ".aws")
         ):
+            # LOCAL2-R3: credential stores are reviewed per use, not refused.
             return PermissionDecision(
-                Decision.DENY,
-                ReasonCode.DENY_AUTHORITY_VIOLATION,
+                Decision.APPROVAL_REQUIRED,
+                ReasonCode.APPROVAL_SECURITY_BOUNDARY,
                 Scope.USER,
                 effects,
                 operation,
@@ -1856,11 +2065,29 @@ def classify_shell_text(
     return tuple(tokens), result
 
 
-
 # Options that consume the following argument, per wrapper.
 _WRAPPER_VALUE_OPTIONS: dict[str, frozenset[str]] = {
     "timeout": frozenset({"-s", "--signal", "-k", "--kill-after"}),
-    "xargs": frozenset({"-n", "-I", "-i", "-P", "-d", "-L", "-l", "-s", "-a", "-E", "-e", "--max-args", "--max-procs", "--delimiter", "--arg-file", "--replace"}),
+    "xargs": frozenset(
+        {
+            "-n",
+            "-I",
+            "-i",
+            "-P",
+            "-d",
+            "-L",
+            "-l",
+            "-s",
+            "-a",
+            "-E",
+            "-e",
+            "--max-args",
+            "--max-procs",
+            "--delimiter",
+            "--arg-file",
+            "--replace",
+        }
+    ),
     "watch": frozenset({"-n", "--interval", "-d", "--differences"}),
     "env": frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}),
     "nohup": frozenset(),
@@ -1885,7 +2112,13 @@ def _classify_wrapper(
                     return None
                 parsed = classify_shell_text(args[index + 1], cwd=cwd)
                 if parsed is None:
-                    return CommandEffect.PRIVILEGED_HOST_MUTATION, (), "write", "none", "destructive"
+                    return (
+                        CommandEffect.PRIVILEGED_HOST_MUTATION,
+                        (),
+                        "write",
+                        "none",
+                        "destructive",
+                    )
                 return parsed[1]
         script = next((token for token in args if not token.startswith("-")), None)
         if script is None or script == _SUBSTITUTION_PLACEHOLDER:
@@ -2103,6 +2336,10 @@ def parse_command_context(
         service_effect=(
             "user"
             if executable == "systemctl" and "--user" in argv
+            else "none"
+            if executable == "systemctl"
+            and next((w for w in argv[1:] if not w.startswith("-")), "")
+            in _SYSTEMCTL_READ_ONLY_VERBS
             else "system"
             if executable == "systemctl"
             else "none"

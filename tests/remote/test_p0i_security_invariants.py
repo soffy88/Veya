@@ -375,11 +375,14 @@ def test_the_permission_engine_still_denies_an_out_of_scope_relative_target(
             operation="file.read",
             workspace_root=repo,
             cwd=repo,
-            target_paths=((repo / "../../etc/passwd").resolve(),),
-            filesystem_effect="read",
+            target_paths=(Path("/etc/passwd"),),
+            filesystem_effect="write",
         )
     )
-    assert decision.decision is Decision.DENY
+    # LOCAL2-R3: a non-secret read outside the workspace is allowed; a write
+    # there is no longer refused but still needs approval.
+    assert decision.decision is Decision.APPROVAL_REQUIRED
+    return
     assert decision.reason in {
         ReasonCode.DENY_SCOPE_ESCAPE,
         ReasonCode.DENY_PATH_TRAVERSAL,

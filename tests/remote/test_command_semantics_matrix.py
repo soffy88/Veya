@@ -75,7 +75,7 @@ MATRIX: list[tuple[str, str, CommandEffect, Decision]] = [
         "destructive: dd to device",
         "dd if=/dev/zero of=/dev/sda",
         CommandEffect.DESTRUCTIVE_MUTATION,
-        Decision.APPROVAL_REQUIRED,
+        Decision.DENY,  # LOCAL2-R3: catastrophic, hard deny
     ),
     (
         "destructive: chmod",
@@ -146,7 +146,7 @@ MATRIX: list[tuple[str, str, CommandEffect, Decision]] = [
         "sudo: destructive",
         "sudo rm -rf /",
         CommandEffect.PRIVILEGED_HOST_MUTATION,
-        Decision.APPROVAL_REQUIRED,
+        Decision.DENY,  # LOCAL2-R3: catastrophic, hard deny
     ),
     (
         "sudo: pip",
@@ -261,7 +261,7 @@ MATRIX: list[tuple[str, str, CommandEffect, Decision]] = [
         "git remote: push",
         "git push origin main",
         CommandEffect.REMOTE_MUTATION,
-        Decision.APPROVAL_REQUIRED,
+        Decision.ALLOW,  # LOCAL2-R3: non-force push is ordinary work
     ),
     (
         "git remote: push --force",
@@ -496,14 +496,15 @@ async def test_mcp_shell_exec_preserves_policy_precedence(tmp_path: Path) -> Non
 
     # Destructive shell without the destructive capability: policy blocks it
     # before any repository discovery can report a workspace error.
+    # LOCAL2-R3: approval-gated, no longer refused outright.
     plain = await call({"command": "rm -rf build"})
     assert plain["ok"] is False
-    assert plain["error_code"] == "POLICY_BLOCKED"
+    assert plain["error_code"] == "APPROVAL_REQUIRED"
 
     # A boolean approval flag is never a bypass.
     bypass = await call({"command": "rm -rf build", "approved": True})
     assert bypass["ok"] is False
-    assert bypass["error_code"] in {"POLICY_BLOCKED", "INVALID_APPROVAL"}
+    assert bypass["error_code"] in {"POLICY_BLOCKED", "INVALID_APPROVAL", "APPROVAL_REQUIRED"}
 
     # A safe command is not blocked by the destructive policy.
     safe = await call({"command": "ls -la"})

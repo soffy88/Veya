@@ -29,6 +29,7 @@ from .permission_engine import (
     OperationContext,
     PermissionEngine,
     ReasonCode,
+    catastrophic_reason,
     parse_command_context,
 )
 from .policy_resolver import PolicyRequest, PolicyResolver
@@ -1150,7 +1151,10 @@ class ActionGateway:
                     workspace=str(session.active_workspace or cwd),
                     cwd=cwd,
                     goal_id=str(getattr(session, "goal_run_id", "") or ""),
-                    client_approved=bool(args.get("approved")),
+                    # LOCAL2-R3: the boolean ``approved`` flag is handled once,
+                    # in ``check_action``, as "still needs a real approval_id";
+                    # it must not turn a harmless or approvable call into DENY.
+                    client_approved=False,
                     approval_id=str(args.get("approval_id") or "").strip(),
                 ),
                 consume_approval=False,
@@ -1276,6 +1280,7 @@ class ActionGateway:
             ReasonCode.DENY_PATH_TRAVERSAL: "denied.path_traversal",
             ReasonCode.DENY_AUTHORITY_VIOLATION: "denied.authority",
             ReasonCode.DENY_INVALID_APPROVAL: "denied.invalid_approval",
+            ReasonCode.DENY_CATASTROPHIC: "denied.catastrophic",
         }.get(engine_decision.reason, "permission.operation")
         command_words = tuple(context.command or ())
         if command_words:
@@ -1339,36 +1344,44 @@ class ActionGateway:
         #      `approved=true`, which is the bypass this gate exists to close)
         #   3. AUTO_OPEN / DENY category from the converged verdict
         #   4. missing approval_id     -> APPROVAL_REQUIRED
-        if (
-            classification.capability_id == "privileged.destructive_shell"
-            and not session.permissions.destructive
-        ):
-            return (
-                False,
-                RemoteErrorCode.POLICY_BLOCKED,
-                "destructive shell command requires the destructive capability",
-                classification,
-            )
-
+        # LOCAL2-R3 order: AUTO_OPEN first (a stray ``approved=true`` on a
+        # harmless read is ignored), then the catastrophic hard deny, then
+        # everything dangerous -- destructive shell included -- goes to a
+        # server-issued approval instead of being refused.
         approved_flag = args.get("approved")
         approval_id = str(args.get("approval_id") or "").strip()
-        if bool(approved_flag) and not approval_id:
-            return (
-                False,
-                RemoteErrorCode.INVALID_APPROVAL,
-                "boolean approved flag is rejected for privileged operations; server-issued approval_id required",
-                classification,
-            )
 
         if classification.category == ActionCategory.AUTO_OPEN:
             # Rule 37: approved field is ignored/not required for AUTO_OPEN
             return True, None, None, classification
 
         if classification.category == ActionCategory.DENY:
+            raw = str(args.get("command") or "")
+            why = catastrophic_reason(raw) if raw else None
             return (
                 False,
                 classification.policy_error_code or RemoteErrorCode.POLICY_BLOCKED,
-                classification.reason or "action permanently denied",
+                (
+                    f"hard-denied: catastrophic operation ({why}); not approvable"
+                    if why
+                    else (classification.reason or "action denied")
+                ),
+                classification,
+            )
+
+        hint = (
+            f"human approval required for {classification.capability_id} "
+            f"({classification.risk_class}). Call approval.request with "
+            f"capability_id={classification.capability_id!r} and this operation, "
+            "have the user approve it, then retry with approval_id."
+        )
+        if bool(approved_flag) and not approval_id:
+            # A client boolean is never a permission fact, but it is not a
+            # reason to refuse either: answer with the approval path.
+            return (
+                False,
+                RemoteErrorCode.INVALID_APPROVAL,
+                "approved=true is not an approval (server-issued approval_id required); " + hint,
                 classification,
             )
 
@@ -1376,7 +1389,7 @@ class ActionGateway:
             return (
                 False,
                 RemoteErrorCode.APPROVAL_REQUIRED,
-                f"human approval required for {classification.capability_id} ({classification.risk_class})",
+                hint,
                 classification,
             )
 
