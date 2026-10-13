@@ -299,8 +299,18 @@ def _is_gated_tool(name: str) -> bool:
 #: "create", "remove") would otherwise catch: a bot noting or forgetting a fact
 #: in its own journaled memory, or drafting its plan.  Asking the user to
 #: approve these made "please remember X" stall on an approval card (W11 S5).
+#: ``skill_create`` only drafts an inactive, review_required SkillCandidate;
+#: activation stays behind ``skill_confirm`` and its static scan.
 _NEVER_GATED = frozenset(
-    {"memory_write", "remember", "forget", "memory_forget", "bot_memory_note", "create_plan"}
+    {
+        "memory_write",
+        "remember",
+        "forget",
+        "memory_forget",
+        "bot_memory_note",
+        "create_plan",
+        "skill_create",
+    }
 )
 
 
