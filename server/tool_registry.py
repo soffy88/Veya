@@ -4113,6 +4113,14 @@ async def _tool_skill_create(
     execution_ref: str = "",
 ) -> dict:
     user_id, session_id, task_id, trace_id = _personal_request_ids()
+    # Same scope vocabulary as memory_write: models say "global"/"project";
+    # the runtime only knows user/workspace and rejected anything else.
+    scope_type = {
+        "global": "user",
+        "user": "user",
+        "project": "workspace",
+        "workspace": "workspace",
+    }.get(str(scope_type or "user").strip().lower(), scope_type)
     sid = (
         user_id if scope_type == "user" else scope_id or os.environ.get("VEYA_WORKSPACE", "default")
     )
