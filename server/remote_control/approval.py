@@ -88,6 +88,23 @@ def approval_state(approval_id: str) -> tuple[str, str]:
     return str(record.get("status") or ""), str(record.get("decision") or "")
 
 
+def session_for_approval(approval_id: str) -> str:
+    """The session id an approval record was created for (``""`` if unknown).
+
+    The session id is stamped into ``tool_args`` at request time, so an
+    approved tool call can find the record it authorises without trusting a
+    model-supplied id.
+    """
+
+    if not approval_id:
+        return ""
+    record = _service().get(approval_id)
+    if not record:
+        return ""
+    args = record.get("tool_args") or {}
+    return str(args.get("session_id") or "")
+
+
 def is_approved(approval_id: str) -> bool:
     """True only when the record exists, is resolved, and was not refused."""
 
@@ -145,4 +162,5 @@ __all__ = [
     "pending_for_scope",
     "request_approval",
     "require_approved",
+    "session_for_approval",
 ]

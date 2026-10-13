@@ -66,6 +66,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     # W12 flags (default OFF)
     FeatureFlag("VEYA_BRAIN_BREAKER", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_SUPERVISOR", False, "runtime", "2027-01-01"),
+    # W13 flag (default OFF; appended after W12, never reordered)
+    FeatureFlag("VEYA_REMOTE_CONTROL", False, "runtime", "2027-01-01"),
 )
 
 

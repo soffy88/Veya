@@ -566,6 +566,12 @@ class MasterCoordinator:
 
         register_approval_tools(self)
 
+        # W13: remote-control tools register only when VEYA_REMOTE_CONTROL=1 —
+        # off by default, so the frozen tool surface is unchanged.
+        from server.remote_control.tools import register_tools as register_remote_tools
+
+        register_remote_tools(self)
+
         # 主库 system_* 分支原本早于静态 registry 直接执行，绕过统一守卫。
         # 宿主在装配点包一层，使旧 ReAct 与 strict bridge 共用同一执行契约。
         self._raw_handle_tool_call = self._agent.handle_tool_call
