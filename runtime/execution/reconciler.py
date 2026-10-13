@@ -19,8 +19,12 @@ class Reconciler:
         interval_s: float = 15.0,
         batch_size: int = 100,
         on_report: Callable[[ReconciliationReport], Any] | None = None,
+        abandon_after_s: float = 0.0,
     ):
         self.repository = repository
+        # 0 disables the sweep (the default for direct/test construction).
+        self.abandon_after_s = max(0.0, float(abandon_after_s))
+        self.last_abandoned: list[str] = []
         self.interval_s = max(1.0, interval_s)
         self.batch_size = max(1, batch_size)
         self.on_report = on_report
@@ -28,6 +32,12 @@ class Reconciler:
 
     async def run_once(self, scope: str | None = None) -> ReconciliationReport:
         report = await self.repository.reconcile(scope, limit=self.batch_size)
+        if self.abandon_after_s > 0 and scope is None:
+            # After expired leases are classified: a run nobody can reclaim
+            # any more is terminated instead of staying non-terminal forever.
+            self.last_abandoned = await self.repository.close_abandoned_goal_runs(
+                stale_after_s=self.abandon_after_s, limit=self.batch_size
+            )
         if self.on_report is not None:
             result = self.on_report(report)
             if asyncio.iscoroutine(result):

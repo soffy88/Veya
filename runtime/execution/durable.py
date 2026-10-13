@@ -3679,6 +3679,139 @@ class DurableExecutionRepository:
             "recovered": recovered,
         }
 
+    async def close_abandoned_goal_runs(
+        self,
+        *,
+        stale_after_s: float,
+        limit: int = 100,
+        now: float | None = None,
+        actor: str = "reconciler",
+    ) -> list[str]:
+        """Terminate GoalRuns that no live worker owns any more.
+
+        A GoalRun is executed in-process by the runner that created it; the
+        reconciler only turns an expired lease into ``retry_wait`` for that
+        same runner to reclaim.  When the runner is gone (process restart,
+        early return) nothing ever reclaims the item, so the run sat
+        ``running``/``finalizing`` forever (2026-10-14: 24 such runs, 33
+        orphaned ``retry_wait`` items).  A run is abandoned when it is
+        non-terminal, has no unexpired unreleased lease, no item currently
+        leased/running, and neither it nor any of its items changed for
+        ``stale_after_s``.  Its open items are cancelled and the run is moved
+        to ``failed`` (which still admits ``recovering``).
+        """
+        if stale_after_s <= 0:
+            return []
+        scan_time = now if now is not None else time.time()
+        cutoff = scan_time - stale_after_s
+        reason = "abandoned_no_live_worker"
+        error = canonical_json({"message": "abandoned: no live worker owns this run", "reason": reason})
+
+        def op(conn: Any) -> list[str]:
+            rows = conn.execute(
+                "SELECT g.id,g.status FROM goal_runs g WHERE g.status IN ('running','finalizing') "
+                "AND g.updated_at < ? "
+                "AND NOT EXISTS (SELECT 1 FROM work_items wi WHERE wi.goal_run_id=g.id "
+                "AND (wi.updated_at >= ? OR wi.state IN ('leased','running'))) "
+                "AND NOT EXISTS (SELECT 1 FROM execution_leases l JOIN work_items wi ON wi.id=l.work_item_id "
+                "WHERE wi.goal_run_id=g.id AND l.released_at IS NULL AND l.expires_at >= ?) "
+                "ORDER BY g.updated_at LIMIT ?",
+                (cutoff, cutoff, scan_time, max(1, limit)),
+            ).fetchall()
+            closed: list[str] = []
+            for goal in rows:
+                items = conn.execute(
+                    "SELECT id FROM work_items WHERE goal_run_id=? AND state IN ('created','ready','retry_wait')",
+                    (goal["id"],),
+                ).fetchall()
+                for item in items:
+                    conn.execute(
+                        "UPDATE work_items SET state='cancelled',recovery_state='classified',error_json=?,revision=revision+1,updated_at=? WHERE id=? AND state IN ('created','ready','retry_wait')",
+                        (error, scan_time, item["id"]),
+                    )
+                    self._sqlite_event(
+                        conn,
+                        aggregate_type="work_item",
+                        aggregate_id=item["id"],
+                        goal_run_id=goal["id"],
+                        event_type="work_item.cancelled",
+                        payload={"source": actor, "reason": reason},
+                        idempotency_key=f"abandoned-cancelled:{goal['id']}:{item['id']}",
+                    )
+                conn.execute(
+                    "UPDATE goal_runs SET status='failed',revision=revision+1,updated_at=? WHERE id=? AND status=?",
+                    (scan_time, goal["id"], goal["status"]),
+                )
+                self._sqlite_event(
+                    conn,
+                    aggregate_type="goal_run",
+                    aggregate_id=goal["id"],
+                    goal_run_id=goal["id"],
+                    event_type="goal_run.status_changed",
+                    payload={"from": goal["status"], "to": "failed", "reason": reason},
+                    idempotency_key=f"goal-abandoned:{goal['id']}",
+                )
+                closed.append(str(goal["id"]))
+            return closed
+
+        if self.backend == "sqlite":
+            return await asyncio.to_thread(self._sqlite_tx, op)
+
+        async def op_pg(conn: Any) -> list[str]:
+            rows = await conn.fetch(
+                "SELECT g.id,g.status FROM goal_runs g WHERE g.status IN ('running','finalizing') "
+                "AND g.updated_at < $1 "
+                "AND NOT EXISTS (SELECT 1 FROM work_items wi WHERE wi.goal_run_id=g.id "
+                "AND (wi.updated_at >= $1 OR wi.state IN ('leased','running'))) "
+                "AND NOT EXISTS (SELECT 1 FROM execution_leases l JOIN work_items wi ON wi.id=l.work_item_id "
+                "WHERE wi.goal_run_id=g.id AND l.released_at IS NULL AND l.expires_at >= $2) "
+                "ORDER BY g.updated_at LIMIT $3 FOR UPDATE OF g SKIP LOCKED",
+                cutoff,
+                scan_time,
+                max(1, limit),
+            )
+            closed: list[str] = []
+            for goal in rows:
+                items = await conn.fetch(
+                    "SELECT id FROM work_items WHERE goal_run_id=$1 AND state IN ('created','ready','retry_wait') FOR UPDATE",
+                    goal["id"],
+                )
+                for item in items:
+                    await conn.execute(
+                        "UPDATE work_items SET state='cancelled',recovery_state='classified',error_json=$1,revision=revision+1,updated_at=$2 WHERE id=$3 AND state IN ('created','ready','retry_wait')",
+                        error,
+                        scan_time,
+                        item["id"],
+                    )
+                    await self._pg_event(
+                        conn,
+                        aggregate_type="work_item",
+                        aggregate_id=item["id"],
+                        goal_run_id=goal["id"],
+                        event_type="work_item.cancelled",
+                        payload={"source": actor, "reason": reason},
+                        idempotency_key=f"abandoned-cancelled:{goal['id']}:{item['id']}",
+                    )
+                await conn.execute(
+                    "UPDATE goal_runs SET status='failed',revision=revision+1,updated_at=$1 WHERE id=$2 AND status=$3",
+                    scan_time,
+                    goal["id"],
+                    goal["status"],
+                )
+                await self._pg_event(
+                    conn,
+                    aggregate_type="goal_run",
+                    aggregate_id=goal["id"],
+                    goal_run_id=goal["id"],
+                    event_type="goal_run.status_changed",
+                    payload={"from": goal["status"], "to": "failed", "reason": reason},
+                    idempotency_key=f"goal-abandoned:{goal['id']}",
+                )
+                closed.append(str(goal["id"]))
+            return closed
+
+        return await self._pg_tx(op_pg)
+
     async def reconcile(
         self,
         scope: str | None = None,
