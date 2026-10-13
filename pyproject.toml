@@ -79,6 +79,15 @@ push = [
 tui = [
     "textual==8.2.8",
 ]
+# W18: DeepEval — optional LLM-judge metrics backend for the EXISTING eval
+# harness (server/deepeval_adapter.py, wired into server/agent_eval.py +
+# scripts/bot_landing_live.py + W12 supervisor). NOT installed by default;
+# when absent every DeepEval call degrades to a no-op ({"enabled": False}) so
+# the main chain and the whole test suite are unaffected. Apache-2.0 — see
+# THIRD_PARTY_NOTICES.md. Pinned to the version verified against this tree.
+deepeval = [
+    "deepeval==4.2.8",
+]
 # 2026-08-24 §2 (docs/dev/rfc-07-dependency-hygiene.md): 用 sys.meta_path find_spec
 # 拦截验证过——cli/(veya/veya-headless/veya-simple)完全不 import server.app,
 # 这三个包只有真的跑 FastAPI 服务 (server.app) 时才需要 (routes/evolution →
