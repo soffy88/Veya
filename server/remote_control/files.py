@@ -162,9 +162,7 @@ def stage_file(
 
     sha = digest_bytes(payload)
     record = FileHandoff(
-        token=compute_token(
-            session_id=session_id, file_sha256=sha, recipient_id=recipient_id
-        ),
+        token=compute_token(session_id=session_id, file_sha256=sha, recipient_id=recipient_id),
         session_id=str(session_id),
         recipient_id=str(recipient_id),
         filename=name,
@@ -182,12 +180,64 @@ def stage_file(
     return _ledger.update(_files_path(), _mutate)
 
 
+def stage_declared(
+    *,
+    session_id: str,
+    recipient_id: str,
+    filename: str,
+    size_bytes: int,
+    sha256: str,
+    owner_id: str,
+    now: float | None = None,
+) -> FileHandoff:
+    """Record one staged attachment from its declared size + digest.
+
+    This is the metadata-only path the REST layer uses: the sender keeps the
+    bytes and states the length and SHA-256. Integrity is still enforced — the
+    recipient's ``fetch`` must produce bytes that match both — so a wrong
+    declaration only ever *fails* a fetch, it never lets bad bytes through.
+    """
+
+    stamp = time.time() if now is None else float(now)
+    size = int(size_bytes)
+    digest = str(sha256 or "").strip().lower()
+    cap = max_bytes()
+    if size <= 0:
+        raise HandoffRejected("size_bytes must be positive")
+    if size > cap:
+        raise HandoffRejected(f"attachment is {size} bytes, over the {cap} byte limit")
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise HandoffRejected("sha256 must be 64 lowercase hex characters")
+    name = str(filename or "").strip()
+    if not name or "/" in name or "\\" in name or name in {".", ".."}:
+        raise HandoffRejected("filename must be a bare name")
+
+    record = FileHandoff(
+        token=compute_token(session_id=session_id, file_sha256=digest, recipient_id=recipient_id),
+        session_id=str(session_id),
+        recipient_id=str(recipient_id),
+        filename=name,
+        size_bytes=size,
+        sha256=digest,
+        owner_id=str(owner_id),
+        expires_at=stamp + link_ttl_s(),
+    )
+
+    def _mutate(rows: dict[str, dict[str, Any]]):
+        rows[record.token] = record.to_dict()
+        return rows, record
+
+    return _ledger.update(_files_path(), _mutate)
+
+
 def get_handoff(token: str) -> FileHandoff | None:
     row = _ledger.read_map(_files_path()).get(str(token))
     return FileHandoff.from_dict(row) if row else None
 
 
-def list_handoffs(*, session_id: str | None = None, owner_id: str | None = None) -> list[FileHandoff]:
+def list_handoffs(
+    *, session_id: str | None = None, owner_id: str | None = None
+) -> list[FileHandoff]:
     rows = _ledger.read_map(_files_path())
     records = [FileHandoff.from_dict(row) for row in rows.values()]
     if session_id is not None:
@@ -223,9 +273,7 @@ def fetch(
 
     if len(payload) != record.size_bytes:
         _set_state(token, "corrupt")
-        raise HandoffCorrupt(
-            f"size mismatch: expected {record.size_bytes}, got {len(payload)}"
-        )
+        raise HandoffCorrupt(f"size mismatch: expected {record.size_bytes}, got {len(payload)}")
     actual = digest_bytes(payload)
     if actual != record.sha256:
         _set_state(token, "corrupt")
@@ -313,6 +361,7 @@ __all__ = [
     "list_handoffs",
     "max_bytes",
     "prune_expired",
+    "stage_declared",
     "stage_file",
     "untrusted_envelope",
     "verify_digest",

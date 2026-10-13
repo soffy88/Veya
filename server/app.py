@@ -404,6 +404,7 @@ async def lifespan(app: FastAPI):
             from server.bot_team.morning_feed import build_routine_dispatch
             from server.bot_team.routine_clock import RoutineClock
             from server.goal_run.routine_registry import RoutineRegistry
+
             # NANO-W7: morning-feed routines resolve through the service layer
             # at the clock's existing dispatch_fn seam (no second scheduler);
             # everything else keeps the default GoalRun consumer.
@@ -512,6 +513,7 @@ app.include_router(product_router)
 app.include_router(bots_router)
 app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
 from server.routes.supervised import router as supervised_router
+
 # Lorca P5: Web Push (public key + per-user subscriptions). Importing the
 # module also installs the notification-centre push hook.
 app.include_router(push_router)
@@ -557,7 +559,10 @@ app.include_router(voice_compat_router)
 app.include_router(execution_contract_router)
 app.include_router(sse_router)
 from server.routes.routines import router as routines_router
-from server.routes.artifacts import router as artifacts_router, public_router as public_artifacts_router
+from server.routes.artifacts import (
+    router as artifacts_router,
+    public_router as public_artifacts_router,
+)
 from server.routes.channels import router as channels_router
 from server.routes.html_pages import (
     public_router as public_html_pages_router,
@@ -573,6 +578,9 @@ app.include_router(public_html_pages_router)
 app.include_router(settings_router)
 app.include_router(supervised_router)
 app.include_router(channels_router)  # NANO-W7: flag-gated, 404 while off
+from server.routes.remote_control import router as remote_control_router
+
+app.include_router(remote_control_router)  # W13: flag-gated, 404 while off
 app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-checks
 # NANO-W9: branch rooms, routine triggers, ACP members, audit chain,
 # search-with-receipts, trajectory replay, agent-native CLI template.
@@ -580,7 +588,6 @@ app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-chec
 app.include_router(nano_w9_router)
 # NANO-W10 Group C: group roles, bot secrets, failure -> eval flywheel export
 app.include_router(nano_w10_c_router)
-
 
 
 @app.get("/health")

@@ -212,6 +212,44 @@ def advance(
     }
 
 
+def apply_approved(
+    session_id: str,
+    *,
+    approval_id: str = "",
+    bot_id: str = "",
+    urgent: bool = False,
+    quiet_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Start an accepted session once its approval is resolved as approved.
+
+    Refuses unless the approval is resolved **and** approved; then applies the
+    receiver's wake policy before touching a process. An accepted-but-approved
+    session is promoted to ``woken`` here, so a woken session is never a
+    no-op.
+    """
+
+    flags.require_enabled()
+    session = sessions_mod.get_session(session_id)
+    if session is None:
+        raise RemoteControlRefused("session not found", code="not_found")
+    if session.state == sessions_mod.RemoteState.WOKEN:
+        return {"session": session, "wake": {"outcome": "already_woken"}, "launched": False}
+    if session.is_terminal:
+        raise RemoteControlRefused(f"session is terminal ({session.state})", code="terminal")
+    if session.state != sessions_mod.RemoteState.ACCEPTED:
+        raise RemoteControlRefused(
+            f"cannot start from state {session.state}", code="not_cancellable"
+        )
+    approval_mod.require_approved(approval_id or session.approval_id)
+    return advance(
+        session_id,
+        approval_id=approval_id or session.approval_id,
+        bot_id=bot_id,
+        urgent=urgent,
+        quiet_settings=quiet_settings,
+    )
+
+
 def _launch(session: RemoteSession, host: hosts_mod.RemoteHost) -> executor_mod.LaunchResult:
     """Start the executor and move the session to ``acked`` on real evidence.
 
@@ -226,9 +264,9 @@ def _launch(session: RemoteSession, host: hosts_mod.RemoteHost) -> executor_mod.
         transport=session.transport,
     )
     sessions_mod.attach_launch(session.session_id, argv=list(result.argv), pid=result.pid)
-    if result.pid is None and result.returncode != 0:
-        sessions_mod.mark_failed(session.session_id, reason="executor could not be started")
-        raise RemoteControlRefused("executor could not be started", code="launch")
+    if result.returncode is not None and result.returncode != 0:
+        sessions_mod.mark_failed(session.session_id, reason=f"executor exited {result.returncode}")
+        raise RemoteControlRefused(f"executor exited {result.returncode}", code="launch")
     sessions_mod.mark_acked(
         session.session_id,
         detail=(
@@ -238,6 +276,57 @@ def _launch(session: RemoteSession, host: hosts_mod.RemoteHost) -> executor_mod.
         ),
     )
     return result
+
+
+async def advance_batched(*, routine_id: str, bot_id: str) -> list[str]:
+    """Run the sessions a batched remote wake was holding, then disarm it.
+
+    Driven by the existing routine clock when a ``remote-wake-*`` routine
+    fires. Each session is re-checked against the wake policy (so quiet hours
+    still hold) and launched through the same executor path as a direct wake.
+    Returns the ids of sessions that were actually launched.
+    """
+
+    launched: list[str] = []
+    for session in sessions_mod.list_sessions(active_only=True):
+        if session.state != sessions_mod.RemoteState.WOKEN:
+            continue
+        if session.routine_id != routine_id:
+            continue
+        host = hosts_mod.get_host(session.host_id)
+        if host is None or not host.enabled:
+            continue
+        decision, policy = wake_mod.decide(
+            sender=session.peer_subject or session.host_id,
+            agent_label=session.agent_label,
+            requested="now",
+        )
+        if decision.outcome != "woken_now":
+            continue
+        try:
+            _launch(session, host)
+        except (RemoteControlRefused, executor_mod.CommandRejected):
+            continue
+        wake_mod.record_wake(policy, routine_id=policy.routine_id)
+        hosts_mod.touch_seen(host.host_id)
+        launched.append(session.session_id)
+
+    # One batch run is one window: disarm the routine so it does not fire
+    # forever. The registry cannot delete, so disable it (as W12 does).
+    policy = _policy_for_routine(routine_id)
+    if policy is not None:
+        try:
+            wake_mod.disable_batch(policy, bot_id=bot_id)
+        except Exception:
+            pass
+    return launched
+
+
+def _policy_for_routine(routine_id: str) -> wake_mod.WakePolicy | None:
+    for policy in wake_mod.list_policies():
+        if policy.routine_id == routine_id:
+            return policy
+    return None
 
 
 def complete(session_id: str, *, evidence: VerifierEvidence) -> RemoteSession:
@@ -403,6 +492,8 @@ def handoff(
 __all__ = [
     "RemoteControlRefused",
     "advance",
+    "advance_batched",
+    "apply_approved",
     "cancel",
     "check_identity",
     "complete",

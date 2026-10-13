@@ -15,11 +15,13 @@ from server.goal_run.routine_registry import RoutineRegistry
 
 _lg = logging.getLogger(__name__)
 
+
 def _get_tz(tz_str: str) -> ZoneInfo:
     try:
         return ZoneInfo(tz_str)
     except Exception:
         return ZoneInfo("Asia/Shanghai")
+
 
 def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
     """Return the next scheduled ISO string if it is <= now, else None."""
@@ -30,13 +32,13 @@ def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
     tz = _get_tz(spec.timezone or "Asia/Shanghai")
 
     # 1. Interval
-    m = re.match(r'^every (\d+)(m|h|d)$', schedule)
+    m = re.match(r"^every (\d+)(m|h|d)$", schedule)
     if m:
         val = int(m.group(1))
         unit = m.group(2)
-        if unit == 'm':
+        if unit == "m":
             interval_s = val * 60
-        elif unit == 'h':
+        elif unit == "h":
             interval_s = val * 3600
         else:
             interval_s = val * 86400
@@ -59,7 +61,7 @@ def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
         return None
 
     # 2. Daily
-    m = re.match(r'^daily (\d{1,2}):(\d{2})$', schedule)
+    m = re.match(r"^daily (\d{1,2}):(\d{2})$", schedule)
     if m:
         h, min_ = int(m.group(1)), int(m.group(2))
 
@@ -99,14 +101,15 @@ def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
     if len(parts) == 5:
         # minimal cron parser
         def match_field(val, expr):
-            if expr == '*': return True
-            if ',' in expr:
-                return any(match_field(val, e) for e in expr.split(','))
-            if expr.startswith('*/'):
+            if expr == "*":
+                return True
+            if "," in expr:
+                return any(match_field(val, e) for e in expr.split(","))
+            if expr.startswith("*/"):
                 step = int(expr[2:])
                 return val % step == 0
-            if '-' in expr:
-                start, end = map(int, expr.split('-'))
+            if "-" in expr:
+                start, end = map(int, expr.split("-"))
                 return start <= val <= end
             return val == int(expr)
 
@@ -115,19 +118,20 @@ def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
 
         # We find the *first* occurrence after last_fired_utc
         first_occurrence = None
-        for _ in range(366 * 24 * 60): # up to a year
+        for _ in range(366 * 24 * 60):  # up to a year
             if curr > now:
                 break
             local = curr.astimezone(tz)
-            if (match_field(local.minute, parts[0]) and
-                match_field(local.hour, parts[1]) and
-                match_field(local.day, parts[2]) and
-                match_field(local.month, parts[3])):
-
+            if (
+                match_field(local.minute, parts[0])
+                and match_field(local.hour, parts[1])
+                and match_field(local.day, parts[2])
+                and match_field(local.month, parts[3])
+            ):
                 # Handle dow: 0=Sun, 6=Sat, 7=Sun
                 # weekday() is 0=Mon, 6=Sun
                 dow = (local.weekday() + 1) % 7
-                if parts[4] == '*' or match_field(dow, parts[4]) or (parts[4] == '7' and dow == 0):
+                if parts[4] == "*" or match_field(dow, parts[4]) or (parts[4] == "7" and dow == 0):
                     first_occurrence = curr
                     break
             curr += timedelta(minutes=1)
@@ -138,12 +142,18 @@ def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
             curr = now.replace(second=0, microsecond=0)
             while curr >= first_occurrence:
                 local = curr.astimezone(tz)
-                if (match_field(local.minute, parts[0]) and
-                    match_field(local.hour, parts[1]) and
-                    match_field(local.day, parts[2]) and
-                    match_field(local.month, parts[3])):
+                if (
+                    match_field(local.minute, parts[0])
+                    and match_field(local.hour, parts[1])
+                    and match_field(local.day, parts[2])
+                    and match_field(local.month, parts[3])
+                ):
                     dow = (local.weekday() + 1) % 7
-                    if parts[4] == '*' or match_field(dow, parts[4]) or (parts[4] == '7' and dow == 0):
+                    if (
+                        parts[4] == "*"
+                        or match_field(dow, parts[4])
+                        or (parts[4] == "7" and dow == 0)
+                    ):
                         recent_occurrence = curr
                         break
                 curr -= timedelta(minutes=1)
@@ -152,6 +162,7 @@ def compute_due(spec, *, now: datetime, last_fired_utc: datetime) -> str | None:
         return None
 
     return None
+
 
 def _route_wake(
     *,
@@ -232,6 +243,11 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
         if await _try_supervisor_handoff(routine_id=routine_id, bot_id=str(bot_id)):
             continue
 
+        # W13 remote-control path: a batched remote wake is materialised as a
+        # routine; when it fires, advance the sessions that were held for it.
+        if await _try_remote_wake_handoff(routine_id=routine_id, bot_id=str(bot_id)):
+            continue
+
         # A bot-owned routine runs as a real bot turn: the same product path
         # the UI drives, so the bot's own answer lands in its conversation
         # (meta carries source/routine_id) instead of a raw GoalRun repr.
@@ -259,12 +275,12 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
                     "routine_id": routine_id,
                     "trigger_id": trigger_id,
                 }
-            )
+            ),
         )
 
         try:
             result = await master_coordinator.execute_structured(req)
-            first_line = str(result).split('\n')[0] if result else "Success"
+            first_line = str(result).split("\n")[0] if result else "Success"
             try:
                 from server.bot_team.conversations import conversation_store
 
@@ -294,7 +310,7 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
                     title="Routine finished",
                     content=first_line,
                     payload={"routine_id": routine_id},
-                    user_id="system"
+                    user_id="system",
                 )
         except Exception as e:
             _lg.exception(f"Handoff execution failed for routine {routine_id}")
@@ -312,7 +328,7 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
                     title="Routine failed",
                     content=str(e),
                     payload={"routine_id": routine_id},
-                    user_id="system"
+                    user_id="system",
                 )
 
 
@@ -333,8 +349,13 @@ def _resolve_bot_for_routine(bot_id: str, *, bot_registry=None) -> "object | Non
         if spec is not None:
             return spec
         if str(bot_id) == DEFAULT_BOT_ID:
-            return BotSpec(bot_id=DEFAULT_BOT_ID, owner_id="system", name="Veya Bot",
-                           description="The default Veya bot.", runner_id="local")
+            return BotSpec(
+                bot_id=DEFAULT_BOT_ID,
+                owner_id="system",
+                name="Veya Bot",
+                description="The default Veya bot.",
+                runner_id="local",
+            )
     except Exception:
         _lg.debug("could not resolve bot %s for routine", bot_id, exc_info=True)
     return None
@@ -375,6 +396,32 @@ async def _try_supervisor_handoff(*, routine_id: str, bot_id: str) -> bool:
         )
     except Exception:
         _lg.exception("supervisor handoff failed for routine %s", routine_id)
+    return True
+
+
+async def _try_remote_wake_handoff(*, routine_id: str, bot_id: str) -> bool:
+    """Advance batched remote wakes when their routine fires.
+
+    Returns True when this routine was a W13 batched-wake routine (the caller
+    should skip its normal handoff), False otherwise. Disabled by the
+    VEYA_REMOTE_CONTROL flag; also a no-op for any other routine. W13 adds no
+    scheduler of its own — this rides the existing routine clock.
+    """
+
+    if not str(routine_id).startswith("remote-wake-"):
+        return False
+
+    from server.remote_control import flags as remote_flags
+
+    if not remote_flags.enabled():
+        return False
+
+    from server.remote_control import service as remote_service
+
+    try:
+        await remote_service.advance_batched(routine_id=routine_id, bot_id=bot_id)
+    except Exception:
+        _lg.exception("remote wake handoff failed for routine %s", routine_id)
     return True
 
 
@@ -419,7 +466,7 @@ async def _run_bot_turn_handoff(
                 title="Routine finished",
                 content=summary,
                 payload={"routine_id": routine_id},
-                user_id="system"
+                user_id="system",
             )
     except Exception as e:
         _lg.exception("Bot-turn routine %s failed", routine_id)
@@ -437,14 +484,17 @@ async def _run_bot_turn_handoff(
                 title="Routine failed",
                 content=str(e),
                 payload={"routine_id": routine_id},
-                user_id="system"
+                user_id="system",
             )
+
 
 class RoutineClock:
     def __init__(self, registry: RoutineRegistry, *, clock_path=None, dispatch_fn=None):
         self.registry = registry
         if clock_path is None:
-            clock_path = os.environ.get("VEYA_ROUTINE_CLOCK_PATH", os.path.expanduser("~/.veya/routines_clock.json"))
+            clock_path = os.environ.get(
+                "VEYA_ROUTINE_CLOCK_PATH", os.path.expanduser("~/.veya/routines_clock.json")
+            )
         self.clock_path = Path(clock_path)
         self.dispatch_fn = dispatch_fn or _default_handoff_consumer
         self.last_fired: dict[str, str] = {}
@@ -507,7 +557,9 @@ class RoutineClock:
                     if not probe_result["success"]:
                         # Probe failed - record with probe_error status
                         run_record["status"] = "probe_error"
-                    elif probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
+                    elif probe_result["kind"] == "git_changes" and not probe_result["data"].get(
+                        "has_changes", False
+                    ):
                         # No changes - record as skipped
                         run_record["status"] = "skipped"
                     else:
@@ -524,22 +576,26 @@ class RoutineClock:
                     self.last_fired[routine_id] = now.isoformat()
                     self._save_state()
                     continue
-                elif probe_result["kind"] == "git_changes" and not probe_result["data"].get("has_changes", False):
+                elif probe_result["kind"] == "git_changes" and not probe_result["data"].get(
+                    "has_changes", False
+                ):
                     # No changes detected - skip dispatch
                     self.last_fired[routine_id] = now.isoformat()
                     self._save_state()
                     continue
                 else:
                     # Probe passed (has_changes or other probe kinds), dispatch
-                    handoffs.append({
-                        "routine_id": routine_id,
-                        "trigger_topic": "schedule.trigger",
-                        "trigger_id": trigger_id,
-                        "target": {"goal_template": spec.goal_template},
-                        "bot_id": spec.bot_id,
-                        "model": spec.model,
-                        "workspace_path": spec.workspace_path,
-                    })
+                    handoffs.append(
+                        {
+                            "routine_id": routine_id,
+                            "trigger_topic": "schedule.trigger",
+                            "trigger_id": trigger_id,
+                            "target": {"goal_template": spec.goal_template},
+                            "bot_id": spec.bot_id,
+                            "model": spec.model,
+                            "workspace_path": spec.workspace_path,
+                        }
+                    )
                     self.last_fired[routine_id] = now.isoformat()
                     self._save_state()
 
