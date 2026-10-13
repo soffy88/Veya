@@ -28,6 +28,7 @@ export interface BotView {
 	config_version: number;
 	model_source?: string;
 	model_source_config?: Record<string, unknown>;
+	available_skill_ids?: string[];
 }
 
 export interface BotMessageMeta {
