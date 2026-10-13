@@ -1,0 +1,1 @@
+Read W13_BRIEF.md in this directory and carry it out fully, obeying every rule in it. Commit after every passing step. If resumed, read git log and uncommitted files first. Finish with W13_REPORT.md committed.
