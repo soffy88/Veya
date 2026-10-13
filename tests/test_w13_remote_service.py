@@ -69,7 +69,7 @@ def rc_env(monkeypatch, tmp_path):
             tailnet_ip="100.64.0.1",
             owner_id="u1",
             agent_label="pi",
-            workspace_path="/w",
+            workspace_path=str(tmp_path),
         )
     )
     hosts.save_host(
@@ -402,3 +402,54 @@ def test_wake_policy_put_requires_owned_sender(client):
         json={"sender": "not-mine", "agent_label": "pi", "ceiling": "now"},
     )
     assert denied.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_batched_wake_materialises_routine_and_advances(rc_env, monkeypatch):
+    """A `batch` wake registers a real routine; when it fires, the held
+    session is launched and the routine is disarmed."""
+    from server.goal_run.routine_registry import RoutineRegistry
+    from server.remote_control import service, sessions, wake
+
+    wake.set_policy(wake.WakePolicy(sender="ubuntu26", agent_label="pi", ceiling="batch"))
+    result = await _start(wake="now")  # requested now, ceiling downgrades to batch
+    await _approve(result["approval_id"])
+    applied = service.apply_approved(
+        result["session"].session_id, approval_id=result["approval_id"], bot_id="u1"
+    )
+    assert applied["session"].state == "woken"
+    routine_id = applied["session"].routine_id
+    assert routine_id.startswith("remote-wake-")
+    assert RoutineRegistry(bot_id="u1").get(routine_id) is not None
+
+    launched = await service.advance_batched(routine_id=routine_id, bot_id="u1")
+    assert launched == [result["session"].session_id]
+    assert sessions.get_session(result["session"].session_id).state == "acked"
+    # the routine is disarmed after its one window
+    assert RoutineRegistry(bot_id="u1").get(routine_id).enabled is False
+
+
+@pytest.mark.asyncio
+async def test_routine_clock_seam_ignores_non_remote_routines(rc_env):
+    from server.bot_team import routine_clock
+
+    # a routine that is not a W13 batched wake is never intercepted
+    assert (
+        await routine_clock._try_remote_wake_handoff(routine_id="supervise_x", bot_id="u1") is False
+    )
+    # a remote-wake routine *is* intercepted (returns True once handled)
+    assert (
+        await routine_clock._try_remote_wake_handoff(routine_id="remote-wake-x", bot_id="u1")
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_routine_clock_seam_off_when_flag_disabled(rc_env, monkeypatch):
+    from server.bot_team import routine_clock
+
+    monkeypatch.setenv("VEYA_REMOTE_CONTROL", "0")
+    assert (
+        await routine_clock._try_remote_wake_handoff(routine_id="remote-wake-x", bot_id="u1")
+        is False
+    )

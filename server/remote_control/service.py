@@ -296,25 +296,21 @@ async def advance_batched(*, routine_id: str, bot_id: str) -> list[str]:
         host = hosts_mod.get_host(session.host_id)
         if host is None or not host.enabled:
             continue
-        decision, policy = wake_mod.decide(
-            sender=session.peer_subject or session.host_id,
-            agent_label=session.agent_label,
-            requested="now",
-        )
-        if decision.outcome != "woken_now":
-            continue
+        # The batch firing *is* the deferred wake: the ceiling already held it
+        # back and the window has now arrived, so no ceiling/quiet re-check —
+        # only the launch itself can still fail.
         try:
             _launch(session, host)
         except (RemoteControlRefused, executor_mod.CommandRejected):
             continue
-        wake_mod.record_wake(policy, routine_id=policy.routine_id)
         hosts_mod.touch_seen(host.host_id)
         launched.append(session.session_id)
 
-    # One batch run is one window: disarm the routine so it does not fire
-    # forever. The registry cannot delete, so disable it (as W12 does).
+    # One batch run is one window: count it once and disarm the routine so it
+    # does not fire forever. The registry cannot delete, so disable it.
     policy = _policy_for_routine(routine_id)
     if policy is not None:
+        wake_mod.record_wake(policy, routine_id=routine_id)
         try:
             wake_mod.disable_batch(policy, bot_id=bot_id)
         except Exception:
