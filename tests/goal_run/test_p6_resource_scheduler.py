@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
+
 from server.goal_run.execution_admission import (
     AdmissionStatus,
     ExecutionAdmission,

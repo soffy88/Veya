@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
+
 from runtime.bot_scope import CrossBotAccessDenied
 from server.goal_run.execution_abi import (
     CanonicalExecutionPlane,
@@ -59,7 +61,7 @@ def _bound_run(
         bot_id=bot_id,
     )
     execution_id = f"exec-{uuid.uuid4().hex[:8]}"
-    bind_execution(pre, execution_id, str(tmp_path), substrate_id=substrate)
+    bind_execution(pre, execution_id, str(tmp_path), substrate_id=substrate, admit=True)
     state = load_goal_run(str(tmp_path), pre.goal_run_id)
     assert state is not None
     binding = load_binding_record(str(tmp_path), str(state.runtime_checkpoint["binding_id"]))

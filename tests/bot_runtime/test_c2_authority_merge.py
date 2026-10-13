@@ -129,7 +129,9 @@ def test_project_run_goal_exposes_bot_id():
 
     params = inspect.signature(project_run_goal).parameters
     assert "bot_id" in params
-    assert params["bot_id"].default == "", "must stay additive for existing callers"
+    # main (Lorca P1) landed this parameter as ``bot_id: str | None = None``;
+    # either empty default is additive for existing callers.
+    assert params["bot_id"].default in ("", None), "must stay additive for existing callers"
 
 
 def test_existing_callers_unaffected_by_bot_id_default():
@@ -146,7 +148,7 @@ def test_planner_threads_bot_id_into_created_state():
 
     params = inspect.signature(g1_plan).parameters
     assert "bot_id" in params
-    assert params["bot_id"].default == ""
+    assert params["bot_id"].default in ("", None)
 
 
 def test_bot_id_survives_durable_round_trip():

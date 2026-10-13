@@ -18,6 +18,8 @@ Independent Bot entry boundary — does NOT route through MasterAgent.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -104,17 +106,35 @@ class GoalResponse(BaseModel):
 # bot ids are not enumerable.
 
 
+_MANAGER: tuple[Any, Any] | None = None
+
+
+def _definition_store_root() -> Path:
+    """Where bot definitions/deployments live (next to the bot registry)."""
+    raw = os.environ.get("VEYA_AGENT_DEFINITION_STORE_PATH")
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / ".veya"
+
+
 def _manager() -> tuple[Any, Any]:
-    from runtime.config import get_config
+    """Process-wide BotManager.
 
-    from server.agent_definition import AgentDefinitionStore
-    from server.bot_runtime.manager import BotManager
-    from server.goal_run.bot_identity import BotRegistry
+    One manager per process so a runtime started by one request is the same
+    runtime a later pause/resume/stop/message request finds. The registry is
+    the shared ``BotRegistry`` default (``VEYA_BOT_REGISTRY_PATH`` or
+    ``~/.veya/bot_registry.json``), the same one the bot team routes use.
+    """
+    global _MANAGER
+    if _MANAGER is None:
+        from server.agent_definition import AgentDefinitionStore
+        from server.bot_runtime.manager import BotManager
+        from server.goal_run.bot_identity import BotRegistry
 
-    config = get_config()
-    bot_registry = BotRegistry(storage_path=config.bot_registry_path)
-    definition_store = AgentDefinitionStore(config.definition_store_path)
-    return BotManager(bot_registry, definition_store), bot_registry
+        bot_registry = BotRegistry()
+        definition_store = AgentDefinitionStore(_definition_store_root())
+        _MANAGER = (BotManager(bot_registry, definition_store), bot_registry)
+    return _MANAGER
 
 
 def _user_id(user: dict[str, Any]) -> str:

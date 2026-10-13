@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
+
 from server.goal_run import bind_execution, create_pending_run
 from server.goal_run.execution_admission import (
     AdmissionStatus,
@@ -184,7 +186,7 @@ def test_B6_lost_provider_detected_on_restart(tmp_path):
     from server.goal_run.store import save_goal_run
 
     save_goal_run(state, str(tmp_path))
-    bind_execution(create, "ex_1", str(tmp_path))
+    bind_execution(create, "ex_1", str(tmp_path), admit=True)
 
     # simulate crash: fresh in-memory registry, disk bindings remain
     reset_admissions()
@@ -208,7 +210,7 @@ def test_R6_unrecoverable_run_not_completed(tmp_path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_2", str(tmp_path))
+    bind_execution(create, "ex_2", str(tmp_path), admit=True)
     reset_admissions()
     get_admission(str(tmp_path)).reconcile_restart(str(tmp_path))
     state = load_goal_run(str(tmp_path), create.goal_run_id)
@@ -262,7 +264,7 @@ def test_E1_E2_E3_admission_binding_receipt_chain(tmp_path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_3", str(tmp_path))
+    bind_execution(create, "ex_3", str(tmp_path), admit=True)
     receipt_path = (
         tmp_path / ".veya-project" / "goal-runs" / create.goal_run_id / "execution_receipts.jsonl"
     )
@@ -285,7 +287,7 @@ def test_E5_failed_run_has_no_success_receipt(tmp_path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_4", str(tmp_path))
+    bind_execution(create, "ex_4", str(tmp_path), admit=True)
     # A second mutation on the same workspace is denied -> no binding receipt.
     adm = get_admission(str(tmp_path))
     result = adm.request(_req(tmp_path, goal="g_other"))
@@ -302,7 +304,7 @@ def test_bind_denied_marks_run_failed(tmp_path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(first, "ex_5", str(tmp_path))
+    bind_execution(first, "ex_5", str(tmp_path), admit=True)
     second = create_pending_run(
         project_root=str(tmp_path),
         dispatch_id="d6",
@@ -311,7 +313,7 @@ def test_bind_denied_marks_run_failed(tmp_path):
         tasks=[{"worker": "codex", "task": "y"}],
     )
     with pytest.raises(RuntimeError, match="admission"):
-        bind_execution(second, "ex_6", str(tmp_path))
+        bind_execution(second, "ex_6", str(tmp_path), admit=True)
     state = load_goal_run(str(tmp_path), second.goal_run_id)
     assert state.status == GoalStatus.failed
 
@@ -369,7 +371,7 @@ def test_P2_provider_snapshot_on_binding(tmp_path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_7", str(tmp_path))
+    bind_execution(create, "ex_7", str(tmp_path), admit=True)
     record = json.loads(
         next((tmp_path / ".veya" / "execution_admission").glob("binding_*.json")).read_text()
     )
@@ -394,7 +396,7 @@ def test_AP1_approval_evidence_on_binding(tmp_path):
     from server.goal_run.store import save_goal_run
 
     save_goal_run(saved, str(tmp_path))
-    bind_execution(state, "ex_8", str(tmp_path))
+    bind_execution(state, "ex_8", str(tmp_path), admit=True)
     record = json.loads(
         next((tmp_path / ".veya" / "execution_admission").glob("binding_*.json")).read_text()
     )
@@ -420,7 +422,7 @@ def test_scope_registered_on_bind_and_covers_workspace(tmp_path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_9", str(tmp_path))
+    bind_execution(create, "ex_9", str(tmp_path), admit=True)
     scope = scope_for(str(tmp_path))
     assert scope is not None
     assert scope.allows("file.write")
@@ -475,7 +477,7 @@ def test_scope_survives_restart_via_restore(tmp_path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_10", str(tmp_path))
+    bind_execution(create, "ex_10", str(tmp_path), admit=True)
     reset_scopes()
     assert scope_for(str(tmp_path)) is None
     assert restore_scopes(str(tmp_path)) == 1

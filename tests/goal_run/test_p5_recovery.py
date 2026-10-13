@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
+
 from server.goal_run import bind_execution, create_pending_run
 from server.goal_run.execution_admission import (
     BindingStatus,
@@ -55,7 +57,7 @@ def _live_run(tmp_path: Path, *, dispatch: str = "d-p5", executor: str = "codex"
         requested_executor=executor,
         tasks=[{"worker": executor, "task": "do work"}],
     )
-    bind_execution(create, f"ex_{dispatch}", str(tmp_path))
+    bind_execution(create, f"ex_{dispatch}", str(tmp_path), admit=True)
     state = load_goal_run(str(tmp_path), create.goal_run_id)
     assert state is not None
     state.status = GoalStatus.running

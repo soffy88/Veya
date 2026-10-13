@@ -1122,7 +1122,14 @@ async def project_run_goal(
         else:
             # 恢复模式：目标文本可能不同，保持原目标文本
             # (实际应用中可能需要目标文本冲突时的处理)
-            pass
+            #
+            # The durable run already owns a bot identity. A resume may not
+            # silently re-home it: a caller acting for another bot is refused
+            # fail-closed instead of inheriting or overwriting the owner.
+            if bot_id:
+                from runtime.bot_scope import require_same_bot
+
+                require_same_bot(bot_id, state.bot_id, f"goal_run:{resume_goal_id}")
 
     # ── Objective boundary ─────────────────────────────────────────────
     # A GoalRun receives a semantic decision from MasterAgent. It persists

@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import subprocess
 import time
 import uuid
 from pathlib import Path
 
 import pytest
+
+from tests._executor_health import _healthy_admission_executor  # noqa: F401 (autouse)
 
 from server.goal_run.execution_admission import (
     AdmissionStatus,
@@ -123,6 +126,7 @@ def _goal(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("rg") is None, reason="file.search needs ripgrep (rg) on PATH")
 async def test_L0_A_normal_direct_execution_zero_approvals(tmp_path: Path):
     _repo(tmp_path)
     adapter, calls = _counting_adapter(tmp_path)
@@ -188,7 +192,7 @@ async def test_L0_B_full_goalrun_chain_completes(tmp_path: Path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_l0b", str(tmp_path))
+    bind_execution(create, "ex_l0b", str(tmp_path), admit=True)
     receipts = (
         tmp_path / ".veya-project" / "goal-runs" / create.goal_run_id / "execution_receipts.jsonl"
     )
@@ -292,7 +296,7 @@ async def test_L0_F_recovery_of_interrupted_run(tmp_path: Path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_l0f", str(tmp_path))
+    bind_execution(create, "ex_l0f", str(tmp_path), admit=True)
     state = load_goal_run(str(tmp_path), create.goal_run_id)
     state.status = GoalStatus.running
     save_goal_run(state, str(tmp_path))
@@ -348,7 +352,8 @@ def test_L0_H_privileged_boundary(tmp_path: Path):
     session = _session(tmp_path)
     cases = [
         ("sudo apt install vim", ActionCategory.HUMAN_GATED),
-        ("cat /etc/passwd", ActionCategory.HUMAN_GATED),
+        # Local2 R3 own-machine policy (main 4bd942bd): plain reads are open.
+        ("cat /etc/passwd", ActionCategory.AUTO_OPEN),
         ("systemctl restart ssh.service", ActionCategory.HUMAN_GATED),
         ("git push --force origin main", ActionCategory.HUMAN_GATED),
         ("echo normal", ActionCategory.AUTO_OPEN),
@@ -357,14 +362,15 @@ def test_L0_H_privileged_boundary(tmp_path: Path):
         cl = classify_action("shell.exec", {"command": cmd}, session, str(tmp_path))
         assert cl.category == expected, f"{cmd}: {cl.category} != {expected}"
 
-    # foreign target is DENY
+    # Local2 R3 own-machine policy (main 4bd942bd): reading outside the
+    # workspace is open, but a host write is never silently allowed.
     from veya.remote.action_gateway import ActionGateway
 
     gw = ActionGateway(approval_store=ApprovalStore())
     ok, code, _, _ = gw.check_action(
-        "file.read", {"path": "/tmp/other/file.txt"}, session, str(tmp_path)
+        "file.write", {"path": "/etc/veya-l0h.txt", "content": "x"}, session, str(tmp_path)
     )
-    assert ok is False and str(code) == "POLICY_BLOCKED"
+    assert ok is False and str(code) == "APPROVAL_REQUIRED"
 
 
 # ── L0-I: restart reconciliation is explicit (no unknown/silent loss) ───
@@ -381,7 +387,7 @@ async def test_L0_I_restart_reconciliation_explicit(tmp_path: Path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_l0i", str(tmp_path))
+    bind_execution(create, "ex_l0i", str(tmp_path), admit=True)
     state = load_goal_run(str(tmp_path), create.goal_run_id)
     state.status = GoalStatus.running
     save_goal_run(state, str(tmp_path))
@@ -408,7 +414,7 @@ async def test_L0_J_receipt_has_required_fields(tmp_path: Path):
         requested_executor="codex",
         tasks=[{"worker": "codex", "task": "x"}],
     )
-    bind_execution(create, "ex_l0j", str(tmp_path))
+    bind_execution(create, "ex_l0j", str(tmp_path), admit=True)
     receipts = (
         tmp_path / ".veya-project" / "goal-runs" / create.goal_run_id / "execution_receipts.jsonl"
     )
