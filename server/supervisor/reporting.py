@@ -66,8 +66,8 @@ def build_progress_report(
         state.status in (GoalStatus.running, GoalStatus.planning)
         and now - last_activity > stall_after_s
     ):
-            is_stalled = True
-            stall_reason = f"任务已 {binding.stall_after_minutes} 分钟无活动"
+        is_stalled = True
+        stall_reason = f"任务已 {binding.stall_after_minutes} 分钟无活动"
 
     # Check if verification passed (all tasks completed)
     all_completed = total > 0 and done == total and blocked == 0
@@ -103,5 +103,24 @@ def build_progress_report(
         "is_done": is_done,
         "nudges_sent": binding.nudges_sent,
         "repairs_remaining": max(0, binding.max_repairs - binding.nudges_sent),
+        "deepeval": _deepeval_finish_check(is_done, binding.objective, last_evidence),
         "body": body,
     }
+
+
+def _deepeval_finish_check(
+    is_done: bool, objective: str, last_evidence: str | None
+) -> dict[str, Any] | None:
+    """W18: 完成时的可选 DeepEval 检查(flag VEYA_DEEPEVAL, 默认关)。
+
+    关时(默认)返回 None, 报告结构与今天完全一致; 开时对「目标 vs 最新证据」
+    跑一次 task_completion 作为**附加**字段。纯附加, 不改变 is_done。
+    """
+    if not is_done:
+        return None
+    try:
+        from server.deepeval_adapter import supervisor_finish_score
+
+        return supervisor_finish_score(objective, last_evidence)
+    except Exception:
+        return None
