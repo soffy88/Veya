@@ -97,6 +97,41 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
     return "\n\n".join(part for part in parts if part)
 
 
+# ---------------------------------------------------------------------------
+# W12-A2: plain phrasing → supervise_task
+# ---------------------------------------------------------------------------
+
+# Matches "每N分钟告诉我进度" / "每N分钟汇报" / "每N分钟告诉我进度" etc.
+_SUPERVISOR_PHRASE_RE = __import__("re").compile(
+    r"(?:每|每隔)?\s*(\d+)\s*(?:分钟|min|分钟一次|分钟)"
+    r"(?:告诉|汇报|上报|报告|给我)?"
+    r"(?:进度|进展|情况|状态)?"
+)
+
+
+def parse_supervisor_phrase(text: str) -> dict[str, Any] | None:
+    """Parse plain phrasing like "每30分钟告诉我进度" into supervisor params.
+
+    Returns a dict with `report_every_minutes` (and optionally
+    `stall_after_minutes`) when the text contains a reporting cadence,
+    else ``None``. Pure pattern match — no side effects, no model call.
+    """
+    raw = str(text or "")
+    if not raw:
+        return None
+    m = _SUPERVISOR_PHRASE_RE.search(raw)
+    if not m:
+        return None
+    minutes = int(m.group(1))
+    if minutes <= 0:
+        return None
+    return {
+        "report_every_minutes": minutes,
+        "stall_after_minutes": max(1, minutes // 2),
+    }
+
+
+
 def _status_of(response: Any) -> str:
     status = getattr(response, "status", None)
     if status is None and isinstance(response, dict):
@@ -420,6 +455,19 @@ async def run_bot_turn(
             conversations=conversations,
         )
 
+    # W12-A2: "每N分钟告诉我进度" style phrasing becomes a supervise_task
+    # call instead of a model turn. The model never has to decide it on its
+    # own — the phrase parser turns the user's sentence into the tool call.
+    supervisor_start = await _supervise_from_phrase(
+        bot=bot,
+        text=text,
+        user=user,
+        workspace_id=workspace_id,
+        conversations=conversations,
+    )
+    if supervisor_start is not None:
+        return supervisor_start
+
     start = await begin_bot_turn(
         bot=bot,
         text=text,
@@ -443,6 +491,73 @@ async def run_bot_turn(
         return await finishing
     return await _finish_or_await_approval(
         finishing, bot=bot, start=start, user=user, conversations=conversations
+    )
+
+
+async def _supervise_from_phrase(
+    *,
+    bot: BotSpec,
+    text: str,
+    user: dict[str, Any],
+    workspace_id: str | None,
+    conversations: ConversationStore | None,
+) -> BotTurnResult | None:
+    """If the user's text matches a W12-A2 supervisor phrase, start a
+    supervised long task and return the resulting BotTurnResult. Else None."""
+    from server.supervisor import enabled as is_supervisor_enabled
+
+    if not is_supervisor_enabled():
+        return None
+
+    parsed = parse_supervisor_phrase(text)
+    if parsed is None:
+        return None
+
+    project_root = str(workspace_id or "")
+
+    # Record the user's message so the turn is durable like any other
+    # bot turn — the supervisor reply is the bot's answer to it.
+    try:
+        store = conversations if conversations is not None else conversation_store()
+        store.append(
+            bot.bot_id,
+            role="user",
+            text=str(text or ""),
+        )
+    except Exception:
+        pass
+
+    try:
+        from server.supervision_tools import supervise_task as _run
+
+        result = _run(
+            project_root=project_root,
+            objective=str(text or ""),
+            report_every_minutes=int(parsed["report_every_minutes"]),
+            stall_after_minutes=int(parsed.get("stall_after_minutes", 15)),
+        )
+    except Exception as exc:
+        return BotTurnResult(
+            bot_id=bot.bot_id,
+            task_id="",
+            session_id="",
+            reply=f"启动监工任务失败：{exc}",
+            status="error",
+            trace_id="",
+        )
+
+    binding_id = result.get("binding", {}).get("binding_id", "")
+    reply = (
+        f"已启动监工任务（binding: {binding_id}），每 {parsed['report_every_minutes']} "
+        f"分钟汇报一次进度。卡住时最多自动续跑 {result.get('max_repairs', 3)} 次。"
+    )
+    return BotTurnResult(
+        bot_id=bot.bot_id,
+        task_id=result.get("goal_run_id", ""),
+        session_id="",
+        reply=reply,
+        status="completed",
+        trace_id="",
     )
 
 
@@ -555,5 +670,6 @@ __all__ = [
     "build_objective",
     "extract_reply",
     "finish_bot_turn",
+    "parse_supervisor_phrase",
     "run_bot_turn",
 ]

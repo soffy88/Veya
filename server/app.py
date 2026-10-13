@@ -511,6 +511,7 @@ app.include_router(product_router)
 # Lorca P1/P2: the named bot team + group chat shell (same product path).
 app.include_router(bots_router)
 app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
+from server.routes.supervised import router as supervised_router
 # Lorca P5: Web Push (public key + per-user subscriptions). Importing the
 # module also installs the notification-centre push hook.
 app.include_router(push_router)
@@ -570,6 +571,7 @@ app.include_router(public_artifacts_router)
 app.include_router(html_pages_router)  # answer-me-with-html: rendered pages
 app.include_router(public_html_pages_router)
 app.include_router(settings_router)
+app.include_router(supervised_router)
 app.include_router(channels_router)  # NANO-W7: flag-gated, 404 while off
 app.include_router(review_router)  # ORCA-W3: annotations, attribution, fix-checks
 # NANO-W9: branch rooms, routine triggers, ACP members, audit chain,
@@ -606,7 +608,16 @@ async def health():
             }
         except Exception as exc:  # a capability probe must not fail liveness
             capabilities = {"hands": False, "hands_detail": f"probe failed: {type(exc).__name__}"}
-    return {"status": "ok", "version": "0.5.1", "capabilities": capabilities}
+    result = {"status": "ok", "version": "0.5.1", "capabilities": capabilities}
+    # B3: breaker state is read-only and secret-free.
+    if flag_enabled("VEYA_BRAIN_BREAKER"):
+        try:
+            from veya.obase import brain_breaker
+
+            result["llm_breakers"] = brain_breaker.snapshot()
+        except Exception:
+            pass
+    return result
 
 
 @app.get("/health/execution-runtime")
