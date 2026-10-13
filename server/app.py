@@ -29,6 +29,7 @@ from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
 # W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
 from server.routes.mcp_presets import router as mcp_presets_router
+from server.routes.role_skill_presets import router as role_skill_presets_router
 from server.routes.closed_loop import router as closed_loop_router
 from server.routes.collaboration import router as collaboration_router
 from server.routes.cross_language import router as cross_language_router
@@ -601,6 +602,7 @@ app.include_router(nano_w9_router)
 app.include_router(nano_w10_c_router)
 # W14: MCP preset pack — GET /api/v1/mcp-presets, POST /api/v1/mcp-presets/{name}/attach
 app.include_router(mcp_presets_router)
+app.include_router(role_skill_presets_router)
 
 
 @app.get("/health")

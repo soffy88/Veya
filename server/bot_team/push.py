@@ -54,6 +54,10 @@ DEFAULT_VAPID_SUBJECT = "mailto:veya@localhost"
 #: How long a push request is valid at the push service. Short on purpose: a
 #: notification nobody reads is not worth a retry.
 _PUSH_TTL = 600
+#: Upper bound on one push-service request. Without it ``pywebpush`` waits
+#: forever on an unreachable push service (e.g. FCM from a network that
+#: blocks it), which would wedge the sender.
+_PUSH_SEND_TIMEOUT_S = 10.0
 
 # ── NIST P-256 (secp256r1) constants ─────────────────────────────────────
 # Only used by the dependency-free key generator below; they are the public
@@ -492,6 +496,7 @@ def default_sender(
             vapid_private_key=vapid.private_key,
             vapid_claims={"sub": vapid.subject},
             ttl=payload.ttl,
+            timeout=_PUSH_SEND_TIMEOUT_S,
         )
     except WebPushException as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
@@ -565,7 +570,22 @@ class PushNotifier:
             tag=str(payload.get("tag") or ""),
             kind=str(payload.get("kind") or "bot_turn"),
         )
-        self.send(user_id=str(message.get("user_id") or ""), payload=push)
+        user_id = str(message.get("user_id") or "")
+        if self.sender is default_sender:
+            # notification_center.push() is synchronous and runs on the event
+            # loop; the real sender does blocking network I/O, so deliver off
+            # the loop. An injected sender keeps the synchronous contract.
+            threading.Thread(
+                target=self._send_quietly, args=(user_id, push), name="veya-web-push", daemon=True
+            ).start()
+            return
+        self.send(user_id=user_id, payload=push)
+
+    def _send_quietly(self, user_id: str, payload: PushPayload) -> None:
+        try:
+            self.send(user_id=user_id, payload=payload)
+        except Exception:
+            self.log.warning("web push delivery failed", exc_info=True)
 
     # ── delivery ─────────────────────────────────────────────────────────
     def send(self, *, user_id: str, payload: PushPayload) -> dict[str, Any]:

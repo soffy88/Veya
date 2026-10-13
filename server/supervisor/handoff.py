@@ -77,23 +77,75 @@ async def supervisor_handoff(
         user_id=str(binding.owner_id),
     )
 
-    # Update last_activity_at so the next report interval is measured fresh.
+    # Activity = the run's observable progress changed since the last report
+    # (funcfix: this used to be reset to "now" on every report, so a run that
+    # never started looked alive and one that did looked stalled at random).
     if goal_state is not None:
-        now = time.time()
-        binding.last_activity_at = now
+        fingerprint = "|".join(
+            str(report.get(k)) for k in ("status", "tasks_done", "tasks_total", "tasks_blocked")
+        ) + f"|{getattr(goal_state, 'started_at', None)}"
+        if fingerprint != binding.last_report_fingerprint or binding.last_activity_at is None:
+            binding.last_activity_at = time.time()
+            binding.last_report_fingerprint = fingerprint
         from server.supervisor import binding as bind_mod
         bind_mod.save_binding(binding)
 
     # A4: if stalled and under max_repairs, emit a HEARTBEAT nudge.
     if report["is_stalled"] and report["repairs_remaining"] > 0:
         await _emit_nudge(goal_run_id, binding)
+    elif report["is_stalled"] and not report["is_done"]:
+        # funcfix: repairs exhausted. Stop instead of reporting "stuck" forever.
+        await _close_supervisor(
+            binding,
+            goal_run_id,
+            reason="gave_up",
+            message=(
+                f"监工已停止：任务 {goal_run_id} 已自动续跑 {binding.nudges_sent} 次仍无进展。"
+                "需要的话请重新发起。"
+            ),
+        )
+        return
+    elif (
+        goal_state is not None
+        and not report["is_done"]
+        and getattr(goal_state, "is_terminal", lambda: False)()
+    ):
+        # funcfix: the run ended without passing (blocked / failed /
+        # partial_completed / cancelled). It will never become "done", so the
+        # binding used to stay open and report the same state forever.
+        status_value = getattr(goal_state.status, "value", str(goal_state.status))
+        stop_reason = str(getattr(goal_state, "last_stop_reason", "") or "").strip()
+        await _close_supervisor(
+            binding,
+            goal_run_id,
+            reason=status_value,
+            message=(
+                f"监工已停止：任务 {goal_run_id} 已结束（{status_value}）。"
+                + (f"\n原因：{stop_reason[:300]}" if stop_reason else "")
+            ),
+        )
+        return
+    elif goal_state is None and binding.report_seq >= 2:
+        await _close_supervisor(
+            binding,
+            goal_run_id,
+            reason="missing",
+            message=f"监工已停止：找不到任务 {goal_run_id} 的执行状态。",
+        )
+        return
 
     # A5: verifier-passed → close the binding and delete the routine.
     if report["is_done"]:
         await _close_supervisor(binding, goal_run_id)
 
 
-async def _close_supervisor(binding: SupervisorBinding, goal_run_id: str) -> None:
+async def _close_supervisor(
+    binding: SupervisorBinding,
+    goal_run_id: str,
+    *,
+    reason: str = "done",
+    message: str | None = None,
+) -> None:
     """Mark the binding closed and remove its routine. Runs on every
     ``is_done`` report, so it is idempotent — the binding is only
     reopened by ``supervise_task``.
@@ -102,6 +154,8 @@ async def _close_supervisor(binding: SupervisorBinding, goal_run_id: str) -> Non
     from server.supervisor import binding as bind_mod
 
     binding.status = "closed"
+    if hasattr(binding, "closed_reason"):
+        binding.closed_reason = reason
     try:
         bind_mod.save_binding(binding)
     except Exception:
@@ -120,10 +174,22 @@ async def _close_supervisor(binding: SupervisorBinding, goal_run_id: str) -> Non
 
     from server.notification_center import global_notifier
 
+    if message:
+        try:
+            from server.bot_team.conversations import conversation_store
+
+            conversation_store().append(
+                str(binding.bot_id),
+                role="bot",
+                text=message,
+                meta={"source": "supervisor", "goal_run_id": goal_run_id, "closed": reason},
+            )
+        except Exception:
+            _lg.debug("could not append supervisor close message", exc_info=True)
     global_notifier.push(
-        type="SUCCESS",
-        title="[监工] 任务完成",
-        content=f"任务 {goal_run_id} 已完成。",
+        type="SUCCESS" if reason == "done" else "INFO",
+        title="[监工] 任务完成" if reason == "done" else "[监工] 已停止",
+        content=message or f"任务 {goal_run_id} 已完成。",
         payload={"goal_run_id": goal_run_id, "binding_id": binding.binding_id},
         user_id=str(binding.owner_id),
     )
