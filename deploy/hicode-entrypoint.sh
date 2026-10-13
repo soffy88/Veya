@@ -12,6 +12,8 @@ HICODE_RUNTIME_DATA_ROOT="${HICODE_RUNTIME_DATA_ROOT:-/home/soffy/.veya/hicode-r
 HICODE_MANAGED_PYTHON="${HICODE_MANAGED_PYTHON:-${HICODE_MANAGED_RUNTIME_ROOT}/python/bin/python}"
 export HICODE_MANAGED_RUNTIME_ROOT HICODE_MANAGED_BIN HICODE_MANAGED_PYTHON HICODE_RUNTIME_DATA_ROOT HICODE_PRODUCTION=1
 
+# Hicode retired (b7b1a7d4): skip its runtime when server.hicode_runtime is gone.
+if [ -f /app/server/hicode_runtime.py ]; then
 python -m server.hicode_runtime prepare
 "$HICODE_MANAGED_BIN" --version | grep -Fx 'reasonix v1.21.3' >/dev/null
 PYTHONPATH=/app "$HICODE_MANAGED_PYTHON" -m server.hicode_runtime preflight
@@ -39,6 +41,9 @@ export HICODE_REASONIX_HOME
     sleep 1
   done
 ) &
+else
+  echo "[entrypoint] hicode retired; skipping hicode serve" >&2
+fi
 
 cd /app
 exec uvicorn server.app:app --host 0.0.0.0 --port 8765
