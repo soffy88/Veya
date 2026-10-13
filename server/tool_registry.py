@@ -916,7 +916,7 @@ master_tools = MasterToolRegistry()
 _MCP_GATEWAY = os.environ.get("VEYA_MCP_GATEWAY", "1") != "0"
 
 
-def register_mcp_tools(server: str, adapters: list[dict], *, max_result_chars: int = 8000, side_effect: "SideEffect | None" = None) -> int:
+def register_mcp_tools(server: str, adapters: list[dict], *, max_result_chars: int = 16000, side_effect: "SideEffect | None" = None) -> int:
     """把某 mcp 服务的工具收成 1 个网关 (或 gateway=0 时逐个注册)。幂等。
 
     ``side_effect`` 由调用方显式传入,避免网关工具因无声明而落入默认值。
