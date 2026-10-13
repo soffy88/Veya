@@ -1,3 +1,6 @@
+# 3O-IO-ALLOW — server/role_skill_presets.py
+# 理由：只读加载已提交入库的预设文件（config/presets/**.md，由 scripts/import_w15_presets.py
+# 生成）；不写盘、不起进程。同形先例：server/mcp_presets.py 读 config/mcp_presets.yaml。
 """W15 — role & skill preset pack (``VEYA_ROLE_SKILL_PRESETS``, default off).
 
 Read-only loader over the committed preset files under ``config/presets``
