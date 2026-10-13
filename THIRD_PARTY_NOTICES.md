@@ -190,3 +190,25 @@ project is TypeScript-only, the idea was ported by hand into the repo's Python
 - **Borrowed by:** W14 (MCP preset pack)
 - **What was borrowed:** The Context7 MCP server pattern — a separate stdio process providing up-to-date library documentation for coding agents. Veya does not vendor any Context7 source; it launches the published npm package `@upstash/context7-mcp` via `npx` as an external process.
 - **Notes:** Requires the user to provide `CONTEXT7_API_KEY` in their environment (optional upstream key; presence gates attach). The preset declares only the env var *name*. Attribution URL: `https://github.com/upstash/context7`.
+
+---
+
+## DeepEval
+
+- **Upstream:** confident-ai/deepeval
+- **License:** Apache-2.0
+- **Use:** optional runtime dependency — **not vendored**, declared as the
+  `deepeval` extra in `pyproject.toml` and installed by the operator only.
+- **Borrowed by:** W18 (DeepEval eval integration)
+- **What was borrowed:** The library itself is used as-is at runtime as an
+  optional LLM-judge metrics backend for Veya's *existing* eval harness. Veya
+  does not copy or re-implement DeepEval's metrics; it adapts them through
+  `server/deepeval_adapter.py`, which wraps Veya's own free LLM router as the
+  judge model. Metrics used: `AnswerRelevancyMetric`, `TaskCompletionMetric`,
+  `ToolCorrectnessMetric`, `FaithfulnessMetric`, and a custom `GEval`.
+- **Notes:** Optional — when the package is absent every call degrades to a
+  no-op (`{"enabled": False}`) and the main chain plus the full test suite are
+  unaffected. Judge model calls go through Veya's existing `veya.llm` router
+  (free pool); no DeepEval-hosted or paid endpoint is used. No upstream licence
+  text is reproduced here because no upstream code is redistributed. Attribution
+  URL: `https://github.com/confident-ai/deepeval`.

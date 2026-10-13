@@ -31,6 +31,7 @@ __all__ = [
     "category_breakdown",
     "compare_runs",
     "cost_per_case",
+    "deepeval_breakdown",
     "eval_run_to_dict",
     "export_failures_to_jsonl",
     "export_goal_run_as_eval_case",
@@ -148,12 +149,19 @@ async def run_agent_eval_suite(
     *,
     suite_name: str = "agent_eval",
     eval_max_steps: int = 4,
+    use_deepeval: bool = False,
+    deepeval_metrics: tuple[str, ...] | None = None,
     **_legacy_kwargs: Any,
 ) -> EvalRun:
     """真实跑一遍每个用例的 `chat_stream()`, 再用 `run_suite` 打分/汇总。
 
     每个用例独立 session_id(`eval-<case.id>`), 互不污染历史。单个用例异常
     (超时/网络错误)只影响该用例记 0 分, 不拖垮整个 suite。
+
+    `use_deepeval=True` 时(W18), 在规则分之外**再**对同一份 agent 输出跑
+    DeepEval 指标, 分数附加到 `run.details[case.id]["deepeval"]`。规则分仍是
+    `run.scores` 的权威——DeepEval 分不改动统计/基线对比, 保证既有行为不变。
+    DeepEval 未安装时自动降级(记 enabled=False), 不报错。
     """
     cases = cases if cases is not None else AGENT_EVAL_CASES
     real_results: dict[str, dict[str, Any]] = {}
@@ -172,7 +180,47 @@ async def run_agent_eval_suite(
     for case in cases:
         run.details.setdefault(case.id, {})
         run.details[case.id]["agent_result"] = real_results[case.id]
+        if use_deepeval:
+            run.details[case.id]["deepeval"] = _deepeval_for_case(
+                case, real_results[case.id], deepeval_metrics
+            )
     return run
+
+
+def _deepeval_for_case(
+    case: EvalCase,
+    agent_result: dict[str, Any],
+    metric_names: tuple[str, ...] | None,
+) -> dict[str, Any]:
+    """对单条用例跑 DeepEval; 适配层任何异常都降级为 enabled=False, 不拖垮 suite。"""
+    from server import deepeval_adapter
+
+    if agent_result.get("status") != "success":
+        # 没有可评的输出(失败/超时), 不伪造分数。
+        return {"enabled": False, "reason": "agent result not successful"}
+    try:
+        return deepeval_adapter.score_agent_result(case, agent_result, metric_names=metric_names)
+    except Exception as exc:
+        return {"enabled": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+
+def deepeval_breakdown(run: EvalRun) -> dict[str, dict[str, Any]]:
+    """按指标聚合 DeepEval 分(只统计 score 非 None 的用例, 缺失/unknown 不进分母)。
+
+    与 `unnecessary_tool_rate` 同约定: 没数据就不报一个假的 0.0。没有任何有效
+    DeepEval 分时返回 `{}`(而非空壳)。
+    """
+    by_metric: dict[str, list[float]] = {}
+    for detail in run.details.values():
+        block = detail.get("deepeval") or {}
+        for name, entry in (block.get("metrics") or {}).items():
+            score = (entry or {}).get("score")
+            if isinstance(score, int | float):
+                by_metric.setdefault(name, []).append(float(score))
+    return {
+        name: {"n": len(scores), "mean": statistics.fmean(scores)}
+        for name, scores in sorted(by_metric.items())
+    }
 
 
 def category_breakdown(run: EvalRun, cases: list[EvalCase]) -> dict[str, dict[str, Any]]:
@@ -239,6 +287,9 @@ def eval_run_to_dict(run: EvalRun, cases: list[EvalCase] | None = None) -> dict[
         payload["category_breakdown"] = category_breakdown(run, cases)
         payload["unnecessary_tool_rate"] = unnecessary_tool_rate(run, cases)
         payload["cost_per_case"] = cost_per_case(run)
+        deepeval = deepeval_breakdown(run)
+        if deepeval:  # 没跑 DeepEval 就不塞空壳
+            payload["deepeval_breakdown"] = deepeval
     return payload
 
 
