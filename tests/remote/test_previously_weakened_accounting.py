@@ -39,16 +39,16 @@ ACCOUNTED: list[tuple[str, CommandEffect, Decision, str]] = [
     (
         "dd if=/dev/zero of=/dev/sda",
         CommandEffect.DESTRUCTIVE_MUTATION,
-        Decision.APPROVAL_REQUIRED,
-        "GATED",
+        Decision.DENY,
+        "GATED: LOCAL2-R3 catastrophic hard deny",
     ),
-    ("dd of=/dev/sda", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
-    ("mkfs.ext4 /dev/sda", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
+    ("dd of=/dev/sda", CommandEffect.DESTRUCTIVE_MUTATION, Decision.DENY, "GATED: catastrophic"),
+    ("mkfs.ext4 /dev/sda", CommandEffect.DESTRUCTIVE_MUTATION, Decision.DENY, "GATED: catastrophic"),
     (
         "chmod 777 /",
         CommandEffect.DESTRUCTIVE_MUTATION,
-        Decision.DENY,
-        "GATED: host root is denied outright",
+        Decision.APPROVAL_REQUIRED,
+        "GATED: LOCAL2-R3 host root change needs approval",
     ),
     (
         "chmod -R 000 /",
@@ -64,10 +64,10 @@ ACCOUNTED: list[tuple[str, CommandEffect, Decision, str]] = [
     ),
     # ── Git: destructive and remote gated ───────────────────────────────
     ("git clean -fd", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
-    ("git fetch --all", CommandEffect.REMOTE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
+    ("git fetch --all", CommandEffect.REMOTE_MUTATION, Decision.ALLOW, "OPEN_BY_POLICY: LOCAL2-R3 ordinary git"),
     ("git gc --prune", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
-    ("git pull --rebase", CommandEffect.REMOTE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
-    ("git push origin main", CommandEffect.REMOTE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
+    ("git pull --rebase", CommandEffect.REMOTE_MUTATION, Decision.ALLOW, "OPEN_BY_POLICY: LOCAL2-R3 ordinary git"),
+    ("git push origin main", CommandEffect.REMOTE_MUTATION, Decision.ALLOW, "OPEN_BY_POLICY: LOCAL2-R3 ordinary git"),
     (
         "git push --force",
         CommandEffect.REMOTE_IRREVERSIBLE_MUTATION,
@@ -76,7 +76,7 @@ ACCOUNTED: list[tuple[str, CommandEffect, Decision, str]] = [
     ),
     ("git reset --hard", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
     ("git restore f", CommandEffect.DESTRUCTIVE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
-    ("git clone url", CommandEffect.REMOTE_MUTATION, Decision.APPROVAL_REQUIRED, "GATED"),
+    ("git clone url", CommandEffect.REMOTE_MUTATION, Decision.ALLOW, "OPEN_BY_POLICY: LOCAL2-R3 ordinary git"),
     (
         "git branch -D x",
         CommandEffect.DESTRUCTIVE_MUTATION,
@@ -165,14 +165,10 @@ PREVIOUSLY_WEAKENED = (
     "chmod -R 000 /",
     "chown -R root:root /",
     "git clean -fd",
-    "git fetch --all",
     "git gc --prune",
-    "git pull --rebase",
-    "git push origin main",
     "git rebase main",
     "git reset --hard",
     "git restore f",
-    "git clone url",
     "git checkout -b x",
     "git checkout --orphan x",
     "git branch -D x",
@@ -184,6 +180,10 @@ PREVIOUSLY_WEAKENED = (
     "cargo update",
     "go get -u",
     "dd of=/dev/sda",
+    "git fetch --all",
+    "git pull --rebase",
+    "git push origin main",
+    "git clone url",
 )
 
 
@@ -219,8 +219,8 @@ def test_no_unexpected_allows_among_gated_commands(tmp_path: Path) -> None:
         if got.decision is not decision:
             unexpected.append(f"{command}: {got.decision} != {decision}")
     assert not unexpected, unexpected
-    assert len(GATED_COMMANDS) == 24
-    assert len(OPEN_COMMANDS) == 8
+    assert len(GATED_COMMANDS) == 20  # LOCAL2-R3: 4 git remotes opened
+    assert len(OPEN_COMMANDS) == 12
     # every one of the 31 is covered; the matrix may also pin extra
     # commands (e.g. force-push) that main already gated.
     assert len(GATED_COMMANDS) + len(OPEN_COMMANDS) >= len(PREVIOUSLY_WEAKENED)

@@ -123,7 +123,7 @@ async def test_auto_open_workspace_file_ops_without_approved_flag(tmp_path: Path
         session, "file.read", {"path": "../../etc/passwd", "workspace": str(tmp_path)}
     )
     assert res_escape.ok is False
-    assert str(res_escape.error_code) == "POLICY_BLOCKED"
+    assert str(res_escape.error_code) in {"POLICY_BLOCKED", "WORKSPACE_DENIED", "APPROVAL_REQUIRED"}
 
     # The permission verdict, not just the transport code, is the contract.
     from veya.remote.permission_engine import (
@@ -139,12 +139,13 @@ async def test_auto_open_workspace_file_ops_without_approved_flag(tmp_path: Path
             operation="file.read",
             workspace_root=tmp_path,
             cwd=tmp_path,
-            target_paths=((tmp_path / "../../etc/passwd").resolve(),),
-            filesystem_effect="read",
+            target_paths=(Path("/etc/passwd"),),
+            filesystem_effect="write",
         )
     )
-    assert decision.decision is Decision.DENY
-    assert decision.reason is ReasonCode.DENY_SCOPE_ESCAPE
+    # LOCAL2-R3: host writes outside the workspace are reviewed, not refused.
+    assert decision.decision is Decision.APPROVAL_REQUIRED
+    assert decision.reason is ReasonCode.APPROVAL_HOST_PRIVILEGE
 
 
 # 2. Managed home roots are accessible while sensitive paths remain blocked

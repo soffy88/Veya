@@ -67,18 +67,23 @@ def test_user_runtime_allowed_and_system_runtime_requires_approval() -> None:
 
 
 def test_scope_escape_is_denied(tmp_path: Path) -> None:
+    # A write into a *foreign* location — another user's home, not the caller's
+    # home / /tmp / a mounted data root — is a genuine scope escape.  (LOCAL2-R2
+    # made the caller's own home / /tmp / data roots ordinary write targets, so
+    # ``tmp_path.parent`` is no longer an escape; a foreign home still is.)
     decision = PermissionEngine().evaluate(
         OperationContext(
             operation="file.write",
             workspace_root=tmp_path,
             cwd=tmp_path,
-            target_paths=(tmp_path.parent / "outside.txt",),
+            target_paths=(Path("/home/otheruser/outside.txt"),),
             filesystem_effect="write",
         )
     )
     assert decision.scope == Scope.OUTSIDE_ALLOWED_SCOPE
-    assert decision.decision == Decision.DENY
-    assert decision.reason == ReasonCode.DENY_SCOPE_ESCAPE
+    # LOCAL2-R3: reviewed, not refused.
+    assert decision.decision == Decision.APPROVAL_REQUIRED
+    assert decision.reason == ReasonCode.APPROVAL_HOST_PRIVILEGE
 
 
 def test_privileged_host_intent_requires_approval(tmp_path: Path) -> None:

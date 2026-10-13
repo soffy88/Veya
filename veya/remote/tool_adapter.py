@@ -1486,6 +1486,38 @@ for _binding in BINDINGS:
 
 BINDING_INDEX: dict[str, ToolBinding] = {b.name: b for b in BINDINGS}
 
+# Compatibility aliases for clients that address the same operation by an older
+# or underscore spelling.  ChatGPT (and other MCP clients) emit natural names
+# like ``shell_exec`` / ``file_read`` / ``git_status`` / ``workspace_info``; an
+# unaliased name used to fail closed as "unknown or unavailable tool", which
+# reads to the user as a blanket refusal.  Each alias resolves to the one
+# canonical binding above — there is no second implementation.
+_TOOL_ALIASES: dict[str, str] = {
+    "shell_exec": "shell.exec",
+    "run_command": "shell.exec",
+    "coding_run_command": "shell.exec",
+    "file_read": "file.read",
+    "read_file": "file.read",
+    "file_write": "file.write",
+    "write_file": "file.write",
+    "file_edit": "file.patch",
+    "file_search": "file.search",
+    "git_status": "git.status",
+    "git_diff": "git.diff",
+    "git_log": "git.log",
+    "workspace_info": "workspace.info",
+    "workspace_list": "workspace.list",
+    "process_status": "process.status",
+    "process_cancel": "process.cancel",
+    "veya.process.status": "process.status",
+    "veya.process.cancel": "process.cancel",
+}
+
+
+def canonical_tool_name(name: str) -> str:
+    """Resolve a client tool name to its canonical binding name (or itself)."""
+    return _TOOL_ALIASES.get(name, name)
+
 
 # ── long-running execution manager ─────────────────────────────────────
 # The remote gateway owns ONE execution authority: a durable job manager over
@@ -1974,7 +2006,7 @@ class RemoteToolAdapter:
         return tools
 
     def binding(self, name: str) -> ToolBinding | None:
-        return BINDING_INDEX.get(name)
+        return BINDING_INDEX.get(canonical_tool_name(name))
 
     # ── execution ───────────────────────────────────────────────────
     async def call(
@@ -2023,6 +2055,7 @@ class RemoteToolAdapter:
     ) -> RemoteCallResult:
         started = time.time()
         args = dict(arguments or {})
+        name = canonical_tool_name(name)
         binding = BINDING_INDEX.get(name)
         if binding is None:
             return self._fail(

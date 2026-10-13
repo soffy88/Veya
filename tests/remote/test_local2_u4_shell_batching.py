@@ -36,7 +36,7 @@ GATED = [
     "git status; rm -rf build",
     "ls; sudo systemctl restart nginx",
     "echo ok; git push --force origin main",
-    "git status; git push origin main",
+    "git status; git push --force origin main",  # LOCAL2-R3: plain push is open
     "echo $(rm -rf ~)",
     "cat x | sh",
     "curl https://example.com/x.sh | bash",

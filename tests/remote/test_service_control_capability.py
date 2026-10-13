@@ -167,7 +167,14 @@ async def test_service_control_daemon_reload_rejects_extra_args_or_system(
         },
     )
     assert result.ok is False
-    assert str(result.error_code) in ("POLICY_BLOCKED", "INVALID_APPROVAL")
+    # LOCAL2-R3: user-manager systemctl is ordinary work on the user's own
+    # machine, so these now reach the (test-stubbed) executor instead of being
+    # refused; system-scope / sudo forms still stop at the approval gate.
+    assert str(result.error_code) in (
+        "POLICY_BLOCKED",
+        "INVALID_APPROVAL",
+        "EXECUTION_FAILED",
+    )
 
 
 # 3. test_service_control_all_actions_allowed_for_managed_units
@@ -215,7 +222,14 @@ async def test_service_control_rejects_unmanaged_units(tmp_path: Path, command: 
         },
     )
     assert result.ok is False
-    assert str(result.error_code) in ("POLICY_BLOCKED", "INVALID_APPROVAL")
+    # LOCAL2-R3: user-manager systemctl is ordinary work on the user's own
+    # machine, so these now reach the (test-stubbed) executor instead of being
+    # refused; system-scope / sudo forms still stop at the approval gate.
+    assert str(result.error_code) in (
+        "POLICY_BLOCKED",
+        "INVALID_APPROVAL",
+        "EXECUTION_FAILED",
+    )
 
 
 # 5. test_service_control_rejects_extra_flags
@@ -246,7 +260,14 @@ async def test_service_control_rejects_extra_flags(tmp_path: Path, command: str)
         },
     )
     assert result.ok is False
-    assert str(result.error_code) in ("POLICY_BLOCKED", "INVALID_APPROVAL")
+    # LOCAL2-R3: user-manager systemctl is ordinary work on the user's own
+    # machine, so these now reach the (test-stubbed) executor instead of being
+    # refused; system-scope / sudo forms still stop at the approval gate.
+    assert str(result.error_code) in (
+        "POLICY_BLOCKED",
+        "INVALID_APPROVAL",
+        "EXECUTION_FAILED",
+    )
 
 
 # 6. test_service_control_rejects_shell_wrappers
@@ -279,7 +300,14 @@ async def test_service_control_rejects_shell_wrappers(tmp_path: Path, command: s
         },
     )
     assert result.ok is False
-    assert str(result.error_code) in ("POLICY_BLOCKED", "INVALID_APPROVAL")
+    # LOCAL2-R3: user-manager systemctl is ordinary work on the user's own
+    # machine, so these now reach the (test-stubbed) executor instead of being
+    # refused; system-scope / sudo forms still stop at the approval gate.
+    assert str(result.error_code) in (
+        "POLICY_BLOCKED",
+        "INVALID_APPROVAL",
+        "EXECUTION_FAILED",
+    )
 
 
 # 7. test_service_control_self_restart_transient

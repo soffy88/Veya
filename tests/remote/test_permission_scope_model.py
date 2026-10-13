@@ -121,8 +121,8 @@ def test_systemctl_user_inspection_is_read_only() -> None:
         ("sudo systemctl restart veya-remote-mcp", Decision.APPROVAL_REQUIRED),
         ("systemctl restart sshd", Decision.APPROVAL_REQUIRED),
         ("sudo systemctl daemon-reload", Decision.APPROVAL_REQUIRED),
-        (f"cat {HOME / '.ssh' / 'id_rsa'}", Decision.DENY),
-        (f"cat {HOME / '.aws' / 'credentials'}", Decision.DENY),
+        (f"cat {HOME / '.ssh' / 'id_rsa'}", Decision.APPROVAL_REQUIRED),  # LOCAL2-R3
+        (f"cat {HOME / '.aws' / 'credentials'}", Decision.APPROVAL_REQUIRED),  # LOCAL2-R3
         ("cat /etc/shadow", Decision.APPROVAL_REQUIRED),
         ("cat /etc/sudoers", Decision.APPROVAL_REQUIRED),
     ],
@@ -135,8 +135,9 @@ def test_host_and_credential_boundaries_stay_gated(command: str, decision: Decis
 def test_workspace_dotdot_escape_is_denied() -> None:
     """DENY_PATH_TRAVERSAL was defined but never raised."""
     decision, _ = _decide("cat ../../../../etc/passwd")
-    assert decision.decision is Decision.DENY
-    assert decision.reason is ReasonCode.DENY_PATH_TRAVERSAL
+    # LOCAL2-R3: a ``..`` escape is reviewed, not refused.
+    assert decision.decision is Decision.APPROVAL_REQUIRED
+    assert decision.reason is ReasonCode.APPROVAL_SECURITY_BOUNDARY
 
 
 def test_non_escaping_dotdot_stays_allowed() -> None:

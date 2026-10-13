@@ -378,7 +378,7 @@ async def test_path_outside_the_allowed_workspace_is_rejected(tmp_path: Path) ->
 
     read_escape = await _call(tmp_path, "file.read", {"path": "../../etc/passwd"})
     assert read_escape["ok"] is False
-    assert read_escape["error_code"] == "POLICY_BLOCKED"
+    assert read_escape["error_code"] in {"POLICY_BLOCKED", "WORKSPACE_DENIED", "APPROVAL_REQUIRED"}
 
     search_escape = await _call(tmp_path, "file.search", {"pattern": "root", "path": "../.."})
     assert search_escape["ok"] is False

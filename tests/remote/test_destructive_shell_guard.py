@@ -135,13 +135,14 @@ async def test_gateway_blocks_destructive_shell_without_capability(tmp_path: Pat
         )
         return response["result"]["structuredContent"]
 
+    # LOCAL2-R3: destructive shell asks for approval instead of refusing.
     plain = await call({"command": "rm -rf build"})
     assert plain["ok"] is False
-    assert plain["error_code"] == "POLICY_BLOCKED"
+    assert plain["error_code"] == "APPROVAL_REQUIRED"
 
     boolean_bypass = await call({"command": "rm -rf build", "approved": True})
     assert boolean_bypass["ok"] is False
-    assert boolean_bypass["error_code"] == "POLICY_BLOCKED"
+    assert boolean_bypass["error_code"] == "INVALID_APPROVAL"  # LOCAL2-R3
 
 
 async def test_destructive_shell_requires_approval_even_with_capability(tmp_path: Path) -> None:
