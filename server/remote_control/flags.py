@@ -41,6 +41,22 @@ def require_enabled() -> None:
         )
 
 
+#: W17 SSH host execution backend (registered in ``server/feature_flags.py``,
+#: default OFF). Effective only together with ``VEYA_REMOTE_CONTROL``.
+FLAG_NAME_SSH = "VEYA_SSH_HOSTS"
+
+
+def ssh_enabled() -> bool:
+    """Are W17 ssh hosts on? Needs BOTH this flag and the W13 flag; fail-closed."""
+
+    from server import feature_flags
+
+    try:
+        return enabled() and feature_flags.enabled(FLAG_NAME_SSH)
+    except KeyError:
+        return False
+
+
 def env_float(name: str, default: float) -> float:
     """Read a numeric W13 tuning knob, falling back on any bad value."""
 

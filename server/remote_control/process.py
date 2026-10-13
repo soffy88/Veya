@@ -136,11 +136,68 @@ def spawn(
         return ProcessHandle(argv=args, pid=process.pid, returncode=None)
 
 
+def run_capture(
+    argv: Sequence[str],
+    *,
+    timeout_s: float,
+    input_bytes: bytes | None = None,
+) -> "CaptureResult":
+    """W17: run one argv-list command to completion and capture its output.
+
+    Unlike :func:`spawn` (launch-only, never kills), this is for short
+    request/response calls such as one non-interactive ``ssh`` command: the
+    process is **killed** at ``timeout_s`` and reported with
+    ``timed_out=True``. ``shell=False``; stdin is ``input_bytes`` or empty.
+    """
+
+    args = [str(item) for item in (argv or ())]
+    if not args:
+        raise ProcessUnavailable("empty argv")
+    binary = _resolve(args[0])
+    try:
+        completed = subprocess.run(  # noqa: S603 — argv list, shell=False
+            [binary, *args[1:]],
+            input=input_bytes if input_bytes is not None else b"",
+            capture_output=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return CaptureResult(
+            argv=args,
+            returncode=None,
+            stdout=exc.stdout or b"",
+            stderr=exc.stderr or b"",
+            timed_out=True,
+        )
+    except OSError as exc:
+        raise ProcessUnavailable(f"{args[0]} could not be started: {exc}") from exc
+    return CaptureResult(
+        argv=args,
+        returncode=completed.returncode,
+        stdout=completed.stdout or b"",
+        stderr=completed.stderr or b"",
+    )
+
+
+@dataclass
+class CaptureResult:
+    """Outcome of :func:`run_capture` (bytes; callers decode)."""
+
+    argv: list[str] = field(default_factory=list)
+    returncode: int | None = None
+    stdout: bytes = b""
+    stderr: bytes = b""
+    timed_out: bool = False
+
+
 __all__ = [
+    "CaptureResult",
     "SPAWN_TIMEOUT_S",
     "WHOIS_TIMEOUT_S",
     "ProcessHandle",
     "ProcessUnavailable",
+    "run_capture",
     "run_tailscale",
     "spawn",
 ]

@@ -91,6 +91,33 @@ class VerifierEvidence:
         return bool(self.verified and self.source and self.summary)
 
 
+
+def evidence_from_bg_status(status: dict[str, Any]) -> VerifierEvidence:
+    """W17: turn an ``ssh_bg_status`` reading into verifier evidence.
+
+    ``verified`` only when the remote run has finished with exit code 0 (read
+    from its ``.exit`` file, never self-reported); a running, failed or lost
+    run yields unusable evidence that still carries the facts.
+    """
+
+    host = str(status.get("host") or "")
+    name = str(status.get("name") or "")
+    code = status.get("exit_code")
+    finished = bool(status.get("finished"))
+    tail = str(status.get("log_tail") or "")
+    last = next((line for line in reversed(tail.splitlines()) if line.strip()), "")[:200]
+    return VerifierEvidence(
+        verified=bool(finished and code == 0),
+        source=f"ssh_bg:{host}:{name}" if host and name else "",
+        summary=f"exit={code} tail={last}" if finished else "",
+        detail={
+            "exit_code": code,
+            "finished": finished,
+            "lost": bool(status.get("lost")),
+            "log_tail": tail[-2000:],
+        },
+    )
+
 @dataclass
 class RemoteSession:
     """One remote agent run, from acceptance to a verified outcome."""

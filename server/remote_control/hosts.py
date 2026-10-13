@@ -38,6 +38,13 @@ _LEDGER_ENV = "VEYA_REMOTE_CONTROL_HOSTS_PATH"
 _LEDGER_FILE = "remote_control_hosts.json"
 
 
+#: W17 ssh fields. ``ssh_key_ref`` is the NAME of a vault secret, never a key
+#: or a path, so it may not contain ``/``, ``\\``, ``:`` or whitespace.
+SSH_KEY_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+OS_FAMILIES = frozenset({"linux", "windows-wsl", "macos"})
+HOST_KEY_POLICIES = frozenset({"accept-new", "strict"})
+
+
 class HostValidationError(ValueError):
     """A host record was rejected before it reached the ledger."""
 
@@ -57,9 +64,23 @@ class RemoteHost:
     last_seen_at: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
+    # ── W17 ssh fields (all defaulted: W13 records load unchanged) ──
+    ssh_user: str = ""
+    ssh_port: int = 22
+    ssh_key_ref: str = ""
+    ssh_host_key_policy: str = "accept-new"
+    os_family: str = "linux"
+    write_root: str = ""
+    default_cwd: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        # W17 fields left at their defaults are omitted, so a W13 record (and
+        # every W13 response) stays byte-identical while ssh hosts are unused.
+        for key, default in _SSH_DEFAULTS.items():
+            if data.get(key) == default:
+                data.pop(key, None)
+        return data
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "RemoteHost":
@@ -79,6 +100,13 @@ class RemoteHost:
             ),
             metadata=dict(meta) if isinstance(meta, dict) else {},
             created_at=float(value.get("created_at") or time.time()),
+            ssh_user=str(value.get("ssh_user") or ""),
+            ssh_port=_as_port(value.get("ssh_port")),
+            ssh_key_ref=str(value.get("ssh_key_ref") or ""),
+            ssh_host_key_policy=str(value.get("ssh_host_key_policy") or "accept-new"),
+            os_family=str(value.get("os_family") or "linux"),
+            write_root=str(value.get("write_root") or ""),
+            default_cwd=str(value.get("default_cwd") or ""),
         )
 
     def command_template(self) -> str:
@@ -92,6 +120,59 @@ class RemoteHost:
         )
 
 
+_SSH_DEFAULTS: dict[str, Any] = {
+    "ssh_user": "",
+    "ssh_port": 22,
+    "ssh_key_ref": "",
+    "ssh_host_key_policy": "accept-new",
+    "os_family": "linux",
+    "write_root": "",
+    "default_cwd": "",
+}
+
+
+def _as_port(value: Any) -> int:
+    try:
+        return int(value) if value not in (None, "") else 22
+    except (TypeError, ValueError):
+        return 0  # rejected by validate_host
+
+
+def _is_remote_abs(path: str, os_family: str) -> bool:
+    if path.startswith("/"):
+        return True
+    return os_family == "windows-wsl" and bool(re.match(r"^[A-Za-z]:\\", path))
+
+
+def validate_ssh_fields(host: RemoteHost) -> RemoteHost:
+    """W17: reject ssh connection fields that could not be used safely."""
+
+    if host.os_family not in OS_FAMILIES:
+        raise HostValidationError("os_family must be one of linux, windows-wsl, macos")
+    if not 1 <= int(host.ssh_port or 0) <= 65535:
+        raise HostValidationError("ssh_port must be 1..65535")
+    if host.ssh_key_ref and not SSH_KEY_REF_RE.match(host.ssh_key_ref):
+        raise HostValidationError(
+            "ssh_key_ref must be a vault secret name (^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$), "
+            "never a key or a path"
+        )
+    if host.ssh_host_key_policy not in HOST_KEY_POLICIES:
+        raise HostValidationError("ssh_host_key_policy must be accept-new or strict")
+    if host.ssh_user and not re.match(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$", host.ssh_user):
+        raise HostValidationError("ssh_user has invalid characters")
+    for name in ("write_root", "default_cwd"):
+        value = str(getattr(host, name) or "")
+        if not value:
+            continue
+        if any(ch in value for ch in ("\n", "\r", "\x00")):
+            raise HostValidationError(f"{name} must be a single line")
+        if not _is_remote_abs(value, host.os_family):
+            raise HostValidationError(f"{name} must be an absolute remote path")
+        if name == "write_root" and value.rstrip("/\\") in ("", "C:", "c:"):
+            raise HostValidationError("write_root must not be the filesystem root")
+    return host
+
+
 def validate_host(host: RemoteHost) -> RemoteHost:
     """Reject a host that could not be driven safely. Raises on refusal."""
 
@@ -103,6 +184,7 @@ def validate_host(host: RemoteHost) -> RemoteHost:
         raise HostValidationError("tailnet_ip is required")
     if not host.owner_id.strip():
         raise HostValidationError("owner_id is required")
+    validate_ssh_fields(host)
     return host
 
 
@@ -191,7 +273,10 @@ __all__ = [
     "DEFAULT_AGENT_COMMANDS",
     "DEFAULT_AGENT_LABEL",
     "HOST_ID_RE",
+    "HOST_KEY_POLICIES",
     "HostValidationError",
+    "OS_FAMILIES",
+    "SSH_KEY_REF_RE",
     "RemoteHost",
     "delete_host",
     "get_host",
@@ -200,4 +285,5 @@ __all__ = [
     "set_enabled",
     "touch_seen",
     "validate_host",
+    "validate_ssh_fields",
 ]
