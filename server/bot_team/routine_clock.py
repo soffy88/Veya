@@ -218,6 +218,20 @@ def _route_wake(
     )
 
 
+def _legacy_routine_project_root(bot_id: str) -> str:
+    """A writable project root for the legacy (unscoped) routine path.
+
+    Never ``"."``: in production the process cwd (``/app``) is read-only, so a
+    GoalRun write under ``./.veya-project/goal-runs`` fails with EACCES /
+    FileNotFoundError and the routine can never deliver its report. Use the bot's
+    own dir under ``VEYA_WRITE_ROOT`` (default ``~/.veya/work``) instead.
+    """
+    base = Path(os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work")))
+    root = base / "routine" / str(bot_id or "default")
+    root.mkdir(parents=True, exist_ok=True)
+    return str(root)
+
+
 async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) -> None:
     if not handoffs:
         return
@@ -268,7 +282,7 @@ async def _default_handoff_consumer(handoffs: list[dict], *, bot_registry=None) 
             source="ROUTINE",
             mode=ExecutionMode.STRUCTURED_CONSTRAINED,
             objective=goal_text,
-            project_root=".",
+            project_root=_legacy_routine_project_root(str(bot_id)),
             constraints=ExecutionConstraints(
                 metadata={
                     "bot_id": bot_id,
@@ -376,10 +390,19 @@ async def _try_supervisor_handoff(*, routine_id: str, bot_id: str) -> bool:
 
     binding = None
     try:
-        for item in supervisor_binding.list_bindings(owner_id=bot_id):
-            if item.routine_id == routine_id:
-                binding = item
-                break
+        # The authoritative link is routine_id: it is what the clock fires on
+        # and what supervise_task stored. Matching by owner_id is wrong — the
+        # binding's owner_id is the bot that started the run, which need not
+        # equal the routine's dispatch bot_id (a run started before the bot
+        # scope was bound is filed under "veya-default"). Match on the routine
+        # first, preferring the binding whose bot_id is the firing bot.
+        candidates = [
+            item
+            for item in supervisor_binding.list_bindings()
+            if item.routine_id == routine_id and item.status in ("open", "paused")
+        ]
+        if candidates:
+            binding = next((item for item in candidates if item.bot_id == bot_id), candidates[0])
     except Exception:
         _lg.debug("could not load supervisor bindings for %s", bot_id, exc_info=True)
         return False

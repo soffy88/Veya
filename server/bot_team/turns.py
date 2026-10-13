@@ -538,14 +538,23 @@ async def _supervise_from_phrase(
         pass
 
     try:
+        from server.goal_run.bot_identity import bind_current_bot, reset_current_bot
         from server.supervision_tools import supervise_task as _run
 
-        result = _run(
-            project_root=project_root,
-            objective=str(text or ""),
-            report_every_minutes=int(parsed["report_every_minutes"]),
-            stall_after_minutes=int(parsed.get("stall_after_minutes", 15)),
-        )
+        # The phrase path runs before ``_run_product_task`` binds the bot scope,
+        # so ``supervise_task`` would otherwise read ``current_bot_id() == None``
+        # and file the binding/routine/report under "veya-default" instead of
+        # this bot. Bind the turn's bot here so the supervised run is owned by it.
+        bot_token = bind_current_bot(bot.bot_id)
+        try:
+            result = _run(
+                project_root=project_root,
+                objective=str(text or ""),
+                report_every_minutes=int(parsed["report_every_minutes"]),
+                stall_after_minutes=int(parsed.get("stall_after_minutes", 15)),
+            )
+        finally:
+            reset_current_bot(bot_token)
     except Exception as exc:
         return BotTurnResult(
             bot_id=bot.bot_id,
