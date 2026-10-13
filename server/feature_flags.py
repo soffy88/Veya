@@ -63,6 +63,9 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_SEARCH_FALLBACK", True, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_CHANNEL_STATUS", True, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_BOT_MEMORY_MD", False, "learning", "2027-01-01"),
+    # W12 flags (default OFF)
+    FeatureFlag("VEYA_BRAIN_BREAKER", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_SUPERVISOR", False, "runtime", "2027-01-01"),
     # W14: MCP preset pack (5 external MCP servers). Default OFF — presets
     # never launch unless explicitly enabled, matching every other
     # externally-launched integration flag in this table.

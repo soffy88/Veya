@@ -166,6 +166,98 @@ def veya_events(project_root: str, mission_id: str) -> dict[str, Any]:
     return {"events": store.events(mission_id)}
 
 
+def supervise_task(
+    project_root: str,
+    objective: str,
+    report_every_minutes: int = 30,
+    stall_after_minutes: int = 20,
+    max_repairs: int = 3,
+) -> dict[str, Any]:
+    """Start a supervised long task (flag VEYA_SUPERVISOR=1).
+
+    W12-A2: binds one new GoalRun to one new routine and records the
+    binding. The GoalRun store stays the execution authority; the
+    routine registry stays the schedule authority. This function adds
+    only the bookkeeping — no new scheduler, event store or approval
+    path.
+
+    Returns the binding plus the ids of the created GoalRun and
+    routine so the caller (model) can tell the user what was started.
+    """
+
+    from server.supervisor import binding as supervisor_binding
+    from server.supervisor import enabled as supervisor_enabled
+
+    if not supervisor_enabled():
+        raise RuntimeError(
+            "supervisor is disabled; set VEYA_SUPERVISOR=1 to enable"
+        )
+
+    import uuid as _uuid
+    from datetime import UTC, datetime
+
+    from server.goal_run.bot_identity import current_bot_id
+    from server.goal_run.models import GoalRunState, GoalStatus, RoutineSpec
+    from server.goal_run.routine_registry import RoutineRegistry
+
+    # Owner context: the bot that called this tool owns the run.
+    bot_id = current_bot_id() or "veya-default"
+
+    # 1. Create the GoalRun state (the execution authority).
+    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:12]}"
+    state = GoalRunState(
+        goal_id=goal_id,
+        goal_text=objective,
+        status=GoalStatus.running,
+        bot_id=bot_id,
+    )
+    from server.goal_run.store import save_goal_run
+
+    save_goal_run(state, project_root)
+
+    # 2. Create the routine that fires the report cadence (the schedule
+    #    authority). trigger_topic is the structural match the routine
+    #    clock already dispatches on.
+    routine_id = f"supervise_{_uuid.uuid4().hex[:8]}"
+    routine = RoutineSpec(
+        routine_id=routine_id,
+        trigger_topic="schedule.trigger",
+        objective=objective,
+        goal_run_id=goal_id,
+        bot_id=bot_id,
+        goal_template=objective,
+        schedule=f"every {report_every_minutes}m",
+        probe={"kind": "none"},
+    )
+    registry = RoutineRegistry(bot_id=bot_id)
+    registry.register(routine)
+
+    # 3. Record the binding (the bookkeeping projection).
+    binding = supervisor_binding.SupervisorBinding(
+        binding_id=f"sup_{_uuid.uuid4().hex[:8]}",
+        goal_run_id=goal_id,
+        routine_id=routine_id,
+        owner_id=bot_id,
+        bot_id=bot_id,
+        objective=objective,
+        project_root=project_root,
+        report_every_minutes=int(report_every_minutes),
+        stall_after_minutes=int(stall_after_minutes),
+        max_repairs=int(max_repairs),
+        last_activity_at=None,
+    )
+    supervisor_binding.save_binding(binding)
+
+    return {
+        "binding": binding.to_dict(),
+        "goal_run_id": goal_id,
+        "routine_id": routine_id,
+        "report_every_minutes": int(report_every_minutes),
+        "stall_after_minutes": int(stall_after_minutes),
+        "max_repairs": int(max_repairs),
+    }
+
+
 _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
     (
         "veya_mission_create",
@@ -351,6 +443,35 @@ _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (
         veya_events,
         "pure_read",
     ),
+    (
+        "supervise_task",
+        "启动一个受监督的长任务：绑定 GoalRun + routine，按间隔汇报进度，卡住时自动续跑。仅 VEYA_SUPERVISOR=1 可用。",
+        {
+            "type": "object",
+            "properties": {
+                "project_root": {"type": "string"},
+                "objective": {"type": "string", "description": "要完成的目标（中文/英文均可）"},
+                "report_every_minutes": {
+                    "type": "integer",
+                    "default": 30,
+                    "description": "进度汇报间隔（分钟）",
+                },
+                "stall_after_minutes": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "多少分钟无活动判定为卡住",
+                },
+                "max_repairs": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "最大自动续跑次数",
+                },
+            },
+            "required": ["project_root", "objective"],
+        },
+        supervise_task,
+        "local_write",
+    ),
 )
 
 
@@ -381,4 +502,4 @@ def register_tools(registry: Any) -> int:
     return added
 
 
-__all__ = ["register_tools"]
+__all__ = ["register_tools", "supervise_task"]

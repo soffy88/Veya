@@ -24,7 +24,7 @@ from typing import Any
 from server.feature_flags import enabled as _flag_enabled
 from server.tool_registry import SideEffect
 
-PRESET_FILE = Path(__file__).resolve().parents[1] / "config" / "mcp_presets.yaml"
+PRESET_FILE = Path(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))) / "config" / "mcp_presets.yaml"
 
 # Preset 声明的逻辑名 → tool_registry SideEffect (全部只读)。
 EFFECTS: dict[str, str] = {
@@ -49,7 +49,7 @@ def _venv_bin() -> str:
     import sys
     from pathlib import Path
 
-    return str(Path(sys.executable).resolve().parent)
+    return os.path.dirname(os.path.realpath(sys.executable))
 
 
 def _load_presets(path: Path | None = None) -> list[dict[str, Any]]:

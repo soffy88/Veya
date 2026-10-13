@@ -98,6 +98,9 @@ services:
       - VEYA_MEMORY_CONFLICT_DETECTION=${VEYA_MEMORY_CONFLICT_DETECTION:-1}
       - VEYA_SKILL_V2=${VEYA_SKILL_V2:-1}
       - VEYA_SKILL_TEACHING=${VEYA_SKILL_TEACHING:-1}
+      # Skills trusted to call subprocess.run() / destructive FS ops
+      # (static scan high-severity allowlist, see server.skill_scan).
+      - VEYA_SKILL_TRUSTED_NAMES=${VEYA_SKILL_TRUSTED_NAMES:-officecli,answer-me-with-html}
       - VEYA_SKILL_VERSIONING=${VEYA_SKILL_VERSIONING:-1}
       - VEYA_CONTINUITY_V1=${VEYA_CONTINUITY_V1:-1}
       - VEYA_PERSONAL_CONTEXT_UI=${VEYA_PERSONAL_CONTEXT_UI:-1}
@@ -111,6 +114,10 @@ services:
       - OPEN_SANDBOX_DOMAIN=${OPEN_SANDBOX_DOMAIN:-}
       - OPEN_SANDBOX_API_KEY=${OPEN_SANDBOX_API_KEY:-}
       - OPEN_SANDBOX_PROTOCOL=${OPEN_SANDBOX_PROTOCOL:-http}
+      # answer-me-with-html skill: artifacts dir must persist across container rebuilds
+      # and VEYA_BASE_URL must be set so rendered pages get HTTP URLs (not file://).
+      - VEYA_ARTIFACTS_DIR=/home/soffy/.veya/artifacts
+      - VEYA_BASE_URL=http://127.0.0.1:8767
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -156,6 +163,8 @@ services:
       - PYTHONPATH=/app:/app/services:/app/platform/3O/oprim:/app/platform/3O/oskill:/app/platform/3O/omodul:/app/platform/3O/obase:/app/platform/3O/oservi:/home/soffy/hevi_deps
     volumes:
       - veya-data:/home/soffy/.veya
+      # answer-me-with-html 技能渲染的 HTML 页面目录 (持久卷, 容器重建不丢)
+      - veya-artifacts:/home/soffy/.veya/artifacts
       # Production Python is created inside the image.  Only the approved
       # Reasonix Node authority is host-mounted; never overlay the runtime
       # root, because that relocates the non-relocatable Python venv.
@@ -214,6 +223,10 @@ volumes:
   veya-data:
     name: deploy_veya-data
     external: true
+  # answer-me-with-html 技能产物 (单文件 HTML 解释器, 容器重建不丢)
+  # 宿主: /data/docker/volumes/veya-artifacts/_data (命名卷, 持久)
+  veya-artifacts:
+    name: veya-artifacts
   veya-execution-pg-data:
     name: veya-execution-pg-data
     external: true

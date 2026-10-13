@@ -1,0 +1,44 @@
+{
+  "name": "answer-me-with-html",
+  "description": "把复杂答案渲染成一页 HTML 讲解稿 (Markdown 草稿 → 单文件 HTML)。用于: 流程/协议/状态机、≥3 维对比、多步计划、诊断/评审、有分支的说明。默认写到 ~/.veya/artifacts/html/, 不改用户 workspace。返回 html_path + file_url (可点开的 HTML 链接)。复杂问题才用; 短问答用文本回。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "draft": {
+        "type": "string",
+        "description": "Markdown 草稿正文 (含 frontmatter)。至少 1 个 ## 面板。"
+      },
+      "output": {
+        "type": "string",
+        "description": "可选输出 HTML 路径。缺省 ~/.veya/artifacts/html/answer-me-<ts>.html。"
+      },
+      "theme": {
+        "type": "string",
+        "enum": ["auto", "blueprint", "shadcn", "paper"],
+        "description": "主题, 默认 auto。"
+      },
+      "template": {
+        "type": "string",
+        "enum": ["sheet", "doc"],
+        "description": "版式: sheet=一屏概览, doc=线性阅读。默认 auto。"
+      },
+      "style": {
+        "type": "string",
+        "enum": ["off", "80", "strict"],
+        "description": "STE 控句检查档位, 默认 80。"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["auto", "light", "dark"],
+        "description": "配色模式, 默认 auto。"
+      },
+      "replace": {
+        "type": "string",
+        "description": "上一次生成的 HTML 路径, 渲染成功后删除旧页。"
+      }
+    },
+    "required": ["draft"]
+  }
+}
