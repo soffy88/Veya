@@ -237,6 +237,9 @@ async def wire_master_tools(*, path: Path | None = None) -> int:
         return 0
     registered = 0
     for preset in _load_presets(path):
+        if _missing_env(preset):
+            # 缺 KEY: 永不 spawn 进程, 永不附着 (与 attach_preset 同语义)。
+            continue
         try:
             client = _build_client(preset)
             await client.start()

@@ -211,6 +211,43 @@ def master_tools_spec(name: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# wire_master_tools: flag OFF / missing key → nothing spawned/registered
+# ---------------------------------------------------------------------------
+
+
+class TestWireMasterTools:
+    async def test_flag_off_registers_nothing(self, flag_off: None) -> None:
+        monkey = pytest.MonkeyPatch()
+
+        try:
+            monkey.setattr(mcp_presets, "_build_client", _must_not_spawn)
+            registered = await mcp_presets.wire_master_tools()
+        finally:
+            monkey.undo()
+
+        assert registered == 0
+
+    async def test_missing_key_never_spawns_process(
+        self, flag_on: None, no_keys: pytest.MonkeyPatch
+    ) -> None:
+        monkey = pytest.MonkeyPatch()
+
+        try:
+            monkey.setattr(mcp_presets, "_build_client", _must_not_spawn)
+            registered = await mcp_presets.wire_master_tools()
+        finally:
+            monkey.undo()
+
+        assert registered == 0
+
+
+def _must_not_spawn(preset: dict[str, Any]) -> Any:
+    raise AssertionError(
+        f"preset {preset.get('name')!r} spawned a process without its key"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Attach through the existing McpAttachPolicy (mocked process)
 # ---------------------------------------------------------------------------
 
