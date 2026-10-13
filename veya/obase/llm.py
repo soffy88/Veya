@@ -546,6 +546,13 @@ async def _frontier_fallback(messages: list[dict], kwargs: dict, *, reason: str)
                 # 凭据失效 (如 CLIProxyAPI codex OAuth 被吊销) 重试无意义, 立即放弃。
                 logger.warning("frontier 兜底凭据被拒, 不再重试: %s", content.strip()[:200])
                 return None
+            if not fmsg.get("tool_calls") and (
+                content.strip() == f"{frontier_model} 兜底失败" or "auth_unavailable" in content
+            ):
+                # llm_call 已耗尽自身重试只回了占位文本 (或上游无可用凭据), 这不是回答;
+                # 再退避重试只会拖慢调用方的 failover。
+                logger.warning("frontier 兜底无有效回答, 放弃: %s", content.strip()[:200])
+                return None
             if not fmsg.get("tool_calls") and "rejected the request (HTTP" in content:
                 # 上游 HTTP 报错文本不是有效回答, 不能当兜底成功返回。
                 raise RuntimeError(content.strip()[:300])
