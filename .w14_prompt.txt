@@ -1,1 +1,4 @@
 Read W14_MCP_PACK_SPEC.md in this directory and implement it fully, obeying every rule in it (3O paradigm, flag default OFF, reuse existing MCP path, no new registry/scheduler/approval). Commit WIP after every passing step (git add -A -- . ":!.venv" ":!platform/3O"). Run only the test files named in the spec, one or two per pytest call, never the whole tests/ dir; no dev servers. If resumed, read git log and uncommitted files first. Finish with W14_REPORT.md committed.
+
+
+HARD SAFETY RULES: only modify files inside this worktree (/data/soffy/projects/veya-w14). Never delete anything outside it. If disk is full, write W14_BLOCKED.md and exit. When done write W14_REPORT.md.
