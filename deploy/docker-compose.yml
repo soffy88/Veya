@@ -117,7 +117,7 @@ services:
       # answer-me-with-html skill: artifacts dir must persist across container rebuilds
       # and VEYA_BASE_URL must be set so rendered pages get HTTP URLs (not file://).
       - VEYA_ARTIFACTS_DIR=/home/soffy/.veya/artifacts
-      - VEYA_BASE_URL=http://127.0.0.1:8767
+      - VEYA_BASE_URL=https://veya.aiinote.com
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
