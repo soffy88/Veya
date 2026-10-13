@@ -55,7 +55,7 @@ def _save_state(path: Path, state: dict[str, Any]) -> None:
 def _user_id(username: str) -> str:
     conn = sqlite3.connect(str(_home() / "auth.db"))
     try:
-        row = conn.execute("SELECT user_id FROM users WHERE username=?", (username,)).fetchone()
+        row = conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
     finally:
         conn.close()
     if row is None:
