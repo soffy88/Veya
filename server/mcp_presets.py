@@ -44,6 +44,14 @@ def _python() -> str:
     return sys.executable
 
 
+def _venv_bin() -> str:
+    """Directory holding the interpreter's console scripts (pip entries)."""
+    import sys
+    from pathlib import Path
+
+    return str(Path(sys.executable).resolve().parent)
+
+
 def _load_presets(path: Path | None = None) -> list[dict[str, Any]]:
     """解析唯一 preset 定义文件 (YAML → dict 列表; 非法结构抛 ValueError)。"""
     import yaml  # type: ignore[import-untyped]
@@ -56,12 +64,23 @@ def _load_presets(path: Path | None = None) -> list[dict[str, Any]]:
     for item in parsed:
         if not isinstance(item, dict):
             raise ValueError("each mcp preset must be a mapping")
-        required = {"name", "transport", "command", "env", "side_effect", "license", "attribution"}
+        required = {
+            "name",
+            "transport",
+            "runtime",
+            "command",
+            "env",
+            "side_effect",
+            "license",
+            "attribution",
+        }
         missing = sorted(required - set(item))
         if missing:
             raise ValueError(f"mcp preset {item.get('name')!r} missing fields: {missing}")
         if item["transport"] not in {"stdio", "http", "https"}:
             raise ValueError(f"mcp preset {item['name']!r}: unsupported transport")
+        if item["runtime"] not in {"python", "node"}:
+            raise ValueError(f"mcp preset {item['name']!r}: unsupported runtime")
         if item["side_effect"] != "external_read":
             raise ValueError(f"mcp preset {item['name']!r}: only external_read is declared")
         presets.append(item)
@@ -75,7 +94,9 @@ def _missing_env(preset: dict[str, Any]) -> list[str]:
 def _resolve_command(preset: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for token in preset.get("command") or []:
-        out.append(str(token).replace("{venv_python}", _python()))
+        out.append(
+            str(token).replace("{venv_python}", _python()).replace("{venv_bin}", _venv_bin())
+        )
     return out
 
 

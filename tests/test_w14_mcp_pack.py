@@ -68,11 +68,62 @@ class TestPresetParse:
     def test_every_preset_declares_required_fields(self) -> None:
         for preset in _load_presets():
             assert preset["transport"] in {"stdio", "http", "https"}
+            assert preset["runtime"] in {"python", "node"}
             assert isinstance(preset["command"], list) and preset["command"]
             assert isinstance(preset["env"], list)
             assert preset["side_effect"] == "external_read"
             assert preset["license"]
             assert preset["attribution"].startswith("https://")
+
+    def test_launch_commands_match_upstream_entry_points(self) -> None:
+        """Each command is the entry point its upstream actually publishes.
+
+        These were previously invented python module paths (`-m markitdown.mcp`,
+        `-m brave_search_mcp`, …). Three of the five servers are Node
+        projects and two ship no `__main__`, so none of those could ever
+        have launched. Pinned here so they cannot drift back.
+        """
+        expected = {
+            # pip console script — packages/markitdown-mcp [project.scripts]
+            "markitdown": "{venv_bin}/markitdown-mcp",
+            # pip console script — MinerU-Ecosystem/mcp [project.scripts]
+            "mineru": "{venv_bin}/mineru-open-mcp",
+            # npm bin — @brave/brave-search-mcp-server
+            "brave-search": "@brave/brave-search-mcp-server",
+            # npm bin — exa-mcp-server
+            "exa": "exa-mcp-server",
+            # npm bin — @upstash/context7-mcp
+            "context7": "@upstash/context7-mcp",
+        }
+        for preset in _load_presets():
+            command = preset["command"]
+            assert expected[preset["name"]] in command, (
+                f"{preset['name']} command drifted from its upstream entry point: {command}"
+            )
+            assert not any(str(tok).startswith("-m") for tok in command), (
+                f"{preset['name']} launches via `-m <module>`, which these packages do not support"
+            )
+
+    def test_python_presets_use_the_venv_console_script_dir(self) -> None:
+        resolved = mcp_presets._resolve_command(_preset("markitdown"))
+        assert len(resolved) == 1
+        assert "{venv_" not in resolved[0], f"unsubstituted placeholder: {resolved}"
+        assert Path(resolved[0]).name == "markitdown-mcp"
+
+    def test_no_placeholder_survives_command_resolution(self) -> None:
+        for preset in _load_presets():
+            for token in mcp_presets._resolve_command(preset):
+                assert "{" not in token, f"{preset['name']}: unresolved {token}"
+
+    def test_licenses_match_upstream(self) -> None:
+        """All five are MIT; MinerU was previously mislabelled AGPL-3.0.
+
+        MinerU core was AGPL-3.0 until upstream relicensed it to an
+        Apache-2.0-based license (opendatalab/MinerU@e148afa, 2026-04-14);
+        the MCP package we launch is MIT.
+        """
+        for preset in _load_presets():
+            assert preset["license"] == "MIT", f"{preset['name']}: {preset['license']}"
 
     def test_env_fields_are_names_not_values(self) -> None:
         brave = _preset("brave-search")
@@ -418,7 +469,9 @@ class TestAttachPreset:
         client = result["client"]
         assert isinstance(client, _FakeMcpClient)
         assert client.started is True
-        assert client.cmd[0].endswith("python") or "python" in Path(client.cmd[0]).name
+        # The spawned command is the preset's resolved command — not a
+        # hard-coded interpreter, since node-backed presets start npx.
+        assert client.cmd == mcp_presets._resolve_command(_preset("brave-search"))
 
     async def test_disallowed_transport_is_denied(
         self, flag_on: None, monkeypatch: pytest.MonkeyPatch
