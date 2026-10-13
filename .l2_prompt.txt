@@ -1,0 +1,11 @@
+你在 /data/soffy/projects/veya-local2-r2（分支 fix/local2-less-deny，基于 fix/local2-usability 2e802bc3）。中文写报告。
+HARD SAFETY RULES：只能修改本 worktree；禁止删除或移动 worktree 外任何数据；禁止 rm -rf 通配符；不碰 .venv、platform/3O；不重启任何服务（生产 veya-remote-mcp 跑在 /data/soffy/projects/veya-local2-fix，别改那个目录）；不 push；磁盘不足写 LOCAL2_BLOCKED.md 退出。读文件/日志一律 grep、sed -n、head、tail 限定范围（32MB 请求上限）。
+
+背景：local2 = veya-remote-mcp（systemd --user，127.0.0.1，反代 /mcp），给 ChatGPT 通过 MCP 远程在用户自己的电脑（ubuntu26）上操作：shell、文件读写、git、跑测试等。用户反馈：「不要动不动就拒绝」。
+任务：
+1. 取证：找出真实的拒绝/要求审批记录。查 veya-remote-mcp 的事件/审计账本（~/.veya 下相关 json/jsonl、journalctl --user -u veya-remote-mcp --since "7 days ago" | grep -iE "deny|denied|reject|refus|blocked|forbid|approval|escapes|not allowed" | tail -300）以及代码里所有拒绝点（veya/remote/* 的 policy、shell 解析/分段审批、路径限制、命令 allowlist/denylist、risk_class）。按原因分类统计，列出前 20 类及样例命令。
+2. 也检查 systemd 沙箱：drop-in ~/.config/systemd/user/veya-remote-mcp.service.d/40-execution-policy.conf 有 ProtectHome=read-only、ProtectSystem=full、ReadWritePaths 只含少数目录——这会让写 ~ 下其他目录、装软件等报权限错误。只在报告里给出建议改法，不要改那个文件。
+3. 修策略，原则：这是用户自己的机器、用户自己授权的 ChatGPT。默认放行：所有只读操作；在 HICODE_WORKSPACE(/data/soffy/projects) 和 ~ 下的普通读写/编辑/新建；常见开发命令（git 非强推、包管理安装到项目、测试、构建、docker ps/logs/restart、systemctl --user status/restart、curl、python、node 等）；管道/heredoc/$() 组合只要各段都安全就放行。改为「请求审批」而不是拒绝：删除工作区外数据、rm -rf、git push --force/reset --hard 到远端分支、sudo、改系统配置、停止/删除生产容器、对外发消息/花钱。硬拒绝只保留真正灾难性的（rm -rf / 或 ~ 整体、mkfs、dd 写盘、fork bomb、curl|sh 执行未知远程脚本可改为审批）。拒绝时返回清晰原因和「可以怎么改/可申请审批」，不要只回 denied。
+4. 复用现有唯一权威（policy_resolver / effect registry / ApprovalService / 现有 risk_class），不新增第二套策略或审批。
+5. 测试：为每类原先误拒的样例加回归测试（应放行）和危险样例测试（应审批/拒绝）；跑 .venv/bin/python -m pytest -q tests/remote tests/test_local2* tests/test_p3a_bot_isolation.py（以及 tests 里所有 local2 / remote_mcp 相关）全过；~/lorca-jobs/gates.sh . /tmp/gl2 与 /data/soffy/projects/veya-local2-fix 比零新增。
+6. 分步提交（git add -A -- . ':!.venv' ':!platform/3O'），写 LOCAL2_AUDIT_REPORT.md：拒绝来源统计、改了哪些规则（前后对比）、仍会审批/拒绝的清单、systemd 沙箱建议、测试数。
