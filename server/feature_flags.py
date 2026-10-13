@@ -72,6 +72,9 @@ FLAGS: tuple[FeatureFlag, ...] = (
     # never launch unless explicitly enabled, matching every other
     # externally-launched integration flag in this table.
     FeatureFlag("VEYA_MCP_PRESETS", False, "runtime", "2027-01-01"),
+    # W15: role & skill preset pack (agency-agents / agent-skills, MIT).
+    # Default OFF; appended after W14, never reordered.
+    FeatureFlag("VEYA_ROLE_SKILL_PRESETS", False, "runtime", "2027-01-01"),
 )
 
 

@@ -9,6 +9,7 @@
 	import { Trash2, Database, Key, Terminal, Lock } from "lucide-svelte";
 	import { deleteBot, listBotSecrets, patchBot, type BotSecretView, type BotView } from "$lib/team/api";
 	import { actionClass, cardClass, inputClass, primaryClass } from "$lib/team/ui";
+	import PresetPicker from "./PresetPicker.svelte";
 
 	let { bot, onSaved }: { bot: BotView; onSaved: () => void } = $props();
 
@@ -125,6 +126,7 @@
 </script>
 
 <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+	<PresetPicker {bot} onApplied={onSaved} />
 	<form
 		class="{cardClass} space-y-2"
 		onsubmit={(event) => {
