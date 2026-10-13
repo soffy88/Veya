@@ -76,6 +76,7 @@ class SupervisorBinding:
     last_activity_at: float | None = None
     last_report_fingerprint: str | None = None
     created_at: float = field(default_factory=time.time)
+    closed_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -100,6 +101,7 @@ class SupervisorBinding:
             last_activity_at=value.get("last_activity_at"),
             last_report_fingerprint=value.get("last_report_fingerprint"),
             created_at=float(value.get("created_at") or time.time()),
+            closed_reason=value.get("closed_reason"),
         )
 
 

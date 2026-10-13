@@ -172,6 +172,8 @@ def supervise_task(
     report_every_minutes: int = 30,
     stall_after_minutes: int = 20,
     max_repairs: int = 3,
+    bot_id: str | None = None,
+    dispatch: bool | None = None,
 ) -> dict[str, Any]:
     """Start a supervised long task (flag VEYA_SUPERVISOR=1).
 
@@ -200,8 +202,14 @@ def supervise_task(
     from server.goal_run.models import GoalRunState, GoalStatus, RoutineSpec
     from server.goal_run.routine_registry import RoutineRegistry
 
-    # Owner context: the bot that called this tool owns the run.
-    bot_id = current_bot_id() or "veya-default"
+    # Owner context: an explicit bot wins, else the bot that called this tool.
+    bot_id = (str(bot_id).strip() if bot_id else "") or current_bot_id() or "veya-default"
+
+    # The shell, the binding and the dispatched run must all use one absolute,
+    # writable root (a relative/"." root is the read-only /app in prod).
+    from server.goal_run.paths import resolve_goal_run_root
+
+    project_root = resolve_goal_run_root(project_root, bot_id=bot_id)
 
     # 1. Create the GoalRun state (the execution authority).
     goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:12]}"
@@ -248,7 +256,21 @@ def supervise_task(
     )
     supervisor_binding.save_binding(binding)
 
+    # 4. Actually start the run. Before funcfix the GoalRun was only recorded
+    #    (status=running, started_at=None, no tasks) and nothing ever executed
+    #    it, so the supervisor reported "stuck" forever.
+    dispatched = False
+    if _dispatch_enabled() if dispatch is None else dispatch:
+        dispatched = _dispatch_supervised_run(
+            project_root=project_root,
+            objective=objective,
+            goal_run_id=goal_id,
+            bot_id=bot_id,
+            binding_id=binding.binding_id,
+        )
+
     return {
+        "dispatched": dispatched,
         "binding": binding.to_dict(),
         "goal_run_id": goal_id,
         "routine_id": routine_id,
@@ -256,6 +278,84 @@ def supervise_task(
         "stall_after_minutes": int(stall_after_minutes),
         "max_repairs": int(max_repairs),
     }
+
+
+def _dispatch_enabled() -> bool:
+    import os
+
+    return os.environ.get("VEYA_SUPERVISOR_DISPATCH", "1").strip().lower() not in {
+        "0",
+        "false",
+        "off",
+        "no",
+    }
+
+
+_SUPERVISED_RUNS: set[Any] = set()
+
+
+async def _run_supervised_goal(
+    *, project_root: str, objective: str, goal_run_id: str, bot_id: str, binding_id: str
+) -> Any:
+    """Plan and execute the pre-registered GoalRun through the canonical entry."""
+
+    import logging
+
+    from server.coordinator_master import master_coordinator
+    from server.goal_run.bot_identity import bind_current_bot, reset_current_bot
+    from server.models.execution import (
+        CanonicalExecutionRequest,
+        ExecutionConstraints,
+        ExecutionMode,
+    )
+
+    req = CanonicalExecutionRequest(
+        source="ROUTINE",
+        mode=ExecutionMode.STRUCTURED_CONSTRAINED,
+        objective=objective,
+        project_root=project_root,
+        constraints=ExecutionConstraints(
+            metadata={
+                "bot_id": bot_id,
+                "resume_goal_id": goal_run_id,
+                "supervisor_binding_id": binding_id,
+            }
+        ),
+    )
+    token = bind_current_bot(bot_id)
+    try:
+        return await master_coordinator.execute_structured(req)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "supervised GoalRun %s failed to execute", goal_run_id
+        )
+        return None
+    finally:
+        reset_current_bot(token)
+
+
+def _dispatch_supervised_run(**kwargs: Any) -> bool:
+    """Fire-and-forget the supervised run on the current loop (or a thread)."""
+
+    import asyncio
+    import threading
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        task = loop.create_task(_run_supervised_goal(**kwargs))
+        _SUPERVISED_RUNS.add(task)
+        task.add_done_callback(_SUPERVISED_RUNS.discard)
+        return True
+    thread = threading.Thread(
+        target=lambda: asyncio.run(_run_supervised_goal(**kwargs)),
+        name=f"supervised-{kwargs.get('goal_run_id')}",
+        daemon=True,
+    )
+    thread.start()
+    return True
 
 
 _TOOLS: tuple[tuple[str, str, dict[str, Any], Any, Any], ...] = (

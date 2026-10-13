@@ -1117,6 +1117,7 @@ async def project_run_goal(
 
     start_ts = time.time()
     state: GoalRunState | None = None
+    preassigned_goal_id: str | None = None
 
     # ── R0: 数据模型 & store ──────────────────────────────────────────
     # 若 resume：加载已有 state
@@ -1124,6 +1125,17 @@ async def project_run_goal(
         state = load_goal_run(project_root, resume_goal_id)
         if state is None:
             # 若目标不存在，则视为新 run
+            state = None
+        elif (
+            not state.tasks
+            and state.started_at is None
+            and not state.is_terminal()
+        ):
+            # A pre-registered shell (W12 supervise_task records the GoalRun
+            # before it is dispatched): there is no task graph to resume, so
+            # plan it now under the id the supervisor binding already holds.
+            preassigned_goal_id = state.goal_id
+            bot_id = bot_id or getattr(state, "bot_id", None)
             state = None
         else:
             # 恢复模式：目标文本可能不同，保持原目标文本
@@ -1270,6 +1282,7 @@ async def project_run_goal(
             explicit_tasks=tasks,
             agent_identity=_agent_identity,
             bot_id=bot_id,
+            goal_id=preassigned_goal_id,
         )
 
         if state.started_at is None:
