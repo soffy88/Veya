@@ -95,6 +95,7 @@ async def g1_plan(
     explicit_tasks: list[dict[str, Any]] | None = None,
     agent_identity: dict[str, Any] | None = None,
     bot_id: str | None = None,
+    goal_id: str | None = None,
 ) -> tuple[GoalRunState, GoalRunResponse]:
     """G1 Plan：根据 interpretation 生成任务图 taskgraph.json。
 
@@ -140,7 +141,7 @@ async def g1_plan(
     # identity: concurrent admissions can enter this function in one second.
     # Keep the readable prefix and add entropy so runs cannot share a
     # taskgraph directory or the process-local cancellation event.
-    goal_id = f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:12]}"
+    goal_id = goal_id or f"goal_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:12]}"
     state = GoalRunState(
         goal_id=goal_id,
         goal_text=goal_text,
@@ -180,7 +181,9 @@ async def g1_plan(
 
     # ── 落盘 ──
     # 写入 taskgraph.json
-    root = Path(project_root or ".")
+    from server.goal_run.paths import resolve_goal_run_root
+
+    root = Path(resolve_goal_run_root(project_root, bot_id=bot_id))
     taskgraph_path = root / ".veya-project" / "goal-runs" / goal_id / "taskgraph.json"
     taskgraph_path.parent.mkdir(parents=True, exist_ok=True)
     taskgraph_path.write_text(

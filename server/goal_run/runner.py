@@ -132,6 +132,90 @@ class PlanReviewError(ValueError):
         self.code = code
 
 
+@contextlib.asynccontextmanager
+async def _durable_lease_heartbeat(repository: DurableExecutionRepository, claim: Any):
+    """Keep a claimed durable leaf lease alive while this process works on it.
+
+    Durable fix (2026-10-14): a leaf was never heart-beaten, so any leaf that
+    outlived the lease (a slow model turn, a turn waiting on the user's
+    approval) was reclassified ``retry_wait`` by the reconciler while it was
+    still running here; its eventual completion was then fenced out and the
+    GoalRun stayed ``running`` forever.  The heartbeat stops as soon as the
+    body returns, so a dead process still lets the lease expire.
+    """
+
+    ttl = _leaf_lease_ttl_s()
+    interval = max(1.0, min(ttl / 3.0, 60.0))
+
+    async def _beat() -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await repository.heartbeat(claim, lease_ttl_s=ttl)
+            except DurableExecutionError as exc:
+                logger.warning(
+                    "[goal_run %s] lease heartbeat stopped for %s: %s",
+                    claim.goal_run_id,
+                    claim.work_item_id,
+                    exc,
+                )
+                return
+            except Exception:
+                logger.debug("lease heartbeat failed", exc_info=True)
+
+    beat = asyncio.create_task(_beat(), name=f"veya-lease-heartbeat-{claim.work_item_id}")
+    try:
+        yield
+    finally:
+        beat.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await beat
+
+
+async def _release_durable_finalization(
+    repository: DurableExecutionRepository,
+    claim: Any,
+    snapshot: dict[str, Any],
+    state: GoalRunState,
+    *,
+    summary: str | None,
+) -> None:
+    """Settle the durable finalizer when the verifier ends the run early.
+
+    Durable fix (2026-10-14): the non-PASS verifier branch returned without
+    completing or releasing the finalizer claim, so the durable GoalRun stayed
+    ``finalizing`` and its finalizer item cycled lease-expired -> retry_wait
+    with no owner (18 such runs in prod).  ``blocked`` is terminal for the
+    local run, so it is committed as the durable terminal state; a FAIL that
+    will be re-planned on resume only releases the claim so a resume can
+    reclaim it.
+    """
+
+    try:
+        if state.status == GoalStatus.blocked:
+            await repository.complete_finalization(
+                claim,
+                {
+                    "answer": summary or "",
+                    "blocked_reason": state.last_stop_reason,
+                    "unfinished_work": state.unfinished_work,
+                },
+                final_status="blocked",
+                snapshot_hash=snapshot["manifest_hash"],
+                resumed=state.finalization_started,
+            )
+        else:
+            await repository.fail(
+                claim,
+                {"message": f"verification failed; awaiting replan: {summary or ''}"[:500]},
+                classification="safe_retry",
+            )
+    except DurableExecutionError:
+        logger.warning(
+            "[goal_run %s] could not settle durable finalization", state.goal_id, exc_info=True
+        )
+
+
 async def _claim_durable_goal_task(
     repository: DurableExecutionRepository,
     worker_id: str,
@@ -1085,6 +1169,12 @@ async def project_run_goal(
             next_action="none",
         )
 
+    # A missing/relative root must never mean "the process cwd" when that cwd is
+    # read-only (prod: /app) -- every reader below uses this same value.
+    from server.goal_run.paths import resolve_goal_run_root
+
+    project_root = resolve_goal_run_root(project_root, bot_id=bot_id)
+
     # MasterAgent binds the semantic capability in the request context.  The
     # GoalRun entry consumes that decision only to assemble its integration
     # projection; GoalRun remains the sole execution authority.
@@ -1111,6 +1201,7 @@ async def project_run_goal(
 
     start_ts = time.time()
     state: GoalRunState | None = None
+    preassigned_goal_id: str | None = None
 
     # ── R0: 数据模型 & store ──────────────────────────────────────────
     # 若 resume：加载已有 state
@@ -1118,6 +1209,17 @@ async def project_run_goal(
         state = load_goal_run(project_root, resume_goal_id)
         if state is None:
             # 若目标不存在，则视为新 run
+            state = None
+        elif (
+            not state.tasks
+            and state.started_at is None
+            and not state.is_terminal()
+        ):
+            # A pre-registered shell (W12 supervise_task records the GoalRun
+            # before it is dispatched): there is no task graph to resume, so
+            # plan it now under the id the supervisor binding already holds.
+            preassigned_goal_id = state.goal_id
+            bot_id = bot_id or getattr(state, "bot_id", None)
             state = None
         else:
             # 恢复模式：目标文本可能不同，保持原目标文本
@@ -1264,6 +1366,7 @@ async def project_run_goal(
             explicit_tasks=tasks,
             agent_identity=_agent_identity,
             bot_id=bot_id,
+            goal_id=preassigned_goal_id,
         )
 
         if state.started_at is None:
@@ -1957,12 +2060,13 @@ async def _run_loop_and_finalize(
                         )
                         await durable_repository.start(claim)
                         try:
-                            response = await _process_one_task(
-                                current_task,
-                                state,
-                                project_root,
-                                integration_adapter=integration_adapter,
-                            )
+                            async with _durable_lease_heartbeat(durable_repository, claim):
+                                response = await _process_one_task(
+                                    current_task,
+                                    state,
+                                    project_root,
+                                    integration_adapter=integration_adapter,
+                                )
                             if current_task.status == TaskStatus.completed:
                                 await durable_repository.complete(
                                     claim,
@@ -2287,6 +2391,14 @@ async def _run_loop_and_finalize(
                 state.status = GoalStatus.blocked
             state.last_stop_reason = verdict.summary or verdict.outcome
             save_goal_run(state, project_root)
+            if durable_finalization_claim is not None and durable_snapshot is not None:
+                await _release_durable_finalization(
+                    durable_repository,
+                    durable_finalization_claim,
+                    durable_snapshot,
+                    state,
+                    summary=verdict.summary,
+                )
             return GoalRunResponse(
                 goal_id=state.goal_id,
                 status=state.status,

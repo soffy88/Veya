@@ -552,6 +552,7 @@ async def _supervise_from_phrase(
                 objective=str(text or ""),
                 report_every_minutes=int(parsed["report_every_minutes"]),
                 stall_after_minutes=int(parsed.get("stall_after_minutes", 15)),
+                bot_id=bot.bot_id,
             )
         finally:
             reset_current_bot(bot_token)
