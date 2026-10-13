@@ -180,7 +180,9 @@ async def g1_plan(
 
     # ── 落盘 ──
     # 写入 taskgraph.json
-    root = Path(project_root or ".")
+    from server.goal_run.paths import resolve_goal_run_root
+
+    root = Path(resolve_goal_run_root(project_root, bot_id=bot_id))
     taskgraph_path = root / ".veya-project" / "goal-runs" / goal_id / "taskgraph.json"
     taskgraph_path.parent.mkdir(parents=True, exist_ok=True)
     taskgraph_path.write_text(

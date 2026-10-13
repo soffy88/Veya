@@ -1085,6 +1085,12 @@ async def project_run_goal(
             next_action="none",
         )
 
+    # A missing/relative root must never mean "the process cwd" when that cwd is
+    # read-only (prod: /app) -- every reader below uses this same value.
+    from server.goal_run.paths import resolve_goal_run_root
+
+    project_root = resolve_goal_run_root(project_root, bot_id=bot_id)
+
     # MasterAgent binds the semantic capability in the request context.  The
     # GoalRun entry consumes that decision only to assemble its integration
     # projection; GoalRun remains the sole execution authority.
