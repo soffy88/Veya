@@ -584,6 +584,9 @@ def remember(text: str, source: str = "") -> str:
         result = LayeredMemoryStore(bot_id).append_entry(text, source=source, caller_bot_id=bot_id)
     except (ValueError, PermissionError) as exc:
         return json.dumps({"ok": False, "bot_id": bot_id, "error": str(exc)}, ensure_ascii=False)
+    from server.bot_team.memory_v2_mirror import mirror_remember
+
+    result["v2"] = mirror_remember(bot_id, text, entrypoint="bot_remember").get("status")
     return json.dumps({"ok": True, **result}, ensure_ascii=False)
 
 
@@ -591,6 +594,9 @@ def forget(text: str) -> str:
     """Remove the first core-memory line of the running bot containing *text*."""
     bot_id = _bound_bot()
     result = LayeredMemoryStore(bot_id).remove_entry(text, caller_bot_id=bot_id)
+    from server.bot_team.memory_v2_mirror import mirror_forget
+
+    result["v2"] = mirror_forget(bot_id, _forget_needles(text)).get("status")
     return json.dumps(
         {"ok": bool(result.get("ok")), "bot_id": bot_id, **result}, ensure_ascii=False
     )

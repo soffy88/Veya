@@ -122,13 +122,22 @@ def _make_writer(store: LayeredMemoryStore):
 
     def write(action: str, entry: str, *, scope: str = "bot", bot_id: str = "") -> dict[str, Any]:
         target_scope = scope if scope == TEAM_SCOPE_ID else "bot"
+        from server.bot_team.memory_v2_mirror import mirror_forget, mirror_remember
+
         if action == "remove":
             result = store.remove_entry(entry, scope=target_scope)
+            if result.get("ok") and target_scope == "bot":
+                mirror_forget(store.bot_id, [entry])
             return result if result.get("ok") else {}
         try:
-            return store.append_entry(entry, scope=target_scope)
+            written = store.append_entry(entry, scope=target_scope)
         except (ValueError, PermissionError):
             # Past the cap: the save fails with "make room", never truncates.
             return {}
+        if written.get("ok") and target_scope == "bot":
+            # Personal MemoryRecord v2 copy of the reviewed entry (bot scope only;
+            # TEAM memory is shared, not one user's).
+            mirror_remember(store.bot_id, entry, entrypoint="bot_memory_review", confidence=0.7)
+        return written
 
     return write
