@@ -21,6 +21,8 @@ workaround ``server/supervisor/handoff.py:113-117`` uses.
 
 from __future__ import annotations
 
+import json
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -184,16 +186,13 @@ def decide(
         )
 
     # Quiet hours: `urgent` bypasses, matching veya.oskill.pure.wake_policy.
+    # A held `now` is downgraded one step to `batch` (never to `none`): the
+    # request is deferred, not dropped.
     if not urgent and quiet_hours_active(stamp, quiet_settings):
         if effective == "now":
-            return (
-                WakeDecision(
-                    "batched", "quiet hours — request held for the next window"
-                ),
-                policy,
-            )
+            effective = "batch"
 
-    if policy.rate_limit >= 0:
+    if policy.rate_limit > 0:
         window_start = stamp - policy.rate_window_s
         recent = [t for t in policy.wake_times if t >= window_start]
         if len(recent) >= policy.rate_limit:
@@ -251,14 +250,23 @@ def materialise_batch(
     from server.goal_run.routine_registry import RoutineRegistry
 
     minutes = max(1, int(policy.batch_interval_minutes or DEFAULT_BATCH_INTERVAL_MIN))
-    routine_id = policy.routine_id or f"remote-wake-{policy.sender}-{policy.agent_label}"
+    # The routine id is a stable, charset-safe function of the sender+agent key
+    # (``runners.py``-style ids: no ``:``/``@``/space), so re-materialising the
+    # same batch reuses the same routine instead of piling up duplicates.
+    slug = re.sub(r"[^a-z0-9]+", "-", policy.key().lower()).strip("-")[:48] or "wake"
+    routine_id = f"remote-wake-{slug}"
+    objective = json.dumps(
+        {"kind": "remote_wake_batch", "sender": policy.sender, "agent_label": policy.agent_label},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
     spec = RoutineSpec(
         routine_id=routine_id,
         bot_id=bot_id,
         trigger_topic="schedule.trigger",
+        objective=objective,
+        goal_template=objective,
         schedule=f"every {minutes}m",
-        goal_template={"kind": "remote_wake_batch", "sender": policy.sender,
-                       "agent_label": policy.agent_label},
         probe={"kind": "none"},
         workspace_path=project_root,
         enabled=True,
@@ -273,14 +281,18 @@ def materialise_batch(
     return routine_id, minutes
 
 
-def disable_batch(policy: WakePolicy) -> bool:
-    """Stop a batched wake. The registry cannot delete, so disable it."""
+def disable_batch(policy: WakePolicy, *, bot_id: str) -> bool:
+    """Stop a batched wake. The registry cannot delete, so disable it.
+
+    ``bot_id`` must be the bot the batch was materialised under, because a
+    routine lives in that bot's scoped catalog.
+    """
 
     if not policy.routine_id:
         return False
     from server.goal_run.routine_registry import RoutineRegistry
 
-    registry = RoutineRegistry(bot_id=policy.sender)
+    registry = RoutineRegistry(bot_id=bot_id)
     stopped = registry.set_enabled(policy.routine_id, False)
     policy.routine_id = ""
     set_policy(policy)

@@ -103,6 +103,10 @@ class RemoteSession:
     transport: str = "local"
     state: str = RemoteState.ACCEPTED
     approval_id: str = ""
+    cancel_approval_id: str = ""
+    handoff_approval_id: str = ""
+    target_host_id: str = ""
+    target_agent_label: str = ""
     requested_wake: str = "now"
     wake_outcome: str = ""
     routine_id: str = ""
@@ -134,6 +138,10 @@ class RemoteSession:
             transport=str(value.get("transport") or "local"),
             state=str(value.get("state") or RemoteState.ACCEPTED),
             approval_id=str(value.get("approval_id") or ""),
+            cancel_approval_id=str(value.get("cancel_approval_id") or ""),
+            handoff_approval_id=str(value.get("handoff_approval_id") or ""),
+            target_host_id=str(value.get("target_host_id") or ""),
+            target_agent_label=str(value.get("target_agent_label") or ""),
             requested_wake=str(value.get("requested_wake") or "now"),
             wake_outcome=str(value.get("wake_outcome") or ""),
             routine_id=str(value.get("routine_id") or ""),
@@ -166,8 +174,9 @@ def _note(session: RemoteSession, state: str, *, detail: str = "") -> None:
     session.state = state
     session.updated_at = time.time()
     session.history.append(
-        {"state": state, "at": session.updated_at, "detail": detail} if detail else
-        {"state": state, "at": session.updated_at}
+        {"state": state, "at": session.updated_at, "detail": detail}
+        if detail
+        else {"state": state, "at": session.updated_at}
     )
     # History is a bounded trail, not an event log — this is bookkeeping, not a
     # second event store.
@@ -265,8 +274,19 @@ def _mutate_session(session_id: str, state: str, *, detail: str = "", **changes)
     return found
 
 
-def _advance(session: RemoteSession | None, session_id: str, target: str) -> RemoteSession | None:
-    """Forward-only guard for the ordered delivery states."""
+def _advance(
+    session: RemoteSession | None,
+    session_id: str,
+    target: str,
+    *,
+    min_rank: int | None = None,
+) -> RemoteSession | None:
+    """Forward-only guard for the ordered delivery states.
+
+    ``min_rank`` additionally refuses a skip: a transition may not jump over an
+    earlier ordered state (``done`` requires ``acked``, ``acked`` requires
+    ``woken``), so the four states are reached stepwise, not jumped.
+    """
 
     if session is None:
         return None
@@ -279,6 +299,11 @@ def _advance(session: RemoteSession | None, session_id: str, target: str) -> Rem
         raise TransitionRejected(f"{target} is not an ordered state")
     if _STATE_RANK[target] <= _STATE_RANK.get(current, -1):
         raise TransitionRejected(f"cannot move backwards: {current} → {target}")
+    if min_rank is not None and _STATE_RANK.get(current, -1) < min_rank:
+        raise TransitionRejected(
+            f"{target} requires the session to have reached "
+            f"{next(k for k, v in _STATE_RANK.items() if v == min_rank)}, got {current}"
+        )
     return session
 
 
@@ -309,7 +334,7 @@ def mark_acked(session_id: str, *, detail: str = "") -> RemoteSession:
     current = get_session(session_id)
     if current is None:
         raise TransitionRejected("session not found")
-    _advance(current, session_id, RemoteState.ACKED)
+    _advance(current, session_id, RemoteState.ACKED, min_rank=_STATE_RANK[RemoteState.WOKEN])
     updated = _mutate_session(session_id, RemoteState.ACKED, detail=detail)
     if updated is None:
         raise TransitionRejected("session not found")
@@ -326,7 +351,7 @@ def mark_done(session_id: str, *, evidence: VerifierEvidence) -> RemoteSession:
     current = get_session(session_id)
     if current is None:
         raise TransitionRejected("session not found")
-    _advance(current, session_id, RemoteState.DONE)
+    _advance(current, session_id, RemoteState.DONE, min_rank=_STATE_RANK[RemoteState.ACKED])
     updated = _mutate_session(
         session_id,
         RemoteState.DONE,
@@ -398,6 +423,49 @@ def attach_launch(session_id: str, *, argv: list[str], pid: int | None) -> Remot
         updated = RemoteSession.from_dict(row)
         updated.argv = list(argv)
         updated.pid = pid
+        updated.updated_at = time.time()
+        rows[updated.session_id] = updated.to_dict()
+        return rows, updated
+
+    _ledger.update(_sessions_path(), _mutate)
+    if updated is None:
+        raise TransitionRejected("session not found")
+    return updated
+
+
+def set_approval_ref(session_id: str, **refs: str) -> RemoteSession:
+    """Record which approval id authorises a cancel / hand-off on this session.
+
+    A hand-off also records the target the approver saw, so the applied
+    hand-off cannot be redirected afterwards. Not a transition.
+    """
+
+    allowed = {
+        "cancel",
+        "handoff",
+        "target_host_id",
+        "target_agent_label",
+    }
+    unknown = set(refs) - allowed
+    if unknown:
+        raise ValueError(f"unknown approval ref(s): {sorted(unknown)}")
+
+    updated: RemoteSession | None = None
+
+    def _mutate(rows: dict[str, dict[str, Any]]):
+        nonlocal updated
+        row = rows.get(str(session_id))
+        if row is None:
+            return rows, None
+        updated = RemoteSession.from_dict(row)
+        if refs.get("cancel"):
+            updated.cancel_approval_id = str(refs["cancel"])
+        if refs.get("handoff"):
+            updated.handoff_approval_id = str(refs["handoff"])
+        if refs.get("target_host_id"):
+            updated.target_host_id = str(refs["target_host_id"])
+        if refs.get("target_agent_label"):
+            updated.target_agent_label = str(refs["target_agent_label"])
         updated.updated_at = time.time()
         rows[updated.session_id] = updated.to_dict()
         return rows, updated
@@ -486,4 +554,5 @@ __all__ = [
     "mark_handed_off",
     "mark_woken",
     "prune_finished",
+    "set_approval_ref",
 ]

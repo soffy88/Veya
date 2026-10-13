@@ -21,10 +21,13 @@ TOOL_START = "remote_agent_start"
 TOOL_CANCEL = "remote_agent_cancel"
 TOOL_HANDOFF = "remote_agent_handoff"
 
-#: The one approval decision that lets a mutation proceed.
+#: The one approval decision that lets a mutation proceed. The decision
+#: vocabulary is fixed by ``veya/obase/approvals.py`` and the resolve route's
+#: ``^(once|session|always|deny)$`` pattern — the refusal spelling is ``deny``,
+#: not ``denied``.
 APPROVED = "approved"
-#: Terminal refusals.
-DENIED_DECISIONS = frozenset({"rejected", "denied"})
+#: Terminal refusals (the store's own spelling).
+DENIED_DECISIONS = frozenset({"deny"})
 
 
 class RemoteApprovalRequired(RuntimeError):

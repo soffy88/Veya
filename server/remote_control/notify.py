@@ -119,15 +119,16 @@ def pending_approval_cards(owner_id: str) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
     for record in approval_mod.pending_for_scope(owner_id):
         args = record.get("tool_args") or {}
+        approval_id = str(record.get("request_id") or "")
         cards.append(
             {
-                "approval_id": str(record.get("request_id") or ""),
+                "approval_id": approval_id,
                 "tool": str(record.get("tool") or ""),
                 "session_id": str(args.get("session_id") or ""),
                 "host_id": str(args.get("host_id") or ""),
                 "reason": str(record.get("reason") or ""),
                 "created_at": record.get("created_at"),
-                "resolve_url": f"/api/v1/approvals/{record.get('request_id')}/resolve",
+                "resolve_url": f"/api/v1/approvals/{approval_id}/resolve",
             }
         )
     return cards

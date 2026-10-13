@@ -69,7 +69,7 @@ def check_identity(host: hosts_mod.RemoteHost, action: str) -> identity_mod.Peer
     return identity
 
 
-def request_start(
+async def request_start(
     *,
     host_id: str,
     owner_id: str,
@@ -103,7 +103,7 @@ def request_start(
     if not create_approval:
         return {"session": session, "approval_id": "", "identity": identity.to_dict()}
 
-    approval_id = _request(
+    approval_id = await _request(
         tool=approval_mod.TOOL_START,
         owner_id=owner_id,
         session_id=session.session_id,
@@ -189,9 +189,7 @@ def advance(
         routine_id, minutes = wake_mod.materialise_batch(
             policy, bot_id=bot_id or session.owner_id, project_root=host.workspace_path
         )
-        updated = sessions_mod.mark_woken(
-            session_id, wake_outcome="batched", routine_id=routine_id
-        )
+        updated = sessions_mod.mark_woken(session_id, wake_outcome="batched", routine_id=routine_id)
         return {
             "session": updated,
             "wake": decision.to_dict(),
@@ -199,6 +197,9 @@ def advance(
             "routine": {"routine_id": routine_id, "every_minutes": minutes},
         }
 
+    # The receiver decided to wake: record that decision before touching a
+    # process, so a launch that dies still leaves an honest ``woken`` record.
+    sessions_mod.mark_woken(session_id, wake_outcome="woken_now")
     result = _launch(session, host)
     wake_mod.record_wake(policy, routine_id=policy.routine_id)
     hosts_mod.touch_seen(host.host_id)
@@ -212,22 +213,22 @@ def advance(
 
 
 def _launch(session: RemoteSession, host: hosts_mod.RemoteHost) -> executor_mod.LaunchResult:
-    """Start the executor and move the session to ``acked`` on real evidence."""
+    """Start the executor and move the session to ``acked`` on real evidence.
+
+    The session is already ``woken`` (the caller recorded the decision); this
+    only records the argv/pid and promotes to ``acked`` — or, when the process
+    could not be started, to ``failed``.
+    """
     result = executor_mod.launch(
         host,
         task=session.task,
         workspace=host.workspace_path,
         transport=session.transport,
     )
-    sessions_mod.attach_launch(
-        session.session_id, argv=list(result.argv), pid=result.pid
-    )
+    sessions_mod.attach_launch(session.session_id, argv=list(result.argv), pid=result.pid)
     if result.pid is None and result.returncode != 0:
-        sessions_mod.mark_failed(
-            session.session_id, reason="executor could not be started"
-        )
+        sessions_mod.mark_failed(session.session_id, reason="executor could not be started")
         raise RemoteControlRefused("executor could not be started", code="launch")
-    sessions_mod.mark_woken(session.session_id, wake_outcome="woken_now")
     sessions_mod.mark_acked(
         session.session_id,
         detail=(
@@ -268,7 +269,7 @@ def fail(session_id: str, *, reason: str) -> RemoteSession:
     return session
 
 
-def request_cancel(session_id: str, *, owner_id: str) -> dict[str, Any]:
+async def request_cancel(session_id: str, *, owner_id: str) -> dict[str, Any]:
     """Cancel a remote run — through the approval path, like every mutation."""
 
     flags.require_enabled()
@@ -281,7 +282,7 @@ def request_cancel(session_id: str, *, owner_id: str) -> dict[str, Any]:
         )
     host = _require_host(session.host_id, owner_id)
     check_identity(host, "cancel")
-    approval_id = _sync_request(
+    approval_id = await _request(
         tool=approval_mod.TOOL_CANCEL,
         owner_id=owner_id,
         session_id=session.session_id,
@@ -289,6 +290,7 @@ def request_cancel(session_id: str, *, owner_id: str) -> dict[str, Any]:
         args={"reason": "operator cancel"},
         reason=f"cancel {session.agent_label} on {host.host_id}",
     )
+    sessions_mod.set_approval_ref(session_id, cancel=approval_id)
     notify.notify_needs_approval(
         owner_id=owner_id,
         session_id=session.session_id,
@@ -307,7 +309,7 @@ def cancel(session_id: str, *, approval_id: str) -> RemoteSession:
     session = sessions_mod.get_session(session_id)
     if session is None:
         raise RemoteControlRefused("session not found", code="not_found")
-    approval_mod.require_approved(approval_id or session.approval_id)
+    approval_mod.require_approved(approval_id or session.cancel_approval_id)
     updated = sessions_mod.cancel_session(session_id, reason="cancelled by owner")
     notify.notify_cancelled(
         owner_id=updated.owner_id,
@@ -318,7 +320,7 @@ def cancel(session_id: str, *, approval_id: str) -> RemoteSession:
     return updated
 
 
-def request_handoff(
+async def request_handoff(
     *,
     session_id: str,
     owner_id: str,
@@ -335,23 +337,23 @@ def request_handoff(
         raise RemoteControlRefused(f"session is terminal ({session.state})", code="terminal")
     target = _require_host(target_host_id, owner_id)
     check_identity(target, "handoff")
-    approval_id = _sync_request(
+    label = target_agent_label or target.agent_label
+    approval_id = await _request(
         tool=approval_mod.TOOL_HANDOFF,
         owner_id=owner_id,
         session_id=session.session_id,
         host_id=target.host_id,
-        args={
-            "target_host_id": target.host_id,
-            "target_agent_label": target_agent_label or target.agent_label,
-        },
-        reason=f"hand {session.agent_label}@{session.host_id} to "
-        f"{target.agent_label}@{target.host_id}",
+        args={"target_host_id": target.host_id, "target_agent_label": label},
+        reason=f"hand {session.agent_label}@{session.host_id} to {label}@{target.host_id}",
+    )
+    sessions_mod.set_approval_ref(
+        session_id, handoff=approval_id, target_host_id=target.host_id, target_agent_label=label
     )
     notify.notify_needs_approval(
         owner_id=owner_id,
         session_id=session.session_id,
         host_id=target.host_id,
-        agent_label=target_agent_label or target.agent_label,
+        agent_label=label,
         action="handoff",
         approval_id=approval_id,
     )
@@ -362,20 +364,30 @@ def handoff(
     session_id: str,
     *,
     approval_id: str,
-    target_host_id: str,
+    target_host_id: str = "",
     target_agent_label: str = "",
 ) -> RemoteSession:
-    """Apply an approved hand-off. The new session starts at ``accepted``."""
+    """Apply an approved hand-off. The new session starts at ``accepted``.
+
+    The target is the one recorded when the hand-off was *requested* — the
+    caller cannot redirect an approved hand-off to a different host than the
+    one the approver saw.
+    """
 
     flags.require_enabled()
     session = sessions_mod.get_session(session_id)
     if session is None:
         raise RemoteControlRefused("session not found", code="not_found")
-    approval_mod.require_approved(approval_id)
+    approval_mod.require_approved(approval_id or session.handoff_approval_id)
+    target_host = target_host_id or session.target_host_id
+    if not target_host:
+        raise RemoteControlRefused("no hand-off target recorded", code="no_target")
+    target_label = target_agent_label or session.target_agent_label or session.agent_label
+    _require_host(target_host, session.owner_id)
     context = sessions_mod.build_handoff_context(session)
     created = sessions_mod.create_session(
-        host_id=target_host_id,
-        agent_label=target_agent_label or session.agent_label,
+        host_id=target_host,
+        agent_label=target_label,
         task=session.task,
         owner_id=session.owner_id,
         transport=session.transport,
@@ -384,39 +396,7 @@ def handoff(
         handoff_from=session.session_id,
     )
     return sessions_mod.mark_handed_off(
-        session_id, to_session_id=created.session_id, target_host_id=target_host_id
-    )
-
-
-def _sync_request(
-    *,
-    tool: str,
-    owner_id: str,
-    session_id: str,
-    host_id: str,
-    args: dict[str, Any],
-    reason: str,
-) -> str:
-    """Create a pending approval from synchronous code (REST / tool path)."""
-
-    import asyncio
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(
-            _request(
-                tool=tool,
-                owner_id=owner_id,
-                session_id=session_id,
-                host_id=host_id,
-                args=args,
-                reason=reason,
-            )
-        )
-    raise RemoteControlRefused(
-        "approval must be requested from async context on this path",
-        code="async_required",
+        session_id, to_session_id=created.session_id, target_host_id=target_host
     )
 
 
