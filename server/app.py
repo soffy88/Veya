@@ -25,6 +25,7 @@ from server.routes.backends import router as backends_router
 from server.routes.board import router as board_router
 from server.routes.bot_team import router as bots_router
 from server.routes.bot_memory import router as bot_memory_router
+from server.routes.bot_runtime import router as bot_runtime_router
 from server.routes.chat import router as chat_router
 from server.routes.cindy_compat import router as cindy_compat_router
 # W14: MCP preset pack REST surface (list public, attach auth+ownership-gated)
@@ -524,6 +525,8 @@ app.include_router(product_router)
 # Lorca P1/P2: the named bot team + group chat shell (same product path).
 app.include_router(bots_router)
 app.include_router(bot_memory_router)  # P3 per-bot Markdown memory
+# Bot runtime lifecycle + independent entry (owner-scoped, require_user).
+app.include_router(bot_runtime_router)
 from server.routes.supervised import router as supervised_router
 
 # Lorca P5: Web Push (public key + per-user subscriptions). Importing the

@@ -32,6 +32,7 @@ from server.context_gateway import (
     ContextProjection,
     ContextScope,
 )
+from server.goal_run.bot_identity import DEFAULT_BOT_ID
 from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatus
 from server.goal_run.store import append_event, load_goal_run, read_events, save_goal_run
 from server.knowledge_binding import BindingScope, KnowledgeBinding, binding_applies, new_binding
@@ -249,6 +250,7 @@ def create_pending_run(
     session_id: str,
     requested_executor: str,
     tasks: list[dict[str, object]],
+    bot_id: str = "",
 ) -> PreAdmission:
     """Create one real canonical GoalRun and its pending task nodes.
 
@@ -272,6 +274,7 @@ def create_pending_run(
             dispatch_id=dispatch_id,
             session_id=session_id,
             requested_executor=requested_executor,
+            bot_id=bot_id or DEFAULT_BOT_ID,
         )
         try:
             for index, item in enumerate(tasks):
@@ -327,15 +330,28 @@ def create_pending_run(
 
 
 def bind_execution(
-    pre_admission: PreAdmission, execution_id: str, project_root: str
+    pre_admission: PreAdmission,
+    execution_id: str,
+    project_root: str,
+    *,
+    substrate_id: str = "",
+    admit: bool | None = None,
 ) -> GoalRunState:
-    """Persist the execution identity into the canonical pre-admitted run."""
+    """Persist the execution identity into the canonical pre-admitted run.
+
+    ``admit`` opts the run into ExecutionAdmission + ExecutorBinding (fail
+    closed). It defaults to on when a ``substrate_id`` is named (the bot
+    runtime / canonical execution plane path) and off otherwise, so the
+    existing Local2 dispatch seam keeps its current behaviour.
+    """
     state = load_goal_run(project_root, pre_admission.goal_run_id)
     if state is None or state.dispatch_id != pre_admission.state.dispatch_id:
         raise RuntimeError("canonical pre-admitted GoalRun disappeared")
     if state.execution_id not in (None, execution_id):
         raise RuntimeError("dispatch is already bound to another execution")
     state.execution_id = execution_id
+    if admit or (admit is None and substrate_id):
+        _admit_and_bind_execution(state, execution_id, project_root, substrate_id=substrate_id)
     save_goal_run(state, project_root)
     append_event(
         project_root,
@@ -343,6 +359,138 @@ def bind_execution(
         {"type": "execution_admitted", "goal_id": state.goal_id, "execution_id": execution_id},
     )
     return state
+
+
+def _admit_and_bind_execution(
+    state: GoalRunState,
+    execution_id: str,
+    project_root: str,
+    *,
+    substrate_id: str = "",
+) -> None:
+    """ExecutionAdmission + ExecutorBinding at the execution-start seam.
+
+    Fail closed: a denial fails the run before any provider may start.
+    """
+    from datetime import UTC, datetime
+
+    from server.goal_run.execution_admission import (
+        ExecutionAdmissionRequest,
+        ExecutionReceipt,
+        MutationIntent,
+        get_admission,
+        record_execution_receipt,
+    )
+
+    admission = get_admission(project_root)
+    existing = (state.runtime_checkpoint or {}).get("admission_id")
+    if existing:
+        admission.release(str(existing), project_root=project_root)
+
+    executor_id = state.requested_executor or state.default_assignee or "unknown"
+    request = ExecutionAdmissionRequest(
+        goal_run_id=state.goal_id,
+        executor_id=executor_id,
+        executor_installation_id="default",
+        project_id=project_root,
+        workspace_id=project_root,
+        project_root=project_root,
+        workspace_root=project_root,
+        mutation_intent=MutationIntent.MUTATION,
+        network_access=False,
+        concurrency_class="default",
+    )
+    result = admission.request(request)
+    if not result.admitted():
+        state.status = GoalStatus.failed
+        state.last_stop_reason = f"admission_{result.status}: {result.reason}"
+        save_goal_run(state, project_root)
+        append_event(
+            project_root,
+            state.goal_id,
+            {
+                "type": "execution_admission_failed",
+                "goal_id": state.goal_id,
+                "status": str(result.status),
+                "reason": result.reason,
+            },
+        )
+        raise RuntimeError(f"execution admission {result.status}: {result.reason}")
+
+    binding = admission.create_binding(
+        executor_id=executor_id,
+        # C2.1: the physical substrate is recorded next to the admitted
+        # executor instead of being hidden behind the admission grant.
+        substrate_id=substrate_id,
+        installation_id="default",
+        provider_id=executor_id,
+        goal_run_id=state.goal_id,
+        admission_id=result.admission_id,
+        provider_run_id=execution_id,
+        project_root=project_root,
+    )
+    checkpoint = dict(state.runtime_checkpoint or {})
+    checkpoint.update(
+        {
+            "admission_id": result.admission_id,
+            "binding_id": binding.binding_id,
+        }
+    )
+    state.runtime_checkpoint = checkpoint
+    admission.sync_provider_snapshot(project_root, binding)
+    approval_id = checkpoint.get("approval_id")
+    if approval_id:
+        admission.record_approval_evidence(
+            project_root,
+            binding,
+            approval_id=str(approval_id),
+            decision=str(checkpoint.get("approval_decision", "approved")),
+        )
+    from server.goal_run.execution_admission import (
+        DEFAULT_NORMAL_CAPABILITIES,
+        ExecutionScope,
+        register_scope,
+    )
+
+    register_scope(
+        ExecutionScope(
+            goal_run_id=state.goal_id,
+            project_id=project_root,
+            workspace_id=project_root,
+            workspace_root=project_root,
+            repository_root=project_root,
+            allowed_capabilities=list(DEFAULT_NORMAL_CAPABILITIES),
+            mutation_intent="mutation",
+            network_policy="project",
+            executor_binding=binding.binding_id,
+            admission_id=result.admission_id,
+            expires_at=result.expires_at,
+        ),
+        project_root=project_root,
+    )
+    record_execution_receipt(
+        project_root,
+        ExecutionReceipt(
+            goal_run_id=state.goal_id,
+            admission_id=result.admission_id,
+            binding_id=binding.binding_id,
+            executor_id=executor_id,
+            substrate_id=binding.effective_substrate_id,
+            executor_kind=binding.executor_kind,
+            substrate_kind=binding.substrate_kind,
+            installation_id="default",
+            provider_session_id=binding.provider_session_id,
+            provider_run_id=execution_id,
+            workspace_id=project_root,
+            permission_decision=str(
+                checkpoint.get("permission_decision", "pending_permission_engine")
+            ),
+            resource_leases=[str(lease.resource) for lease in result.resource_leases],
+            start_time=datetime.now(UTC).isoformat(),
+            end_time=None,
+            final_state="running",
+        ),
+    )
 
 
 def reconcile_task(
@@ -426,7 +574,27 @@ def reconcile_task(
             "reason": reason,
         },
     )
+    if state.status in (
+        GoalStatus.completed,
+        GoalStatus.recovered,
+        GoalStatus.cancelled,
+        GoalStatus.failed,
+    ):
+        _release_admission_lease(state, project_root)
     return state
+
+
+def _release_admission_lease(state: GoalRunState, project_root: str) -> None:
+    checkpoint = state.runtime_checkpoint or {}
+    admission_id = checkpoint.get("admission_id")
+    if not admission_id:
+        return
+    try:
+        from server.goal_run.execution_admission import get_admission
+
+        get_admission(project_root).release(str(admission_id), project_root=project_root)
+    except Exception:
+        logger.exception("failed to release admission lease %s", admission_id)
 
 
 def mark_task_running(*, project_root: str, goal_run_id: str, goal_task_id: str) -> GoalRunState:
@@ -465,6 +633,7 @@ def fail_pre_admission(*, project_root: str, goal_run_id: str, reason: str) -> G
         goal_run_id,
         {"type": "pre_admission_reconciled", "goal_id": goal_run_id, "reason": reason},
     )
+    _release_admission_lease(state, project_root)
     return state
 
 
