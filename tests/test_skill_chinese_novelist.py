@@ -112,4 +112,3 @@ def test_preferences_are_scoped_to_project_workspace() -> None:
         assert "/home/" not in content
     content = (PACKAGE / "references" / "flows" / "shared-infrastructure.md").read_text(encoding="utf-8")
     assert "chinese-novelist/user-preferences.json" in content
-

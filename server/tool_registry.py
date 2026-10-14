@@ -4905,6 +4905,11 @@ from server.channel_tools import register_tools as _register_channel_tools  # no
 
 _register_channel_tools(master_tools)
 
+# W20 Tailnet channel: outbound messages are policy-guarded network effects.
+from server.tailnet_channel import register_tools as _register_tailnet_tools  # noqa: E402
+
+_register_tailnet_tools(master_tools)
+
 
 # ── Clean-room OpenMinis borrow: Progressive skill disclosure (read_skill) ───
 def _tool_read_skill(skill_id: str) -> str:
