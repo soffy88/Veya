@@ -35,6 +35,11 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import collections
+import ipaddress
+import threading
+
+from scripts.veya_llm_gateway_tokens import verify_token
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -50,6 +55,11 @@ from veya.obase.llm import _NVIDIA_NIM_ALIASES, llm_call
 async def _app_lifespan(_app: FastAPI):
     """Own the daily free-pool task for the whole gateway process lifetime."""
     global _FREE_POOL_TASK
+    if os.environ.get("VEYA_GATEWAY_AUTH", "").strip().lower() == "off":
+        print(
+            "[veya-llm-gateway] WARNING: VEYA_GATEWAY_AUTH=off: 客户端鉴权已关闭 (回退旧行为, 存在安全风险)!",
+            file=sys.stderr,
+        )
     _FREE_POOL_TASK = asyncio.create_task(_free_pool_loop(), name="veya-free-pool-lifecycle")
     try:
         yield
@@ -61,6 +71,172 @@ async def _app_lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="veya LLM gateway", lifespan=_app_lifespan)
+
+# ---------------------------------------------------------------------------
+# 客户端 Bearer 鉴权与限流中间件:
+# - /health 免鉴权
+# - VEYA_GATEWAY_AUTH=off 时退回旧行为（无鉴权），日志打印警告
+# - 127.0.0.0/8、::1/128 及 docker bridge 网段（172.16.0.0/12, 192.168.80.0/20）免 token
+# - 外部请求（如手机端经反代/公网）必须 Authorization: Bearer <token>
+# - 限流：同一 token 每分钟 60 次 (简单内存滑动计数)
+# ---------------------------------------------------------------------------
+_DEFAULT_TRUSTED_NETS = "127.0.0.0/8,::1/128,172.16.0.0/12,192.168.80.0/20"
+
+
+class TokenRateLimiter:
+    """按 token_hash 限制同一 token 每分钟 60 次（简单内存计数）。"""
+
+    def __init__(self, limit: int = 60, window_s: float = 60.0):
+        self.limit = limit
+        self.window_s = window_s
+        self._history: dict[str, list[float]] = collections.defaultdict(list)
+        self._lock = threading.Lock()
+
+    def allow(self, token_hash: str) -> bool:
+        now = time.time()
+        cutoff = now - self.window_s
+        with self._lock:
+            timestamps = self._history[token_hash]
+            while timestamps and timestamps[0] < cutoff:
+                timestamps.pop(0)
+            if len(timestamps) >= self.limit:
+                return False
+            timestamps.append(now)
+            return True
+
+    def reset(self) -> None:
+        with self._lock:
+            self._history.clear()
+
+
+_RATE_LIMITER = TokenRateLimiter(limit=60, window_s=60.0)
+
+
+def _get_trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    raw = os.environ.get("VEYA_GATEWAY_TRUSTED_NETS", _DEFAULT_TRUSTED_NETS)
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(item))
+        except ValueError as exc:
+            print(f"[veya-llm-gateway] 警告: 无效网段配置 {item!r}: {exc}", file=sys.stderr)
+    return nets
+
+
+def _get_client_ip(request: Request) -> str:
+    peer = request.client.host if request.client else ""
+    if not peer:
+        return ""
+    try:
+        peer_addr = ipaddress.ip_address(peer)
+        if peer_addr.version == 6 and peer_addr.ipv4_mapped:
+            peer_addr = peer_addr.ipv4_mapped
+    except ValueError:
+        return peer
+
+    # 仅当直接对端来自受信任网络（如反向代理 Caddy 172.18.0.x / 宿主回环 127.0.0.1）时，
+    # 才信任 X-Forwarded-For 提取原始调用方 IP；防止外部伪造请求头
+    trusted_nets = _get_trusted_networks()
+    if any(peer_addr in net for net in trusted_nets):
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
+    return peer
+
+
+def _is_trusted_request(request: Request) -> bool:
+    client_ip_str = _get_client_ip(request)
+    if not client_ip_str:
+        return False
+    try:
+        addr = ipaddress.ip_address(client_ip_str)
+        if addr.version == 6 and addr.ipv4_mapped:
+            addr = addr.ipv4_mapped
+        trusted_nets = _get_trusted_networks()
+        return any(addr in net for net in trusted_nets)
+    except ValueError:
+        return False
+
+
+@app.middleware("http")
+async def _gateway_auth_middleware(request: Request, call_next):
+    # 1. /health 永久免鉴权
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    # 2. 环境变量 VEYA_GATEWAY_AUTH: 未设置时默认 enforce; =off 时退回旧行为
+    auth_setting = os.environ.get("VEYA_GATEWAY_AUTH", "").strip().lower()
+    if auth_setting == "off":
+        return await call_next(request)
+
+    # 3. 来自 127.0.0.0/8、::1 和 docker bridge 网段的请求免 token
+    if _is_trusted_request(request):
+        return await call_next(request)
+
+    # 4. 其余必须 Authorization: Bearer <token>
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": {
+                    "message": "Unauthorized: missing or invalid Bearer token",
+                    "type": "auth_error",
+                    "code": "missing_token",
+                }
+            },
+        )
+
+    raw_token = auth_header[7:].strip()
+    if not raw_token:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": {
+                    "message": "Unauthorized: empty Bearer token",
+                    "type": "auth_error",
+                    "code": "invalid_token",
+                }
+            },
+        )
+
+    token_record = verify_token(raw_token)
+    if token_record is None:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": {
+                    "message": "Unauthorized: invalid, expired, or revoked Bearer token",
+                    "type": "auth_error",
+                    "code": "invalid_token",
+                }
+            },
+        )
+
+    # 5. 限流：同一 token 每分钟 60 次
+    token_hash = token_record.get("token_hash", "")
+    if not _RATE_LIMITER.allow(token_hash):
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": {
+                    "message": "Rate limit exceeded: 60 requests per minute per token",
+                    "type": "rate_limit_error",
+                    "code": "rate_limit_exceeded",
+                }
+            },
+            headers={"Retry-After": "60"},
+        )
+
+    return await call_next(request)
+
+
+@app.get("/health")
+async def health_check() -> JSONResponse:
+    return JSONResponse({"status": "ok"})
 
 # ---------------------------------------------------------------------------
 # 模型目录: 静态别名/frontier + 启动时从 opencode zen 拉取的全量直连模型。
