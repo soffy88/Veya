@@ -986,6 +986,23 @@ def _failover_chain(requested: str) -> list[str]:
     return []
 
 
+def _alias_redirect(requested: str) -> str | None:
+    """VEYA_GATEWAY_ALIAS_REDIRECT="veya-free:veya-fllm;veya1.2-free:veya-fllm".
+
+    Serve an alias from another catalog entry up front (the public identity stays
+    ``requested``). Used when an alias's own pool is known-dead and a healthy local
+    pool should answer instead of burning a full retry cycle before failover.
+    """
+    raw = os.environ.get("VEYA_GATEWAY_ALIAS_REDIRECT", "").strip()
+    key = str(requested).lower()
+    for part in raw.split(";"):
+        src, sep, dst = part.partition(":")
+        dst = dst.strip()
+        if sep and src.strip().lower() == key and dst and dst.lower() != key:
+            return dst
+    return None
+
+
 async def _call_entry(
     entry: dict[str, Any], messages: list[Any], tools: Any
 ) -> tuple[dict[str, Any] | None, tuple[int, str] | None]:
@@ -1033,6 +1050,11 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
             {"error": {"message": f"unknown model: {requested!r}", "type": "invalid_request"}},
             status_code=400,
         )
+    redirect = _alias_redirect(requested)
+    if redirect:
+        redirected = _CATALOG.get(redirect) or _CATALOG.get(redirect.lower())
+        if redirected is not None:
+            entry = redirected
     messages = body.get("messages") or []
     tools = body.get("tools")
     # 所有 veya1.x 别名都注入 pi 的 provider key 池 (见 _call_entry); 池别名走
