@@ -77,6 +77,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_ROLE_SKILL_PRESETS", False, "runtime", "2027-01-01"),
     # W17: SSH host execution backend. Default OFF; appended, never reordered.
     FeatureFlag("VEYA_SSH_HOSTS", False, "runtime", "2027-01-01"),
+    # W17 clean-room: session-scoped ask-once approval cache. Default OFF.
+    FeatureFlag("VEYA_APPROVAL_ASK_ONCE", False, "runtime", "2027-01-01"),
 )
 
 

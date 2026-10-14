@@ -20,6 +20,38 @@ export interface RemoteHostView {
 	enabled: boolean;
 	last_seen_at: number | null;
 	created_at: number;
+	ssh_user?: string;
+	ssh_port?: number;
+	os_family?: string;
+	write_root?: string;
+	default_cwd?: string;
+	read_approved?: boolean;
+}
+
+export interface RemoteProbeView {
+	host_id: string;
+	reachable: boolean;
+	latency_ms: number;
+	os_family: string;
+	error?: string;
+}
+
+export interface RemoteRunView {
+	name: string;
+	pid?: number;
+	running?: boolean;
+	exit_code?: number | null;
+	log_path?: string;
+}
+
+export interface HostSshInput {
+	ssh_user?: string;
+	ssh_port?: number;
+	ssh_key_ref?: string;
+	os_family?: string;
+	write_root?: string;
+	default_cwd?: string;
+	read_approved?: boolean;
 }
 
 export interface RemoteSessionView {
@@ -90,6 +122,40 @@ export async function deleteHost(hostId: string): Promise<void> {
 		method: "DELETE",
 	});
 	if (!res.ok) fail(res.status, res.data);
+}
+
+export async function probeHost(hostId: string): Promise<RemoteProbeView> {
+	const res = await api("gateway", `api/v1/remote/hosts/${encodeURIComponent(hostId)}/probe`, {
+		method: "GET",
+	});
+	if (!res.ok) fail(res.status, res.data);
+	return res.data as RemoteProbeView;
+}
+
+export async function updateHostSsh(hostId: string, input: HostSshInput): Promise<RemoteHostView> {
+	const res = await api("gateway", `api/v1/remote/hosts/${encodeURIComponent(hostId)}/ssh`, {
+		method: "POST",
+		body: input,
+	});
+	if (!res.ok) fail(res.status, res.data);
+	return res.data as RemoteHostView;
+}
+
+export async function listRuns(hostId: string): Promise<RemoteRunView[]> {
+	const res = await api("gateway", `api/v1/remote/hosts/${encodeURIComponent(hostId)}/runs`, {
+		method: "GET",
+	});
+	if (!res.ok) fail(res.status, res.data);
+	return ((res.data as { runs?: RemoteRunView[] }).runs ?? []) as RemoteRunView[];
+}
+
+export async function killRun(hostId: string, name: string, approvalId = ""): Promise<{ status: string }> {
+	const res = await api("gateway", `api/v1/remote/hosts/${encodeURIComponent(hostId)}/runs/${encodeURIComponent(name)}/kill`, {
+		method: "POST",
+		body: { approval_id: approvalId },
+	});
+	if (!res.ok) fail(res.status, res.data);
+	return res.data as { status: string };
 }
 
 // ── sessions ────────────────────────────────────────────────────────────

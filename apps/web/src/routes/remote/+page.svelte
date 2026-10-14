@@ -18,9 +18,11 @@
 		listHosts,
 		listPendingCards,
 		listSessions,
+		probeHost,
 		startSession,
 		type RemoteCardView,
 		type RemoteHostView,
+		type RemoteProbeView,
 		type RemoteSessionView,
 	} from "$lib/remote/api";
 	import { resolveApproval } from "$lib/approvals/api";
@@ -33,6 +35,23 @@
 	let disabled = $state(false);
 	let error = $state("");
 	let busy = $state("");
+	let probes = $state<Record<string, RemoteProbeView | { reachable: boolean; error?: string }>>({});
+	let probingHostId = $state<string>("");
+
+	async function probe(targetHostId: string): Promise<void> {
+		probingHostId = targetHostId;
+		try {
+			const res = await probeHost(targetHostId);
+			probes[targetHostId] = res;
+		} catch (err) {
+			probes[targetHostId] = {
+				reachable: false,
+				error: err instanceof Error ? err.message : String(err),
+			};
+		} finally {
+			probingHostId = "";
+		}
+	}
 
 	// start-task form
 	let task = $state("");
@@ -169,11 +188,16 @@
 				<div class="text-sm text-white/50">先添加一台主机。</div>
 			{:else}
 				<div class="flex flex-col gap-2">
-					<select bind:value={hostId} class="min-h-11 rounded-lg bg-white/[0.06] px-2 text-sm text-terminal-fg" aria-label="目标主机">
-						{#each hosts as host (host.host_id)}
-							<option value={host.host_id}>{host.display_name} · {host.agent_label}</option>
-						{/each}
-					</select>
+					<div class="flex items-center gap-2">
+						<span class="rounded bg-sky-500/20 px-2 py-1 text-xs font-mono text-sky-300">
+							@{hostId || "未指定"}
+						</span>
+						<select bind:value={hostId} class="min-h-11 flex-1 rounded-lg bg-white/[0.06] px-2 text-sm text-terminal-fg" aria-label="目标主机">
+							{#each hosts as host (host.host_id)}
+								<option value={host.host_id}>@{host.host_id} · {host.display_name} ({host.agent_label})</option>
+							{/each}
+						</select>
+					</div>
 					<div class="flex items-end gap-2">
 						<textarea
 							bind:value={task}
@@ -278,16 +302,44 @@
 				</div>
 			{/if}
 			{#each hosts as host (host.host_id)}
-				<div class="{cardClass} flex items-center gap-2">
-					<div class="min-w-0 flex-1">
-						<div class="text-sm text-terminal-fg">{host.display_name}</div>
-						<div class="text-[11px] text-white/40">
-							{host.tailnet_ip} · {host.agent_label} ·
-							{host.last_seen_at ? `seen ${timeLabel(host.last_seen_at)}` : "never seen"}
-							{#if !host.enabled} · 已停用{/if}
+				<div class="{cardClass} flex flex-col gap-2">
+					<div class="flex items-center justify-between">
+						<div class="flex items-center gap-2 min-w-0">
+							<span class="font-mono text-xs text-sky-300">@{host.host_id}</span>
+							<span class="text-sm font-medium text-terminal-fg truncate">{host.display_name}</span>
+							{#if probes[host.host_id]}
+								{#if probes[host.host_id].reachable}
+									<span class="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] text-emerald-300">在线</span>
+								{:else}
+									<span class="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] text-rose-300" title={probes[host.host_id].error}>离线</span>
+								{/if}
+							{:else}
+								<span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/50">未探测</span>
+							{/if}
+						</div>
+						<div class="flex items-center gap-1">
+							<button
+								type="button"
+								class="{actionClass} text-xs px-2 py-1"
+								disabled={probingHostId === host.host_id}
+								onclick={() => void probe(host.host_id)}
+								aria-label="探测连通性"
+							>
+								{probingHostId === host.host_id ? "探测中…" : "探测"}
+							</button>
+							<button type="button" class={actionClass} onclick={() => void guard(host.host_id, () => deleteHost(host.host_id))} aria-label="删除"><Trash2 class="size-4" /></button>
 						</div>
 					</div>
-					<button type="button" class={actionClass} onclick={() => void guard(host.host_id, () => deleteHost(host.host_id))} aria-label="删除"><Trash2 class="size-4" /></button>
+					<div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-white/40">
+						<div>IP: {host.tailnet_ip}</div>
+						<div>OS: {host.os_family || "linux"}</div>
+						<div>SSH: {host.ssh_user ? `${host.ssh_user}@` : ""}{host.tailnet_ip}:{host.ssh_port || 22}</div>
+						<div>Write Root: {host.write_root || "~/.veya/work"}</div>
+					</div>
+					<div class="text-[11px] text-white/30">
+						{host.last_seen_at ? `seen ${timeLabel(host.last_seen_at)}` : "never seen"}
+						{#if !host.enabled} · 已停用{/if}
+					</div>
 				</div>
 			{:else}
 				<div class="text-sm text-white/50">还没有主机。</div>

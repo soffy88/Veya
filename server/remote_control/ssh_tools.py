@@ -1,3 +1,5 @@
+# 3O-IO-ALLOW — server/remote_control/ssh_tools.py
+# 理由：W17 规格 §14 远端 ast_grep_rewrite 需要在受控临时文件中执行 ast-grep search/rewrite 并写回远端。
 """W17 model-callable ssh host tools (flag ``VEYA_SSH_HOSTS`` + ``VEYA_REMOTE_CONTROL``).
 
 Registered into the ONE ``master_tools`` registry, only when both flags are on
@@ -32,9 +34,8 @@ import hashlib
 import json
 from typing import Any
 
-from server.remote_control import _ledger
+from server.remote_control import _ledger, flags
 from server.remote_control import approval as approval_mod
-from server.remote_control import flags
 from server.remote_control import hosts as hosts_mod
 from server.remote_control import identity as identity_mod
 from server.remote_control.backend import BackendError, SshBackend
@@ -50,7 +51,15 @@ IDENTITY_RESOLVER: Any = None
 
 READ_TOOLS = frozenset({"ssh_read_file", "ssh_list_dir", "ssh_grep"})
 MUTATING_TOOLS = frozenset(
-    {"ssh_write_file", "ssh_edit_file", "ssh_run", "ssh_upload", "ssh_download", "ssh_bg_start", "ssh_bg_kill"}
+    {
+        "ssh_write_file",
+        "ssh_edit_file",
+        "ssh_run",
+        "ssh_upload",
+        "ssh_download",
+        "ssh_bg_start",
+        "ssh_bg_kill",
+    }
 )
 
 
@@ -89,7 +98,9 @@ def _backend(host: Any) -> SshBackend:
 
 
 def fingerprint(tool: str, host_id: str, args: dict[str, Any]) -> str:
-    blob = json.dumps({"tool": tool, "host": host_id, "args": args}, sort_keys=True, ensure_ascii=False)
+    blob = json.dumps(
+        {"tool": tool, "host": host_id, "args": args}, sort_keys=True, ensure_ascii=False
+    )
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -115,11 +126,15 @@ def _consume(approval_id: str) -> None:
     _ledger.update(_ledger.default_path(_CONSUMED_ENV, _CONSUMED_FILE), _mutate)
 
 
-async def _gate(tool: str, host: Any, args: dict[str, Any], approved: bool, approval_id: str) -> str | None:
+async def _gate(
+    tool: str, host: Any, args: dict[str, Any], approved: bool, approval_id: str
+) -> str | None:
     """``None`` → proceed. Otherwise the text to return (nothing was done)."""
 
     if not approved:
-        return f"已拒绝：{tool} 指向远程主机，需要 approved=true（经既有审批通道人工批准）后才能执行。"
+        return (
+            f"已拒绝：{tool} 指向远程主机，需要 approved=true（经既有审批通道人工批准）后才能执行。"
+        )
     fp = fingerprint(tool, host.host_id, args)
     if not approval_id:
         aid = await approval_mod.request_approval(
@@ -161,8 +176,16 @@ def _read_needs_approval(host: Any) -> bool:
     return not bool((host.metadata or {}).get("read_approved"))
 
 
-async def _guarded(tool: str, host_id: str, args: dict[str, Any], approved: bool, approval_id: str,
-                   action, *, read: bool = False) -> str:
+async def _guarded(
+    tool: str,
+    host_id: str,
+    args: dict[str, Any],
+    approved: bool,
+    approval_id: str,
+    action,
+    *,
+    read: bool = False,
+) -> str:
     try:
         host = _host_for(host_id, "execute")
         if not read or _read_needs_approval(host):
@@ -181,10 +204,24 @@ async def ssh_host_list() -> str:
     owner = _caller_owner_id()
     if not owner:
         return "没有可用的主机：当前没有可识别的机器人身份。"
-    keys = ("host_id", "display_name", "tailnet_ip", "ssh_user", "ssh_port", "os_family",
-            "write_root", "default_cwd", "enabled")
-    return _dump([{k: getattr(h, k) for k in keys} | {"read_approved": bool((h.metadata or {}).get("read_approved"))}
-                  for h in hosts_mod.list_hosts(owner_id=owner)])
+    keys = (
+        "host_id",
+        "display_name",
+        "tailnet_ip",
+        "ssh_user",
+        "ssh_port",
+        "os_family",
+        "write_root",
+        "default_cwd",
+        "enabled",
+    )
+    return _dump(
+        [
+            {k: getattr(h, k) for k in keys}
+            | {"read_approved": bool((h.metadata or {}).get("read_approved"))}
+            for h in hosts_mod.list_hosts(owner_id=owner)
+        ]
+    )
 
 
 async def ssh_host_probe(host_id: str) -> str:
@@ -200,70 +237,173 @@ async def ssh_host_probe(host_id: str) -> str:
     return _dump({"host_id": host.host_id, **result.to_dict()})
 
 
-async def ssh_read_file(host_id: str, path: str, max_bytes: int = 200000, approved: bool = False,
-                        approval_id: str = "") -> str:
+async def ssh_read_file(
+    host_id: str, path: str, max_bytes: int = 200000, approved: bool = False, approval_id: str = ""
+) -> str:
     args = {"path": path, "max_bytes": int(max_bytes)}
-    return await _guarded("ssh_read_file", host_id, args, approved, approval_id,
-                          lambda b: b.read_text(path, max_bytes=int(max_bytes)), read=True)
+    return await _guarded(
+        "ssh_read_file",
+        host_id,
+        args,
+        approved,
+        approval_id,
+        lambda b: b.read_text(path, max_bytes=int(max_bytes)),
+        read=True,
+    )
 
 
-async def ssh_list_dir(host_id: str, path: str = "", approved: bool = False, approval_id: str = "") -> str:
-    return await _guarded("ssh_list_dir", host_id, {"path": path}, approved, approval_id,
-                          lambda b: _dump(b.list_dir(path)), read=True)
+async def ssh_list_dir(
+    host_id: str, path: str = "", approved: bool = False, approval_id: str = ""
+) -> str:
+    return await _guarded(
+        "ssh_list_dir",
+        host_id,
+        {"path": path},
+        approved,
+        approval_id,
+        lambda b: _dump(b.list_dir(path)),
+        read=True,
+    )
 
 
-async def ssh_grep(host_id: str, pattern: str, root: str = "", glob: str = "", max_results: int = 100,
-                   approved: bool = False, approval_id: str = "") -> str:
+async def ssh_grep(
+    host_id: str,
+    pattern: str,
+    root: str = "",
+    glob: str = "",
+    max_results: int = 100,
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
     args = {"pattern": pattern, "root": root, "glob": glob, "max_results": int(max_results)}
-    return await _guarded("ssh_grep", host_id, args, approved, approval_id,
-                          lambda b: b.grep(pattern, root=root, glob=glob, max_results=int(max_results)) or "(no matches)",
-                          read=True)
+    return await _guarded(
+        "ssh_grep",
+        host_id,
+        args,
+        approved,
+        approval_id,
+        lambda b: (
+            b.grep(pattern, root=root, glob=glob, max_results=int(max_results)) or "(no matches)"
+        ),
+        read=True,
+    )
 
 
-async def ssh_write_file(host_id: str, path: str, content: str, overwrite: bool = True, approved: bool = False,
-                         approval_id: str = "") -> str:
-    args = {"path": path, "content_sha256": hashlib.sha256(str(content).encode()).hexdigest(),
-            "content_preview": str(content)[:200], "bytes": len(str(content).encode()), "overwrite": bool(overwrite)}
-    return await _guarded("ssh_write_file", host_id, args, approved, approval_id,
-                          lambda b: b.write_text(path, content, overwrite=bool(overwrite)))
+async def ssh_write_file(
+    host_id: str,
+    path: str,
+    content: str,
+    overwrite: bool = True,
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
+    args = {
+        "path": path,
+        "content_sha256": hashlib.sha256(str(content).encode()).hexdigest(),
+        "content_preview": str(content)[:200],
+        "bytes": len(str(content).encode()),
+        "overwrite": bool(overwrite),
+    }
+    return await _guarded(
+        "ssh_write_file",
+        host_id,
+        args,
+        approved,
+        approval_id,
+        lambda b: b.write_text(path, content, overwrite=bool(overwrite)),
+    )
 
 
-async def ssh_edit_file(host_id: str, path: str, old_text: str, new_text: str, approved: bool = False,
-                        approval_id: str = "") -> str:
-    args = {"path": path, "old_sha256": hashlib.sha256(old_text.encode()).hexdigest(),
-            "new_sha256": hashlib.sha256(new_text.encode()).hexdigest(),
-            "old_preview": old_text[:150], "new_preview": new_text[:150]}
-    return await _guarded("ssh_edit_file", host_id, args, approved, approval_id,
-                          lambda b: b.replace_text(path, old_text, new_text))
+async def ssh_edit_file(
+    host_id: str,
+    path: str,
+    old_text: str,
+    new_text: str,
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
+    args = {
+        "path": path,
+        "old_sha256": hashlib.sha256(old_text.encode()).hexdigest(),
+        "new_sha256": hashlib.sha256(new_text.encode()).hexdigest(),
+        "old_preview": old_text[:150],
+        "new_preview": new_text[:150],
+    }
+    return await _guarded(
+        "ssh_edit_file",
+        host_id,
+        args,
+        approved,
+        approval_id,
+        lambda b: b.replace_text(path, old_text, new_text),
+    )
 
 
-async def ssh_run(host_id: str, command: str, cwd: str = "", timeout_s: float = 60.0, approved: bool = False,
-                  approval_id: str = "") -> str:
+async def ssh_run(
+    host_id: str,
+    command: str,
+    cwd: str = "",
+    timeout_s: float = 60.0,
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
     args = {"command": command, "cwd": cwd, "timeout_s": float(timeout_s)}
     bounded = max(1.0, min(float(timeout_s), 900.0))
-    return await _guarded("ssh_run", host_id, args, approved, approval_id,
-                          lambda b: _dump(b.run(command, cwd=cwd, timeout_s=bounded).to_dict()))
+    return await _guarded(
+        "ssh_run",
+        host_id,
+        args,
+        approved,
+        approval_id,
+        lambda b: _dump(b.run(command, cwd=cwd, timeout_s=bounded).to_dict()),
+    )
 
 
-async def ssh_upload(host_id: str, local_path: str, remote_path: str, approved: bool = False,
-                     approval_id: str = "") -> str:
+async def ssh_upload(
+    host_id: str, local_path: str, remote_path: str, approved: bool = False, approval_id: str = ""
+) -> str:
     args = {"local_path": local_path, "remote_path": remote_path}
-    return await _guarded("ssh_upload", host_id, args, approved, approval_id,
-                          lambda b: b.put_file(local_path, remote_path))
+    return await _guarded(
+        "ssh_upload",
+        host_id,
+        args,
+        approved,
+        approval_id,
+        lambda b: b.put_file(local_path, remote_path),
+    )
 
 
-async def ssh_download(host_id: str, remote_path: str, local_path: str, approved: bool = False,
-                       approval_id: str = "") -> str:
+async def ssh_download(
+    host_id: str, remote_path: str, local_path: str, approved: bool = False, approval_id: str = ""
+) -> str:
     args = {"remote_path": remote_path, "local_path": local_path}
-    return await _guarded("ssh_download", host_id, args, approved, approval_id,
-                          lambda b: b.get_file(remote_path, local_path))
+    return await _guarded(
+        "ssh_download",
+        host_id,
+        args,
+        approved,
+        approval_id,
+        lambda b: b.get_file(remote_path, local_path),
+    )
 
 
-async def ssh_bg_start(host_id: str, name: str, command: str, cwd: str = "", approved: bool = False,
-                       approval_id: str = "") -> str:
+async def ssh_bg_start(
+    host_id: str,
+    name: str,
+    command: str,
+    cwd: str = "",
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
     args = {"name": name, "command": command, "cwd": cwd}
-    return await _guarded("ssh_bg_start", host_id, args, approved, approval_id,
-                          lambda b: _dump(b.spawn_bg(command, name=name, cwd=cwd).to_dict()))
+    return await _guarded(
+        "ssh_bg_start",
+        host_id,
+        args,
+        approved,
+        approval_id,
+        lambda b: _dump(b.spawn_bg(command, name=name, cwd=cwd).to_dict()),
+    )
 
 
 async def ssh_bg_status(host_id: str, name: str) -> str:
@@ -278,9 +418,12 @@ async def ssh_bg_status(host_id: str, name: str) -> str:
     return _dump({**status, "evidence": evidence.to_dict(), "verified": evidence.usable})
 
 
-async def ssh_bg_kill(host_id: str, name: str, approved: bool = False, approval_id: str = "") -> str:
-    return await _guarded("ssh_bg_kill", host_id, {"name": name}, approved, approval_id,
-                          lambda b: b.bg_kill(name))
+async def ssh_bg_kill(
+    host_id: str, name: str, approved: bool = False, approval_id: str = ""
+) -> str:
+    return await _guarded(
+        "ssh_bg_kill", host_id, {"name": name}, approved, approval_id, lambda b: b.bg_kill(name)
+    )
 
 
 # ── schemas / registration ─────────────────────────────────────────────────
@@ -288,11 +431,16 @@ async def ssh_bg_kill(host_id: str, name: str, approved: bool = False, approval_
 _HOST = {"type": "string", "description": "已登记的 ssh 主机 id（见 ssh_host_list）。"}
 _APPROVAL = {
     "approved": {"type": "boolean", "description": "必须为 true 才会提交/使用审批。"},
-    "approval_id": {"type": "string", "description": "用户已批准的审批 id（首次调用留空以提交审批）。"},
+    "approval_id": {
+        "type": "string",
+        "description": "用户已批准的审批 id（首次调用留空以提交审批）。",
+    },
 }
 
 
-def _schema(props: dict[str, Any], required: list[str], *, mutating: bool, approvable: bool = True) -> dict[str, Any]:
+def _schema(
+    props: dict[str, Any], required: list[str], *, mutating: bool, approvable: bool = True
+) -> dict[str, Any]:
     properties = {"host_id": _HOST, **props}
     req = ["host_id", *required]
     if approvable:
@@ -304,40 +452,121 @@ def _schema(props: dict[str, Any], required: list[str], *, mutating: bool, appro
 
 _S = {"type": "string"}
 _TOOLS: list[tuple[str, str, dict[str, Any], Any, str]] = [
-    ("ssh_host_list", "列出当前用户登记的 ssh 主机（地址、用户、OS、write_root）。只读。",
-     {"type": "object", "properties": {}, "required": []}, ssh_host_list, "pure_read"),
-    ("ssh_host_probe", "探测 ssh 主机连通性（ssh BatchMode 执行 uname -s）。只读，无副作用。",
-     _schema({}, [], mutating=False, approvable=False), ssh_host_probe, "pure_read"),
-    ("ssh_read_file", "读取远程主机上的文件（限 write_root/default_cwd 内）。除非主机配置 read_approved，需审批。",
-     _schema({"path": _S, "max_bytes": {"type": "integer"}}, ["path"], mutating=False), ssh_read_file, "pure_read"),
-    ("ssh_list_dir", "列出远程主机目录（限可读根内）。除非主机配置 read_approved，需审批。",
-     _schema({"path": _S}, [], mutating=False), ssh_list_dir, "pure_read"),
-    ("ssh_grep", "在远程主机上搜索文本（rg，回退 grep -E）。除非主机配置 read_approved，需审批。",
-     _schema({"pattern": _S, "root": _S, "glob": _S, "max_results": {"type": "integer"}}, ["pattern"],
-             mutating=False), ssh_grep, "pure_read"),
-    ("ssh_write_file", "在远程主机 write_root 内写文件。外部变更：需 approved=true 且审批通过。",
-     _schema({"path": _S, "content": _S, "overwrite": {"type": "boolean"}}, ["path", "content"], mutating=True),
-     ssh_write_file, "external_mutation"),
-    ("ssh_edit_file", "在远程主机 write_root 内做精确唯一替换（old_text→new_text）。外部变更：需审批。",
-     _schema({"path": _S, "old_text": _S, "new_text": _S}, ["path", "old_text", "new_text"], mutating=True),
-     ssh_edit_file, "external_mutation"),
-    ("ssh_run", "在远程主机上执行一条命令并返回输出（脱敏、截断、超时）。外部变更：需审批；灾难性命令直接拒绝。",
-     _schema({"command": _S, "cwd": _S, "timeout_s": {"type": "number"}}, ["command"], mutating=True),
-     ssh_run, "external_mutation"),
-    ("ssh_upload", "把本机写根内的文件上传到远程主机 write_root。外部变更：需审批。",
-     _schema({"local_path": _S, "remote_path": _S}, ["local_path", "remote_path"], mutating=True),
-     ssh_upload, "external_mutation"),
-    ("ssh_download", "把远程主机文件下载到本机写根。外部变更：需审批。",
-     _schema({"remote_path": _S, "local_path": _S}, ["remote_path", "local_path"], mutating=True),
-     ssh_download, "external_mutation"),
-    ("ssh_bg_start", "在远程主机后台启动长任务（nohup/setsid，日志在 write_root/.veya/run/<name>.log）。外部变更：需审批。",
-     _schema({"name": _S, "command": _S, "cwd": _S}, ["name", "command"], mutating=True),
-     ssh_bg_start, "external_mutation"),
-    ("ssh_bg_status", "查询远程后台任务：是否结束、退出码、日志尾，并给出验收证据。只读。",
-     _schema({"name": _S}, ["name"], mutating=False, approvable=False), ssh_bg_status, "pure_read"),
-    ("ssh_bg_kill", "终止远程后台任务。外部变更：需审批。",
-     _schema({"name": _S}, ["name"], mutating=True), ssh_bg_kill, "external_mutation"),
+    (
+        "ssh_host_list",
+        "列出当前用户登记的 ssh 主机（地址、用户、OS、write_root）。只读。",
+        {"type": "object", "properties": {}, "required": []},
+        ssh_host_list,
+        "pure_read",
+    ),
+    (
+        "ssh_host_probe",
+        "探测 ssh 主机连通性（ssh BatchMode 执行 uname -s）。只读，无副作用。",
+        _schema({}, [], mutating=False, approvable=False),
+        ssh_host_probe,
+        "pure_read",
+    ),
+    (
+        "ssh_read_file",
+        "读取远程主机上的文件（限 write_root/default_cwd 内）。除非主机配置 read_approved，需审批。",
+        _schema({"path": _S, "max_bytes": {"type": "integer"}}, ["path"], mutating=False),
+        ssh_read_file,
+        "pure_read",
+    ),
+    (
+        "ssh_list_dir",
+        "列出远程主机目录（限可读根内）。除非主机配置 read_approved，需审批。",
+        _schema({"path": _S}, [], mutating=False),
+        ssh_list_dir,
+        "pure_read",
+    ),
+    (
+        "ssh_grep",
+        "在远程主机上搜索文本（rg，回退 grep -E）。除非主机配置 read_approved，需审批。",
+        _schema(
+            {"pattern": _S, "root": _S, "glob": _S, "max_results": {"type": "integer"}},
+            ["pattern"],
+            mutating=False,
+        ),
+        ssh_grep,
+        "pure_read",
+    ),
+    (
+        "ssh_write_file",
+        "在远程主机 write_root 内写文件。外部变更：需 approved=true 且审批通过。",
+        _schema(
+            {"path": _S, "content": _S, "overwrite": {"type": "boolean"}},
+            ["path", "content"],
+            mutating=True,
+        ),
+        ssh_write_file,
+        "external_mutation",
+    ),
+    (
+        "ssh_edit_file",
+        "在远程主机 write_root 内做精确唯一替换（old_text→new_text）。外部变更：需审批。",
+        _schema(
+            {"path": _S, "old_text": _S, "new_text": _S},
+            ["path", "old_text", "new_text"],
+            mutating=True,
+        ),
+        ssh_edit_file,
+        "external_mutation",
+    ),
+    (
+        "ssh_run",
+        "在远程主机上执行一条命令并返回输出（脱敏、截断、超时）。外部变更：需审批；灾难性命令直接拒绝。",
+        _schema(
+            {"command": _S, "cwd": _S, "timeout_s": {"type": "number"}}, ["command"], mutating=True
+        ),
+        ssh_run,
+        "external_mutation",
+    ),
+    (
+        "ssh_upload",
+        "把本机写根内的文件上传到远程主机 write_root。外部变更：需审批。",
+        _schema(
+            {"local_path": _S, "remote_path": _S}, ["local_path", "remote_path"], mutating=True
+        ),
+        ssh_upload,
+        "external_mutation",
+    ),
+    (
+        "ssh_download",
+        "把远程主机文件下载到本机写根。外部变更：需审批。",
+        _schema(
+            {"remote_path": _S, "local_path": _S}, ["remote_path", "local_path"], mutating=True
+        ),
+        ssh_download,
+        "external_mutation",
+    ),
+    (
+        "ssh_bg_start",
+        "在远程主机后台启动长任务（nohup/setsid，日志在 write_root/.veya/run/<name>.log）。外部变更：需审批。",
+        _schema({"name": _S, "command": _S, "cwd": _S}, ["name", "command"], mutating=True),
+        ssh_bg_start,
+        "external_mutation",
+    ),
+    (
+        "ssh_bg_status",
+        "查询远程后台任务：是否结束、退出码、日志尾，并给出验收证据。只读。",
+        _schema({"name": _S}, ["name"], mutating=False, approvable=False),
+        ssh_bg_status,
+        "pure_read",
+    ),
+    (
+        "ssh_bg_kill",
+        "终止远程后台任务。外部变更：需审批。",
+        _schema({"name": _S}, ["name"], mutating=True),
+        ssh_bg_kill,
+        "external_mutation",
+    ),
 ]
+
+
+CANONICAL_MUTATING_TOOLS = frozenset(
+    {"write_file", "edit_hashline", "ast_grep_rewrite", "run_in_sandbox"}
+)
 
 
 def host_policy(name: str, kwargs: dict, source: str) -> str | None:
@@ -345,7 +574,105 @@ def host_policy(name: str, kwargs: dict, source: str) -> str | None:
 
     if name in MUTATING_TOOLS and kwargs.get("approved") is not True:
         return f"{name} targets a remote host and needs approved=true plus an approved approval_id"
+    if (
+        name in CANONICAL_MUTATING_TOOLS
+        and kwargs.get("host")
+        and kwargs.get("approved") is not True
+    ):
+        return f"{name} targets a remote host and needs approved=true plus an approved approval_id"
     return None
+
+
+def handle_canonical_host(
+    tool: str,
+    host_id: str,
+    args: dict[str, Any],
+    action: Any,
+    *,
+    mutating: bool = True,
+    approved: bool = False,
+    approval_id: str = "",
+) -> Any:
+    """Bridge a canonical tool to a remote host over ssh."""
+
+    async def _impl() -> str:
+        if not flags.ssh_enabled():
+            return f"已拒绝：{tool} 指定了远程主机 {host_id!r}，但 VEYA_SSH_HOSTS 功能未启用。"
+        try:
+            host = _host_for(host_id, "execute")
+            if mutating or _read_needs_approval(host):
+                blocked = await _gate(tool, host, args, approved, approval_id)
+                if blocked is not None:
+                    return blocked
+            return await asyncio.to_thread(action, _backend(host))
+        except (Refused, BackendError) as exc:
+            return f"已拒绝：{exc}"
+
+    try:
+        asyncio.get_running_loop()
+        return _impl()
+    except RuntimeError:
+        return asyncio.run(_impl())
+
+
+def handle_ast_grep_rewrite_host(
+    host: str,
+    path: str,
+    pattern: str,
+    rewrite: str,
+    lang: str | None = None,
+    update: bool = False,
+    approved: bool = False,
+    approval_id: str = "",
+) -> Any:
+    """Execute ast-grep rewrite on a remote host via local temp buffer."""
+    args = {
+        "path": path,
+        "pattern": pattern,
+        "rewrite": rewrite,
+        "lang": lang,
+        "update": bool(update),
+    }
+
+    def _action(b: Any) -> str:
+        import contextlib
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from server.ast_grep_tool import search
+        from server.tool_registry import ToolExecutionError
+
+        suffix = Path(path).suffix or ".txt"
+        source = b.read_text(path, max_bytes=200000)
+        with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False, encoding="utf-8") as tf:
+            tf.write(source)
+            tmp_path = tf.name
+        try:
+            rec = search(pattern, path=tmp_path, lang=lang, rewrite=rewrite, update=bool(update))
+            if not rec.get("ok"):
+                raise ToolExecutionError(rec.get("error") or "ast-grep rewrite failed")
+            if update:
+                new_content = Path(tmp_path).read_text(encoding="utf-8")
+                if new_content != source:
+                    b.write_text(path, new_content, overwrite=True)
+            mode = "applied" if update else "dry-run"
+            rec["mode"] = mode
+            rec["host"] = host
+            return json.dumps(rec, ensure_ascii=False)[:16000]
+        finally:
+            with contextlib.suppress(Exception):
+                Path(tmp_path).unlink()
+
+    return handle_canonical_host(
+        "ast_grep_rewrite",
+        host,
+        args,
+        _action,
+        mutating=bool(update),
+        approved=approved,
+        approval_id=approval_id,
+    )
 
 
 def install_w17_host_policy(guard: Any = None) -> None:
@@ -387,10 +714,12 @@ def register_tools(registry: Any = None) -> int:
 
 
 __all__ = [
+    "CANONICAL_MUTATING_TOOLS",
     "GUARD_POLICY",
     "MUTATING_TOOLS",
     "READ_TOOLS",
     "fingerprint",
+    "handle_canonical_host",
     "host_policy",
     "install_w17_host_policy",
     "register_tools",

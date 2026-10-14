@@ -13,7 +13,6 @@ from server.remote_control import flags, process
 from server.remote_control import ssh as ssh_mod
 from server.remote_control.backend import BackendError, LocalBackend, SshBackend, classify_or_refuse
 from server.remote_control.hosts import HostValidationError, RemoteHost, validate_host
-
 from tests.w17_fakes import LocalExecRunner, RecordingRunner
 
 
@@ -58,7 +57,9 @@ def test_host_ssh_fields_default_and_validate() -> None:
     old = RemoteHost.from_dict({"host_id": "old", "tailnet_ip": "100.64.0.9", "owner_id": "u"})
     assert (old.ssh_port, old.os_family, old.write_root, old.ssh_key_ref) == (22, "linux", "", "")
     validate_host(old)  # a W13 record stays valid
-    validate_host(_host(write_root="/home/me/work", ssh_user="me", ssh_port=2222, ssh_key_ref="lap_key"))
+    validate_host(
+        _host(write_root="/home/me/work", ssh_user="me", ssh_port=2222, ssh_key_ref="lap_key")
+    )
     for bad in (
         {"os_family": "plan9"},
         {"ssh_port": 70000},
@@ -81,7 +82,9 @@ def test_key_ref_rejects_path() -> None:
 def test_key_ref_pem_materialised_0600_and_masked(tmp_path) -> None:
     pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"
     host = _host(ssh_key_ref="lap_key")
-    path, secrets = ssh_mod.resolve_key_path(host, lookup=lambda ref: pem if ref == "lap_key" else None)
+    path, _secrets = ssh_mod.resolve_key_path(
+        host, lookup=lambda ref: pem if ref == "lap_key" else None
+    )
     assert Path(path).read_text().strip() == pem
     assert oct(os.stat(path).st_mode & 0o777) == "0o600"
     runner = RecordingRunner(stdout=pem.encode())
@@ -96,11 +99,18 @@ def test_key_ref_pem_materialised_0600_and_masked(tmp_path) -> None:
 
 def test_ssh_argv_shape() -> None:
     runner = RecordingRunner()
-    ssh_mod.run_remote(_host(ssh_user="me", ssh_port=2222), ["ls", "-la", "a b; rm -rf ~"], runner=runner)
+    ssh_mod.run_remote(
+        _host(ssh_user="me", ssh_port=2222), ["ls", "-la", "a b; rm -rf ~"], runner=runner
+    )
     argv = runner.calls[0]["argv"]
     assert argv[0] == "ssh"
-    for opt in ("BatchMode=yes", "StrictHostKeyChecking=accept-new", "ServerAliveInterval=15",
-                "ServerAliveCountMax=3", "ControlMaster=auto"):
+    for opt in (
+        "BatchMode=yes",
+        "StrictHostKeyChecking=accept-new",
+        "ServerAliveInterval=15",
+        "ServerAliveCountMax=3",
+        "ControlMaster=auto",
+    ):
         assert opt in argv
     assert argv[argv.index("-p") + 1] == "2222"
     assert argv[-3:-1] == ["me@100.64.0.7", "--"]
@@ -123,9 +133,13 @@ def test_bad_target_and_newlines_refused() -> None:
 def test_probe_reachable_unreachable() -> None:
     ok = ssh_mod.probe(_host(), runner=RecordingRunner(stdout=b"Darwin\n"))
     assert ok.reachable and ok.os_family_echo == "macos"
-    down = ssh_mod.probe(_host(), runner=RecordingRunner(returncode=255, stdout=b"", stderr=b"Connection refused"))
+    down = ssh_mod.probe(
+        _host(), runner=RecordingRunner(returncode=255, stdout=b"", stderr=b"Connection refused")
+    )
     assert not down.reachable and "refused" in down.error
-    slow = ssh_mod.probe(_host(), runner=RecordingRunner(returncode=None, timed_out=True, stdout=b""))
+    slow = ssh_mod.probe(
+        _host(), runner=RecordingRunner(returncode=None, timed_out=True, stdout=b"")
+    )
     assert not slow.reachable and slow.error == "timeout"
 
 
