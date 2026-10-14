@@ -222,6 +222,18 @@ class SecurityPolicy(PolicyLayer):
     name = "security"
 
     def evaluate(self, request: PolicyRequest, context: OperationContext) -> LayerVerdict:
+        from server.channels.sandbox_enforce import check_im_sandbox_tool, is_im_non_owner_turn
+
+        if is_im_non_owner_turn():
+            denial = check_im_sandbox_tool(request.tool, request.args)
+            if denial is not None:
+                return LayerVerdict(
+                    self.name,
+                    LayerOutcome.DENY,
+                    f"security.im_sandbox_denied:{request.tool}",
+                    denial,
+                )
+
         raw_command = str(request.args.get("command", ""))
         if raw_command and _SECRET_DISCOVERY.search(raw_command):
             return LayerVerdict(

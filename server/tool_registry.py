@@ -33,6 +33,9 @@ from server.bot_team.memory import register_tools as _register_bot_memory_tools
 from server.events import append_canonical_event, current_task_id
 from server.tool_guard import ToolDenied as _ToolDenied
 from server.tool_guard import global_tool_guard as _tool_guard
+from server.tool_guard_policies import install_default_tool_policies
+
+install_default_tool_policies(_tool_guard)
 from veya.obase import telemetry
 from veya.obase.async_utils import run_sync_in_daemon_thread
 from veya.oskill.pure.tool_error_text import explain_tool_error

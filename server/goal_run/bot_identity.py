@@ -93,6 +93,8 @@ class BotSpec:
     # W16: Project Bot projection
     kind: str = "bot"
     workspace_path: str = ""
+    # FastClaw borrow: public access sharing toggle
+    public_share: bool = False
 
     def __post_init__(self) -> None:
         if not self.bot_id:
@@ -173,6 +175,7 @@ class BotSpec:
             updated_at=str(value.get("updated_at") or ""),
             kind=str(value.get("kind") or "bot"),
             workspace_path=str(value.get("workspace_path") or ""),
+            public_share=bool(value.get("public_share") or False),
         )
 
 
