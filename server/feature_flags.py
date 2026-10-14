@@ -81,6 +81,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_SKILL_PROGRESSIVE", False, "learning", "2027-01-01"),
     FeatureFlag("VEYA_WORKSPACE_URI", False, "runtime", "2027-01-01"),
     FeatureFlag("VEYA_MEMORY_UI", False, "learning", "2027-01-01"),
+    # W17 clean-room: session-scoped ask-once approval cache. Default OFF.
+    FeatureFlag("VEYA_APPROVAL_ASK_ONCE", False, "runtime", "2027-01-01"),
 )
 
 

@@ -572,6 +572,14 @@ class MasterCoordinator:
 
         register_remote_tools(self)
 
+        # W17: SSH host execution backend tools register only when VEYA_SSH_HOSTS=1 —
+        # off by default.
+        from server.remote_control.ssh_tools import install_w17_host_policy
+        from server.remote_control.ssh_tools import register_tools as register_ssh_tools
+
+        register_ssh_tools(self)
+        install_w17_host_policy(getattr(self, "tool_guard", None))
+
         # 主库 system_* 分支原本早于静态 registry 直接执行，绕过统一守卫。
         # 宿主在装配点包一层，使旧 ReAct 与 strict bridge 共用同一执行契约。
         self._raw_handle_tool_call = self._agent.handle_tool_call

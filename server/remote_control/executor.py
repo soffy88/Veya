@@ -22,8 +22,8 @@ anything; the concrete default is :func:`server.remote_control.process.spawn`.
 from __future__ import annotations
 
 import shlex
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Callable, Sequence
 
 from server.remote_control.hosts import RemoteHost
 
@@ -122,6 +122,16 @@ def render_command(
 
 def ssh_argv(host: RemoteHost, argv: Sequence[str]) -> tuple[str, ...]:
     """Wrap a rendered argv in a non-interactive ssh invocation."""
+    from server.remote_control import flags
+
+    if flags.ssh_enabled():
+        from server.remote_control import ssh as ssh_mod
+
+        try:
+            base = ssh_mod.ssh_base_argv(host)
+        except ssh_mod.SshError as exc:
+            raise CommandRejected(str(exc)) from exc
+        return validate_argv([*base, "--", *[str(item) for item in argv]])
 
     target = str(host.tailnet_ip or host.host_id or "").strip()
     if not target:

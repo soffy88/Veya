@@ -1291,8 +1291,32 @@ async def _tool_delegate_to_genesis(requirement_json: str) -> str:
 
 
 # ── 3. 文件系统 / 代码理解 ─────────────────────────────────────────
-def _tool_read_file_ast(filepath: str) -> str:
+def _tool_read_file_ast(
+    filepath: str,
+    host: str = "",
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
     """读取本地文件的 AST 骨架: 理解结构而不撑爆上下文窗口。"""
+    if host:
+        from server.remote_control import ssh_tools
+
+        def _action(b: Any) -> str:
+            from veya.ast import extract_skeleton
+
+            source = b.read_text(filepath, max_bytes=200000)
+            return str(extract_skeleton(source, filepath))
+
+        return ssh_tools.handle_canonical_host(
+            "read_file_ast",
+            host,
+            {"filepath": filepath},
+            _action,
+            mutating=False,
+            approved=approved,
+            approval_id=approval_id,
+        )
+
     from veya.ast import extract_skeleton
 
     path = _resolve_path(filepath)
@@ -1334,12 +1358,50 @@ def _resolve_write_path(filepath: str, *, must_exist: bool = False) -> Path:
     return p
 
 
-def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str:
+def _tool_write_file(
+    filepath: str,
+    content: str,
+    overwrite: bool = True,
+    host: str = "",
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
     """写文本文件到可写工作区 (~/.veya/work, 主脑「存储文件」入口, 零代码执行)。
 
     路径限定可写根内 (防逃逸, 与 read_file_ast 同策略);
     overwrite=false 时已存在则报错, 避免误覆盖。
     """
+    if host:
+        import hashlib
+
+        from server.remote_control import ssh_tools
+
+        args = {
+            "path": filepath,
+            "content_sha256": hashlib.sha256(str(content).encode("utf-8")).hexdigest(),
+            "overwrite": bool(overwrite),
+        }
+        return ssh_tools.handle_canonical_host(
+            "write_file",
+            host,
+            args,
+            lambda b: b.write_text(filepath, content, overwrite=overwrite),
+            mutating=True,
+            approved=approved,
+            approval_id=approval_id,
+        )
+
+    from server.config_protection import check_config_protection, is_protected_config_path
+
+    check_config_protection("write_file", filepath, approved=approved, approval_id=approval_id)
+
+    if is_protected_config_path(filepath):
+        p = Path(filepath).expanduser().resolve()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        content_str = str(content)
+        p.write_text(content_str, encoding="utf-8")
+        return f"✅ 已写入受保护配置 {p} ({len(content_str)} 字符)。"
+
     path = _resolve_write_path(filepath, must_exist=False)
     if path.exists() and not overwrite:
         raise ToolExecutionError(f"文件已存在: {filepath} (overwrite=false, 不会覆盖)")
@@ -1354,12 +1416,12 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
             from server.goal_run.ai_attribution import record_ai_write
 
             # Determine line count
-            lines = content_str.splitlines() or [""]
+            lines_list = content_str.splitlines() or [""]
             record_ai_write(
                 repo_root=str(_current_workspace_root.get() or _current_write_root.get() or ""),
                 file_path=filepath,
                 line_start=1,
-                line_end=len(lines),
+                line_end=len(lines_list),
                 session_id=session,
                 content=content_str,
             )
@@ -1374,16 +1436,48 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
     return msg
 
 
-def _tool_read_hashline(filepath: str, max_lines: int = 2000, start_line: int = 1) -> str:
+def _tool_read_hashline(
+    filepath: str,
+    max_lines: int = 2000,
+    start_line: int = 1,
+    host: str = "",
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
     """Read a file with per-line LINE#hash tags for stale-safe edits."""
     from server.hashline import DEFAULT_MAX_LINES, HARD_MAX_LINES, render
 
-    path = _resolve_path(filepath)
+    cap = max(1, min(int(max_lines or DEFAULT_MAX_LINES), HARD_MAX_LINES))
+    begin = max(1, int(start_line or 1))
+
+    if host:
+        from server.remote_control import ssh_tools
+
+        def _action(b: Any) -> str:
+            source = b.read_text(filepath, max_bytes=200000)
+            return f"[hashline {filepath}]\n" + str(render(source, max_lines=cap, start_line=begin))
+
+        return ssh_tools.handle_canonical_host(
+            "read_hashline",
+            host,
+            {"filepath": filepath, "max_lines": cap, "start_line": begin},
+            _action,
+            mutating=False,
+            approved=approved,
+            approval_id=approval_id,
+        )
+
+    from server.config_protection import is_protected_config_path
+
+    if is_protected_config_path(filepath):
+        path = Path(filepath).expanduser().resolve()
+        if not path.exists():
+            raise ToolExecutionError(f"file not found: {filepath}")
+    else:
+        path = _resolve_path(filepath)
     if path.is_dir():
         raise ToolExecutionError(f"path '{filepath}' 是目录不是文件")
     source = path.read_text(encoding="utf-8", errors="replace")
-    cap = max(1, min(int(max_lines or DEFAULT_MAX_LINES), HARD_MAX_LINES))
-    begin = max(1, int(start_line or 1))
     from server.workspace_uri import is_workspace_uri_enabled, sanitize_text
 
     out = f"[hashline {path}]\n" + str(render(source, max_lines=cap, start_line=begin))
@@ -1397,9 +1491,67 @@ def _tool_edit_hashline(
     start_tag: str,
     new_text: str,
     end_tag: str | None = None,
+    host: str = "",
+    approved: bool = False,
+    approval_id: str = "",
 ) -> str:
     """Replace a LINE#hash span. Fails if the file drifted since read_hashline."""
     from server.hashline import HashlineError, apply
+
+    if host:
+        import hashlib
+
+        from server.remote_control import ssh_tools
+
+        args = {
+            "path": filepath,
+            "start_tag": start_tag,
+            "end_tag": end_tag,
+            "new_text_sha256": hashlib.sha256(str(new_text).encode("utf-8")).hexdigest(),
+        }
+
+        def _action(b: Any) -> str:
+            source = b.read_text(filepath, max_bytes=200000)
+            try:
+                rec = apply(source, start_tag=start_tag, end_tag=end_tag, new_text=new_text)
+            except HashlineError as exc:
+                raise ToolExecutionError(str(exc)) from exc
+            b.write_text(filepath, rec["content"], overwrite=True)
+            return (
+                f"hashline-edited {filepath} lines {rec['start_line']}-{rec['end_line']} "
+                f"({rec['replaced_lines']} → {rec['new_lines']} lines). "
+                "Re-read with read_hashline before another edit."
+            )
+
+        return ssh_tools.handle_canonical_host(
+            "edit_hashline",
+            host,
+            args,
+            _action,
+            mutating=True,
+            approved=approved,
+            approval_id=approval_id,
+        )
+
+    from server.config_protection import check_config_protection, is_protected_config_path
+
+    check_config_protection("edit_hashline", filepath, approved=approved, approval_id=approval_id)
+
+    if is_protected_config_path(filepath):
+        p = Path(filepath).expanduser().resolve()
+        if not p.exists():
+            raise ToolExecutionError(f"file not found: {filepath}")
+        source = p.read_text(encoding="utf-8", errors="replace")
+        try:
+            rec = apply(source, start_tag=start_tag, end_tag=end_tag, new_text=new_text)
+        except HashlineError as exc:
+            raise ToolExecutionError(str(exc)) from exc
+        p.write_text(rec["content"], encoding="utf-8")
+        return (
+            f"hashline-edited {filepath} lines {rec['start_line']}-{rec['end_line']} "
+            f"({rec['replaced_lines']} → {rec['new_lines']} lines). "
+            "Re-read with read_hashline before another edit."
+        )
 
     path = _resolve_path(filepath)
     source = path.read_text(encoding="utf-8", errors="replace")
@@ -1415,8 +1567,6 @@ def _tool_edit_hashline(
         try:
             from server.goal_run.ai_attribution import record_ai_write
 
-            # Start line of the new text is rec['start_line']
-            # End line is rec['start_line'] + rec['new_lines'] - 1
             record_ai_write(
                 repo_root=str(_current_workspace_root.get() or _current_write_root.get() or ""),
                 file_path=filepath,
@@ -1498,7 +1648,31 @@ def _tool_ast_grep_rewrite(
     path: str,
     lang: str | None = None,
     update: bool = False,
+    host: str = "",
+    approved: bool = False,
+    approval_id: str = "",
 ) -> str:
+    if host:
+        from server.remote_control import ssh_tools
+
+        return ssh_tools.handle_ast_grep_rewrite_host(
+            host=host,
+            path=path,
+            pattern=pattern,
+            rewrite=rewrite,
+            lang=lang,
+            update=bool(update),
+            approved=approved,
+            approval_id=approval_id,
+        )
+
+    if update:
+        from server.config_protection import check_config_protection
+
+        check_config_protection(
+            "ast_grep_rewrite", path, approved=approved, approval_id=approval_id
+        )
+
     from server.ast_grep_tool import search
 
     target = str(_resolve_path(path, must_exist=True))
@@ -1517,8 +1691,28 @@ def _tool_grep(
     max_results: int = 40,
     context_before: int = 0,
     context_after: int = 0,
+    host: str = "",
+    approved: bool = False,
+    approval_id: str = "",
 ) -> str:
     """在项目内搜索代码(ripgrep),定位定义与引用。"""
+    if host:
+        from server.remote_control import ssh_tools
+
+        def _action(b: Any) -> str:
+            res = b.grep(pattern, root=root or "", glob=glob or "", max_results=max_results)
+            return res or f"no matches for {pattern!r}"
+
+        return ssh_tools.handle_canonical_host(
+            "grep",
+            host,
+            {"pattern": pattern, "glob": glob, "root": root, "max_results": max_results},
+            _action,
+            mutating=False,
+            approved=approved,
+            approval_id=approval_id,
+        )
+
     from server.assembly import ripgrep_search
 
     search_root = (
@@ -1539,21 +1733,50 @@ def _tool_grep(
         raise ToolExecutionError("ripgrep (rg) 未安装,无法执行 grep") from exc
     if not hits:
         return f"no matches for {pattern!r}"
-    lines = []
+    lines_out = []
     truncated = len(hits) > cap
     for hit in hits[:cap]:
         data = hit.get("data", {})
         path = (data.get("path") or {}).get("text", "?")
         line_no = data.get("line_number", "?")
         text = (data.get("lines") or {}).get("text", "").rstrip("\n")
-        lines.append(f"{path}:{line_no}: {text}")
+        lines_out.append(f"{path}:{line_no}: {text}")
     if truncated:
-        lines.append(f"... {len(hits) - cap} more matches; narrow the pattern or raise max_results")
-    return "\n".join(lines)
+        lines_out.append(
+            f"... {len(hits) - cap} more matches; narrow the pattern or raise max_results"
+        )
+    return "\n".join(lines_out)
 
 
-def _tool_list_files(path: str = ".") -> str:
+def _tool_list_files(
+    path: str = ".",
+    host: str = "",
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
     """列出工作区文件(排除噪音目录)。"""
+    if host:
+        from server.remote_control import ssh_tools
+
+        def _action(b: Any) -> str:
+            entries = b.list_dir(path if path not in (".", "") else "")
+            lines_out = []
+            for row in entries:
+                name = row.get("name", "")
+                is_d = row.get("type") == "d"
+                lines_out.append(f"{name}/" if is_d else f"{name} ({row.get('size', 0)}b)")
+            return "\n".join(lines_out) or "(empty)"
+
+        return ssh_tools.handle_canonical_host(
+            "list_files",
+            host,
+            {"path": path},
+            _action,
+            mutating=False,
+            approved=approved,
+            approval_id=approval_id,
+        )
+
     root = _resolve_workspace_root()
     target = root if path in (".", "") else _resolve_path(path, must_exist=False)
     excluded = {
@@ -1571,7 +1794,7 @@ def _tool_list_files(path: str = ".") -> str:
     }
     allowed_roots = [root, *_resolve_extra_roots()]
     display_root = next((r for r in allowed_roots if target == r or r in target.parents), root)
-    lines = []
+    lines_out = []
     count = 0
     for p in sorted(target.rglob("*")):
         if any(part in excluded for part in p.parts):
@@ -1580,12 +1803,12 @@ def _tool_list_files(path: str = ".") -> str:
             rel = p.relative_to(display_root)
         except ValueError:
             continue
-        lines.append(f"{rel}/" if p.is_dir() else f"{rel} ({p.stat().st_size}b)")
+        lines_out.append(f"{rel}/" if p.is_dir() else f"{rel} ({p.stat().st_size}b)")
         count += 1
         if count >= 200:
-            lines.append("... (truncated)")
+            lines_out.append("... (truncated)")
             break
-    return "\n".join(lines) or "(empty)"
+    return "\n".join(lines_out) or "(empty)"
 
 
 # ── 4. 代码执行 / 测试 (3O 隔离沙箱) ───────────────────────────────
@@ -1599,17 +1822,61 @@ def _normalize_sandbox_command(command: str) -> str:
     return re.sub(r"(?<![\w./-])pip(?!3)(?=\s|$)", "pip3", command)
 
 
-async def _tool_run_in_sandbox(code: str | None = None, command: str | None = None) -> str:
+async def _tool_run_in_sandbox(
+    code: str | None = None,
+    command: str | None = None,
+    host: str = "",
+    approved: bool = False,
+    approval_id: str = "",
+) -> str:
     """在统一沙箱合同里执行代码。策略由 isolation_policy(chat_verify, profile) 决定。"""
+    import inspect
     import sys
-
-    from server.auth import current_user
-    from veya.platform import load
 
     if not code and not command:
         raise ToolExecutionError(
             "run_in_sandbox requires either 'code' (python source) or 'command' (shell)"
         )
+
+    if host:
+        import hashlib
+
+        from server.remote_control import ssh_tools
+
+        args = {
+            "code_sha256": hashlib.sha256(str(code).encode("utf-8")).hexdigest() if code else "",
+            "command": command or "",
+        }
+
+        def _action(b: Any) -> str:
+            import shlex
+
+            cmd = command if command else f"python3 -c {shlex.quote(str(code))}"
+            rec = b.run(cmd, timeout_s=30)
+            rc = rec.returncode if hasattr(rec, "returncode") else getattr(rec, "exit_code", 0)
+            note = f"host={host} remote_exit={rc}"
+            if rc != 0:
+                raise ToolExecutionError(
+                    f"exit_code={rc} ({note})\nstdout:\n{rec.stdout}\nstderr:\n{rec.stderr}"
+                )
+            return f"exit_code=0 ({note})\n{rec.stdout}"
+
+        res = ssh_tools.handle_canonical_host(
+            "run_in_sandbox",
+            host,
+            args,
+            _action,
+            mutating=True,
+            approved=approved,
+            approval_id=approval_id,
+        )
+        if inspect.isawaitable(res):
+            res = await res
+        return res
+
+    from server.auth import current_user
+    from veya.platform import load
+
     omodul = load("omodul")
     owner_id = str(current_user().get("user_id") or "")
     with omodul.sandbox_scope("chat_verify", owner_id=owner_id) as session:
@@ -1618,7 +1885,7 @@ async def _tool_run_in_sandbox(code: str | None = None, command: str | None = No
         if code:
             rec = session.exec([sys.executable, "-c", code], timeout_s=30)
         else:
-            assert command is not None  # guaranteed by the not-code-and-not-command check above
+            assert command is not None
             rec = session.exec(
                 ["bash", "-lc", _normalize_sandbox_command(command)],
                 timeout_s=30,
@@ -1634,7 +1901,6 @@ async def _tool_run_in_sandbox(code: str | None = None, command: str | None = No
         return f"exit_code=0 ({note})\n{rec.get('stdout', '')}"
 
 
-# ── 5. Genesis 记忆账本查询 ────────────────────────────────────────
 def _tool_search_genesis_ledger(query: str) -> str:
     """查询 Genesis 的永久记忆账本: 3O 库里已有哪些元素(锻造前先查, 避免重复造轮子)。"""
     from server.agents.genesis_memory import GenesisMemory
@@ -1773,6 +2039,9 @@ master_tools.register(
                 "type": "boolean",
                 "description": "default true; false = refuse if file exists",
             },
+            "host": {"type": "string", "description": "optional remote host id"},
+            "approved": {"type": "boolean", "description": "approval granted flag"},
+            "approval_id": {"type": "string", "description": "approval id when approved"},
         },
         "required": ["filepath", "content"],
     },
@@ -1802,6 +2071,9 @@ master_tools.register(
                     "output stay true file line numbers, so tags remain valid for edit_hashline."
                 ),
             },
+            "host": {"type": "string", "description": "optional remote host id"},
+            "approved": {"type": "boolean", "description": "approval granted flag"},
+            "approval_id": {"type": "string", "description": "approval id when approved"},
         },
         "required": ["filepath"],
     },
@@ -1833,6 +2105,9 @@ master_tools.register(
                 "type": "string",
                 "description": "replacement text (may be multiple lines)",
             },
+            "host": {"type": "string", "description": "optional remote host id"},
+            "approved": {"type": "boolean", "description": "approval granted flag"},
+            "approval_id": {"type": "string", "description": "approval id when approved"},
         },
         "required": ["filepath", "start_tag", "new_text"],
     },
@@ -1943,6 +2218,9 @@ master_tools.register(
                 "type": "boolean",
                 "description": "false=preview (default), true=write files",
             },
+            "host": {"type": "string", "description": "optional remote host id"},
+            "approved": {"type": "boolean", "description": "approval granted flag"},
+            "approval_id": {"type": "string", "description": "approval id when approved"},
         },
         "required": ["pattern", "rewrite", "path"],
     },
@@ -1958,7 +2236,10 @@ master_tools.register(
     parameters={
         "type": "object",
         "properties": {
-            "filepath": {"type": "string", "description": "path relative to workspace root"}
+            "filepath": {"type": "string", "description": "path relative to workspace root"},
+            "host": {"type": "string", "description": "optional remote host id"},
+            "approved": {"type": "boolean", "description": "approval granted flag"},
+            "approval_id": {"type": "string", "description": "approval id when approved"},
         },
         "required": ["filepath"],
     },
@@ -1990,6 +2271,9 @@ master_tools.register(
                 "type": "integer",
                 "description": "lines of trailing context, 0..20",
             },
+            "host": {"type": "string", "description": "optional remote host id"},
+            "approved": {"type": "boolean", "description": "approval granted flag"},
+            "approval_id": {"type": "string", "description": "approval id when approved"},
         },
         "required": ["pattern"],
     },
@@ -2006,7 +2290,10 @@ master_tools.register(
             "path": {
                 "type": "string",
                 "description": "directory relative to workspace root (optional)",
-            }
+            },
+            "host": {"type": "string", "description": "optional remote host id"},
+            "approved": {"type": "boolean", "description": "approval granted flag"},
+            "approval_id": {"type": "string", "description": "approval id when approved"},
         },
     },
     func=_tool_list_files,
@@ -2033,6 +2320,9 @@ master_tools.register(
         "properties": {
             "code": {"type": "string", "description": "python source to execute (optional)"},
             "command": {"type": "string", "description": "shell command to execute (optional)"},
+            "host": {"type": "string", "description": "optional remote host id"},
+            "approved": {"type": "boolean", "description": "approval granted flag"},
+            "approval_id": {"type": "string", "description": "approval id when approved"},
         },
     },
     func=_tool_run_in_sandbox,

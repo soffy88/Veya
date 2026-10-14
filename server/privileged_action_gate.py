@@ -82,6 +82,7 @@ def request_privileged_action(
     bot_id: str = "",
     goal_run_id: str = "",
     actor: str = "",
+    session_id: str = "",
 ) -> GateOutcome:
     """Evaluate one privileged action against the existing gateway policy.
 
@@ -92,6 +93,18 @@ def request_privileged_action(
     obase = load("obase")
     arguments = dict(arguments or {})
     request_id = _request_id(action, arguments)
+
+    # W17: Ask-once session-scoped cache
+    from server.ask_once_cache import get_ask_once_cache
+
+    sid = session_id or goal_run_id or bot_id
+    cached = get_ask_once_cache().check(sid, action, arguments, effect=effect)
+    if cached is not None:
+        return GateOutcome(
+            status=STATUS_APPROVED,
+            reason="ask-once session cache",
+            request_id=request_id,
+        )
     gateway = ActionGatewayAdapter(
         goal_run_id=goal_run_id or request_id,
         work_item_id=goal_run_id or request_id,
@@ -116,6 +129,18 @@ def request_privileged_action(
         status = STATUS_APPROVAL_REQUIRED
     else:
         status = STATUS_DENIED
+
+    # Protected configuration targets must never be auto-allowed
+    from server.config_protection import is_protected_config_path
+
+    for k in ("path", "filepath", "target", "dest", "file"):
+        val = arguments.get(k)
+        if val and is_protected_config_path(val):
+            if status == STATUS_APPROVED:
+                status = STATUS_APPROVAL_REQUIRED
+                reason = "protected configuration path requires human approval"
+            break
+
     return GateOutcome(status=status, reason=reason or verdict, request_id=request_id)
 
 
@@ -128,5 +153,28 @@ __all__ = [
     "VERDICT_APPROVAL_REQUIRED",
     "VERDICT_DENY",
     "GateOutcome",
+    "record_privileged_action_approval",
     "request_privileged_action",
 ]
+
+
+def record_privileged_action_approval(
+    *,
+    action: str,
+    arguments: Mapping[str, Any] | None = None,
+    session_id: str = "",
+    decision: str = "approved",
+    approval_id: str = "",
+    effect: str = "",
+) -> bool:
+    """Record a completed human approval in the ask-once cache."""
+    from server.ask_once_cache import get_ask_once_cache
+
+    return get_ask_once_cache().record(
+        session_id,
+        action,
+        dict(arguments or {}),
+        decision=decision,
+        approval_id=approval_id,
+        effect=effect,
+    )

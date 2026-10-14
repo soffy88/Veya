@@ -21,7 +21,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -174,9 +173,14 @@ class ApprovalService:
         return False
 
     # ── guard L ───────────────────────────────────────────────────────
-    def check_resolver_principal(
-        self, approval: dict[str, Any], principal: str
-    ) -> str | None:
+    def check_ask_once(
+        self, session_id: str, tool: str, args: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        from server.ask_once_cache import get_ask_once_cache
+
+        return get_ask_once_cache().check(session_id, tool, args)
+
+    def check_resolver_principal(self, approval: dict[str, Any], principal: str) -> str | None:
         """None when ``principal`` may resolve; otherwise the refusal reason."""
 
         tool = str(approval.get("tool") or "").lower()
@@ -184,6 +188,14 @@ class ApprovalService:
             return None
         if any(marker in tool for marker in HUMAN_ONLY_MARKERS_TUPLE):
             return "high-risk approvals are human-only"
+        from server.config_protection import is_protected_config_path
+
+        args = approval.get("tool_args") or {}
+        if isinstance(args, dict):
+            for k in ("path", "filepath", "target", "dest", "file"):
+                val = args.get(k)
+                if val and is_protected_config_path(val):
+                    return "protected configuration changes are human-only"
         if principal.startswith("agent:"):
             if str(approval.get("delegate_policy") or "") == f"allow:{principal}":
                 return None
@@ -243,6 +255,21 @@ class ApprovalService:
                 detail=str(result.get("error") or "approval not pending"),
             )
         wake_pending_approval(record["request_id"])
+
+        # W17: record approved decision in ask-once cache
+        if decision in {"allow", "once", "session", "always"}:
+            from server.ask_once_cache import get_ask_once_cache
+
+            sid = str(record.get("session_id") or "")
+            if sid:
+                get_ask_once_cache().record(
+                    session_id=sid,
+                    tool_or_action=str(record.get("tool") or ""),
+                    arguments=record.get("tool_args") or {},
+                    decision=decision,
+                    approval_id=str(record.get("request_id") or approval_id),
+                )
+
         return result
 
     # ── human handoff ─────────────────────────────────────────────────
@@ -446,6 +473,7 @@ async def handoff_cancel(
 
 
 __all__ = [
+    "FLAG_APPROVAL_GATES",
     "ApprovalService",
     "approval_gates_enabled",
     "get_approval_service",
@@ -453,5 +481,4 @@ __all__ = [
     "session_grants",
     "wake_pending_approval",
     "wake_pending_handoff",
-    "FLAG_APPROVAL_GATES",
 ]

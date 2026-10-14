@@ -20,17 +20,28 @@ from typing import Any
 
 from server.remote_control import (
     approval as approval_mod,
+)
+from server.remote_control import (
     executor as executor_mod,
+)
+from server.remote_control import (
     flags,
-    hosts as hosts_mod,
-    identity as identity_mod,
     notify,
+)
+from server.remote_control import (
+    hosts as hosts_mod,
+)
+from server.remote_control import (
+    identity as identity_mod,
+)
+from server.remote_control import (
     sessions as sessions_mod,
+)
+from server.remote_control import (
     wake as wake_mod,
 )
 from server.remote_control.sessions import (
     RemoteSession,
-    TransitionRejected,
     VerifierEvidence,
 )
 
@@ -86,6 +97,8 @@ async def request_start(
     """
 
     flags.require_enabled()
+    if flags.ssh_enabled() and host_id and transport == "local":
+        transport = "ssh"
     host = _require_host(host_id, owner_id)
     identity = check_identity(host, "start")
     # Fail fast on an unsafe task before anything is persisted.
@@ -311,10 +324,10 @@ async def advance_batched(*, routine_id: str, bot_id: str) -> list[str]:
     policy = _policy_for_routine(routine_id)
     if policy is not None:
         wake_mod.record_wake(policy, routine_id=routine_id)
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             wake_mod.disable_batch(policy, bot_id=bot_id)
-        except Exception:
-            pass
     return launched
 
 

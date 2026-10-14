@@ -12,7 +12,6 @@ from server.remote_control import identity as identity_mod
 from server.remote_control import service as service_mod
 from server.remote_control import ssh_tools
 from server.routes import remote_control as routes
-
 from tests.w17_fakes import LocalExecRunner
 
 
@@ -26,12 +25,25 @@ def client(tmp_path, monkeypatch):
     root = tmp_path / "w"
     root.mkdir()
     (root / "f.txt").write_text("x")
-    hosts_mod.save_host(hosts_mod.RemoteHost(host_id="lap", display_name="L", tailnet_ip="100.64.0.7",
-                                             owner_id="u1", write_root=str(root)))
-    hosts_mod.save_host(hosts_mod.RemoteHost(host_id="other", display_name="O", tailnet_ip="100.64.0.8",
-                                             owner_id="u2"))
-    monkeypatch.setattr(service_mod, "check_identity",
-                        lambda host, action: identity_mod.PeerIdentity(node_name="laptop", resolved=True))
+    hosts_mod.save_host(
+        hosts_mod.RemoteHost(
+            host_id="lap",
+            display_name="L",
+            tailnet_ip="100.64.0.7",
+            owner_id="u1",
+            write_root=str(root),
+        )
+    )
+    hosts_mod.save_host(
+        hosts_mod.RemoteHost(
+            host_id="other", display_name="O", tailnet_ip="100.64.0.8", owner_id="u2"
+        )
+    )
+    monkeypatch.setattr(
+        service_mod,
+        "check_identity",
+        lambda host, action: identity_mod.PeerIdentity(node_name="laptop", resolved=True),
+    )
     monkeypatch.setattr(ssh_tools, "RUNNER", LocalExecRunner())
     app = FastAPI()
     app.include_router(routes.router)
@@ -60,10 +72,15 @@ def test_rest_probe_owner_and_unknown(client) -> None:
 
 def test_rest_update_ssh_fields_validated(client) -> None:
     c, root = client
-    bad = c.post("/api/v1/remote/hosts/lap/ssh", json={"ssh_key_ref": "/home/me/.ssh/id", "write_root": str(root)})
+    bad = c.post(
+        "/api/v1/remote/hosts/lap/ssh",
+        json={"ssh_key_ref": "/home/me/.ssh/id", "write_root": str(root)},
+    )
     assert bad.status_code == 422
-    good = c.post("/api/v1/remote/hosts/lap/ssh",
-                  json={"ssh_user": "me", "write_root": str(root), "read_approved": True})
+    good = c.post(
+        "/api/v1/remote/hosts/lap/ssh",
+        json={"ssh_user": "me", "write_root": str(root), "read_approved": True},
+    )
     assert good.status_code == 200 and good.json()["ssh_user"] == "me"
     files = c.get("/api/v1/remote/hosts/lap/files", params={"path": str(root)})
     assert files.status_code == 200 and [e["name"] for e in files.json()["entries"]] == ["f.txt"]
