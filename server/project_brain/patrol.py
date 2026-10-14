@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import os
 import shutil
 import time
 from typing import Any
@@ -24,11 +23,8 @@ from server.project_brain.brief import load_brief
 from server.project_brain.tasks import (
     TASK_STATUS_DONE,
     TASK_STATUS_FAILED,
-    TASK_STATUS_RUNNING,
     ProjectTask,
-    get_task,
     list_tasks,
-    mark_conclusion_sent,
     sync_tasks_to_brief,
     upsert_task,
 )
@@ -114,7 +110,6 @@ async def run_project_patrol(
     brief = load_brief(project_root)
 
     # 2. 独立核验 (Independent Verification)
-    from server.goal_run.models import GoalStatus
     from server.goal_run.store import load_goal_run
 
     goal_state = load_goal_run(project_root, goal_run_id)
@@ -126,8 +121,16 @@ async def run_project_patrol(
 
     if goal_state is not None:
         total = len(goal_state.tasks)
-        done = sum(1 for t in goal_state.tasks.values() if getattr(t.status, "value", str(t.status)) == "completed")
-        failed = sum(1 for t in goal_state.tasks.values() if getattr(t.status, "value", str(t.status)) in ("blocked", "failed", "cancelled"))
+        done = sum(
+            1
+            for t in goal_state.tasks.values()
+            if getattr(t.status, "value", str(t.status)) == "completed"
+        )
+        failed = sum(
+            1
+            for t in goal_state.tasks.values()
+            if getattr(t.status, "value", str(t.status)) in ("blocked", "failed", "cancelled")
+        )
         g_status = getattr(goal_state.status, "value", str(goal_state.status))
         if failed > 0 or g_status in ("blocked", "paused", "failed"):
             is_failed = True
@@ -192,7 +195,6 @@ async def run_project_patrol(
 
     if verdict == "done":
         # 收尾动作 (合并/部署等) 走 ApprovalService (§11: 默认全部 ask)
-        closing_actions_requested = False
         for rule in brief.rules:
             do_act = rule.do.lower()
             if any(k in do_act for k in ("merge", "deploy", "release", "合并", "部署")):
@@ -206,12 +208,14 @@ async def run_project_patrol(
                     user_id=str(binding.owner_id),
                     reason=f"项目任务 [{task.task_id}] 完成收尾审批: {rule.do}",
                 )
-                closing_actions_requested = True
                 global_notifier.push(
                     type="ACTION_REQUIRED",
                     title="[项目主脑] 收尾动作待审批",
                     content=f"任务 [{task.objective}] 独立核验已通过，收尾动作 [{rule.do}] 等待您的批准。",
-                    payload={"approval_id": getattr(app_req, "approval_id", str(app_req)), "task_id": task.task_id},
+                    payload={
+                        "approval_id": getattr(app_req, "approval_id", str(app_req)),
+                        "task_id": task.task_id,
+                    },
                     user_id=str(binding.owner_id),
                 )
 
@@ -258,7 +262,9 @@ async def run_project_patrol(
                 await _emit_nudge(goal_run_id, binding)
                 binding._patrol_nudged_seq = getattr(binding, "report_seq", None)
             task.fix_notes.append(f"巡检检测到停滞，自动重起续跑 (第 {repairs_sent + 1} 次)")
-            store.append_log(f"任务停滞 [{task.task_id}]，自动重起 (第 {repairs_sent + 1}/{max_repairs} 次)")
+            store.append_log(
+                f"任务停滞 [{task.task_id}]，自动重起 (第 {repairs_sent + 1}/{max_repairs} 次)"
+            )
         else:
             # 超过修复上限，通知用户决策
             global_notifier.push(

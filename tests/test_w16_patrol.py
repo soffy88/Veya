@@ -3,16 +3,16 @@
 import time
 from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
 from server.goal_run.models import GoalRunState, GoalStatus, TaskNode, TaskStatus
 from server.goal_run.store import save_goal_run
 from server.notification_center import global_notifier
 from server.project_brain.brief import BriefRule, ProjectBrief, save_brief
-from server.project_brain.patrol import check_disk_space, run_project_patrol
+from server.project_brain.patrol import run_project_patrol
 from server.project_brain.tasks import (
     TASK_STATUS_DONE,
-    TASK_STATUS_FAILED,
     TASK_STATUS_RUNNING,
     ProjectTask,
     get_task,
@@ -61,14 +61,20 @@ async def test_patrol_disk_space_low(brain_env, tmp_path: Path):
         project_root=str(tmp_path),
     )
     notifications = []
-    with patch.object(global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)):
-        with patch("shutil.disk_usage", return_value=type("Usage", (), {"free": 500 * 1024 * 1024})()):
-            res = await run_project_patrol(binding=binding, goal_run_id="g1", project_root=str(tmp_path))
-            assert res["verdict"] == "paused"
-            assert res["reason"] == "disk_space_low"
-            assert len(notifications) == 1
-            assert notifications[0]["type"] == "WARNING"
-            assert "磁盘空间不足" in notifications[0]["title"]
+    with (
+        patch.object(
+            global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)
+        ),
+        patch("shutil.disk_usage", return_value=type("Usage", (), {"free": 500 * 1024 * 1024})()),
+    ):
+        res = await run_project_patrol(
+            binding=binding, goal_run_id="g1", project_root=str(tmp_path)
+        )
+        assert res["verdict"] == "paused"
+        assert res["reason"] == "disk_space_low"
+        assert len(notifications) == 1
+        assert notifications[0]["type"] == "WARNING"
+        assert "磁盘空间不足" in notifications[0]["title"]
 
 
 @pytest.mark.asyncio
@@ -125,8 +131,12 @@ async def test_patrol_independent_verification_usable(brain_env, tmp_path: Path)
     save_binding(binding)
 
     notifications = []
-    with patch.object(global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)):
-        res = await run_project_patrol(binding=binding, goal_run_id=goal_id, project_root=project_root)
+    with patch.object(
+        global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)
+    ):
+        res = await run_project_patrol(
+            binding=binding, goal_run_id=goal_id, project_root=project_root
+        )
         assert res["verdict"] == "done"
         assert res["evidence"]["usable"] is True
         assert "独立核验通过" in res["evidence"]["details"]
@@ -145,7 +155,9 @@ async def test_patrol_independent_verification_usable(brain_env, tmp_path: Path)
 
         # Run a second time to verify conclusion is sent only once (deduplication)
         notifications.clear()
-        res2 = await run_project_patrol(binding=binding, goal_run_id=goal_id, project_root=project_root)
+        _res2 = await run_project_patrol(
+            binding=binding, goal_run_id=goal_id, project_root=project_root
+        )
         # Second conclusion notification must NOT be pushed
         assert not any(n["type"] == "SUCCESS" and "任务完成" in n["title"] for n in notifications)
 
@@ -244,13 +256,16 @@ async def test_patrol_closing_actions_approval(brain_env, tmp_path: Path):
     )
 
     notifications = []
-    with patch.object(global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)):
-        res = await run_project_patrol(binding=binding, goal_run_id=goal_id, project_root=project_root)
+    with patch.object(
+        global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)
+    ):
+        res = await run_project_patrol(
+            binding=binding, goal_run_id=goal_id, project_root=project_root
+        )
         assert res["verdict"] == "done"
         # Must have requested approval
         assert any(
-            n["type"] == "ACTION_REQUIRED" and "收尾动作待审批" in n["title"]
-            for n in notifications
+            n["type"] == "ACTION_REQUIRED" and "收尾动作待审批" in n["title"] for n in notifications
         )
 
 
@@ -271,7 +286,13 @@ async def test_patrol_stalled_restart_and_exhausted(brain_env, tmp_path: Path):
 
     gstate = GoalRunState(goal_id=goal_id, goal_text="长耗时计算任务", bot_id="bot_1")
     gstate.tasks["t1"] = TaskNode(
-        id="t1", title="计算", instruction="运行", acceptance=[], depends_on=[], assignee="bot_1", status=TaskStatus.running
+        id="t1",
+        title="计算",
+        instruction="运行",
+        acceptance=[],
+        depends_on=[],
+        assignee="bot_1",
+        status=TaskStatus.running,
     )
     save_goal_run(gstate, project_root)
 
@@ -300,11 +321,17 @@ async def test_patrol_stalled_restart_and_exhausted(brain_env, tmp_path: Path):
     binding.last_activity_at = time.time() - 600
     binding.nudges_sent = 2
     notifications = []
-    with patch.object(global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)):
-        res2 = await run_project_patrol(binding=binding, goal_run_id=goal_id, project_root=project_root)
+    with patch.object(
+        global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)
+    ):
+        res2 = await run_project_patrol(
+            binding=binding, goal_run_id=goal_id, project_root=project_root
+        )
         assert res2["verdict"] == "stalled"
         assert binding.status == "closed"
-        assert any(n["type"] == "WARNING" and "任务停滞需人工干预" in n["title"] for n in notifications)
+        assert any(
+            n["type"] == "WARNING" and "任务停滞需人工干预" in n["title"] for n in notifications
+        )
 
 
 @pytest.mark.asyncio
@@ -324,7 +351,13 @@ async def test_patrol_silence_strategy(brain_env, tmp_path: Path):
 
     gstate = GoalRunState(goal_id=goal_id, goal_text="平稳后台运行任务", bot_id="bot_1")
     gstate.tasks["t1"] = TaskNode(
-        id="t1", title="任务", instruction="运行", acceptance=[], depends_on=[], assignee="bot_1", status=TaskStatus.running
+        id="t1",
+        title="任务",
+        instruction="运行",
+        acceptance=[],
+        depends_on=[],
+        assignee="bot_1",
+        status=TaskStatus.running,
     )
     save_goal_run(gstate, project_root)
 
@@ -342,22 +375,30 @@ async def test_patrol_silence_strategy(brain_env, tmp_path: Path):
     )
 
     notifications = []
-    with patch.object(global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)):
+    with patch.object(
+        global_notifier, "push", side_effect=lambda **kwargs: notifications.append(kwargs)
+    ):
         # Cycle 1: no new progress -> silent
-        res1 = await run_project_patrol(binding=binding, goal_run_id=goal_id, project_root=project_root)
+        res1 = await run_project_patrol(
+            binding=binding, goal_run_id=goal_id, project_root=project_root
+        )
         assert res1["verdict"] in ("running", "progress")
         assert len(notifications) == 0
         t = get_task(project_root, task_id)
         assert t.receipts["_patrol"]["no_progress_cycles"] == 1
 
         # Cycle 2: no new progress -> silent
-        res2 = await run_project_patrol(binding=binding, goal_run_id=goal_id, project_root=project_root)
+        _res2 = await run_project_patrol(
+            binding=binding, goal_run_id=goal_id, project_root=project_root
+        )
         assert len(notifications) == 0
         t = get_task(project_root, task_id)
         assert t.receipts["_patrol"]["no_progress_cycles"] == 2
 
         # Cycle 3: 3 consecutive cycles with no progress -> notifies user
-        res3 = await run_project_patrol(binding=binding, goal_run_id=goal_id, project_root=project_root)
+        _res3 = await run_project_patrol(
+            binding=binding, goal_run_id=goal_id, project_root=project_root
+        )
         assert len(notifications) == 1
         assert notifications[0]["type"] == "INFO"
         assert "持续无新进展" in notifications[0]["title"]

@@ -1,6 +1,7 @@
 """Tests for W16 Project Brain: Model-callable tools and isolation (Group B)."""
 
 from pathlib import Path
+
 import pytest
 
 from server.goal_run import bot_identity
@@ -125,7 +126,7 @@ async def test_isolation_bot_no_workspace(brain_on, tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_project_brief_read_and_update(project_bot):
-    bot_id, project_root = project_bot
+    _bot_id, _project_root = project_bot
 
     # Update goal_scope
     res = await project_brief_update("goal_scope", "构建现代化数据平台")
@@ -148,27 +149,31 @@ async def test_project_brief_read_and_update(project_bot):
 
 @pytest.mark.asyncio
 async def test_project_log_append(project_bot):
-    bot_id, project_root = project_bot
+    _bot_id, project_root = project_bot
 
     res = await project_log_append("完成了数据库模式初始化。")
     assert "已记录项目日志" in res
 
     from server.project_store import ProjectStore
+
     logs = ProjectStore(project_root).read_log()
     assert "完成了数据库模式初始化。" in logs
 
 
 @pytest.mark.asyncio
 async def test_project_task_lifecycle(project_bot):
-    bot_id, project_root = project_bot
+    _bot_id, _project_root = project_bot
 
     # Start task
-    res = await project_task_start("编写核心用户接口", report_every_minutes=5, stall_after_minutes=15)
+    res = await project_task_start(
+        "编写核心用户接口", report_every_minutes=5, stall_after_minutes=15
+    )
     assert "已启动项目任务" in res
     assert "编写核心用户接口" in res
 
     # Extract task_id
     import re
+
     m = re.search(r"\[(ptask_[a-f0-9]+)\]", res)
     assert m is not None
     task_id = m.group(1)

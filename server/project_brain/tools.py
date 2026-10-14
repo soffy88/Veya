@@ -8,7 +8,6 @@ All tools are gated on VEYA_PROJECT_BRAIN and derive the project scope from
 from __future__ import annotations
 
 import contextlib
-import json
 import uuid
 from typing import Any
 
@@ -140,7 +139,9 @@ async def project_task_start(
     sync_tasks_to_brief(project_root)
 
     store = ProjectStore(project_root)
-    store.append_log(f"启动项目任务 [{task_id}]: {objective} (GoalRun={goal_run_id}, Binding={binding_id})")
+    store.append_log(
+        f"启动项目任务 [{task_id}]: {objective} (GoalRun={goal_run_id}, Binding={binding_id})"
+    )
 
     return (
         f"已启动项目任务 [{task_id}]：{objective}。\n"
@@ -187,12 +188,7 @@ async def project_task_status(task_id: str = "") -> str:
 
     notes_str = f"\n修复说明: {'; '.join(task.fix_notes)}" if task.fix_notes else ""
     rep_str = f"\n最新报告: {report_text}" if report_text else ""
-    return (
-        f"任务 [{task.task_id}] 状态: {task.status}\n"
-        f"目标: {task.objective}"
-        f"{rep_str}"
-        f"{notes_str}"
-    )
+    return f"任务 [{task.task_id}] 状态: {task.status}\n目标: {task.objective}{rep_str}{notes_str}"
 
 
 async def project_task_steer(task_id: str, steer_content: str) -> str:
