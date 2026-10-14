@@ -553,6 +553,12 @@ async def _supervise_from_phrase(
                 report_every_minutes=int(parsed["report_every_minutes"]),
                 stall_after_minutes=int(parsed.get("stall_after_minutes", 15)),
                 bot_id=bot.bot_id,
+                user=dict(user or {}),
+                provider=getattr(bot, "provider", None) or None,
+                model=getattr(bot, "model", None) or None,
+                run_objective=build_objective(bot=bot, text=str(text or ""))
+                if hasattr(bot, "name")
+                else None,
             )
         finally:
             reset_current_bot(bot_token)
