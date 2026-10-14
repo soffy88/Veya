@@ -29,6 +29,7 @@ export interface BotView {
 	model_source?: string;
 	model_source_config?: Record<string, unknown>;
 	available_skill_ids?: string[];
+	public_share?: boolean;
 }
 
 export interface BotMessageMeta {
@@ -160,6 +161,30 @@ export async function patchBot(botId: string, body: Record<string, unknown>): Pr
 		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}`, { method: "PATCH", body }),
 	);
 	return data.bot;
+}
+
+export async function forkBot(
+	botId: string,
+	body?: { new_bot_id?: string; name?: string },
+): Promise<{ status: string; bot: BotView }> {
+	return unwrap(
+		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/fork`, {
+			method: "POST",
+			body: body ?? {},
+		}),
+	);
+}
+
+export async function toggleBotPublicShare(
+	botId: string,
+	enabled: boolean,
+): Promise<{ status: string; bot_id: string; public_share: boolean }> {
+	return unwrap(
+		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/public_share`, {
+			method: "POST",
+			body: { enabled },
+		}),
+	);
 }
 
 /** One bot, resolved the same way the message endpoint resolves it. */

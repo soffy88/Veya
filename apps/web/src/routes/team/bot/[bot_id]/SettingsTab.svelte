@@ -6,8 +6,8 @@
 	 * gets renamed or re-pointed at another model; nothing here can start a turn.
 	 */
 	import { onMount } from "svelte";
-	import { Trash2, Database, Key, Terminal, Lock } from "lucide-svelte";
-	import { deleteBot, listBotSecrets, patchBot, type BotSecretView, type BotView } from "$lib/team/api";
+	import { Trash2, Database, Key, Terminal, Lock, Copy, Check } from "lucide-svelte";
+	import { deleteBot, listBotSecrets, patchBot, forkBot, toggleBotPublicShare, type BotSecretView, type BotView } from "$lib/team/api";
 	import { actionClass, cardClass, inputClass, primaryClass } from "$lib/team/ui";
 	import PresetPicker from "./PresetPicker.svelte";
 
@@ -24,6 +24,11 @@
 	let cliArgsText = $state("");
 	let busy = $state(false);
 	let error = $state("");
+	let publicShare = $state(false);
+	let toggleBusy = $state(false);
+	let forkBusy = $state(false);
+	let forkError = $state("");
+	let copied = $state(false);
 	let confirmDelete = $state(false);
 	// W-4: secrets are metadata only. The endpoint refuses to return a value, so
 	// this tab has nothing to mask — it shows name/purpose/scope and nothing else.
@@ -54,6 +59,7 @@
 		modelSource = (bot.model_source as "server" | "user_key" | "cli") ?? "server";
 		modelSourceConfig = (bot.model_source_config as Record<string, unknown>) ?? {};
 		cliArgsText = cliArgsToText(modelSourceConfig.cli_args);
+		publicShare = !!bot.public_share;
 	});
 
 	function getModelSourceOption(source: string) {
@@ -86,6 +92,50 @@
 			error = err instanceof Error ? err.message : String(err);
 		} finally {
 			busy = false;
+		}
+	}
+
+	async function handleFork(): Promise<void> {
+		forkBusy = true;
+		forkError = "";
+		try {
+			const res = await forkBot(bot.bot_id);
+			if (res.bot && res.bot.bot_id) {
+				location.assign(`/team/bot/${encodeURIComponent(res.bot.bot_id)}`);
+			} else {
+				onSaved();
+			}
+		} catch (err) {
+			forkError = err instanceof Error ? err.message : String(err);
+		} finally {
+			forkBusy = false;
+		}
+	}
+
+	async function handleTogglePublic(enabled: boolean): Promise<void> {
+		toggleBusy = true;
+		forkError = "";
+		try {
+			const res = await toggleBotPublicShare(bot.bot_id, enabled);
+			publicShare = res.public_share;
+			onSaved();
+		} catch (err) {
+			forkError = err instanceof Error ? err.message : String(err);
+			publicShare = !enabled;
+		} finally {
+			toggleBusy = false;
+		}
+	}
+
+	async function copyShareLink(): Promise<void> {
+		if (typeof window === "undefined") return;
+		const url = `${window.location.origin}/team/bot/${encodeURIComponent(bot.bot_id)}`;
+		try {
+			await navigator.clipboard.writeText(url);
+			copied = true;
+			setTimeout(() => { copied = false; }, 2000);
+		} catch {
+			forkError = "复制失败，请手动复制";
 		}
 	}
 
@@ -252,6 +302,61 @@
 				{/each}
 			</ul>
 		{/if}
+	</div>
+
+	<div class="{cardClass} !p-3 space-y-3">
+		<div class="flex items-center justify-between">
+			<div>
+				<h2 class="text-sm font-medium">公开共享与克隆</h2>
+				<p class="text-xs opacity-60">允许其他登录用户与此 Bot 独立对话，或复制当前配置</p>
+			</div>
+			<button
+				type="button"
+				class={actionClass}
+				onclick={() => void handleFork()}
+				disabled={forkBusy}
+			>
+				<Copy size={14} />
+				{forkBusy ? "克隆中…" : "克隆 Bot (Fork)"}
+			</button>
+		</div>
+
+		<div class="border-t border-white/10 pt-3 flex items-center justify-between">
+			<div>
+				<span class="text-xs font-medium">公开访问</span>
+				<p class="text-[11px] opacity-50">开启后其他登录用户可通过独立会话访问此 Bot</p>
+			</div>
+			<label class="relative inline-flex items-center cursor-pointer">
+				<input
+					type="checkbox"
+					checked={publicShare}
+					onchange={(e) => void handleTogglePublic(e.currentTarget.checked)}
+					disabled={toggleBusy}
+					class="sr-only peer"
+				/>
+				<div class="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
+			</label>
+		</div>
+
+		{#if publicShare}
+			<div class="flex items-center gap-2 rounded bg-white/[0.03] p-2 border border-white/10 text-xs">
+				<span class="flex-1 truncate opacity-70 font-mono text-[11px]">
+					{typeof window !== "undefined" ? `${window.location.origin}/team/bot/${bot.bot_id}` : `/team/bot/${bot.bot_id}`}
+				</span>
+				<button
+					type="button"
+					class="{actionClass} !py-1 !px-2 text-xs"
+					onclick={() => void copyShareLink()}
+				>
+					{#if copied}
+						<Check size={12} class="text-emerald-400" /> 已复制
+					{:else}
+						<Copy size={12} /> 复制链接
+					{/if}
+				</button>
+			</div>
+		{/if}
+		{#if forkError}<p class="text-xs text-red-300">{forkError}</p>{/if}
 	</div>
 
 	<div class="{cardClass} !p-3">

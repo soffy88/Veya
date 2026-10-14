@@ -10,8 +10,8 @@ conversations and routing.
 from __future__ import annotations
 
 import contextlib
-
 import re
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from server import auth as auth_mod
+from server import feature_flags
 from server.bot_team.async_turns import start_bot_turn_async, start_group_turn_async
 from server.bot_team.chef import (
     CHEF_BOT_ID,
@@ -27,7 +28,7 @@ from server.bot_team.chef import (
     proposal_store,
     record_team_proposal,
 )
-from server.bot_team.conversations import ConversationStore
+from server.bot_team.conversations import ConversationStore, default_bots_root, safe_bot_id
 from server.bot_team.groups import (
     DEFAULT_ROUNDS_PER_MESSAGE,
     MAX_GROUP_MEMBERS,
@@ -106,6 +107,21 @@ def _require_bot(registry: BotRegistry, bot_id: str, *, owner_id: str = "") -> B
     return spec
 
 
+def _public_conversation_store(bot_id: str) -> ConversationStore:
+    root = default_bots_root() / safe_bot_id(bot_id) / "public_chatters"
+    return ConversationStore(root=root)
+
+
+def _safe_chatter_scope(bot_id: str, user_id: str) -> str:
+    import hashlib
+    import re
+
+    clean = re.sub(r"[^A-Za-z0-9._-]", "_", user_id).strip("._-")
+    if not clean:
+        clean = "anon"
+    digest = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:12]
+    return f"pub_{clean[:36]}_{digest}"
+
 def _bot_view(spec: BotSpec) -> dict[str, Any]:
     return {
         "bot_id": spec.bot_id,
@@ -124,10 +140,28 @@ def _bot_view(spec: BotSpec) -> dict[str, Any]:
         "available_playbook_ids": list(spec.available_playbook_ids),
         "model_source": spec.model_source,
         "model_source_config": spec.model_source_config,
+        "public_share": getattr(spec, "public_share", False),
     }
 
 
 # ── request bodies ───────────────────────────────────────────────────────
+
+
+class BotForkRequest(BaseModel):
+    new_bot_id: str | None = Field(default=None, max_length=64)
+    name: str | None = Field(default=None, max_length=120)
+
+
+class BotPublicShareRequest(BaseModel):
+    enabled: bool | None = None
+    public_share: bool | None = None
+
+    def is_enabled(self) -> bool:
+        if self.enabled is not None:
+            return bool(self.enabled)
+        if self.public_share is not None:
+            return bool(self.public_share)
+        return True
 
 
 class BotCreateRequest(BaseModel):
@@ -140,6 +174,7 @@ class BotCreateRequest(BaseModel):
     owner_id: str | None = Field(default=None, max_length=256)
     model_source: str | None = Field(default=None, max_length=32)
     model_source_config: dict | None = None
+    public_share: bool | None = False
 
 
 class BotPatchRequest(BaseModel):
@@ -153,6 +188,7 @@ class BotPatchRequest(BaseModel):
     available_playbook_ids: list[str] | None = None
     model_source: str | None = Field(default=None, max_length=32)
     model_source_config: dict | None = None
+    public_share: bool | None = None
 
 
 class BotMessageRequest(BaseModel):
@@ -378,6 +414,7 @@ async def create_bot(
         runner_id="local",
         model_source=model_source,
         model_source_config=dict(req.model_source_config or {}),
+        public_share=bool(req.public_share or False),
     )
     try:
         registry.register(spec)
@@ -465,6 +502,7 @@ async def patch_bot(
         runner_id=str(updates.get("runner_id", spec.runner_id)),
         model_source=model_source,
         model_source_config=model_source_config,
+        public_share=spec.public_share if req.public_share is None else bool(req.public_share),
     )
     try:
         registry.register(updated)
@@ -493,6 +531,233 @@ async def delete_bot(
         raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found")
     conversations().clear(bot_id)
     return {"status": "deleted", "bot_id": bot_id}
+
+
+@router.post("/{bot_id}/fork")
+async def fork_bot(
+    bot_id: str,
+    req: BotForkRequest | None = None,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Fork an existing bot into a new bot under the owner."""
+    if not feature_flags.enabled("VEYA_BOT_PUBLIC_SHARE"):
+        raise HTTPException(status_code=404, detail="bot public share / fork disabled")
+    registry = bot_registry()
+    spec = _require_bot(registry, bot_id, owner_id=user["user_id"])
+
+    new_name = (req.name if req and req.name else f"{spec.name or spec.bot_id} (Fork)").strip()
+    if req and req.new_bot_id and req.new_bot_id.strip():
+        new_id = req.new_bot_id.strip()
+    else:
+        base_id = f"{spec.bot_id}_fork"
+        candidate = base_id[:50]
+        idx = 1
+        while registry.get(candidate) is not None:
+            candidate = f"{base_id[:45]}_{idx}"
+            idx += 1
+        new_id = candidate
+
+    if not _BOT_ID_RE.match(new_id):
+        raise HTTPException(
+            status_code=422,
+            detail="new_bot_id must be lowercase snake_case (letters, digits, '.', '_', '-')",
+        )
+    if registry.get(new_id) is not None:
+        raise HTTPException(status_code=409, detail=f"bot {new_id!r} already exists")
+
+    forked_spec = BotSpec(
+        bot_id=new_id,
+        owner_id=user["user_id"],
+        name=new_name,
+        description=spec.description,
+        instructions=spec.instructions,
+        provider=spec.provider,
+        model=spec.model,
+        runner_id="local",
+        model_source=spec.model_source,
+        model_source_config=dict(spec.model_source_config or {}),
+        available_skill_ids=list(spec.available_skill_ids),
+        available_playbook_ids=list(spec.available_playbook_ids),
+        public_share=False,
+        workspace_path="",
+    )
+    try:
+        registry.register(forked_spec)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="bot registry is not writable") from exc
+
+    conversations().clear(new_id)
+    return {"status": "forked", "bot": _bot_view(forked_spec)}
+
+
+@router.post("/{bot_id}/public_share")
+async def toggle_public_share(
+    bot_id: str,
+    req: BotPublicShareRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Toggle public access on a bot (owner only)."""
+    if not feature_flags.enabled("VEYA_BOT_PUBLIC_SHARE"):
+        raise HTTPException(status_code=404, detail="bot public share disabled")
+    registry = bot_registry()
+    spec = _require_bot(registry, bot_id, owner_id=user["user_id"])
+
+    target_state = req.is_enabled()
+    updated = BotSpec(
+        bot_id=spec.bot_id,
+        owner_id=spec.owner_id,
+        name=spec.name,
+        description=spec.description,
+        instructions=spec.instructions,
+        provider=spec.provider,
+        model=spec.model,
+        runner_id=spec.runner_id,
+        config_version=spec.config_version,
+        knowledge_namespace=spec.knowledge_namespace,
+        context_namespace=spec.context_namespace,
+        routine_registry_ref=spec.routine_registry_ref,
+        available_skill_ids=list(spec.available_skill_ids),
+        available_playbook_ids=list(spec.available_playbook_ids),
+        model_source=spec.model_source,
+        model_source_config=spec.model_source_config,
+        public_share=target_state,
+        workspace_path=spec.workspace_path,
+    )
+    try:
+        registry.register(updated)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="bot registry is not writable") from exc
+    return {"status": "updated", "bot_id": bot_id, "public_share": updated.public_share}
+
+
+@router.get("/{bot_id}/public")
+async def get_public_bot(
+    bot_id: str,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """Get public metadata for a bot if public_share is on."""
+    if not feature_flags.enabled("VEYA_BOT_PUBLIC_SHARE"):
+        raise HTTPException(status_code=404, detail="bot public share disabled")
+    registry = bot_registry()
+    spec = registry.get(bot_id)
+    if spec is None or not getattr(spec, "public_share", False):
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found or not public")
+    return {
+        "bot": {
+            "bot_id": spec.bot_id,
+            "name": spec.name or spec.bot_id,
+            "description": spec.description,
+            "instructions": spec.instructions,
+            "provider": spec.provider or None,
+            "model": spec.model or None,
+            "available_skill_ids": list(spec.available_skill_ids),
+            "public_share": True,
+            "owner_id": spec.owner_id,
+        }
+    }
+
+
+@router.get("/{bot_id}/public/messages")
+async def get_public_bot_messages(
+    bot_id: str,
+    include_hidden: bool = False,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    """One chatter's conversation with a public bot (isolated per user)."""
+    if not feature_flags.enabled("VEYA_BOT_PUBLIC_SHARE"):
+        raise HTTPException(status_code=404, detail="bot public share disabled")
+    registry = bot_registry()
+    spec = registry.get(bot_id)
+    if spec is None or not getattr(spec, "public_share", False):
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found or not public")
+
+    chatter_id = str(user.get("user_id") or "")
+    chatter_key = _safe_chatter_scope(bot_id, chatter_id)
+    store = _public_conversation_store(bot_id)
+    return {
+        "bot_id": bot_id,
+        "messages": store.list(chatter_key, include_hidden=include_hidden),
+    }
+
+
+@router.post("/{bot_id}/public/messages")
+async def post_public_bot_message(
+    bot_id: str,
+    req: BotMessageRequest,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> Any:
+    """Talk to a public bot: isolated per-chatter session/memory with sandboxed execution."""
+    if not feature_flags.enabled("VEYA_BOT_PUBLIC_SHARE"):
+        raise HTTPException(status_code=404, detail="bot public share disabled")
+    registry = bot_registry()
+    spec = registry.get(bot_id)
+    if spec is None or not getattr(spec, "public_share", False):
+        raise HTTPException(status_code=404, detail=f"bot {bot_id!r} not found or not public")
+
+    chatter_id = str(user.get("user_id") or "")
+    is_owner = (chatter_id == spec.owner_id)
+    chatter_key = _safe_chatter_scope(bot_id, chatter_id)
+    store = _public_conversation_store(bot_id)
+
+    chatter_user = {
+        "user_id": chatter_id,
+        "username": str(user.get("username") or chatter_id),
+        "is_owner": is_owner,
+        "is_public_chatter": True,
+        "is_im_channel": True,
+    }
+
+    from dataclasses import replace
+    proxy_bot = replace(
+        spec,
+        bot_id=chatter_key,
+        owner_id=chatter_id,
+        workspace_path="",
+    )
+
+    from server.channels.sandbox_enforce import bind_im_turn, reset_im_turn
+    from server.tool_registry import bind_write_root, reset_write_root
+
+    im_token = bind_im_turn(
+        is_im=True,
+        is_owner=is_owner,
+        is_public_chat=True,
+        platform="public_chat",
+        bot_id=bot_id,
+    )
+    write_token = None
+    if not is_owner:
+        sandbox_dir = Path.home() / ".veya" / "sandbox" / "public" / chatter_id
+        sandbox_dir.mkdir(parents=True, exist_ok=True)
+        write_token = bind_write_root(sandbox_dir)
+
+    try:
+        turn = await run_bot_turn(
+            bot=proxy_bot,
+            text=req.text,
+            user=chatter_user,
+            workspace_id=None,
+            conversations=store,
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="bot conversation is not writable") from exc
+    finally:
+        if write_token is not None:
+            reset_write_root(write_token)
+        reset_im_turn(im_token)
+
+    return {
+        "status": turn.status,
+        "bot_id": bot_id,
+        "task_id": turn.task_id,
+        "session_id": turn.session_id,
+        "reply": turn.reply,
+        "trace_id": turn.trace_id,
+    }
 
 
 @router.get("/{bot_id}/messages")
