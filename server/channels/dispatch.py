@@ -31,6 +31,10 @@ class DispatchOutcome:
     target_id: str = ""
     reply: str = ""
     detail: str = ""
+    # Existing durable bot-turn identity, projected for channel/request receipts.
+    task_id: str = ""
+    trace_id: str = ""
+    turn_status: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,10 +73,14 @@ async def dispatch_inbound(
     user_ref = owner_ref or anonymous_ref(message.platform, message.external_user_id)
     user = {"user_id": user_ref, "username": user_ref}
 
+    task_id = ""
+    trace_id = ""
+    turn_status = ""
     if target_type == "bot":
-        reply = await _run_bot(target_id, message.text, user)
+        reply, task_id, trace_id, turn_status = await _run_bot(target_id, message.text, user)
     elif target_type == "group":
         reply = await _run_group(target_id, message.text, user)
+        turn_status = "completed" if reply else "error"
     else:
         return DispatchOutcome(
             ok=False,
@@ -91,10 +99,13 @@ async def dispatch_inbound(
         target_type=target_type,
         target_id=target_id,
         reply=reply,
+        task_id=task_id,
+        trace_id=trace_id,
+        turn_status=turn_status,
     )
 
 
-async def _run_bot(bot_id: str, text: str, user: dict[str, Any]) -> str:
+async def _run_bot(bot_id: str, text: str, user: dict[str, Any]) -> tuple[str, str, str, str]:
     """Hand the message to the existing single-bot turn path (P1)."""
     from server.bot_team.conversations import ConversationStore
     from server.bot_team.turns import run_bot_turn
@@ -103,14 +114,21 @@ async def _run_bot(bot_id: str, text: str, user: dict[str, Any]) -> str:
     spec = BotRegistry().get(bot_id)
     if spec is None:
         _log.warning("Channel bound to unknown bot %s", bot_id)
-        return ""
+        return "", "", "", "error"
     turn = await run_bot_turn(
         bot=spec,
         text=text,
         user=dict(user),
         conversations=ConversationStore(),
     )
-    return getattr(turn, "reply", "") or ""
+    status = getattr(turn, "status", "unknown")
+    status = str(getattr(status, "value", status) or "unknown")
+    return (
+        getattr(turn, "reply", "") or "",
+        str(getattr(turn, "task_id", "") or ""),
+        str(getattr(turn, "trace_id", "") or ""),
+        status,
+    )
 
 
 async def _run_group(group_id: str, text: str, user: dict[str, Any]) -> str:

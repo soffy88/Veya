@@ -278,3 +278,12 @@ project is TypeScript-only, the idea was ported by hand into the repo's Python
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
+
+## Yobiru / tailmsg protocol reference (W20 Tailnet channel)
+
+- Project: https://github.com/chekusu/yobiru
+- Reference revision inspected on 2026-10-14: `224da1d4baeebc798b184499fdd87be2649833a5` (local-only checkout at `.ref/yobiru`, excluded from version control).
+- License: MIT; the reference `LICENSE` identifies `Copyright (c) 2026 guo-yu and Yobiru contributors`.
+- Use in this worktree: `TAILNET_SPEC.md` documents wire compatibility based on the upstream `SPEC.md` and `tailmsg.py` receiver/whois/attachment/request-lifecycle behavior. The interoperability test imports `tailmsg.py` from the local reference checkout and invokes its HTTP/JSON client against temporary Veya test listeners. Veya's receiver, policy enforcement, storage integration, HTTP handler, and outbound tools were implemented for this worktree; no upstream source file is vendored as implementation code.
+
+The upstream MIT license permits use, copy, modification, merging, publication, distribution, sublicensing and sale, subject to retaining the upstream copyright and permission notice. Full license text is available at `.ref/yobiru/LICENSE` and was inspected locally.
