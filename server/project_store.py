@@ -1,3 +1,4 @@
+# 3O-IO-ALLOW — server/project_store.py: .veya-project/ memory, logs, and queue mirror persistence
 """project_store — .veya-project/ 项目级记忆 (M1) + project_ask 契约草案。
 
 2026-08-15 审查结论落地 (docs 见对话记录, 未来可补 docs/PROJECT_STORE_SPEC.md):
@@ -119,6 +120,7 @@ class ProjectStore:
         (self.dir / "workers").mkdir(exist_ok=True)
         (self.dir / "output").mkdir(exist_ok=True)
         (self.dir / "runs").mkdir(exist_ok=True)
+        (self.dir / "log").mkdir(exist_ok=True)
         state_path = self.dir / _STATE_FILE
         if not state_path.exists():
             state_path.write_text(_STATE_TEMPLATE.format(ts=_now_iso()), encoding="utf-8")
@@ -148,6 +150,32 @@ class ProjectStore:
     def read_lessons(self) -> str:
         self.ensure_layout()
         return (self.dir / _LESSONS_FILE).read_text(encoding="utf-8")
+
+    def append_log(self, entry: str, dt: datetime.date | None = None) -> Path:
+        """追加项目每日日志 (log/YYYY-MM-DD.md)。"""
+        self.ensure_layout()
+        date_str = (dt or datetime.datetime.now(datetime.UTC).date()).strftime("%Y-%m-%d")
+        path = self.dir / "log" / f"{date_str}.md"
+        ts = _now_iso()
+        formatted_entry = f"[{ts}] {entry.rstrip()}\n\n"
+        with path.open("a", encoding="utf-8") as f:
+            f.write(formatted_entry)
+        return path
+
+    def read_log(self, dt: datetime.date | None = None) -> str:
+        """读取指定日期的项目日志，默认读取今日日志。"""
+        self.ensure_layout()
+        date_str = (dt or datetime.datetime.now(datetime.UTC).date()).strftime("%Y-%m-%d")
+        path = self.dir / "log" / f"{date_str}.md"
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8")
+
+    def list_logs(self) -> list[str]:
+        """列出所有已存在的每日日志文件名（升序）。"""
+        self.ensure_layout()
+        log_dir = self.dir / "log"
+        return sorted([p.name for p in log_dir.glob("*.md")])
 
     def _append(self, fname: str, entry: str) -> None:
         self.ensure_layout()

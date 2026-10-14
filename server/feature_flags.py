@@ -77,6 +77,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_ROLE_SKILL_PRESETS", False, "runtime", "2027-01-01"),
     # W17: SSH host execution backend. Default OFF; appended, never reordered.
     FeatureFlag("VEYA_SSH_HOSTS", False, "runtime", "2027-01-01"),
+    # W16: Project Brain (Hark-style autonomous project mainbrain). Default OFF; appended, never reordered.
+    FeatureFlag("VEYA_PROJECT_BRAIN", False, "runtime", "2027-01-01"),
 )
 
 
