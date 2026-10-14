@@ -14,8 +14,6 @@
 
 from __future__ import annotations
 
-import json
-import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -25,10 +23,7 @@ from starlette.testclient import TestClient
 from scripts.veya_llm_gateway import _RATE_LIMITER, app
 from scripts.veya_llm_gateway_tokens import (
     issue_token,
-    load_tokens,
     revoke_token,
-    save_tokens,
-    verify_token,
 )
 
 
@@ -109,21 +104,27 @@ def test_invalid_and_expired_tokens_return_401(_isolate_tokens_and_rate_limiter:
     assert client.get("/v1/models", headers={"Authorization": "Bearer "}).status_code == 401
 
     # 3. 过期 token (ttl_days 为负值模拟过期)
-    record, raw_token = issue_token("expired-test", ttl_days=-1.0, tokens_file=token_file)
+    _record, raw_token = issue_token("expired-test", ttl_days=-1.0, tokens_file=token_file)
     resp_expired = client.get("/v1/models", headers={"Authorization": f"Bearer {raw_token}"})
     assert resp_expired.status_code == 401
 
     # 4. 吊销 token
-    rec_active, active_tok = issue_token("to-revoke", ttl_days=10.0, tokens_file=token_file)
-    assert client.get("/v1/models", headers={"Authorization": f"Bearer {active_tok}"}).status_code == 200
+    _rec_active, active_tok = issue_token("to-revoke", ttl_days=10.0, tokens_file=token_file)
+    assert (
+        client.get("/v1/models", headers={"Authorization": f"Bearer {active_tok}"}).status_code
+        == 200
+    )
     revoke_token("to-revoke", tokens_file=token_file)
-    assert client.get("/v1/models", headers={"Authorization": f"Bearer {active_tok}"}).status_code == 401
+    assert (
+        client.get("/v1/models", headers={"Authorization": f"Bearer {active_tok}"}).status_code
+        == 401
+    )
 
 
 def test_valid_token_allows_access(_isolate_tokens_and_rate_limiter: Path):
     """有效 token 允许外部客户端访问受保护接口。"""
     token_file = _isolate_tokens_and_rate_limiter
-    record, raw_token = issue_token("mobile-phone", ttl_days=30.0, tokens_file=token_file)
+    _record, raw_token = issue_token("mobile-phone", ttl_days=30.0, tokens_file=token_file)
 
     client = TestClient(app, client=("198.51.100.1", 50000))
     resp = client.get("/v1/models", headers={"Authorization": f"Bearer {raw_token}"})
@@ -136,7 +137,7 @@ def test_valid_token_allows_access(_isolate_tokens_and_rate_limiter: Path):
 def test_streaming_request_requires_auth(_isolate_tokens_and_rate_limiter: Path):
     """流式 chat/completions (stream=true) 同样必须走鉴权拦截。"""
     token_file = _isolate_tokens_and_rate_limiter
-    record, raw_token = issue_token("mobile-stream-user", ttl_days=7.0, tokens_file=token_file)
+    _record, raw_token = issue_token("mobile-stream-user", ttl_days=7.0, tokens_file=token_file)
 
     client = TestClient(app, client=("198.51.100.1", 50000))
     payload = {
@@ -171,7 +172,7 @@ def test_streaming_request_requires_auth(_isolate_tokens_and_rate_limiter: Path)
 def test_rate_limiting_60_req_per_minute(_isolate_tokens_and_rate_limiter: Path):
     """限流：同一 token 每分钟 60 次，第 61 次返回 429。"""
     token_file = _isolate_tokens_and_rate_limiter
-    record, raw_token = issue_token("ratelimit-test", ttl_days=1.0, tokens_file=token_file)
+    _record, raw_token = issue_token("ratelimit-test", ttl_days=1.0, tokens_file=token_file)
 
     client = TestClient(app, client=("198.51.100.1", 50000))
     headers = {"Authorization": f"Bearer {raw_token}"}
@@ -179,7 +180,7 @@ def test_rate_limiting_60_req_per_minute(_isolate_tokens_and_rate_limiter: Path)
     # 前 60 次请求应全部成功 200
     for i in range(60):
         resp = client.get("/v1/models", headers=headers)
-        assert resp.status_code == 200, f"Request {i+1} failed"
+        assert resp.status_code == 200, f"Request {i + 1} failed"
 
     # 第 61 次请求应触发 429
     resp_limited = client.get("/v1/models", headers=headers)
@@ -189,7 +190,7 @@ def test_rate_limiting_60_req_per_minute(_isolate_tokens_and_rate_limiter: Path)
     assert resp_limited.headers.get("Retry-After") == "60"
 
     # 另一个 token 不受此限流影响
-    rec2, tok2 = issue_token("second-token", ttl_days=1.0, tokens_file=token_file)
+    _rec2, tok2 = issue_token("second-token", ttl_days=1.0, tokens_file=token_file)
     resp_other = client.get("/v1/models", headers={"Authorization": f"Bearer {tok2}"})
     assert resp_other.status_code == 200
 
@@ -202,3 +203,108 @@ def test_env_veya_gateway_auth_off(monkeypatch: pytest.MonkeyPatch):
     resp = client_external.get("/v1/models")
     assert resp.status_code == 200
     assert "data" in resp.json()
+
+
+def test_spoofed_xff_from_untrusted_peer_returns_401():
+    """伪造 XFF:127.0.0.1 从不受信对端或非受信任反代发送必须返回 401。"""
+    # 1. 外部不受信对端 (198.51.100.1) 伪造 X-Forwarded-For: 127.0.0.1 -> 必须拒绝 401
+    client_untrusted = TestClient(app, client=("198.51.100.1", 50000))
+    resp = client_untrusted.get("/v1/models", headers={"x-forwarded-for": "127.0.0.1"})
+    assert resp.status_code == 401
+    assert resp.json()["error"]["type"] == "auth_error"
+
+    # 2. 外部对端伪造其他反代头 (via, x-forwarded-host) -> 同样必须拒绝 401
+    resp_via = client_untrusted.get("/v1/models", headers={"via": "1.1 caddy"})
+    assert resp_via.status_code == 401
+
+    # 3. 受信普通对端 (如 docker 容器 192.168.80.3) 非受信任代理，若带 XFF 头伪造 -> 401
+    client_docker_peer = TestClient(app, client=("192.168.80.3", 50000))
+    resp_docker_spoof = client_docker_peer.get(
+        "/v1/models", headers={"x-forwarded-for": "127.0.0.1"}
+    )
+    assert resp_docker_spoof.status_code == 401
+
+
+def test_static_gateway_keys_allow_access(monkeypatch: pytest.MonkeyPatch):
+    """VEYA_GATEWAY_KEYS 静态 keys 保持可用且受 429 限流保护。"""
+    monkeypatch.setenv("VEYA_GATEWAY_KEYS", "sk-static-test-1,sk-static-test-2")
+
+    # 1. 外部直接请求带有效静态 key -> 200
+    client_external = TestClient(app, client=("198.51.100.1", 50000))
+    resp1 = client_external.get("/v1/models", headers={"Authorization": "Bearer sk-static-test-1"})
+    assert resp1.status_code == 200
+
+    # 2. 经 Caddy (172.18.0.1) 反代的外部请求带有效静态 key -> 200
+    client_proxy = TestClient(app, client=("172.18.0.1", 50000))
+    resp2 = client_proxy.get(
+        "/v1/models",
+        headers={
+            "x-forwarded-for": "203.0.113.88",
+            "Authorization": "Bearer sk-static-test-2",
+        },
+    )
+    assert resp2.status_code == 200
+
+    # 3. 错误静态 key -> 401
+    resp_bad = client_external.get("/v1/models", headers={"Authorization": "Bearer sk-nonexistent"})
+    assert resp_bad.status_code == 401
+
+    # 4. 静态 key 同样受到 60 req/min 限流保护
+    for _ in range(59):
+        assert (
+            client_external.get(
+                "/v1/models", headers={"Authorization": "Bearer sk-static-test-1"}
+            ).status_code
+            == 200
+        )
+    resp_limit = client_external.get(
+        "/v1/models", headers={"Authorization": "Bearer sk-static-test-1"}
+    )
+    assert resp_limit.status_code == 429
+    assert resp_limit.headers.get("Retry-After") == "60"
+
+
+def test_proxied_external_request_with_valid_token_returns_200(
+    _isolate_tokens_and_rate_limiter: Path,
+):
+    """经 Caddy 反代的外部 IP 请求，携带有效 dynamic token 返回 200。"""
+    token_file = _isolate_tokens_and_rate_limiter
+    _record, raw_token = issue_token("proxied-mobile", ttl_days=30.0, tokens_file=token_file)
+
+    client_via_caddy = TestClient(app, client=("172.18.0.1", 50000))
+    resp = client_via_caddy.get(
+        "/v1/models",
+        headers={
+            "x-forwarded-for": "203.0.113.88, 172.18.0.1",
+            "Authorization": f"Bearer {raw_token}",
+        },
+    )
+    assert resp.status_code == 200
+    assert "data" in resp.json()
+
+
+def test_proxied_trusted_internal_ip_exempt_from_token():
+    """经 Caddy 反代但原始客户端 IP 为受信任内部网段的请求，免 token 200。"""
+    client_via_caddy = TestClient(app, client=("172.18.0.1", 50000))
+
+    # 1. 最左侧 IP 为 127.0.0.1
+    resp1 = client_via_caddy.get("/v1/models", headers={"x-forwarded-for": "127.0.0.1, 172.18.0.1"})
+    assert resp1.status_code == 200
+
+    # 2. 最左侧 IP 为 docker veya-net 192.168.80.3
+    resp2 = client_via_caddy.get(
+        "/v1/models", headers={"x-forwarded-for": "192.168.80.3, 172.18.0.1"}
+    )
+    assert resp2.status_code == 200
+
+
+def test_upstream_pool_status_endpoints():
+    """验证从 feat/gateway-local-upstreams 合并的 /v1/wb-pool 和 /v1/fllm-pool 端点正常工作。"""
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    resp_wb = client.get("/v1/wb-pool")
+    assert resp_wb.status_code == 200
+    assert "pool" in resp_wb.json() or isinstance(resp_wb.json(), dict)
+
+    resp_fllm = client.get("/v1/fllm-pool")
+    assert resp_fllm.status_code == 200
+    assert "pool" in resp_fllm.json() or isinstance(resp_fllm.json(), dict)

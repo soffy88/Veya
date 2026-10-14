@@ -11,4 +11,4 @@ set -euo pipefail
 PORT="${1:-8791}"
 cd "$(dirname "$0")/.."
 
-exec venv/bin/python scripts/veya_llm_gateway.py --port "$PORT"
+exec venv/bin/python scripts/veya_llm_gateway.py --host "${VEYA_GATEWAY_HOST:-127.0.0.1}" --port "$PORT"

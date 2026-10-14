@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import AsyncIterator
@@ -36,14 +37,15 @@ from urllib.parse import urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import collections
+import hashlib
 import ipaddress
 import threading
 
-from scripts.veya_llm_gateway_tokens import verify_token
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from scripts.veya_llm_gateway_tokens import verify_token
 from veya.obase import llm as _llm
 from veya.obase._llm_config import get_api_key
 from veya.obase._llm_transport import _opencode_session_headers
@@ -73,18 +75,27 @@ async def _app_lifespan(_app: FastAPI):
 app = FastAPI(title="veya LLM gateway", lifespan=_app_lifespan)
 
 # ---------------------------------------------------------------------------
-# 客户端 Bearer 鉴权与限流中间件:
-# - /health 免鉴权
+# 客户端 Bearer 鉴权与限流中间件 (统一鉴权模型):
+# - /health 接口对外始终免鉴权
 # - VEYA_GATEWAY_AUTH=off 时退回旧行为（无鉴权），日志打印警告
-# - 127.0.0.0/8、::1/128 及 docker bridge 网段（172.16.0.0/12, 192.168.80.0/20）免 token
-# - 外部请求（如手机端经反代/公网）必须 Authorization: Bearer <token>
-# - 限流：同一 token 每分钟 60 次 (简单内存滑动计数)
+# - 直连受信任网段且无转发头: 127.0.0.0/8、::1/128、172.16.0.0/12、192.168.80.0/20 免 token
+# - 经反向代理 (如 Caddy 172.18.0.x) 的请求：
+#   * 不能仅因反代对端受信而免鉴权
+#   * 只有直接对端在 VEYA_GATEWAY_TRUSTED_PROXIES (默认 172.18.0.0/16) 时才解析 X-Forwarded-For
+#   * 以 XFF 最左侧客户端 IP 判定：若最左客户端 IP 不受信（如公网客户端），必须携带 Bearer token
+#   * 伪造 XFF:127.0.0.1 从不受信对端直接发送 -> 拒绝 (401)
+# - 凭据支持两种来源：
+#   * VEYA_GATEWAY_KEYS 静态 Bearer keys (逗号分隔，如 ~/.config/veya-gateway.env，供 tailnet 等使用)
+#   * ~/.veya/gateway_tokens.json 动态哈希 Token (带过期时间与 scope，由 scripts/veya_llm_gateway_tokens.py 签发)
+# - 限流：同一 token / key 每分钟 60 次 (简单内存滑动计数，超限返回 429 与 Retry-After: 60)
 # ---------------------------------------------------------------------------
 _DEFAULT_TRUSTED_NETS = "127.0.0.0/8,::1/128,172.16.0.0/12,192.168.80.0/20"
+_DEFAULT_TRUSTED_PROXIES = "172.18.0.0/16"
+_PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "via", "forwarded")
 
 
 class TokenRateLimiter:
-    """按 token_hash 限制同一 token 每分钟 60 次（简单内存计数）。"""
+    """按 token 标识限制同一凭据每分钟 60 次（简单内存滑动计数）。"""
 
     def __init__(self, limit: int = 60, window_s: float = 60.0):
         self.limit = limit
@@ -92,11 +103,11 @@ class TokenRateLimiter:
         self._history: dict[str, list[float]] = collections.defaultdict(list)
         self._lock = threading.Lock()
 
-    def allow(self, token_hash: str) -> bool:
+    def allow(self, token_identifier: str) -> bool:
         now = time.time()
         cutoff = now - self.window_s
         with self._lock:
-            timestamps = self._history[token_hash]
+            timestamps = self._history[token_identifier]
             while timestamps and timestamps[0] < cutoff:
                 timestamps.pop(0)
             if len(timestamps) >= self.limit:
@@ -112,6 +123,11 @@ class TokenRateLimiter:
 _RATE_LIMITER = TokenRateLimiter(limit=60, window_s=60.0)
 
 
+def _get_gateway_keys() -> set[str]:
+    raw = os.environ.get("VEYA_GATEWAY_KEYS", "")
+    return {k.strip() for k in raw.split(",") if k.strip()}
+
+
 def _get_trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     raw = os.environ.get("VEYA_GATEWAY_TRUSTED_NETS", _DEFAULT_TRUSTED_NETS)
     nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
@@ -122,43 +138,62 @@ def _get_trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Networ
         try:
             nets.append(ipaddress.ip_network(item))
         except ValueError as exc:
-            print(f"[veya-llm-gateway] 警告: 无效网段配置 {item!r}: {exc}", file=sys.stderr)
+            print(f"[veya-llm-gateway] 警告: 无效受信网段配置 {item!r}: {exc}", file=sys.stderr)
     return nets
 
 
-def _get_client_ip(request: Request) -> str:
+def _get_trusted_proxies() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    raw = os.environ.get("VEYA_GATEWAY_TRUSTED_PROXIES", _DEFAULT_TRUSTED_PROXIES)
+    proxies: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            proxies.append(ipaddress.ip_network(item))
+        except ValueError as exc:
+            print(f"[veya-llm-gateway] 警告: 无效受信反代网段配置 {item!r}: {exc}", file=sys.stderr)
+    return proxies
+
+
+def _is_trusted_request(request: Request) -> bool:
     peer = request.client.host if request.client else ""
     if not peer:
-        return ""
+        return False
     try:
         peer_addr = ipaddress.ip_address(peer)
         if peer_addr.version == 6 and peer_addr.ipv4_mapped:
             peer_addr = peer_addr.ipv4_mapped
     except ValueError:
-        return peer
+        return False
 
-    # 仅当直接对端来自受信任网络（如反向代理 Caddy 172.18.0.x / 宿主回环 127.0.0.1）时，
-    # 才信任 X-Forwarded-For 提取原始调用方 IP；防止外部伪造请求头
     trusted_nets = _get_trusted_networks()
-    if any(peer_addr in net for net in trusted_nets):
+    trusted_proxies = _get_trusted_proxies()
+
+    is_trusted_peer = any(peer_addr in net for net in trusted_nets)
+    is_trusted_proxy = any(peer_addr in net for net in trusted_proxies)
+    has_forward_headers = any(h in request.headers for h in _PROXY_HEADERS)
+
+    # 直连对端受信且无转发头 → 免 token
+    if is_trusted_peer and not has_forward_headers:
+        return True
+
+    # 经反代的请求：不能因对端受信而免鉴权。
+    # 只有对端在 VEYA_GATEWAY_TRUSTED_PROXIES 时才解析 X-Forwarded-For；
+    # 此时以其最左客户端 IP 判定。公网客户端必须 token。
+    if is_trusted_proxy:
         xff = request.headers.get("x-forwarded-for")
         if xff:
-            return xff.split(",")[0].strip()
-    return peer
+            client_ip_str = xff.split(",")[0].strip()
+            try:
+                client_addr = ipaddress.ip_address(client_ip_str)
+                if client_addr.version == 6 and client_addr.ipv4_mapped:
+                    client_addr = client_addr.ipv4_mapped
+                return any(client_addr in net for net in trusted_nets)
+            except ValueError:
+                return False
 
-
-def _is_trusted_request(request: Request) -> bool:
-    client_ip_str = _get_client_ip(request)
-    if not client_ip_str:
-        return False
-    try:
-        addr = ipaddress.ip_address(client_ip_str)
-        if addr.version == 6 and addr.ipv4_mapped:
-            addr = addr.ipv4_mapped
-        trusted_nets = _get_trusted_networks()
-        return any(addr in net for net in trusted_nets)
-    except ValueError:
-        return False
+    return False
 
 
 @app.middleware("http")
@@ -172,7 +207,7 @@ async def _gateway_auth_middleware(request: Request, call_next):
     if auth_setting == "off":
         return await call_next(request)
 
-    # 3. 来自 127.0.0.0/8、::1 和 docker bridge 网段的请求免 token
+    # 3. 直连受信任网段且无转发头，或经受信任反代且原始客户端 IP 受信 → 免 token
     if _is_trusted_request(request):
         return await call_next(request)
 
@@ -203,8 +238,15 @@ async def _gateway_auth_middleware(request: Request, call_next):
             },
         )
 
-    token_record = verify_token(raw_token)
-    if token_record is None:
+    # 验证凭据：优先匹配 VEYA_GATEWAY_KEYS 静态 keys，再匹配 gateway_tokens.json
+    gateway_keys = _get_gateway_keys()
+    is_static_key = bool(gateway_keys and raw_token in gateway_keys)
+
+    token_record = None
+    if not is_static_key:
+        token_record = verify_token(raw_token)
+
+    if not is_static_key and token_record is None:
         return JSONResponse(
             status_code=401,
             content={
@@ -216,9 +258,13 @@ async def _gateway_auth_middleware(request: Request, call_next):
             },
         )
 
-    # 5. 限流：同一 token 每分钟 60 次
-    token_hash = token_record.get("token_hash", "")
-    if not _RATE_LIMITER.allow(token_hash):
+    # 5. 限流：同一 token / key 每分钟 60 次
+    if token_record and token_record.get("token_hash"):
+        token_id = str(token_record["token_hash"])
+    else:
+        token_id = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    if not _RATE_LIMITER.allow(token_id):
         return JSONResponse(
             status_code=429,
             content={
@@ -238,7 +284,7 @@ async def _gateway_auth_middleware(request: Request, call_next):
 async def health_check() -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
-# ---------------------------------------------------------------------------
+
 # 模型目录: 静态别名/frontier + 启动时从 opencode zen 拉取的全量直连模型。
 # veya1.2-free 的活动池由下方生命周期任务独立维护。
 # ---------------------------------------------------------------------------
@@ -260,10 +306,14 @@ _STATIC_CATALOG: dict[str, dict[str, Any]] = {
     # caller that still has the old id in its config.
     "veya1.2-128K": {"model": "veya1.2-128K"},
     "veya-dp4.1-jev-1.13": {"model": "veya-dp4.1-jev-1.13"},
+    # workbuddy 多模型轮询池: 单模型频繁 429, 轮询 + 按 retry_after 冷却 + 失败自动换下一个。
+    "veya-wb": {"model": "veya-wb", "pool": "workbuddy"},
+    "veya-fllm": {"model": "veya-fllm", "pool": "freellmapi"},
+    # opencodex (10100) retired 2026-10-12; ChatGPT frontier now comes via CLIProxyAPI.
     "gpt-5.6-luna": {
-        "provider": "openai",
+        "provider": "cliproxy",
         "model": "gpt-5.6-luna",
-        "endpoint": "http://127.0.0.1:10100/v1",
+        "endpoint": "http://127.0.0.1:8317/v1",
     },
 }
 # Keep the external gateway catalog aligned with the aliases accepted by the
@@ -309,7 +359,86 @@ def _fetch_zen_catalog() -> dict[str, dict[str, Any]]:
     return catalog
 
 
-_CATALOG: dict[str, dict[str, Any]] = {**_STATIC_CATALOG, **_fetch_zen_catalog()}
+# ---------------------------------------------------------------------------
+# 本机上游: 把已部署的本地路由 (CLIProxyAPI / FreeLLMAPI) 并入网关目录,
+# 让 veya 网关成为唯一入口。key 从各自本地配置读取 (可被 *_API_KEY env 覆盖),
+# 只写进本进程 env, 让 llm_call / 免费池探活的 get_api_key 统一解析。
+# ---------------------------------------------------------------------------
+_LOCAL_UPSTREAMS: dict[str, str] = {
+    "cliproxy": os.environ.get("VEYA_CLIPROXY_BASE", "http://127.0.0.1:8317/v1"),
+    "freellmapi": os.environ.get("VEYA_FREELLMAPI_BASE", "http://127.0.0.1:3001/v1"),
+    "workbuddy": os.environ.get("VEYA_WORKBUDDY_BASE", "http://127.0.0.1:8788/v1"),
+}
+_NON_CHAT_MARKERS = ("image", "embed", "tts", "whisper", "diffusion", "codex-auto-review")
+
+
+def _read_local_upstream_key(name: str) -> str:
+    try:
+        if name == "cliproxy":
+            import yaml
+
+            cfg = yaml.safe_load((Path.home() / "cliproxyapi" / "config.yaml").read_text())
+            keys = (cfg or {}).get("api-keys") or []
+            return str(keys[0]) if keys else ""
+        if name == "workbuddy":
+            pi_cfg = json.loads((Path.home() / ".pi" / "agent" / "models.json").read_text())
+            return str(((pi_cfg.get("providers") or {}).get("workbuddy") or {}).get("apiKey") or "")
+        if name == "freellmapi":
+            import sqlite3
+
+            db = Path.home() / "freellmapi" / "server" / "data" / "freeapi.db"
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                row = con.execute(
+                    "SELECT value FROM settings WHERE key = 'unified_api_key'"
+                ).fetchone()
+            finally:
+                con.close()
+            return str(row[0]) if row and row[0] else ""
+    except Exception as exc:  # 本地上游缺失不阻塞网关
+        print(
+            f"[veya-llm-gateway] 警告: 读取 {name} key 失败: {type(exc).__name__}", file=sys.stderr
+        )
+    return ""
+
+
+def _local_upstream_key(name: str) -> str:
+    env_name = f"{name.upper()}_API_KEY"
+    key = os.environ.get(env_name, "") or _read_local_upstream_key(name)
+    if key:
+        os.environ[env_name] = key
+    return key
+
+
+def _fetch_local_upstream_catalog() -> dict[str, dict[str, Any]]:
+    """启动时把本机上游的聊天模型挂成 ``<upstream>/<model>`` 目录项。"""
+    catalog: dict[str, dict[str, Any]] = {}
+    for name, base in _LOCAL_UPSTREAMS.items():
+        key = _local_upstream_key(name)
+        if not key:
+            print(f"[veya-llm-gateway] 警告: 无 {name} key, 跳过", file=sys.stderr)
+            continue
+        try:
+            resp = httpx.get(
+                f"{base}/models", headers={"Authorization": f"Bearer {key}"}, timeout=8.0
+            )
+            resp.raise_for_status()
+            ids = [str(m.get("id") or "") for m in resp.json().get("data", [])]
+        except Exception as exc:
+            print(f"[veya-llm-gateway] 警告: 拉取 {name} 目录失败: {exc}", file=sys.stderr)
+            continue
+        for mid in ids:
+            if not mid or any(marker in mid.lower() for marker in _NON_CHAT_MARKERS):
+                continue
+            catalog[f"{name}/{mid}"] = {"provider": name, "model": mid, "endpoint": base}
+    return catalog
+
+
+_CATALOG: dict[str, dict[str, Any]] = {
+    **_STATIC_CATALOG,
+    **_fetch_zen_catalog(),
+    **_fetch_local_upstream_catalog(),
+}
 print(f"[veya-llm-gateway] 模型目录就绪: {len(_CATALOG)} 个", file=sys.stderr)
 
 
@@ -359,6 +488,7 @@ _FREE_POOL_STATE_PATH = os.environ.get("VEYA_FREE_POOL_STATE", "").strip() or st
     Path.home() / ".veya" / "free-pool-state.json"
 )
 
+
 # The lifecycle is kept for its in-process discovery + probe reconciliation, but
 # persistence is off.  The veya-free pool's authority is ~/.veya/model-state.json
 # (SPEC §5/§7); the persisted state file had drifted far behind the running
@@ -366,6 +496,25 @@ _FREE_POOL_STATE_PATH = os.environ.get("VEYA_FREE_POOL_STATE", "").strip() or st
 # active when every one of them was unknown to the live pool.  Nothing is
 # restored from disk at startup any more either — a stale record must never be
 # able to seed the fallback pool.
+def _free_pool_static_entries() -> list[dict[str, str]]:
+    """VEYA_FREE_POOL_STATIC: 显式指定 veya-free 成员, 格式 provider|model|endpoint;...
+
+    设置后跳过各源目录发现, 只探活这些条目 (运营方手工挑选的池)。
+    """
+    raw = os.environ.get("VEYA_FREE_POOL_STATIC", "").strip()
+    out: list[dict[str, str]] = []
+    for part in raw.split(";"):
+        bits = [b.strip() for b in part.split("|")]
+        if len(bits) == 3 and all(bits):
+            out.append(
+                {"provider": bits[0], "model": bits[1], "endpoint": bits[2], "source": bits[0]}
+            )
+    return out
+
+
+if _free_pool_static_entries():
+    _llm._replace_veya12_free_pool(_free_pool_static_entries())
+
 _FREE_POOL_LIFECYCLE = FreePoolLifecycle(
     _llm._VEYA12_FREE_POOL,
     state_path=_FREE_POOL_STATE_PATH,
@@ -463,6 +612,7 @@ def _free_pool_sources() -> list[tuple[str, str]]:
         ("inferera", "https://api.inferera.com/v1"),
         ("bai", "https://api.b.ai/v1"),
         ("gmi-serving", "https://api.gmi-serving.com/v1"),
+        ("freellmapi", _LOCAL_UPSTREAMS["freellmapi"]),
     ]
     raw = os.environ.get("VEYA_FREE_POOL_PROVIDERS", "").strip()
     if not raw:
@@ -473,6 +623,17 @@ def _free_pool_sources() -> list[tuple[str, str]]:
 
 async def _discover_free_pool() -> FreePoolSnapshot:
     """Discover free text candidates and complete source catalogs."""
+    static_entries = _free_pool_static_entries()
+    if static_entries:
+        avail: dict[str, set[str]] = {}
+        for e in static_entries:
+            avail.setdefault(e["source"], set()).add(e["model"].lower())
+        return FreePoolSnapshot(
+            entries=tuple(static_entries),
+            available={k: frozenset(v) for k, v in avail.items()},
+            healthy_sources=frozenset(avail),
+            errors={},
+        )
     sources = _free_pool_sources()
     available: dict[str, set[str]] = {}
     entries: dict[str, dict[str, str]] = {}
@@ -496,6 +657,22 @@ async def _discover_free_pool() -> FreePoolSnapshot:
             if not model_id:
                 continue
             ids.add(model_id.lower())
+            if source == "freellmapi":
+                # FreeLLMAPI 自己在 ~300 个免费模型间做 failover; 只收它的 auto
+                # 入口, 不把它的成员逐个灌进池子 (否则与 openrouter :free 重复探活)。
+                if model_id != "auto":
+                    continue
+                entry = {
+                    "provider": "freellmapi",
+                    "model": model_id,
+                    "endpoint": base,
+                    "source": source,
+                }
+                key = entry_key(entry)
+                if key not in entries:
+                    entries[key] = entry
+                    per_source_count[source] = per_source_count.get(source, 0) + 1
+                continue
             if not _is_free_text_model(model):
                 continue
             if per_source_count.get(source, 0) >= _FREE_POOL_MAX_DISCOVERED_PER_SOURCE:
@@ -659,6 +836,204 @@ async def _sse_from_resp(
     yield "data: [DONE]\n\n"
 
 
+_REJECTION_RE = re.compile(r"^\S+ rejected the request \(HTTP (\d{3})\)")
+
+
+def _upstream_rejection(resp: dict[str, Any]) -> tuple[int, str] | None:
+    """Detect llm_call's fallback 'X rejected the request (HTTP nnn)' reply.
+
+    Also catches the alias pools' exhausted payload (``error: True`` with an
+    explanatory assistant text, e.g. "veya1.2 免费池调用失败: ..."): returning
+    that as HTTP 200 made callers count a failure as a success and skip failover.
+    """
+    msg = (resp.get("choices") or [{}])[0].get("message") or {}
+    content = msg.get("content")
+    if msg.get("tool_calls") or not isinstance(content, str):
+        return None
+    match = _REJECTION_RE.match(content.strip())
+    if not match:
+        if resp.get("error") is True:
+            return 502, content.strip()[:2000]
+        return None
+    status = int(match.group(1))
+    if status < 400 or status > 599:
+        status = 502
+    return status, content.strip()[:2000]
+
+
+# ---------------------------------------------------------------------------
+# veya-wb: workbuddy 轮询池
+# ---------------------------------------------------------------------------
+_POOL_ENV = {"workbuddy": "VEYA_WB_POOL", "freellmapi": "VEYA_FLLM_POOL"}
+_POOL_ALIAS = {"workbuddy": "veya-wb", "freellmapi": "veya-fllm"}
+_POOL_COOLDOWN: dict[str, dict[str, float]] = {k: {} for k in _POOL_ENV}
+_POOL_RR: dict[str, int] = {k: 0 for k in _POOL_ENV}
+_POOL_LAST: dict[str, dict[str, Any]] = {k: {} for k in _POOL_ENV}
+# 连续失败计数: 同一成员反复超时/报错时冷却指数拉长 (上限 1h), 成功即清零 —
+# 否则死模型每 120s 重新进入轮询, 每次白耗一个 30s 超时, 把整池拖成 504。
+_POOL_FAILS: dict[str, dict[str, int]] = {k: {} for k in _POOL_ENV}
+_POOL_COOLDOWN_CAP = float(os.environ.get("VEYA_POOL_COOLDOWN_CAP", "3600"))
+_POOL_TIMEOUT = {"workbuddy": 120.0, "freellmapi": float(os.environ.get("VEYA_FLLM_TIMEOUT", "30"))}
+_POOL_MAX_TRIES = {"workbuddy": 0, "freellmapi": int(os.environ.get("VEYA_FLLM_MAX_TRIES", "6"))}
+_POOL_DEADLINE = {"workbuddy": 0.0, "freellmapi": float(os.environ.get("VEYA_FLLM_DEADLINE", "75"))}
+
+
+def _pool_backoff(upstream: str, model: str, base: float) -> float:
+    """Record one failure and return the escalated cooldown (seconds)."""
+    fails = _POOL_FAILS[upstream].get(model, 0) + 1
+    _POOL_FAILS[upstream][model] = fails
+    return min(max(base, base * (2 ** (fails - 1))), max(base, _POOL_COOLDOWN_CAP))
+
+
+def _pool_models(upstream: str) -> list[str]:
+    raw = os.environ.get(_POOL_ENV[upstream], "").strip()
+    if raw:
+        return [m.strip() for m in raw.split(",") if m.strip()]
+    if upstream == "workbuddy":
+        return sorted(k.split("/", 1)[1] for k in _CATALOG if k.startswith("workbuddy/"))
+    return []
+
+
+def _wb_pool_models() -> list[str]:
+    return _pool_models("workbuddy")
+
+
+def _wb_cooldown_seconds(status: int, message: str) -> float:
+    if status == 429:
+        m = re.search(r"retry(?:_after\"?:?|\s+in|-after:?)\s*(\d+)", message, re.I)
+        return float(m.group(1)) if m else 300.0
+    if status in (401, 403):
+        return 1800.0
+    if status >= 500:
+        return 120.0
+    return 60.0
+
+
+async def _pool_call(
+    upstream: str, messages: list[Any], tools: Any
+) -> tuple[dict[str, Any] | None, str, tuple[int, str] | None]:
+    alias = _POOL_ALIAS[upstream]
+    pool = _pool_models(upstream)
+    if not pool:
+        return None, "", (503, f"{alias}: 池为空")
+    cool = _POOL_COOLDOWN[upstream]
+    base = _LOCAL_UPSTREAMS[upstream]
+    now = time.time()
+    start = _POOL_RR[upstream] % len(pool)
+    _POOL_RR[upstream] = start + 1
+    last_err: tuple[int, str] | None = None
+    tries = 0
+    for i in range(len(pool)):
+        model = pool[(start + i) % len(pool)]
+        if cool.get(model, 0) > now:
+            continue
+        if _POOL_MAX_TRIES[upstream] and tries >= _POOL_MAX_TRIES[upstream]:
+            break
+        if _POOL_DEADLINE[upstream] and time.time() - now > _POOL_DEADLINE[upstream]:
+            break
+        tries += 1
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "provider": upstream,
+            "endpoint": base,
+            "tools": tools,
+        }
+        if _PI_PROVIDER_CONFIG:
+            kwargs["config"] = _PI_PROVIDER_CONFIG
+        try:
+            resp = await asyncio.wait_for(
+                llm_call(messages, **kwargs), timeout=_POOL_TIMEOUT[upstream]
+            )
+        except Exception as exc:  # 单个模型异常/超时不拖垮整个池
+            last_err = (
+                502 if not isinstance(exc, asyncio.TimeoutError) else 504,
+                f"{model}: {type(exc).__name__}: {exc}",
+            )
+            wait = _pool_backoff(upstream, model, 120.0)
+            cool[model] = time.time() + wait
+            print(f"[{alias}] {model} -> {type(exc).__name__}, 冷却 {int(wait)}s", file=sys.stderr)
+            continue
+        err = _upstream_rejection(resp)
+        if err is None:
+            _POOL_FAILS[upstream].pop(model, None)
+            _POOL_LAST[upstream].update({"model": model, "at": time.time()})
+            return resp, model, None
+        status, message = err
+        cool[model] = time.time() + _pool_backoff(
+            upstream, model, _wb_cooldown_seconds(status, message)
+        )
+        last_err = (status, f"{model}: {message}")
+        print(
+            f"[{alias}] {model} -> {status}, 冷却 {int(cool[model] - time.time())}s",
+            file=sys.stderr,
+        )
+    if last_err is None:
+        soonest = min(cool.get(m, now) for m in pool)
+        last_err = (
+            429,
+            f"{alias}: 池内 {len(pool)} 个模型全部冷却中, 最早 {int(soonest - now)}s 后恢复",
+        )
+    return None, "", last_err
+
+
+def _pool_status(upstream: str) -> dict[str, Any]:
+    now = time.time()
+    pool = _pool_models(upstream)
+    cool = _POOL_COOLDOWN[upstream]
+    return {
+        "pool": pool,
+        "cooling": {m: int(t - now) for m, t in cool.items() if t > now},
+        "available": [m for m in pool if cool.get(m, 0) <= now],
+        "last": _POOL_LAST[upstream],
+    }
+
+
+def _failover_chain(requested: str) -> list[str]:
+    """VEYA_GATEWAY_FAILOVER="veya1.2:veya-free,veya-nim;veya1.1:veya-free" (alias → ordered fallbacks)."""
+    raw = os.environ.get("VEYA_GATEWAY_FAILOVER", "").strip()
+    key = str(requested).lower()
+    for part in raw.split(";"):
+        src, sep, dst = part.partition(":")
+        if sep and src.strip().lower() == key:
+            return [d.strip() for d in dst.split(",") if d.strip() and d.strip().lower() != key]
+    return []
+
+
+async def _call_entry(
+    entry: dict[str, Any], messages: list[Any], tools: Any
+) -> tuple[dict[str, Any] | None, tuple[int, str] | None]:
+    """Run one catalog entry; return (resp, None) on success or (None, (status, message))."""
+    if entry.get("pool") in _POOL_ENV:
+        pool_up = entry["pool"]
+        resp, wb_model, wb_err = await _pool_call(pool_up, messages, tools)
+        if resp is None:
+            return None, (wb_err or (502, f"{_POOL_ALIAS[pool_up]} failed"))
+        resp.setdefault("router", {"model": f"{pool_up}/{wb_model}"})
+        return resp, None
+    call_kwargs: dict[str, Any] = {"model": entry["model"], "tools": tools}
+    if entry.get("provider"):
+        call_kwargs["provider"] = entry["provider"]
+    if entry.get("endpoint"):
+        call_kwargs["endpoint"] = entry["endpoint"]
+    if _PI_PROVIDER_CONFIG:
+        call_kwargs["config"] = _PI_PROVIDER_CONFIG
+    resp = await llm_call(messages, **call_kwargs)
+    err = _upstream_rejection(resp)
+    if err is not None:
+        return None, err
+    return resp, None
+
+
+@app.get("/v1/wb-pool")
+async def wb_pool_status() -> JSONResponse:
+    return JSONResponse(_pool_status("workbuddy"))
+
+
+@app.get("/v1/fllm-pool")
+async def fllm_pool_status() -> JSONResponse:
+    return JSONResponse(_pool_status("freellmapi"))
+
+
 @app.post("/v1/chat/completions", response_model=None)
 async def chat_completions(request: Request) -> StreamingResponse | JSONResponse:
     body: dict[str, Any] = await request.json()
@@ -673,18 +1048,39 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
         )
     messages = body.get("messages") or []
     tools = body.get("tools")
-    call_kwargs: dict[str, Any] = {"model": entry["model"], "tools": tools}
-    if entry.get("provider"):
-        call_kwargs["provider"] = entry["provider"]
-    if entry.get("endpoint"):
-        call_kwargs["endpoint"] = entry["endpoint"]
-    # 所有 veya1.x 别名都注入 pi 的 provider key 池 (env 没设的 bai/scnet/gmi-serving 等
-    # 也能从 ~/.pi/agent/models.json 拿到 key)。get_api_key 优先 config > env,
-    # _PI_PROVIDER_CONFIG 已过滤掉以 '!' 开头的 shell 扩展 key (如 opencode-go),
-    # 不会覆盖 env 中的有效凭据。
-    if _PI_PROVIDER_CONFIG:
-        call_kwargs["config"] = _PI_PROVIDER_CONFIG
-    resp = await llm_call(messages, **call_kwargs)
+    # 所有 veya1.x 别名都注入 pi 的 provider key 池 (见 _call_entry); 池别名走
+    # _pool_call。失败时按 VEYA_GATEWAY_FAILOVER 依次换别名, 全失败才回真实错误码。
+    resp, err = await _call_entry(entry, messages, tools)
+    failover_from: list[dict[str, Any]] = []
+    if resp is None:
+        for alt in _failover_chain(requested):
+            alt_entry = _CATALOG.get(alt) or _CATALOG.get(alt.lower())
+            if alt_entry is None:
+                continue
+            failover_from.append({"model": alt, "after_error": (err or (502, ""))[1][:200]})
+            alt_resp, alt_err = await _call_entry(alt_entry, messages, tools)
+            if alt_resp is not None:
+                router = alt_resp.get("router") or alt_resp.get("_routed") or {}
+                inner = router.get("model") if isinstance(router, dict) else None
+                alt_resp["router"] = {"model": f"{alt}/{inner}" if inner else alt, "failover": True}
+                resp = alt_resp
+                print(f"[veya-llm-gateway] {requested} 失败 → failover {alt} 成功", file=sys.stderr)
+                break
+            err = alt_err
+    if resp is None:
+        status, message = err or (502, "upstream failed")
+        # 池层面失败是瞬时的 (成员各自冷却), 对外不报 429: magpie 等前置路由会把
+        # 429 当成整个 provider key 的配额耗尽, 一次性冷却 15 分钟。
+        pooled = entry.get("pool") in _POOL_ENV
+        if status == 429 and pooled:
+            status = 503
+        # llm_call 把上游 HTTP 报错包成一条 assistant 文本; 对外原样当 200 返回
+        # 会让 magpie 等前置路由误判成功、不做 failover。这里还原成真实错误码。
+        return JSONResponse(
+            {"error": {"message": message, "type": "upstream_error", "code": status}},
+            status_code=status,
+            headers={"Retry-After": "5"} if pooled or status in (502, 503, 504) else None,
+        )
     resp_id = f"{requested}-{int(time.time() * 1000)}"
     created = int(time.time())
     # The public Veya contract exposes the requested logical alias as the
@@ -699,6 +1095,8 @@ async def chat_completions(request: Request) -> StreamingResponse | JSONResponse
             "resolved_model": resolved_model,
             "alias": requested,
         }
+        if failover_from:
+            resp["veya_routing"]["failover"] = failover_from
     if body.get("stream"):
         return StreamingResponse(
             _sse_from_resp(resp, resp_id, created, requested), media_type="text/event-stream"
