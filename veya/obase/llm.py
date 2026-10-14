@@ -40,6 +40,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -171,6 +172,10 @@ def _ensure_frontier_bridge(endpoint: str, *, timeout_s: float = 8.0) -> bool:
     port = parsed.port or 10100
     if host not in ("127.0.0.1", "localhost"):
         return True  # 自定义 VEYA_FRONTIER_ENDPOINT (非本地) 假定外部管理, 不干预
+    if port != 10100:
+        # 只有 opencodex 桥 (10100) 由这里 spawn。opencodex 已于 2026-10-12 退役,
+        # 其它本机 frontier (如 CLIProxyAPI :8317) 由各自 systemd 单元常驻管理。
+        return True
 
     def _healthz() -> bool:
         try:
@@ -611,6 +616,10 @@ async def _frontier_fallback(messages: list[dict], kwargs: dict, *, reason: str)
     """
     _attempts = 4
     last_err = ""
+    # Frontier route is env-configurable: opencodex (:10100) is retired and the
+    # ChatGPT frontier now lives behind CLIProxyAPI (provider "cliproxy").
+    frontier_provider = os.environ.get("VEYA_FRONTIER_PROVIDER", "openai").strip() or "openai"
+    frontier_model = os.environ.get("VEYA_FRONTIER_MODEL", "gpt-5.6-luna").strip() or "gpt-5.6-luna"
     for attempt in range(_attempts):
         try:
             frontier_endpoint = kwargs.get("endpoint") or os.environ.get(
@@ -622,14 +631,30 @@ async def _frontier_fallback(messages: list[dict], kwargs: dict, *, reason: str)
             resp = await llm_call(
                 messages,
                 config=kwargs.get("config"),
-                provider="openai",
-                model="gpt-5.6-luna",
+                provider=frontier_provider,
+                model=frontier_model,
                 endpoint=frontier_endpoint,
                 tools=_core_tool_schemas(kwargs.get("tools")),
-                default_content="gpt-5.6-luna 兜底失败",
+                default_content=f"{frontier_model} 兜底失败",
             )
             fmsg = (resp.get("choices") or [{}])[0].get("message") or {}
             content = fmsg.get("content") or ""
+            if not fmsg.get("tool_calls") and re.match(
+                r"^\S+ rejected the request \(HTTP (401|403)\)", content.strip()
+            ):
+                # 凭据失效 (如 CLIProxyAPI codex OAuth 被吊销) 重试无意义, 立即放弃。
+                logger.warning("frontier 兜底凭据被拒, 不再重试: %s", content.strip()[:200])
+                return None
+            if not fmsg.get("tool_calls") and (
+                content.strip() == f"{frontier_model} 兜底失败" or "auth_unavailable" in content
+            ):
+                # llm_call 已耗尽自身重试只回了占位文本 (或上游无可用凭据), 这不是回答;
+                # 再退避重试只会拖慢调用方的 failover。
+                logger.warning("frontier 兜底无有效回答, 放弃: %s", content.strip()[:200])
+                return None
+            if not fmsg.get("tool_calls") and "rejected the request (HTTP" in content:
+                # 上游 HTTP 报错文本不是有效回答, 不能当兜底成功返回。
+                raise RuntimeError(content.strip()[:300])
             # tool_calls 场景 content 空是合法的 — 不可当无效内容拒绝。
             if fmsg.get("tool_calls") or (
                 content.strip() and content.strip().lower() not in ("none", "null")
