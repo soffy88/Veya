@@ -178,21 +178,8 @@ def _is_trusted_request(request: Request) -> bool:
     if is_trusted_peer and not has_forward_headers:
         return True
 
-    # 经反代的请求：不能因对端受信而免鉴权。
-    # 只有对端在 VEYA_GATEWAY_TRUSTED_PROXIES 时才解析 X-Forwarded-For；
-    # 此时以其最左客户端 IP 判定。公网客户端必须 token。
-    if is_trusted_proxy:
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            client_ip_str = xff.split(",")[0].strip()
-            try:
-                client_addr = ipaddress.ip_address(client_ip_str)
-                if client_addr.version == 6 and client_addr.ipv4_mapped:
-                    client_addr = client_addr.ipv4_mapped
-                return any(client_addr in net for net in trusted_nets)
-            except ValueError:
-                return False
-
+    # 经反代的请求（有任何转发头）一律要求 token：X-Forwarded-For 最左值由客户端控制，
+    # 不能作为免鉴权依据（防 XFF 伪造绕过）。
     return False
 
 
