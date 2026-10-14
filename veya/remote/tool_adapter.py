@@ -2460,7 +2460,10 @@ class RemoteToolAdapter:
             require_repo = False
         elif name in {"file.write", "file.patch"}:
             requested_path = path
-            require_repo = True
+            # Non-Git directories under an authorized root (e.g. the projects
+            # root itself) are valid write targets; Git repos still resolve to
+            # their canonical repo/worktree below.
+            require_repo = False
             if requested_path is None or not str(requested_path).strip():
                 raise RemoteToolAdapterError(
                     RemoteErrorCode.INVALID_ARGUMENT, f"{name} requires a path"
@@ -2473,9 +2476,13 @@ class RemoteToolAdapter:
                 must_exist=None,
                 for_write=True,
             )
-        elif name in _FAST_GIT_TOOLS or name in _COMMAND_TOOLS or name == "worker.dispatch":
+        elif name in _FAST_GIT_TOOLS or name == "worker.dispatch":
             requested_path = path or "."
             require_repo = True
+        elif name in _COMMAND_TOOLS:
+            # Commands may run in any authorized directory, Git or not.
+            requested_path = path or "."
+            require_repo = False
         else:
             # Supervision and artifact metadata stay scoped to the bound root;
             # they do not select a Git worktree.
