@@ -8,6 +8,7 @@
 | `agent_reach/` | mcp | 多平台内容读取 (YouTube/推特/Reddit/B站/小红书/雪球), 桥接 127.0.0.1:8899 sidecar |
 | `design-shotgun/` | python | UX 多方案对比板 / 设计稿→代码步骤（不调 LLM、不分流主链） |
 | `retro/` | python | 复盘写入 Genesis 经验账本 + 用户 memory_store |
+| `chinese-novelist/` | python | 中文小说规划与创作参考文档；只读指南查询与汉字计数，不自动写入小说文件 |
 | `spec-pack/` | python | 大需求持久 spec 包 + resume + codebase.md 索引投影（模型调用，不强制六阶段） |
 
 安全约定:

@@ -1,0 +1,56 @@
+{
+  "x-source": "https://github.com/PenglongHuang/chinese-novelist-skill",
+  "x-license": "MIT",
+  "x-copyright": "Copyright (c) 2026 PenglongHuang",
+  "name": "chinese-novelist",
+  "description": "中文小说规划与章节创作方法库；提供只读参考文档查询和中文汉字计数，不自动写入文件。",
+  "type": "python",
+  "entrypoint": "run.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "overview",
+          "list_references",
+          "reference",
+          "word_count_text"
+        ],
+        "description": "overview=读取技能说明；list_references=列出指南；reference=读取指定参考文档；word_count_text=计数输入文本中的汉字。"
+      },
+      "reference": {
+        "type": "string",
+        "enum": [
+          "phase0-initialization",
+          "phase1-layer1-core",
+          "phase1-layer2-customize",
+          "phase1-layer3-title",
+          "phase2-planning",
+          "phase3-writing",
+          "phase4-validation",
+          "shared-infrastructure",
+          "chapter-guide",
+          "chapter-template",
+          "character-building",
+          "character-template",
+          "content-expansion",
+          "dialogue-writing",
+          "hook-techniques",
+          "outline-template",
+          "plot-structures",
+          "title-guide"
+        ],
+        "description": "action=reference 时的参考文档 ID。"
+      },
+      "text": {
+        "type": "string",
+        "description": "action=word_count_text 时要计数的文本。"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "_source": "https://github.com/PenglongHuang/chinese-novelist-skill; License: MIT; Copyright (c) 2026 PenglongHuang."
+}
