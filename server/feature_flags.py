@@ -75,6 +75,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     # W15: role & skill preset pack (agency-agents / agent-skills, MIT).
     # Default OFF; appended after W14, never reordered.
     FeatureFlag("VEYA_ROLE_SKILL_PRESETS", False, "runtime", "2027-01-01"),
+    # W17: SSH host execution backend. Default OFF; appended, never reordered.
+    FeatureFlag("VEYA_SSH_HOSTS", False, "runtime", "2027-01-01"),
 )
 
 

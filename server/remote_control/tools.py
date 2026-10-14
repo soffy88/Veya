@@ -247,6 +247,10 @@ def register_tools(registry: Any = None) -> int:
             effect_capability="none" if effect == "pure_read" else "manual_only",
         )
         added += 1
+    # W17: ssh host tools — only when VEYA_SSH_HOSTS is on as well.
+    from server.remote_control import ssh_tools
+
+    added += ssh_tools.register_tools(target)
     return added
 
 
