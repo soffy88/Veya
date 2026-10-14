@@ -232,7 +232,7 @@ def test_static_gateway_keys_allow_access(monkeypatch: pytest.MonkeyPatch):
     # 1. 外部直接请求带有效静态 key -> 200
     client_external = TestClient(app, client=("198.51.100.1", 50000))
     resp1 = client_external.get("/v1/models", headers={"Authorization": "Bearer sk-static-test-1"})
-    assert resp1.status_code == 401
+    assert resp1.status_code == 200
 
     # 2. 经 Caddy (172.18.0.1) 反代的外部请求带有效静态 key -> 200
     client_proxy = TestClient(app, client=("172.18.0.1", 50000))
@@ -289,7 +289,7 @@ def test_proxied_spoofed_internal_xff_requires_token():
 
     # 1. 最左侧 IP 为 127.0.0.1
     resp1 = client_via_caddy.get("/v1/models", headers={"x-forwarded-for": "127.0.0.1, 172.18.0.1"})
-    assert resp1.status_code == 200
+    assert resp1.status_code == 401
 
     # 2. 最左侧 IP 为 docker veya-net 192.168.80.3
     resp2 = client_via_caddy.get(
