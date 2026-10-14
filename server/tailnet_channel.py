@@ -14,19 +14,38 @@ import logging
 import os
 import re
 import secrets
-import shutil
-import subprocess
 import threading
 import time
 import unicodedata
-import urllib.parse
 import zoneinfo
 from collections.abc import Callable, Mapping
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+from veya.oprim.fs import (
+    local_atomic_write,
+    local_fsync,
+    local_path_chmod,
+    local_path_exists,
+    local_path_is_symlink,
+    local_path_is_file,
+    local_path_is_dir,
+    local_path_rglob,
+    local_path_rmdir,
+    local_path_read_bytes,
+    local_path_mkdir,
+    local_path_open,
+    local_path_replace,
+    local_path_resolve,
+    local_path_size,
+    local_path_unlink,
+    local_read_bytes_limited,
+)
+from veya.oprim.shell import HostCommandError, host_exec_args
 
 log = logging.getLogger("veya.tailnet")
 PROTOCOL_VERSION = 1
@@ -70,6 +89,101 @@ def parse_utc(value: str) -> datetime:
 
 def normalize_host(value: str) -> str:
     return str(value or "").strip().rstrip(".").lower()
+
+
+@dataclass(frozen=True)
+class _URLParts:
+    scheme: str
+    netloc: str
+    path: str
+    query: str
+    fragment: str
+    username: str | None
+    password: str | None
+    hostname: str | None
+    port_text: str | None
+
+
+def _split_url(value: str) -> _URLParts:
+    """Parse the HTTP URL forms used by this protocol without any network I/O."""
+    without_fragment, _, fragment = str(value or "").partition("#")
+    before_query, query_sep, query = without_fragment.partition("?")
+    rest = before_query
+    scheme = ""
+    match = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*):", rest)
+    if match:
+        scheme = match.group(1).lower()
+        rest = rest[match.end():]
+    netloc = ""
+    if rest.startswith("//"):
+        authority_and_path = rest[2:]
+        slash = authority_and_path.find("/")
+        if slash < 0:
+            netloc, path = authority_and_path, ""
+        else:
+            netloc, path = authority_and_path[:slash], authority_and_path[slash:]
+    else:
+        path = rest
+    username = password = None
+    hostport = netloc
+    if "@" in hostport:
+        userinfo, hostport = hostport.rsplit("@", 1)
+        username, colon, secret = userinfo.partition(":")
+        password = secret if colon else None
+    port_text = None
+    if hostport.startswith("["):
+        closing = hostport.find("]")
+        if closing < 0:
+            hostname = None
+        else:
+            hostname = hostport[1:closing].lower()
+            suffix = hostport[closing + 1:]
+            if suffix.startswith(":"):
+                port_text = suffix[1:]
+            elif suffix:
+                hostname = None
+    elif hostport.count(":") == 1:
+        hostname, _, port_text = hostport.rpartition(":")
+        hostname = hostname.lower()
+    elif ":" in hostport:
+        hostname = None
+    else:
+        hostname = hostport.lower() or None
+    return _URLParts(scheme, netloc, path, query if query_sep else "", fragment, username, password, hostname, port_text)
+
+
+def _url_port(parts: _URLParts) -> int | None:
+    if parts.port_text is None or parts.port_text == "":
+        return None
+    if not parts.port_text.isascii() or not parts.port_text.isdigit():
+        raise ValueError("invalid URL port")
+    port = int(parts.port_text)
+    if not 0 <= port <= 65535:
+        raise ValueError("invalid URL port")
+    return port
+
+
+def _url_quote(value: str, *, safe: str = "/") -> str:
+    allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-~" + safe
+    encoded: list[str] = []
+    for byte in value.encode("utf-8"):
+        char = chr(byte)
+        encoded.append(char if byte < 128 and char in allowed else f"%{byte:02X}")
+    return "".join(encoded)
+
+
+def _url_unquote(value: str) -> str:
+    decoded = bytearray()
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char == "%" and index + 2 < len(value) and re.fullmatch(r"[0-9A-Fa-f]{2}", value[index + 1:index + 3]):
+            decoded.append(int(value[index + 1:index + 3], 16))
+            index += 3
+        else:
+            decoded.extend(char.encode("utf-8"))
+            index += 1
+    return decoded.decode("utf-8", errors="replace")
 
 
 def is_tailnet_ip(value: str) -> bool:
@@ -129,7 +243,7 @@ def validate_envelope(env: Any) -> str | None:
             return "invalid fetch size"
         if not isinstance(item["sha256"], str) or not SHA256_RE.fullmatch(item["sha256"]):
             return "invalid fetch hash"
-        url = urllib.parse.urlparse(str(item["url"]))
+        url = _split_url(str(item["url"]))
         if url.scheme != "http" or normalize_host(url.hostname or "") != sender or not url.path.startswith("/f/") or url.username or url.password:
             return "fetch URL must be on the authenticated sender host"
         name = item.get("name", "attachment")
@@ -169,25 +283,17 @@ def validate_envelope(env: Any) -> str | None:
 
 
 def _atomic_json(path: Path, data: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with suppress(OSError):
-        os.chmod(path.parent, 0o700)
     temp = path.with_name(path.name + "." + secrets.token_hex(6) + ".tmp")
     payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    with open(temp, "xb") as stream:
-        with suppress(OSError):
-            os.chmod(temp, 0o600)
-        stream.write(payload)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temp, path)
+    local_atomic_write(path, temp, payload, parent_mode=0o700, file_mode=0o600)
 
 
 def _json_read(path: Path, *, limit: int = MAX_MESSAGE_BYTES * 2) -> dict[str, Any] | None:
     try:
-        if path.stat().st_size > limit:
+        raw = local_read_bytes_limited(path, limit)
+        if raw is None:
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(raw.decode("utf-8"))
         return data if isinstance(data, dict) else None
     except (OSError, ValueError, json.JSONDecodeError):
         return None
@@ -195,7 +301,7 @@ def _json_read(path: Path, *, limit: int = MAX_MESSAGE_BYTES * 2) -> dict[str, A
 
 def _whois(ip: str, command: str = "tailscale") -> dict[str, Any] | None:
     try:
-        completed = subprocess.run([command, "whois", "--json", ip], capture_output=True, text=True, timeout=5, check=False)
+        completed = host_exec_args([command, "whois", "--json", ip], timeout=5)
         if completed.returncode != 0:
             return None
         raw = json.loads(completed.stdout)
@@ -209,7 +315,7 @@ def _whois(ip: str, command: str = "tailscale") -> dict[str, Any] | None:
         user = str(profile.get("LoginName") or profile.get("DisplayName") or "") if isinstance(profile, dict) else ""
         aliases = {node_name, hostname, normalize_host(node.get("Name")), normalize_host(node.get("DNSName"))} - {""}
         return {"node": node_name, "hostname": hostname, "aliases": sorted(aliases), "tags": [str(t).lower() for t in tags if isinstance(t, str)], "user": user}
-    except (OSError, ValueError, subprocess.SubprocessError, TypeError):
+    except (OSError, ValueError, HostCommandError, TypeError):
         return None
 
 
@@ -246,7 +352,7 @@ def authorize_peer(ident: Mapping[str, Any] | None, policy: Mapping[str, Any], *
 class TailnetService:
     """Protocol handler and local policy façade. Inbox JSON is protocol storage; tracked execution remains in the existing bot/GoalRun path."""
     def __init__(self, home: str | Path | None = None, *, tailscale_command: str = "tailscale", whois_fn: Callable[[str], dict[str, Any] | None] | None = None, allow_loopback: bool = False, port: int | None = None, peer_port: int | None = None):
-        self.home = Path(home or os.getenv("VEYA_TAILNET_HOME") or (Path.home() / ".veya" / "tailnet-channel")).expanduser().resolve()
+        self.home = local_path_resolve(Path(home or os.getenv("VEYA_TAILNET_HOME") or (Path.home() / ".veya" / "tailnet-channel")).expanduser())
         self.inbox = self.home / "inbox"
         self.outbox = self.home / "outbox"
         self.policy_file = self.home / "policy.json"
@@ -388,31 +494,31 @@ class TailnetService:
         if value:
             return normalize_host(value)
         try:
-            proc = subprocess.run([self.tailscale_command, "status", "--json"], capture_output=True, text=True, timeout=5, check=False)
+            proc = host_exec_args([self.tailscale_command, "status", "--json"], timeout=5)
             body = json.loads(proc.stdout) if proc.returncode == 0 else {}
             me = body.get("Self", {}) if isinstance(body, dict) else {}
             return normalize_host(me.get("DNSName") or me.get("HostName") or me.get("Name") or "")
-        except (OSError, ValueError, subprocess.SubprocessError):
+        except (OSError, ValueError, HostCommandError):
             return ""
 
     def tailscale_ip(self) -> str | None:
         try:
-            proc = subprocess.run([self.tailscale_command, "ip"], capture_output=True, text=True, timeout=5, check=False)
+            proc = host_exec_args([self.tailscale_command, "ip"], timeout=5)
             if proc.returncode != 0:
                 return None
             for line in proc.stdout.splitlines():
                 value = line.strip()
                 if is_tailnet_ip(value):
                     return value
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, HostCommandError):
             pass
         return None
 
     def list_peers(self) -> list[dict[str, Any]]:
         try:
-            proc = subprocess.run([self.tailscale_command, "status", "--json"], capture_output=True, text=True, timeout=5, check=False)
+            proc = host_exec_args([self.tailscale_command, "status", "--json"], timeout=5)
             body = json.loads(proc.stdout) if proc.returncode == 0 else {}
-        except (OSError, ValueError, subprocess.SubprocessError):
+        except (OSError, ValueError, HostCommandError):
             return []
         rows = []
         peers = body.get("Peer", {}) if isinstance(body, dict) else {}
@@ -515,10 +621,10 @@ class TailnetService:
             token = secrets.token_urlsafe(36).replace("=", "")
         token_dir = self.outbox / token
         files_dir = token_dir / "files"
-        files_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
+        local_path_mkdir(files_dir, parents=True, exist_ok=False, mode=0o700)
         try:
-            os.chmod(token_dir, 0o700)
-            os.chmod(files_dir, 0o700)
+            local_path_chmod(token_dir, 0o700)
+            local_path_chmod(files_dir, 0o700)
         except OSError:
             pass
         expires = utc_iso(utc_now() + timedelta(seconds=policy["attachment_ttl_seconds"]))
@@ -527,20 +633,20 @@ class TailnetService:
         total = 0
         try:
             for source_value in files:
-                source = Path(source_value).expanduser().resolve(strict=True)
-                if not source.is_file():
+                source = local_path_resolve(Path(source_value).expanduser(), strict=True)
+                if not local_path_is_file(source):
                     raise ValueError("attachment must be a regular file")
                 name = source.name
                 if not name or name in {".", ".."} or "/" in name or "\\" in name or any(ord(c) < 32 for c in name):
                     raise ValueError("invalid attachment filename")
                 destination = files_dir / name
-                if destination.exists():
+                if local_path_exists(destination):
                     raise ValueError("duplicate attachment filename")
                 digest = hashlib.sha256()
                 size = 0
-                with source.open("rb") as reader, destination.open("xb") as writer:
+                with local_path_open(source, "rb") as reader, local_path_open(destination, "xb") as writer:
                     with suppress(OSError):
-                        os.chmod(destination, 0o600)
+                        local_path_chmod(destination, 0o600)
                     while True:
                         block = reader.read(1024 * 1024)
                         if not block:
@@ -552,19 +658,19 @@ class TailnetService:
                         digest.update(block)
                         writer.write(block)
                 mime = "application/octet-stream"
-                item = {"name": name, "url": f"http://{node}:{port}/f/{token}/{urllib.parse.quote(name)}", "sha256": digest.hexdigest(), "size": size, "mime": mime, "expires": expires}
+                item = {"name": name, "url": f"http://{node}:{port}/f/{token}/{_url_quote(name)}", "sha256": digest.hexdigest(), "size": size, "mime": mime, "expires": expires}
                 result.append(item)
                 meta_files[name] = {"size": size, "sha256": digest.hexdigest(), "mime": mime}
             _atomic_json(token_dir / "meta.json", {"id": message_id, "to": normalize_host(recipient), "expires": expires, "files": meta_files})
             return result
         except Exception:
             # Bounded cleanup is explicit and confined to the newly-created task directory.
-            for path in sorted(token_dir.rglob("*"), reverse=True):
-                if path.is_file() or path.is_symlink():
-                    path.unlink(missing_ok=True)
-                elif path.is_dir():
-                    path.rmdir()
-            token_dir.rmdir()
+            for path in sorted(local_path_rglob(token_dir, "*"), reverse=True):
+                if local_path_is_file(path) or local_path_is_symlink(path):
+                    local_path_unlink(path, missing_ok=True)
+                elif local_path_is_dir(path):
+                    local_path_rmdir(path)
+            local_path_rmdir(token_dir)
             raise
 
     def fetch_file(self, token: str, name: str, ident: Mapping[str, Any]) -> tuple[Path, str] | None:
@@ -581,11 +687,11 @@ class TailnetService:
             return None
         item = meta.get("files", {}).get(name)
         path = token_dir / "files" / name
-        if not isinstance(item, dict) or not path.is_file() or path.is_symlink():
+        if not isinstance(item, dict) or not local_path_is_file(path) or local_path_is_symlink(path):
             return None
-        if path.stat().st_size != item.get("size"):
+        if local_path_size(path) != item.get("size"):
             return None
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = hashlib.sha256(local_path_read_bytes(path)).hexdigest()
         if digest != item.get("sha256"):
             return None
         return path, str(item.get("mime") or "application/octet-stream")
@@ -688,18 +794,18 @@ class TailnetService:
             if total_declared > cap:
                 raise ValueError("aggregate attachment size limit exceeded")
         target_dir = self.inbox / message_id / "files"
-        target_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        local_path_mkdir(target_dir, parents=True, exist_ok=True, mode=0o700)
         try:
-            os.chmod(self.inbox / message_id, 0o700)
-            os.chmod(target_dir, 0o700)
+            local_path_chmod(self.inbox / message_id, 0o700)
+            local_path_chmod(target_dir, 0o700)
         except OSError:
             pass
-        target_root = target_dir.resolve()
+        target_root = local_path_resolve(target_dir)
         saved: list[dict[str, Any]] = []
         total_actual = 0
         for item in items:
             raw_url = str(item.get("url", ""))
-            parsed = urllib.parse.urlsplit(raw_url)
+            parsed = _split_url(raw_url)
             if parsed.scheme != "http" or normalize_host(parsed.hostname or "") != declared_sender or parsed.username or parsed.password or not parsed.path.startswith("/f/"):
                 raise ValueError("attachment URL does not match the authenticated sender")
             name = item.get("name", "attachment")
@@ -713,14 +819,14 @@ class TailnetService:
             wanted_hash = item.get("sha256")
             if not isinstance(wanted_hash, str) or not SHA256_RE.fullmatch(wanted_hash):
                 raise ValueError("invalid attachment SHA-256")
-            port = parsed.port or self.port
+            port = _url_port(parsed) or self.port
             address = f"{parsed.hostname}:{port}"
             peer_host, peer_ip, peer_port, _ = self.resolve_peer(address)
             self.authorize_outbound_peer(peer_host, peer_ip)
-            destination = (target_root / name).resolve()
+            destination = local_path_resolve(target_root / name)
             if destination.parent != target_root:
                 raise ValueError("attachment destination escaped inbox")
-            if destination.exists() or destination.is_symlink():
+            if local_path_exists(destination) or local_path_is_symlink(destination):
                 raise FileExistsError(f"attachment already exists: {name}")
             temp_path = target_root / ("." + name + "." + secrets.token_hex(6) + ".part")
             conn = http.client.HTTPConnection(peer_ip, peer_port, timeout=timeout)
@@ -735,9 +841,9 @@ class TailnetService:
                 declared_length = response.getheader("Content-Length")
                 if declared_length is not None and int(declared_length) != size:
                     raise ValueError("attachment Content-Length mismatch")
-                with temp_path.open("xb") as writer:
+                with local_path_open(temp_path, "xb") as writer:
                     with suppress(OSError):
-                        os.chmod(temp_path, 0o600)
+                        local_path_chmod(temp_path, 0o600)
                     while True:
                         block = response.read(min(1024 * 1024, size - len(received) + 1))
                         if not block:
@@ -748,16 +854,16 @@ class TailnetService:
                         digest.update(block)
                         writer.write(block)
                     writer.flush()
-                    os.fsync(writer.fileno())
+                    local_fsync(writer)
                 if len(received) != size or digest.hexdigest() != wanted_hash:
                     raise ValueError(f"attachment size/SHA-256 mismatch: {name}")
-                os.replace(temp_path, destination)
+                local_path_replace(temp_path, destination)
                 total_actual += len(received)
                 saved.append({"name": name, "path": str(destination.relative_to(self.inbox)), "size": size, "sha256": digest.hexdigest(), "mime": item.get("mime", "application/octet-stream")})
             finally:
                 conn.close()
-                if temp_path.exists():
-                    temp_path.unlink()
+                if local_path_exists(temp_path):
+                    local_path_unlink(temp_path)
         self._update_record(record_path, attachments_local=saved)
         return {"ok": True, "id": message_id, "files": saved}
 
@@ -765,7 +871,7 @@ class TailnetService:
         path = self.inbox / f"{envelope['id']}.json"
         with self._lock:
             previous = _json_read(path)
-            if path.exists() and previous is None:
+            if local_path_exists(path) and previous is None:
                 raise FileExistsError("message ID collides with an unreadable existing record")
             if previous is not None:
                 same_peer = normalize_host(str(previous.get("received", {}).get("peer", {}).get("node", ""))) == normalize_host(str(ident.get("node", "")))
@@ -1039,7 +1145,7 @@ def _make_handler(service: TailnetService, *, test_mode: bool = False) -> type[B
                 return None
             return ident
         def do_GET(self) -> None:
-            parsed = urllib.parse.urlparse(self.path)
+            parsed = _split_url(self.path)
             path = parsed.path
             if path == "/health":
                 if not (service.allow_loopback and self.client_address[0] in {"127.0.0.1", "::1"}) and not is_tailnet_ip(self.client_address[0]):
@@ -1064,23 +1170,27 @@ def _make_handler(service: TailnetService, *, test_mode: bool = False) -> type[B
                 ident = self._identify(token=True)
                 if ident is None:
                     return
-                token, name = match.group(1), urllib.parse.unquote(match.group(2))
+                token, name = match.group(1), _url_unquote(match.group(2))
                 found = service.fetch_file(token, name, ident)
                 if not found:
                     return self._json(404, {"ok": False, "error": "not found"})
                 file_path, mime = found
-                size = file_path.stat().st_size
+                size = local_path_size(file_path)
                 self.send_response(200)
                 self.send_header("Content-Type", mime)
                 self.send_header("Content-Length", str(size))
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
-                with file_path.open("rb") as source:
-                    shutil.copyfileobj(source, self.wfile, 1024 * 1024)
+                with local_path_open(file_path, "rb") as source:
+                    while True:
+                        block = source.read(1024 * 1024)
+                        if not block:
+                            break
+                        self.wfile.write(block)
                 return
             return self._json(404, {"ok": False, "error": "not found"})
         def do_POST(self) -> None:
-            if urllib.parse.urlparse(self.path).path != "/msg":
+            if _split_url(self.path).path != "/msg":
                 return self._json(404, {"ok": False, "error": "not found"})
             ident = self._identify()
             if ident is None:
@@ -1218,7 +1328,7 @@ def query_request_status(peer: str, request_id: str, *, timeout: float = 10) -> 
     service = get_service()
     hostname, ip, port, _ = service.resolve_peer(peer)
     service.authorize_outbound_peer(hostname, ip)
-    code, response = service.send_json(hostname, ip, port, "GET", "/requests/" + urllib.parse.quote(request_id, safe=""), timeout=timeout)
+    code, response = service.send_json(hostname, ip, port, "GET", "/requests/" + _url_quote(request_id, safe=""), timeout=timeout)
     if code != 200:
         raise RuntimeError(f"Tailnet status query failed with HTTP {code}: {response.get('error', 'request status unavailable')}")
     return response

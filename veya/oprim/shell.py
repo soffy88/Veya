@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import subprocess
+from dataclasses import dataclass
 from typing import Any
 
 from veya.obase.interfaces import SandboxResult
@@ -22,6 +24,28 @@ def _sandbox_of(sandbox: Any) -> Any:
     from veya.obase.container import get_sandbox
 
     return get_sandbox()
+
+
+@dataclass(frozen=True)
+class HostCommandResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+class HostCommandError(RuntimeError):
+    """A fixed-argv local system command could not be completed."""
+
+
+def host_exec_args(argv: list[str], *, timeout: float = 5.0) -> HostCommandResult:
+    """Run an explicit local-system argv (e.g. tailscale); shell parsing is never enabled."""
+    if not argv or any(not isinstance(item, str) or not item for item in argv):
+        raise ValueError("host command requires a non-empty argv of non-empty strings")
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise HostCommandError(f"host command failed: {type(exc).__name__}") from exc
+    return HostCommandResult(result.returncode, result.stdout, result.stderr)
 
 
 async def shell_exec(
@@ -45,4 +69,4 @@ async def shell_run_script(
     return await _sandbox_of(sandbox).run_script(script, timeout=timeout)
 
 
-__all__ = ["shell_exec", "shell_exec_args", "shell_run_script"]
+__all__ = ["HostCommandError", "HostCommandResult", "host_exec_args", "shell_exec", "shell_exec_args", "shell_run_script"]
