@@ -229,6 +229,153 @@ async def bot_workers(
     }
 
 
+# ── Clean-room OpenMinis borrow: User Global preferences & Memory UI ─────────
+
+
+class MemoryRetractBody(BaseModel):
+    needle: str = Field(..., description="Fact or needle to retract/forget")
+    scope: str = Field(default="bot", description="Scope: bot or team")
+
+
+@router.get(
+    "/{bot_id}/memory/user-global",
+    summary="Read user global background and preferences",
+)
+async def get_user_global(
+    bot_id: str,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    _require_owned(bot_id, user)
+    from server.bot_team.memory_layers import LayeredMemoryStore
+
+    store = LayeredMemoryStore(bot_id)
+    content = store.read_user_global()
+    return {"bot_id": bot_id, "content": content}
+
+
+@router.put(
+    "/{bot_id}/memory/user-global",
+    summary="Write user global background and preferences",
+)
+async def put_user_global(
+    bot_id: str,
+    request: Request,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    _require_owned(bot_id, user)
+    content_type = (request.headers.get("content-type") or "").lower()
+    raw = await request.body()
+    if "application/json" in content_type:
+        import json as _json
+
+        try:
+            payload = _json.loads(raw)
+            text = str(payload.get("content") if "content" in payload else payload.get("text", ""))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"invalid JSON body: {exc}") from exc
+    else:
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="body must be UTF-8") from exc
+
+    from server.bot_team.memory_layers import LayeredMemoryStore
+
+    store = LayeredMemoryStore(bot_id)
+    try:
+        store.write_user_global(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {"bot_id": bot_id, "ok": True, "content": text}
+
+
+@router.get(
+    "/{bot_id}/memory/entries",
+    summary="List individual memory entries (core facts + live scratch)",
+)
+async def list_memory_entries(
+    bot_id: str,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    _require_owned(bot_id, user)
+    import re
+
+    from server.bot_team.memory_layers import LayeredMemoryStore
+
+    store = LayeredMemoryStore(bot_id)
+    core_text = store.core_text("bot")
+    entries: list[dict[str, Any]] = []
+
+    idx = 0
+    for line in core_text.splitlines():
+        line_s = line.strip()
+        if not line_s or line_s.startswith("#") or line_s.startswith("---"):
+            continue
+        entry_meta: dict[str, Any] = {
+            "id": f"core-{idx}",
+            "scope": "core",
+            "raw": line_s,
+            "text": line_s,
+        }
+        clean_text = line_s
+        if clean_text.startswith("- "):
+            clean_text = clean_text[2:].strip()
+        meta_match = re.match(r"^\[(.*?)\]\s*(.*)$", clean_text)
+        if meta_match:
+            meta_str, actual_text = meta_match.group(1), meta_match.group(2)
+            entry_meta["text"] = actual_text.strip() or line_s
+            for part in meta_str.split(";"):
+                if ":" in part:
+                    k, v = part.split(":", 1)
+                    k = k.strip().lower()
+                    v = v.strip()
+                    if k in ("source", "added", "by"):
+                        entry_meta[k] = v
+        entries.append(entry_meta)
+        idx += 1
+
+    for s_idx, scratch_text in enumerate(store.live_scratch_entries()):
+        entries.append(
+            {
+                "id": f"scratch-{s_idx}",
+                "scope": "scratch",
+                "raw": scratch_text,
+                "text": scratch_text,
+                "source": "scratch",
+            }
+        )
+
+    return {
+        "bot_id": bot_id,
+        "entries": entries,
+        "total": len(entries),
+    }
+
+
+@router.post(
+    "/{bot_id}/memory/retract",
+    summary="Retract one memory entry across core, scratch, and daily logs",
+)
+async def retract_memory_entry(
+    bot_id: str,
+    body: MemoryRetractBody,
+    user: dict[str, Any] = Depends(auth_mod.require_user),
+) -> dict[str, Any]:
+    _require_owned(bot_id, user)
+    import contextlib
+
+    from server.bot_team.memory_layers import LayeredMemoryStore
+
+    store = LayeredMemoryStore(bot_id)
+    res = store.remove_entry(body.needle, scope=body.scope)
+    with contextlib.suppress(Exception):
+        from server.bot_team.memory_v2_mirror import mirror_forget
+
+        mirror_forget(bot_id, [body.needle])
+    return {"bot_id": bot_id, "ok": bool(res.get("ok")), **res}
+
+
 @router.get(
     "/{bot_id}/memory/{name}",
     response_model=MemoryReadResponse,

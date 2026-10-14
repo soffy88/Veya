@@ -22,7 +22,8 @@
 	import xml from "highlight.js/lib/languages/xml";
 	import yaml from "highlight.js/lib/languages/yaml";
 	import "highlight.js/styles/github-dark.css";
-	import { Check, Copy } from "lucide-svelte";
+	import { Check, Copy, X, FileText } from "lucide-svelte";
+	import { API_BASE } from "$lib/api";
 
 	hljs.registerLanguage("bash", bash);
 	hljs.registerLanguage("cpp", cpp);
@@ -49,6 +50,35 @@
 	let copiedLang = $state<string | null>(null);
 	let rootEl: HTMLDivElement;
 
+	let previewOpen = $state(false);
+	let previewPath = $state("");
+	let previewLoading = $state(false);
+	let previewError = $state("");
+	let previewContent = $state("");
+	let previewSize = $state(0);
+
+	async function openPreview(filePath: string): Promise<void> {
+		previewOpen = true;
+		previewPath = filePath;
+		previewLoading = true;
+		previewError = "";
+		previewContent = "";
+		previewSize = 0;
+		try {
+			const res = await fetch(`${API_BASE}/api/v1/fs/read?path=${encodeURIComponent(filePath)}`);
+			if (!res.ok) {
+				throw new Error(`无法读取文件预览 (HTTP ${res.status})`);
+			}
+			const data = (await res.json()) as { content?: string; size?: number };
+			previewContent = data.content ?? "";
+			previewSize = data.size ?? 0;
+		} catch (err) {
+			previewError = err instanceof Error ? err.message : String(err);
+		} finally {
+			previewLoading = false;
+		}
+	}
+
 	const html = $derived(
 		marked.parse(content ?? "", { async: false, breaks: true }) as string,
 	);
@@ -74,16 +104,46 @@
 	}
 
 	const rendered = $derived.by(() => {
+		let raw = content ?? "";
+		// Auto-link bare veya://workspace/<rel_path> if not already in markdown link format
+		raw = raw.replace(/(?<!\]\()veya:\/\/workspace\/([a-zA-Z0-9_\-\.\/]+)/g, (match) => `[${match}](${match})`);
+
 		const renderer = new marked.Renderer();
 		renderer.code = (token) => {
 			const lang = (token.lang ?? "").trim();
 			return renderCode(lang, token.text);
 		};
-		return marked.parse(content ?? "", { renderer, breaks: true, async: false }) as string;
+		renderer.link = (token) => {
+			const href = token.href ?? "";
+			if (href.startsWith("veya://workspace/") || href.startsWith("veya://")) {
+				const relPath = href.replace(/^veya:\/\/workspace\//, "").replace(/^veya:\/\//, "");
+				const label = token.text || relPath;
+				return `<span class="veya-file-card my-1.5 inline-flex max-w-full items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-950/30 px-2.5 py-1 text-xs font-mono text-terminal-fg shadow-sm">
+					<span class="text-sky-400 select-none">📄</span>
+					<span class="truncate text-sky-200 font-medium" title="${href}">${label}</span>
+					<span class="text-[10px] text-terminal-dim truncate select-none">${href}</span>
+					<button type="button" class="ml-1.5 shrink-0 rounded bg-sky-500/20 hover:bg-sky-500/35 text-sky-300 px-2 py-0.5 text-[11px] font-sans transition cursor-pointer" data-veya-preview-path="${relPath}">预览</button>
+				</span>`;
+			}
+			return `<a href="${href}" target="_blank" rel="noopener noreferrer">${token.text}</a>`;
+		};
+		return marked.parse(raw, { renderer, breaks: true, async: false }) as string;
 	});
 
 	function onRenderedClick(e: MouseEvent) {
 		if (!rootEl?.contains(e.target as Node)) return;
+
+		const previewBtn = (e.target as HTMLElement).closest("button[data-veya-preview-path]") as HTMLButtonElement | null;
+		if (previewBtn) {
+			e.preventDefault();
+			e.stopPropagation();
+			const filePath = previewBtn.dataset.veyaPreviewPath;
+			if (filePath) {
+				void openPreview(filePath);
+			}
+			return;
+		}
+
 		const btn = (e.target as HTMLElement).closest("button[data-copy-lang]") as HTMLButtonElement | null;
 		if (!btn) return;
 		// find the sibling <pre> text via the block container
@@ -113,6 +173,50 @@
 	<div class="pointer-events-none fixed right-6 top-6 z-[100] flex items-center gap-1.5 rounded-lg border border-emerald-900/50 bg-terminal-panel px-3 py-1.5 font-mono text-xs text-emerald-300">
 		<Check class="size-3.5" />
 		copied
+	</div>
+{/if}
+
+{#if previewOpen}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<div
+		class="fixed inset-0 z-[120] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		onclick={() => (previewOpen = false)}
+	>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-xl border border-terminal-edge bg-terminal-panel flex flex-col shadow-2xl"
+			onclick={(e) => e.stopPropagation()}
+		>
+			<div class="flex items-center justify-between border-b border-white/10 px-4 py-3 bg-black/40">
+				<div class="flex items-center gap-2 truncate">
+					<span class="text-sky-400 font-mono text-xs font-semibold">veya://workspace/{previewPath}</span>
+					{#if previewSize > 0}
+						<span class="text-[10px] text-terminal-dim">({(previewSize / 1024).toFixed(1)} KB)</span>
+					{/if}
+				</div>
+				<button
+					type="button"
+					class="rounded-lg p-1 text-terminal-dim hover:text-terminal-fg hover:bg-white/10 transition"
+					onclick={() => (previewOpen = false)}
+					title="关闭"
+				>
+					<X class="size-4" />
+				</button>
+			</div>
+			<div class="flex-1 overflow-auto p-4 bg-black/20">
+				{#if previewLoading}
+					<div class="flex items-center justify-center py-16 text-terminal-dim text-sm">加载中…</div>
+				{:else if previewError}
+					<div class="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{previewError}</div>
+				{:else}
+					<pre class="font-mono text-xs text-terminal-fg leading-relaxed overflow-x-auto whitespace-pre-wrap">{previewContent}</pre>
+				{/if}
+			</div>
+		</div>
 	</div>
 {/if}
 

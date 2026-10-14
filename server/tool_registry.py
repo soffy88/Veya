@@ -916,7 +916,13 @@ master_tools = MasterToolRegistry()
 _MCP_GATEWAY = os.environ.get("VEYA_MCP_GATEWAY", "1") != "0"
 
 
-def register_mcp_tools(server: str, adapters: list[dict], *, max_result_chars: int = 16000, side_effect: "SideEffect | None" = None) -> int:
+def register_mcp_tools(
+    server: str,
+    adapters: list[dict],
+    *,
+    max_result_chars: int = 16000,
+    side_effect: SideEffect | None = None,
+) -> int:
     """把某 mcp 服务的工具收成 1 个网关 (或 gateway=0 时逐个注册)。幂等。
 
     ``side_effect`` 由调用方显式传入,避免网关工具因无声明而落入默认值。
@@ -1003,6 +1009,15 @@ def _resolve_extra_roots() -> list[Path]:
 
 def _resolve_path(filepath: str, *, must_exist: bool = True) -> Path:
     """路径安全: 拒绝逃逸工作区根 (含 VEYA_WORKSPACE_EXTRA_DIRS 额外允许目录)。"""
+    if str(filepath).startswith("veya://workspace/"):
+        from server.workspace_uri import PathTraversalError, to_real_path
+
+        root = _resolve_workspace_root()
+        try:
+            return to_real_path(filepath, root=root, must_exist=must_exist)
+        except (PathTraversalError, FileNotFoundError) as exc:
+            raise ToolExecutionError(str(exc)) from exc
+
     root = _resolve_workspace_root()
     p = Path(filepath)
     if not p.is_absolute():
@@ -1300,6 +1315,14 @@ def _resolve_write_path(filepath: str, *, must_exist: bool = False) -> Path:
         else Path(os.environ.get("VEYA_WRITE_ROOT", str(Path.home() / ".veya" / "work"))).resolve()
     )
     root.mkdir(parents=True, exist_ok=True)
+    if str(filepath).startswith("veya://workspace/"):
+        from server.workspace_uri import PathTraversalError, to_real_path
+
+        try:
+            return to_real_path(filepath, root=root, must_exist=must_exist, is_write=True)
+        except (PathTraversalError, FileNotFoundError) as exc:
+            raise ToolExecutionError(str(exc)) from exc
+
     p = Path(filepath)
     if not p.is_absolute():
         p = root / p
@@ -1343,7 +1366,12 @@ def _tool_write_file(filepath: str, content: str, overwrite: bool = True) -> str
         except Exception:
             pass
 
-    return f"✅ 已写入 {path} ({len(content_str)} 字符)。可用 read_file_ast / grep 继续理解。"
+    from server.workspace_uri import is_workspace_uri_enabled, sanitize_text
+
+    msg = f"✅ 已写入 {path} ({len(content_str)} 字符)。可用 read_file_ast / grep 继续理解。"
+    if is_workspace_uri_enabled():
+        msg = sanitize_text(msg)
+    return msg
 
 
 def _tool_read_hashline(filepath: str, max_lines: int = 2000, start_line: int = 1) -> str:
@@ -1356,7 +1384,12 @@ def _tool_read_hashline(filepath: str, max_lines: int = 2000, start_line: int = 
     source = path.read_text(encoding="utf-8", errors="replace")
     cap = max(1, min(int(max_lines or DEFAULT_MAX_LINES), HARD_MAX_LINES))
     begin = max(1, int(start_line or 1))
-    return f"[hashline {path}]\n" + str(render(source, max_lines=cap, start_line=begin))
+    from server.workspace_uri import is_workspace_uri_enabled, sanitize_text
+
+    out = f"[hashline {path}]\n" + str(render(source, max_lines=cap, start_line=begin))
+    if is_workspace_uri_enabled():
+        out = sanitize_text(out)
+    return out
 
 
 def _tool_edit_hashline(
@@ -4552,7 +4585,9 @@ _register_bot_team_tools(master_tools)
 # NANO-W10-B: layered memory tools.  Additive capability over the existing
 # registry; each is bound to the running bot via runtime.bot_scope and refuses
 # cross-bot access, and each registers only when its flag is on.
-from server.bot_team.memory_layers import register_tools as _register_memory_layer_tools  # noqa: E402
+from server.bot_team.memory_layers import (  # noqa: E402
+    register_tools as _register_memory_layer_tools,
+)
 
 _register_memory_layer_tools(master_tools)
 
@@ -4576,3 +4611,34 @@ _register_dom_reader_tools(master_tools)
 from server.channel_tools import register_tools as _register_channel_tools  # noqa: E402
 
 _register_channel_tools(master_tools)
+
+
+# ── Clean-room OpenMinis borrow: Progressive skill disclosure (read_skill) ───
+def _tool_read_skill(skill_id: str) -> str:
+    """按需加载指定技能的完整指令正文 (SKILL.md)。"""
+    from server.skill_progressive import read_skill
+
+    return read_skill(skill_id)
+
+
+if not master_tools.has("read_skill"):
+    master_tools.register(
+        name="read_skill",
+        description=(
+            "按需加载指定技能的完整指令正文 (SKILL.md)。当系统提示词的 <available_skills> "
+            "列出了可用技能时，若任务需要特定技能的详细流程、检查项或规范，调用本工具读取其全文。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "skill_id": {
+                    "type": "string",
+                    "description": "技能 ID (例如 preset:test-driven-development 或 code-review-and-quality)",
+                },
+            },
+            "required": ["skill_id"],
+        },
+        func=_tool_read_skill,
+        side_effect=SideEffect.PURE_READ,
+        parallel_safe=True,
+    )

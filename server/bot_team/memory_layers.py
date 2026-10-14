@@ -35,7 +35,7 @@ from typing import Any
 
 from runtime import bot_scope
 from runtime.bot_scope import require_same_bot
-from server.bot_team.memory import CORE_FILE, BotMemoryStore, bot_memory_enabled
+from server.bot_team.memory import CORE_FILE, USER_GLOBAL_FILE, BotMemoryStore, bot_memory_enabled
 from veya.oskill.pure.memory_layers import (
     CORE_MEMORY_MAX_CHARS,
     DEFAULT_SCRATCH_TTL_SECONDS,
@@ -54,6 +54,7 @@ __all__ = [
     "JOURNAL_FILE",
     "SCRATCH_FILE",
     "TEAM_SCOPE_ID",
+    "USER_GLOBAL_FILE",
     "LayeredMemoryStore",
     "bot_memory_enabled",
     "bot_memory_search",
@@ -121,6 +122,23 @@ class LayeredMemoryStore:
     @property
     def daily_dir(self) -> Path:
         return self.memory_dir / DAILY_DIR
+
+    @property
+    def user_global_path(self) -> Path:
+        return self.memory_dir / USER_GLOBAL_FILE
+
+    def read_user_global(self) -> str:
+        """User-authored read-only background and preferences."""
+        if not self.user_global_path.exists():
+            return ""
+        return self._read(self.user_global_path)
+
+    def write_user_global(self, text: str, *, caller_bot_id: str | None = None) -> None:
+        """Write user global background. Agents cannot write this file."""
+        if caller_bot_id is not None:
+            raise PermissionError("USER_GLOBAL.md is user-written and read-only to agents")
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self._store.write(USER_GLOBAL_FILE, text)
 
     @property
     def scratch_path(self) -> Path:
@@ -623,7 +641,9 @@ def recall(limit: int = 10) -> str:
     )
 
 
-_FORGET_PREFIX = re.compile(r"^(请)?(忘掉|忘记|删除|删掉|不要再记)?(关于)?(我|用户|你|the user|user|i)\s*", re.I)
+_FORGET_PREFIX = re.compile(
+    r"^(请)?(忘掉|忘记|删除|删掉|不要再记)?(关于)?(我|用户|你|the user|user|i)\s*", re.I
+)
 _FORGET_SUFFIX = re.compile(r"(这件事|这条|这个)?(的记忆)?[。.!！]*$")
 
 

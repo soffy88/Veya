@@ -78,6 +78,28 @@ export interface MemoryDoc {
 	updated_at?: number;
 }
 
+export interface MemoryEntryItem {
+	id: string;
+	scope: string;
+	text: string;
+	raw: string;
+	source?: string;
+	added?: string;
+	by?: string;
+}
+
+export interface MemoryEntriesResponse {
+	bot_id: string;
+	entries: MemoryEntryItem[];
+	total: number;
+}
+
+export interface UserGlobalResponse {
+	bot_id: string;
+	content: string;
+	ok?: boolean;
+}
+
 export interface RoutineView {
 	id: string;
 	objective: string;
@@ -339,6 +361,44 @@ export async function deleteMemory(botId: string, name: string): Promise<void> {
 		method: "DELETE",
 	});
 	if (!result.ok) throw new Error(detailOf(result));
+}
+
+export async function getUserGlobalMemory(botId: string): Promise<UserGlobalResponse> {
+	return unwrap<UserGlobalResponse>(
+		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/memory/user-global`, {
+			method: "GET",
+		}),
+	);
+}
+
+export async function putUserGlobalMemory(botId: string, content: string): Promise<UserGlobalResponse> {
+	return unwrap<UserGlobalResponse>(
+		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/memory/user-global`, {
+			method: "PUT",
+			body: { content },
+		}),
+	);
+}
+
+export async function listMemoryEntries(botId: string): Promise<MemoryEntryItem[]> {
+	const data = await unwrap<MemoryEntriesResponse>(
+		await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/memory/entries`, {
+			method: "GET",
+		}),
+	);
+	return data.entries ?? [];
+}
+
+export async function retractMemoryEntry(
+	botId: string,
+	needle: string,
+	scope: string = "bot",
+): Promise<{ ok: boolean; removed?: string }> {
+	const res = await api("gateway", `api/v1/bots/${encodeURIComponent(botId)}/memory/retract`, {
+		method: "POST",
+		body: { needle, scope },
+	});
+	return unwrap<{ ok: boolean; removed?: string }>(res);
 }
 
 // ── routines (W4) ─────────────────────────────────────────────────────────

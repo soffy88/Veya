@@ -91,6 +91,30 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
         parts.append(bot.instructions.strip())
     if bot.description.strip():
         parts.append(f"Your one job: {bot.description.strip()}")
+    if getattr(bot, "available_skill_ids", None):
+        import os
+
+        from server.skill_progressive import is_skill_progressive_enabled, render_skills_block
+
+        if is_skill_progressive_enabled():
+            skills_block = render_skills_block(bot.available_skill_ids, progressive=True)
+            if skills_block:
+                parts.append(skills_block)
+        elif os.environ.get("VEYA_SKILL_INJECT_FULL", "0").lower() in ("1", "true", "yes"):
+            skills_block = render_skills_block(bot.available_skill_ids, progressive=False)
+            if skills_block:
+                parts.append(skills_block)
+    if getattr(bot, "bot_id", None):
+        from server.feature_flags import enabled
+
+        if enabled("VEYA_MEMORY_UI"):
+            from server.bot_team.memory import BotMemoryStore
+
+            ug = BotMemoryStore(bot.bot_id).read("USER_GLOBAL.md")
+            if ug.strip():
+                parts.append(
+                    f"<!-- user-global -->\n### User Global Background (Read-Only)\n\n{ug.strip()}"
+                )
     if context.strip():
         parts.append(context.strip())
     parts.append(str(text or "").strip())
@@ -129,7 +153,6 @@ def parse_supervisor_phrase(text: str) -> dict[str, Any] | None:
         "report_every_minutes": minutes,
         "stall_after_minutes": max(1, minutes // 2),
     }
-
 
 
 def _status_of(response: Any) -> str:
@@ -302,7 +325,7 @@ async def finish_bot_turn(
         await asyncio.sleep(_coalesce_window_s())
         burst = [str(t).strip() for t in queue.drain_steers(bot.bot_id) if str(t or "").strip()]
         if burst:
-            text = "\n".join([str(text or "")] + burst)
+            text = "\n".join([str(text or ""), *burst])
     objective = build_objective(bot=bot, text=text, context=context)
     try:
         response = await product_routes._run_product_task(
@@ -327,7 +350,8 @@ async def finish_bot_turn(
                 break
             rounds += 1
             corrected = (
-                f"{text}\n\n用户在你回答过程中又发来了消息（一起回答；与前面冲突时以新消息为准）：" + "；".join(late)
+                f"{text}\n\n用户在你回答过程中又发来了消息（一起回答；与前面冲突时以新消息为准）："
+                + "；".join(late)
             )
             response = await product_routes._run_product_task(
                 task_id=start.task_id,
@@ -598,8 +622,7 @@ def _coalesce_window_s() -> float:
 
 #: Friendly reply while a side-effect action waits on the user's approval.
 APPROVAL_WAIT_REPLY = (
-    "这个操作需要你批准后才会执行。我已经在批准列表里提交了申请，"
-    "批准后我会继续，结果会发在这里。"
+    "这个操作需要你批准后才会执行。我已经在批准列表里提交了申请，批准后我会继续，结果会发在这里。"
 )
 
 #: Turns still running after their caller got the "waiting for approval" reply.

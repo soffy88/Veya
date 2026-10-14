@@ -71,6 +71,15 @@ def _workspace_root() -> Path:
 def _resolve(rel: str) -> Path:
     """工作区内路径解析 (防逃逸: 必须位于根内)。"""
     root = _workspace_root()
+    if str(rel).startswith("veya://workspace/"):
+        from server.workspace_uri import PathTraversalError, to_real_path
+
+        try:
+            return to_real_path(rel, root=root)
+        except PathTraversalError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
     p = Path(rel).expanduser()
     if not p.is_absolute():
         p = root / p
@@ -130,7 +139,10 @@ async def fs_tree(path: str = "", depth: int = _MAX_DEPTH) -> dict:
                 )
         return out
 
-    return {"root": str(_workspace_root()), "entries": _walk(root, depth - 1)}
+    from server.workspace_uri import is_workspace_uri_enabled
+
+    resp_root = "veya://workspace" if is_workspace_uri_enabled() else str(_workspace_root())
+    return {"root": resp_root, "entries": _walk(root, depth - 1)}
 
 
 @router.get("/api/v1/fs/read")
@@ -179,8 +191,11 @@ async def fs_read(path: str, max_chars: int = 12000) -> dict:
         text = rp.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"读取失败: {exc}")
+    from server.workspace_uri import is_workspace_uri_enabled, to_virtual_uri
+
+    disp_path = to_virtual_uri(rp) if is_workspace_uri_enabled() else str(rp)
     truncated = len(text) > max_chars
-    return {"path": str(rp), "content": text[:max_chars], "truncated": truncated, "size": size}
+    return {"path": disp_path, "content": text[:max_chars], "truncated": truncated, "size": size}
 
 
 @router.post("/api/v1/fs/upload")

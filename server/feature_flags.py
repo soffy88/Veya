@@ -77,6 +77,10 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_ROLE_SKILL_PRESETS", False, "runtime", "2027-01-01"),
     # W17: SSH host execution backend. Default OFF; appended, never reordered.
     FeatureFlag("VEYA_SSH_HOSTS", False, "runtime", "2027-01-01"),
+    # OpenMinis clean-room borrow items (default OFF; appended, never reordered)
+    FeatureFlag("VEYA_SKILL_PROGRESSIVE", False, "learning", "2027-01-01"),
+    FeatureFlag("VEYA_WORKSPACE_URI", False, "runtime", "2027-01-01"),
+    FeatureFlag("VEYA_MEMORY_UI", False, "learning", "2027-01-01"),
 )
 
 

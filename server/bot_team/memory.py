@@ -56,6 +56,9 @@ from runtime.bot_scope import require_same_bot
 CORE_FILE = "MEMORY.md"
 """The canonical core memory file that every bot gets."""
 
+USER_GLOBAL_FILE = "USER_GLOBAL.md"
+"""User-authored global preferences & background (read-only to agents)."""
+
 MAX_FILE_BYTES: int = 512 * 1024  # 512 KiB per file
 MAX_TOTAL_BYTES: int = 2 * 1024 * 1024  # 2 MiB total per bot store
 _VALID_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]+\.md$")
@@ -168,6 +171,8 @@ class BotMemoryStore:
             the caller belongs to this store's bot.
         """
         if caller_bot_id is not None:
+            if name.upper() == USER_GLOBAL_FILE.upper():
+                raise PermissionError("USER_GLOBAL.md is user-written and read-only to agents")
             require_same_bot(caller_bot_id, self.bot_id, f"memory:{name}")
         path = self._path(name)
         encoded = text.encode("utf-8")
@@ -202,6 +207,8 @@ class BotMemoryStore:
             When provided, :func:`require_same_bot` is enforced before deletion.
         """
         if caller_bot_id is not None:
+            if name.upper() == USER_GLOBAL_FILE.upper():
+                raise PermissionError("USER_GLOBAL.md is user-written and read-only to agents")
             require_same_bot(caller_bot_id, self.bot_id, f"memory:{name}")
         path = self._path(name)
         if not path.exists():
@@ -247,6 +254,11 @@ class BotMemoryStore:
         budget = max_chars - used
 
         for name in files:
+            if name.upper() == USER_GLOBAL_FILE.upper():
+                from server.feature_flags import enabled
+
+                if enabled("VEYA_MEMORY_UI"):
+                    continue
             content = self.read(name)
             block = f"### {name}\n\n{content.strip()}\n\n"
             if budget > 0 and len(block) <= budget:
@@ -388,6 +400,7 @@ __all__ = [
     "CORE_FILE",
     "MAX_FILE_BYTES",
     "MAX_TOTAL_BYTES",
+    "USER_GLOBAL_FILE",
     "BotMemoryStore",
     "bot_memory_enabled",
     "bot_memory_note",
