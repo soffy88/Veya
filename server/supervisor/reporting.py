@@ -19,6 +19,7 @@ def build_progress_report(
     goal_run_id: str,
     project_root: str,
     binding,  # SupervisorBinding — import avoided to prevent cycle
+    verifier_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a progress report from GoalRun state only.
 
@@ -72,6 +73,12 @@ def build_progress_report(
     # Check if verification passed (all tasks completed)
     all_completed = total > 0 and done == total and blocked == 0
     is_done = all_completed or state.status in (GoalStatus.completed, GoalStatus.finalizing)
+    if verifier_evidence is not None:
+        if verifier_evidence.get("usable") is True:
+            is_done = True
+        v_summary = verifier_evidence.get("summary") or verifier_evidence.get("details")
+        if v_summary:
+            last_evidence = str(v_summary)[:200]
 
     # Build body
     if is_done:
@@ -103,6 +110,7 @@ def build_progress_report(
         "is_done": is_done,
         "nudges_sent": binding.nudges_sent,
         "repairs_remaining": max(0, binding.max_repairs - binding.nudges_sent),
+        "verifier": verifier_evidence,
         "deepeval": _deepeval_finish_check(is_done, binding.objective, last_evidence),
         "body": body,
     }

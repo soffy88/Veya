@@ -60,7 +60,7 @@ class ProjectTask:
     binding_id: str = ""
     routine_id: str = ""
     status: str = TASK_STATUS_ACCEPTED
-    receipts: dict[str, dict[str, bool]] = field(default_factory=dict)
+    receipts: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_report_seq: int = 0
     verifier: dict[str, Any] | None = None
     fix_notes: list[str] = field(default_factory=list)
@@ -99,7 +99,7 @@ class ProjectTask:
             status = TASK_STATUS_ACCEPTED
         raw_receipts = data.get("receipts") or {}
         receipts = {
-            str(k): {str(rk): bool(rv) for rk, rv in v.items()}
+            str(k): {str(rk): rv for rk, rv in v.items()}
             for k, v in raw_receipts.items()
             if isinstance(v, dict)
         }

@@ -419,6 +419,22 @@ async def _try_supervisor_handoff(*, routine_id: str, bot_id: str) -> bool:
         )
     except Exception:
         _lg.exception("supervisor handoff failed for routine %s", routine_id)
+
+    # W16 Project Brain patrol runbook (§5)
+    try:
+        from server.project_brain import enabled as is_project_brain_enabled
+
+        if is_project_brain_enabled():
+            from server.project_brain.patrol import run_project_patrol
+
+            await run_project_patrol(
+                binding=binding,
+                goal_run_id=binding.goal_run_id,
+                project_root=binding.project_root,
+            )
+    except Exception:
+        _lg.exception("project brain patrol failed for routine %s", routine_id)
+
     return True
 
 

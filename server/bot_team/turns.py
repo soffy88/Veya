@@ -91,6 +91,32 @@ def build_objective(*, bot: BotSpec, text: str, context: str = "") -> str:
         parts.append(bot.instructions.strip())
     if bot.description.strip():
         parts.append(f"Your one job: {bot.description.strip()}")
+
+    # W16: Inject project brief block and today's log tail if project brain enabled
+    try:
+        from server.feature_flags import enabled as _flag_enabled
+
+        if _flag_enabled("VEYA_PROJECT_BRAIN"):
+            proj_root = getattr(bot, "workspace_path", "") or getattr(bot, "default_workspace_id", "")
+            if proj_root:
+                from pathlib import Path
+                p = Path(proj_root)
+                if (p / ".veya-project").is_dir():
+                    from server.project_brain.brief import load_brief, render_brief
+                    from server.project_store import ProjectStore
+
+                    brief = load_brief(p)
+                    brief_md = render_brief(brief).strip()
+                    parts.append(f"<!-- veya:project-brief -->\n{brief_md}\n<!-- /veya:project-brief -->")
+
+                    today_log = ProjectStore(p).read_log()
+                    if today_log.strip():
+                        tail_lines = today_log.strip().splitlines()[-20:]
+                        log_tail = "\n".join(tail_lines)
+                        parts.append(f"<!-- veya:project-log-tail -->\n{log_tail}\n<!-- /veya:project-log-tail -->")
+    except Exception:
+        pass
+
     if context.strip():
         parts.append(context.strip())
     parts.append(str(text or "").strip())

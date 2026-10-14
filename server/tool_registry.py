@@ -4576,3 +4576,8 @@ _register_dom_reader_tools(master_tools)
 from server.channel_tools import register_tools as _register_channel_tools  # noqa: E402
 
 _register_channel_tools(master_tools)
+
+# W16: Project Brain model-callable tools (§7)
+from server.project_brain.tools import register_tools as _register_project_brain_tools  # noqa: E402
+
+_register_project_brain_tools(master_tools)
