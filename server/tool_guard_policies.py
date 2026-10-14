@@ -22,6 +22,7 @@ _TERMINAL_POLICY = "terminal_action_gate"
 _PREFER_GRAPH_POLICY = "prefer_code_graph"
 _EGRESS_POLICY = "egress_audit"
 _PROFILE_POLICY = "permission_profile_gate"
+_IM_SANDBOX_POLICY = "im_sandbox_enforce"
 
 # 结构性探索工具: 问"谁调用/依赖/在哪定义"这类问题, 先查带置信标签的代码图
 # (assemble_code_context) 通常比逐文件 grep/read 更省 token、更准 (graphify 先查图范式)。
@@ -148,3 +149,17 @@ def install_default_tool_policies(guard: ToolGuard | None = None) -> None:
     if not guard.has_policy(_PROFILE_POLICY):
         profile_enforce = os.environ.get("VEYA_PERMISSION_PROFILE_ENFORCE", "0") == "1"
         guard.register_policy(_PROFILE_POLICY, permission_profile_policy, enforce=profile_enforce)
+    # FastClaw borrow: IM non-owner sandbox enforcement policy
+    if not guard.has_policy(_IM_SANDBOX_POLICY):
+        guard.register_policy(_IM_SANDBOX_POLICY, im_sandbox_policy, enforce=True)
+
+
+def im_sandbox_policy(name: str, kwargs: dict, source: str) -> str | None:
+    """IM non-owner sandbox enforcement policy (FastClaw Clean-Room).
+
+    When VEYA_IM_SANDBOX_ENFORCE is enabled and the turn is from a non-owner,
+    intercepts exec/shell/file-write tools and either routes to sandbox or denies.
+    """
+    from server.channels.sandbox_enforce import check_im_sandbox_tool
+
+    return check_im_sandbox_tool(name, kwargs)

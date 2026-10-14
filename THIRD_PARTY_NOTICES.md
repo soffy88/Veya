@@ -309,3 +309,16 @@ project is TypeScript-only, the idea was ported by hand into the repo's Python
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
+||||||| 86ed0436
+
+---
+
+## FastClaw (fastclaw-ai/fastclaw)
+
+- **Upstream:** https://github.com/fastclaw-ai/fastclaw
+- **License:** Source-available
+- **Use:** Design-level inspiration only — **no upstream source code was read, vendored, or copied.**
+- **Borrowed ideas:**
+  1. IM Sandbox Enforcement: Mandatory sandbox execution routing or denial for tool calls triggered by non-owner chatters arriving through IM channels (`VEYA_IM_SANDBOX_ENFORCE`).
+  2. Bot Fork + Public Chat Link: Persona/identity and skills cloning (forking) without memory/sessions/secrets leakage, alongside isolated public chat links with partitioned conversation history and non-owner sandbox enforcement (`VEYA_BOT_PUBLIC_SHARE`).
+- **Clean-room implementation:** All code was designed and implemented clean-room using Veya existing single-authority architecture (`ToolGuard`, `PolicyResolver`, `BotRegistry`, `ConversationStore`, `BotMemoryStore`).

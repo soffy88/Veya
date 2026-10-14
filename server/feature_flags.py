@@ -85,6 +85,9 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_APPROVAL_ASK_ONCE", False, "runtime", "2027-01-01"),
     # W16: Project Brain (Hark-style autonomous project mainbrain). Default OFF; appended, never reordered.
     FeatureFlag("VEYA_PROJECT_BRAIN", False, "runtime", "2027-01-01"),
+    # FastClaw clean-room borrow items (default OFF; appended, never reordered)
+    FeatureFlag("VEYA_IM_SANDBOX_ENFORCE", False, "safety", "2027-01-01"),
+    FeatureFlag("VEYA_BOT_PUBLIC_SHARE", False, "safety", "2027-01-01"),
 )
 
 
