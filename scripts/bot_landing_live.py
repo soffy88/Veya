@@ -16,6 +16,7 @@ runs a subset.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import sys
 import threading
@@ -32,6 +33,43 @@ RAW_LEAKS = (
     "verbatim copy of the goal",
 )
 TURN_TIMEOUT = 300
+
+#: Transport failures that mean "the backend went away" (a container restart by
+#: a deploy), not a product answer.  A scenario that dies on one of these is
+#: re-run once after /health is back, and the line says so.  Assertion failures
+#: are never retried.
+INFRA_ERRORS: tuple[type[BaseException], ...] = (
+    ConnectionResetError,
+    ConnectionRefusedError,
+    http.client.RemoteDisconnected,
+    urllib.error.URLError,
+)
+
+
+class BackendRestarted(RuntimeError):
+    """A scenario call hit a backend restart (see :data:`INFRA_ERRORS`)."""
+
+
+def _is_infra(exc: BaseException) -> bool:
+    if isinstance(exc, BackendRestarted):
+        return True
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in (502, 503, 504)
+    return isinstance(exc, INFRA_ERRORS)
+
+
+def wait_healthy(base: str, timeout: float = 240) -> bool:
+    """Block until ``GET /health`` answers 200 (True) or ``timeout`` passes."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(base.rstrip("/") + "/health", timeout=5) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:  # noqa: BLE001 - still restarting
+            pass
+        time.sleep(3)
+    return False
 
 
 class Client:
@@ -61,6 +99,15 @@ class Client:
                 return exc.code, {"detail": raw.decode(errors="replace")}
 
     def login(self, username: str) -> None:
+        for attempt in range(3):
+            try:
+                return self._login(username)
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 2 or not _is_infra(exc):
+                    raise
+                wait_healthy(self.base)
+
+    def _login(self, username: str) -> None:
         password = "w11-live-" + uuid.uuid5(uuid.NAMESPACE_DNS, username).hex[:12]
         self.call(
             "POST",
@@ -150,8 +197,13 @@ def s3(a: Client, b: Client) -> str:
     texts = ["第一条：我叫小林。", "第二条：我住在杭州。", "第三条：请用一句话复述我的名字和城市。"]
     results: list[dict[str, Any]] = [{} for _ in texts]
 
+    errors: list[BaseException] = []
+
     def send(i: int) -> None:
-        results[i] = a.say(bot, texts[i])
+        try:
+            results[i] = a.say(bot, texts[i])
+        except BaseException as exc:  # noqa: BLE001 - re-raised below
+            errors.append(exc)
 
     threads = []
     for i in range(len(texts)):
@@ -161,6 +213,11 @@ def s3(a: Client, b: Client) -> str:
         time.sleep(0.3)
     for t in threads:
         t.join(TURN_TIMEOUT + 30)
+    infra = [e for e in errors if _is_infra(e)]
+    if infra:
+        raise BackendRestarted(f"S3 send: {type(infra[0]).__name__}: {infra[0]}")
+    if errors:
+        raise errors[0]
     codes = [r.get("_http") for r in results]
     assert all(c in (200, 202) for c in codes), f"codes={codes} {results}"
     log = a.messages(bot)
@@ -428,7 +485,20 @@ def main() -> int:
         for name in wanted:
             t0 = time.time()
             try:
-                detail = SCENARIOS[name](a, b)
+                try:
+                    detail = SCENARIOS[name](a, b)
+                except Exception as exc:  # noqa: BLE001
+                    if not _is_infra(exc):
+                        raise
+                    # The backend restarted under us (another deploy).  That
+                    # says nothing about the product: wait for it and re-run
+                    # this scenario once, from scratch.
+                    if not wait_healthy(args.base):
+                        raise
+                    a.login(args.user)
+                    b.login(args.user + "_b")
+                    detail = SCENARIOS[name](a, b)
+                    detail += f" [re-run after backend restart: {type(exc).__name__}]"
                 extra = f" {_deepeval_line(name, {'reply': detail})}" if args.deepeval else ""
                 print(f"PASS {name} ({time.time() - t0:.0f}s) {detail}{extra}", flush=True)
             except Exception as exc:  # noqa: BLE001 - report every scenario
