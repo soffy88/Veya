@@ -4932,3 +4932,8 @@ if not master_tools.has("read_skill"):
         side_effect=SideEffect.PURE_READ,
         parallel_safe=True,
     )
+
+# W16: Project Brain model-callable tools (§7)
+from server.project_brain.tools import register_tools as _register_project_brain_tools  # noqa: E402
+
+_register_project_brain_tools(master_tools)

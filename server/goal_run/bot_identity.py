@@ -90,6 +90,9 @@ class BotSpec:
     status: str = "created"
     created_at: str = ""
     updated_at: str = ""
+    # W16: Project Bot projection
+    kind: str = "bot"
+    workspace_path: str = ""
 
     def __post_init__(self) -> None:
         if not self.bot_id:
@@ -168,6 +171,8 @@ class BotSpec:
             status=str(value.get("status") or "created"),
             created_at=str(value.get("created_at") or ""),
             updated_at=str(value.get("updated_at") or ""),
+            kind=str(value.get("kind") or "bot"),
+            workspace_path=str(value.get("workspace_path") or ""),
         )
 
 

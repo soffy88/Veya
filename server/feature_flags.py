@@ -83,6 +83,8 @@ FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag("VEYA_MEMORY_UI", False, "learning", "2027-01-01"),
     # W17 clean-room: session-scoped ask-once approval cache. Default OFF.
     FeatureFlag("VEYA_APPROVAL_ASK_ONCE", False, "runtime", "2027-01-01"),
+    # W16: Project Brain (Hark-style autonomous project mainbrain). Default OFF; appended, never reordered.
+    FeatureFlag("VEYA_PROJECT_BRAIN", False, "runtime", "2027-01-01"),
 )
 
 
