@@ -277,7 +277,7 @@ class ModelSourceConfig:
     cli_agent: str | None = None  # "codex", "claude", "kimi", "gemini", "custom"
     cli_args: list[str] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         valid_sources = {"server", "user_key", "cli"}
         if self.source not in valid_sources:
             raise ValueError(f"model_source.source must be one of {valid_sources}")
@@ -523,7 +523,7 @@ class VeyaProviderRegistry:
 
     def is_cli_agent_available(self, name: str) -> bool:
         """Check if a CLI agent is available."""
-        return self._cli_agents.get(name, {}).get("available", False)
+        return bool(self._cli_agents.get(name, {}).get("available", False))
 
     # ── Platform 3O Registry Delegation ────────────────────────────────
 

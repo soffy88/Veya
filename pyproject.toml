@@ -269,6 +269,15 @@ ignore_missing_imports = true
 module = ["sounddevice", "onnxruntime"]
 ignore_missing_imports = true
 
+# NANO-W10d web-reading probes (veya/obase/channel_probes.py) probe for these
+# at runtime with try/except ImportError and degrade when absent; they are
+# optional, so a missing stub is not a missing implementation.
+# PyCryptodome (Crypto.Cipher) is only needed by the WeCom channel's AES
+# decryption and is likewise an optional runtime dependency.
+[[tool.mypy.overrides]]
+module = ["playwright", "feedparser", "Crypto.*"]
+ignore_missing_imports = true
+
 # 3O 子库用 veya.platform.load() 动态挂载到 sys.path, mypy 静态分析看不到这条路径,
 # 报 import-not-found 不代表真的缺实现。跟 numpy/plotly 一样按 stub 缺失处理。
 [[tool.mypy.overrides]]

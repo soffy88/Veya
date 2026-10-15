@@ -111,7 +111,8 @@ class FeishuClient:
                         self._token_expiry = 0
                         continue
                     raise RuntimeError(f"Feishu API error: {data.get('msg')}")
-                return data.get("data", {})
+                result: dict[str, Any] = data.get("data", {})
+                return result
             except (httpx.RequestError, httpx.HTTPStatusError) as exc:
                 last_exc = exc
                 if attempt < self._max_retries - 1:

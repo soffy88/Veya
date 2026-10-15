@@ -177,7 +177,8 @@ class DingTalkClient:
                     headers=headers,
                 )
                 resp.raise_for_status()
-                return resp.json()
+                result: dict[str, Any] = resp.json()
+                return result
             except (httpx.RequestError, httpx.HTTPStatusError) as exc:
                 last_exc = exc
                 if attempt < self._max_retries - 1:
@@ -212,7 +213,8 @@ class DingTalkClient:
                     headers={"Content-Type": "application/json"},
                 )
                 resp.raise_for_status()
-                return resp.json()
+                result: dict[str, Any] = resp.json()
+                return result
             except (httpx.RequestError, httpx.HTTPStatusError) as exc:
                 last_exc = exc
                 if attempt < self._max_retries - 1:
@@ -251,7 +253,8 @@ class DingTalkClient:
             headers={"Authorization": f"Bearer {token}"},
         )
         resp.raise_for_status()
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
 
 # ---- Convenience factory ----

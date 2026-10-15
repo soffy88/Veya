@@ -1310,7 +1310,7 @@ def _tool_read_file_ast(
             source = b.read_text(filepath, max_bytes=200000)
             return str(extract_skeleton(source, filepath))
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "read_file_ast",
             host,
             {"filepath": filepath},
@@ -1319,6 +1319,7 @@ def _tool_read_file_ast(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from veya.ast import extract_skeleton
 
@@ -1384,7 +1385,7 @@ def _tool_write_file(
             "content_sha256": hashlib.sha256(str(content).encode("utf-8")).hexdigest(),
             "overwrite": bool(overwrite),
         }
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "write_file",
             host,
             args,
@@ -1393,6 +1394,7 @@ def _tool_write_file(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from server.config_protection import check_config_protection, is_protected_config_path
 
@@ -1460,7 +1462,7 @@ def _tool_read_hashline(
             source = b.read_text(filepath, max_bytes=200000)
             return f"[hashline {filepath}]\n" + str(render(source, max_lines=cap, start_line=begin))
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "read_hashline",
             host,
             {"filepath": filepath, "max_lines": cap, "start_line": begin},
@@ -1469,6 +1471,7 @@ def _tool_read_hashline(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from server.config_protection import is_protected_config_path
 
@@ -1526,7 +1529,7 @@ def _tool_edit_hashline(
                 "Re-read with read_hashline before another edit."
             )
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "edit_hashline",
             host,
             args,
@@ -1535,6 +1538,7 @@ def _tool_edit_hashline(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from server.config_protection import check_config_protection, is_protected_config_path
 
@@ -1658,7 +1662,7 @@ def _tool_ast_grep_rewrite(
     if host:
         from server.remote_control import ssh_tools
 
-        return ssh_tools.handle_ast_grep_rewrite_host(
+        result: str = ssh_tools.handle_ast_grep_rewrite_host(
             host=host,
             path=path,
             pattern=pattern,
@@ -1668,6 +1672,7 @@ def _tool_ast_grep_rewrite(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     if update:
         from server.config_protection import check_config_protection
@@ -1706,7 +1711,7 @@ def _tool_grep(
             res = b.grep(pattern, root=root or "", glob=glob or "", max_results=max_results)
             return res or f"no matches for {pattern!r}"
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "grep",
             host,
             {"pattern": pattern, "glob": glob, "root": root, "max_results": max_results},
@@ -1715,6 +1720,7 @@ def _tool_grep(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     from server.assembly import ripgrep_search
 
@@ -1770,7 +1776,7 @@ def _tool_list_files(
                 lines_out.append(f"{name}/" if is_d else f"{name} ({row.get('size', 0)}b)")
             return "\n".join(lines_out) or "(empty)"
 
-        return ssh_tools.handle_canonical_host(
+        result: str = ssh_tools.handle_canonical_host(
             "list_files",
             host,
             {"path": path},
@@ -1779,6 +1785,7 @@ def _tool_list_files(
             approved=approved,
             approval_id=approval_id,
         )
+        return result
 
     root = _resolve_workspace_root()
     target = root if path in (".", "") else _resolve_path(path, must_exist=False)
@@ -1875,7 +1882,8 @@ async def _tool_run_in_sandbox(
         )
         if inspect.isawaitable(res):
             res = await res
-        return res
+        result: str = str(res)
+        return result
 
     from server.auth import current_user
     from veya.platform import load

@@ -99,7 +99,7 @@ class ApprovalStore:
     # ── approvals ────────────────────────────────────────────────────
     def create_approval(self, record: dict[str, Any]) -> dict[str, Any]:
         now = time.time()
-        row = {
+        row: dict[str, Any] = {
             "request_id": str(record["request_id"]),
             "scope": str(record.get("scope") or ""),
             "tool": str(record.get("tool") or ""),
@@ -273,7 +273,7 @@ class ApprovalStore:
     # ── handoffs ─────────────────────────────────────────────────────
     def create_handoff(self, record: dict[str, Any]) -> dict[str, Any]:
         now = time.time()
-        row = {
+        row: dict[str, Any] = {
             "id": str(record["id"]),
             "scope": str(record.get("scope") or ""),
             "reason": str(record.get("reason") or ""),

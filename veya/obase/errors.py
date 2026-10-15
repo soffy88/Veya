@@ -32,22 +32,17 @@ class Severity(StrEnum):
 
 
 class HicodeError(Exception):
+    """Root exception for all veya errors."""
+
+    code: str = "VEYA_UNKNOWN"
     severity: Severity = Severity.ERROR
-
-
-# ── Veya-specific error base ──────────────────────────────────────────────
-class VeyaError(HicodeError):
-    """Base exception for Veya-specific errors."""
-
-    #: Stable machine-readable error code
-    code: str = "VEYA_ERROR"
     component: str = "veya"
 
     def __init__(
         self,
         message: str = "",
-        code: str | None = None,
         *,
+        code: str | None = None,
         severity: Severity | str | None = None,
         component: str | None = None,
         context: dict[str, Any] | None = None,
@@ -80,6 +75,15 @@ class VeyaError(HicodeError):
             f"component={self.component!r}, "
             f"message={self.message!r})"
         )
+
+
+# ── Veya-specific error base ──────────────────────────────────────────────
+class VeyaError(HicodeError):
+    """Base exception for Veya-specific errors."""
+
+    #: Stable machine-readable error code
+    code: str = "VEYA_ERROR"
+    component: str = "veya"
 
 
 # ---------------------------------------------------------------------------
@@ -351,9 +355,9 @@ def veya_error(
     severity: Severity | str = Severity.ERROR,
     component: str = "veya",
     context: dict[str, Any] | None = None,
-) -> HicodeError:
-    """Create a HicodeError with arbitrary code / component at runtime."""
-    return HicodeError(
+) -> VeyaError:
+    """Create a VeyaError with arbitrary code / component at runtime."""
+    return VeyaError(
         message,
         code=code,
         severity=severity,
