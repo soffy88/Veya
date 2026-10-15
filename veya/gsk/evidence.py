@@ -37,8 +37,10 @@ def compute_workspace_fingerprint() -> Dict[str, Any]:
     }
 
 class EvidenceLedger:
-    def __init__(self, ledger_path: Optional[Path] = None):
+    def __init__(self, ledger_path: Optional[Path] = None, event_root: Optional[Path] = None):
         self.root = get_repo_root()
+        configured_event_root = os.getenv("VEYA_GSK_EVENT_ROOT", "").strip()
+        self.event_root = Path(event_root or configured_event_root or Path.home()).expanduser()
         configured_path = os.getenv("VEYA_GSK_EVIDENCE_PATH", "").strip()
         self.ledger_path = ledger_path or (
             Path(configured_path).expanduser()
@@ -57,8 +59,22 @@ class EvidenceLedger:
             "fingerprint": fp,
             "recorded_at": time.time()
         }
+        encoded = json.dumps(entry, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         with open(self.ledger_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
+            f.write(encoded + "\n")
+        entry_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        from veya.remote.execution_events import ExecutionEventStore, ExecutionEventType
+
+        ExecutionEventStore.shared(self.event_root, "gsk-evidence-ledger").append(
+            ExecutionEventType.GSK_EVIDENCE_RECORDED,
+            payload={
+                "label": label,
+                "exit_code": exit_code,
+                "ledger_path": str(self.ledger_path),
+                "ledger_entry_sha256": entry_hash,
+                "workspace_fingerprint": fp["fingerprint"],
+            },
+        )
         return entry
 
     def check(self, label: str) -> str:
@@ -100,3 +116,8 @@ class EvidenceLedger:
                 except Exception:
                     pass
         return latest
+
+
+    def evidence_for(self, label: str) -> Dict[str, Any]:
+        """Return a claim/test evidence status and its latest record."""
+        return {"label": label, "status": self.check(label), "record": self.get_record(label)}
